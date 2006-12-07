@@ -36,10 +36,23 @@
 "output":[["StartTag", "h", {"a":"b", "c":"d"}]]},
 
 {"description":"Repeated attr",
-"input":"<h a='b' a='d'>",
-"output":["ParseError", ["StartTag", "h", {"a":"b"}]]},
+ "input":"<h a='b' a='d'>",
+ "output":["ParseError", ["StartTag", "h", {"a":"b"}]]},
 
 {"description":"Simple comment",
-"input":"<!--comment-->",
-"output":[["Comment", "comment"]]}
+ "input":"<!--comment-->",
+ "output":[["Comment", "comment"]]},
+
+{"description":"Comment, Central dash no space",
+ "input":"<!----->",
+ "output":["ParseError", ["Comment", "-"]]},
+
+{"description":"Comment, two central dashes",
+"input":"<!-- --comment -->",
+"output":["ParseError", ["Comment", " --comment "]]},
+
+{"description":"Unfinished comment",
+"input":"<!--comment",
+"output":["ParseError", ["Comment", "comment"]]}
+
 ]}
