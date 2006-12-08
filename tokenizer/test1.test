@@ -81,6 +81,6 @@
 
 {"description":"Unfinished numeric entity",
 "input":"&#x",
-"output":["ParseError", ["Character", "&"], ["Character", "#"], ["Character", "x"]]}
+"output":["ParseError", ["Character", "&#x"]]}
 
 ]}
