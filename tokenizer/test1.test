@@ -31,6 +31,10 @@
 "input":"<h a='b'>",
 "output":[["StartTag", "h", {"a":"b"}]]},
 
+{"description":"Start Tag w/attribute no quotes",
+"input":"<h a=b>",
+"output":[["StartTag", "h", {"a":"b"}]]},
+
 {"description":"Start/End Tag",
 "input":"<h></h>",
 "output":[["StartTag", "h", {}], ["EndTag", "h"]]},
@@ -90,7 +94,6 @@
 {"description":"Entity with trailing semicolon (1)",
 "input":"I'm &not;it",
 "output":[["Character","I'm ¬it"]]},
-
 
 {"description":"Entity with trailing semicolon (2)",
 "input":"I'm &notin;",
