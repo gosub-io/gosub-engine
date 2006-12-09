@@ -27,6 +27,10 @@
 "input":"</>",
 "output":["ParseError"]},
 
+{"description":"Empty start tag",
+"input":"<>",
+"output":[["ParseError"], ["Character", "<>"]]},
+
 {"description":"Start Tag w/attribute",
 "input":"<h a='b'>",
 "output":[["StartTag", "h", {"a":"b"}]]},
@@ -103,7 +107,6 @@
 "input":"I'm &notit",
 "output":[["Character","I'm "], "ParseError", ["Character", "¬"],
 ["Character", "it"]]},
-
 
 {"description":"Entity without trailing semicolon (2)",
 "input":"I'm &notin",
