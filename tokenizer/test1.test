@@ -11,9 +11,13 @@
 "input":"<!DOCTYPE HtMl>", 
 "output":[["DOCTYPE", "HTML", false]]},
 
-{"description":"Incorrect Doctype",
+{"description":"Truncated doctype start",
 "input":"<!DOC>", 
 "output":["ParseError", ["Comment", "DOC"]]},
+
+{"description":"Doctype in error",
+"input":"<!DOCTYPE foo>", 
+"output":["ParseError", ["DOCTYPE", "FOO", true]]},
 
 {"description":"Single Start Tag",
 "input":"<h>",
@@ -81,6 +85,41 @@
 
 {"description":"Unfinished numeric entity",
 "input":"&#x",
-"output":["ParseError", ["Character", "&#x"]]}
+"output":["ParseError", ["Character", "&#x"]]},
+
+{"description":"Entity with trailing semicolon (1)",
+"input":"I'm &not;it",
+"output":[["Character","I'm ¬it"]]},
+
+
+{"description":"Entity with trailing semicolon (2)",
+"input":"I'm &notin;",
+"output":[["Character","I'm ∉"]]},
+
+{"description":"Entity without trailing semicolon (1)",
+"input":"I'm &notit",
+"output":[["Character","I'm "], "ParseError", ["Character", "¬"],
+["Character", "it"]]},
+
+
+{"description":"Entity without trailing semicolon (2)",
+"input":"I'm &notin",
+"output":[["Character","I'm "], "ParseError", ["Character", "∉"]]},
+
+{"description":"Partial entity match at end of file",
+"input":"I'm &no",
+"output":[["Character","I'm "], "ParseError", ["Character", "&no"]]},
+
+{"description":"ASCII decimal entity",
+"input":"&#0036;",
+"output":[["Character","$"]]},
+
+{"description":"ASCII hexadecimal entity",
+"input":"&#x3f;",
+"output":[["Character","?"]]},
+
+{"description":"Hexadecimal entity in attribute",
+"input":"<h a='&#x3f;'></h>",
+"output":[["StartTag", "h", {"a":"?"}], ["EndTag", "h"]]}
 
 ]}
