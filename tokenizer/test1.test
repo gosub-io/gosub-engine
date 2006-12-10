@@ -1,4 +1,5 @@
 {"tests": [
+
 {"description":"Correct Doctype lowercase",
 "input":"<!DOCTYPE html>",
 "output":[["DOCTYPE", "HTML", false]]},
