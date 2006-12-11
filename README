@@ -1,6 +1,5 @@
+
 The testcases require the use of simplejson
 (http://cheeseshop.python.org/pypi/simplejson). Each testcase file can
 be run directly through a python interpreter (e.g. python
-test_tokenizer.py). However the tests are designed to work with the
-nose unit-test framework (http://nose.python-hosting.com). If nose is
-installed the command nosetests will run all avaliable unit tests.
+test_tokenizer.py). 
