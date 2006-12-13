@@ -636,7 +636,6 @@ Line1<br>Line2<br>Line3<br>Line4
 #data
 <!DOCTYPE HTML><script> <!-- </script> --> </script> EOF
 #errors
-32: </script> end tag found inside pseudo-comment number 1 (0)
 52: unexpected script element end tag
 #document
 | <!DOCTYPE HTML>
@@ -1260,7 +1259,6 @@ Line1<br>Line2<br>Line3<br>Line4
 <style><!--</style><meta><script>--><link></script>
 #errors
 7: missing document type declaration
-14: </style> end tag found inside pseudo-comment number 1 (0)
 #document
 | <html>
 |   <head>
