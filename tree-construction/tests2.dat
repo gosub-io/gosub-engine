@@ -1,0 +1,32 @@
+#data
+<!doctype html>Test
+#errors
+...
+#document
+| <!DOCTYPE HTML>
+| <html>
+|   <head>
+|   <body>
+|     "Test"
+
+#data
+<textarea>test</div>test
+#errors
+... lots
+#document
+| <html>
+|   <head>
+|   <body>
+|     <textarea>
+|       "test</div>test"
+
+#data
+<table><td>
+#errors
+... lots
+#document
+| <html>
+|   <head>
+|   <body>
+|     <table>
+|       <td>
