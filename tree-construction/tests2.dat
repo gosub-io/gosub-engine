@@ -35,3 +35,17 @@
 |       <tbody>
 |         <tr>
 |           <td>
+
+#data
+<table><td>test</tbody></table>
+#errors
+missing document type declarattion
+#document
+| <html>
+|   <head>
+|   <body>
+|     <table>
+|       <tbody>
+|         <tr>
+|           <td>
+|             "test"
