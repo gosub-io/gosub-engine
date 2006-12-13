@@ -49,3 +49,34 @@ missing document type declarattion
 |         <tr>
 |           <td>
 |             "test"
+
+#data
+<frame>test
+#errors
+missing document type declaration
+frame element can't occur here
+#document
+| <html>
+|   <head>
+|   <body>
+|     "test"
+
+#data
+<!doctype html><frameset>test
+#errors
+frameset can't contain text
+#document
+| <!DOCTYPE HTML>
+| <html>
+|   <head>
+|   <frameset>
+
+#data
+<!doctype html><frameset><!doctype html>
+#errors
+document type declaration can only occur at the start of a document
+#document
+| <!DOCTYPE HTML>
+| <html>
+|   <head>
+|   <frameset>
