@@ -30,7 +30,7 @@
 
 {"description":"Empty start tag",
 "input":"<>",
-"output":[["ParseError"], ["Character", "<>"]]},
+"output":["ParseError", ["Character", "<>"]]},
 
 {"description":"Start Tag w/attribute",
 "input":"<h a='b'>",
@@ -43,6 +43,10 @@
 {"description":"Start/End Tag",
 "input":"<h></h>",
 "output":[["StartTag", "h", {}], ["EndTag", "h"]]},
+
+{"description":"Two unclosed start tags",
+"input":"<p>One<p>Two",
+"output":[["StartTag", "p", {}], ["Character", "One"], ["StartTag", "p", {}], ["Character", "Two"]]},
 
 {"description":"End Tag w/attribute",
 "input":"<h></h a='b'>",
