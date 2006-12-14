@@ -80,3 +80,31 @@ document type declaration can only occur at the start of a document
 | <html>
 |   <head>
 |   <frameset>
+
+#data
+<!doctype html><font><p><b>test</font>
+#errors
+...
+#document
+| <!DOCTYPE HTML>
+| <html>
+|   <head>
+|   <body>
+|     <font>
+|     <p>
+|       <font>
+|         <b>
+|           "test"
+
+#data
+<!DOCTYPE htmL><dt><div><dd>
+#errors
+...
+#document
+| <!DOCTYPE HTML>
+| <html>
+|   <head>
+|   <body>
+|     <dt>
+|       <div>
+|     <dd>
