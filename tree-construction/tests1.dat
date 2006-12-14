@@ -460,12 +460,9 @@ Line1<br>Line2<br>Line3<br>Line4
 | <html>
 |   <head>
 |   <body>
-|     "A"
-|     "B"
-|     "C"
+|     "ABC"
 |     <select>
-|       "D"
-|       "E"
+|       "DE"
 
 #data
 <
@@ -645,9 +642,7 @@ Line1<br>Line2<br>Line3<br>Line4
 |       " <!-- "
 |     " "
 |   <body>
-|     "-->"
-|     " "
-|     " EOF"
+|     "-->  EOF"
 
 #data
 <b><p></b>TEST
@@ -757,8 +752,7 @@ Line1<br>Line2<br>Line3<br>Line4
 |   <head>
 |   <body>
 |     <b>
-|       "Test"
-|       "Test"
+|       "TestTest"
 
 #data
 <b>A<cite>B<div>C
@@ -791,8 +785,7 @@ Line1<br>Line2<br>Line3<br>Line4
 |       <cite>
 |         "B"
 |         <div>
-|           "C"
-|           "D"
+|           "CD"
 
 #data
 <b>A<cite>B<div>C</b>D
@@ -1164,8 +1157,7 @@ Line1<br>Line2<br>Line3<br>Line4
 |   <body>
 |     <a>
 |       href="blah"
-|       "aba"
-|       "x"
+|       "abax"
 |       <table>
 |         <tbody>
 |           <tr>
