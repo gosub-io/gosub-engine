@@ -108,3 +108,15 @@ document type declaration can only occur at the start of a document
 |     <dt>
 |       <div>
 |     <dd>
+
+#data
+<script></x
+#errors
+no document type
+</ in script
+#document
+| <html>
+|   <head>
+|     <script>
+|       "</x"
+|   <body>
