@@ -122,3 +122,26 @@ no document type
 |   <body>
 
 #data
+<table><plaintext><td>
+#errors
+no document type
+<plaintext> directly inside table
+#document
+| <html>
+|   <head>
+|   <body>
+|     <plaintext>
+|       "<td>"
+|     <table>
+
+#data
+<plaintext></plaintext>
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <plaintext>
+|       "</plaintext>"
+
+#data
