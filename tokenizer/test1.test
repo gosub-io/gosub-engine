@@ -18,7 +18,7 @@
 
 {"description":"Doctype in error",
 "input":"<!DOCTYPE foo>", 
-"output":["ParseError", ["DOCTYPE", "FOO", true]]},
+"output":[["DOCTYPE", "FOO", true]]},
 
 {"description":"Single Start Tag",
 "input":"<h>",
