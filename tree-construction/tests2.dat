@@ -174,3 +174,27 @@ Unexpected start tag "body"
 |     t1="1"
 
 #data
+</b test
+#errors
+No doctype.
+Unexpected end tag.
+Unexpected attribute in end tag.
+#document
+| <html>
+|   <head>
+|   <body>
+
+#data
+<!doctype HtML></b test<b &=&amp>X
+#errors
+Unexpected end tag.
+#document
+| <!DOCTYPE HTML>
+| <html>
+|   <head>
+|   <body>
+|     <b>
+|       &="&"
+|       "X"
+
+#data
