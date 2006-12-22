@@ -211,3 +211,68 @@ Unexpected end tag.
 |   <body>
 
 #data
+&
+#errors
+No doctype.
+Unfinished entity.
+#document
+| <html>
+|   <head>
+|   <body>
+|     "&"
+
+#data
+&#
+#errors
+No doctype.
+Unfinished numeric entity.
+#document
+| <html>
+|   <head>
+|   <body>
+|     "&#"
+
+#data
+&#X
+#errors
+No doctype.
+Unfinished hexadecimal entity.
+#document
+| <html>
+|   <head>
+|   <body>
+|     "&#X"
+
+#data
+&#x
+#errors
+No doctype.
+Unfinished hexadecimal entity.
+#document
+| <html>
+|   <head>
+|   <body>
+|     "&#x"
+
+#data
+&#45
+#errors
+No doctype.
+#document
+| <html>
+|   <head>
+|   <body>
+|     "-"
+
+#data
+&x-test
+#errors
+No doctype.
+Unfinished named entity.
+#document
+| <html>
+|   <head>
+|   <body>
+|     "&x-test"
+
+#data
