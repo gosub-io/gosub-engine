@@ -198,3 +198,16 @@ Unexpected end tag.
 |       "X"
 
 #data
+<!doctypehtml><scrIPt type=text/x-foobar;baz>X</SCRipt
+#errors
+?
+#document
+| <!DOCTYPE HTML>
+| <html>
+|   <head>
+|     <script>
+|       type="text/x-foobar;baz"
+|       "X"
+|   <body>
+
+#data
