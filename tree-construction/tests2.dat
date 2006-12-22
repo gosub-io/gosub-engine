@@ -159,3 +159,18 @@ no document type
 |         <tr>
 
 #data
+<!doctype html><body t1=1><body t2=2><body t3=3 t4=4>
+#errors
+Unexpected start tag "body"
+Unexpected start tag "body"
+#document
+| <!DOCTYPE HTML>
+| <html>
+|   <head>
+|   <body>
+|     t4="4"
+|     t2="2"
+|     t3="3"
+|     t1="1"
+
+#data
