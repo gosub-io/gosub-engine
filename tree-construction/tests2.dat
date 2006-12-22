@@ -145,3 +145,17 @@ no document type
 |       "</plaintext>"
 
 #data
+<!doctype html><table><tr>TEST
+#errors
+...
+#document
+| <!DOCTYPE HTML>
+| <html>
+|   <head>
+|   <body>
+|     "TEST"
+|     <table>
+|       <tbody>
+|         <tr>
+
+#data
