@@ -344,3 +344,14 @@ Unfinished named entity.
 |             "X"
 
 #data
+<!doctype html><p></P>X
+#errors
+#document
+| <!DOCTYPE HTML>
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|     "X"
+
+#data
