@@ -399,3 +399,14 @@ Invalid entity.
 |     "XX"
 
 #data
+<!doctype html><!-- X
+#errors
+...
+#document
+| <!DOCTYPE HTML>
+| <!--  X -->
+| <html>
+|   <head>
+|   <body>
+
+#data
