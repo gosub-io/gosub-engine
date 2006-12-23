@@ -427,3 +427,44 @@ Invalid entity.
 |             "test"
 
 #data
+<!doctype html><select><option><optgroup>
+#errors
+...
+#document
+| <!DOCTYPE HTML>
+| <html>
+|   <head>
+|   <body>
+|     <select>
+|       <option>
+|       <optgroup>
+
+#data
+<!doctype html><select><optgroup><option></optgroup><option><select><option>
+#errors
+...
+#document
+| <!DOCTYPE HTML>
+| <html>
+|   <head>
+|   <body>
+|     <select>
+|       <optgroup>
+|         <option>
+|       <option>
+
+#data
+<!doctype html><select><optgroup><option><optgroup>
+#errors
+...
+#document
+| <!DOCTYPE HTML>
+| <html>
+|   <head>
+|   <body>
+|     <select>
+|       <optgroup>
+|         <option>
+|       <optgroup>
+
+#data
