@@ -410,3 +410,20 @@ Invalid entity.
 |   <body>
 
 #data
+<!doctype html><table><caption>test TEST</caption><td>test
+#errors
+...
+#document
+| <!DOCTYPE HTML>
+| <html>
+|   <head>
+|   <body>
+|     <table>
+|       <caption>
+|         "test TEST"
+|       <tbody>
+|         <tr>
+|           <td>
+|             "test"
+
+#data
