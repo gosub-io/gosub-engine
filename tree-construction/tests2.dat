@@ -355,3 +355,25 @@ Unfinished named entity.
 |     "X"
 
 #data
+&AMP
+#errors
+No doctype.
+No closing ; for the entity.
+#document
+| <html>
+|   <head>
+|   <body>
+|     "&"
+
+#data
+&AMp;
+#errors
+No doctype.
+Invalid entity.
+#document
+| <html>
+|   <head>
+|   <body>
+|     "&AMp;"
+
+#data
