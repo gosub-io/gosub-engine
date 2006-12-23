@@ -324,3 +324,23 @@ Unfinished named entity.
 |     <form>
 
 #data
+<!doctype html><p><b><i><u></p> <p>X
+#errors
+...
+#document
+| <!DOCTYPE HTML>
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|       <b>
+|         <i>
+|           <u>
+|     " "
+|     <p>
+|       <b>
+|         <i>
+|           <u>
+|             "X"
+
+#data
