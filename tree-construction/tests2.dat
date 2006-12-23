@@ -388,3 +388,14 @@ Invalid entity.
 |     <thisisasillytestelementnametomakesurecrazytagnamesareparsedcorrectly>
 
 #data
+<!doctype html>X</body>X
+#errors
+...
+#document
+| <!DOCTYPE HTML>
+| <html>
+|   <head>
+|   <body>
+|     "XX"
+
+#data
