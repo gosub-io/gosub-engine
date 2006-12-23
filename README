@@ -1,5 +1,3 @@
-
-The testcases require the use of simplejson
-(http://cheeseshop.python.org/pypi/simplejson). Each testcase file can
-be run directly through a python interpreter (e.g. python
-test_tokenizer.py). 
+The testcases for the tokenizer require the use of simplejson
+(http://cheeseshop.python.org/pypi/simplejson). Each testcase file can be run
+directly through a python interpreter (e.g. python test_tokenizer.py). 
