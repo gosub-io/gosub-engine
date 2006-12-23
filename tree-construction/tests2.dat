@@ -276,3 +276,51 @@ Unfinished named entity.
 |     "&x-test"
 
 #data
+<!doctypehtml><p><li>
+#errors
+...
+#document
+| <!DOCTYPE HTML>
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|     <li>
+
+#data
+<!doctypehtml><p><dt>
+#errors
+...
+#document
+| <!DOCTYPE HTML>
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|     <dt>
+
+#data
+<!doctypehtml><p><dd>
+#errors
+...
+#document
+| <!DOCTYPE HTML>
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|     <dd>
+
+#data
+<!doctypehtml><p><form>
+#errors
+...
+#document
+| <!DOCTYPE HTML>
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|     <form>
+
+#data
