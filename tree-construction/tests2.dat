@@ -563,3 +563,35 @@ No doctype
 |         <i>
 |           <u>
 |             "X"
+
+#data
+<!doctype html><body><title>test</body></title>
+#errors
+...
+#document
+| <!DOCTYPE HTML>
+| <html>
+|   <head>
+|     <title>
+|       "test</body>"
+|   <body>
+
+#data
+<!doctype html><body><title>X</title><meta name=z><link rel=foo><style>
+x { content:"</style" } </style>
+#errors
+...
+#document
+| <!DOCTYPE HTML>
+| <html>
+|   <head>
+|     <title>
+|       "X"
+|     <meta>
+|       name="z"
+|     <link>
+|       rel="foo"
+|     <style>
+|       "
+x { content:"</style" } "
+|   <body>
