@@ -481,3 +481,34 @@ Invalid entity.
 |       <input>
 
 #data
+<!DoctypE html><!-- XXX - XXX -->
+#errors
+#document
+| <!DOCTYPE HTML>
+| <!--  XXX - XXX  -->
+| <html>
+|   <head>
+|   <body>
+
+#data
+<!DoctypE html><!-- XXX - XXX
+#errors
+#document
+| <!DOCTYPE HTML>
+| <!--  XXX - XXX -->
+| <html>
+|   <head>
+|   <body>
+
+#data
+<!DoctypE html><!-- XXX - XXX - XXX -->
+#errors
+#document
+| <!DOCTYPE HTML>
+| <!--  XXX - XXX - XXX  -->
+| <html>
+|   <head>
+|   <body>
+
+#data
+
