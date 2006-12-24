@@ -468,3 +468,16 @@ Invalid entity.
 |       <optgroup>
 
 #data
+<!doctype html><font><input><input></font>
+#errors
+...
+#document
+| <!DOCTYPE HTML>
+| <html>
+|   <head>
+|   <body>
+|     <font>
+|       <input>
+|       <input>
+
+#data
