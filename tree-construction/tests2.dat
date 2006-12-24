@@ -530,3 +530,15 @@ No doctype
 |       <hr>
 
 #data
+test
+test
+#errors
+No doctype
+...
+#document
+| <html>
+|   <head>
+|   <body>
+|     "test
+test"
+
