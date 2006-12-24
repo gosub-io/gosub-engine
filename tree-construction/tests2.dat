@@ -511,4 +511,22 @@ Invalid entity.
 |   <body>
 
 #data
+<isindex test=x name=x>
+#errors
+No doctype
+<isindex> is not ok!
+#document
+| <html>
+|   <head>
+|   <body>
+|     <form>
+|       <hr>
+|       <p>
+|         <label>
+|           "This is a searchable index. Insert your search keywords here:"
+|           <input>
+|             test="x"
+|             name="isindex"
+|       <hr>
 
+#data
