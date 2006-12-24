@@ -541,3 +541,25 @@ No doctype
 |   <body>
 |     "test
 test"
+
+#data
+<p><b><i><u></p>
+<p>X
+#errors
+No doctype
+...
+#document
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|       <b>
+|         <i>
+|           <u>
+|     "
+"
+|     <p>
+|       <b>
+|         <i>
+|           <u>
+|             "X"
