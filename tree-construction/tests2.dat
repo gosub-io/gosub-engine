@@ -595,3 +595,14 @@ x { content:"</style" } </style>
 |       "
 x { content:"</style" } "
 |   <body>
+
+#data
+<!doctype html><select><optgroup></optgroup></select>
+#errors
+#document
+| <!DOCTYPE HTML>
+| <html>
+|   <head>
+|   <body>
+|     <select>
+|       <optgroup>
