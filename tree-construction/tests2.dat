@@ -645,3 +645,37 @@ No doctype.
 |       "x"
 |     "  "
 |   <body>
+
+#data
+<!doctype html><html><body><html id=x>
+#errors
+duplicate html start tag
+#document
+| <!DOCTYPE HTML>
+| <html>
+|   id="x"
+|   <head>
+|   <body>
+
+#data
+<!doctype html>X</body><html id="x">
+#errors
+html start tag too late
+#document
+| <!DOCTYPE HTML>
+| <html>
+|   id="x"
+|   <head>
+|   <body>
+|     "X"
+
+#data
+<!doctype html><head><html id=x>
+#errors
+html start tag too late
+#document
+| <!DOCTYPE HTML>
+| <html>
+|   id="x"
+|   <head>
+|   <body>
