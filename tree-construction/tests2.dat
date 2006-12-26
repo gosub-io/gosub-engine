@@ -606,3 +606,42 @@ x { content:"</style" } "
 |   <body>
 |     <select>
 |       <optgroup>
+
+#data
+ 
+ 
+#errors
+No doctype.
+#document
+| " 
+ "
+| <html>
+|   <head>
+|   <body>
+
+#data
+<!doctype html>  <html>
+#errors
+#document
+| <!DOCTYPE HTML>
+| "  "
+| <html>
+|   <head>
+|   <body>
+
+#data
+<!doctype html><script>
+</script>  <title>x</title>  </head>
+#errors
+#document
+| <!DOCTYPE HTML>
+| <html>
+|   <head>
+|     <script>
+|       "
+"
+|     "  "
+|     <title>
+|       "x"
+|     "  "
+|   <body>
