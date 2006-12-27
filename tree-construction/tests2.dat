@@ -679,3 +679,38 @@ html start tag too late
 |   id="x"
 |   <head>
 |   <body>
+
+#data
+<!doctype html>X</html>X
+#errors
+...
+#document
+| <!DOCTYPE HTML>
+| <html>
+|   <head>
+|   <body>
+|     "XX"
+
+#data
+<!doctype html>X</html> 
+#errors
+...
+#document
+| <!DOCTYPE HTML>
+| <html>
+|   <head>
+|   <body>
+|     "X "
+
+#data
+<!doctype html>X</html><p>X
+#errors
+...
+#document
+| <!DOCTYPE HTML>
+| <html>
+|   <head>
+|   <body>
+|     "X"
+|     <p>
+|       "X"
