@@ -1,0 +1,99 @@
+{"tests": [
+
+{"description":"Doctype without a name",
+"input":"<!DOCTYPE>",
+"output":["ParseError", ["DOCTYPE", "", true]]},
+
+{"description":"Correct doctype without a space before name",
+"input":"<!DOCTYPEhtml>",
+"output":["ParseError", ["DOCTYPE", "HTML", false]]},
+
+{"description":"Incorrect doctype without a space before name",
+"input":"<!DOCTYPEfoo>",
+"output":["ParseError", ["DOCTYPE", "FOO", true]]},
+
+{"description":"Bogus doctype",
+"input":"<!DOCTYPE html PUBLIC \"-//W3C//DTD HTML Transitional 4.01//EN\">",
+"output":["ParseError", ["DOCTYPE", "HTML", true]]},
+
+{"description":"Incomplete doctype",
+"input":"<!DOCTYPE html ",
+"output":["ParseError", ["DOCTYPE", "HTML", true]]},
+
+{"description":"Numeric entity representing the NUL character",
+"input":"&#0000;",
+"output":[["Character", "\uFFFD"]]},
+
+{"description":"Hexadecimal entity representing the NUL character",
+"input":"&#x0000;",
+"output":[["Character", "\uFFFD"]]},
+
+{"description":"Numeric entity representing a codepoint after 1114111 (U+10FFFF)",
+"input":"&#2225222;",
+"output":["ParseError", ["Character", "\uFFFD"]]},
+
+{"description":"Hexadecimal entity representing a codepoint after 1114111 (U+10FFFF)",
+"input":"&#x1010FFFF;",
+"output":["ParseError", ["Character", "\uFFFD"]]},
+
+{"description":"Numeric entity representing a Windows-1252 'codepoint'",
+"input":"&#137;",
+"output":[["Character", "\u2030"]]},
+
+{"description":"Hexadecimal entity representing a Windows-1252 'codepoint'",
+"input":"&#x89;",
+"output":[["Character", "\u2030"]]},
+
+{"description":"Hexadecimal entity with mixed uppercase and lowercase",
+"input":"&#xaBcD;",
+"output":[["Character", "\uABCD"]]},
+
+{"description":"Entity without a name",
+"input":"&;",
+"output":["ParseError", ["Character", "&;"]]},
+
+{"description":"Unescaped ampersand in attribute value",
+"input":"<h a='&'>",
+"output":["ParseError", ["StartTag", "h", { "a":"&" }]]},
+
+{"description":"StartTag containing <",
+"input":"<a<b>",
+"output":["ParseError", ["StartTag", "a", { }], ["StartTag", "b", { }]]},
+
+{"description":"Non-void element containing trailing /",
+"input":"<h/>",
+"output":["ParseError", ["StartTag", "h", { }]]},
+
+{"description":"Void element with permitted slash",
+"input":"<br/>",
+"output":[["StartTag", "br", { }]]},
+
+{"description":"StartTag containing /",
+"input":"<h/a='b'>",
+"output":["ParseError", ["StartTag", "h", { "a":"b" }]]},
+
+{"description":"Double-quoted attribute value",
+"input":"<h a=\"b\">",
+"output":[["StartTag", "h", { "a":"b" }]]},
+
+{"description":"Unescaped </",
+"input":"</",
+"output":["ParseError", ["Character", "</"]]},
+
+{"description":"Illegal end tag name",
+"input":"</1>",
+"output":["ParseError", ["Comment", "1"]]},
+
+{"description":"Simili processing instruction",
+"input":"<?namespace>",
+"output":["ParseError", ["Comment", "namespace"]]},
+
+{"description":"A bogus comment stops at >, even if preceeded by two dashes",
+"input":"<?foo-->",
+"output":["ParseError", ["Comment", "foo--"]]},
+
+{"description":"Unescaped <",
+"input":"foo < bar",
+"output":["ParseError", ["Character", "foo < bar"]]}
+
+]}
