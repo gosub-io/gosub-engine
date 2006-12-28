@@ -86,11 +86,11 @@
 
 {"description":"Simili processing instruction",
 "input":"<?namespace>",
-"output":["ParseError", ["Comment", "namespace"]]},
+"output":["ParseError", ["Comment", "?namespace"]]},
 
 {"description":"A bogus comment stops at >, even if preceeded by two dashes",
 "input":"<?foo-->",
-"output":["ParseError", ["Comment", "foo--"]]},
+"output":["ParseError", ["Comment", "?foo--"]]},
 
 {"description":"Unescaped <",
 "input":"foo < bar",
