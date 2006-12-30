@@ -714,3 +714,18 @@ html start tag too late
 |     "X"
 |     <p>
 |       "X"
+
+#data
+<!doctype html>X<p/x/y/z>
+#errors
+lots
+#document
+| <!DOCTYPE HTML>
+| <html>
+|   <head>
+|   <body>
+|     "X"
+|     <p>
+|       y=""
+|       x=""
+|       z=""
