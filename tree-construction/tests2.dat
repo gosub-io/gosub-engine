@@ -137,6 +137,7 @@ no document type
 #data
 <plaintext></plaintext>
 #errors
+No DOCTYPE seen.
 #document
 | <html>
 |   <head>
@@ -718,7 +719,9 @@ html start tag too late
 #data
 <!doctype html>X<p/x/y/z>
 #errors
-lots
+Solidus (/) incorrectly placed.
+Solidus (/) incorrectly placed.
+Solidus (/) incorrectly placed.
 #document
 | <!DOCTYPE HTML>
 | <html>
