@@ -94,6 +94,6 @@
 
 {"description":"Unescaped <",
 "input":"foo < bar",
-"output":["ParseError", ["Character", "foo < bar"]]}
+"output":[["Character", "foo "], "ParseError", ["Character", "< bar"]]}
 
 ]}
