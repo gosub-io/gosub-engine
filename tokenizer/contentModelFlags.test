@@ -1,0 +1,36 @@
+{"tests": [
+
+{"description":"PLAINTEXT content model flag",
+"contentModelFlags":["PLAINTEXT"],
+"input":"<head>&body;",
+"output":[["Character", "<head>&body;"]]},
+
+{"description":"End tag closing RCDATA or CDATA",
+"contentModelFlags":["RCDATA", "CDATA"],
+"lastStartTag":"bar",
+"input":"foo</bar>",
+"output":[["Character", "foo"], ["EndTag", "bar"]]},
+
+{"description":"End tag with incorrect name in RCDATA or CDATA",
+"contentModelFlags":["RCDATA", "CDATA"],
+"lastStartTag":"baz",
+"input":"</foo>bar</baz>",
+"output":["ParseError", ["Character", "</foo>bar"], ["EndTag", "baz"]]},
+
+{"description":"End tag closing RCDATA or CDATA, switching back to PCDATA",
+"contentModelFlags":["RCDATA", "CDATA"],
+"lastStartTag":"bar",
+"input":"foo</bar></baz>",
+"output":[["Character", "foo"], ["EndTag", "bar"], ["EndTag", "baz"]]},
+
+{"description":"CDATA w/ something looking like an entity",
+"contentModelFlags":["CDATA"],
+"input":"&foo;",
+"output":[["Character", "&foo;"]]},
+
+{"description":"RCDATA w/ an entity",
+"contentModelFlags":["RCDATA"],
+"input":"&lt;",
+"output":[["Character", "<"]]}
+
+]}
