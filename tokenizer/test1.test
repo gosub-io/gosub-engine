@@ -78,7 +78,7 @@
 
 {"description":"Unfinished comment",
 "input":"<!--comment",
-"output":[["Comment", "comment"], "ParseError"]},
+"output":["ParseError", ["Comment", "comment"]]},
 
 {"description":"Start of a comment",
 "input":"<!-",
