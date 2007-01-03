@@ -2,7 +2,7 @@
 
 {"description":"Doctype without a name",
 "input":"<!DOCTYPE>",
-"output":["ParseError", ["DOCTYPE", "", true]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "", true]]},
 
 {"description":"Correct doctype without a space before name",
 "input":"<!DOCTYPEhtml>",
