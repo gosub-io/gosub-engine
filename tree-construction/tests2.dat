@@ -102,7 +102,6 @@ document type declaration can only occur at the start of a document
 #data
 <!DOCTYPE htmL><dt><div><dd>
 #errors
-...
 #document
 | <!DOCTYPE HTML>
 | <html>
@@ -151,7 +150,8 @@ No DOCTYPE seen.
 #data
 <!doctype html><table><tr>TEST
 #errors
-...
+TEST can't occur in <tr>
+Unexpected end of file.
 #document
 | <!DOCTYPE HTML>
 | <html>
@@ -167,7 +167,6 @@ No DOCTYPE seen.
 #errors
 Unexpected start tag "body"
 Unexpected start tag "body"
-Unexpected end of file
 #document
 | <!DOCTYPE HTML>
 | <html>
