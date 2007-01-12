@@ -21,7 +21,7 @@ No DOCTYPE
 |   <body>
 
 #data
-<head></head><style></style><!-- --><script></script>
+<head></head><!-- --><style></style><!-- --><script></script>
 #errors
 No DOCTYPE
 <style> in after-head mode
@@ -31,10 +31,11 @@ No DOCTYPE
 |     <style>
 |     <script>
 |   <!--  -->
+|   <!--  -->
 |   <body>
 
 #data
-<head></head>x<style></style><!-- --><script></script>
+<head></head><!-- -->x<style></style><!-- --><script></script>
 #errors
 No DOCTYPE
 <style> in after-head mode
@@ -45,4 +46,5 @@ No DOCTYPE
 |   <body>
 |     "x"
 |     <style>
+|     <!--  -->
 |     <script>
