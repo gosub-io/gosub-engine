@@ -56,7 +56,6 @@ Unexpected and of file
 #errors
 missing document type declaration
 frame element can't occur here
-Unexpected end of file
 #document
 | <html>
 |   <head>
