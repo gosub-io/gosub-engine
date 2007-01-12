@@ -735,3 +735,14 @@ Solidus (/) incorrectly placed.
 |       y=""
 |       x=""
 |       z=""
+
+#data
+<!doctype html><!--x--
+#errors
+Unexpected end of file in comment.
+#document
+| <!DOCTYPE HTML>
+| <!-- x -->
+| <html>
+|   <head>
+|   <body>
