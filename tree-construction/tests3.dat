@@ -1,0 +1,48 @@
+#data
+<head></head><style></style>
+#errors
+No DOCTYPE
+<style> in after-head mode
+#document
+| <html>
+|   <head>
+|     <style>
+|   <body>
+
+#data
+<head></head><script></script>
+#errors
+No DOCTYPE
+<script> in after-head mode
+#document
+| <html>
+|   <head>
+|     <script>
+|   <body>
+
+#data
+<head></head><style></style><!-- --><script></script>
+#errors
+No DOCTYPE
+<style> in after-head mode
+#document
+| <html>
+|   <head>
+|     <style>
+|     <script>
+|   <!--  -->
+|   <body>
+
+#data
+<head></head>x<style></style><!-- --><script></script>
+#errors
+No DOCTYPE
+<style> in after-head mode
+#document
+| <html>
+|   <head>
+|   <!--  -->
+|   <body>
+|     "x"
+|     <style>
+|     <script>
