@@ -30,8 +30,8 @@ No DOCTYPE
 |   <head>
 |     <style>
 |     <script>
-|   <!--  -->
-|   <!--  -->
+|   <!--   -->
+|   <!--   -->
 |   <body>
 
 #data
@@ -42,9 +42,9 @@ No DOCTYPE
 #document
 | <html>
 |   <head>
-|   <!--  -->
+|   <!--   -->
 |   <body>
 |     "x"
 |     <style>
-|     <!--  -->
+|     <!--   -->
 |     <script>

@@ -594,10 +594,10 @@ x { content:"</style" } </style>
 |       name="z"
 |     <link>
 |       rel="foo"
+|   <body>
 |     <style>
 |       "
 x { content:"</style" } "
-|   <body>
 
 #data
 <!doctype html><select><optgroup></optgroup></select>
