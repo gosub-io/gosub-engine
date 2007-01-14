@@ -428,6 +428,8 @@ Unexpected end of file in comment.
 #data
 <!doctype html><table><caption>test TEST</caption><td>test
 #errors
+Unexpected <td> in table body phase.
+Unexpected end of file.
 #document
 | <!DOCTYPE HTML>
 | <html>
