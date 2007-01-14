@@ -115,6 +115,7 @@ document type declaration can only occur at the start of a document
 #errors
 no document type
 </ in script
+Unexpected end of file. Expected </script> end tag.
 #document
 | <html>
 |   <head>
