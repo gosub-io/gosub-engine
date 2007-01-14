@@ -38,7 +38,6 @@ No DOCTYPE
 <head></head><!-- -->x<style></style><!-- --><script></script>
 #errors
 No DOCTYPE
-<style> in after-head mode
 #document
 | <html>
 |   <head>

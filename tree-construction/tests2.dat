@@ -139,6 +139,7 @@ no document type
 <plaintext></plaintext>
 #errors
 No DOCTYPE seen.
+Unexpected end of file.
 #document
 | <html>
 |   <head>
@@ -179,9 +180,10 @@ Unexpected start tag "body"
 #data
 </b test
 #errors
+Unexpected EOF in attribute
+Unexpected attribute in end tag.
 No doctype.
 Unexpected end tag.
-Unexpected attribute in end tag.
 #document
 | <html>
 |   <head>
@@ -190,7 +192,11 @@ Unexpected attribute in end tag.
 #data
 <!doctype HtML></b test<b &=&amp>X
 #errors
+Unexpected < in attribute
+End tag contains attributes.
 Unexpected end tag.
+Named entity didn't end with ;
+Unexpected EOF. Missing closing tag.
 #document
 | <!DOCTYPE HTML>
 | <html>
@@ -203,7 +209,8 @@ Unexpected end tag.
 #data
 <!doctypehtml><scrIPt type=text/x-foobar;baz>X</SCRipt
 #errors
-?
+No space after literal DOCTYPE.
+Unexpected EOF in (end) tag name
 #document
 | <!DOCTYPE HTML>
 | <html>
@@ -261,6 +268,7 @@ Unfinished hexadecimal entity.
 &#45
 #errors
 No doctype.
+Numeric entity didn't end with ;
 #document
 | <html>
 |   <head>
@@ -281,7 +289,7 @@ Unfinished named entity.
 #data
 <!doctypehtml><p><li>
 #errors
-...
+No space after literal DOCTYPE.
 #document
 | <!DOCTYPE HTML>
 | <html>
@@ -293,7 +301,7 @@ Unfinished named entity.
 #data
 <!doctypehtml><p><dt>
 #errors
-...
+No space after literal DOCTYPE.
 #document
 | <!DOCTYPE HTML>
 | <html>
@@ -305,7 +313,7 @@ Unfinished named entity.
 #data
 <!doctypehtml><p><dd>
 #errors
-...
+No space after literal DOCTYPE.
 #document
 | <!DOCTYPE HTML>
 | <html>
@@ -317,7 +325,8 @@ Unfinished named entity.
 #data
 <!doctypehtml><p><form>
 #errors
-...
+No space after literal DOCTYPE.
+Unexpected EOF.
 #document
 | <!DOCTYPE HTML>
 | <html>
@@ -329,7 +338,8 @@ Unfinished named entity.
 #data
 <!doctype html><p><b><i><u></p> <p>X
 #errors
-...
+Unexpected end tag </p>.
+Unexpected end EOF. Missing closing tags.
 #document
 | <!DOCTYPE HTML>
 | <html>
@@ -473,7 +483,6 @@ Invalid entity.
 #data
 <!doctype html><font><input><input></font>
 #errors
-...
 #document
 | <!DOCTYPE HTML>
 | <html>
@@ -496,6 +505,7 @@ Invalid entity.
 #data
 <!DoctypE html><!-- XXX - XXX
 #errors
+Unexpected EOF in comment.
 #document
 | <!DOCTYPE HTML>
 | <!--  XXX - XXX -->
@@ -537,7 +547,6 @@ test
 test
 #errors
 No doctype
-...
 #document
 | <html>
 |   <head>
@@ -550,7 +559,8 @@ test"
 <p>X
 #errors
 No doctype
-...
+Unexpected end tag p.
+Unexpected EOF.
 #document
 | <html>
 |   <head>
@@ -570,7 +580,8 @@ No doctype
 #data
 <!doctype html><body><title>test</body></title>
 #errors
-...
+Unexpected start tag that belongs in the head.
+Expected closing tag after </.
 #document
 | <!DOCTYPE HTML>
 | <html>
@@ -583,7 +594,10 @@ No doctype
 <!doctype html><body><title>X</title><meta name=z><link rel=foo><style>
 x { content:"</style" } </style>
 #errors
-...
+Unexpected start tag that belongs in head.
+Unexpected start tag that belongs in head.
+Unexpected start tag that belongs in head.
+Expected closing tag after </.
 #document
 | <!DOCTYPE HTML>
 | <html>
