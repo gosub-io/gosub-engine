@@ -77,6 +77,7 @@ Unexpected end of file
 <!doctype html><frameset><!doctype html>
 #errors
 document type declaration can only occur at the start of a document
+Expected end tag </frameset>
 #document
 | <!DOCTYPE HTML>
 | <html>
@@ -86,7 +87,6 @@ document type declaration can only occur at the start of a document
 #data
 <!doctype html><font><p><b>test</font>
 #errors
-...
 #document
 | <!DOCTYPE HTML>
 | <html>
@@ -128,6 +128,8 @@ Unexpected end of file. Expected </script> end tag.
 #errors
 no document type
 <plaintext> directly inside table
+Characters inside table.
+Unexpected end of file.
 #document
 | <html>
 |   <head>
@@ -393,7 +395,7 @@ Invalid entity.
 #data
 <!doctype html><html><head></head><body><thisISasillyTESTelementNameToMakeSureCrazyTagNamesArePARSEDcorrectLY>
 #errors
-...
+Unexpected end of file.
 #document
 | <!DOCTYPE HTML>
 | <html>
@@ -404,7 +406,7 @@ Invalid entity.
 #data
 <!doctype html>X</body>X
 #errors
-...
+Unexpected non-space characters in the after body phase.
 #document
 | <!DOCTYPE HTML>
 | <html>
@@ -415,7 +417,7 @@ Invalid entity.
 #data
 <!doctype html><!-- X
 #errors
-...
+Unexpected end of file in comment.
 #document
 | <!DOCTYPE HTML>
 | <!--  X -->
@@ -426,7 +428,6 @@ Invalid entity.
 #data
 <!doctype html><table><caption>test TEST</caption><td>test
 #errors
-...
 #document
 | <!DOCTYPE HTML>
 | <html>
@@ -443,7 +444,7 @@ Invalid entity.
 #data
 <!doctype html><select><option><optgroup>
 #errors
-...
+Unexpected end of file. Missing closing tags.
 #document
 | <!DOCTYPE HTML>
 | <html>
@@ -456,7 +457,8 @@ Invalid entity.
 #data
 <!doctype html><select><optgroup><option></optgroup><option><select><option>
 #errors
-...
+Unexpected start tag <select> in <select>.
+Unexpected start tag <option>.
 #document
 | <!DOCTYPE HTML>
 | <html>
@@ -470,7 +472,7 @@ Invalid entity.
 #data
 <!doctype html><select><optgroup><option><optgroup>
 #errors
-...
+Unexpected end of file. Missing closing tags.
 #document
 | <!DOCTYPE HTML>
 | <html>
@@ -678,7 +680,8 @@ duplicate html start tag
 #data
 <!doctype html>X</body><html id="x">
 #errors
-html start tag too late
+Unexpected html start tag in the after body phase.
+html needs to be the first start tag.
 #document
 | <!DOCTYPE HTML>
 | <html>
@@ -701,7 +704,8 @@ html start tag too late
 #data
 <!doctype html>X</html>X
 #errors
-...
+Unexpected non-space characters. Expected end of file.
+Unexpected non-space characters in after body phase. Expected end of file.
 #document
 | <!DOCTYPE HTML>
 | <html>
@@ -712,7 +716,6 @@ html start tag too late
 #data
 <!doctype html>X</html> 
 #errors
-...
 #document
 | <!DOCTYPE HTML>
 | <html>
@@ -723,7 +726,8 @@ html start tag too late
 #data
 <!doctype html>X</html><p>X
 #errors
-...
+Unexpected start tag <p> in trailing end phase.
+Unexpected start tag <p> in after body phase.
 #document
 | <!DOCTYPE HTML>
 | <html>
