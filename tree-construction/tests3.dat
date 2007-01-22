@@ -47,3 +47,43 @@ No DOCTYPE
 |     <style>
 |     <!--   -->
 |     <script>
+
+#data
+<!DOCTYPE html><html><head></head><body><pre>
+</pre></body></html>
+#errors
+#document
+| <!DOCTYPE HTML>
+| <html>
+|   <head>
+|   <body>
+|     <pre>
+
+#data
+<!DOCTYPE html><html><head></head><body><pre>
+
+foo</pre></body></html>
+#errors
+#document
+| <!DOCTYPE HTML>
+| <html>
+|   <head>
+|   <body>
+|     <pre>
+|       "foo"
+
+
+#data
+<!DOCTYPE html><html><head></head><body><pre>
+
+foo
+</pre></body></html>
+#errors
+#document
+| <!DOCTYPE HTML>
+| <html>
+|   <head>
+|   <body>
+|     <pre>
+|       "foo
+"
