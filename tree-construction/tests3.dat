@@ -87,3 +87,31 @@ foo
 |     <pre>
 |       "foo
 "
+
+#data
+<!DOCTYPE html><html><head></head><body><pre>x</pre><span>
+</span></body></html>
+#errors
+#document
+| <!DOCTYPE HTML>
+| <html>
+|   <head>
+|   <body>
+|     <pre>
+|       "x"
+|     <span>
+|       "
+"
+
+#data
+<!DOCTYPE html><html><head></head><body><pre>x
+y</pre></body></html>
+#errors
+#document
+| <!DOCTYPE HTML>
+| <html>
+|   <head>
+|   <body>
+|     <pre>
+|       "x
+y"
