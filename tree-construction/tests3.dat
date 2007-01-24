@@ -115,3 +115,18 @@ y</pre></body></html>
 |     <pre>
 |       "x
 y"
+
+#data
+<!DOCTYPE html><html><head></head><body><pre>x<div>
+y</pre></body></html>
+#errors
+#document
+| <!DOCTYPE HTML>
+| <html>
+|   <head>
+|   <body>
+|     <pre>
+|       "x"
+|       <div>
+|         "
+| y"
