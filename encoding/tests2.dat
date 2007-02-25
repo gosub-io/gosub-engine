@@ -1,0 +1,47 @@
+#data
+<meta
+#encoding
+windows-1252
+
+#data
+<
+#encoding
+windows-1252
+
+#data
+<!
+#encoding
+windows-1252
+
+#data
+<meta charset = "
+#encoding
+windows-1252
+
+#data
+<meta charset=EUC-jp
+#encoding
+EUC-jp
+
+#data
+<meta <meta charset='EUC-jp'>
+#encoding
+EUC-jp
+
+#data
+<meta       charset    =     'EUC-jp'>
+#encoding
+EUC-jp
+
+
+#data
+<!-- -->
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+#encoding
+utf-8
+
+#data
+<!-- -->
+<meta http-equiv="Content-Type" content="text/html; charset=utf
+#encoding
+windows-1252
