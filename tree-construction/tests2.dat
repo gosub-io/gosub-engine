@@ -766,3 +766,17 @@ Unexpected end of file in comment.
 | <html>
 |   <head>
 |   <body>
+
+#data
+<!doctype html><table><tr><td></p></table>
+#errors
+Unexpected </p> end tag.
+#document
+| <!DOCTYPE HTML>
+| <html>
+|   <head>
+|   <body>
+|     <table>
+|       <tbody>
+|         <tr>
+|           <td>
