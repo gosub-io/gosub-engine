@@ -94,6 +94,12 @@
 
 {"description":"Unescaped <",
 "input":"foo < bar",
-"output":[["Character", "foo "], "ParseError", ["Character", "< bar"]]}
+"output":[["Character", "foo "], "ParseError", ["Character", "< bar"]]},
+
+{"description":"Null Byte Replacement",
+"input":"\u0000",
+"output":[["Character", "\ufffd"]]}
 
 ]}
+
+
