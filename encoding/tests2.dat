@@ -21,7 +21,7 @@ windows-1252
 #data
 <meta charset=EUC-jp
 #encoding
-EUC-jp
+windows-1252
 
 #data
 <meta <meta charset='EUC-jp'>
@@ -48,5 +48,30 @@ windows-1252
 
 #data
 <meta http-equiv="Content-Type<meta charset="utf-8">
+#encoding
+windows-1252
+
+#data
+<meta http-equiv="Content-Type" content="text/html; charset='utf-8'">
+#encoding
+utf-8
+
+#data
+<meta http-equiv="Content-Type" content="text/html; charset='utf-8">
+#encoding
+windows-1252
+
+#data
+<meta                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 
+#encoding
+windows-1252
+
+#data
+<meta charset                    =                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            
+#encoding
+windows-1252
+
+#data
+<meta charset=                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            utf-8
 #encoding
 windows-1252
