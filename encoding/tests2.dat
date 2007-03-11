@@ -75,3 +75,8 @@ windows-1252
 <meta charset=                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            utf-8
 #encoding
 windows-1252
+
+#data
+<meta content = "text/html;
+#encoding
+windows-1252
