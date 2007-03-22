@@ -130,3 +130,22 @@ y</pre></body></html>
 |       <div>
 |         "
 | y"
+
+#data
+<!DOCTYPE html><HTML><META><HEAD></HEAD></HTML>
+#errors
+#document
+| <!DOCTYPE HTML>
+| <html>
+|   <head>
+|     <meta>
+|   <body>
+
+#data
+<!DOCTYPE html><HTML><HEAD><head></HEAD></HTML>
+#errors
+#document
+| <!DOCTYPE HTML>
+| <html>
+|   <head>
+|   <body>
