@@ -149,3 +149,23 @@ y</pre></body></html>
 | <html>
 |   <head>
 |   <body>
+
+#data
+<textarea>foo<span>bar</span><i>baz
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <textarea>
+|       "foo<span>bar</span><i>baz"
+
+#data
+<title>foo<span>bar</em><i>baz
+#errors
+#document
+| <html>
+|   <head>
+|     <title>
+|       "foo<span>bar</em><i>baz"
+|   <body>
