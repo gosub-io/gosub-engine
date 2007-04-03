@@ -1,0 +1,44 @@
+#data
+direct div content
+#errors
+#document-fragment div
+| "direct div content"
+
+#data
+direct textarea content
+#errors
+#document-fragment textarea
+| "direct textarea content"
+
+#data
+textarea content with <em>pseudo</em> <foo>markup
+#errors
+#document-fragment textarea
+| "textarea content with <em>pseudo</em> <foo>markup"
+
+#data
+this is &#x0043;DATA inside a <style> element
+#errors
+#document-fragment style
+| "this is &#x0043;DATA inside a <style> element"
+
+#data
+</plaintext>
+#errors
+#document-fragment plaintext
+| "</plaintext>"
+
+#data
+setting html's innerHTML
+#errors
+#document-fragment html
+| <head>
+| <body>
+|   "setting html's innerHTML"
+
+#data
+<title>setting head's innerHTML</title>
+#errors
+#document-fragment head
+| <title>
+|   "setting head's innerHTML"
