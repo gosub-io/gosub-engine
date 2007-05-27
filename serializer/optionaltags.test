@@ -12,22 +12,22 @@
 
 {"description": "html start-tag followed by text",
  "input": [["StartTag", "html", {}], ["Characters", "foo"]],
- "expected": ["foo", "<html>foo"]
+ "expected": ["foo"]
 },
 
 {"description": "html start-tag followed by start-tag",
  "input": [["StartTag", "html", {}], ["StartTag", "foo", {}]],
- "expected": ["<foo>", "<html><foo>"]
+ "expected": ["<foo>"]
 },
 
 {"description": "html start-tag followed by end-tag",
  "input": [["StartTag", "html", {}], ["EndTag", "foo", {}]],
- "expected": ["</foo>", "<html></foo>"]
+ "expected": ["</foo>"]
 },
 
 {"description": "html start-tag at EOF (shouldn't ever happen?!)",
  "input": [["StartTag", "html", {}]],
- "expected": ["", "<html>"]
+ "expected": [""]
 },
 
 
@@ -44,22 +44,22 @@
 
 {"description": "html end-tag followed by text",
  "input": [["EndTag", "html"], ["Characters", "foo"]],
- "expected": ["foo", "</html>foo"]
+ "expected": ["foo"]
 },
 
 {"description": "html end-tag followed by start-tag",
  "input": [["EndTag", "html"], ["StartTag", "foo", {}]],
- "expected": ["<foo>", "</html><foo>"]
+ "expected": ["<foo>"]
 },
 
 {"description": "html end-tag followed by end-tag",
  "input": [["EndTag", "html"], ["EndTag", "foo", {}]],
- "expected": ["</foo>", "</html></foo>"]
+ "expected": ["</foo>"]
 },
 
 {"description": "html end-tag at EOF",
  "input": [["EndTag", "html"]],
- "expected": ["", "</html>"]
+ "expected": [""]
 },
 
 
@@ -82,7 +82,7 @@
 
 {"description": "head start-tag followed by start-tag",
  "input": [["StartTag", "head", {}], ["StartTag", "foo", {}]],
- "expected": ["<foo>", "<head><foo>"]
+ "expected": ["<foo>"]
 },
 
 {"description": "head start-tag followed by end-tag",
@@ -109,22 +109,22 @@
 
 {"description": "head end-tag followed by text",
  "input": [["EndTag", "head"], ["Characters", "foo"]],
- "expected": ["foo", "</head>foo"]
+ "expected": ["foo"]
 },
 
 {"description": "head end-tag followed by start-tag",
  "input": [["EndTag", "head"], ["StartTag", "foo", {}]],
- "expected": ["<foo>", "</head><foo>"]
+ "expected": ["<foo>"]
 },
 
 {"description": "head end-tag followed by end-tag",
  "input": [["EndTag", "head"], ["EndTag", "foo", {}]],
- "expected": ["</foo>", "</head></foo>"]
+ "expected": ["</foo>"]
 },
 
 {"description": "head end-tag at EOF",
  "input": [["EndTag", "head"]],
- "expected": ["", "</head>"]
+ "expected": [""]
 },
 
 
@@ -142,22 +142,22 @@
 
 {"description": "body start-tag followed by text",
  "input": [["StartTag", "body", {}], ["Characters", "foo"]],
- "expected": ["foo", "<body>foo"]
+ "expected": ["foo"]
 },
 
 {"description": "body start-tag followed by start-tag",
  "input": [["StartTag", "body", {}], ["StartTag", "foo", {}]],
- "expected": ["<foo>", "<body><foo>"]
+ "expected": ["<foo>"]
 },
 
 {"description": "body start-tag followed by end-tag",
  "input": [["StartTag", "body", {}], ["EndTag", "foo", {}]],
- "expected": ["</foo>", "<body></foo>"]
+ "expected": ["</foo>"]
 },
 
 {"description": "body start-tag at EOF (shouldn't ever happen?!)",
  "input": [["StartTag", "body", {}]],
- "expected": ["", "<body>"]
+ "expected": [""]
 },
 
 
@@ -174,22 +174,22 @@
 
 {"description": "body end-tag followed by text",
  "input": [["EndTag", "body"], ["Characters", "foo"]],
- "expected": ["foo", "</body>foo"]
+ "expected": ["foo"]
 },
 
 {"description": "body end-tag followed by start-tag",
  "input": [["EndTag", "body"], ["StartTag", "foo", {}]],
- "expected": ["<foo>", "</body><foo>"]
+ "expected": ["<foo>"]
 },
 
 {"description": "body end-tag followed by end-tag",
  "input": [["EndTag", "body"], ["EndTag", "foo", {}]],
- "expected": ["</foo>", "</body></foo>"]
+ "expected": ["</foo>"]
 },
 
 {"description": "body end-tag at EOF",
  "input": [["EndTag", "body"]],
- "expected": ["", "</body>"]
+ "expected": [""]
 },
 
 
@@ -217,17 +217,17 @@
 
 {"description": "li end-tag followed by li start-tag",
  "input": [["EndTag", "li"], ["StartTag", "li", {}]],
- "expected": ["<li>", "</li><li>"]
+ "expected": ["<li>"]
 },
 
 {"description": "li end-tag followed by end-tag",
  "input": [["EndTag", "li"], ["EndTag", "foo", {}]],
- "expected": ["</foo>", "</li></foo>"]
+ "expected": ["</foo>"]
 },
 
 {"description": "li end-tag at EOF",
  "input": [["EndTag", "li"]],
- "expected": ["", "</li>"]
+ "expected": [""]
 },
 
 
@@ -255,12 +255,12 @@
 
 {"description": "dt end-tag followed by dt start-tag",
  "input": [["EndTag", "dt"], ["StartTag", "dt", {}]],
- "expected": ["<dt>", "</dt><dt>"]
+ "expected": ["<dt>"]
 },
 
 {"description": "dt end-tag followed by dd start-tag",
  "input": [["EndTag", "dt"], ["StartTag", "dd", {}]],
- "expected": ["<dd>", "</dt><dd>"]
+ "expected": ["<dd>"]
 },
 
 {"description": "dt end-tag followed by end-tag",
@@ -298,22 +298,22 @@
 
 {"description": "dd end-tag followed by dd start-tag",
  "input": [["EndTag", "dd"], ["StartTag", "dd", {}]],
- "expected": ["<dd>", "</dd><dd>"]
+ "expected": ["<dd>"]
 },
 
 {"description": "dd end-tag followed by dt start-tag",
  "input": [["EndTag", "dd"], ["StartTag", "dt", {}]],
- "expected": ["<dt>", "</dd><dt>"]
+ "expected": ["<dt>"]
 },
 
 {"description": "dd end-tag followed by end-tag",
  "input": [["EndTag", "dd"], ["EndTag", "foo", {}]],
- "expected": ["</foo>", "</dd></foo>"]
+ "expected": ["</foo>"]
 },
 
 {"description": "dd end-tag at EOF",
  "input": [["EndTag", "dd"]],
- "expected": ["", "</dd>"]
+ "expected": [""]
 },
 
 
@@ -341,102 +341,102 @@
 
 {"description": "p end-tag followed by address start-tag",
  "input": [["EndTag", "p"], ["StartTag", "address", {}]],
- "expected": ["<address>", "</p><address>"]
+ "expected": ["<address>"]
 },
 
 {"description": "p end-tag followed by blockquote start-tag",
  "input": [["EndTag", "p"], ["StartTag", "blockquote", {}]],
- "expected": ["<blockquote>", "</p><blockquote>"]
+ "expected": ["<blockquote>"]
 },
 
 {"description": "p end-tag followed by dl start-tag",
  "input": [["EndTag", "p"], ["StartTag", "dl", {}]],
- "expected": ["<dl>", "</p><dl>"]
+ "expected": ["<dl>"]
 },
 
 {"description": "p end-tag followed by fieldset start-tag",
  "input": [["EndTag", "p"], ["StartTag", "fieldset", {}]],
- "expected": ["<fieldset>", "</p><fieldset>"]
+ "expected": ["<fieldset>"]
 },
 
 {"description": "p end-tag followed by form start-tag",
  "input": [["EndTag", "p"], ["StartTag", "form", {}]],
- "expected": ["<form>", "</p><form>"]
+ "expected": ["<form>"]
 },
 
 {"description": "p end-tag followed by h1 start-tag",
  "input": [["EndTag", "p"], ["StartTag", "h1", {}]],
- "expected": ["<h1>", "</p><h1>"]
+ "expected": ["<h1>"]
 },
 
 {"description": "p end-tag followed by h2 start-tag",
  "input": [["EndTag", "p"], ["StartTag", "h2", {}]],
- "expected": ["<h2>", "</p><h2>"]
+ "expected": ["<h2>"]
 },
 
 {"description": "p end-tag followed by h3 start-tag",
  "input": [["EndTag", "p"], ["StartTag", "h3", {}]],
- "expected": ["<h3>", "</p><h3>"]
+ "expected": ["<h3>"]
 },
 
 {"description": "p end-tag followed by h4 start-tag",
  "input": [["EndTag", "p"], ["StartTag", "h4", {}]],
- "expected": ["<h4>", "</p><h4>"]
+ "expected": ["<h4>"]
 },
 
 {"description": "p end-tag followed by h5 start-tag",
  "input": [["EndTag", "p"], ["StartTag", "h5", {}]],
- "expected": ["<h5>", "</p><h5>"]
+ "expected": ["<h5>"]
 },
 
 {"description": "p end-tag followed by h6 start-tag",
  "input": [["EndTag", "p"], ["StartTag", "h6", {}]],
- "expected": ["<h6>", "</p><h6>"]
+ "expected": ["<h6>"]
 },
 
 {"description": "p end-tag followed by hr start-tag",
  "input": [["EndTag", "p"], ["StartTag", "hr", {}]],
- "expected": ["<hr>", "</p><hr>"]
+ "expected": ["<hr>"]
 },
 
 {"description": "p end-tag followed by menu start-tag",
  "input": [["EndTag", "p"], ["StartTag", "menu", {}]],
- "expected": ["<menu>", "</p><menu>"]
+ "expected": ["<menu>"]
 },
 
 {"description": "p end-tag followed by ol start-tag",
  "input": [["EndTag", "p"], ["StartTag", "ol", {}]],
- "expected": ["<ol>", "</p><ol>"]
+ "expected": ["<ol>"]
 },
 
 {"description": "p end-tag followed by p start-tag",
  "input": [["EndTag", "p"], ["StartTag", "p", {}]],
- "expected": ["<p>", "</p><p>"]
+ "expected": ["<p>"]
 },
 
 {"description": "p end-tag followed by pre start-tag",
  "input": [["EndTag", "p"], ["StartTag", "pre", {}]],
- "expected": ["<pre>", "</p><pre>"]
+ "expected": ["<pre>"]
 },
 
 {"description": "p end-tag followed by table start-tag",
  "input": [["EndTag", "p"], ["StartTag", "table", {}]],
- "expected": ["<table>", "</p><table>"]
+ "expected": ["<table>"]
 },
 
 {"description": "p end-tag followed by ul start-tag",
  "input": [["EndTag", "p"], ["StartTag", "ul", {}]],
- "expected": ["<ul>", "</p><ul>"]
+ "expected": ["<ul>"]
 },
 
 {"description": "p end-tag followed by end-tag",
  "input": [["EndTag", "p"], ["EndTag", "foo", {}]],
- "expected": ["</foo>", "</p></foo>"]
+ "expected": ["</foo>"]
 },
 
 {"description": "p end-tag at EOF",
  "input": [["EndTag", "p"]],
- "expected": ["", "</p>"]
+ "expected": [""]
 },
 
 
@@ -464,17 +464,17 @@
 
 {"description": "optgroup end-tag followed by optgroup start-tag",
  "input": [["EndTag", "optgroup"], ["StartTag", "optgroup", {}]],
- "expected": ["<optgroup>", "</optgroup><optgroup>"]
+ "expected": ["<optgroup>"]
 },
 
 {"description": "optgroup end-tag followed by end-tag",
  "input": [["EndTag", "optgroup"], ["EndTag", "foo", {}]],
- "expected": ["</foo>", "</optgroup></foo>"]
+ "expected": ["</foo>"]
 },
 
 {"description": "optgroup end-tag at EOF",
  "input": [["EndTag", "optgroup"]],
- "expected": ["", "</optgroup>"]
+ "expected": [""]
 },
 
 
@@ -502,17 +502,17 @@
 
 {"description": "option end-tag followed by option start-tag",
  "input": [["EndTag", "option"], ["StartTag", "option", {}]],
- "expected": ["<option>", "</option><option>"]
+ "expected": ["<option>"]
 },
 
 {"description": "option end-tag followed by end-tag",
  "input": [["EndTag", "option"], ["EndTag", "foo", {}]],
- "expected": ["</foo>", "</option></foo>"]
+ "expected": ["</foo>"]
 },
 
 {"description": "option end-tag at EOF",
  "input": [["EndTag", "option"]],
- "expected": ["", "</option>"]
+ "expected": [""]
 },
 
 
@@ -540,12 +540,12 @@
 
 {"description": "first colgroup in a table with a col child",
  "input": [["StartTag", "table", {}], ["StartTag", "colgroup", {}], ["StartTag", "col", {}]],
- "expected": ["<table><col>", "<table><colgroup><col>"]
+ "expected": ["<table><col>"]
 },
 
 {"description": "colgroup with a col child, following another colgroup",
  "input": [["EndTag", "colgroup", {}], ["StartTag", "colgroup", {}], ["StartTag", "col", {}]],
- "expected": ["</colgroup><col>", "<colgroup><col>", "</colgroup><colgroup><col>"]
+ "expected": ["</colgroup><col>", "<colgroup><col>"]
 },
 
 {"description": "colgroup start-tag followed by end-tag",
@@ -572,22 +572,22 @@
 
 {"description": "colgroup end-tag followed by text",
  "input": [["EndTag", "colgroup"], ["Characters", "foo"]],
- "expected": ["foo", "</colgroup>foo"]
+ "expected": ["foo"]
 },
 
 {"description": "colgroup end-tag followed by start-tag",
  "input": [["EndTag", "colgroup"], ["StartTag", "foo", {}]],
- "expected": ["<foo>", "</colgroup><foo>"]
+ "expected": ["<foo>"]
 },
 
 {"description": "colgroup end-tag followed by end-tag",
  "input": [["EndTag", "colgroup"], ["EndTag", "foo", {}]],
- "expected": ["</foo>", "</colgroup></foo>"]
+ "expected": ["</foo>"]
 },
 
 {"description": "colgroup end-tag at EOF",
  "input": [["EndTag", "colgroup"]],
- "expected": ["", "</colgroup>"]
+ "expected": [""]
 },
 
 
@@ -615,12 +615,12 @@
 
 {"description": "thead end-tag followed by tbody start-tag",
  "input": [["EndTag", "thead"], ["StartTag", "tbody", {}]],
- "expected": ["<tbody>", "</thead><tbody>"]
+ "expected": ["<tbody>"]
 },
 
 {"description": "thead end-tag followed by tfoot start-tag",
  "input": [["EndTag", "thead"], ["StartTag", "tfoot", {}]],
- "expected": ["<tfoot>", "</thead><tfoot>"]
+ "expected": ["<tfoot>"]
 },
 
 {"description": "thead end-tag followed by end-tag",
@@ -658,22 +658,22 @@
 
 {"description": "first tbody in a table with a tr child",
  "input": [["StartTag", "table", {}], ["StartTag", "tbody", {}], ["StartTag", "tr", {}]],
- "expected": ["<table><tr>", "<table><tbody><tr>"]
+ "expected": ["<table><tr>"]
 },
 
 {"description": "tbody with a tr child, following another tbody",
  "input": [["EndTag", "tbody", {}], ["StartTag", "tbody", {}], ["StartTag", "tr", {}]],
- "expected": ["<tbody><tr>", "</tbody><tr>", "</tbody><tbody><tr>"]
+ "expected": ["<tbody><tr>", "</tbody><tr>"]
 },
 
 {"description": "tbody with a tr child, following a thead",
  "input": [["EndTag", "thead", {}], ["StartTag", "tbody", {}], ["StartTag", "tr", {}]],
- "expected": ["<tbody><tr>", "</thead><tr>", "</thead><tbody><tr>"]
+ "expected": ["<tbody><tr>", "</thead><tr>"]
 },
 
 {"description": "tbody with a tr child, following a tfoot",
  "input": [["EndTag", "tfoot", {}], ["StartTag", "tbody", {}], ["StartTag", "tr", {}]],
- "expected": ["<tbody><tr>", "</tfoot><tr>", "</tfoot><tbody><tr>"]
+ "expected": ["<tbody><tr>", "</tfoot><tr>"]
 },
 
 {"description": "tbody start-tag followed by end-tag",
@@ -700,32 +700,32 @@
 
 {"description": "tbody end-tag followed by text",
  "input": [["EndTag", "tbody"], ["Characters", "foo"]],
- "expected": ["foo", "</tbody>foo"]
+ "expected": ["foo"]
 },
 
 {"description": "tbody end-tag followed by start-tag",
  "input": [["EndTag", "tbody"], ["StartTag", "foo", {}]],
- "expected": ["<foo>", "</tbody><foo>"]
+ "expected": ["<foo>"]
 },
 
 {"description": "tbody end-tag followed by tbody start-tag",
  "input": [["EndTag", "tbody"], ["StartTag", "tbody", {}]],
- "expected": ["<tbody>", "</tbody>", "</tbody><tbody>"]
+ "expected": ["<tbody>", "</tbody>"]
 },
 
 {"description": "tbody end-tag followed by tfoot start-tag",
  "input": [["EndTag", "tbody"], ["StartTag", "tfoot", {}]],
- "expected": ["<tfoot>", "</tbody><tfoot>"]
+ "expected": ["<tfoot>"]
 },
 
 {"description": "tbody end-tag followed by end-tag",
  "input": [["EndTag", "tbody"], ["EndTag", "foo", {}]],
- "expected": ["</foo>", "</tbody></foo>"]
+ "expected": ["</foo>"]
 },
 
 {"description": "tbody end-tag at EOF",
  "input": [["EndTag", "tbody"]],
- "expected": ["", "</tbody>"]
+ "expected": [""]
 },
 
 
@@ -743,27 +743,27 @@
 
 {"description": "tfoot end-tag followed by text",
  "input": [["EndTag", "tfoot"], ["Characters", "foo"]],
- "expected": ["foo", "</tfoot>foo"]
+ "expected": ["foo"]
 },
 
 {"description": "tfoot end-tag followed by start-tag",
  "input": [["EndTag", "tfoot"], ["StartTag", "foo", {}]],
- "expected": ["<foo>", "</tfoot><foo>"]
+ "expected": ["<foo>"]
 },
 
 {"description": "tfoot end-tag followed by tbody start-tag",
  "input": [["EndTag", "tfoot"], ["StartTag", "tbody", {}]],
- "expected": ["<tbody>", "</tfoot>", "</tfoot><tbody>"]
+ "expected": ["<tbody>", "</tfoot>"]
 },
 
 {"description": "tfoot end-tag followed by end-tag",
  "input": [["EndTag", "tfoot"], ["EndTag", "foo", {}]],
- "expected": ["</foo>", "</tfoot></foo>"]
+ "expected": ["</foo>"]
 },
 
 {"description": "tfoot end-tag at EOF",
  "input": [["EndTag", "tfoot"]],
- "expected": ["", "</tfoot>"]
+ "expected": [""]
 },
 
 
@@ -781,27 +781,27 @@
 
 {"description": "tr end-tag followed by text",
  "input": [["EndTag", "tr"], ["Characters", "foo"]],
- "expected": ["foo", "</tr>foo"]
+ "expected": ["foo"]
 },
 
 {"description": "tr end-tag followed by start-tag",
  "input": [["EndTag", "tr"], ["StartTag", "foo", {}]],
- "expected": ["<foo>", "</tr><foo>"]
+ "expected": ["<foo>"]
 },
 
 {"description": "tr end-tag followed by tr start-tag",
  "input": [["EndTag", "tr"], ["StartTag", "tr", {}]],
- "expected": ["<tr>", "</tr>", "</tr><tr>"]
+ "expected": ["<tr>", "</tr>"]
 },
 
 {"description": "tr end-tag followed by end-tag",
  "input": [["EndTag", "tr"], ["EndTag", "foo", {}]],
- "expected": ["</foo>", "</tr></foo>"]
+ "expected": ["</foo>"]
 },
 
 {"description": "tr end-tag at EOF",
  "input": [["EndTag", "tr"]],
- "expected": ["", "</tr>"]
+ "expected": [""]
 },
 
 
@@ -819,32 +819,32 @@
 
 {"description": "td end-tag followed by text",
  "input": [["EndTag", "td"], ["Characters", "foo"]],
- "expected": ["foo", "</td>foo"]
+ "expected": ["foo"]
 },
 
 {"description": "td end-tag followed by start-tag",
  "input": [["EndTag", "td"], ["StartTag", "foo", {}]],
- "expected": ["<foo>", "</td><foo>"]
+ "expected": ["<foo>"]
 },
 
 {"description": "td end-tag followed by td start-tag",
  "input": [["EndTag", "td"], ["StartTag", "td", {}]],
- "expected": ["<td>", "</td>", "</td><td>"]
+ "expected": ["<td>", "</td>"]
 },
 
 {"description": "td end-tag followed by th start-tag",
  "input": [["EndTag", "td"], ["StartTag", "th", {}]],
- "expected": ["<th>", "</td>", "</td><th>"]
+ "expected": ["<th>", "</td>"]
 },
 
 {"description": "td end-tag followed by end-tag",
  "input": [["EndTag", "td"], ["EndTag", "foo", {}]],
- "expected": ["</foo>", "</td></foo>"]
+ "expected": ["</foo>"]
 },
 
 {"description": "td end-tag at EOF",
  "input": [["EndTag", "td"]],
- "expected": ["", "</td>"]
+ "expected": [""]
 },
 
 
@@ -862,32 +862,32 @@
 
 {"description": "th end-tag followed by text",
  "input": [["EndTag", "th"], ["Characters", "foo"]],
- "expected": ["foo", "</th>foo"]
+ "expected": ["foo"]
 },
 
 {"description": "th end-tag followed by start-tag",
  "input": [["EndTag", "th"], ["StartTag", "foo", {}]],
- "expected": ["<foo>", "</th><foo>"]
+ "expected": ["<foo>"]
 },
 
 {"description": "th end-tag followed by th start-tag",
  "input": [["EndTag", "th"], ["StartTag", "th", {}]],
- "expected": ["<th>", "</th>", "</th><th>"]
+ "expected": ["<th>", "</th>"]
 },
 
 {"description": "th end-tag followed by td start-tag",
  "input": [["EndTag", "th"], ["StartTag", "td", {}]],
- "expected": ["<td>", "</th>", "</th><td>"]
+ "expected": ["<td>", "</th>"]
 },
 
 {"description": "th end-tag followed by end-tag",
  "input": [["EndTag", "th"], ["EndTag", "foo", {}]],
- "expected": ["</foo>", "</th></foo>"]
+ "expected": ["</foo>"]
 },
 
 {"description": "th end-tag at EOF",
  "input": [["EndTag", "th"]],
- "expected": ["", "</th>"]
+ "expected": [""]
 }
 
 ]}
