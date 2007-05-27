@@ -1,0 +1,65 @@
+{"tests": [
+
+{"description": "html start-tag followed by comment",
+ "input": [["StartTag", "html", {}], ["Comment", "foo"]],
+ "expected": ["<html><!--foo-->"]
+},
+
+{"description": "html start-tag followed by space character",
+ "input": [["StartTag", "html", {}], ["SpaceCharacters", " "]],
+ "expected": ["<html> "]
+},
+
+{"description": "html start-tag followed by text",
+ "input": [["StartTag", "html", {}], ["Characters", "foo"]],
+ "expected": ["foo"]
+},
+
+{"description": "html start-tag followed by start-tag",
+ "input": [["StartTag", "html", {}], ["StartTag", "foo", {}]],
+ "expected": ["<foo>"]
+},
+
+{"description": "html start-tag followed by end-tag",
+ "input": [["StartTag", "html", {}], ["EndTag", "foo", {}]],
+ "expected": ["</foo>"]
+},
+
+{"description": "html start-tag at EOF (shouldn't ever happen?!)",
+ "input": [["StartTag", "html", {}]],
+ "expected": [""]
+},
+
+
+
+{"description": "html end-tag followed by comment",
+ "input": [["EndTag", "html"], ["Comment", "foo"]],
+ "expected": ["</html><!--foo-->"]
+},
+
+{"description": "html end-tag followed by space character",
+ "input": [["EndTag", "html"], ["SpaceCharacters", " "]],
+ "expected": ["</html> "]
+},
+
+{"description": "html end-tag followed by text",
+ "input": [["EndTag", "html"], ["Characters", "foo"]],
+ "expected": ["foo"]
+},
+
+{"description": "html end-tag followed by start-tag",
+ "input": [["EndTag", "html"], ["StartTag", "foo", {}]],
+ "expected": ["<foo>"]
+},
+
+{"description": "html end-tag followed by end-tag",
+ "input": [["EndTag", "html"], ["EndTag", "foo", {}]],
+ "expected": ["</foo>"]
+},
+
+{"description": "html end-tag at EOF",
+ "input": [["EndTag", "html"]],
+ "expected": [""]
+},
+
+]}

@@ -18,4 +18,28 @@
  "expected": ["<div irrelevant>"]
 },
 
+{"description": "use_trailing_solidus=true with void element",
+ "options": {"use_trailing_solidus": true},
+ "input": [["EmptyTag", "img", {}]],
+ "expected": ["<img />"]
+},
+
+{"description": "use_trailing_solidus=true with non-void element",
+ "options": {"use_trailing_solidus": true},
+ "input": [["StartTag", "div", {}]],
+ "expected": ["<div>"]
+},
+
+{"description": "minimize_boolean_attributes=false",
+ "options": {"minimize_boolean_attributes": false},
+ "input": [["StartTag", "div", {"irrelevant": "irrelevant"}]],
+ "expected": ["<div irrelevant=irrelevant>"]
+},
+
+{"description": "minimize_boolean_attributes=false with empty value",
+ "options": {"minimize_boolean_attributes": false},
+ "input": [["StartTag", "div", {"irrelevant": ""}]],
+ "expected": ["<div irrelevant=\"\">"]
+},
+
 ]}
