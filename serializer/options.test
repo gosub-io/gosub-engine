@@ -6,14 +6,14 @@
  "expected": ["<span title='test &#39;with&#39; quote_char'>"]
 },
 
-{"description": "quote_attr_values=True",
- "options": {"quote_attr_values": True},
+{"description": "quote_attr_values=true",
+ "options": {"quote_attr_values": true},
  "input": [["StartTag", "button", {"disabled": "disabled"}]],
  "expected": ["<button disabled>"]
 },
 
-{"description": "quote_attr_values=True with irrelevant",
- "options": {"quote_attr_values": True},
+{"description": "quote_attr_values=true with irrelevant",
+ "options": {"quote_attr_values": true},
  "input": [["StartTag", "div", {"irrelevant": "irrelevant"}]],
  "expected": ["<div irrelevant>"]
 },
