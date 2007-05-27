@@ -560,7 +560,6 @@
 
 
 
-
 {"description": "colgroup end-tag followed by comment",
  "input": [["EndTag", "colgroup"], ["Comment", "foo"]],
  "expected": ["</colgroup><!--foo-->"]
@@ -590,5 +589,305 @@
  "input": [["EndTag", "colgroup"]],
  "expected": ["", "</colgroup>"]
 },
+
+
+
+
+{"description": "thead end-tag followed by comment",
+ "input": [["EndTag", "thead"], ["Comment", "foo"]],
+ "expected": ["</thead><!--foo-->"]
+},
+
+{"description": "thead end-tag followed by space character",
+ "input": [["EndTag", "thead"], ["Characters", " foo"]],
+ "expected": ["</thead> foo"]
+},
+
+{"description": "thead end-tag followed by text",
+ "input": [["EndTag", "thead"], ["Characters", "foo"]],
+ "expected": ["</thead>foo"]
+},
+
+{"description": "thead end-tag followed by start-tag",
+ "input": [["EndTag", "thead"], ["StartTag", "foo", {}]],
+ "expected": ["</thead><foo>"]
+},
+
+{"description": "thead end-tag followed by tbody start-tag",
+ "input": [["EndTag", "thead"], ["StartTag", "tbody", {}]],
+ "expected": ["<tbody>", "</thead><tbody>"]
+},
+
+{"description": "thead end-tag followed by tfoot start-tag",
+ "input": [["EndTag", "thead"], ["StartTag", "tfoot", {}]],
+ "expected": ["<tfoot>", "</thead><tfoot>"]
+},
+
+{"description": "thead end-tag followed by end-tag",
+ "input": [["EndTag", "thead"], ["EndTag", "foo", {}]],
+ "expected": ["</thead></foo>"]
+},
+
+{"description": "thead end-tag at EOF",
+ "input": [["EndTag", "thead"]],
+ "expected": ["</thead>"]
+},
+
+
+
+
+{"description": "tbody start-tag followed by comment",
+ "input": [["StartTag", "tbody", {}], ["Comment", "foo"]],
+ "expected": ["<tbody><!--foo-->"]
+},
+
+{"description": "tbody start-tag followed by space character",
+ "input": [["StartTag", "tbody", {}], ["Characters", " foo"]],
+ "expected": ["<tbody> foo"]
+},
+
+{"description": "tbody start-tag followed by text",
+ "input": [["StartTag", "tbody", {}], ["Characters", "foo"]],
+ "expected": ["<tbody>foo"]
+},
+
+{"description": "tbody start-tag followed by start-tag",
+ "input": [["StartTag", "tbody", {}], ["StartTag", "foo", {}]],
+ "expected": ["<tbody><foo>"]
+},
+
+{"description": "first tbody in a table with a tr child",
+ "input": [["StartTag", "table", {}], ["StartTag", "tbody", {}], ["StartTag", "tr", {}]],
+ "expected": ["<table><tr>", "<table><tbody><tr>"]
+},
+
+{"description": "tbody with a tr child, following another tbody",
+ "input": [["EndTag", "tbody", {}], ["StartTag", "tbody", {}], ["StartTag", "tr", {}]],
+ "expected": ["<tbody><tr>", "</tbody><tr>", "</tbody><tbody><tr>"]
+},
+
+{"description": "tbody with a tr child, following a thead",
+ "input": [["EndTag", "thead", {}], ["StartTag", "tbody", {}], ["StartTag", "tr", {}]],
+ "expected": ["<tbody><tr>", "</thead><tr>", "</thead><tbody><tr>"]
+},
+
+{"description": "tbody with a tr child, following a tfoot",
+ "input": [["EndTag", "tfoot", {}], ["StartTag", "tbody", {}], ["StartTag", "tr", {}]],
+ "expected": ["<tbody><tr>", "</tfoot><tr>", "</tfoot><tbody><tr>"]
+},
+
+{"description": "tbody start-tag followed by end-tag",
+ "input": [["StartTag", "tbody", {}], ["EndTag", "foo", {}]],
+ "expected": ["<tbody></foo>"]
+},
+
+{"description": "tbody start-tag at EOF",
+ "input": [["StartTag", "tbody", {}]],
+ "expected": ["<tbody>"]
+},
+
+
+
+{"description": "tbody end-tag followed by comment",
+ "input": [["EndTag", "tbody"], ["Comment", "foo"]],
+ "expected": ["</tbody><!--foo-->"]
+},
+
+{"description": "tbody end-tag followed by space character",
+ "input": [["EndTag", "tbody"], ["Characters", " foo"]],
+ "expected": ["</tbody> foo"]
+},
+
+{"description": "tbody end-tag followed by text",
+ "input": [["EndTag", "tbody"], ["Characters", "foo"]],
+ "expected": ["foo", "</tbody>foo"]
+},
+
+{"description": "tbody end-tag followed by start-tag",
+ "input": [["EndTag", "tbody"], ["StartTag", "foo", {}]],
+ "expected": ["<foo>", "</tbody><foo>"]
+},
+
+{"description": "tbody end-tag followed by tbody start-tag",
+ "input": [["EndTag", "tbody"], ["StartTag", "tbody", {}]],
+ "expected": ["<tbody>", "</tbody>", "</tbody><tbody>"]
+},
+
+{"description": "tbody end-tag followed by tfoot start-tag",
+ "input": [["EndTag", "tbody"], ["StartTag", "tfoot", {}]],
+ "expected": ["<tfoot>", "</tbody><tfoot>"]
+},
+
+{"description": "tbody end-tag followed by end-tag",
+ "input": [["EndTag", "tbody"], ["EndTag", "foo", {}]],
+ "expected": ["</foo>", "</tbody></foo>"]
+},
+
+{"description": "tbody end-tag at EOF",
+ "input": [["EndTag", "tbody"]],
+ "expected": ["", "</tbody>"]
+},
+
+
+
+
+{"description": "tfoot end-tag followed by comment",
+ "input": [["EndTag", "tfoot"], ["Comment", "foo"]],
+ "expected": ["</tfoot><!--foo-->"]
+},
+
+{"description": "tfoot end-tag followed by space character",
+ "input": [["EndTag", "tfoot"], ["Characters", " foo"]],
+ "expected": ["</tfoot> foo"]
+},
+
+{"description": "tfoot end-tag followed by text",
+ "input": [["EndTag", "tfoot"], ["Characters", "foo"]],
+ "expected": ["foo", "</tfoot>foo"]
+},
+
+{"description": "tfoot end-tag followed by start-tag",
+ "input": [["EndTag", "tfoot"], ["StartTag", "foo", {}]],
+ "expected": ["<foo>", "</tfoot><foo>"]
+},
+
+{"description": "tfoot end-tag followed by tbody start-tag",
+ "input": [["EndTag", "tfoot"], ["StartTag", "tbody", {}]],
+ "expected": ["<tbody>", "</tfoot>", "</tfoot><tbody>"]
+},
+
+{"description": "tfoot end-tag followed by end-tag",
+ "input": [["EndTag", "tfoot"], ["EndTag", "foo", {}]],
+ "expected": ["</foo>", "</tfoot></foo>"]
+},
+
+{"description": "tfoot end-tag at EOF",
+ "input": [["EndTag", "tfoot"]],
+ "expected": ["", "</tfoot>"]
+},
+
+
+
+
+{"description": "tr end-tag followed by comment",
+ "input": [["EndTag", "tr"], ["Comment", "foo"]],
+ "expected": ["</tr><!--foo-->"]
+},
+
+{"description": "tr end-tag followed by space character",
+ "input": [["EndTag", "tr"], ["Characters", " foo"]],
+ "expected": ["</tr> foo"]
+},
+
+{"description": "tr end-tag followed by text",
+ "input": [["EndTag", "tr"], ["Characters", "foo"]],
+ "expected": ["foo", "</tr>foo"]
+},
+
+{"description": "tr end-tag followed by start-tag",
+ "input": [["EndTag", "tr"], ["StartTag", "foo", {}]],
+ "expected": ["<foo>", "</tr><foo>"]
+},
+
+{"description": "tr end-tag followed by tr start-tag",
+ "input": [["EndTag", "tr"], ["StartTag", "tr", {}]],
+ "expected": ["<tr>", "</tr>", "</tr><tr>"]
+},
+
+{"description": "tr end-tag followed by end-tag",
+ "input": [["EndTag", "tr"], ["EndTag", "foo", {}]],
+ "expected": ["</foo>", "</tr></foo>"]
+},
+
+{"description": "tr end-tag at EOF",
+ "input": [["EndTag", "tr"]],
+ "expected": ["", "</tr>"]
+},
+
+
+
+
+{"description": "td end-tag followed by comment",
+ "input": [["EndTag", "td"], ["Comment", "foo"]],
+ "expected": ["</td><!--foo-->"]
+},
+
+{"description": "td end-tag followed by space character",
+ "input": [["EndTag", "td"], ["Characters", " foo"]],
+ "expected": ["</td> foo"]
+},
+
+{"description": "td end-tag followed by text",
+ "input": [["EndTag", "td"], ["Characters", "foo"]],
+ "expected": ["foo", "</td>foo"]
+},
+
+{"description": "td end-tag followed by start-tag",
+ "input": [["EndTag", "td"], ["StartTag", "foo", {}]],
+ "expected": ["<foo>", "</td><foo>"]
+},
+
+{"description": "td end-tag followed by td start-tag",
+ "input": [["EndTag", "td"], ["StartTag", "td", {}]],
+ "expected": ["<td>", "</td>", "</td><td>"]
+},
+
+{"description": "td end-tag followed by th start-tag",
+ "input": [["EndTag", "td"], ["StartTag", "th", {}]],
+ "expected": ["<th>", "</td>", "</td><th>"]
+},
+
+{"description": "td end-tag followed by end-tag",
+ "input": [["EndTag", "td"], ["EndTag", "foo", {}]],
+ "expected": ["</foo>", "</td></foo>"]
+},
+
+{"description": "td end-tag at EOF",
+ "input": [["EndTag", "td"]],
+ "expected": ["", "</td>"]
+},
+
+
+
+
+{"description": "th end-tag followed by comment",
+ "input": [["EndTag", "th"], ["Comment", "foo"]],
+ "expected": ["</th><!--foo-->"]
+},
+
+{"description": "th end-tag followed by space character",
+ "input": [["EndTag", "th"], ["Characters", " foo"]],
+ "expected": ["</th> foo"]
+},
+
+{"description": "th end-tag followed by text",
+ "input": [["EndTag", "th"], ["Characters", "foo"]],
+ "expected": ["foo", "</th>foo"]
+},
+
+{"description": "th end-tag followed by start-tag",
+ "input": [["EndTag", "th"], ["StartTag", "foo", {}]],
+ "expected": ["<foo>", "</th><foo>"]
+},
+
+{"description": "th end-tag followed by th start-tag",
+ "input": [["EndTag", "th"], ["StartTag", "th", {}]],
+ "expected": ["<th>", "</th>", "</th><th>"]
+},
+
+{"description": "th end-tag followed by td start-tag",
+ "input": [["EndTag", "th"], ["StartTag", "td", {}]],
+ "expected": ["<td>", "</th>", "</th><td>"]
+},
+
+{"description": "th end-tag followed by end-tag",
+ "input": [["EndTag", "th"], ["EndTag", "foo", {}]],
+ "expected": ["</foo>", "</th></foo>"]
+},
+
+{"description": "th end-tag at EOF",
+ "input": [["EndTag", "th"]],
+ "expected": ["", "</th>"]
+}
 
 ]}

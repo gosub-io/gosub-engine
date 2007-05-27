@@ -40,6 +40,6 @@
  "options": {"minimize_boolean_attributes": false},
  "input": [["StartTag", "div", {"irrelevant": ""}]],
  "expected": ["<div irrelevant=\"\">"]
-},
+}
 
 ]}

@@ -133,6 +133,6 @@
 {"description": "doctype",
  "input": [["Doctype", "HTML"]],
  "expected": ["<!DOCTYPE HTML>"]
-},
+}
 
 ]}
