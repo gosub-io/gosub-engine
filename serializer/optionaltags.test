@@ -1,5 +1,12 @@
 {"tests": [
 
+{"description": "html start-tag followed by text, with attributes",
+ "input": [["StartTag", "html", {"lang": "en"}], ["Characters", "foo"]],
+ "expected": ["<html lang=en>foo"]
+},
+
+
+
 {"description": "html start-tag followed by comment",
  "input": [["StartTag", "html", {}], ["Comment", "foo"]],
  "expected": ["<html><!--foo-->"]
