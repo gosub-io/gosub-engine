@@ -2,7 +2,7 @@
 
 {"description": "proper attribute value escaping",
  "input": [["StartTag", "span", {"title": "test \"with\" &quot;"}]],
- "expected": ["<span title=\"test &quot;with&quot; &amp;quot;\">"]
+ "expected": ["<span title='test \"with\" &amp;quot;'>"]
 },
 
 {"description": "proper attribute value non-quoting",
@@ -22,12 +22,17 @@
 
 {"description": "proper attribute value quoting (with \")",
  "input": [["StartTag", "span", {"title": "foo\"bar"}]],
- "expected": ["<span title=\"foo&quot;bar\">"]
+ "expected": ["<span title='foo\"bar'>"]
 },
 
 {"description": "proper attribute value quoting (with ')",
  "input": [["StartTag", "span", {"title": "foo'bar"}]],
  "expected": ["<span title=\"foo'bar\">"]
+},
+
+{"description": "proper attribute value quoting (with both \" and ')",
+ "input": [["StartTag", "span", {"title": "foo'bar\"baz"}]],
+ "expected": ["<span title=\"foo'bar&quot;baz\">"]
 },
 
 {"description": "proper attribute value quoting (with space)",
@@ -58,61 +63,6 @@
 {"description": "proper attribute value quoting (with form feed)",
  "input": [["StartTag", "span", {"title": "foo\u000Cbar"}]],
  "expected": ["<span title=\"foo\u000Cbar\">"]
-},
-
-{"description": "proper attribute value escaping",
- "input": [["StartTag", "span", {"title": "test \"with\" &quot;"}]],
- "expected": ["<span title=\"test &quot;with&quot; &amp;quot;\">"]
-},
-
-{"description": "proper attribute value non-quoting",
- "input": [["StartTag", "span", {"title": "foo"}]],
- "expected": ["<span title=foo>"]
-},
-
-{"description": "proper attribute value quoting (with >)",
- "input": [["StartTag", "span", {"title": "foo>bar"}]],
- "expected": ["<span title=\"foo>bar\">"]
-},
-
-{"description": "proper attribute value quoting (with <)",
- "input": [["StartTag", "span", {"title": "foo<bar"}]],
- "expected": ["<span title=\"foo<bar\">"]
-},
-
-{"description": "proper attribute value quoting (with \")",
- "input": [["StartTag", "span", {"title": "foo\"bar"}]],
- "expected": ["<span title=\"foo&quot;bar\">"]
-},
-
-{"description": "proper attribute value quoting (with ')",
- "input": [["StartTag", "span", {"title": "foo'bar"}]],
- "expected": ["<span title=\"foo'bar\">"]
-},
-
-{"description": "proper attribute value quoting (with space)",
- "input": [["StartTag", "span", {"title": "foo bar"}]],
- "expected": ["<span title=\"foo bar\">"]
-},
-
-{"description": "proper attribute value quoting (with tag)",
- "input": [["StartTag", "span", {"title": "foo\tbar"}]],
- "expected": ["<span title=\"foo\tbar\">"]
-},
-
-{"description": "proper attribute value quoting (with LF)",
- "input": [["StartTag", "span", {"title": "foo\nbar"}]],
- "expected": ["<span title=\"foo\nbar\">"]
-},
-
-{"description": "proper attribute value quoting (with CR)",
- "input": [["StartTag", "span", {"title": "foo\rbar"}]],
- "expected": ["<span title=\"foo\rbar\">"]
-},
-
-{"description": "proper attribute value quoting (with linetab)",
- "input": [["StartTag", "span", {"title": "foo\u000Bbar"}]],
- "expected": ["<span title=\"foo\u000Bbar\">"]
 },
 
 {"description": "void element (as EmptyTag token)",
