@@ -707,12 +707,12 @@
 
 {"description": "tbody end-tag followed by text",
  "input": [["EndTag", "tbody"], ["Characters", "foo"]],
- "expected": ["foo"]
+ "expected": ["</tbody>foo"]
 },
 
 {"description": "tbody end-tag followed by start-tag",
  "input": [["EndTag", "tbody"], ["StartTag", "foo", {}]],
- "expected": ["<foo>"]
+ "expected": ["</tbody><foo>"]
 },
 
 {"description": "tbody end-tag followed by tbody start-tag",
@@ -750,12 +750,12 @@
 
 {"description": "tfoot end-tag followed by text",
  "input": [["EndTag", "tfoot"], ["Characters", "foo"]],
- "expected": ["foo"]
+ "expected": ["</tfoot>foo"]
 },
 
 {"description": "tfoot end-tag followed by start-tag",
  "input": [["EndTag", "tfoot"], ["StartTag", "foo", {}]],
- "expected": ["<foo>"]
+ "expected": ["</tfoot><foo>"]
 },
 
 {"description": "tfoot end-tag followed by tbody start-tag",
@@ -788,12 +788,12 @@
 
 {"description": "tr end-tag followed by text",
  "input": [["EndTag", "tr"], ["Characters", "foo"]],
- "expected": ["foo"]
+ "expected": ["</tr>foo"]
 },
 
 {"description": "tr end-tag followed by start-tag",
  "input": [["EndTag", "tr"], ["StartTag", "foo", {}]],
- "expected": ["<foo>"]
+ "expected": ["</tr><foo>"]
 },
 
 {"description": "tr end-tag followed by tr start-tag",
@@ -826,12 +826,12 @@
 
 {"description": "td end-tag followed by text",
  "input": [["EndTag", "td"], ["Characters", "foo"]],
- "expected": ["foo"]
+ "expected": ["</td>foo"]
 },
 
 {"description": "td end-tag followed by start-tag",
  "input": [["EndTag", "td"], ["StartTag", "foo", {}]],
- "expected": ["<foo>"]
+ "expected": ["</td><foo>"]
 },
 
 {"description": "td end-tag followed by td start-tag",
@@ -869,12 +869,12 @@
 
 {"description": "th end-tag followed by text",
  "input": [["EndTag", "th"], ["Characters", "foo"]],
- "expected": ["foo"]
+ "expected": ["</th>foo"]
 },
 
 {"description": "th end-tag followed by start-tag",
  "input": [["EndTag", "th"], ["StartTag", "foo", {}]],
- "expected": ["<foo>"]
+ "expected": ["</th><foo>"]
 },
 
 {"description": "th end-tag followed by th start-tag",
