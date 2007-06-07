@@ -169,3 +169,27 @@ y</pre></body></html>
 |     <title>
 |       "foo<span>bar</em><i>baz"
 |   <body>
+
+#data
+<!DOCTYPE html><textarea>
+</textarea>
+#errors
+#document
+| <!DOCTYPE HTML>
+| <html>
+|   <head>
+|   <body>
+|     <textarea>
+
+#data
+<!DOCTYPE html><textarea>
+
+foo</textarea><
+#errors
+#document
+| <!DOCTYPE HTML>
+| <html>
+|   <head>
+|   <body>
+|     <pre>
+|       "foo"
