@@ -184,12 +184,12 @@ y</pre></body></html>
 #data
 <!DOCTYPE html><textarea>
 
-foo</textarea><
+foo</textarea>
 #errors
 #document
 | <!DOCTYPE HTML>
 | <html>
 |   <head>
 |   <body>
-|     <pre>
+|     <textarea>
 |       "foo"
