@@ -193,3 +193,18 @@ foo</textarea>
 |   <body>
 |     <textarea>
 |       "foo"
+
+#data
+<!DOCTYPE html><html><head></head><body><ul><li><div><p><li></ul></body></html>
+#errors
+Missing end tag (div)
+#document
+| <!DOCTYPE HTML>
+| <html>
+|   <head>
+|   <body>
+|     <ul>
+|       <li>
+|         <div>
+|           <p>
+|       <li>
