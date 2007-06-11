@@ -22,7 +22,8 @@
     "name": "background_attribute",
     "input": "<div background=\"javascript:alert('XSS')\"></div>",
     "output": "<div/>",
-    "xhtml": "<div></div>"
+    "xhtml": "<div></div>",
+    "rexml": "<div></div>"
   },
 
   {
@@ -356,7 +357,7 @@
 
   {
     "name": "should_sanitize_tag_broken_up_by_null",
-    "input": "<scr\000ipt>alert(\"XSS\")</scr\000ipt>",
+    "input": "<scr\u0000ipt>alert(\"XSS\")</scr\u0000ipt>",
     "output": "&lt;scr\ufffdipt&gt;alert(\"XSS\")&lt;/scr\ufffdipt&gt;",
     "rexml": "Ill-formed XHTML!"
   },
