@@ -40,7 +40,7 @@
  "expected": ["<span title=\"foo bar\">"]
 },
 
-{"description": "proper attribute value quoting (with tag)",
+{"description": "proper attribute value quoting (with tab)",
  "input": [["StartTag", "span", {"title": "foo\tbar"}]],
  "expected": ["<span title=\"foo\tbar\">"]
 },
