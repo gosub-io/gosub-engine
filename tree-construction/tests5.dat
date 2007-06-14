@@ -1,0 +1,107 @@
+#data
+<style> <!-- </style>x
+#errors
+No DOCTYPE
+Unexpected end of file
+#document
+| <html>
+|   <head>
+|     <style>
+|       " <!-- </style>x"
+|   <body>
+
+#data
+<style> <!-- </style> --> </style>x
+#errors
+No DOCTYPE
+#document
+| <html>
+|   <head>
+|     <style>
+|       " <!-- </style> --> "
+|   <body>
+|     "x"
+
+#data
+<style> <!--> </style>x
+#errors
+No DOCTYPE
+#document
+| <html>
+|   <head>
+|     <style>
+|       " <!--> "
+|   <body>
+|     "x"
+
+#data
+<style> <!---> </style>x
+#errors
+No DOCTYPE
+#document
+| <html>
+|   <head>
+|     <style>
+|       " <!---> "
+|   <body>
+|     "x"
+
+#data
+<iframe> <!---> </iframe>x
+#errors
+No DOCTYPE
+#document
+| <html>
+|   <head>
+|   <body>
+|     <iframe>
+|       " <!---> "
+|     "x"
+
+#data
+<iframe> <!--- </iframe>->x</iframe> --> </iframe>x
+#errors
+No DOCTYPE
+#document
+| <html>
+|   <head>
+|   <body>
+|     <iframe>
+|       " <!--- </iframe>->x</iframe> --> "
+|     "x"
+
+#data
+<script> <!-- </script> --> </script>x
+#errors
+No DOCTYPE
+#document
+| <html>
+|   <head>
+|     <script>
+|       " <!-- </script> --> "
+|   <body>
+|     "x"
+
+#data
+<title> <!-- </title> --> </title>x
+#errors
+No DOCTYPE
+#document
+| <html>
+|   <head>
+|     <title>
+|       " <!-- </title> --> "
+|   <body>
+|     "x"
+
+#data
+<textarea> <!--- </textarea>->x</textarea> --> </textarea>x
+#errors
+No DOCTYPE
+#document
+| <html>
+|   <head>
+|   <body>
+|     <textarea>
+|       " <!--- </textarea>->x</textarea> --> "
+|     "x"
