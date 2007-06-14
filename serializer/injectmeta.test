@@ -1,0 +1,39 @@
+{"tests": [
+
+{"description": "no encoding",
+ "options": {"inject_meta_charset": true},
+ "input": [["EmptyTag", "head", {}]],
+ "expected": ["<head>"]
+},
+
+{"description": "empytag head",
+ "options": {"inject_meta_charset": true, "encoding":"utf-8"},
+ "input": [["EmptyTag", "head", {}]],
+ "expected": ["<head><meta charset=utf-8>"]
+},
+
+{"description": "head w/title",
+ "options": {"inject_meta_charset": true, "encoding":"utf-8"},
+ "input": [["StartTag", "head", {}], ["StartTag","title",{}], ["Characters", "foo"],["EndTag", "title"], ["EndTag", "head"]],
+ "expected": ["<head><meta charset=utf-8><title>foo</title>"]
+},
+
+{"description": "head w/meta-charset",
+ "options": {"inject_meta_charset": true, "encoding":"utf-8"},
+ "input": [["StartTag", "head", {}], ["EmptyTag","meta",{"charset":"ascii"}], ["EndTag", "head"]],
+ "expected": ["<head><meta charset=utf-8>"]
+},
+
+{"description": "head w/robots",
+ "options": {"inject_meta_charset": true, "encoding":"utf-8"},
+ "input": [["StartTag", "head", {}], ["EmptyTag","meta",{"name":"robots","content":"noindex"}], ["EndTag", "head"]],
+ "expected": ["<head><meta charset=utf-8><meta content=noindex name=robots>"]
+},
+
+{"description": "head w/robots & charset",
+ "options": {"inject_meta_charset": true, "encoding":"utf-8"},
+ "input": [["StartTag", "head", {}], ["EmptyTag","meta",{"name":"robots","content":"noindex"}], ["EmptyTag","meta",{"charset":"ascii"}], ["EndTag", "head"]],
+ "expected": ["<head><meta content=noindex name=robots><meta charset=utf-8>"]
+}
+
+]}
