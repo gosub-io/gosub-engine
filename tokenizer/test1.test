@@ -90,11 +90,11 @@
 
 {"description":"Unfinished entity",
 "input":"&f",
-"output":["ParseError", ["Character", "&"], ["Character", "f"]]},
+"output":["ParseError", ["Character", "&f"]]},
 
 {"description":"Ampersand, number sign",
 "input":"&#",
-"output":["ParseError", ["Character", "&"], ["Character", "#"]]},
+"output":["ParseError", ["Character", "&#"]]},
 
 {"description":"Unfinished numeric entity",
 "input":"&#x",
@@ -110,8 +110,7 @@
 
 {"description":"Entity without trailing semicolon (1)",
 "input":"I'm &notit",
-"output":[["Character","I'm "], "ParseError", ["Character", "¬"],
-["Character", "it"]]},
+"output":[["Character","I'm "], "ParseError", ["Character", "¬it"]]},
 
 {"description":"Entity without trailing semicolon (2)",
 "input":"I'm &notin",
