@@ -58,7 +58,7 @@
 
 {"description":"StartTag containing <",
 "input":"<a<b>",
-"output":["ParseError", ["StartTag", "a", { }], ["StartTag", "b", { }]]},
+"output":[["StartTag", "a<b", { }]]},
 
 {"description":"Non-void element containing trailing /",
 "input":"<h/>",

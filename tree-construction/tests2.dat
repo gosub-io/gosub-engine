@@ -199,15 +199,12 @@ Unexpected < in attribute
 End tag contains attributes.
 Unexpected end tag.
 Named entity didn't end with ;
-Unexpected EOF. Missing closing tag.
 #document
 | <!DOCTYPE HTML>
 | <html>
 |   <head>
 |   <body>
-|     <b>
-|       &="&"
-|       "X"
+|     "X"
 
 #data
 <!doctypehtml><scrIPt type=text/x-foobar;baz>X</SCRipt
