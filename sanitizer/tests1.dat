@@ -48,14 +48,14 @@
   {
     "name": "double_open_angle_brackets",
     "input": "<img src=http://ha.ckers.org/scriptlet.html <",
-    "output": "<img src='http://ha.ckers.org/scriptlet.html'/>&lt;",
+    "output": "<img src='http://ha.ckers.org/scriptlet.html'/>",
     "rexml": "Ill-formed XHTML!"
   },
 
   {
     "name": "double_open_angle_brackets_2",
     "input": "<script src=http://ha.ckers.org/scriptlet.html <",
-    "output": "&lt;script src=\"http://ha.ckers.org/scriptlet.html\"&gt;&lt;",
+    "output": "&lt;script src=\"http://ha.ckers.org/scriptlet.html\" &lt;=\"\"&gt;",
     "rexml": "Ill-formed XHTML!"
   },
 
@@ -110,7 +110,7 @@
   {
     "name": "no_closing_script_tags",
     "input": "<script src=http://ha.ckers.org/xss.js?<b>",
-    "output": "&lt;script src=\"http://ha.ckers.org/xss.js?\"&gt;<b/>",
+    "output": "&lt;script src=\"http://ha.ckers.org/xss.js?&amp;lt;b\"&gt;",
     "rexml": "Ill-formed XHTML!"
   },
 
@@ -351,7 +351,7 @@
   {
     "name": "should_sanitize_script_tag_with_multiple_open_brackets_2",
     "input": "<iframe src=http://ha.ckers.org/scriptlet.html\n<",
-    "output": "&lt;iframe src=\"http://ha.ckers.org/scriptlet.html\"&gt;&lt;",
+    "output": "&lt;iframe src=\"http://ha.ckers.org/scriptlet.html\" &lt;=\"\"&gt;",
     "rexml": "Ill-formed XHTML!"
   },
 
@@ -365,7 +365,7 @@
   {
     "name": "should_sanitize_unclosed_script",
     "input": "<script src=http://ha.ckers.org/xss.js?<b>",
-    "output": "&lt;script src=\"http://ha.ckers.org/xss.js?\"&gt;<b/>",
+    "output": "&lt;script src=\"http://ha.ckers.org/xss.js?&amp;lt;b\"&gt;",
     "rexml": "Ill-formed XHTML!"
   },
 
