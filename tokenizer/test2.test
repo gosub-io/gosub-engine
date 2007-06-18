@@ -38,7 +38,7 @@
 
 {"description":"Incomplete doctype",
 "input":"<!DOCTYPE html ",
-"output":["ParseError", ["DOCTYPE", "html", None, None, false]]},
+"output":["ParseError", ["DOCTYPE", "html", null, null, false]]},
 
 {"description":"Numeric entity representing the NUL character",
 "input":"&#0000;",
