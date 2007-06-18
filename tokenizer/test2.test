@@ -2,23 +2,23 @@
 
 {"description":"Doctype without a name",
 "input":"<!DOCTYPE>",
-"output":["ParseError", "ParseError", ["DOCTYPE", "", true]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "", null, null, false]]},
 
 {"description":"Correct doctype without a space before name",
 "input":"<!DOCTYPEhtml>",
-"output":["ParseError", ["DOCTYPE", "html", false]]},
+"output":["ParseError", ["DOCTYPE", "html", null, null, true]]},
 
 {"description":"Incorrect doctype without a space before name",
 "input":"<!DOCTYPEfoo>",
-"output":["ParseError", ["DOCTYPE", "foo", true]]},
+"output":["ParseError", ["DOCTYPE", "foo", null, null, true]]},
 
 {"description":"Bogus doctype",
 "input":"<!DOCTYPE html PUBLIC \"-//W3C//DTD HTML Transitional 4.01//EN\">",
-"output":["ParseError", ["DOCTYPE", "html", true]]},
+"output":["ParseError", ["DOCTYPE", "html", "-//W3C//DTD HTML Transitional 4.01//EN", None, true]]},
 
 {"description":"Incomplete doctype",
 "input":"<!DOCTYPE html ",
-"output":["ParseError", ["DOCTYPE", "html", true]]},
+"output":["ParseError", ["DOCTYPE", "html", None, None, false]]},
 
 {"description":"Numeric entity representing the NUL character",
 "input":"&#0000;",
