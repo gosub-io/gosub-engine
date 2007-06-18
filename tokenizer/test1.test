@@ -2,7 +2,7 @@
 
 {"description":"Correct Doctype lowercase",
 "input":"<!DOCTYPE html>",
-"output":[["DOCTYPE", "HTML", false]]},
+"output":[["DOCTYPE", "html", false]]},
 
 {"description":"Correct Doctype uppercase",
 "input":"<!DOCTYPE HTML>", 
@@ -10,7 +10,7 @@
 
 {"description":"Correct Doctype mixed case",
 "input":"<!DOCTYPE HtMl>", 
-"output":[["DOCTYPE", "HTML", false]]},
+"output":[["DOCTYPE", "HtMl", false]]},
 
 {"description":"Truncated doctype start",
 "input":"<!DOC>", 
@@ -18,7 +18,7 @@
 
 {"description":"Doctype in error",
 "input":"<!DOCTYPE foo>", 
-"output":[["DOCTYPE", "FOO", true]]},
+"output":[["DOCTYPE", "foo", true]]},
 
 {"description":"Single Start Tag",
 "input":"<h>",

@@ -49,23 +49,23 @@ No DOCTYPE
 |     <script>
 
 #data
-<!DOCTYPE html><html><head></head><body><pre>
+<!DOCTYPE htML><html><head></head><body><pre>
 </pre></body></html>
 #errors
 #document
-| <!DOCTYPE HTML>
+| <!DOCTYPE htML>
 | <html>
 |   <head>
 |   <body>
 |     <pre>
 
 #data
-<!DOCTYPE html><html><head></head><body><pre>
+<!DOCTYPE htML><html><head></head><body><pre>
 
 foo</pre></body></html>
 #errors
 #document
-| <!DOCTYPE HTML>
+| <!DOCTYPE htML>
 | <html>
 |   <head>
 |   <body>
@@ -74,13 +74,13 @@ foo</pre></body></html>
 
 
 #data
-<!DOCTYPE html><html><head></head><body><pre>
+<!DOCTYPE htML><html><head></head><body><pre>
 
 foo
 </pre></body></html>
 #errors
 #document
-| <!DOCTYPE HTML>
+| <!DOCTYPE htML>
 | <html>
 |   <head>
 |   <body>
@@ -89,11 +89,11 @@ foo
 "
 
 #data
-<!DOCTYPE html><html><head></head><body><pre>x</pre><span>
+<!DOCTYPE htML><html><head></head><body><pre>x</pre><span>
 </span></body></html>
 #errors
 #document
-| <!DOCTYPE HTML>
+| <!DOCTYPE htML>
 | <html>
 |   <head>
 |   <body>
@@ -104,11 +104,11 @@ foo
 "
 
 #data
-<!DOCTYPE html><html><head></head><body><pre>x
+<!DOCTYPE htML><html><head></head><body><pre>x
 y</pre></body></html>
 #errors
 #document
-| <!DOCTYPE HTML>
+| <!DOCTYPE htML>
 | <html>
 |   <head>
 |   <body>
@@ -117,11 +117,11 @@ y</pre></body></html>
 y"
 
 #data
-<!DOCTYPE html><html><head></head><body><pre>x<div>
+<!DOCTYPE htML><html><head></head><body><pre>x<div>
 y</pre></body></html>
 #errors
 #document
-| <!DOCTYPE HTML>
+| <!DOCTYPE htML>
 | <html>
 |   <head>
 |   <body>
@@ -132,20 +132,20 @@ y</pre></body></html>
 | y"
 
 #data
-<!DOCTYPE html><HTML><META><HEAD></HEAD></HTML>
+<!DOCTYPE htML><HTML><META><HEAD></HEAD></HTML>
 #errors
 #document
-| <!DOCTYPE HTML>
+| <!DOCTYPE htML>
 | <html>
 |   <head>
 |     <meta>
 |   <body>
 
 #data
-<!DOCTYPE html><HTML><HEAD><head></HEAD></HTML>
+<!DOCTYPE htML><HTML><HEAD><head></HEAD></HTML>
 #errors
 #document
-| <!DOCTYPE HTML>
+| <!DOCTYPE htML>
 | <html>
 |   <head>
 |   <body>
@@ -171,23 +171,23 @@ y</pre></body></html>
 |   <body>
 
 #data
-<!DOCTYPE html><textarea>
+<!DOCTYPE htML><textarea>
 </textarea>
 #errors
 #document
-| <!DOCTYPE HTML>
+| <!DOCTYPE htML>
 | <html>
 |   <head>
 |   <body>
 |     <textarea>
 
 #data
-<!DOCTYPE html><textarea>
+<!DOCTYPE htML><textarea>
 
 foo</textarea>
 #errors
 #document
-| <!DOCTYPE HTML>
+| <!DOCTYPE htML>
 | <html>
 |   <head>
 |   <body>
@@ -195,11 +195,11 @@ foo</textarea>
 |       "foo"
 
 #data
-<!DOCTYPE html><html><head></head><body><ul><li><div><p><li></ul></body></html>
+<!DOCTYPE htML><html><head></head><body><ul><li><div><p><li></ul></body></html>
 #errors
 Missing end tag (div)
 #document
-| <!DOCTYPE HTML>
+| <!DOCTYPE htML>
 | <html>
 |   <head>
 |   <body>

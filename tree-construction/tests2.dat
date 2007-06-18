@@ -1,5 +1,5 @@
 #data
-<!doctype html>Test
+<!DOCTYPE HTML>Test
 #errors
 #document
 | <!DOCTYPE HTML>
@@ -63,7 +63,7 @@ frame element can't occur here
 |     "test"
 
 #data
-<!doctype html><frameset>test
+<!DOCTYPE HTML><frameset>test
 #errors
 frameset can't contain text
 Unexpected end of file
@@ -74,7 +74,7 @@ Unexpected end of file
 |   <frameset>
 
 #data
-<!doctype html><frameset><!doctype html>
+<!DOCTYPE HTML><frameset><!DOCTYPE HTML>
 #errors
 document type declaration can only occur at the start of a document
 Expected end tag </frameset>
@@ -85,7 +85,7 @@ Expected end tag </frameset>
 |   <frameset>
 
 #data
-<!doctype html><font><p><b>test</font>
+<!DOCTYPE HTML><font><p><b>test</font>
 #errors
 #document
 | <!DOCTYPE HTML>
@@ -99,7 +99,7 @@ Expected end tag </frameset>
 |           "test"
 
 #data
-<!DOCTYPE htmL><dt><div><dd>
+<!DOCTYPE HTML><dt><div><dd>
 #errors
 #document
 | <!DOCTYPE HTML>
@@ -151,7 +151,7 @@ Unexpected end of file.
 |       "</plaintext>"
 
 #data
-<!doctype html><table><tr>TEST
+<!DOCTYPE HTML><table><tr>TEST
 #errors
 TEST can't occur in <tr>
 Unexpected end of file.
@@ -166,7 +166,7 @@ Unexpected end of file.
 |         <tr>
 
 #data
-<!doctype html><body t1=1><body t2=2><body t3=3 t4=4>
+<!DOCTYPE HTML><body t1=1><body t2=2><body t3=3 t4=4>
 #errors
 Unexpected start tag "body"
 Unexpected start tag "body"
@@ -193,7 +193,7 @@ Unexpected end tag.
 |   <body>
 
 #data
-<!doctype HtML></b test<b &=&amp>X
+<!DOCTYPE HTML></b test<b &=&amp>X
 #errors
 Unexpected < in attribute
 End tag contains attributes.
@@ -212,7 +212,7 @@ Named entity didn't end with ;
 No space after literal DOCTYPE.
 Unexpected EOF in (end) tag name
 #document
-| <!DOCTYPE HTML>
+| <!DOCTYPE html>
 | <html>
 |   <head>
 |     <script>
@@ -291,7 +291,7 @@ Unfinished named entity.
 #errors
 No space after literal DOCTYPE.
 #document
-| <!DOCTYPE HTML>
+| <!DOCTYPE html>
 | <html>
 |   <head>
 |   <body>
@@ -299,7 +299,7 @@ No space after literal DOCTYPE.
 |     <li>
 
 #data
-<!doctypehtml><p><dt>
+<!doctypeHTML><p><dt>
 #errors
 No space after literal DOCTYPE.
 #document
@@ -311,11 +311,11 @@ No space after literal DOCTYPE.
 |     <dt>
 
 #data
-<!doctypehtml><p><dd>
+<!doctypehtmL><p><dd>
 #errors
 No space after literal DOCTYPE.
 #document
-| <!DOCTYPE HTML>
+| <!DOCTYPE htmL>
 | <html>
 |   <head>
 |   <body>
@@ -328,7 +328,7 @@ No space after literal DOCTYPE.
 No space after literal DOCTYPE.
 Unexpected EOF.
 #document
-| <!DOCTYPE HTML>
+| <!DOCTYPE html>
 | <html>
 |   <head>
 |   <body>
@@ -336,7 +336,7 @@ Unexpected EOF.
 |     <form>
 
 #data
-<!doctype html><p><b><i><u></p> <p>X
+<!DOCTYPE HTML><p><b><i><u></p> <p>X
 #errors
 Unexpected end tag </p>.
 Unexpected end EOF. Missing closing tags.
@@ -357,7 +357,7 @@ Unexpected end EOF. Missing closing tags.
 |             "X"
 
 #data
-<!doctype html><p></P>X
+<!DOCTYPE HTML><p></P>X
 #errors
 #document
 | <!DOCTYPE HTML>
@@ -390,7 +390,7 @@ Invalid entity.
 |     "&AMp;"
 
 #data
-<!doctype html><html><head></head><body><thisISasillyTESTelementNameToMakeSureCrazyTagNamesArePARSEDcorrectLY>
+<!DOCTYPE HTML><html><head></head><body><thisISasillyTESTelementNameToMakeSureCrazyTagNamesArePARSEDcorrectLY>
 #errors
 Unexpected end of file.
 #document
@@ -401,7 +401,7 @@ Unexpected end of file.
 |     <thisisasillytestelementnametomakesurecrazytagnamesareparsedcorrectly>
 
 #data
-<!doctype html>X</body>X
+<!DOCTYPE HTML>X</body>X
 #errors
 Unexpected non-space characters in the after body phase.
 #document
@@ -412,7 +412,7 @@ Unexpected non-space characters in the after body phase.
 |     "XX"
 
 #data
-<!doctype html><!-- X
+<!DOCTYPE HTML><!-- X
 #errors
 Unexpected end of file in comment.
 #document
@@ -423,7 +423,7 @@ Unexpected end of file in comment.
 |   <body>
 
 #data
-<!doctype html><table><caption>test TEST</caption><td>test
+<!DOCTYPE HTML><table><caption>test TEST</caption><td>test
 #errors
 Unexpected <td> in table body phase.
 Unexpected end of file.
@@ -441,7 +441,7 @@ Unexpected end of file.
 |             "test"
 
 #data
-<!doctype html><select><option><optgroup>
+<!DOCTYPE HTML><select><option><optgroup>
 #errors
 Unexpected end of file. Missing closing tags.
 #document
@@ -454,7 +454,7 @@ Unexpected end of file. Missing closing tags.
 |       <optgroup>
 
 #data
-<!doctype html><select><optgroup><option></optgroup><option><select><option>
+<!DOCTYPE HTML><select><optgroup><option></optgroup><option><select><option>
 #errors
 Unexpected start tag <select> in <select>.
 Unexpected start tag <option>.
@@ -469,7 +469,7 @@ Unexpected start tag <option>.
 |       <option>
 
 #data
-<!doctype html><select><optgroup><option><optgroup>
+<!DOCTYPE HTML><select><optgroup><option><optgroup>
 #errors
 Unexpected end of file. Missing closing tags.
 #document
@@ -483,7 +483,7 @@ Unexpected end of file. Missing closing tags.
 |       <optgroup>
 
 #data
-<!doctype html><font><input><input></font>
+<!DOCTYPE HTML><font><input><input></font>
 #errors
 #document
 | <!DOCTYPE HTML>
@@ -495,7 +495,7 @@ Unexpected end of file. Missing closing tags.
 |       <input>
 
 #data
-<!DoctypE html><!-- XXX - XXX -->
+<!DOCTYPE HTML><!-- XXX - XXX -->
 #errors
 #document
 | <!DOCTYPE HTML>
@@ -505,7 +505,7 @@ Unexpected end of file. Missing closing tags.
 |   <body>
 
 #data
-<!DoctypE html><!-- XXX - XXX
+<!DOCTYPE HTML><!-- XXX - XXX
 #errors
 Unexpected EOF in comment.
 #document
@@ -516,7 +516,7 @@ Unexpected EOF in comment.
 |   <body>
 
 #data
-<!DoctypE html><!-- XXX - XXX - XXX -->
+<!DOCTYPE HTML><!-- XXX - XXX - XXX -->
 #errors
 #document
 | <!DOCTYPE HTML>
@@ -580,7 +580,7 @@ Unexpected EOF.
 |             "X"
 
 #data
-<!doctype html><body><title>test</body></title>
+<!DOCTYPE HTML><body><title>test</body></title>
 #errors
 Unexpected start tag that belongs in the head.
 Expected closing tag after </.
@@ -593,7 +593,7 @@ Expected closing tag after </.
 |   <body>
 
 #data
-<!doctype html><body><title>X</title><meta name=z><link rel=foo><style>
+<!DOCTYPE HTML><body><title>X</title><meta name=z><link rel=foo><style>
 x { content:"</style" } </style>
 #errors
 Unexpected start tag that belongs in head.
@@ -616,7 +616,7 @@ Expected closing tag after </.
 x { content:"</style" } "
 
 #data
-<!doctype html><select><optgroup></optgroup></select>
+<!DOCTYPE HTML><select><optgroup></optgroup></select>
 #errors
 #document
 | <!DOCTYPE HTML>
@@ -639,7 +639,7 @@ No doctype.
 |   <body>
 
 #data
-<!doctype html>  <html>
+<!DOCTYPE HTML>  <html>
 #errors
 #document
 | <!DOCTYPE HTML>
@@ -649,7 +649,7 @@ No doctype.
 |   <body>
 
 #data
-<!doctype html><script>
+<!DOCTYPE HTML><script>
 </script>  <title>x</title>  </head>
 #errors
 #document
@@ -666,7 +666,7 @@ No doctype.
 |   <body>
 
 #data
-<!doctype html><html><body><html id=x>
+<!DOCTYPE HTML><html><body><html id=x>
 #errors
 duplicate html start tag
 #document
@@ -677,7 +677,7 @@ duplicate html start tag
 |   <body>
 
 #data
-<!doctype html>X</body><html id="x">
+<!DOCTYPE HTML>X</body><html id="x">
 #errors
 Unexpected html start tag in the after body phase.
 html needs to be the first start tag.
@@ -690,7 +690,7 @@ html needs to be the first start tag.
 |     "X"
 
 #data
-<!doctype html><head><html id=x>
+<!DOCTYPE HTML><head><html id=x>
 #errors
 html start tag too late
 #document
@@ -701,7 +701,7 @@ html start tag too late
 |   <body>
 
 #data
-<!doctype html>X</html>X
+<!DOCTYPE HTML>X</html>X
 #errors
 Unexpected non-space characters. Expected end of file.
 Unexpected non-space characters in after body phase. Expected end of file.
@@ -713,7 +713,7 @@ Unexpected non-space characters in after body phase. Expected end of file.
 |     "XX"
 
 #data
-<!doctype html>X</html> 
+<!DOCTYPE HTML>X</html> 
 #errors
 #document
 | <!DOCTYPE HTML>
@@ -723,7 +723,7 @@ Unexpected non-space characters in after body phase. Expected end of file.
 |     "X "
 
 #data
-<!doctype html>X</html><p>X
+<!DOCTYPE HTML>X</html><p>X
 #errors
 Unexpected start tag <p> in trailing end phase.
 Unexpected start tag <p> in after body phase.
@@ -737,7 +737,7 @@ Unexpected start tag <p> in after body phase.
 |       "X"
 
 #data
-<!doctype html>X<p/x/y/z>
+<!DOCTYPE HTML>X<p/x/y/z>
 #errors
 Solidus (/) incorrectly placed.
 Solidus (/) incorrectly placed.
@@ -754,7 +754,7 @@ Solidus (/) incorrectly placed.
 |       z=""
 
 #data
-<!doctype html><!--x--
+<!DOCTYPE HTML><!--x--
 #errors
 Unexpected end of file in comment.
 #document
@@ -765,7 +765,7 @@ Unexpected end of file in comment.
 |   <body>
 
 #data
-<!doctype html><table><tr><td></p></table>
+<!DOCTYPE HTML><table><tr><td></p></table>
 #errors
 Unexpected </p> end tag.
 #document

@@ -6,19 +6,19 @@
 
 {"description":"Correct doctype without a space before name",
 "input":"<!DOCTYPEhtml>",
-"output":["ParseError", ["DOCTYPE", "HTML", false]]},
+"output":["ParseError", ["DOCTYPE", "html", false]]},
 
 {"description":"Incorrect doctype without a space before name",
 "input":"<!DOCTYPEfoo>",
-"output":["ParseError", ["DOCTYPE", "FOO", true]]},
+"output":["ParseError", ["DOCTYPE", "foo", true]]},
 
 {"description":"Bogus doctype",
 "input":"<!DOCTYPE html PUBLIC \"-//W3C//DTD HTML Transitional 4.01//EN\">",
-"output":["ParseError", ["DOCTYPE", "HTML", true]]},
+"output":["ParseError", ["DOCTYPE", "html", true]]},
 
 {"description":"Incomplete doctype",
 "input":"<!DOCTYPE html ",
-"output":["ParseError", ["DOCTYPE", "HTML", true]]},
+"output":["ParseError", ["DOCTYPE", "html", true]]},
 
 {"description":"Numeric entity representing the NUL character",
 "input":"&#0000;",
