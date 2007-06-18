@@ -1,20 +1,40 @@
 {"tests": [
 
-{"description":"Doctype without a name",
+{"description":"DOCTYPE without name",
 "input":"<!DOCTYPE>",
 "output":["ParseError", "ParseError", ["DOCTYPE", "", null, null, false]]},
 
-{"description":"Correct doctype without a space before name",
+{"description":"DOCTYPE without space before name",
 "input":"<!DOCTYPEhtml>",
 "output":["ParseError", ["DOCTYPE", "html", null, null, true]]},
 
-{"description":"Incorrect doctype without a space before name",
+{"description":"Incorrect DOCTYPE without a space before name",
 "input":"<!DOCTYPEfoo>",
 "output":["ParseError", ["DOCTYPE", "foo", null, null, true]]},
 
-{"description":"Bogus doctype",
+{"description":"DOCTYPE with publicId",
 "input":"<!DOCTYPE html PUBLIC \"-//W3C//DTD HTML Transitional 4.01//EN\">",
-"output":["ParseError", ["DOCTYPE", "html", "-//W3C//DTD HTML Transitional 4.01//EN", None, true]]},
+"output":[["DOCTYPE", "html", "-//W3C//DTD HTML Transitional 4.01//EN", null, true]]},
+
+{"description":"DOCTYPE with EOF after PUBLIC",
+"input":"<!DOCTYPE html PUBLIC",
+"output":["ParseError", ["DOCTYPE", "html", null, null, false]]},
+
+{"description":"DOCTYPE with EOF after PUBLIC '",
+"input":"<!DOCTYPE html PUBLIC '",
+"output":["ParseError", ["DOCTYPE", "html", "", null, false]]},
+
+{"description":"DOCTYPE with EOF after PUBLIC 'x",
+"input":"<!DOCTYPE html PUBLIC 'x",
+"output":["ParseError", ["DOCTYPE", "html", "x", null, false]]},
+
+{"description":"DOCTYPE with systemId",
+"input":"<!DOCTYPE html SYSTEM \"-//W3C//DTD HTML Transitional 4.01//EN\">",
+"output":[["DOCTYPE", "html", null, "-//W3C//DTD HTML Transitional 4.01//EN", true]]},
+
+{"description":"DOCTYPE with publicId and systemId",
+"input":"<!DOCTYPE html PUBLIC \"-//W3C//DTD HTML Transitional 4.01//EN\" \"-//W3C//DTD HTML Transitional 4.01//EN\">",
+"output":[["DOCTYPE", "html", "-//W3C//DTD HTML Transitional 4.01//EN", "-//W3C//DTD HTML Transitional 4.01//EN", true]]},
 
 {"description":"Incomplete doctype",
 "input":"<!DOCTYPE html ",
