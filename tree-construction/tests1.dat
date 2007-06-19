@@ -226,7 +226,6 @@ Line1<br>Line2<br>Line3<br>Line4
 <h1>Hello<h2>World
 #errors
 4: missing document type declaration
-13: h2 element start tag implying h1 element end tag
 19: mismatched body element end tag (premature end of file?)
 #document
 | <html>
@@ -234,8 +233,8 @@ Line1<br>Line2<br>Line3<br>Line4
 |   <body>
 |     <h1>
 |       "Hello"
-|     <h2>
-|       "World"
+|       <h2>
+|         "World"
 
 #data
 <a><p>X<a>Y</a>Z</p></a>
@@ -1428,14 +1427,13 @@ unexpected EOF
 <h1><h2>
 #errors
 4: missing document type declaration
-8: h2 element start tag implying h1 element end tag
 9: mismatched body element end tag (premature end of file?)
 #document
 | <html>
 |   <head>
 |   <body>
 |     <h1>
-|     <h2>
+|       <h2>
 
 #data
 <a><p><a></a></p></a>
@@ -1628,8 +1626,7 @@ unexpected EOF
 4: missing document type declaration
 15: required tr element start tag implied by unexpected td element start tag
 27: unexpected td element end tag implied other end tags
-31: h3 element start tag implying h1 element end tag
-36: mismatched h1 element end tag
+Unexpected EOF
 #document
 | <html>
 |   <head>
@@ -1640,7 +1637,7 @@ unexpected EOF
 |           <tr>
 |             <td>
 |               <h3>
-|     <h3>
+|       <h3>
 
 #data
 <table><colgroup><col><colgroup><col><col><col><colgroup><col><col><thead><tr><td></table>
