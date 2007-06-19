@@ -35,7 +35,7 @@
 
   {
     "name": "div_background_image_unicode_encoded",
-    "input": "<div style=\"background-image:\a5\a2\006C\0028'\006a\0061\a6\0061\a3\0063\a2\0069\a0\a4\003a\0061\006c\0065\a2\a4\0028.1027\0058.1053\0053\0027\0029'\0029\">foo</div>",
+    "input": "<div style=\"background-image:\u00a5\u00a2\u006C\u0028'\u006a\u0061\u00a6\u0061\u00a3\u0063\u00a2\u0069\u00a0\u00a4\u003a\u0061\u006c\u0065\u00a2\u00a4\u0028.1027\u0058.1053\u0053\u0027\u0029'\u0029\">foo</div>",
     "output": "<div style=''>foo</div>"
   },
 
@@ -123,7 +123,7 @@
 
   {
     "name": "non_alpha_non_digit_2",
-    "input": "<a onclick!\#$%&()*~+-_.,:;?@[/|\\]^`=alert(\"XSS\")>foo</a>",
+    "input": "<a onclick!\\#$%&()*~+-_.,:;?@[/|\\]^`=alert(\"XSS\")>foo</a>",
     "output": "<a>foo</a>",
     "rexml": "Ill-formed XHTML!"
   },
@@ -137,7 +137,7 @@
 
   {
     "name": "non_alpha_non_digit_II",
-    "input": "<a href!\#$%&()*~+-_.,:;?@[/|]^`=alert('XSS')>foo</a>",
+    "input": "<a href!\\#$%&()*~+-_.,:;?@[/|]^`=alert('XSS')>foo</a>",
     "output": "<a>foo</a>",
     "rexml": "Ill-formed XHTML!"
   },
