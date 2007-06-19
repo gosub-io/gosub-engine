@@ -638,10 +638,10 @@ Line1<br>Line2<br>Line3<br>Line4
 | <html>
 |   <head>
 |     <script>
-|       " <!-- "
+|       " <!-- </script> --> "
 |     " "
 |   <body>
-|     "-->  EOF"
+|     "EOF"
 
 #data
 <b><p></b>TEST
@@ -1248,15 +1248,13 @@ Line1<br>Line2<br>Line3<br>Line4
 #data
 <style><!--</style><meta><script>--><link></script>
 #errors
-7: missing document type declaration
+missing document type declaration
+unexpected EOF
 #document
 | <html>
 |   <head>
 |     <style>
-|       "<!--"
-|     <meta>
-|     <script>
-|       "--><link>"
+|       "<!--</style><meta><script>--><link></script>"
 |   <body>
 
 #data
