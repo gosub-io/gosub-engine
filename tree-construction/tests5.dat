@@ -105,3 +105,16 @@ No DOCTYPE
 |     <textarea>
 |       " <!--- </textarea>->x</textarea> --> "
 |     "x"
+
+#data
+<style> <!</-- </style>x
+#errors
+No DOCTYPE
+Unexpected end of file
+#document
+| <html>
+|   <head>
+|     <style>
+|       " <!</-- "
+|   <body>
+|     "x"
