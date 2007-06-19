@@ -15,7 +15,7 @@
 "contentModelFlags":["RCDATA", "CDATA"],
 "lastStartTag":"baz",
 "input":"</foo>bar</baz>",
-"output":["ParseError", ["Character", "</foo>bar"], ["EndTag", "baz"]]},
+"output":[["Character", "</foo>bar"], ["EndTag", "baz"]]},
 
 {"description":"End tag closing RCDATA or CDATA, switching back to PCDATA",
 "contentModelFlags":["RCDATA", "CDATA"],
