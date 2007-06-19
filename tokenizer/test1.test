@@ -84,6 +84,19 @@
 "input":"<!-",
 "output":["ParseError", ["Comment", "-"]]},
 
+{"description":"Short comment",
+ "input":"<!-->",
+ "output":["ParseError", ["Comment", ""]]},
+
+{"description":"Short comment two",
+ "input":"<!--->",
+ "output":["ParseError", ["Comment", ""]]},
+
+{"description":"Short comment three",
+ "input":"<!---->",
+ "output":[["Comment", ""]]},
+
+
 {"description":"Ampersand EOF",
 "input":"&",
 "output":[["Character", "&"]]},

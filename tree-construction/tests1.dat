@@ -306,13 +306,18 @@ Line1<br>Line2<br>Line3<br>Line4
 #data
 <!--><div>--<!-->
 #errors
-13: unexpected character after two '-' characters while parsing comment
-18: missing document type declaration
+Incorrect comment token
+Missing document type declaration
+Incorrect comment token
+Unexpected end of file
 #document
-| <!-- ><div>--<! -->
+| <!--  -->
 | <html>
 |   <head>
 |   <body>
+|     <div>
+|       "--"
+|       <!--  -->
 
 #data
 <p><hr></p>
