@@ -84,9 +84,17 @@
 "input":"<!-",
 "output":["ParseError", ["Comment", "-"]]},
 
-{"description":"Ampersand only",
+{"description":"Ampersand EOF",
 "input":"&",
-"output":["ParseError", ["Character", "&"]]},
+"output":[["Character", "&"]]},
+
+{"description":"Ampersand ampersand EOF",
+"input":"&&",
+"output":[["Character", "&&"]]},
+
+{"description":"Ampersand space EOF",
+"input":"& ",
+"output":[["Character", "& "]]},
 
 {"description":"Unfinished entity",
 "input":"&f",
