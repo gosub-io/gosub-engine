@@ -1,0 +1,29 @@
+#data
+<!doctype html></head> <head>
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   " "
+|   <body>
+
+#data
+<!doctype html></html> <head>
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     " "
+
+#data
+<!doctype html></body><meta>
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <meta>
