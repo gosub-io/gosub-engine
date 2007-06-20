@@ -208,3 +208,29 @@ Missing end tag (div)
 |         <div>
 |           <p>
 |       <li>
+
+#data
+<!doctype html><nobr><nobr><nobr>
+#errors
+Unexpected end of file.
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <nobr>
+|     <nobr>
+|     <nobr>
+
+#data
+<!doctype html><nobr><nobr></nobr><nobr>
+#errors
+Unexpected end of file.
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <nobr>
+|     <nobr>
+|     <nobr>
