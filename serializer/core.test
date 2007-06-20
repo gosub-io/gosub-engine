@@ -80,6 +80,17 @@
  "expected": ["<!DOCTYPE foo>"]
 },
 
+{"description": "character data",
+ "options": {"encoding":"utf-8"},
+ "input": [["Characters", "a<b>c&d"]],
+ "expected": ["a&lt;b&gt;c&amp;d"]
+},
+
+{"description": "rcdata",
+ "input": [["StartTag", "script", {}], ["Characters", "a<b>c&d"]],
+ "expected": ["<script>a<b>c&d"]
+},
+
 {"description": "doctype",
  "input": [["Doctype", "HTML"]],
  "expected": ["<!DOCTYPE HTML>"]
