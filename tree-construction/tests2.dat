@@ -606,11 +606,11 @@ Expected closing tag after </.
 |   <head>
 |     <title>
 |       "X"
+|   <body>
 |     <meta>
 |       name="z"
 |     <link>
 |       rel="foo"
-|   <body>
 |     <style>
 |       "
 x { content:"</style" } "

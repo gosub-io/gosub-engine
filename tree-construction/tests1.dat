@@ -1307,12 +1307,12 @@ unexpected EOF
 #document
 | <html>
 |   <head>
-|     <base>
-|     <link>
-|     <meta>
 |     <title>
 |       "<p>"
 |   <body>
+|     <base>
+|     <link>
+|     <meta>
 |     <p>
 
 #data
@@ -1383,12 +1383,11 @@ unexpected EOF
 6: missing document type declaration
 19: unexpected node at end of document
 19: unexpected node after body element end tag
-19: meta element start tag out of place
 #document
 | <html>
 |   <head>
-|     <meta>
 |   <body>
+|     <meta>
 |     <p>
 
 #data
