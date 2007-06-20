@@ -24,6 +24,12 @@
  "expected": ["<head><meta charset=utf-8>"]
 },
 
+{"description": "head w/ two meta-charset",
+ "options": {"inject_meta_charset": true, "encoding":"utf-8"},
+ "input": [["StartTag", "head", {}], ["EmptyTag","meta",{"charset":"ascii"}], ["EmptyTag","meta",{"charset":"ascii"}], ["EndTag", "head"]],
+ "expected": ["<head><meta charset=utf-8><meta charset=utf-8>", "<head><meta charset=utf-8><meta charset=ascii>"]
+},
+
 {"description": "head w/robots",
  "options": {"inject_meta_charset": true, "encoding":"utf-8"},
  "input": [["StartTag", "head", {}], ["EmptyTag","meta",{"name":"robots","content":"noindex"}], ["EndTag", "head"]],
@@ -34,6 +40,18 @@
  "options": {"inject_meta_charset": true, "encoding":"utf-8"},
  "input": [["StartTag", "head", {}], ["EmptyTag","meta",{"name":"robots","content":"noindex"}], ["EmptyTag","meta",{"charset":"ascii"}], ["EndTag", "head"]],
  "expected": ["<head><meta content=noindex name=robots><meta charset=utf-8>"]
+},
+
+{"description": "head w/ charset in http-equiv content-type",
+ "options": {"inject_meta_charset": true, "encoding":"utf-8"},
+ "input": [["StartTag", "head", {}], ["EmptyTag","meta",{"http-equiv":"content-type", "content":"text/html; charset=ascii"}], ["EndTag", "head"]],
+ "expected": ["<head><meta content=\"text/html; charset=utf-8\" http-equiv=content-type>"]
+},
+
+{"description": "head w/robots & charset in http-equiv content-type",
+ "options": {"inject_meta_charset": true, "encoding":"utf-8"},
+ "input": [["StartTag", "head", {}], ["EmptyTag","meta",{"name":"robots","content":"noindex"}], ["EmptyTag","meta",{"http-equiv":"content-type", "content":"text/html; charset=ascii"}], ["EndTag", "head"]],
+ "expected": ["<head><meta content=noindex name=robots><meta content=\"text/html; charset=utf-8\" http-equiv=content-type>"]
 }
 
 ]}
