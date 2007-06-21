@@ -50,19 +50,19 @@
 
 {"description":"Numeric entity representing a codepoint after 1114111 (U+10FFFF)",
 "input":"&#2225222;",
-"output":["ParseError", ["Character", "\uFFFD"]]},
+"output":[["Character", "\uFFFD"]]},
 
 {"description":"Hexadecimal entity representing a codepoint after 1114111 (U+10FFFF)",
 "input":"&#x1010FFFF;",
-"output":["ParseError", ["Character", "\uFFFD"]]},
+"output":[["Character", "\uFFFD"]]},
 
 {"description":"Numeric entity representing a Windows-1252 'codepoint'",
 "input":"&#137;",
-"output":[["Character", "\u2030"]]},
+"output":["ParseError", ["Character", "\u2030"]]},
 
 {"description":"Hexadecimal entity representing a Windows-1252 'codepoint'",
 "input":"&#x89;",
-"output":[["Character", "\u2030"]]},
+"output":["ParseError", ["Character", "\u2030"]]},
 
 {"description":"Hexadecimal entity with mixed uppercase and lowercase",
 "input":"&#xaBcD;",
