@@ -40,6 +40,12 @@
  "options": {"minimize_boolean_attributes": false},
  "input": [["StartTag", "div", {"irrelevant": ""}]],
  "expected": ["<div irrelevant=\"\">"]
+},
+
+{"description": "escape less than signs in attribute values",
+ "options": {"escape_lt_in_attrs": true},
+ "input": [["StartTag", "a", {"title": "a<b>c&d"}]],
+ "expected": ["<a title=\"a&lt;b>c&amp;d\">"]
 }
 
 ]}
