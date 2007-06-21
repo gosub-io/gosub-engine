@@ -9,49 +9,57 @@
 {"description": "empytag head",
  "options": {"inject_meta_charset": true, "encoding":"utf-8"},
  "input": [["EmptyTag", "head", {}]],
- "expected": ["<head><meta charset=utf-8>"]
+ "expected": ["<head><meta charset=utf-8>"],
+ "xhtml":    ["<head><meta charset=\"utf-8\" /></head>"]
 },
 
 {"description": "head w/title",
  "options": {"inject_meta_charset": true, "encoding":"utf-8"},
  "input": [["StartTag", "head", {}], ["StartTag","title",{}], ["Characters", "foo"],["EndTag", "title"], ["EndTag", "head"]],
- "expected": ["<head><meta charset=utf-8><title>foo</title>"]
+ "expected": ["<head><meta charset=utf-8><title>foo</title>"],
+ "xhtml":    ["<head><meta charset=\"utf-8\" /><title>foo</title></head>"]
 },
 
 {"description": "head w/meta-charset",
  "options": {"inject_meta_charset": true, "encoding":"utf-8"},
  "input": [["StartTag", "head", {}], ["EmptyTag","meta",{"charset":"ascii"}], ["EndTag", "head"]],
- "expected": ["<head><meta charset=utf-8>"]
+ "expected": ["<head><meta charset=utf-8>"],
+ "xhtml":    ["<head><meta charset=\"utf-8\" /></head>"]
 },
 
 {"description": "head w/ two meta-charset",
  "options": {"inject_meta_charset": true, "encoding":"utf-8"},
  "input": [["StartTag", "head", {}], ["EmptyTag","meta",{"charset":"ascii"}], ["EmptyTag","meta",{"charset":"ascii"}], ["EndTag", "head"]],
- "expected": ["<head><meta charset=utf-8><meta charset=utf-8>", "<head><meta charset=utf-8><meta charset=ascii>"]
+ "expected": ["<head><meta charset=utf-8><meta charset=utf-8>", "<head><meta charset=utf-8><meta charset=ascii>"],
+ "xhtml": ["<head><meta charset=\"utf-8\" /><meta charset=\"utf-8\" /></head>", "<head><meta charset=\"utf-8\" /><meta charset=\"ascii\" /></head>"]
 },
 
 {"description": "head w/robots",
  "options": {"inject_meta_charset": true, "encoding":"utf-8"},
  "input": [["StartTag", "head", {}], ["EmptyTag","meta",{"name":"robots","content":"noindex"}], ["EndTag", "head"]],
- "expected": ["<head><meta charset=utf-8><meta content=noindex name=robots>"]
+ "expected": ["<head><meta charset=utf-8><meta content=noindex name=robots>"],
+ "xhtml":    ["<head><meta charset=\"utf-8\" /><meta content=\"noindex\" name=\"robots\" /></head>"]
 },
 
 {"description": "head w/robots & charset",
  "options": {"inject_meta_charset": true, "encoding":"utf-8"},
  "input": [["StartTag", "head", {}], ["EmptyTag","meta",{"name":"robots","content":"noindex"}], ["EmptyTag","meta",{"charset":"ascii"}], ["EndTag", "head"]],
- "expected": ["<head><meta content=noindex name=robots><meta charset=utf-8>"]
+ "expected": ["<head><meta content=noindex name=robots><meta charset=utf-8>"],
+ "xhtml":    ["<head><meta content=\"noindex\" name=\"robots\" /><meta charset=\"utf-8\" /></head>"]
 },
 
 {"description": "head w/ charset in http-equiv content-type",
  "options": {"inject_meta_charset": true, "encoding":"utf-8"},
  "input": [["StartTag", "head", {}], ["EmptyTag","meta",{"http-equiv":"content-type", "content":"text/html; charset=ascii"}], ["EndTag", "head"]],
- "expected": ["<head><meta content=\"text/html; charset=utf-8\" http-equiv=content-type>"]
+ "expected": ["<head><meta content=\"text/html; charset=utf-8\" http-equiv=content-type>"],
+ "xhtml":    ["<head><meta content=\"text/html; charset=utf-8\" http-equiv=\"content-type\" /></head>"]
 },
 
 {"description": "head w/robots & charset in http-equiv content-type",
  "options": {"inject_meta_charset": true, "encoding":"utf-8"},
  "input": [["StartTag", "head", {}], ["EmptyTag","meta",{"name":"robots","content":"noindex"}], ["EmptyTag","meta",{"http-equiv":"content-type", "content":"text/html; charset=ascii"}], ["EndTag", "head"]],
- "expected": ["<head><meta content=noindex name=robots><meta content=\"text/html; charset=utf-8\" http-equiv=content-type>"]
+ "expected": ["<head><meta content=noindex name=robots><meta content=\"text/html; charset=utf-8\" http-equiv=content-type>"],
+ "xhtml": ["<head><meta content=\"noindex\" name=\"robots\" /><meta content=\"text/html; charset=utf-8\" http-equiv=\"content-type\" /></head>"]
 }
 
 ]}

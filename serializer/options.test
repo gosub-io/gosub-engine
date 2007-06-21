@@ -9,13 +9,15 @@
 {"description": "quote_attr_values=true",
  "options": {"quote_attr_values": true},
  "input": [["StartTag", "button", {"disabled": "disabled"}]],
- "expected": ["<button disabled>"]
+ "expected": ["<button disabled>"],
+ "xhtml":    ["<button disabled=\"disabled\">"]
 },
 
 {"description": "quote_attr_values=true with irrelevant",
  "options": {"quote_attr_values": true},
  "input": [["StartTag", "div", {"irrelevant": "irrelevant"}]],
- "expected": ["<div irrelevant>"]
+ "expected": ["<div irrelevant>"],
+ "xhtml":    ["<div irrelevant=\"irrelevant\">"]
 },
 
 {"description": "use_trailing_solidus=true with void element",
@@ -33,7 +35,8 @@
 {"description": "minimize_boolean_attributes=false",
  "options": {"minimize_boolean_attributes": false},
  "input": [["StartTag", "div", {"irrelevant": "irrelevant"}]],
- "expected": ["<div irrelevant=irrelevant>"]
+ "expected": ["<div irrelevant=irrelevant>"],
+ "xhtml":    ["<div irrelevant=\"irrelevant\">"]
 },
 
 {"description": "minimize_boolean_attributes=false with empty value",

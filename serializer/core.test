@@ -7,7 +7,8 @@
 
 {"description": "proper attribute value non-quoting",
  "input": [["StartTag", "span", {"title": "foo"}]],
- "expected": ["<span title=foo>"]
+ "expected": ["<span title=foo>"],
+ "xhtml":    ["<span title=\"foo\">"]
 },
 
 {"description": "proper attribute value quoting (with >)",
@@ -17,7 +18,8 @@
 
 {"description": "proper attribute value quoting (with <)",
  "input": [["StartTag", "span", {"title": "foo<bar"}]],
- "expected": ["<span title=\"foo<bar\">"]
+ "expected": ["<span title=\"foo<bar\">"],
+ "xhtml":    ["<span title=\"foo&lt;bar\">"]
 },
 
 {"description": "proper attribute value quoting (with \")",
@@ -67,12 +69,14 @@
 
 {"description": "void element (as EmptyTag token)",
  "input": [["EmptyTag", "img", {}]],
- "expected": ["<img>"]
+ "expected": ["<img>"],
+ "xhtml":    ["<img />"]
 },
 
 {"description": "void element (as StartTag token)",
  "input": [["StartTag", "img", {}]],
- "expected": ["<img>"]
+ "expected": ["<img>"],
+ "xhtml":    ["<img />"]
 },
 
 {"description": "doctype in error",
