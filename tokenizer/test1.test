@@ -135,7 +135,7 @@
 
 {"description":"Entity without trailing semicolon (2)",
 "input":"I'm &notin",
-"output":[["Character","I'm "], "ParseError", ["Character", "∉"]]},
+"output":[["Character","I'm "], "ParseError", ["Character", "¬in"]]},
 
 {"description":"Partial entity match at end of file",
 "input":"I'm &no",
@@ -151,6 +151,18 @@
 
 {"description":"Hexadecimal entity in attribute",
 "input":"<h a='&#x3f;'></h>",
-"output":[["StartTag", "h", {"a":"?"}], ["EndTag", "h"]]}
+"output":[["StartTag", "h", {"a":"?"}], ["EndTag", "h"]]},
+
+{"description":"Entity in attribute without semicolon ending in x",
+"input":"<h a='&notx'>",
+"output":["ParseError", ["StartTag", "h", {"a":"&notx"}]]},
+
+{"description":"Entity in attribute without semicolon ending in 1",
+"input":"<h a='&not1'>",
+"output":["ParseError", ["StartTag", "h", {"a":"&not1"}]]},
+
+{"description":"Entity in attribute without semicolon",
+"input":"<h a='&COPY'>",
+"output":["ParseError", ["StartTag", "h", {"a":"©"}]]}
 
 ]}
