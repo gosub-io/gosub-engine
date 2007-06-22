@@ -49,6 +49,12 @@
  "options": {"escape_lt_in_attrs": true},
  "input": [["StartTag", "a", {"title": "a<b>c&d"}]],
  "expected": ["<a title=\"a&lt;b>c&amp;d\">"]
+},
+
+{"description": "rcdata",
+ "options": {"escape_rcdata": true},
+ "input": [["StartTag", "script", {}], ["Characters", "a<b>c&d"]],
+ "expected": ["<script>a&lt;b&gt;c&amp;d"]
 }
 
 ]}

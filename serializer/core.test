@@ -92,7 +92,8 @@
 
 {"description": "rcdata",
  "input": [["StartTag", "script", {}], ["Characters", "a<b>c&d"]],
- "expected": ["<script>a<b>c&d"]
+ "expected": ["<script>a<b>c&d"],
+ "xhtml": ["<script>a&lt;b&gt;c&amp;d"]
 },
 
 {"description": "doctype",
