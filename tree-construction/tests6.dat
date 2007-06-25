@@ -27,3 +27,17 @@
 |   <head>
 |   <body>
 |     <meta>
+
+#data
+<!doctype HTml><form><div></form><div>
+#errors
+Form end tag ignored.
+Unexpected end of file.
+#document
+| <!DOCTYPE HTml>
+| <html>
+|   <head>
+|   <body>
+|     <form>
+|       <div>
+|         <div>
