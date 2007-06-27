@@ -56,6 +56,10 @@
 "input":"&#x1010FFFF;",
 "output":["ParseError", ["Character", "\uFFFD"]]},
 
+{"description":"Hexadecimal entity pair representing a surrogate pair",
+"input":"&#xD869;&#xDED6;",
+"output":["ParseError", ["Character", "\uFFFD"], "ParseError", ["Character", "\uFFFD"]]},
+
 {"description":"Numeric entity representing a Windows-1252 'codepoint'",
 "input":"&#137;",
 "output":["ParseError", ["Character", "\u2030"]]},
