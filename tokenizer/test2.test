@@ -118,7 +118,7 @@
 
 {"description":"Null Byte Replacement",
 "input":"\u0000",
-"output":[["Character", "\ufffd"]]}
+"output":["ParseError", ["Character", "\ufffd"]]}
 
 ]}
 
