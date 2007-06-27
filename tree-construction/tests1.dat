@@ -285,6 +285,7 @@ Line1<br>Line2<br>Line3<br>Line4
 |     <div>
 |       <b>
 |         <marquee>
+|           <p>
 |           "X"
 
 #data
@@ -330,6 +331,7 @@ Unexpected end of file
 |   <body>
 |     <p>
 |     <hr>
+|     <p>
 
 #data
 <select><b><option><select><option></b></select>X
@@ -1369,12 +1371,13 @@ unexpected EOF
 <head></p><meta><p>
 #errors
 6: missing document type declaration
-10: unexpected p element end tag in head
+10: unexpected p element end tag
 #document
 | <html>
 |   <head>
-|     <meta>
 |   <body>
+|     <p>
+|     <meta>
 |     <p>
 
 #data
@@ -1485,6 +1488,7 @@ unexpected EOF
 |     <div>
 |       <b>
 |         <marquee>
+|           <p>
 
 #data
 <script></script></div><title></title><p><p>
@@ -1511,6 +1515,7 @@ unexpected EOF
 |   <body>
 |     <p>
 |     <hr>
+|     <p>
 
 #data
 <select><b><option><select><option></b></select>
@@ -1807,6 +1812,7 @@ Unexpected EOF
 |   <head>
 |   <body>
 |     <br>
+|     <p>
 
 #data
 <table><tr></strong></b></em></i></u></strike></s></blink></tt></pre></big></small></font></select></h1></h2></h3></h4></h5></h6></body></br></a></img></title></span></style></script></table></th></td></tr></frame></area></link></param></hr></input></col></base></meta></basefont></bgsound></embed></spacer></p></dd></dt></caption></colgroup></tbody></tfoot></thead></address></blockquote></center></dir></div></dl></fieldset></listing></menu></ol></ul></li></nobr></wbr></form></button></marquee></object></html></frameset></head></iframe></image></isindex></noembed></noframes></noscript></optgroup></option></plaintext></textarea>
@@ -1928,3 +1934,4 @@ Unexpected EOF
 |     <table>
 |       <tbody>
 |         <tr>
+|     <p>
