@@ -42,19 +42,19 @@
 
 {"description":"Numeric entity representing the NUL character",
 "input":"&#0000;",
-"output":[["Character", "\uFFFD"]]},
+"output":["ParseError", ["Character", "\uFFFD"]]},
 
 {"description":"Hexadecimal entity representing the NUL character",
 "input":"&#x0000;",
-"output":[["Character", "\uFFFD"]]},
+"output":["ParseError", ["Character", "\uFFFD"]]},
 
 {"description":"Numeric entity representing a codepoint after 1114111 (U+10FFFF)",
 "input":"&#2225222;",
-"output":[["Character", "\uFFFD"]]},
+"output":["ParseError", ["Character", "\uFFFD"]]},
 
 {"description":"Hexadecimal entity representing a codepoint after 1114111 (U+10FFFF)",
 "input":"&#x1010FFFF;",
-"output":[["Character", "\uFFFD"]]},
+"output":["ParseError", ["Character", "\uFFFD"]]},
 
 {"description":"Numeric entity representing a Windows-1252 'codepoint'",
 "input":"&#137;",
