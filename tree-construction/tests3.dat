@@ -61,7 +61,6 @@ No DOCTYPE
 
 #data
 <!DOCTYPE htML><html><head></head><body><pre>
-
 foo</pre></body></html>
 #errors
 #document
@@ -72,10 +71,22 @@ foo</pre></body></html>
 |     <pre>
 |       "foo"
 
-
 #data
 <!DOCTYPE htML><html><head></head><body><pre>
 
+foo</pre></body></html>
+#errors
+#document
+| <!DOCTYPE htML>
+| <html>
+|   <head>
+|   <body>
+|     <pre>
+|       "
+foo"
+
+#data
+<!DOCTYPE htML><html><head></head><body><pre>
 foo
 </pre></body></html>
 #errors
@@ -183,7 +194,6 @@ y</pre></body></html>
 
 #data
 <!DOCTYPE htML><textarea>
-
 foo</textarea>
 #errors
 #document
@@ -193,6 +203,20 @@ foo</textarea>
 |   <body>
 |     <textarea>
 |       "foo"
+
+#data
+<!DOCTYPE htML><textarea>
+
+foo</textarea>
+#errors
+#document
+| <!DOCTYPE htML>
+| <html>
+|   <head>
+|   <body>
+|     <textarea>
+|       "
+foo"
 
 #data
 <!DOCTYPE htML><html><head></head><body><ul><li><div><p><li></ul></body></html>
