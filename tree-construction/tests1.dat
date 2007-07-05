@@ -1766,8 +1766,8 @@ Unexpected EOF
 287: unexpected embed element end tag
 296: unexpected spacer element end tag
 300: unexpected p element end tag
-XXX 305: unexpected dd element end tag
-XXX 310: unexpected dt element end tag
+305: unexpected dd element end tag
+310: unexpected dt element end tag
 320: unexpected caption element end tag
 331: unexpected colgroup element end tag
 339: unexpected tbody element end tag
@@ -1784,7 +1784,7 @@ XXX 310: unexpected dt element end tag
 432: unexpected menu element end tag
 437: unexpected ol element end tag
 442: unexpected ul element end tag
-XXX 447: unexpected li element end tag
+447: unexpected li element end tag
 454: unexpected nobr element end tag
 460: unexpected wbr element end tag
 467: unexpected form element end tag
