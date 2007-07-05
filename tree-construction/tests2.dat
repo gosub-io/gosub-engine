@@ -12,7 +12,6 @@
 <textarea>test</div>test
 #errors
 10: missing document type declaration.
-17: unescaped '</' in CDATA or RCDATA block.
 25: unexpected end of file while parsing CDATA section for element textarea.
 #document
 | <html>
@@ -87,6 +86,8 @@ Expected end tag </frameset>
 #data
 <!DOCTYPE HTML><font><p><b>test</font>
 #errors
+AAA violation. </font>
+AAA violation. </font>
 #document
 | <!DOCTYPE HTML>
 | <html>
@@ -101,6 +102,7 @@ Expected end tag </frameset>
 #data
 <!DOCTYPE HTML><dt><div><dd>
 #errors
+Missing end tag for <div>.
 #document
 | <!DOCTYPE HTML>
 | <html>
@@ -114,7 +116,6 @@ Expected end tag </frameset>
 <script></x
 #errors
 no document type
-</ in script
 Unexpected end of file. Expected </script> end tag.
 #document
 | <html>
@@ -129,6 +130,7 @@ Unexpected end of file. Expected </script> end tag.
 no document type
 <plaintext> directly inside table
 Characters inside table.
+Characters inside table. (XXX?)
 Unexpected end of file.
 #document
 | <html>
@@ -195,7 +197,6 @@ Unexpected end tag.
 #data
 <!DOCTYPE HTML></b test<b &=&amp>X
 #errors
-Unexpected < in attribute
 End tag contains attributes.
 Unexpected end tag.
 Named entity didn't end with ;
@@ -224,7 +225,6 @@ Unexpected EOF in (end) tag name
 &
 #errors
 No doctype.
-Unfinished entity.
 #document
 | <html>
 |   <head>
@@ -583,7 +583,6 @@ Unexpected EOF.
 <!DOCTYPE HTML><body><title>test</body></title>
 #errors
 Unexpected start tag that belongs in the head.
-Expected closing tag after </.
 #document
 | <!DOCTYPE HTML>
 | <html>
@@ -596,10 +595,7 @@ Expected closing tag after </.
 <!DOCTYPE HTML><body><title>X</title><meta name=z><link rel=foo><style>
 x { content:"</style" } </style>
 #errors
-Unexpected start tag that belongs in head.
-Unexpected start tag that belongs in head.
-Unexpected start tag that belongs in head.
-Expected closing tag after </.
+Unexpected start tag that belongs in head. <title>
 #document
 | <!DOCTYPE HTML>
 | <html>

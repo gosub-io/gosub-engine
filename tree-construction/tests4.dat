@@ -41,6 +41,7 @@ plaintext
 #data
 setting html's innerHTML
 #errors
+XXX innerHTML EOF
 #document-fragment
 html
 #document
