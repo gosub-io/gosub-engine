@@ -117,3 +117,48 @@ No DOCTYPE
 |       " <!</-- "
 |   <body>
 |     "x"
+
+#data
+<xmp> <!-- > --> </xmp>
+#errors
+No DOCTYPE
+#document
+| <html>
+|   <head>
+|   <body>
+|     <xmp>
+|       " <!-- > --> "
+
+#data
+<title>&amp;</title>
+#errors
+No DOCTYPE
+#document
+| <html>
+|   <head>
+|     <title>
+|       "&"
+|   <body>
+
+#data
+<title><!--&amp;--></title>
+#errors
+No DOCTYPE
+#document
+| <html>
+|   <head>
+|     <title>
+|       "<!--&amp;-->"
+|   <body>
+
+#data
+<title><!--</title>
+#errors
+No DOCTYPE
+Unexpected EOF
+#document
+| <html>
+|   <head>
+|     <title>
+|       "<!--</title>"
+|   <body>
