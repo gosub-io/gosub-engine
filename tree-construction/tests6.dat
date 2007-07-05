@@ -1,6 +1,7 @@
 #data
 <!doctype html></head> <head>
 #errors
+Unexpected start tag head. Ignored.
 #document
 | <!DOCTYPE html>
 | <html>
@@ -11,6 +12,9 @@
 #data
 <!doctype html></html> <head>
 #errors
+Unexpected start tag head.
+Unexpected start tag head in after body phase.
+Unexpected start tag head. Ignored.
 #document
 | <!DOCTYPE html>
 | <html>
@@ -21,6 +25,7 @@
 #data
 <!doctype html></body><meta>
 #errors
+Unexpected meta element in after body phase.
 #document
 | <!DOCTYPE html>
 | <html>
@@ -45,7 +50,6 @@ Unexpected end of file.
 #data
 <!doctype HTml><title>&amp;</title>
 #errors
-Unexpected end of file.
 #document
 | <!DOCTYPE HTml>
 | <html>
@@ -57,7 +61,6 @@ Unexpected end of file.
 #data
 <!doctype HTml><title><!--&amp;--></title>
 #errors
-Unexpected end of file.
 #document
 | <!DOCTYPE HTml>
 | <html>

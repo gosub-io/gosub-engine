@@ -51,6 +51,7 @@ html
 #data
 <title>setting head's innerHTML</title>
 #errors
+Unexpected title element that belongs in head.
 #document-fragment
 head
 #document
