@@ -110,7 +110,6 @@ No DOCTYPE
 <style> <!</-- </style>x
 #errors
 No DOCTYPE
-Unexpected end of file
 #document
 | <html>
 |   <head>
