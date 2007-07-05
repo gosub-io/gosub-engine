@@ -162,3 +162,14 @@ Unexpected EOF
 |     <title>
 |       "<!--</title>"
 |   <body>
+
+#data
+<noscript><!--</noscript>--></noscript>
+#errors
+No DOCTYPE
+#document
+| <html>
+|   <head>
+|     <noscript>
+|       "<!--</noscript>-->"
+|   <body>
