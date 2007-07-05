@@ -243,6 +243,8 @@ Missing end tag (div)
 #data
 <!doctype html><nobr><nobr><nobr>
 #errors
+Unexpected <nobr> tag.
+Unexpected <nobr> tag.
 Unexpected end of file.
 #document
 | <!DOCTYPE html>
@@ -256,6 +258,7 @@ Unexpected end of file.
 #data
 <!doctype html><nobr><nobr></nobr><nobr>
 #errors
+Unexpected <nobr> tag.
 Unexpected end of file.
 #document
 | <!DOCTYPE html>
