@@ -1574,6 +1574,8 @@ Missing end tag </p>. XXX
 <ul><li></li><div><li></div><li><li><div><li><address><li><b><em></b><li></ul>
 #errors
 4: missing document type declaration
+Missing end tag for <div> (nr2)
+Missing end tag for <address>
 69: mismatched b element end tag (misnested tags)
 #document
 | <html>
@@ -1618,7 +1620,6 @@ Missing end tag </p>. XXX
 56: unexpected frameset element start tag in body
 63: unexpected frame element start tag in body
 74: unexpected frameset element end tag
-87: unescaped '</' in CDATA or RCDATA block
 106: unexpected end of file while parsing CDATA section for element noframes
 #document
 | <html>
@@ -1633,6 +1634,7 @@ Missing end tag </p>. XXX
 4: missing document type declaration
 15: required tr element start tag implied by unexpected td element start tag
 27: unexpected td element end tag implied other end tags
+Unexpected </h1> tag. Expected other.
 Unexpected EOF
 #document
 | <html>
@@ -1924,6 +1926,9 @@ Unexpected EOF
 610: unexpected option element end tag
 622: unexpected plaintext element end tag
 633: mismatched special end tag textarea
+XXX
+XXX
+XXX
 #document
 | <html>
 |   <head>
