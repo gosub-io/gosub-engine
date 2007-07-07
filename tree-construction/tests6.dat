@@ -80,3 +80,14 @@ Incorrect doctype
 | <html>
 |   <head>
 |   <body>
+
+#data
+<!---x
+#errors
+End of file in comment
+End of file before doctype
+#document
+| <!-- -x -->
+| <html>
+|   <head>
+|   <body>

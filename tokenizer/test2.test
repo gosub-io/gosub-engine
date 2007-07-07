@@ -122,7 +122,11 @@
 
 {"description":"Null Byte Replacement",
 "input":"\u0000",
-"output":["ParseError", ["Character", "\ufffd"]]}
+"output":["ParseError", ["Character", "\ufffd"]]},
+
+{"description":"Comment with dash",
+"input":"<!---x",
+"output":["ParseError", ["Comment", "-x"]]}
 
 ]}
 
