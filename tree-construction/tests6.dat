@@ -68,3 +68,15 @@ Unexpected end of file.
 |     <title>
 |       "<!--&amp;-->"
 |   <body>
+
+#data
+<!doctype>
+#errors
+No space after "doctype"
+Unexpected ">"
+Incorrect doctype
+#document
+| <!DOCTYPE >
+| <html>
+|   <head>
+|   <body>
