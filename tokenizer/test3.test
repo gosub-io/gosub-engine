@@ -1,0 +1,367 @@
+{"tests": [
+
+{"description":"<",
+"input":"<",
+"output":["ParseError", ["Character", "<"]]},
+
+{"description":"<>",
+"input":"<>",
+"output":["ParseError", ["Character", "<>"]]},
+
+{"description":"<!",
+"input":"<!",
+"output":["ParseError", ["Comment", ""]]},
+
+{"description":"<!>",
+"input":"<!>",
+"output":["ParseError", ["Comment", ""]]},
+
+{"description":"<!--",
+"input":"<!--",
+"output":["ParseError", ["Comment", ""]]},
+
+{"description":"<!-->",
+"input":"<!-->",
+"output":["ParseError", ["Comment", ""]]},
+
+{"description":"<!---",
+"input":"<!---",
+"output":["ParseError", ["Comment", ""]]},
+
+{"description":"<!--->",
+"input":"<!--->",
+"output":["ParseError", ["Comment", ""]]},
+
+{"description":"<!---->",
+"input":"<!---->",
+"output":[["Comment", ""]]},
+
+{"description":"<!-----",
+"input":"<!-----",
+"output":["ParseError", "ParseError", ["Comment", "-"]]},
+
+{"description":"<!----.",
+"input":"<!----.",
+"output":["ParseError", "ParseError", ["Comment", "--."]]},
+
+{"description":"<!---?",
+"input":"<!---?",
+"output":["ParseError", ["Comment", "-?"]]},
+
+{"description":"<!--?-",
+"input":"<!--?-",
+"output":["ParseError", ["Comment", "?"]]},
+
+{"description":"<!--?--",
+"input":"<!--?--",
+"output":["ParseError", ["Comment", "?"]]},
+
+{"description":"<!--?-.",
+"input":"<!--?-.",
+"output":["ParseError", ["Comment", "?-."]]},
+
+{"description":"<!--?.",
+"input":"<!--?.",
+"output":["ParseError", ["Comment", "?."]]},
+
+{"description":"<?>",
+"input":"<?>",
+"output":["ParseError", ["Comment", "?"]]},
+
+{"description":"<??",
+"input":"<??",
+"output":["ParseError", ["Comment", "??"]]},
+
+{"description":"</",
+"input":"</",
+"output":["ParseError", ["Character", "</"]]},
+
+{"description":"</>",
+"input":"</>",
+"output":["ParseError"]},
+
+{"description":"</?",
+"input":"</?",
+"output":["ParseError", ["Comment", "?"]]},
+
+{"description":">",
+"input":">",
+"output":[["Character", ">"]]},
+
+{"description":"-",
+"input":"-",
+"output":[["Character", "-"]]},
+
+{"description":"?",
+"input":"?",
+"output":[["Character", "?"]]},
+
+{"description":"&",
+"input":"&",
+"output":[["Character", "&"]]},
+
+{"description":"&#",
+"input":"&#",
+"output":["ParseError", ["Character", "&#"]]},
+
+{"description":"&#9",
+"input":"&#9",
+"output":["ParseError", ["Character", "\t"]]},
+
+{"description":"<!doctype >",
+"input":"<!doctype >",
+"output":["ParseError", ["DOCTYPE", "", null, null, false]]},
+
+{"description":"<!doctype  ",
+"input":"<!doctype  ",
+"output":["ParseError", ["DOCTYPE", "", null, null, false]]},
+
+{"description":"<!doctype!>",
+"input":"<!doctype!>",
+"output":["ParseError", ["DOCTYPE", "!", null, null, true]]},
+
+{"description":"<!doctype! >",
+"input":"<!doctype! >",
+"output":["ParseError", ["DOCTYPE", "!", null, null, true]]},
+
+{"description":"<!doctype!  ",
+"input":"<!doctype!  ",
+"output":["ParseError", "ParseError", ["DOCTYPE", "!", null, null, false]]},
+
+{"description":"<!doctype! ?>",
+"input":"<!doctype! ?>",
+"output":["ParseError", "ParseError", ["DOCTYPE", "!", null, null, false]]},
+
+{"description":"<!doctype! ??",
+"input":"<!doctype! ??",
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "!", null, null, false]]},
+
+{"description":"<!doctype!?",
+"input":"<!doctype!?",
+"output":["ParseError", "ParseError", ["DOCTYPE", "!?", null, null, false]]},
+
+{"description":"<!doctype! public>",
+"input":"<!doctype! public>",
+"output":["ParseError", "ParseError", ["DOCTYPE", "!", null, null, false]]},
+
+{"description":"<!doctype! public ",
+"input":"<!doctype! public ",
+"output":["ParseError", "ParseError", ["DOCTYPE", "!", null, null, false]]},
+
+{"description":"<!doctype! public?",
+"input":"<!doctype! public?",
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "!", null, null, false]]},
+
+{"description":"<!doctype! public''",
+"input":"<!doctype! public''",
+"output":["ParseError", "ParseError", ["DOCTYPE", "!", "", null, false]]},
+
+{"description":"<!doctype! public'(",
+"input":"<!doctype! public'(",
+"output":["ParseError", "ParseError", ["DOCTYPE", "!", "(", null, false]]},
+
+{"description":"<!doctype! public\"\">",
+"input":"<!doctype! public\"\">",
+"output":["ParseError", ["DOCTYPE", "!", "", null, true]]},
+
+{"description":"<!doctype! public\"\" ",
+"input":"<!doctype! public\"\" ",
+"output":["ParseError", "ParseError", ["DOCTYPE", "!", "", null, false]]},
+
+{"description":"<!doctype! public\"\"?",
+"input":"<!doctype! public\"\"?",
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "!", "", null, false]]},
+
+{"description":"<!doctype! public\"\"'",
+"input":"<!doctype! public\"\"'",
+"output":["ParseError", "ParseError", ["DOCTYPE", "!", "", "", false]]},
+
+{"description":"<!doctype! public\"\"\"",
+"input":"<!doctype! public\"\"\"",
+"output":["ParseError", "ParseError", ["DOCTYPE", "!", "", "", false]]},
+
+{"description":"<!doctype! public\"#",
+"input":"<!doctype! public\"#",
+"output":["ParseError", "ParseError", ["DOCTYPE", "!", "#", null, false]]},
+
+{"description":"<!doctype! system>",
+"input":"<!doctype! system>",
+"output":["ParseError", "ParseError", ["DOCTYPE", "!", null, null, false]]},
+
+{"description":"<!doctype! system ",
+"input":"<!doctype! system ",
+"output":["ParseError", "ParseError", ["DOCTYPE", "!", null, null, false]]},
+
+{"description":"<!doctype! system?",
+"input":"<!doctype! system?",
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "!", null, null, false]]},
+
+{"description":"<!doctype! system''",
+"input":"<!doctype! system''",
+"output":["ParseError", "ParseError", ["DOCTYPE", "!", null, "", false]]},
+
+{"description":"<!doctype! system'(",
+"input":"<!doctype! system'(",
+"output":["ParseError", "ParseError", ["DOCTYPE", "!", null, "(", false]]},
+
+{"description":"<!doctype! system\"\">",
+"input":"<!doctype! system\"\">",
+"output":["ParseError", ["DOCTYPE", "!", null, "", true]]},
+
+{"description":"<!doctype! system\"\" ",
+"input":"<!doctype! system\"\" ",
+"output":["ParseError", "ParseError", ["DOCTYPE", "!", null, "", false]]},
+
+{"description":"<!doctype! system\"\"?",
+"input":"<!doctype! system\"\"?",
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "!", null, "", false]]},
+
+{"description":"<!doctype! system\"#",
+"input":"<!doctype! system\"#",
+"output":["ParseError", "ParseError", ["DOCTYPE", "!", null, "#", false]]},
+
+{"description":"</z",
+"input":"</z",
+"output":["ParseError", ["EndTag", "z"]]},
+
+{"description":"<z>",
+"input":"<z>",
+"output":[["StartTag", "z", {}]]},
+
+{"description":"<z ",
+"input":"<z ",
+"output":["ParseError", ["StartTag", "z", {}]]},
+
+{"description":"<z/>",
+"input":"<z/>",
+"output":["ParseError", ["StartTag", "z", {}]]},
+
+{"description":"<z/ ",
+"input":"<z/ ",
+"output":["ParseError", "ParseError", ["StartTag", "z", {}]]},
+
+{"description":"<z//",
+"input":"<z//",
+"output":["ParseError", "ParseError", "ParseError", ["StartTag", "z", {}]]},
+
+{"description":"<z",
+"input":"<z",
+"output":["ParseError", ["StartTag", "z", {}]]},
+
+{"description":"</z",
+"input":"</z",
+"output":["ParseError", ["EndTag", "z"]]},
+
+{"description":"<z0",
+"input":"<z0",
+"output":["ParseError", ["StartTag", "z0", {}]]},
+
+{"description":"<z/0=>",
+"input":"<z/0=>",
+"output":["ParseError", ["StartTag", "z", {"0": ""}]]},
+
+{"description":"<z/0= ",
+"input":"<z/0= ",
+"output":["ParseError", "ParseError", ["StartTag", "z", {"0": ""}]]},
+
+{"description":"<z/0=?>",
+"input":"<z/0=?>",
+"output":["ParseError", ["StartTag", "z", {"0": "?"}]]},
+
+{"description":"<z/0=? ",
+"input":"<z/0=? ",
+"output":["ParseError", "ParseError", ["StartTag", "z", {"0": "?"}]]},
+
+{"description":"<z/0=??",
+"input":"<z/0=??",
+"output":["ParseError", "ParseError", ["StartTag", "z", {"0": "??"}]]},
+
+{"description":"<z/0=''",
+"input":"<z/0=''",
+"output":["ParseError", "ParseError", ["StartTag", "z", {"0": ""}]]},
+
+{"description":"<z/0='&",
+"input":"<z/0='&",
+"output":["ParseError", "ParseError", ["StartTag", "z", {"0": "&"}]]},
+
+{"description":"<z/0='%",
+"input":"<z/0='%",
+"output":["ParseError", "ParseError", ["StartTag", "z", {"0": "%"}]]},
+
+{"description":"<z/0=\"'",
+"input":"<z/0=\"'",
+"output":["ParseError", "ParseError", ["StartTag", "z", {"0": "'"}]]},
+
+{"description":"<z/0=\"\"",
+"input":"<z/0=\"\"",
+"output":["ParseError", "ParseError", ["StartTag", "z", {"0": ""}]]},
+
+{"description":"<z/0=\"&",
+"input":"<z/0=\"&",
+"output":["ParseError", "ParseError", ["StartTag", "z", {"0": "&"}]]},
+
+{"description":"<z/0=&",
+"input":"<z/0=&",
+"output":["ParseError", "ParseError", ["StartTag", "z", {"0": "&"}]]},
+
+{"description":"<z/0>",
+"input":"<z/0>",
+"output":["ParseError", ["StartTag", "z", {"0": ""}]]},
+
+{"description":"<z/0 =",
+"input":"<z/0 =",
+"output":["ParseError", "ParseError", ["StartTag", "z", {"0": ""}]]},
+
+{"description":"<z/0 >",
+"input":"<z/0 >",
+"output":["ParseError", ["StartTag", "z", {"0": ""}]]},
+
+{"description":"<z/0  ",
+"input":"<z/0  ",
+"output":["ParseError", "ParseError", ["StartTag", "z", {"0": ""}]]},
+
+{"description":"<z/0 /",
+"input":"<z/0 /",
+"output":["ParseError", "ParseError", "ParseError", ["StartTag", "z", {"0": ""}]]},
+
+{"description":"<z/0/",
+"input":"<z/0/",
+"output":["ParseError", "ParseError", "ParseError", ["StartTag", "z", {"0": ""}]]},
+
+{"description":"<z/00",
+"input":"<z/00",
+"output":["ParseError", "ParseError", ["StartTag", "z", {"00": ""}]]},
+
+{"description":"<z/0 0",
+"input":"<z/0 0",
+"output":["ParseError", "ParseError", "ParseError", ["StartTag", "z", {"0": ""}]]},
+
+{"description":"<z/0='&#9",
+"input":"<z/0='&#9",
+"output":["ParseError", "ParseError", "ParseError", ["StartTag", "z", {"0": "\t"}]]},
+
+{"description":"<z/0=\"&#9",
+"input":"<z/0=\"&#9",
+"output":["ParseError", "ParseError", "ParseError", ["StartTag", "z", {"0": "\t"}]]},
+
+{"description":"<z/0=&#9",
+"input":"<z/0=&#9",
+"output":["ParseError", "ParseError", "ParseError", ["StartTag", "z", {"0": "\t"}]]},
+
+{"description":"<z/0z",
+"input":"<z/0z",
+"output":["ParseError", "ParseError", ["StartTag", "z", {"0z": ""}]]},
+
+{"description":"<z/0 z",
+"input":"<z/0 z",
+"output":["ParseError", "ParseError", ["StartTag", "z", {"0": "", "z": ""}]]},
+
+{"description":"<zz",
+"input":"<zz",
+"output":["ParseError", ["StartTag", "zz", {}]]},
+
+{"description":"<z/z",
+"input":"<z/z",
+"output":["ParseError", "ParseError", ["StartTag", "z", {"z": ""}]]}
+
+]}
