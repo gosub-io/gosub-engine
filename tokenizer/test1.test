@@ -161,6 +161,10 @@
 "input":"<h a='&not1'>",
 "output":["ParseError", ["StartTag", "h", {"a":"&not1"}]]},
 
+{"description":"Entity in attribute without semicolon ending in i",
+"input":"<h a='&noti'>",
+"output":["ParseError", ["StartTag", "h", {"a":"&noti"}]]},
+
 {"description":"Entity in attribute without semicolon",
 "input":"<h a='&COPY'>",
 "output":["ParseError", ["StartTag", "h", {"a":"©"}]]}
