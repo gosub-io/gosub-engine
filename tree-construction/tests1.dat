@@ -1938,3 +1938,13 @@ XXX
 |       <tbody>
 |         <tr>
 |     <p>
+
+#data
+<frameset>
+#errors
+10: Start tag seen without seeing a doctype first.
+11: End of file seen and there were open elements.
+#document
+| <html>
+|   <head>
+|   <frameset>
