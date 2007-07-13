@@ -349,11 +349,11 @@ Unexpected end EOF. Missing closing tags.
 |       <b>
 |         <i>
 |           <u>
-|     " "
-|     <p>
-|       <b>
-|         <i>
-|           <u>
+|     <b>
+|       <i>
+|         <u>
+|           " "
+|           <p>
 |             "X"
 
 #data
@@ -538,7 +538,7 @@ No doctype
 |       <hr>
 |       <p>
 |         <label>
-|           "This is a searchable index. Insert your search keywords here:"
+|           "This is a searchable index. Insert your search keywords here: "
 |           <input>
 |             test="x"
 |             name="isindex"
