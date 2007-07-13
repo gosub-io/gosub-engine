@@ -540,8 +540,8 @@ No doctype
 |         <label>
 |           "This is a searchable index. Insert your search keywords here: "
 |           <input>
-|             test="x"
 |             name="isindex"
+|             test="x"
 |       <hr>
 
 #data
