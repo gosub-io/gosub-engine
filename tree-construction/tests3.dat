@@ -141,7 +141,7 @@ End tag <pre> seen too early. Expected other end tag.
 |       "x"
 |       <div>
 |         "
-| y"
+y"
 
 #data
 <!DOCTYPE htML><HTML><META><HEAD></HEAD></HTML>
