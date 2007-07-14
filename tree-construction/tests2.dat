@@ -628,8 +628,6 @@ x { content:"</style" } "
 #errors
 No doctype.
 #document
-| " 
- "
 | <html>
 |   <head>
 |   <body>
@@ -639,7 +637,6 @@ No doctype.
 #errors
 #document
 | <!DOCTYPE HTML>
-| "  "
 | <html>
 |   <head>
 |   <body>
