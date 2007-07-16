@@ -76,7 +76,7 @@ No space after "doctype"
 Unexpected ">"
 Incorrect doctype
 #document
-| <!DOCTYPE>
+| <!DOCTYPE >
 | <html>
 |   <head>
 |   <body>
