@@ -1462,6 +1462,618 @@
 
 {"description": "Named entity: zwnj with a semi-colon.",
 "input":"&zwnj;",
-"output": [["Character", "\u200C"]]}
+"output": [["Character", "\u200C"]]},
+
+{"description": "Bad named entity: Alpha without a semi-colon.",
+"input":"&Alpha",
+"output": ["ParseError", ["Character", "&Alpha"]]},
+
+{"description": "Bad named entity: alpha without a semi-colon.",
+"input":"&alpha",
+"output": ["ParseError", ["Character", "&alpha"]]},
+
+{"description": "Bad named entity: and without a semi-colon.",
+"input":"&and",
+"output": ["ParseError", ["Character", "&and"]]},
+
+{"description": "Bad named entity: ang without a semi-colon.",
+"input":"&ang",
+"output": ["ParseError", ["Character", "&ang"]]},
+
+{"description": "Bad named entity: apos without a semi-colon.",
+"input":"&apos",
+"output": ["ParseError", ["Character", "&apos"]]},
+
+{"description": "Bad named entity: asymp without a semi-colon.",
+"input":"&asymp",
+"output": ["ParseError", ["Character", "&asymp"]]},
+
+{"description": "Bad named entity: bdquo without a semi-colon.",
+"input":"&bdquo",
+"output": ["ParseError", ["Character", "&bdquo"]]},
+
+{"description": "Bad named entity: Beta without a semi-colon.",
+"input":"&Beta",
+"output": ["ParseError", ["Character", "&Beta"]]},
+
+{"description": "Bad named entity: beta without a semi-colon.",
+"input":"&beta",
+"output": ["ParseError", ["Character", "&beta"]]},
+
+{"description": "Bad named entity: bull without a semi-colon.",
+"input":"&bull",
+"output": ["ParseError", ["Character", "&bull"]]},
+
+{"description": "Bad named entity: cap without a semi-colon.",
+"input":"&cap",
+"output": ["ParseError", ["Character", "&cap"]]},
+
+{"description": "Bad named entity: Chi without a semi-colon.",
+"input":"&Chi",
+"output": ["ParseError", ["Character", "&Chi"]]},
+
+{"description": "Bad named entity: chi without a semi-colon.",
+"input":"&chi",
+"output": ["ParseError", ["Character", "&chi"]]},
+
+{"description": "Bad named entity: circ without a semi-colon.",
+"input":"&circ",
+"output": ["ParseError", ["Character", "&circ"]]},
+
+{"description": "Bad named entity: clubs without a semi-colon.",
+"input":"&clubs",
+"output": ["ParseError", ["Character", "&clubs"]]},
+
+{"description": "Bad named entity: cong without a semi-colon.",
+"input":"&cong",
+"output": ["ParseError", ["Character", "&cong"]]},
+
+{"description": "Bad named entity: crarr without a semi-colon.",
+"input":"&crarr",
+"output": ["ParseError", ["Character", "&crarr"]]},
+
+{"description": "Bad named entity: cup without a semi-colon.",
+"input":"&cup",
+"output": ["ParseError", ["Character", "&cup"]]},
+
+{"description": "Bad named entity: dagger without a semi-colon.",
+"input":"&dagger",
+"output": ["ParseError", ["Character", "&dagger"]]},
+
+{"description": "Bad named entity: dagger without a semi-colon.",
+"input":"&dagger",
+"output": ["ParseError", ["Character", "&dagger"]]},
+
+{"description": "Bad named entity: darr without a semi-colon.",
+"input":"&darr",
+"output": ["ParseError", ["Character", "&darr"]]},
+
+{"description": "Bad named entity: darr without a semi-colon.",
+"input":"&darr",
+"output": ["ParseError", ["Character", "&darr"]]},
+
+{"description": "Bad named entity: Delta without a semi-colon.",
+"input":"&Delta",
+"output": ["ParseError", ["Character", "&Delta"]]},
+
+{"description": "Bad named entity: delta without a semi-colon.",
+"input":"&delta",
+"output": ["ParseError", ["Character", "&delta"]]},
+
+{"description": "Bad named entity: diams without a semi-colon.",
+"input":"&diams",
+"output": ["ParseError", ["Character", "&diams"]]},
+
+{"description": "Bad named entity: empty without a semi-colon.",
+"input":"&empty",
+"output": ["ParseError", ["Character", "&empty"]]},
+
+{"description": "Bad named entity: emsp without a semi-colon.",
+"input":"&emsp",
+"output": ["ParseError", ["Character", "&emsp"]]},
+
+{"description": "Bad named entity: ensp without a semi-colon.",
+"input":"&ensp",
+"output": ["ParseError", ["Character", "&ensp"]]},
+
+{"description": "Bad named entity: Epsilon without a semi-colon.",
+"input":"&Epsilon",
+"output": ["ParseError", ["Character", "&Epsilon"]]},
+
+{"description": "Bad named entity: epsilon without a semi-colon.",
+"input":"&epsilon",
+"output": ["ParseError", ["Character", "&epsilon"]]},
+
+{"description": "Bad named entity: equiv without a semi-colon.",
+"input":"&equiv",
+"output": ["ParseError", ["Character", "&equiv"]]},
+
+{"description": "Bad named entity: Eta without a semi-colon.",
+"input":"&Eta",
+"output": ["ParseError", ["Character", "&Eta"]]},
+
+{"description": "Bad named entity: eta without a semi-colon.",
+"input":"&eta",
+"output": ["ParseError", ["Character", "&eta"]]},
+
+{"description": "Bad named entity: euro without a semi-colon.",
+"input":"&euro",
+"output": ["ParseError", ["Character", "&euro"]]},
+
+{"description": "Bad named entity: exist without a semi-colon.",
+"input":"&exist",
+"output": ["ParseError", ["Character", "&exist"]]},
+
+{"description": "Bad named entity: fnof without a semi-colon.",
+"input":"&fnof",
+"output": ["ParseError", ["Character", "&fnof"]]},
+
+{"description": "Bad named entity: forall without a semi-colon.",
+"input":"&forall",
+"output": ["ParseError", ["Character", "&forall"]]},
+
+{"description": "Bad named entity: frasl without a semi-colon.",
+"input":"&frasl",
+"output": ["ParseError", ["Character", "&frasl"]]},
+
+{"description": "Bad named entity: Gamma without a semi-colon.",
+"input":"&Gamma",
+"output": ["ParseError", ["Character", "&Gamma"]]},
+
+{"description": "Bad named entity: gamma without a semi-colon.",
+"input":"&gamma",
+"output": ["ParseError", ["Character", "&gamma"]]},
+
+{"description": "Bad named entity: ge without a semi-colon.",
+"input":"&ge",
+"output": ["ParseError", ["Character", "&ge"]]},
+
+{"description": "Bad named entity: harr without a semi-colon.",
+"input":"&harr",
+"output": ["ParseError", ["Character", "&harr"]]},
+
+{"description": "Bad named entity: harr without a semi-colon.",
+"input":"&harr",
+"output": ["ParseError", ["Character", "&harr"]]},
+
+{"description": "Bad named entity: hearts without a semi-colon.",
+"input":"&hearts",
+"output": ["ParseError", ["Character", "&hearts"]]},
+
+{"description": "Bad named entity: hellip without a semi-colon.",
+"input":"&hellip",
+"output": ["ParseError", ["Character", "&hellip"]]},
+
+{"description": "Bad named entity: image without a semi-colon.",
+"input":"&image",
+"output": ["ParseError", ["Character", "&image"]]},
+
+{"description": "Bad named entity: infin without a semi-colon.",
+"input":"&infin",
+"output": ["ParseError", ["Character", "&infin"]]},
+
+{"description": "Bad named entity: int without a semi-colon.",
+"input":"&int",
+"output": ["ParseError", ["Character", "&int"]]},
+
+{"description": "Bad named entity: Iota without a semi-colon.",
+"input":"&Iota",
+"output": ["ParseError", ["Character", "&Iota"]]},
+
+{"description": "Bad named entity: iota without a semi-colon.",
+"input":"&iota",
+"output": ["ParseError", ["Character", "&iota"]]},
+
+{"description": "Bad named entity: isin without a semi-colon.",
+"input":"&isin",
+"output": ["ParseError", ["Character", "&isin"]]},
+
+{"description": "Bad named entity: Kappa without a semi-colon.",
+"input":"&Kappa",
+"output": ["ParseError", ["Character", "&Kappa"]]},
+
+{"description": "Bad named entity: kappa without a semi-colon.",
+"input":"&kappa",
+"output": ["ParseError", ["Character", "&kappa"]]},
+
+{"description": "Bad named entity: Lambda without a semi-colon.",
+"input":"&Lambda",
+"output": ["ParseError", ["Character", "&Lambda"]]},
+
+{"description": "Bad named entity: lambda without a semi-colon.",
+"input":"&lambda",
+"output": ["ParseError", ["Character", "&lambda"]]},
+
+{"description": "Bad named entity: lang without a semi-colon.",
+"input":"&lang",
+"output": ["ParseError", ["Character", "&lang"]]},
+
+{"description": "Bad named entity: larr without a semi-colon.",
+"input":"&larr",
+"output": ["ParseError", ["Character", "&larr"]]},
+
+{"description": "Bad named entity: larr without a semi-colon.",
+"input":"&larr",
+"output": ["ParseError", ["Character", "&larr"]]},
+
+{"description": "Bad named entity: lceil without a semi-colon.",
+"input":"&lceil",
+"output": ["ParseError", ["Character", "&lceil"]]},
+
+{"description": "Bad named entity: ldquo without a semi-colon.",
+"input":"&ldquo",
+"output": ["ParseError", ["Character", "&ldquo"]]},
+
+{"description": "Bad named entity: le without a semi-colon.",
+"input":"&le",
+"output": ["ParseError", ["Character", "&le"]]},
+
+{"description": "Bad named entity: lfloor without a semi-colon.",
+"input":"&lfloor",
+"output": ["ParseError", ["Character", "&lfloor"]]},
+
+{"description": "Bad named entity: lowast without a semi-colon.",
+"input":"&lowast",
+"output": ["ParseError", ["Character", "&lowast"]]},
+
+{"description": "Bad named entity: loz without a semi-colon.",
+"input":"&loz",
+"output": ["ParseError", ["Character", "&loz"]]},
+
+{"description": "Bad named entity: lrm without a semi-colon.",
+"input":"&lrm",
+"output": ["ParseError", ["Character", "&lrm"]]},
+
+{"description": "Bad named entity: lsaquo without a semi-colon.",
+"input":"&lsaquo",
+"output": ["ParseError", ["Character", "&lsaquo"]]},
+
+{"description": "Bad named entity: lsquo without a semi-colon.",
+"input":"&lsquo",
+"output": ["ParseError", ["Character", "&lsquo"]]},
+
+{"description": "Bad named entity: mdash without a semi-colon.",
+"input":"&mdash",
+"output": ["ParseError", ["Character", "&mdash"]]},
+
+{"description": "Bad named entity: minus without a semi-colon.",
+"input":"&minus",
+"output": ["ParseError", ["Character", "&minus"]]},
+
+{"description": "Bad named entity: Mu without a semi-colon.",
+"input":"&Mu",
+"output": ["ParseError", ["Character", "&Mu"]]},
+
+{"description": "Bad named entity: mu without a semi-colon.",
+"input":"&mu",
+"output": ["ParseError", ["Character", "&mu"]]},
+
+{"description": "Bad named entity: nabla without a semi-colon.",
+"input":"&nabla",
+"output": ["ParseError", ["Character", "&nabla"]]},
+
+{"description": "Bad named entity: ndash without a semi-colon.",
+"input":"&ndash",
+"output": ["ParseError", ["Character", "&ndash"]]},
+
+{"description": "Bad named entity: ne without a semi-colon.",
+"input":"&ne",
+"output": ["ParseError", ["Character", "&ne"]]},
+
+{"description": "Bad named entity: ni without a semi-colon.",
+"input":"&ni",
+"output": ["ParseError", ["Character", "&ni"]]},
+
+{"description": "Bad named entity: notin without a semi-colon.",
+"input":"&notin",
+"output": ["ParseError", ["Character", "\u00ACin"]]},
+
+{"description": "Bad named entity: nsub without a semi-colon.",
+"input":"&nsub",
+"output": ["ParseError", ["Character", "&nsub"]]},
+
+{"description": "Bad named entity: Nu without a semi-colon.",
+"input":"&Nu",
+"output": ["ParseError", ["Character", "&Nu"]]},
+
+{"description": "Bad named entity: nu without a semi-colon.",
+"input":"&nu",
+"output": ["ParseError", ["Character", "&nu"]]},
+
+{"description": "Bad named entity: OElig without a semi-colon.",
+"input":"&OElig",
+"output": ["ParseError", ["Character", "&OElig"]]},
+
+{"description": "Bad named entity: oelig without a semi-colon.",
+"input":"&oelig",
+"output": ["ParseError", ["Character", "&oelig"]]},
+
+{"description": "Bad named entity: oline without a semi-colon.",
+"input":"&oline",
+"output": ["ParseError", ["Character", "&oline"]]},
+
+{"description": "Bad named entity: Omega without a semi-colon.",
+"input":"&Omega",
+"output": ["ParseError", ["Character", "&Omega"]]},
+
+{"description": "Bad named entity: omega without a semi-colon.",
+"input":"&omega",
+"output": ["ParseError", ["Character", "&omega"]]},
+
+{"description": "Bad named entity: Omicron without a semi-colon.",
+"input":"&Omicron",
+"output": ["ParseError", ["Character", "&Omicron"]]},
+
+{"description": "Bad named entity: omicron without a semi-colon.",
+"input":"&omicron",
+"output": ["ParseError", ["Character", "&omicron"]]},
+
+{"description": "Bad named entity: oplus without a semi-colon.",
+"input":"&oplus",
+"output": ["ParseError", ["Character", "&oplus"]]},
+
+{"description": "Bad named entity: or without a semi-colon.",
+"input":"&or",
+"output": ["ParseError", ["Character", "&or"]]},
+
+{"description": "Bad named entity: otimes without a semi-colon.",
+"input":"&otimes",
+"output": ["ParseError", ["Character", "&otimes"]]},
+
+{"description": "Bad named entity: part without a semi-colon.",
+"input":"&part",
+"output": ["ParseError", ["Character", "&part"]]},
+
+{"description": "Bad named entity: permil without a semi-colon.",
+"input":"&permil",
+"output": ["ParseError", ["Character", "&permil"]]},
+
+{"description": "Bad named entity: perp without a semi-colon.",
+"input":"&perp",
+"output": ["ParseError", ["Character", "&perp"]]},
+
+{"description": "Bad named entity: Phi without a semi-colon.",
+"input":"&Phi",
+"output": ["ParseError", ["Character", "&Phi"]]},
+
+{"description": "Bad named entity: phi without a semi-colon.",
+"input":"&phi",
+"output": ["ParseError", ["Character", "&phi"]]},
+
+{"description": "Bad named entity: Pi without a semi-colon.",
+"input":"&Pi",
+"output": ["ParseError", ["Character", "&Pi"]]},
+
+{"description": "Bad named entity: pi without a semi-colon.",
+"input":"&pi",
+"output": ["ParseError", ["Character", "&pi"]]},
+
+{"description": "Bad named entity: piv without a semi-colon.",
+"input":"&piv",
+"output": ["ParseError", ["Character", "&piv"]]},
+
+{"description": "Bad named entity: prime without a semi-colon.",
+"input":"&prime",
+"output": ["ParseError", ["Character", "&prime"]]},
+
+{"description": "Bad named entity: prime without a semi-colon.",
+"input":"&prime",
+"output": ["ParseError", ["Character", "&prime"]]},
+
+{"description": "Bad named entity: prod without a semi-colon.",
+"input":"&prod",
+"output": ["ParseError", ["Character", "&prod"]]},
+
+{"description": "Bad named entity: prop without a semi-colon.",
+"input":"&prop",
+"output": ["ParseError", ["Character", "&prop"]]},
+
+{"description": "Bad named entity: Psi without a semi-colon.",
+"input":"&Psi",
+"output": ["ParseError", ["Character", "&Psi"]]},
+
+{"description": "Bad named entity: psi without a semi-colon.",
+"input":"&psi",
+"output": ["ParseError", ["Character", "&psi"]]},
+
+{"description": "Bad named entity: radic without a semi-colon.",
+"input":"&radic",
+"output": ["ParseError", ["Character", "&radic"]]},
+
+{"description": "Bad named entity: rang without a semi-colon.",
+"input":"&rang",
+"output": ["ParseError", ["Character", "&rang"]]},
+
+{"description": "Bad named entity: rarr without a semi-colon.",
+"input":"&rarr",
+"output": ["ParseError", ["Character", "&rarr"]]},
+
+{"description": "Bad named entity: rarr without a semi-colon.",
+"input":"&rarr",
+"output": ["ParseError", ["Character", "&rarr"]]},
+
+{"description": "Bad named entity: rceil without a semi-colon.",
+"input":"&rceil",
+"output": ["ParseError", ["Character", "&rceil"]]},
+
+{"description": "Bad named entity: rdquo without a semi-colon.",
+"input":"&rdquo",
+"output": ["ParseError", ["Character", "&rdquo"]]},
+
+{"description": "Bad named entity: real without a semi-colon.",
+"input":"&real",
+"output": ["ParseError", ["Character", "&real"]]},
+
+{"description": "Bad named entity: rfloor without a semi-colon.",
+"input":"&rfloor",
+"output": ["ParseError", ["Character", "&rfloor"]]},
+
+{"description": "Bad named entity: Rho without a semi-colon.",
+"input":"&Rho",
+"output": ["ParseError", ["Character", "&Rho"]]},
+
+{"description": "Bad named entity: rho without a semi-colon.",
+"input":"&rho",
+"output": ["ParseError", ["Character", "&rho"]]},
+
+{"description": "Bad named entity: rlm without a semi-colon.",
+"input":"&rlm",
+"output": ["ParseError", ["Character", "&rlm"]]},
+
+{"description": "Bad named entity: rsaquo without a semi-colon.",
+"input":"&rsaquo",
+"output": ["ParseError", ["Character", "&rsaquo"]]},
+
+{"description": "Bad named entity: rsquo without a semi-colon.",
+"input":"&rsquo",
+"output": ["ParseError", ["Character", "&rsquo"]]},
+
+{"description": "Bad named entity: sbquo without a semi-colon.",
+"input":"&sbquo",
+"output": ["ParseError", ["Character", "&sbquo"]]},
+
+{"description": "Bad named entity: Scaron without a semi-colon.",
+"input":"&Scaron",
+"output": ["ParseError", ["Character", "&Scaron"]]},
+
+{"description": "Bad named entity: scaron without a semi-colon.",
+"input":"&scaron",
+"output": ["ParseError", ["Character", "&scaron"]]},
+
+{"description": "Bad named entity: sdot without a semi-colon.",
+"input":"&sdot",
+"output": ["ParseError", ["Character", "&sdot"]]},
+
+{"description": "Bad named entity: Sigma without a semi-colon.",
+"input":"&Sigma",
+"output": ["ParseError", ["Character", "&Sigma"]]},
+
+{"description": "Bad named entity: sigma without a semi-colon.",
+"input":"&sigma",
+"output": ["ParseError", ["Character", "&sigma"]]},
+
+{"description": "Bad named entity: sigmaf without a semi-colon.",
+"input":"&sigmaf",
+"output": ["ParseError", ["Character", "&sigmaf"]]},
+
+{"description": "Bad named entity: sim without a semi-colon.",
+"input":"&sim",
+"output": ["ParseError", ["Character", "&sim"]]},
+
+{"description": "Bad named entity: spades without a semi-colon.",
+"input":"&spades",
+"output": ["ParseError", ["Character", "&spades"]]},
+
+{"description": "Bad named entity: sub without a semi-colon.",
+"input":"&sub",
+"output": ["ParseError", ["Character", "&sub"]]},
+
+{"description": "Bad named entity: sube without a semi-colon.",
+"input":"&sube",
+"output": ["ParseError", ["Character", "&sube"]]},
+
+{"description": "Bad named entity: sum without a semi-colon.",
+"input":"&sum",
+"output": ["ParseError", ["Character", "&sum"]]},
+
+{"description": "Bad named entity: sup without a semi-colon.",
+"input":"&sup",
+"output": ["ParseError", ["Character", "&sup"]]},
+
+{"description": "Bad named entity: supe without a semi-colon.",
+"input":"&supe",
+"output": ["ParseError", ["Character", "&supe"]]},
+
+{"description": "Bad named entity: Tau without a semi-colon.",
+"input":"&Tau",
+"output": ["ParseError", ["Character", "&Tau"]]},
+
+{"description": "Bad named entity: tau without a semi-colon.",
+"input":"&tau",
+"output": ["ParseError", ["Character", "&tau"]]},
+
+{"description": "Bad named entity: there4 without a semi-colon.",
+"input":"&there4",
+"output": ["ParseError", ["Character", "&there4"]]},
+
+{"description": "Bad named entity: Theta without a semi-colon.",
+"input":"&Theta",
+"output": ["ParseError", ["Character", "&Theta"]]},
+
+{"description": "Bad named entity: theta without a semi-colon.",
+"input":"&theta",
+"output": ["ParseError", ["Character", "&theta"]]},
+
+{"description": "Bad named entity: thetasym without a semi-colon.",
+"input":"&thetasym",
+"output": ["ParseError", ["Character", "&thetasym"]]},
+
+{"description": "Bad named entity: thinsp without a semi-colon.",
+"input":"&thinsp",
+"output": ["ParseError", ["Character", "&thinsp"]]},
+
+{"description": "Bad named entity: tilde without a semi-colon.",
+"input":"&tilde",
+"output": ["ParseError", ["Character", "&tilde"]]},
+
+{"description": "Bad named entity: trade without a semi-colon.",
+"input":"&trade",
+"output": ["ParseError", ["Character", "&trade"]]},
+
+{"description": "Bad named entity: uarr without a semi-colon.",
+"input":"&uarr",
+"output": ["ParseError", ["Character", "&uarr"]]},
+
+{"description": "Bad named entity: uarr without a semi-colon.",
+"input":"&uarr",
+"output": ["ParseError", ["Character", "&uarr"]]},
+
+{"description": "Bad named entity: upsih without a semi-colon.",
+"input":"&upsih",
+"output": ["ParseError", ["Character", "&upsih"]]},
+
+{"description": "Bad named entity: Upsilon without a semi-colon.",
+"input":"&Upsilon",
+"output": ["ParseError", ["Character", "&Upsilon"]]},
+
+{"description": "Bad named entity: upsilon without a semi-colon.",
+"input":"&upsilon",
+"output": ["ParseError", ["Character", "&upsilon"]]},
+
+{"description": "Bad named entity: weierp without a semi-colon.",
+"input":"&weierp",
+"output": ["ParseError", ["Character", "&weierp"]]},
+
+{"description": "Bad named entity: Xi without a semi-colon.",
+"input":"&Xi",
+"output": ["ParseError", ["Character", "&Xi"]]},
+
+{"description": "Bad named entity: xi without a semi-colon.",
+"input":"&xi",
+"output": ["ParseError", ["Character", "&xi"]]},
+
+{"description": "Bad named entity: Yuml without a semi-colon.",
+"input":"&Yuml",
+"output": ["ParseError", ["Character", "&Yuml"]]},
+
+{"description": "Bad named entity: Zeta without a semi-colon.",
+"input":"&Zeta",
+"output": ["ParseError", ["Character", "&Zeta"]]},
+
+{"description": "Bad named entity: zeta without a semi-colon.",
+"input":"&zeta",
+"output": ["ParseError", ["Character", "&zeta"]]},
+
+{"description": "Bad named entity: zwj without a semi-colon.",
+"input":"&zwj",
+"output": ["ParseError", ["Character", "&zwj"]]},
+
+{"description": "Bad named entity: zwnj without a semi-colon.",
+"input":"&zwnj",
+"output": ["ParseError", ["Character", "&zwnj"]]},
+
+{"description": "Bad named entity: zwnj without a semi-colon.",
+"input":"&zwnj",
+"output": ["ParseError", ["Character", "&zwnj"]]}
 
 ]}
