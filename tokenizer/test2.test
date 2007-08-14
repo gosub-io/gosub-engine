@@ -118,7 +118,11 @@
 
 {"description":"Comment with dash",
 "input":"<!---x",
-"output":["ParseError", ["Comment", "-x"]]}
+"output":["ParseError", ["Comment", "-x"]]},
+
+{"description":"Entity + newline",
+"input":"\nx\n&gt;\n",
+"output":[["Character","\nx\n>\n"]]}
 
 ]}
 

@@ -173,6 +173,10 @@
 
 {"description":"LF CR",
 "input":"\n\r",
-"output":[["Character", "\n\n"]]}
+"output":[["Character", "\n\n"]]},
+
+{"description":"text CR CR CR text",
+"input":"text\r\r\rtext",
+"output":[["Character", "text\n\n\ntext"]]}
 
 ]}
