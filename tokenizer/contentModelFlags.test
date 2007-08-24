@@ -11,11 +11,23 @@
 "input":"foo</bar>",
 "output":[["Character", "foo"], ["EndTag", "bar"]]},
 
+{"description":"End tag closing RCDATA or CDATA (case-insensitivity)",
+"contentModelFlags":["RCDATA", "CDATA"],
+"lastStartTag":"bar",
+"input":"foo</bAr>",
+"output":[["Character", "foo"], ["EndTag", "bar"]]},
+
 {"description":"End tag with incorrect name in RCDATA or CDATA",
 "contentModelFlags":["RCDATA", "CDATA"],
 "lastStartTag":"baz",
 "input":"</foo>bar</baz>",
 "output":[["Character", "</foo>bar"], ["EndTag", "baz"]]},
+
+{"description":"End tag with incorrect name in RCDATA or CDATA (starting like correct name)",
+"contentModelFlags":["RCDATA", "CDATA"],
+"lastStartTag":"baz",
+"input":"</foo>bar</bazaar>",
+"output":[["Character", "</foo>bar</bazaar>"]]},
 
 {"description":"End tag closing RCDATA or CDATA, switching back to PCDATA",
 "contentModelFlags":["RCDATA", "CDATA"],

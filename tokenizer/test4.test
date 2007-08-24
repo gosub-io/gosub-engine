@@ -177,6 +177,22 @@
 
 {"description":"text CR CR CR text",
 "input":"text\r\r\rtext",
-"output":[["Character", "text\n\n\ntext"]]}
+"output":[["Character", "text\n\n\ntext"]]},
+
+{"description":"Doctype publik",
+"input":"<!DOCTYPE html PUBLIK \"AbC\" \"XyZ\">",
+"output":["ParseError", ["DOCTYPE", "html", null, null, false]]},
+
+{"description":"Doctype publi",
+"input":"<!DOCTYPE html PUBLI",
+"output":["ParseError", "ParseError", ["DOCTYPE", "html", null, null, false]]},
+
+{"description":"Doctype sistem",
+"input":"<!DOCTYPE html SISTEM \"AbC\">",
+"output":["ParseError", ["DOCTYPE", "html", null, null, false]]},
+
+{"description":"Doctype sys",
+"input":"<!DOCTYPE html SYS",
+"output":["ParseError", "ParseError", ["DOCTYPE", "html", null, null, false]]}
 
 ]}
