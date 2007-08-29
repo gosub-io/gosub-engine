@@ -1,5 +1,13 @@
 {"tests": [
 
+{"description": "'size' attribute deprecated on <input type='text'>",
+"input": "<input type=text size>",
+"fail-unless": "deprecated-attribute"},
+
+{"description": "'size' attribute deprecated on <input type='password'>",
+"input": "<input type=password size>",
+"fail-unless": "deprecated-attribute"},
+
 {"description": "allowed 'accesskey' attribute on <input type='checkbox'>",
 "input": "<input type=checkbox accesskey>",
 "fail-if": "attribute-not-allowed-on-this-input-type"},
