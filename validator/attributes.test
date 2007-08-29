@@ -620,6 +620,234 @@
 "input": "<col span>",
 "fail-if": "unknown-attribute"},
 
+{"description": "allowed 'disabled' attribute on <fieldset>",
+"input": "<fieldset disabled>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'form' attribute on <fieldset>",
+"input": "<fieldset form>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'onsubmit' attribute on <form>",
+"input": "<form onsubmit>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'name' attribute on <form>",
+"input": "<form name>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'onreset' attribute on <form>",
+"input": "<form onreset>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'accept' attribute on <form>",
+"input": "<form accept>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'replace' attribute on <form>",
+"input": "<form replace>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'accept-charset' attribute on <form>",
+"input": "<form accept-charset>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'action' attribute on <form>",
+"input": "<form action>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'data' attribute on <form>",
+"input": "<form data>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'method' attribute on <form>",
+"input": "<form method>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'enctype' attribute on <form>",
+"input": "<form enctype>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'rows' attribute on <textarea>",
+"input": "<textarea rows>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'name' attribute on <textarea>",
+"input": "<textarea name>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'form' attribute on <textarea>",
+"input": "<textarea form>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'required' attribute on <textarea>",
+"input": "<textarea required>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'cols' attribute on <textarea>",
+"input": "<textarea cols>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'accept' attribute on <textarea>",
+"input": "<textarea accept>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'disabled' attribute on <textarea>",
+"input": "<textarea disabled>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'readonly' attribute on <textarea>",
+"input": "<textarea readonly>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'wrap' attribute on <textarea>",
+"input": "<textarea wrap>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'autofocus' attribute on <textarea>",
+"input": "<textarea autofocus>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'a' attribute on <datalist>",
+"input": "<datalist a>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'd' attribute on <datalist>",
+"input": "<datalist d>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 't' attribute on <datalist>",
+"input": "<datalist t>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'name' attribute on <button>",
+"input": "<button name>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'form' attribute on <button>",
+"input": "<button form>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'value' attribute on <button>",
+"input": "<button value>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'disabled' attribute on <button>",
+"input": "<button disabled>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'autofocus' attribute on <button>",
+"input": "<button autofocus>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'type' attribute on <button>",
+"input": "<button type>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'accesskey' attribute on <label>",
+"input": "<label accesskey>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'form' attribute on <label>",
+"input": "<label form>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'for' attribute on <label>",
+"input": "<label for>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'disabled' attribute on <optgroup>",
+"input": "<optgroup disabled>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'autofocus' attribute on <optgroup>",
+"input": "<optgroup autofocus>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'form' attribute on <optgroup>",
+"input": "<optgroup form>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'label' attribute on <optgroup>",
+"input": "<optgroup label>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'onforminput' attribute on <output>",
+"input": "<output onforminput>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'onformchange' attribute on <output>",
+"input": "<output onformchange>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'name' attribute on <output>",
+"input": "<output name>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'form' attribute on <output>",
+"input": "<output form>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'for' attribute on <output>",
+"input": "<output for>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'multiple' attribute on <select>",
+"input": "<select multiple>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'name' attribute on <select>",
+"input": "<select name>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'form' attribute on <select>",
+"input": "<select form>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'accesskey' attribute on <select>",
+"input": "<select accesskey>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'disabled' attribute on <select>",
+"input": "<select disabled>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'autofocus' attribute on <select>",
+"input": "<select autofocus>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'data' attribute on <select>",
+"input": "<select data>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'size' attribute on <select>",
+"input": "<select size>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'form' attribute on <option>",
+"input": "<option form>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'selected' attribute on <option>",
+"input": "<option selected>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'value' attribute on <option>",
+"input": "<option value>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'label' attribute on <option>",
+"input": "<option label>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'disabled' attribute on <option>",
+"input": "<option disabled>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'autofocus' attribute on <option>",
+"input": "<option autofocus>",
+"fail-if": "unknown-attribute"},
+
 {"description": "unknown 'foo' attribute on <command>",
 "input": "<command foo>",
 "fail-unless": "unknown-attribute"},
