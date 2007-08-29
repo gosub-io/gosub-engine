@@ -1,5 +1,181 @@
 {"tests": [
 
+{"description": "allowed 'class' attribute on <span>",
+"input": "<span class>",
+"fail-if": "unrecognized-attribute"},
+
+{"description": "allowed 'contenteditable' attribute on <span>",
+"input": "<span contenteditable>",
+"fail-if": "unrecognized-attribute"},
+
+{"description": "allowed 'contextmenu' attribute on <span>",
+"input": "<span contextmenu>",
+"fail-if": "unrecognized-attribute"},
+
+{"description": "allowed 'dir' attribute on <span>",
+"input": "<span dir>",
+"fail-if": "unrecognized-attribute"},
+
+{"description": "allowed 'draggable' attribute on <span>",
+"input": "<span draggable>",
+"fail-if": "unrecognized-attribute"},
+
+{"description": "allowed 'id' attribute on <span>",
+"input": "<span id>",
+"fail-if": "unrecognized-attribute"},
+
+{"description": "allowed 'irrelevant' attribute on <span>",
+"input": "<span irrelevant>",
+"fail-if": "unrecognized-attribute"},
+
+{"description": "allowed 'lang' attribute on <span>",
+"input": "<span lang>",
+"fail-if": "unrecognized-attribute"},
+
+{"description": "allowed 'ref' attribute on <span>",
+"input": "<span ref>",
+"fail-if": "unrecognized-attribute"},
+
+{"description": "allowed 'tabindex' attribute on <span>",
+"input": "<span tabindex>",
+"fail-if": "unrecognized-attribute"},
+
+{"description": "allowed 'template' attribute on <span>",
+"input": "<span template>",
+"fail-if": "unrecognized-attribute"},
+
+{"description": "allowed 'title' attribute on <span>",
+"input": "<span title>",
+"fail-if": "unrecognized-attribute"},
+
+{"description": "allowed 'onabort' attribute on <span>",
+"input": "<span onabort>",
+"fail-if": "unrecognized-attribute"},
+
+{"description": "allowed 'onbeforeunload' attribute on <span>",
+"input": "<span onbeforeunload>",
+"fail-if": "unrecognized-attribute"},
+
+{"description": "allowed 'onblur' attribute on <span>",
+"input": "<span onblur>",
+"fail-if": "unrecognized-attribute"},
+
+{"description": "allowed 'onchange' attribute on <span>",
+"input": "<span onchange>",
+"fail-if": "unrecognized-attribute"},
+
+{"description": "allowed 'onclick' attribute on <span>",
+"input": "<span onclick>",
+"fail-if": "unrecognized-attribute"},
+
+{"description": "allowed 'oncontextmenu' attribute on <span>",
+"input": "<span oncontextmenu>",
+"fail-if": "unrecognized-attribute"},
+
+{"description": "allowed 'ondblclick' attribute on <span>",
+"input": "<span ondblclick>",
+"fail-if": "unrecognized-attribute"},
+
+{"description": "allowed 'ondrag' attribute on <span>",
+"input": "<span ondrag>",
+"fail-if": "unrecognized-attribute"},
+
+{"description": "allowed 'ondragend' attribute on <span>",
+"input": "<span ondragend>",
+"fail-if": "unrecognized-attribute"},
+
+{"description": "allowed 'ondragenter' attribute on <span>",
+"input": "<span ondragenter>",
+"fail-if": "unrecognized-attribute"},
+
+{"description": "allowed 'ondragleave' attribute on <span>",
+"input": "<span ondragleave>",
+"fail-if": "unrecognized-attribute"},
+
+{"description": "allowed 'ondragover' attribute on <span>",
+"input": "<span ondragover>",
+"fail-if": "unrecognized-attribute"},
+
+{"description": "allowed 'ondragstart' attribute on <span>",
+"input": "<span ondragstart>",
+"fail-if": "unrecognized-attribute"},
+
+{"description": "allowed 'ondrop' attribute on <span>",
+"input": "<span ondrop>",
+"fail-if": "unrecognized-attribute"},
+
+{"description": "allowed 'onerror' attribute on <span>",
+"input": "<span onerror>",
+"fail-if": "unrecognized-attribute"},
+
+{"description": "allowed 'onfocus' attribute on <span>",
+"input": "<span onfocus>",
+"fail-if": "unrecognized-attribute"},
+
+{"description": "allowed 'onkeydown' attribute on <span>",
+"input": "<span onkeydown>",
+"fail-if": "unrecognized-attribute"},
+
+{"description": "allowed 'onkeypress' attribute on <span>",
+"input": "<span onkeypress>",
+"fail-if": "unrecognized-attribute"},
+
+{"description": "allowed 'onkeyup' attribute on <span>",
+"input": "<span onkeyup>",
+"fail-if": "unrecognized-attribute"},
+
+{"description": "allowed 'onload' attribute on <span>",
+"input": "<span onload>",
+"fail-if": "unrecognized-attribute"},
+
+{"description": "allowed 'onmessage' attribute on <span>",
+"input": "<span onmessage>",
+"fail-if": "unrecognized-attribute"},
+
+{"description": "allowed 'onmousedown' attribute on <span>",
+"input": "<span onmousedown>",
+"fail-if": "unrecognized-attribute"},
+
+{"description": "allowed 'onmousemove' attribute on <span>",
+"input": "<span onmousemove>",
+"fail-if": "unrecognized-attribute"},
+
+{"description": "allowed 'onmouseout' attribute on <span>",
+"input": "<span onmouseout>",
+"fail-if": "unrecognized-attribute"},
+
+{"description": "allowed 'onmouseover' attribute on <span>",
+"input": "<span onmouseover>",
+"fail-if": "unrecognized-attribute"},
+
+{"description": "allowed 'onmouseup' attribute on <span>",
+"input": "<span onmouseup>",
+"fail-if": "unrecognized-attribute"},
+
+{"description": "allowed 'onmousewheel' attribute on <span>",
+"input": "<span onmousewheel>",
+"fail-if": "unrecognized-attribute"},
+
+{"description": "allowed 'onresize' attribute on <span>",
+"input": "<span onresize>",
+"fail-if": "unrecognized-attribute"},
+
+{"description": "allowed 'onscroll' attribute on <span>",
+"input": "<span onscroll>",
+"fail-if": "unrecognized-attribute"},
+
+{"description": "allowed 'onselect' attribute on <span>",
+"input": "<span onselect>",
+"fail-if": "unrecognized-attribute"},
+
+{"description": "allowed 'onsubmit' attribute on <span>",
+"input": "<span onsubmit>",
+"fail-if": "unrecognized-attribute"},
+
+{"description": "allowed 'onunload' attribute on <span>",
+"input": "<span onunload>",
+"fail-if": "unrecognized-attribute"},
+
 {"description": "allowed 'type' attribute on <command>",
 "input": "<command type>",
 "fail-if": "unrecognized-attribute"},
