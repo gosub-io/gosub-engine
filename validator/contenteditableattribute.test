@@ -34,26 +34,26 @@
 
 {"description": "invalid contenteditable attribute value 'foo'",
 "input": "<span contenteditable=foo>",
-"fail-unless": "invalid-attribute-value"},
+"fail-unless": "invalid-enumerated-value"},
 
 {"description": "invalid contenteditable attribute value '0'",
 "input": "<span contenteditable=0>",
-"fail-unless": "invalid-attribute-value"},
+"fail-unless": "invalid-enumerated-value"},
 
 {"description": "invalid contenteditable attribute value '1'",
 "input": "<span contenteditable=1>",
-"fail-unless": "invalid-attribute-value"},
+"fail-unless": "invalid-enumerated-value"},
 
 {"description": "invalid contenteditable attribute value 'yes'",
 "input": "<span contenteditable=yes>",
-"fail-unless": "invalid-attribute-value"},
+"fail-unless": "invalid-enumerated-value"},
 
 {"description": "invalid contenteditable attribute value 'no'",
 "input": "<span contenteditable=no>",
-"fail-unless": "invalid-attribute-value"},
+"fail-unless": "invalid-enumerated-value"},
 
 {"description": "invalid contenteditable attribute value 'inherit'",
 "input": "<span contenteditable=inherit>",
-"fail-unless": "invalid-attribute-value"}
+"fail-unless": "invalid-enumerated-value"}
 
 ]}
