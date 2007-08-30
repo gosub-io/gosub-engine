@@ -708,6 +708,10 @@
 "input": "<textarea autofocus>",
 "fail-if": "unknown-attribute"},
 
+{"description": "allowed 'maxlength' attribute on <textarea>",
+"input": "<textarea maxlength>",
+"fail-if": "unknown-attribute"},
+
 {"description": "allowed 'a' attribute on <datalist>",
 "input": "<datalist a>",
 "fail-if": "unknown-attribute"},
@@ -718,6 +722,26 @@
 
 {"description": "allowed 't' attribute on <datalist>",
 "input": "<datalist t>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'action' attribute on <button>",
+"input": "<button action>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'enctype' attribute on <button>",
+"input": "<button enctype>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'method' attribute on <button>",
+"input": "<button method>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'replace' attribute on <button>",
+"input": "<button replace>",
+"fail-if": "unknown-attribute"},
+
+{"description": "allowed 'template' attribute on <button>",
+"input": "<button template>",
 "fail-if": "unknown-attribute"},
 
 {"description": "allowed 'name' attribute on <button>",
@@ -758,14 +782,6 @@
 
 {"description": "allowed 'disabled' attribute on <optgroup>",
 "input": "<optgroup disabled>",
-"fail-if": "unknown-attribute"},
-
-{"description": "allowed 'autofocus' attribute on <optgroup>",
-"input": "<optgroup autofocus>",
-"fail-if": "unknown-attribute"},
-
-{"description": "allowed 'form' attribute on <optgroup>",
-"input": "<optgroup form>",
 "fail-if": "unknown-attribute"},
 
 {"description": "allowed 'label' attribute on <optgroup>",
@@ -824,10 +840,6 @@
 "input": "<select size>",
 "fail-if": "unknown-attribute"},
 
-{"description": "allowed 'form' attribute on <option>",
-"input": "<option form>",
-"fail-if": "unknown-attribute"},
-
 {"description": "allowed 'selected' attribute on <option>",
 "input": "<option selected>",
 "fail-if": "unknown-attribute"},
@@ -842,10 +854,6 @@
 
 {"description": "allowed 'disabled' attribute on <option>",
 "input": "<option disabled>",
-"fail-if": "unknown-attribute"},
-
-{"description": "allowed 'autofocus' attribute on <option>",
-"input": "<option autofocus>",
 "fail-if": "unknown-attribute"},
 
 {"description": "unknown 'foo' attribute on <command>",
