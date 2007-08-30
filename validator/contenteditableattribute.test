@@ -50,6 +50,10 @@
 
 {"description": "invalid contenteditable attribute value 'no'",
 "input": "<span contenteditable=no>",
+"fail-unless": "invalid-attribute-value"},
+
+{"description": "invalid contenteditable attribute value 'inherit'",
+"input": "<span contenteditable=inherit>",
 "fail-unless": "invalid-attribute-value"}
 
 ]}
