@@ -8,6 +8,10 @@
 "input": "<span id=1>",
 "fail-if": "invalid-attribute-value"},
 
+{"description": "wacky but valid ID",
+"input": "<span id='<html><head><title>a</title></head><body><p>b</p></body></html>'>",
+"fail-if": "invalid-attribute-value"},
+
 {"description": "invalid blank ID",
 "input": "<span id>",
 "fail-unless": "attribute-value-can-not-be-blank"},
@@ -105,6 +109,10 @@ b'>",
 
 {"description": "not duplicate ID values because spaces don't match",
 "input": "<span id=' a'><span id='a '>",
+"fail-if": "duplicate-id"},
+
+{"description": "not duplicate ID values because case doesn't match",
+"input": "<span id=a><span id=A>",
 "fail-if": "duplicate-id"}
 
 ]}
