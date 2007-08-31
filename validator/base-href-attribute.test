@@ -1,0 +1,211 @@
+{"tests": [
+
+{"description": "base href contains invalid URI due to leading space",
+"input": "<base href=' http://www.example.com/'",
+"fail-unless": "invalid-attribute-value"},
+
+{"description": "base href contains invalid URI due to trailing space",
+"input": "<base href='http://www.example.com/ '",
+"fail-unless": "invalid-attribute-value"},
+
+{"description": "base href contains invalid URI due to space",
+"input": "<base href='http://www.example. com/'",
+"fail-unless": "invalid-attribute-value"},
+
+{"description": "base href contains valid URI 'g'",
+"input": "<base href='g'",
+"fail-if": "invalid-attribute-value"},
+
+{"description": "base href contains valid URI './g'",
+"input": "<base href='./g'",
+"fail-if": "invalid-attribute-value"},
+
+{"description": "base href contains valid URI 'g/'",
+"input": "<base href='g/'",
+"fail-if": "invalid-attribute-value"},
+
+{"description": "base href contains valid URI '/g'",
+"input": "<base href='/g'",
+"fail-if": "invalid-attribute-value"},
+
+{"description": "base href contains valid URI '//g'",
+"input": "<base href='//g'",
+"fail-if": "invalid-attribute-value"},
+
+{"description": "base href contains valid URI '?y'",
+"input": "<base href='?y'",
+"fail-if": "invalid-attribute-value"},
+
+{"description": "base href contains valid URI 'g?y'",
+"input": "<base href='g?y'",
+"fail-if": "invalid-attribute-value"},
+
+{"description": "base href contains valid URI '#s'",
+"input": "<base href='#s'",
+"fail-if": "invalid-attribute-value"},
+
+{"description": "base href contains valid URI 'g#s'",
+"input": "<base href='g#s'",
+"fail-if": "invalid-attribute-value"},
+
+{"description": "base href contains valid URI 'g?y#s'",
+"input": "<base href='g?y#s'",
+"fail-if": "invalid-attribute-value"},
+
+{"description": "base href contains valid URI ';x'",
+"input": "<base href=';x'",
+"fail-if": "invalid-attribute-value"},
+
+{"description": "base href contains valid URI 'g;x'",
+"input": "<base href='g;x'",
+"fail-if": "invalid-attribute-value"},
+
+{"description": "base href contains valid URI 'g;x?y#s'",
+"input": "<base href='g;x?y#s'",
+"fail-if": "invalid-attribute-value"},
+
+{"description": "base href contains valid URI '.'",
+"input": "<base href='.'",
+"fail-if": "invalid-attribute-value"},
+
+{"description": "base href contains valid URI './'",
+"input": "<base href='./'",
+"fail-if": "invalid-attribute-value"},
+
+{"description": "base href contains valid URI '..'",
+"input": "<base href='..'",
+"fail-if": "invalid-attribute-value"},
+
+{"description": "base href contains valid URI '../'",
+"input": "<base href='../'",
+"fail-if": "invalid-attribute-value"},
+
+{"description": "base href contains valid URI '../g'",
+"input": "<base href='../g'",
+"fail-if": "invalid-attribute-value"},
+
+{"description": "base href contains valid URI '../..'",
+"input": "<base href='../..'",
+"fail-if": "invalid-attribute-value"},
+
+{"description": "base href contains valid URI '../../'",
+"input": "<base href='../../'",
+"fail-if": "invalid-attribute-value"},
+
+{"description": "base href contains valid URI '../../g'",
+"input": "<base href='../../g'",
+"fail-if": "invalid-attribute-value"},
+
+{"description": "base href contains valid URI '../../../g'",
+"input": "<base href='../../../g'",
+"fail-if": "invalid-attribute-value"},
+
+{"description": "base href contains valid URI '../../../../g'",
+"input": "<base href='../../../../g'",
+"fail-if": "invalid-attribute-value"},
+
+{"description": "base href contains valid URI '/./g'",
+"input": "<base href='/./g'",
+"fail-if": "invalid-attribute-value"},
+
+{"description": "base href contains valid URI '/../g'",
+"input": "<base href='/../g'",
+"fail-if": "invalid-attribute-value"},
+
+{"description": "base href contains valid URI 'g.'",
+"input": "<base href='g.'",
+"fail-if": "invalid-attribute-value"},
+
+{"description": "base href contains valid URI '.g'",
+"input": "<base href='.g'",
+"fail-if": "invalid-attribute-value"},
+
+{"description": "base href contains valid URI 'g..'",
+"input": "<base href='g..'",
+"fail-if": "invalid-attribute-value"},
+
+{"description": "base href contains valid URI '..g'",
+"input": "<base href='..g'",
+"fail-if": "invalid-attribute-value"},
+
+{"description": "base href contains valid URI './../g'",
+"input": "<base href='./../g'",
+"fail-if": "invalid-attribute-value"},
+
+{"description": "base href contains valid URI './g/.'",
+"input": "<base href='./g/.'",
+"fail-if": "invalid-attribute-value"},
+
+{"description": "base href contains valid URI 'g/./h'",
+"input": "<base href='g/./h'",
+"fail-if": "invalid-attribute-value"},
+
+{"description": "base href contains valid URI 'g/../h'",
+"input": "<base href='g/../h'",
+"fail-if": "invalid-attribute-value"},
+
+{"description": "base href contains valid URI 'g;x=1/./y'",
+"input": "<base href='g;x=1/./y'",
+"fail-if": "invalid-attribute-value"},
+
+{"description": "base href contains valid URI 'g;x=1/../y'",
+"input": "<base href='g;x=1/../y'",
+"fail-if": "invalid-attribute-value"},
+
+{"description": "base href contains valid URI 'g?y/./x'",
+"input": "<base href='g?y/./x'",
+"fail-if": "invalid-attribute-value"},
+
+{"description": "base href contains valid URI 'g?y/../x'",
+"input": "<base href='g?y/../x'",
+"fail-if": "invalid-attribute-value"},
+
+{"description": "base href contains valid URI 'g#s/./x'",
+"input": "<base href='g#s/./x'",
+"fail-if": "invalid-attribute-value"},
+
+{"description": "base href contains valid URI 'g#s/../x'",
+"input": "<base href='g#s/../x'",
+"fail-if": "invalid-attribute-value"},
+
+{"description": "base href contains valid URI './g:h'",
+"input": "<base href='./g:h'",
+"fail-if": "invalid-attribute-value"},
+
+{"description": "base href contains valid URI 'http://www.w%33.org'",
+"input": "<base href='http://www.w%33.org'",
+"fail-if": "invalid-attribute-value"},
+
+{"description": "base href contains valid URI 'http://r%C3%A4ksm%C3%B6rg%C3%A5s.josefsson.org'",
+"input": "<base href='http://r%C3%A4ksm%C3%B6rg%C3%A5s.josefsson.org'",
+"fail-if": "invalid-attribute-value"},
+
+{"description": "base href contains valid URI 'http://xn--rksmrgs-5wao1o.josefsson.org'",
+"input": "<base href='http://xn--rksmrgs-5wao1o.josefsson.org'",
+"fail-if": "invalid-attribute-value"},
+
+{"description": "base href contains valid URI 'http://%E7%B4%8D%E8%B1%86.w3.mag.keio.ac.jp'",
+"input": "<base href='http://%E7%B4%8D%E8%B1%86.w3.mag.keio.ac.jp'",
+"fail-if": "invalid-attribute-value"},
+
+{"description": "base href contains valid URI 'http://xn--99zt52a.w3.mag.keio.ac.jp'",
+"input": "<base href='http://xn--99zt52a.w3.mag.keio.ac.jp'",
+"fail-if": "invalid-attribute-value"},
+
+{"description": "base href contains valid URI 'http://www.%E3%81%BB%E3%82%93%E3%81%A8%E3%81%86%E3%81%AB%E3%81%AA%E3%81%8C%E3%81%84%E3%82%8F%E3%81%91%E3%81%AE%E3%82%8F%E3%81%8B%E3%82%89%E3%81%AA%E3%81%84%E3%81%A9%E3%82%81%E3%81%84%E3%82%93%E3%82%81%E3%81%84%E3%81%AE%E3%82%89%E3%81%B9%E3%82%8B%E3%81%BE%E3%81%A0%E3%81%AA%E3%81%8C%E3%81%8F%E3%81%97%E3%81%AA%E3%81%84%E3%81%A8%E3%81%9F%E3%82%8A%E3%81%AA%E3%81%84.w3.mag.keio.ac.jp/'",
+"input": "<base href='http://www.%E3%81%BB%E3%82%93%E3%81%A8%E3%81%86%E3%81%AB%E3%81%AA%E3%81%8C%E3%81%84%E3%82%8F%E3%81%91%E3%81%AE%E3%82%8F%E3%81%8B%E3%82%89%E3%81%AA%E3%81%84%E3%81%A9%E3%82%81%E3%81%84%E3%82%93%E3%82%81%E3%81%84%E3%81%AE%E3%82%89%E3%81%B9%E3%82%8B%E3%81%BE%E3%81%A0%E3%81%AA%E3%81%8C%E3%81%8F%E3%81%97%E3%81%AA%E3%81%84%E3%81%A8%E3%81%9F%E3%82%8A%E3%81%AA%E3%81%84.w3.mag.keio.ac.jp/'",
+"fail-if": "invalid-attribute-value"},
+
+{"description": "base href contains valid URI 'http://www.xn--n8jaaaaai5bhf7as8fsfk3jnknefdde3fg11amb5gzdb4wi9bya3kc6lra.w3.mag.keio.ac.jp/'",
+"input": "<base href='http://www.xn--n8jaaaaai5bhf7as8fsfk3jnknefdde3fg11amb5gzdb4wi9bya3kc6lra.w3.mag.keio.ac.jp/'",
+"fail-if": "invalid-attribute-value"},
+
+{"description": "base href contains valid URI 'http://%E3%81%BB%E3%82%93%E3%81%A8%E3%81%86%E3%81%AB%E3%81%AA%E3%81%8C%E3%81%84%E3%82%8F%E3%81%91%E3%81%AE%E3%82%8F%E3%81%8B%E3%82%89%E3%81%AA%E3%81%84%E3%81%A9%E3%82%81%E3%81%84%E3%82%93%E3%82%81%E3%81%84%E3%81%AE%E3%82%89%E3%81%B9%E3%82%8B%E3%81%BE%E3%81%A0%E3%81%AA%E3%81%8C%E3%81%8F%E3%81%97%E3%81%AA%E3%81%84%E3%81%A8%E3%81%9F%E3%82%8A%E3%81%AA%E3%81%84.%E3%81%BB%E3%82%93%E3%81%A8%E3%81%86%E3%81%AB%E3%81%AA%E3%81%8C%E3%81%84%E3%82%8F%E3%81%91%E3%81%AE%E3%82%8F%E3%81%8B%E3%82%89%E3%81%AA%E3%81%84%E3%81%A9%E3%82%81%E3%81%84%E3%82%93%E3%82%81%E3%81%84%E3%81%AE%E3%82%89%E3%81%B9%E3%82%8B%E3%81%BE%E3%81%A0%E3%81%AA%E3%81%8C%E3%81%8F%E3%81%97%E3%81%AA%E3%81%84%E3%81%A8%E3%81%9F%E3%82%8A%E3%81%AA%E3%81%84.%E3%81%BB%E3%82%93%E3%81%A8%E3%81%86%E3%81%AB%E3%81%AA%E3%81%8C%E3%81%84%E3%82%8F%E3%81%91%E3%81%AE%E3%82%8F%E3%81%8B%E3%82%89%E3%81%AA%E3%81%84%E3%81%A9%E3%82%81%E3%81%84%E3%82%93%E3%82%81%E3%81%84%E3%81%AE%E3%82%89%E3%81%B9%E3%82%8B%E3%81%BE%E3%81%A0%E3%81%AA%E3%81%8C%E3%81%8F%E3%81%97%E3%81%AA%E3%81%84%E3%81%A8%E3%81%9F%E3%82%8A%E3%81%AA%E3%81%84.w3.mag.keio.ac.jp/'",
+"input": "<base href='http://%E3%81%BB%E3%82%93%E3%81%A8%E3%81%86%E3%81%AB%E3%81%AA%E3%81%8C%E3%81%84%E3%82%8F%E3%81%91%E3%81%AE%E3%82%8F%E3%81%8B%E3%82%89%E3%81%AA%E3%81%84%E3%81%A9%E3%82%81%E3%81%84%E3%82%93%E3%82%81%E3%81%84%E3%81%AE%E3%82%89%E3%81%B9%E3%82%8B%E3%81%BE%E3%81%A0%E3%81%AA%E3%81%8C%E3%81%8F%E3%81%97%E3%81%AA%E3%81%84%E3%81%A8%E3%81%9F%E3%82%8A%E3%81%AA%E3%81%84.%E3%81%BB%E3%82%93%E3%81%A8%E3%81%86%E3%81%AB%E3%81%AA%E3%81%8C%E3%81%84%E3%82%8F%E3%81%91%E3%81%AE%E3%82%8F%E3%81%8B%E3%82%89%E3%81%AA%E3%81%84%E3%81%A9%E3%82%81%E3%81%84%E3%82%93%E3%82%81%E3%81%84%E3%81%AE%E3%82%89%E3%81%B9%E3%82%8B%E3%81%BE%E3%81%A0%E3%81%AA%E3%81%8C%E3%81%8F%E3%81%97%E3%81%AA%E3%81%84%E3%81%A8%E3%81%9F%E3%82%8A%E3%81%AA%E3%81%84.%E3%81%BB%E3%82%93%E3%81%A8%E3%81%86%E3%81%AB%E3%81%AA%E3%81%8C%E3%81%84%E3%82%8F%E3%81%91%E3%81%AE%E3%82%8F%E3%81%8B%E3%82%89%E3%81%AA%E3%81%84%E3%81%A9%E3%82%81%E3%81%84%E3%82%93%E3%82%81%E3%81%84%E3%81%AE%E3%82%89%E3%81%B9%E3%82%8B%E3%81%BE%E3%81%A0%E3%81%AA%E3%81%8C%E3%81%8F%E3%81%97%E3%81%AA%E3%81%84%E3%81%A8%E3%81%9F%E3%82%8A%E3%81%AA%E3%81%84.w3.mag.keio.ac.jp/'",
+"fail-if": "invalid-attribute-value"},
+
+{"description": "base href contains valid URI 'http://xn--n8jaaaaai5bhf7as8fsfk3jnknefdde3fg11amb5gzdb4wi9bya3kc6lra.xn--n8jaaaaai5bhf7as8fsfk3jnknefdde3fg11amb5gzdb4wi9bya3kc6lra.xn--n8jaaaaai5bhf7as8fsfk3jnknefdde3fg11amb5gzdb4wi9bya3kc6lra.w3.mag.keio.ac.jp/'",
+"input": "<base href='http://xn--n8jaaaaai5bhf7as8fsfk3jnknefdde3fg11amb5gzdb4wi9bya3kc6lra.xn--n8jaaaaai5bhf7as8fsfk3jnknefdde3fg11amb5gzdb4wi9bya3kc6lra.xn--n8jaaaaai5bhf7as8fsfk3jnknefdde3fg11amb5gzdb4wi9bya3kc6lra.w3.mag.keio.ac.jp/'",
+"fail-if": "invalid-attribute-value"}
+
+]}
