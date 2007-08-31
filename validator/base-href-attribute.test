@@ -2,15 +2,597 @@
 
 {"description": "base href contains invalid URI due to leading space",
 "input": "<base href=' http://www.example.com/'",
-"fail-unless": "invalid-attribute-value"},
+"fail-unless": "invalid-uri-char"},
 
 {"description": "base href contains invalid URI due to trailing space",
 "input": "<base href='http://www.example.com/ '",
-"fail-unless": "invalid-attribute-value"},
+"fail-unless": "invalid-uri-char"},
 
-{"description": "base href contains invalid URI due to space",
+{"description": "base href contains invalid URI due to space in scheme",
+"input": "<base href='ht tp://www.example.com/'",
+"fail-unless": "invalid-uri-char"},
+
+{"description": "base href contains invalid URI due to space in domain",
 "input": "<base href='http://www.example. com/'",
-"fail-unless": "invalid-attribute-value"},
+"fail-unless": "invalid-uri-char"},
+
+{"description": "base href contains invalid URI due to space in path",
+"input": "<base href='http://www.example.com/a b'",
+"fail-unless": "invalid-uri-char"},
+
+{"description": "base href contains invalid URI due to space in fragment",
+"input": "<base href='http://www.example.com/a#b c'",
+"fail-unless": "invalid-uri-char"},
+
+{"description": "base href contains invalid URI due to space in query",
+"input": "<base href='http://www.example.com/a?b c'",
+"fail-unless": "invalid-uri-char"},
+
+{"description": "base href contains invalid URI due to leading tab",
+"input": "<base href='	http://www.example.com/'",
+"fail-unless": "invalid-uri-char"},
+
+{"description": "base href contains invalid URI due to trailing tab",
+"input": "<base href='http://www.example.com/	'",
+"fail-unless": "invalid-uri-char"},
+
+{"description": "base href contains invalid URI due to tab in scheme",
+"input": "<base href='ht	tp://www.example.com/'",
+"fail-unless": "invalid-uri-char"},
+
+{"description": "base href contains invalid URI due to tab in domain",
+"input": "<base href='http://www.example.	com/'",
+"fail-unless": "invalid-uri-char"},
+
+{"description": "base href contains invalid URI due to tab in path",
+"input": "<base href='http://www.example.com/a	b'",
+"fail-unless": "invalid-uri-char"},
+
+{"description": "base href contains invalid URI due to tab in fragment",
+"input": "<base href='http://www.example.com/a#b	c'",
+"fail-unless": "invalid-uri-char"},
+
+{"description": "base href contains invalid URI due to tab in query",
+"input": "<base href='http://www.example.com/a?b	c'",
+"fail-unless": "invalid-uri-char"},
+
+{"description": "base href contains invalid URI due to leading LF",
+"input": "<base href='
+http://www.example.com/'",
+"fail-unless": "invalid-uri-char"},
+
+{"description": "base href contains invalid URI due to LF in scheme",
+"input": "<base href='ht
+tp://www.example.com/'",
+"fail-unless": "invalid-uri-char"},
+
+{"description": "base href contains invalid URI due to LF in domain",
+"input": "<base href='http://www.example.
+com/'",
+"fail-unless": "invalid-uri-char"},
+
+{"description": "base href contains invalid URI due to LF in path",
+"input": "<base href='http://www.example.com/a
+b'",
+"fail-unless": "invalid-uri-char"},
+
+{"description": "base href contains invalid URI due to LF in fragment",
+"input": "<base href='http://www.example.com/a#b
+c'",
+"fail-unless": "invalid-uri-char"},
+
+{"description": "base href contains invalid URI due to LF in query",
+"input": "<base href='http://www.example.com/a?b
+c'",
+"fail-unless": "invalid-uri-char"},
+
+{"description": "base href contains invalid URI due to leading LT",
+"input": "<base href='http://www.example.com/'",
+"fail-unless": "invalid-uri-char"},
+
+{"description": "base href contains invalid URI due to trailing LT",
+"input": "<base href='http://www.example.com/'",
+"fail-unless": "invalid-uri-char"},
+
+{"description": "base href contains invalid URI due to LT in scheme",
+"input": "<base href='http://www.example.com/'",
+"fail-unless": "invalid-uri-char"},
+
+{"description": "base href contains invalid URI due to LT in domain",
+"input": "<base href='http://www.example.com/'",
+"fail-unless": "invalid-uri-char"},
+
+{"description": "base href contains invalid URI due to LT in path",
+"input": "<base href='http://www.example.com/ab'",
+"fail-unless": "invalid-uri-char"},
+
+{"description": "base href contains invalid URI due to LT in fragment",
+"input": "<base href='http://www.example.com/a#bc'",
+"fail-unless": "invalid-uri-char"},
+
+{"description": "base href contains invalid URI due to LT in query",
+"input": "<base href='http://www.example.com/a?bc'",
+"fail-unless": "invalid-uri-char"},
+
+{"description": "base href contains invalid URI due to leading FF",
+"input": "<base href='http://www.example.com/'",
+"fail-unless": "invalid-uri-char"},
+
+{"description": "base href contains invalid URI due to trailing FF",
+"input": "<base href='http://www.example.com/'",
+"fail-unless": "invalid-uri-char"},
+
+{"description": "base href contains invalid URI due to FF in scheme",
+"input": "<base href='http://www.example.com/'",
+"fail-unless": "invalid-uri-char"},
+
+{"description": "base href contains invalid URI due to FF in domain",
+"input": "<base href='http://www.example.com/'",
+"fail-unless": "invalid-uri-char"},
+
+{"description": "base href contains invalid URI due to FF in path",
+"input": "<base href='http://www.example.com/ab'",
+"fail-unless": "invalid-uri-char"},
+
+{"description": "base href contains invalid URI due to FF in fragment",
+"input": "<base href='http://www.example.com/a#bc'",
+"fail-unless": "invalid-uri-char"},
+
+{"description": "base href contains invalid URI due to FF in query",
+"input": "<base href='http://www.example.com/a?bc'",
+"fail-unless": "invalid-uri-char"},
+
+{"description": "base href contains invalid URI due to leading CR",
+"input": "<base href='http://www.example.com/'",
+"fail-unless": "invalid-uri-char"},
+
+{"description": "base href contains invalid URI due to CR in scheme",
+"input": "<base href='http://www.example.com/'",
+"fail-unless": "invalid-uri-char"},
+
+{"description": "base href contains invalid URI due to CR in domain",
+"input": "<base href='http://www.example.com/'",
+"fail-unless": "invalid-uri-char"},
+
+{"description": "base href contains invalid URI due to CR in path",
+"input": "<base href='http://www.example.com/ab'",
+"fail-unless": "invalid-uri-char"},
+
+{"description": "base href contains invalid URI due to CR in fragment",
+"input": "<base href='http://www.example.com/a#bc'",
+"fail-unless": "invalid-uri-char"},
+
+{"description": "base href contains invalid URI due to CR in query",
+"input": "<base href='http://www.example.com/a?bc'",
+"fail-unless": "invalid-uri-char"},
+
+{"description": "base href contains valid URI scheme 'ftp'",
+"input": "<base href='ftp://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'http'",
+"input": "<base href='http://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'gopher'",
+"input": "<base href='gopher://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'mailto'",
+"input": "<base href='mailto://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'news'",
+"input": "<base href='news://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'nntp'",
+"input": "<base href='nntp://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'telnet'",
+"input": "<base href='telnet://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'wais'",
+"input": "<base href='wais://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'file'",
+"input": "<base href='file://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'prospero'",
+"input": "<base href='prospero://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'z39.50s'",
+"input": "<base href='z39.50s://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'z39.50r'",
+"input": "<base href='z39.50r://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'cid'",
+"input": "<base href='cid://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'mid'",
+"input": "<base href='mid://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'vemmi'",
+"input": "<base href='vemmi://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'service'",
+"input": "<base href='service://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'imap'",
+"input": "<base href='imap://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'nfs'",
+"input": "<base href='nfs://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'acap'",
+"input": "<base href='acap://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'rtsp'",
+"input": "<base href='rtsp://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'tip'",
+"input": "<base href='tip://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'pop'",
+"input": "<base href='pop://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'data'",
+"input": "<base href='data://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'dav'",
+"input": "<base href='dav://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'opaquelocktoken'",
+"input": "<base href='opaquelocktoken://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'sip'",
+"input": "<base href='sip://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'sips'",
+"input": "<base href='sips://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'tel'",
+"input": "<base href='tel://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'fax'",
+"input": "<base href='fax://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'modem'",
+"input": "<base href='modem://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'ldap'",
+"input": "<base href='ldap://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'https'",
+"input": "<base href='https://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'soap.beep'",
+"input": "<base href='soap.beep://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'soap.beeps'",
+"input": "<base href='soap.beeps://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'xmlrpc.beep'",
+"input": "<base href='xmlrpc.beep://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'xmlrpc.beeps'",
+"input": "<base href='xmlrpc.beeps://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'urn'",
+"input": "<base href='urn://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'go'",
+"input": "<base href='go://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'h323'",
+"input": "<base href='h323://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'ipp'",
+"input": "<base href='ipp://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'tftp'",
+"input": "<base href='tftp://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'mupdate'",
+"input": "<base href='mupdate://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'pres'",
+"input": "<base href='pres://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'im'",
+"input": "<base href='im://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'mtqp'",
+"input": "<base href='mtqp://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'iris.beep'",
+"input": "<base href='iris.beep://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'dict'",
+"input": "<base href='dict://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'snmp'",
+"input": "<base href='snmp://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'crid'",
+"input": "<base href='crid://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'tag'",
+"input": "<base href='tag://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'dns'",
+"input": "<base href='dns://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'info'",
+"input": "<base href='info://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'javascript'",
+"input": "<base href='javascript:foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'FTP'",
+"input": "<base href='FTP://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'HTTP'",
+"input": "<base href='HTTP://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'GOPHER'",
+"input": "<base href='GOPHER://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'MAILTO'",
+"input": "<base href='MAILTO://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'NEWS'",
+"input": "<base href='NEWS://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'NNTP'",
+"input": "<base href='NNTP://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'TELNET'",
+"input": "<base href='TELNET://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'WAIS'",
+"input": "<base href='WAIS://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'FILE'",
+"input": "<base href='FILE://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'PROSPERO'",
+"input": "<base href='PROSPERO://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'Z39.50S'",
+"input": "<base href='Z39.50S://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'Z39.50R'",
+"input": "<base href='Z39.50R://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'CID'",
+"input": "<base href='CID://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'MID'",
+"input": "<base href='MID://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'VEMMI'",
+"input": "<base href='VEMMI://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'SERVICE'",
+"input": "<base href='SERVICE://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'IMAP'",
+"input": "<base href='IMAP://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'NFS'",
+"input": "<base href='NFS://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'ACAP'",
+"input": "<base href='ACAP://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'RTSP'",
+"input": "<base href='RTSP://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'TIP'",
+"input": "<base href='TIP://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'POP'",
+"input": "<base href='POP://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'DATA'",
+"input": "<base href='DATA://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'DAV'",
+"input": "<base href='DAV://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'OPAQUELOCKTOKEN'",
+"input": "<base href='OPAQUELOCKTOKEN://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'SIP'",
+"input": "<base href='SIP://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'SIPS'",
+"input": "<base href='SIPS://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'TEL'",
+"input": "<base href='TEL://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'FAX'",
+"input": "<base href='FAX://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'MODEM'",
+"input": "<base href='MODEM://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'LDAP'",
+"input": "<base href='LDAP://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'HTTPS'",
+"input": "<base href='HTTPS://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'SOAP.BEEP'",
+"input": "<base href='SOAP.BEEP://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'SOAP.BEEPS'",
+"input": "<base href='SOAP.BEEPS://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'XMLRPC.BEEP'",
+"input": "<base href='XMLRPC.BEEP://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'XMLRPC.BEEPS'",
+"input": "<base href='XMLRPC.BEEPS://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'URN'",
+"input": "<base href='URN://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'GO'",
+"input": "<base href='GO://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'H323'",
+"input": "<base href='H323://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'IPP'",
+"input": "<base href='IPP://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'TFTP'",
+"input": "<base href='TFTP://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'MUPDATE'",
+"input": "<base href='MUPDATE://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'PRES'",
+"input": "<base href='PRES://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'IM'",
+"input": "<base href='IM://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'MTQP'",
+"input": "<base href='MTQP://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'IRIS.BEEP'",
+"input": "<base href='IRIS.BEEP://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'DICT'",
+"input": "<base href='DICT://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'SNMP'",
+"input": "<base href='SNMP://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'CRID'",
+"input": "<base href='CRID://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'TAG'",
+"input": "<base href='TAG://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'DNS'",
+"input": "<base href='DNS://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'INFO'",
+"input": "<base href='INFO://foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'JAVASCRIPT'",
+"input": "<base href='JAVASCRIPT:foo'",
+"fail-if": "invalid-scheme"},
+
+{"description": "base href contains valid URI scheme 'foo'",
+"input": "<base href='foo:bar'",
+"fail-unless": "invalid-scheme"},
 
 {"description": "base href contains valid URI 'g'",
 "input": "<base href='g'",
