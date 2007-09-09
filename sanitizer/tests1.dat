@@ -405,5 +405,12 @@
     "name": "xul",
     "input": "<p style=\"-moz-binding:url('http://ha.ckers.org/xssmoz.xml#xss')\">fubar</p>",
     "output": "<p style=''>fubar</p>"
+  },
+
+  {
+    "name": "quotes_in_attributes",
+    "input": "<img src='foo' title='\"foo\" bar' />",
+    "rexml": "<img src='foo' title='\"foo\" bar' />",
+    "output": "<img title='&quot;foo&quot; bar' src='foo'/>"
   }
 ]
