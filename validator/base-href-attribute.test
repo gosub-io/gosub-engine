@@ -29,141 +29,135 @@
 "fail-unless": "invalid-uri-char"},
 
 {"description": "base href contains invalid URI due to leading tab",
-"input": "<base href='	http://www.example.com/'",
+"input": "<base href='\thttp://www.example.com/'",
 "fail-unless": "invalid-uri-char"},
 
 {"description": "base href contains invalid URI due to trailing tab",
-"input": "<base href='http://www.example.com/	'",
+"input": "<base href='http://www.example.com/\t'",
 "fail-unless": "invalid-uri-char"},
 
 {"description": "base href contains invalid URI due to tab in scheme",
-"input": "<base href='ht	tp://www.example.com/'",
+"input": "<base href='ht\ttp://www.example.com/'",
 "fail-unless": "invalid-uri-char"},
 
 {"description": "base href contains invalid URI due to tab in domain",
-"input": "<base href='http://www.example.	com/'",
+"input": "<base href='http://www.example.\tcom/'",
 "fail-unless": "invalid-uri-char"},
 
 {"description": "base href contains invalid URI due to tab in path",
-"input": "<base href='http://www.example.com/a	b'",
+"input": "<base href='http://www.example.com/a\tb'",
 "fail-unless": "invalid-uri-char"},
 
 {"description": "base href contains invalid URI due to tab in fragment",
-"input": "<base href='http://www.example.com/a#b	c'",
+"input": "<base href='http://www.example.com/a#b\tc'",
 "fail-unless": "invalid-uri-char"},
 
 {"description": "base href contains invalid URI due to tab in query",
-"input": "<base href='http://www.example.com/a?b	c'",
+"input": "<base href='http://www.example.com/a?b\tc'",
 "fail-unless": "invalid-uri-char"},
 
 {"description": "base href contains invalid URI due to leading LF",
-"input": "<base href='
-http://www.example.com/'",
+"input": "<base href='\nhttp://www.example.com/'",
 "fail-unless": "invalid-uri-char"},
 
 {"description": "base href contains invalid URI due to LF in scheme",
-"input": "<base href='ht
-tp://www.example.com/'",
+"input": "<base href='ht\ntp://www.example.com/'",
 "fail-unless": "invalid-uri-char"},
 
 {"description": "base href contains invalid URI due to LF in domain",
-"input": "<base href='http://www.example.
-com/'",
+"input": "<base href='http://www.example.\ncom/'",
 "fail-unless": "invalid-uri-char"},
 
 {"description": "base href contains invalid URI due to LF in path",
-"input": "<base href='http://www.example.com/a
-b'",
+"input": "<base href='http://www.example.com/a\nb'",
 "fail-unless": "invalid-uri-char"},
 
 {"description": "base href contains invalid URI due to LF in fragment",
-"input": "<base href='http://www.example.com/a#b
-c'",
+"input": "<base href='http://www.example.com/a#b\nc'",
 "fail-unless": "invalid-uri-char"},
 
 {"description": "base href contains invalid URI due to LF in query",
-"input": "<base href='http://www.example.com/a?b
-c'",
+"input": "<base href='http://www.example.com/a?b\nc'",
 "fail-unless": "invalid-uri-char"},
 
 {"description": "base href contains invalid URI due to leading LT",
-"input": "<base href='http://www.example.com/'",
+"input": "<base href='\u000Bhttp://www.example.com/'",
 "fail-unless": "invalid-uri-char"},
 
 {"description": "base href contains invalid URI due to trailing LT",
-"input": "<base href='http://www.example.com/'",
+"input": "<base href='http://www.example.com/\u000B'",
 "fail-unless": "invalid-uri-char"},
 
 {"description": "base href contains invalid URI due to LT in scheme",
-"input": "<base href='http://www.example.com/'",
+"input": "<base href='ht\u000Btp://www.example.com/'",
 "fail-unless": "invalid-uri-char"},
 
 {"description": "base href contains invalid URI due to LT in domain",
-"input": "<base href='http://www.example.com/'",
+"input": "<base href='http://www.example.\u000Bcom/'",
 "fail-unless": "invalid-uri-char"},
 
 {"description": "base href contains invalid URI due to LT in path",
-"input": "<base href='http://www.example.com/ab'",
+"input": "<base href='http://www.example.com/a\u000Bb'",
 "fail-unless": "invalid-uri-char"},
 
 {"description": "base href contains invalid URI due to LT in fragment",
-"input": "<base href='http://www.example.com/a#bc'",
+"input": "<base href='http://www.example.com/a#b\u000Bc'",
 "fail-unless": "invalid-uri-char"},
 
 {"description": "base href contains invalid URI due to LT in query",
-"input": "<base href='http://www.example.com/a?bc'",
+"input": "<base href='http://www.example.com/a?b\u000Bc'",
 "fail-unless": "invalid-uri-char"},
 
 {"description": "base href contains invalid URI due to leading FF",
-"input": "<base href='http://www.example.com/'",
+"input": "<base href='\u000Chttp://www.example.com/'",
 "fail-unless": "invalid-uri-char"},
 
 {"description": "base href contains invalid URI due to trailing FF",
-"input": "<base href='http://www.example.com/'",
+"input": "<base href='http://www.example.com/\u000C'",
 "fail-unless": "invalid-uri-char"},
 
 {"description": "base href contains invalid URI due to FF in scheme",
-"input": "<base href='http://www.example.com/'",
+"input": "<base href='ht\u000Ctp://www.example.com/'",
 "fail-unless": "invalid-uri-char"},
 
 {"description": "base href contains invalid URI due to FF in domain",
-"input": "<base href='http://www.example.com/'",
+"input": "<base href='http://www.example.\u000Ccom/'",
 "fail-unless": "invalid-uri-char"},
 
 {"description": "base href contains invalid URI due to FF in path",
-"input": "<base href='http://www.example.com/ab'",
+"input": "<base href='http://www.example.com/a\u000Cb'",
 "fail-unless": "invalid-uri-char"},
 
 {"description": "base href contains invalid URI due to FF in fragment",
-"input": "<base href='http://www.example.com/a#bc'",
+"input": "<base href='http://www.example.com/a#b\u000Cc'",
 "fail-unless": "invalid-uri-char"},
 
 {"description": "base href contains invalid URI due to FF in query",
-"input": "<base href='http://www.example.com/a?bc'",
+"input": "<base href='http://www.example.com/a?b\u000Cc'",
 "fail-unless": "invalid-uri-char"},
 
 {"description": "base href contains invalid URI due to leading CR",
-"input": "<base href='http://www.example.com/'",
+"input": "<base href='\rhttp://www.example.com/'",
 "fail-unless": "invalid-uri-char"},
 
 {"description": "base href contains invalid URI due to CR in scheme",
-"input": "<base href='http://www.example.com/'",
+"input": "<base href='ht\rtp://www.example.com/'",
 "fail-unless": "invalid-uri-char"},
 
 {"description": "base href contains invalid URI due to CR in domain",
-"input": "<base href='http://www.example.com/'",
+"input": "<base href='http://www.example.\rcom/'",
 "fail-unless": "invalid-uri-char"},
 
 {"description": "base href contains invalid URI due to CR in path",
-"input": "<base href='http://www.example.com/ab'",
+"input": "<base href='http://www.example.com/a\rb'",
 "fail-unless": "invalid-uri-char"},
 
 {"description": "base href contains invalid URI due to CR in fragment",
-"input": "<base href='http://www.example.com/a#bc'",
+"input": "<base href='http://www.example.com/a#b\rc'",
 "fail-unless": "invalid-uri-char"},
 
 {"description": "base href contains invalid URI due to CR in query",
-"input": "<base href='http://www.example.com/a?bc'",
+"input": "<base href='http://www.example.com/a?b\rc'",
 "fail-unless": "invalid-uri-char"},
 
 {"description": "base href contains valid URI scheme 'ftp'",
