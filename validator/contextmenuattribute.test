@@ -53,66 +53,63 @@
 "fail-unless": "space-in-id"},
 
 {"description": "invalid ID because of leading tab",
-"input": "<span contextmenu='	a'>",
+"input": "<span contextmenu='\ta'>",
 "fail-unless": "space-in-id"},
 
 {"description": "invalid ID because of trailing tab",
-"input": "<span contextmenu='a	'>",
+"input": "<span contextmenu='a\t'>",
 "fail-unless": "space-in-id"},
 
 {"description": "invalid ID because of tab in value",
-"input": "<span contextmenu='a	b'>",
+"input": "<span contextmenu='a\tb'>",
 "fail-unless": "space-in-id"},
 
 {"description": "invalid ID because of leading LF",
-"input": "<span contextmenu='
-a'>",
+"input": "<span contextmenu='\na'>",
 "fail-unless": "space-in-id"},
 
 {"description": "invalid ID because of trailing LF",
-"input": "<span contextmenu='a
-'>",
+"input": "<span contextmenu='a\n'>",
 "fail-unless": "space-in-id"},
 
 {"description": "invalid ID because of LF in value",
-"input": "<span contextmenu='a
-b'>",
+"input": "<span contextmenu='a\nb'>",
 "fail-unless": "space-in-id"},
 
 {"description": "invalid ID because of leading LT",
-"input": "<span contextmenu='a'>",
+"input": "<span contextmenu='\u000Ba'>",
 "fail-unless": "space-in-id"},
 
 {"description": "invalid ID because of trailing LT",
-"input": "<span contextmenu='a'>",
+"input": "<span contextmenu='a\u000B'>",
 "fail-unless": "space-in-id"},
 
 {"description": "invalid ID because of LT in value",
-"input": "<span contextmenu='ab'>",
+"input": "<span contextmenu='a\u000Bb'>",
 "fail-unless": "space-in-id"},
 
 {"description": "invalid ID because of leading FF",
-"input": "<span contextmenu='a'>",
+"input": "<span contextmenu='\u000Ca'>",
 "fail-unless": "space-in-id"},
 
 {"description": "invalid ID because of trailing FF",
-"input": "<span contextmenu='a'>",
+"input": "<span contextmenu='a\u000C'>",
 "fail-unless": "space-in-id"},
 
 {"description": "invalid ID because of FF in value",
-"input": "<span contextmenu='ab'>",
+"input": "<span contextmenu='a\u000Cb'>",
 "fail-unless": "space-in-id"},
 
 {"description": "invalid ID because of leading CR",
-"input": "<span contextmenu='a'>",
+"input": "<span contextmenu='\ra'>",
 "fail-unless": "space-in-id"},
 
 {"description": "invalid ID because of trailing CR",
-"input": "<span contextmenu='a'>",
+"input": "<span contextmenu='a\r'>",
 "fail-unless": "space-in-id"},
 
 {"description": "invalid ID because of CR in value",
-"input": "<span contextmenu='ab'>",
+"input": "<span contextmenu='a\rb'>",
 "fail-unless": "space-in-id"}
 
 ]}

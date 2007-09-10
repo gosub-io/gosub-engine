@@ -21,67 +21,63 @@
 "fail-if": "invalid-rel"},
 
 {"description": "valid single link rel value with leading tab",
-"input": "<link rel='	stylesheet'>",
+"input": "<link rel='\tstylesheet'>",
 "fail-if": "invalid-rel"},
 
 {"description": "valid single link rel value with trailing tab",
-"input": "<link rel='stylesheet	'>",
+"input": "<link rel='stylesheet\t'>",
 "fail-if": "invalid-rel"},
 
 {"description": "valid single link rel value with leading and trailing tab",
-"input": "<link rel='	stylesheet	'>",
+"input": "<link rel='\tstylesheet\t'>",
 "fail-if": "invalid-rel"},
 
 {"description": "valid single link rel value with leading LF",
-"input": "<link rel='
-stylesheet'>",
+"input": "<link rel='\nstylesheet'>",
 "fail-if": "invalid-rel"},
 
 {"description": "valid single link rel value with trailing LF",
-"input": "<link rel='stylesheet
-'>",
+"input": "<link rel='stylesheet\n'>",
 "fail-if": "invalid-rel"},
 
 {"description": "valid single link rel value with leading and trailing LF",
-"input": "<link rel='
-stylesheet
-'>",
+"input": "<link rel='\nstylesheet\n'>",
 "fail-if": "invalid-rel"},
 
 {"description": "valid single link rel value with leading LT",
-"input": "<link rel='stylesheet'>",
+"input": "<link rel='\u000Bstylesheet'>",
 "fail-if": "invalid-rel"},
 
 {"description": "valid single link rel value with trailing LT",
-"input": "<link rel='stylesheet'>",
+"input": "<link rel='stylesheet\u000B'>",
 "fail-if": "invalid-rel"},
 
 {"description": "valid single link rel value with leading and trailing LT",
-"input": "<link rel='stylesheet'>",
+"input": "<link rel='\u000Bstylesheet\u000B'>",
 "fail-if": "invalid-rel"},
 
 {"description": "valid single link rel value with leading FF",
-"input": "<link rel='stylesheet'>",
+"input": "<link rel='\u000Cstylesheet'>",
 "fail-if": "invalid-rel"},
 
 {"description": "valid single link rel value with trailing FF",
-"input": "<link rel='stylesheet'>",
+"input": "<link rel='stylesheet\u000C'>",
 "fail-if": "invalid-rel"},
 
 {"description": "valid single link rel value with leading and trailing FF",
-"input": "<link rel='stylesheet'>",
+"input": "<link rel='\u000Cstylesheet\u000C'>",
 "fail-if": "invalid-rel"},
 
 {"description": "valid single link rel value with leading CR",
-"input": "<link rel='stylesheet'>",
+"input": "<link rel='\rstylesheet'>",
 "fail-if": "invalid-rel"},
 
 {"description": "valid single link rel value with trailing CR",
-"input": "<link rel='stylesheet'>",
+"input": "<link rel='stylesheet\r'>",
 "fail-if": "invalid-rel"},
 
 {"description": "valid single link rel value with leading and trailing CR",
-"input": "<link rel='stylesheet'>",
+"input": "<link rel='\rstylesheet\r'>",
 "fail-if": "invalid-rel"},
 
 {"description": "valid double link rel value separated by space",
@@ -89,24 +85,23 @@ stylesheet
 "fail-if": "invalid-rel"},
 
 {"description": "valid double link rel value separated by tab",
-"input": "<link rel='stylesheet	alternate'>",
+"input": "<link rel='stylesheet\talternate'>",
 "fail-if": "invalid-rel"},
 
 {"description": "valid double link rel value separated by LF",
-"input": "<link rel='stylesheet
-alternate'>",
+"input": "<link rel='stylesheet\nalternate'>",
 "fail-if": "invalid-rel"},
 
 {"description": "valid double link rel value separated by LT",
-"input": "<link rel='stylesheetalternate'>",
+"input": "<link rel='stylesheet\u000Balternate'>",
 "fail-if": "invalid-rel"},
 
 {"description": "valid double link rel value separated by FF",
-"input": "<link rel='stylesheetalternate'>",
+"input": "<link rel='stylesheet\u000Calternate'>",
 "fail-if": "invalid-rel"},
 
 {"description": "valid double link rel value separated by CR",
-"input": "<link rel='stylesheetalternate'>",
+"input": "<link rel='stylesheet\ralternate'>",
 "fail-if": "invalid-rel"},
 
 {"description": "invalid duplicated link rel value separated by space",
@@ -114,24 +109,23 @@ alternate'>",
 "fail-unless": "duplicate-value-in-token-list"},
 
 {"description": "invalid duplicated link rel value separated by tab",
-"input": "<link rel='stylesheet	stylesheet'>",
+"input": "<link rel='stylesheet\tstylesheet'>",
 "fail-unless": "duplicate-value-in-token-list"},
 
 {"description": "invalid duplicated link rel value separated by LF",
-"input": "<link rel='stylesheet
-stylesheet'>",
+"input": "<link rel='stylesheet\nstylesheet'>",
 "fail-unless": "duplicate-value-in-token-list"},
 
 {"description": "invalid duplicated link rel value separated by LT",
-"input": "<link rel='stylesheetstylesheet'>",
+"input": "<link rel='stylesheet\u000Bstylesheet'>",
 "fail-unless": "duplicate-value-in-token-list"},
 
 {"description": "invalid duplicated link rel value separated by FF",
-"input": "<link rel='stylesheetstylesheet'>",
+"input": "<link rel='stylesheet\u000Cstylesheet'>",
 "fail-unless": "duplicate-value-in-token-list"},
 
 {"description": "invalid duplicated link rel value separated by CR",
-"input": "<link rel='stylesheetstylesheet'>",
+"input": "<link rel='stylesheet\rstylesheet'>",
 "fail-unless": "duplicate-value-in-token-list"},
 
 {"description": "invalid duplicated link rel value separated by space",
@@ -139,24 +133,23 @@ stylesheet'>",
 "fail-unless": "duplicate-value-in-token-list"},
 
 {"description": "invalid duplicated link rel value separated by tab",
-"input": "<link rel='stylesheet	stylesheet'>",
+"input": "<link rel='stylesheet\tstylesheet'>",
 "fail-unless": "duplicate-value-in-token-list"},
 
 {"description": "invalid duplicated link rel value separated by LF",
-"input": "<link rel='stylesheet
-stylesheet'>",
+"input": "<link rel='stylesheet\nstylesheet'>",
 "fail-unless": "duplicate-value-in-token-list"},
 
 {"description": "invalid duplicated link rel value separated by LT",
-"input": "<link rel='stylesheetstylesheet'>",
+"input": "<link rel='stylesheet\u000Bstylesheet'>",
 "fail-unless": "duplicate-value-in-token-list"},
 
 {"description": "invalid duplicated link rel value separated by FF",
-"input": "<link rel='stylesheetstylesheet'>",
+"input": "<link rel='stylesheet\u000Cstylesheet'>",
 "fail-unless": "duplicate-value-in-token-list"},
 
 {"description": "invalid duplicated link rel value separated by CR",
-"input": "<link rel='stylesheetstylesheet'>",
+"input": "<link rel='stylesheet\rstylesheet'>",
 "fail-unless": "duplicate-value-in-token-list"},
 
 {"description": "valid link rel value 'feed'",

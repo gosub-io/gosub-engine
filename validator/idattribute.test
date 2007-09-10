@@ -33,66 +33,63 @@
 "fail-unless": "space-in-id"},
 
 {"description": "invalid ID because of leading tab",
-"input": "<span id='	a'>",
+"input": "<span id='\ta'>",
 "fail-unless": "space-in-id"},
 
 {"description": "invalid ID because of trailing tab",
-"input": "<span id='a	'>",
+"input": "<span id='a\t'>",
 "fail-unless": "space-in-id"},
 
 {"description": "invalid ID because of tab in value",
-"input": "<span id='a	b'>",
+"input": "<span id='a\tb'>",
 "fail-unless": "space-in-id"},
 
 {"description": "invalid ID because of leading LF",
-"input": "<span id='
-a'>",
+"input": "<span id='\na'>",
 "fail-unless": "space-in-id"},
 
 {"description": "invalid ID because of trailing LF",
-"input": "<span id='a
-'>",
+"input": "<span id='a\n'>",
 "fail-unless": "space-in-id"},
 
 {"description": "invalid ID because of LF in value",
-"input": "<span id='a
-b'>",
+"input": "<span id='a\nb'>",
 "fail-unless": "space-in-id"},
 
 {"description": "invalid ID because of leading LT",
-"input": "<span id='a'>",
+"input": "<span id='\u000Ba'>",
 "fail-unless": "space-in-id"},
 
 {"description": "invalid ID because of trailing LT",
-"input": "<span id='a'>",
+"input": "<span id='a\u000B'>",
 "fail-unless": "space-in-id"},
 
 {"description": "invalid ID because of LT in value",
-"input": "<span id='ab'>",
+"input": "<span id='a\u000Bb'>",
 "fail-unless": "space-in-id"},
 
 {"description": "invalid ID because of leading FF",
-"input": "<span id='a'>",
+"input": "<span id='\u000Ca'>",
 "fail-unless": "space-in-id"},
 
 {"description": "invalid ID because of trailing FF",
-"input": "<span id='a'>",
+"input": "<span id='a\u000C'>",
 "fail-unless": "space-in-id"},
 
 {"description": "invalid ID because of FF in value",
-"input": "<span id='ab'>",
+"input": "<span id='a\u000Cb'>",
 "fail-unless": "space-in-id"},
 
 {"description": "invalid ID because of leading CR",
-"input": "<span id='a'>",
+"input": "<span id='\ra'>",
 "fail-unless": "space-in-id"},
 
 {"description": "invalid ID because of trailing CR",
-"input": "<span id='a'>",
+"input": "<span id='a\r'>",
 "fail-unless": "space-in-id"},
 
 {"description": "invalid ID because of CR in value",
-"input": "<span id='ab'>",
+"input": "<span id='a\rb'>",
 "fail-unless": "space-in-id"},
 
 {"description": "duplicate ID values",
