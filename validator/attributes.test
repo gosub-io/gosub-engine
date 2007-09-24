@@ -714,15 +714,15 @@
 
 {"description": "allowed 'a' attribute on <datalist>",
 "input": "<datalist a>",
-"fail-if": "unknown-attribute"},
+"fail-unless": "unknown-attribute"},
 
 {"description": "allowed 'd' attribute on <datalist>",
 "input": "<datalist d>",
-"fail-if": "unknown-attribute"},
+"fail-unless": "unknown-attribute"},
 
 {"description": "allowed 't' attribute on <datalist>",
 "input": "<datalist t>",
-"fail-if": "unknown-attribute"},
+"fail-unless": "unknown-attribute"},
 
 {"description": "allowed 'action' attribute on <button>",
 "input": "<button action>",
