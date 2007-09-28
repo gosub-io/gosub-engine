@@ -91,3 +91,16 @@ End of file before doctype
 | <html>
 |   <head>
 |   <body>
+
+#data
+<body>
+<div>
+#errors
+Unexpected start tag (body)
+Expected closing tag. Unexpected end of file
+#document-fragment
+div
+#document
+| "
+"
+| <div>
