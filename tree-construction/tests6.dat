@@ -104,3 +104,68 @@ div
 | "
 "
 | <div>
+
+#data
+<frameset></frameset>
+foo
+#errors
+Unexpected start tag (frameset). Expected DOCTYPE.
+Unexpected non-space characters in the after frameset phase. Ignored.
+#document
+| <html>
+|   <head>
+|   <frameset>
+|   "
+"
+
+#data
+<frameset></frameset>
+<noframes>
+#errors
+Unexpected start tag (frameset). Expected DOCTYPE.
+Expected closing tag. Unexpected end of file.
+#document
+| <html>
+|   <head>
+|   <frameset>
+|   "
+"
+|   <noframes>
+
+#data
+<frameset></frameset>
+<div>
+#errors
+Unexpected start tag (frameset). Expected DOCTYPE.
+Unexpected start tag (div) in the after frameset phase. Ignored.
+#document
+| <html>
+|   <head>
+|   <frameset>
+|   "
+"
+
+#data
+<frameset></frameset>
+</html>
+#errors
+Unexpected start tag (frameset). Expected DOCTYPE.
+#document
+| <html>
+|   <head>
+|   <frameset>
+|   "
+"
+
+#data
+<frameset></frameset>
+</div>
+#errors
+Unexpected start tag (frameset). Expected DOCTYPE.
+Unexpected end tag (div) in the after frameset phase. Ignored.
+#document
+| <html>
+|   <head>
+|   <frameset>
+|   "
+"
