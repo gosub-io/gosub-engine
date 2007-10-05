@@ -171,22 +171,13 @@ Unexpected end tag (div) in the after frameset phase. Ignored.
 "
 
 #data
-<html>
-<body>
-    <form>
-        <form>
+<form><form>
 #errors
-Unexpected start tag (html). Expected DOCTYPE.
-Unknown error "Unexpected start tag (form). Ignored."
+Unexpected start tag (form). Expected DOCTYPE.
+Unexpected start tag (form).
 Expected closing tag. Unexpected end of file.
 #document
-|  <html>
-|    "
-"
-|    <head>
-|    <body>
-|      "
-    "
-|      <form>
-|        "
-        "
+| <html>
+|   <head>
+|   <body>
+|     <form>
