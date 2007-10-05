@@ -169,3 +169,24 @@ Unexpected end tag (div) in the after frameset phase. Ignored.
 |   <frameset>
 |   "
 "
+
+#data
+<html>
+<body>
+    <form>
+        <form>
+#errors
+Unexpected start tag (html). Expected DOCTYPE.
+Unknown error "Unexpected start tag (form). Ignored."
+Expected closing tag. Unexpected end of file.
+#document
+|  <html>
+|    "
+"
+|    <head>
+|    <body>
+|      "
+    "
+|      <form>
+|        "
+        "
