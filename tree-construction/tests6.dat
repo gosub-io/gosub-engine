@@ -181,3 +181,16 @@ Expected closing tag. Unexpected end of file.
 |   <head>
 |   <body>
 |     <form>
+
+#data
+<button><button>
+#errors
+Unexpected start tag (button). Expected DOCTYPE.
+Unexpected start tag (button) implies end tag (button).
+Expected closing tag. Unexpected end of file.
+#document
+| <html>
+|   <head>
+|   <body>
+|     <button>
+|     <button>
