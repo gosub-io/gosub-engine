@@ -483,3 +483,73 @@ Unexpected start tag (table). Expected DOCTYPE.
 Unexpected start tag (div) in table context caused voodoo mode.
 Unexpected implied end tag (div) in the table row phase.
 Expected closing tag. Unexpected end of file.
+
+#data
+<caption><col><colgroup><tbody><tfoot><thead><tr>
+#document-fragment
+tbody
+#document
+| <tr>
+#errors
+Unexpected start tag (caption).
+Unexpected start tag (col).
+Unexpected start tag (colgroup).
+Unexpected start tag (tbody).
+Unexpected start tag (tfoot).
+Unexpected start tag (thead).
+
+#data
+<table><tbody></thead>
+#document
+| <html>
+|   <head>
+|   <body>
+|     <table>
+|       <tbody>
+#errors
+Unexpected start tag (table). Expected DOCTYPE.
+Unexpected end tag (thead) in the table body phase. Ignored.
+Expected closing tag. Unexpected end of file.
+
+#data
+</table><tr>
+#document-fragment
+tbody
+#document
+| <tr>
+#errors
+Unexpected end tag (table). Ignored.
+
+#data
+<table><tbody></body></caption></col></colgroup></html></td></th></tr>
+#document
+| <html>
+|   <head>
+|   <body>
+|     <table>
+|       <tbody>
+#errors
+Unexpected start tag (table). Expected DOCTYPE.
+Unexpected end tag (body) in the table body phase. Ignored.
+Unexpected end tag (caption) in the table body phase. Ignored.
+Unexpected end tag (col) in the table body phase. Ignored.
+Unexpected end tag (colgroup) in the table body phase. Ignored.
+Unexpected end tag (html) in the table body phase. Ignored.
+Unexpected end tag (td) in the table body phase. Ignored.
+Unexpected end tag (th) in the table body phase. Ignored.
+Unexpected end tag (tr) in the table body phase. Ignored.
+Expected closing tag. Unexpected end of file.
+
+#data
+<table><tbody></div>
+#document
+| <html>
+|   <head>
+|   <body>
+|     <table>
+|       <tbody>
+#errors
+Unexpected start tag (table). Expected DOCTYPE.
+Unexpected end tag (div) in table context caused voodoo mode.
+End tag (div) seen too early. Expected other end tag.
+Expected closing tag. Unexpected end of file.
