@@ -431,3 +431,55 @@ body
 #errors
 Unexpected end tag (body). Ignored.
 Expected closing tag. Unexpected end of file.
+
+#data
+<table><tr><div>
+#document
+| <html>
+|   <head>
+|   <body>
+|     <div>
+|     <table>
+|       <tbody>
+|         <tr>
+#errors
+Unexpected start tag (table). Expected DOCTYPE.
+Unexpected start tag (div) in table context caused voodoo mode.
+Expected closing tag. Unexpected end of file.
+
+#data
+</tr><td>
+#document-fragment
+tr
+#document
+| <td>
+#errors
+Unexpected end tag (tr). Ignored.
+
+#data
+</tbody></tfoot></thead><td>
+#document-fragment
+tr
+#document
+| <td>
+#errors
+Unexpected end tag (tbody). Ignored.
+Unexpected end tag (tfoot). Ignored.
+Unexpected end tag (thead). Ignored.
+
+#data
+<table><tr><div><td>
+#document
+| <html>
+|   <head>
+|   <body>
+|     <div>
+|     <table>
+|       <tbody>
+|         <tr>
+|           <td>
+#errors
+Unexpected start tag (table). Expected DOCTYPE.
+Unexpected start tag (div) in table context caused voodoo mode.
+Unexpected implied end tag (div) in the table row phase.
+Expected closing tag. Unexpected end of file.
