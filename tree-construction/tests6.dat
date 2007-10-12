@@ -197,38 +197,41 @@ Expected closing tag. Unexpected end of file.
 
 #data
 <table><tr><td></th>
-#document
-| <html>
-|   <head>
-|   <body>
-|     <table>
-|       <tbody>
-|         <tr>
-|           <td>
 #errors
 Unexpected start tag (table). Expected DOCTYPE.
 Unexpected end tag (th). Ignored.
 Expected closing tag. Unexpected end of file.
-
-#data
-<table><caption><td>
 #document
 | <html>
 |   <head>
 |   <body>
 |     <table>
-|       <caption>
 |       <tbody>
 |         <tr>
 |           <td>
+
+#data
+<table><caption><td>
 #errors
 Unexpected start tag (table). Expected DOCTYPE.
 Unexpected end tag (td). Ignored.
 Unexpected table cell start tag (td) in the table body phase.
 Expected closing tag. Unexpected end of file.
+#document
+| <html>
+|   <head>
+|   <body>
+|     <table>
+|       <caption>
+|       <tbody>
+|         <tr>
+|           <td>
 
 #data
 <table><caption><div>
+#errors
+Unexpected start tag (table). Expected DOCTYPE.
+Expected closing tag. Unexpected end of file.
 #document
 | <html>
 |   <head>
@@ -236,22 +239,23 @@ Expected closing tag. Unexpected end of file.
 |     <table>
 |       <caption>
 |         <div>
-#errors
-Unexpected start tag (table). Expected DOCTYPE.
-Expected closing tag. Unexpected end of file.
 
 #data
 </caption><div>
 #document-fragment
 caption
-#document
-| <div>
 #errors
 Unexpected end tag (caption). Ignored.
 Expected closing tag. Unexpected end of file.
+#document
+| <div>
 
 #data
 <table><caption><div></caption>
+#errors
+Unexpected start tag (table). Expected DOCTYPE.
+Unexpected end tag (caption). Missing end tag (div).
+Expected closing tag. Unexpected end of file.
 #document
 | <html>
 |   <head>
@@ -259,42 +263,32 @@ Expected closing tag. Unexpected end of file.
 |     <table>
 |       <caption>
 |         <div>
-#errors
-Unexpected start tag (table). Expected DOCTYPE.
-Unexpected end tag (caption). Missing end tag (div).
-Expected closing tag. Unexpected end of file.
 
 #data
 <table><caption></table>
+#errors
+Unexpected start tag (table). Expected DOCTYPE.
+Unexpected end table tag in caption. Generates implied end caption.
 #document
 | <html>
 |   <head>
 |   <body>
 |     <table>
 |       <caption>
-#errors
-Unexpected start tag (table). Expected DOCTYPE.
-Unexpected end table tag in caption. Generates implied end caption.
 
 #data
 </table><div>
 #document-fragment
 caption
-#document
-| <div>
 #errors
 Unexpected end table tag in caption. Generates implied end caption.
 Unexpected end tag (caption). Ignored.
 Expected closing tag. Unexpected end of file.
+#document
+| <div>
 
 #data
 <table><caption></body></col></colgroup></html></tbody></td></tfoot></th></thead></tr>
-#document
-| <html>
-|   <head>
-|   <body>
-|     <table>
-|       <caption>
 #errors
 Unexpected start tag (table). Expected DOCTYPE.
 Unexpected end tag (body). Ignored.
@@ -308,9 +302,18 @@ Unexpected end tag (th). Ignored.
 Unexpected end tag (thead). Ignored.
 Unexpected end tag (tr). Ignored.
 Expected closing tag. Unexpected end of file.
+#document
+| <html>
+|   <head>
+|   <body>
+|     <table>
+|       <caption>
 
 #data
 <table><caption><div></div>
+#errors
+Unexpected start tag (table). Expected DOCTYPE.
+Expected closing tag. Unexpected end of file.
 #document
 | <html>
 |   <head>
@@ -318,20 +321,9 @@ Expected closing tag. Unexpected end of file.
 |     <table>
 |       <caption>
 |         <div>
-#errors
-Unexpected start tag (table). Expected DOCTYPE.
-Expected closing tag. Unexpected end of file.
 
 #data
 <table><tr><td></body></caption></col></colgroup></html>
-#document
-| <html>
-|   <head>
-|   <body>
-|     <table>
-|       <tbody>
-|         <tr>
-|           <td>
 #errors
 Unexpected start tag (table). Expected DOCTYPE.
 Unexpected end tag (body). Ignored.
@@ -340,13 +332,19 @@ Unexpected end tag (col). Ignored.
 Unexpected end tag (colgroup). Ignored.
 Unexpected end tag (html). Ignored.
 Expected closing tag. Unexpected end of file.
+#document
+| <html>
+|   <head>
+|   <body>
+|     <table>
+|       <tbody>
+|         <tr>
+|           <td>
 
 #data
 </table></tbody></tfoot></thead></tr><div>
 #document-fragment
 td
-#document
-| <div>
 #errors
 Unexpected end tag (table). Ignored.
 Unexpected end tag (tbody). Ignored.
@@ -354,9 +352,15 @@ Unexpected end tag (tfoot). Ignored.
 Unexpected end tag (thead). Ignored.
 Unexpected end tag (tr). Ignored.
 Expected closing tag. Unexpected end of file.
+#document
+| <div>
 
 #data
 <table><colgroup>foo
+#errors
+Unexpected start tag (table). Expected DOCTYPE.
+Unexpected non-space characters in table context caused voodoo mode.
+Expected closing tag. Unexpected end of file.
 #document
 | <html>
 |   <head>
@@ -364,76 +368,76 @@ Expected closing tag. Unexpected end of file.
 |     "foo"
 |     <table>
 |       <colgroup>
-#errors
-Unexpected start tag (table). Expected DOCTYPE.
-Unexpected non-space characters in table context caused voodoo mode.
-Expected closing tag. Unexpected end of file.
 
 #data
 foo<col>
 #document-fragment
 colgroup
-#document
-| <col>
 #errors
 Unexpected end tag (colgroup). Ignored.
+#document
+| <col>
 
 #data
 <table><colgroup></col>
+#errors
+Unexpected start tag (table). Expected DOCTYPE.
+This element (col) has no end tag.
+Expected closing tag. Unexpected end of file.
 #document
 | <html>
 |   <head>
 |   <body>
 |     <table>
 |       <colgroup>
-#errors
-Unexpected start tag (table). Expected DOCTYPE.
-This element (col) has no end tag.
-Expected closing tag. Unexpected end of file.
 
 #data
 <frameset><div>
-#document
-| <html>
-|   <head>
-|   <frameset>
 #errors
 Unexpected start tag (frameset). Expected DOCTYPE.
 Unexpected start tag token (div) in the frameset phase. Ignored.
 Expected closing tag. Unexpected end of file.
+#document
+| <html>
+|   <head>
+|   <frameset>
 
 #data
 </frameset><frame>
 #document-fragment
 frameset
-#document
-| <frame>
 #errors
 Unexpected end tag token (frameset) in the frameset phase (innerHTML).
+#document
+| <frame>
 
 #data
 <frameset></div>
-#document
-| <html>
-|   <head>
-|   <frameset>
 #errors
 Unexpected start tag (frameset). Expected DOCTYPE.
 Unexpected end tag token (div) in the frameset phase. Ignored.
 Expected closing tag. Unexpected end of file.
+#document
+| <html>
+|   <head>
+|   <frameset>
 
 #data
 </body><div>
 #document-fragment
 body
-#document
-| <div>
 #errors
 Unexpected end tag (body). Ignored.
 Expected closing tag. Unexpected end of file.
+#document
+| <div>
 
 #data
 <table><tr><div>
+#errors
+Unexpected start tag (table). Expected DOCTYPE.
+Unexpected start tag (div) in table context caused voodoo mode.
+Expected closing tag. Unexpected end of file.
 #document
 | <html>
 |   <head>
@@ -442,33 +446,34 @@ Expected closing tag. Unexpected end of file.
 |     <table>
 |       <tbody>
 |         <tr>
-#errors
-Unexpected start tag (table). Expected DOCTYPE.
-Unexpected start tag (div) in table context caused voodoo mode.
-Expected closing tag. Unexpected end of file.
 
 #data
 </tr><td>
 #document-fragment
 tr
-#document
-| <td>
 #errors
 Unexpected end tag (tr). Ignored.
+#document
+| <td>
 
 #data
 </tbody></tfoot></thead><td>
 #document-fragment
 tr
-#document
-| <td>
 #errors
 Unexpected end tag (tbody). Ignored.
 Unexpected end tag (tfoot). Ignored.
 Unexpected end tag (thead). Ignored.
+#document
+| <td>
 
 #data
 <table><tr><div><td>
+#errors
+Unexpected start tag (table). Expected DOCTYPE.
+Unexpected start tag (div) in table context caused voodoo mode.
+Unexpected implied end tag (div) in the table row phase.
+Expected closing tag. Unexpected end of file.
 #document
 | <html>
 |   <head>
@@ -478,18 +483,11 @@ Unexpected end tag (thead). Ignored.
 |       <tbody>
 |         <tr>
 |           <td>
-#errors
-Unexpected start tag (table). Expected DOCTYPE.
-Unexpected start tag (div) in table context caused voodoo mode.
-Unexpected implied end tag (div) in the table row phase.
-Expected closing tag. Unexpected end of file.
 
 #data
 <caption><col><colgroup><tbody><tfoot><thead><tr>
 #document-fragment
 tbody
-#document
-| <tr>
 #errors
 Unexpected start tag (caption).
 Unexpected start tag (col).
@@ -497,37 +495,33 @@ Unexpected start tag (colgroup).
 Unexpected start tag (tbody).
 Unexpected start tag (tfoot).
 Unexpected start tag (thead).
+#document
+| <tr>
 
 #data
 <table><tbody></thead>
+#errors
+Unexpected start tag (table). Expected DOCTYPE.
+Unexpected end tag (thead) in the table body phase. Ignored.
+Expected closing tag. Unexpected end of file.
 #document
 | <html>
 |   <head>
 |   <body>
 |     <table>
 |       <tbody>
-#errors
-Unexpected start tag (table). Expected DOCTYPE.
-Unexpected end tag (thead) in the table body phase. Ignored.
-Expected closing tag. Unexpected end of file.
 
 #data
 </table><tr>
 #document-fragment
 tbody
-#document
-| <tr>
 #errors
 Unexpected end tag (table). Ignored.
+#document
+| <tr>
 
 #data
 <table><tbody></body></caption></col></colgroup></html></td></th></tr>
-#document
-| <html>
-|   <head>
-|   <body>
-|     <table>
-|       <tbody>
 #errors
 Unexpected start tag (table). Expected DOCTYPE.
 Unexpected end tag (body) in the table body phase. Ignored.
@@ -539,41 +533,42 @@ Unexpected end tag (td) in the table body phase. Ignored.
 Unexpected end tag (th) in the table body phase. Ignored.
 Unexpected end tag (tr) in the table body phase. Ignored.
 Expected closing tag. Unexpected end of file.
-
-#data
-<table><tbody></div>
 #document
 | <html>
 |   <head>
 |   <body>
 |     <table>
 |       <tbody>
+
+#data
+<table><tbody></div>
 #errors
 Unexpected start tag (table). Expected DOCTYPE.
 Unexpected end tag (div) in table context caused voodoo mode.
 End tag (div) seen too early. Expected other end tag.
 Expected closing tag. Unexpected end of file.
-
-#data
-<table><table>
 #document
 | <html>
 |   <head>
 |   <body>
 |     <table>
-|     <table>
+|       <tbody>
+
+#data
+<table><table>
 #errors
 Unexpected start tag (table). Expected DOCTYPE.
 Unexpected start tag (table) implies end tag (table).
 Expected closing tag. Unexpected end of file.
-
-#data
-<table></body></caption></col></colgroup></html></tbody></td></tfoot></th></thead></tr>
 #document
 | <html>
 |   <head>
 |   <body>
 |     <table>
+|     <table>
+
+#data
+<table></body></caption></col></colgroup></html></tbody></td></tfoot></th></thead></tr>
 #errors
 Unexpected start tag (table). Expected DOCTYPE.
 Unexpected end tag (body). Ignored.
@@ -588,14 +583,19 @@ Unexpected end tag (th). Ignored.
 Unexpected end tag (thead). Ignored.
 Unexpected end tag (tr). Ignored.
 Expected closing tag. Unexpected end of file.
+#document
+| <html>
+|   <head>
+|   <body>
+|     <table>
 
 #data
 </table><tr>
 #document-fragment
 table
-#document
-| <tbody>
-|   <tr>
 #errors
 Unexpected end tag (table). Ignored.
 Expected closing tag. Unexpected end of file.
+#document
+| <tbody>
+|   <tr>
