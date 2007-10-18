@@ -599,3 +599,13 @@ Expected closing tag. Unexpected end of file.
 #document
 | <tbody>
 |   <tr>
+
+#data
+<html></html><!-- foo -->
+#errors
+Unexpected start tag (html). Expected DOCTYPE.
+#document
+| <html>
+|   <head>
+|   <body>
+| <!--  foo  -->
