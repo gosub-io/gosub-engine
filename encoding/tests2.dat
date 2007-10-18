@@ -94,3 +94,21 @@ utf-8
 <meta charset="UTF-16BE">
 #encoding
 utf-8
+
+#data
+<html a=ñ>
+<meta charset="utf-8">
+#encoding
+utf-8
+
+#data
+<html ñ>
+<meta charset="utf-8">
+#encoding
+utf-8
+
+#data
+<html>ñ
+<meta charset="utf-8">
+#encoding
+utf-8
