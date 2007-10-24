@@ -41,7 +41,7 @@ plaintext
 #data
 setting html's innerHTML
 #errors
-XXX innerHTML EOF
+Line: 1 Col: 24 XXX innerHTML EOF
 #document-fragment
 html
 #document
@@ -52,7 +52,7 @@ html
 #data
 <title>setting head's innerHTML</title>
 #errors
-Unexpected title element that belongs in head.
+Line: 1 Col: 7 Unexpected start tag (title) that can be in head. Moved.
 #document-fragment
 head
 #document

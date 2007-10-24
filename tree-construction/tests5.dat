@@ -1,8 +1,8 @@
 #data
 <style> <!-- </style>x
 #errors
-No DOCTYPE
-Unexpected end of file
+Line: 1 Col: 7 Unexpected start tag (style). Expected DOCTYPE.
+Line: 1 Col: 22 Unexpected end of file. Expected end tag (style).
 #document
 | <html>
 |   <head>
@@ -13,7 +13,7 @@ Unexpected end of file
 #data
 <style> <!-- </style> --> </style>x
 #errors
-No DOCTYPE
+Line: 1 Col: 7 Unexpected start tag (style). Expected DOCTYPE.
 #document
 | <html>
 |   <head>
@@ -25,7 +25,7 @@ No DOCTYPE
 #data
 <style> <!--> </style>x
 #errors
-No DOCTYPE
+Line: 1 Col: 7 Unexpected start tag (style). Expected DOCTYPE.
 #document
 | <html>
 |   <head>
@@ -37,7 +37,7 @@ No DOCTYPE
 #data
 <style> <!---> </style>x
 #errors
-No DOCTYPE
+Line: 1 Col: 7 Unexpected start tag (style). Expected DOCTYPE.
 #document
 | <html>
 |   <head>
@@ -49,7 +49,7 @@ No DOCTYPE
 #data
 <iframe> <!---> </iframe>x
 #errors
-No DOCTYPE
+Line: 1 Col: 8 Unexpected start tag (iframe). Expected DOCTYPE.
 #document
 | <html>
 |   <head>
@@ -61,7 +61,7 @@ No DOCTYPE
 #data
 <iframe> <!--- </iframe>->x</iframe> --> </iframe>x
 #errors
-No DOCTYPE
+Line: 1 Col: 8 Unexpected start tag (iframe). Expected DOCTYPE.
 #document
 | <html>
 |   <head>
@@ -73,7 +73,7 @@ No DOCTYPE
 #data
 <script> <!-- </script> --> </script>x
 #errors
-No DOCTYPE
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
 #document
 | <html>
 |   <head>
@@ -85,7 +85,7 @@ No DOCTYPE
 #data
 <title> <!-- </title> --> </title>x
 #errors
-No DOCTYPE
+Line: 1 Col: 7 Unexpected start tag (title). Expected DOCTYPE.
 #document
 | <html>
 |   <head>
@@ -97,7 +97,7 @@ No DOCTYPE
 #data
 <textarea> <!--- </textarea>->x</textarea> --> </textarea>x
 #errors
-No DOCTYPE
+Line: 1 Col: 10 Unexpected start tag (textarea). Expected DOCTYPE.
 #document
 | <html>
 |   <head>
@@ -109,7 +109,7 @@ No DOCTYPE
 #data
 <style> <!</-- </style>x
 #errors
-No DOCTYPE
+Line: 1 Col: 7 Unexpected start tag (style). Expected DOCTYPE.
 #document
 | <html>
 |   <head>
@@ -121,7 +121,7 @@ No DOCTYPE
 #data
 <xmp> <!-- > --> </xmp>
 #errors
-No DOCTYPE
+Line: 1 Col: 5 Unexpected start tag (xmp). Expected DOCTYPE.
 #document
 | <html>
 |   <head>
@@ -132,7 +132,7 @@ No DOCTYPE
 #data
 <title>&amp;</title>
 #errors
-No DOCTYPE
+Line: 1 Col: 7 Unexpected start tag (title). Expected DOCTYPE.
 #document
 | <html>
 |   <head>
@@ -143,7 +143,7 @@ No DOCTYPE
 #data
 <title><!--&amp;--></title>
 #errors
-No DOCTYPE
+Line: 1 Col: 7 Unexpected start tag (title). Expected DOCTYPE.
 #document
 | <html>
 |   <head>
@@ -154,8 +154,8 @@ No DOCTYPE
 #data
 <title><!--</title>
 #errors
-No DOCTYPE
-Unexpected EOF
+Line: 1 Col: 7 Unexpected start tag (title). Expected DOCTYPE.
+Line: 1 Col: 19 Unexpected end of file. Expected end tag (title).
 #document
 | <html>
 |   <head>
@@ -166,7 +166,7 @@ Unexpected EOF
 #data
 <noscript><!--</noscript>--></noscript>
 #errors
-No DOCTYPE
+Line: 1 Col: 10 Unexpected start tag (noscript). Expected DOCTYPE.
 #document
 | <html>
 |   <head>
