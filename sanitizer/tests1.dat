@@ -424,15 +424,15 @@
 
   {
     "name": "absolute_uri_refs_in_svg_attributes",
-    "input": "<rect fill='url(http://bad.com/)' />",
-    "rexml": "<rect></rect>",
-    "xhtml": "<rect></rect>",
-    "output": "<rect/>"
+    "input": "<rect fill='url(http://bad.com/) #fff' />",
+    "rexml": "<rect fill='  #fff'></rect>",
+    "xhtml": "<rect fill='  #fff'></rect>",
+    "output": "<rect fill='  #fff'/>"
   },
 
   {
     "name": "uri_ref_with_space_in svg_attribute",
-    "input": "<rect fill=\"url(\n#foo)\" />",
+    "input": "<rect fill='url(\n#foo)' />",
     "rexml": "<rect fill=\'url(\n#foo)\'></rect>",
     "xhtml": "<rect fill=\'url(\n#foo)\'></rect>",
     "output": "<rect fill=\'url(\n#foo)\'/>"
@@ -441,8 +441,8 @@
   {
     "name": "absolute_uri_ref_with_space_in svg_attribute",
     "input": "<rect fill=\"url(\nhttp://bad.com/)\" />",
-    "rexml": "<rect></rect>",
-    "xhtml": "<rect></rect>",
-    "output": "<rect/>"
+    "rexml": "<rect fill=' '></rect>",
+    "xhtml": "<rect fill=' '></rect>",
+    "output": "<rect fill=' '/>"
   }
 ]
