@@ -444,5 +444,12 @@
     "rexml": "<rect fill=' '></rect>",
     "xhtml": "<rect fill=' '></rect>",
     "output": "<rect fill=' '/>"
+  },
+
+  {
+    "name": "allow_html5_image_tag",
+    "input": "<image src='foo' />",
+    "rexml": "&lt;image src=\"foo\"&gt;&lt;/image&gt;",
+    "output": "&lt;image src=\"foo\"/&gt;"
   }
 ]
