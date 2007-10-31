@@ -609,3 +609,24 @@ Line: 1 Col: 6 Unexpected start tag (html). Expected DOCTYPE.
 |   <head>
 |   <body>
 | <!--  foo  -->
+
+#data
+<body></body></html>
+#document-fragment
+html
+#errors
+Line: 1 Col: 20 Unexpected html end tag in inner html mode.
+Line: 1 Col: 20 Unexpected EOF in inner html mode.
+#document
+| <head>
+| <body>
+
+#data
+<html><frameset></frameset></html> 
+#errors
+Line: 1 Col: 6 Unexpected start tag (html). Expected DOCTYPE.
+#document
+| <html>
+|   <head>
+|   <frameset>
+|   " "
