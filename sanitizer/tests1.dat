@@ -433,9 +433,9 @@
   {
     "name": "uri_ref_with_space_in svg_attribute",
     "input": "<rect fill='url(\n#foo)' />",
-    "rexml": "<rect fill=\'url(\n#foo)\'></rect>",
-    "xhtml": "<rect fill=\'url(\n#foo)\'></rect>",
-    "output": "<rect fill=\'url(\n#foo)\'/>"
+    "rexml": "<rect fill='url(\n#foo)'></rect>",
+    "xhtml": "<rect fill='url(\n#foo)'></rect>",
+    "output": "<rect fill='url(\n#foo)'/>"
   },
 
   {
