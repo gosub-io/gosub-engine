@@ -36,6 +36,22 @@
 "input":"<!DOCTYPE html PUBLIC \"-//W3C//DTD HTML Transitional 4.01//EN\" \"-//W3C//DTD HTML Transitional 4.01//EN\">",
 "output":[["DOCTYPE", "html", "-//W3C//DTD HTML Transitional 4.01//EN", "-//W3C//DTD HTML Transitional 4.01//EN", true]]},
 
+{"description":"DOCTYPE with > in double-quoted publicId",
+"input":"<!DOCTYPE html PUBLIC \">x",
+"output":["ParseError", ["DOCTYPE", "html", "", null, false], ["Character", "x"]]},
+
+{"description":"DOCTYPE with > in single-quoted publicId",
+"input":"<!DOCTYPE html PUBLIC '>x",
+"output":["ParseError", ["DOCTYPE", "html", "", null, false], ["Character", "x"]]},
+
+{"description":"DOCTYPE with > in double-quoted systemId",
+"input":"<!DOCTYPE html PUBLIC \"foo\" \">x",
+"output":["ParseError", ["DOCTYPE", "html", "foo", "", false], ["Character", "x"]]},
+
+{"description":"DOCTYPE with > in single-quoted systemId",
+"input":"<!DOCTYPE html PUBLIC 'foo' '>x",
+"output":["ParseError", ["DOCTYPE", "html", "foo", "", false], ["Character", "x"]]},
+
 {"description":"Incomplete doctype",
 "input":"<!DOCTYPE html ",
 "output":["ParseError", ["DOCTYPE", "html", null, null, false]]},
