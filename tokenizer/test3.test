@@ -278,7 +278,7 @@
 
 {"description":"<z/0=''",
 "input":"<z/0=''",
-"output":["ParseError", "ParseError", ["StartTag", "z", {"0": ""}]]},
+"output":["ParseError", "ParseError", "ParseError", ["StartTag", "z", {"0": ""}]]},
 
 {"description":"<z/0='&",
 "input":"<z/0='&",
@@ -294,7 +294,7 @@
 
 {"description":"<z/0=\"\"",
 "input":"<z/0=\"\"",
-"output":["ParseError", "ParseError", ["StartTag", "z", {"0": ""}]]},
+"output":["ParseError", "ParseError", "ParseError", ["StartTag", "z", {"0": ""}]]},
 
 {"description":"<z/0=\"&",
 "input":"<z/0=\"&",

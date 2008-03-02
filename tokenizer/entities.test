@@ -854,7 +854,7 @@
 
 {"description": "Named entity: lang with a semi-colon.",
 "input":"&lang;",
-"output": [["Character", "\u3008"]]},
+"output": [["Character", "\u27E8"]]},
 
 {"description": "Named entity: laquo with a semi-colon.",
 "input":"&laquo;",
@@ -1174,7 +1174,7 @@
 
 {"description": "Named entity: rang with a semi-colon.",
 "input":"&rang;",
-"output": [["Character", "\u3009"]]},
+"output": [["Character", "\u27E9"]]},
 
 {"description": "Named entity: raquo with a semi-colon.",
 "input":"&raquo;",

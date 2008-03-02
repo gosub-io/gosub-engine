@@ -8,6 +8,82 @@
 "input":"<z x=<",
 "output":["ParseError", ["StartTag", "z", {"x": "<"}]]},
 
+{"description":"= in unquoted attribute value",
+"input":"<z z=z=z>",
+"output":["ParseError", ["StartTag", "z", {"z": "z=z"}]]},
+
+{"description":"= attribute",
+"input":"<z =>",
+"output":["ParseError", ["StartTag", "z", {"=": ""}]]},
+
+{"description":"== attribute",
+"input":"<z ==>",
+"output":["ParseError", ["StartTag", "z", {"=": ""}]]},
+
+{"description":"=== attribute",
+"input":"<z ===>",
+"output":["ParseError", "ParseError", ["StartTag", "z", {"=": "="}]]},
+
+{"description":"==== attribute",
+"input":"<z ====>",
+"output":["ParseError", "ParseError", "ParseError", ["StartTag", "z", {"=": "=="}]]},
+
+{"description":"Allowed \" after ampersand in attribute value",
+"input":"<z z=\"&\">",
+"output":[["StartTag", "z", {"z": "&"}]]},
+
+{"description":"Non-allowed ' after ampersand in attribute value",
+"input":"<z z=\"&'\">",
+"output":["ParseError", ["StartTag", "z", {"z": "&'"}]]},
+
+{"description":"Allowed ' after ampersand in attribute value",
+"input":"<z z='&'>",
+"output":[["StartTag", "z", {"z": "&"}]]},
+
+{"description":"Non-allowed \" after ampersand in attribute value",
+"input":"<z z='&\"'>",
+"output":["ParseError", ["StartTag", "z", {"z": "&\""}]]},
+
+{"description":"Attribute name starting with \"",
+"input":"<foo \"='bar'>",
+"output":["ParseError", ["StartTag", "foo", {"\"": "bar"}]]},
+
+{"description":"Attribute name starting with '",
+"input":"<foo '='bar'>",
+"output":["ParseError", ["StartTag", "foo", {"'": "bar"}]]},
+
+{"description":"Attribute name containing \"",
+"input":"<foo a\"b='bar'>",
+"output":["ParseError", ["StartTag", "foo", {"a\"b": "bar"}]]},
+
+{"description":"Attribute name containing '",
+"input":"<foo a'b='bar'>",
+"output":["ParseError", ["StartTag", "foo", {"a'b": "bar"}]]},
+
+{"description":"Unquoted attribute value containing '",
+"input":"<foo a=b'c>",
+"output":["ParseError", ["StartTag", "foo", {"a": "b'c"}]]},
+
+{"description":"Unquoted attribute value containing \"",
+"input":"<foo a=b\"c>",
+"output":["ParseError", ["StartTag", "foo", {"a": "b\"c"}]]},
+
+{"description":"Double-quoted attribute value not followed by whitespace",
+"input":"<foo a=\"b\"c>",
+"output":["ParseError", ["StartTag", "foo", {"a": "b", "c": ""}]]},
+
+{"description":"Single-quoted attribute value not followed by whitespace",
+"input":"<foo a='b'c>",
+"output":["ParseError", ["StartTag", "foo", {"a": "b", "c": ""}]]},
+
+{"description":"Quoted attribute followed by permitted /",
+"input":"<br a='b'/>",
+"output":[["StartTag", "br", {"a": "b"}]]},
+
+{"description":"Quoted attribute followed by non-permitted /",
+"input":"<bar a='b'/>",
+"output":["ParseError", ["StartTag", "bar", {"a": "b"}]]},
+
 {"description":"CR EOF after doctype name",
 "input":"<!doctype html \r",
 "output":["ParseError", ["DOCTYPE", "html", null, null, false]]},

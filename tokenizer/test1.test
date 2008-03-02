@@ -58,7 +58,7 @@
 
 {"description":"Multiple atts no space",
 "input":"<h a='b'c='d'>",
-"output":[["StartTag", "h", {"a":"b", "c":"d"}]]},
+"output":["ParseError", ["StartTag", "h", {"a":"b", "c":"d"}]]},
 
 {"description":"Repeated attr",
  "input":"<h a='b' a='d'>",

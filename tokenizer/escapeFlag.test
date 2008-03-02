@@ -16,6 +16,12 @@
 "contentModelFlags":["RCDATA", "CDATA"],
 "lastStartTag":"bar",
 "input":"foo<!--></bar><!-->baz</bar>",
-"output":[["Character", "foo<!-->"], ["EndTag", "bar"], "ParseError", ["Comment", ""], ["Character", "baz"], ["EndTag", "bar"]]}
+"output":[["Character", "foo<!-->"], ["EndTag", "bar"], "ParseError", ["Comment", ""], ["Character", "baz"], ["EndTag", "bar"]]},
+
+{"description":"Commented entities in RCDATA",
+"contentModelFlags":["RCDATA"],
+"lastStartTag":"bar",
+"input":" &amp; <!-- &amp; --> &amp; </bar>",
+"output":[["Character", " & <!-- &amp; --> & "], ["EndTag", "bar"]]}
 
 ]}
