@@ -214,7 +214,7 @@
 
 {"description":"<!doctype! system\"\"?",
 "input":"<!doctype! system\"\"?",
-"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "!", null, "", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "!", null, "", true]]},
 
 {"description":"<!doctype! system\"#",
 "input":"<!doctype! system\"#",
