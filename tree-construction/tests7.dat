@@ -59,6 +59,51 @@ element-after-da-body
 |       "X"
 
 #data
+<!doctype html><table><meta></table>
+#errors
+meta-in-table
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <meta>
+|     <table>
+
+#data
+<!doctype html><table> X<meta></table>
+#errors
+characters-in-table
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     "X"
+|     <meta>
+|     <table>
+|       " "
+
+#data
+<!doctype html><table>X<tr><td><table> <meta></table></table>
+#errors
+characters-in-table
+meta-in-table
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     "X"
+|     <table>
+|       <tbody>
+|         <tr>
+|           <td>
+|             <meta>
+|             <table>
+|               " "
+
+#data
 <!doctype html><html> <head>
 #errors
 #document
