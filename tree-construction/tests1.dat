@@ -407,8 +407,6 @@ Line: 1 Col: 16 Expected closing tag. Unexpected end of file.
 Line: 1 Col: 7 Unexpected '-' after '--' found in comment.
 Line: 1 Col: 14 Unexpected start tag (font). Expected DOCTYPE.
 Line: 1 Col: 38 Unexpected non-space characters in table context caused voodoo mode.
-Line: 1 Col: 41 Unexpected start tag (b) in table context caused voodoo mode.
-Line: 1 Col: 44 Unexpected non-space characters in table context caused voodoo mode.
 Line: 1 Col: 48 Unexpected implied end tag (b) in the table phase.
 Line: 1 Col: 48 Unexpected table cell start tag (th) in the table body phase.
 Line: 1 Col: 63 Got table cell end tag (th) while required end tags are missing.
@@ -1121,9 +1119,7 @@ Line: 1 Col: 15 Unexpected start tag (a). Expected DOCTYPE.
 Line: 1 Col: 39 Unexpected start tag (a) in table context caused voodoo mode.
 Line: 1 Col: 39 Unexpected start tag (a) implies end tag (a).
 Line: 1 Col: 39 End tag (a) violates step 1, paragraph 1 of the adoption agency algorithm.
-Line: 1 Col: 41 Unexpected non-space characters in table context caused voodoo mode.
 Line: 1 Col: 45 Unexpected implied end tag (a) in the table phase.
-Line: 1 Col: 60 Unexpected non-space characters in table context caused voodoo mode.
 Line: 1 Col: 68 Unexpected implied end tag (a) in the table phase.
 Line: 1 Col: 71 Expected closing tag. Unexpected end of file.
 #document
@@ -1175,10 +1171,8 @@ Line: 1 Col: 71 Expected closing tag. Unexpected end of file.
 #errors
 Line: 1 Col: 7 Unexpected start tag (table). Expected DOCTYPE.
 Line: 1 Col: 22 Unexpected start tag (a) in table context caused voodoo mode.
-Line: 1 Col: 25 Unexpected non-space characters in table context caused voodoo mode.
 Line: 1 Col: 29 Unexpected implied end tag (a) in the table phase.
 Line: 1 Col: 54 Got table cell end tag (td) while required end tags are missing.
-Line: 1 Col: 60 Unexpected non-space characters in table context caused voodoo mode.
 Line: 1 Col: 68 Unexpected implied end tag (a) in the table phase.
 Line: 1 Col: 71 Expected closing tag. Unexpected end of file.
 #document
@@ -1302,18 +1296,17 @@ Line: 1 Col: 48 Got table cell end tag (th) while required end tags are missing.
 #errors
 Line: 1 Col: 6 Unexpected start tag (body). Expected DOCTYPE.
 Line: 1 Col: 12 Unexpected start tag (body).
-Line: 1 Col: 37 Unexpected start tag (title) that can be in head. Moved.
 Line: 1 Col: 54 Unexpected start tag (body).
 Line: 1 Col: 64 Unexpected end tag (p). Missing end tag (body).
 #document
 | <html>
 |   <head>
-|     <title>
-|       "<p>"
 |   <body>
 |     <base>
 |     <link>
 |     <meta>
+|     <title>
+|       "<p>"
 |     <p>
 
 #data
@@ -1820,58 +1813,32 @@ Line: 1 Col: 622 Unexpected end tag (textarea). Ignored.
 Line: 1 Col: 7 Unexpected start tag (table). Expected DOCTYPE.
 Line: 1 Col: 20 Unexpected end tag (strong) in table context caused voodoo mode.
 Line: 1 Col: 20 End tag (strong) violates step 1, paragraph 1 of the adoption agency algorithm.
-Line: 1 Col: 24 Unexpected end tag (b) in table context caused voodoo mode.
 Line: 1 Col: 24 End tag (b) violates step 1, paragraph 1 of the adoption agency algorithm.
-Line: 1 Col: 29 Unexpected end tag (em) in table context caused voodoo mode.
 Line: 1 Col: 29 End tag (em) violates step 1, paragraph 1 of the adoption agency algorithm.
-Line: 1 Col: 33 Unexpected end tag (i) in table context caused voodoo mode.
 Line: 1 Col: 33 End tag (i) violates step 1, paragraph 1 of the adoption agency algorithm.
-Line: 1 Col: 37 Unexpected end tag (u) in table context caused voodoo mode.
 Line: 1 Col: 37 End tag (u) violates step 1, paragraph 1 of the adoption agency algorithm.
-Line: 1 Col: 46 Unexpected end tag (strike) in table context caused voodoo mode.
 Line: 1 Col: 46 End tag (strike) violates step 1, paragraph 1 of the adoption agency algorithm.
-Line: 1 Col: 50 Unexpected end tag (s) in table context caused voodoo mode.
 Line: 1 Col: 50 End tag (s) violates step 1, paragraph 1 of the adoption agency algorithm.
-Line: 1 Col: 58 Unexpected end tag (blink) in table context caused voodoo mode.
 Line: 1 Col: 58 Unexpected end tag (blink). Ignored.
-Line: 1 Col: 63 Unexpected end tag (tt) in table context caused voodoo mode.
 Line: 1 Col: 63 End tag (tt) violates step 1, paragraph 1 of the adoption agency algorithm.
-Line: 1 Col: 69 Unexpected end tag (pre) in table context caused voodoo mode.
 Line: 1 Col: 69 End tag (pre) seen too early. Expected other end tag.
-Line: 1 Col: 75 Unexpected end tag (big) in table context caused voodoo mode.
 Line: 1 Col: 75 End tag (big) violates step 1, paragraph 1 of the adoption agency algorithm.
-Line: 1 Col: 83 Unexpected end tag (small) in table context caused voodoo mode.
 Line: 1 Col: 83 End tag (small) violates step 1, paragraph 1 of the adoption agency algorithm.
-Line: 1 Col: 90 Unexpected end tag (font) in table context caused voodoo mode.
 Line: 1 Col: 90 End tag (font) violates step 1, paragraph 1 of the adoption agency algorithm.
-Line: 1 Col: 99 Unexpected end tag (select) in table context caused voodoo mode.
 Line: 1 Col: 99 Unexpected end tag (select). Ignored.
-Line: 1 Col: 104 Unexpected end tag (h1) in table context caused voodoo mode.
 Line: 1 Col: 104 End tag (h1) seen too early. Expected other end tag.
-Line: 1 Col: 109 Unexpected end tag (h2) in table context caused voodoo mode.
 Line: 1 Col: 109 End tag (h2) seen too early. Expected other end tag.
-Line: 1 Col: 114 Unexpected end tag (h3) in table context caused voodoo mode.
 Line: 1 Col: 114 End tag (h3) seen too early. Expected other end tag.
-Line: 1 Col: 119 Unexpected end tag (h4) in table context caused voodoo mode.
 Line: 1 Col: 119 End tag (h4) seen too early. Expected other end tag.
-Line: 1 Col: 124 Unexpected end tag (h5) in table context caused voodoo mode.
 Line: 1 Col: 124 End tag (h5) seen too early. Expected other end tag.
-Line: 1 Col: 129 Unexpected end tag (h6) in table context caused voodoo mode.
 Line: 1 Col: 129 End tag (h6) seen too early. Expected other end tag.
 Line: 1 Col: 136 Unexpected end tag (body) in the table row phase. Ignored.
-Line: 1 Col: 141 Unexpected end tag (br) in table context caused voodoo mode.
 Line: 1 Col: 141 Unexpected end tag (br). Treated as br element.
-Line: 1 Col: 145 Unexpected end tag (a) in table context caused voodoo mode.
 Line: 1 Col: 145 End tag (a) violates step 1, paragraph 1 of the adoption agency algorithm.
-Line: 1 Col: 151 Unexpected end tag (img) in table context caused voodoo mode.
 Line: 1 Col: 151 This element (img) has no end tag.
-Line: 1 Col: 159 Unexpected end tag (title) in table context caused voodoo mode.
 Line: 1 Col: 159 Unexpected end tag (title). Ignored.
-Line: 1 Col: 166 Unexpected end tag (span) in table context caused voodoo mode.
 Line: 1 Col: 166 Unexpected end tag (span). Ignored.
-Line: 1 Col: 174 Unexpected end tag (style) in table context caused voodoo mode.
 Line: 1 Col: 174 Unexpected end tag (style). Ignored.
-Line: 1 Col: 183 Unexpected end tag (script) in table context caused voodoo mode.
 Line: 1 Col: 183 Unexpected end tag (script). Ignored.
 Line: 1 Col: 196 Unexpected end tag (th). Ignored.
 Line: 1 Col: 201 Unexpected end tag (td). Ignored.

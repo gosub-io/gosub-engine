@@ -1,0 +1,254 @@
+#data
+<!doctype html><body><title>X</title>
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <title>
+|       "X"
+
+#data
+<!doctype html><table><title>X</title></table>
+#errors
+xxx
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <title>
+|       "X"
+|     <table>
+
+#data
+<!doctype html><head></head><title>X</title>
+#errors
+element-belongs-in-da-head
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|     <title>
+|       "X"
+|   <body>
+
+#data
+<!doctype html></head><title>X</title>
+#errors
+element-belongs-in-da-head
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|     <title>
+|       "X"
+|   <body>
+
+#data
+<!doctype html></body><title>X</title>
+#errors
+element-after-da-body
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <title>
+|       "X"
+
+#data
+<!doctype html><html> <head>
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+
+#data
+<!doctype html> <head>
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+
+#data
+<!doctype html><table> x</table>
+#errors
+node-in-table
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     "x"
+|     <table>
+|       " "
+
+#data
+<!doctype html><table> x </table>
+#errors
+node-in-table
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     "x "
+|     <table>
+|       " "
+
+#data
+<!doctype html><table><tr> x</table>
+#errors
+node-in-table-row
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     "x"
+|     <table>
+|       <tbody>
+|         <tr>
+|           " "
+
+#data
+<!doctype html><table><style> <tr>x </style> </table>
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <table>
+|       <style>
+|         " <tr>x "
+|       " "
+
+#data
+<!doctype html><table><TBODY><script> <tr>x </script> </table>
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <table>
+|       <tbody>
+|         <script>
+|           " <tr>x "
+|         " "
+
+#data
+<!doctype html><table>X<style> <tr>x </style> </table>
+#errors
+xxxx
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     "X"
+|     <style>
+|       " <tr>x "
+|     " "
+|     <table>
+
+#data
+<!doctype html><p><applet><p>X</p></applet>
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|       <applet>
+|         <p>
+|           "X"
+
+#data
+<!doctype html><listing>
+X</listing>
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <listing>
+|       "X"
+
+#data
+<!doctype html><select><input>X
+#errors
+input-in-select
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <select>
+|     <input>
+|     "X"
+
+#data
+<!doctype html><select><select>X
+#errors
+select-in-select
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <select>
+|     "X"
+
+#data
+<!doctype html><table><input type=hidDEN></table>
+#errors
+input-in-table
+#document
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <table>
+|       <input>
+|         type="hidDEN"
+
+#data
+<!doctype html><table>X<input type=hidDEN></table>
+#errors
+input-in-table
+#document
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     "X"
+|     <input>
+|       type="hidDEN"
+|     <table>
+
+#data
+<!doctype html><table>  <input type=hidDEN></table>
+#errors
+input-in-table
+#document
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <table>
+|       "  "
+|       <input>
+|         type="hidDEN"

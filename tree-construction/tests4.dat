@@ -52,7 +52,6 @@ html
 #data
 <title>setting head's innerHTML</title>
 #errors
-Line: 1 Col: 7 Unexpected start tag (title) that can be in head. Moved.
 #document-fragment
 head
 #document

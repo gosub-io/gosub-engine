@@ -129,8 +129,6 @@ Line: 1 Col: 11 Unexpected end of file. Expected end tag (script).
 #errors
 Line: 1 Col: 7 Unexpected start tag (table). Expected DOCTYPE.
 Line: 1 Col: 18 Unexpected start tag (plaintext) in table context caused voodoo mode.
-Line: 1 Col: 21 Unexpected non-space characters in table context caused voodoo mode.
-Line: 1 Col: 22 Unexpected non-space characters in table context caused voodoo mode.
 Line: 1 Col: 22 Expected closing tag. Unexpected end of file.
 #document
 | <html>
@@ -582,27 +580,25 @@ Line: 2 Col: 4 Expected closing tag. Unexpected end of file.
 #data
 <!DOCTYPE HTML><body><title>test</body></title>
 #errors
-Line: 1 Col: 28 Unexpected start tag (title) that can be in head. Moved.
 #document
 | <!DOCTYPE HTML>
 | <html>
 |   <head>
+|   <body>
 |     <title>
 |       "test</body>"
-|   <body>
 
 #data
 <!DOCTYPE HTML><body><title>X</title><meta name=z><link rel=foo><style>
 x { content:"</style" } </style>
 #errors
-Line: 1 Col: 28 Unexpected start tag (title) that can be in head. Moved.
 #document
 | <!DOCTYPE HTML>
 | <html>
 |   <head>
+|   <body>
 |     <title>
 |       "X"
-|   <body>
 |     <meta>
 |       name="z"
 |     <link>
