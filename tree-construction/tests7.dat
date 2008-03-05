@@ -252,3 +252,34 @@ input-in-table
 |       "  "
 |       <input>
 |         type="hidDEN"
+
+#data
+<!doctype html><table>  <input type='hidDEN'></table>
+#errors
+input-in-table
+#document
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <table>
+|       "  "
+|       <input>
+|         type="hidDEN"
+
+#data
+<!doctype html><table><input type=" hidden"><input type=hidDEN></table>
+#errors
+input-in-table
+#document
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <input>
+|       type=" hidden"
+|     <input>
+|       type="hidDEN"
+|     <table>
