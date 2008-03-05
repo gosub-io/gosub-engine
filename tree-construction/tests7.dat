@@ -259,7 +259,6 @@ select-in-select
 #errors
 input-in-table
 #document
-#document
 | <!DOCTYPE html>
 | <html>
 |   <head>
@@ -272,7 +271,6 @@ input-in-table
 <!doctype html><table>X<input type=hidDEN></table>
 #errors
 input-in-table
-#document
 #document
 | <!DOCTYPE html>
 | <html>
@@ -288,7 +286,6 @@ input-in-table
 #errors
 input-in-table
 #document
-#document
 | <!DOCTYPE html>
 | <html>
 |   <head>
@@ -302,7 +299,6 @@ input-in-table
 <!doctype html><table>  <input type='hidDEN'></table>
 #errors
 input-in-table
-#document
 #document
 | <!DOCTYPE html>
 | <html>
@@ -318,7 +314,6 @@ input-in-table
 #errors
 input-in-table
 #document
-#document
 | <!DOCTYPE html>
 | <html>
 |   <head>
@@ -328,3 +323,31 @@ input-in-table
 |     <input>
 |       type="hidDEN"
 |     <table>
+
+#data
+<!doctype html><table><select>X<tr>
+#errors
+select-in-table
+unexpected-tr-in-select-in-table
+eof
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <select>
+|       "X"
+|     <table>
+|       <tbody>
+|         <tr>
+
+#data
+<!doctype html><select>X</select>
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <select>
+|       "X"
