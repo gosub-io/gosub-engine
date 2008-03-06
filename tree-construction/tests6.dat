@@ -242,11 +242,11 @@ Line: 1 Col: 21 Expected closing tag. Unexpected end of file.
 
 #data
 </caption><div>
-#document-fragment
-caption
 #errors
 Line: 1 Col: 10 Unexpected end tag (caption). Ignored.
 Line: 1 Col: 15 Expected closing tag. Unexpected end of file.
+#document-fragment
+caption
 #document
 | <div>
 
@@ -278,12 +278,12 @@ Line: 1 Col: 24 Unexpected end table tag in caption. Generates implied end capti
 
 #data
 </table><div>
-#document-fragment
-caption
 #errors
 Line: 1 Col: 8 Unexpected end table tag in caption. Generates implied end caption.
 Line: 1 Col: 8 Unexpected end tag (caption). Ignored.
 Line: 1 Col: 13 Expected closing tag. Unexpected end of file.
+#document-fragment
+caption
 #document
 | <div>
 
@@ -343,8 +343,6 @@ Line: 1 Col: 56 Expected closing tag. Unexpected end of file.
 
 #data
 </table></tbody></tfoot></thead></tr><div>
-#document-fragment
-td
 #errors
 Line: 1 Col: 8 Unexpected end tag (table). Ignored.
 Line: 1 Col: 16 Unexpected end tag (tbody). Ignored.
@@ -352,6 +350,8 @@ Line: 1 Col: 24 Unexpected end tag (tfoot). Ignored.
 Line: 1 Col: 32 Unexpected end tag (thead). Ignored.
 Line: 1 Col: 37 Unexpected end tag (tr). Ignored.
 Line: 1 Col: 42 Expected closing tag. Unexpected end of file.
+#document-fragment
+td
 #document
 | <div>
 
@@ -371,10 +371,10 @@ Line: 1 Col: 20 Expected closing tag. Unexpected end of file.
 
 #data
 foo<col>
-#document-fragment
-colgroup
 #errors
 Line: 1 Col: 3 Unexpected end tag (colgroup). Ignored.
+#document-fragment
+colgroup
 #document
 | <col>
 
@@ -404,10 +404,10 @@ Line: 1 Col: 15 Expected closing tag. Unexpected end of file.
 
 #data
 </frameset><frame>
-#document-fragment
-frameset
 #errors
 Line: 1 Col: 11 Unexpected end tag token (frameset) in the frameset phase (innerHTML).
+#document-fragment
+frameset
 #document
 | <frame>
 
@@ -424,11 +424,11 @@ Line: 1 Col: 16 Expected closing tag. Unexpected end of file.
 
 #data
 </body><div>
-#document-fragment
-body
 #errors
 Line: 1 Col: 7 Unexpected end tag (body). Ignored.
 Line: 1 Col: 12 Expected closing tag. Unexpected end of file.
+#document-fragment
+body
 #document
 | <div>
 
@@ -449,21 +449,21 @@ Line: 1 Col: 16 Expected closing tag. Unexpected end of file.
 
 #data
 </tr><td>
-#document-fragment
-tr
 #errors
 Line: 1 Col: 5 Unexpected end tag (tr). Ignored.
+#document-fragment
+tr
 #document
 | <td>
 
 #data
 </tbody></tfoot></thead><td>
-#document-fragment
-tr
 #errors
 Line: 1 Col: 8 Unexpected end tag (tbody). Ignored.
 Line: 1 Col: 16 Unexpected end tag (tfoot). Ignored.
 Line: 1 Col: 24 Unexpected end tag (thead). Ignored.
+#document-fragment
+tr
 #document
 | <td>
 
@@ -486,8 +486,6 @@ Line: 1 Col: 20 Expected closing tag. Unexpected end of file.
 
 #data
 <caption><col><colgroup><tbody><tfoot><thead><tr>
-#document-fragment
-tbody
 #errors
 Line: 1 Col: 9 Unexpected start tag (caption).
 Line: 1 Col: 14 Unexpected start tag (col).
@@ -495,6 +493,8 @@ Line: 1 Col: 24 Unexpected start tag (colgroup).
 Line: 1 Col: 31 Unexpected start tag (tbody).
 Line: 1 Col: 38 Unexpected start tag (tfoot).
 Line: 1 Col: 45 Unexpected start tag (thead).
+#document-fragment
+tbody
 #document
 | <tr>
 
@@ -513,10 +513,10 @@ Line: 1 Col: 22 Expected closing tag. Unexpected end of file.
 
 #data
 </table><tr>
-#document-fragment
-tbody
 #errors
 Line: 1 Col: 8 Unexpected end tag (table). Ignored.
+#document-fragment
+tbody
 #document
 | <tr>
 
@@ -591,11 +591,11 @@ Line: 1 Col: 87 Expected closing tag. Unexpected end of file.
 
 #data
 </table><tr>
-#document-fragment
-table
 #errors
 Line: 1 Col: 8 Unexpected end tag (table). Ignored.
 Line: 1 Col: 12 Expected closing tag. Unexpected end of file.
+#document-fragment
+table
 #document
 | <tbody>
 |   <tr>
@@ -612,11 +612,11 @@ Line: 1 Col: 6 Unexpected start tag (html). Expected DOCTYPE.
 
 #data
 <body></body></html>
-#document-fragment
-html
 #errors
 Line: 1 Col: 20 Unexpected html end tag in inner html mode.
 Line: 1 Col: 20 Unexpected EOF in inner html mode.
+#document-fragment
+html
 #document
 | <head>
 | <body>
