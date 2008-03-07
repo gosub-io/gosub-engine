@@ -49,22 +49,22 @@ Line: 1 Col: 6 Unexpected start tag (head). Expected DOCTYPE.
 |     <script>
 
 #data
-<!DOCTYPE htML><html><head></head><body><pre>
+<!DOCTYPE html><html><head></head><body><pre>
 </pre></body></html>
 #errors
 #document
-| <!DOCTYPE htML>
+| <!DOCTYPE html>
 | <html>
 |   <head>
 |   <body>
 |     <pre>
 
 #data
-<!DOCTYPE htML><html><head></head><body><pre>
+<!DOCTYPE html><html><head></head><body><pre>
 foo</pre></body></html>
 #errors
 #document
-| <!DOCTYPE htML>
+| <!DOCTYPE html>
 | <html>
 |   <head>
 |   <body>
@@ -72,12 +72,12 @@ foo</pre></body></html>
 |       "foo"
 
 #data
-<!DOCTYPE htML><html><head></head><body><pre>
+<!DOCTYPE html><html><head></head><body><pre>
 
 foo</pre></body></html>
 #errors
 #document
-| <!DOCTYPE htML>
+| <!DOCTYPE html>
 | <html>
 |   <head>
 |   <body>
@@ -86,12 +86,12 @@ foo</pre></body></html>
 foo"
 
 #data
-<!DOCTYPE htML><html><head></head><body><pre>
+<!DOCTYPE html><html><head></head><body><pre>
 foo
 </pre></body></html>
 #errors
 #document
-| <!DOCTYPE htML>
+| <!DOCTYPE html>
 | <html>
 |   <head>
 |   <body>
@@ -100,11 +100,11 @@ foo
 "
 
 #data
-<!DOCTYPE htML><html><head></head><body><pre>x</pre><span>
+<!DOCTYPE html><html><head></head><body><pre>x</pre><span>
 </span></body></html>
 #errors
 #document
-| <!DOCTYPE htML>
+| <!DOCTYPE html>
 | <html>
 |   <head>
 |   <body>
@@ -115,11 +115,11 @@ foo
 "
 
 #data
-<!DOCTYPE htML><html><head></head><body><pre>x
+<!DOCTYPE html><html><head></head><body><pre>x
 y</pre></body></html>
 #errors
 #document
-| <!DOCTYPE htML>
+| <!DOCTYPE html>
 | <html>
 |   <head>
 |   <body>
@@ -128,12 +128,12 @@ y</pre></body></html>
 y"
 
 #data
-<!DOCTYPE htML><html><head></head><body><pre>x<div>
+<!DOCTYPE html><html><head></head><body><pre>x<div>
 y</pre></body></html>
 #errors
 Line: 2 Col: 7 End tag (pre) seen too early. Expected other end tag.
 #document
-| <!DOCTYPE htML>
+| <!DOCTYPE html>
 | <html>
 |   <head>
 |   <body>
@@ -144,22 +144,22 @@ Line: 2 Col: 7 End tag (pre) seen too early. Expected other end tag.
 y"
 
 #data
-<!DOCTYPE htML><HTML><META><HEAD></HEAD></HTML>
+<!DOCTYPE html><HTML><META><HEAD></HEAD></HTML>
 #errors
 Line: 1 Col: 33 Unexpected start tag head in existing head. Ignored.
 #document
-| <!DOCTYPE htML>
+| <!DOCTYPE html>
 | <html>
 |   <head>
 |     <meta>
 |   <body>
 
 #data
-<!DOCTYPE htML><HTML><HEAD><head></HEAD></HTML>
+<!DOCTYPE html><HTML><HEAD><head></HEAD></HTML>
 #errors
 Line: 1 Col: 33 Unexpected start tag head in existing head. Ignored.
 #document
-| <!DOCTYPE htML>
+| <!DOCTYPE html>
 | <html>
 |   <head>
 |   <body>
@@ -189,22 +189,22 @@ Line: 1 Col: 30 Unexpected end of file. Expected end tag (title).
 |   <body>
 
 #data
-<!DOCTYPE htML><textarea>
+<!DOCTYPE html><textarea>
 </textarea>
 #errors
 #document
-| <!DOCTYPE htML>
+| <!DOCTYPE html>
 | <html>
 |   <head>
 |   <body>
 |     <textarea>
 
 #data
-<!DOCTYPE htML><textarea>
+<!DOCTYPE html><textarea>
 foo</textarea>
 #errors
 #document
-| <!DOCTYPE htML>
+| <!DOCTYPE html>
 | <html>
 |   <head>
 |   <body>
@@ -212,12 +212,12 @@ foo</textarea>
 |       "foo"
 
 #data
-<!DOCTYPE htML><textarea>
+<!DOCTYPE html><textarea>
 
 foo</textarea>
 #errors
 #document
-| <!DOCTYPE htML>
+| <!DOCTYPE html>
 | <html>
 |   <head>
 |   <body>
@@ -226,11 +226,11 @@ foo</textarea>
 foo"
 
 #data
-<!DOCTYPE htML><html><head></head><body><ul><li><div><p><li></ul></body></html>
+<!DOCTYPE html><html><head></head><body><ul><li><div><p><li></ul></body></html>
 #errors
 Line: 1 Col: 60 Missing end tag (div, li).
 #document
-| <!DOCTYPE htML>
+| <!DOCTYPE html>
 | <html>
 |   <head>
 |   <body>

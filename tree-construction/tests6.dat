@@ -34,12 +34,12 @@ Line: 1 Col: 28 Unexpected start tag token (meta) in the after body phase.
 |     <meta>
 
 #data
-<!doctype HTml><form><div></form><div>
+<!doctype html><form><div></form><div>
 #errors
 Line: 1 Col: 33 End tag (form) seen too early. Ignored.
 Line: 1 Col: 38 Expected closing tag. Unexpected end of file.
 #document
-| <!DOCTYPE HTml>
+| <!DOCTYPE html>
 | <html>
 |   <head>
 |   <body>
@@ -48,10 +48,10 @@ Line: 1 Col: 38 Expected closing tag. Unexpected end of file.
 |         <div>
 
 #data
-<!doctype HTml><title>&amp;</title>
+<!doctype html><title>&amp;</title>
 #errors
 #document
-| <!DOCTYPE HTml>
+| <!DOCTYPE html>
 | <html>
 |   <head>
 |     <title>
@@ -59,10 +59,10 @@ Line: 1 Col: 38 Expected closing tag. Unexpected end of file.
 |   <body>
 
 #data
-<!doctype HTml><title><!--&amp;--></title>
+<!doctype html><title><!--&amp;--></title>
 #errors
 #document
-| <!DOCTYPE HTml>
+| <!DOCTYPE html>
 | <html>
 |   <head>
 |     <title>
@@ -630,3 +630,13 @@ Line: 1 Col: 6 Unexpected start tag (html). Expected DOCTYPE.
 |   <head>
 |   <frameset>
 |   " "
+
+#data
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN"><html></html>
+#errors
+doctype-error
+#document
+| <!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN" "">
+| <html>
+|   <head>
+|   <body>

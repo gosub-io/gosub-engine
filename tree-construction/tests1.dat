@@ -430,11 +430,11 @@ Line: 1 Col: 71 Expected closing tag. Unexpected end of file.
 |             <!-- X -->
 
 #data
-<!DOCTYPE HTML><li>hello<li>world<ul>how<li>do</ul>you</body><!--do-->
+<!DOCTYPE html><li>hello<li>world<ul>how<li>do</ul>you</body><!--do-->
 #errors
 Line: 1 Col: 61 Unexpected end tag (li). Missing end tag (body).
 #document
-| <!DOCTYPE HTML>
+| <!DOCTYPE html>
 | <html>
 |   <head>
 |   <body>
@@ -450,14 +450,14 @@ Line: 1 Col: 61 Unexpected end tag (li). Missing end tag (body).
 |   <!-- do -->
 
 #data
-<!DOCTYPE HTML>A<option>B<optgroup>C<select>D</option>E
+<!DOCTYPE html>A<option>B<optgroup>C<select>D</option>E
 #errors
 Line: 1 Col: 24 Unexpected start tag option. Ignored.
 Line: 1 Col: 35 Unexpected start tag optgroup. Ignored.
 Line: 1 Col: 54 Unexpected end tag (option) in the select phase. Ignored.
 Line: 1 Col: 55 Expected closing tag. Unexpected end of file.
 #document
-| <!DOCTYPE HTML>
+| <!DOCTYPE html>
 | <html>
 |   <head>
 |   <body>
@@ -620,11 +620,11 @@ Line: 1 Col: 14 Unexpected End of file. Expected DOCTYPE.
 |   <body>
 
 #data
-<!DOCTYPE HTML><style> EOF
+<!DOCTYPE html><style> EOF
 #errors
 Line: 1 Col: 26 Unexpected end of file. Expected end tag (style).
 #document
-| <!DOCTYPE HTML>
+| <!DOCTYPE html>
 | <html>
 |   <head>
 |     <style>
@@ -632,10 +632,10 @@ Line: 1 Col: 26 Unexpected end of file. Expected end tag (style).
 |   <body>
 
 #data
-<!DOCTYPE HTML><script> <!-- </script> --> </script> EOF
+<!DOCTYPE html><script> <!-- </script> --> </script> EOF
 #errors
 #document
-| <!DOCTYPE HTML>
+| <!DOCTYPE html>
 | <html>
 |   <head>
 |     <script>
@@ -694,11 +694,11 @@ Line: 1 Col: 31 Expected closing tag. Unexpected end of file.
 |       "TEST"
 
 #data
-<!DOCTYPE HTML><title>U-test</title><body><div><p>Test<u></p></div></body>
+<!DOCTYPE html><title>U-test</title><body><div><p>Test<u></p></div></body>
 #errors
 Line: 1 Col: 61 Unexpected end tag (p). Ignored.
 #document
-| <!DOCTYPE HTML>
+| <!DOCTYPE html>
 | <html>
 |   <head>
 |     <title>
@@ -710,12 +710,12 @@ Line: 1 Col: 61 Unexpected end tag (p). Ignored.
 |         <u>
 
 #data
-<!DOCTYPE HTML><font><table></font></table></font>
+<!DOCTYPE html><font><table></font></table></font>
 #errors
 Line: 1 Col: 35 Unexpected end tag (font) in table context caused voodoo mode.
 Line: 1 Col: 35 End tag (font) violates step 1, paragraph 1 of the adoption agency algorithm.
 #document
-| <!DOCTYPE HTML>
+| <!DOCTYPE html>
 | <html>
 |   <head>
 |   <body>

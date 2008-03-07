@@ -351,3 +351,21 @@ eof
 |   <body>
 |     <select>
 |       "X"
+
+#data
+<!DOCTYPE hTmL><html></html>
+#errors
+#document
+| <!DOCTYPE hTmL>
+| <html>
+|   <head>
+|   <body>
+
+#data
+<!DOCTYPE HTML><html></html>
+#errors
+#document
+| <!DOCTYPE HTML>
+| <html>
+|   <head>
+|   <body>
