@@ -369,3 +369,14 @@ eof
 | <html>
 |   <head>
 |   <body>
+
+#data
+<body>X</body></body>
+#errors
+21: Saw an end tag after body had been closed.
+#document-fragment
+html
+#document
+| <head>
+| <body>
+|   "X"
