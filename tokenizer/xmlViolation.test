@@ -2,10 +2,12 @@
 
 {"description":"Non-XML character",
 "input":"a\uFFFFb",
-"output":[["Character","a\uFFFDb"]]},
+"ignoreErrorOrder":true,
+"output":["ParseError",["Character","a\uFFFDb"]]},
 
 {"description":"Non-XML space",
 "input":"a\u000Cb",
+"ignoreErrorOrder":true,
 "output":[["Character","a b"]]},
 
 {"description":"Double hyphen in comment",

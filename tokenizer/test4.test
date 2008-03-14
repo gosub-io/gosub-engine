@@ -218,6 +218,21 @@
 "output":["ParseError", "ParseError", ["Comment", "doc\uFFFD"]],
 "ignoreErrorOrder":true},
 
+{"description":"U+0080 in lookahead region",
+"input":"<!doc\u0080",
+"output":["ParseError", "ParseError", ["Comment", "doc\u0080"]],
+"ignoreErrorOrder":true},
+
+{"description":"U+FDD1 in lookahead region",
+"input":"<!doc\uFDD1",
+"output":["ParseError", "ParseError", ["Comment", "doc\uFDD1"]],
+"ignoreErrorOrder":true},
+
+{"description":"U+1FFFF in lookahead region",
+"input":"<!doc\uD83F\uDFFF",
+"output":["ParseError", "ParseError", ["Comment", "doc\uD83F\uDFFF"]],
+"ignoreErrorOrder":true},
+
 {"description":"CR followed by U+0000",
 "input":"\r\u0000",
 "output":["ParseError", ["Character", "\n\uFFFD"]],
