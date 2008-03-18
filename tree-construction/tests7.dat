@@ -380,3 +380,22 @@ html
 | <head>
 | <body>
 |   "X"
+
+#data
+<!doctype html><div><table><a>foo</a> <tr><td>bar</td> </tr></table></div>
+#errors
+unexpected-start-tag-implies-table-voodoo
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <div>
+|       <a>
+|         "foo"
+|       "  "
+|       <table>
+|         <tbody>
+|           <tr>
+|             <td>
+|               "bar"
