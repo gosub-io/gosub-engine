@@ -22,6 +22,12 @@
 "contentModelFlags":["RCDATA"],
 "lastStartTag":"bar",
 "input":" &amp; <!-- &amp; --> &amp; </bar>",
-"output":[["Character", " & <!-- &amp; --> & "], ["EndTag", "bar"]]}
+"output":[["Character", " & <!-- &amp; --> & "], ["EndTag", "bar"]]},
+
+{"description":"Incorrect comment ending sequences in [R]CDATA",
+"contentModelFlags":["RCDATA", "CDATA"],
+"lastStartTag":"bar",
+"input":"foo<!-- x --x>x-- >x--!>x--<></bar>",
+"output":[["Character", "foo<!-- x --x>x-- >x--!>x--<></bar>"]]}
 
 ]}
