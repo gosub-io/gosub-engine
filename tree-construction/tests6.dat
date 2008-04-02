@@ -45,7 +45,7 @@ Line: 1 Col: 38 Expected closing tag. Unexpected end of file.
 |   <body>
 |     <form>
 |       <div>
-|         <div>
+|     <div>
 
 #data
 <!doctype html><title>&amp;</title>
