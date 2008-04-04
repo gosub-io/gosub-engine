@@ -636,7 +636,7 @@ Line: 1 Col: 6 Unexpected start tag (html). Expected DOCTYPE.
 #errors
 doctype-error
 #document
-| <!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN" "">
+| <!DOCTYPE html "-//W3C//DTD HTML 4.01//EN" "">
 | <html>
 |   <head>
 |   <body>
