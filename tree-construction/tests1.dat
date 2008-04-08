@@ -357,7 +357,6 @@ Line: 1 Col: 40 Got table cell end tag (td) while required end tags are missing.
 Line: 1 Col: 43 Unexpected start tag (a) in table context caused voodoo mode.
 Line: 1 Col: 43 Unexpected start tag (a) implies end tag (a).
 Line: 1 Col: 43 End tag (a) violates step 1, paragraph 1 of the adoption agency algorithm.
-Line: 1 Col: 51 Unexpected implied end tag (a) in the table phase.
 Line: 1 Col: 63 Unexpected start tag (a) implies end tag (a).
 Line: 1 Col: 64 Expected closing tag. Unexpected end of file.
 #document
@@ -407,7 +406,6 @@ Line: 1 Col: 16 Expected closing tag. Unexpected end of file.
 Line: 1 Col: 7 Unexpected '-' after '--' found in comment.
 Line: 1 Col: 14 Unexpected start tag (font). Expected DOCTYPE.
 Line: 1 Col: 38 Unexpected non-space characters in table context caused voodoo mode.
-Line: 1 Col: 48 Unexpected implied end tag (b) in the table phase.
 Line: 1 Col: 48 Unexpected table cell start tag (th) in the table body phase.
 Line: 1 Col: 63 Got table cell end tag (th) while required end tags are missing.
 Line: 1 Col: 71 Expected closing tag. Unexpected end of file.
@@ -1119,8 +1117,6 @@ Line: 1 Col: 15 Unexpected start tag (a). Expected DOCTYPE.
 Line: 1 Col: 39 Unexpected start tag (a) in table context caused voodoo mode.
 Line: 1 Col: 39 Unexpected start tag (a) implies end tag (a).
 Line: 1 Col: 39 End tag (a) violates step 1, paragraph 1 of the adoption agency algorithm.
-Line: 1 Col: 45 Unexpected implied end tag (a) in the table phase.
-Line: 1 Col: 68 Unexpected implied end tag (a) in the table phase.
 Line: 1 Col: 71 Expected closing tag. Unexpected end of file.
 #document
 | <html>
@@ -1171,9 +1167,7 @@ Line: 1 Col: 71 Expected closing tag. Unexpected end of file.
 #errors
 Line: 1 Col: 7 Unexpected start tag (table). Expected DOCTYPE.
 Line: 1 Col: 22 Unexpected start tag (a) in table context caused voodoo mode.
-Line: 1 Col: 29 Unexpected implied end tag (a) in the table phase.
 Line: 1 Col: 54 Got table cell end tag (td) while required end tags are missing.
-Line: 1 Col: 68 Unexpected implied end tag (a) in the table phase.
 Line: 1 Col: 71 Expected closing tag. Unexpected end of file.
 #document
 | <html>
@@ -1544,7 +1538,6 @@ Line: 1 Col: 40 Got table cell end tag (td) while required end tags are missing.
 Line: 1 Col: 43 Unexpected start tag (a) in table context caused voodoo mode.
 Line: 1 Col: 43 Unexpected start tag (a) implies end tag (a).
 Line: 1 Col: 43 End tag (a) violates step 1, paragraph 1 of the adoption agency algorithm.
-Line: 1 Col: 51 Unexpected implied end tag (a) in the table phase.
 Line: 1 Col: 54 Unexpected start tag (a) implies end tag (a).
 Line: 1 Col: 54 End tag (a) violates step 1, paragraph 2 of the adoption agency algorithm.
 Line: 1 Col: 54 Expected closing tag. Unexpected end of file.

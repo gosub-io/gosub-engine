@@ -493,6 +493,7 @@ Line: 1 Col: 24 Unexpected start tag (colgroup).
 Line: 1 Col: 31 Unexpected start tag (tbody).
 Line: 1 Col: 38 Unexpected start tag (tfoot).
 Line: 1 Col: 45 Unexpected start tag (thead).
+Line: 1 Col: 49 Unexpected end of file. Expected table content.
 #document-fragment
 tbody
 #document
@@ -515,6 +516,7 @@ Line: 1 Col: 22 Expected closing tag. Unexpected end of file.
 </table><tr>
 #errors
 Line: 1 Col: 8 Unexpected end tag (table). Ignored.
+Line: 1 Col: 12 Unexpected end of file. Expected table content.
 #document-fragment
 tbody
 #document
@@ -614,7 +616,6 @@ Line: 1 Col: 6 Unexpected start tag (html). Expected DOCTYPE.
 <body></body></html>
 #errors
 Line: 1 Col: 20 Unexpected html end tag in inner html mode.
-Line: 1 Col: 20 Unexpected EOF in inner html mode.
 #document-fragment
 html
 #document
