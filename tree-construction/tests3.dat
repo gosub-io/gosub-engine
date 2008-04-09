@@ -25,6 +25,7 @@ Line: 1 Col: 21 Unexpected start tag (script) that can be in head. Moved.
 #errors
 Line: 1 Col: 6 Unexpected start tag (head). Expected DOCTYPE.
 Line: 1 Col: 28 Unexpected start tag (style) that can be in head. Moved.
+Line: 1 Col: 52 Unexpected start tag (script) that can be in head. Moved.
 #document
 | <html>
 |   <head>
