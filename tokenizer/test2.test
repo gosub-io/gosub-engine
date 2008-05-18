@@ -94,15 +94,15 @@
 
 {"description":"Non-void element containing trailing /",
 "input":"<h/>",
-"output":["ParseError", ["StartTag", "h", { }]]},
+"output":[["StartTag","h",{},true]]},
 
 {"description":"Void element with permitted slash",
 "input":"<br/>",
-"output":[["StartTag", "br", { }]]},
+"output":[["StartTag","br",{},true]]},
 
 {"description":"Void element with permitted slash (with attribute)",
 "input":"<br foo='bar'/>",
-"output":[["StartTag", "br", { "foo":"bar" }]]},
+"output":[["StartTag","br",{"foo":"bar"},true]]},
 
 {"description":"StartTag containing /",
 "input":"<h/a='b'>",

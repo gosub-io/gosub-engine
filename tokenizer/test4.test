@@ -78,11 +78,11 @@
 
 {"description":"Quoted attribute followed by permitted /",
 "input":"<br a='b'/>",
-"output":[["StartTag", "br", {"a": "b"}]]},
+"output":[["StartTag","br",{"a":"b"},true]]},
 
 {"description":"Quoted attribute followed by non-permitted /",
 "input":"<bar a='b'/>",
-"output":["ParseError", ["StartTag", "bar", {"a": "b"}]]},
+"output":[["StartTag","bar",{"a":"b"},true]]},
 
 {"description":"CR EOF after doctype name",
 "input":"<!doctype html \r",
@@ -182,11 +182,11 @@
 
 {"description":"Permitted slash",
 "input":"<br/>",
-"output":[["StartTag", "br", {}]]},
+"output":[["StartTag","br",{},true]]},
 
 {"description":"Non-permitted slash",
 "input":"<xr/>",
-"output":["ParseError", ["StartTag", "xr", {}]]},
+"output":[["StartTag","xr",{},true]]},
 
 {"description":"Permitted slash but in close tag",
 "input":"</br/>",

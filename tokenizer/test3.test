@@ -234,7 +234,7 @@
 
 {"description":"<z/>",
 "input":"<z/>",
-"output":["ParseError", ["StartTag", "z", {}]]},
+"output":[["StartTag","z",{},true]]},
 
 {"description":"<z/ ",
 "input":"<z/ ",
@@ -242,7 +242,7 @@
 
 {"description":"<z//",
 "input":"<z//",
-"output":["ParseError", "ParseError", "ParseError", ["StartTag", "z", {}]]},
+"output":["ParseError","ParseError",["StartTag","z",{}]]},
 
 {"description":"<z",
 "input":"<z",
@@ -278,7 +278,7 @@
 
 {"description":"<z/0=''",
 "input":"<z/0=''",
-"output":["ParseError", "ParseError", "ParseError", ["StartTag", "z", {"0": ""}]]},
+"output":["ParseError","ParseError",["StartTag","z",{"0":""}]]},
 
 {"description":"<z/0='&",
 "input":"<z/0='&",
@@ -294,7 +294,7 @@
 
 {"description":"<z/0=\"\"",
 "input":"<z/0=\"\"",
-"output":["ParseError", "ParseError", "ParseError", ["StartTag", "z", {"0": ""}]]},
+"output":["ParseError","ParseError",["StartTag","z",{"0":""}]]},
 
 {"description":"<z/0=\"&",
 "input":"<z/0=\"&",
@@ -322,11 +322,11 @@
 
 {"description":"<z/0 /",
 "input":"<z/0 /",
-"output":["ParseError", "ParseError", "ParseError", ["StartTag", "z", {"0": ""}]]},
+"output":["ParseError","ParseError",["StartTag","z",{"0":""}]]},
 
 {"description":"<z/0/",
 "input":"<z/0/",
-"output":["ParseError", "ParseError", "ParseError", ["StartTag", "z", {"0": ""}]]},
+"output":["ParseError","ParseError",["StartTag","z",{"0":""}]]},
 
 {"description":"<z/00",
 "input":"<z/00",
