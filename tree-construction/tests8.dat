@@ -1,0 +1,128 @@
+#data
+<div>
+<div></div>
+</span>x
+#errors
+missing doctype
+unexpected </span>
+unclosed <div>
+#document
+| <html>
+|   <head>
+|   <body>
+|     <div>
+|       "
+"
+|       <div>
+|       "
+x"
+
+#data
+<div>x<div></div>
+</span>x
+#errors
+missing doctype
+unexpected </span>
+unclosed <div>
+#document
+| <html>
+|   <head>
+|   <body>
+|     <div>
+|       "x"
+|       <div>
+|       "
+x"
+
+#data
+<div>x<div></div>x</span>x
+#errors
+missing doctype
+unexpected </span>
+unclosed <div>
+#document
+| <html>
+|   <head>
+|   <body>
+|     <div>
+|       "x"
+|       <div>
+|       "xx"
+
+#data
+<div>x<div></div>y</span>z
+#errors
+missing doctype
+unexpected </span>
+unclosed <div>
+#document
+| <html>
+|   <head>
+|   <body>
+|     <div>
+|       "x"
+|       <div>
+|       "yz"
+
+#data
+<table><div>x<div></div>x</span>x
+#errors
+missing doctype
+table voodoo
+unexpected </span>
+unclosed <div>
+#document
+| <html>
+|   <head>
+|   <body>
+|     <div>
+|       "x"
+|       <div>
+|       "xx"
+|     <table>
+
+#data
+x<table>x
+#errors
+missing doctype
+table voodoo
+unclosed <table>
+#document
+| <html>
+|   <head>
+|   <body>
+|     "xx"
+|     <table>
+
+#data
+x<table><table>x
+#errors
+missing doctype
+unexpected <table>
+table voodoo
+unclosed <table>
+#document
+| <html>
+|   <head>
+|   <body>
+|     "x"
+|     <table>
+|     "x"
+|     <table>
+
+#data
+<b>a<div></div><div></b>y
+#errors
+missing doctype
+adoption agency
+unclosed <div>
+#document
+| <html>
+|   <head>
+|   <body>
+|     <b>
+|       "a"
+|       <div>
+|     <div>
+|       <b>
+|       "y"
