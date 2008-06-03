@@ -18,7 +18,7 @@
 
 {"description": "proper attribute value quoting (with <)",
  "input": [["StartTag", "span", {"title": "foo<bar"}]],
- "expected": ["<span title=\"foo<bar\">"],
+ "expected": ["<span title=foo<bar>"],
  "xhtml":    ["<span title=\"foo&lt;bar\">"]
 },
 
