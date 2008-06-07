@@ -767,3 +767,18 @@ Line: 1 Col: 34 Unexpected end tag (p). Ignored.
 |         <tr>
 |           <td>
 |             <p>
+
+#data
+<!DOCTYPE <!DOCTYPE HTML>><!--<!--x-->-->
+#errors
+Line: 1 Col: 20 Expected space or '>'. Got 'H'
+Line: 1 Col: 25 Erroneous DOCTYPE.
+Line: 1 Col: 35 Unexpected character in comment found.
+#document
+| <!DOCTYPE <!DOCTYPE>
+| <html>
+|   <head>
+|   <body>
+|     ">"
+|     <!-- <!--x -->
+|     "-->"

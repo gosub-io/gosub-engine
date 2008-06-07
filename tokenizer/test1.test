@@ -123,19 +123,19 @@
 
 {"description":"Entity with trailing semicolon (1)",
 "input":"I'm &not;it",
-"output":[["Character","I'm ¬it"]]},
+"output":[["Character","I'm \u00ACit"]]},
 
 {"description":"Entity with trailing semicolon (2)",
 "input":"I'm &notin;",
-"output":[["Character","I'm ∉"]]},
+"output":[["Character","I'm \u2209"]]},
 
 {"description":"Entity without trailing semicolon (1)",
 "input":"I'm &notit",
-"output":[["Character","I'm "], "ParseError", ["Character", "¬it"]]},
+"output":[["Character","I'm "], "ParseError", ["Character", "\u00ACit"]]},
 
 {"description":"Entity without trailing semicolon (2)",
 "input":"I'm &notin",
-"output":[["Character","I'm "], "ParseError", ["Character", "¬in"]]},
+"output":[["Character","I'm "], "ParseError", ["Character", "\u00ACin"]]},
 
 {"description":"Partial entity match at end of file",
 "input":"I'm &no",
@@ -167,6 +167,6 @@
 
 {"description":"Entity in attribute without semicolon",
 "input":"<h a='&COPY'>",
-"output":["ParseError", ["StartTag", "h", {"a":"©"}]]}
+"output":["ParseError", ["StartTag", "h", {"a":"\u00A9"}]]}
 
 ]}
