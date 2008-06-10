@@ -19,7 +19,7 @@
 
 {"description": "proper attribute value non-quoting (with =)",
  "input": [["StartTag", "span", {"title": "foo=bar"}]],
- "expected": ["<span title=foo=bar>"],
+ "expected": ["<span title=\"foo=bar\">"],
  "xhtml":    ["<span title=\"foo=bar\">"]
 },
 
