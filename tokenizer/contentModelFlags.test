@@ -38,11 +38,13 @@
 
 {"description":"CDATA w/ something looking like an entity",
 "contentModelFlags":["CDATA"],
+"lastStartTag":"pre",
 "input":"&foo;",
 "output":[["Character", "&foo;"]]},
 
 {"description":"RCDATA w/ an entity",
 "contentModelFlags":["RCDATA"],
+"lastStartTag":"textarea",
 "input":"&lt;",
 "output":[["Character", "<"]]}
 
