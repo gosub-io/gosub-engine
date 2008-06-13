@@ -14,17 +14,9 @@
 "input":"<!-- foo -- bar -->",
 "output":["ParseError",["Comment"," foo - - bar "]]},
 
-{"description":"Colon in attribute name",
-"input":"a<a b:=''>b",
-"output":[["Character","a"],["StartTag","a",{}],["Character","b"]]},
-
 {"description":"FF between attributes",
 "input":"<a b=''\u000Cc=''>",
 "output":[["StartTag","a",{"b":"","c":""}]]},
-
-{"description":"Colon in attribute name",
-"input":"a<a b:=''>b",
-"output":[["Character","a"],["StartTag","a",{}],["Character","b"]]},
 
 {"description":"Colon in tag name",
 "input":"a<a:>b",
