@@ -2,6 +2,7 @@
 
 {"description":"PLAINTEXT content model flag",
 "contentModelFlags":["PLAINTEXT"],
+"lastStartTag":"plaintext",
 "input":"<head>&body;",
 "output":[["Character", "<head>&body;"]]},
 
