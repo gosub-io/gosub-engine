@@ -276,7 +276,7 @@
 
 {"description":"Doctype publi",
 "input":"<!DOCTYPE html PUBLI",
-"output":["ParseError", "ParseError", ["DOCTYPE", "html", null, null, false]]},
+"output":["ParseError", ["DOCTYPE", "html", null, null, false]]},
 
 {"description":"Doctype sistem",
 "input":"<!DOCTYPE html SISTEM \"AbC\">",
@@ -284,6 +284,6 @@
 
 {"description":"Doctype sys",
 "input":"<!DOCTYPE html SYS",
-"output":["ParseError", "ParseError", ["DOCTYPE", "html", null, null, false]]}
+"output":["ParseError", ["DOCTYPE", "html", null, null, false]]}
 
 ]}
