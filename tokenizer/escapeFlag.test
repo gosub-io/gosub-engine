@@ -2,32 +2,32 @@
 
 {"description":"Commented close tag in [R]CDATA",
 "contentModelFlags":["RCDATA", "CDATA"],
-"lastStartTag":"bar",
-"input":"foo<!--</bar>--></bar>",
-"output":[["Character", "foo<!--</bar>-->"], ["EndTag", "bar"]]},
+"lastStartTag":"pre",
+"input":"foo<!--</pre>--></pre>",
+"output":[["Character", "foo<!--</pre>-->"], ["EndTag", "pre"]]},
 
 {"description":"Bogus comment in [R]CDATA",
 "contentModelFlags":["RCDATA", "CDATA"],
-"lastStartTag":"bar",
-"input":"foo<!-->baz</bar>",
-"output":[["Character", "foo<!-->baz"], ["EndTag", "bar"]]},
+"lastStartTag":"pre",
+"input":"foo<!-->baz</pre>",
+"output":[["Character", "foo<!-->baz"], ["EndTag", "pre"]]},
 
 {"description":"End tag surrounded by bogus comment in [R]CDATA",
 "contentModelFlags":["RCDATA", "CDATA"],
-"lastStartTag":"bar",
-"input":"foo<!--></bar><!-->baz</bar>",
-"output":[["Character", "foo<!-->"], ["EndTag", "bar"], "ParseError", ["Comment", ""], ["Character", "baz"], ["EndTag", "bar"]]},
+"lastStartTag":"pre",
+"input":"foo<!--></pre><!-->baz</pre>",
+"output":[["Character", "foo<!-->"], ["EndTag", "pre"], "ParseError", ["Comment", ""], ["Character", "baz"], ["EndTag", "pre"]]},
 
 {"description":"Commented entities in RCDATA",
 "contentModelFlags":["RCDATA"],
-"lastStartTag":"bar",
-"input":" &amp; <!-- &amp; --> &amp; </bar>",
-"output":[["Character", " & <!-- &amp; --> & "], ["EndTag", "bar"]]},
+"lastStartTag":"pre",
+"input":" &amp; <!-- &amp; --> &amp; </pre>",
+"output":[["Character", " & <!-- &amp; --> & "], ["EndTag", "pre"]]},
 
 {"description":"Incorrect comment ending sequences in [R]CDATA",
 "contentModelFlags":["RCDATA", "CDATA"],
-"lastStartTag":"bar",
-"input":"foo<!-- x --x>x-- >x--!>x--<></bar>",
-"output":[["Character", "foo<!-- x --x>x-- >x--!>x--<></bar>"]]}
+"lastStartTag":"pre",
+"input":"foo<!-- x --x>x-- >x--!>x--<></pre>",
+"output":[["Character", "foo<!-- x --x>x-- >x--!>x--<></pre>"]]}
 
 ]}
