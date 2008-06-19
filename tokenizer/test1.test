@@ -141,6 +141,10 @@
 "input":"I'm &no",
 "output":[["Character","I'm "], "ParseError", ["Character", "&no"]]},
 
+{"description":"Non-ASCII character reference name",
+"input":"&\u00AC;",
+"output":["ParseError", ["Character", "&\u00AC;"]]},
+
 {"description":"ASCII decimal entity",
 "input":"&#0036;",
 "output":[["Character","$"]]},
