@@ -144,6 +144,10 @@
 "input":"\nx\n&gt;\n",
 "output":[["Character","\nx\n>\n"]]},
 
+{"description":"Start tag with no attributes but space before the greater-than sign",
+"input":"<h >",
+"output":[["StartTag", "h", {}]]},
+
 {"description":"Empty attribute followed by uppercase attribute",
 "input":"<h a B=''>",
 "output":[["StartTag", "h", {"a":"", "b":""}]]}
