@@ -351,9 +351,39 @@
  "expected": ["<address>"]
 },
 
+{"description": "p end-tag followed by article start-tag",
+ "input": [["EndTag", "p"], ["StartTag", "article", {}]],
+ "expected": ["<article>"]
+},
+
+{"description": "p end-tag followed by aside start-tag",
+ "input": [["EndTag", "p"], ["StartTag", "aside", {}]],
+ "expected": ["<aside>"]
+},
+
 {"description": "p end-tag followed by blockquote start-tag",
  "input": [["EndTag", "p"], ["StartTag", "blockquote", {}]],
  "expected": ["<blockquote>"]
+},
+
+{"description": "p end-tag followed by datagrid start-tag",
+ "input": [["EndTag", "p"], ["StartTag", "datagrid", {}]],
+ "expected": ["<datagrid>"]
+},
+
+{"description": "p end-tag followed by dialog start-tag",
+ "input": [["EndTag", "p"], ["StartTag", "dialog", {}]],
+ "expected": ["<dialog>"]
+},
+
+{"description": "p end-tag followed by dir start-tag",
+ "input": [["EndTag", "p"], ["StartTag", "dir", {}]],
+ "expected": ["<dir>"]
+},
+
+{"description": "p end-tag followed by div start-tag",
+ "input": [["EndTag", "p"], ["StartTag", "div", {}]],
+ "expected": ["<div>"]
 },
 
 {"description": "p end-tag followed by dl start-tag",
@@ -364,6 +394,11 @@
 {"description": "p end-tag followed by fieldset start-tag",
  "input": [["EndTag", "p"], ["StartTag", "fieldset", {}]],
  "expected": ["<fieldset>"]
+},
+
+{"description": "p end-tag followed by footer start-tag",
+ "input": [["EndTag", "p"], ["StartTag", "footer", {}]],
+ "expected": ["<footer>"]
 },
 
 {"description": "p end-tag followed by form start-tag",
@@ -401,6 +436,11 @@
  "expected": ["<h6>"]
 },
 
+{"description": "p end-tag followed by header start-tag",
+ "input": [["EndTag", "p"], ["StartTag", "header", {}]],
+ "expected": ["<header>"]
+},
+
 {"description": "p end-tag followed by hr start-tag",
  "input": [["EndTag", "p"], ["StartTag", "hr", {}]],
  "expected": ["<hr>"]
@@ -409,6 +449,11 @@
 {"description": "p end-tag followed by menu start-tag",
  "input": [["EndTag", "p"], ["StartTag", "menu", {}]],
  "expected": ["<menu>"]
+},
+
+{"description": "p end-tag followed by nav start-tag",
+ "input": [["EndTag", "p"], ["StartTag", "nav", {}]],
+ "expected": ["<nav>"]
 },
 
 {"description": "p end-tag followed by ol start-tag",
@@ -424,6 +469,11 @@
 {"description": "p end-tag followed by pre start-tag",
  "input": [["EndTag", "p"], ["StartTag", "pre", {}]],
  "expected": ["<pre>"]
+},
+
+{"description": "p end-tag followed by section start-tag",
+ "input": [["EndTag", "p"], ["StartTag", "section", {}]],
+ "expected": ["<section>"]
 },
 
 {"description": "p end-tag followed by table start-tag",
