@@ -122,7 +122,7 @@
 
 {"description":"Maximum non-BMP numeric entity",
 "input":"&#X10FFFF;",
-"output":[["Character", "\uDBFF\uDFFF"]]},
+"output":["ParseError", ["Character", "\uFFFD"]]},
 
 {"description":"Above maximum numeric entity",
 "input":"&#x110000;",
