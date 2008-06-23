@@ -44,6 +44,10 @@
 "input":"<z z='&\"'>",
 "output":["ParseError", ["StartTag", "z", {"z": "&\""}]]},
 
+{"description":"Text after bogus character reference",
+"input":"<z z='&xlink_xmlns;'>bar<z>",
+"output":["ParseError",["StartTag","z",{"z":"&xlink_xmlns;"}],["Character","bar"],["StartTag","z",{}]]},
+
 {"description":"Attribute name starting with \"",
 "input":"<foo \"='bar'>",
 "output":["ParseError", ["StartTag", "foo", {"\"": "bar"}]]},
