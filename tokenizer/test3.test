@@ -134,7 +134,7 @@
 
 {"description":"<!doctype! ??",
 "input":"<!doctype! ??",
-"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "!", null, null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "!", null, null, false]]},
 
 {"description":"<!doctype!?",
 "input":"<!doctype!?",
@@ -150,7 +150,7 @@
 
 {"description":"<!doctype! public?",
 "input":"<!doctype! public?",
-"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "!", null, null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "!", null, null, false]]},
 
 {"description":"<!doctype! public''",
 "input":"<!doctype! public''",
@@ -170,7 +170,7 @@
 
 {"description":"<!doctype! public\"\"?",
 "input":"<!doctype! public\"\"?",
-"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "!", "", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "!", "", null, false]]},
 
 {"description":"<!doctype! public\"\"'",
 "input":"<!doctype! public\"\"'",
@@ -194,7 +194,7 @@
 
 {"description":"<!doctype! system?",
 "input":"<!doctype! system?",
-"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "!", null, null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "!", null, null, false]]},
 
 {"description":"<!doctype! system''",
 "input":"<!doctype! system''",
@@ -214,7 +214,7 @@
 
 {"description":"<!doctype! system\"\"?",
 "input":"<!doctype! system\"\"?",
-"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "!", null, "", true]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "!", null, "", true]]},
 
 {"description":"<!doctype! system\"#",
 "input":"<!doctype! system\"#",
