@@ -400,3 +400,17 @@ unexpected-start-tag-implies-table-voodoo
 |           <tr>
 |             <td>
 |               "bar"
+
+#data
+<div><p>a</x> b
+#errors
+5: Start tag seen without seeing a doctype first. Expected “<!DOCTYPE html>”.
+13: Stray end tag “x”.
+15: End of file seen and there were open elements.
+#document
+| <html>
+|   <head>
+|   <body>
+|     <div>
+|       <p>
+|         "a b"
