@@ -605,12 +605,13 @@ table
 #data
 <html></html><!-- foo -->
 #errors
-Line: 1 Col: 6 Unexpected start tag (html). Expected DOCTYPE.
+6: Start tag seen without seeing a doctype first. Expected “<!DOCTYPE html>”.
+13: Stray end tag “html”.
 #document
 | <html>
 |   <head>
+|   <!--  foo  -->
 |   <body>
-| <!--  foo  -->
 
 #data
 <body></body></html>
