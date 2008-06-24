@@ -1719,98 +1719,95 @@ Line: 1 Col: 80 Unexpected start tag colgroup. Ignored.
 #data
 </strong></b></em></i></u></strike></s></blink></tt></pre></big></small></font></select></h1></h2></h3></h4></h5></h6></body></br></a></img></title></span></style></script></table></th></td></tr></frame></area></link></param></hr></input></col></base></meta></basefont></bgsound></embed></spacer></p></dd></dt></caption></colgroup></tbody></tfoot></thead></address></blockquote></center></dir></div></dl></fieldset></listing></menu></ol></ul></li></nobr></wbr></form></button></marquee></object></html></frameset></head></iframe></image></isindex></noembed></noframes></noscript></optgroup></option></plaintext></textarea>
 #errors
-Line: 1 Col: 9 Unexpected end tag (strong). Expected DOCTYPE.
-Line: 1 Col: 9 Unexpected end tag (strong) after the (implied) root element.
-Line: 1 Col: 13 Unexpected end tag (b) after the (implied) root element.
-Line: 1 Col: 18 Unexpected end tag (em) after the (implied) root element.
-Line: 1 Col: 22 Unexpected end tag (i) after the (implied) root element.
-Line: 1 Col: 26 Unexpected end tag (u) after the (implied) root element.
-Line: 1 Col: 35 Unexpected end tag (strike) after the (implied) root element.
-Line: 1 Col: 39 Unexpected end tag (s) after the (implied) root element.
-Line: 1 Col: 47 Unexpected end tag (blink) after the (implied) root element.
-Line: 1 Col: 52 Unexpected end tag (tt) after the (implied) root element.
-Line: 1 Col: 58 Unexpected end tag (pre) after the (implied) root element.
-Line: 1 Col: 64 Unexpected end tag (big) after the (implied) root element.
-Line: 1 Col: 72 Unexpected end tag (small) after the (implied) root element.
-Line: 1 Col: 79 Unexpected end tag (font) after the (implied) root element.
-Line: 1 Col: 88 Unexpected end tag (select) after the (implied) root element.
-Line: 1 Col: 93 Unexpected end tag (h1) after the (implied) root element.
-Line: 1 Col: 98 Unexpected end tag (h2) after the (implied) root element.
-Line: 1 Col: 103 Unexpected end tag (h3) after the (implied) root element.
-Line: 1 Col: 108 Unexpected end tag (h4) after the (implied) root element.
-Line: 1 Col: 113 Unexpected end tag (h5) after the (implied) root element.
-Line: 1 Col: 118 Unexpected end tag (h6) after the (implied) root element.
-Line: 1 Col: 130 Unexpected end tag token (br) in the after body phase.
-Line: 1 Col: 130 Unexpected end tag (br). Treated as br element.
-Line: 1 Col: 134 End tag (a) violates step 1, paragraph 1 of the adoption agency algorithm.
-Line: 1 Col: 140 This element (img) has no end tag.
-Line: 1 Col: 148 Unexpected end tag (title). Ignored.
-Line: 1 Col: 155 Unexpected end tag (span). Ignored.
-Line: 1 Col: 163 Unexpected end tag (style). Ignored.
-Line: 1 Col: 172 Unexpected end tag (script). Ignored.
-Line: 1 Col: 180 Unexpected end tag (table). Ignored.
-Line: 1 Col: 185 Unexpected end tag (th). Ignored.
-Line: 1 Col: 190 Unexpected end tag (td). Ignored.
-Line: 1 Col: 195 Unexpected end tag (tr). Ignored.
-Line: 1 Col: 203 This element (frame) has no end tag.
-Line: 1 Col: 210 This element (area) has no end tag.
-Line: 1 Col: 217 Unexpected end tag (link). Ignored.
-Line: 1 Col: 225 This element (param) has no end tag.
-Line: 1 Col: 230 This element (hr) has no end tag.
-Line: 1 Col: 238 This element (input) has no end tag.
-Line: 1 Col: 244 Unexpected end tag (col). Ignored.
-Line: 1 Col: 251 Unexpected end tag (base). Ignored.
-Line: 1 Col: 258 Unexpected end tag (meta). Ignored.
-Line: 1 Col: 269 This element (basefont) has no end tag.
-Line: 1 Col: 279 This element (bgsound) has no end tag.
-Line: 1 Col: 287 This element (embed) has no end tag.
-Line: 1 Col: 296 This element (spacer) has no end tag.
-Line: 1 Col: 300 Unexpected end tag (p). Ignored.
-Line: 1 Col: 305 End tag (dd) seen too early. Expected other end tag.
-Line: 1 Col: 310 End tag (dt) seen too early. Expected other end tag.
-Line: 1 Col: 320 Unexpected end tag (caption). Ignored.
-Line: 1 Col: 331 Unexpected end tag (colgroup). Ignored.
-Line: 1 Col: 339 Unexpected end tag (tbody). Ignored.
-Line: 1 Col: 347 Unexpected end tag (tfoot). Ignored.
-Line: 1 Col: 355 Unexpected end tag (thead). Ignored.
-Line: 1 Col: 365 End tag (address) seen too early. Expected other end tag.
-Line: 1 Col: 378 End tag (blockquote) seen too early. Expected other end tag.
-Line: 1 Col: 387 End tag (center) seen too early. Expected other end tag.
-Line: 1 Col: 393 Unexpected end tag (dir). Ignored.
-Line: 1 Col: 399 End tag (div) seen too early. Expected other end tag.
-Line: 1 Col: 404 End tag (dl) seen too early. Expected other end tag.
-Line: 1 Col: 415 End tag (fieldset) seen too early. Expected other end tag.
-Line: 1 Col: 425 End tag (listing) seen too early. Expected other end tag.
-Line: 1 Col: 432 End tag (menu) seen too early. Expected other end tag.
-Line: 1 Col: 437 End tag (ol) seen too early. Expected other end tag.
-Line: 1 Col: 442 End tag (ul) seen too early. Expected other end tag.
-Line: 1 Col: 447 End tag (li) seen too early. Expected other end tag.
-Line: 1 Col: 454 End tag (nobr) violates step 1, paragraph 1 of the adoption agency algorithm.
-Line: 1 Col: 460 This element (wbr) has no end tag.
-Line: 1 Col: 467 End tag (form) seen too early. Ignored.
-Line: 1 Col: 476 End tag (button) seen too early. Expected other end tag.
-Line: 1 Col: 486 End tag (marquee) seen too early. Expected other end tag.
-Line: 1 Col: 495 End tag (object) seen too early. Expected other end tag.
-Line: 1 Col: 513 Unexpected end tag (frameset). Expected end of file.
-Line: 1 Col: 513 Unexpected end tag token (frameset) in the after body phase.
-Line: 1 Col: 513 Unexpected end tag (frameset). Ignored.
-Line: 1 Col: 520 Unexpected end tag (head). Ignored.
-Line: 1 Col: 529 Unexpected end tag (iframe). Ignored.
-Line: 1 Col: 537 This element (image) has no end tag.
-Line: 1 Col: 547 This element (isindex) has no end tag.
-Line: 1 Col: 557 Unexpected end tag (noembed). Ignored.
-Line: 1 Col: 568 Unexpected end tag (noframes). Ignored.
-Line: 1 Col: 579 Unexpected end tag (noscript). Ignored.
-Line: 1 Col: 590 Unexpected end tag (optgroup). Ignored.
-Line: 1 Col: 599 Unexpected end tag (option). Ignored.
-Line: 1 Col: 611 Unexpected end tag (plaintext). Ignored.
-Line: 1 Col: 622 Unexpected end tag (textarea). Ignored.
+9: End tag seen without seeing a doctype first. Expected “<!DOCTYPE html>”.
+9: Stray end tag “strong”.
+13: Stray end tag “b”.
+18: Stray end tag “em”.
+22: Stray end tag “i”.
+26: Stray end tag “u”.
+35: Stray end tag “strike”.
+39: Stray end tag “s”.
+47: Stray end tag “blink”.
+52: Stray end tag “tt”.
+58: Stray end tag “pre”.
+64: Stray end tag “big”.
+72: Stray end tag “small”.
+79: Stray end tag “font”.
+88: Stray end tag “select”.
+93: Stray end tag “h1”.
+98: Stray end tag “h2”.
+103: Stray end tag “h3”.
+108: Stray end tag “h4”.
+113: Stray end tag “h5”.
+118: Stray end tag “h6”.
+125: Stray end tag “body”.
+130: Stray end tag “br”.
+134: Stray end tag “a”.
+140: Stray end tag “img”.
+148: Stray end tag “title”.
+155: Stray end tag “span”.
+163: Stray end tag “style”.
+172: Stray end tag “script”.
+180: Stray end tag “table”.
+185: Stray end tag “th”.
+190: Stray end tag “td”.
+195: Stray end tag “tr”.
+203: Stray end tag “frame”.
+210: Stray end tag “area”.
+217: Stray end tag “link”.
+225: Stray end tag “param”.
+230: Stray end tag “hr”.
+238: Stray end tag “input”.
+244: Stray end tag “col”.
+251: Stray end tag “base”.
+258: Stray end tag “meta”.
+269: Stray end tag “basefont”.
+279: Stray end tag “bgsound”.
+287: Stray end tag “embed”.
+296: Stray end tag “spacer”.
+300: Stray end tag “p”.
+305: Stray end tag “dd”.
+310: Stray end tag “dt”.
+320: Stray end tag “caption”.
+331: Stray end tag “colgroup”.
+339: Stray end tag “tbody”.
+347: Stray end tag “tfoot”.
+355: Stray end tag “thead”.
+365: Stray end tag “address”.
+378: Stray end tag “blockquote”.
+387: Stray end tag “center”.
+393: Stray end tag “dir”.
+399: Stray end tag “div”.
+404: Stray end tag “dl”.
+415: Stray end tag “fieldset”.
+425: Stray end tag “listing”.
+432: Stray end tag “menu”.
+437: Stray end tag “ol”.
+442: Stray end tag “ul”.
+447: Stray end tag “li”.
+454: Stray end tag “nobr”.
+460: Stray end tag “wbr”.
+467: Stray end tag “form”.
+476: Stray end tag “button”.
+486: Stray end tag “marquee”.
+495: Stray end tag “object”.
+502: Stray end tag “html”.
+513: Stray end tag “frameset”.
+520: Stray end tag “head”.
+529: Stray end tag “iframe”.
+537: Stray end tag “image”.
+547: Stray end tag “isindex”.
+557: Stray end tag “noembed”.
+568: Stray end tag “noframes”.
+579: Stray end tag “noscript”.
+590: Stray end tag “optgroup”.
+599: Stray end tag “option”.
+611: Stray end tag “plaintext”.
+622: Stray end tag “textarea”.
 #document
 | <html>
 |   <head>
 |   <body>
-|     <br>
-|     <p>
 
 #data
 <table><tr></strong></b></em></i></u></strike></s></blink></tt></pre></big></small></font></select></h1></h2></h3></h4></h5></h6></body></br></a></img></title></span></style></script></table></th></td></tr></frame></area></link></param></hr></input></col></base></meta></basefont></bgsound></embed></spacer></p></dd></dt></caption></colgroup></tbody></tfoot></thead></address></blockquote></center></dir></div></dl></fieldset></listing></menu></ol></ul></li></nobr></wbr></form></button></marquee></object></html></frameset></head></iframe></image></isindex></noembed></noframes></noscript></optgroup></option></plaintext></textarea>
