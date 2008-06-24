@@ -49,14 +49,15 @@ element-belongs-in-da-head
 #data
 <!doctype html></body><title>X</title>
 #errors
-element-after-da-body
+22: Stray end tag “body”.
+29: “title” element outside “head”.
 #document
 | <!DOCTYPE html>
 | <html>
 |   <head>
-|   <body>
 |     <title>
 |       "X"
+|   <body>
 
 #data
 <!doctype html><table><meta></table>
