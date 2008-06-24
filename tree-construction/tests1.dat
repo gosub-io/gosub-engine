@@ -236,10 +236,18 @@ Line: 1 Col: 18 Expected closing tag. Unexpected end of file.
 #data
 <a><p>X<a>Y</a>Z</p></a>
 #errors
+<<<<<<< .mine
+3: missing document type declaration
+10: a element start tag implying a element end tag
+10: first AAA hit
+10: mismatched a element end tag (misnested tags)
+24: mismatched a element end tag (no matching start tag)
+=======
 Line: 1 Col: 3 Unexpected start tag (a). Expected DOCTYPE.
 Line: 1 Col: 10 Unexpected start tag (a) implies end tag (a).
 Line: 1 Col: 10 End tag (a) violates step 1, paragraph 3 of the adoption agency algorithm.
 Line: 1 Col: 24 End tag (a) violates step 1, paragraph 1 of the adoption agency algorithm.
+>>>>>>> .r1092
 #document
 | <html>
 |   <head>
@@ -333,19 +341,20 @@ Line: 1 Col: 11 Unexpected end tag (p). Ignored.
 #data
 <select><b><option><select><option></b></select>X
 #errors
-Line: 1 Col: 8 Unexpected start tag (select). Expected DOCTYPE.
-Line: 1 Col: 11 Unexpected start tag token (b) in the select phase. Ignored.
-Line: 1 Col: 27 Unexpected select start tag in the select phase implies select start tag.
-Line: 1 Col: 35 Unexpected start tag option. Ignored.
-Line: 1 Col: 39 End tag (b) violates step 1, paragraph 1 of the adoption agency algorithm.
-Line: 1 Col: 48 Unexpected end tag (select). Ignored.
+8: Start tag seen without seeing a doctype first. Expected “<!DOCTYPE html>”.
+11: Stray “b” start tag.
+27: “select” start tag where end tag expected.
+39: No element “b” to close.
+48: Stray end tag “select”.
+49: End of file seen and there were open elements.
 #document
 | <html>
 |   <head>
 |   <body>
 |     <select>
 |       <option>
-|     "X"
+|     <option>
+|       "X"
 
 #data
 <a><table><td><a><table></table><a></tr><a></table><b>X</b>C<a>Y
@@ -450,18 +459,20 @@ Line: 1 Col: 61 Unexpected end tag (li). Missing end tag (body).
 #data
 <!DOCTYPE html>A<option>B<optgroup>C<select>D</option>E
 #errors
-Line: 1 Col: 24 Unexpected start tag option. Ignored.
-Line: 1 Col: 35 Unexpected start tag optgroup. Ignored.
-Line: 1 Col: 54 Unexpected end tag (option) in the select phase. Ignored.
-Line: 1 Col: 55 Expected closing tag. Unexpected end of file.
+54: Stray end tag “option”
+55: End of file seen and there were open elements.
 #document
 | <!DOCTYPE html>
 | <html>
 |   <head>
 |   <body>
-|     "ABC"
-|     <select>
-|       "DE"
+|     "A"
+|     <option>
+|       "B"
+|       <optgroup>
+|         "C"
+|         <select>
+|           "DE"
 
 #data
 <
@@ -1355,27 +1366,27 @@ Line: 1 Col: 35 Expected closing tag. Unexpected end of file.
 #data
 <head></p><meta><p>
 #errors
-Line: 1 Col: 6 Unexpected start tag (head). Expected DOCTYPE.
-Line: 1 Col: 10 Unexpected end tag (p). Ignored.
+6: Start tag seen without seeing a doctype first. Expected “<!DOCTYPE html>”.
+10: Stray end tag “p”.
+16: “meta” element outside “head”.
 #document
 | <html>
 |   <head>
-|   <body>
-|     <p>
 |     <meta>
+|   <body>
 |     <p>
 
 #data
 <head></html><meta><p>
 #errors
-Line: 1 Col: 6 Unexpected start tag (head). Expected DOCTYPE.
-Line: 1 Col: 19 Unexpected start tag (meta). Expected end of file.
-Line: 1 Col: 19 Unexpected start tag token (meta) in the after body phase.
+6: Start tag seen without seeing a doctype first. Expected “<!DOCTYPE html>”.
+13: Stray end tag “html”.
+19: “meta” element outside “head”.
 #document
 | <html>
 |   <head>
-|   <body>
 |     <meta>
+|   <body>
 |     <p>
 
 #data
@@ -1505,18 +1516,19 @@ Line: 1 Col: 11 Unexpected end tag (p). Ignored.
 #data
 <select><b><option><select><option></b></select>
 #errors
-Line: 1 Col: 8 Unexpected start tag (select). Expected DOCTYPE.
-Line: 1 Col: 11 Unexpected start tag token (b) in the select phase. Ignored.
-Line: 1 Col: 27 Unexpected select start tag in the select phase implies select start tag.
-Line: 1 Col: 35 Unexpected start tag option. Ignored.
-Line: 1 Col: 39 End tag (b) violates step 1, paragraph 1 of the adoption agency algorithm.
-Line: 1 Col: 48 Unexpected end tag (select). Ignored.
+8: Start tag seen without seeing a doctype first. Expected “<!DOCTYPE html>”.
+11: Stray “b” start tag.
+27: “select” start tag where end tag expected.
+39: No element “b” to close.
+48: Stray end tag “select”.
+48: End of file seen and there were open elements.
 #document
 | <html>
 |   <head>
 |   <body>
 |     <select>
 |       <option>
+|     <option>
 
 #data
 <html><head><title></title><body></body></html>
