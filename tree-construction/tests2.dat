@@ -454,8 +454,8 @@ Line: 1 Col: 41 Expected closing tag. Unexpected end of file.
 #data
 <!DOCTYPE html><select><optgroup><option></optgroup><option><select><option>
 #errors
-Line: 1 Col: 68 Unexpected select start tag in the select phase implies select start tag.
-Line: 1 Col: 76 Unexpected start tag option. Ignored.
+68: “select” start tag where end tag expected.
+76: End of file seen and there were open elements.
 #document
 | <!DOCTYPE html>
 | <html>
@@ -465,6 +465,7 @@ Line: 1 Col: 76 Unexpected start tag option. Ignored.
 |       <optgroup>
 |         <option>
 |       <option>
+|     <option>
 
 #data
 <!DOCTYPE html><select><optgroup><option><optgroup>
