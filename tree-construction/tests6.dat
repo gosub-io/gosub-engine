@@ -12,15 +12,14 @@ Line: 1 Col: 29 Unexpected start tag head. Ignored.
 #data
 <!doctype html></html> <head>
 #errors
-Line: 1 Col: 29 Unexpected start tag (head). Expected end of file.
-Line: 1 Col: 29 Unexpected start tag token (head) in the after body phase.
-Line: 1 Col: 29 Unexpected start tag head. Ignored.
+22: Stray end tag “html”.
+29: Stray start tag “head”.
 #document
 | <!DOCTYPE html>
 | <html>
 |   <head>
+|   " "
 |   <body>
-|     " "
 
 #data
 <!doctype html></body><meta>
