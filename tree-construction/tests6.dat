@@ -24,13 +24,14 @@ Line: 1 Col: 29 Unexpected start tag head. Ignored.
 #data
 <!doctype html></body><meta>
 #errors
-Line: 1 Col: 28 Unexpected start tag token (meta) in the after body phase.
+22: Stray end tag “body”.
+28: “meta” element outside “head”.
 #document
 | <!DOCTYPE html>
 | <html>
 |   <head>
-|   <body>
 |     <meta>
+|   <body>
 
 #data
 <!doctype html><form><div></form><div>
