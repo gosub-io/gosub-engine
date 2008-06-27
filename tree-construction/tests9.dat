@@ -1,0 +1,430 @@
+#data
+<!DOCTYPE html><math></math>
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <math math>
+
+#data
+<!DOCTYPE html><body><math></math>
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <math math>
+
+#data
+<!DOCTYPE html><body><select><math></math></select>
+#errors
+35: Stray “math” start tag.
+42: Stray end tag “math”
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <select>
+
+#data
+<!DOCTYPE html><body><select><option><math></math></option></select>
+#errors
+43: Stray “math” start tag.
+50: Stray end tag “math”
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <select>
+|       <option>
+
+#data
+<!DOCTYPE html><body><table><math></math></table>
+#errors
+34: Start tag “math” seen in “table”.
+41: Stray end tag “math”.
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <math math>
+|     <table>
+
+#data
+<!DOCTYPE html><body><table><math><mi>foo</mi></math></table>
+#errors
+34: Start tag “math” seen in “table”.
+46: Stray end tag “mi”.
+53: Stray end tag “math”.
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <math math>
+|       <math mi>
+|         "foo"
+|     <table>
+
+#data
+<!DOCTYPE html><body><table><math><mi>foo</mi><mi>bar</mi></math></table>
+#errors
+34: Start tag “math” seen in “table”.
+46: Stray end tag “mi”.
+58: Stray end tag “mi”.
+65: Stray end tag “math”.
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <math math>
+|       <math mi>
+|         "foo"
+|       <math mi>
+|         "bar"
+|     <table>
+
+#data
+<!DOCTYPE html><body><table><tbody><math><mi>foo</mi><mi>bar</mi></math></tbody></table>
+#errors
+41: Start tag “math” seen in “table”.
+53: Stray end tag “mi”.
+65: Stray end tag “mi”.
+72: Stray end tag “math”.
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <math math>
+|       <math mi>
+|         "foo"
+|       <math mi>
+|         "bar"
+|     <table>
+|       <tbody>
+
+#data
+<!DOCTYPE html><body><table><tbody><tr><math><mi>foo</mi><mi>bar</mi></math></tr></tbody></table>
+#errors
+45: Start tag “math” seen in “table”.
+57: Stray end tag “mi”.
+69: Stray end tag “mi”.
+76: Stray end tag “math”.
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <math math>
+|       <math mi>
+|         "foo"
+|       <math mi>
+|         "bar"
+|     <table>
+|       <tbody>
+|         <tr>
+
+#data
+<!DOCTYPE html><body><table><tbody><tr><td><math><mi>foo</mi><mi>bar</mi></math></td></tr></tbody></table>
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <table>
+|       <tbody>
+|         <tr>
+|           <td>
+|             <math math>
+|               <math mi>
+|                 "foo"
+|               <math mi>
+|                 "bar"
+
+#data
+<!DOCTYPE html><body><table><tbody><tr><td><math><mi>foo</mi><mi>bar</mi></math><p>baz</td></tr></tbody></table>
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <table>
+|       <tbody>
+|         <tr>
+|           <td>
+|             <math math>
+|               <math mi>
+|                 "foo"
+|               <math mi>
+|                 "bar"
+|             <p>
+|               "baz"
+
+#data
+<!DOCTYPE html><body><table><caption><math><mi>foo</mi><mi>bar</mi></math><p>baz</caption></table>
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <table>
+|       <caption>
+|         <math math>
+|           <math mi>
+|             "foo"
+|           <math mi>
+|             "bar"
+|         <p>
+|           "baz"
+
+#data
+<!DOCTYPE html><body><table><caption><math><mi>foo</mi><mi>bar</mi><p>baz</table><p>quux
+#errors
+70: HTML start tag “p” in a foreign namespace context.
+81: “table” closed but “caption” was still open.
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <table>
+|       <caption>
+|         <math math>
+|           <math mi>
+|             "foo"
+|           <math mi>
+|             "bar"
+|         <p>
+|           "baz"
+|     <p>
+|       "quux"
+
+#data
+<!DOCTYPE html><body><table><caption><math><mi>foo</mi><mi>bar</mi>baz</table><p>quux
+#errors
+78: “table” closed but “caption” was still open.
+78: Unclosed elements on stack.
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <table>
+|       <caption>
+|         <math math>
+|           <math mi>
+|             "foo"
+|           <math mi>
+|             "bar"
+|           "baz"
+|     <p>
+|       "quux"
+
+#data
+<!DOCTYPE html><body><table><colgroup><math><mi>foo</mi><mi>bar</mi><p>baz</table><p>quux
+#errors
+44: Start tag “math” seen in “table”.
+56: Stray end tag “mi”.
+68: Stray end tag “mi”.
+71: HTML start tag “p” in a foreign namespace context.
+71: Start tag “p” seen in “table”.
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <math math>
+|       <math mi>
+|         "foo"
+|       <math mi>
+|         "bar"
+|     <p>
+|       "baz"
+|     <table>
+|       <colgroup>
+|     <p>
+|       "quux"
+
+#data
+<!DOCTYPE html><body><table><tr><td><select><math><mi>foo</mi><mi>bar</mi><p>baz</table><p>quux
+#errors
+50: Stray “math” start tag.
+54: Stray “mi” start tag.
+62: Stray end tag “mi”
+66: Stray “mi” start tag.
+74: Stray end tag “mi”
+77: Stray “p” start tag.
+88: “table” end tag with “select” open.
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <table>
+|       <tbody>
+|         <tr>
+|           <td>
+|             <select>
+|               "foobarbaz"
+|     <p>
+|       "quux"
+
+#data
+<!DOCTYPE html><body><table><select><math><mi>foo</mi><mi>bar</mi><p>baz</table><p>quux
+#errors
+36: Start tag “select” seen in “table”.
+42: Stray “math” start tag.
+46: Stray “mi” start tag.
+54: Stray end tag “mi”
+58: Stray “mi” start tag.
+66: Stray end tag “mi”
+69: Stray “p” start tag.
+80: “table” end tag with “select” open.
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <select>
+|       "foobarbaz"
+|     <table>
+|     <p>
+|       "quux"
+
+#data
+<!DOCTYPE html><body></body></html><math><mi>foo</mi><mi>bar</mi><p>baz
+#errors
+41: Stray “math” start tag.
+68: HTML start tag “p” in a foreign namespace context.
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <math math>
+|       <math mi>
+|         "foo"
+|       <math mi>
+|         "bar"
+|     <p>
+|       "baz"
+
+#data
+<!DOCTYPE html><body></body><math><mi>foo</mi><mi>bar</mi><p>baz
+#errors
+34: Stray “math” start tag.
+61: HTML start tag “p” in a foreign namespace context.
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <math math>
+|       <math mi>
+|         "foo"
+|       <math mi>
+|         "bar"
+|     <p>
+|       "baz"
+
+#data
+<!DOCTYPE html><frameset><math><mi></mi><mi></mi><p><span>
+#errors
+31: Stray “math” start tag.
+35: Stray “mi” start tag.
+40: Stray end tag “mi”
+44: Stray “mi” start tag.
+49: Stray end tag “mi”
+52: Stray “p” start tag.
+58: Stray “span” start tag.
+58: End of file seen and there were open elements.
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <frameset>
+
+#data
+<!DOCTYPE html><frameset></frameset><math><mi></mi><mi></mi><p><span>
+#errors
+42: Stray “math” start tag.
+46: Stray “mi” start tag.
+51: Stray end tag “mi”
+55: Stray “mi” start tag.
+60: Stray end tag “mi”
+63: Stray “p” start tag.
+69: Stray “span” start tag.
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <frameset>
+
+#data
+<!DOCTYPE html><body xlink:href=foo><math xlink:href=foo></math>
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     xlink:href="foo"
+|     <math math>
+|       xlink href="foo"
+
+#data
+<!DOCTYPE html><body xlink:href=foo xml:lang=en><math><mi xml:lang=en xlink:href=foo></mi></math>
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     xlink:href="foo"
+|     xml:lang="en"
+|     <math math>
+|       <math mi>
+|         xlink href="foo"
+|         xml lang="en"
+
+#data
+<!DOCTYPE html><body xlink:href=foo xml:lang=en><math><mi xml:lang=en xlink:href=foo /></math>
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     xlink:href="foo"
+|     xml:lang="en"
+|     <math math>
+|       <math mi>
+|         xlink href="foo"
+|         xml lang="en"
+
+#data
+<!DOCTYPE html><body xlink:href=foo xml:lang=en><math><mi xml:lang=en xlink:href=foo />bar</math>
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     xlink:href="foo"
+|     xml:lang="en"
+|     <math math>
+|       <math mi>
+|         xlink href="foo"
+|         xml lang="en"
+|       "bar"
