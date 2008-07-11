@@ -18,7 +18,6 @@ Line: 1 Col: 29 Unexpected start tag head. Ignored.
 | <!DOCTYPE html>
 | <html>
 |   <head>
-|   " "
 |   <body>
 
 #data
