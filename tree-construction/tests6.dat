@@ -608,8 +608,8 @@ table
 13: Stray end tag “html”.
 #document
 | <html>
-|   <head>
 |   <!--  foo  -->
+|   <head>
 |   <body>
 
 #data
