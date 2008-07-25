@@ -16,12 +16,7 @@
 
 {"description":"FF between attributes",
 "input":"<a b=''\u000Cc=''>",
-"output":[["StartTag","a",{"b":"","c":""}]]},
-
-{"description":"Colon in tag name",
-"input":"a<a:>b",
-"output":[["Character","ab"]]}
-
+"output":[["StartTag","a",{"b":"","c":""}]]}
 ]}
 
 

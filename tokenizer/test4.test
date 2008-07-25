@@ -48,6 +48,10 @@
 "input":"<z z='&xlink_xmlns;'>bar<z>",
 "output":["ParseError",["StartTag","z",{"z":"&xlink_xmlns;"}],["Character","bar"],["StartTag","z",{}]]},
 
+{"description":"Text after hex character reference",
+"input":"<z z='&#x0020; foo'>bar<z>",
+"output":[["StartTag","z",{"z":"  foo"}],["Character","bar"],["StartTag","z",{}]]},
+
 {"description":"Attribute name starting with \"",
 "input":"<foo \"='bar'>",
 "output":["ParseError", ["StartTag", "foo", {"\"": "bar"}]]},
