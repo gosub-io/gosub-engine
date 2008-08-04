@@ -169,8 +169,12 @@
 "input":"<h a='&noti'>",
 "output":["ParseError", ["StartTag", "h", {"a":"&noti"}]]},
 
+{"description":"Entity in attribute with semicolon",
+"input":"<h a='&COPY;'>",
+"output":["ParseError", ["StartTag", "h", {"a":"\u00A9"}]]},
+
 {"description":"Entity in attribute without semicolon",
 "input":"<h a='&COPY'>",
-"output":["ParseError", ["StartTag", "h", {"a":"\u00A9"}]]}
+"output":["ParseError", ["StartTag", "h", {"a":"&COPY"}]]}
 
 ]}
