@@ -236,18 +236,10 @@ Line: 1 Col: 18 Expected closing tag. Unexpected end of file.
 #data
 <a><p>X<a>Y</a>Z</p></a>
 #errors
-<<<<<<< .mine
-3: missing document type declaration
-10: a element start tag implying a element end tag
-10: first AAA hit
-10: mismatched a element end tag (misnested tags)
-24: mismatched a element end tag (no matching start tag)
-=======
 Line: 1 Col: 3 Unexpected start tag (a). Expected DOCTYPE.
 Line: 1 Col: 10 Unexpected start tag (a) implies end tag (a).
 Line: 1 Col: 10 End tag (a) violates step 1, paragraph 3 of the adoption agency algorithm.
 Line: 1 Col: 24 End tag (a) violates step 1, paragraph 1 of the adoption agency algorithm.
->>>>>>> .r1092
 #document
 | <html>
 |   <head>
