@@ -3,9 +3,9 @@
 <div></div>
 </span>x
 #errors
-missing doctype
-unexpected </span>
-unclosed <div>
+Line: 1 Col: 5 Unexpected start tag (div). Expected DOCTYPE.
+Line: 3 Col: 7 Unexpected end tag (span). Ignored.
+Line: 3 Col: 8 Expected closing tag. Unexpected end of file.
 #document
 | <html>
 |   <head>
@@ -21,9 +21,9 @@ x"
 <div>x<div></div>
 </span>x
 #errors
-missing doctype
-unexpected </span>
-unclosed <div>
+Line: 1 Col: 5 Unexpected start tag (div). Expected DOCTYPE.
+Line: 2 Col: 7 Unexpected end tag (span). Ignored.
+Line: 2 Col: 8 Expected closing tag. Unexpected end of file.
 #document
 | <html>
 |   <head>
@@ -37,9 +37,9 @@ x"
 #data
 <div>x<div></div>x</span>x
 #errors
-missing doctype
-unexpected </span>
-unclosed <div>
+Line: 1 Col: 5 Unexpected start tag (div). Expected DOCTYPE.
+Line: 1 Col: 25 Unexpected end tag (span). Ignored.
+Line: 1 Col: 26 Expected closing tag. Unexpected end of file.
 #document
 | <html>
 |   <head>
@@ -52,9 +52,9 @@ unclosed <div>
 #data
 <div>x<div></div>y</span>z
 #errors
-missing doctype
-unexpected </span>
-unclosed <div>
+Line: 1 Col: 5 Unexpected start tag (div). Expected DOCTYPE.
+Line: 1 Col: 25 Unexpected end tag (span). Ignored.
+Line: 1 Col: 26 Expected closing tag. Unexpected end of file.
 #document
 | <html>
 |   <head>
@@ -67,10 +67,16 @@ unclosed <div>
 #data
 <table><div>x<div></div>x</span>x
 #errors
-missing doctype
-table voodoo
-unexpected </span>
-unclosed <div>
+Line: 1 Col: 7 Unexpected start tag (table). Expected DOCTYPE.
+Line: 1 Col: 12 Unexpected start tag (div) in table context caused voodoo mode.
+Line: 1 Col: 13 Unexpected non-space characters in table context caused voodoo mode.
+Line: 1 Col: 18 Unexpected start tag (div) in table context caused voodoo mode.
+Line: 1 Col: 24 Unexpected end tag (div) in table context caused voodoo mode.
+Line: 1 Col: 25 Unexpected non-space characters in table context caused voodoo mode.
+Line: 1 Col: 32 Unexpected end tag (span) in table context caused voodoo mode.
+Line: 1 Col: 32 Unexpected end tag (span). Ignored.
+Line: 1 Col: 33 Unexpected non-space characters in table context caused voodoo mode.
+Line: 1 Col: 33 Expected closing tag. Unexpected end of file.
 #document
 | <html>
 |   <head>
@@ -84,9 +90,9 @@ unclosed <div>
 #data
 x<table>x
 #errors
-missing doctype
-table voodoo
-unclosed <table>
+Line: 1 Col: 1 Unexpected non-space characters. Expected DOCTYPE.
+Line: 1 Col: 9 Unexpected non-space characters in table context caused voodoo mode.
+Line: 1 Col: 9 Expected closing tag. Unexpected end of file.
 #document
 | <html>
 |   <head>
@@ -97,10 +103,10 @@ unclosed <table>
 #data
 x<table><table>x
 #errors
-missing doctype
-unexpected <table>
-table voodoo
-unclosed <table>
+Line: 1 Col: 1 Unexpected non-space characters. Expected DOCTYPE.
+Line: 1 Col: 15 Unexpected start tag (table) implies end tag (table).
+Line: 1 Col: 16 Unexpected non-space characters in table context caused voodoo mode.
+Line: 1 Col: 16 Expected closing tag. Unexpected end of file.
 #document
 | <html>
 |   <head>
@@ -113,9 +119,9 @@ unclosed <table>
 #data
 <b>a<div></div><div></b>y
 #errors
-missing doctype
-adoption agency
-unclosed <div>
+Line: 1 Col: 3 Unexpected start tag (b). Expected DOCTYPE.
+Line: 1 Col: 24 End tag (b) violates step 1, paragraph 3 of the adoption agency algorithm.
+Line: 1 Col: 25 Expected closing tag. Unexpected end of file.
 #document
 | <html>
 |   <head>
