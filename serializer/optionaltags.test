@@ -552,6 +552,11 @@
  "expected": ["</option>foo"]
 },
 
+{"description": "option end-tag followed by optgroup start-tag",
+ "input": [["EndTag", "option"], ["StartTag", "optgroup", {}]],
+ "expected": ["<optgroup>"]
+},
+
 {"description": "option end-tag followed by start-tag",
  "input": [["EndTag", "option"], ["StartTag", "foo", {}]],
  "expected": ["</option><foo>"]
