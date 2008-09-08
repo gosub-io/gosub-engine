@@ -198,7 +198,7 @@
 
 {"description":"Permitted slash but in close tag",
 "input":"</br/>",
-"output":[["EndTag", "br"]]},
+"output":["ParseError", ["EndTag", "br"]]},
 
 {"description":"Doctype public case-sensitivity (1)",
 "input":"<!DoCtYpE HtMl PuBlIc \"AbC\" \"XyZ\">",
