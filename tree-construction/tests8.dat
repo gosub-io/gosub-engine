@@ -132,10 +132,10 @@ Line: 1 Col: 25 Expected closing tag. Unexpected end of file.
 #data
 <a><div><p></a>
 #errors
-Line 1 Col 3 Unexpected start tag (a). Expected DOCTYPE.
-Line 1 Col 15 End tag (a) violates step 1, paragraph 3 of the adoption agency algorithm.
-Line 1 Col 15 End tag (a) violates step 1, paragraph 3 of the adoption agency algorithm.
-Line 1 Col 15 Expected closing tag. Unexpected end of file.
+Line: 1 Col: 3 Unexpected start tag (a). Expected DOCTYPE.
+Line: 1 Col: 15 End tag (a) violates step 1, paragraph 3 of the adoption agency algorithm.
+Line: 1 Col: 15 End tag (a) violates step 1, paragraph 3 of the adoption agency algorithm.
+Line: 1 Col: 15 Expected closing tag. Unexpected end of file.
 #document
 | <html>
 |   <head>

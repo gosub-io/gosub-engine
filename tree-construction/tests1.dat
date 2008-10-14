@@ -149,6 +149,7 @@ Line: 1 Col: 6 Unexpected start tag (body). Expected DOCTYPE.
 <head></html>
 #errors
 Line: 1 Col: 6 Unexpected start tag (head). Expected DOCTYPE.
+Line: 1 Col: 13 Unexpected end tag (html). Ignored.
 #document
 | <html>
 |   <head>
@@ -176,6 +177,7 @@ Line: 1 Col: 7 Unexpected end tag (body). Expected DOCTYPE.
 </html>
 #errors
 Line: 1 Col: 7 Unexpected end tag (html). Expected DOCTYPE.
+Line: 1 Col: 7 Unexpected end tag (html). Ignored.
 #document
 | <html>
 |   <head>
@@ -333,12 +335,12 @@ Line: 1 Col: 11 Unexpected end tag (p). Ignored.
 #data
 <select><b><option><select><option></b></select>X
 #errors
-8: Start tag seen without seeing a doctype first. Expected “<!DOCTYPE html>”.
-11: Stray “b” start tag.
-27: “select” start tag where end tag expected.
-39: No element “b” to close.
-48: Stray end tag “select”.
-49: End of file seen and there were open elements.
+Line: 1 Col: 8 Unexpected start tag (select). Expected DOCTYPE.
+Line: 1 Col: 11 Unexpected start tag token (b) in the select phase. Ignored.
+Line: 1 Col: 27 Unexpected select start tag in the select phase treated as select end tag.
+Line: 1 Col: 39 End tag (b) violates step 1, paragraph 1 of the adoption agency algorithm.
+Line: 1 Col: 48 Unexpected end tag (select). Ignored.
+Line: 1 Col: 49 Expected closing tag. Unexpected end of file.
 #document
 | <html>
 |   <head>
@@ -1365,9 +1367,8 @@ Line: 1 Col: 35 Expected closing tag. Unexpected end of file.
 #data
 <head></p><meta><p>
 #errors
-6: Start tag seen without seeing a doctype first. Expected “<!DOCTYPE html>”.
-10: Stray end tag “p”.
-16: “meta” element outside “head”.
+Line: 1 Col: 6 Unexpected start tag (head). Expected DOCTYPE.
+Line: 1 Col: 10 Unexpected end tag (p). Ignored.
 #document
 | <html>
 |   <head>
@@ -1378,9 +1379,8 @@ Line: 1 Col: 35 Expected closing tag. Unexpected end of file.
 #data
 <head></html><meta><p>
 #errors
-6: Start tag seen without seeing a doctype first. Expected “<!DOCTYPE html>”.
-13: Stray end tag “html”.
-19: “meta” element outside “head”.
+Line: 1 Col: 6 Unexpected start tag (head). Expected DOCTYPE.
+Line: 1 Col: 13 Unexpected end tag (html). Ignored.
 #document
 | <html>
 |   <head>
@@ -1515,12 +1515,12 @@ Line: 1 Col: 11 Unexpected end tag (p). Ignored.
 #data
 <select><b><option><select><option></b></select>
 #errors
-8: Start tag seen without seeing a doctype first. Expected “<!DOCTYPE html>”.
-11: Stray “b” start tag.
-27: “select” start tag where end tag expected.
-39: No element “b” to close.
-48: Stray end tag “select”.
-48: End of file seen and there were open elements.
+Line: 1 Col: 8 Unexpected start tag (select). Expected DOCTYPE.
+Line: 1 Col: 11 Unexpected start tag token (b) in the select phase. Ignored.
+Line: 1 Col: 27 Unexpected select start tag in the select phase treated as select end tag.
+Line: 1 Col: 39 End tag (b) violates step 1, paragraph 1 of the adoption agency algorithm.
+Line: 1 Col: 48 Unexpected end tag (select). Ignored.
+Line: 1 Col: 48 Expected closing tag. Unexpected end of file.
 #document
 | <html>
 |   <head>
