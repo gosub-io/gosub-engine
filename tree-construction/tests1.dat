@@ -455,8 +455,8 @@ Line: 1 Col: 61 Unexpected end tag (li). Missing end tag (body).
 #data
 <!DOCTYPE html>A<option>B<optgroup>C<select>D</option>E
 #errors
-54: Stray end tag “option”
-55: End of file seen and there were open elements.
+Line: 1 Col: 54 Unexpected end tag (option) in the select phase. Ignored.
+Line: 1 Col: 55 Expected closing tag. Unexpected end of file.
 #document
 | <!DOCTYPE html>
 | <html>
@@ -465,10 +465,10 @@ Line: 1 Col: 61 Unexpected end tag (li). Missing end tag (body).
 |     "A"
 |     <option>
 |       "B"
-|       <optgroup>
-|         "C"
-|         <select>
-|           "DE"
+|     <optgroup>
+|       "C"
+|       <select>
+|         "DE"
 
 #data
 <
