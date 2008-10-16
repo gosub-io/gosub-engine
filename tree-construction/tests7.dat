@@ -5,9 +5,9 @@
 | <!DOCTYPE html>
 | <html>
 |   <head>
+|   <body>
 |     <title>
 |       "X"
-|   <body>
 
 #data
 <!doctype html><table><title>X</title></table>
@@ -18,9 +18,9 @@ Line: 1 Col: 38 Unexpected end tag (title) in table context caused voodoo mode.
 | <!DOCTYPE html>
 | <html>
 |   <head>
+|   <body>
 |     <title>
 |       "X"
-|   <body>
 |     <table>
 
 #data
@@ -50,7 +50,7 @@ Line: 1 Col: 29 Unexpected start tag (title) that can be in head. Moved.
 #data
 <!doctype html></body><title>X</title>
 #errors
-Line: 1 Col: 29 Unexpected start tag token (title) in the after body phase.
+Line: 1 Col: 22 Unexpected end tag (body) after the (implied) root element.
 #document
 | <!DOCTYPE html>
 | <html>
@@ -359,7 +359,7 @@ Line: 1 Col: 35 Unexpected end of file. Expected table content.
 #data
 <!DOCTYPE hTmL><html></html>
 #errors
-Line: 1 Col: 28 Unexpected end tag (html). Ignored.
+Line: 1 Col: 28 Unexpected end tag (html) after the (implied) root element.
 #document
 | <!DOCTYPE hTmL>
 | <html>
@@ -369,7 +369,7 @@ Line: 1 Col: 28 Unexpected end tag (html). Ignored.
 #data
 <!DOCTYPE HTML><html></html>
 #errors
-Line: 1 Col: 28 Unexpected end tag (html). Ignored.
+Line: 1 Col: 28 Unexpected end tag (html) after the (implied) root element.
 #document
 | <!DOCTYPE HTML>
 | <html>

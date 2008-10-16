@@ -12,8 +12,7 @@ Line: 1 Col: 29 Unexpected start tag head. Ignored.
 #data
 <!doctype html></html> <head>
 #errors
-22: Stray end tag “html”.
-29: Stray start tag “head”.
+Line: 1 Col: 22 Unexpected end tag (html) after the (implied) root element.
 #document
 | <!DOCTYPE html>
 | <html>
@@ -23,8 +22,7 @@ Line: 1 Col: 29 Unexpected start tag head. Ignored.
 #data
 <!doctype html></body><meta>
 #errors
-22: Stray end tag “body”.
-28: “meta” element outside “head”.
+Line: 1 Col: 22 Unexpected end tag (body) after the (implied) root element.
 #document
 | <!DOCTYPE html>
 | <html>
@@ -604,8 +602,8 @@ table
 #data
 <html></html><!-- foo -->
 #errors
-6: Start tag seen without seeing a doctype first. Expected “<!DOCTYPE html>”.
-13: Stray end tag “html”.
+Line: 1 Col: 6 Unexpected start tag (html). Expected DOCTYPE.
+Line: 1 Col: 13 Unexpected end tag (html) after the (implied) root element.
 #document
 | <html>
 |   <!--  foo  -->
@@ -636,7 +634,8 @@ Line: 1 Col: 6 Unexpected start tag (html). Expected DOCTYPE.
 #data
 <!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN"><html></html>
 #errors
-doctype-error
+Line: 1 Col: 50 Erroneous DOCTYPE.
+Line: 1 Col: 63 Unexpected end tag (html) after the (implied) root element.
 #document
 | <!DOCTYPE html "-//W3C//DTD HTML 4.01//EN" "">
 | <html>
