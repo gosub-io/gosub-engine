@@ -129,7 +129,7 @@ Line: 1 Col: 11 Unexpected end of file. Expected end tag (script).
 #errors
 Line: 1 Col: 7 Unexpected start tag (table). Expected DOCTYPE.
 Line: 1 Col: 18 Unexpected start tag (plaintext) in table context caused voodoo mode.
-Line: 1 Col: 22 Expected closing tag. Unexpected end of file.
+Line: 1 Col: 22 Unexpected end of file. Expected table content.
 #document
 | <html>
 |   <head>
@@ -154,7 +154,7 @@ Line: 1 Col: 23 Expected closing tag. Unexpected end of file.
 <!DOCTYPE html><table><tr>TEST
 #errors
 Line: 1 Col: 30 Unexpected non-space characters in table context caused voodoo mode.
-Line: 1 Col: 30 Expected closing tag. Unexpected end of file.
+Line: 1 Col: 30 Unexpected end of file. Expected table content.
 #document
 | <!DOCTYPE html>
 | <html>

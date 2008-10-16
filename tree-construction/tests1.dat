@@ -413,7 +413,7 @@ Line: 1 Col: 38 Unexpected non-space characters in table context caused voodoo m
 Line: 1 Col: 48 Unexpected implied end tag (b) in the table phase.
 Line: 1 Col: 48 Unexpected table cell start tag (th) in the table body phase.
 Line: 1 Col: 63 Got table cell end tag (th) while required end tags are missing.
-Line: 1 Col: 71 Expected closing tag. Unexpected end of file.
+Line: 1 Col: 71 Unexpected end of file. Expected table content.
 #document
 | <!-- - -->
 | <html>

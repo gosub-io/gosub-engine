@@ -333,7 +333,7 @@ Line: 1 Col: 44 Unexpected start tag (input) in table context caused voodoo mode
 #errors
 Line: 1 Col: 30 Unexpected start tag (select) in table context caused voodoo mode.
 Line: 1 Col: 35 Unexpected table element start tag (trs) in the select in table phase.
-Line: 1 Col: 35 Expected closing tag. Unexpected end of file.
+Line: 1 Col: 35 Unexpected end of file. Expected table content.
 #document
 | <!DOCTYPE html>
 | <html>
@@ -359,6 +359,7 @@ Line: 1 Col: 35 Expected closing tag. Unexpected end of file.
 #data
 <!DOCTYPE hTmL><html></html>
 #errors
+Line: 1 Col: 28 Unexpected end tag (html). Ignored.
 #document
 | <!DOCTYPE hTmL>
 | <html>
@@ -368,6 +369,7 @@ Line: 1 Col: 35 Expected closing tag. Unexpected end of file.
 #data
 <!DOCTYPE HTML><html></html>
 #errors
+Line: 1 Col: 28 Unexpected end tag (html). Ignored.
 #document
 | <!DOCTYPE HTML>
 | <html>
