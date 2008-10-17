@@ -75,6 +75,7 @@ Line: 1 Col: 28 Unexpected start tag (meta) in table context caused voodoo mode.
 <!doctype html><table> X<meta></table>
 #errors
 Line: 1 Col: 24 Unexpected non-space characters in table context caused voodoo mode.
+Line: 1 Col: 30 Unexpected start tag (meta) in table context caused voodoo mode.
 #document
 | <!DOCTYPE html>
 | <html>
@@ -196,6 +197,7 @@ Line: 1 Col: 53 Unexpected end tag (script) in table context caused voodoo mode.
 <!doctype html><table>X<style> <tr>x </style> </table>
 #errors
 Line: 1 Col: 23 Unexpected non-space characters in table context caused voodoo mode.
+Line: 1 Col: 30 Unexpected start tag (style) in table context caused voodoo mode.
 Line: 1 Col: 45 Unexpected end tag (style) in table context caused voodoo mode.
 #document
 | <!DOCTYPE html>
@@ -275,6 +277,7 @@ Line: 1 Col: 41 Unexpected input with type hidden in table context.
 <!doctype html><table>X<input type=hidDEN></table>
 #errors
 Line: 1 Col: 23 Unexpected non-space characters in table context caused voodoo mode.
+Line: 1 Col: 42 Unexpected start tag (input) in table context caused voodoo mode.
 #document
 | <!DOCTYPE html>
 | <html>
@@ -317,6 +320,7 @@ Line: 1 Col: 45 Unexpected input with type hidden in table context.
 <!doctype html><table><input type=" hidden"><input type=hidDEN></table>
 #errors
 Line: 1 Col: 44 Unexpected start tag (input) in table context caused voodoo mode.
+Line: 1 Col: 63 Unexpected start tag (input) in table context caused voodoo mode.
 #document
 | <!DOCTYPE html>
 | <html>

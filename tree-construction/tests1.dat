@@ -411,6 +411,7 @@ Line: 1 Col: 16 Expected closing tag. Unexpected end of file.
 Line: 1 Col: 7 Unexpected '-' after '--' found in comment.
 Line: 1 Col: 14 Unexpected start tag (font). Expected DOCTYPE.
 Line: 1 Col: 38 Unexpected non-space characters in table context caused voodoo mode.
+Line: 1 Col: 41 Unexpected start tag (b) in table context caused voodoo mode.
 Line: 1 Col: 48 Unexpected implied end tag (b) in the table phase.
 Line: 1 Col: 48 Unexpected table cell start tag (th) in the table body phase.
 Line: 1 Col: 63 Got table cell end tag (th) while required end tags are missing.

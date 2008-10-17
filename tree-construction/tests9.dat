@@ -21,8 +21,8 @@
 #data
 <!DOCTYPE html><body><select><math></math></select>
 #errors
-35: Stray “math” start tag.
-42: Stray end tag “math”
+Line: 1 Col: 35 Unexpected start tag token (math) in the select phase. Ignored.
+Line: 1 Col: 42 Unexpected end tag (math) in the select phase. Ignored.
 #document
 | <!DOCTYPE html>
 | <html>
@@ -33,8 +33,8 @@
 #data
 <!DOCTYPE html><body><select><option><math></math></option></select>
 #errors
-43: Stray “math” start tag.
-50: Stray end tag “math”
+Line: 1 Col: 43 Unexpected start tag token (math) in the select phase. Ignored.
+Line: 1 Col: 50 Unexpected end tag (math) in the select phase. Ignored.
 #document
 | <!DOCTYPE html>
 | <html>
@@ -46,8 +46,8 @@
 #data
 <!DOCTYPE html><body><table><math></math></table>
 #errors
-34: Start tag “math” seen in “table”.
-41: Stray end tag “math”.
+Line: 1 Col: 34 Unexpected start tag (math) in table context caused voodoo mode.
+Line: 1 Col: 41 Unexpected end tag (math) in table context caused voodoo mode.
 #document
 | <!DOCTYPE html>
 | <html>
@@ -59,9 +59,9 @@
 #data
 <!DOCTYPE html><body><table><math><mi>foo</mi></math></table>
 #errors
-34: Start tag “math” seen in “table”.
-46: Stray end tag “mi”.
-53: Stray end tag “math”.
+Line: 1 Col: 34 Unexpected start tag (math) in table context caused voodoo mode.
+Line: 1 Col: 46 Unexpected end tag (mi) in table context caused voodoo mode.
+Line: 1 Col: 53 Unexpected end tag (math) in table context caused voodoo mode.
 #document
 | <!DOCTYPE html>
 | <html>
@@ -75,10 +75,10 @@
 #data
 <!DOCTYPE html><body><table><math><mi>foo</mi><mi>bar</mi></math></table>
 #errors
-34: Start tag “math” seen in “table”.
-46: Stray end tag “mi”.
-58: Stray end tag “mi”.
-65: Stray end tag “math”.
+Line: 1 Col: 34 Unexpected start tag (math) in table context caused voodoo mode.
+Line: 1 Col: 46 Unexpected end tag (mi) in table context caused voodoo mode.
+Line: 1 Col: 58 Unexpected end tag (mi) in table context caused voodoo mode.
+Line: 1 Col: 65 Unexpected end tag (math) in table context caused voodoo mode.
 #document
 | <!DOCTYPE html>
 | <html>
@@ -94,10 +94,10 @@
 #data
 <!DOCTYPE html><body><table><tbody><math><mi>foo</mi><mi>bar</mi></math></tbody></table>
 #errors
-41: Start tag “math” seen in “table”.
-53: Stray end tag “mi”.
-65: Stray end tag “mi”.
-72: Stray end tag “math”.
+Line: 1 Col: 41 Unexpected start tag (math) in table context caused voodoo mode.
+Line: 1 Col: 53 Unexpected end tag (mi) in table context caused voodoo mode.
+Line: 1 Col: 65 Unexpected end tag (mi) in table context caused voodoo mode.
+Line: 1 Col: 72 Unexpected end tag (math) in table context caused voodoo mode.
 #document
 | <!DOCTYPE html>
 | <html>
@@ -114,10 +114,10 @@
 #data
 <!DOCTYPE html><body><table><tbody><tr><math><mi>foo</mi><mi>bar</mi></math></tr></tbody></table>
 #errors
-45: Start tag “math” seen in “table”.
-57: Stray end tag “mi”.
-69: Stray end tag “mi”.
-76: Stray end tag “math”.
+Line: 1 Col: 45 Unexpected start tag (math) in table context caused voodoo mode.
+Line: 1 Col: 57 Unexpected end tag (mi) in table context caused voodoo mode.
+Line: 1 Col: 69 Unexpected end tag (mi) in table context caused voodoo mode.
+Line: 1 Col: 76 Unexpected end tag (math) in table context caused voodoo mode.
 #document
 | <!DOCTYPE html>
 | <html>
@@ -191,8 +191,8 @@
 #data
 <!DOCTYPE html><body><table><caption><math><mi>foo</mi><mi>bar</mi><p>baz</table><p>quux
 #errors
-70: HTML start tag “p” in a foreign namespace context.
-81: “table” closed but “caption” was still open.
+Line: 1 Col: 70 HTML start tag "p" in a foreign namespace context.
+Line: 1 Col: 81 Unexpected end table tag in caption. Generates implied end caption.
 #document
 | <!DOCTYPE html>
 | <html>
@@ -213,8 +213,8 @@
 #data
 <!DOCTYPE html><body><table><caption><math><mi>foo</mi><mi>bar</mi>baz</table><p>quux
 #errors
-78: “table” closed but “caption” was still open.
-78: Unclosed elements on stack.
+Line: 1 Col: 78 Unexpected end table tag in caption. Generates implied end caption.
+Line: 1 Col: 78 Unexpected end tag (caption). Missing end tag (math).
 #document
 | <!DOCTYPE html>
 | <html>
@@ -234,11 +234,11 @@
 #data
 <!DOCTYPE html><body><table><colgroup><math><mi>foo</mi><mi>bar</mi><p>baz</table><p>quux
 #errors
-44: Start tag “math” seen in “table”.
-56: Stray end tag “mi”.
-68: Stray end tag “mi”.
-71: HTML start tag “p” in a foreign namespace context.
-71: Start tag “p” seen in “table”.
+Line: 1 Col: 44 Unexpected start tag (math) in table context caused voodoo mode.
+Line: 1 Col: 56 Unexpected end tag (mi) in table context caused voodoo mode.
+Line: 1 Col: 68 Unexpected end tag (mi) in table context caused voodoo mode.
+Line: 1 Col: 71 HTML start tag "p" in a foreign namespace context.
+Line: 1 Col: 71 Unexpected start tag (p) in table context caused voodoo mode.
 #document
 | <!DOCTYPE html>
 | <html>
@@ -283,14 +283,14 @@
 #data
 <!DOCTYPE html><body><table><select><math><mi>foo</mi><mi>bar</mi><p>baz</table><p>quux
 #errors
-36: Start tag “select” seen in “table”.
-42: Stray “math” start tag.
-46: Stray “mi” start tag.
-54: Stray end tag “mi”
-58: Stray “mi” start tag.
-66: Stray end tag “mi”
-69: Stray “p” start tag.
-80: “table” end tag with “select” open.
+Line: 1 Col: 36 Unexpected start tag (select) in table context caused voodoo mode.
+Line: 1 Col: 42 Unexpected start tag token (math) in the select phase. Ignored.
+Line: 1 Col: 46 Unexpected start tag token (mi) in the select phase. Ignored.
+Line: 1 Col: 54 Unexpected end tag (mi) in the select phase. Ignored.
+Line: 1 Col: 58 Unexpected start tag token (mi) in the select phase. Ignored.
+Line: 1 Col: 66 Unexpected end tag (mi) in the select phase. Ignored.
+Line: 1 Col: 69 Unexpected start tag token (p) in the select phase. Ignored.
+Line: 1 Col: 80 Unexpected table element end tag (tables) in the select in table phase.
 #document
 | <!DOCTYPE html>
 | <html>
@@ -305,8 +305,8 @@
 #data
 <!DOCTYPE html><body></body></html><math><mi>foo</mi><mi>bar</mi><p>baz
 #errors
-41: Stray “math” start tag.
-68: HTML start tag “p” in a foreign namespace context.
+Line: 1 Col: 41 Unexpected start tag ().
+Line: 1 Col: 68 HTML start tag "p" in a foreign namespace context.
 #document
 | <!DOCTYPE html>
 | <html>
@@ -323,8 +323,8 @@
 #data
 <!DOCTYPE html><body></body><math><mi>foo</mi><mi>bar</mi><p>baz
 #errors
-34: Stray “math” start tag.
-61: HTML start tag “p” in a foreign namespace context.
+Line: 1 Col: 34 Unexpected start tag token (math) in the after body phase.
+Line: 1 Col: 61 HTML start tag "p" in a foreign namespace context.
 #document
 | <!DOCTYPE html>
 | <html>
@@ -341,14 +341,14 @@
 #data
 <!DOCTYPE html><frameset><math><mi></mi><mi></mi><p><span>
 #errors
-31: Stray “math” start tag.
-35: Stray “mi” start tag.
-40: Stray end tag “mi”
-44: Stray “mi” start tag.
-49: Stray end tag “mi”
-52: Stray “p” start tag.
-58: Stray “span” start tag.
-58: End of file seen and there were open elements.
+Line: 1 Col: 31 Unexpected start tag token (math) in the frameset phase. Ignored.
+Line: 1 Col: 35 Unexpected start tag token (mi) in the frameset phase. Ignored.
+Line: 1 Col: 40 Unexpected end tag token (mi) in the frameset phase. Ignored.
+Line: 1 Col: 44 Unexpected start tag token (mi) in the frameset phase. Ignored.
+Line: 1 Col: 49 Unexpected end tag token (mi) in the frameset phase. Ignored.
+Line: 1 Col: 52 Unexpected start tag token (p) in the frameset phase. Ignored.
+Line: 1 Col: 58 Unexpected start tag token (span) in the frameset phase. Ignored.
+Line: 1 Col: 58 Expected closing tag. Unexpected end of file.
 #document
 | <!DOCTYPE html>
 | <html>
@@ -358,13 +358,13 @@
 #data
 <!DOCTYPE html><frameset></frameset><math><mi></mi><mi></mi><p><span>
 #errors
-42: Stray “math” start tag.
-46: Stray “mi” start tag.
-51: Stray end tag “mi”
-55: Stray “mi” start tag.
-60: Stray end tag “mi”
-63: Stray “p” start tag.
-69: Stray “span” start tag.
+Line: 1 Col: 42 Unexpected start tag (math) in the after frameset phase. Ignored.
+Line: 1 Col: 46 Unexpected start tag (mi) in the after frameset phase. Ignored.
+Line: 1 Col: 51 Unexpected end tag (mi) in the after frameset phase. Ignored.
+Line: 1 Col: 55 Unexpected start tag (mi) in the after frameset phase. Ignored.
+Line: 1 Col: 60 Unexpected end tag (mi) in the after frameset phase. Ignored.
+Line: 1 Col: 63 Unexpected start tag (p) in the after frameset phase. Ignored.
+Line: 1 Col: 69 Unexpected start tag (span) in the after frameset phase. Ignored.
 #document
 | <!DOCTYPE html>
 | <html>
