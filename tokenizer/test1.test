@@ -171,6 +171,10 @@
 
 {"description":"Entity in attribute without semicolon",
 "input":"<h a='&COPY'>",
-"output":["ParseError", ["StartTag", "h", {"a":"\u00A9"}]]}
+"output":["ParseError", ["StartTag", "h", {"a":"\u00A9"}]]},
+
+{"description":"Unquoted attribute ending in ampersand",
+ "input":"<s o=& t",
+ "output":["ParseError",["StartTag","s",{"o":"&","t":""}]]}
 
 ]}
