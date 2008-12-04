@@ -451,5 +451,29 @@
     "input": "<image src='foo' />",
     "rexml": "&lt;image src=\"foo\"&gt;&lt;/image&gt;",
     "output": "&lt;image src=\"foo\"/&gt;"
+  },
+
+  {
+    "name": "style_attr_end_with_nothing",
+    "input": "<div style=\"color: blue\" />",
+    "output": "<div style='color: blue;'/>"
+  },
+
+  {
+    "name": "style_attr_end_with_space",
+    "input": "<div style=\"color: blue \" />",
+    "output": "<div style='color: blue ;'/>"
+  },
+
+  {
+    "name": "style_attr_end_with_semicolon",
+    "input": "<div style=\"color: blue;\" />",
+    "output": "<div style='color: blue;'/>"
+  },
+
+  {
+    "name": "style_attr_end_with_semicolon_space",
+    "input": "<div style=\"color: blue; \" />",
+    "output": "<div style='color: blue;'/>"
   }
 ]
