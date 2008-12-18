@@ -100,6 +100,10 @@
 "input":"<z\r",
 "output":["ParseError", ["StartTag", "z", {}]]},
 
+{"description":"Slash EOF in tag name",
+"input":"<z/",
+"output":["ParseError", ["StartTag", "z", {}]]},
+
 {"description":"Zero hex numeric entity",
 "input":"&#x0",
 "output":["ParseError", "ParseError", ["Character", "\uFFFD"]]},
@@ -292,6 +296,10 @@
 
 {"description":"Doctype sys",
 "input":"<!DOCTYPE html SYS",
-"output":["ParseError", ["DOCTYPE", "html", null, null, false]]}
+"output":["ParseError", ["DOCTYPE", "html", null, null, false]]},
+
+{"description":"Doctype html x>text",
+"input":"<!DOCTYPE html x>text",
+"output":["ParseError", ["DOCTYPE", "html", null, null, false], ["Character", "text"]]}
 
 ]}
