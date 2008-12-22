@@ -65,7 +65,7 @@
 
 {"description": "proper attribute value quoting (with linetab)",
  "input": [["StartTag", "span", {"title": "foo\u000Bbar"}]],
- "expected": ["<span title=\"foo\u000Bbar\">"]
+ "expected": ["<span title=foo\u000Bbar>"]
 },
 
 {"description": "proper attribute value quoting (with form feed)",

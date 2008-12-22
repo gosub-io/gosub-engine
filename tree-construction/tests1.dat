@@ -113,6 +113,8 @@ Line: 1 Col: 6 Unexpected start tag (html). Expected DOCTYPE.
 <html><head></body></html>
 #errors
 Line: 1 Col: 6 Unexpected start tag (html). Expected DOCTYPE.
+Line: 1 Col: 19 Unexpected end tag (body).
+Line: 1 Col: 26 Unexpected end tag (html).
 #document
 | <html>
 |   <head>
