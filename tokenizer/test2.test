@@ -150,8 +150,14 @@
 
 {"description":"Empty attribute followed by uppercase attribute",
 "input":"<h a B=''>",
-"output":[["StartTag", "h", {"a":"", "b":""}]]}
+"output":[["StartTag", "h", {"a":"", "b":""}]]},
+
+{"description":"Double-quote after attribute name",
+"input":"<h a \">",
+"output":["ParseError", ["StartTag", "h", {"a":"", "\"":""}]]},
+
+{"description":"Single-quote after attribute name",
+"input":"<h a '>",
+"output":["ParseError", ["StartTag", "h", {"a":"", "'":""}]]}
 
 ]}
-
-
