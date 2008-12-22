@@ -18,7 +18,7 @@
 
 {"description":"== attribute",
 "input":"<z ==>",
-"output":["ParseError", ["StartTag", "z", {"=": ""}]]},
+"output":["ParseError", "ParseError", ["StartTag", "z", {"=": ""}]]},
 
 {"description":"=== attribute",
 "input":"<z ===>",
@@ -206,19 +206,19 @@
 
 {"description":"Doctype public case-sensitivity (1)",
 "input":"<!DoCtYpE HtMl PuBlIc \"AbC\" \"XyZ\">",
-"output":[["DOCTYPE", "HtMl", "AbC", "XyZ", true]]},
+"output":[["DOCTYPE", "html", "AbC", "XyZ", true]]},
 
 {"description":"Doctype public case-sensitivity (2)",
 "input":"<!dOcTyPe hTmL pUbLiC \"aBc\" \"xYz\">",
-"output":[["DOCTYPE", "hTmL", "aBc", "xYz", true]]},
+"output":[["DOCTYPE", "html", "aBc", "xYz", true]]},
 
 {"description":"Doctype system case-sensitivity (1)",
 "input":"<!DoCtYpE HtMl SyStEm \"XyZ\">",
-"output":[["DOCTYPE", "HtMl", null, "XyZ", true]]},
+"output":[["DOCTYPE", "html", null, "XyZ", true]]},
 
 {"description":"Doctype system case-sensitivity (2)",
 "input":"<!dOcTyPe hTmL sYsTeM \"xYz\">",
-"output":[["DOCTYPE", "hTmL", null, "xYz", true]]},
+"output":[["DOCTYPE", "html", null, "xYz", true]]},
 
 {"description":"U+0000 in lookahead region after non-matching character",
 "input":"<!doc>\u0000",
