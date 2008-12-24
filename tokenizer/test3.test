@@ -4,23 +4,23 @@
 "input":"",
 "output":[]},
 
-{"description":"\u0000",
+{"description":"\\u0000",
 "input":"\u0000",
 "output":["ParseError", ["Character", "\uFFFD"]]},
 
-{"description":"\u0009",
+{"description":"\\u0009",
 "input":"\u0009",
 "output":[["Character", "\u0009"]]},
 
-{"description":"\u000A",
+{"description":"\\u000A",
 "input":"\u000A",
 "output":[["Character", "\u000A"]]},
 
-{"description":"\u000B",
+{"description":"\\u000B",
 "input":"\u000B",
 "output":["ParseError", ["Character", "\u000B"]]},
 
-{"description":"\u000C",
+{"description":"\\u000C",
 "input":"\u000C",
 "output":[["Character", "\u000C"]]},
 
@@ -84,23 +84,23 @@
 "input":"<",
 "output":["ParseError", ["Character", "<"]]},
 
-{"description":"<\u0000",
+{"description":"<\\u0000",
 "input":"<\u0000",
 "output":["ParseError", "ParseError", ["Character", "<\uFFFD"]]},
 
-{"description":"<\u0009",
+{"description":"<\\u0009",
 "input":"<\u0009",
 "output":["ParseError", ["Character", "<\u0009"]]},
 
-{"description":"<\u000A",
+{"description":"<\\u000A",
 "input":"<\u000A",
 "output":["ParseError", ["Character", "<\u000A"]]},
 
-{"description":"<\u000B",
+{"description":"<\\u000B",
 "input":"<\u000B",
 "output":["ParseError", "ParseError", ["Character", "<\u000B"]]},
 
-{"description":"<\u000C",
+{"description":"<\\u000C",
 "input":"<\u000C",
 "output":["ParseError", ["Character", "<\u000C"]]},
 
@@ -112,23 +112,23 @@
 "input":"<!",
 "output":["ParseError", ["Comment", ""]]},
 
-{"description":"<!\u0000",
+{"description":"<!\\u0000",
 "input":"<!\u0000",
 "output":["ParseError", "ParseError", ["Comment", "\uFFFD"]]},
 
-{"description":"<!\u0009",
+{"description":"<!\\u0009",
 "input":"<!\u0009",
 "output":["ParseError", ["Comment", "\u0009"]]},
 
-{"description":"<!\u000A",
+{"description":"<!\\u000A",
 "input":"<!\u000A",
 "output":["ParseError", ["Comment", "\u000A"]]},
 
-{"description":"<!\u000B",
+{"description":"<!\\u000B",
 "input":"<!\u000B",
 "output":["ParseError", "ParseError", ["Comment", "\u000B"]]},
 
-{"description":"<!\u000C",
+{"description":"<!\\u000C",
 "input":"<!\u000C",
 "output":["ParseError", ["Comment", "\u000C"]]},
 
@@ -160,23 +160,23 @@
 "input":"<!--",
 "output":["ParseError", ["Comment", ""]]},
 
-{"description":"<!--\u0000",
+{"description":"<!--\\u0000",
 "input":"<!--\u0000",
 "output":["ParseError", "ParseError", ["Comment", "\uFFFD"]]},
 
-{"description":"<!--\u0009",
+{"description":"<!--\\u0009",
 "input":"<!--\u0009",
 "output":["ParseError", ["Comment", "\u0009"]]},
 
-{"description":"<!--\u000A",
+{"description":"<!--\\u000A",
 "input":"<!--\u000A",
 "output":["ParseError", ["Comment", "\u000A"]]},
 
-{"description":"<!--\u000B",
+{"description":"<!--\\u000B",
 "input":"<!--\u000B",
 "output":["ParseError", "ParseError", ["Comment", "\u000B"]]},
 
-{"description":"<!--\u000C",
+{"description":"<!--\\u000C",
 "input":"<!--\u000C",
 "output":["ParseError", ["Comment", "\u000C"]]},
 
@@ -184,23 +184,23 @@
 "input":"<!-- ",
 "output":["ParseError", ["Comment", " "]]},
 
-{"description":"<!-- \u0000",
+{"description":"<!-- \\u0000",
 "input":"<!-- \u0000",
 "output":["ParseError", "ParseError", ["Comment", " \uFFFD"]]},
 
-{"description":"<!-- \u0009",
+{"description":"<!-- \\u0009",
 "input":"<!-- \u0009",
 "output":["ParseError", ["Comment", " \u0009"]]},
 
-{"description":"<!-- \u000A",
+{"description":"<!-- \\u000A",
 "input":"<!-- \u000A",
 "output":["ParseError", ["Comment", " \u000A"]]},
 
-{"description":"<!-- \u000B",
+{"description":"<!-- \\u000B",
 "input":"<!-- \u000B",
 "output":["ParseError", "ParseError", ["Comment", " \u000B"]]},
 
-{"description":"<!-- \u000C",
+{"description":"<!-- \\u000C",
 "input":"<!-- \u000C",
 "output":["ParseError", ["Comment", " \u000C"]]},
 
@@ -232,23 +232,23 @@
 "input":"<!-- -",
 "output":["ParseError", ["Comment", " "]]},
 
-{"description":"<!-- -\u0000",
+{"description":"<!-- -\\u0000",
 "input":"<!-- -\u0000",
 "output":["ParseError", "ParseError", ["Comment", " -\uFFFD"]]},
 
-{"description":"<!-- -\u0009",
+{"description":"<!-- -\\u0009",
 "input":"<!-- -\u0009",
 "output":["ParseError", ["Comment", " -\u0009"]]},
 
-{"description":"<!-- -\u000A",
+{"description":"<!-- -\\u000A",
 "input":"<!-- -\u000A",
 "output":["ParseError", ["Comment", " -\u000A"]]},
 
-{"description":"<!-- -\u000B",
+{"description":"<!-- -\\u000B",
 "input":"<!-- -\u000B",
 "output":["ParseError", "ParseError", ["Comment", " -\u000B"]]},
 
-{"description":"<!-- -\u000C",
+{"description":"<!-- -\\u000C",
 "input":"<!-- -\u000C",
 "output":["ParseError", ["Comment", " -\u000C"]]},
 
@@ -360,7 +360,7 @@
 "input":"<!-- -{",
 "output":["ParseError", ["Comment", " -{"]]},
 
-{"description":"<!-- -\uDBC0\uDC00",
+{"description":"<!-- -\\uDBC0\\uDC00",
 "input":"<!-- -\uDBC0\uDC00",
 "output":["ParseError", ["Comment", " -\uDBC0\uDC00"]]},
 
@@ -444,7 +444,7 @@
 "input":"<!-- {",
 "output":["ParseError", ["Comment", " {"]]},
 
-{"description":"<!-- \uDBC0\uDC00",
+{"description":"<!-- \\uDBC0\\uDC00",
 "input":"<!-- \uDBC0\uDC00",
 "output":["ParseError", ["Comment", " \uDBC0\uDC00"]]},
 
@@ -472,23 +472,23 @@
 "input":"<!---",
 "output":["ParseError", ["Comment", ""]]},
 
-{"description":"<!---\u0000",
+{"description":"<!---\\u0000",
 "input":"<!---\u0000",
 "output":["ParseError", "ParseError", ["Comment", "-\uFFFD"]]},
 
-{"description":"<!---\u0009",
+{"description":"<!---\\u0009",
 "input":"<!---\u0009",
 "output":["ParseError", ["Comment", "-\u0009"]]},
 
-{"description":"<!---\u000A",
+{"description":"<!---\\u000A",
 "input":"<!---\u000A",
 "output":["ParseError", ["Comment", "-\u000A"]]},
 
-{"description":"<!---\u000B",
+{"description":"<!---\\u000B",
 "input":"<!---\u000B",
 "output":["ParseError", "ParseError", ["Comment", "-\u000B"]]},
 
-{"description":"<!---\u000C",
+{"description":"<!---\\u000C",
 "input":"<!---\u000C",
 "output":["ParseError", ["Comment", "-\u000C"]]},
 
@@ -520,23 +520,23 @@
 "input":"<!----",
 "output":["ParseError", ["Comment", ""]]},
 
-{"description":"<!----\u0000",
+{"description":"<!----\\u0000",
 "input":"<!----\u0000",
 "output":["ParseError", "ParseError", "ParseError", ["Comment", "--\uFFFD"]]},
 
-{"description":"<!----\u0009",
+{"description":"<!----\\u0009",
 "input":"<!----\u0009",
 "output":["ParseError", "ParseError", ["Comment", "--\u0009"]]},
 
-{"description":"<!----\u000A",
+{"description":"<!----\\u000A",
 "input":"<!----\u000A",
 "output":["ParseError", "ParseError", ["Comment", "--\u000A"]]},
 
-{"description":"<!----\u000B",
+{"description":"<!----\\u000B",
 "input":"<!----\u000B",
 "output":["ParseError", "ParseError", "ParseError", ["Comment", "--\u000B"]]},
 
-{"description":"<!----\u000C",
+{"description":"<!----\\u000C",
 "input":"<!----\u000C",
 "output":["ParseError", "ParseError", ["Comment", "--\u000C"]]},
 
@@ -648,7 +648,7 @@
 "input":"<!----{",
 "output":["ParseError", "ParseError", ["Comment", "--{"]]},
 
-{"description":"<!----\uDBC0\uDC00",
+{"description":"<!----\\uDBC0\\uDC00",
 "input":"<!----\uDBC0\uDC00",
 "output":["ParseError", "ParseError", ["Comment", "--\uDBC0\uDC00"]]},
 
@@ -732,7 +732,7 @@
 "input":"<!---{",
 "output":["ParseError", ["Comment", "-{"]]},
 
-{"description":"<!---\uDBC0\uDC00",
+{"description":"<!---\\uDBC0\\uDC00",
 "input":"<!---\uDBC0\uDC00",
 "output":["ParseError", ["Comment", "-\uDBC0\uDC00"]]},
 
@@ -816,7 +816,7 @@
 "input":"<!--{",
 "output":["ParseError", ["Comment", "{"]]},
 
-{"description":"<!--\uDBC0\uDC00",
+{"description":"<!--\\uDBC0\\uDC00",
 "input":"<!--\uDBC0\uDC00",
 "output":["ParseError", ["Comment", "\uDBC0\uDC00"]]},
 
@@ -868,35 +868,35 @@
 "input":"<!DOCTYPE",
 "output":["ParseError", "ParseError", ["DOCTYPE", "", null, null, false]]},
 
-{"description":"<!DOCTYPE\u0000",
+{"description":"<!DOCTYPE\\u0000",
 "input":"<!DOCTYPE\u0000",
 "output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "\uFFFD", null, null, false]]},
 
-{"description":"<!DOCTYPE\u0008",
+{"description":"<!DOCTYPE\\u0008",
 "input":"<!DOCTYPE\u0008",
 "output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "\u0008", null, null, false]]},
 
-{"description":"<!DOCTYPE\u0009",
+{"description":"<!DOCTYPE\\u0009",
 "input":"<!DOCTYPE\u0009",
 "output":["ParseError", ["DOCTYPE", "", null, null, false]]},
 
-{"description":"<!DOCTYPE\u000A",
+{"description":"<!DOCTYPE\\u000A",
 "input":"<!DOCTYPE\u000A",
 "output":["ParseError", ["DOCTYPE", "", null, null, false]]},
 
-{"description":"<!DOCTYPE\u000B",
+{"description":"<!DOCTYPE\\u000B",
 "input":"<!DOCTYPE\u000B",
 "output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "\u000B", null, null, false]]},
 
-{"description":"<!DOCTYPE\u000C",
+{"description":"<!DOCTYPE\\u000C",
 "input":"<!DOCTYPE\u000C",
 "output":["ParseError", ["DOCTYPE", "", null, null, false]]},
 
-{"description":"<!DOCTYPE\u000D",
+{"description":"<!DOCTYPE\\u000D",
 "input":"<!DOCTYPE\u000D",
 "output":["ParseError", ["DOCTYPE", "", null, null, false]]},
 
-{"description":"<!DOCTYPE\u001F",
+{"description":"<!DOCTYPE\\u001F",
 "input":"<!DOCTYPE\u001F",
 "output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "\u001F", null, null, false]]},
 
@@ -904,35 +904,35 @@
 "input":"<!DOCTYPE ",
 "output":["ParseError", ["DOCTYPE", "", null, null, false]]},
 
-{"description":"<!DOCTYPE \u0000",
+{"description":"<!DOCTYPE \\u0000",
 "input":"<!DOCTYPE \u0000",
 "output":["ParseError", "ParseError", ["DOCTYPE", "\uFFFD", null, null, false]]},
 
-{"description":"<!DOCTYPE \u0008",
+{"description":"<!DOCTYPE \\u0008",
 "input":"<!DOCTYPE \u0008",
 "output":["ParseError", "ParseError", ["DOCTYPE", "\u0008", null, null, false]]},
 
-{"description":"<!DOCTYPE \u0009",
+{"description":"<!DOCTYPE \\u0009",
 "input":"<!DOCTYPE \u0009",
 "output":["ParseError", ["DOCTYPE", "", null, null, false]]},
 
-{"description":"<!DOCTYPE \u000A",
+{"description":"<!DOCTYPE \\u000A",
 "input":"<!DOCTYPE \u000A",
 "output":["ParseError", ["DOCTYPE", "", null, null, false]]},
 
-{"description":"<!DOCTYPE \u000B",
+{"description":"<!DOCTYPE \\u000B",
 "input":"<!DOCTYPE \u000B",
 "output":["ParseError", "ParseError", ["DOCTYPE", "\u000B", null, null, false]]},
 
-{"description":"<!DOCTYPE \u000C",
+{"description":"<!DOCTYPE \\u000C",
 "input":"<!DOCTYPE \u000C",
 "output":["ParseError", ["DOCTYPE", "", null, null, false]]},
 
-{"description":"<!DOCTYPE \u000D",
+{"description":"<!DOCTYPE \\u000D",
 "input":"<!DOCTYPE \u000D",
 "output":["ParseError", ["DOCTYPE", "", null, null, false]]},
 
-{"description":"<!DOCTYPE \u001F",
+{"description":"<!DOCTYPE \\u001F",
 "input":"<!DOCTYPE \u001F",
 "output":["ParseError", "ParseError", ["DOCTYPE", "\u001F", null, null, false]]},
 
@@ -1024,35 +1024,35 @@
 "input":"<!DOCTYPE a",
 "output":["ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPE a\u0000",
+{"description":"<!DOCTYPE a\\u0000",
 "input":"<!DOCTYPE a\u0000",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a\uFFFD", null, null, false]]},
 
-{"description":"<!DOCTYPE a\u0008",
+{"description":"<!DOCTYPE a\\u0008",
 "input":"<!DOCTYPE a\u0008",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a\u0008", null, null, false]]},
 
-{"description":"<!DOCTYPE a\u0009",
+{"description":"<!DOCTYPE a\\u0009",
 "input":"<!DOCTYPE a\u0009",
 "output":["ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPE a\u000A",
+{"description":"<!DOCTYPE a\\u000A",
 "input":"<!DOCTYPE a\u000A",
 "output":["ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPE a\u000B",
+{"description":"<!DOCTYPE a\\u000B",
 "input":"<!DOCTYPE a\u000B",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a\u000B", null, null, false]]},
 
-{"description":"<!DOCTYPE a\u000C",
+{"description":"<!DOCTYPE a\\u000C",
 "input":"<!DOCTYPE a\u000C",
 "output":["ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPE a\u000D",
+{"description":"<!DOCTYPE a\\u000D",
 "input":"<!DOCTYPE a\u000D",
 "output":["ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPE a\u001F",
+{"description":"<!DOCTYPE a\\u001F",
 "input":"<!DOCTYPE a\u001F",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a\u001F", null, null, false]]},
 
@@ -1060,35 +1060,35 @@
 "input":"<!DOCTYPE a ",
 "output":["ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPE a \u0000",
+{"description":"<!DOCTYPE a \\u0000",
 "input":"<!DOCTYPE a \u0000",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPE a \u0008",
+{"description":"<!DOCTYPE a \\u0008",
 "input":"<!DOCTYPE a \u0008",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPE a \u0009",
+{"description":"<!DOCTYPE a \\u0009",
 "input":"<!DOCTYPE a \u0009",
 "output":["ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPE a \u000A",
+{"description":"<!DOCTYPE a \\u000A",
 "input":"<!DOCTYPE a \u000A",
 "output":["ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPE a \u000B",
+{"description":"<!DOCTYPE a \\u000B",
 "input":"<!DOCTYPE a \u000B",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPE a \u000C",
+{"description":"<!DOCTYPE a \\u000C",
 "input":"<!DOCTYPE a \u000C",
 "output":["ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPE a \u000D",
+{"description":"<!DOCTYPE a \\u000D",
 "input":"<!DOCTYPE a \u000D",
 "output":["ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPE a \u001F",
+{"description":"<!DOCTYPE a \\u001F",
 "input":"<!DOCTYPE a \u001F",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
@@ -1164,35 +1164,35 @@
 "input":"<!DOCTYPE a PUBLIC",
 "output":["ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPE a PUBLIC\u0000",
+{"description":"<!DOCTYPE a PUBLIC\\u0000",
 "input":"<!DOCTYPE a PUBLIC\u0000",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPE a PUBLIC\u0008",
+{"description":"<!DOCTYPE a PUBLIC\\u0008",
 "input":"<!DOCTYPE a PUBLIC\u0008",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPE a PUBLIC\u0009",
+{"description":"<!DOCTYPE a PUBLIC\\u0009",
 "input":"<!DOCTYPE a PUBLIC\u0009",
 "output":["ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPE a PUBLIC\u000A",
+{"description":"<!DOCTYPE a PUBLIC\\u000A",
 "input":"<!DOCTYPE a PUBLIC\u000A",
 "output":["ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPE a PUBLIC\u000B",
+{"description":"<!DOCTYPE a PUBLIC\\u000B",
 "input":"<!DOCTYPE a PUBLIC\u000B",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPE a PUBLIC\u000C",
+{"description":"<!DOCTYPE a PUBLIC\\u000C",
 "input":"<!DOCTYPE a PUBLIC\u000C",
 "output":["ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPE a PUBLIC\u000D",
+{"description":"<!DOCTYPE a PUBLIC\\u000D",
 "input":"<!DOCTYPE a PUBLIC\u000D",
 "output":["ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPE a PUBLIC\u001F",
+{"description":"<!DOCTYPE a PUBLIC\\u001F",
 "input":"<!DOCTYPE a PUBLIC\u001F",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
@@ -1208,23 +1208,23 @@
 "input":"<!DOCTYPE a PUBLIC\"",
 "output":["ParseError", ["DOCTYPE", "a", "", null, false]]},
 
-{"description":"<!DOCTYPE a PUBLIC\"\u0000",
+{"description":"<!DOCTYPE a PUBLIC\"\\u0000",
 "input":"<!DOCTYPE a PUBLIC\"\u0000",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", "\uFFFD", null, false]]},
 
-{"description":"<!DOCTYPE a PUBLIC\"\u0009",
+{"description":"<!DOCTYPE a PUBLIC\"\\u0009",
 "input":"<!DOCTYPE a PUBLIC\"\u0009",
 "output":["ParseError", ["DOCTYPE", "a", "\u0009", null, false]]},
 
-{"description":"<!DOCTYPE a PUBLIC\"\u000A",
+{"description":"<!DOCTYPE a PUBLIC\"\\u000A",
 "input":"<!DOCTYPE a PUBLIC\"\u000A",
 "output":["ParseError", ["DOCTYPE", "a", "\u000A", null, false]]},
 
-{"description":"<!DOCTYPE a PUBLIC\"\u000B",
+{"description":"<!DOCTYPE a PUBLIC\"\\u000B",
 "input":"<!DOCTYPE a PUBLIC\"\u000B",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", "\u000B", null, false]]},
 
-{"description":"<!DOCTYPE a PUBLIC\"\u000C",
+{"description":"<!DOCTYPE a PUBLIC\"\\u000C",
 "input":"<!DOCTYPE a PUBLIC\"\u000C",
 "output":["ParseError", ["DOCTYPE", "a", "\u000C", null, false]]},
 
@@ -1332,7 +1332,7 @@
 "input":"<!DOCTYPE a PUBLIC\"{",
 "output":["ParseError", ["DOCTYPE", "a", "{", null, false]]},
 
-{"description":"<!DOCTYPE a PUBLIC\"\uDBC0\uDC00",
+{"description":"<!DOCTYPE a PUBLIC\"\\uDBC0\\uDC00",
 "input":"<!DOCTYPE a PUBLIC\"\uDBC0\uDC00",
 "output":["ParseError", ["DOCTYPE", "a", "\uDBC0\uDC00", null, false]]},
 
@@ -1348,23 +1348,23 @@
 "input":"<!DOCTYPE a PUBLIC'",
 "output":["ParseError", ["DOCTYPE", "a", "", null, false]]},
 
-{"description":"<!DOCTYPE a PUBLIC'\u0000",
+{"description":"<!DOCTYPE a PUBLIC'\\u0000",
 "input":"<!DOCTYPE a PUBLIC'\u0000",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", "\uFFFD", null, false]]},
 
-{"description":"<!DOCTYPE a PUBLIC'\u0009",
+{"description":"<!DOCTYPE a PUBLIC'\\u0009",
 "input":"<!DOCTYPE a PUBLIC'\u0009",
 "output":["ParseError", ["DOCTYPE", "a", "\u0009", null, false]]},
 
-{"description":"<!DOCTYPE a PUBLIC'\u000A",
+{"description":"<!DOCTYPE a PUBLIC'\\u000A",
 "input":"<!DOCTYPE a PUBLIC'\u000A",
 "output":["ParseError", ["DOCTYPE", "a", "\u000A", null, false]]},
 
-{"description":"<!DOCTYPE a PUBLIC'\u000B",
+{"description":"<!DOCTYPE a PUBLIC'\\u000B",
 "input":"<!DOCTYPE a PUBLIC'\u000B",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", "\u000B", null, false]]},
 
-{"description":"<!DOCTYPE a PUBLIC'\u000C",
+{"description":"<!DOCTYPE a PUBLIC'\\u000C",
 "input":"<!DOCTYPE a PUBLIC'\u000C",
 "output":["ParseError", ["DOCTYPE", "a", "\u000C", null, false]]},
 
@@ -1388,35 +1388,35 @@
 "input":"<!DOCTYPE a PUBLIC''",
 "output":["ParseError", ["DOCTYPE", "a", "", null, false]]},
 
-{"description":"<!DOCTYPE a PUBLIC''\u0000",
+{"description":"<!DOCTYPE a PUBLIC''\\u0000",
 "input":"<!DOCTYPE a PUBLIC''\u0000",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
-{"description":"<!DOCTYPE a PUBLIC''\u0008",
+{"description":"<!DOCTYPE a PUBLIC''\\u0008",
 "input":"<!DOCTYPE a PUBLIC''\u0008",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
-{"description":"<!DOCTYPE a PUBLIC''\u0009",
+{"description":"<!DOCTYPE a PUBLIC''\\u0009",
 "input":"<!DOCTYPE a PUBLIC''\u0009",
 "output":["ParseError", ["DOCTYPE", "a", "", null, false]]},
 
-{"description":"<!DOCTYPE a PUBLIC''\u000A",
+{"description":"<!DOCTYPE a PUBLIC''\\u000A",
 "input":"<!DOCTYPE a PUBLIC''\u000A",
 "output":["ParseError", ["DOCTYPE", "a", "", null, false]]},
 
-{"description":"<!DOCTYPE a PUBLIC''\u000B",
+{"description":"<!DOCTYPE a PUBLIC''\\u000B",
 "input":"<!DOCTYPE a PUBLIC''\u000B",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
-{"description":"<!DOCTYPE a PUBLIC''\u000C",
+{"description":"<!DOCTYPE a PUBLIC''\\u000C",
 "input":"<!DOCTYPE a PUBLIC''\u000C",
 "output":["ParseError", ["DOCTYPE", "a", "", null, false]]},
 
-{"description":"<!DOCTYPE a PUBLIC''\u000D",
+{"description":"<!DOCTYPE a PUBLIC''\\u000D",
 "input":"<!DOCTYPE a PUBLIC''\u000D",
 "output":["ParseError", ["DOCTYPE", "a", "", null, false]]},
 
-{"description":"<!DOCTYPE a PUBLIC''\u001F",
+{"description":"<!DOCTYPE a PUBLIC''\\u001F",
 "input":"<!DOCTYPE a PUBLIC''\u001F",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
@@ -1528,7 +1528,7 @@
 "input":"<!DOCTYPE a PUBLIC''{",
 "output":["ParseError", ["DOCTYPE", "a", "", null, false]]},
 
-{"description":"<!DOCTYPE a PUBLIC''\uDBC0\uDC00",
+{"description":"<!DOCTYPE a PUBLIC''\\uDBC0\\uDC00",
 "input":"<!DOCTYPE a PUBLIC''\uDBC0\uDC00",
 "output":["ParseError", ["DOCTYPE", "a", "", null, false]]},
 
@@ -1616,7 +1616,7 @@
 "input":"<!DOCTYPE a PUBLIC'{",
 "output":["ParseError", ["DOCTYPE", "a", "{", null, false]]},
 
-{"description":"<!DOCTYPE a PUBLIC'\uDBC0\uDC00",
+{"description":"<!DOCTYPE a PUBLIC'\\uDBC0\\uDC00",
 "input":"<!DOCTYPE a PUBLIC'\uDBC0\uDC00",
 "output":["ParseError", ["DOCTYPE", "a", "\uDBC0\uDC00", null, false]]},
 
@@ -1704,7 +1704,7 @@
 "input":"<!DOCTYPE a PUBLIC{",
 "output":["ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPE a PUBLIC\uDBC0\uDC00",
+{"description":"<!DOCTYPE a PUBLIC\\uDBC0\\uDC00",
 "input":"<!DOCTYPE a PUBLIC\uDBC0\uDC00",
 "output":["ParseError", ["DOCTYPE", "a", null, null, false]]},
 
@@ -1712,35 +1712,35 @@
 "input":"<!DOCTYPE a SYSTEM",
 "output":["ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPE a SYSTEM\u0000",
+{"description":"<!DOCTYPE a SYSTEM\\u0000",
 "input":"<!DOCTYPE a SYSTEM\u0000",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPE a SYSTEM\u0008",
+{"description":"<!DOCTYPE a SYSTEM\\u0008",
 "input":"<!DOCTYPE a SYSTEM\u0008",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPE a SYSTEM\u0009",
+{"description":"<!DOCTYPE a SYSTEM\\u0009",
 "input":"<!DOCTYPE a SYSTEM\u0009",
 "output":["ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPE a SYSTEM\u000A",
+{"description":"<!DOCTYPE a SYSTEM\\u000A",
 "input":"<!DOCTYPE a SYSTEM\u000A",
 "output":["ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPE a SYSTEM\u000B",
+{"description":"<!DOCTYPE a SYSTEM\\u000B",
 "input":"<!DOCTYPE a SYSTEM\u000B",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPE a SYSTEM\u000C",
+{"description":"<!DOCTYPE a SYSTEM\\u000C",
 "input":"<!DOCTYPE a SYSTEM\u000C",
 "output":["ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPE a SYSTEM\u000D",
+{"description":"<!DOCTYPE a SYSTEM\\u000D",
 "input":"<!DOCTYPE a SYSTEM\u000D",
 "output":["ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPE a SYSTEM\u001F",
+{"description":"<!DOCTYPE a SYSTEM\\u001F",
 "input":"<!DOCTYPE a SYSTEM\u001F",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
@@ -1756,23 +1756,23 @@
 "input":"<!DOCTYPE a SYSTEM\"",
 "output":["ParseError", ["DOCTYPE", "a", null, "", false]]},
 
-{"description":"<!DOCTYPE a SYSTEM\"\u0000",
+{"description":"<!DOCTYPE a SYSTEM\"\\u0000",
 "input":"<!DOCTYPE a SYSTEM\"\u0000",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "\uFFFD", false]]},
 
-{"description":"<!DOCTYPE a SYSTEM\"\u0009",
+{"description":"<!DOCTYPE a SYSTEM\"\\u0009",
 "input":"<!DOCTYPE a SYSTEM\"\u0009",
 "output":["ParseError", ["DOCTYPE", "a", null, "\u0009", false]]},
 
-{"description":"<!DOCTYPE a SYSTEM\"\u000A",
+{"description":"<!DOCTYPE a SYSTEM\"\\u000A",
 "input":"<!DOCTYPE a SYSTEM\"\u000A",
 "output":["ParseError", ["DOCTYPE", "a", null, "\u000A", false]]},
 
-{"description":"<!DOCTYPE a SYSTEM\"\u000B",
+{"description":"<!DOCTYPE a SYSTEM\"\\u000B",
 "input":"<!DOCTYPE a SYSTEM\"\u000B",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "\u000B", false]]},
 
-{"description":"<!DOCTYPE a SYSTEM\"\u000C",
+{"description":"<!DOCTYPE a SYSTEM\"\\u000C",
 "input":"<!DOCTYPE a SYSTEM\"\u000C",
 "output":["ParseError", ["DOCTYPE", "a", null, "\u000C", false]]},
 
@@ -1880,7 +1880,7 @@
 "input":"<!DOCTYPE a SYSTEM\"{",
 "output":["ParseError", ["DOCTYPE", "a", null, "{", false]]},
 
-{"description":"<!DOCTYPE a SYSTEM\"\uDBC0\uDC00",
+{"description":"<!DOCTYPE a SYSTEM\"\\uDBC0\\uDC00",
 "input":"<!DOCTYPE a SYSTEM\"\uDBC0\uDC00",
 "output":["ParseError", ["DOCTYPE", "a", null, "\uDBC0\uDC00", false]]},
 
@@ -1896,23 +1896,23 @@
 "input":"<!DOCTYPE a SYSTEM'",
 "output":["ParseError", ["DOCTYPE", "a", null, "", false]]},
 
-{"description":"<!DOCTYPE a SYSTEM'\u0000",
+{"description":"<!DOCTYPE a SYSTEM'\\u0000",
 "input":"<!DOCTYPE a SYSTEM'\u0000",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "\uFFFD", false]]},
 
-{"description":"<!DOCTYPE a SYSTEM'\u0009",
+{"description":"<!DOCTYPE a SYSTEM'\\u0009",
 "input":"<!DOCTYPE a SYSTEM'\u0009",
 "output":["ParseError", ["DOCTYPE", "a", null, "\u0009", false]]},
 
-{"description":"<!DOCTYPE a SYSTEM'\u000A",
+{"description":"<!DOCTYPE a SYSTEM'\\u000A",
 "input":"<!DOCTYPE a SYSTEM'\u000A",
 "output":["ParseError", ["DOCTYPE", "a", null, "\u000A", false]]},
 
-{"description":"<!DOCTYPE a SYSTEM'\u000B",
+{"description":"<!DOCTYPE a SYSTEM'\\u000B",
 "input":"<!DOCTYPE a SYSTEM'\u000B",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "\u000B", false]]},
 
-{"description":"<!DOCTYPE a SYSTEM'\u000C",
+{"description":"<!DOCTYPE a SYSTEM'\\u000C",
 "input":"<!DOCTYPE a SYSTEM'\u000C",
 "output":["ParseError", ["DOCTYPE", "a", null, "\u000C", false]]},
 
@@ -1936,35 +1936,35 @@
 "input":"<!DOCTYPE a SYSTEM''",
 "output":["ParseError", ["DOCTYPE", "a", null, "", false]]},
 
-{"description":"<!DOCTYPE a SYSTEM''\u0000",
+{"description":"<!DOCTYPE a SYSTEM''\\u0000",
 "input":"<!DOCTYPE a SYSTEM''\u0000",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
-{"description":"<!DOCTYPE a SYSTEM''\u0008",
+{"description":"<!DOCTYPE a SYSTEM''\\u0008",
 "input":"<!DOCTYPE a SYSTEM''\u0008",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
-{"description":"<!DOCTYPE a SYSTEM''\u0009",
+{"description":"<!DOCTYPE a SYSTEM''\\u0009",
 "input":"<!DOCTYPE a SYSTEM''\u0009",
 "output":["ParseError", ["DOCTYPE", "a", null, "", false]]},
 
-{"description":"<!DOCTYPE a SYSTEM''\u000A",
+{"description":"<!DOCTYPE a SYSTEM''\\u000A",
 "input":"<!DOCTYPE a SYSTEM''\u000A",
 "output":["ParseError", ["DOCTYPE", "a", null, "", false]]},
 
-{"description":"<!DOCTYPE a SYSTEM''\u000B",
+{"description":"<!DOCTYPE a SYSTEM''\\u000B",
 "input":"<!DOCTYPE a SYSTEM''\u000B",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
-{"description":"<!DOCTYPE a SYSTEM''\u000C",
+{"description":"<!DOCTYPE a SYSTEM''\\u000C",
 "input":"<!DOCTYPE a SYSTEM''\u000C",
 "output":["ParseError", ["DOCTYPE", "a", null, "", false]]},
 
-{"description":"<!DOCTYPE a SYSTEM''\u000D",
+{"description":"<!DOCTYPE a SYSTEM''\\u000D",
 "input":"<!DOCTYPE a SYSTEM''\u000D",
 "output":["ParseError", ["DOCTYPE", "a", null, "", false]]},
 
-{"description":"<!DOCTYPE a SYSTEM''\u001F",
+{"description":"<!DOCTYPE a SYSTEM''\\u001F",
 "input":"<!DOCTYPE a SYSTEM''\u001F",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
@@ -2068,7 +2068,7 @@
 "input":"<!DOCTYPE a SYSTEM''{",
 "output":["ParseError", ["DOCTYPE", "a", null, "", true]]},
 
-{"description":"<!DOCTYPE a SYSTEM''\uDBC0\uDC00",
+{"description":"<!DOCTYPE a SYSTEM''\\uDBC0\\uDC00",
 "input":"<!DOCTYPE a SYSTEM''\uDBC0\uDC00",
 "output":["ParseError", ["DOCTYPE", "a", null, "", true]]},
 
@@ -2156,7 +2156,7 @@
 "input":"<!DOCTYPE a SYSTEM'{",
 "output":["ParseError", ["DOCTYPE", "a", null, "{", false]]},
 
-{"description":"<!DOCTYPE a SYSTEM'\uDBC0\uDC00",
+{"description":"<!DOCTYPE a SYSTEM'\\uDBC0\\uDC00",
 "input":"<!DOCTYPE a SYSTEM'\uDBC0\uDC00",
 "output":["ParseError", ["DOCTYPE", "a", null, "\uDBC0\uDC00", false]]},
 
@@ -2244,7 +2244,7 @@
 "input":"<!DOCTYPE a SYSTEM{",
 "output":["ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPE a SYSTEM\uDBC0\uDC00",
+{"description":"<!DOCTYPE a SYSTEM\\uDBC0\\uDC00",
 "input":"<!DOCTYPE a SYSTEM\uDBC0\uDC00",
 "output":["ParseError", ["DOCTYPE", "a", null, null, false]]},
 
@@ -2264,23 +2264,23 @@
 "input":"<!DOCTYPE a a",
 "output":["ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPE a a\u0000",
+{"description":"<!DOCTYPE a a\\u0000",
 "input":"<!DOCTYPE a a\u0000",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPE a a\u0009",
+{"description":"<!DOCTYPE a a\\u0009",
 "input":"<!DOCTYPE a a\u0009",
 "output":["ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPE a a\u000A",
+{"description":"<!DOCTYPE a a\\u000A",
 "input":"<!DOCTYPE a a\u000A",
 "output":["ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPE a a\u000B",
+{"description":"<!DOCTYPE a a\\u000B",
 "input":"<!DOCTYPE a a\u000B",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPE a a\u000C",
+{"description":"<!DOCTYPE a a\\u000C",
 "input":"<!DOCTYPE a a\u000C",
 "output":["ParseError", ["DOCTYPE", "a", null, null, false]]},
 
@@ -2384,7 +2384,7 @@
 "input":"<!DOCTYPE a a{",
 "output":["ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPE a a\uDBC0\uDC00",
+{"description":"<!DOCTYPE a a\\uDBC0\\uDC00",
 "input":"<!DOCTYPE a a\uDBC0\uDC00",
 "output":["ParseError", ["DOCTYPE", "a", null, null, false]]},
 
@@ -2404,7 +2404,7 @@
 "input":"<!DOCTYPE a {",
 "output":["ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPE a \uDBC0\uDC00",
+{"description":"<!DOCTYPE a \\uDBC0\\uDC00",
 "input":"<!DOCTYPE a \uDBC0\uDC00",
 "output":["ParseError", ["DOCTYPE", "a", null, null, false]]},
 
@@ -2508,7 +2508,7 @@
 "input":"<!DOCTYPE a{",
 "output":["ParseError", ["DOCTYPE", "a{", null, null, false]]},
 
-{"description":"<!DOCTYPE a\uDBC0\uDC00",
+{"description":"<!DOCTYPE a\\uDBC0\\uDC00",
 "input":"<!DOCTYPE a\uDBC0\uDC00",
 "output":["ParseError", ["DOCTYPE", "a\uDBC0\uDC00", null, null, false]]},
 
@@ -2528,7 +2528,7 @@
 "input":"<!DOCTYPE {",
 "output":["ParseError", ["DOCTYPE", "{", null, null, false]]},
 
-{"description":"<!DOCTYPE \uDBC0\uDC00",
+{"description":"<!DOCTYPE \\uDBC0\\uDC00",
 "input":"<!DOCTYPE \uDBC0\uDC00",
 "output":["ParseError", ["DOCTYPE", "\uDBC0\uDC00", null, null, false]]},
 
@@ -2612,35 +2612,35 @@
 "input":"<!DOCTYPEa",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPEa\u0000",
+{"description":"<!DOCTYPEa\\u0000",
 "input":"<!DOCTYPEa\u0000",
 "output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a\uFFFD", null, null, false]]},
 
-{"description":"<!DOCTYPEa\u0008",
+{"description":"<!DOCTYPEa\\u0008",
 "input":"<!DOCTYPEa\u0008",
 "output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a\u0008", null, null, false]]},
 
-{"description":"<!DOCTYPEa\u0009",
+{"description":"<!DOCTYPEa\\u0009",
 "input":"<!DOCTYPEa\u0009",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPEa\u000A",
+{"description":"<!DOCTYPEa\\u000A",
 "input":"<!DOCTYPEa\u000A",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPEa\u000B",
+{"description":"<!DOCTYPEa\\u000B",
 "input":"<!DOCTYPEa\u000B",
 "output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a\u000B", null, null, false]]},
 
-{"description":"<!DOCTYPEa\u000C",
+{"description":"<!DOCTYPEa\\u000C",
 "input":"<!DOCTYPEa\u000C",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPEa\u000D",
+{"description":"<!DOCTYPEa\\u000D",
 "input":"<!DOCTYPEa\u000D",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPEa\u001F",
+{"description":"<!DOCTYPEa\\u001F",
 "input":"<!DOCTYPEa\u001F",
 "output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a\u001F", null, null, false]]},
 
@@ -2648,35 +2648,35 @@
 "input":"<!DOCTYPEa ",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPEa \u0000",
+{"description":"<!DOCTYPEa \\u0000",
 "input":"<!DOCTYPEa \u0000",
 "output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPEa \u0008",
+{"description":"<!DOCTYPEa \\u0008",
 "input":"<!DOCTYPEa \u0008",
 "output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPEa \u0009",
+{"description":"<!DOCTYPEa \\u0009",
 "input":"<!DOCTYPEa \u0009",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPEa \u000A",
+{"description":"<!DOCTYPEa \\u000A",
 "input":"<!DOCTYPEa \u000A",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPEa \u000B",
+{"description":"<!DOCTYPEa \\u000B",
 "input":"<!DOCTYPEa \u000B",
 "output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPEa \u000C",
+{"description":"<!DOCTYPEa \\u000C",
 "input":"<!DOCTYPEa \u000C",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPEa \u000D",
+{"description":"<!DOCTYPEa \\u000D",
 "input":"<!DOCTYPEa \u000D",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPEa \u001F",
+{"description":"<!DOCTYPEa \\u001F",
 "input":"<!DOCTYPEa \u001F",
 "output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
@@ -2752,35 +2752,35 @@
 "input":"<!DOCTYPEa PUBLIC",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPEa PUBLIC\u0000",
+{"description":"<!DOCTYPEa PUBLIC\\u0000",
 "input":"<!DOCTYPEa PUBLIC\u0000",
 "output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPEa PUBLIC\u0008",
+{"description":"<!DOCTYPEa PUBLIC\\u0008",
 "input":"<!DOCTYPEa PUBLIC\u0008",
 "output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPEa PUBLIC\u0009",
+{"description":"<!DOCTYPEa PUBLIC\\u0009",
 "input":"<!DOCTYPEa PUBLIC\u0009",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPEa PUBLIC\u000A",
+{"description":"<!DOCTYPEa PUBLIC\\u000A",
 "input":"<!DOCTYPEa PUBLIC\u000A",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPEa PUBLIC\u000B",
+{"description":"<!DOCTYPEa PUBLIC\\u000B",
 "input":"<!DOCTYPEa PUBLIC\u000B",
 "output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPEa PUBLIC\u000C",
+{"description":"<!DOCTYPEa PUBLIC\\u000C",
 "input":"<!DOCTYPEa PUBLIC\u000C",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPEa PUBLIC\u000D",
+{"description":"<!DOCTYPEa PUBLIC\\u000D",
 "input":"<!DOCTYPEa PUBLIC\u000D",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPEa PUBLIC\u001F",
+{"description":"<!DOCTYPEa PUBLIC\\u001F",
 "input":"<!DOCTYPEa PUBLIC\u001F",
 "output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
@@ -2796,23 +2796,23 @@
 "input":"<!DOCTYPEa PUBLIC\"",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
-{"description":"<!DOCTYPEa PUBLIC\"\u0000",
+{"description":"<!DOCTYPEa PUBLIC\"\\u0000",
 "input":"<!DOCTYPEa PUBLIC\"\u0000",
 "output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "\uFFFD", null, false]]},
 
-{"description":"<!DOCTYPEa PUBLIC\"\u0009",
+{"description":"<!DOCTYPEa PUBLIC\"\\u0009",
 "input":"<!DOCTYPEa PUBLIC\"\u0009",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", "\u0009", null, false]]},
 
-{"description":"<!DOCTYPEa PUBLIC\"\u000A",
+{"description":"<!DOCTYPEa PUBLIC\"\\u000A",
 "input":"<!DOCTYPEa PUBLIC\"\u000A",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", "\u000A", null, false]]},
 
-{"description":"<!DOCTYPEa PUBLIC\"\u000B",
+{"description":"<!DOCTYPEa PUBLIC\"\\u000B",
 "input":"<!DOCTYPEa PUBLIC\"\u000B",
 "output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "\u000B", null, false]]},
 
-{"description":"<!DOCTYPEa PUBLIC\"\u000C",
+{"description":"<!DOCTYPEa PUBLIC\"\\u000C",
 "input":"<!DOCTYPEa PUBLIC\"\u000C",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", "\u000C", null, false]]},
 
@@ -2920,7 +2920,7 @@
 "input":"<!DOCTYPEa PUBLIC\"{",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", "{", null, false]]},
 
-{"description":"<!DOCTYPEa PUBLIC\"\uDBC0\uDC00",
+{"description":"<!DOCTYPEa PUBLIC\"\\uDBC0\\uDC00",
 "input":"<!DOCTYPEa PUBLIC\"\uDBC0\uDC00",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", "\uDBC0\uDC00", null, false]]},
 
@@ -2936,23 +2936,23 @@
 "input":"<!DOCTYPEa PUBLIC'",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
-{"description":"<!DOCTYPEa PUBLIC'\u0000",
+{"description":"<!DOCTYPEa PUBLIC'\\u0000",
 "input":"<!DOCTYPEa PUBLIC'\u0000",
 "output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "\uFFFD", null, false]]},
 
-{"description":"<!DOCTYPEa PUBLIC'\u0009",
+{"description":"<!DOCTYPEa PUBLIC'\\u0009",
 "input":"<!DOCTYPEa PUBLIC'\u0009",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", "\u0009", null, false]]},
 
-{"description":"<!DOCTYPEa PUBLIC'\u000A",
+{"description":"<!DOCTYPEa PUBLIC'\\u000A",
 "input":"<!DOCTYPEa PUBLIC'\u000A",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", "\u000A", null, false]]},
 
-{"description":"<!DOCTYPEa PUBLIC'\u000B",
+{"description":"<!DOCTYPEa PUBLIC'\\u000B",
 "input":"<!DOCTYPEa PUBLIC'\u000B",
 "output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "\u000B", null, false]]},
 
-{"description":"<!DOCTYPEa PUBLIC'\u000C",
+{"description":"<!DOCTYPEa PUBLIC'\\u000C",
 "input":"<!DOCTYPEa PUBLIC'\u000C",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", "\u000C", null, false]]},
 
@@ -2976,35 +2976,35 @@
 "input":"<!DOCTYPEa PUBLIC''",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
-{"description":"<!DOCTYPEa PUBLIC''\u0000",
+{"description":"<!DOCTYPEa PUBLIC''\\u0000",
 "input":"<!DOCTYPEa PUBLIC''\u0000",
 "output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
-{"description":"<!DOCTYPEa PUBLIC''\u0008",
+{"description":"<!DOCTYPEa PUBLIC''\\u0008",
 "input":"<!DOCTYPEa PUBLIC''\u0008",
 "output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
-{"description":"<!DOCTYPEa PUBLIC''\u0009",
+{"description":"<!DOCTYPEa PUBLIC''\\u0009",
 "input":"<!DOCTYPEa PUBLIC''\u0009",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
-{"description":"<!DOCTYPEa PUBLIC''\u000A",
+{"description":"<!DOCTYPEa PUBLIC''\\u000A",
 "input":"<!DOCTYPEa PUBLIC''\u000A",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
-{"description":"<!DOCTYPEa PUBLIC''\u000B",
+{"description":"<!DOCTYPEa PUBLIC''\\u000B",
 "input":"<!DOCTYPEa PUBLIC''\u000B",
 "output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
-{"description":"<!DOCTYPEa PUBLIC''\u000C",
+{"description":"<!DOCTYPEa PUBLIC''\\u000C",
 "input":"<!DOCTYPEa PUBLIC''\u000C",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
-{"description":"<!DOCTYPEa PUBLIC''\u000D",
+{"description":"<!DOCTYPEa PUBLIC''\\u000D",
 "input":"<!DOCTYPEa PUBLIC''\u000D",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
-{"description":"<!DOCTYPEa PUBLIC''\u001F",
+{"description":"<!DOCTYPEa PUBLIC''\\u001F",
 "input":"<!DOCTYPEa PUBLIC''\u001F",
 "output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
@@ -3116,7 +3116,7 @@
 "input":"<!DOCTYPEa PUBLIC''{",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
-{"description":"<!DOCTYPEa PUBLIC''\uDBC0\uDC00",
+{"description":"<!DOCTYPEa PUBLIC''\\uDBC0\\uDC00",
 "input":"<!DOCTYPEa PUBLIC''\uDBC0\uDC00",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
@@ -3204,7 +3204,7 @@
 "input":"<!DOCTYPEa PUBLIC'{",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", "{", null, false]]},
 
-{"description":"<!DOCTYPEa PUBLIC'\uDBC0\uDC00",
+{"description":"<!DOCTYPEa PUBLIC'\\uDBC0\\uDC00",
 "input":"<!DOCTYPEa PUBLIC'\uDBC0\uDC00",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", "\uDBC0\uDC00", null, false]]},
 
@@ -3292,7 +3292,7 @@
 "input":"<!DOCTYPEa PUBLIC{",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPEa PUBLIC\uDBC0\uDC00",
+{"description":"<!DOCTYPEa PUBLIC\\uDBC0\\uDC00",
 "input":"<!DOCTYPEa PUBLIC\uDBC0\uDC00",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
@@ -3300,35 +3300,35 @@
 "input":"<!DOCTYPEa SYSTEM",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPEa SYSTEM\u0000",
+{"description":"<!DOCTYPEa SYSTEM\\u0000",
 "input":"<!DOCTYPEa SYSTEM\u0000",
 "output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPEa SYSTEM\u0008",
+{"description":"<!DOCTYPEa SYSTEM\\u0008",
 "input":"<!DOCTYPEa SYSTEM\u0008",
 "output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPEa SYSTEM\u0009",
+{"description":"<!DOCTYPEa SYSTEM\\u0009",
 "input":"<!DOCTYPEa SYSTEM\u0009",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPEa SYSTEM\u000A",
+{"description":"<!DOCTYPEa SYSTEM\\u000A",
 "input":"<!DOCTYPEa SYSTEM\u000A",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPEa SYSTEM\u000B",
+{"description":"<!DOCTYPEa SYSTEM\\u000B",
 "input":"<!DOCTYPEa SYSTEM\u000B",
 "output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPEa SYSTEM\u000C",
+{"description":"<!DOCTYPEa SYSTEM\\u000C",
 "input":"<!DOCTYPEa SYSTEM\u000C",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPEa SYSTEM\u000D",
+{"description":"<!DOCTYPEa SYSTEM\\u000D",
 "input":"<!DOCTYPEa SYSTEM\u000D",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPEa SYSTEM\u001F",
+{"description":"<!DOCTYPEa SYSTEM\\u001F",
 "input":"<!DOCTYPEa SYSTEM\u001F",
 "output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
@@ -3344,23 +3344,23 @@
 "input":"<!DOCTYPEa SYSTEM\"",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", false]]},
 
-{"description":"<!DOCTYPEa SYSTEM\"\u0000",
+{"description":"<!DOCTYPEa SYSTEM\"\\u0000",
 "input":"<!DOCTYPEa SYSTEM\"\u0000",
 "output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "\uFFFD", false]]},
 
-{"description":"<!DOCTYPEa SYSTEM\"\u0009",
+{"description":"<!DOCTYPEa SYSTEM\"\\u0009",
 "input":"<!DOCTYPEa SYSTEM\"\u0009",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "\u0009", false]]},
 
-{"description":"<!DOCTYPEa SYSTEM\"\u000A",
+{"description":"<!DOCTYPEa SYSTEM\"\\u000A",
 "input":"<!DOCTYPEa SYSTEM\"\u000A",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "\u000A", false]]},
 
-{"description":"<!DOCTYPEa SYSTEM\"\u000B",
+{"description":"<!DOCTYPEa SYSTEM\"\\u000B",
 "input":"<!DOCTYPEa SYSTEM\"\u000B",
 "output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "\u000B", false]]},
 
-{"description":"<!DOCTYPEa SYSTEM\"\u000C",
+{"description":"<!DOCTYPEa SYSTEM\"\\u000C",
 "input":"<!DOCTYPEa SYSTEM\"\u000C",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "\u000C", false]]},
 
@@ -3468,7 +3468,7 @@
 "input":"<!DOCTYPEa SYSTEM\"{",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "{", false]]},
 
-{"description":"<!DOCTYPEa SYSTEM\"\uDBC0\uDC00",
+{"description":"<!DOCTYPEa SYSTEM\"\\uDBC0\\uDC00",
 "input":"<!DOCTYPEa SYSTEM\"\uDBC0\uDC00",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "\uDBC0\uDC00", false]]},
 
@@ -3484,23 +3484,23 @@
 "input":"<!DOCTYPEa SYSTEM'",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", false]]},
 
-{"description":"<!DOCTYPEa SYSTEM'\u0000",
+{"description":"<!DOCTYPEa SYSTEM'\\u0000",
 "input":"<!DOCTYPEa SYSTEM'\u0000",
 "output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "\uFFFD", false]]},
 
-{"description":"<!DOCTYPEa SYSTEM'\u0009",
+{"description":"<!DOCTYPEa SYSTEM'\\u0009",
 "input":"<!DOCTYPEa SYSTEM'\u0009",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "\u0009", false]]},
 
-{"description":"<!DOCTYPEa SYSTEM'\u000A",
+{"description":"<!DOCTYPEa SYSTEM'\\u000A",
 "input":"<!DOCTYPEa SYSTEM'\u000A",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "\u000A", false]]},
 
-{"description":"<!DOCTYPEa SYSTEM'\u000B",
+{"description":"<!DOCTYPEa SYSTEM'\\u000B",
 "input":"<!DOCTYPEa SYSTEM'\u000B",
 "output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "\u000B", false]]},
 
-{"description":"<!DOCTYPEa SYSTEM'\u000C",
+{"description":"<!DOCTYPEa SYSTEM'\\u000C",
 "input":"<!DOCTYPEa SYSTEM'\u000C",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "\u000C", false]]},
 
@@ -3524,35 +3524,35 @@
 "input":"<!DOCTYPEa SYSTEM''",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", false]]},
 
-{"description":"<!DOCTYPEa SYSTEM''\u0000",
+{"description":"<!DOCTYPEa SYSTEM''\\u0000",
 "input":"<!DOCTYPEa SYSTEM''\u0000",
 "output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
-{"description":"<!DOCTYPEa SYSTEM''\u0008",
+{"description":"<!DOCTYPEa SYSTEM''\\u0008",
 "input":"<!DOCTYPEa SYSTEM''\u0008",
 "output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
-{"description":"<!DOCTYPEa SYSTEM''\u0009",
+{"description":"<!DOCTYPEa SYSTEM''\\u0009",
 "input":"<!DOCTYPEa SYSTEM''\u0009",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", false]]},
 
-{"description":"<!DOCTYPEa SYSTEM''\u000A",
+{"description":"<!DOCTYPEa SYSTEM''\\u000A",
 "input":"<!DOCTYPEa SYSTEM''\u000A",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", false]]},
 
-{"description":"<!DOCTYPEa SYSTEM''\u000B",
+{"description":"<!DOCTYPEa SYSTEM''\\u000B",
 "input":"<!DOCTYPEa SYSTEM''\u000B",
 "output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
-{"description":"<!DOCTYPEa SYSTEM''\u000C",
+{"description":"<!DOCTYPEa SYSTEM''\\u000C",
 "input":"<!DOCTYPEa SYSTEM''\u000C",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", false]]},
 
-{"description":"<!DOCTYPEa SYSTEM''\u000D",
+{"description":"<!DOCTYPEa SYSTEM''\\u000D",
 "input":"<!DOCTYPEa SYSTEM''\u000D",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", false]]},
 
-{"description":"<!DOCTYPEa SYSTEM''\u001F",
+{"description":"<!DOCTYPEa SYSTEM''\\u001F",
 "input":"<!DOCTYPEa SYSTEM''\u001F",
 "output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
@@ -3656,7 +3656,7 @@
 "input":"<!DOCTYPEa SYSTEM''{",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
-{"description":"<!DOCTYPEa SYSTEM''\uDBC0\uDC00",
+{"description":"<!DOCTYPEa SYSTEM''\\uDBC0\\uDC00",
 "input":"<!DOCTYPEa SYSTEM''\uDBC0\uDC00",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
@@ -3744,7 +3744,7 @@
 "input":"<!DOCTYPEa SYSTEM'{",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "{", false]]},
 
-{"description":"<!DOCTYPEa SYSTEM'\uDBC0\uDC00",
+{"description":"<!DOCTYPEa SYSTEM'\\uDBC0\\uDC00",
 "input":"<!DOCTYPEa SYSTEM'\uDBC0\uDC00",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "\uDBC0\uDC00", false]]},
 
@@ -3832,7 +3832,7 @@
 "input":"<!DOCTYPEa SYSTEM{",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPEa SYSTEM\uDBC0\uDC00",
+{"description":"<!DOCTYPEa SYSTEM\\uDBC0\\uDC00",
 "input":"<!DOCTYPEa SYSTEM\uDBC0\uDC00",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
@@ -3852,23 +3852,23 @@
 "input":"<!DOCTYPEa a",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPEa a\u0000",
+{"description":"<!DOCTYPEa a\\u0000",
 "input":"<!DOCTYPEa a\u0000",
 "output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPEa a\u0009",
+{"description":"<!DOCTYPEa a\\u0009",
 "input":"<!DOCTYPEa a\u0009",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPEa a\u000A",
+{"description":"<!DOCTYPEa a\\u000A",
 "input":"<!DOCTYPEa a\u000A",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPEa a\u000B",
+{"description":"<!DOCTYPEa a\\u000B",
 "input":"<!DOCTYPEa a\u000B",
 "output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPEa a\u000C",
+{"description":"<!DOCTYPEa a\\u000C",
 "input":"<!DOCTYPEa a\u000C",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
@@ -3972,7 +3972,7 @@
 "input":"<!DOCTYPEa a{",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPEa a\uDBC0\uDC00",
+{"description":"<!DOCTYPEa a\\uDBC0\\uDC00",
 "input":"<!DOCTYPEa a\uDBC0\uDC00",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
@@ -3992,7 +3992,7 @@
 "input":"<!DOCTYPEa {",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
-{"description":"<!DOCTYPEa \uDBC0\uDC00",
+{"description":"<!DOCTYPEa \\uDBC0\\uDC00",
 "input":"<!DOCTYPEa \uDBC0\uDC00",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a", null, null, false]]},
 
@@ -4096,7 +4096,7 @@
 "input":"<!DOCTYPEa{",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a{", null, null, false]]},
 
-{"description":"<!DOCTYPEa\uDBC0\uDC00",
+{"description":"<!DOCTYPEa\\uDBC0\\uDC00",
 "input":"<!DOCTYPEa\uDBC0\uDC00",
 "output":["ParseError", "ParseError", ["DOCTYPE", "a\uDBC0\uDC00", null, null, false]]},
 
@@ -4116,7 +4116,7 @@
 "input":"<!DOCTYPE{",
 "output":["ParseError", "ParseError", ["DOCTYPE", "{", null, null, false]]},
 
-{"description":"<!DOCTYPE\uDBC0\uDC00",
+{"description":"<!DOCTYPE\\uDBC0\\uDC00",
 "input":"<!DOCTYPE\uDBC0\uDC00",
 "output":["ParseError", "ParseError", ["DOCTYPE", "\uDBC0\uDC00", null, null, false]]},
 
@@ -4152,7 +4152,7 @@
 "input":"<!{",
 "output":["ParseError", ["Comment", "{"]]},
 
-{"description":"<!\uDBC0\uDC00",
+{"description":"<!\\uDBC0\\uDC00",
 "input":"<!\uDBC0\uDC00",
 "output":["ParseError", ["Comment", "\uDBC0\uDC00"]]},
 
@@ -4180,23 +4180,23 @@
 "input":"</",
 "output":["ParseError", ["Character", "</"]]},
 
-{"description":"</\u0000",
+{"description":"</\\u0000",
 "input":"</\u0000",
 "output":["ParseError", "ParseError", ["Comment", "\uFFFD"]]},
 
-{"description":"</\u0009",
+{"description":"</\\u0009",
 "input":"</\u0009",
 "output":["ParseError", ["Comment", "\u0009"]]},
 
-{"description":"</\u000A",
+{"description":"</\\u000A",
 "input":"</\u000A",
 "output":["ParseError", ["Comment", "\u000A"]]},
 
-{"description":"</\u000B",
+{"description":"</\\u000B",
 "input":"</\u000B",
 "output":["ParseError", "ParseError", ["Comment", "\u000B"]]},
 
-{"description":"</\u000C",
+{"description":"</\\u000C",
 "input":"</\u000C",
 "output":["ParseError", ["Comment", "\u000C"]]},
 
@@ -4304,7 +4304,7 @@
 "input":"</{",
 "output":["ParseError", ["Comment", "{"]]},
 
-{"description":"</\uDBC0\uDC00",
+{"description":"</\\uDBC0\\uDC00",
 "input":"</\uDBC0\uDC00",
 "output":["ParseError", ["Comment", "\uDBC0\uDC00"]]},
 
@@ -4336,23 +4336,23 @@
 "input":"<?",
 "output":["ParseError", ["Comment", "?"]]},
 
-{"description":"<?\u0000",
+{"description":"<?\\u0000",
 "input":"<?\u0000",
 "output":["ParseError", "ParseError", ["Comment", "?\uFFFD"]]},
 
-{"description":"<?\u0009",
+{"description":"<?\\u0009",
 "input":"<?\u0009",
 "output":["ParseError", ["Comment", "?\u0009"]]},
 
-{"description":"<?\u000A",
+{"description":"<?\\u000A",
 "input":"<?\u000A",
 "output":["ParseError", ["Comment", "?\u000A"]]},
 
-{"description":"<?\u000B",
+{"description":"<?\\u000B",
 "input":"<?\u000B",
 "output":["ParseError", "ParseError", ["Comment", "?\u000B"]]},
 
-{"description":"<?\u000C",
+{"description":"<?\\u000C",
 "input":"<?\u000C",
 "output":["ParseError", ["Comment", "?\u000C"]]},
 
@@ -4456,7 +4456,7 @@
 "input":"<?{",
 "output":["ParseError", ["Comment", "?{"]]},
 
-{"description":"<?\uDBC0\uDC00",
+{"description":"<?\\uDBC0\\uDC00",
 "input":"<?\uDBC0\uDC00",
 "output":["ParseError", ["Comment", "?\uDBC0\uDC00"]]},
 
@@ -4492,35 +4492,35 @@
 "input":"<a",
 "output":["ParseError", ["StartTag", "a", {}]]},
 
-{"description":"<a\u0000",
+{"description":"<a\\u0000",
 "input":"<a\u0000",
 "output":["ParseError", "ParseError", ["StartTag", "a\uFFFD", {}]]},
 
-{"description":"<a\u0008",
+{"description":"<a\\u0008",
 "input":"<a\u0008",
 "output":["ParseError", "ParseError", ["StartTag", "a\u0008", {}]]},
 
-{"description":"<a\u0009",
+{"description":"<a\\u0009",
 "input":"<a\u0009",
 "output":["ParseError", ["StartTag", "a", {}]]},
 
-{"description":"<a\u000A",
+{"description":"<a\\u000A",
 "input":"<a\u000A",
 "output":["ParseError", ["StartTag", "a", {}]]},
 
-{"description":"<a\u000B",
+{"description":"<a\\u000B",
 "input":"<a\u000B",
 "output":["ParseError", "ParseError", ["StartTag", "a\u000B", {}]]},
 
-{"description":"<a\u000C",
+{"description":"<a\\u000C",
 "input":"<a\u000C",
 "output":["ParseError", ["StartTag", "a", {}]]},
 
-{"description":"<a\u000D",
+{"description":"<a\\u000D",
 "input":"<a\u000D",
 "output":["ParseError", ["StartTag", "a", {}]]},
 
-{"description":"<a\u001F",
+{"description":"<a\\u001F",
 "input":"<a\u001F",
 "output":["ParseError", "ParseError", ["StartTag", "a\u001F", {}]]},
 
@@ -4528,35 +4528,35 @@
 "input":"<a ",
 "output":["ParseError", ["StartTag", "a", {}]]},
 
-{"description":"<a \u0000",
+{"description":"<a \\u0000",
 "input":"<a \u0000",
 "output":["ParseError", "ParseError", ["StartTag", "a", {"\uFFFD":""}]]},
 
-{"description":"<a \u0008",
+{"description":"<a \\u0008",
 "input":"<a \u0008",
 "output":["ParseError", "ParseError", ["StartTag", "a", {"\u0008":""}]]},
 
-{"description":"<a \u0009",
+{"description":"<a \\u0009",
 "input":"<a \u0009",
 "output":["ParseError", ["StartTag", "a", {}]]},
 
-{"description":"<a \u000A",
+{"description":"<a \\u000A",
 "input":"<a \u000A",
 "output":["ParseError", ["StartTag", "a", {}]]},
 
-{"description":"<a \u000B",
+{"description":"<a \\u000B",
 "input":"<a \u000B",
 "output":["ParseError", "ParseError", ["StartTag", "a", {"\u000B":""}]]},
 
-{"description":"<a \u000C",
+{"description":"<a \\u000C",
 "input":"<a \u000C",
 "output":["ParseError", ["StartTag", "a", {}]]},
 
-{"description":"<a \u000D",
+{"description":"<a \\u000D",
 "input":"<a \u000D",
 "output":["ParseError", ["StartTag", "a", {}]]},
 
-{"description":"<a \u001F",
+{"description":"<a \\u001F",
 "input":"<a \u001F",
 "output":["ParseError", "ParseError", ["StartTag", "a", {"\u001F":""}]]},
 
@@ -4660,35 +4660,35 @@
 "input":"<a a",
 "output":["ParseError", ["StartTag", "a", {"a":""}]]},
 
-{"description":"<a a\u0000",
+{"description":"<a a\\u0000",
 "input":"<a a\u0000",
 "output":["ParseError", "ParseError", ["StartTag", "a", {"a\uFFFD":""}]]},
 
-{"description":"<a a\u0008",
+{"description":"<a a\\u0008",
 "input":"<a a\u0008",
 "output":["ParseError", "ParseError", ["StartTag", "a", {"a\u0008":""}]]},
 
-{"description":"<a a\u0009",
+{"description":"<a a\\u0009",
 "input":"<a a\u0009",
 "output":["ParseError", ["StartTag", "a", {"a":""}]]},
 
-{"description":"<a a\u000A",
+{"description":"<a a\\u000A",
 "input":"<a a\u000A",
 "output":["ParseError", ["StartTag", "a", {"a":""}]]},
 
-{"description":"<a a\u000B",
+{"description":"<a a\\u000B",
 "input":"<a a\u000B",
 "output":["ParseError", "ParseError", ["StartTag", "a", {"a\u000B":""}]]},
 
-{"description":"<a a\u000C",
+{"description":"<a a\\u000C",
 "input":"<a a\u000C",
 "output":["ParseError", ["StartTag", "a", {"a":""}]]},
 
-{"description":"<a a\u000D",
+{"description":"<a a\\u000D",
 "input":"<a a\u000D",
 "output":["ParseError", ["StartTag", "a", {"a":""}]]},
 
-{"description":"<a a\u001F",
+{"description":"<a a\\u001F",
 "input":"<a a\u001F",
 "output":["ParseError", "ParseError", ["StartTag", "a", {"a\u001F":""}]]},
 
@@ -4696,35 +4696,35 @@
 "input":"<a a ",
 "output":["ParseError", ["StartTag", "a", {"a":""}]]},
 
-{"description":"<a a \u0000",
+{"description":"<a a \\u0000",
 "input":"<a a \u0000",
 "output":["ParseError", "ParseError", ["StartTag", "a", {"a":"", "\uFFFD":""}]]},
 
-{"description":"<a a \u0008",
+{"description":"<a a \\u0008",
 "input":"<a a \u0008",
 "output":["ParseError", "ParseError", ["StartTag", "a", {"a":"", "\u0008":""}]]},
 
-{"description":"<a a \u0009",
+{"description":"<a a \\u0009",
 "input":"<a a \u0009",
 "output":["ParseError", ["StartTag", "a", {"a":""}]]},
 
-{"description":"<a a \u000A",
+{"description":"<a a \\u000A",
 "input":"<a a \u000A",
 "output":["ParseError", ["StartTag", "a", {"a":""}]]},
 
-{"description":"<a a \u000B",
+{"description":"<a a \\u000B",
 "input":"<a a \u000B",
 "output":["ParseError", "ParseError", ["StartTag", "a", {"a":"", "\u000B":""}]]},
 
-{"description":"<a a \u000C",
+{"description":"<a a \\u000C",
 "input":"<a a \u000C",
 "output":["ParseError", ["StartTag", "a", {"a":""}]]},
 
-{"description":"<a a \u000D",
+{"description":"<a a \\u000D",
 "input":"<a a \u000D",
 "output":["ParseError", ["StartTag", "a", {"a":""}]]},
 
-{"description":"<a a \u001F",
+{"description":"<a a \\u001F",
 "input":"<a a \u001F",
 "output":["ParseError", "ParseError", ["StartTag", "a", {"a":"", "\u001F":""}]]},
 
@@ -4844,7 +4844,7 @@
 "input":"<a a {",
 "output":["ParseError", ["StartTag", "a", {"a":"", "{":""}]]},
 
-{"description":"<a a \uDBC0\uDC00",
+{"description":"<a a \\uDBC0\\uDC00",
 "input":"<a a \uDBC0\uDC00",
 "output":["ParseError", ["StartTag", "a", {"a":"", "\uDBC0\uDC00":""}]]},
 
@@ -4904,35 +4904,35 @@
 "input":"<a a=",
 "output":["ParseError", ["StartTag", "a", {"a":""}]]},
 
-{"description":"<a a=\u0000",
+{"description":"<a a=\\u0000",
 "input":"<a a=\u0000",
 "output":["ParseError", "ParseError", ["StartTag", "a", {"a":"\uFFFD"}]]},
 
-{"description":"<a a=\u0008",
+{"description":"<a a=\\u0008",
 "input":"<a a=\u0008",
 "output":["ParseError", "ParseError", ["StartTag", "a", {"a":"\u0008"}]]},
 
-{"description":"<a a=\u0009",
+{"description":"<a a=\\u0009",
 "input":"<a a=\u0009",
 "output":["ParseError", ["StartTag", "a", {"a":""}]]},
 
-{"description":"<a a=\u000A",
+{"description":"<a a=\\u000A",
 "input":"<a a=\u000A",
 "output":["ParseError", ["StartTag", "a", {"a":""}]]},
 
-{"description":"<a a=\u000B",
+{"description":"<a a=\\u000B",
 "input":"<a a=\u000B",
 "output":["ParseError", "ParseError", ["StartTag", "a", {"a":"\u000B"}]]},
 
-{"description":"<a a=\u000C",
+{"description":"<a a=\\u000C",
 "input":"<a a=\u000C",
 "output":["ParseError", ["StartTag", "a", {"a":""}]]},
 
-{"description":"<a a=\u000D",
+{"description":"<a a=\\u000D",
 "input":"<a a=\u000D",
 "output":["ParseError", ["StartTag", "a", {"a":""}]]},
 
-{"description":"<a a=\u001F",
+{"description":"<a a=\\u001F",
 "input":"<a a=\u001F",
 "output":["ParseError", "ParseError", ["StartTag", "a", {"a":"\u001F"}]]},
 
@@ -4948,23 +4948,23 @@
 "input":"<a a=\"",
 "output":["ParseError", ["StartTag", "a", {"a":""}]]},
 
-{"description":"<a a=\"\u0000",
+{"description":"<a a=\"\\u0000",
 "input":"<a a=\"\u0000",
 "output":["ParseError", "ParseError", ["StartTag", "a", {"a":"\uFFFD"}]]},
 
-{"description":"<a a=\"\u0009",
+{"description":"<a a=\"\\u0009",
 "input":"<a a=\"\u0009",
 "output":["ParseError", ["StartTag", "a", {"a":"\u0009"}]]},
 
-{"description":"<a a=\"\u000A",
+{"description":"<a a=\"\\u000A",
 "input":"<a a=\"\u000A",
 "output":["ParseError", ["StartTag", "a", {"a":"\u000A"}]]},
 
-{"description":"<a a=\"\u000B",
+{"description":"<a a=\"\\u000B",
 "input":"<a a=\"\u000B",
 "output":["ParseError", "ParseError", ["StartTag", "a", {"a":"\u000B"}]]},
 
-{"description":"<a a=\"\u000C",
+{"description":"<a a=\"\\u000C",
 "input":"<a a=\"\u000C",
 "output":["ParseError", ["StartTag", "a", {"a":"\u000C"}]]},
 
@@ -5076,7 +5076,7 @@
 "input":"<a a=\"{",
 "output":["ParseError", ["StartTag", "a", {"a":"{"}]]},
 
-{"description":"<a a=\"\uDBC0\uDC00",
+{"description":"<a a=\"\\uDBC0\\uDC00",
 "input":"<a a=\"\uDBC0\uDC00",
 "output":["ParseError", ["StartTag", "a", {"a":"\uDBC0\uDC00"}]]},
 
@@ -5096,23 +5096,23 @@
 "input":"<a a='",
 "output":["ParseError", ["StartTag", "a", {"a":""}]]},
 
-{"description":"<a a='\u0000",
+{"description":"<a a='\\u0000",
 "input":"<a a='\u0000",
 "output":["ParseError", "ParseError", ["StartTag", "a", {"a":"\uFFFD"}]]},
 
-{"description":"<a a='\u0009",
+{"description":"<a a='\\u0009",
 "input":"<a a='\u0009",
 "output":["ParseError", ["StartTag", "a", {"a":"\u0009"}]]},
 
-{"description":"<a a='\u000A",
+{"description":"<a a='\\u000A",
 "input":"<a a='\u000A",
 "output":["ParseError", ["StartTag", "a", {"a":"\u000A"}]]},
 
-{"description":"<a a='\u000B",
+{"description":"<a a='\\u000B",
 "input":"<a a='\u000B",
 "output":["ParseError", "ParseError", ["StartTag", "a", {"a":"\u000B"}]]},
 
-{"description":"<a a='\u000C",
+{"description":"<a a='\\u000C",
 "input":"<a a='\u000C",
 "output":["ParseError", ["StartTag", "a", {"a":"\u000C"}]]},
 
@@ -5140,35 +5140,35 @@
 "input":"<a a=''",
 "output":["ParseError", ["StartTag", "a", {"a":""}]]},
 
-{"description":"<a a=''\u0000",
+{"description":"<a a=''\\u0000",
 "input":"<a a=''\u0000",
 "output":["ParseError", "ParseError", "ParseError", ["StartTag", "a", {"a":"", "\uFFFD":""}]]},
 
-{"description":"<a a=''\u0008",
+{"description":"<a a=''\\u0008",
 "input":"<a a=''\u0008",
 "output":["ParseError", "ParseError", "ParseError", ["StartTag", "a", {"a":"", "\u0008":""}]]},
 
-{"description":"<a a=''\u0009",
+{"description":"<a a=''\\u0009",
 "input":"<a a=''\u0009",
 "output":["ParseError", ["StartTag", "a", {"a":""}]]},
 
-{"description":"<a a=''\u000A",
+{"description":"<a a=''\\u000A",
 "input":"<a a=''\u000A",
 "output":["ParseError", ["StartTag", "a", {"a":""}]]},
 
-{"description":"<a a=''\u000B",
+{"description":"<a a=''\\u000B",
 "input":"<a a=''\u000B",
 "output":["ParseError", "ParseError", "ParseError", ["StartTag", "a", {"a":"", "\u000B":""}]]},
 
-{"description":"<a a=''\u000C",
+{"description":"<a a=''\\u000C",
 "input":"<a a=''\u000C",
 "output":["ParseError", ["StartTag", "a", {"a":""}]]},
 
-{"description":"<a a=''\u000D",
+{"description":"<a a=''\\u000D",
 "input":"<a a=''\u000D",
 "output":["ParseError", ["StartTag", "a", {"a":""}]]},
 
-{"description":"<a a=''\u001F",
+{"description":"<a a=''\\u001F",
 "input":"<a a=''\u001F",
 "output":["ParseError", "ParseError", "ParseError", ["StartTag", "a", {"a":"", "\u001F":""}]]},
 
@@ -5276,7 +5276,7 @@
 "input":"<a a=''{",
 "output":["ParseError", "ParseError", ["StartTag", "a", {"a":"", "{":""}]]},
 
-{"description":"<a a=''\uDBC0\uDC00",
+{"description":"<a a=''\\uDBC0\\uDC00",
 "input":"<a a=''\uDBC0\uDC00",
 "output":["ParseError", "ParseError", ["StartTag", "a", {"a":"", "\uDBC0\uDC00":""}]]},
 
@@ -5364,7 +5364,7 @@
 "input":"<a a='{",
 "output":["ParseError", ["StartTag", "a", {"a":"{"}]]},
 
-{"description":"<a a='\uDBC0\uDC00",
+{"description":"<a a='\\uDBC0\\uDC00",
 "input":"<a a='\uDBC0\uDC00",
 "output":["ParseError", ["StartTag", "a", {"a":"\uDBC0\uDC00"}]]},
 
@@ -5436,35 +5436,35 @@
 "input":"<a a=a",
 "output":["ParseError", ["StartTag", "a", {"a":"a"}]]},
 
-{"description":"<a a=a\u0000",
+{"description":"<a a=a\\u0000",
 "input":"<a a=a\u0000",
 "output":["ParseError", "ParseError", ["StartTag", "a", {"a":"a\uFFFD"}]]},
 
-{"description":"<a a=a\u0008",
+{"description":"<a a=a\\u0008",
 "input":"<a a=a\u0008",
 "output":["ParseError", "ParseError", ["StartTag", "a", {"a":"a\u0008"}]]},
 
-{"description":"<a a=a\u0009",
+{"description":"<a a=a\\u0009",
 "input":"<a a=a\u0009",
 "output":["ParseError", ["StartTag", "a", {"a":"a"}]]},
 
-{"description":"<a a=a\u000A",
+{"description":"<a a=a\\u000A",
 "input":"<a a=a\u000A",
 "output":["ParseError", ["StartTag", "a", {"a":"a"}]]},
 
-{"description":"<a a=a\u000B",
+{"description":"<a a=a\\u000B",
 "input":"<a a=a\u000B",
 "output":["ParseError", "ParseError", ["StartTag", "a", {"a":"a\u000B"}]]},
 
-{"description":"<a a=a\u000C",
+{"description":"<a a=a\\u000C",
 "input":"<a a=a\u000C",
 "output":["ParseError", ["StartTag", "a", {"a":"a"}]]},
 
-{"description":"<a a=a\u000D",
+{"description":"<a a=a\\u000D",
 "input":"<a a=a\u000D",
 "output":["ParseError", ["StartTag", "a", {"a":"a"}]]},
 
-{"description":"<a a=a\u001F",
+{"description":"<a a=a\\u001F",
 "input":"<a a=a\u001F",
 "output":["ParseError", "ParseError", ["StartTag", "a", {"a":"a\u001F"}]]},
 
@@ -5580,7 +5580,7 @@
 "input":"<a a=a{",
 "output":["ParseError", ["StartTag", "a", {"a":"a{"}]]},
 
-{"description":"<a a=a\uDBC0\uDC00",
+{"description":"<a a=a\\uDBC0\\uDC00",
 "input":"<a a=a\uDBC0\uDC00",
 "output":["ParseError", ["StartTag", "a", {"a":"a\uDBC0\uDC00"}]]},
 
@@ -5600,7 +5600,7 @@
 "input":"<a a={",
 "output":["ParseError", ["StartTag", "a", {"a":"{"}]]},
 
-{"description":"<a a=\uDBC0\uDC00",
+{"description":"<a a=\\uDBC0\\uDC00",
 "input":"<a a=\uDBC0\uDC00",
 "output":["ParseError", ["StartTag", "a", {"a":"\uDBC0\uDC00"}]]},
 
@@ -5660,7 +5660,7 @@
 "input":"<a a{",
 "output":["ParseError", ["StartTag", "a", {"a{":""}]]},
 
-{"description":"<a a\uDBC0\uDC00",
+{"description":"<a a\\uDBC0\\uDC00",
 "input":"<a a\uDBC0\uDC00",
 "output":["ParseError", ["StartTag", "a", {"a\uDBC0\uDC00":""}]]},
 
@@ -5680,7 +5680,7 @@
 "input":"<a {",
 "output":["ParseError", ["StartTag", "a", {"{":""}]]},
 
-{"description":"<a \uDBC0\uDC00",
+{"description":"<a \\uDBC0\\uDC00",
 "input":"<a \uDBC0\uDC00",
 "output":["ParseError", ["StartTag", "a", {"\uDBC0\uDC00":""}]]},
 
@@ -5712,23 +5712,23 @@
 "input":"<a/",
 "output":["ParseError", ["StartTag", "a", {}]]},
 
-{"description":"<a/\u0000",
+{"description":"<a/\\u0000",
 "input":"<a/\u0000",
 "output":["ParseError", "ParseError", "ParseError", ["StartTag", "a", {"\uFFFD":""}]]},
 
-{"description":"<a/\u0009",
+{"description":"<a/\\u0009",
 "input":"<a/\u0009",
 "output":["ParseError", "ParseError", ["StartTag", "a", {}]]},
 
-{"description":"<a/\u000A",
+{"description":"<a/\\u000A",
 "input":"<a/\u000A",
 "output":["ParseError", "ParseError", ["StartTag", "a", {}]]},
 
-{"description":"<a/\u000B",
+{"description":"<a/\\u000B",
 "input":"<a/\u000B",
 "output":["ParseError", "ParseError", "ParseError", ["StartTag", "a", {"\u000B":""}]]},
 
-{"description":"<a/\u000C",
+{"description":"<a/\\u000C",
 "input":"<a/\u000C",
 "output":["ParseError", "ParseError", ["StartTag", "a", {}]]},
 
@@ -5832,7 +5832,7 @@
 "input":"<a/{",
 "output":["ParseError", "ParseError", ["StartTag", "a", {"{":""}]]},
 
-{"description":"<a/\uDBC0\uDC00",
+{"description":"<a/\\uDBC0\\uDC00",
 "input":"<a/\uDBC0\uDC00",
 "output":["ParseError", "ParseError", ["StartTag", "a", {"\uDBC0\uDC00":""}]]},
 
@@ -5912,7 +5912,7 @@
 "input":"<a{",
 "output":["ParseError", ["StartTag", "a{", {}]]},
 
-{"description":"<a\uDBC0\uDC00",
+{"description":"<a\\uDBC0\\uDC00",
 "input":"<a\uDBC0\uDC00",
 "output":["ParseError", ["StartTag", "a\uDBC0\uDC00", {}]]},
 
@@ -5932,7 +5932,7 @@
 "input":"<{",
 "output":["ParseError", ["Character", "<{"]]},
 
-{"description":"<\uDBC0\uDC00",
+{"description":"<\\uDBC0\\uDC00",
 "input":"<\uDBC0\uDC00",
 "output":["ParseError", ["Character", "<\uDBC0\uDC00"]]},
 
@@ -5992,7 +5992,7 @@
 "input":"{",
 "output":[["Character", "{"]]},
 
-{"description":"\uDBC0\uDC00",
+{"description":"\\uDBC0\\uDC00",
 "input":"\uDBC0\uDC00",
 "output":[["Character", "\uDBC0\uDC00"]]}
 
