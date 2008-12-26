@@ -365,7 +365,7 @@ Line: 1 Col: 35 Unexpected end of file. Expected table content.
 #errors
 Line: 1 Col: 28 Unexpected end tag (html) after the (implied) root element.
 #document
-| <!DOCTYPE hTmL>
+| <!DOCTYPE html>
 | <html>
 |   <head>
 |   <body>
@@ -375,7 +375,7 @@ Line: 1 Col: 28 Unexpected end tag (html) after the (implied) root element.
 #errors
 Line: 1 Col: 28 Unexpected end tag (html) after the (implied) root element.
 #document
-| <!DOCTYPE HTML>
+| <!DOCTYPE html>
 | <html>
 |   <head>
 |   <body>
