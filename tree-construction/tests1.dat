@@ -227,16 +227,17 @@ Line: 1 Col: 30 Expected closing tag. Unexpected end of file.
 #data
 <h1>Hello<h2>World
 #errors
-Line: 1 Col: 4 Unexpected start tag (h1). Expected DOCTYPE.
-Line: 1 Col: 18 Expected closing tag. Unexpected end of file.
+4: Start tag seen without seeing a doctype first. Expected “<!DOCTYPE html>”.
+13: Heading cannot be a child of another heading.
+18: End of file seen and there were open elements.
 #document
 | <html>
 |   <head>
 |   <body>
 |     <h1>
 |       "Hello"
-|       <h2>
-|         "World"
+|     <h2>
+|       "World"
 
 #data
 <a><p>X<a>Y</a>Z</p></a>
@@ -1432,14 +1433,15 @@ Line: 1 Col: 29 Expected closing tag. Unexpected end of file.
 #data
 <h1><h2>
 #errors
-Line: 1 Col: 4 Unexpected start tag (h1). Expected DOCTYPE.
-Line: 1 Col: 8 Expected closing tag. Unexpected end of file.
+4: Start tag seen without seeing a doctype first. Expected “<!DOCTYPE html>”.
+8: Heading cannot be a child of another heading.
+8: End of file seen and there were open elements.
 #document
 | <html>
 |   <head>
 |   <body>
 |     <h1>
-|       <h2>
+|     <h2>
 
 #data
 <a><p><a></a></p></a>
@@ -1633,11 +1635,11 @@ Line: 1 Col: 105 Expected closing tag. Unexpected end of file.
 #data
 <h1><table><td><h3></table><h3></h1>
 #errors
-Line: 1 Col: 4 Unexpected start tag (h1). Expected DOCTYPE.
-Line: 1 Col: 15 Unexpected table cell start tag (td) in the table body phase.
-Line: 1 Col: 27 Got table cell end tag (td) while required end tags are missing.
-Line: 1 Col: 36 End tag (h1) seen too early. Expected other end tag.
-Line: 1 Col: 36 Expected closing tag. Unexpected end of file.
+4: Start tag seen without seeing a doctype first. Expected “<!DOCTYPE html>”.
+15: “td” start tag in table body.
+27: Unclosed elements.
+31: Heading cannot be a child of another heading.
+36: End tag “h1” seen but there were unclosed elements.
 #document
 | <html>
 |   <head>
@@ -1648,7 +1650,7 @@ Line: 1 Col: 36 Expected closing tag. Unexpected end of file.
 |           <tr>
 |             <td>
 |               <h3>
-|       <h3>
+|     <h3>
 
 #data
 <table><colgroup><col><colgroup><col><col><col><colgroup><col><col><thead><tr><td></table>
