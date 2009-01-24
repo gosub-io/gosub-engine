@@ -188,6 +188,70 @@
 "input": "&#xfddf;",
 "output": ["ParseError", ["Character", "\uFFFD"]]},
 
+{"description": "Invalid numeric entity character U+FDE0",
+"input": "&#xfde0;",
+"output": ["ParseError", ["Character", "\uFFFD"]]},
+
+{"description": "Invalid numeric entity character U+FDE1",
+"input": "&#xfde1;",
+"output": ["ParseError", ["Character", "\uFFFD"]]},
+
+{"description": "Invalid numeric entity character U+FDE2",
+"input": "&#xfde2;",
+"output": ["ParseError", ["Character", "\uFFFD"]]},
+
+{"description": "Invalid numeric entity character U+FDE3",
+"input": "&#xfde3;",
+"output": ["ParseError", ["Character", "\uFFFD"]]},
+
+{"description": "Invalid numeric entity character U+FDE4",
+"input": "&#xfde4;",
+"output": ["ParseError", ["Character", "\uFFFD"]]},
+
+{"description": "Invalid numeric entity character U+FDE5",
+"input": "&#xfde5;",
+"output": ["ParseError", ["Character", "\uFFFD"]]},
+
+{"description": "Invalid numeric entity character U+FDE6",
+"input": "&#xfde6;",
+"output": ["ParseError", ["Character", "\uFFFD"]]},
+
+{"description": "Invalid numeric entity character U+FDE7",
+"input": "&#xfde7;",
+"output": ["ParseError", ["Character", "\uFFFD"]]},
+
+{"description": "Invalid numeric entity character U+FDE8",
+"input": "&#xfde8;",
+"output": ["ParseError", ["Character", "\uFFFD"]]},
+
+{"description": "Invalid numeric entity character U+FDE9",
+"input": "&#xfde9;",
+"output": ["ParseError", ["Character", "\uFFFD"]]},
+
+{"description": "Invalid numeric entity character U+FDEA",
+"input": "&#xfdea;",
+"output": ["ParseError", ["Character", "\uFFFD"]]},
+
+{"description": "Invalid numeric entity character U+FDEB",
+"input": "&#xfdeb;",
+"output": ["ParseError", ["Character", "\uFFFD"]]},
+
+{"description": "Invalid numeric entity character U+FDEC",
+"input": "&#xfdec;",
+"output": ["ParseError", ["Character", "\uFFFD"]]},
+
+{"description": "Invalid numeric entity character U+FDED",
+"input": "&#xfded;",
+"output": ["ParseError", ["Character", "\uFFFD"]]},
+
+{"description": "Invalid numeric entity character U+FDEE",
+"input": "&#xfdee;",
+"output": ["ParseError", ["Character", "\uFFFD"]]},
+
+{"description": "Invalid numeric entity character U+FDEF",
+"input": "&#xfdef;",
+"output": ["ParseError", ["Character", "\uFFFD"]]},
+
 {"description": "Invalid numeric entity character U+FFFE",
 "input": "&#xfffe;",
 "output": ["ParseError", ["Character", "\uFFFD"]]},
@@ -1108,9 +1172,9 @@
 "input": "&#xfdcf;",
 "output": [["Character", "\uFDCF"]]},
 
-{"description": "Valid numeric entity character U+FDE0",
-"input": "&#xfde0;",
-"output": [["Character", "\uFDE0"]]},
+{"description": "Valid numeric entity character U+FDF0",
+"input": "&#xfdf0;",
+"output": [["Character", "\uFDF0"]]},
 
 {"description": "Valid numeric entity character U+FFFD",
 "input": "&#xfffd;",
