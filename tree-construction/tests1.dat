@@ -834,6 +834,7 @@ Line: 1 Col: 50 Expected closing tag. Unexpected end of file.
 |             <cite>
 |               <i>
 |                 <cite>
+|                   <i>
 |       <i>
 |         <i>
 |           <i>
@@ -1241,7 +1242,8 @@ Line: 1 Col: 49 Unexpected end tag (code). Ignored.
 |     <strike>
 |       <code>
 |     <code>
-|       <strike>
+|       <code>
+|         <strike>
 
 #data
 <title><meta></title><link><title><meta></title>
@@ -1615,20 +1617,20 @@ Line: 1 Col: 10 Unexpected start tag (frameset). Expected DOCTYPE.
 #data
 <body><frame></frame></frame><frameset><frame><frameset><frame></frameset><noframes></frameset><noframes>
 #errors
-Line: 1 Col: 6 Unexpected start tag (body). Expected DOCTYPE.
-Line: 1 Col: 13 Unexpected start tag frame. Ignored.
-Line: 1 Col: 21 This element (frame) has no end tag.
-Line: 1 Col: 29 This element (frame) has no end tag.
-Line: 1 Col: 39 Unexpected start tag frameset. Ignored.
-Line: 1 Col: 46 Unexpected start tag frame. Ignored.
-Line: 1 Col: 56 Unexpected start tag frameset. Ignored.
-Line: 1 Col: 63 Unexpected start tag frame. Ignored.
-Line: 1 Col: 74 Unexpected end tag (frameset). Ignored.
-Line: 1 Col: 105 Expected closing tag. Unexpected end of file.
+6: Start tag seen without seeing a doctype first. Expected “<!DOCTYPE html>”.
+13: Stray start tag “frame”.
+21: Stray end tag “frame”.
+29: Stray end tag “frame”.
+39: “frameset” start tag after “body” already open.
+105: End of file seen inside an [R]CDATA element.
+105: End of file seen and there were open elements.
 #document
 | <html>
 |   <head>
-|   <body>
+|   <frameset>
+|     <frame>
+|     <frameset>
+|       <frame>
 |     <noframes>
 |       "</frameset><noframes>"
 

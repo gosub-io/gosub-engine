@@ -81,10 +81,9 @@ Line: 1 Col: 30 Unexpected start tag (meta) in table context caused voodoo mode.
 | <html>
 |   <head>
 |   <body>
-|     "X"
+|     " X"
 |     <meta>
 |     <table>
-|       " "
 
 #data
 <!doctype html><table>X<tr><td><table> <meta></table></table>
@@ -132,9 +131,8 @@ Line: 1 Col: 24 Unexpected non-space characters in table context caused voodoo m
 | <html>
 |   <head>
 |   <body>
-|     "x"
+|     " x"
 |     <table>
-|       " "
 
 #data
 <!doctype html><table> x </table>
@@ -145,9 +143,8 @@ Line: 1 Col: 25 Unexpected non-space characters in table context caused voodoo m
 | <html>
 |   <head>
 |   <body>
-|     "x "
+|     " x "
 |     <table>
-|       " "
 
 #data
 <!doctype html><table><tr> x</table>
@@ -158,16 +155,14 @@ Line: 1 Col: 28 Unexpected non-space characters in table context caused voodoo m
 | <html>
 |   <head>
 |   <body>
-|     "x"
+|     " x"
 |     <table>
 |       <tbody>
 |         <tr>
-|           " "
 
 #data
 <!doctype html><table><style> <tr>x </style> </table>
 #errors
-Line: 1 Col: 44 Unexpected end tag (style) in table context caused voodoo mode.
 #document
 | <!DOCTYPE html>
 | <html>
@@ -181,7 +176,6 @@ Line: 1 Col: 44 Unexpected end tag (style) in table context caused voodoo mode.
 #data
 <!doctype html><table><TBODY><script> <tr>x </script> </table>
 #errors
-Line: 1 Col: 53 Unexpected end tag (script) in table context caused voodoo mode.
 #document
 | <!DOCTYPE html>
 | <html>
@@ -197,18 +191,16 @@ Line: 1 Col: 53 Unexpected end tag (script) in table context caused voodoo mode.
 <!doctype html><table>X<style> <tr>x </style> </table>
 #errors
 Line: 1 Col: 23 Unexpected non-space characters in table context caused voodoo mode.
-Line: 1 Col: 30 Unexpected start tag (style) in table context caused voodoo mode.
-Line: 1 Col: 45 Unexpected end tag (style) in table context caused voodoo mode.
 #document
 | <!DOCTYPE html>
 | <html>
 |   <head>
 |   <body>
 |     "X"
-|     <style>
-|       " <tr>x "
-|     " "
 |     <table>
+|       <style>
+|         " <tr>x "
+|       " "
 
 #data
 <!doctype html><p><applet><p>X</p></applet>
@@ -277,16 +269,15 @@ Line: 1 Col: 41 Unexpected input with type hidden in table context.
 <!doctype html><table>X<input type=hidDEN></table>
 #errors
 Line: 1 Col: 23 Unexpected non-space characters in table context caused voodoo mode.
-Line: 1 Col: 42 Unexpected start tag (input) in table context caused voodoo mode.
 #document
 | <!DOCTYPE html>
 | <html>
 |   <head>
 |   <body>
 |     "X"
-|     <input>
-|       type="hidDEN"
 |     <table>
+|       <input>
+|         type="hidDEN"
 
 #data
 <!doctype html><table>  <input type=hidDEN></table>
@@ -320,7 +311,6 @@ Line: 1 Col: 45 Unexpected input with type hidden in table context.
 <!doctype html><table><input type=" hidden"><input type=hidDEN></table>
 #errors
 Line: 1 Col: 44 Unexpected start tag (input) in table context caused voodoo mode.
-Line: 1 Col: 63 Unexpected start tag (input) in table context caused voodoo mode.
 #document
 | <!DOCTYPE html>
 | <html>
@@ -328,9 +318,9 @@ Line: 1 Col: 63 Unexpected start tag (input) in table context caused voodoo mode
 |   <body>
 |     <input>
 |       type=" hidden"
-|     <input>
-|       type="hidDEN"
 |     <table>
+|       <input>
+|         type="hidDEN"
 
 #data
 <!doctype html><table><select>X<tr>
@@ -405,12 +395,13 @@ Line: 1 Col: 37 Unexpected end tag (a) in table context caused voodoo mode.
 |     <div>
 |       <a>
 |         "foo"
-|       "  "
 |       <table>
+|         " "
 |         <tbody>
 |           <tr>
 |             <td>
 |               "bar"
+|             " "
 
 #data
 <div><p>a</x> b

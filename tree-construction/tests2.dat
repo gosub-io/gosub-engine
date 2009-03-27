@@ -347,11 +347,11 @@ Line: 1 Col: 36 Expected closing tag. Unexpected end of file.
 |       <b>
 |         <i>
 |           <u>
-|     <b>
-|       <i>
-|         <u>
-|           " "
-|           <p>
+|     " "
+|     <p>
+|       <b>
+|         <i>
+|           <u>
 |             "X"
 
 #data
@@ -570,12 +570,12 @@ Line: 2 Col: 4 Expected closing tag. Unexpected end of file.
 |       <b>
 |         <i>
 |           <u>
-|     <b>
-|       <i>
-|         <u>
-|           "
+|     "
 "
-|           <p>
+|     <p>
+|       <b>
+|         <i>
+|           <u>
 |             "X"
 
 #data
