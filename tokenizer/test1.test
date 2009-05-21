@@ -179,6 +179,10 @@
 
 {"description":"Unquoted attribute ending in ampersand",
  "input":"<s o=& t",
- "output":["ParseError",["StartTag","s",{"o":"&","t":""}]]}
+ "output":["ParseError",["StartTag","s",{"o":"&","t":""}]]},
+
+{"description":"plaintext element",
+ "input":"<plaintext>foobar",
+ "output":[["StartTag","plaintext",{}], ["Character","foobar"]]}
 
 ]}
