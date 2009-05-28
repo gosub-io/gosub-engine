@@ -1624,13 +1624,11 @@ Line: 1 Col: 10 Unexpected start tag (frameset). Expected DOCTYPE.
 39: “frameset” start tag after “body” already open.
 105: End of file seen inside an [R]CDATA element.
 105: End of file seen and there were open elements.
+XXX: These errors are wrong, please fix me!
 #document
 | <html>
 |   <head>
-|   <frameset>
-|     <frame>
-|     <frameset>
-|       <frame>
+|   <body>
 |     <noframes>
 |       "</frameset><noframes>"
 
