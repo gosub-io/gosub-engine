@@ -19,3 +19,26 @@ Line: 1 Col: 36 Expected closing tag. Unexpected end of file.
 |           <u>
 |             "X"
 
+#data
+<p><b><i><u></p>
+<p>X
+#errors
+Line: 1 Col: 3 Unexpected start tag (p). Expected DOCTYPE.
+Line: 1 Col: 16 Unexpected end tag (p). Ignored.
+Line: 2 Col: 4 Expected closing tag. Unexpected end of file.
+#document
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|       <b>
+|         <i>
+|           <u>
+|     "
+"
+|     <p>
+|       <b>
+|         <i>
+|           <u>
+|             "X"
+
