@@ -714,7 +714,7 @@ Line: 1 Col: 24 Unexpected non-space characters in the after body phase.
 #data
 <!DOCTYPE html>X</html><p>X
 #errors
-Line: 1 Col: 26 Unexpected start tag ().
+Line: 1 Col: 26 Unexpected start tag (p).
 #document
 | <!DOCTYPE html>
 | <html>
