@@ -1391,8 +1391,8 @@ Line: 1 Col: 13 Unexpected end tag (html). Ignored.
 #document
 | <html>
 |   <head>
-|     <meta>
 |   <body>
+|     <meta>
 |     <p>
 
 #data
