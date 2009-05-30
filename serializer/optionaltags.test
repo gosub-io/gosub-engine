@@ -92,14 +92,24 @@
  "expected": ["<foo>"]
 },
 
-{"description": "head start-tag followed by end-tag",
- "input": [["StartTag", "head", {}], ["EndTag", "foo", {}]],
- "expected": ["<head></foo>"]
+{"description": "head start-tag followed by end-tag (shouldn't ever happen?!)",
+ "input": [["StartTag", "head", {}], ["EndTag", "foo"]],
+ "expected": ["<head></foo>", "</foo>"]
+},
+
+{"description": "empty head element",
+ "input": [["StartTag", "head", {}], ["EndTag", "head"]],
+ "expected": [""]
+},
+
+{"description": "head start-tag followed by empty-tag",
+ "input": [["StartTag", "head", {}], ["EmptyTag", "foo", {}]],
+ "expected": ["<foo>"]
 },
 
 {"description": "head start-tag at EOF (shouldn't ever happen?!)",
  "input": [["StartTag", "head", {}]],
- "expected": ["<head>"]
+ "expected": ["<head>", ""]
 },
 
 
@@ -441,8 +451,8 @@
  "expected": ["<header>"]
 },
 
-{"description": "p end-tag followed by hr start-tag",
- "input": [["EndTag", "p"], ["StartTag", "hr", {}]],
+{"description": "p end-tag followed by hr empty-tag",
+ "input": [["EndTag", "p"], ["EmptyTag", "hr", {}]],
  "expected": ["<hr>"]
 },
 
@@ -601,7 +611,7 @@
 },
 
 {"description": "first colgroup in a table with a col child",
- "input": [["StartTag", "table", {}], ["StartTag", "colgroup", {}], ["StartTag", "col", {}]],
+ "input": [["StartTag", "table", {}], ["StartTag", "colgroup", {}], ["EmptyTag", "col", {}]],
  "expected": ["<table><col>"]
 },
 

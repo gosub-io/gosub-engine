@@ -17,10 +17,9 @@
  "xhtml":    ["<span title=\"foo&lt;bar\">"]
 },
 
-{"description": "proper attribute value non-quoting (with =)",
+{"description": "proper attribute value quoting (with =)",
  "input": [["StartTag", "span", {"title": "foo=bar"}]],
- "expected": ["<span title=\"foo=bar\">"],
- "xhtml":    ["<span title=\"foo=bar\">"]
+ "expected": ["<span title=\"foo=bar\">"]
 },
 
 {"description": "proper attribute value quoting (with >)",
@@ -63,9 +62,10 @@
  "expected": ["<span title=\"foo\rbar\">"]
 },
 
-{"description": "proper attribute value quoting (with linetab)",
+{"description": "proper attribute value non-quoting (with linetab)",
  "input": [["StartTag", "span", {"title": "foo\u000Bbar"}]],
- "expected": ["<span title=foo\u000Bbar>"]
+ "expected": ["<span title=foo\u000Bbar>"],
+ "xhtml": ["<span title=\"foo\u000Bbar\">"]
 },
 
 {"description": "proper attribute value quoting (with form feed)",

@@ -184,6 +184,70 @@
 "input": "\uFDDF",
 "output": ["ParseError", ["Character", "\uFDDF"]]},
 
+{"description": "Invalid Unicode character U+FDE0",
+"input": "\uFDE0",
+"output": ["ParseError", ["Character", "\uFDE0"]]},
+
+{"description": "Invalid Unicode character U+FDE1",
+"input": "\uFDE1",
+"output": ["ParseError", ["Character", "\uFDE1"]]},
+
+{"description": "Invalid Unicode character U+FDE2",
+"input": "\uFDE2",
+"output": ["ParseError", ["Character", "\uFDE2"]]},
+
+{"description": "Invalid Unicode character U+FDE3",
+"input": "\uFDE3",
+"output": ["ParseError", ["Character", "\uFDE3"]]},
+
+{"description": "Invalid Unicode character U+FDE4",
+"input": "\uFDE4",
+"output": ["ParseError", ["Character", "\uFDE4"]]},
+
+{"description": "Invalid Unicode character U+FDE5",
+"input": "\uFDE5",
+"output": ["ParseError", ["Character", "\uFDE5"]]},
+
+{"description": "Invalid Unicode character U+FDE6",
+"input": "\uFDE6",
+"output": ["ParseError", ["Character", "\uFDE6"]]},
+
+{"description": "Invalid Unicode character U+FDE7",
+"input": "\uFDE7",
+"output": ["ParseError", ["Character", "\uFDE7"]]},
+
+{"description": "Invalid Unicode character U+FDE8",
+"input": "\uFDE8",
+"output": ["ParseError", ["Character", "\uFDE8"]]},
+
+{"description": "Invalid Unicode character U+FDE9",
+"input": "\uFDE9",
+"output": ["ParseError", ["Character", "\uFDE9"]]},
+
+{"description": "Invalid Unicode character U+FDEA",
+"input": "\uFDEA",
+"output": ["ParseError", ["Character", "\uFDEA"]]},
+
+{"description": "Invalid Unicode character U+FDEB",
+"input": "\uFDEB",
+"output": ["ParseError", ["Character", "\uFDEB"]]},
+
+{"description": "Invalid Unicode character U+FDEC",
+"input": "\uFDEC",
+"output": ["ParseError", ["Character", "\uFDEC"]]},
+
+{"description": "Invalid Unicode character U+FDED",
+"input": "\uFDED",
+"output": ["ParseError", ["Character", "\uFDED"]]},
+
+{"description": "Invalid Unicode character U+FDEE",
+"input": "\uFDEE",
+"output": ["ParseError", ["Character", "\uFDEE"]]},
+
+{"description": "Invalid Unicode character U+FDEF",
+"input": "\uFDEF",
+"output": ["ParseError", ["Character", "\uFDEF"]]},
+
 {"description": "Invalid Unicode character U+FFFE",
 "input": "\uFFFE",
 "output": ["ParseError", ["Character", "\uFFFE"]]},
@@ -1100,9 +1164,9 @@
 "input": "\uFDCF",
 "output": [["Character", "\uFDCF"]]},
 
-{"description": "Valid Unicode character U+FDE0",
-"input": "\uFDE0",
-"output": [["Character", "\uFDE0"]]},
+{"description": "Valid Unicode character U+FDF0",
+"input": "\uFDF0",
+"output": [["Character", "\uFDF0"]]},
 
 {"description": "Valid Unicode character U+FFFD",
 "input": "\uFFFD",

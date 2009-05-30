@@ -456,24 +456,46 @@
   {
     "name": "style_attr_end_with_nothing",
     "input": "<div style=\"color: blue\" />",
-    "output": "<div style='color: blue;'/>"
+    "output": "<div style='color: blue;'/>",
+    "xhtml": "<div style='color: blue;'></div>",
+    "rexml": "<div style='color: blue;'></div>"
   },
 
   {
     "name": "style_attr_end_with_space",
     "input": "<div style=\"color: blue \" />",
-    "output": "<div style='color: blue ;'/>"
+    "output": "<div style='color: blue ;'/>",
+    "xhtml": "<div style='color: blue ;'></div>",
+    "rexml": "<div style='color: blue ;'></div>"
   },
 
   {
     "name": "style_attr_end_with_semicolon",
     "input": "<div style=\"color: blue;\" />",
-    "output": "<div style='color: blue;'/>"
+    "output": "<div style='color: blue;'/>",
+    "xhtml": "<div style='color: blue;'></div>",
+    "rexml": "<div style='color: blue;'></div>"
   },
 
   {
     "name": "style_attr_end_with_semicolon_space",
     "input": "<div style=\"color: blue; \" />",
-    "output": "<div style='color: blue;'/>"
+    "output": "<div style='color: blue;'/>",
+    "xhtml": "<div style='color: blue;'></div>",
+    "rexml": "<div style='color: blue;'></div>"
+  },
+  
+  {
+   "name": "attributes_with_embedded_quotes",
+   "input": "<img src=doesntexist.jpg\"'onerror=\"alert(1) />",
+   "output": "<img src='doesntexist.jpg&quot;&apos;onerror=&quot;alert(1)'/>",
+   "rexml": "Ill-formed XHTML!"
+  },
+  
+  {
+   "name": "attributes_with_embedded_quotes_II",
+   "input": "<img src=notthere.jpg\"\"onerror=\"alert(2) />",
+   "output": "<img src='notthere.jpg&quot;&quot;onerror=&quot;alert(2)'/>",
+   "rexml": "Ill-formed XHTML!"
   }
 ]

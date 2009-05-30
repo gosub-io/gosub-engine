@@ -33,8 +33,8 @@ Line: 1 Col: 22 Unexpected end tag (body) after the (implied) root element.
 #data
 <!doctype html><form><div></form><div>
 #errors
-Line: 1 Col: 33 End tag (form) seen too early. Ignored.
-Line: 1 Col: 38 Expected closing tag. Unexpected end of file.
+33: End tag “form” seen but there were unclosed elements.
+38: End of file seen and there were open elements.
 #document
 | <!DOCTYPE html>
 | <html>
@@ -42,7 +42,7 @@ Line: 1 Col: 38 Expected closing tag. Unexpected end of file.
 |   <body>
 |     <form>
 |       <div>
-|     <div>
+|         <div>
 
 #data
 <!doctype html><title>&amp;</title>
