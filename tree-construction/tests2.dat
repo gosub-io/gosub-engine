@@ -334,27 +334,6 @@ Line: 1 Col: 23 Expected closing tag. Unexpected end of file.
 |     <form>
 
 #data
-<!DOCTYPE html><p><b><i><u></p> <p>X
-#errors
-Line: 1 Col: 31 Unexpected end tag (p). Ignored.
-Line: 1 Col: 36 Expected closing tag. Unexpected end of file.
-#document
-| <!DOCTYPE html>
-| <html>
-|   <head>
-|   <body>
-|     <p>
-|       <b>
-|         <i>
-|           <u>
-|     " "
-|     <p>
-|       <b>
-|         <i>
-|           <u>
-|             "X"
-
-#data
 <!DOCTYPE html><p></P>X
 #errors
 #document
@@ -714,7 +693,7 @@ Line: 1 Col: 24 Unexpected non-space characters in the after body phase.
 #data
 <!DOCTYPE html>X</html><p>X
 #errors
-Line: 1 Col: 26 Unexpected start tag ().
+Line: 1 Col: 26 Unexpected start tag (p).
 #document
 | <!DOCTYPE html>
 | <html>

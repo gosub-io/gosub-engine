@@ -1,0 +1,21 @@
+#data
+<!DOCTYPE html><p><b><i><u></p> <p>X
+#errors
+Line: 1 Col: 31 Unexpected end tag (p). Ignored.
+Line: 1 Col: 36 Expected closing tag. Unexpected end of file.
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|       <b>
+|         <i>
+|           <u>
+|     " "
+|     <p>
+|       <b>
+|         <i>
+|           <u>
+|             "X"
+

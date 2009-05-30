@@ -1387,7 +1387,7 @@ Line: 1 Col: 10 Unexpected end tag (p). Ignored.
 <head></html><meta><p>
 #errors
 Line: 1 Col: 6 Unexpected start tag (head). Expected DOCTYPE.
-Line: 1 Col: 13 Unexpected end tag (html). Ignored.
+Line: 1 Col: 19 Unexpected start tag (meta).
 #document
 | <html>
 |   <head>
@@ -1796,7 +1796,7 @@ Line: 1 Col: 460 This element (wbr) has no end tag.
 Line: 1 Col: 476 End tag (button) seen too early. Expected other end tag.
 Line: 1 Col: 486 End tag (marquee) seen too early. Expected other end tag.
 Line: 1 Col: 495 End tag (object) seen too early. Expected other end tag.
-Line: 1 Col: 513 Unexpected end tag (). Ignored.
+Line: 1 Col: 513 Unexpected end tag (html). Ignored.
 Line: 1 Col: 513 Unexpected end tag (frameset). Ignored.
 Line: 1 Col: 520 Unexpected end tag (head). Ignored.
 Line: 1 Col: 529 Unexpected end tag (iframe). Ignored.
@@ -1916,7 +1916,7 @@ Line: 1 Col: 471 This element (wbr) has no end tag.
 Line: 1 Col: 487 End tag (button) seen too early. Expected other end tag.
 Line: 1 Col: 497 End tag (marquee) seen too early. Expected other end tag.
 Line: 1 Col: 506 End tag (object) seen too early. Expected other end tag.
-Line: 1 Col: 524 Unexpected end tag (). Ignored.
+Line: 1 Col: 524 Unexpected end tag (html). Ignored.
 Line: 1 Col: 524 Unexpected end tag (frameset). Ignored.
 Line: 1 Col: 531 Unexpected end tag (head). Ignored.
 Line: 1 Col: 540 Unexpected end tag (iframe). Ignored.
