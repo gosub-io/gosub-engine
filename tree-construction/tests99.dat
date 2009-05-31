@@ -74,3 +74,67 @@ Line: 1 Col: 13 Unexpected end tag (html) after the (implied) root element.
 |   <head>
 |   <body>
 
+#data
+<!doctype html></body><title>X</title>
+#errors
+Line: 1 Col: 22 Unexpected end tag (body) after the (implied) root element.
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|     <title>
+|       "X"
+|   <body>
+
+#data
+<!doctype html><table> X<meta></table>
+#errors
+Line: 1 Col: 24 Unexpected non-space characters in table context caused voodoo mode.
+Line: 1 Col: 30 Unexpected start tag (meta) in table context caused voodoo mode.
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     " X"
+|     <meta>
+|     <table>
+
+#data
+<!doctype html><table> x</table>
+#errors
+Line: 1 Col: 24 Unexpected non-space characters in table context caused voodoo mode.
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     " x"
+|     <table>
+
+#data
+<!doctype html><table> x </table>
+#errors
+Line: 1 Col: 25 Unexpected non-space characters in table context caused voodoo mode.
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     " x "
+|     <table>
+
+#data
+<!doctype html><table><tr> x</table>
+#errors
+Line: 1 Col: 28 Unexpected non-space characters in table context caused voodoo mode.
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     " x"
+|     <table>
+|       <tbody>
+|         <tr>
+
