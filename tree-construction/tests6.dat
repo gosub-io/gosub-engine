@@ -10,27 +10,6 @@ Line: 1 Col: 29 Unexpected start tag head. Ignored.
 |   <body>
 
 #data
-<!doctype html></html> <head>
-#errors
-Line: 1 Col: 22 Unexpected end tag (html) after the (implied) root element.
-#document
-| <!DOCTYPE html>
-| <html>
-|   <head>
-|   <body>
-
-#data
-<!doctype html></body><meta>
-#errors
-Line: 1 Col: 22 Unexpected end tag (body) after the (implied) root element.
-#document
-| <!DOCTYPE html>
-| <html>
-|   <head>
-|     <meta>
-|   <body>
-
-#data
 <!doctype html><form><div></form><div>
 #errors
 33: End tag “form” seen but there were unclosed elements.

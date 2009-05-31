@@ -42,3 +42,24 @@ Line: 2 Col: 4 Expected closing tag. Unexpected end of file.
 |           <u>
 |             "X"
 
+#data
+<!doctype html></html> <head>
+#errors
+Line: 1 Col: 22 Unexpected end tag (html) after the (implied) root element.
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+
+#data
+<!doctype html></body><meta>
+#errors
+Line: 1 Col: 22 Unexpected end tag (body) after the (implied) root element.
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|     <meta>
+|   <body>
+
