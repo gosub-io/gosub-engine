@@ -579,17 +579,6 @@ table
 |   <tr>
 
 #data
-<html></html><!-- foo -->
-#errors
-Line: 1 Col: 6 Unexpected start tag (html). Expected DOCTYPE.
-Line: 1 Col: 13 Unexpected end tag (html) after the (implied) root element.
-#document
-| <html>
-|   <!--  foo  -->
-|   <head>
-|   <body>
-
-#data
 <body></body></html>
 #errors
 Line: 1 Col: 20 Unexpected html end tag in inner html mode.

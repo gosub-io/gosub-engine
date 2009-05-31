@@ -63,3 +63,14 @@ Line: 1 Col: 22 Unexpected end tag (body) after the (implied) root element.
 |     <meta>
 |   <body>
 
+#data
+<html></html><!-- foo -->
+#errors
+Line: 1 Col: 6 Unexpected start tag (html). Expected DOCTYPE.
+Line: 1 Col: 13 Unexpected end tag (html) after the (implied) root element.
+#document
+| <html>
+|   <!--  foo  -->
+|   <head>
+|   <body>
+
