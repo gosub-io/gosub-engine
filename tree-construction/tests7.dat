@@ -124,21 +124,6 @@ Line: 1 Col: 45 Unexpected start tag (meta) in table context caused voodoo mode.
 |         " "
 
 #data
-<!doctype html><table>X<style> <tr>x </style> </table>
-#errors
-Line: 1 Col: 23 Unexpected non-space characters in table context caused voodoo mode.
-#document
-| <!DOCTYPE html>
-| <html>
-|   <head>
-|   <body>
-|     "X"
-|     <table>
-|       <style>
-|         " <tr>x "
-|       " "
-
-#data
 <!doctype html><p><applet><p>X</p></applet>
 #errors
 #document
@@ -317,27 +302,6 @@ html
 | <head>
 | <body>
 |   "X"
-
-#data
-<!doctype html><div><table><a>foo</a> <tr><td>bar</td> </tr></table></div>
-#errors
-Line: 1 Col: 30 Unexpected start tag (a) in table context caused voodoo mode.
-Line: 1 Col: 37 Unexpected end tag (a) in table context caused voodoo mode.
-#document
-| <!DOCTYPE html>
-| <html>
-|   <head>
-|   <body>
-|     <div>
-|       <a>
-|         "foo"
-|       <table>
-|         " "
-|         <tbody>
-|           <tr>
-|             <td>
-|               "bar"
-|             " "
 
 #data
 <div><p>a</x> b
