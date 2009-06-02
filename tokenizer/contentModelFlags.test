@@ -22,19 +22,19 @@
 "contentModelFlags":["RCDATA", "CDATA"],
 "lastStartTag":"xmp",
 "input":"foo</xmp ",
-"output":[["Character", "foo"], "ParseError", ["EndTag", "xmp"]]},
+"output":[["Character", "foo"], "ParseError"]},
 
 {"description":"End tag closing RCDATA or CDATA (ending with EOF)",
 "contentModelFlags":["RCDATA", "CDATA"],
 "lastStartTag":"xmp",
 "input":"foo</xmp",
-"output":[["Character", "foo"], "ParseError", ["EndTag", "xmp"]]},
+"output":[["Character", "foo"], "ParseError"]},
 
 {"description":"End tag closing RCDATA or CDATA (ending with slash)",
 "contentModelFlags":["RCDATA", "CDATA"],
 "lastStartTag":"xmp",
 "input":"foo</xmp/",
-"output":[["Character", "foo"], "ParseError", ["EndTag", "xmp"]]},
+"output":[["Character", "foo"], "ParseError"]},
 
 {"description":"End tag not closing RCDATA or CDATA (ending with left-angle-bracket)",
 "contentModelFlags":["RCDATA", "CDATA"],

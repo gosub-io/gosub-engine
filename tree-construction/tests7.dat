@@ -316,3 +316,18 @@ Line: 1 Col: 15 Expected closing tag. Unexpected end of file.
 |     <div>
 |       <p>
 |         "a b"
+
+#data
+<table><tr><td><code></code> </table>
+#errors
+Line: 1 Col: 7 Unexpected start tag (table). Expected DOCTYPE.
+#document
+| <html>
+|   <head>
+|   <body>
+|     <table>
+|       <tbody>
+|         <tr>
+|           <td>
+|             <code>
+|             " "

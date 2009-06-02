@@ -178,8 +178,12 @@
 "output":["ParseError", ["StartTag", "h", {"a":"\u00A9"}]]},
 
 {"description":"Unquoted attribute ending in ampersand",
- "input":"<s o=& t",
- "output":["ParseError",["StartTag","s",{"o":"&","t":""}]]},
+"input":"<s o=& t>",
+"output":[["StartTag","s",{"o":"&","t":""}]]},
+
+{"description":"Unquoted attribute at end of tag with final character of &, with tag followed by characters",
+"input":"<a a=a&>foo",
+"output":["ParseError", ["StartTag", "a", {"a":"a&"}], ["Character", "foo"]]},
 
 {"description":"plaintext element",
  "input":"<plaintext>foobar",
