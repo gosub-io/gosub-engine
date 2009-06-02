@@ -866,7 +866,7 @@
 
 {"description":"<!DOCTYPE",
 "input":"<!DOCTYPE",
-"output":["ParseError", "ParseError", ["DOCTYPE", "", null, null, false]]},
+"output":["ParseError", ["DOCTYPE", "", null, null, false]]},
 
 {"description":"<!DOCTYPE\\u0000",
 "input":"<!DOCTYPE\u0000",
