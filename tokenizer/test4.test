@@ -1,12 +1,12 @@
 {"tests": [
 
 {"description":"< in attribute name",
-"input":"<z/0  <",
-"output":["ParseError", "ParseError", ["StartTag", "z", {"0": "", "<": ""}]]},
+"input":"<z/0  <>",
+"output":["ParseError", ["StartTag", "z", {"0": "", "<": ""}]]},
 
 {"description":"< in attribute value",
-"input":"<z x=<",
-"output":["ParseError", ["StartTag", "z", {"x": "<"}]]},
+"input":"<z x=<>",
+"output":[["StartTag", "z", {"x": "<"}]]},
 
 {"description":"= in unquoted attribute value",
 "input":"<z z=z=z>",
@@ -98,11 +98,11 @@
 
 {"description":"CR EOF in tag name",
 "input":"<z\r",
-"output":["ParseError", ["StartTag", "z", {}]]},
+"output":["ParseError"]},
 
 {"description":"Slash EOF in tag name",
 "input":"<z/",
-"output":["ParseError", ["StartTag", "z", {}]]},
+"output":["ParseError"]},
 
 {"description":"Zero hex numeric entity",
 "input":"&#x0",

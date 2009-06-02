@@ -4260,21 +4260,21 @@
 "input":"</@",
 "output":["ParseError", ["Comment", "@"]]},
 
-{"description":"</A",
-"input":"</A",
-"output":["ParseError", ["EndTag", "a"]]},
+{"description":"</A>",
+"input":"</A>",
+"output":[["EndTag", "a"]]},
 
-{"description":"</B",
-"input":"</B",
-"output":["ParseError", ["EndTag", "b"]]},
+{"description":"</B>",
+"input":"</B>",
+"output":[["EndTag", "b"]]},
 
-{"description":"</Y",
-"input":"</Y",
-"output":["ParseError", ["EndTag", "y"]]},
+{"description":"</Y>",
+"input":"</Y>",
+"output":[["EndTag", "y"]]},
 
-{"description":"</Z",
-"input":"</Z",
-"output":["ParseError", ["EndTag", "z"]]},
+{"description":"</Z>",
+"input":"</Z>",
+"output":[["EndTag", "z"]]},
 
 {"description":"</[",
 "input":"</[",
@@ -4284,21 +4284,21 @@
 "input":"</`",
 "output":["ParseError", ["Comment", "`"]]},
 
-{"description":"</a",
-"input":"</a",
-"output":["ParseError", ["EndTag", "a"]]},
+{"description":"</a>",
+"input":"</a>",
+"output":[["EndTag", "a"]]},
 
-{"description":"</b",
-"input":"</b",
-"output":["ParseError", ["EndTag", "b"]]},
+{"description":"</b>",
+"input":"</b>",
+"output":[["EndTag", "b"]]},
 
-{"description":"</y",
-"input":"</y",
-"output":["ParseError", ["EndTag", "y"]]},
+{"description":"</y>",
+"input":"</y>",
+"output":[["EndTag", "y"]]},
 
-{"description":"</z",
-"input":"</z",
-"output":["ParseError", ["EndTag", "z"]]},
+{"description":"</z>",
+"input":"</z>",
+"output":[["EndTag", "z"]]},
 
 {"description":"</{",
 "input":"</{",
@@ -4464,21 +4464,21 @@
 "input":"<@",
 "output":["ParseError", ["Character", "<@"]]},
 
-{"description":"<A",
-"input":"<A",
-"output":["ParseError", ["StartTag", "a", {}]]},
+{"description":"<A>",
+"input":"<A>",
+"output":[["StartTag", "a", {}]]},
 
-{"description":"<B",
-"input":"<B",
-"output":["ParseError", ["StartTag", "b", {}]]},
+{"description":"<B>",
+"input":"<B>",
+"output":[["StartTag", "b", {}]]},
 
-{"description":"<Y",
-"input":"<Y",
-"output":["ParseError", ["StartTag", "y", {}]]},
+{"description":"<Y>",
+"input":"<Y>",
+"output":[["StartTag", "y", {}]]},
 
-{"description":"<Z",
-"input":"<Z",
-"output":["ParseError", ["StartTag", "z", {}]]},
+{"description":"<Z>",
+"input":"<Z>",
+"output":[["StartTag", "z", {}]]},
 
 {"description":"<[",
 "input":"<[",
@@ -4488,1445 +4488,1445 @@
 "input":"<`",
 "output":["ParseError", ["Character", "<`"]]},
 
-{"description":"<a",
-"input":"<a",
-"output":["ParseError", ["StartTag", "a", {}]]},
+{"description":"<a>",
+"input":"<a>",
+"output":[["StartTag", "a", {}]]},
 
-{"description":"<a\\u0000",
-"input":"<a\u0000",
-"output":["ParseError", "ParseError", ["StartTag", "a\uFFFD", {}]]},
+{"description":"<a\\u0000>",
+"input":"<a\u0000>",
+"output":["ParseError", ["StartTag", "a\uFFFD", {}]]},
 
-{"description":"<a\\u0008",
-"input":"<a\u0008",
-"output":["ParseError", "ParseError", ["StartTag", "a\u0008", {}]]},
+{"description":"<a\\u0008>",
+"input":"<a\u0008>",
+"output":["ParseError", ["StartTag", "a\u0008", {}]]},
 
-{"description":"<a\\u0009",
-"input":"<a\u0009",
-"output":["ParseError", ["StartTag", "a", {}]]},
+{"description":"<a\\u0009>",
+"input":"<a\u0009>",
+"output":[["StartTag", "a", {}]]},
 
-{"description":"<a\\u000A",
-"input":"<a\u000A",
-"output":["ParseError", ["StartTag", "a", {}]]},
+{"description":"<a\\u000A>",
+"input":"<a\u000A>",
+"output":[["StartTag", "a", {}]]},
 
-{"description":"<a\\u000B",
-"input":"<a\u000B",
-"output":["ParseError", "ParseError", ["StartTag", "a\u000B", {}]]},
+{"description":"<a\\u000B>",
+"input":"<a\u000B>",
+"output":["ParseError", ["StartTag", "a\u000B", {}]]},
 
-{"description":"<a\\u000C",
-"input":"<a\u000C",
-"output":["ParseError", ["StartTag", "a", {}]]},
+{"description":"<a\\u000C>",
+"input":"<a\u000C>",
+"output":[["StartTag", "a", {}]]},
 
-{"description":"<a\\u000D",
-"input":"<a\u000D",
-"output":["ParseError", ["StartTag", "a", {}]]},
+{"description":"<a\\u000D>",
+"input":"<a\u000D>",
+"output":[["StartTag", "a", {}]]},
 
-{"description":"<a\\u001F",
-"input":"<a\u001F",
-"output":["ParseError", "ParseError", ["StartTag", "a\u001F", {}]]},
-
-{"description":"<a ",
-"input":"<a ",
-"output":["ParseError", ["StartTag", "a", {}]]},
-
-{"description":"<a \\u0000",
-"input":"<a \u0000",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"\uFFFD":""}]]},
-
-{"description":"<a \\u0008",
-"input":"<a \u0008",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"\u0008":""}]]},
-
-{"description":"<a \\u0009",
-"input":"<a \u0009",
-"output":["ParseError", ["StartTag", "a", {}]]},
-
-{"description":"<a \\u000A",
-"input":"<a \u000A",
-"output":["ParseError", ["StartTag", "a", {}]]},
-
-{"description":"<a \\u000B",
-"input":"<a \u000B",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"\u000B":""}]]},
-
-{"description":"<a \\u000C",
-"input":"<a \u000C",
-"output":["ParseError", ["StartTag", "a", {}]]},
-
-{"description":"<a \\u000D",
-"input":"<a \u000D",
-"output":["ParseError", ["StartTag", "a", {}]]},
-
-{"description":"<a \\u001F",
-"input":"<a \u001F",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"\u001F":""}]]},
-
-{"description":"<a  ",
-"input":"<a  ",
-"output":["ParseError", ["StartTag", "a", {}]]},
-
-{"description":"<a !",
-"input":"<a !",
-"output":["ParseError", ["StartTag", "a", {"!":""}]]},
-
-{"description":"<a \"",
-"input":"<a \"",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"\"":""}]]},
-
-{"description":"<a #",
-"input":"<a #",
-"output":["ParseError", ["StartTag", "a", {"#":""}]]},
-
-{"description":"<a &",
-"input":"<a &",
-"output":["ParseError", ["StartTag", "a", {"&":""}]]},
-
-{"description":"<a '",
-"input":"<a '",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"'":""}]]},
-
-{"description":"<a (",
-"input":"<a (",
-"output":["ParseError", ["StartTag", "a", {"(":""}]]},
-
-{"description":"<a -",
-"input":"<a -",
-"output":["ParseError", ["StartTag", "a", {"-":""}]]},
-
-{"description":"<a .",
-"input":"<a .",
-"output":["ParseError", ["StartTag", "a", {".":""}]]},
-
-{"description":"<a /",
-"input":"<a /",
-"output":["ParseError", ["StartTag", "a", {}]]},
-
-{"description":"<a 0",
-"input":"<a 0",
-"output":["ParseError", ["StartTag", "a", {"0":""}]]},
-
-{"description":"<a 1",
-"input":"<a 1",
-"output":["ParseError", ["StartTag", "a", {"1":""}]]},
-
-{"description":"<a 9",
-"input":"<a 9",
-"output":["ParseError", ["StartTag", "a", {"9":""}]]},
-
-{"description":"<a <",
-"input":"<a <",
-"output":["ParseError", ["StartTag", "a", {"<":""}]]},
-
-{"description":"<a =",
-"input":"<a =",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"=":""}]]},
+{"description":"<a\\u001F>",
+"input":"<a\u001F>",
+"output":["ParseError", ["StartTag", "a\u001F", {}]]},
 
 {"description":"<a >",
 "input":"<a >",
 "output":[["StartTag", "a", {}]]},
 
-{"description":"<a ?",
-"input":"<a ?",
-"output":["ParseError", ["StartTag", "a", {"?":""}]]},
+{"description":"<a \\u0000>",
+"input":"<a \u0000>",
+"output":["ParseError", ["StartTag", "a", {"\uFFFD":""}]]},
 
-{"description":"<a @",
-"input":"<a @",
-"output":["ParseError", ["StartTag", "a", {"@":""}]]},
+{"description":"<a \\u0008>",
+"input":"<a \u0008>",
+"output":["ParseError", ["StartTag", "a", {"\u0008":""}]]},
 
-{"description":"<a A",
-"input":"<a A",
-"output":["ParseError", ["StartTag", "a", {"a":""}]]},
+{"description":"<a \\u0009>",
+"input":"<a \u0009>",
+"output":[["StartTag", "a", {}]]},
 
-{"description":"<a B",
-"input":"<a B",
-"output":["ParseError", ["StartTag", "a", {"b":""}]]},
+{"description":"<a \\u000A>",
+"input":"<a \u000A>",
+"output":[["StartTag", "a", {}]]},
 
-{"description":"<a Y",
-"input":"<a Y",
-"output":["ParseError", ["StartTag", "a", {"y":""}]]},
+{"description":"<a \\u000B>",
+"input":"<a \u000B>",
+"output":["ParseError", ["StartTag", "a", {"\u000B":""}]]},
 
-{"description":"<a Z",
-"input":"<a Z",
-"output":["ParseError", ["StartTag", "a", {"z":""}]]},
+{"description":"<a \\u000C>",
+"input":"<a \u000C>",
+"output":[["StartTag", "a", {}]]},
 
-{"description":"<a [",
-"input":"<a [",
-"output":["ParseError", ["StartTag", "a", {"[":""}]]},
+{"description":"<a \\u000D>",
+"input":"<a \u000D>",
+"output":[["StartTag", "a", {}]]},
 
-{"description":"<a `",
-"input":"<a `",
-"output":["ParseError", ["StartTag", "a", {"`":""}]]},
+{"description":"<a \\u001F>",
+"input":"<a \u001F>",
+"output":["ParseError", ["StartTag", "a", {"\u001F":""}]]},
 
-{"description":"<a a",
-"input":"<a a",
-"output":["ParseError", ["StartTag", "a", {"a":""}]]},
+{"description":"<a  >",
+"input":"<a  >",
+"output":[["StartTag", "a", {}]]},
 
-{"description":"<a a\\u0000",
-"input":"<a a\u0000",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"a\uFFFD":""}]]},
+{"description":"<a !>",
+"input":"<a !>",
+"output":[["StartTag", "a", {"!":""}]]},
 
-{"description":"<a a\\u0008",
-"input":"<a a\u0008",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"a\u0008":""}]]},
+{"description":"<a \">",
+"input":"<a \">",
+"output":["ParseError", ["StartTag", "a", {"\"":""}]]},
 
-{"description":"<a a\\u0009",
-"input":"<a a\u0009",
-"output":["ParseError", ["StartTag", "a", {"a":""}]]},
+{"description":"<a #>",
+"input":"<a #>",
+"output":[["StartTag", "a", {"#":""}]]},
 
-{"description":"<a a\\u000A",
-"input":"<a a\u000A",
-"output":["ParseError", ["StartTag", "a", {"a":""}]]},
+{"description":"<a &>",
+"input":"<a &>",
+"output":[["StartTag", "a", {"&":""}]]},
 
-{"description":"<a a\\u000B",
-"input":"<a a\u000B",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"a\u000B":""}]]},
+{"description":"<a '>",
+"input":"<a '>",
+"output":["ParseError", ["StartTag", "a", {"'":""}]]},
 
-{"description":"<a a\\u000C",
-"input":"<a a\u000C",
-"output":["ParseError", ["StartTag", "a", {"a":""}]]},
+{"description":"<a (>",
+"input":"<a (>",
+"output":[["StartTag", "a", {"(":""}]]},
 
-{"description":"<a a\\u000D",
-"input":"<a a\u000D",
-"output":["ParseError", ["StartTag", "a", {"a":""}]]},
+{"description":"<a ->",
+"input":"<a ->",
+"output":[["StartTag", "a", {"-":""}]]},
 
-{"description":"<a a\\u001F",
-"input":"<a a\u001F",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"a\u001F":""}]]},
+{"description":"<a .>",
+"input":"<a .>",
+"output":[["StartTag", "a", {".":""}]]},
 
-{"description":"<a a ",
-"input":"<a a ",
-"output":["ParseError", ["StartTag", "a", {"a":""}]]},
+{"description":"<a />",
+"input":"<a />",
+"output":[["StartTag", "a", {}, true]]},
 
-{"description":"<a a \\u0000",
-"input":"<a a \u0000",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"a":"", "\uFFFD":""}]]},
+{"description":"<a 0>",
+"input":"<a 0>",
+"output":[["StartTag", "a", {"0":""}]]},
 
-{"description":"<a a \\u0008",
-"input":"<a a \u0008",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"a":"", "\u0008":""}]]},
+{"description":"<a 1>",
+"input":"<a 1>",
+"output":[["StartTag", "a", {"1":""}]]},
 
-{"description":"<a a \\u0009",
-"input":"<a a \u0009",
-"output":["ParseError", ["StartTag", "a", {"a":""}]]},
+{"description":"<a 9>",
+"input":"<a 9>",
+"output":[["StartTag", "a", {"9":""}]]},
 
-{"description":"<a a \\u000A",
-"input":"<a a \u000A",
-"output":["ParseError", ["StartTag", "a", {"a":""}]]},
+{"description":"<a <>",
+"input":"<a <>",
+"output":[["StartTag", "a", {"<":""}]]},
 
-{"description":"<a a \\u000B",
-"input":"<a a \u000B",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"a":"", "\u000B":""}]]},
+{"description":"<a =>",
+"input":"<a =>",
+"output":["ParseError", ["StartTag", "a", {"=":""}]]},
 
-{"description":"<a a \\u000C",
-"input":"<a a \u000C",
-"output":["ParseError", ["StartTag", "a", {"a":""}]]},
+{"description":"<a >",
+"input":"<a >",
+"output":[["StartTag", "a", {}]]},
 
-{"description":"<a a \\u000D",
-"input":"<a a \u000D",
-"output":["ParseError", ["StartTag", "a", {"a":""}]]},
+{"description":"<a ?>",
+"input":"<a ?>",
+"output":[["StartTag", "a", {"?":""}]]},
 
-{"description":"<a a \\u001F",
-"input":"<a a \u001F",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"a":"", "\u001F":""}]]},
+{"description":"<a @>",
+"input":"<a @>",
+"output":[["StartTag", "a", {"@":""}]]},
 
-{"description":"<a a  ",
-"input":"<a a  ",
-"output":["ParseError", ["StartTag", "a", {"a":""}]]},
+{"description":"<a A>",
+"input":"<a A>",
+"output":[["StartTag", "a", {"a":""}]]},
 
-{"description":"<a a !",
-"input":"<a a !",
-"output":["ParseError", ["StartTag", "a", {"a":"", "!":""}]]},
+{"description":"<a B>",
+"input":"<a B>",
+"output":[["StartTag", "a", {"b":""}]]},
 
-{"description":"<a a \"",
-"input":"<a a \"",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"a":"", "\"":""}]]},
+{"description":"<a Y>",
+"input":"<a Y>",
+"output":[["StartTag", "a", {"y":""}]]},
 
-{"description":"<a a #",
-"input":"<a a #",
-"output":["ParseError", ["StartTag", "a", {"a":"", "#":""}]]},
+{"description":"<a Z>",
+"input":"<a Z>",
+"output":[["StartTag", "a", {"z":""}]]},
 
-{"description":"<a a &",
-"input":"<a a &",
-"output":["ParseError", ["StartTag", "a", {"a":"", "&":""}]]},
+{"description":"<a [>",
+"input":"<a [>",
+"output":[["StartTag", "a", {"[":""}]]},
 
-{"description":"<a a '",
-"input":"<a a '",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"a":"", "'":""}]]},
+{"description":"<a `>",
+"input":"<a `>",
+"output":[["StartTag", "a", {"`":""}]]},
 
-{"description":"<a a (",
-"input":"<a a (",
-"output":["ParseError", ["StartTag", "a", {"a":"", "(":""}]]},
+{"description":"<a a>",
+"input":"<a a>",
+"output":[["StartTag", "a", {"a":""}]]},
 
-{"description":"<a a -",
-"input":"<a a -",
-"output":["ParseError", ["StartTag", "a", {"a":"", "-":""}]]},
+{"description":"<a a\\u0000>",
+"input":"<a a\u0000>",
+"output":["ParseError", ["StartTag", "a", {"a\uFFFD":""}]]},
 
-{"description":"<a a .",
-"input":"<a a .",
-"output":["ParseError", ["StartTag", "a", {"a":"", ".":""}]]},
+{"description":"<a a\\u0008>",
+"input":"<a a\u0008>",
+"output":["ParseError", ["StartTag", "a", {"a\u0008":""}]]},
 
-{"description":"<a a /",
-"input":"<a a /",
-"output":["ParseError", ["StartTag", "a", {"a":""}]]},
+{"description":"<a a\\u0009>",
+"input":"<a a\u0009>",
+"output":[["StartTag", "a", {"a":""}]]},
 
-{"description":"<a a 0",
-"input":"<a a 0",
-"output":["ParseError", ["StartTag", "a", {"a":"", "0":""}]]},
+{"description":"<a a\\u000A>",
+"input":"<a a\u000A>",
+"output":[["StartTag", "a", {"a":""}]]},
 
-{"description":"<a a 1",
-"input":"<a a 1",
-"output":["ParseError", ["StartTag", "a", {"a":"", "1":""}]]},
+{"description":"<a a\\u000B>",
+"input":"<a a\u000B>",
+"output":["ParseError", ["StartTag", "a", {"a\u000B":""}]]},
 
-{"description":"<a a 9",
-"input":"<a a 9",
-"output":["ParseError", ["StartTag", "a", {"a":"", "9":""}]]},
+{"description":"<a a\\u000C>",
+"input":"<a a\u000C>",
+"output":[["StartTag", "a", {"a":""}]]},
 
-{"description":"<a a <",
-"input":"<a a <",
-"output":["ParseError", ["StartTag", "a", {"a":"", "<":""}]]},
+{"description":"<a a\\u000D>",
+"input":"<a a\u000D>",
+"output":[["StartTag", "a", {"a":""}]]},
 
-{"description":"<a a =",
-"input":"<a a =",
+{"description":"<a a\\u001F>",
+"input":"<a a\u001F>",
+"output":["ParseError", ["StartTag", "a", {"a\u001F":""}]]},
+
+{"description":"<a a >",
+"input":"<a a >",
+"output":[["StartTag", "a", {"a":""}]]},
+
+{"description":"<a a \\u0000>",
+"input":"<a a \u0000>",
+"output":["ParseError", ["StartTag", "a", {"a":"", "\uFFFD":""}]]},
+
+{"description":"<a a \\u0008>",
+"input":"<a a \u0008>",
+"output":["ParseError", ["StartTag", "a", {"a":"", "\u0008":""}]]},
+
+{"description":"<a a \\u0009>",
+"input":"<a a \u0009>",
+"output":[["StartTag", "a", {"a":""}]]},
+
+{"description":"<a a \\u000A>",
+"input":"<a a \u000A>",
+"output":[["StartTag", "a", {"a":""}]]},
+
+{"description":"<a a \\u000B>",
+"input":"<a a \u000B>",
+"output":["ParseError", ["StartTag", "a", {"a":"", "\u000B":""}]]},
+
+{"description":"<a a \\u000C>",
+"input":"<a a \u000C>",
+"output":[["StartTag", "a", {"a":""}]]},
+
+{"description":"<a a \\u000D>",
+"input":"<a a \u000D>",
+"output":[["StartTag", "a", {"a":""}]]},
+
+{"description":"<a a \\u001F>",
+"input":"<a a \u001F>",
+"output":["ParseError", ["StartTag", "a", {"a":"", "\u001F":""}]]},
+
+{"description":"<a a  >",
+"input":"<a a  >",
+"output":[["StartTag", "a", {"a":""}]]},
+
+{"description":"<a a !>",
+"input":"<a a !>",
+"output":[["StartTag", "a", {"a":"", "!":""}]]},
+
+{"description":"<a a \">",
+"input":"<a a \">",
+"output":["ParseError", ["StartTag", "a", {"a":"", "\"":""}]]},
+
+{"description":"<a a #>",
+"input":"<a a #>",
+"output":[["StartTag", "a", {"a":"", "#":""}]]},
+
+{"description":"<a a &>",
+"input":"<a a &>",
+"output":[["StartTag", "a", {"a":"", "&":""}]]},
+
+{"description":"<a a '>",
+"input":"<a a '>",
+"output":["ParseError", ["StartTag", "a", {"a":"", "'":""}]]},
+
+{"description":"<a a (>",
+"input":"<a a (>",
+"output":[["StartTag", "a", {"a":"", "(":""}]]},
+
+{"description":"<a a ->",
+"input":"<a a ->",
+"output":[["StartTag", "a", {"a":"", "-":""}]]},
+
+{"description":"<a a .>",
+"input":"<a a .>",
+"output":[["StartTag", "a", {"a":"", ".":""}]]},
+
+{"description":"<a a />",
+"input":"<a a />",
+"output":[["StartTag", "a", {"a":""}, true]]},
+
+{"description":"<a a 0>",
+"input":"<a a 0>",
+"output":[["StartTag", "a", {"a":"", "0":""}]]},
+
+{"description":"<a a 1>",
+"input":"<a a 1>",
+"output":[["StartTag", "a", {"a":"", "1":""}]]},
+
+{"description":"<a a 9>",
+"input":"<a a 9>",
+"output":[["StartTag", "a", {"a":"", "9":""}]]},
+
+{"description":"<a a <>",
+"input":"<a a <>",
+"output":[["StartTag", "a", {"a":"", "<":""}]]},
+
+{"description":"<a a =>",
+"input":"<a a =>",
 "output":["ParseError", ["StartTag", "a", {"a":""}]]},
 
 {"description":"<a a >",
 "input":"<a a >",
 "output":[["StartTag", "a", {"a":""}]]},
 
-{"description":"<a a ?",
-"input":"<a a ?",
-"output":["ParseError", ["StartTag", "a", {"a":"", "?":""}]]},
+{"description":"<a a ?>",
+"input":"<a a ?>",
+"output":[["StartTag", "a", {"a":"", "?":""}]]},
 
-{"description":"<a a @",
-"input":"<a a @",
-"output":["ParseError", ["StartTag", "a", {"a":"", "@":""}]]},
+{"description":"<a a @>",
+"input":"<a a @>",
+"output":[["StartTag", "a", {"a":"", "@":""}]]},
 
-{"description":"<a a A",
-"input":"<a a A",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"a":""}]]},
-
-{"description":"<a a B",
-"input":"<a a B",
-"output":["ParseError", ["StartTag", "a", {"a":"", "b":""}]]},
-
-{"description":"<a a Y",
-"input":"<a a Y",
-"output":["ParseError", ["StartTag", "a", {"a":"", "y":""}]]},
-
-{"description":"<a a Z",
-"input":"<a a Z",
-"output":["ParseError", ["StartTag", "a", {"a":"", "z":""}]]},
-
-{"description":"<a a [",
-"input":"<a a [",
-"output":["ParseError", ["StartTag", "a", {"a":"", "[":""}]]},
-
-{"description":"<a a `",
-"input":"<a a `",
-"output":["ParseError", ["StartTag", "a", {"a":"", "`":""}]]},
-
-{"description":"<a a a",
-"input":"<a a a",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"a":""}]]},
-
-{"description":"<a a b",
-"input":"<a a b",
-"output":["ParseError", ["StartTag", "a", {"a":"", "b":""}]]},
-
-{"description":"<a a y",
-"input":"<a a y",
-"output":["ParseError", ["StartTag", "a", {"a":"", "y":""}]]},
-
-{"description":"<a a z",
-"input":"<a a z",
-"output":["ParseError", ["StartTag", "a", {"a":"", "z":""}]]},
-
-{"description":"<a a {",
-"input":"<a a {",
-"output":["ParseError", ["StartTag", "a", {"a":"", "{":""}]]},
-
-{"description":"<a a \\uDBC0\\uDC00",
-"input":"<a a \uDBC0\uDC00",
-"output":["ParseError", ["StartTag", "a", {"a":"", "\uDBC0\uDC00":""}]]},
-
-{"description":"<a a!",
-"input":"<a a!",
-"output":["ParseError", ["StartTag", "a", {"a!":""}]]},
-
-{"description":"<a a\"",
-"input":"<a a\"",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"a\"":""}]]},
-
-{"description":"<a a#",
-"input":"<a a#",
-"output":["ParseError", ["StartTag", "a", {"a#":""}]]},
-
-{"description":"<a a&",
-"input":"<a a&",
-"output":["ParseError", ["StartTag", "a", {"a&":""}]]},
-
-{"description":"<a a'",
-"input":"<a a'",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"a'":""}]]},
-
-{"description":"<a a(",
-"input":"<a a(",
-"output":["ParseError", ["StartTag", "a", {"a(":""}]]},
-
-{"description":"<a a-",
-"input":"<a a-",
-"output":["ParseError", ["StartTag", "a", {"a-":""}]]},
-
-{"description":"<a a.",
-"input":"<a a.",
-"output":["ParseError", ["StartTag", "a", {"a.":""}]]},
-
-{"description":"<a a/",
-"input":"<a a/",
+{"description":"<a a A>",
+"input":"<a a A>",
 "output":["ParseError", ["StartTag", "a", {"a":""}]]},
 
-{"description":"<a a0",
-"input":"<a a0",
-"output":["ParseError", ["StartTag", "a", {"a0":""}]]},
+{"description":"<a a B>",
+"input":"<a a B>",
+"output":[["StartTag", "a", {"a":"", "b":""}]]},
 
-{"description":"<a a1",
-"input":"<a a1",
-"output":["ParseError", ["StartTag", "a", {"a1":""}]]},
+{"description":"<a a Y>",
+"input":"<a a Y>",
+"output":[["StartTag", "a", {"a":"", "y":""}]]},
 
-{"description":"<a a9",
-"input":"<a a9",
-"output":["ParseError", ["StartTag", "a", {"a9":""}]]},
+{"description":"<a a Z>",
+"input":"<a a Z>",
+"output":[["StartTag", "a", {"a":"", "z":""}]]},
 
-{"description":"<a a<",
-"input":"<a a<",
-"output":["ParseError", ["StartTag", "a", {"a<":""}]]},
+{"description":"<a a [>",
+"input":"<a a [>",
+"output":[["StartTag", "a", {"a":"", "[":""}]]},
 
-{"description":"<a a=",
-"input":"<a a=",
+{"description":"<a a `>",
+"input":"<a a `>",
+"output":[["StartTag", "a", {"a":"", "`":""}]]},
+
+{"description":"<a a a>",
+"input":"<a a a>",
 "output":["ParseError", ["StartTag", "a", {"a":""}]]},
 
-{"description":"<a a=\\u0000",
-"input":"<a a=\u0000",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"a":"\uFFFD"}]]},
-
-{"description":"<a a=\\u0008",
-"input":"<a a=\u0008",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"a":"\u0008"}]]},
-
-{"description":"<a a=\\u0009",
-"input":"<a a=\u0009",
-"output":["ParseError", ["StartTag", "a", {"a":""}]]},
-
-{"description":"<a a=\\u000A",
-"input":"<a a=\u000A",
-"output":["ParseError", ["StartTag", "a", {"a":""}]]},
-
-{"description":"<a a=\\u000B",
-"input":"<a a=\u000B",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"a":"\u000B"}]]},
-
-{"description":"<a a=\\u000C",
-"input":"<a a=\u000C",
-"output":["ParseError", ["StartTag", "a", {"a":""}]]},
-
-{"description":"<a a=\\u000D",
-"input":"<a a=\u000D",
-"output":["ParseError", ["StartTag", "a", {"a":""}]]},
-
-{"description":"<a a=\\u001F",
-"input":"<a a=\u001F",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"a":"\u001F"}]]},
-
-{"description":"<a a= ",
-"input":"<a a= ",
-"output":["ParseError", ["StartTag", "a", {"a":""}]]},
-
-{"description":"<a a=!",
-"input":"<a a=!",
-"output":["ParseError", ["StartTag", "a", {"a":"!"}]]},
-
-{"description":"<a a=\"",
-"input":"<a a=\"",
-"output":["ParseError", ["StartTag", "a", {"a":""}]]},
-
-{"description":"<a a=\"\\u0000",
-"input":"<a a=\"\u0000",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"a":"\uFFFD"}]]},
-
-{"description":"<a a=\"\\u0009",
-"input":"<a a=\"\u0009",
-"output":["ParseError", ["StartTag", "a", {"a":"\u0009"}]]},
-
-{"description":"<a a=\"\\u000A",
-"input":"<a a=\"\u000A",
-"output":["ParseError", ["StartTag", "a", {"a":"\u000A"}]]},
-
-{"description":"<a a=\"\\u000B",
-"input":"<a a=\"\u000B",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"a":"\u000B"}]]},
-
-{"description":"<a a=\"\\u000C",
-"input":"<a a=\"\u000C",
-"output":["ParseError", ["StartTag", "a", {"a":"\u000C"}]]},
-
-{"description":"<a a=\" ",
-"input":"<a a=\" ",
-"output":["ParseError", ["StartTag", "a", {"a":" "}]]},
-
-{"description":"<a a=\"!",
-"input":"<a a=\"!",
-"output":["ParseError", ["StartTag", "a", {"a":"!"}]]},
-
-{"description":"<a a=\"\"",
-"input":"<a a=\"\"",
-"output":["ParseError", ["StartTag", "a", {"a":""}]]},
-
-{"description":"<a a=\"#",
-"input":"<a a=\"#",
-"output":["ParseError", ["StartTag", "a", {"a":"#"}]]},
-
-{"description":"<a a=\"%",
-"input":"<a a=\"%",
-"output":["ParseError", ["StartTag", "a", {"a":"%"}]]},
-
-{"description":"<a a=\"&",
-"input":"<a a=\"&",
-"output":["ParseError", ["StartTag", "a", {"a":"&"}]]},
-
-{"description":"<a a=\"'",
-"input":"<a a=\"'",
-"output":["ParseError", ["StartTag", "a", {"a":"'"}]]},
-
-{"description":"<a a=\"-",
-"input":"<a a=\"-",
-"output":["ParseError", ["StartTag", "a", {"a":"-"}]]},
-
-{"description":"<a a=\"/",
-"input":"<a a=\"/",
-"output":["ParseError", ["StartTag", "a", {"a":"/"}]]},
-
-{"description":"<a a=\"0",
-"input":"<a a=\"0",
-"output":["ParseError", ["StartTag", "a", {"a":"0"}]]},
-
-{"description":"<a a=\"1",
-"input":"<a a=\"1",
-"output":["ParseError", ["StartTag", "a", {"a":"1"}]]},
-
-{"description":"<a a=\"9",
-"input":"<a a=\"9",
-"output":["ParseError", ["StartTag", "a", {"a":"9"}]]},
-
-{"description":"<a a=\"<",
-"input":"<a a=\"<",
-"output":["ParseError", ["StartTag", "a", {"a":"<"}]]},
-
-{"description":"<a a=\"=",
-"input":"<a a=\"=",
-"output":["ParseError", ["StartTag", "a", {"a":"="}]]},
-
-{"description":"<a a=\">",
-"input":"<a a=\">",
-"output":["ParseError", ["StartTag", "a", {"a":">"}]]},
-
-{"description":"<a a=\"?",
-"input":"<a a=\"?",
-"output":["ParseError", ["StartTag", "a", {"a":"?"}]]},
-
-{"description":"<a a=\"@",
-"input":"<a a=\"@",
-"output":["ParseError", ["StartTag", "a", {"a":"@"}]]},
-
-{"description":"<a a=\"A",
-"input":"<a a=\"A",
-"output":["ParseError", ["StartTag", "a", {"a":"A"}]]},
-
-{"description":"<a a=\"B",
-"input":"<a a=\"B",
-"output":["ParseError", ["StartTag", "a", {"a":"B"}]]},
-
-{"description":"<a a=\"Y",
-"input":"<a a=\"Y",
-"output":["ParseError", ["StartTag", "a", {"a":"Y"}]]},
-
-{"description":"<a a=\"Z",
-"input":"<a a=\"Z",
-"output":["ParseError", ["StartTag", "a", {"a":"Z"}]]},
-
-{"description":"<a a=\"`",
-"input":"<a a=\"`",
-"output":["ParseError", ["StartTag", "a", {"a":"`"}]]},
-
-{"description":"<a a=\"a",
-"input":"<a a=\"a",
-"output":["ParseError", ["StartTag", "a", {"a":"a"}]]},
-
-{"description":"<a a=\"b",
-"input":"<a a=\"b",
-"output":["ParseError", ["StartTag", "a", {"a":"b"}]]},
-
-{"description":"<a a=\"y",
-"input":"<a a=\"y",
-"output":["ParseError", ["StartTag", "a", {"a":"y"}]]},
-
-{"description":"<a a=\"z",
-"input":"<a a=\"z",
-"output":["ParseError", ["StartTag", "a", {"a":"z"}]]},
-
-{"description":"<a a=\"{",
-"input":"<a a=\"{",
-"output":["ParseError", ["StartTag", "a", {"a":"{"}]]},
-
-{"description":"<a a=\"\\uDBC0\\uDC00",
-"input":"<a a=\"\uDBC0\uDC00",
-"output":["ParseError", ["StartTag", "a", {"a":"\uDBC0\uDC00"}]]},
-
-{"description":"<a a=#",
-"input":"<a a=#",
-"output":["ParseError", ["StartTag", "a", {"a":"#"}]]},
-
-{"description":"<a a=%",
-"input":"<a a=%",
-"output":["ParseError", ["StartTag", "a", {"a":"%"}]]},
-
-{"description":"<a a=&",
-"input":"<a a=&",
-"output":["ParseError", ["StartTag", "a", {"a":"&"}]]},
-
-{"description":"<a a='",
-"input":"<a a='",
-"output":["ParseError", ["StartTag", "a", {"a":""}]]},
-
-{"description":"<a a='\\u0000",
-"input":"<a a='\u0000",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"a":"\uFFFD"}]]},
-
-{"description":"<a a='\\u0009",
-"input":"<a a='\u0009",
-"output":["ParseError", ["StartTag", "a", {"a":"\u0009"}]]},
-
-{"description":"<a a='\\u000A",
-"input":"<a a='\u000A",
-"output":["ParseError", ["StartTag", "a", {"a":"\u000A"}]]},
-
-{"description":"<a a='\\u000B",
-"input":"<a a='\u000B",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"a":"\u000B"}]]},
-
-{"description":"<a a='\\u000C",
-"input":"<a a='\u000C",
-"output":["ParseError", ["StartTag", "a", {"a":"\u000C"}]]},
-
-{"description":"<a a=' ",
-"input":"<a a=' ",
-"output":["ParseError", ["StartTag", "a", {"a":" "}]]},
-
-{"description":"<a a='!",
-"input":"<a a='!",
-"output":["ParseError", ["StartTag", "a", {"a":"!"}]]},
-
-{"description":"<a a='\"",
-"input":"<a a='\"",
-"output":["ParseError", ["StartTag", "a", {"a":"\""}]]},
-
-{"description":"<a a='%",
-"input":"<a a='%",
-"output":["ParseError", ["StartTag", "a", {"a":"%"}]]},
-
-{"description":"<a a='&",
-"input":"<a a='&",
-"output":["ParseError", ["StartTag", "a", {"a":"&"}]]},
-
-{"description":"<a a=''",
-"input":"<a a=''",
-"output":["ParseError", ["StartTag", "a", {"a":""}]]},
-
-{"description":"<a a=''\\u0000",
-"input":"<a a=''\u0000",
-"output":["ParseError", "ParseError", "ParseError", ["StartTag", "a", {"a":"", "\uFFFD":""}]]},
-
-{"description":"<a a=''\\u0008",
-"input":"<a a=''\u0008",
-"output":["ParseError", "ParseError", "ParseError", ["StartTag", "a", {"a":"", "\u0008":""}]]},
-
-{"description":"<a a=''\\u0009",
-"input":"<a a=''\u0009",
-"output":["ParseError", ["StartTag", "a", {"a":""}]]},
-
-{"description":"<a a=''\\u000A",
-"input":"<a a=''\u000A",
-"output":["ParseError", ["StartTag", "a", {"a":""}]]},
-
-{"description":"<a a=''\\u000B",
-"input":"<a a=''\u000B",
-"output":["ParseError", "ParseError", "ParseError", ["StartTag", "a", {"a":"", "\u000B":""}]]},
-
-{"description":"<a a=''\\u000C",
-"input":"<a a=''\u000C",
-"output":["ParseError", ["StartTag", "a", {"a":""}]]},
-
-{"description":"<a a=''\\u000D",
-"input":"<a a=''\u000D",
-"output":["ParseError", ["StartTag", "a", {"a":""}]]},
-
-{"description":"<a a=''\\u001F",
-"input":"<a a=''\u001F",
-"output":["ParseError", "ParseError", "ParseError", ["StartTag", "a", {"a":"", "\u001F":""}]]},
-
-{"description":"<a a='' ",
-"input":"<a a='' ",
-"output":["ParseError", ["StartTag", "a", {"a":""}]]},
-
-{"description":"<a a=''!",
-"input":"<a a=''!",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"a":"", "!":""}]]},
-
-{"description":"<a a=''\"",
-"input":"<a a=''\"",
-"output":["ParseError", "ParseError", "ParseError", ["StartTag", "a", {"a":"", "\"":""}]]},
-
-{"description":"<a a=''&",
-"input":"<a a=''&",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"a":"", "&":""}]]},
-
-{"description":"<a a='''",
-"input":"<a a='''",
-"output":["ParseError", "ParseError", "ParseError", ["StartTag", "a", {"a":"", "'":""}]]},
-
-{"description":"<a a=''-",
-"input":"<a a=''-",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"a":"", "-":""}]]},
-
-{"description":"<a a=''.",
-"input":"<a a=''.",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"a":"", ".":""}]]},
-
-{"description":"<a a=''/",
-"input":"<a a=''/",
-"output":["ParseError", ["StartTag", "a", {"a":""}]]},
-
-{"description":"<a a=''0",
-"input":"<a a=''0",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"a":"", "0":""}]]},
-
-{"description":"<a a=''1",
-"input":"<a a=''1",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"a":"", "1":""}]]},
-
-{"description":"<a a=''9",
-"input":"<a a=''9",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"a":"", "9":""}]]},
-
-{"description":"<a a=''<",
-"input":"<a a=''<",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"a":"", "<":""}]]},
-
-{"description":"<a a=''=",
-"input":"<a a=''=",
-"output":["ParseError", "ParseError", "ParseError", ["StartTag", "a", {"a":"", "=":""}]]},
-
-{"description":"<a a=''>",
-"input":"<a a=''>",
-"output":[["StartTag", "a", {"a":""}]]},
-
-{"description":"<a a=''?",
-"input":"<a a=''?",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"a":"", "?":""}]]},
-
-{"description":"<a a=''@",
-"input":"<a a=''@",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"a":"", "@":""}]]},
-
-{"description":"<a a=''A",
-"input":"<a a=''A",
-"output":["ParseError", "ParseError", "ParseError", ["StartTag", "a", {"a":""}]]},
-
-{"description":"<a a=''B",
-"input":"<a a=''B",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"a":"", "b":""}]]},
-
-{"description":"<a a=''Y",
-"input":"<a a=''Y",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"a":"", "y":""}]]},
-
-{"description":"<a a=''Z",
-"input":"<a a=''Z",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"a":"", "z":""}]]},
-
-{"description":"<a a=''`",
-"input":"<a a=''`",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"a":"", "`":""}]]},
-
-{"description":"<a a=''a",
-"input":"<a a=''a",
-"output":["ParseError", "ParseError", "ParseError", ["StartTag", "a", {"a":""}]]},
-
-{"description":"<a a=''b",
-"input":"<a a=''b",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"a":"", "b":""}]]},
-
-{"description":"<a a=''y",
-"input":"<a a=''y",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"a":"", "y":""}]]},
-
-{"description":"<a a=''z",
-"input":"<a a=''z",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"a":"", "z":""}]]},
-
-{"description":"<a a=''{",
-"input":"<a a=''{",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"a":"", "{":""}]]},
-
-{"description":"<a a=''\\uDBC0\\uDC00",
-"input":"<a a=''\uDBC0\uDC00",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"a":"", "\uDBC0\uDC00":""}]]},
-
-{"description":"<a a='(",
-"input":"<a a='(",
-"output":["ParseError", ["StartTag", "a", {"a":"("}]]},
-
-{"description":"<a a='-",
-"input":"<a a='-",
-"output":["ParseError", ["StartTag", "a", {"a":"-"}]]},
-
-{"description":"<a a='/",
-"input":"<a a='/",
-"output":["ParseError", ["StartTag", "a", {"a":"/"}]]},
-
-{"description":"<a a='0",
-"input":"<a a='0",
-"output":["ParseError", ["StartTag", "a", {"a":"0"}]]},
-
-{"description":"<a a='1",
-"input":"<a a='1",
-"output":["ParseError", ["StartTag", "a", {"a":"1"}]]},
-
-{"description":"<a a='9",
-"input":"<a a='9",
-"output":["ParseError", ["StartTag", "a", {"a":"9"}]]},
-
-{"description":"<a a='<",
-"input":"<a a='<",
-"output":["ParseError", ["StartTag", "a", {"a":"<"}]]},
-
-{"description":"<a a='=",
-"input":"<a a='=",
-"output":["ParseError", ["StartTag", "a", {"a":"="}]]},
-
-{"description":"<a a='>",
-"input":"<a a='>",
-"output":["ParseError", ["StartTag", "a", {"a":">"}]]},
-
-{"description":"<a a='?",
-"input":"<a a='?",
-"output":["ParseError", ["StartTag", "a", {"a":"?"}]]},
-
-{"description":"<a a='@",
-"input":"<a a='@",
-"output":["ParseError", ["StartTag", "a", {"a":"@"}]]},
-
-{"description":"<a a='A",
-"input":"<a a='A",
-"output":["ParseError", ["StartTag", "a", {"a":"A"}]]},
-
-{"description":"<a a='B",
-"input":"<a a='B",
-"output":["ParseError", ["StartTag", "a", {"a":"B"}]]},
-
-{"description":"<a a='Y",
-"input":"<a a='Y",
-"output":["ParseError", ["StartTag", "a", {"a":"Y"}]]},
-
-{"description":"<a a='Z",
-"input":"<a a='Z",
-"output":["ParseError", ["StartTag", "a", {"a":"Z"}]]},
-
-{"description":"<a a='`",
-"input":"<a a='`",
-"output":["ParseError", ["StartTag", "a", {"a":"`"}]]},
-
-{"description":"<a a='a",
-"input":"<a a='a",
-"output":["ParseError", ["StartTag", "a", {"a":"a"}]]},
-
-{"description":"<a a='b",
-"input":"<a a='b",
-"output":["ParseError", ["StartTag", "a", {"a":"b"}]]},
-
-{"description":"<a a='y",
-"input":"<a a='y",
-"output":["ParseError", ["StartTag", "a", {"a":"y"}]]},
-
-{"description":"<a a='z",
-"input":"<a a='z",
-"output":["ParseError", ["StartTag", "a", {"a":"z"}]]},
-
-{"description":"<a a='{",
-"input":"<a a='{",
-"output":["ParseError", ["StartTag", "a", {"a":"{"}]]},
-
-{"description":"<a a='\\uDBC0\\uDC00",
-"input":"<a a='\uDBC0\uDC00",
-"output":["ParseError", ["StartTag", "a", {"a":"\uDBC0\uDC00"}]]},
-
-{"description":"<a a=(",
-"input":"<a a=(",
-"output":["ParseError", ["StartTag", "a", {"a":"("}]]},
-
-{"description":"<a a=-",
-"input":"<a a=-",
-"output":["ParseError", ["StartTag", "a", {"a":"-"}]]},
-
-{"description":"<a a=/",
-"input":"<a a=/",
-"output":["ParseError", ["StartTag", "a", {"a":"/"}]]},
-
-{"description":"<a a=0",
-"input":"<a a=0",
-"output":["ParseError", ["StartTag", "a", {"a":"0"}]]},
-
-{"description":"<a a=1",
-"input":"<a a=1",
-"output":["ParseError", ["StartTag", "a", {"a":"1"}]]},
-
-{"description":"<a a=9",
-"input":"<a a=9",
-"output":["ParseError", ["StartTag", "a", {"a":"9"}]]},
-
-{"description":"<a a=<",
-"input":"<a a=<",
-"output":["ParseError", ["StartTag", "a", {"a":"<"}]]},
-
-{"description":"<a a==",
-"input":"<a a==",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"a":"="}]]},
+{"description":"<a a b>",
+"input":"<a a b>",
+"output":[["StartTag", "a", {"a":"", "b":""}]]},
+
+{"description":"<a a y>",
+"input":"<a a y>",
+"output":[["StartTag", "a", {"a":"", "y":""}]]},
+
+{"description":"<a a z>",
+"input":"<a a z>",
+"output":[["StartTag", "a", {"a":"", "z":""}]]},
+
+{"description":"<a a {>",
+"input":"<a a {>",
+"output":[["StartTag", "a", {"a":"", "{":""}]]},
+
+{"description":"<a a \\uDBC0\\uDC00>",
+"input":"<a a \uDBC0\uDC00>",
+"output":[["StartTag", "a", {"a":"", "\uDBC0\uDC00":""}]]},
+
+{"description":"<a a!>",
+"input":"<a a!>",
+"output":[["StartTag", "a", {"a!":""}]]},
+
+{"description":"<a a\">",
+"input":"<a a\">",
+"output":["ParseError", ["StartTag", "a", {"a\"":""}]]},
+
+{"description":"<a a#>",
+"input":"<a a#>",
+"output":[["StartTag", "a", {"a#":""}]]},
+
+{"description":"<a a&>",
+"input":"<a a&>",
+"output":[["StartTag", "a", {"a&":""}]]},
+
+{"description":"<a a'>",
+"input":"<a a'>",
+"output":["ParseError", ["StartTag", "a", {"a'":""}]]},
+
+{"description":"<a a(>",
+"input":"<a a(>",
+"output":[["StartTag", "a", {"a(":""}]]},
+
+{"description":"<a a->",
+"input":"<a a->",
+"output":[["StartTag", "a", {"a-":""}]]},
+
+{"description":"<a a.>",
+"input":"<a a.>",
+"output":[["StartTag", "a", {"a.":""}]]},
+
+{"description":"<a a/>",
+"input":"<a a/>",
+"output":[["StartTag", "a", {"a":""}, true]]},
+
+{"description":"<a a0>",
+"input":"<a a0>",
+"output":[["StartTag", "a", {"a0":""}]]},
+
+{"description":"<a a1>",
+"input":"<a a1>",
+"output":[["StartTag", "a", {"a1":""}]]},
+
+{"description":"<a a9>",
+"input":"<a a9>",
+"output":[["StartTag", "a", {"a9":""}]]},
+
+{"description":"<a a<>",
+"input":"<a a<>",
+"output":[["StartTag", "a", {"a<":""}]]},
 
 {"description":"<a a=>",
 "input":"<a a=>",
 "output":["ParseError", ["StartTag", "a", {"a":""}]]},
 
-{"description":"<a a=?",
-"input":"<a a=?",
-"output":["ParseError", ["StartTag", "a", {"a":"?"}]]},
+{"description":"<a a=\\u0000>",
+"input":"<a a=\u0000>",
+"output":["ParseError", ["StartTag", "a", {"a":"\uFFFD"}]]},
 
-{"description":"<a a=@",
-"input":"<a a=@",
-"output":["ParseError", ["StartTag", "a", {"a":"@"}]]},
+{"description":"<a a=\\u0008>",
+"input":"<a a=\u0008>",
+"output":["ParseError", ["StartTag", "a", {"a":"\u0008"}]]},
 
-{"description":"<a a=A",
-"input":"<a a=A",
-"output":["ParseError", ["StartTag", "a", {"a":"A"}]]},
+{"description":"<a a=\\u0009>",
+"input":"<a a=\u0009>",
+"output":["ParseError", ["StartTag", "a", {"a":""}]]},
 
-{"description":"<a a=B",
-"input":"<a a=B",
-"output":["ParseError", ["StartTag", "a", {"a":"B"}]]},
+{"description":"<a a=\\u000A>",
+"input":"<a a=\u000A>",
+"output":["ParseError", ["StartTag", "a", {"a":""}]]},
 
-{"description":"<a a=Y",
-"input":"<a a=Y",
-"output":["ParseError", ["StartTag", "a", {"a":"Y"}]]},
+{"description":"<a a=\\u000B>",
+"input":"<a a=\u000B>",
+"output":["ParseError", ["StartTag", "a", {"a":"\u000B"}]]},
 
-{"description":"<a a=Z",
-"input":"<a a=Z",
-"output":["ParseError", ["StartTag", "a", {"a":"Z"}]]},
+{"description":"<a a=\\u000C>",
+"input":"<a a=\u000C>",
+"output":["ParseError", ["StartTag", "a", {"a":""}]]},
 
-{"description":"<a a=`",
-"input":"<a a=`",
-"output":["ParseError", ["StartTag", "a", {"a":"`"}]]},
+{"description":"<a a=\\u000D>",
+"input":"<a a=\u000D>",
+"output":["ParseError", ["StartTag", "a", {"a":""}]]},
 
-{"description":"<a a=a",
-"input":"<a a=a",
-"output":["ParseError", ["StartTag", "a", {"a":"a"}]]},
+{"description":"<a a=\\u001F>",
+"input":"<a a=\u001F>",
+"output":["ParseError", ["StartTag", "a", {"a":"\u001F"}]]},
 
-{"description":"<a a=a\\u0000",
-"input":"<a a=a\u0000",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"a":"a\uFFFD"}]]},
+{"description":"<a a= >",
+"input":"<a a= >",
+"output":["ParseError", ["StartTag", "a", {"a":""}]]},
 
-{"description":"<a a=a\\u0008",
-"input":"<a a=a\u0008",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"a":"a\u0008"}]]},
+{"description":"<a a=!>",
+"input":"<a a=!>",
+"output":[["StartTag", "a", {"a":"!"}]]},
 
-{"description":"<a a=a\\u0009",
-"input":"<a a=a\u0009",
-"output":["ParseError", ["StartTag", "a", {"a":"a"}]]},
+{"description":"<a a=\"\">",
+"input":"<a a=\"\">",
+"output":[["StartTag", "a", {"a":""}]]},
 
-{"description":"<a a=a\\u000A",
-"input":"<a a=a\u000A",
-"output":["ParseError", ["StartTag", "a", {"a":"a"}]]},
+{"description":"<a a=\"\\u0000\">",
+"input":"<a a=\"\u0000\">",
+"output":["ParseError", ["StartTag", "a", {"a":"\uFFFD"}]]},
 
-{"description":"<a a=a\\u000B",
-"input":"<a a=a\u000B",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"a":"a\u000B"}]]},
+{"description":"<a a=\"\\u0009\">",
+"input":"<a a=\"\u0009\">",
+"output":[["StartTag", "a", {"a":"\u0009"}]]},
 
-{"description":"<a a=a\\u000C",
-"input":"<a a=a\u000C",
-"output":["ParseError", ["StartTag", "a", {"a":"a"}]]},
+{"description":"<a a=\"\\u000A\">",
+"input":"<a a=\"\u000A\">",
+"output":[["StartTag", "a", {"a":"\u000A"}]]},
 
-{"description":"<a a=a\\u000D",
-"input":"<a a=a\u000D",
-"output":["ParseError", ["StartTag", "a", {"a":"a"}]]},
+{"description":"<a a=\"\\u000B\">",
+"input":"<a a=\"\u000B\">",
+"output":["ParseError", ["StartTag", "a", {"a":"\u000B"}]]},
 
-{"description":"<a a=a\\u001F",
-"input":"<a a=a\u001F",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"a":"a\u001F"}]]},
+{"description":"<a a=\"\\u000C\">",
+"input":"<a a=\"\u000C\">",
+"output":[["StartTag", "a", {"a":"\u000C"}]]},
 
-{"description":"<a a=a ",
-"input":"<a a=a ",
-"output":["ParseError", ["StartTag", "a", {"a":"a"}]]},
+{"description":"<a a=\" \">",
+"input":"<a a=\" \">",
+"output":[["StartTag", "a", {"a":" "}]]},
 
-{"description":"<a a=a!",
-"input":"<a a=a!",
-"output":["ParseError", ["StartTag", "a", {"a":"a!"}]]},
+{"description":"<a a=\"!\">",
+"input":"<a a=\"!\">",
+"output":[["StartTag", "a", {"a":"!"}]]},
 
-{"description":"<a a=a\"",
-"input":"<a a=a\"",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"a":"a\""}]]},
+{"description":"<a a=\"\">",
+"input":"<a a=\"\">",
+"output":[["StartTag", "a", {"a":""}]]},
 
-{"description":"<a a=a#",
-"input":"<a a=a#",
-"output":["ParseError", ["StartTag", "a", {"a":"a#"}]]},
+{"description":"<a a=\"#\">",
+"input":"<a a=\"#\">",
+"output":[["StartTag", "a", {"a":"#"}]]},
 
-{"description":"<a a=a%",
-"input":"<a a=a%",
-"output":["ParseError", ["StartTag", "a", {"a":"a%"}]]},
+{"description":"<a a=\"%\">",
+"input":"<a a=\"%\">",
+"output":[["StartTag", "a", {"a":"%"}]]},
 
-{"description":"<a a=a&",
-"input":"<a a=a&",
-"output":["ParseError", ["StartTag", "a", {"a":"a&"}]]},
+{"description":"<a a=\"&\">",
+"input":"<a a=\"&\">",
+"output":[["StartTag", "a", {"a":"&"}]]},
 
-{"description":"<a a=a'",
-"input":"<a a=a'",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"a":"a'"}]]},
+{"description":"<a a=\"'\">",
+"input":"<a a=\"'\">",
+"output":[["StartTag", "a", {"a":"'"}]]},
 
-{"description":"<a a=a(",
-"input":"<a a=a(",
-"output":["ParseError", ["StartTag", "a", {"a":"a("}]]},
+{"description":"<a a=\"-\">",
+"input":"<a a=\"-\">",
+"output":[["StartTag", "a", {"a":"-"}]]},
 
-{"description":"<a a=a-",
-"input":"<a a=a-",
-"output":["ParseError", ["StartTag", "a", {"a":"a-"}]]},
+{"description":"<a a=\"/\">",
+"input":"<a a=\"/\">",
+"output":[["StartTag", "a", {"a":"/"}]]},
 
-{"description":"<a a=a/",
-"input":"<a a=a/",
-"output":["ParseError", ["StartTag", "a", {"a":"a/"}]]},
+{"description":"<a a=\"0\">",
+"input":"<a a=\"0\">",
+"output":[["StartTag", "a", {"a":"0"}]]},
 
-{"description":"<a a=a0",
-"input":"<a a=a0",
-"output":["ParseError", ["StartTag", "a", {"a":"a0"}]]},
+{"description":"<a a=\"1\">",
+"input":"<a a=\"1\">",
+"output":[["StartTag", "a", {"a":"1"}]]},
 
-{"description":"<a a=a1",
-"input":"<a a=a1",
-"output":["ParseError", ["StartTag", "a", {"a":"a1"}]]},
+{"description":"<a a=\"9\">",
+"input":"<a a=\"9\">",
+"output":[["StartTag", "a", {"a":"9"}]]},
 
-{"description":"<a a=a9",
-"input":"<a a=a9",
-"output":["ParseError", ["StartTag", "a", {"a":"a9"}]]},
+{"description":"<a a=\"<\">",
+"input":"<a a=\"<\">",
+"output":[["StartTag", "a", {"a":"<"}]]},
 
-{"description":"<a a=a<",
-"input":"<a a=a<",
-"output":["ParseError", ["StartTag", "a", {"a":"a<"}]]},
+{"description":"<a a=\"=\">",
+"input":"<a a=\"=\">",
+"output":[["StartTag", "a", {"a":"="}]]},
 
-{"description":"<a a=a=",
-"input":"<a a=a=",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"a":"a="}]]},
+{"description":"<a a=\">\">",
+"input":"<a a=\">\">",
+"output":[["StartTag", "a", {"a":">"}]]},
+
+{"description":"<a a=\"?\">",
+"input":"<a a=\"?\">",
+"output":[["StartTag", "a", {"a":"?"}]]},
+
+{"description":"<a a=\"@\">",
+"input":"<a a=\"@\">",
+"output":[["StartTag", "a", {"a":"@"}]]},
+
+{"description":"<a a=\"A\">",
+"input":"<a a=\"A\">",
+"output":[["StartTag", "a", {"a":"A"}]]},
+
+{"description":"<a a=\"B\">",
+"input":"<a a=\"B\">",
+"output":[["StartTag", "a", {"a":"B"}]]},
+
+{"description":"<a a=\"Y\">",
+"input":"<a a=\"Y\">",
+"output":[["StartTag", "a", {"a":"Y"}]]},
+
+{"description":"<a a=\"Z\">",
+"input":"<a a=\"Z\">",
+"output":[["StartTag", "a", {"a":"Z"}]]},
+
+{"description":"<a a=\"`\">",
+"input":"<a a=\"`\">",
+"output":[["StartTag", "a", {"a":"`"}]]},
+
+{"description":"<a a=\"a\">",
+"input":"<a a=\"a\">",
+"output":[["StartTag", "a", {"a":"a"}]]},
+
+{"description":"<a a=\"b\">",
+"input":"<a a=\"b\">",
+"output":[["StartTag", "a", {"a":"b"}]]},
+
+{"description":"<a a=\"y\">",
+"input":"<a a=\"y\">",
+"output":[["StartTag", "a", {"a":"y"}]]},
+
+{"description":"<a a=\"z\">",
+"input":"<a a=\"z\">",
+"output":[["StartTag", "a", {"a":"z"}]]},
+
+{"description":"<a a=\"{\">",
+"input":"<a a=\"{\">",
+"output":[["StartTag", "a", {"a":"{"}]]},
+
+{"description":"<a a=\"\\uDBC0\\uDC00\">",
+"input":"<a a=\"\uDBC0\uDC00\">",
+"output":[["StartTag", "a", {"a":"\uDBC0\uDC00"}]]},
+
+{"description":"<a a=#>",
+"input":"<a a=#>",
+"output":[["StartTag", "a", {"a":"#"}]]},
+
+{"description":"<a a=%>",
+"input":"<a a=%>",
+"output":[["StartTag", "a", {"a":"%"}]]},
+
+{"description":"<a a=&>",
+"input":"<a a=&>",
+"output":["ParseError", ["StartTag", "a", {"a":"&"}]]},
+
+{"description":"<a a=''>",
+"input":"<a a=''>",
+"output":[["StartTag", "a", {"a":""}]]},
+
+{"description":"<a a='\\u0000'>",
+"input":"<a a='\u0000'>",
+"output":["ParseError", ["StartTag", "a", {"a":"\uFFFD"}]]},
+
+{"description":"<a a='\\u0009'>",
+"input":"<a a='\u0009'>",
+"output":[["StartTag", "a", {"a":"\u0009"}]]},
+
+{"description":"<a a='\\u000A'>",
+"input":"<a a='\u000A'>",
+"output":[["StartTag", "a", {"a":"\u000A"}]]},
+
+{"description":"<a a='\\u000B'>",
+"input":"<a a='\u000B'>",
+"output":["ParseError", ["StartTag", "a", {"a":"\u000B"}]]},
+
+{"description":"<a a='\\u000C'>",
+"input":"<a a='\u000C'>",
+"output":[["StartTag", "a", {"a":"\u000C"}]]},
+
+{"description":"<a a=' '>",
+"input":"<a a=' '>",
+"output":[["StartTag", "a", {"a":" "}]]},
+
+{"description":"<a a='!'>",
+"input":"<a a='!'>",
+"output":[["StartTag", "a", {"a":"!"}]]},
+
+{"description":"<a a='\"'>",
+"input":"<a a='\"'>",
+"output":[["StartTag", "a", {"a":"\""}]]},
+
+{"description":"<a a='%'>",
+"input":"<a a='%'>",
+"output":[["StartTag", "a", {"a":"%"}]]},
+
+{"description":"<a a='&'>",
+"input":"<a a='&'>",
+"output":[["StartTag", "a", {"a":"&"}]]},
+
+{"description":"<a a=''>",
+"input":"<a a=''>",
+"output":[["StartTag", "a", {"a":""}]]},
+
+{"description":"<a a=''\\u0000>",
+"input":"<a a=''\u0000>",
+"output":["ParseError", "ParseError", ["StartTag", "a", {"a":"", "\uFFFD":""}]]},
+
+{"description":"<a a=''\\u0008>",
+"input":"<a a=''\u0008>",
+"output":["ParseError", "ParseError", ["StartTag", "a", {"a":"", "\u0008":""}]]},
+
+{"description":"<a a=''\\u0009>",
+"input":"<a a=''\u0009>",
+"output":[["StartTag", "a", {"a":""}]]},
+
+{"description":"<a a=''\\u000A>",
+"input":"<a a=''\u000A>",
+"output":[["StartTag", "a", {"a":""}]]},
+
+{"description":"<a a=''\\u000B>",
+"input":"<a a=''\u000B>",
+"output":["ParseError", "ParseError", ["StartTag", "a", {"a":"", "\u000B":""}]]},
+
+{"description":"<a a=''\\u000C>",
+"input":"<a a=''\u000C>",
+"output":[["StartTag", "a", {"a":""}]]},
+
+{"description":"<a a=''\\u000D>",
+"input":"<a a=''\u000D>",
+"output":[["StartTag", "a", {"a":""}]]},
+
+{"description":"<a a=''\\u001F>",
+"input":"<a a=''\u001F>",
+"output":["ParseError", "ParseError", ["StartTag", "a", {"a":"", "\u001F":""}]]},
+
+{"description":"<a a='' >",
+"input":"<a a='' >",
+"output":[["StartTag", "a", {"a":""}]]},
+
+{"description":"<a a=''!>",
+"input":"<a a=''!>",
+"output":["ParseError", ["StartTag", "a", {"a":"", "!":""}]]},
+
+{"description":"<a a=''\">",
+"input":"<a a=''\">",
+"output":["ParseError", "ParseError", ["StartTag", "a", {"a":"", "\"":""}]]},
+
+{"description":"<a a=''&>",
+"input":"<a a=''&>",
+"output":["ParseError", ["StartTag", "a", {"a":"", "&":""}]]},
+
+{"description":"<a a='''>",
+"input":"<a a='''>",
+"output":["ParseError", "ParseError", ["StartTag", "a", {"a":"", "'":""}]]},
+
+{"description":"<a a=''->",
+"input":"<a a=''->",
+"output":["ParseError", ["StartTag", "a", {"a":"", "-":""}]]},
+
+{"description":"<a a=''.>",
+"input":"<a a=''.>",
+"output":["ParseError", ["StartTag", "a", {"a":"", ".":""}]]},
+
+{"description":"<a a=''/>",
+"input":"<a a=''/>",
+"output":[["StartTag", "a", {"a":""}, true]]},
+
+{"description":"<a a=''0>",
+"input":"<a a=''0>",
+"output":["ParseError", ["StartTag", "a", {"a":"", "0":""}]]},
+
+{"description":"<a a=''1>",
+"input":"<a a=''1>",
+"output":["ParseError", ["StartTag", "a", {"a":"", "1":""}]]},
+
+{"description":"<a a=''9>",
+"input":"<a a=''9>",
+"output":["ParseError", ["StartTag", "a", {"a":"", "9":""}]]},
+
+{"description":"<a a=''<>",
+"input":"<a a=''<>",
+"output":["ParseError", ["StartTag", "a", {"a":"", "<":""}]]},
+
+{"description":"<a a=''=>",
+"input":"<a a=''=>",
+"output":["ParseError", "ParseError", ["StartTag", "a", {"a":"", "=":""}]]},
+
+{"description":"<a a=''>",
+"input":"<a a=''>",
+"output":[["StartTag", "a", {"a":""}]]},
+
+{"description":"<a a=''?>",
+"input":"<a a=''?>",
+"output":["ParseError", ["StartTag", "a", {"a":"", "?":""}]]},
+
+{"description":"<a a=''@>",
+"input":"<a a=''@>",
+"output":["ParseError", ["StartTag", "a", {"a":"", "@":""}]]},
+
+{"description":"<a a=''A>",
+"input":"<a a=''A>",
+"output":["ParseError", "ParseError", ["StartTag", "a", {"a":""}]]},
+
+{"description":"<a a=''B>",
+"input":"<a a=''B>",
+"output":["ParseError", ["StartTag", "a", {"a":"", "b":""}]]},
+
+{"description":"<a a=''Y>",
+"input":"<a a=''Y>",
+"output":["ParseError", ["StartTag", "a", {"a":"", "y":""}]]},
+
+{"description":"<a a=''Z>",
+"input":"<a a=''Z>",
+"output":["ParseError", ["StartTag", "a", {"a":"", "z":""}]]},
+
+{"description":"<a a=''`>",
+"input":"<a a=''`>",
+"output":["ParseError", ["StartTag", "a", {"a":"", "`":""}]]},
+
+{"description":"<a a=''a>",
+"input":"<a a=''a>",
+"output":["ParseError", "ParseError", ["StartTag", "a", {"a":""}]]},
+
+{"description":"<a a=''b>",
+"input":"<a a=''b>",
+"output":["ParseError", ["StartTag", "a", {"a":"", "b":""}]]},
+
+{"description":"<a a=''y>",
+"input":"<a a=''y>",
+"output":["ParseError", ["StartTag", "a", {"a":"", "y":""}]]},
+
+{"description":"<a a=''z>",
+"input":"<a a=''z>",
+"output":["ParseError", ["StartTag", "a", {"a":"", "z":""}]]},
+
+{"description":"<a a=''{>",
+"input":"<a a=''{>",
+"output":["ParseError", ["StartTag", "a", {"a":"", "{":""}]]},
+
+{"description":"<a a=''\\uDBC0\\uDC00>",
+"input":"<a a=''\uDBC0\uDC00>",
+"output":["ParseError", ["StartTag", "a", {"a":"", "\uDBC0\uDC00":""}]]},
+
+{"description":"<a a='('>",
+"input":"<a a='('>",
+"output":[["StartTag", "a", {"a":"("}]]},
+
+{"description":"<a a='-'>",
+"input":"<a a='-'>",
+"output":[["StartTag", "a", {"a":"-"}]]},
+
+{"description":"<a a='/'>",
+"input":"<a a='/'>",
+"output":[["StartTag", "a", {"a":"/"}]]},
+
+{"description":"<a a='0'>",
+"input":"<a a='0'>",
+"output":[["StartTag", "a", {"a":"0"}]]},
+
+{"description":"<a a='1'>",
+"input":"<a a='1'>",
+"output":[["StartTag", "a", {"a":"1"}]]},
+
+{"description":"<a a='9'>",
+"input":"<a a='9'>",
+"output":[["StartTag", "a", {"a":"9"}]]},
+
+{"description":"<a a='<'>",
+"input":"<a a='<'>",
+"output":[["StartTag", "a", {"a":"<"}]]},
+
+{"description":"<a a='='>",
+"input":"<a a='='>",
+"output":[["StartTag", "a", {"a":"="}]]},
+
+{"description":"<a a='>'>",
+"input":"<a a='>'>",
+"output":[["StartTag", "a", {"a":">"}]]},
+
+{"description":"<a a='?'>",
+"input":"<a a='?'>",
+"output":[["StartTag", "a", {"a":"?"}]]},
+
+{"description":"<a a='@'>",
+"input":"<a a='@'>",
+"output":[["StartTag", "a", {"a":"@"}]]},
+
+{"description":"<a a='A'>",
+"input":"<a a='A'>",
+"output":[["StartTag", "a", {"a":"A"}]]},
+
+{"description":"<a a='B'>",
+"input":"<a a='B'>",
+"output":[["StartTag", "a", {"a":"B"}]]},
+
+{"description":"<a a='Y'>",
+"input":"<a a='Y'>",
+"output":[["StartTag", "a", {"a":"Y"}]]},
+
+{"description":"<a a='Z'>",
+"input":"<a a='Z'>",
+"output":[["StartTag", "a", {"a":"Z"}]]},
+
+{"description":"<a a='`'>",
+"input":"<a a='`'>",
+"output":[["StartTag", "a", {"a":"`"}]]},
+
+{"description":"<a a='a'>",
+"input":"<a a='a'>",
+"output":[["StartTag", "a", {"a":"a"}]]},
+
+{"description":"<a a='b'>",
+"input":"<a a='b'>",
+"output":[["StartTag", "a", {"a":"b"}]]},
+
+{"description":"<a a='y'>",
+"input":"<a a='y'>",
+"output":[["StartTag", "a", {"a":"y"}]]},
+
+{"description":"<a a='z'>",
+"input":"<a a='z'>",
+"output":[["StartTag", "a", {"a":"z"}]]},
+
+{"description":"<a a='{'>",
+"input":"<a a='{'>",
+"output":[["StartTag", "a", {"a":"{"}]]},
+
+{"description":"<a a='\\uDBC0\\uDC00'>",
+"input":"<a a='\uDBC0\uDC00'>",
+"output":[["StartTag", "a", {"a":"\uDBC0\uDC00"}]]},
+
+{"description":"<a a=(>",
+"input":"<a a=(>",
+"output":[["StartTag", "a", {"a":"("}]]},
+
+{"description":"<a a=->",
+"input":"<a a=->",
+"output":[["StartTag", "a", {"a":"-"}]]},
+
+{"description":"<a a=/>",
+"input":"<a a=/>",
+"output":[["StartTag", "a", {"a":"/"}]]},
+
+{"description":"<a a=0>",
+"input":"<a a=0>",
+"output":[["StartTag", "a", {"a":"0"}]]},
+
+{"description":"<a a=1>",
+"input":"<a a=1>",
+"output":[["StartTag", "a", {"a":"1"}]]},
+
+{"description":"<a a=9>",
+"input":"<a a=9>",
+"output":[["StartTag", "a", {"a":"9"}]]},
+
+{"description":"<a a=<>",
+"input":"<a a=<>",
+"output":[["StartTag", "a", {"a":"<"}]]},
+
+{"description":"<a a==>",
+"input":"<a a==>",
+"output":["ParseError", ["StartTag", "a", {"a":"="}]]},
+
+{"description":"<a a=>",
+"input":"<a a=>",
+"output":["ParseError", ["StartTag", "a", {"a":""}]]},
+
+{"description":"<a a=?>",
+"input":"<a a=?>",
+"output":[["StartTag", "a", {"a":"?"}]]},
+
+{"description":"<a a=@>",
+"input":"<a a=@>",
+"output":[["StartTag", "a", {"a":"@"}]]},
+
+{"description":"<a a=A>",
+"input":"<a a=A>",
+"output":[["StartTag", "a", {"a":"A"}]]},
+
+{"description":"<a a=B>",
+"input":"<a a=B>",
+"output":[["StartTag", "a", {"a":"B"}]]},
+
+{"description":"<a a=Y>",
+"input":"<a a=Y>",
+"output":[["StartTag", "a", {"a":"Y"}]]},
+
+{"description":"<a a=Z>",
+"input":"<a a=Z>",
+"output":[["StartTag", "a", {"a":"Z"}]]},
+
+{"description":"<a a=`>",
+"input":"<a a=`>",
+"output":[["StartTag", "a", {"a":"`"}]]},
 
 {"description":"<a a=a>",
 "input":"<a a=a>",
 "output":[["StartTag", "a", {"a":"a"}]]},
 
-{"description":"<a a=a?",
-"input":"<a a=a?",
-"output":["ParseError", ["StartTag", "a", {"a":"a?"}]]},
+{"description":"<a a=a\\u0000>",
+"input":"<a a=a\u0000>",
+"output":["ParseError", ["StartTag", "a", {"a":"a\uFFFD"}]]},
 
-{"description":"<a a=a@",
-"input":"<a a=a@",
-"output":["ParseError", ["StartTag", "a", {"a":"a@"}]]},
+{"description":"<a a=a\\u0008>",
+"input":"<a a=a\u0008>",
+"output":["ParseError", ["StartTag", "a", {"a":"a\u0008"}]]},
 
-{"description":"<a a=aA",
-"input":"<a a=aA",
-"output":["ParseError", ["StartTag", "a", {"a":"aA"}]]},
+{"description":"<a a=a\\u0009>",
+"input":"<a a=a\u0009>",
+"output":[["StartTag", "a", {"a":"a"}]]},
 
-{"description":"<a a=aB",
-"input":"<a a=aB",
-"output":["ParseError", ["StartTag", "a", {"a":"aB"}]]},
+{"description":"<a a=a\\u000A>",
+"input":"<a a=a\u000A>",
+"output":[["StartTag", "a", {"a":"a"}]]},
 
-{"description":"<a a=aY",
-"input":"<a a=aY",
-"output":["ParseError", ["StartTag", "a", {"a":"aY"}]]},
+{"description":"<a a=a\\u000B>",
+"input":"<a a=a\u000B>",
+"output":["ParseError", ["StartTag", "a", {"a":"a\u000B"}]]},
 
-{"description":"<a a=aZ",
-"input":"<a a=aZ",
-"output":["ParseError", ["StartTag", "a", {"a":"aZ"}]]},
+{"description":"<a a=a\\u000C>",
+"input":"<a a=a\u000C>",
+"output":[["StartTag", "a", {"a":"a"}]]},
 
-{"description":"<a a=a`",
-"input":"<a a=a`",
-"output":["ParseError", ["StartTag", "a", {"a":"a`"}]]},
+{"description":"<a a=a\\u000D>",
+"input":"<a a=a\u000D>",
+"output":[["StartTag", "a", {"a":"a"}]]},
 
-{"description":"<a a=aa",
-"input":"<a a=aa",
-"output":["ParseError", ["StartTag", "a", {"a":"aa"}]]},
+{"description":"<a a=a\\u001F>",
+"input":"<a a=a\u001F>",
+"output":["ParseError", ["StartTag", "a", {"a":"a\u001F"}]]},
 
-{"description":"<a a=ab",
-"input":"<a a=ab",
-"output":["ParseError", ["StartTag", "a", {"a":"ab"}]]},
+{"description":"<a a=a >",
+"input":"<a a=a >",
+"output":[["StartTag", "a", {"a":"a"}]]},
 
-{"description":"<a a=ay",
-"input":"<a a=ay",
-"output":["ParseError", ["StartTag", "a", {"a":"ay"}]]},
+{"description":"<a a=a!>",
+"input":"<a a=a!>",
+"output":[["StartTag", "a", {"a":"a!"}]]},
 
-{"description":"<a a=az",
-"input":"<a a=az",
-"output":["ParseError", ["StartTag", "a", {"a":"az"}]]},
+{"description":"<a a=a\">",
+"input":"<a a=a\">",
+"output":["ParseError", ["StartTag", "a", {"a":"a\""}]]},
 
-{"description":"<a a=a{",
-"input":"<a a=a{",
-"output":["ParseError", ["StartTag", "a", {"a":"a{"}]]},
+{"description":"<a a=a#>",
+"input":"<a a=a#>",
+"output":[["StartTag", "a", {"a":"a#"}]]},
 
-{"description":"<a a=a\\uDBC0\\uDC00",
-"input":"<a a=a\uDBC0\uDC00",
-"output":["ParseError", ["StartTag", "a", {"a":"a\uDBC0\uDC00"}]]},
+{"description":"<a a=a%>",
+"input":"<a a=a%>",
+"output":[["StartTag", "a", {"a":"a%"}]]},
 
-{"description":"<a a=b",
-"input":"<a a=b",
-"output":["ParseError", ["StartTag", "a", {"a":"b"}]]},
+{"description":"<a a=a&>",
+"input":"<a a=a&>",
+"output":["ParseError", ["StartTag", "a", {"a":"a&"}]]},
 
-{"description":"<a a=y",
-"input":"<a a=y",
-"output":["ParseError", ["StartTag", "a", {"a":"y"}]]},
+{"description":"<a a=a'>",
+"input":"<a a=a'>",
+"output":["ParseError", ["StartTag", "a", {"a":"a'"}]]},
 
-{"description":"<a a=z",
-"input":"<a a=z",
-"output":["ParseError", ["StartTag", "a", {"a":"z"}]]},
+{"description":"<a a=a(>",
+"input":"<a a=a(>",
+"output":[["StartTag", "a", {"a":"a("}]]},
 
-{"description":"<a a={",
-"input":"<a a={",
-"output":["ParseError", ["StartTag", "a", {"a":"{"}]]},
+{"description":"<a a=a->",
+"input":"<a a=a->",
+"output":[["StartTag", "a", {"a":"a-"}]]},
 
-{"description":"<a a=\\uDBC0\\uDC00",
-"input":"<a a=\uDBC0\uDC00",
-"output":["ParseError", ["StartTag", "a", {"a":"\uDBC0\uDC00"}]]},
+{"description":"<a a=a/>",
+"input":"<a a=a/>",
+"output":[["StartTag", "a", {"a":"a/"}]]},
+
+{"description":"<a a=a0>",
+"input":"<a a=a0>",
+"output":[["StartTag", "a", {"a":"a0"}]]},
+
+{"description":"<a a=a1>",
+"input":"<a a=a1>",
+"output":[["StartTag", "a", {"a":"a1"}]]},
+
+{"description":"<a a=a9>",
+"input":"<a a=a9>",
+"output":[["StartTag", "a", {"a":"a9"}]]},
+
+{"description":"<a a=a<>",
+"input":"<a a=a<>",
+"output":[["StartTag", "a", {"a":"a<"}]]},
+
+{"description":"<a a=a=>",
+"input":"<a a=a=>",
+"output":["ParseError", ["StartTag", "a", {"a":"a="}]]},
+
+{"description":"<a a=a>",
+"input":"<a a=a>",
+"output":[["StartTag", "a", {"a":"a"}]]},
+
+{"description":"<a a=a?>",
+"input":"<a a=a?>",
+"output":[["StartTag", "a", {"a":"a?"}]]},
+
+{"description":"<a a=a@>",
+"input":"<a a=a@>",
+"output":[["StartTag", "a", {"a":"a@"}]]},
+
+{"description":"<a a=aA>",
+"input":"<a a=aA>",
+"output":[["StartTag", "a", {"a":"aA"}]]},
+
+{"description":"<a a=aB>",
+"input":"<a a=aB>",
+"output":[["StartTag", "a", {"a":"aB"}]]},
+
+{"description":"<a a=aY>",
+"input":"<a a=aY>",
+"output":[["StartTag", "a", {"a":"aY"}]]},
+
+{"description":"<a a=aZ>",
+"input":"<a a=aZ>",
+"output":[["StartTag", "a", {"a":"aZ"}]]},
+
+{"description":"<a a=a`>",
+"input":"<a a=a`>",
+"output":[["StartTag", "a", {"a":"a`"}]]},
+
+{"description":"<a a=aa>",
+"input":"<a a=aa>",
+"output":[["StartTag", "a", {"a":"aa"}]]},
+
+{"description":"<a a=ab>",
+"input":"<a a=ab>",
+"output":[["StartTag", "a", {"a":"ab"}]]},
+
+{"description":"<a a=ay>",
+"input":"<a a=ay>",
+"output":[["StartTag", "a", {"a":"ay"}]]},
+
+{"description":"<a a=az>",
+"input":"<a a=az>",
+"output":[["StartTag", "a", {"a":"az"}]]},
+
+{"description":"<a a=a{>",
+"input":"<a a=a{>",
+"output":[["StartTag", "a", {"a":"a{"}]]},
+
+{"description":"<a a=a\\uDBC0\\uDC00>",
+"input":"<a a=a\uDBC0\uDC00>",
+"output":[["StartTag", "a", {"a":"a\uDBC0\uDC00"}]]},
+
+{"description":"<a a=b>",
+"input":"<a a=b>",
+"output":[["StartTag", "a", {"a":"b"}]]},
+
+{"description":"<a a=y>",
+"input":"<a a=y>",
+"output":[["StartTag", "a", {"a":"y"}]]},
+
+{"description":"<a a=z>",
+"input":"<a a=z>",
+"output":[["StartTag", "a", {"a":"z"}]]},
+
+{"description":"<a a={>",
+"input":"<a a={>",
+"output":[["StartTag", "a", {"a":"{"}]]},
+
+{"description":"<a a=\\uDBC0\\uDC00>",
+"input":"<a a=\uDBC0\uDC00>",
+"output":[["StartTag", "a", {"a":"\uDBC0\uDC00"}]]},
 
 {"description":"<a a>",
 "input":"<a a>",
 "output":[["StartTag", "a", {"a":""}]]},
 
-{"description":"<a a?",
-"input":"<a a?",
-"output":["ParseError", ["StartTag", "a", {"a?":""}]]},
+{"description":"<a a?>",
+"input":"<a a?>",
+"output":[["StartTag", "a", {"a?":""}]]},
 
-{"description":"<a a@",
-"input":"<a a@",
-"output":["ParseError", ["StartTag", "a", {"a@":""}]]},
+{"description":"<a a@>",
+"input":"<a a@>",
+"output":[["StartTag", "a", {"a@":""}]]},
 
-{"description":"<a aA",
-"input":"<a aA",
-"output":["ParseError", ["StartTag", "a", {"aa":""}]]},
+{"description":"<a aA>",
+"input":"<a aA>",
+"output":[["StartTag", "a", {"aa":""}]]},
 
-{"description":"<a aB",
-"input":"<a aB",
-"output":["ParseError", ["StartTag", "a", {"ab":""}]]},
+{"description":"<a aB>",
+"input":"<a aB>",
+"output":[["StartTag", "a", {"ab":""}]]},
 
-{"description":"<a aY",
-"input":"<a aY",
-"output":["ParseError", ["StartTag", "a", {"ay":""}]]},
+{"description":"<a aY>",
+"input":"<a aY>",
+"output":[["StartTag", "a", {"ay":""}]]},
 
-{"description":"<a aZ",
-"input":"<a aZ",
-"output":["ParseError", ["StartTag", "a", {"az":""}]]},
+{"description":"<a aZ>",
+"input":"<a aZ>",
+"output":[["StartTag", "a", {"az":""}]]},
 
-{"description":"<a a[",
-"input":"<a a[",
-"output":["ParseError", ["StartTag", "a", {"a[":""}]]},
+{"description":"<a a[>",
+"input":"<a a[>",
+"output":[["StartTag", "a", {"a[":""}]]},
 
-{"description":"<a a`",
-"input":"<a a`",
-"output":["ParseError", ["StartTag", "a", {"a`":""}]]},
+{"description":"<a a`>",
+"input":"<a a`>",
+"output":[["StartTag", "a", {"a`":""}]]},
 
-{"description":"<a aa",
-"input":"<a aa",
-"output":["ParseError", ["StartTag", "a", {"aa":""}]]},
+{"description":"<a aa>",
+"input":"<a aa>",
+"output":[["StartTag", "a", {"aa":""}]]},
 
-{"description":"<a ab",
-"input":"<a ab",
-"output":["ParseError", ["StartTag", "a", {"ab":""}]]},
+{"description":"<a ab>",
+"input":"<a ab>",
+"output":[["StartTag", "a", {"ab":""}]]},
 
-{"description":"<a ay",
-"input":"<a ay",
-"output":["ParseError", ["StartTag", "a", {"ay":""}]]},
+{"description":"<a ay>",
+"input":"<a ay>",
+"output":[["StartTag", "a", {"ay":""}]]},
 
-{"description":"<a az",
-"input":"<a az",
-"output":["ParseError", ["StartTag", "a", {"az":""}]]},
+{"description":"<a az>",
+"input":"<a az>",
+"output":[["StartTag", "a", {"az":""}]]},
 
-{"description":"<a a{",
-"input":"<a a{",
-"output":["ParseError", ["StartTag", "a", {"a{":""}]]},
+{"description":"<a a{>",
+"input":"<a a{>",
+"output":[["StartTag", "a", {"a{":""}]]},
 
-{"description":"<a a\\uDBC0\\uDC00",
-"input":"<a a\uDBC0\uDC00",
-"output":["ParseError", ["StartTag", "a", {"a\uDBC0\uDC00":""}]]},
+{"description":"<a a\\uDBC0\\uDC00>",
+"input":"<a a\uDBC0\uDC00>",
+"output":[["StartTag", "a", {"a\uDBC0\uDC00":""}]]},
 
-{"description":"<a b",
-"input":"<a b",
-"output":["ParseError", ["StartTag", "a", {"b":""}]]},
+{"description":"<a b>",
+"input":"<a b>",
+"output":[["StartTag", "a", {"b":""}]]},
 
-{"description":"<a y",
-"input":"<a y",
-"output":["ParseError", ["StartTag", "a", {"y":""}]]},
+{"description":"<a y>",
+"input":"<a y>",
+"output":[["StartTag", "a", {"y":""}]]},
 
-{"description":"<a z",
-"input":"<a z",
-"output":["ParseError", ["StartTag", "a", {"z":""}]]},
+{"description":"<a z>",
+"input":"<a z>",
+"output":[["StartTag", "a", {"z":""}]]},
 
-{"description":"<a {",
-"input":"<a {",
-"output":["ParseError", ["StartTag", "a", {"{":""}]]},
+{"description":"<a {>",
+"input":"<a {>",
+"output":[["StartTag", "a", {"{":""}]]},
 
-{"description":"<a \\uDBC0\\uDC00",
-"input":"<a \uDBC0\uDC00",
-"output":["ParseError", ["StartTag", "a", {"\uDBC0\uDC00":""}]]},
+{"description":"<a \\uDBC0\\uDC00>",
+"input":"<a \uDBC0\uDC00>",
+"output":[["StartTag", "a", {"\uDBC0\uDC00":""}]]},
 
-{"description":"<a!",
-"input":"<a!",
-"output":["ParseError", ["StartTag", "a!", {}]]},
+{"description":"<a!>",
+"input":"<a!>",
+"output":[["StartTag", "a!", {}]]},
 
-{"description":"<a\"",
-"input":"<a\"",
-"output":["ParseError", ["StartTag", "a\"", {}]]},
+{"description":"<a\">",
+"input":"<a\">",
+"output":[["StartTag", "a\"", {}]]},
 
-{"description":"<a&",
-"input":"<a&",
-"output":["ParseError", ["StartTag", "a&", {}]]},
+{"description":"<a&>",
+"input":"<a&>",
+"output":[["StartTag", "a&", {}]]},
 
-{"description":"<a'",
-"input":"<a'",
-"output":["ParseError", ["StartTag", "a'", {}]]},
+{"description":"<a'>",
+"input":"<a'>",
+"output":[["StartTag", "a'", {}]]},
 
-{"description":"<a-",
-"input":"<a-",
-"output":["ParseError", ["StartTag", "a-", {}]]},
+{"description":"<a->",
+"input":"<a->",
+"output":[["StartTag", "a-", {}]]},
 
-{"description":"<a.",
-"input":"<a.",
-"output":["ParseError", ["StartTag", "a.", {}]]},
-
-{"description":"<a/",
-"input":"<a/",
-"output":["ParseError", ["StartTag", "a", {}]]},
-
-{"description":"<a/\\u0000",
-"input":"<a/\u0000",
-"output":["ParseError", "ParseError", "ParseError", ["StartTag", "a", {"\uFFFD":""}]]},
-
-{"description":"<a/\\u0009",
-"input":"<a/\u0009",
-"output":["ParseError", "ParseError", ["StartTag", "a", {}]]},
-
-{"description":"<a/\\u000A",
-"input":"<a/\u000A",
-"output":["ParseError", "ParseError", ["StartTag", "a", {}]]},
-
-{"description":"<a/\\u000B",
-"input":"<a/\u000B",
-"output":["ParseError", "ParseError", "ParseError", ["StartTag", "a", {"\u000B":""}]]},
-
-{"description":"<a/\\u000C",
-"input":"<a/\u000C",
-"output":["ParseError", "ParseError", ["StartTag", "a", {}]]},
-
-{"description":"<a/ ",
-"input":"<a/ ",
-"output":["ParseError", "ParseError", ["StartTag", "a", {}]]},
-
-{"description":"<a/!",
-"input":"<a/!",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"!":""}]]},
-
-{"description":"<a/\"",
-"input":"<a/\"",
-"output":["ParseError", "ParseError", "ParseError", ["StartTag", "a", {"\"":""}]]},
-
-{"description":"<a/&",
-"input":"<a/&",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"&":""}]]},
-
-{"description":"<a/'",
-"input":"<a/'",
-"output":["ParseError", "ParseError", "ParseError", ["StartTag", "a", {"'":""}]]},
-
-{"description":"<a/-",
-"input":"<a/-",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"-":""}]]},
-
-{"description":"<a//",
-"input":"<a//",
-"output":["ParseError", "ParseError", ["StartTag", "a", {}]]},
-
-{"description":"<a/0",
-"input":"<a/0",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"0":""}]]},
-
-{"description":"<a/1",
-"input":"<a/1",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"1":""}]]},
-
-{"description":"<a/9",
-"input":"<a/9",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"9":""}]]},
-
-{"description":"<a/<",
-"input":"<a/<",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"<":""}]]},
-
-{"description":"<a/=",
-"input":"<a/=",
-"output":["ParseError", "ParseError", "ParseError", ["StartTag", "a", {"=":""}]]},
+{"description":"<a.>",
+"input":"<a.>",
+"output":[["StartTag", "a.", {}]]},
 
 {"description":"<a/>",
 "input":"<a/>",
 "output":[["StartTag", "a", {}, true]]},
 
-{"description":"<a/?",
-"input":"<a/?",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"?":""}]]},
+{"description":"<a/\\u0000>",
+"input":"<a/\u0000>",
+"output":["ParseError", "ParseError", ["StartTag", "a", {"\uFFFD":""}]]},
 
-{"description":"<a/@",
-"input":"<a/@",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"@":""}]]},
+{"description":"<a/\\u0009>",
+"input":"<a/\u0009>",
+"output":["ParseError", ["StartTag", "a", {}]]},
 
-{"description":"<a/A",
-"input":"<a/A",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"a":""}]]},
+{"description":"<a/\\u000A>",
+"input":"<a/\u000A>",
+"output":["ParseError", ["StartTag", "a", {}]]},
 
-{"description":"<a/B",
-"input":"<a/B",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"b":""}]]},
+{"description":"<a/\\u000B>",
+"input":"<a/\u000B>",
+"output":["ParseError", "ParseError", ["StartTag", "a", {"\u000B":""}]]},
 
-{"description":"<a/Y",
-"input":"<a/Y",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"y":""}]]},
+{"description":"<a/\\u000C>",
+"input":"<a/\u000C>",
+"output":["ParseError", ["StartTag", "a", {}]]},
 
-{"description":"<a/Z",
-"input":"<a/Z",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"z":""}]]},
+{"description":"<a/ >",
+"input":"<a/ >",
+"output":["ParseError", ["StartTag", "a", {}]]},
 
-{"description":"<a/`",
-"input":"<a/`",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"`":""}]]},
+{"description":"<a/!>",
+"input":"<a/!>",
+"output":["ParseError", ["StartTag", "a", {"!":""}]]},
 
-{"description":"<a/a",
-"input":"<a/a",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"a":""}]]},
+{"description":"<a/\">",
+"input":"<a/\">",
+"output":["ParseError", "ParseError", ["StartTag", "a", {"\"":""}]]},
 
-{"description":"<a/b",
-"input":"<a/b",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"b":""}]]},
+{"description":"<a/&>",
+"input":"<a/&>",
+"output":["ParseError", ["StartTag", "a", {"&":""}]]},
 
-{"description":"<a/y",
-"input":"<a/y",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"y":""}]]},
+{"description":"<a/'>",
+"input":"<a/'>",
+"output":["ParseError", "ParseError", ["StartTag", "a", {"'":""}]]},
 
-{"description":"<a/z",
-"input":"<a/z",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"z":""}]]},
+{"description":"<a/->",
+"input":"<a/->",
+"output":["ParseError", ["StartTag", "a", {"-":""}]]},
 
-{"description":"<a/{",
-"input":"<a/{",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"{":""}]]},
+{"description":"<a//>",
+"input":"<a//>",
+"output":["ParseError", ["StartTag", "a", {}, true]]},
 
-{"description":"<a/\\uDBC0\\uDC00",
-"input":"<a/\uDBC0\uDC00",
-"output":["ParseError", "ParseError", ["StartTag", "a", {"\uDBC0\uDC00":""}]]},
+{"description":"<a/0>",
+"input":"<a/0>",
+"output":["ParseError", ["StartTag", "a", {"0":""}]]},
 
-{"description":"<a0",
-"input":"<a0",
-"output":["ParseError", ["StartTag", "a0", {}]]},
+{"description":"<a/1>",
+"input":"<a/1>",
+"output":["ParseError", ["StartTag", "a", {"1":""}]]},
 
-{"description":"<a1",
-"input":"<a1",
-"output":["ParseError", ["StartTag", "a1", {}]]},
+{"description":"<a/9>",
+"input":"<a/9>",
+"output":["ParseError", ["StartTag", "a", {"9":""}]]},
 
-{"description":"<a9",
-"input":"<a9",
-"output":["ParseError", ["StartTag", "a9", {}]]},
+{"description":"<a/<>",
+"input":"<a/<>",
+"output":["ParseError", ["StartTag", "a", {"<":""}]]},
 
-{"description":"<a<",
-"input":"<a<",
-"output":["ParseError", ["StartTag", "a<", {}]]},
+{"description":"<a/=>",
+"input":"<a/=>",
+"output":["ParseError", "ParseError", ["StartTag", "a", {"=":""}]]},
 
-{"description":"<a=",
-"input":"<a=",
-"output":["ParseError", ["StartTag", "a=", {}]]},
+{"description":"<a/>",
+"input":"<a/>",
+"output":[["StartTag", "a", {}, true]]},
+
+{"description":"<a/?>",
+"input":"<a/?>",
+"output":["ParseError", ["StartTag", "a", {"?":""}]]},
+
+{"description":"<a/@>",
+"input":"<a/@>",
+"output":["ParseError", ["StartTag", "a", {"@":""}]]},
+
+{"description":"<a/A>",
+"input":"<a/A>",
+"output":["ParseError", ["StartTag", "a", {"a":""}]]},
+
+{"description":"<a/B>",
+"input":"<a/B>",
+"output":["ParseError", ["StartTag", "a", {"b":""}]]},
+
+{"description":"<a/Y>",
+"input":"<a/Y>",
+"output":["ParseError", ["StartTag", "a", {"y":""}]]},
+
+{"description":"<a/Z>",
+"input":"<a/Z>",
+"output":["ParseError", ["StartTag", "a", {"z":""}]]},
+
+{"description":"<a/`>",
+"input":"<a/`>",
+"output":["ParseError", ["StartTag", "a", {"`":""}]]},
+
+{"description":"<a/a>",
+"input":"<a/a>",
+"output":["ParseError", ["StartTag", "a", {"a":""}]]},
+
+{"description":"<a/b>",
+"input":"<a/b>",
+"output":["ParseError", ["StartTag", "a", {"b":""}]]},
+
+{"description":"<a/y>",
+"input":"<a/y>",
+"output":["ParseError", ["StartTag", "a", {"y":""}]]},
+
+{"description":"<a/z>",
+"input":"<a/z>",
+"output":["ParseError", ["StartTag", "a", {"z":""}]]},
+
+{"description":"<a/{>",
+"input":"<a/{>",
+"output":["ParseError", ["StartTag", "a", {"{":""}]]},
+
+{"description":"<a/\\uDBC0\\uDC00>",
+"input":"<a/\uDBC0\uDC00>",
+"output":["ParseError", ["StartTag", "a", {"\uDBC0\uDC00":""}]]},
+
+{"description":"<a0>",
+"input":"<a0>",
+"output":[["StartTag", "a0", {}]]},
+
+{"description":"<a1>",
+"input":"<a1>",
+"output":[["StartTag", "a1", {}]]},
+
+{"description":"<a9>",
+"input":"<a9>",
+"output":[["StartTag", "a9", {}]]},
+
+{"description":"<a<>",
+"input":"<a<>",
+"output":[["StartTag", "a<", {}]]},
+
+{"description":"<a=>",
+"input":"<a=>",
+"output":[["StartTag", "a=", {}]]},
 
 {"description":"<a>",
 "input":"<a>",
 "output":[["StartTag", "a", {}]]},
 
-{"description":"<a?",
-"input":"<a?",
-"output":["ParseError", ["StartTag", "a?", {}]]},
+{"description":"<a?>",
+"input":"<a?>",
+"output":[["StartTag", "a?", {}]]},
 
-{"description":"<a@",
-"input":"<a@",
-"output":["ParseError", ["StartTag", "a@", {}]]},
+{"description":"<a@>",
+"input":"<a@>",
+"output":[["StartTag", "a@", {}]]},
 
-{"description":"<aA",
-"input":"<aA",
-"output":["ParseError", ["StartTag", "aa", {}]]},
+{"description":"<aA>",
+"input":"<aA>",
+"output":[["StartTag", "aa", {}]]},
 
-{"description":"<aB",
-"input":"<aB",
-"output":["ParseError", ["StartTag", "ab", {}]]},
+{"description":"<aB>",
+"input":"<aB>",
+"output":[["StartTag", "ab", {}]]},
 
-{"description":"<aY",
-"input":"<aY",
-"output":["ParseError", ["StartTag", "ay", {}]]},
+{"description":"<aY>",
+"input":"<aY>",
+"output":[["StartTag", "ay", {}]]},
 
-{"description":"<aZ",
-"input":"<aZ",
-"output":["ParseError", ["StartTag", "az", {}]]},
+{"description":"<aZ>",
+"input":"<aZ>",
+"output":[["StartTag", "az", {}]]},
 
-{"description":"<a[",
-"input":"<a[",
-"output":["ParseError", ["StartTag", "a[", {}]]},
+{"description":"<a[>",
+"input":"<a[>",
+"output":[["StartTag", "a[", {}]]},
 
-{"description":"<a`",
-"input":"<a`",
-"output":["ParseError", ["StartTag", "a`", {}]]},
+{"description":"<a`>",
+"input":"<a`>",
+"output":[["StartTag", "a`", {}]]},
 
-{"description":"<aa",
-"input":"<aa",
-"output":["ParseError", ["StartTag", "aa", {}]]},
+{"description":"<aa>",
+"input":"<aa>",
+"output":[["StartTag", "aa", {}]]},
 
-{"description":"<ab",
-"input":"<ab",
-"output":["ParseError", ["StartTag", "ab", {}]]},
+{"description":"<ab>",
+"input":"<ab>",
+"output":[["StartTag", "ab", {}]]},
 
-{"description":"<ay",
-"input":"<ay",
-"output":["ParseError", ["StartTag", "ay", {}]]},
+{"description":"<ay>",
+"input":"<ay>",
+"output":[["StartTag", "ay", {}]]},
 
-{"description":"<az",
-"input":"<az",
-"output":["ParseError", ["StartTag", "az", {}]]},
+{"description":"<az>",
+"input":"<az>",
+"output":[["StartTag", "az", {}]]},
 
-{"description":"<a{",
-"input":"<a{",
-"output":["ParseError", ["StartTag", "a{", {}]]},
+{"description":"<a{>",
+"input":"<a{>",
+"output":[["StartTag", "a{", {}]]},
 
-{"description":"<a\\uDBC0\\uDC00",
-"input":"<a\uDBC0\uDC00",
-"output":["ParseError", ["StartTag", "a\uDBC0\uDC00", {}]]},
+{"description":"<a\\uDBC0\\uDC00>",
+"input":"<a\uDBC0\uDC00>",
+"output":[["StartTag", "a\uDBC0\uDC00", {}]]},
 
-{"description":"<b",
-"input":"<b",
-"output":["ParseError", ["StartTag", "b", {}]]},
+{"description":"<b>",
+"input":"<b>",
+"output":[["StartTag", "b", {}]]},
 
-{"description":"<y",
-"input":"<y",
-"output":["ParseError", ["StartTag", "y", {}]]},
+{"description":"<y>",
+"input":"<y>",
+"output":[["StartTag", "y", {}]]},
 
-{"description":"<z",
-"input":"<z",
-"output":["ParseError", ["StartTag", "z", {}]]},
+{"description":"<z>",
+"input":"<z>",
+"output":[["StartTag", "z", {}]]},
 
 {"description":"<{",
 "input":"<{",
