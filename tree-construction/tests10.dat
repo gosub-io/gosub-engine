@@ -379,7 +379,7 @@
 | <html>
 |   <head>
 |   <body>
-|     xlink href="foo"
+|     xlink:href="foo"
 |     <svg svg>
 |       xlink href="foo"
 
@@ -391,8 +391,8 @@
 | <html>
 |   <head>
 |   <body>
-|     xlink href="foo"
-|     xml lang="en"
+|     xlink:href="foo"
+|     xml:lang="en"
 |     <svg svg>
 |       <svg g>
 |         xlink href="foo"
@@ -406,8 +406,8 @@
 | <html>
 |   <head>
 |   <body>
-|     xlink href="foo"
-|     xml lang="en"
+|     xlink:href="foo"
+|     xml:lang="en"
 |     <svg svg>
 |       <svg g>
 |         xlink href="foo"
@@ -421,8 +421,8 @@
 | <html>
 |   <head>
 |   <body>
-|     xlink href="foo"
-|     xml lang="en"
+|     xlink:href="foo"
+|     xml:lang="en"
 |     <svg svg>
 |       <svg g>
 |         xlink href="foo"
