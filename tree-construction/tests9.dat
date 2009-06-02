@@ -379,7 +379,7 @@ Line: 1 Col: 69 Unexpected start tag (span) in the after frameset phase. Ignored
 | <html>
 |   <head>
 |   <body>
-|     xlink href="foo"
+|     xlink:href="foo"
 |     <math math>
 |       xlink href="foo"
 
@@ -391,8 +391,8 @@ Line: 1 Col: 69 Unexpected start tag (span) in the after frameset phase. Ignored
 | <html>
 |   <head>
 |   <body>
-|     xlink href="foo"
-|     xml lang="en"
+|     xlink:href="foo"
+|     xml:lang="en"
 |     <math math>
 |       <math mi>
 |         xlink href="foo"
@@ -406,8 +406,8 @@ Line: 1 Col: 69 Unexpected start tag (span) in the after frameset phase. Ignored
 | <html>
 |   <head>
 |   <body>
-|     xlink href="foo"
-|     xml lang="en"
+|     xlink:href="foo"
+|     xml:lang="en"
 |     <math math>
 |       <math mi>
 |         xlink href="foo"
@@ -421,8 +421,8 @@ Line: 1 Col: 69 Unexpected start tag (span) in the after frameset phase. Ignored
 | <html>
 |   <head>
 |   <body>
-|     xlink href="foo"
-|     xml lang="en"
+|     xlink:href="foo"
+|     xml:lang="en"
 |     <math math>
 |       <math mi>
 |         xlink href="foo"
