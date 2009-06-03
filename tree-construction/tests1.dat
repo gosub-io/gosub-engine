@@ -1628,7 +1628,10 @@ XXX: These errors are wrong, please fix me!
 #document
 | <html>
 |   <head>
-|   <body>
+|   <frameset>
+|     <frame>
+|     <frameset>
+|       <frame>
 |     <noframes>
 |       "</frameset><noframes>"
 
