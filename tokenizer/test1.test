@@ -187,6 +187,10 @@
 
 {"description":"plaintext element",
  "input":"<plaintext>foobar",
- "output":[["StartTag","plaintext",{}], ["Character","foobar"]]}
+ "output":[["StartTag","plaintext",{}], ["Character","foobar"]]},
+
+{"description":"Open angled bracket in unquoted attribute value state",
+ "input":"<a a=f<>",
+ "output":["ParseError", ["StartTag", "a", {"a":"f<"}]]}
 
 ]}
