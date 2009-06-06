@@ -268,3 +268,26 @@ Line: 1 Col: 40 Expected closing tag. Unexpected end of file.
 |     <nobr>
 |     <nobr>
 |     <nobr>
+
+#data
+<!doctype html><html><body><p><table></table></body></html>
+#errors
+Not known
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|     <table>
+
+#data
+<p><table></table>
+#errors
+Not known
+#document
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|       <table>
