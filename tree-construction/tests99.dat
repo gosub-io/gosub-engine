@@ -174,3 +174,24 @@ Line: 1 Col: 37 Unexpected end tag (a) in table context caused voodoo mode.
 |               "bar"
 |             " "
 
+#data
+<body><frame></frame></frame><frameset><frame><frameset><frame></frameset><noframes></frameset><noframes>
+#errors
+6: Start tag seen without seeing a doctype first. Expected “<!DOCTYPE html>”.
+13: Stray start tag “frame”.
+21: Stray end tag “frame”.
+29: Stray end tag “frame”.
+39: “frameset” start tag after “body” already open.
+105: End of file seen inside an [R]CDATA element.
+105: End of file seen and there were open elements.
+XXX: These errors are wrong, please fix me!
+#document
+| <html>
+|   <head>
+|   <frameset>
+|     <frame>
+|     <frameset>
+|       <frame>
+|     <noframes>
+|       "</frameset><noframes>"
+

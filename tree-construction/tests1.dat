@@ -1615,27 +1615,6 @@ Line: 1 Col: 10 Unexpected start tag (frameset). Expected DOCTYPE.
 |     <noframes>
 
 #data
-<body><frame></frame></frame><frameset><frame><frameset><frame></frameset><noframes></frameset><noframes>
-#errors
-6: Start tag seen without seeing a doctype first. Expected “<!DOCTYPE html>”.
-13: Stray start tag “frame”.
-21: Stray end tag “frame”.
-29: Stray end tag “frame”.
-39: “frameset” start tag after “body” already open.
-105: End of file seen inside an [R]CDATA element.
-105: End of file seen and there were open elements.
-XXX: These errors are wrong, please fix me!
-#document
-| <html>
-|   <head>
-|   <frameset>
-|     <frame>
-|     <frameset>
-|       <frame>
-|     <noframes>
-|       "</frameset><noframes>"
-
-#data
 <h1><table><td><h3></table><h3></h1>
 #errors
 4: Start tag seen without seeing a doctype first. Expected “<!DOCTYPE html>”.
