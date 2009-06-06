@@ -331,3 +331,14 @@ Line: 1 Col: 7 Unexpected start tag (table). Expected DOCTYPE.
 |           <td>
 |             <code>
 |             " "
+
+#data
+<select><keygen>
+#errors
+Not known
+#document
+| <html>
+|   <head>
+|   <body>
+|     <select>
+|     <keygen>
