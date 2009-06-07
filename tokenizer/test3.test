@@ -544,6 +544,30 @@
 "input":"<!---- ",
 "output":["ParseError", "ParseError", ["Comment", "-- "]]},
 
+{"description":"<!---- >",
+"input":"<!---- >",
+"output":["ParseError", ["Comment", "-- "]]},
+
+{"description":"<!---- -",
+"input":"<!---- -",
+"output":["ParseError", "ParseError", ["Comment", "-- "]]},
+
+{"description":"<!---- --",
+"input":"<!---- --",
+"output":["ParseError", "ParseError", ["Comment", "-- "]]},
+
+{"description":"<!---- -->",
+"input":"<!---- -->",
+"output":["ParseError", ["Comment", "-- "]]},
+
+{"description":"<!----  -->",
+"input":"<!----  -->",
+"output":["ParseError", "ParseError", ["Comment", "--  "]]},
+
+{"description":"<!---- a-->",
+"input":"<!---- a-->",
+"output":["ParseError", ["Comment", "-- a"]]},
+
 {"description":"<!----!",
 "input":"<!----!",
 "output":["ParseError", "ParseError", ["Comment", ""]]},
