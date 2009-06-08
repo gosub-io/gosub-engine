@@ -578,19 +578,19 @@
 
 {"description":"<!----!a",
 "input":"<!----!a",
-"output":["ParseError", "ParseError", "ParseError", ["Comment", "--!a"]]},
+"output":["ParseError", "ParseError", ["Comment", "--!a"]]},
 
 {"description":"<!----!a-",
 "input":"<!----!a-",
-"output":["ParseError", "ParseError", "ParseError", ["Comment", "--!a"]]},
+"output":["ParseError", "ParseError", ["Comment", "--!a"]]},
 
 {"description":"<!----!a--",
 "input":"<!----!a--",
-"output":["ParseError", "ParseError", "ParseError", ["Comment", "--!a"]]},
+"output":["ParseError", "ParseError", ["Comment", "--!a"]]},
 
 {"description":"<!----!a-->",
 "input":"<!----!a-->",
-"output":["ParseError", "ParseError", ["Comment", "--!a"]]},
+"output":["ParseError", ["Comment", "--!a"]]},
 
 {"description":"<!----!-",
 "input":"<!----!-",
