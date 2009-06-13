@@ -514,12 +514,11 @@ Line: 1 Col: 23 Unexpected start tag isindex. Don't use it!
 |   <body>
 |     <form>
 |       <hr>
-|       <p>
-|         <label>
-|           "This is a searchable index. Insert your search keywords here: "
-|           <input>
-|             name="isindex"
-|             test="x"
+|       <label>
+|         "This is a searchable index. Insert your search keywords here: "
+|         <input>
+|           name="isindex"
+|           test="x"
 |       <hr>
 
 #data
