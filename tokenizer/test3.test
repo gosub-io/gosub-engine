@@ -4670,7 +4670,7 @@
 
 {"description":"<a <>",
 "input":"<a <>",
-"output":[["StartTag", "a", {"<":""}]]},
+"output":["ParseError", ["StartTag", "a", {"<":""}]]},
 
 {"description":"<a =>",
 "input":"<a =>",
@@ -4838,7 +4838,7 @@
 
 {"description":"<a a <>",
 "input":"<a a <>",
-"output":[["StartTag", "a", {"a":"", "<":""}]]},
+"output":["ParseError", ["StartTag", "a", {"a":"", "<":""}]]},
 
 {"description":"<a a =>",
 "input":"<a a =>",
@@ -4954,7 +4954,7 @@
 
 {"description":"<a a<>",
 "input":"<a a<>",
-"output":[["StartTag", "a", {"a<":""}]]},
+"output":["ParseError", ["StartTag", "a", {"a<":""}]]},
 
 {"description":"<a a=>",
 "input":"<a a=>",
@@ -5274,7 +5274,7 @@
 
 {"description":"<a a=''<>",
 "input":"<a a=''<>",
-"output":["ParseError", ["StartTag", "a", {"a":"", "<":""}]]},
+"output":["ParseError", "ParseError", ["StartTag", "a", {"a":"", "<":""}]]},
 
 {"description":"<a a=''=>",
 "input":"<a a=''=>",
@@ -5450,7 +5450,7 @@
 
 {"description":"<a a=<>",
 "input":"<a a=<>",
-"output":[["StartTag", "a", {"a":"<"}]]},
+"output":["ParseError", ["StartTag", "a", {"a":"<"}]]},
 
 {"description":"<a a==>",
 "input":"<a a==>",
@@ -5830,7 +5830,7 @@
 
 {"description":"<a/<>",
 "input":"<a/<>",
-"output":["ParseError", ["StartTag", "a", {"<":""}]]},
+"output":["ParseError", "ParseError", ["StartTag", "a", {"<":""}]]},
 
 {"description":"<a/=>",
 "input":"<a/=>",

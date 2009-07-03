@@ -2,11 +2,11 @@
 
 {"description":"< in attribute name",
 "input":"<z/0  <>",
-"output":["ParseError", ["StartTag", "z", {"0": "", "<": ""}]]},
+"output":["ParseError", "ParseError", ["StartTag", "z", {"0": "", "<": ""}]]},
 
 {"description":"< in attribute value",
 "input":"<z x=<>",
-"output":[["StartTag", "z", {"x": "<"}]]},
+"output":["ParseError", ["StartTag", "z", {"x": "<"}]]},
 
 {"description":"= in unquoted attribute value",
 "input":"<z z=z=z>",
