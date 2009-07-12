@@ -20,31 +20,31 @@
 
 {"description": "text within <pre>",
  "options": {"strip_whitespace": true},
- "input": [["StartTag", "pre", {}], ["Characters", "\t\r\n\u000C foo \t\r\n\u000C bar \t\r\n\u000C"], ["EndTag", "pre"]],
+ "input": [["StartTag", "http://www.w3.org/1999/xhtml", "pre", {}], ["Characters", "\t\r\n\u000C foo \t\r\n\u000C bar \t\r\n\u000C"], ["EndTag", "http://www.w3.org/1999/xhtml", "pre"]],
  "expected": ["<pre>\t\r\n\u000C foo \t\r\n\u000C bar \t\r\n\u000C</pre>"]
 },
 
 {"description": "text within <pre>, with inner markup",
  "options": {"strip_whitespace": true},
- "input": [["StartTag", "pre", {}], ["Characters", "\t\r\n\u000C fo"], ["StartTag", "span", {}], ["Characters", "o \t\r\n\u000C b"], ["EndTag", "span"], ["Characters", "ar \t\r\n\u000C"], ["EndTag", "pre"]],
+ "input": [["StartTag", "http://www.w3.org/1999/xhtml", "pre", {}], ["Characters", "\t\r\n\u000C fo"], ["StartTag", "http://www.w3.org/1999/xhtml", "span", {}], ["Characters", "o \t\r\n\u000C b"], ["EndTag", "http://www.w3.org/1999/xhtml", "span"], ["Characters", "ar \t\r\n\u000C"], ["EndTag", "http://www.w3.org/1999/xhtml", "pre"]],
  "expected": ["<pre>\t\r\n\u000C fo<span>o \t\r\n\u000C b</span>ar \t\r\n\u000C</pre>"]
 },
 
 {"description": "text within <textarea>",
  "options": {"strip_whitespace": true},
- "input": [["StartTag", "textarea", {}], ["Characters", "\t\r\n\u000C foo \t\r\n\u000C bar \t\r\n\u000C"], ["EndTag", "textarea"]],
+ "input": [["StartTag", "http://www.w3.org/1999/xhtml", "textarea", {}], ["Characters", "\t\r\n\u000C foo \t\r\n\u000C bar \t\r\n\u000C"], ["EndTag", "http://www.w3.org/1999/xhtml", "textarea"]],
  "expected": ["<textarea>\t\r\n\u000C foo \t\r\n\u000C bar \t\r\n\u000C</textarea>"]
 },
 
 {"description": "text within <script>",
  "options": {"strip_whitespace": true},
- "input": [["StartTag", "script", {}], ["Characters", "\t\r\n\u000C foo \t\r\n\u000C bar \t\r\n\u000C"], ["EndTag", "script"]],
+ "input": [["StartTag", "http://www.w3.org/1999/xhtml", "script", {}], ["Characters", "\t\r\n\u000C foo \t\r\n\u000C bar \t\r\n\u000C"], ["EndTag", "http://www.w3.org/1999/xhtml", "script"]],
  "expected": ["<script>\t\r\n\u000C foo \t\r\n\u000C bar \t\r\n\u000C</script>"]
 },
 
 {"description": "text within <style>",
  "options": {"strip_whitespace": true},
- "input": [["StartTag", "style", {}], ["Characters", "\t\r\n\u000C foo \t\r\n\u000C bar \t\r\n\u000C"], ["EndTag", "style"]],
+ "input": [["StartTag", "http://www.w3.org/1999/xhtml", "style", {}], ["Characters", "\t\r\n\u000C foo \t\r\n\u000C bar \t\r\n\u000C"], ["EndTag", "http://www.w3.org/1999/xhtml", "style"]],
  "expected": ["<style>\t\r\n\u000C foo \t\r\n\u000C bar \t\r\n\u000C</style>"]
 }
 
