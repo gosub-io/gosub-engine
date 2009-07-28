@@ -74,7 +74,7 @@
 
 {"description":"Hexadecimal entity pair representing a surrogate pair",
 "input":"&#xD869;&#xDED6;",
-"output":["ParseError", ["Character", "\uFFFD"], "ParseError", ["Character", "\uFFFD"]]},
+"output":["ParseError", ["Character", "\uD869"], "ParseError", ["Character", "\uDED6"]]},
 
 {"description":"Hexadecimal entity with mixed uppercase and lowercase",
 "input":"&#xaBcD;",

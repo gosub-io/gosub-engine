@@ -2094,7 +2094,7 @@
 
 {"description": "Windows-1252 REPLACEMENT CHAR numeric entity.",
 "input":"&#0129;",
-"output": ["ParseError", ["Character", "\uFFFD"]]},
+"output": ["ParseError", ["Character", "\u0081"]]},
 
 {"description": "Windows-1252 SINGLE LOW-9 QUOTATION MARK numeric entity.",
 "input":"&#0130;",
@@ -2142,7 +2142,7 @@
 
 {"description": "Windows-1252 REPLACEMENT CHAR numeric entity.",
 "input":"&#0141;",
-"output": ["ParseError", ["Character", "\uFFFD"]]},
+"output": ["ParseError", ["Character", "\u008D"]]},
 
 {"description": "Windows-1252 LATIN CAPITAL LETTER Z WITH CARON numeric entity.",
 "input":"&#0142;",
@@ -2150,11 +2150,11 @@
 
 {"description": "Windows-1252 REPLACEMENT CHAR numeric entity.",
 "input":"&#0143;",
-"output": ["ParseError", ["Character", "\uFFFD"]]},
+"output": ["ParseError", ["Character", "\u008F"]]},
 
 {"description": "Windows-1252 REPLACEMENT CHAR numeric entity.",
 "input":"&#0144;",
-"output": ["ParseError", ["Character", "\uFFFD"]]},
+"output": ["ParseError", ["Character", "\u0090"]]},
 
 {"description": "Windows-1252 LEFT SINGLE QUOTATION MARK numeric entity.",
 "input":"&#0145;",
@@ -2206,7 +2206,7 @@
 
 {"description": "Windows-1252 REPLACEMENT CHAR numeric entity.",
 "input":"&#0157;",
-"output": ["ParseError", ["Character", "\uFFFD"]]},
+"output": ["ParseError", ["Character", "\u009D"]]},
 
 {"description": "Windows-1252 EURO SIGN hexadecimal numeric entity.",
 "input":"&#x080;",
@@ -2214,7 +2214,7 @@
 
 {"description": "Windows-1252 REPLACEMENT CHAR hexadecimal numeric entity.",
 "input":"&#x081;",
-"output": ["ParseError", ["Character", "\uFFFD"]]},
+"output": ["ParseError", ["Character", "\u0081"]]},
 
 {"description": "Windows-1252 SINGLE LOW-9 QUOTATION MARK hexadecimal numeric entity.",
 "input":"&#x082;",
@@ -2262,7 +2262,7 @@
 
 {"description": "Windows-1252 REPLACEMENT CHAR hexadecimal numeric entity.",
 "input":"&#x08D;",
-"output": ["ParseError", ["Character", "\uFFFD"]]},
+"output": ["ParseError", ["Character", "\u008D"]]},
 
 {"description": "Windows-1252 LATIN CAPITAL LETTER Z WITH CARON hexadecimal numeric entity.",
 "input":"&#x08E;",
@@ -2270,11 +2270,11 @@
 
 {"description": "Windows-1252 REPLACEMENT CHAR hexadecimal numeric entity.",
 "input":"&#x08F;",
-"output": ["ParseError", ["Character", "\uFFFD"]]},
+"output": ["ParseError", ["Character", "\u008F"]]},
 
 {"description": "Windows-1252 REPLACEMENT CHAR hexadecimal numeric entity.",
 "input":"&#x090;",
-"output": ["ParseError", ["Character", "\uFFFD"]]},
+"output": ["ParseError", ["Character", "\u0090"]]},
 
 {"description": "Windows-1252 LEFT SINGLE QUOTATION MARK hexadecimal numeric entity.",
 "input":"&#x091;",
@@ -2326,7 +2326,7 @@
 
 {"description": "Windows-1252 REPLACEMENT CHAR hexadecimal numeric entity.",
 "input":"&#x09D;",
-"output": ["ParseError", ["Character", "\uFFFD"]]},
+"output": ["ParseError", ["Character", "\u009D"]]},
 
 {"description": "Windows-1252 LATIN SMALL LETTER Z WITH CARON hexadecimal numeric entity.",
 "input":"&#x09E;",
