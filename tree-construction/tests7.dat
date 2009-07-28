@@ -333,6 +333,52 @@ Line: 1 Col: 7 Unexpected start tag (table). Expected DOCTYPE.
 |             " "
 
 #data
+<table><b><tr><td>aaa</td></tr>bbb</table>ccc
+#errors
+XXX: Fix me
+#document
+| <html>
+|   <head>
+|   <body>
+|     <b>
+|     <b>
+|       "bbb"
+|     <table>
+|       <tbody>
+|         <tr>
+|           <td>
+|             "aaa"
+|     <b>
+|       "ccc"
+
+#data
+A<table><tr> B</tr> B</table>
+#errors
+XXX: Fix me
+#document
+| <html>
+|   <head>
+|   <body>
+|     "A B B"
+|     <table>
+|       <tbody>
+|         <tr>
+
+#data
+A<table><tr> B</tr> </em>C</table>
+#errors
+XXX: Fix me
+#document
+| <html>
+|   <head>
+|   <body>
+|     "A BC"
+|     <table>
+|       <tbody>
+|         <tr>
+|         " "
+
+#data
 <select><keygen>
 #errors
 Not known
