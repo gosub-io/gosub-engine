@@ -2,20 +2,20 @@
 
 {"description": "quote_char=\"'\"",
  "options": {"quote_char": "'"},
- "input": [["StartTag", "span", {"title": "test 'with' quote_char"}]],
+ "input": [["StartTag", "http://www.w3.org/1999/xhtml", "span", {"title": "test 'with' quote_char"}]],
  "expected": ["<span title='test &#39;with&#39; quote_char'>"]
 },
 
 {"description": "quote_attr_values=true",
  "options": {"quote_attr_values": true},
- "input": [["StartTag", "button", {"disabled": "disabled"}]],
+ "input": [["StartTag", "http://www.w3.org/1999/xhtml", "button", {"disabled": "disabled"}]],
  "expected": ["<button disabled>"],
  "xhtml":    ["<button disabled=\"disabled\">"]
 },
 
 {"description": "quote_attr_values=true with irrelevant",
  "options": {"quote_attr_values": true},
- "input": [["StartTag", "div", {"irrelevant": "irrelevant"}]],
+ "input": [["StartTag", "http://www.w3.org/1999/xhtml", "div", {"irrelevant": "irrelevant"}]],
  "expected": ["<div irrelevant>"],
  "xhtml":    ["<div irrelevant=\"irrelevant\">"]
 },
@@ -28,32 +28,32 @@
 
 {"description": "use_trailing_solidus=true with non-void element",
  "options": {"use_trailing_solidus": true},
- "input": [["StartTag", "div", {}]],
+ "input": [["StartTag", "http://www.w3.org/1999/xhtml", "div", {}]],
  "expected": ["<div>"]
 },
 
 {"description": "minimize_boolean_attributes=false",
  "options": {"minimize_boolean_attributes": false},
- "input": [["StartTag", "div", {"irrelevant": "irrelevant"}]],
+ "input": [["StartTag", "http://www.w3.org/1999/xhtml", "div", {"irrelevant": "irrelevant"}]],
  "expected": ["<div irrelevant=irrelevant>"],
  "xhtml":    ["<div irrelevant=\"irrelevant\">"]
 },
 
 {"description": "minimize_boolean_attributes=false with empty value",
  "options": {"minimize_boolean_attributes": false},
- "input": [["StartTag", "div", {"irrelevant": ""}]],
+ "input": [["StartTag", "http://www.w3.org/1999/xhtml", "div", {"irrelevant": ""}]],
  "expected": ["<div irrelevant=\"\">"]
 },
 
 {"description": "escape less than signs in attribute values",
  "options": {"escape_lt_in_attrs": true},
- "input": [["StartTag", "a", {"title": "a<b>c&d"}]],
+ "input": [["StartTag", "http://www.w3.org/1999/xhtml", "a", {"title": "a<b>c&d"}]],
  "expected": ["<a title=\"a&lt;b>c&amp;d\">"]
 },
 
 {"description": "rcdata",
  "options": {"escape_rcdata": true},
- "input": [["StartTag", "script", {}], ["Characters", "a<b>c&d"]],
+ "input": [["StartTag", "http://www.w3.org/1999/xhtml", "script", {}], ["Characters", "a<b>c&d"]],
  "expected": ["<script>a&lt;b&gt;c&amp;d"]
 }
 
