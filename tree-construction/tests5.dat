@@ -119,6 +119,17 @@ Line: 1 Col: 7 Unexpected start tag (style). Expected DOCTYPE.
 |     "x"
 
 #data
+<p><xmp></xmp>
+#errors
+XXX: Unknown
+#document
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|     <xmp>
+
+#data
 <xmp> <!-- > --> </xmp>
 #errors
 Line: 1 Col: 5 Unexpected start tag (xmp). Expected DOCTYPE.
