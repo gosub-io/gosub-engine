@@ -175,7 +175,7 @@ Line: 1 Col: 37 Unexpected end tag (a) in table context caused voodoo mode.
 |             " "
 
 #data
-<body><frame></frame></frame><frameset><frame><frameset><frame></frameset><noframes></frameset><noframes>
+<frame></frame></frame><frameset><frame><frameset><frame></frameset><noframes></frameset><noframes>
 #errors
 6: Start tag seen without seeing a doctype first. Expected “<!DOCTYPE html>”.
 13: Stray start tag “frame”.
@@ -194,4 +194,3 @@ XXX: These errors are wrong, please fix me!
 |       <frame>
 |     <noframes>
 |       "</frameset><noframes>"
-
