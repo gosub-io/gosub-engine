@@ -183,7 +183,7 @@
 
 {"description":"Unquoted attribute at end of tag with final character of &, with tag followed by characters",
 "input":"<a a=a&>foo",
-"output":["ParseError", ["StartTag", "a", {"a":"a&"}], ["Character", "foo"]]},
+"output":[["StartTag", "a", {"a":"a&"}], ["Character", "foo"]]},
 
 {"description":"plaintext element",
  "input":"<plaintext>foobar",
