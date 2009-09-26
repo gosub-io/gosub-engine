@@ -162,7 +162,7 @@
 
 {"description":"Surrogate code point edge cases",
 "input":"&#xD7FF;&#xD800;&#xD801;&#xDFFE;&#xDFFF;&#xE000;",
-"output":[["Character", "\uD7FF"], "ParseError", ["Character", "\uD800"], "ParseError", ["Character", "\uD801"], "ParseError", ["Character", "\uDFFE"], "ParseError", ["Character", "\uDFFF\uE000"]]},
+"output":[["Character", "\uD7FF"], "ParseError", ["Character", "\uFFFD"], "ParseError", ["Character", "\uFFFD"], "ParseError", ["Character", "\uFFFD"], "ParseError", ["Character", "\uFFFD\uE000"]]},
 
 {"description":"Uppercase start tag name",
 "input":"<X>",

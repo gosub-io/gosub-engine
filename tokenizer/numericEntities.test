@@ -118,11 +118,11 @@
 
 {"description": "Invalid numeric entity character U+D800",
 "input": "&#xd800;",
-"output": ["ParseError", ["Character", "\ud800"]]},
+"output": ["ParseError", ["Character", "\uFFFD"]]},
 
 {"description": "Invalid numeric entity character U+DFFF",
 "input": "&#xdfff;",
-"output": ["ParseError", ["Character", "\udfff"]]},
+"output": ["ParseError", ["Character", "\uFFFD"]]},
 
 {"description": "Invalid numeric entity character U+FDD0",
 "input": "&#xfdd0;",
