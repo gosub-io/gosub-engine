@@ -1602,6 +1602,20 @@ Line: 1 Col: 69 End tag (b) violates step 1, paragraph 3 of the adoption agency 
 |       <li>
 
 #data
+<ul><li><ul></li><li>a</li></ul></li></ul>
+#errors
+XXX: fix me
+#document
+| <html>
+|   <head>
+|   <body>
+|     <ul>
+|       <li>
+|         <ul>
+|           <li>
+|             "a"
+
+#data
 <frameset><frame><frameset><frame></frameset><noframes></noframes></frameset>
 #errors
 Line: 1 Col: 10 Unexpected start tag (frameset). Expected DOCTYPE.
