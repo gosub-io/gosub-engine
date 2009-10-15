@@ -12,11 +12,11 @@ Line: 1 Col: 36 Expected closing tag. Unexpected end of file.
 |       <b>
 |         <i>
 |           <u>
-|     " "
-|     <p>
-|       <b>
-|         <i>
-|           <u>
+|     <b>
+|       <i>
+|         <u>
+|           " "
+|           <p>
 |             "X"
 
 #data
@@ -34,12 +34,12 @@ Line: 2 Col: 4 Expected closing tag. Unexpected end of file.
 |       <b>
 |         <i>
 |           <u>
-|     "
+|     <b>
+|       <i>
+|         <u>
+|           "
 "
-|     <p>
-|       <b>
-|         <i>
-|           <u>
+|           <p>
 |             "X"
 
 #data
