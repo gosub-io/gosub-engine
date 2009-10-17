@@ -105,6 +105,21 @@
 {"description": "doctype",
  "input": [["Doctype", "HTML"]],
  "expected": ["<!DOCTYPE HTML>"]
+},
+
+{"description": "HTML 4.01 DOCTYPE",
+ "input": [["Doctype", "HTML",  "-//W3C//DTD HTML 4.01//EN", "http://www.w3.org/TR/html4/strict.dtd"]],
+ "expected": ["<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 4.01//EN\" \"http://www.w3.org/TR/html4/strict.dtd\">"]
+},
+
+{"description": "HTML 4.01 DOCTYPE without system identifer",
+ "input": [["Doctype", "HTML",  "-//W3C//DTD HTML 4.01//EN"]],
+ "expected": ["<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 4.01//EN\">"]
+},
+
+{"description": "IBM DOCTYPE without public identifer",
+ "input": [["Doctype", "html",  "", "http://www.ibm.com/data/dtd/v11/ibmxhtml1-transitional.dtd"]],
+ "expected": ["<!DOCTYPE html SYSTEM \"http://www.ibm.com/data/dtd/v11/ibmxhtml1-transitional.dtd\">"]
 }
 
 ]}
