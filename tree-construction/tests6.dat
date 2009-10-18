@@ -609,3 +609,23 @@ Line: 1 Col: 63 Unexpected end tag (html) after the (implied) root element.
 | <html>
 |   <head>
 |   <body>
+
+#data
+<param><frameset></frameset>
+#errors
+Line: 1 Col: 7 Unexpected start tag (param). Expected DOCTYPE.
+Line: 1 Col: 17 Unexpected start tag (frameset).
+#document
+| <html>
+|   <head>
+|   <frameset>
+
+#data
+<source><frameset></frameset>
+#errors
+Line: 1 Col: 7 Unexpected start tag (source). Expected DOCTYPE.
+Line: 1 Col: 17 Unexpected start tag (frameset).
+#document
+| <html>
+|   <head>
+|   <frameset>
