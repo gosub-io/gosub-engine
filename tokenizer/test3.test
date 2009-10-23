@@ -1262,135 +1262,135 @@
 
 {"description":"<!DOCTYPE a PUBLIC\"",
 "input":"<!DOCTYPE a PUBLIC\"",
-"output":["ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC\"\\u0000",
 "input":"<!DOCTYPE a PUBLIC\"\u0000",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "\uFFFD", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "\uFFFD", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC\"\\u0009",
 "input":"<!DOCTYPE a PUBLIC\"\u0009",
-"output":["ParseError", ["DOCTYPE", "a", "\u0009", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "\u0009", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC\"\\u000A",
 "input":"<!DOCTYPE a PUBLIC\"\u000A",
-"output":["ParseError", ["DOCTYPE", "a", "\u000A", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "\u000A", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC\"\\u000B",
 "input":"<!DOCTYPE a PUBLIC\"\u000B",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "\u000B", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "\u000B", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC\"\\u000C",
 "input":"<!DOCTYPE a PUBLIC\"\u000C",
-"output":["ParseError", ["DOCTYPE", "a", "\u000C", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "\u000C", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC\" ",
 "input":"<!DOCTYPE a PUBLIC\" ",
-"output":["ParseError", ["DOCTYPE", "a", " ", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", " ", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC\"!",
 "input":"<!DOCTYPE a PUBLIC\"!",
-"output":["ParseError", ["DOCTYPE", "a", "!", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "!", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC\"\"",
 "input":"<!DOCTYPE a PUBLIC\"\"",
-"output":["ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC\"#",
 "input":"<!DOCTYPE a PUBLIC\"#",
-"output":["ParseError", ["DOCTYPE", "a", "#", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "#", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC\"&",
 "input":"<!DOCTYPE a PUBLIC\"&",
-"output":["ParseError", ["DOCTYPE", "a", "&", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "&", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC\"'",
 "input":"<!DOCTYPE a PUBLIC\"'",
-"output":["ParseError", ["DOCTYPE", "a", "'", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "'", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC\"-",
 "input":"<!DOCTYPE a PUBLIC\"-",
-"output":["ParseError", ["DOCTYPE", "a", "-", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "-", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC\"/",
 "input":"<!DOCTYPE a PUBLIC\"/",
-"output":["ParseError", ["DOCTYPE", "a", "/", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "/", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC\"0",
 "input":"<!DOCTYPE a PUBLIC\"0",
-"output":["ParseError", ["DOCTYPE", "a", "0", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "0", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC\"1",
 "input":"<!DOCTYPE a PUBLIC\"1",
-"output":["ParseError", ["DOCTYPE", "a", "1", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "1", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC\"9",
 "input":"<!DOCTYPE a PUBLIC\"9",
-"output":["ParseError", ["DOCTYPE", "a", "9", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "9", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC\"<",
 "input":"<!DOCTYPE a PUBLIC\"<",
-"output":["ParseError", ["DOCTYPE", "a", "<", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "<", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC\"=",
 "input":"<!DOCTYPE a PUBLIC\"=",
-"output":["ParseError", ["DOCTYPE", "a", "=", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "=", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC\">",
 "input":"<!DOCTYPE a PUBLIC\">",
-"output":["ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC\"?",
 "input":"<!DOCTYPE a PUBLIC\"?",
-"output":["ParseError", ["DOCTYPE", "a", "?", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "?", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC\"@",
 "input":"<!DOCTYPE a PUBLIC\"@",
-"output":["ParseError", ["DOCTYPE", "a", "@", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "@", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC\"A",
 "input":"<!DOCTYPE a PUBLIC\"A",
-"output":["ParseError", ["DOCTYPE", "a", "A", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "A", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC\"B",
 "input":"<!DOCTYPE a PUBLIC\"B",
-"output":["ParseError", ["DOCTYPE", "a", "B", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "B", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC\"Y",
 "input":"<!DOCTYPE a PUBLIC\"Y",
-"output":["ParseError", ["DOCTYPE", "a", "Y", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "Y", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC\"Z",
 "input":"<!DOCTYPE a PUBLIC\"Z",
-"output":["ParseError", ["DOCTYPE", "a", "Z", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "Z", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC\"`",
 "input":"<!DOCTYPE a PUBLIC\"`",
-"output":["ParseError", ["DOCTYPE", "a", "`", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "`", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC\"a",
 "input":"<!DOCTYPE a PUBLIC\"a",
-"output":["ParseError", ["DOCTYPE", "a", "a", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "a", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC\"b",
 "input":"<!DOCTYPE a PUBLIC\"b",
-"output":["ParseError", ["DOCTYPE", "a", "b", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "b", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC\"y",
 "input":"<!DOCTYPE a PUBLIC\"y",
-"output":["ParseError", ["DOCTYPE", "a", "y", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "y", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC\"z",
 "input":"<!DOCTYPE a PUBLIC\"z",
-"output":["ParseError", ["DOCTYPE", "a", "z", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "z", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC\"{",
 "input":"<!DOCTYPE a PUBLIC\"{",
-"output":["ParseError", ["DOCTYPE", "a", "{", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "{", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC\"\\uDBC0\\uDC00",
 "input":"<!DOCTYPE a PUBLIC\"\uDBC0\uDC00",
-"output":["ParseError", ["DOCTYPE", "a", "\uDBC0\uDC00", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "\uDBC0\uDC00", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC#",
 "input":"<!DOCTYPE a PUBLIC#",
@@ -1402,279 +1402,279 @@
 
 {"description":"<!DOCTYPE a PUBLIC'",
 "input":"<!DOCTYPE a PUBLIC'",
-"output":["ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC'\\u0000",
 "input":"<!DOCTYPE a PUBLIC'\u0000",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "\uFFFD", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "\uFFFD", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC'\\u0009",
 "input":"<!DOCTYPE a PUBLIC'\u0009",
-"output":["ParseError", ["DOCTYPE", "a", "\u0009", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "\u0009", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC'\\u000A",
 "input":"<!DOCTYPE a PUBLIC'\u000A",
-"output":["ParseError", ["DOCTYPE", "a", "\u000A", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "\u000A", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC'\\u000B",
 "input":"<!DOCTYPE a PUBLIC'\u000B",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "\u000B", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "\u000B", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC'\\u000C",
 "input":"<!DOCTYPE a PUBLIC'\u000C",
-"output":["ParseError", ["DOCTYPE", "a", "\u000C", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "\u000C", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC' ",
 "input":"<!DOCTYPE a PUBLIC' ",
-"output":["ParseError", ["DOCTYPE", "a", " ", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", " ", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC'!",
 "input":"<!DOCTYPE a PUBLIC'!",
-"output":["ParseError", ["DOCTYPE", "a", "!", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "!", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC'\"",
 "input":"<!DOCTYPE a PUBLIC'\"",
-"output":["ParseError", ["DOCTYPE", "a", "\"", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "\"", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC'&",
 "input":"<!DOCTYPE a PUBLIC'&",
-"output":["ParseError", ["DOCTYPE", "a", "&", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "&", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC''",
 "input":"<!DOCTYPE a PUBLIC''",
-"output":["ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC''\\u0000",
 "input":"<!DOCTYPE a PUBLIC''\u0000",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC''\\u0008",
 "input":"<!DOCTYPE a PUBLIC''\u0008",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC''\\u0009",
 "input":"<!DOCTYPE a PUBLIC''\u0009",
-"output":["ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC''\\u000A",
 "input":"<!DOCTYPE a PUBLIC''\u000A",
-"output":["ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC''\\u000B",
 "input":"<!DOCTYPE a PUBLIC''\u000B",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC''\\u000C",
 "input":"<!DOCTYPE a PUBLIC''\u000C",
-"output":["ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC''\\u000D",
 "input":"<!DOCTYPE a PUBLIC''\u000D",
-"output":["ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC''\\u001F",
 "input":"<!DOCTYPE a PUBLIC''\u001F",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC'' ",
 "input":"<!DOCTYPE a PUBLIC'' ",
-"output":["ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC''!",
 "input":"<!DOCTYPE a PUBLIC''!",
-"output":["ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC''\"",
 "input":"<!DOCTYPE a PUBLIC''\"",
-"output":["ParseError", ["DOCTYPE", "a", "", "", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", "", false]]},
 
 {"description":"<!DOCTYPE a PUBLIC''#",
 "input":"<!DOCTYPE a PUBLIC''#",
-"output":["ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC''&",
 "input":"<!DOCTYPE a PUBLIC''&",
-"output":["ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC'''",
 "input":"<!DOCTYPE a PUBLIC'''",
-"output":["ParseError", ["DOCTYPE", "a", "", "", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", "", false]]},
 
 {"description":"<!DOCTYPE a PUBLIC''(",
 "input":"<!DOCTYPE a PUBLIC''(",
-"output":["ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC''-",
 "input":"<!DOCTYPE a PUBLIC''-",
-"output":["ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC''/",
 "input":"<!DOCTYPE a PUBLIC''/",
-"output":["ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC''0",
 "input":"<!DOCTYPE a PUBLIC''0",
-"output":["ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC''1",
 "input":"<!DOCTYPE a PUBLIC''1",
-"output":["ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC''9",
 "input":"<!DOCTYPE a PUBLIC''9",
-"output":["ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC''<",
 "input":"<!DOCTYPE a PUBLIC''<",
-"output":["ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC''=",
 "input":"<!DOCTYPE a PUBLIC''=",
-"output":["ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC''>",
 "input":"<!DOCTYPE a PUBLIC''>",
-"output":[["DOCTYPE", "a", "", null, true]]},
+"output":["ParseError", ["DOCTYPE", "a", "", null, true]]},
 
 {"description":"<!DOCTYPE a PUBLIC''?",
 "input":"<!DOCTYPE a PUBLIC''?",
-"output":["ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC''@",
 "input":"<!DOCTYPE a PUBLIC''@",
-"output":["ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC''A",
 "input":"<!DOCTYPE a PUBLIC''A",
-"output":["ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC''B",
 "input":"<!DOCTYPE a PUBLIC''B",
-"output":["ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC''Y",
 "input":"<!DOCTYPE a PUBLIC''Y",
-"output":["ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC''Z",
 "input":"<!DOCTYPE a PUBLIC''Z",
-"output":["ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC''`",
 "input":"<!DOCTYPE a PUBLIC''`",
-"output":["ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC''a",
 "input":"<!DOCTYPE a PUBLIC''a",
-"output":["ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC''b",
 "input":"<!DOCTYPE a PUBLIC''b",
-"output":["ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC''y",
 "input":"<!DOCTYPE a PUBLIC''y",
-"output":["ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC''z",
 "input":"<!DOCTYPE a PUBLIC''z",
-"output":["ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC''{",
 "input":"<!DOCTYPE a PUBLIC''{",
-"output":["ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC''\\uDBC0\\uDC00",
 "input":"<!DOCTYPE a PUBLIC''\uDBC0\uDC00",
-"output":["ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC'(",
 "input":"<!DOCTYPE a PUBLIC'(",
-"output":["ParseError", ["DOCTYPE", "a", "(", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "(", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC'-",
 "input":"<!DOCTYPE a PUBLIC'-",
-"output":["ParseError", ["DOCTYPE", "a", "-", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "-", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC'/",
 "input":"<!DOCTYPE a PUBLIC'/",
-"output":["ParseError", ["DOCTYPE", "a", "/", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "/", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC'0",
 "input":"<!DOCTYPE a PUBLIC'0",
-"output":["ParseError", ["DOCTYPE", "a", "0", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "0", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC'1",
 "input":"<!DOCTYPE a PUBLIC'1",
-"output":["ParseError", ["DOCTYPE", "a", "1", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "1", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC'9",
 "input":"<!DOCTYPE a PUBLIC'9",
-"output":["ParseError", ["DOCTYPE", "a", "9", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "9", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC'<",
 "input":"<!DOCTYPE a PUBLIC'<",
-"output":["ParseError", ["DOCTYPE", "a", "<", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "<", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC'=",
 "input":"<!DOCTYPE a PUBLIC'=",
-"output":["ParseError", ["DOCTYPE", "a", "=", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "=", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC'>",
 "input":"<!DOCTYPE a PUBLIC'>",
-"output":["ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC'?",
 "input":"<!DOCTYPE a PUBLIC'?",
-"output":["ParseError", ["DOCTYPE", "a", "?", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "?", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC'@",
 "input":"<!DOCTYPE a PUBLIC'@",
-"output":["ParseError", ["DOCTYPE", "a", "@", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "@", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC'A",
 "input":"<!DOCTYPE a PUBLIC'A",
-"output":["ParseError", ["DOCTYPE", "a", "A", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "A", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC'B",
 "input":"<!DOCTYPE a PUBLIC'B",
-"output":["ParseError", ["DOCTYPE", "a", "B", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "B", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC'Y",
 "input":"<!DOCTYPE a PUBLIC'Y",
-"output":["ParseError", ["DOCTYPE", "a", "Y", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "Y", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC'Z",
 "input":"<!DOCTYPE a PUBLIC'Z",
-"output":["ParseError", ["DOCTYPE", "a", "Z", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "Z", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC'`",
 "input":"<!DOCTYPE a PUBLIC'`",
-"output":["ParseError", ["DOCTYPE", "a", "`", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "`", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC'a",
 "input":"<!DOCTYPE a PUBLIC'a",
-"output":["ParseError", ["DOCTYPE", "a", "a", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "a", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC'b",
 "input":"<!DOCTYPE a PUBLIC'b",
-"output":["ParseError", ["DOCTYPE", "a", "b", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "b", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC'y",
 "input":"<!DOCTYPE a PUBLIC'y",
-"output":["ParseError", ["DOCTYPE", "a", "y", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "y", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC'z",
 "input":"<!DOCTYPE a PUBLIC'z",
-"output":["ParseError", ["DOCTYPE", "a", "z", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "z", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC'{",
 "input":"<!DOCTYPE a PUBLIC'{",
-"output":["ParseError", ["DOCTYPE", "a", "{", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "{", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC'\\uDBC0\\uDC00",
 "input":"<!DOCTYPE a PUBLIC'\uDBC0\uDC00",
-"output":["ParseError", ["DOCTYPE", "a", "\uDBC0\uDC00", null, false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "\uDBC0\uDC00", null, false]]},
 
 {"description":"<!DOCTYPE a PUBLIC(",
 "input":"<!DOCTYPE a PUBLIC(",
@@ -1810,135 +1810,135 @@
 
 {"description":"<!DOCTYPE a SYSTEM\"",
 "input":"<!DOCTYPE a SYSTEM\"",
-"output":["ParseError", ["DOCTYPE", "a", null, "", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM\"\\u0000",
 "input":"<!DOCTYPE a SYSTEM\"\u0000",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "\uFFFD", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "\uFFFD", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM\"\\u0009",
 "input":"<!DOCTYPE a SYSTEM\"\u0009",
-"output":["ParseError", ["DOCTYPE", "a", null, "\u0009", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "\u0009", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM\"\\u000A",
 "input":"<!DOCTYPE a SYSTEM\"\u000A",
-"output":["ParseError", ["DOCTYPE", "a", null, "\u000A", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "\u000A", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM\"\\u000B",
 "input":"<!DOCTYPE a SYSTEM\"\u000B",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "\u000B", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "\u000B", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM\"\\u000C",
 "input":"<!DOCTYPE a SYSTEM\"\u000C",
-"output":["ParseError", ["DOCTYPE", "a", null, "\u000C", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "\u000C", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM\" ",
 "input":"<!DOCTYPE a SYSTEM\" ",
-"output":["ParseError", ["DOCTYPE", "a", null, " ", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, " ", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM\"!",
 "input":"<!DOCTYPE a SYSTEM\"!",
-"output":["ParseError", ["DOCTYPE", "a", null, "!", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "!", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM\"\"",
 "input":"<!DOCTYPE a SYSTEM\"\"",
-"output":["ParseError", ["DOCTYPE", "a", null, "", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM\"#",
 "input":"<!DOCTYPE a SYSTEM\"#",
-"output":["ParseError", ["DOCTYPE", "a", null, "#", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "#", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM\"&",
 "input":"<!DOCTYPE a SYSTEM\"&",
-"output":["ParseError", ["DOCTYPE", "a", null, "&", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "&", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM\"'",
 "input":"<!DOCTYPE a SYSTEM\"'",
-"output":["ParseError", ["DOCTYPE", "a", null, "'", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "'", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM\"-",
 "input":"<!DOCTYPE a SYSTEM\"-",
-"output":["ParseError", ["DOCTYPE", "a", null, "-", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "-", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM\"/",
 "input":"<!DOCTYPE a SYSTEM\"/",
-"output":["ParseError", ["DOCTYPE", "a", null, "/", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "/", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM\"0",
 "input":"<!DOCTYPE a SYSTEM\"0",
-"output":["ParseError", ["DOCTYPE", "a", null, "0", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "0", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM\"1",
 "input":"<!DOCTYPE a SYSTEM\"1",
-"output":["ParseError", ["DOCTYPE", "a", null, "1", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "1", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM\"9",
 "input":"<!DOCTYPE a SYSTEM\"9",
-"output":["ParseError", ["DOCTYPE", "a", null, "9", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "9", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM\"<",
 "input":"<!DOCTYPE a SYSTEM\"<",
-"output":["ParseError", ["DOCTYPE", "a", null, "<", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "<", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM\"=",
 "input":"<!DOCTYPE a SYSTEM\"=",
-"output":["ParseError", ["DOCTYPE", "a", null, "=", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "=", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM\">",
 "input":"<!DOCTYPE a SYSTEM\">",
-"output":["ParseError", ["DOCTYPE", "a", null, "", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM\"?",
 "input":"<!DOCTYPE a SYSTEM\"?",
-"output":["ParseError", ["DOCTYPE", "a", null, "?", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "?", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM\"@",
 "input":"<!DOCTYPE a SYSTEM\"@",
-"output":["ParseError", ["DOCTYPE", "a", null, "@", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "@", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM\"A",
 "input":"<!DOCTYPE a SYSTEM\"A",
-"output":["ParseError", ["DOCTYPE", "a", null, "A", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "A", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM\"B",
 "input":"<!DOCTYPE a SYSTEM\"B",
-"output":["ParseError", ["DOCTYPE", "a", null, "B", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "B", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM\"Y",
 "input":"<!DOCTYPE a SYSTEM\"Y",
-"output":["ParseError", ["DOCTYPE", "a", null, "Y", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "Y", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM\"Z",
 "input":"<!DOCTYPE a SYSTEM\"Z",
-"output":["ParseError", ["DOCTYPE", "a", null, "Z", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "Z", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM\"`",
 "input":"<!DOCTYPE a SYSTEM\"`",
-"output":["ParseError", ["DOCTYPE", "a", null, "`", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "`", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM\"a",
 "input":"<!DOCTYPE a SYSTEM\"a",
-"output":["ParseError", ["DOCTYPE", "a", null, "a", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "a", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM\"b",
 "input":"<!DOCTYPE a SYSTEM\"b",
-"output":["ParseError", ["DOCTYPE", "a", null, "b", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "b", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM\"y",
 "input":"<!DOCTYPE a SYSTEM\"y",
-"output":["ParseError", ["DOCTYPE", "a", null, "y", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "y", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM\"z",
 "input":"<!DOCTYPE a SYSTEM\"z",
-"output":["ParseError", ["DOCTYPE", "a", null, "z", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "z", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM\"{",
 "input":"<!DOCTYPE a SYSTEM\"{",
-"output":["ParseError", ["DOCTYPE", "a", null, "{", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "{", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM\"\\uDBC0\\uDC00",
 "input":"<!DOCTYPE a SYSTEM\"\uDBC0\uDC00",
-"output":["ParseError", ["DOCTYPE", "a", null, "\uDBC0\uDC00", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "\uDBC0\uDC00", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM#",
 "input":"<!DOCTYPE a SYSTEM#",
@@ -1950,271 +1950,271 @@
 
 {"description":"<!DOCTYPE a SYSTEM'",
 "input":"<!DOCTYPE a SYSTEM'",
-"output":["ParseError", ["DOCTYPE", "a", null, "", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM'\\u0000",
 "input":"<!DOCTYPE a SYSTEM'\u0000",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "\uFFFD", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "\uFFFD", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM'\\u0009",
 "input":"<!DOCTYPE a SYSTEM'\u0009",
-"output":["ParseError", ["DOCTYPE", "a", null, "\u0009", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "\u0009", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM'\\u000A",
 "input":"<!DOCTYPE a SYSTEM'\u000A",
-"output":["ParseError", ["DOCTYPE", "a", null, "\u000A", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "\u000A", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM'\\u000B",
 "input":"<!DOCTYPE a SYSTEM'\u000B",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "\u000B", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "\u000B", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM'\\u000C",
 "input":"<!DOCTYPE a SYSTEM'\u000C",
-"output":["ParseError", ["DOCTYPE", "a", null, "\u000C", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "\u000C", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM' ",
 "input":"<!DOCTYPE a SYSTEM' ",
-"output":["ParseError", ["DOCTYPE", "a", null, " ", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, " ", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM'!",
 "input":"<!DOCTYPE a SYSTEM'!",
-"output":["ParseError", ["DOCTYPE", "a", null, "!", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "!", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM'\"",
 "input":"<!DOCTYPE a SYSTEM'\"",
-"output":["ParseError", ["DOCTYPE", "a", null, "\"", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "\"", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM'&",
 "input":"<!DOCTYPE a SYSTEM'&",
-"output":["ParseError", ["DOCTYPE", "a", null, "&", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "&", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM''",
 "input":"<!DOCTYPE a SYSTEM''",
-"output":["ParseError", ["DOCTYPE", "a", null, "", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM''\\u0000",
 "input":"<!DOCTYPE a SYSTEM''\u0000",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPE a SYSTEM''\\u0008",
 "input":"<!DOCTYPE a SYSTEM''\u0008",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPE a SYSTEM''\\u0009",
 "input":"<!DOCTYPE a SYSTEM''\u0009",
-"output":["ParseError", ["DOCTYPE", "a", null, "", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM''\\u000A",
 "input":"<!DOCTYPE a SYSTEM''\u000A",
-"output":["ParseError", ["DOCTYPE", "a", null, "", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM''\\u000B",
 "input":"<!DOCTYPE a SYSTEM''\u000B",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPE a SYSTEM''\\u000C",
 "input":"<!DOCTYPE a SYSTEM''\u000C",
-"output":["ParseError", ["DOCTYPE", "a", null, "", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM''\\u000D",
 "input":"<!DOCTYPE a SYSTEM''\u000D",
-"output":["ParseError", ["DOCTYPE", "a", null, "", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM''\\u001F",
 "input":"<!DOCTYPE a SYSTEM''\u001F",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPE a SYSTEM'' ",
 "input":"<!DOCTYPE a SYSTEM'' ",
-"output":["ParseError", ["DOCTYPE", "a", null, "", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM''!",
 "input":"<!DOCTYPE a SYSTEM''!",
-"output":["ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPE a SYSTEM''\"",
 "input":"<!DOCTYPE a SYSTEM''\"",
-"output":["ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPE a SYSTEM''&",
 "input":"<!DOCTYPE a SYSTEM''&",
-"output":["ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPE a SYSTEM'''",
 "input":"<!DOCTYPE a SYSTEM'''",
-"output":["ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPE a SYSTEM''-",
 "input":"<!DOCTYPE a SYSTEM''-",
-"output":["ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPE a SYSTEM''/",
 "input":"<!DOCTYPE a SYSTEM''/",
-"output":["ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPE a SYSTEM''0",
 "input":"<!DOCTYPE a SYSTEM''0",
-"output":["ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPE a SYSTEM''1",
 "input":"<!DOCTYPE a SYSTEM''1",
-"output":["ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPE a SYSTEM''9",
 "input":"<!DOCTYPE a SYSTEM''9",
-"output":["ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPE a SYSTEM''<",
 "input":"<!DOCTYPE a SYSTEM''<",
-"output":["ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPE a SYSTEM''=",
 "input":"<!DOCTYPE a SYSTEM''=",
-"output":["ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPE a SYSTEM''>",
 "input":"<!DOCTYPE a SYSTEM''>",
-"output":[["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPE a SYSTEM''?",
 "input":"<!DOCTYPE a SYSTEM''?",
-"output":["ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPE a SYSTEM''@",
 "input":"<!DOCTYPE a SYSTEM''@",
-"output":["ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPE a SYSTEM''A",
 "input":"<!DOCTYPE a SYSTEM''A",
-"output":["ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPE a SYSTEM''B",
 "input":"<!DOCTYPE a SYSTEM''B",
-"output":["ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPE a SYSTEM''Y",
 "input":"<!DOCTYPE a SYSTEM''Y",
-"output":["ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPE a SYSTEM''Z",
 "input":"<!DOCTYPE a SYSTEM''Z",
-"output":["ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPE a SYSTEM''`",
 "input":"<!DOCTYPE a SYSTEM''`",
-"output":["ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPE a SYSTEM''a",
 "input":"<!DOCTYPE a SYSTEM''a",
-"output":["ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPE a SYSTEM''b",
 "input":"<!DOCTYPE a SYSTEM''b",
-"output":["ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPE a SYSTEM''y",
 "input":"<!DOCTYPE a SYSTEM''y",
-"output":["ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPE a SYSTEM''z",
 "input":"<!DOCTYPE a SYSTEM''z",
-"output":["ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPE a SYSTEM''{",
 "input":"<!DOCTYPE a SYSTEM''{",
-"output":["ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPE a SYSTEM''\\uDBC0\\uDC00",
 "input":"<!DOCTYPE a SYSTEM''\uDBC0\uDC00",
-"output":["ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPE a SYSTEM'(",
 "input":"<!DOCTYPE a SYSTEM'(",
-"output":["ParseError", ["DOCTYPE", "a", null, "(", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "(", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM'-",
 "input":"<!DOCTYPE a SYSTEM'-",
-"output":["ParseError", ["DOCTYPE", "a", null, "-", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "-", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM'/",
 "input":"<!DOCTYPE a SYSTEM'/",
-"output":["ParseError", ["DOCTYPE", "a", null, "/", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "/", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM'0",
 "input":"<!DOCTYPE a SYSTEM'0",
-"output":["ParseError", ["DOCTYPE", "a", null, "0", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "0", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM'1",
 "input":"<!DOCTYPE a SYSTEM'1",
-"output":["ParseError", ["DOCTYPE", "a", null, "1", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "1", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM'9",
 "input":"<!DOCTYPE a SYSTEM'9",
-"output":["ParseError", ["DOCTYPE", "a", null, "9", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "9", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM'<",
 "input":"<!DOCTYPE a SYSTEM'<",
-"output":["ParseError", ["DOCTYPE", "a", null, "<", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "<", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM'=",
 "input":"<!DOCTYPE a SYSTEM'=",
-"output":["ParseError", ["DOCTYPE", "a", null, "=", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "=", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM'>",
 "input":"<!DOCTYPE a SYSTEM'>",
-"output":["ParseError", ["DOCTYPE", "a", null, "", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM'?",
 "input":"<!DOCTYPE a SYSTEM'?",
-"output":["ParseError", ["DOCTYPE", "a", null, "?", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "?", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM'@",
 "input":"<!DOCTYPE a SYSTEM'@",
-"output":["ParseError", ["DOCTYPE", "a", null, "@", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "@", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM'A",
 "input":"<!DOCTYPE a SYSTEM'A",
-"output":["ParseError", ["DOCTYPE", "a", null, "A", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "A", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM'B",
 "input":"<!DOCTYPE a SYSTEM'B",
-"output":["ParseError", ["DOCTYPE", "a", null, "B", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "B", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM'Y",
 "input":"<!DOCTYPE a SYSTEM'Y",
-"output":["ParseError", ["DOCTYPE", "a", null, "Y", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "Y", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM'Z",
 "input":"<!DOCTYPE a SYSTEM'Z",
-"output":["ParseError", ["DOCTYPE", "a", null, "Z", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "Z", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM'`",
 "input":"<!DOCTYPE a SYSTEM'`",
-"output":["ParseError", ["DOCTYPE", "a", null, "`", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "`", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM'a",
 "input":"<!DOCTYPE a SYSTEM'a",
-"output":["ParseError", ["DOCTYPE", "a", null, "a", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "a", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM'b",
 "input":"<!DOCTYPE a SYSTEM'b",
-"output":["ParseError", ["DOCTYPE", "a", null, "b", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "b", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM'y",
 "input":"<!DOCTYPE a SYSTEM'y",
-"output":["ParseError", ["DOCTYPE", "a", null, "y", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "y", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM'z",
 "input":"<!DOCTYPE a SYSTEM'z",
-"output":["ParseError", ["DOCTYPE", "a", null, "z", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "z", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM'{",
 "input":"<!DOCTYPE a SYSTEM'{",
-"output":["ParseError", ["DOCTYPE", "a", null, "{", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "{", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM'\\uDBC0\\uDC00",
 "input":"<!DOCTYPE a SYSTEM'\uDBC0\uDC00",
-"output":["ParseError", ["DOCTYPE", "a", null, "\uDBC0\uDC00", false]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "\uDBC0\uDC00", false]]},
 
 {"description":"<!DOCTYPE a SYSTEM(",
 "input":"<!DOCTYPE a SYSTEM(",
@@ -2850,135 +2850,135 @@
 
 {"description":"<!DOCTYPEa PUBLIC\"",
 "input":"<!DOCTYPEa PUBLIC\"",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC\"\\u0000",
 "input":"<!DOCTYPEa PUBLIC\"\u0000",
-"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "\uFFFD", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "\uFFFD", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC\"\\u0009",
 "input":"<!DOCTYPEa PUBLIC\"\u0009",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "\u0009", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "\u0009", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC\"\\u000A",
 "input":"<!DOCTYPEa PUBLIC\"\u000A",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "\u000A", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "\u000A", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC\"\\u000B",
 "input":"<!DOCTYPEa PUBLIC\"\u000B",
-"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "\u000B", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "\u000B", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC\"\\u000C",
 "input":"<!DOCTYPEa PUBLIC\"\u000C",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "\u000C", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "\u000C", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC\" ",
 "input":"<!DOCTYPEa PUBLIC\" ",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", " ", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", " ", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC\"!",
 "input":"<!DOCTYPEa PUBLIC\"!",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "!", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "!", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC\"\"",
 "input":"<!DOCTYPEa PUBLIC\"\"",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC\"#",
 "input":"<!DOCTYPEa PUBLIC\"#",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "#", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "#", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC\"&",
 "input":"<!DOCTYPEa PUBLIC\"&",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "&", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "&", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC\"'",
 "input":"<!DOCTYPEa PUBLIC\"'",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "'", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "'", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC\"-",
 "input":"<!DOCTYPEa PUBLIC\"-",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "-", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "-", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC\"/",
 "input":"<!DOCTYPEa PUBLIC\"/",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "/", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "/", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC\"0",
 "input":"<!DOCTYPEa PUBLIC\"0",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "0", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "0", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC\"1",
 "input":"<!DOCTYPEa PUBLIC\"1",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "1", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "1", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC\"9",
 "input":"<!DOCTYPEa PUBLIC\"9",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "9", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "9", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC\"<",
 "input":"<!DOCTYPEa PUBLIC\"<",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "<", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "<", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC\"=",
 "input":"<!DOCTYPEa PUBLIC\"=",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "=", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "=", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC\">",
 "input":"<!DOCTYPEa PUBLIC\">",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC\"?",
 "input":"<!DOCTYPEa PUBLIC\"?",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "?", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "?", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC\"@",
 "input":"<!DOCTYPEa PUBLIC\"@",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "@", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "@", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC\"A",
 "input":"<!DOCTYPEa PUBLIC\"A",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "A", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "A", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC\"B",
 "input":"<!DOCTYPEa PUBLIC\"B",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "B", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "B", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC\"Y",
 "input":"<!DOCTYPEa PUBLIC\"Y",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "Y", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "Y", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC\"Z",
 "input":"<!DOCTYPEa PUBLIC\"Z",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "Z", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "Z", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC\"`",
 "input":"<!DOCTYPEa PUBLIC\"`",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "`", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "`", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC\"a",
 "input":"<!DOCTYPEa PUBLIC\"a",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "a", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "a", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC\"b",
 "input":"<!DOCTYPEa PUBLIC\"b",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "b", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "b", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC\"y",
 "input":"<!DOCTYPEa PUBLIC\"y",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "y", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "y", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC\"z",
 "input":"<!DOCTYPEa PUBLIC\"z",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "z", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "z", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC\"{",
 "input":"<!DOCTYPEa PUBLIC\"{",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "{", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "{", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC\"\\uDBC0\\uDC00",
 "input":"<!DOCTYPEa PUBLIC\"\uDBC0\uDC00",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "\uDBC0\uDC00", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "\uDBC0\uDC00", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC#",
 "input":"<!DOCTYPEa PUBLIC#",
@@ -2990,279 +2990,279 @@
 
 {"description":"<!DOCTYPEa PUBLIC'",
 "input":"<!DOCTYPEa PUBLIC'",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC'\\u0000",
 "input":"<!DOCTYPEa PUBLIC'\u0000",
-"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "\uFFFD", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "\uFFFD", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC'\\u0009",
 "input":"<!DOCTYPEa PUBLIC'\u0009",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "\u0009", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "\u0009", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC'\\u000A",
 "input":"<!DOCTYPEa PUBLIC'\u000A",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "\u000A", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "\u000A", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC'\\u000B",
 "input":"<!DOCTYPEa PUBLIC'\u000B",
-"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "\u000B", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "\u000B", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC'\\u000C",
 "input":"<!DOCTYPEa PUBLIC'\u000C",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "\u000C", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "\u000C", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC' ",
 "input":"<!DOCTYPEa PUBLIC' ",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", " ", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", " ", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC'!",
 "input":"<!DOCTYPEa PUBLIC'!",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "!", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "!", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC'\"",
 "input":"<!DOCTYPEa PUBLIC'\"",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "\"", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "\"", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC'&",
 "input":"<!DOCTYPEa PUBLIC'&",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "&", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "&", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC''",
 "input":"<!DOCTYPEa PUBLIC''",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC''\\u0000",
 "input":"<!DOCTYPEa PUBLIC''\u0000",
-"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC''\\u0008",
 "input":"<!DOCTYPEa PUBLIC''\u0008",
-"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC''\\u0009",
 "input":"<!DOCTYPEa PUBLIC''\u0009",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC''\\u000A",
 "input":"<!DOCTYPEa PUBLIC''\u000A",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC''\\u000B",
 "input":"<!DOCTYPEa PUBLIC''\u000B",
-"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC''\\u000C",
 "input":"<!DOCTYPEa PUBLIC''\u000C",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC''\\u000D",
 "input":"<!DOCTYPEa PUBLIC''\u000D",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC''\\u001F",
 "input":"<!DOCTYPEa PUBLIC''\u001F",
-"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC'' ",
 "input":"<!DOCTYPEa PUBLIC'' ",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC''!",
 "input":"<!DOCTYPEa PUBLIC''!",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC''\"",
 "input":"<!DOCTYPEa PUBLIC''\"",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", "", false]]},
+"output":["ParseError", "ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", "", false]]},
 
 {"description":"<!DOCTYPEa PUBLIC''#",
 "input":"<!DOCTYPEa PUBLIC''#",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC''&",
 "input":"<!DOCTYPEa PUBLIC''&",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC'''",
 "input":"<!DOCTYPEa PUBLIC'''",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", "", false]]},
+"output":["ParseError", "ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", "", false]]},
 
 {"description":"<!DOCTYPEa PUBLIC''(",
 "input":"<!DOCTYPEa PUBLIC''(",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC''-",
 "input":"<!DOCTYPEa PUBLIC''-",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC''/",
 "input":"<!DOCTYPEa PUBLIC''/",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC''0",
 "input":"<!DOCTYPEa PUBLIC''0",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC''1",
 "input":"<!DOCTYPEa PUBLIC''1",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC''9",
 "input":"<!DOCTYPEa PUBLIC''9",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC''<",
 "input":"<!DOCTYPEa PUBLIC''<",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC''=",
 "input":"<!DOCTYPEa PUBLIC''=",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC''>",
 "input":"<!DOCTYPEa PUBLIC''>",
-"output":["ParseError", ["DOCTYPE", "a", "", null, true]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, true]]},
 
 {"description":"<!DOCTYPEa PUBLIC''?",
 "input":"<!DOCTYPEa PUBLIC''?",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC''@",
 "input":"<!DOCTYPEa PUBLIC''@",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC''A",
 "input":"<!DOCTYPEa PUBLIC''A",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC''B",
 "input":"<!DOCTYPEa PUBLIC''B",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC''Y",
 "input":"<!DOCTYPEa PUBLIC''Y",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC''Z",
 "input":"<!DOCTYPEa PUBLIC''Z",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC''`",
 "input":"<!DOCTYPEa PUBLIC''`",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC''a",
 "input":"<!DOCTYPEa PUBLIC''a",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC''b",
 "input":"<!DOCTYPEa PUBLIC''b",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC''y",
 "input":"<!DOCTYPEa PUBLIC''y",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC''z",
 "input":"<!DOCTYPEa PUBLIC''z",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC''{",
 "input":"<!DOCTYPEa PUBLIC''{",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC''\\uDBC0\\uDC00",
 "input":"<!DOCTYPEa PUBLIC''\uDBC0\uDC00",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC'(",
 "input":"<!DOCTYPEa PUBLIC'(",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "(", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "(", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC'-",
 "input":"<!DOCTYPEa PUBLIC'-",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "-", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "-", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC'/",
 "input":"<!DOCTYPEa PUBLIC'/",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "/", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "/", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC'0",
 "input":"<!DOCTYPEa PUBLIC'0",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "0", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "0", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC'1",
 "input":"<!DOCTYPEa PUBLIC'1",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "1", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "1", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC'9",
 "input":"<!DOCTYPEa PUBLIC'9",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "9", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "9", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC'<",
 "input":"<!DOCTYPEa PUBLIC'<",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "<", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "<", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC'=",
 "input":"<!DOCTYPEa PUBLIC'=",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "=", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "=", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC'>",
 "input":"<!DOCTYPEa PUBLIC'>",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC'?",
 "input":"<!DOCTYPEa PUBLIC'?",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "?", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "?", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC'@",
 "input":"<!DOCTYPEa PUBLIC'@",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "@", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "@", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC'A",
 "input":"<!DOCTYPEa PUBLIC'A",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "A", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "A", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC'B",
 "input":"<!DOCTYPEa PUBLIC'B",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "B", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "B", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC'Y",
 "input":"<!DOCTYPEa PUBLIC'Y",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "Y", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "Y", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC'Z",
 "input":"<!DOCTYPEa PUBLIC'Z",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "Z", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "Z", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC'`",
 "input":"<!DOCTYPEa PUBLIC'`",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "`", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "`", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC'a",
 "input":"<!DOCTYPEa PUBLIC'a",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "a", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "a", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC'b",
 "input":"<!DOCTYPEa PUBLIC'b",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "b", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "b", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC'y",
 "input":"<!DOCTYPEa PUBLIC'y",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "y", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "y", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC'z",
 "input":"<!DOCTYPEa PUBLIC'z",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "z", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "z", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC'{",
 "input":"<!DOCTYPEa PUBLIC'{",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "{", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "{", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC'\\uDBC0\\uDC00",
 "input":"<!DOCTYPEa PUBLIC'\uDBC0\uDC00",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", "\uDBC0\uDC00", null, false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", "\uDBC0\uDC00", null, false]]},
 
 {"description":"<!DOCTYPEa PUBLIC(",
 "input":"<!DOCTYPEa PUBLIC(",
@@ -3398,135 +3398,135 @@
 
 {"description":"<!DOCTYPEa SYSTEM\"",
 "input":"<!DOCTYPEa SYSTEM\"",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM\"\\u0000",
 "input":"<!DOCTYPEa SYSTEM\"\u0000",
-"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "\uFFFD", false]]},
+"output":["ParseError", "ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "\uFFFD", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM\"\\u0009",
 "input":"<!DOCTYPEa SYSTEM\"\u0009",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "\u0009", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "\u0009", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM\"\\u000A",
 "input":"<!DOCTYPEa SYSTEM\"\u000A",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "\u000A", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "\u000A", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM\"\\u000B",
 "input":"<!DOCTYPEa SYSTEM\"\u000B",
-"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "\u000B", false]]},
+"output":["ParseError", "ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "\u000B", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM\"\\u000C",
 "input":"<!DOCTYPEa SYSTEM\"\u000C",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "\u000C", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "\u000C", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM\" ",
 "input":"<!DOCTYPEa SYSTEM\" ",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, " ", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, " ", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM\"!",
 "input":"<!DOCTYPEa SYSTEM\"!",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "!", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "!", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM\"\"",
 "input":"<!DOCTYPEa SYSTEM\"\"",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM\"#",
 "input":"<!DOCTYPEa SYSTEM\"#",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "#", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "#", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM\"&",
 "input":"<!DOCTYPEa SYSTEM\"&",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "&", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "&", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM\"'",
 "input":"<!DOCTYPEa SYSTEM\"'",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "'", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "'", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM\"-",
 "input":"<!DOCTYPEa SYSTEM\"-",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "-", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "-", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM\"/",
 "input":"<!DOCTYPEa SYSTEM\"/",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "/", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "/", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM\"0",
 "input":"<!DOCTYPEa SYSTEM\"0",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "0", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "0", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM\"1",
 "input":"<!DOCTYPEa SYSTEM\"1",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "1", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "1", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM\"9",
 "input":"<!DOCTYPEa SYSTEM\"9",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "9", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "9", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM\"<",
 "input":"<!DOCTYPEa SYSTEM\"<",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "<", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "<", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM\"=",
 "input":"<!DOCTYPEa SYSTEM\"=",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "=", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "=", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM\">",
 "input":"<!DOCTYPEa SYSTEM\">",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM\"?",
 "input":"<!DOCTYPEa SYSTEM\"?",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "?", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "?", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM\"@",
 "input":"<!DOCTYPEa SYSTEM\"@",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "@", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "@", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM\"A",
 "input":"<!DOCTYPEa SYSTEM\"A",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "A", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "A", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM\"B",
 "input":"<!DOCTYPEa SYSTEM\"B",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "B", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "B", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM\"Y",
 "input":"<!DOCTYPEa SYSTEM\"Y",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "Y", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "Y", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM\"Z",
 "input":"<!DOCTYPEa SYSTEM\"Z",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "Z", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "Z", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM\"`",
 "input":"<!DOCTYPEa SYSTEM\"`",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "`", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "`", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM\"a",
 "input":"<!DOCTYPEa SYSTEM\"a",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "a", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "a", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM\"b",
 "input":"<!DOCTYPEa SYSTEM\"b",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "b", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "b", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM\"y",
 "input":"<!DOCTYPEa SYSTEM\"y",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "y", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "y", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM\"z",
 "input":"<!DOCTYPEa SYSTEM\"z",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "z", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "z", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM\"{",
 "input":"<!DOCTYPEa SYSTEM\"{",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "{", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "{", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM\"\\uDBC0\\uDC00",
 "input":"<!DOCTYPEa SYSTEM\"\uDBC0\uDC00",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "\uDBC0\uDC00", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "\uDBC0\uDC00", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM#",
 "input":"<!DOCTYPEa SYSTEM#",
@@ -3538,271 +3538,271 @@
 
 {"description":"<!DOCTYPEa SYSTEM'",
 "input":"<!DOCTYPEa SYSTEM'",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM'\\u0000",
 "input":"<!DOCTYPEa SYSTEM'\u0000",
-"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "\uFFFD", false]]},
+"output":["ParseError", "ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "\uFFFD", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM'\\u0009",
 "input":"<!DOCTYPEa SYSTEM'\u0009",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "\u0009", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "\u0009", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM'\\u000A",
 "input":"<!DOCTYPEa SYSTEM'\u000A",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "\u000A", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "\u000A", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM'\\u000B",
 "input":"<!DOCTYPEa SYSTEM'\u000B",
-"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "\u000B", false]]},
+"output":["ParseError", "ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "\u000B", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM'\\u000C",
 "input":"<!DOCTYPEa SYSTEM'\u000C",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "\u000C", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "\u000C", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM' ",
 "input":"<!DOCTYPEa SYSTEM' ",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, " ", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, " ", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM'!",
 "input":"<!DOCTYPEa SYSTEM'!",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "!", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "!", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM'\"",
 "input":"<!DOCTYPEa SYSTEM'\"",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "\"", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "\"", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM'&",
 "input":"<!DOCTYPEa SYSTEM'&",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "&", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "&", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM''",
 "input":"<!DOCTYPEa SYSTEM''",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM''\\u0000",
 "input":"<!DOCTYPEa SYSTEM''\u0000",
-"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPEa SYSTEM''\\u0008",
 "input":"<!DOCTYPEa SYSTEM''\u0008",
-"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPEa SYSTEM''\\u0009",
 "input":"<!DOCTYPEa SYSTEM''\u0009",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM''\\u000A",
 "input":"<!DOCTYPEa SYSTEM''\u000A",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM''\\u000B",
 "input":"<!DOCTYPEa SYSTEM''\u000B",
-"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPEa SYSTEM''\\u000C",
 "input":"<!DOCTYPEa SYSTEM''\u000C",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM''\\u000D",
 "input":"<!DOCTYPEa SYSTEM''\u000D",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM''\\u001F",
 "input":"<!DOCTYPEa SYSTEM''\u001F",
-"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPEa SYSTEM'' ",
 "input":"<!DOCTYPEa SYSTEM'' ",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM''!",
 "input":"<!DOCTYPEa SYSTEM''!",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPEa SYSTEM''\"",
 "input":"<!DOCTYPEa SYSTEM''\"",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPEa SYSTEM''&",
 "input":"<!DOCTYPEa SYSTEM''&",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPEa SYSTEM'''",
 "input":"<!DOCTYPEa SYSTEM'''",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPEa SYSTEM''-",
 "input":"<!DOCTYPEa SYSTEM''-",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPEa SYSTEM''/",
 "input":"<!DOCTYPEa SYSTEM''/",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPEa SYSTEM''0",
 "input":"<!DOCTYPEa SYSTEM''0",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPEa SYSTEM''1",
 "input":"<!DOCTYPEa SYSTEM''1",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPEa SYSTEM''9",
 "input":"<!DOCTYPEa SYSTEM''9",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPEa SYSTEM''<",
 "input":"<!DOCTYPEa SYSTEM''<",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPEa SYSTEM''=",
 "input":"<!DOCTYPEa SYSTEM''=",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPEa SYSTEM''>",
 "input":"<!DOCTYPEa SYSTEM''>",
-"output":["ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPEa SYSTEM''?",
 "input":"<!DOCTYPEa SYSTEM''?",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPEa SYSTEM''@",
 "input":"<!DOCTYPEa SYSTEM''@",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPEa SYSTEM''A",
 "input":"<!DOCTYPEa SYSTEM''A",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPEa SYSTEM''B",
 "input":"<!DOCTYPEa SYSTEM''B",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPEa SYSTEM''Y",
 "input":"<!DOCTYPEa SYSTEM''Y",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPEa SYSTEM''Z",
 "input":"<!DOCTYPEa SYSTEM''Z",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPEa SYSTEM''`",
 "input":"<!DOCTYPEa SYSTEM''`",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPEa SYSTEM''a",
 "input":"<!DOCTYPEa SYSTEM''a",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPEa SYSTEM''b",
 "input":"<!DOCTYPEa SYSTEM''b",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPEa SYSTEM''y",
 "input":"<!DOCTYPEa SYSTEM''y",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPEa SYSTEM''z",
 "input":"<!DOCTYPEa SYSTEM''z",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPEa SYSTEM''{",
 "input":"<!DOCTYPEa SYSTEM''{",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPEa SYSTEM''\\uDBC0\\uDC00",
 "input":"<!DOCTYPEa SYSTEM''\uDBC0\uDC00",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "", true]]},
 
 {"description":"<!DOCTYPEa SYSTEM'(",
 "input":"<!DOCTYPEa SYSTEM'(",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "(", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "(", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM'-",
 "input":"<!DOCTYPEa SYSTEM'-",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "-", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "-", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM'/",
 "input":"<!DOCTYPEa SYSTEM'/",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "/", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "/", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM'0",
 "input":"<!DOCTYPEa SYSTEM'0",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "0", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "0", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM'1",
 "input":"<!DOCTYPEa SYSTEM'1",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "1", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "1", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM'9",
 "input":"<!DOCTYPEa SYSTEM'9",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "9", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "9", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM'<",
 "input":"<!DOCTYPEa SYSTEM'<",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "<", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "<", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM'=",
 "input":"<!DOCTYPEa SYSTEM'=",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "=", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "=", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM'>",
 "input":"<!DOCTYPEa SYSTEM'>",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM'?",
 "input":"<!DOCTYPEa SYSTEM'?",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "?", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "?", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM'@",
 "input":"<!DOCTYPEa SYSTEM'@",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "@", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "@", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM'A",
 "input":"<!DOCTYPEa SYSTEM'A",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "A", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "A", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM'B",
 "input":"<!DOCTYPEa SYSTEM'B",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "B", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "B", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM'Y",
 "input":"<!DOCTYPEa SYSTEM'Y",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "Y", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "Y", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM'Z",
 "input":"<!DOCTYPEa SYSTEM'Z",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "Z", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "Z", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM'`",
 "input":"<!DOCTYPEa SYSTEM'`",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "`", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "`", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM'a",
 "input":"<!DOCTYPEa SYSTEM'a",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "a", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "a", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM'b",
 "input":"<!DOCTYPEa SYSTEM'b",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "b", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "b", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM'y",
 "input":"<!DOCTYPEa SYSTEM'y",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "y", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "y", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM'z",
 "input":"<!DOCTYPEa SYSTEM'z",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "z", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "z", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM'{",
 "input":"<!DOCTYPEa SYSTEM'{",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "{", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "{", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM'\\uDBC0\\uDC00",
 "input":"<!DOCTYPEa SYSTEM'\uDBC0\uDC00",
-"output":["ParseError", "ParseError", ["DOCTYPE", "a", null, "\uDBC0\uDC00", false]]},
+"output":["ParseError", "ParseError", "ParseError", ["DOCTYPE", "a", null, "\uDBC0\uDC00", false]]},
 
 {"description":"<!DOCTYPEa SYSTEM(",
 "input":"<!DOCTYPEa SYSTEM(",
