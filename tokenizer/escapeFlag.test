@@ -1,19 +1,19 @@
 {"tests": [
 
-{"description":"Commented close tag in [R]CDATA",
-"contentModelFlags":["RCDATA", "CDATA"],
+{"description":"Commented close tag in RCDATA or RAWTEXT",
+"contentModelFlags":["RCDATA", "RAWTEXT"],
 "lastStartTag":"xmp",
 "input":"foo<!--</xmp>--></xmp>",
 "output":[["Character", "foo<!--</xmp>-->"], ["EndTag", "xmp"]]},
 
-{"description":"Bogus comment in [R]CDATA",
-"contentModelFlags":["RCDATA", "CDATA"],
+{"description":"Bogus comment in RCDATA or RAWTEXT",
+"contentModelFlags":["RCDATA", "RAWTEXT"],
 "lastStartTag":"xmp",
 "input":"foo<!-->baz</xmp>",
 "output":[["Character", "foo<!-->baz"], ["EndTag", "xmp"]]},
 
-{"description":"End tag surrounded by bogus comment in [R]CDATA",
-"contentModelFlags":["RCDATA", "CDATA"],
+{"description":"End tag surrounded by bogus comment in RCDATA or RAWTEXT",
+"contentModelFlags":["RCDATA", "RAWTEXT"],
 "lastStartTag":"xmp",
 "input":"foo<!--></xmp><!-->baz</xmp>",
 "output":[["Character", "foo<!-->"], ["EndTag", "xmp"], "ParseError", ["Comment", ""], ["Character", "baz"], ["EndTag", "xmp"]]},
@@ -24,8 +24,8 @@
 "input":" &amp; <!-- &amp; --> &amp; </xmp>",
 "output":[["Character", " & <!-- &amp; --> & "], ["EndTag", "xmp"]]},
 
-{"description":"Incorrect comment ending sequences in [R]CDATA",
-"contentModelFlags":["RCDATA", "CDATA"],
+{"description":"Incorrect comment ending sequences in RCDATA or RAWTEXT",
+"contentModelFlags":["RCDATA", "RAWTEXT"],
 "lastStartTag":"xmp",
 "input":"foo<!-- x --x>x-- >x--!>x--<></xmp>",
 "output":[["Character", "foo<!-- x --x>x-- >x--!>x--<></xmp>"]]}
