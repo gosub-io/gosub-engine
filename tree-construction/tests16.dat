@@ -712,3 +712,107 @@ Line: 1 Col: 47 Unexpected end of file. Expected end tag (script).
 |     <script>
 |       "<!--<script -->"
 |   <body>
+
+#data
+<!doctype html><style><!--<style></style>--></style>
+#errors
+Line: 1 Col: 52 Unexpected end tag (style).
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|     <style>
+|       "<!--<style>"
+|   <body>
+|     "-->"
+
+#data
+<!doctype html><title><!--<title></title>--></title>
+#errors
+Line: 1 Col: 52 Unexpected end tag (title).
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|     <title>
+|       "<!--<title>"
+|   <body>
+|     "-->"
+
+#data
+<!doctype html><noscript><!--<noscript></noscript>--></noscript>
+#errors
+Line: 1 Col: 64 Unexpected end tag (noscript).
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|     <noscript>
+|       "<!--<noscript>"
+|   <body>
+|     "-->"
+
+#data
+<!doctype html><noframes><!--<noframes></noframes>--></noframes>
+#errors
+Line: 1 Col: 64 Unexpected end tag (noframes).
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|     <noframes>
+|       "<!--<noframes>"
+|   <body>
+|     "-->"
+
+#data
+<!doctype html><textarea><!--<textarea></textarea>--></textarea>
+#errors
+Line: 1 Col: 64 Unexpected end tag (textarea).
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <textarea>
+|       "<!--<textarea>"
+|     "-->"
+
+#data
+<!doctype html><iframe><!--<iframe></iframe>--></iframe>
+#errors
+Line: 1 Col: 56 Unexpected end tag (iframe).
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <iframe>
+|       "<!--<iframe>"
+|     "-->"
+
+#data
+<!doctype html><xmp><!--<xmp></xmp>--></xmp>
+#errors
+Line: 1 Col: 44 Unexpected end tag (xmp).
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <xmp>
+|       "<!--<xmp>"
+|     "-->"
+
+#data
+<!doctype html><noembed><!--<noembed></noembed>--></noembed>
+#errors
+Line: 1 Col: 60 Unexpected end tag (noembed).
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <noembed>
+|       "<!--<noembed>"
+|     "-->"
