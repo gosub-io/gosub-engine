@@ -464,21 +464,9 @@ Line: 1 Col: 44 Unexpected end of file. Expected end tag (script).
 |   <body>
 
 #data
-<!doctype html><script><!--<script </script 
-#errors
-Line: 1 Col: 44 Unexpected end of file. Expected end tag (script).
-#document
-| <!DOCTYPE html>
-| <html>
-|   <head>
-|     <script>
-|       "<!--<script </script "
-|   <body>
-
-#data
 <!doctype html><script><!--<script </script>
 #errors
-Line: 1 Col: 45 Unexpected end of file. Expected end tag (script).
+Line: 1 Col: 44 Unexpected end of file. Expected end tag (script).
 #document
 | <!DOCTYPE html>
 | <html>
@@ -490,7 +478,7 @@ Line: 1 Col: 45 Unexpected end of file. Expected end tag (script).
 #data
 <!doctype html><script><!--<script </script/
 #errors
-Line: 1 Col: 45 Unexpected end of file. Expected end tag (script).
+Line: 1 Col: 44 Unexpected end of file. Expected end tag (script).
 #document
 | <!DOCTYPE html>
 | <html>
@@ -1106,6 +1094,1109 @@ Line: 1 Col: 44 Unexpected end tag (xmp).
 Line: 1 Col: 60 Unexpected end tag (noembed).
 #document
 | <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <noembed>
+|       "<!--<noembed>"
+|     "-->"
+
+#data
+<script>
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 8 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|   <body>
+
+#data
+<script>a
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 9 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "a"
+|   <body>
+
+#data
+<script><
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 9 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "<"
+|   <body>
+
+#data
+<script></
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 10 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "</"
+|   <body>
+
+#data
+<script></S
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 11 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "</S"
+|   <body>
+
+#data
+<script></SC
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 12 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "</SC"
+|   <body>
+
+#data
+<script></SCR
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 13 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "</SCR"
+|   <body>
+
+#data
+<script></SCRI
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 14 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "</SCRI"
+|   <body>
+
+#data
+<script></SCRIP
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 15 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "</SCRIP"
+|   <body>
+
+#data
+<script></SCRIPT
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 16 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "</SCRIPT"
+|   <body>
+
+#data
+<script></SCRIPT 
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 17 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|   <body>
+
+#data
+<script></s
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 11 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "</s"
+|   <body>
+
+#data
+<script></sc
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 12 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "</sc"
+|   <body>
+
+#data
+<script></scr
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 13 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "</scr"
+|   <body>
+
+#data
+<script></scri
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 14 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "</scri"
+|   <body>
+
+#data
+<script></scrip
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 15 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "</scrip"
+|   <body>
+
+#data
+<script></script
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 16 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "</script"
+|   <body>
+
+#data
+<script></script 
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 17 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|   <body>
+
+#data
+<script><!
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 10 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "<!"
+|   <body>
+
+#data
+<script><!a
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 11 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "<!a"
+|   <body>
+
+#data
+<script><!-
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 11 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "<!-"
+|   <body>
+
+#data
+<script><!-a
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 12 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "<!-a"
+|   <body>
+
+#data
+<script><!--
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 12 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "<!--"
+|   <body>
+
+#data
+<script><!--a
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 13 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "<!--a"
+|   <body>
+
+#data
+<script><!--<
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 13 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "<!--<"
+|   <body>
+
+#data
+<script><!--<a
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 14 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "<!--<a"
+|   <body>
+
+#data
+<script><!--</
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 14 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "<!--</"
+|   <body>
+
+#data
+<script><!--</script
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 20 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "<!--</script"
+|   <body>
+
+#data
+<script><!--</script 
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 21 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "<!--"
+|   <body>
+
+#data
+<script><!--<s
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 14 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "<!--<s"
+|   <body>
+
+#data
+<script><!--<script
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 19 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "<!--<script"
+|   <body>
+
+#data
+<script><!--<script 
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 20 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "<!--<script "
+|   <body>
+
+#data
+<script><!--<script <
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 21 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "<!--<script <"
+|   <body>
+
+#data
+<script><!--<script <a
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 22 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "<!--<script <a"
+|   <body>
+
+#data
+<script><!--<script </
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 22 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "<!--<script </"
+|   <body>
+
+#data
+<script><!--<script </s
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 23 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "<!--<script </s"
+|   <body>
+
+#data
+<script><!--<script </script
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 28 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "<!--<script </script"
+|   <body>
+
+#data
+<script><!--<script </scripta
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 29 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "<!--<script </scripta"
+|   <body>
+
+#data
+<script><!--<script </script 
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 29 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "<!--<script </script "
+|   <body>
+
+#data
+<script><!--<script </script>
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 29 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "<!--<script </script>"
+|   <body>
+
+#data
+<script><!--<script </script/
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 29 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "<!--<script </script/"
+|   <body>
+
+#data
+<script><!--<script </script <
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 30 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "<!--<script </script <"
+|   <body>
+
+#data
+<script><!--<script </script <a
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 31 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "<!--<script </script <a"
+|   <body>
+
+#data
+<script><!--<script </script </
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 31 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "<!--<script </script </"
+|   <body>
+
+#data
+<script><!--<script </script </script
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 38 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "<!--<script </script </script"
+|   <body>
+
+#data
+<script><!--<script </script </script 
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 38 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "<!--<script </script "
+|   <body>
+
+#data
+<script><!--<script </script </script/
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 38 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "<!--<script </script "
+|   <body>
+
+#data
+<script><!--<script </script </script>
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+#document
+| <html>
+|   <head>
+|     <script>
+|       "<!--<script </script "
+|   <body>
+
+#data
+<script><!--<script -
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 21 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "<!--<script -"
+|   <body>
+
+#data
+<script><!--<script -a
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 22 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "<!--<script -a"
+|   <body>
+
+#data
+<script><!--<script --
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 22 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "<!--<script --"
+|   <body>
+
+#data
+<script><!--<script --a
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 23 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "<!--<script --a"
+|   <body>
+
+#data
+<script><!--<script -->
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 23 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "<!--<script -->"
+|   <body>
+
+#data
+<script><!--<script --><
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 24 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "<!--<script --><"
+|   <body>
+
+#data
+<script><!--<script --></
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 25 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "<!--<script --></"
+|   <body>
+
+#data
+<script><!--<script --></script
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 31 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "<!--<script --></script"
+|   <body>
+
+#data
+<script><!--<script --></script 
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 32 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "<!--<script -->"
+|   <body>
+
+#data
+<script><!--<script --></script/
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 32 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "<!--<script -->"
+|   <body>
+
+#data
+<script><!--<script --></script>
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+#document
+| <html>
+|   <head>
+|     <script>
+|       "<!--<script -->"
+|   <body>
+
+#data
+<script><!--<script><\/script>--></script>
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+#document
+| <html>
+|   <head>
+|     <script>
+|       "<!--<script><\/script>-->"
+|   <body>
+
+#data
+<script><!--<script></scr'+'ipt>--></script>
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+#document
+| <html>
+|   <head>
+|     <script>
+|       "<!--<script></scr'+'ipt>-->"
+|   <body>
+
+#data
+<script><!--<script></script><script></script></script>
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+#document
+| <html>
+|   <head>
+|     <script>
+|       "<!--<script></script><script></script>"
+|   <body>
+
+#data
+<script><!--<script></script><script></script>--><!--</script>
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+#document
+| <html>
+|   <head>
+|     <script>
+|       "<!--<script></script><script></script>--><!--"
+|   <body>
+
+#data
+<script><!--<script></script><script></script>-- ></script>
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+#document
+| <html>
+|   <head>
+|     <script>
+|       "<!--<script></script><script></script>-- >"
+|   <body>
+
+#data
+<script><!--<script></script><script></script>- -></script>
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+#document
+| <html>
+|   <head>
+|     <script>
+|       "<!--<script></script><script></script>- ->"
+|   <body>
+
+#data
+<script><!--<script></script><script></script>- - ></script>
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+#document
+| <html>
+|   <head>
+|     <script>
+|       "<!--<script></script><script></script>- - >"
+|   <body>
+
+#data
+<script><!--<script></script><script></script>-></script>
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+#document
+| <html>
+|   <head>
+|     <script>
+|       "<!--<script></script><script></script>->"
+|   <body>
+
+#data
+<script><!--<script>--!></script>X
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 34 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "<!--<script>--!></script>X"
+|   <body>
+
+#data
+<script><!--<scr'+'ipt></script>--></script>
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 44 Unexpected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "<!--<scr'+'ipt>"
+|   <body>
+|     "-->"
+
+#data
+<script><!--<script></scr'+'ipt></script>X
+#errors
+Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
+Line: 1 Col: 42 Unexpected end of file. Expected end tag (script).
+#document
+| <html>
+|   <head>
+|     <script>
+|       "<!--<script></scr'+'ipt></script>X"
+|   <body>
+
+#data
+<style><!--<style></style>--></style>
+#errors
+Line: 1 Col: 7 Unexpected start tag (style). Expected DOCTYPE.
+Line: 1 Col: 37 Unexpected end tag (style).
+#document
+| <html>
+|   <head>
+|     <style>
+|       "<!--<style>"
+|   <body>
+|     "-->"
+
+#data
+<style><!--</style>X
+#errors
+Line: 1 Col: 7 Unexpected start tag (style). Expected DOCTYPE.
+#document
+| <html>
+|   <head>
+|     <style>
+|       "<!--"
+|   <body>
+|     "X"
+
+#data
+<style><!--...</style>...--></style>
+#errors
+Line: 1 Col: 7 Unexpected start tag (style). Expected DOCTYPE.
+Line: 1 Col: 36 Unexpected end tag (style).
+#document
+| <html>
+|   <head>
+|     <style>
+|       "<!--..."
+|   <body>
+|     "...-->"
+
+#data
+<style><!--<br><html xmlns:v="urn:schemas-microsoft-com:vml"><!--[if !mso]><style></style>X
+#errors
+Line: 1 Col: 7 Unexpected start tag (style). Expected DOCTYPE.
+#document
+| <html>
+|   <head>
+|     <style>
+|       "<!--<br><html xmlns:v="urn:schemas-microsoft-com:vml"><!--[if !mso]><style>"
+|   <body>
+|     "X"
+
+#data
+<style><!--...<style><!--...--!></style>--></style>
+#errors
+Line: 1 Col: 7 Unexpected start tag (style). Expected DOCTYPE.
+Line: 1 Col: 51 Unexpected end tag (style).
+#document
+| <html>
+|   <head>
+|     <style>
+|       "<!--...<style><!--...--!>"
+|   <body>
+|     "-->"
+
+#data
+<style><!--...</style><!-- --><style>@import ...</style>
+#errors
+Line: 1 Col: 7 Unexpected start tag (style). Expected DOCTYPE.
+#document
+| <html>
+|   <head>
+|     <style>
+|       "<!--..."
+|     <!--   -->
+|     <style>
+|       "@import ..."
+|   <body>
+
+#data
+<style>...<style><!--...</style><!-- --></style>
+#errors
+Line: 1 Col: 7 Unexpected start tag (style). Expected DOCTYPE.
+Line: 1 Col: 48 Unexpected end tag (style).
+#document
+| <html>
+|   <head>
+|     <style>
+|       "...<style><!--..."
+|     <!--   -->
+|   <body>
+
+#data
+<style>...<!--[if IE]><style>...</style>X
+#errors
+Line: 1 Col: 7 Unexpected start tag (style). Expected DOCTYPE.
+#document
+| <html>
+|   <head>
+|     <style>
+|       "...<!--[if IE]><style>..."
+|   <body>
+|     "X"
+
+#data
+<title><!--<title></title>--></title>
+#errors
+Line: 1 Col: 7 Unexpected start tag (title). Expected DOCTYPE.
+Line: 1 Col: 37 Unexpected end tag (title).
+#document
+| <html>
+|   <head>
+|     <title>
+|       "<!--<title>"
+|   <body>
+|     "-->"
+
+#data
+<title>&lt;/title></title>
+#errors
+Line: 1 Col: 7 Unexpected start tag (title). Expected DOCTYPE.
+#document
+| <html>
+|   <head>
+|     <title>
+|       "</title>"
+|   <body>
+
+#data
+<title>foo/title><link></head><body>X
+#errors
+Line: 1 Col: 7 Unexpected start tag (title). Expected DOCTYPE.
+Line: 1 Col: 37 Unexpected end of file. Expected end tag (title).
+#document
+| <html>
+|   <head>
+|     <title>
+|       "foo/title><link></head><body>X"
+|   <body>
+
+#data
+<noscript><!--<noscript></noscript>--></noscript>
+#errors
+Line: 1 Col: 10 Unexpected start tag (noscript). Expected DOCTYPE.
+Line: 1 Col: 49 Unexpected end tag (noscript).
+#document
+| <html>
+|   <head>
+|     <noscript>
+|       "<!--<noscript>"
+|   <body>
+|     "-->"
+
+#data
+<noscript><!--</noscript>X<noscript>--></noscript>
+#errors
+Line: 1 Col: 10 Unexpected start tag (noscript). Expected DOCTYPE.
+#document
+| <html>
+|   <head>
+|     <noscript>
+|       "<!--"
+|   <body>
+|     "X"
+|     <noscript>
+|       "-->"
+
+#data
+<noscript><iframe></noscript>X
+#errors
+Line: 1 Col: 10 Unexpected start tag (noscript). Expected DOCTYPE.
+#document
+| <html>
+|   <head>
+|     <noscript>
+|       "<iframe>"
+|   <body>
+|     "X"
+
+#data
+<noframes><!--<noframes></noframes>--></noframes>
+#errors
+Line: 1 Col: 10 Unexpected start tag (noframes). Expected DOCTYPE.
+Line: 1 Col: 49 Unexpected end tag (noframes).
+#document
+| <html>
+|   <head>
+|     <noframes>
+|       "<!--<noframes>"
+|   <body>
+|     "-->"
+
+#data
+<noframes><body><script><!--...</script></body></noframes></html>
+#errors
+Line: 1 Col: 10 Unexpected start tag (noframes). Expected DOCTYPE.
+#document
+| <html>
+|   <head>
+|     <noframes>
+|       "<body><script><!--...</script></body>"
+|   <body>
+
+#data
+<textarea><!--<textarea></textarea>--></textarea>
+#errors
+Line: 1 Col: 10 Unexpected start tag (textarea). Expected DOCTYPE.
+Line: 1 Col: 49 Unexpected end tag (textarea).
+#document
+| <html>
+|   <head>
+|   <body>
+|     <textarea>
+|       "<!--<textarea>"
+|     "-->"
+
+#data
+<textarea>&lt;/textarea></textarea>
+#errors
+Line: 1 Col: 10 Unexpected start tag (textarea). Expected DOCTYPE.
+#document
+| <html>
+|   <head>
+|   <body>
+|     <textarea>
+|       "</textarea>"
+
+#data
+<iframe><!--<iframe></iframe>--></iframe>
+#errors
+Line: 1 Col: 8 Unexpected start tag (iframe). Expected DOCTYPE.
+Line: 1 Col: 41 Unexpected end tag (iframe).
+#document
+| <html>
+|   <head>
+|   <body>
+|     <iframe>
+|       "<!--<iframe>"
+|     "-->"
+
+#data
+<iframe>...<!--X->...<!--/X->...</iframe>
+#errors
+Line: 1 Col: 8 Unexpected start tag (iframe). Expected DOCTYPE.
+#document
+| <html>
+|   <head>
+|   <body>
+|     <iframe>
+|       "...<!--X->...<!--/X->..."
+
+#data
+<xmp><!--<xmp></xmp>--></xmp>
+#errors
+Line: 1 Col: 5 Unexpected start tag (xmp). Expected DOCTYPE.
+Line: 1 Col: 29 Unexpected end tag (xmp).
+#document
+| <html>
+|   <head>
+|   <body>
+|     <xmp>
+|       "<!--<xmp>"
+|     "-->"
+
+#data
+<noembed><!--<noembed></noembed>--></noembed>
+#errors
+Line: 1 Col: 9 Unexpected start tag (noembed). Expected DOCTYPE.
+Line: 1 Col: 45 Unexpected end tag (noembed).
+#document
 | <html>
 |   <head>
 |   <body>
