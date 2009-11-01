@@ -5614,7 +5614,7 @@
 
 {"description":"<a a=a`>",
 "input":"<a a=a`>",
-"output":[["StartTag", "a", {"a":"a`"}]]},
+"output":["ParseError", ["StartTag", "a", {"a":"a`"}]]},
 
 {"description":"<a a=aa>",
 "input":"<a a=aa>",
