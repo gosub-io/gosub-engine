@@ -42,7 +42,7 @@ Line: 1 Col: 29 Unexpected start tag head. Ignored.
 | <html>
 |   <head>
 |     <title>
-|       "<!--&amp;-->"
+|       "<!--&-->"
 |   <body>
 
 #data

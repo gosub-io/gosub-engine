@@ -28,7 +28,7 @@
 "initialStates":["RCDATA state", "RAWTEXT state"],
 "lastStartTag":"xmp",
 "input":"foo</xmp",
-"output":[["Character", "foo"], "ParseError"]},
+"output":[["Character", "foo</xmp"]]},
 
 {"description":"End tag closing RCDATA or RAWTEXT (ending with slash)",
 "initialStates":["RCDATA state", "RAWTEXT state"],

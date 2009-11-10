@@ -216,7 +216,7 @@ Line: 1 Col: 54 Unexpected end of file in the tag name.
 |   <head>
 |     <script>
 |       type="text/x-foobar;baz"
-|       "X"
+|       "X</SCRipt"
 |   <body>
 
 #data

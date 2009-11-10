@@ -51,6 +51,7 @@ Line: 1 Col: 22 Unexpected end tag (html) after the (implied) root element.
 | <html>
 |   <head>
 |   <body>
+|     " "
 
 #data
 <!doctype html></body><meta>
@@ -60,8 +61,8 @@ Line: 1 Col: 22 Unexpected end tag (body) after the (implied) root element.
 | <!DOCTYPE html>
 | <html>
 |   <head>
-|     <meta>
 |   <body>
+|     <meta>
 
 #data
 <html></html><!-- foo -->
@@ -70,9 +71,9 @@ Line: 1 Col: 6 Unexpected start tag (html). Expected DOCTYPE.
 Line: 1 Col: 13 Unexpected end tag (html) after the (implied) root element.
 #document
 | <html>
-|   <!--  foo  -->
 |   <head>
 |   <body>
+| <!--  foo  -->
 
 #data
 <!doctype html></body><title>X</title>
@@ -82,9 +83,9 @@ Line: 1 Col: 22 Unexpected end tag (body) after the (implied) root element.
 | <!DOCTYPE html>
 | <html>
 |   <head>
+|   <body>
 |     <title>
 |       "X"
-|   <body>
 
 #data
 <!doctype html><table> X<meta></table>

@@ -7,8 +7,9 @@ Line: 1 Col: 22 Unexpected end of file. Expected end tag (style).
 | <html>
 |   <head>
 |     <style>
-|       " <!-- </style>x"
+|       " <!-- "
 |   <body>
+|     "x"
 
 #data
 <style> <!-- </style> --> </style>x
@@ -18,9 +19,10 @@ Line: 1 Col: 7 Unexpected start tag (style). Expected DOCTYPE.
 | <html>
 |   <head>
 |     <style>
-|       " <!-- </style> --> "
+|       " <!-- "
+|     " "
 |   <body>
-|     "x"
+|     "--> x"
 
 #data
 <style> <!--> </style>x
@@ -67,8 +69,8 @@ Line: 1 Col: 8 Unexpected start tag (iframe). Expected DOCTYPE.
 |   <head>
 |   <body>
 |     <iframe>
-|       " <!--- </iframe>->x</iframe> --> "
-|     "x"
+|       " <!--- "
+|     "->x --> x"
 
 #data
 <script> <!-- </script> --> </script>x
@@ -78,9 +80,10 @@ Line: 1 Col: 8 Unexpected start tag (script). Expected DOCTYPE.
 | <html>
 |   <head>
 |     <script>
-|       " <!-- </script> --> "
+|       " <!-- "
+|     " "
 |   <body>
-|     "x"
+|     "--> x"
 
 #data
 <title> <!-- </title> --> </title>x
@@ -90,9 +93,10 @@ Line: 1 Col: 7 Unexpected start tag (title). Expected DOCTYPE.
 | <html>
 |   <head>
 |     <title>
-|       " <!-- </title> --> "
+|       " <!-- "
+|     " "
 |   <body>
-|     "x"
+|     "--> x"
 
 #data
 <textarea> <!--- </textarea>->x</textarea> --> </textarea>x
@@ -103,8 +107,8 @@ Line: 1 Col: 10 Unexpected start tag (textarea). Expected DOCTYPE.
 |   <head>
 |   <body>
 |     <textarea>
-|       " <!--- </textarea>->x</textarea> --> "
-|     "x"
+|       " <!--- "
+|     "->x --> x"
 
 #data
 <style> <!</-- </style>x
@@ -159,7 +163,7 @@ Line: 1 Col: 7 Unexpected start tag (title). Expected DOCTYPE.
 | <html>
 |   <head>
 |     <title>
-|       "<!--&amp;-->"
+|       "<!--&-->"
 |   <body>
 
 #data
@@ -171,7 +175,7 @@ Line: 1 Col: 19 Unexpected end of file. Expected end tag (title).
 | <html>
 |   <head>
 |     <title>
-|       "<!--</title>"
+|       "<!--"
 |   <body>
 
 #data
@@ -182,5 +186,6 @@ Line: 1 Col: 10 Unexpected start tag (noscript). Expected DOCTYPE.
 | <html>
 |   <head>
 |     <noscript>
-|       "<!--</noscript>-->"
+|       "<!--"
 |   <body>
+|     "-->"
