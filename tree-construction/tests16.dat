@@ -2203,3 +2203,17 @@ Line: 1 Col: 45 Unexpected end tag (noembed).
 |     <noembed>
 |       "<!--<noembed>"
 |     "-->"
+
+#data
+<!doctype html><table>
+
+#errors
+Line 2 Col 0 Unexpected end of file. Expected table content.
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <table>
+|       "
+"
