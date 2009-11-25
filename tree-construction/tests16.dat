@@ -2217,3 +2217,23 @@ Line 2 Col 0 Unexpected end of file. Expected table content.
 |     <table>
 |       "
 "
+
+#data
+<!doctype html><table><td><span><font></span><span>
+#errors
+Line 1 Col 26 Unexpected table cell start tag (td) in the table body phase.
+Line 1 Col 45 Unexpected end tag (span).
+Line 1 Col 51 Expected closing tag. Unexpected end of file.
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <table>
+|       <tbody>
+|         <tr>
+|           <td>
+|             <span>
+|               <font>
+|             <font>
+|               <span>
