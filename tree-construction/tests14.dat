@@ -9,6 +9,17 @@
 |     <xyz:abc>
 
 #data
+<!DOCTYPE html><html><body><xyz:abc></xyz:abc><span></span>
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <xyz:abc>
+|     <span>
+
+#data
 <!DOCTYPE html><html><html abc:def=gh><xyz:abc></xyz:abc>
 #errors
 15: Unexpected start tag html
