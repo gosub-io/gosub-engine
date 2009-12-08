@@ -2203,3 +2203,55 @@ Line: 1 Col: 45 Unexpected end tag (noembed).
 |     <noembed>
 |       "<!--<noembed>"
 |     "-->"
+
+#data
+<!doctype html><table>
+
+#errors
+Line 2 Col 0 Unexpected end of file. Expected table content.
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <table>
+|       "
+"
+
+#data
+<!doctype html><table><td><span><font></span><span>
+#errors
+Line 1 Col 26 Unexpected table cell start tag (td) in the table body phase.
+Line 1 Col 45 Unexpected end tag (span).
+Line 1 Col 51 Expected closing tag. Unexpected end of file.
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <table>
+|       <tbody>
+|         <tr>
+|           <td>
+|             <span>
+|               <font>
+|             <font>
+|               <span>
+
+#data
+<!doctype html><form><table></form><form></table></form>
+#errors
+Line 1 Col 35 Unexpected end tag (form) in table context caused voodoo mode.
+Line 1 Col 35 Unexpected end tag (form). Ignored.
+Line 1 Col 41 Unexpected start tag (form) in table context caused voodoo mode.
+Line 1 Col 49 Unexpected end tag (table). Expected end tag (form).
+Line 1 Col 56 Unexpected end tag (form). Ignored.
+Line 1 Col 56 Expected closing tag. Unexpected end of file.
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <form>
+|       <form>
+|       <table>
