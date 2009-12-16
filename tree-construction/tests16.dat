@@ -2265,17 +2265,13 @@ Line 1 Col 51 Expected closing tag. Unexpected end of file.
 #data
 <!doctype html><form><table></form><form></table></form>
 #errors
-Line 1 Col 35 Unexpected end tag (form) in table context caused voodoo mode.
-Line 1 Col 35 Unexpected end tag (form). Ignored.
-Line 1 Col 41 Unexpected start tag (form) in table context caused voodoo mode.
-Line 1 Col 49 Unexpected end tag (table). Expected end tag (form).
-Line 1 Col 56 Unexpected end tag (form). Ignored.
-Line 1 Col 56 Expected closing tag. Unexpected end of file.
+35: Stray end tag “form”.
+41: Start tag “form” seen in “table”.
 #document
 | <!DOCTYPE html>
 | <html>
 |   <head>
 |   <body>
 |     <form>
-|       <form>
 |       <table>
+|         <form>
