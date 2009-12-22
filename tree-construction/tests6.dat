@@ -629,3 +629,25 @@ Line: 1 Col: 17 Unexpected start tag (frameset).
 | <html>
 |   <head>
 |   <frameset>
+
+#data
+</html><frameset></frameset>
+#errors
+7: End tag seen without seeing a doctype first. Expected “<!DOCTYPE html>”.
+17: Stray “frameset” start tag.
+17: “frameset” start tag seen.
+#document
+| <html>
+|   <head>
+|   <frameset>
+
+#data
+</body><frameset></frameset>
+#errors
+7: End tag seen without seeing a doctype first. Expected “<!DOCTYPE html>”.
+17: Stray “frameset” start tag.
+17: “frameset” start tag seen.
+#document
+| <html>
+|   <head>
+|   <frameset>
