@@ -41,3 +41,34 @@
 |   xml:lang="bar"
 |   <head>
 |   <body>
+
+#data
+<!DOCTYPE html><html 123=456>
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   123="456"
+|   <head>
+|   <body>
+
+#data
+<!DOCTYPE html><html 123=456><html 789=012>
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   123="456"
+|   789="012"
+|   <head>
+|   <body>
+
+#data
+<!DOCTYPE html><html><body 789=012>
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     789="012"
