@@ -300,6 +300,10 @@
 
 {"description":"Doctype html x>text",
 "input":"<!DOCTYPE html x>text",
-"output":["ParseError", ["DOCTYPE", "html", null, null, false], ["Character", "text"]]}
+"output":["ParseError", ["DOCTYPE", "html", null, null, false], ["Character", "text"]]},
+
+{"description":"Grave accent in unquoted attribute",
+"input":"<a a=aa`>",
+"output":["ParseError", ["StartTag", "a", {"a":"aa`"}]]}
 
 ]}
