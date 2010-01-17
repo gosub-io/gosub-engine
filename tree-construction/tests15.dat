@@ -195,3 +195,14 @@ XXX: These errors are wrong, please fix me!
 |       <frame>
 |     <noframes>
 |       "</frameset><noframes>"
+
+#data
+<!DOCTYPE html><object></html>
+#errors
+1: Expected closing tag. Unexpected end of file
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <object>
