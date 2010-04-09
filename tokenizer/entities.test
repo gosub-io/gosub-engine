@@ -2082,11 +2082,11 @@
 
 {"description": "CR as numeric entity",
 "input":"&#013;",
-"output": ["ParseError", ["Character", "\n"]]},
+"output": ["ParseError", ["Character", "\r"]]},
 
 {"description": "CR as hexadecimal numeric entity",
 "input":"&#x00D;",
-"output": ["ParseError", ["Character", "\n"]]},
+"output": ["ParseError", ["Character", "\r"]]},
 
 {"description": "Windows-1252 EURO SIGN numeric entity.",
 "input":"&#0128;",
