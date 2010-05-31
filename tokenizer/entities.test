@@ -4,6 +4,10 @@
 "input":"<h a='&noti;'>",
 "output": ["ParseError", ["StartTag", "h", {"a": "&noti;"}]]},
 
+{"description": "Entity name followed by the equals sign in an attribute value.",
+"input":"<h a='&lang='>",
+"output": ["ParseError", ["StartTag", "h", {"a": "&lang="}]]},
+
 {"description": "Named entity: AElig with a semi-colon.",
 "input":"&AElig;",
 "output": [["Character", "\u00C6"]]},
