@@ -245,11 +245,6 @@
 "output":["ParseError", "ParseError", ["Comment", "doc\uD83F\uDFFF"]],
 "ignoreErrorOrder":true},
 
-{"description":"CR followed by U+0000",
-"input":"\r\u0000",
-"output":["ParseError", ["Character", "\n\uFFFD"]],
-"ignoreErrorOrder":true},
-
 {"description":"CR followed by non-LF",
 "input":"\r?",
 "output":[["Character", "\n?"]]},
