@@ -551,3 +551,132 @@
 |     <meta>
 |       charset="utf8"
 |   <body>
+
+#data
+<!doctype html><html a=b><head></head><html c=d>
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   a="b"
+|   c="d"
+|   <head>
+|   <body>
+
+#data
+<!doctype html><image/>
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <img>
+
+#data
+<!doctype html>a<i>b<table>c<b>d</i>e</b>f
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     "a"
+|     <i>
+|       "bc"
+|       <b>
+|         "de"
+|       "f"
+|       <table>
+
+#data
+<!doctype html><table><i>a<b>b<div>c<a>d</i>e</b>f
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <i>
+|       "a"
+|       <b>
+|         "b"
+|     <b>
+|     <div>
+|       <b>
+|         <i>
+|           "c"
+|           <a>
+|             "d"
+|         <a>
+|           "e"
+|       <a>
+|         "f"
+|     <table>
+
+#data
+<!doctype html><i>a<b>b<div>c<a>d</i>e</b>f
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <i>
+|       "a"
+|       <b>
+|         "b"
+|     <b>
+|     <div>
+|       <b>
+|         <i>
+|           "c"
+|           <a>
+|             "d"
+|         <a>
+|           "e"
+|       <a>
+|         "f"
+
+#data
+<!doctype html><table><i>a<b>b<div>c</i>
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <i>
+|       "a"
+|       <b>
+|         "b"
+|     <b>
+|       <div>
+|         <i>
+|           "c"
+|     <table>
+
+#data
+<!doctype html><table><i>a<b>b<div>c<a>d</i>e</b>f
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <i>
+|       "a"
+|       <b>
+|         "b"
+|     <b>
+|     <div>
+|       <b>
+|         <i>
+|           "c"
+|           <a>
+|             "d"
+|         <a>
+|           "e"
+|       <a>
+|         "f"
+|     <table>
