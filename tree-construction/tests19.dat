@@ -504,7 +504,7 @@
 |     <p>
 |       <math math>
 |         <math mn>
-|           <html span>
+|           <span>
 |     "a"
 
 #data
@@ -680,3 +680,48 @@
 |       <a>
 |         "f"
 |     <table>
+
+#data
+<!doctype html><table><i>a<div>b<tr>c<b>d</i>e
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <i>
+|       "a"
+|       <div>
+|         "b"
+|     <i>
+|       "c"
+|       <b>
+|         "d"
+|     <b>
+|       "e"
+|     <table>
+|       <tbody>
+|         <tr>
+
+#data
+<!doctype html><table><td><table><i>a<div>b<b>c</i>d
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <table>
+|       <tbody>
+|         <tr>
+|           <td>
+|             <i>
+|               "a"
+|             <div>
+|               <i>
+|                 "b"
+|                 <b>
+|                   "c"
+|               <b>
+|                 "d"
+|             <table>
