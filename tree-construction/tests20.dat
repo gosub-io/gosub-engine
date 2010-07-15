@@ -225,3 +225,47 @@
 |     <address>
 |       <button>
 |     "a"
+
+#data
+<!doctype html><address><button></address>a
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <address>
+|       <button>
+|     "a"
+
+#data
+<!doctype html><svg>
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <svg>
+
+#data
+<!doctype html><p><figcaption>
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|     <figcaption>
+
+#data
+<!doctype html><p><summary>
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|     <summary>
