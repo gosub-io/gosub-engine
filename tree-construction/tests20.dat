@@ -215,6 +215,18 @@
 |         <xmp>
 
 #data
+<!doctype html><p><button></p>
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|       <button>
+|         <p>
+
+#data
 <!doctype html><address><button></address>a
 #errors
 #document
@@ -237,6 +249,17 @@
 |     <address>
 |       <button>
 |     "a"
+
+#data
+<p><table></p>
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|       <p>
+|       <table>
 
 #data
 <!doctype html><svg>
@@ -246,7 +269,7 @@
 | <html>
 |   <head>
 |   <body>
-|     <svg>
+|     <svg svg>
 
 #data
 <!doctype html><p><figcaption>

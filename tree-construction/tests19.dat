@@ -638,8 +638,8 @@
 | <!DOCTYPE html>
 | <html>
 |   <head>
-|   <body>
 |     <basefont>
+|   <frameset>
 
 #data
 <!doctype html><bgsound><frameset>
@@ -648,8 +648,8 @@
 | <!DOCTYPE html>
 | <html>
 |   <head>
-|   <body>
 |     <bgsound>
+|   <frameset>
 
 #data
 <!doctype html><br><frameset>
@@ -1116,3 +1116,93 @@
 |               <b>
 |                 "d"
 |             <table>
+
+#data
+<!doctype html><body><bgsound>
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <bgsound>
+
+#data
+<!doctype html><body><basefont>
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <basefont>
+
+#data
+<!doctype html><a><b></a><basefont>
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <a>
+|       <b>
+|     <basefont>
+
+#data
+<!doctype html><a><b></a><bgsound>
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <a>
+|       <b>
+|     <bgsound>
+
+#data
+<!doctype html><figcaption><article></figcaption>a
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <figcaption>
+|       <article>
+|     "a"
+
+#data
+<!doctype html><summary><article></summary>a
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <summary>
+|       <article>
+|     "a"
+
+#data
+<!doctype html><p><summary>
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|     <summary>
+
+#data
+<!doctype html><p><figcaption>
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|     <figcaption>
