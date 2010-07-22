@@ -7,7 +7,7 @@
 {"description": "Invalid Unicode character U+D800",
 "doubleEscaped":true,
 "input": "\\uD800",
-"output":["ParseError", ["Character", "\\uD800"]]},
+"output":["ParseError", ["Character", "\\uFFFD"]]},
 
 {"description":"CR followed by U+0000",
 "input":"\r\u0000",
