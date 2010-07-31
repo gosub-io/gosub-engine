@@ -9,6 +9,16 @@
 "input": "\\uD800",
 "output":["ParseError", ["Character", "\\uFFFD"]]},
 
+{"description": "Invalid Unicode character U+DFFF with valid preceding character",
+"doubleEscaped":true,
+"input": "a\\uDFFF",
+"output":["ParseError", ["Character", "a\\uFFFD"]]},
+
+{"description": "Invalid Unicode character U+D800 with valid following character",
+"doubleEscaped":true,
+"input": "\\uD800a",
+"output":["ParseError", ["Character", "\\uFFFDa"]]},
+
 {"description":"CR followed by U+0000",
 "input":"\r\u0000",
 "output":["ParseError", ["Character", "\n\uFFFD"]],
