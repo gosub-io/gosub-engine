@@ -1,0 +1,95 @@
+{"tests": [
+
+{"description":"CDATA in <svg> foreign content",
+"input":"<svg><![CDATA[foo]]>",
+"output":[["StartTag", "svg", {}], ["Character", "foo"]]},
+
+{"description":"CDATA in <math> foreign content",
+"input":"<math><![CDATA[foo]]>",
+"output":[["StartTag", "math", {}], ["Character", "foo"]]},
+
+{"description":"CDATA in not in foreign content",
+"input":"<div><![CDATA[foo]]>",
+"output":[["StartTag", "div", {}], "ParseError", ["Comment", "![CDATA[foo]]"]]},
+
+{"description":"CDATA in <svg> foreign content with EOF",
+"input":"<svg><![CDATA[foo",
+"output":[["StartTag", "svg", {}], ["Character", "foo"]]},
+
+{"description":"CDATA in <svg> foreign content with EOF",
+"input":"<svg><![CDATA[foo",
+"output":[["StartTag", "svg", {}], ["Character", "foo"]]},
+
+{"description":"Zero-length CDATA in <svg> foreign content with EOF",
+"input":"<svg><![CDATA[",
+"output":[["StartTag", "svg", {}]]},
+
+{"description":"Zero-length CDATA in <svg> foreign content",
+"input":"<svg><![CDATA[]]>",
+"output":[["StartTag", "svg", {}]]},
+
+{"description":"Zero-length CDATA in <svg> foreign content",
+"input":"<svg><![CDATA[]] >]]>",
+"output":[["StartTag", "svg", {}], ["Character", "]] >"]]},
+
+{"description":"False end CDATA in <svg> foreign content",
+"input":"<svg><![CDATA[]] >]]>",
+"output":[["StartTag", "svg", {}], ["Character", "]] >"]]},
+
+{"description":"False end CDATA in <svg> foreign content",
+"input":"<svg><![CDATA[]]",
+"output":[["StartTag", "svg", {}], ["Character", "]]"]]},
+
+{"description":"False end CDATA in <svg> foreign content",
+"input":"<svg><![CDATA[]]",
+"output":[["StartTag", "svg", {}], ["Character", "]]"]]},
+
+{"description":"False end CDATA in <svg> foreign content",
+"input":"<svg><![CDATA[]",
+"output":[["StartTag", "svg", {}], ["Character", "]"]]},
+
+{"description":"False end CDATA in <svg> foreign content",
+"input":"<svg><![CDATA[]>a",
+"output":[["StartTag", "svg", {}], ["Character", "]>a"]]},
+
+{"description":"CDATA in <svg> foreign content HTML",
+"input":"<svg><foreignObject><div><![CDATA[foo]]>",
+"output":[["StartTag", "svg", {}], ["StartTag", "", {}], ["StartTag", "div", {}], "ParseError", ["Comment", "![CDATA[foo]]"]]},
+
+{"description":"CDATA in <svg> start-tag-like",
+"input":"<svg><![CDATA[<svg>]]>",
+"output":[["StartTag", "svg", {}], ["Character", "<svg>"]]},
+
+{"description":"CDATA in <svg> end-tag-like",
+"input":"<svg><![CDATA[</svg>a]]>",
+"output":[["StartTag", "svg", {}], ["Character", "</svg>a"]]},
+
+{"description":"CDATA in <svg> start-tag-like EOF",
+"input":"<svg><![CDATA[<svg>a",
+"output":[["StartTag", "svg", {}], ["Character", "<svg>a"]]},
+
+{"description":"CDATA in <svg> end-tag-like EOF",
+"input":"<svg><![CDATA[</svg>a",
+"output":[["StartTag", "svg", {}], ["Character", "</svg>a"]]},
+
+{"description":"StartTag after CDATA",
+"input":"<svg><![CDATA[<svg>]]><path>",
+"output":[["StartTag", "svg", {}], ["Character", "<svg>"], ["StartTag", "path", {}]]},
+
+{"description":"EndTag after CDATA",
+"input":"<svg><![CDATA[<svg>]]></path>",
+"output":[["StartTag", "svg", {}], ["Character", "<svg>"], ["EndTag", "path", {}]]},
+
+{"description":"Comment after CDATA",
+"input":"<svg><![CDATA[<svg>]]><!--path-->",
+"output":[["StartTag", "svg", {}], ["Character", "<svg>"], ["Comment", "path"]]},
+
+{"description":"Text after CDATA",
+"input":"<svg><![CDATA[<svg>]]>path",
+"output":[["StartTag", "svg", {}], ["Character", "<svg>path"]]},
+
+{"description":"Comment in CDATA",
+"input":"<svg><![CDATA[<!--svg-->]]>",
+"output":[["StartTag", "svg", {}], ["Character", "<!--svg-->"]]}
+
+]}
