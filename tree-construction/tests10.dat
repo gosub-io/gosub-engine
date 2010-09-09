@@ -514,6 +514,39 @@
 |               "a"
 
 #data
+<!DOCTYPE html><svg><desc><div><svg><ul>a
+#errors
+40: HTML start tag “ul” in a foreign namespace context.
+41: End of file in a foreign namespace context.
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <svg svg>
+|       <svg desc>
+|         <div>
+|           <svg svg>
+|           <ul>
+|             "a"
+
+#data
+<!DOCTYPE html><svg><desc><svg><ul>a
+#errors
+35: HTML start tag “ul” in a foreign namespace context.
+36: End of file in a foreign namespace context.
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <svg svg>
+|       <svg desc>
+|         <svg svg>
+|         <ul>
+|           "a"
+
+#data
 <div><svg><path><foreignObject><p></foreignObject><p>
 #errors
 #document
