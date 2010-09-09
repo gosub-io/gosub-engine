@@ -9,6 +9,18 @@
 |     <svg svg>
 
 #data
+<!DOCTYPE html><svg></svg><![CDATA[a]]>
+#errors
+29: Bogus comment
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <svg svg>
+|     <!-- [CDATA[a]] -->
+
+#data
 <!DOCTYPE html><body><svg></svg>
 #errors
 #document
