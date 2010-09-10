@@ -546,7 +546,7 @@
 
 {"description":"<!---- >",
 "input":"<!---- >",
-"output":["ParseError", ["Comment", "-- "]]},
+"output":["ParseError", "ParseError", ["Comment","-- >"]]},
 
 {"description":"<!---- -",
 "input":"<!---- -",
