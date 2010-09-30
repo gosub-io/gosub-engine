@@ -299,6 +299,46 @@
 
 {"description":"Grave accent in unquoted attribute",
 "input":"<a a=aa`>",
-"output":["ParseError", ["StartTag", "a", {"a":"aa`"}]]}
+"output":["ParseError", ["StartTag", "a", {"a":"aa`"}]]},
+
+{"description":"EOF in tag name state ",
+"input":"<a",
+"output":["ParseError"]},
+
+{"description":"EOF in tag name state",
+"input":"<a",
+"output":["ParseError"]},
+
+{"description":"EOF in before attribute name state",
+"input":"<a ",
+"output":["ParseError"]},
+
+{"description":"EOF in attribute name state",
+"input":"<a a",
+"output":["ParseError"]},
+
+{"description":"EOF in after attribute name state",
+"input":"<a a ",
+"output":["ParseError"]},
+
+{"description":"EOF in before attribute value state",
+"input":"<a a =",
+"output":["ParseError"]},
+
+{"description":"EOF in attribute value (double quoted) state",
+"input":"<a a =\"a",
+"output":["ParseError"]},
+
+{"description":"EOF in attribute value (single quoted) state",
+"input":"<a a ='a",
+"output":["ParseError"]},
+
+{"description":"EOF in attribute value (unquoted) state",
+"input":"<a a =a",
+"output":["ParseError"]},
+
+{"description":"EOF in after attribute value state",
+"input":"<a a ='a'",
+"output":["ParseError"]}
 
 ]}
