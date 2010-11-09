@@ -2,92 +2,92 @@
 <a><b><big><em><strong><div>X</a>
 #errors
 #document
-| <html html>
-|   <html head>
-|   <html body>
-|     <html a>
-|       <html b>
-|         <html big>
-|           <html em>
-|             <html strong>
-|     <html big>
-|       <html em>
-|         <html strong>
-|           <html div>
-|             <html a>
+| <html>
+|   <head>
+|   <body>
+|     <a>
+|       <b>
+|         <big>
+|           <em>
+|             <strong>
+|     <big>
+|       <em>
+|         <strong>
+|           <div>
+|             <a>
 |               "X"
 
 #data
 <a><b><div id=1><div id=2><div id=3><div id=4><div id=5><div id=6><div id=7><div id=8>A</a>
 #errors
 #document
-| <html html>
-|   <html head>
-|   <html body>
-|     <html a>
-|       <html b>
-|     <html b>
-|       <html div>
+| <html>
+|   <head>
+|   <body>
+|     <a>
+|       <b>
+|     <b>
+|       <div>
 |         id="1"
-|         <html a>
-|         <html div>
+|         <a>
+|         <div>
 |           id="2"
-|           <html a>
-|           <html div>
+|           <a>
+|           <div>
 |             id="3"
-|             <html a>
-|             <html div>
+|             <a>
+|             <div>
 |               id="4"
-|               <html a>
-|               <html div>
+|               <a>
+|               <div>
 |                 id="5"
-|                 <html a>
-|                 <html div>
+|                 <a>
+|                 <div>
 |                   id="6"
-|                   <html a>
-|                   <html div>
+|                   <a>
+|                   <div>
 |                     id="7"
-|                     <html a>
-|                     <html div>
+|                     <a>
+|                     <div>
 |                       id="8"
-|                       <html a>
+|                       <a>
 |                         "A"
 
 #data
 <a><b><div id=1><div id=2><div id=3><div id=4><div id=5><div id=6><div id=7><div id=8><div id=9>A</a>
 #errors
 #document
-| <html html>
-|   <html head>
-|   <html body>
-|     <html a>
-|       <html b>
-|     <html b>
-|       <html div>
+| <html>
+|   <head>
+|   <body>
+|     <a>
+|       <b>
+|     <b>
+|       <div>
 |         id="1"
-|         <html a>
-|         <html div>
+|         <a>
+|         <div>
 |           id="2"
-|           <html a>
-|           <html div>
+|           <a>
+|           <div>
 |             id="3"
-|             <html a>
-|             <html div>
+|             <a>
+|             <div>
 |               id="4"
-|               <html a>
-|               <html div>
+|               <a>
+|               <div>
 |                 id="5"
-|                 <html a>
-|                 <html div>
+|                 <a>
+|                 <div>
 |                   id="6"
-|                   <html a>
-|                   <html div>
+|                   <a>
+|                   <div>
 |                     id="7"
-|                     <html a>
-|                     <html div>
+|                     <a>
+|                     <div>
 |                       id="8"
-|                       <html a>
-|                         <html div>
+|                       <a>
+|                         <div>
 |                           id="9"
 |                           "A"
 
@@ -95,39 +95,39 @@
 <a><b><div id=1><div id=2><div id=3><div id=4><div id=5><div id=6><div id=7><div id=8><div id=9><div id=10>A</a>
 #errors
 #document
-| <html html>
-|   <html head>
-|   <html body>
-|     <html a>
-|       <html b>
-|     <html b>
-|       <html div>
+| <html>
+|   <head>
+|   <body>
+|     <a>
+|       <b>
+|     <b>
+|       <div>
 |         id="1"
-|         <html a>
-|         <html div>
+|         <a>
+|         <div>
 |           id="2"
-|           <html a>
-|           <html div>
+|           <a>
+|           <div>
 |             id="3"
-|             <html a>
-|             <html div>
+|             <a>
+|             <div>
 |               id="4"
-|               <html a>
-|               <html div>
+|               <a>
+|               <div>
 |                 id="5"
-|                 <html a>
-|                 <html div>
+|                 <a>
+|                 <div>
 |                   id="6"
-|                   <html a>
-|                   <html div>
+|                   <a>
+|                   <div>
 |                     id="7"
-|                     <html a>
-|                     <html div>
+|                     <a>
+|                     <div>
 |                       id="8"
-|                       <html a>
-|                         <html div>
+|                       <a>
+|                         <div>
 |                           id="9"
-|                           <html div>
+|                           <div>
 |                             id="10"
 |                             "A"
 
@@ -155,4 +155,3 @@ Line: 1 Col: 50 Expected closing tag. Unexpected end of file.
 |             <b>
 |               "X"
 |             "TEST"
-
