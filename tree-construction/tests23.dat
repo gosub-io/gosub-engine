@@ -1,0 +1,39 @@
+#data
+<p><font size=4><font color=red><font size=4><font size=4><font size=4><font size=4><font size=4><font color=red><p>X
+#errors
+3: Start tag seen without seeing a doctype first. Expected “<!DOCTYPE html>”.
+116: Unclosed elements.
+117: End of file seen and there were open elements.
+#document
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|       <font>
+|         size="4"
+|         <font>
+|           color="red"
+|           <font>
+|             size="4"
+|             <font>
+|               size="4"
+|               <font>
+|                 size="4"
+|                 <font>
+|                   size="4"
+|                   <font>
+|                     size="4"
+|                     <font>
+|                       color="red"
+|     <p>
+|       <font>
+|         color="red"
+|         <font>
+|           size="4"
+|           <font>
+|             size="4"
+|             <font>
+|               size="4"
+|               <font>
+|                 color="red"
+|                 "X"
