@@ -21,7 +21,7 @@
 
 {"description":"CR followed by U+0000",
 "input":"\r\u0000",
-"output":["ParseError", ["Character", "\n\uFFFD"]],
+"output":[["Character", "\n"], "ParseError", ["Character", "\uFFFD"]],
 "ignoreErrorOrder":true}
 ]
 }

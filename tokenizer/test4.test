@@ -227,7 +227,7 @@
 
 {"description":"U+0000 in lookahead region",
 "input":"<!doc\u0000",
-"output":["ParseError", "ParseError", ["Comment", "doc\uFFFD"]],
+"output":["ParseError", ["Comment", "doc\uFFFD"]],
 "ignoreErrorOrder":true},
 
 {"description":"U+0080 in lookahead region",
