@@ -222,7 +222,7 @@
 
 {"description":"U+0000 in lookahead region after non-matching character",
 "input":"<!doc>\u0000",
-"output":["ParseError", ["Comment", "doc"], "ParseError", ["Character", "\uFFFD"]],
+"output":["ParseError", ["Comment", "doc"], "ParseError", ["Character", "\u0000"]],
 "ignoreErrorOrder":true},
 
 {"description":"U+0000 in lookahead region",

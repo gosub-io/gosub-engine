@@ -4,10 +4,6 @@
 "input":"",
 "output":[]},
 
-{"description":"\\u0000",
-"input":"\u0000",
-"output":["ParseError", ["Character", "\uFFFD"]]},
-
 {"description":"\\u0009",
 "input":"\u0009",
 "output":[["Character", "\u0009"]]},
@@ -86,7 +82,7 @@
 
 {"description":"<\\u0000",
 "input":"<\u0000",
-"output":["ParseError", ["Character", "<"], "ParseError", ["Character", "\uFFFD"]]},
+"output":["ParseError", ["Character", "<"], "ParseError", ["Character", "\u0000"]]},
 
 {"description":"<\\u0009",
 "input":"<\u0009",
