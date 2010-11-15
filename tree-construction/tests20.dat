@@ -349,3 +349,24 @@
 |     <svg svg>
 |       <svg title>
 |         "abc"
+
+#data
+<option><span><option>
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <option>
+|       <span>
+|         <option>
+
+#data
+<option><option>
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <option>
+|     <option>
