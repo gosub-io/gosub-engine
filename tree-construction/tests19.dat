@@ -831,6 +831,25 @@
 |     "a "
 
 #data
+<div><frameset>
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <frameset>
+
+#data
+<div><body><frameset>
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <div>
+
+#data
 <!doctype html><p><math></p>a
 #errors
 #document
