@@ -71,67 +71,67 @@ iso8859-2
 <!DOCTYPE HTML>
 <meta http-equiv="Content-Type " content="text/html; charset=iso8859-2">
 #encoding
-iso8859-2
+Windows-1252
 
 #data
 <!DOCTYPE HTML>
 <meta content="text/html; charset=iso8859-2" http-equiv="Content-Type ">
 #encoding
-iso8859-2
+Windows-1252
 
 #data
 <!DOCTYPE HTML>
 <meta http-equiv="Content-Type>" content="text/html; charset=iso8859-2">
 #encoding
-iso8859-2
+Windows-1252
 
 #data
 <!DOCTYPE HTML>
 <meta content="text/html; charset=iso8859-2" http-equiv="Content-Type>">
 #encoding
-iso8859-2
+Windows-1252
 
 #data
 <!DOCTYPE HTML>
 <meta http-equiv="Content-Style-Type" content="text/html; charset=iso8859-2">
 #encoding
-iso8859-2
+Windows-1252
 
 #data
 <!DOCTYPE HTML>
 <meta content="text/html; charset=iso8859-2" http-equiv="Content-Style-Type">
 #encoding
-iso8859-2
+Windows-1252
 
 #data
 <!DOCTYPE HTML>
 <meta name="Content-Style-Type" content="text/html; charset=iso8859-2">
 #encoding
-iso8859-2
+Windows-1252
 
 #data
 <!DOCTYPE HTML>
 <meta content="text/html; charset=iso8859-2" name="Content-Style-Type">
 #encoding
-iso8859-2
+Windows-1252
 
 #data
 <!DOCTYPE HTML>
 <meta content="text/html; charset=iso8859-2">
 #encoding
-iso8859-2
+Windows-1252
 
 #data
 <!DOCTYPE HTML>
 <meta content=" text/html; charset = iso8859-2 ">
 #encoding
-iso8859-2
+Windows-1252
 
 #data
 <!DOCTYPE HTML>
 <meta content="
 text/html; charset=iso8859-2
-">
+" http-equiv="Content-Type">
 #encoding
 iso8859-2
 

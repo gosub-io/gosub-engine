@@ -21,7 +21,7 @@ windows-1252
 #data
 <meta charset=euc_jp
 #encoding
-euc_jp
+windows-1252
 
 #data
 <meta <meta charset='euc_jp'>
@@ -72,6 +72,7 @@ windows-1252
 
 #data
 <meta charset=                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            utf-8
+>
 #encoding
 utf-8
 
