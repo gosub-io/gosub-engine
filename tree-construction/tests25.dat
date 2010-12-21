@@ -32,6 +32,28 @@
 |     "A"
 
 #data
+<!DOCTYPE html><body><basefont>A
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <basefont>
+|     "A"
+
+#data
+<!DOCTYPE html><body><bgsound>A
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <bgsound>
+|     "A"
+
+#data
 <!DOCTYPE html><body><br>A
 #errors
 #document
@@ -73,6 +95,17 @@
 |   <head>
 |   <body>
 |     <embed>
+|     "A"
+
+#data
+<!DOCTYPE html><body><frame>A
+#errors
+26: Stray start tag “frame”.
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
 |     "A"
 
 #data
