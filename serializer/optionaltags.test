@@ -1,7 +1,7 @@
 {"tests": [
 
 {"description": "html start-tag followed by text, with attributes",
- "input": [["StartTag", "http://www.w3.org/1999/xhtml", "html", {"lang": "en"}], ["Characters", "foo"]],
+ "input": [["StartTag", "http://www.w3.org/1999/xhtml", "html", [{"namespace": null, "name": "lang", "value": "en"}]], ["Characters", "foo"]],
  "expected": ["<html lang=en>foo"]
 },
 

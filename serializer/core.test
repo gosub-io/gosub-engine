@@ -1,75 +1,75 @@
 {"tests": [
 
 {"description": "proper attribute value escaping",
- "input": [["StartTag", "http://www.w3.org/1999/xhtml", "span", {"title": "test \"with\" &quot;"}]],
+ "input": [["StartTag", "http://www.w3.org/1999/xhtml", "span", [{"namespace": null, "name": "title", "value": "test \"with\" &quot;"}]]],
  "expected": ["<span title='test \"with\" &amp;quot;'>"]
 },
 
 {"description": "proper attribute value non-quoting",
- "input": [["StartTag", "http://www.w3.org/1999/xhtml", "span", {"title": "foo"}]],
+ "input": [["StartTag", "http://www.w3.org/1999/xhtml", "span", [{"namespace": null, "name": "title", "value": "foo"}]]],
  "expected": ["<span title=foo>"],
  "xhtml":    ["<span title=\"foo\">"]
 },
 
 {"description": "proper attribute value non-quoting (with <)",
- "input": [["StartTag", "http://www.w3.org/1999/xhtml", "span", {"title": "foo<bar"}]],
+ "input": [["StartTag", "http://www.w3.org/1999/xhtml", "span", [{"namespace": null, "name": "title", "value": "foo<bar"}]]],
  "expected": ["<span title=foo<bar>"],
  "xhtml":    ["<span title=\"foo&lt;bar\">"]
 },
 
 {"description": "proper attribute value quoting (with =)",
- "input": [["StartTag", "http://www.w3.org/1999/xhtml", "span", {"title": "foo=bar"}]],
+ "input": [["StartTag", "http://www.w3.org/1999/xhtml", "span", [{"namespace": null, "name": "title", "value": "foo=bar"}]]],
  "expected": ["<span title=\"foo=bar\">"]
 },
 
 {"description": "proper attribute value quoting (with >)",
- "input": [["StartTag", "http://www.w3.org/1999/xhtml", "span", {"title": "foo>bar"}]],
+ "input": [["StartTag", "http://www.w3.org/1999/xhtml", "span", [{"namespace": null, "name": "title", "value": "foo>bar"}]]],
  "expected": ["<span title=\"foo>bar\">"]
 },
 
 {"description": "proper attribute value quoting (with \")",
- "input": [["StartTag", "http://www.w3.org/1999/xhtml", "span", {"title": "foo\"bar"}]],
+ "input": [["StartTag", "http://www.w3.org/1999/xhtml", "span", [{"namespace": null, "name": "title", "value": "foo\"bar"}]]],
  "expected": ["<span title='foo\"bar'>"]
 },
 
 {"description": "proper attribute value quoting (with ')",
- "input": [["StartTag", "http://www.w3.org/1999/xhtml", "span", {"title": "foo'bar"}]],
+ "input": [["StartTag", "http://www.w3.org/1999/xhtml", "span", [{"namespace": null, "name": "title", "value": "foo'bar"}]]],
  "expected": ["<span title=\"foo'bar\">"]
 },
 
 {"description": "proper attribute value quoting (with both \" and ')",
- "input": [["StartTag", "http://www.w3.org/1999/xhtml", "span", {"title": "foo'bar\"baz"}]],
+ "input": [["StartTag", "http://www.w3.org/1999/xhtml", "span", [{"namespace": null, "name": "title", "value": "foo'bar\"baz"}]]],
  "expected": ["<span title=\"foo'bar&quot;baz\">"]
 },
 
 {"description": "proper attribute value quoting (with space)",
- "input": [["StartTag", "http://www.w3.org/1999/xhtml", "span", {"title": "foo bar"}]],
+ "input": [["StartTag", "http://www.w3.org/1999/xhtml", "span", [{"namespace": null, "name": "title", "value": "foo bar"}]]],
  "expected": ["<span title=\"foo bar\">"]
 },
 
 {"description": "proper attribute value quoting (with tab)",
- "input": [["StartTag", "http://www.w3.org/1999/xhtml", "span", {"title": "foo\tbar"}]],
+ "input": [["StartTag", "http://www.w3.org/1999/xhtml", "span", [{"namespace": null, "name": "title", "value": "foo\tbar"}]]],
  "expected": ["<span title=\"foo\tbar\">"]
 },
 
 {"description": "proper attribute value quoting (with LF)",
- "input": [["StartTag", "http://www.w3.org/1999/xhtml", "span", {"title": "foo\nbar"}]],
+ "input": [["StartTag", "http://www.w3.org/1999/xhtml", "span", [{"namespace": null, "name": "title", "value": "foo\nbar"}]]],
  "expected": ["<span title=\"foo\nbar\">"]
 },
 
 {"description": "proper attribute value quoting (with CR)",
- "input": [["StartTag", "http://www.w3.org/1999/xhtml", "span", {"title": "foo\rbar"}]],
+ "input": [["StartTag", "http://www.w3.org/1999/xhtml", "span", [{"namespace": null, "name": "title", "value": "foo\rbar"}]]],
  "expected": ["<span title=\"foo\rbar\">"]
 },
 
 {"description": "proper attribute value non-quoting (with linetab)",
- "input": [["StartTag", "http://www.w3.org/1999/xhtml", "span", {"title": "foo\u000Bbar"}]],
+ "input": [["StartTag", "http://www.w3.org/1999/xhtml", "span", [{"namespace": null, "name": "title", "value": "foo\u000Bbar"}]]],
  "expected": ["<span title=foo\u000Bbar>"],
  "xhtml": ["<span title=\"foo\u000Bbar\">"]
 },
 
 {"description": "proper attribute value quoting (with form feed)",
- "input": [["StartTag", "http://www.w3.org/1999/xhtml", "span", {"title": "foo\u000Cbar"}]],
+ "input": [["StartTag", "http://www.w3.org/1999/xhtml", "span", [{"namespace": null, "name": "title", "value": "foo\u000Cbar"}]]],
  "expected": ["<span title=\"foo\u000Cbar\">"]
 },
 
