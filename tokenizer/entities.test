@@ -262,6 +262,22 @@
 
 {"description": "Windows-1252 LATIN CAPITAL LETTER Y WITH DIAERESIS hexadecimal numeric entity.",
 "input":"&#x09F;",
-"output": ["ParseError", ["Character", "\u0178"]]}
+"output": ["ParseError", ["Character", "\u0178"]]},
+
+{"description": "Decimal numeric entity followed by hex character a.",
+"input":"&#97a",
+"output": ["ParseError", ["Character", "aa"]]},
+
+{"description": "Decimal numeric entity followed by hex character A.",
+"input":"&#97A",
+"output": ["ParseError", ["Character", "aA"]]},
+
+{"description": "Decimal numeric entity followed by hex character f.",
+"input":"&#97f",
+"output": ["ParseError", ["Character", "af"]]},
+
+{"description": "Decimal numeric entity followed by hex character A.",
+"input":"&#97F",
+"output": ["ParseError", ["Character", "aF"]]}
 
 ]}
