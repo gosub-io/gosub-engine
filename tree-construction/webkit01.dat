@@ -548,21 +548,6 @@ console.log("FOO<span>BAR</span>BAZ");
 |       <desc>
 
 #data
-<table><tr><td><svg><desc><td></desc><circle>
-#errors
-#document
-| <html>
-|   <head>
-|   <body>
-|     <table>
-|       <tbody>
-|         <tr>
-|           <td>
-|             <svg svg>
-|               <svg desc>
-|               <svg circle>
-
-#data
 <svg><tfoot></mi><td>
 #errors
 #document
