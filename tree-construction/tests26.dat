@@ -199,14 +199,14 @@
 
 #errors
 #document
-| <html html>
-|   <html head>
-|   <html body>
-|     <html p>
-|       <html code>
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|       <code>
 |         code=""
 |         x<=""
-|     <html code>
+|     <code>
 |       code=""
 |       x<=""
 |       "
