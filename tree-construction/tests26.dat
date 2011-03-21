@@ -256,3 +256,41 @@
 |                   <i>
 |                 <i>
 |                   "a"
+
+#data
+<!DOCTYPE html><math><mtext><p><i></p>a
+#errors
+38: End tag “p” seen, but there were open elements.
+34: Unclosed element “i”.
+39: End of file in a foreign namespace context.
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <math math>
+|       <math mtext>
+|         <p>
+|           <i>
+|         "a"
+
+#data
+<!DOCTYPE html><table><tr><td><math><mtext><p><i></p>a
+#errors
+53: End tag “p” seen, but there were open elements.
+49: Unclosed element “i”.
+54: End of file in a foreign namespace context.
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <table>
+|       <tbody>
+|         <tr>
+|           <td>
+|             <math math>
+|               <math mtext>
+|                 <p>
+|                   <i>
+|                 "a"
