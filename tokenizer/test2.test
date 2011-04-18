@@ -158,6 +158,22 @@
 
 {"description":"Single-quote after attribute name",
 "input":"<h a '>",
-"output":["ParseError", ["StartTag", "h", {"a":"", "'":""}]]}
+"output":["ParseError", ["StartTag", "h", {"a":"", "'":""}]]},
+
+{"description":"Empty end tag with following characters",
+"input":"a</>bc",
+"output":[["Character", "a"], "ParseError", ["Character", "bc"]]},
+
+{"description":"Empty end tag with following tag",
+"input":"a</><b>c",
+"output":[["Character", "a"], "ParseError", ["StartTag", "b", {}], ["Character", "c"]]},
+
+{"description":"Empty end tag with following comment",
+"input":"a</><!--b-->c",
+"output":[["Character", "a"], "ParseError", ["Comment", "b"], ["Character", "c"]]},
+
+{"description":"Empty end tag with following end tag",
+"input":"a</></b>c",
+"output":[["Character", "a"], "ParseError", ["EndTag", "b"], ["Character", "c"]]}
 
 ]}
