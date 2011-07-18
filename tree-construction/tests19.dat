@@ -1218,3 +1218,35 @@
 |     <plaintext>
 |       <a>
 |         "b"
+
+#data
+<!DOCTYPE html><div>a<a></div>b<p>c</p>d
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <div>
+|       "a"
+|       <a>
+|     <a>
+|       "b"
+|       <p>
+|         "c"
+|       "d"
+
+#data
+<!DOCTYPE html><div>a<a>b<div>c<p>d</p>e
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <div>
+|       "a"
+|       <a>
+|         "b"
+|         <div>
+|           "c"
+|           <p>
+|             "d"
