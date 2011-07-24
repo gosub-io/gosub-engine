@@ -739,11 +739,3 @@ html
 #document
 | <head>
 | <body>
-#data
-#errors
-#document-fragment
-html
-#document
-| <html>
-|   <head>
-|   <body>
