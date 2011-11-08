@@ -1,0 +1,34 @@
+#data
+<svg><![CDATA[foo
+bar]]>
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <svg svg>
+|       "foo
+bar"
+
+#data
+<svg><![CDATA[foobar]]>
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <svg svg>
+|       "foo
+bar"
+
+#data
+<svg><![CDATA[foo
+bar]]>
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <svg svg>
+|       "foo
+bar"

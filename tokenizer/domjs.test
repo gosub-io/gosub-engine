@@ -1,0 +1,14 @@
+{
+    "tests": [
+        {
+            "description":"CR in bogus comment state",
+            "input":"<?\u000d",
+            "output":["ParseError", ["Comment", "?\u000a"]]
+        },
+        {
+            "description":"CRLF in bogus comment state",
+            "input":"<?\u000d\u000a",
+            "output":["ParseError", ["Comment", "?\u000a"]]
+        }
+    ]
+}
