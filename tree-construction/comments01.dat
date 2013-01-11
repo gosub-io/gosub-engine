@@ -133,3 +133,14 @@ FOO<!----->BAZ
 |     "FOO"
 |     <!-- - -->
 |     "BAZ"
+
+#data
+<html><!-- comment --><title>Comment before head</title>
+#errors
+#document
+| <html>
+|   <!-- comment -->
+|   <head>
+|     <title>
+|       "Comment before head"
+|   <body>
