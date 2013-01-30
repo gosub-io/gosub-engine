@@ -139,7 +139,7 @@ FOO<!----->BAZ
 #errors
 #document
 | <html>
-|   <!-- comment -->
+|   <!--  comment  -->
 |   <head>
 |     <title>
 |       "Comment before head"
