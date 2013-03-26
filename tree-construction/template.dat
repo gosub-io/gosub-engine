@@ -569,7 +569,6 @@
 |         <td>
 |         <td>
 
-
 #data
 <body><template><td></td><tbody><td></td></template>
 #errors
@@ -1191,3 +1190,82 @@
 |             <style>
 |               "var i"
 |   <body>
+
+#data
+<template><table></template><body><span>Foo
+#errors
+#document
+| <html>
+|   <head>
+|     <template>
+|       content
+|         <table>
+|   <body>
+|     <span>
+|       "Foo"
+
+#data
+<template><td></template><body><span>Foo
+#errors
+#document
+| <html>
+|   <head>
+|     <template>
+|       content
+|         <td>
+|   <body>
+|     <span>
+|       "Foo"
+
+#data
+<template><object></template><body><span>Foo
+#errors
+#document
+| <html>
+|   <head>
+|     <template>
+|       content
+|         <object>
+|   <body>
+|     <span>
+|       "Foo"
+
+#data
+<template><svg><template>
+#errors
+#document
+| <html>
+|   <head>
+|     <template>
+|       content
+|         <svg svg>
+|           <svg template>
+|   <body>
+
+#data
+<template><svg><foo><template><foreignObject><div></template><div>
+#errors
+#document
+| <html>
+|   <head>
+|     <template>
+|       content
+|         <svg svg>
+|           <svg foo>
+|             <svg template>
+|               <svg foreignObject>
+|                 <div>
+|   <body>
+|     <div>
+
+#data
+<dummy><template><span></dummy>
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <dummy>
+|       <template>
+|         content
+|           <span>
