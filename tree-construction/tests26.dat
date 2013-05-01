@@ -372,3 +372,17 @@
 |     <div>
 |       <!-- /div -->
 |       "a"
+
+#data
+<button><p><button>
+#errors
+Line 1 Col 8 Unexpected start tag (button). Expected DOCTYPE.
+Line 1 Col 19 Unexpected start tag (button) implies end tag (button).
+Line 1 Col 19 Expected closing tag. Unexpected end of file.
+#document
+| <html>
+|   <head>
+|   <body>
+|     <button>
+|       <p>
+|     <button>
