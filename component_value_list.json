@@ -3,32 +3,97 @@
 "", [],
 
 "/**///** /* **/*/", [
-    "/", "*", "/"
+	"/", "*", "/"
 ],
 
-"  \t\t\n", [
-    " "
+"red", [
+	["ident", "red"]
 ],
 
-"red -->", [
-    ["ident", "red"], " ", "-->"
+"  \t\t\r\n\nRed ", [
+	" ", ["ident", "Red"], " "
+],
+
+"red/* CDC */-->", [
+	["ident", "red"], "-->"
 ],
 
 "red-->/* Not CDC */", [
-    ["ident", "red--"], ">"
+	["ident", "red--"], ">"
+],
+
+"red0 -red 0red -0red _Red .red rêd", [
+	["ident", "red0"], " ",
+	["ident", "-red"], " ",
+	["dimension", "0", 0, "integer", "red"], " ",
+	["dimension", "-0", 0, "integer", "red"], " ",
+	["ident", "_Red"], " ",
+	".", ["ident", "red"], " ",
+	["ident", "rêd"]
+],
+
+"\\30red \\00030 red \\30\r\nred \\red \\r ed \\.red \\ red \\\nred \\376\\37 6\\000376\\0000376\\", [
+	["ident", "0red"], " ",
+	["ident", "0red"], " ",
+	["ident", "0red"], " ",
+	["ident", "red"], " ",
+	["ident", "r"], " ", ["ident", "ed"], " ",
+	["ident", ".red"], " ",
+	["ident", " red"], " ",
+	["error", "bad-escape"], "\\", " ", ["ident", "red"], " ",
+	["ident", "Ͷ76Ͷ76\uFFFD"]
+],
+
+"rgba0() -rgba() 0rgba() -0rgba() _rgba() .rgba() rgbâ() \\30rgba()", [
+	["function", "rgba0"], " ",
+	["function", "-rgba"], " ",
+	["dimension", "0", 0, "integer", "rgba"], ["()"], " ",
+	["dimension", "-0", 0, "integer", "rgba"], ["()"], " ",
+	["function", "_rgba"], " ",
+	".", ["function", "rgba"], " ",
+	["function", "rgbâ"], " ",
+	["function", "0rgba"]
+],
+
+"@media0 @-Media @0media @-0media @_media @.media @medİa @\\30 media", [
+	["at-keyword", "media0"], " ",
+	["at-keyword", "-Media"], " ",
+	"@", ["dimension", "0", 0, "integer", "media"], " ",
+	"@", ["dimension", "-0", 0, "integer", "media"], " ",
+	["at-keyword", "_media"], " ",
+	"@", ".", ["ident", "media"], " ",
+	["at-keyword", "medİa"], " ",
+	["at-keyword", "0media"]
+],
+
+"#red0 #-Red #0red #-0red #_Red #.red #rêd #\\.red", [
+	["hash", "red0", "id"], " ",
+	["hash", "-Red", "id"], " ",
+	["hash", "0red", "unrestricted"], " ",
+	["hash", "-0red", "unrestricted"], " ",
+	["hash", "_Red", "id"], " ",
+	"#", ".", ["ident", "red"], " ",
+	["hash", "rêd", "id"], " ",
+	["hash", ".red", "id"]
 ],
 
 "p[example=\"\\\nfoo(int x) {\\\n    this.x = x;\\\n}\\\n\"]", [
-    ["ident", "p"], ["[]",
-        ["ident", "example"], "=", ["string", "foo(int x) {    this.x = x;}"]]
+	["ident", "p"], ["[]",
+		["ident", "example"], "=", ["string", "foo(int x) {    this.x = x;}"]
+	]
 ],
 
 "42 .5 -4pX 1.25em 30%", [
-    ["number", "42", 42, "integer"], " ",
-    ["number", ".5", 0.5, "number"], " ",
-    ["dimension", "-4", -4, "integer", "pX"], " ",
-    ["dimension", "1.25", 1.25, "number", "em"], " ",
-    ["percentage", "30", 30, "integer"]
+	["number", "42", 42, "integer"], " ",
+	["number", ".5", 0.5, "number"], " ",
+	["dimension", "-4", -4, "integer", "pX"], " ",
+	["dimension", "1.25", 1.25, "number", "em"], " ",
+	["percentage", "30", 30, "integer"]
+],
+
+"~=|=^=$=*=||<!----> |/**/| ~/**/=", [
+	"~=", "|=", "^=", "$=", "*=", "||", "<!--", "-->",
+	" ", "|", "|", " ", "~", "="
 ]
 
 ]
