@@ -1,6 +1,15 @@
 Component values
 ================
 
+Component values are represented in JSON as follow.
+This representation was chosen to be compact
+(and thus less annoying to write by hand)
+while staying unambiguous.
+For example, the difference between @import and \@import is not lost:
+they are represented as ['at-keyword', 'import'] and ['ident', '@import'],
+respectively.
+
+
 <ident>
     Array of length 2: the string 'ident', and the value as a string.
 
@@ -93,5 +102,5 @@ Component values
 
 function
     An array of length N+2: the string 'function'
-    and the name of the function
+    and the name of the function as a string
     followed by the N component values of the function’s value.

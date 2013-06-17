@@ -1,0 +1,34 @@
+[
+
+"", [],
+
+"/**///** /* **/*/", [
+    "/", "*", "/"
+],
+
+"  \t\t\n", [
+    " "
+],
+
+"red -->", [
+    ["ident", "red"], " ", "-->"
+],
+
+"red-->/* Not CDC */", [
+    ["ident", "red--"], ">"
+],
+
+"p[example=\"\\\nfoo(int x) {\\\n    this.x = x;\\\n}\\\n\"]", [
+    ["ident", "p"], ["[]",
+        ["ident", "example"], "=", ["string", "foo(int x) {    this.x = x;}"]]
+],
+
+"42 .5 -4pX 1.25em 30%", [
+    ["number", "42", 42, "integer"], " ",
+    ["number", ".5", 0.5, "number"], " ",
+    ["dimension", "-4", -4, "integer", "pX"], " ",
+    ["dimension", "1.25", 1.25, "number", "em"], " ",
+    ["percentage", "30", 30, "integer"]
+]
+
+]
