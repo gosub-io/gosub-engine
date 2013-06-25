@@ -6,7 +6,7 @@
 
 {"description": "Entity name followed by the equals sign in an attribute value.",
 "input":"<h a='&lang='>",
-"output": ["ParseError", ["StartTag", "h", {"a": "&lang="}]]},
+"output": [["StartTag", "h", {"a": "&lang="}]]},
 
 {"description": "CR as numeric entity",
 "input":"&#013;",
