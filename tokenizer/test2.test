@@ -82,7 +82,7 @@
 
 {"description":"Entity without a name",
 "input":"&;",
-"output":["ParseError", ["Character", "&;"]]},
+"output":[["Character", "&;"]]},
 
 {"description":"Unescaped ampersand in attribute value",
 "input":"<h a='&'>",
