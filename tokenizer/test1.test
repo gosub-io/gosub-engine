@@ -147,7 +147,7 @@
 
 {"description":"Non-ASCII character reference name",
 "input":"&\u00AC;",
-"output":["ParseError", ["Character", "&\u00AC;"]]},
+"output":[["Character", "&\u00AC;"]]},
 
 {"description":"ASCII decimal entity",
 "input":"&#0036;",
