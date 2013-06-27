@@ -153,6 +153,10 @@
 	["url", "foo"]
 ],
 
+"url('a' b) url('c' d)", [["error", "bad-url"], " ", ["error", "bad-url"]],
+
+"url('a\nb') url('c\n", [["error", "bad-url"], " ", ["error", "bad-url"]],
+
 "url() url( \t) url( Foô\\030\n!\n) url(a b) url(a\\ b) url(a(b) url(a\\(b) url(a'b) url(a\\'b) url(a\"b) url(a\\\"b) url(a\nb) url(a\\\nb) url(a\\a b) url(a\\", [
 	["url", ""], " ",
 	["url", ""], " ",
