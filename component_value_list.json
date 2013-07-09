@@ -45,7 +45,7 @@
 	["ident", "r"], " ", ["ident", "ed"], " ",
 	["ident", ".red"], " ",
 	["ident", " red"], " ",
-	["error", "bad-escape"], "\\", " ", ["ident", "red"], " ",
+	"\\", " ", ["ident", "red"], " ",
 	["ident", "Ͷ76Ͷ76\uFFFD"]
 ],
 
