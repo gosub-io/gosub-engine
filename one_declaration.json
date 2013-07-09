@@ -13,12 +13,13 @@
 "foo :", ["declaration", "foo", [], false],
 "\n/**/ foo: ", ["declaration", "foo", [" "], false],
 "foo:;", ["declaration", "foo", [], false],
+" /**/ foo /**/ :", ["declaration", "foo", [], false],
 "foo:;bar:;", ["error", "extra-input"],
 
 "foo: 9000  !Important", ["declaration", "foo", [
     " ", ["number", "9000", 9000, "integer"], " "
 ], true],
-"foo: 9000  ! /**/\t Important /**/\f", ["declaration", "foo", [
+"foo: 9000  ! /**/\t IMPORTant /**/\f", ["declaration", "foo", [
     " ", ["number", "9000", 9000, "integer"], " "
 ], true],
 

@@ -2,7 +2,7 @@
 
 "", [],
 
-"/**///** /* **/*//* ", [
+"/*/*///** /* **/*//* ", [
 	"/", "*", "/"
 ],
 
@@ -22,17 +22,19 @@
 	["ident", "red--"], ">"
 ],
 
-"red0 -red --red -\\-red 0red -0red \u0000red _Red .red rêd", [
+"red0 -red --red -\\-red\\ blue 0red -0red \u0000red _Red .red rêd r\\êd \u007F\u0080\u0081", [
 	["ident", "red0"], " ",
 	["ident", "-red"], " ",
 	"-", ["ident", "-red"], " ",
-	["ident", "--red"], " ",
+	["ident", "--red blue"], " ",
 	["dimension", "0", 0, "integer", "red"], " ",
 	["dimension", "-0", 0, "integer", "red"], " ",
 	["ident", "\uFFFDred"], " ",
 	["ident", "_Red"], " ",
 	".", ["ident", "red"], " ",
-	["ident", "rêd"]
+	["ident", "rêd"], " ",
+	["ident", "rêd"], " ",
+	"\u007F", ["ident", "\u0080\u0081"]
 ],
 
 "\\30red \\00030 red \\30\r\nred \\0000000red \\1100000red \\red \\r ed \\.red \\ red \\\nred \\376\\37 6\\000376\\0000376\\", [
@@ -49,7 +51,7 @@
 	["ident", "Ͷ76Ͷ76\uFFFD"]
 ],
 
-"rgba0() -rgba() --rgba() -\\-rgba() 0rgba() -0rgba() _rgba() .rgba() rgbâ() \\30rgba()", [
+"rgba0() -rgba() --rgba() -\\-rgba() 0rgba() -0rgba() _rgba() .rgba() rgbâ() \\30rgba() rgba () @rgba() #rgba()", [
 	["function", "rgba0"], " ",
 	["function", "-rgba"], " ",
 	"-", ["function", "-rgba"], " ",
@@ -59,7 +61,10 @@
 	["function", "_rgba"], " ",
 	".", ["function", "rgba"], " ",
 	["function", "rgbâ"], " ",
-	["function", "0rgba"]
+	["function", "0rgba"], " ",
+	["ident", "rgba"], " ", ["()"], " ",
+	["at-keyword", "rgba"], ["()"], " ",
+	["hash", "rgba", "id"], ["()"]
 ],
 
 "@media0 @-Media @--media @-\\-media @0media @-0media @_media @.media @medİa @\\30 media\\", [
@@ -222,12 +227,12 @@
 	["number", "-0.67", -0.67, "number"]
 ],
 
-"12e2 +34e+1 -45E-0 .67e+3 +.89e-1 -.01E2 2.3E+1 +45.0e6 -0.67e0", [
+"12e2 +34e+1 -45E-0 .68e+3 +.79e-1 -.01E2 2.3E+1 +45.0e6 -0.67e0", [
 	["number", "12e2", 1200, "number"], " ",
 	["number", "+34e+1", 340, "number"], " ",
 	["number", "-45E-0", -45, "number"], " ",
-	["number", ".67e+3", 670, "number"], " ",
-	["number", "+.89e-1", 0.089, "number"], " ",
+	["number", ".68e+3", 680, "number"], " ",
+	["number", "+.79e-1", 0.079, "number"], " ",
 	["number", "-.01E2", -1, "number"], " ",
 	["number", "2.3E+1", 23, "number"], " ",
 	["number", "+45.0e6", 45000000, "number"], " ",
@@ -259,12 +264,12 @@
 	["percentage", "-0.67", -0.67, "number"]
 ],
 
-"12e2% +34e+1% -45E-0% .67e+3% +.89e-1% -.01E2% 2.3E+1% +45.0e6% -0.67e0%", [
+"12e2% +34e+1% -45E-0% .68e+3% +.79e-1% -.01E2% 2.3E+1% +45.0e6% -0.67e0%", [
 	["percentage", "12e2", 1200, "number"], " ",
 	["percentage", "+34e+1", 340, "number"], " ",
 	["percentage", "-45E-0", -45, "number"], " ",
-	["percentage", ".67e+3", 670, "number"], " ",
-	["percentage", "+.89e-1", 0.089, "number"], " ",
+	["percentage", ".68e+3", 680, "number"], " ",
+	["percentage", "+.79e-1", 0.079, "number"], " ",
 	["percentage", "-.01E2", -1, "number"], " ",
 	["percentage", "2.3E+1", 23, "number"], " ",
 	["percentage", "+45.0e6", 45000000, "number"], " ",
@@ -287,12 +292,12 @@
 	["dimension", "-0.67", -0.67, "number", "px"]
 ],
 
-"12e2px +34e+1px -45E-0px .67e+3px +.89e-1px -.01E2px 2.3E+1px +45.0e6px -0.67e0px", [
+"12e2px +34e+1px -45E-0px .68e+3px +.79e-1px -.01E2px 2.3E+1px +45.0e6px -0.67e0px", [
 	["dimension", "12e2", 1200, "number", "px"], " ",
 	["dimension", "+34e+1", 340, "number", "px"], " ",
 	["dimension", "-45E-0", -45, "number", "px"], " ",
-	["dimension", ".67e+3", 670, "number", "px"], " ",
-	["dimension", "+.89e-1", 0.089, "number", "px"], " ",
+	["dimension", ".68e+3", 680, "number", "px"], " ",
+	["dimension", "+.79e-1", 0.079, "number", "px"], " ",
 	["dimension", "-.01E2", -1, "number", "px"], " ",
 	["dimension", "2.3E+1", 23, "number", "px"], " ",
 	["dimension", "+45.0e6", 45000000, "number", "px"], " ",
