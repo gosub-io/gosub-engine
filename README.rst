@@ -1,5 +1,20 @@
-Importing into another repository with git-subtree_
-===================================================
+CSS parsing tests
+#################
+
+This repository contains implementation-independent test for CSS parsers,
+based on the 2013 draft of the `CSS Syntax Level 3`_ specification.
+
+.. _CSS Syntax Level 3: http://dev.w3.org/csswg/css-syntax-3/
+
+The upstream repository for these tests is at
+https://github.com/SimonSapin/css-parsing-tests
+
+
+Importing
+=========
+
+The recommended way to use these tests in an implementation
+is to import them with git-subtree_.
 
 .. _git-subtree: https://github.com/apenwarr/git-subtree
 
