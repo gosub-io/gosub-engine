@@ -1,0 +1,2 @@
+#!/bin/sh
+git subtree pull -P $(dirname $0) https://github.com/SimonSapin/css-parsing-tests.git master
