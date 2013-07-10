@@ -1,14 +1,16 @@
-Importing into another repository with git-subtree
-==================================================
+Importing into another repository with git-subtree_
+===================================================
+
+.. _git-subtree: https://github.com/apenwarr/git-subtree
 
 To import the first time to a ``./css-parsing-tests`` sub-directory,
 run this from the top-level of a git repository::
 
-    git subtree add -P ./css-parsing-tests https://github.com/SimonSapin/css-parsing-tests.git master
+    git subtree add -P css-parsing-tests https://github.com/SimonSapin/css-parsing-tests.git master
 
 Later, to merge changes made in the upstream repository, run::
 
-    ./css-parsing-tests/update-subtree
+    git subtree pull -P css-parsing-tests https://github.com/SimonSapin/css-parsing-tests.git master
 
 
 Result representation
