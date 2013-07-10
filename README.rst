@@ -16,7 +16,7 @@ Importing
 The recommended way to use these tests in an implementation
 is to import them with git-subtree_.
 
-.. _git-subtree: https://github.com/apenwarr/git-subtree
+.. _git-subtree: https://github.com/git/git/tree/master/contrib/subtree
 
 To import the first time to a ``./css-parsing-tests`` sub-directory,
 run this from the top-level of a git repository::
@@ -26,6 +26,59 @@ run this from the top-level of a git repository::
 Later, to merge changes made in the upstream repository, run::
 
     git subtree pull -P css-parsing-tests https://github.com/SimonSapin/css-parsing-tests.git master
+
+
+Test files
+==========
+
+CSS Syntax specification describes a number of "functions".
+Each ``.json`` file in this repository corresponds to such a function.
+The files are encoded as UTF-8
+and each contain a JSON array with an even number of items,
+where each pair of items is one function input
+associated with the expected result.
+
+``component_value_list.json``
+    Tests `Parse a list of component values
+    <http://dev.w3.org/csswg/css-syntax-3/#parse-a-list-of-component-values>`_.
+    The Unicode input is represented by a JSON string,
+    the output as an array of `component values`_ as described below.
+
+``component_value_list.json``
+    Tests `Parse a component value
+    <http://dev.w3.org/csswg/css-syntax-3/#parse-a-component-value>`_.
+    The Unicode input is represented by a JSON string,
+    the output as a `component value`_.
+
+``declaration_list.json``
+    Tests `Parse a list of declarations
+    <http://dev.w3.org/csswg/css-syntax-3/#parse-a-list-of-declarations>`_.
+    The Unicode input is represented by a JSON string,
+    the output as an array of declarations_ and at-rules_.
+
+``one_declaration.json``
+    Tests `Parse a declaration
+    <http://dev.w3.org/csswg/css-syntax-3/#parse-a-declaration>`_.
+    The Unicode input is represented by a JSON string,
+    the output as a declaration_.
+
+``one_rule.json``
+    Tests `Parse a rule
+    <http://dev.w3.org/csswg/css-syntax-3/#parse-a-rule>`_.
+    The Unicode input is represented by a JSON string,
+    the output as a `qualified rule`_ or at-rule_.
+
+``rule_list.json``
+    Tests `Parse a list of rules
+    <http://dev.w3.org/csswg/css-syntax-3/#parse-a-list-of-rules>`_.
+    The Unicode input is represented by a JSON string,
+    the output as a list of `qualified rules`_ or at-rules_.
+
+``stylesheet.json``
+    Tests `Parse a stylesheet
+    <http://dev.w3.org/csswg/css-syntax-3/#parse-a-stylesheet>`_.
+    The Unicode input is represented by a JSON string,
+    the output as a list of `qualified rules`_ or at-rules_.
 
 
 Result representation
@@ -39,6 +92,38 @@ For example, the difference between @import and \@import is not lost:
 they are represented as ``["at-keyword", "import"]`` and ``["ident", "@import"]``,
 respectively.
 
+
+Rules and declarations
+----------------------
+
+.. _at-rule:
+.. _at-rules:
+.. _qualified rule:
+.. _qualified rules:
+.. _declaration:
+.. _declarations:
+
+
+At-rule
+    An array of length 4: the string ``"at-rule"``,
+    the name (value of the at-keyword) as a string,
+    the prelude as a nested array of `component values`_,
+    and the optional block as a nested array of component value, or null.
+
+Qualified rule
+    An array of length 3: the string ``"qualified rule"``,
+    the prelude as a nested array of `component values`_,
+    and the block as a nested array of component value.
+
+
+Declaration
+    An array of length 4: the string ``"declaration"``, the name as a string,
+    the value as a nested array of `component values`_,
+    and a the important flag as a boolean.
+
+
+.. _component value:
+.. _component values:
 
 Component values
 ----------------
@@ -123,37 +208,32 @@ Component values
 
 {} block
     An array of length N+1: the string ``"{}"``
-    followed by the N component values of the block’s value.
+    followed by the N `component values`_ of the block’s content.
 
 [] block
     An array of length N+1: the string ``"[]"``
-    followed by the N component values of the block’s value.
+    followed by the N `component values`_ of the block’s content.
 
 () block
     An array of length N+1: the string ``"()"``
-    followed by the N component values of the block’s value.
+    followed by the N `component values`_ of the block’s content.
 
 Function
     An array of length N+2: the string ``"function"``
     and the name of the function as a string
-    followed by the N component values of the function’s value.
+    followed by the N `component values`_ of the function’s arguments.
 
+<bad-string>
+    The array of two strings ``["error", "bad-string"]``.
 
-Other nodes
------------
+<bad-url>
+    The array of two strings ``["error", "bad-url"]``.
 
-Declaration
-    An array of length 4: the string ``"declaration"``, the name as a string,
-    the value as a nested array of component values,
-    and a the important flag as a boolean.
+Unmatched <}>
+    The array of two strings ``["error", "}"]``.
 
-At-rule
-    An array of length 4: the string ``"at-rule"``,
-    the name (value of the at-keyword) as a string,
-    the prelude as a nested array of component values,
-    and the optional block as a nested array of component value, or null.
+Unmatched <]>
+    The array of two strings ``["error", "]"]``.
 
-Qualified rule
-    An array of length 3: the string ``"qualified rule"``,
-    the prelude as a nested array of component values,
-    and the block as a nested array of component value.
+Unmatched <)>
+    The array of two strings ``["error", ")"]``.
