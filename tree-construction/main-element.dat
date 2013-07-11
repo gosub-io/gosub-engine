@@ -1,8 +1,7 @@
 #data
 <!doctype html><p>foo<main>bar<p>baz
 #errors
-36: End of file seen and there were open elements.
-27: Unclosed element “main”.
+(1,36): expected-closing-tag-but-got-eof
 #document
 | <!DOCTYPE html>
 | <html>
