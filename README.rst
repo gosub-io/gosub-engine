@@ -80,6 +80,28 @@ associated with the expected result.
     The Unicode input is represented by a JSON string,
     the output as a list of `qualified rules`_ or at-rules_.
 
+``color3.json``
+    Tests the ``<color>`` syntax `defined in CSS Color Level 3
+    <http://www.w3.org/TR/css3-color/#colorunits>`_.
+    The Unicode input is represented by a JSON string,
+    the output as one of:
+
+    * null if the input is not a valid color in CSS syntax
+    * The string "currentColor" for the currentColor keyword
+    * An array of length 4 for every other values:
+      four (floating point) numbers for the Red, Green, Blue and Alpha channel.
+      Each value is between 0 and 1.
+
+``color3_hsl.json``
+    Same as ``color3.json``.
+    This file is generated the ``make_color3_hsl.py`` Python script.
+
+``color3_keywords.json``
+    Same as ``color3.json``,
+    except that the values for the Red, Green and Blue channel
+    are between 0 and 255.
+    This file is generated the ``make_color3_keywords.py`` Python script.
+
 
 Result representation
 =====================
