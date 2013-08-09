@@ -102,6 +102,17 @@ associated with the expected result.
     are between 0 and 255.
     This file is generated the ``make_color3_keywords.py`` Python script.
 
+``an+b.json``
+    Tests the `an+b <http://dev.w3.org/csswg/css-syntax/#the-anb-type>`_
+    syntax defined in CSS Syntax Level 3.
+    This `differs <http://dev.w3.org/csswg/css-syntax/#changes>`_ from the
+    `nth grammar rule <http://www.w3.org/TR/css3-selectors/#nth-child-pseudo>`_
+    in Selectors Level 3 only in that
+    ``-`` charecters and digits can be escaped in some cases.
+    The Unicode input is represented by a JSON string,
+    the output as null for invalid syntax,
+    or an array of two integers ``[A, B]``.
+
 
 Result representation
 =====================
