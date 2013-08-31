@@ -19,8 +19,9 @@
         },
         {
             "description":"leading U+FEFF must pass through",
-            "input":"\uFEFFfoo\uFEFFbar",
-            "output":[["Character", "\uFEFFfoo\uFEFFbar"]]
+            "doubleEscaped":true,
+            "input":"\\uFEFFfoo\\uFEFFbar",
+            "output":[["Character", "\\uFEFFfoo\\uFEFFbar"]]
         },
         {
             "description":"Non BMP-charref in in RCDATA",
