@@ -200,8 +200,8 @@ Component values
     and the unit as a string.
 
 <unicode-range>
-    Array of length 2: the string ``"unicode-range"``, and the range as either
-    null for the empty range, or an array of two numbers.
+    Array of length 3: the string ``"unicode-range"``,
+    followed by the *start* and *end* integers as two numbers.
 
 <include-match>
     The string ``"~="``.
