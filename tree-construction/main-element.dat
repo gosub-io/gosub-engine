@@ -26,3 +26,19 @@
 |       <p>
 |         "foo"
 |     "bar"
+
+#data
+<!DOCTYPE html>xxx<svg><x><g><a><main><b>
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     "xxx"
+|     <svg svg>
+|       <svg x>
+|         <svg g>
+|           <svg a>
+|             <svg main>
+|     <b>
