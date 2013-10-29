@@ -477,9 +477,7 @@
 | <html>
 |   <head>
 |   <frameset>
-|     <template>
-|       content
-|         <frame>
+|     <frame>
 
 #data
 <template><frame></frame></frameset><frame></frame></template>
@@ -489,8 +487,6 @@
 |   <head>
 |     <template>
 |       content
-|         <frame>
-|         <frame>
 |   <body>
 
 #data
@@ -823,8 +819,6 @@
 |   <head>
 |     <template>
 |       content
-|         <frame>
-|         <frame>
 |   <body>
 
 #data
@@ -1160,7 +1154,6 @@
 |       content
 |         <template>
 |           content
-|             <frame>
 |   <body>
 
 #data
