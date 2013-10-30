@@ -15,10 +15,10 @@ Projects using this
 
 CSS parsers using these tests:
 
-* [tinycss2](https://github.com/SimonSapin/tinycss2) (Python)
-* [rust-cssparser](https://github.com/mozilla-servo/rust-cssparser)
-  (Rust, used in [Servo](https://github.com/mozilla/servo/))
-* [Crass](https://github.com/rgrove/crass/) (Ruby)
+* `tinycss2 <https://github.com/SimonSapin/tinycss2>`_ (Python)
+* `rust-cssparser <https://github.com/mozilla-servo/rust-cssparser>`_
+  (Rust, used in `Servo <https://github.com/mozilla/servo/>`_)
+* `Crass <https://github.com/rgrove/crass/>`_ (Ruby)
 
 
 Importing
