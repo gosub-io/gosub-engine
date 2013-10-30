@@ -10,6 +10,17 @@ The upstream repository for these tests is at
 https://github.com/SimonSapin/css-parsing-tests
 
 
+Projects using this
+===================
+
+CSS parsers using these tests:
+
+* [tinycss2](https://github.com/SimonSapin/tinycss2) (Python)
+* [rust-cssparser](https://github.com/mozilla-servo/rust-cssparser)
+  (Rust, used in [Servo](https://github.com/mozilla/servo/))
+* [Crass](https://github.com/rgrove/crass/) (Ruby)
+
+
 Importing
 =========
 
