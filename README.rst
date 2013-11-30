@@ -91,6 +91,24 @@ associated with the expected result.
     The Unicode input is represented by a JSON string,
     the output as a list of `qualified rules`_ or at-rules_.
 
+``stylesheet_bytes.json``
+    Tests `Parse a stylesheet
+    <http://dev.w3.org/csswg/css-syntax-3/#parse-a-stylesheet>`_
+    together with `The input byte stream
+    <http://dev.w3.org/csswg/css-syntax/#input-byte-stream>`_.
+    The input is represented as a JSON object containing:
+
+    * A required ``css_bytes``, the input byte string,
+      represented as a JSON string where code points U+0000 to U+00FF
+      represent bytes of the same value.
+    * An optional ``protocol_encoding``,
+      a protocol encoding label as a JSON string, or null.
+    * An optional ``environment_encoding``,
+      an environment encoding label as a JSON string, or null.
+    * An optional ``comment`` that is ignored.
+
+    The output is represented a list of `qualified rules`_ or at-rules_.
+
 ``color3.json``
     Tests the ``<color>`` syntax `defined in CSS Color Level 3
     <http://www.w3.org/TR/css3-color/#colorunits>`_.
