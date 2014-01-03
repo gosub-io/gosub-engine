@@ -80,7 +80,7 @@
 	["at-keyword", "0media\uFFFD"]
 ],
 
-"#red0 #-Red #--red #-\\-red #0red #-0red #_Red #.red #rêd #\\.red\\", [
+"#red0 #-Red #--red #-\\-red #0red #-0red #_Red #.red #rêd #êrd #\\.red\\", [
 	["hash", "red0", "id"], " ",
 	["hash", "-Red", "id"], " ",
 	["hash", "--red", "unrestricted"], " ",
@@ -90,6 +90,7 @@
 	["hash", "_Red", "id"], " ",
 	"#", ".", ["ident", "red"], " ",
 	["hash", "rêd", "id"], " ",
+	["hash", "êrd", "id"], " ",
 	["hash", ".red\uFFFD", "id"]
 ],
 
