@@ -65,7 +65,7 @@ iso8859-2
 <!DOCTYPE HTML>
 <meta http-equiv="Content-Type content="text/html; charset=iso8859-2">
 #encoding
-iso8859-2
+windows-1252
 
 #data
 <!DOCTYPE HTML>
@@ -163,7 +163,7 @@ Windows-1252
 <meta charset=iso8859-2">
 <p>"</p>
 #encoding
-iso8859-2
+windows-1252
 
 #data
 <!DOCTYPE HTML>
