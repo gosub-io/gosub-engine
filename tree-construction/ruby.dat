@@ -153,7 +153,7 @@
 |       <rb>
 
 #data
-<html><ruby>a<rtc>b<rt></ruby></html>
+<html><ruby>a<rtc>b<rt>c<rt>d</ruby></html>
 #errors
 (1,6): expected-doctype-but-got-start-tag
 #document
@@ -165,6 +165,9 @@
 |       <rtc>
 |         "b"
 |         <rt>
+|           "c"
+|         <rt>
+|           "d"
 
 #data
 <html><ruby>a<rtc>b<rtc></ruby></html>
