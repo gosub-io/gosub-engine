@@ -277,3 +277,19 @@
 |       <rp>
 |         "b"
 |         <span>
+
+#data
+<html><ruby><rtc><ruby>a<rb>b<rt></ruby></ruby></html>
+#errors
+(1,6): expected-doctype-but-got-start-tag
+#document
+| <html>
+|   <head>
+|   <body>
+|     <ruby>
+|       <rtc>
+|         <ruby>
+|           "a"
+|           <rb>
+|             "b"
+|           <rt>
