@@ -7,6 +7,16 @@
     ["declaration", "c", [["ident", "d"], " ", ["number", "42", 42, "integer"]], true]
 ],
 
+"z;a:b", [
+    ["error", "invalid"],
+    ["declaration", "a", [["ident", "b"]], false]
+],
+
+"z:x!;a:b", [
+    ["error", "invalid"],
+    ["declaration", "a", [["ident", "b"]], false]
+],
+
 "@import 'foo.css'; a:b; @import 'bar.css'", [
     ["at-rule", "import", [" ", ["string", "foo.css"]], null],
     ["declaration", "a", [["ident", "b"]], false],
