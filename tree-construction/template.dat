@@ -1318,3 +1318,25 @@
 |       content
 |         "Foo"
 |   <body>
+
+#data
+<!DOCTYPE HTML><dummy><table><template><table><template><table><script>
+#errors
+eof script
+eof template
+eof template
+eof table
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <dummy>
+|       <table>
+|         <template>
+|           content
+|             <table>
+|               <template>
+|                 content
+|                   <table>
+|                     <script>
