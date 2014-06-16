@@ -61,6 +61,7 @@
 #data
 <!doctype html><table>X<tr><td><table> <meta></table></table>
 #errors
+unexpected text in table
 (1,45): unexpected-start-tag-implies-table-voodoo
 #document
 | <!DOCTYPE html>

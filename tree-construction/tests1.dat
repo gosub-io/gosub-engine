@@ -433,7 +433,6 @@ Line1<br>Line2<br>Line3<br>Line4
 (1,48): foster-parenting-character-in-table
 (1,48): foster-parenting-character-in-table
 (1,48): foster-parenting-character-in-table
-(1,48): foster-parenting-start-tag-in-table
 (1,48): foster-parenting-character-in-table
 (1,48): foster-parenting-character-in-table
 (1,48): foster-parenting-character-in-table
@@ -1155,6 +1154,7 @@ Line1<br>Line2<br>Line3<br>Line4
 #errors
 (1,15): expected-doctype-but-got-start-tag
 (1,54): unexpected-cell-end-tag
+(1,68): unexpected text in table
 (1,71): expected-closing-tag-but-got-eof
 #document
 | <html>

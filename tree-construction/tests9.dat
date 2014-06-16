@@ -228,7 +228,6 @@
 <!DOCTYPE html><body><table><caption><math><mi>foo</mi><mi>bar</mi><p>baz</table><p>quux
 #errors
 (1,70) unexpected-html-element-in-foreign-content
-(1,81) XXX-undefined-error
 #document
 | <!DOCTYPE html>
 | <html>

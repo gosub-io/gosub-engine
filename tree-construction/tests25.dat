@@ -79,6 +79,7 @@
 #data
 <!DOCTYPE html><body><command>A
 #errors
+eof
 #document
 | <!DOCTYPE html>
 | <html>

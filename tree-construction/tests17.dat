@@ -69,7 +69,6 @@
 <!doctype html><table><caption><select><tr>
 #errors
 (1,43): unexpected-table-element-start-tag-in-select-in-table
-(1,43): XXX-undefined-error
 (1,43): eof-in-table
 #document
 | <!DOCTYPE html>

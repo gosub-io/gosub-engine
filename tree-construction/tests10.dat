@@ -192,7 +192,6 @@
 <!DOCTYPE html><body><table><caption><svg><g>foo</g><g>bar</g><p>baz</table><p>quux
 #errors
 (1,65) unexpected-html-element-in-foreign-content
-(1,76) XXX-undefined-error
 #document
 | <!DOCTYPE html>
 | <html>
@@ -234,7 +233,8 @@
 #data
 <!DOCTYPE html><body><table><colgroup><svg><g>foo</g><g>bar</g><p>baz</table><p>quux
 #errors
-(1,43) foster-parenting-start-tag
+(1,43) foster-parenting-start-tag svg
+(1,66) unexpected HTML-like start tag token in foreign content
 (1,66) foster-parenting-start-tag
 (1,67) foster-parenting-character
 (1,68) foster-parenting-character

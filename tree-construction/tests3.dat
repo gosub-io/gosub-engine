@@ -285,7 +285,6 @@ foo"
 #data
 <!doctype html><html><body><p><table></table></body></html>
 #errors
-Not known
 #document
 | <!DOCTYPE html>
 | <html>

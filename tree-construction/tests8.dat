@@ -92,6 +92,7 @@ x<table>x
 #errors
 (1,1): expected-doctype-but-got-chars
 (1,9): foster-parenting-character
+(1,9): eof-in-table
 #document
 | <html>
 |   <head>
@@ -105,6 +106,7 @@ x<table><table>x
 (1,1): expected-doctype-but-got-chars
 (1,15): unexpected-start-tag-implies-end-tag
 (1,16): foster-parenting-character
+(1,16): eof-in-table
 #document
 | <html>
 |   <head>
