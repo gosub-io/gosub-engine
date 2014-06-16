@@ -11,6 +11,11 @@
             "output":["ParseError", ["Comment", "?\u000a"]]
         },
         {
+            "description":"CRLFLF in bogus comment state",
+            "input":"<?\u000d\u000a\u000a",
+            "output":["ParseError", ["Comment", "?\u000a\u000a"]]
+        },
+        {
             "description":"NUL in RCDATA and RAWTEXT",
             "doubleEscaped":true,
             "initialStates":["RCDATA state", "RAWTEXT state"],
