@@ -1029,6 +1029,7 @@
 <!doctype html><noscript><!--<noscript></noscript>--></noscript>
 #errors
 (1,64): unexpected-end-tag
+#script-on
 #document
 | <!DOCTYPE html>
 | <html>
@@ -1039,8 +1040,21 @@
 |     "-->"
 
 #data
+<!doctype html><noscript><!--<noscript></noscript>--></noscript>
+#errors
+#script-off
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|     <noscript>
+|       <!-- <noscript></noscript> -->
+|   <body>
+
+#data
 <!doctype html><noscript><!--</noscript>X<noscript>--></noscript>
 #errors
+#script-on
 #document
 | <!DOCTYPE html>
 | <html>
@@ -1053,8 +1067,21 @@
 |       "-->"
 
 #data
+<!doctype html><noscript><!--</noscript>X<noscript>--></noscript>
+#errors
+#script-off
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|     <noscript>
+|       <!-- </noscript>X<noscript> -->
+|   <body>
+
+#data
 <!doctype html><noscript><iframe></noscript>X
 #errors
+#script-on
 #document
 | <!DOCTYPE html>
 | <html>
@@ -1063,6 +1090,21 @@
 |       "<iframe>"
 |   <body>
 |     "X"
+
+#data
+<!doctype html><noscript><iframe></noscript>X
+#errors
+ * (1,34) unexpected token in head noscript
+ * (1,46) unexpected EOF
+#script-off
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|     <noscript>
+|   <body>
+|     <iframe>
+|       "</noscript>X"
 
 #data
 <!doctype html><noframes><!--<noframes></noframes>--></noframes>
@@ -2190,6 +2232,7 @@
 #errors
 (1,10): expected-doctype-but-got-start-tag
 (1,49): unexpected-end-tag
+#script-on
 #document
 | <html>
 |   <head>
@@ -2199,9 +2242,22 @@
 |     "-->"
 
 #data
+<noscript><!--<noscript></noscript>--></noscript>
+#errors
+ * (1,11) missing DOCTYPE
+#script-off
+#document
+| <html>
+|   <head>
+|     <noscript>
+|       <!-- <noscript></noscript> -->
+|   <body>
+
+#data
 <noscript><!--</noscript>X<noscript>--></noscript>
 #errors
 (1,10): expected-doctype-but-got-start-tag
+#script-on
 #document
 | <html>
 |   <head>
@@ -2212,10 +2268,24 @@
 |     <noscript>
 |       "-->"
 
+
+#data
+<noscript><!--</noscript>X<noscript>--></noscript>
+#errors
+(1,10): expected-doctype-but-got-start-tag
+#script-off
+#document
+| <html>
+|   <head>
+|     <noscript>
+|       <!-- </noscript>X<noscript> -->
+|   <body>
+
 #data
 <noscript><iframe></noscript>X
 #errors
 (1,10): expected-doctype-but-got-start-tag
+#script-on
 #document
 | <html>
 |   <head>
@@ -2223,6 +2293,21 @@
 |       "<iframe>"
 |   <body>
 |     "X"
+
+#data
+<noscript><iframe></noscript>X
+#errors
+ * (1,11) missing DOCTYPE
+ * (1,19) unexpected token in head noscript
+ * (1,31) unexpected EOF
+#script-off
+#document
+| <html>
+|   <head>
+|     <noscript>
+|   <body>
+|     <iframe>
+|       "</noscript>X"
 
 #data
 <noframes><!--<noframes></noframes>--></noframes>

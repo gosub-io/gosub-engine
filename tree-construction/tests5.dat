@@ -188,6 +188,7 @@
 #errors
 (1,10): expected-doctype-but-got-start-tag
 (1,39): unexpected-end-tag
+#script-on
 #document
 | <html>
 |   <head>
@@ -195,3 +196,15 @@
 |       "<!--"
 |   <body>
 |     "-->"
+
+#data
+<noscript><!--</noscript>--></noscript>
+#errors
+(1,10): expected-doctype-but-got-start-tag
+#script-off
+#document
+| <html>
+|   <head>
+|     <noscript>
+|       <!-- </noscript> -->
+|   <body>
