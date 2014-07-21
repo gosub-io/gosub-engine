@@ -25,7 +25,7 @@
 "red0 -red --red -\\-red\\ blue 0red -0red \u0000red _Red .red rêd r\\êd \u007F\u0080\u0081", [
 	["ident", "red0"], " ",
 	["ident", "-red"], " ",
-	"-", ["ident", "-red"], " ",
+	["ident", "--red"], " ",
 	["ident", "--red blue"], " ",
 	["dimension", "0", 0, "integer", "red"], " ",
 	["dimension", "-0", 0, "integer", "red"], " ",
@@ -54,7 +54,7 @@
 "rgba0() -rgba() --rgba() -\\-rgba() 0rgba() -0rgba() _rgba() .rgba() rgbâ() \\30rgba() rgba () @rgba() #rgba()", [
 	["function", "rgba0"], " ",
 	["function", "-rgba"], " ",
-	"-", ["function", "-rgba"], " ",
+	["function", "--rgba"], " ",
 	["function", "--rgba"], " ",
 	["dimension", "0", 0, "integer", "rgba"], ["()"], " ",
 	["dimension", "-0", 0, "integer", "rgba"], ["()"], " ",
@@ -70,7 +70,7 @@
 "@media0 @-Media @--media @-\\-media @0media @-0media @_media @.media @medİa @\\30 media\\", [
 	["at-keyword", "media0"], " ",
 	["at-keyword", "-Media"], " ",
-	"@", "-", ["ident", "-media"], " ",
+	["at-keyword", "--media"], " ",
 	["at-keyword", "--media"], " ",
 	"@", ["dimension", "0", 0, "integer", "media"], " ",
 	"@", ["dimension", "-0", 0, "integer", "media"], " ",
@@ -83,7 +83,7 @@
 "#red0 #-Red #--red #-\\-red #0red #-0red #_Red #.red #rêd #êrd #\\.red\\", [
 	["hash", "red0", "id"], " ",
 	["hash", "-Red", "id"], " ",
-	["hash", "--red", "unrestricted"], " ",
+	["hash", "--red", "id"], " ",
 	["hash", "--red", "id"], " ",
 	["hash", "0red", "unrestricted"], " ",
 	["hash", "-0red", "unrestricted"], " ",
@@ -308,7 +308,7 @@
 "12red0 12.0-red 12--red 12-\\-red 120red 12-0red 12\u0000red 12_Red 12.red 12rêd", [
 	["dimension", "12", 12, "integer", "red0"], " ",
 	["dimension", "12.0", 12, "number", "-red"], " ",
-	["number", "12", 12, "integer"], "-", ["ident", "-red"], " ",
+	["dimension", "12", 12, "integer", "--red"], " ",
 	["dimension", "12", 12, "integer", "--red"], " ",
 	["dimension", "120", 120, "integer", "red"], " ",
 	["number", "12", 12, "integer"], ["dimension", "-0", 0, "integer", "red"], " ",
@@ -392,7 +392,7 @@
 ],
 
 "~=|=^=$=*=||<!------> |/**/| ~/**/=", [
-	"~=", "|=", "^=", "$=", "*=", "||", "<!--", "-", "-", "-->",
+	"~=", "|=", "^=", "$=", "*=", "||", "<!--", ["ident", "----"], ">",
 	" ", "|", "|", " ", "~", "="
 ],
 
