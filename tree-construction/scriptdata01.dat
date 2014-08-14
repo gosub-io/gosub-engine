@@ -350,3 +350,16 @@ FOO<script type="text/plain">'<!-- <sCrIpt/'</script>BAR</script>QUX
 |       type="text/plain"
 |       "'<!-- <sCrIpt/'</script>BAR"
 |     "QUX"
+
+#data
+FOO<script><!--<script>-></script>--></script>QUX
+#errors
+(1,3): expected-doctype-but-got-chars
+#document
+| <html>
+|   <head>
+|   <body>
+|     "FOO"
+|     <script>
+|       "<!--<script>-></script>-->"
+|     "QUX"
