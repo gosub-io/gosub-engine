@@ -14,6 +14,7 @@
 <p id="status"><noscript><strong>A</strong></noscript><span>B</span></p>
 #errors
 (1,15): expected-doctype-but-got-start-tag
+#script-on
 #document
 | <html>
 |   <head>
@@ -22,6 +23,23 @@
 |       id="status"
 |       <noscript>
 |         "<strong>A</strong>"
+|       <span>
+|         "B"
+
+#data
+<p id="status"><noscript><strong>A</strong></noscript><span>B</span></p>
+#errors
+(1,15): expected-doctype-but-got-start-tag
+#script-off
+#document
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|       id="status"
+|       <noscript>
+|         <strong>
+|           "A"
 |       <span>
 |         "B"
 
