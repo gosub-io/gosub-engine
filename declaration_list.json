@@ -13,7 +13,7 @@
 ],
 
 "z:x!;a:b", [
-    ["error", "invalid"],
+    ["declaration", "z", [["ident", "x"], "!"], false],
     ["declaration", "a", [["ident", "b"]], false]
 ],
 
