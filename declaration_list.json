@@ -17,6 +17,11 @@
     ["declaration", "a", [["ident", "b"]], false]
 ],
 
+"a:b; c+:d", [
+    ["declaration", "a", [["ident", "b"]], false],
+    ["error", "invalid"]
+],
+
 "@import 'foo.css'; a:b; @import 'bar.css'", [
     ["at-rule", "import", [" ", ["string", "foo.css"]], null],
     ["declaration", "a", [["ident", "b"]], false],

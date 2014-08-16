@@ -22,7 +22,8 @@
 	["ident", "red--"], ">"
 ],
 
-"red0 -red --red -\\-red\\ blue 0red -0red \u0000red _Red .red rêd r\\êd \u007F\u0080\u0081", [
+"\\- red0 -red --red -\\-red\\ blue 0red -0red \u0000red _Red .red rêd r\\êd \u007F\u0080\u0081", [
+	["ident", "-"], " ",
 	["ident", "red0"], " ",
 	["ident", "-red"], " ",
 	["ident", "--red"], " ",
