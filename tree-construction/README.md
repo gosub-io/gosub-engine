@@ -27,9 +27,15 @@ of parse errors.
 
 Then there \*may\* be a line that says "\#document-fragment", which must
 be followed by a newline (LF), followed by a string of characters that
-indicates the context element, followed by a newline (LF). If this line
-is present the "\#data" must be parsed using the HTML fragment parsing
-algorithm with the context element as context.
+indicates the context element, followed by a newline (LF). If the string 
+of characters starts with "svg ", the context element is in the SVG
+namespace and the substring after "svg " is the local name. If the
+string of characters starts with "math ", the context element is in the
+MathML namespace and the substring after "math " is the local name.
+Otherwise, the context element is in the HTML namespace and the string
+is the local name. If this line is present the "\#data" must be parsed
+using the HTML fragment parsing algorithm with the context element as
+context.
 
 Then there \*may\* be a line that says "\#script-off" or
 "\#script-in". If a line that says "\#script-off" is present, the
