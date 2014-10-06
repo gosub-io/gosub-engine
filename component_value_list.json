@@ -123,11 +123,10 @@
 ],
 
 "url( '') url('Lorem \"îpsum\"'\n) url('a\\\nb' ) url('a\nb' \\){ ) url('eof", [
-	["url", ""], " ",
-	["url", "Lorem \"îpsum\""], " ",
-	["url", "ab"], " ",
-	["error", "bad-url"], " ",
-	["url", "eof"]
+	["function", "url", " ", ["string", ""]], " ",
+	["function", "url", ["string", "Lorem \"îpsum\""], " "], " ",
+	["function", "url", ["string", "ab"], " "], " ",
+	["function", "url", ["error", "bad-string"], " ", ["ident", "b"], ["string", " ){ ) url("], ["ident", "eof"]]
 ],
 
 "url(", [
@@ -139,16 +138,15 @@
 ],
 
 "url(\"\") url(\"Lorem 'îpsum'\"\n) url(\"a\\\nb\" ) url(\"a\nb\" \\){ ) url(\"eof", [
-	["url", ""], " ",
-	["url", "Lorem 'îpsum'"], " ",
-	["url", "ab"], " ",
-	["error", "bad-url"], " ",
-	["url", "eof"]
+	["function", "url", ["string", ""]], " ",
+	["function", "url", ["string", "Lorem 'îpsum'"], " "], " ",
+	["function", "url", ["string", "ab"], " "], " ",
+	["function", "url", ["error", "bad-string"], " ", ["ident", "b"], ["string", " ){ ) url("], ["ident", "eof"]]
 ],
 
 "url(\"Lo\\rem \\130 ps\\u m\") url('\\376\\37 6\\000376\\0000376\\", [
-	["url", "Lorem İpsu m"], " ",
-	["url", "Ͷ76Ͷ76"]
+	["function", "url", ["string", "Lorem İpsu m"]], " ",
+	["function", "url", ["string", "Ͷ76Ͷ76"]]
 ],
 
 "URL(foo) Url(foo) ûrl(foo) url (foo) url\\ (foo) url(\t 'foo' ", [
@@ -157,12 +155,17 @@
 	["function", "ûrl", ["ident", "foo"]], " ",
 	["ident", "url"], " ", ["()", ["ident", "foo"]], " ",
 	["function", "url ", ["ident", "foo"]], " ",
-	["url", "foo"]
+	["function", "url", " ", ["string", "foo"], " "]
 ],
 
-"url('a' b) url('c' d)", [["error", "bad-url"], " ", ["error", "bad-url"]],
+"url('a' b) url('c' d)", [
+	["function", "url", ["string", "a"], " ", ["ident", "b"]], " ",
+	["function", "url", ["string", "c"], " ", ["ident", "d"]]
+],
 
-"url('a\nb') url('c\n", [["error", "bad-url"], " ", ["error", "bad-url"]],
+"url('a\nb') url('c\n", [
+	["function", "url", ["error", "bad-string"], " ", ["ident", "b"], ["string", ") url("], ["ident", "c"], " "]
+],
 
 "url() url( \t) url(\n Foô\\030\n!\n) url(\na\nb\n) url(a\\ b) url(a(b) url(a\\(b) url(a'b) url(a\\'b) url(a\"b) url(a\\\"b) url(a\nb) url(a\\\nb) url(a\\a b) url(a\\", [
 	["url", ""], " ",
