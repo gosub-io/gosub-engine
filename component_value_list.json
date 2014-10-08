@@ -122,11 +122,12 @@
 	["string", "Ͷ76Ͷ76"]
 ],
 
-"url( '') url('Lorem \"îpsum\"'\n) url('a\\\nb' ) url('a\nb' \\){ ) url('eof", [
+"url( '') url('Lorem \"îpsum\"'\n) url('a\\\nb' ) url('a\nb) url('eof", [
 	["function", "url", " ", ["string", ""]], " ",
 	["function", "url", ["string", "Lorem \"îpsum\""], " "], " ",
 	["function", "url", ["string", "ab"], " "], " ",
-	["function", "url", ["error", "bad-string"], " ", ["ident", "b"], ["string", " ){ ) url("], ["ident", "eof"]]
+	["function", "url", ["error", "bad-string"], " ", ["ident", "b"]], " ",
+	["function", "url", ["string", "eof"]]
 ],
 
 "url(", [
@@ -137,11 +138,12 @@
 	["url", ""]
 ],
 
-"url(\"\") url(\"Lorem 'îpsum'\"\n) url(\"a\\\nb\" ) url(\"a\nb\" \\){ ) url(\"eof", [
+"url(\"\") url(\"Lorem 'îpsum'\"\n) url(\"a\\\nb\" ) url(\"a\nb) url(\"eof", [
 	["function", "url", ["string", ""]], " ",
 	["function", "url", ["string", "Lorem 'îpsum'"], " "], " ",
 	["function", "url", ["string", "ab"], " "], " ",
-	["function", "url", ["error", "bad-string"], " ", ["ident", "b"], ["string", " ){ ) url("], ["ident", "eof"]]
+	["function", "url", ["error", "bad-string"], " ", ["ident", "b"]], " ",
+	["function", "url", ["string", "eof"]]
 ],
 
 "url(\"Lo\\rem \\130 ps\\u m\") url('\\376\\37 6\\000376\\0000376\\", [
@@ -163,8 +165,9 @@
 	["function", "url", ["string", "c"], " ", ["ident", "d"]]
 ],
 
-"url('a\nb') url('c\n", [
-	["function", "url", ["error", "bad-string"], " ", ["ident", "b"], ["string", ") url("], ["ident", "c"], " "]
+"url('a\nb) url('c\n", [
+	["function", "url", ["error", "bad-string"], " ", ["ident", "b"]], " ",
+	["function", "url", ["error", "bad-string"], " "]
 ],
 
 "url() url( \t) url(\n Foô\\030\n!\n) url(\na\nb\n) url(a\\ b) url(a(b) url(a\\(b) url(a'b) url(a\\'b) url(a\"b) url(a\\\"b) url(a\nb) url(a\\\nb) url(a\\a b) url(a\\", [
