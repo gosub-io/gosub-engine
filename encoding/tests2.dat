@@ -19,19 +19,19 @@ windows-1252
 windows-1252
 
 #data
-<meta charset=euc_jp
+<meta charset=euc-jp
 #encoding
 windows-1252
 
 #data
-<meta <meta charset='euc_jp'>
+<meta <meta charset='euc-jp'>
 #encoding
-euc_jp
+euc-jp
 
 #data
-<meta       charset    =     'euc_jp'>
+<meta       charset    =     'euc-jp'>
 #encoding
-euc_jp
+euc-jp
 
 #data
 <!-- -->
