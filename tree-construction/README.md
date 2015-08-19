@@ -38,7 +38,7 @@ using the HTML fragment parsing algorithm with the context element as
 context.
 
 Then there \*may\* be a line that says "\#script-off" or
-"\#script-in". If a line that says "\#script-off" is present, the
+"\#script-on". If a line that says "\#script-off" is present, the
 parser must set the scripting flag to disabled. If a line that says
 "\#script-on" is present, it must set it to enabled. Otherwise, the
 test should be run in both modes.
