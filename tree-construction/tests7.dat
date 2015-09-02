@@ -136,6 +136,20 @@ unexpected text in table
 |           "X"
 
 #data
+<!doctype html><p><object type="application/x-non-existant-plugin"><p>X</p></object>
+#errors
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|       <object>
+|         type="application/x-non-existant-plugin"
+|         <p>
+|           "X"
+
+#data
 <!doctype html><listing>
 X</listing>
 #errors
