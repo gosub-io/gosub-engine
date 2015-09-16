@@ -154,6 +154,88 @@
 |     <table>
 
 #data
+<b><em><foo><foo><aside></b>
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <b>
+|       <em>
+|         <foo>
+|           <foo>
+|     <em>
+|       <aside>
+|         <b>
+
+#data
+<b><em><foo><foo><aside></b></em>
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <b>
+|       <em>
+|         <foo>
+|           <foo>
+|     <em>
+|     <aside>
+|       <em>
+|         <b>
+
+#data
+<b><em><foo><foo><foo><aside></b>
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <b>
+|       <em>
+|         <foo>
+|           <foo>
+|             <foo>
+|     <aside>
+|       <b>
+
+#data
+<b><em><foo><foo><foo><aside></b></em>
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <b>
+|       <em>
+|         <foo>
+|           <foo>
+|             <foo>
+|     <aside>
+|       <b>
+
+#data
+<b><em><foo><foo><foo><foo><foo><foo><foo><foo><foo><foo><aside></b></em>
+#errors
+#document-fragment
+div
+#document
+| <b>
+|   <em>
+|     <foo>
+|       <foo>
+|         <foo>
+|           <foo>
+|             <foo>
+|               <foo>
+|                 <foo>
+|                   <foo>
+|                     <foo>
+|                       <foo>
+| <aside>
+|   <b>
+
+#data
 <b><em><foo><foob><foob><foob><foob><fooc><fooc><fooc><fooc><food><aside></b></em>
 #errors
 #document-fragment
