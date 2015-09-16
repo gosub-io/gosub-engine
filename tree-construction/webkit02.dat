@@ -264,12 +264,12 @@ table
 #document
 | <form>
 |   action="x"
-| <hr>
-| <label>
-|   "This is a searchable index. Enter search keywords: "
-|   <input>
-|     name="isindex"
-| <hr>
+|   <hr>
+|   <label>
+|     "This is a searchable index. Enter search keywords: "
+|     <input>
+|       name="isindex"
+|   <hr>
 
 #data
 <option><XH<optgroup></optgroup>
