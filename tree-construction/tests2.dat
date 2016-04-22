@@ -554,24 +554,6 @@
 |   <body>
 
 #data
-<isindex test=x name=x>
-#errors
-(1,23): expected-doctype-but-got-start-tag
-(1,23): deprecated-tag
-#document
-| <html>
-|   <head>
-|   <body>
-|     <form>
-|       <hr>
-|       <label>
-|         "This is a searchable index. Enter search keywords: "
-|         <input>
-|           name="isindex"
-|           test="x"
-|       <hr>
-
-#data
 test
 test
 #errors
