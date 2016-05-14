@@ -113,14 +113,14 @@
 <!DOCTYPE html><menuitem><asdf></menuitem>x
 #errors
 40: End tag “menuitem” seen, but there were open elements.
-31: Unclosed element “adsf”.
+31: Unclosed element “asdf”.
 #document
 | <!DOCTYPE html>
 | <html>
 |   <head>
 |   <body>
 |     <menuitem>
-|       <adsf>
+|       <asdf>
 |     "x"
 
 #data
