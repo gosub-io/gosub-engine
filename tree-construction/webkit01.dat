@@ -385,7 +385,6 @@ console.log("FOO<span>BAR</span>BAZ");
 (1,59): unexpected-select-in-select
 (1,93): unexpected-select-in-select
 (1,127): unexpected-select-in-select
-(1,127): expected-closing-tag-but-got-eof
 #document
 | <html>
 |   <head>

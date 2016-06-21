@@ -471,7 +471,6 @@
 <!DOCTYPE html><select><optgroup><option></optgroup><option><select><option>
 #errors
 (1,68): unexpected-select-in-select
-(1,76): expected-closing-tag-but-got-eof
 #document
 | <!DOCTYPE html>
 | <html>
