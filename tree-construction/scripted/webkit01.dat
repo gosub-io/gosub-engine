@@ -1,6 +1,7 @@
 #data
 1<script>document.write("2")</script>3
 #errors
+#script-on
 #document
 | <html>
 |   <head>
@@ -13,6 +14,7 @@
 #data
 1<script>document.write("<script>document.write('2')</scr"+ "ipt><script>document.write('3')</scr" + "ipt>")</script>4
 #errors
+#script-on
 #document
 | <html>
 |   <head>
