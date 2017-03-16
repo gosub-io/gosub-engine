@@ -234,8 +234,9 @@
 | <html>
 |   <head>
 |     <template>
-|       <plaintext>
-|         "a</template>b"
+|       content
+|         <plaintext>
+|           "a</template>b"
 |   <body>
 
 #data
