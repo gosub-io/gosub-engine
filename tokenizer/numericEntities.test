@@ -2,427 +2,755 @@
 
 {"description": "Invalid unterminated numeric entity character overflow before EOF",
 "input": "&#11111111111",
-"output": ["ParseError", "ParseError", ["Character", "\uFFFD"]]},
+"output": [["Character", "\uFFFD"]],
+"errors":[
+    { "code": "missing-semicolon-after-character-reference", "line": 1, "col": 14 },
+    { "code": "character-reference-outside-unicode-range", "line": 1, "col": 14 }
+]},
 
 {"description": "Invalid unterminated numeric entity character overflow before EOF",
 "input": "&#1111111111",
-"output": ["ParseError", "ParseError", ["Character", "\uFFFD"]]},
+"output": [["Character", "\uFFFD"]],
+"errors":[
+    { "code": "missing-semicolon-after-character-reference", "line": 1, "col": 13 },
+    { "code": "character-reference-outside-unicode-range", "line": 1, "col": 13 }
+]},
 
 {"description": "Invalid unterminated numeric entity character overflow before EOF",
 "input": "&#111111111111",
-"output": ["ParseError", "ParseError", ["Character", "\uFFFD"]]},
+"output": [["Character", "\uFFFD"]],
+"errors":[
+    { "code": "missing-semicolon-after-character-reference", "line": 1, "col": 15 },
+    { "code": "character-reference-outside-unicode-range", "line": 1, "col": 15 }
+]},
 
 {"description": "Invalid unterminated numeric entity character overflow",
 "input": "&#11111111111x",
-"output": ["ParseError", "ParseError", ["Character", "\uFFFDx"]]},
+"output": [["Character", "\uFFFDx"]],
+"errors":[
+    { "code": "missing-semicolon-after-character-reference", "line": 1, "col": 14 },
+    { "code": "character-reference-outside-unicode-range", "line": 1, "col": 14 }
+]},
 
 {"description": "Invalid unterminated numeric entity character overflow",
 "input": "&#1111111111x",
-"output": ["ParseError", "ParseError", ["Character", "\uFFFDx"]]},
+"output": [["Character", "\uFFFDx"]],
+"errors":[
+    { "code": "missing-semicolon-after-character-reference", "line": 1, "col": 13 },
+    { "code": "character-reference-outside-unicode-range", "line": 1, "col": 13 }
+]},
 
 {"description": "Invalid unterminated numeric entity character overflow",
 "input": "&#111111111111x",
-"output": ["ParseError", "ParseError", ["Character", "\uFFFDx"]]},
+"output": [["Character", "\uFFFDx"]],
+"errors":[
+    { "code": "missing-semicolon-after-character-reference", "line": 1, "col": 15 },
+    { "code": "character-reference-outside-unicode-range", "line": 1, "col": 15 }
+]},
 
 {"description": "Invalid numeric entity character overflow",
 "input": "&#11111111111;",
-"output": ["ParseError", ["Character", "\uFFFD"]]},
+"output": [["Character", "\uFFFD"]],
+"errors":[
+    { "code": "character-reference-outside-unicode-range", "line": 1, "col": 15 }
+]},
 
 {"description": "Invalid numeric entity character overflow",
 "input": "&#1111111111;",
-"output": ["ParseError", ["Character", "\uFFFD"]]},
+"output": [["Character", "\uFFFD"]],
+"errors":[
+    { "code": "character-reference-outside-unicode-range", "line": 1, "col": 14 }
+]},
 
 {"description": "Invalid numeric entity character overflow",
 "input": "&#111111111111;",
-"output": ["ParseError", ["Character", "\uFFFD"]]},
+"output": [["Character", "\uFFFD"]],
+"errors":[
+    { "code": "character-reference-outside-unicode-range", "line": 1, "col": 16 }
+]},
 
 {"description": "Invalid numeric entity character U+0000",
 "input": "&#x0000;",
-"output": ["ParseError", ["Character", "\uFFFD"]]},
+"output": [["Character", "\uFFFD"]],
+"errors":[
+    { "code": "null-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+0001",
 "input": "&#x0001;",
-"output": ["ParseError", ["Character", "\u0001"]]},
+"output": [["Character", "\u0001"]],
+"errors":[
+    { "code": "control-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+0002",
 "input": "&#x0002;",
-"output": ["ParseError", ["Character", "\u0002"]]},
+"output": [["Character", "\u0002"]],
+"errors":[
+    { "code": "control-character-reference", "line": 1, "col": 9 }
+]},
+
 
 {"description": "Invalid numeric entity character U+0003",
 "input": "&#x0003;",
-"output": ["ParseError", ["Character", "\u0003"]]},
+"output": [["Character", "\u0003"]],
+"errors":[
+    { "code": "control-character-reference", "line": 1, "col": 9 }
+]},
+
 
 {"description": "Invalid numeric entity character U+0004",
 "input": "&#x0004;",
-"output": ["ParseError", ["Character", "\u0004"]]},
+"output": [["Character", "\u0004"]],
+"errors":[
+    { "code": "control-character-reference", "line": 1, "col": 9 }
+]},
+
 
 {"description": "Invalid numeric entity character U+0005",
 "input": "&#x0005;",
-"output": ["ParseError", ["Character", "\u0005"]]},
+"output": [["Character", "\u0005"]],
+"errors":[
+    { "code": "control-character-reference", "line": 1, "col": 9 }
+]},
+
 
 {"description": "Invalid numeric entity character U+0006",
 "input": "&#x0006;",
-"output": ["ParseError", ["Character", "\u0006"]]},
+"output": [["Character", "\u0006"]],
+"errors":[
+    { "code": "control-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+0007",
 "input": "&#x0007;",
-"output": ["ParseError", ["Character", "\u0007"]]},
+"output": [["Character", "\u0007"]],
+"errors":[
+    { "code": "control-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+0008",
 "input": "&#x0008;",
-"output": ["ParseError", ["Character", "\u0008"]]},
+"output": [["Character", "\u0008"]],
+"errors":[
+    { "code": "control-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+000B",
 "input": "&#x000b;",
-"output": ["ParseError", ["Character", "\u000b"]]},
+"output": [["Character", "\u000b"]],
+"errors":[
+    { "code": "control-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+000E",
 "input": "&#x000e;",
-"output": ["ParseError", ["Character", "\u000e"]]},
+"output": [["Character", "\u000e"]],
+"errors":[
+    { "code": "control-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+000F",
 "input": "&#x000f;",
-"output": ["ParseError", ["Character", "\u000f"]]},
+"output": [["Character", "\u000f"]],
+"errors":[
+    { "code": "control-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+0010",
 "input": "&#x0010;",
-"output": ["ParseError", ["Character", "\u0010"]]},
+"output": [["Character", "\u0010"]],
+"errors":[
+    { "code": "control-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+0011",
 "input": "&#x0011;",
-"output": ["ParseError", ["Character", "\u0011"]]},
+"output": [["Character", "\u0011"]],
+"errors":[
+    { "code": "control-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+0012",
 "input": "&#x0012;",
-"output": ["ParseError", ["Character", "\u0012"]]},
+"output": [["Character", "\u0012"]],
+"errors":[
+    { "code": "control-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+0013",
 "input": "&#x0013;",
-"output": ["ParseError", ["Character", "\u0013"]]},
+"output": [["Character", "\u0013"]],
+"errors":[
+    { "code": "control-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+0014",
 "input": "&#x0014;",
-"output": ["ParseError", ["Character", "\u0014"]]},
+"output": [["Character", "\u0014"]],
+"errors":[
+    { "code": "control-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+0015",
 "input": "&#x0015;",
-"output": ["ParseError", ["Character", "\u0015"]]},
+"output": [["Character", "\u0015"]],
+"errors":[
+    { "code": "control-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+0016",
 "input": "&#x0016;",
-"output": ["ParseError", ["Character", "\u0016"]]},
+"output": [["Character", "\u0016"]],
+"errors":[
+    { "code": "control-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+0017",
 "input": "&#x0017;",
-"output": ["ParseError", ["Character", "\u0017"]]},
+"output": [["Character", "\u0017"]],
+"errors":[
+    { "code": "control-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+0018",
 "input": "&#x0018;",
-"output": ["ParseError", ["Character", "\u0018"]]},
+"output": [["Character", "\u0018"]],
+"errors":[
+    { "code": "control-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+0019",
 "input": "&#x0019;",
-"output": ["ParseError", ["Character", "\u0019"]]},
+"output": [["Character", "\u0019"]],
+"errors":[
+    { "code": "control-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+001A",
 "input": "&#x001a;",
-"output": ["ParseError", ["Character", "\u001a"]]},
+"output": [["Character", "\u001a"]],
+"errors":[
+    { "code": "control-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+001B",
 "input": "&#x001b;",
-"output": ["ParseError", ["Character", "\u001b"]]},
+"output": [["Character", "\u001b"]],
+"errors":[
+    { "code": "control-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+001C",
 "input": "&#x001c;",
-"output": ["ParseError", ["Character", "\u001c"]]},
+"output": [["Character", "\u001c"]],
+"errors":[
+    { "code": "control-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+001D",
 "input": "&#x001d;",
-"output": ["ParseError", ["Character", "\u001d"]]},
+"output": [["Character", "\u001d"]],
+"errors":[
+    { "code": "control-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+001E",
 "input": "&#x001e;",
-"output": ["ParseError", ["Character", "\u001e"]]},
+"output": [["Character", "\u001e"]],
+"errors":[
+    { "code": "control-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+001F",
 "input": "&#x001f;",
-"output": ["ParseError", ["Character", "\u001f"]]},
+"output": [["Character", "\u001f"]],
+"errors":[
+    { "code": "control-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+007F",
 "input": "&#x007f;",
-"output": ["ParseError", ["Character", "\u007f"]]},
+"output": [["Character", "\u007f"]],
+"errors":[
+    { "code": "control-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+D800",
 "input": "&#xd800;",
-"output": ["ParseError", ["Character", "\uFFFD"]]},
+"output": [["Character", "\uFFFD"]],
+"errors":[
+    { "code": "surrogate-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+DFFF",
 "input": "&#xdfff;",
-"output": ["ParseError", ["Character", "\uFFFD"]]},
+"output": [["Character", "\uFFFD"]],
+"errors":[
+    { "code": "surrogate-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+FDD0",
 "input": "&#xfdd0;",
-"output": ["ParseError", ["Character", "\ufdd0"]]},
+"output": [["Character", "\ufdd0"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+FDD1",
 "input": "&#xfdd1;",
-"output": ["ParseError", ["Character", "\ufdd1"]]},
+"output": [["Character", "\ufdd1"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+FDD2",
 "input": "&#xfdd2;",
-"output": ["ParseError", ["Character", "\ufdd2"]]},
+"output": [["Character", "\ufdd2"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+FDD3",
 "input": "&#xfdd3;",
-"output": ["ParseError", ["Character", "\ufdd3"]]},
+"output": [["Character", "\ufdd3"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+FDD4",
 "input": "&#xfdd4;",
-"output": ["ParseError", ["Character", "\ufdd4"]]},
+"output": [["Character", "\ufdd4"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+FDD5",
 "input": "&#xfdd5;",
-"output": ["ParseError", ["Character", "\ufdd5"]]},
+"output": [["Character", "\ufdd5"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+FDD6",
 "input": "&#xfdd6;",
-"output": ["ParseError", ["Character", "\ufdd6"]]},
+"output": [["Character", "\ufdd6"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+FDD7",
 "input": "&#xfdd7;",
-"output": ["ParseError", ["Character", "\ufdd7"]]},
+"output": [["Character", "\ufdd7"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+FDD8",
 "input": "&#xfdd8;",
-"output": ["ParseError", ["Character", "\ufdd8"]]},
+"output": [["Character", "\ufdd8"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+FDD9",
 "input": "&#xfdd9;",
-"output": ["ParseError", ["Character", "\ufdd9"]]},
+"output": [["Character", "\ufdd9"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+FDDA",
 "input": "&#xfdda;",
-"output": ["ParseError", ["Character", "\ufdda"]]},
+"output": [["Character", "\ufdda"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+FDDB",
 "input": "&#xfddb;",
-"output": ["ParseError", ["Character", "\ufddb"]]},
+"output": [["Character", "\ufddb"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+FDDC",
 "input": "&#xfddc;",
-"output": ["ParseError", ["Character", "\ufddc"]]},
+"output": [["Character", "\ufddc"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+FDDD",
 "input": "&#xfddd;",
-"output": ["ParseError", ["Character", "\ufddd"]]},
+"output": [["Character", "\ufddd"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+FDDE",
 "input": "&#xfdde;",
-"output": ["ParseError", ["Character", "\ufdde"]]},
+"output": [["Character", "\ufdde"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+FDDF",
 "input": "&#xfddf;",
-"output": ["ParseError", ["Character", "\ufddf"]]},
+"output": [["Character", "\ufddf"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+FDE0",
 "input": "&#xfde0;",
-"output": ["ParseError", ["Character", "\ufde0"]]},
+"output": [["Character", "\ufde0"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+FDE1",
 "input": "&#xfde1;",
-"output": ["ParseError", ["Character", "\ufde1"]]},
+"output": [["Character", "\ufde1"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+FDE2",
 "input": "&#xfde2;",
-"output": ["ParseError", ["Character", "\ufde2"]]},
+"output": [["Character", "\ufde2"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+FDE3",
 "input": "&#xfde3;",
-"output": ["ParseError", ["Character", "\ufde3"]]},
+"output": [["Character", "\ufde3"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+FDE4",
 "input": "&#xfde4;",
-"output": ["ParseError", ["Character", "\ufde4"]]},
+"output": [["Character", "\ufde4"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+FDE5",
 "input": "&#xfde5;",
-"output": ["ParseError", ["Character", "\ufde5"]]},
+"output": [["Character", "\ufde5"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+FDE6",
 "input": "&#xfde6;",
-"output": ["ParseError", ["Character", "\ufde6"]]},
+"output": [["Character", "\ufde6"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+FDE7",
 "input": "&#xfde7;",
-"output": ["ParseError", ["Character", "\ufde7"]]},
+"output": [["Character", "\ufde7"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+FDE8",
 "input": "&#xfde8;",
-"output": ["ParseError", ["Character", "\ufde8"]]},
+"output": [["Character", "\ufde8"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+FDE9",
 "input": "&#xfde9;",
-"output": ["ParseError", ["Character", "\ufde9"]]},
+"output": [["Character", "\ufde9"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+FDEA",
 "input": "&#xfdea;",
-"output": ["ParseError", ["Character", "\ufdea"]]},
+"output": [["Character", "\ufdea"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+FDEB",
 "input": "&#xfdeb;",
-"output": ["ParseError", ["Character", "\ufdeb"]]},
+"output": [["Character", "\ufdeb"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+FDEC",
 "input": "&#xfdec;",
-"output": ["ParseError", ["Character", "\ufdec"]]},
+"output": [["Character", "\ufdec"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+FDED",
 "input": "&#xfded;",
-"output": ["ParseError", ["Character", "\ufded"]]},
+"output": [["Character", "\ufded"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+FDEE",
 "input": "&#xfdee;",
-"output": ["ParseError", ["Character", "\ufdee"]]},
+"output": [["Character", "\ufdee"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+FDEF",
 "input": "&#xfdef;",
-"output": ["ParseError", ["Character", "\ufdef"]]},
+"output": [["Character", "\ufdef"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+FFFE",
 "input": "&#xfffe;",
-"output": ["ParseError", ["Character", "\ufffe"]]},
+"output": [["Character", "\ufffe"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+FFFF",
 "input": "&#xffff;",
-"output": ["ParseError", ["Character", "\uffff"]]},
+"output": [["Character", "\uffff"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description": "Invalid numeric entity character U+1FFFE",
 "input": "&#x1fffe;",
-"output": ["ParseError", ["Character", "\uD83F\uDFFE"]]},
+"output": [["Character", "\uD83F\uDFFE"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 10 }
+]},
 
 {"description": "Invalid numeric entity character U+1FFFF",
 "input": "&#x1ffff;",
-"output": ["ParseError", ["Character", "\uD83F\uDFFF"]]},
+"output": [["Character", "\uD83F\uDFFF"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 10 }
+]},
 
 {"description": "Invalid numeric entity character U+2FFFE",
 "input": "&#x2fffe;",
-"output": ["ParseError", ["Character", "\uD87F\uDFFE"]]},
+"output": [["Character", "\uD87F\uDFFE"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 10 }
+]},
 
 {"description": "Invalid numeric entity character U+2FFFF",
 "input": "&#x2ffff;",
-"output": ["ParseError", ["Character", "\uD87F\uDFFF"]]},
+"output": [["Character", "\uD87F\uDFFF"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 10 }
+]},
 
 {"description": "Invalid numeric entity character U+3FFFE",
 "input": "&#x3fffe;",
-"output": ["ParseError", ["Character", "\uD8BF\uDFFE"]]},
+"output": [["Character", "\uD8BF\uDFFE"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 10 }
+]},
 
 {"description": "Invalid numeric entity character U+3FFFF",
 "input": "&#x3ffff;",
-"output": ["ParseError", ["Character", "\uD8BF\uDFFF"]]},
+"output": [["Character", "\uD8BF\uDFFF"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 10 }
+]},
 
 {"description": "Invalid numeric entity character U+4FFFE",
 "input": "&#x4fffe;",
-"output": ["ParseError", ["Character", "\uD8FF\uDFFE"]]},
+"output": [["Character", "\uD8FF\uDFFE"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 10 }
+]},
 
 {"description": "Invalid numeric entity character U+4FFFF",
 "input": "&#x4ffff;",
-"output": ["ParseError", ["Character", "\uD8FF\uDFFF"]]},
+"output": [["Character", "\uD8FF\uDFFF"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 10 }
+]},
 
 {"description": "Invalid numeric entity character U+5FFFE",
 "input": "&#x5fffe;",
-"output": ["ParseError", ["Character", "\uD93F\uDFFE"]]},
+"output": [["Character", "\uD93F\uDFFE"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 10 }
+]},
 
 {"description": "Invalid numeric entity character U+5FFFF",
 "input": "&#x5ffff;",
-"output": ["ParseError", ["Character", "\uD93F\uDFFF"]]},
+"output": [["Character", "\uD93F\uDFFF"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 10 }
+]},
 
 {"description": "Invalid numeric entity character U+6FFFE",
 "input": "&#x6fffe;",
-"output": ["ParseError", ["Character", "\uD97F\uDFFE"]]},
+"output": [["Character", "\uD97F\uDFFE"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 10 }
+]},
 
 {"description": "Invalid numeric entity character U+6FFFF",
 "input": "&#x6ffff;",
-"output": ["ParseError", ["Character", "\uD97F\uDFFF"]]},
+"output": [["Character", "\uD97F\uDFFF"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 10 }
+]},
 
 {"description": "Invalid numeric entity character U+7FFFE",
 "input": "&#x7fffe;",
-"output": ["ParseError", ["Character", "\uD9BF\uDFFE"]]},
+"output": [["Character", "\uD9BF\uDFFE"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 10 }
+]},
 
 {"description": "Invalid numeric entity character U+7FFFF",
 "input": "&#x7ffff;",
-"output": ["ParseError", ["Character", "\uD9BF\uDFFF"]]},
+"output": [["Character", "\uD9BF\uDFFF"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 10 }
+]},
 
 {"description": "Invalid numeric entity character U+8FFFE",
 "input": "&#x8fffe;",
-"output": ["ParseError", ["Character", "\uD9FF\uDFFE"]]},
+"output": [["Character", "\uD9FF\uDFFE"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 10 }
+]},
 
 {"description": "Invalid numeric entity character U+8FFFF",
 "input": "&#x8ffff;",
-"output": ["ParseError", ["Character", "\uD9FF\uDFFF"]]},
+"output": [["Character", "\uD9FF\uDFFF"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 10 }
+]},
 
 {"description": "Invalid numeric entity character U+9FFFE",
 "input": "&#x9fffe;",
-"output": ["ParseError", ["Character", "\uDA3F\uDFFE"]]},
+"output": [["Character", "\uDA3F\uDFFE"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 10 }
+]},
 
 {"description": "Invalid numeric entity character U+9FFFF",
 "input": "&#x9ffff;",
-"output": ["ParseError", ["Character", "\uDA3F\uDFFF"]]},
+"output": [["Character", "\uDA3F\uDFFF"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 10 }
+]},
 
 {"description": "Invalid numeric entity character U+AFFFE",
 "input": "&#xafffe;",
-"output": ["ParseError", ["Character", "\uDA7F\uDFFE"]]},
+"output": [["Character", "\uDA7F\uDFFE"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 10 }
+]},
 
 {"description": "Invalid numeric entity character U+AFFFF",
 "input": "&#xaffff;",
-"output": ["ParseError", ["Character", "\uDA7F\uDFFF"]]},
+"output": [["Character", "\uDA7F\uDFFF"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 10 }
+]},
 
 {"description": "Invalid numeric entity character U+BFFFE",
 "input": "&#xbfffe;",
-"output": ["ParseError", ["Character", "\uDABF\uDFFE"]]},
+"output": [["Character", "\uDABF\uDFFE"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 10 }
+]},
 
 {"description": "Invalid numeric entity character U+BFFFF",
 "input": "&#xbffff;",
-"output": ["ParseError", ["Character", "\uDABF\uDFFF"]]},
+"output": [["Character", "\uDABF\uDFFF"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 10 }
+]},
 
 {"description": "Invalid numeric entity character U+CFFFE",
 "input": "&#xcfffe;",
-"output": ["ParseError", ["Character", "\uDAFF\uDFFE"]]},
+"output": [["Character", "\uDAFF\uDFFE"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 10 }
+]},
 
 {"description": "Invalid numeric entity character U+CFFFF",
 "input": "&#xcffff;",
-"output": ["ParseError", ["Character", "\uDAFF\uDFFF"]]},
+"output": [["Character", "\uDAFF\uDFFF"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 10 }
+]},
 
 {"description": "Invalid numeric entity character U+DFFFE",
 "input": "&#xdfffe;",
-"output": ["ParseError", ["Character", "\uDB3F\uDFFE"]]},
+"output": [["Character", "\uDB3F\uDFFE"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 10 }
+]},
 
 {"description": "Invalid numeric entity character U+DFFFF",
 "input": "&#xdffff;",
-"output": ["ParseError", ["Character", "\uDB3F\uDFFF"]]},
+"output": [["Character", "\uDB3F\uDFFF"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 10 }
+]},
 
 {"description": "Invalid numeric entity character U+EFFFE",
 "input": "&#xefffe;",
-"output": ["ParseError", ["Character", "\uDB7F\uDFFE"]]},
+"output": [["Character", "\uDB7F\uDFFE"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 10 }
+]},
 
 {"description": "Invalid numeric entity character U+EFFFF",
 "input": "&#xeffff;",
-"output": ["ParseError", ["Character", "\uDB7F\uDFFF"]]},
+"output": [["Character", "\uDB7F\uDFFF"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 10 }
+]},
 
 {"description": "Invalid numeric entity character U+FFFFE",
 "input": "&#xffffe;",
-"output": ["ParseError", ["Character", "\uDBBF\uDFFE"]]},
+"output": [["Character", "\uDBBF\uDFFE"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 10 }
+]},
 
 {"description": "Invalid numeric entity character U+FFFFF",
 "input": "&#xfffff;",
-"output": ["ParseError", ["Character", "\uDBBF\uDFFF"]]},
+"output": [["Character", "\uDBBF\uDFFF"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 10 }
+]},
 
 {"description": "Invalid numeric entity character U+10FFFE",
 "input": "&#x10fffe;",
-"output": ["ParseError", ["Character", "\uDBFF\uDFFE"]]},
+"output": [["Character", "\uDBFF\uDFFE"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 11 }
+]},
 
 {"description": "Invalid numeric entity character U+10FFFF",
 "input": "&#x10ffff;",
-"output": ["ParseError", ["Character", "\uDBFF\uDFFF"]]},
+"output": [["Character", "\uDBFF\uDFFF"]],
+"errors":[
+    { "code": "noncharacter-character-reference", "line": 1, "col": 11 }
+]},
 
 {"description": "Valid numeric entity character U+0009",
 "input": "&#x0009;",

@@ -22,6 +22,8 @@
 <!DOCTYPEhtml>Hello
 #errors
 (1,9): need-space-after-doctype
+#new-errors
+(1:10) missing-whitespace-before-doctype-name
 #document
 | <!DOCTYPE html>
 | <html>
@@ -35,6 +37,8 @@
 (1,9): need-space-after-doctype
 (1,10): expected-doctype-name-but-got-right-bracket
 (1,10): unknown-doctype
+#new-errors
+(1:10) missing-doctype-name
 #document
 | <!DOCTYPE >
 | <html>
@@ -47,6 +51,8 @@
 #errors
 (1,11): expected-doctype-name-but-got-right-bracket
 (1,11): unknown-doctype
+#new-errors
+(1:11) missing-doctype-name
 #document
 | <!DOCTYPE >
 | <html>
@@ -81,6 +87,8 @@
 #errors
 (1,17): expected-space-or-right-bracket-in-doctype
 (1,22): unknown-doctype
+#new-errors
+(1:18) invalid-character-sequence-after-doctype-name
 #document
 | <!DOCTYPE potato>
 | <html>
@@ -93,6 +101,8 @@
 #errors
 (1,17): expected-space-or-right-bracket-in-doctype
 (1,27): unknown-doctype
+#new-errors
+(1:18) invalid-character-sequence-after-doctype-name
 #document
 | <!DOCTYPE potato>
 | <html>
@@ -105,6 +115,8 @@
 #errors
 (1,24): unexpected-char-in-doctype
 (1,24): unknown-doctype
+#new-errors
+(1:24) missing-doctype-system-identifier
 #document
 | <!DOCTYPE potato>
 | <html>
@@ -117,6 +129,8 @@
 #errors
 (1,28): unexpected-char-in-doctype
 (1,28): unknown-doctype
+#new-errors
+(1:28) missing-doctype-system-identifier
 #document
 | <!DOCTYPE potato>
 | <html>
@@ -129,6 +143,8 @@
 #errors
 (1,34): unexpected-char-in-doctype
 (1,37): unknown-doctype
+#new-errors
+(1:34) missing-quote-before-doctype-system-identifier
 #document
 | <!DOCTYPE potato>
 | <html>
@@ -141,6 +157,8 @@
 #errors
 (1,25): unexpected-char-in-doctype
 (1,31): unknown-doctype
+#new-errors
+(1:25) missing-quote-before-doctype-system-identifier
 #document
 | <!DOCTYPE potato>
 | <html>
@@ -186,6 +204,8 @@
 #errors
 (1,24): unexpected-char-in-doctype
 (1,34): unknown-doctype
+#new-errors
+(1:24) missing-quote-before-doctype-system-identifier
 #document
 | <!DOCTYPE potato>
 | <html>
@@ -198,6 +218,8 @@
 #errors
 (1,17): expected-space-or-right-bracket-in-doctype
 (1,35): unknown-doctype
+#new-errors
+(1:18) invalid-character-sequence-after-doctype-name
 #document
 | <!DOCTYPE potato>
 | <html>
@@ -210,6 +232,8 @@
 #errors
 (1,24): unexpected-end-of-doctype
 (1,24): unknown-doctype
+#new-errors
+(1:24) missing-doctype-public-identifier
 #document
 | <!DOCTYPE potato>
 | <html>
@@ -222,6 +246,8 @@
 #errors
 (1,25): unexpected-end-of-doctype
 (1,25): unknown-doctype
+#new-errors
+(1:25) missing-doctype-public-identifier
 #document
 | <!DOCTYPE potato>
 | <html>
@@ -234,6 +260,8 @@
 #errors
 (1,24): unexpected-char-in-doctype
 (1,28): unknown-doctype
+#new-errors
+(1:24) missing-quote-before-doctype-public-identifier
 #document
 | <!DOCTYPE potato>
 | <html>
@@ -246,6 +274,8 @@
 #errors
 (1,25): unexpected-char-in-doctype
 (1,29): unknown-doctype
+#new-errors
+(1:25) missing-quote-before-doctype-public-identifier
 #document
 | <!DOCTYPE potato>
 | <html>
@@ -269,6 +299,8 @@
 #errors
 (1,29): unexpected-char-in-doctype
 (1,32): unknown-doctype
+#new-errors
+(1:29) missing-quote-before-doctype-system-identifier
 #document
 | <!DOCTYPE potato "go" "">
 | <html>
@@ -292,6 +324,8 @@
 #errors
 (1,38): unexpected-char-in-doctype
 (1,48): unknown-doctype
+#new-errors
+(1:38) missing-quote-before-doctype-system-identifier
 #document
 | <!DOCTYPE potato "W3C-//dfdf" "">
 | <html>
@@ -350,6 +384,8 @@
 #errors
 (1,23): expected-space-or-right-bracket-in-doctype
 (2,30): unknown-doctype
+#new-errors
+(1:24) invalid-character-sequence-after-doctype-name
 #document
 | <!DOCTYPE root-element>
 | <html>
@@ -385,6 +421,8 @@
 <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN""http://www.w3.org/TR/html4/strict.dtd">
 #errors
 (1,50): unexpected-char-in-doctype
+#new-errors
+(1:50) missing-whitespace-between-doctype-public-and-system-identifiers
 #document
 | <!DOCTYPE html "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
 | <html>
@@ -395,6 +433,8 @@
 <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN"'http://www.w3.org/TR/html4/strict.dtd'>
 #errors
 (1,50): unexpected-char-in-doctype
+#new-errors
+(1:50) missing-whitespace-between-doctype-public-and-system-identifiers
 #document
 | <!DOCTYPE html "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
 | <html>
@@ -406,6 +446,9 @@
 #errors
 (1,21): unexpected-char-in-doctype
 (1,49): unexpected-char-in-doctype
+#new-errors
+(1:22) missing-whitespace-after-doctype-public-keyword
+(1:49) missing-whitespace-between-doctype-public-and-system-identifiers
 #document
 | <!DOCTYPE html "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
 | <html>
@@ -417,6 +460,9 @@
 #errors
 (1,21): unexpected-char-in-doctype
 (1,49): unexpected-char-in-doctype
+#new-errors
+(1:22) missing-whitespace-after-doctype-public-keyword
+(1:49) missing-whitespace-between-doctype-public-and-system-identifiers
 #document
 | <!DOCTYPE html "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
 | <html>

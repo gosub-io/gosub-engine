@@ -12,6 +12,8 @@
 <!DOCTYPE html><svg></svg><![CDATA[a]]>
 #errors
 (1,28) expected-dashes-or-doctype
+#new-errors
+(1:35) cdata-in-html-content
 #document
 | <!DOCTYPE html>
 | <html>

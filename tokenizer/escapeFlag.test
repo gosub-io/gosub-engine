@@ -16,7 +16,10 @@
 "initialStates":["RCDATA state", "RAWTEXT state"],
 "lastStartTag":"xmp",
 "input":"foo<!--></xmp><!-->baz</xmp>",
-"output":[["Character", "foo<!-->"], ["EndTag", "xmp"], "ParseError", ["Comment", ""], ["Character", "baz"], ["EndTag", "xmp"]]},
+"output":[["Character", "foo<!-->"], ["EndTag", "xmp"], ["Comment", ""], ["Character", "baz"], ["EndTag", "xmp"]],
+"errors":[
+    { "code": "abrupt-closing-of-empty-comment", "line": 1, "col": 19 }
+]},
 
 {"description":"Commented entities in RCDATA",
 "initialStates":["RCDATA state"],

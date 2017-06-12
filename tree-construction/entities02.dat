@@ -103,6 +103,8 @@
 #errors
 (1,15): named-entity-without-semicolon
 (1,20): expected-doctype-but-got-start-tag
+#new-errors
+(1:16) missing-semicolon-after-character-reference
 #document
 | <html>
 |   <head>
@@ -115,6 +117,8 @@
 #errors
 (1,15): named-entity-without-semicolon
 (1,17): expected-doctype-but-got-start-tag
+#new-errors
+(1:16) missing-semicolon-after-character-reference
 #document
 | <html>
 |   <head>
@@ -127,6 +131,8 @@
 #errors
 (1,15): named-entity-without-semicolon
 (1,17): expected-doctype-but-got-start-tag
+#new-errors
+(1:16) missing-semicolon-after-character-reference
 #document
 | <html>
 |   <head>
@@ -139,6 +145,8 @@
 #errors
 (1,14): named-entity-without-semicolon
 (1,15): expected-doctype-but-got-start-tag
+#new-errors
+(1:15) missing-semicolon-after-character-reference
 #document
 | <html>
 |   <head>
@@ -151,6 +159,8 @@
 #errors
 (1,18): named-entity-without-semicolon
 (1,26): expected-doctype-but-got-start-tag
+#new-errors
+(1:19) missing-semicolon-after-character-reference
 #document
 | <html>
 |   <head>
@@ -219,6 +229,8 @@
 #errors
 (1,5): expected-doctype-but-got-start-tag
 (1,13): named-entity-without-semicolon
+#new-errors
+(1:14) missing-semicolon-after-character-reference
 #document
 | <html>
 |   <head>
@@ -264,6 +276,8 @@
 #errors
 (1,5): expected-doctype-but-got-start-tag
 (1,13): named-entity-without-semicolon
+#new-errors
+(1:14) missing-semicolon-after-character-reference
 #document
 | <html>
 |   <head>
@@ -285,6 +299,8 @@
 #data
 <div>ZZ&AElig=</div>
 #errors
+#new-errors
+(1:14) missing-semicolon-after-character-reference
 #document
 | <html>
 |   <head>

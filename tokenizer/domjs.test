@@ -3,24 +3,114 @@
         {
             "description":"CR in bogus comment state",
             "input":"<?\u000d",
-            "output":["ParseError", ["Comment", "?\u000a"]]
+            "output":[["Comment", "?\u000a"]],
+            "errors":[
+                { "code": "unexpected-question-mark-instead-of-tag-name", "line": 1, "col": 2 }
+            ]
         },
         {
             "description":"CRLF in bogus comment state",
             "input":"<?\u000d\u000a",
-            "output":["ParseError", ["Comment", "?\u000a"]]
+            "output":[["Comment", "?\u000a"]],
+            "errors":[
+                { "code": "unexpected-question-mark-instead-of-tag-name", "line": 1, "col": 2 }
+            ]
         },
         {
             "description":"CRLFLF in bogus comment state",
             "input":"<?\u000d\u000a\u000a",
-            "output":["ParseError", ["Comment", "?\u000a\u000a"]]
+            "output":[["Comment", "?\u000a\u000a"]],
+            "errors":[
+                { "code": "unexpected-question-mark-instead-of-tag-name", "line": 1, "col": 2 }
+            ]
         },
         {
-            "description":"NUL in RCDATA and RAWTEXT",
+            "description":"NUL in RCDATA, RAWTEXT, PLAINTEXT and Script data",
             "doubleEscaped":true,
-            "initialStates":["RCDATA state", "RAWTEXT state"],
+            "initialStates":["RCDATA state", "RAWTEXT state", "PLAINTEXT state", "Script data state"],
             "input":"\\u0000",
-            "output":["ParseError", ["Character", "\\uFFFD"]]
+            "output":[["Character", "\\uFFFD"]],
+            "errors":[
+                { "code": "unexpected-null-character", "line": 1, "col": 1 }
+            ]
+        },
+        {
+           "description":"NUL in script HTML comment",
+           "doubleEscaped":true,
+           "initialStates":["Script data state"],
+           "input":"<!--test\\u0000--><!--test-\\u0000--><!--test--\\u0000-->",
+           "output":[["Character", "<!--test\\uFFFD--><!--test-\\uFFFD--><!--test--\\uFFFD-->"]],
+           "errors":[
+               { "code": "unexpected-null-character", "line": 1, "col": 9 },
+               { "code": "unexpected-null-character", "line": 1, "col": 22 },
+               { "code": "unexpected-null-character", "line": 1, "col": 36 }
+           ]
+        },
+        {
+           "description":"NUL in script HTML comment - double escaped",
+           "doubleEscaped":true,
+           "initialStates":["Script data state"],
+           "input":"<!--<script>\\u0000--><!--<script>-\\u0000--><!--<script>--\\u0000-->",
+           "output":[["Character", "<!--<script>\\uFFFD--><!--<script>-\\uFFFD--><!--<script>--\\uFFFD-->"]],
+           "errors":[
+                { "code": "unexpected-null-character", "line": 1, "col": 13 },
+                { "code": "unexpected-null-character", "line": 1, "col": 30 },
+                { "code": "unexpected-null-character", "line": 1, "col": 48 }
+           ]
+        },
+        {
+           "description":"EOF in script HTML comment",
+           "initialStates":["Script data state"],
+           "input":"<!--test",
+           "output":[["Character", "<!--test"]],
+           "errors":[
+               { "code": "eof-in-script-html-comment-like-text", "line": 1, "col": 9 }
+           ]
+        },
+        {
+           "description":"EOF in script HTML comment after dash",
+           "initialStates":["Script data state"],
+           "input":"<!--test-",
+           "output":[["Character", "<!--test-"]],
+           "errors":[
+               { "code": "eof-in-script-html-comment-like-text", "line": 1, "col": 10 }
+           ]
+        },
+        {
+           "description":"EOF in script HTML comment after dash dash",
+           "initialStates":["Script data state"],
+           "input":"<!--test--",
+           "output":[["Character", "<!--test--"]],
+           "errors":[
+               { "code": "eof-in-script-html-comment-like-text", "line": 1, "col": 11 }
+           ]
+        },
+        {
+           "description":"EOF in script HTML comment double escaped after dash",
+           "initialStates":["Script data state"],
+           "input":"<!--<script>-",
+           "output":[["Character", "<!--<script>-"]],
+           "errors":[
+               { "code": "eof-in-script-html-comment-like-text", "line": 1, "col": 14 }
+           ]
+        },
+        {
+           "description":"EOF in script HTML comment double escaped after dash dash",
+           "initialStates":["Script data state"],
+           "input":"<!--<script>--",
+           "output":[["Character", "<!--<script>--"]],
+           "errors":[
+               { "code": "eof-in-script-html-comment-like-text", "line": 1, "col": 15 }
+           ]
+        },
+        {
+           "description":"EOF in script HTML comment - double escaped",
+           "initialStates":["Script data state"],
+           "input":"<!--<script>",
+           "output":[["Character", "<!--<script>"]],
+           "errors":[
+               { "code": "eof-in-script-html-comment-like-text", "line": 1, "col": 13 }
+           ]
         },
         {
             "description":"leading U+FEFF must pass through",
@@ -38,7 +128,10 @@
             "description":"Bad charref in in RCDATA",
             "initialStates":["RCDATA state"],
             "input":"&NotEqualTild;",
-            "output":["ParseError", ["Character", "&NotEqualTild;"]]
+            "output":[["Character", "&NotEqualTild;"]],
+            "errors":[
+               { "code": "unknown-named-character-reference", "line": 1, "col": 14 }
+            ]
         },
         {
             "description":"lowercase endtags in RCDATA and RAWTEXT",
@@ -84,12 +177,35 @@
             "description":"--!NUL in comment ",
             "doubleEscaped":true,
             "input":"<!----!\\u0000-->",
-            "output":["ParseError", "ParseError", ["Comment", "--!\\uFFFD"]]
+            "output":[["Comment", "--!\\uFFFD"]],
+            "errors":[
+                { "code": "unexpected-null-character", "line": 1, "col": 8 }
+            ]
         },
         {
             "description":"space EOF after doctype ",
             "input":"<!DOCTYPE html ",
-            "output":["ParseError", ["DOCTYPE", "html", null, null , false]]
+            "output":[["DOCTYPE", "html", null, null , false]],
+            "errors":[
+                { "code": "eof-in-doctype", "line": 1, "col": 16 }
+            ]
+        },
+        {
+            "description":"CDATA in HTML content",
+            "input":"<![CDATA[foo]]>",
+            "output":[["Comment", "[CDATA[foo]]"]],
+            "errors":[
+                { "code": "cdata-in-html-content", "line": 1, "col": 9 }
+            ]
+        },
+        {
+            "description":"CDATA content",
+            "input":"foo&bar",
+            "initialStates":["CDATA section state"],
+            "output":[["Character", "foo&bar"]],
+            "errors":[
+                { "code": "eof-in-cdata", "line": 1, "col": 8 }
+            ]
         }
 
     ]

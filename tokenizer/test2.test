@@ -2,15 +2,24 @@
 
 {"description":"DOCTYPE without name",
 "input":"<!DOCTYPE>",
-"output":["ParseError", "ParseError", ["DOCTYPE", null, null, null, false]]},
+"output":[["DOCTYPE", null, null, null, false]],
+"errors":[
+    { "code": "missing-doctype-name", "line": 1, "col": 10 }
+]},
 
 {"description":"DOCTYPE without space before name",
 "input":"<!DOCTYPEhtml>",
-"output":["ParseError", ["DOCTYPE", "html", null, null, true]]},
+"output":[["DOCTYPE", "html", null, null, true]],
+"errors":[
+    { "code": "missing-whitespace-before-doctype-name", "line": 1, "col": 10 }
+]},
 
 {"description":"Incorrect DOCTYPE without a space before name",
 "input":"<!DOCTYPEfoo>",
-"output":["ParseError", ["DOCTYPE", "foo", null, null, true]]},
+"output":[["DOCTYPE", "foo", null, null, true]],
+"errors":[
+    { "code": "missing-whitespace-before-doctype-name", "line": 1, "col": 10 }
+]},
 
 {"description":"DOCTYPE with publicId",
 "input":"<!DOCTYPE html PUBLIC \"-//W3C//DTD HTML Transitional 4.01//EN\">",
@@ -18,15 +27,24 @@
 
 {"description":"DOCTYPE with EOF after PUBLIC",
 "input":"<!DOCTYPE html PUBLIC",
-"output":["ParseError", ["DOCTYPE", "html", null, null, false]]},
+"output":[["DOCTYPE", "html", null, null, false]],
+"errors": [
+    { "code": "eof-in-doctype", "col": 22, "line": 1 }
+]},
 
 {"description":"DOCTYPE with EOF after PUBLIC '",
 "input":"<!DOCTYPE html PUBLIC '",
-"output":["ParseError", ["DOCTYPE", "html", "", null, false]]},
+"output":[["DOCTYPE", "html", "", null, false]],
+"errors": [
+    { "code": "eof-in-doctype", "col": 24, "line": 1 }
+]},
 
 {"description":"DOCTYPE with EOF after PUBLIC 'x",
 "input":"<!DOCTYPE html PUBLIC 'x",
-"output":["ParseError", ["DOCTYPE", "html", "x", null, false]]},
+"output":[["DOCTYPE", "html", "x", null, false]],
+"errors": [
+    { "code": "eof-in-doctype", "col": 25, "line": 1 }
+]},
 
 {"description":"DOCTYPE with systemId",
 "input":"<!DOCTYPE html SYSTEM \"-//W3C//DTD HTML Transitional 4.01//EN\">",
@@ -38,43 +56,74 @@
 
 {"description":"DOCTYPE with > in double-quoted publicId",
 "input":"<!DOCTYPE html PUBLIC \">x",
-"output":["ParseError", ["DOCTYPE", "html", "", null, false], ["Character", "x"]]},
+"output":[["DOCTYPE", "html", "", null, false], ["Character", "x"]],
+"errors": [
+    { "code": "abrupt-doctype-public-identifier", "col": 24, "line": 1 }
+]},
 
 {"description":"DOCTYPE with > in single-quoted publicId",
 "input":"<!DOCTYPE html PUBLIC '>x",
-"output":["ParseError", ["DOCTYPE", "html", "", null, false], ["Character", "x"]]},
+"output":[["DOCTYPE", "html", "", null, false], ["Character", "x"]],
+"errors": [
+    { "code": "abrupt-doctype-public-identifier", "col": 24, "line": 1 }
+]},
 
 {"description":"DOCTYPE with > in double-quoted systemId",
 "input":"<!DOCTYPE html PUBLIC \"foo\" \">x",
-"output":["ParseError", ["DOCTYPE", "html", "foo", "", false], ["Character", "x"]]},
+"output":[["DOCTYPE", "html", "foo", "", false], ["Character", "x"]],
+"errors": [
+    { "code": "abrupt-doctype-system-identifier", "col": 30, "line": 1 }
+]},
 
 {"description":"DOCTYPE with > in single-quoted systemId",
 "input":"<!DOCTYPE html PUBLIC 'foo' '>x",
-"output":["ParseError", ["DOCTYPE", "html", "foo", "", false], ["Character", "x"]]},
+"output":[["DOCTYPE", "html", "foo", "", false], ["Character", "x"]],
+"errors": [
+    { "code": "abrupt-doctype-system-identifier", "col": 30, "line": 1 }
+]},
 
 {"description":"Incomplete doctype",
 "input":"<!DOCTYPE html ",
-"output":["ParseError", ["DOCTYPE", "html", null, null, false]]},
+"output":[["DOCTYPE", "html", null, null, false]],
+"errors":[
+    { "code": "eof-in-doctype", "line": 1, "col": 16 }
+]},
 
 {"description":"Numeric entity representing the NUL character",
 "input":"&#0000;",
-"output":["ParseError", ["Character", "\uFFFD"]]},
+"output":[["Character", "\uFFFD"]],
+"errors":[
+    { "code": "null-character-reference", "line": 1, "col": 8 }
+]},
 
 {"description":"Hexadecimal entity representing the NUL character",
 "input":"&#x0000;",
-"output":["ParseError", ["Character", "\uFFFD"]]},
+"output":[["Character", "\uFFFD"]],
+"errors":[
+    { "code": "null-character-reference", "line": 1, "col": 9 }
+]},
 
 {"description":"Numeric entity representing a codepoint after 1114111 (U+10FFFF)",
 "input":"&#2225222;",
-"output":["ParseError", ["Character", "\uFFFD"]]},
+"output":[["Character", "\uFFFD"]],
+"errors":[
+    { "code": "character-reference-outside-unicode-range", "line": 1, "col": 11 }
+]},
 
 {"description":"Hexadecimal entity representing a codepoint after 1114111 (U+10FFFF)",
 "input":"&#x1010FFFF;",
-"output":["ParseError", ["Character", "\uFFFD"]]},
+"output":[["Character", "\uFFFD"]],
+"errors":[
+    { "code": "character-reference-outside-unicode-range", "line": 1, "col": 13 }
+]},
 
 {"description":"Hexadecimal entity pair representing a surrogate pair",
 "input":"&#xD869;&#xDED6;",
-"output":["ParseError", ["Character", "\uFFFD"], "ParseError", ["Character", "\uFFFD"]]},
+"output":[["Character", "\uFFFD"], ["Character", "\uFFFD"]],
+"errors":[
+    { "code": "surrogate-character-reference", "line": 1, "col": 9 },
+    { "code": "surrogate-character-reference", "line": 1, "col": 17 }
+]},
 
 {"description":"Hexadecimal entity with mixed uppercase and lowercase",
 "input":"&#xaBcD;",
@@ -87,6 +136,7 @@
 {"description":"Unescaped ampersand in attribute value",
 "input":"<h a='&'>",
 "output":[["StartTag", "h", { "a":"&" }]]},
+
 
 {"description":"StartTag containing <",
 "input":"<a<b>",
@@ -106,7 +156,10 @@
 
 {"description":"StartTag containing /",
 "input":"<h/a='b'>",
-"output":["ParseError", ["StartTag", "h", { "a":"b" }]]},
+"output":[["StartTag", "h", { "a":"b" }]],
+"errors":[
+    { "code": "unexpected-solidus-in-tag", "line": 1, "col": 4 }
+]},
 
 {"description":"Double-quoted attribute value",
 "input":"<h a=\"b\">",
@@ -114,31 +167,52 @@
 
 {"description":"Unescaped </",
 "input":"</",
-"output":["ParseError", ["Character", "</"]]},
+"output":[["Character", "</"]],
+"errors":[
+    { "code": "eof-before-tag-name", "line": 1, "col": 3 }
+]},
 
 {"description":"Illegal end tag name",
 "input":"</1>",
-"output":["ParseError", ["Comment", "1"]]},
+"output":[["Comment", "1"]],
+"errors":[
+    { "code": "invalid-first-character-of-tag-name", "line": 1, "col": 3 }
+]},
 
 {"description":"Simili processing instruction",
 "input":"<?namespace>",
-"output":["ParseError", ["Comment", "?namespace"]]},
+"output":[["Comment", "?namespace"]],
+"errors":[
+    { "code": "unexpected-question-mark-instead-of-tag-name", "line": 1, "col": 2 }
+]},
 
 {"description":"A bogus comment stops at >, even if preceeded by two dashes",
 "input":"<?foo-->",
-"output":["ParseError", ["Comment", "?foo--"]]},
+"output":[["Comment", "?foo--"]],
+"errors":[
+    { "code": "unexpected-question-mark-instead-of-tag-name", "line": 1, "col": 2 }
+]},
 
 {"description":"Unescaped <",
 "input":"foo < bar",
-"output":[["Character", "foo "], "ParseError", ["Character", "< bar"]]},
+"output":[["Character", "foo "], ["Character", "< bar"]],
+"errors":[
+    { "code": "invalid-first-character-of-tag-name", "line": 1, "col": 6 }
+]},
 
 {"description":"Null Byte Replacement",
 "input":"\u0000",
-"output":["ParseError", ["Character", "\u0000"]]},
+"output":[["Character", "\u0000"]],
+"errors":[
+    { "code": "unexpected-null-character", "line": 1, "col": 1 }
+]},
 
 {"description":"Comment with dash",
 "input":"<!---x",
-"output":["ParseError", ["Comment", "-x"]]},
+"output":[["Comment", "-x"]],
+"errors":[
+    { "code": "eof-in-comment", "line": 1, "col": 7 }
+]},
 
 {"description":"Entity + newline",
 "input":"\nx\n&gt;\n",
@@ -154,26 +228,44 @@
 
 {"description":"Double-quote after attribute name",
 "input":"<h a \">",
-"output":["ParseError", ["StartTag", "h", {"a":"", "\"":""}]]},
+"output":[["StartTag", "h", {"a":"", "\"":""}]],
+"errors":[
+    { "code": "unexpected-character-in-attribute-name", "line": 1, "col": 6 }
+]},
 
 {"description":"Single-quote after attribute name",
 "input":"<h a '>",
-"output":["ParseError", ["StartTag", "h", {"a":"", "'":""}]]},
+"output":[["StartTag", "h", {"a":"", "'":""}]],
+"errors":[
+    { "code": "unexpected-character-in-attribute-name", "line": 1, "col": 6 }
+]},
 
 {"description":"Empty end tag with following characters",
 "input":"a</>bc",
-"output":[["Character", "a"], "ParseError", ["Character", "bc"]]},
+"output":[["Character", "a"], ["Character", "bc"]],
+"errors":[
+    { "code": "missing-end-tag-name", "line": 1, "col": 4 }
+]},
 
 {"description":"Empty end tag with following tag",
 "input":"a</><b>c",
-"output":[["Character", "a"], "ParseError", ["StartTag", "b", {}], ["Character", "c"]]},
+"output":[["Character", "a"], ["StartTag", "b", {}], ["Character", "c"]],
+"errors":[
+    { "code": "missing-end-tag-name", "line": 1, "col": 4 }
+]},
 
 {"description":"Empty end tag with following comment",
 "input":"a</><!--b-->c",
-"output":[["Character", "a"], "ParseError", ["Comment", "b"], ["Character", "c"]]},
+"output":[["Character", "a"], ["Comment", "b"], ["Character", "c"]],
+"errors":[
+    { "code": "missing-end-tag-name", "line": 1, "col": 4 }
+]},
 
 {"description":"Empty end tag with following end tag",
 "input":"a</></b>c",
-"output":[["Character", "a"], "ParseError", ["EndTag", "b"], ["Character", "c"]]}
+"output":[["Character", "a"], ["EndTag", "b"], ["Character", "c"]],
+"errors":[
+    { "code": "missing-end-tag-name", "line": 1, "col": 4 }
+]}
 
 ]}

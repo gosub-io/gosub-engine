@@ -2,379 +2,661 @@
 
 {"description": "Invalid Unicode character U+0001",
 "input": "\u0001",
-"output": ["ParseError", ["Character", "\u0001"]]},
+"output": [["Character", "\u0001"]],
+"errors":[
+    { "code": "control-character-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+0002",
 "input": "\u0002",
-"output": ["ParseError", ["Character", "\u0002"]]},
+"output": [["Character", "\u0002"]],
+"errors":[
+    { "code": "control-character-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+0003",
 "input": "\u0003",
-"output": ["ParseError", ["Character", "\u0003"]]},
+"output": [["Character", "\u0003"]],
+"errors":[
+    { "code": "control-character-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+0004",
 "input": "\u0004",
-"output": ["ParseError", ["Character", "\u0004"]]},
+"output": [["Character", "\u0004"]],
+"errors":[
+    { "code": "control-character-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+0005",
 "input": "\u0005",
-"output": ["ParseError", ["Character", "\u0005"]]},
+"output": [["Character", "\u0005"]],
+"errors":[
+    { "code": "control-character-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+0006",
 "input": "\u0006",
-"output": ["ParseError", ["Character", "\u0006"]]},
+"output": [["Character", "\u0006"]],
+"errors":[
+    { "code": "control-character-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+0007",
 "input": "\u0007",
-"output": ["ParseError", ["Character", "\u0007"]]},
+"output": [["Character", "\u0007"]],
+"errors":[
+    { "code": "control-character-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+0008",
 "input": "\u0008",
-"output": ["ParseError", ["Character", "\u0008"]]},
+"output": [["Character", "\u0008"]],
+"errors":[
+    { "code": "control-character-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+000B",
 "input": "\u000B",
-"output": ["ParseError", ["Character", "\u000B"]]},
+"output": [["Character", "\u000B"]],
+"errors":[
+    { "code": "control-character-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+000E",
 "input": "\u000E",
-"output": ["ParseError", ["Character", "\u000E"]]},
+"output": [["Character", "\u000E"]],
+"errors":[
+    { "code": "control-character-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+000F",
 "input": "\u000F",
-"output": ["ParseError", ["Character", "\u000F"]]},
+"output": [["Character", "\u000F"]],
+"errors":[
+    { "code": "control-character-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+0010",
 "input": "\u0010",
-"output": ["ParseError", ["Character", "\u0010"]]},
+"output": [["Character", "\u0010"]],
+"errors":[
+    { "code": "control-character-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+0011",
 "input": "\u0011",
-"output": ["ParseError", ["Character", "\u0011"]]},
+"output": [["Character", "\u0011"]],
+"errors":[
+    { "code": "control-character-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+0012",
 "input": "\u0012",
-"output": ["ParseError", ["Character", "\u0012"]]},
+"output": [["Character", "\u0012"]],
+"errors":[
+    { "code": "control-character-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+0013",
 "input": "\u0013",
-"output": ["ParseError", ["Character", "\u0013"]]},
+"output": [["Character", "\u0013"]],
+"errors":[
+    { "code": "control-character-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+0014",
 "input": "\u0014",
-"output": ["ParseError", ["Character", "\u0014"]]},
+"output": [["Character", "\u0014"]],
+"errors":[
+    { "code": "control-character-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+0015",
 "input": "\u0015",
-"output": ["ParseError", ["Character", "\u0015"]]},
+"output": [["Character", "\u0015"]],
+"errors":[
+    { "code": "control-character-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+0016",
 "input": "\u0016",
-"output": ["ParseError", ["Character", "\u0016"]]},
+"output": [["Character", "\u0016"]],
+"errors":[
+    { "code": "control-character-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+0017",
 "input": "\u0017",
-"output": ["ParseError", ["Character", "\u0017"]]},
+"output": [["Character", "\u0017"]],
+"errors":[
+    { "code": "control-character-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+0018",
 "input": "\u0018",
-"output": ["ParseError", ["Character", "\u0018"]]},
+"output": [["Character", "\u0018"]],
+"errors":[
+    { "code": "control-character-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+0019",
 "input": "\u0019",
-"output": ["ParseError", ["Character", "\u0019"]]},
+"output": [["Character", "\u0019"]],
+"errors":[
+    { "code": "control-character-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+001A",
 "input": "\u001A",
-"output": ["ParseError", ["Character", "\u001A"]]},
+"output": [["Character", "\u001A"]],
+"errors":[
+    { "code": "control-character-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+001B",
 "input": "\u001B",
-"output": ["ParseError", ["Character", "\u001B"]]},
+"output": [["Character", "\u001B"]],
+"errors":[
+    { "code": "control-character-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+001C",
 "input": "\u001C",
-"output": ["ParseError", ["Character", "\u001C"]]},
+"output": [["Character", "\u001C"]],
+"errors":[
+    { "code": "control-character-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+001D",
 "input": "\u001D",
-"output": ["ParseError", ["Character", "\u001D"]]},
+"output": [["Character", "\u001D"]],
+"errors":[
+    { "code": "control-character-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+001E",
 "input": "\u001E",
-"output": ["ParseError", ["Character", "\u001E"]]},
+"output": [["Character", "\u001E"]],
+"errors":[
+    { "code": "control-character-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+001F",
 "input": "\u001F",
-"output": ["ParseError", ["Character", "\u001F"]]},
+"output": [["Character", "\u001F"]],
+"errors":[
+    { "code": "control-character-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+007F",
 "input": "\u007F",
-"output": ["ParseError", ["Character", "\u007F"]]},
+"output": [["Character", "\u007F"]],
+"errors":[
+    { "code": "control-character-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+FDD0",
 "input": "\uFDD0",
-"output": ["ParseError", ["Character", "\uFDD0"]]},
+"output": [["Character", "\uFDD0"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+FDD1",
 "input": "\uFDD1",
-"output": ["ParseError", ["Character", "\uFDD1"]]},
+"output": [["Character", "\uFDD1"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+FDD2",
 "input": "\uFDD2",
-"output": ["ParseError", ["Character", "\uFDD2"]]},
+"output": [["Character", "\uFDD2"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+FDD3",
 "input": "\uFDD3",
-"output": ["ParseError", ["Character", "\uFDD3"]]},
+"output": [["Character", "\uFDD3"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+FDD4",
 "input": "\uFDD4",
-"output": ["ParseError", ["Character", "\uFDD4"]]},
+"output": [["Character", "\uFDD4"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+FDD5",
 "input": "\uFDD5",
-"output": ["ParseError", ["Character", "\uFDD5"]]},
+"output": [["Character", "\uFDD5"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+FDD6",
 "input": "\uFDD6",
-"output": ["ParseError", ["Character", "\uFDD6"]]},
+"output": [["Character", "\uFDD6"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+FDD7",
 "input": "\uFDD7",
-"output": ["ParseError", ["Character", "\uFDD7"]]},
+"output": [["Character", "\uFDD7"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+FDD8",
 "input": "\uFDD8",
-"output": ["ParseError", ["Character", "\uFDD8"]]},
+"output": [["Character", "\uFDD8"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+FDD9",
 "input": "\uFDD9",
-"output": ["ParseError", ["Character", "\uFDD9"]]},
+"output": [["Character", "\uFDD9"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+FDDA",
 "input": "\uFDDA",
-"output": ["ParseError", ["Character", "\uFDDA"]]},
+"output": [["Character", "\uFDDA"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+FDDB",
 "input": "\uFDDB",
-"output": ["ParseError", ["Character", "\uFDDB"]]},
+"output": [["Character", "\uFDDB"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+FDDC",
 "input": "\uFDDC",
-"output": ["ParseError", ["Character", "\uFDDC"]]},
+"output": [["Character", "\uFDDC"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+FDDD",
 "input": "\uFDDD",
-"output": ["ParseError", ["Character", "\uFDDD"]]},
+"output": [["Character", "\uFDDD"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+FDDE",
 "input": "\uFDDE",
-"output": ["ParseError", ["Character", "\uFDDE"]]},
+"output": [["Character", "\uFDDE"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+FDDF",
 "input": "\uFDDF",
-"output": ["ParseError", ["Character", "\uFDDF"]]},
+"output": [["Character", "\uFDDF"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+FDE0",
 "input": "\uFDE0",
-"output": ["ParseError", ["Character", "\uFDE0"]]},
+"output": [["Character", "\uFDE0"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+FDE1",
 "input": "\uFDE1",
-"output": ["ParseError", ["Character", "\uFDE1"]]},
+"output": [["Character", "\uFDE1"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+FDE2",
 "input": "\uFDE2",
-"output": ["ParseError", ["Character", "\uFDE2"]]},
+"output": [["Character", "\uFDE2"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+FDE3",
 "input": "\uFDE3",
-"output": ["ParseError", ["Character", "\uFDE3"]]},
+"output": [["Character", "\uFDE3"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+FDE4",
 "input": "\uFDE4",
-"output": ["ParseError", ["Character", "\uFDE4"]]},
+"output": [["Character", "\uFDE4"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+FDE5",
 "input": "\uFDE5",
-"output": ["ParseError", ["Character", "\uFDE5"]]},
+"output": [["Character", "\uFDE5"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+FDE6",
 "input": "\uFDE6",
-"output": ["ParseError", ["Character", "\uFDE6"]]},
+"output": [["Character", "\uFDE6"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+FDE7",
 "input": "\uFDE7",
-"output": ["ParseError", ["Character", "\uFDE7"]]},
+"output": [["Character", "\uFDE7"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+FDE8",
 "input": "\uFDE8",
-"output": ["ParseError", ["Character", "\uFDE8"]]},
+"output": [["Character", "\uFDE8"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+FDE9",
 "input": "\uFDE9",
-"output": ["ParseError", ["Character", "\uFDE9"]]},
+"output": [["Character", "\uFDE9"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+FDEA",
 "input": "\uFDEA",
-"output": ["ParseError", ["Character", "\uFDEA"]]},
+"output": [["Character", "\uFDEA"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+FDEB",
 "input": "\uFDEB",
-"output": ["ParseError", ["Character", "\uFDEB"]]},
+"output": [["Character", "\uFDEB"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+FDEC",
 "input": "\uFDEC",
-"output": ["ParseError", ["Character", "\uFDEC"]]},
+"output": [["Character", "\uFDEC"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+FDED",
 "input": "\uFDED",
-"output": ["ParseError", ["Character", "\uFDED"]]},
+"output": [["Character", "\uFDED"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+FDEE",
 "input": "\uFDEE",
-"output": ["ParseError", ["Character", "\uFDEE"]]},
+"output": [["Character", "\uFDEE"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+FDEF",
 "input": "\uFDEF",
-"output": ["ParseError", ["Character", "\uFDEF"]]},
+"output": [["Character", "\uFDEF"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+FFFE",
 "input": "\uFFFE",
-"output": ["ParseError", ["Character", "\uFFFE"]]},
+"output": [["Character", "\uFFFE"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+FFFF",
 "input": "\uFFFF",
-"output": ["ParseError", ["Character", "\uFFFF"]]},
+"output": [["Character", "\uFFFF"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+1FFFE",
 "input": "\uD83F\uDFFE",
-"output": ["ParseError", ["Character", "\uD83F\uDFFE"]]},
+"output": [["Character", "\uD83F\uDFFE"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+1FFFF",
 "input": "\uD83F\uDFFF",
-"output": ["ParseError", ["Character", "\uD83F\uDFFF"]]},
+"output": [["Character", "\uD83F\uDFFF"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+2FFFE",
 "input": "\uD87F\uDFFE",
-"output": ["ParseError", ["Character", "\uD87F\uDFFE"]]},
+"output": [["Character", "\uD87F\uDFFE"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+2FFFF",
 "input": "\uD87F\uDFFF",
-"output": ["ParseError", ["Character", "\uD87F\uDFFF"]]},
+"output": [["Character", "\uD87F\uDFFF"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+3FFFE",
 "input": "\uD8BF\uDFFE",
-"output": ["ParseError", ["Character", "\uD8BF\uDFFE"]]},
+"output": [["Character", "\uD8BF\uDFFE"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+3FFFF",
 "input": "\uD8BF\uDFFF",
-"output": ["ParseError", ["Character", "\uD8BF\uDFFF"]]},
+"output": [["Character", "\uD8BF\uDFFF"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+4FFFE",
 "input": "\uD8FF\uDFFE",
-"output": ["ParseError", ["Character", "\uD8FF\uDFFE"]]},
+"output": [["Character", "\uD8FF\uDFFE"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+4FFFF",
 "input": "\uD8FF\uDFFF",
-"output": ["ParseError", ["Character", "\uD8FF\uDFFF"]]},
+"output": [["Character", "\uD8FF\uDFFF"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+5FFFE",
 "input": "\uD93F\uDFFE",
-"output": ["ParseError", ["Character", "\uD93F\uDFFE"]]},
+"output": [["Character", "\uD93F\uDFFE"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+5FFFF",
 "input": "\uD93F\uDFFF",
-"output": ["ParseError", ["Character", "\uD93F\uDFFF"]]},
+"output": [["Character", "\uD93F\uDFFF"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+6FFFE",
 "input": "\uD97F\uDFFE",
-"output": ["ParseError", ["Character", "\uD97F\uDFFE"]]},
+"output": [["Character", "\uD97F\uDFFE"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+6FFFF",
 "input": "\uD97F\uDFFF",
-"output": ["ParseError", ["Character", "\uD97F\uDFFF"]]},
+"output": [["Character", "\uD97F\uDFFF"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+7FFFE",
 "input": "\uD9BF\uDFFE",
-"output": ["ParseError", ["Character", "\uD9BF\uDFFE"]]},
+"output": [["Character", "\uD9BF\uDFFE"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+7FFFF",
 "input": "\uD9BF\uDFFF",
-"output": ["ParseError", ["Character", "\uD9BF\uDFFF"]]},
+"output": [["Character", "\uD9BF\uDFFF"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+8FFFE",
 "input": "\uD9FF\uDFFE",
-"output": ["ParseError", ["Character", "\uD9FF\uDFFE"]]},
+"output": [["Character", "\uD9FF\uDFFE"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+8FFFF",
 "input": "\uD9FF\uDFFF",
-"output": ["ParseError", ["Character", "\uD9FF\uDFFF"]]},
+"output": [["Character", "\uD9FF\uDFFF"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+9FFFE",
 "input": "\uDA3F\uDFFE",
-"output": ["ParseError", ["Character", "\uDA3F\uDFFE"]]},
+"output": [["Character", "\uDA3F\uDFFE"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+9FFFF",
 "input": "\uDA3F\uDFFF",
-"output": ["ParseError", ["Character", "\uDA3F\uDFFF"]]},
+"output": [["Character", "\uDA3F\uDFFF"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+AFFFE",
 "input": "\uDA7F\uDFFE",
-"output": ["ParseError", ["Character", "\uDA7F\uDFFE"]]},
+"output": [["Character", "\uDA7F\uDFFE"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+AFFFF",
 "input": "\uDA7F\uDFFF",
-"output": ["ParseError", ["Character", "\uDA7F\uDFFF"]]},
+"output": [["Character", "\uDA7F\uDFFF"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+BFFFE",
 "input": "\uDABF\uDFFE",
-"output": ["ParseError", ["Character", "\uDABF\uDFFE"]]},
+"output": [["Character", "\uDABF\uDFFE"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+BFFFF",
 "input": "\uDABF\uDFFF",
-"output": ["ParseError", ["Character", "\uDABF\uDFFF"]]},
+"output": [["Character", "\uDABF\uDFFF"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+CFFFE",
 "input": "\uDAFF\uDFFE",
-"output": ["ParseError", ["Character", "\uDAFF\uDFFE"]]},
+"output": [["Character", "\uDAFF\uDFFE"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+CFFFF",
 "input": "\uDAFF\uDFFF",
-"output": ["ParseError", ["Character", "\uDAFF\uDFFF"]]},
+"output": [["Character", "\uDAFF\uDFFF"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+DFFFE",
 "input": "\uDB3F\uDFFE",
-"output": ["ParseError", ["Character", "\uDB3F\uDFFE"]]},
+"output": [["Character", "\uDB3F\uDFFE"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+DFFFF",
 "input": "\uDB3F\uDFFF",
-"output": ["ParseError", ["Character", "\uDB3F\uDFFF"]]},
+"output": [["Character", "\uDB3F\uDFFF"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+EFFFE",
 "input": "\uDB7F\uDFFE",
-"output": ["ParseError", ["Character", "\uDB7F\uDFFE"]]},
+"output": [["Character", "\uDB7F\uDFFE"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+EFFFF",
 "input": "\uDB7F\uDFFF",
-"output": ["ParseError", ["Character", "\uDB7F\uDFFF"]]},
+"output": [["Character", "\uDB7F\uDFFF"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+FFFFE",
 "input": "\uDBBF\uDFFE",
-"output": ["ParseError", ["Character", "\uDBBF\uDFFE"]]},
+"output": [["Character", "\uDBBF\uDFFE"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+FFFFF",
 "input": "\uDBBF\uDFFF",
-"output": ["ParseError", ["Character", "\uDBBF\uDFFF"]]},
+"output": [["Character", "\uDBBF\uDFFF"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+10FFFE",
 "input": "\uDBFF\uDFFE",
-"output": ["ParseError", ["Character", "\uDBFF\uDFFE"]]},
+"output": [["Character", "\uDBFF\uDFFE"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Invalid Unicode character U+10FFFF",
 "input": "\uDBFF\uDFFF",
-"output": ["ParseError", ["Character", "\uDBFF\uDFFF"]]},
+"output": [["Character", "\uDBFF\uDFFF"]],
+"errors":[
+    { "code": "noncharacter-in-input-stream", "line": 1, "col": 1 }
+]},
 
 {"description": "Valid Unicode character U+0009",
 "input": "\u0009",

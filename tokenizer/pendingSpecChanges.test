@@ -2,6 +2,8 @@
 
 {"description":"<!---- >",
 "input":"<!---- >",
-"output":["ParseError", "ParseError", ["Comment","-- >"]]}
-
+"output":[["Comment","-- >"]],
+"errors":[
+    { "code": "eof-in-comment", "line": 1, "col": 9 }
+]}
 ]}

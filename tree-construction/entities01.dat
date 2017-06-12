@@ -13,6 +13,8 @@ FOO&gtBAR
 #errors
 (1,3): expected-doctype-but-got-chars
 (1,6): named-entity-without-semicolon
+#new-errors
+(1:7) missing-semicolon-after-character-reference
 #document
 | <html>
 |   <head>
@@ -24,6 +26,8 @@ FOO&gt BAR
 #errors
 (1,3): expected-doctype-but-got-chars
 (1,6): named-entity-without-semicolon
+#new-errors
+(1:7) missing-semicolon-after-character-reference
 #document
 | <html>
 |   <head>
@@ -45,6 +49,8 @@ I'm &notit; I tell you
 #errors
 (1,4): expected-doctype-but-got-chars
 (1,9): named-entity-without-semicolon
+#new-errors
+(1:9) missing-semicolon-after-character-reference
 #document
 | <html>
 |   <head>
@@ -128,6 +134,8 @@ FOO&#BAR
 #errors
 (1,3): expected-doctype-but-got-chars
 (1,5): expected-numeric-entity
+#new-errors
+(1:6) absence-of-digits-in-numeric-character-reference
 #document
 | <html>
 |   <head>
@@ -139,6 +147,8 @@ FOO&#ZOO
 #errors
 (1,3): expected-doctype-but-got-chars
 (1,5): expected-numeric-entity
+#new-errors
+(1:6) absence-of-digits-in-numeric-character-reference
 #document
 | <html>
 |   <head>
@@ -150,6 +160,8 @@ FOO&#xBAR
 #errors
 (1,3): expected-doctype-but-got-chars
 (1,7): expected-numeric-entity
+#new-errors
+(1:9) missing-semicolon-after-character-reference
 #document
 | <html>
 |   <head>
@@ -161,6 +173,8 @@ FOO&#xZOO
 #errors
 (1,3): expected-doctype-but-got-chars
 (1,6): expected-numeric-entity
+#new-errors
+(1:7) absence-of-digits-in-numeric-character-reference
 #document
 | <html>
 |   <head>
@@ -172,6 +186,8 @@ FOO&#XZOO
 #errors
 (1,3): expected-doctype-but-got-chars
 (1,6): expected-numeric-entity
+#new-errors
+(1:7) absence-of-digits-in-numeric-character-reference
 #document
 | <html>
 |   <head>
@@ -183,6 +199,8 @@ FOO&#41BAR
 #errors
 (1,3): expected-doctype-but-got-chars
 (1,7): numeric-entity-without-semicolon
+#new-errors
+(1:8) missing-semicolon-after-character-reference
 #document
 | <html>
 |   <head>
@@ -194,6 +212,8 @@ FOO&#x41BAR
 #errors
 (1,3): expected-doctype-but-got-chars
 (1,10): numeric-entity-without-semicolon
+#new-errors
+(1:11) missing-semicolon-after-character-reference
 #document
 | <html>
 |   <head>
@@ -205,6 +225,8 @@ FOO&#x41ZOO
 #errors
 (1,3): expected-doctype-but-got-chars
 (1,8): numeric-entity-without-semicolon
+#new-errors
+(1:9) missing-semicolon-after-character-reference
 #document
 | <html>
 |   <head>
@@ -216,6 +238,8 @@ FOO&#x0000;ZOO
 #errors
 (1,3): expected-doctype-but-got-chars
 (1,11): illegal-codepoint-for-numeric-entity
+#new-errors
+(1:12) null-character-reference
 #document
 | <html>
 |   <head>
@@ -247,6 +271,8 @@ FOO&#x0080;ZOO
 #errors
 (1,3): expected-doctype-but-got-chars
 (1,11): illegal-codepoint-for-numeric-entity
+#new-errors
+(1:12) control-character-reference
 #document
 | <html>
 |   <head>
@@ -258,6 +284,8 @@ FOO&#x0081;ZOO
 #errors
 (1,3): expected-doctype-but-got-chars
 (1,11): illegal-codepoint-for-numeric-entity
+#new-errors
+(1:12) control-character-reference
 #document
 | <html>
 |   <head>
@@ -269,6 +297,8 @@ FOO&#x0082;ZOO
 #errors
 (1,3): expected-doctype-but-got-chars
 (1,11): illegal-codepoint-for-numeric-entity
+#new-errors
+(1:12) control-character-reference
 #document
 | <html>
 |   <head>
@@ -280,6 +310,8 @@ FOO&#x0083;ZOO
 #errors
 (1,3): expected-doctype-but-got-chars
 (1,11): illegal-codepoint-for-numeric-entity
+#new-errors
+(1:12) control-character-reference
 #document
 | <html>
 |   <head>
@@ -291,6 +323,8 @@ FOO&#x0084;ZOO
 #errors
 (1,3): expected-doctype-but-got-chars
 (1,11): illegal-codepoint-for-numeric-entity
+#new-errors
+(1:12) control-character-reference
 #document
 | <html>
 |   <head>
@@ -302,6 +336,8 @@ FOO&#x0085;ZOO
 #errors
 (1,3): expected-doctype-but-got-chars
 (1,11): illegal-codepoint-for-numeric-entity
+#new-errors
+(1:12) control-character-reference
 #document
 | <html>
 |   <head>
@@ -313,6 +349,8 @@ FOO&#x0086;ZOO
 #errors
 (1,3): expected-doctype-but-got-chars
 (1,11): illegal-codepoint-for-numeric-entity
+#new-errors
+(1:12) control-character-reference
 #document
 | <html>
 |   <head>
@@ -324,6 +362,8 @@ FOO&#x0087;ZOO
 #errors
 (1,3): expected-doctype-but-got-chars
 (1,11): illegal-codepoint-for-numeric-entity
+#new-errors
+(1:12) control-character-reference
 #document
 | <html>
 |   <head>
@@ -335,6 +375,8 @@ FOO&#x0088;ZOO
 #errors
 (1,3): expected-doctype-but-got-chars
 (1,11): illegal-codepoint-for-numeric-entity
+#new-errors
+(1:12) control-character-reference
 #document
 | <html>
 |   <head>
@@ -346,6 +388,8 @@ FOO&#x0089;ZOO
 #errors
 (1,3): expected-doctype-but-got-chars
 (1,11): illegal-codepoint-for-numeric-entity
+#new-errors
+(1:12) control-character-reference
 #document
 | <html>
 |   <head>
@@ -357,6 +401,8 @@ FOO&#x008A;ZOO
 #errors
 (1,3): expected-doctype-but-got-chars
 (1,11): illegal-codepoint-for-numeric-entity
+#new-errors
+(1:12) control-character-reference
 #document
 | <html>
 |   <head>
@@ -368,6 +414,8 @@ FOO&#x008B;ZOO
 #errors
 (1,3): expected-doctype-but-got-chars
 (1,11): illegal-codepoint-for-numeric-entity
+#new-errors
+(1:12) control-character-reference
 #document
 | <html>
 |   <head>
@@ -379,6 +427,8 @@ FOO&#x008C;ZOO
 #errors
 (1,3): expected-doctype-but-got-chars
 (1,11): illegal-codepoint-for-numeric-entity
+#new-errors
+(1:12) control-character-reference
 #document
 | <html>
 |   <head>
@@ -390,6 +440,8 @@ FOO&#x008D;ZOO
 #errors
 (1,3): expected-doctype-but-got-chars
 (1,11): illegal-codepoint-for-numeric-entity
+#new-errors
+(1:12) control-character-reference
 #document
 | <html>
 |   <head>
@@ -401,6 +453,8 @@ FOO&#x008E;ZOO
 #errors
 (1,3): expected-doctype-but-got-chars
 (1,11): illegal-codepoint-for-numeric-entity
+#new-errors
+(1:12) control-character-reference
 #document
 | <html>
 |   <head>
@@ -412,6 +466,8 @@ FOO&#x008F;ZOO
 #errors
 (1,3): expected-doctype-but-got-chars
 (1,11): illegal-codepoint-for-numeric-entity
+#new-errors
+(1:12) control-character-reference
 #document
 | <html>
 |   <head>
@@ -423,6 +479,8 @@ FOO&#x0090;ZOO
 #errors
 (1,3): expected-doctype-but-got-chars
 (1,11): illegal-codepoint-for-numeric-entity
+#new-errors
+(1:12) control-character-reference
 #document
 | <html>
 |   <head>
@@ -434,6 +492,8 @@ FOO&#x0091;ZOO
 #errors
 (1,3): expected-doctype-but-got-chars
 (1,11): illegal-codepoint-for-numeric-entity
+#new-errors
+(1:12) control-character-reference
 #document
 | <html>
 |   <head>
@@ -445,6 +505,8 @@ FOO&#x0092;ZOO
 #errors
 (1,3): expected-doctype-but-got-chars
 (1,11): illegal-codepoint-for-numeric-entity
+#new-errors
+(1:12) control-character-reference
 #document
 | <html>
 |   <head>
@@ -456,6 +518,8 @@ FOO&#x0093;ZOO
 #errors
 (1,3): expected-doctype-but-got-chars
 (1,11): illegal-codepoint-for-numeric-entity
+#new-errors
+(1:12) control-character-reference
 #document
 | <html>
 |   <head>
@@ -467,6 +531,8 @@ FOO&#x0094;ZOO
 #errors
 (1,3): expected-doctype-but-got-chars
 (1,11): illegal-codepoint-for-numeric-entity
+#new-errors
+(1:12) control-character-reference
 #document
 | <html>
 |   <head>
@@ -478,6 +544,8 @@ FOO&#x0095;ZOO
 #errors
 (1,3): expected-doctype-but-got-chars
 (1,11): illegal-codepoint-for-numeric-entity
+#new-errors
+(1:12) control-character-reference
 #document
 | <html>
 |   <head>
@@ -489,6 +557,8 @@ FOO&#x0096;ZOO
 #errors
 (1,3): expected-doctype-but-got-chars
 (1,11): illegal-codepoint-for-numeric-entity
+#new-errors
+(1:12) control-character-reference
 #document
 | <html>
 |   <head>
@@ -500,6 +570,8 @@ FOO&#x0097;ZOO
 #errors
 (1,3): expected-doctype-but-got-chars
 (1,11): illegal-codepoint-for-numeric-entity
+#new-errors
+(1:12) control-character-reference
 #document
 | <html>
 |   <head>
@@ -511,6 +583,8 @@ FOO&#x0098;ZOO
 #errors
 (1,3): expected-doctype-but-got-chars
 (1,11): illegal-codepoint-for-numeric-entity
+#new-errors
+(1:12) control-character-reference
 #document
 | <html>
 |   <head>
@@ -522,6 +596,8 @@ FOO&#x0099;ZOO
 #errors
 (1,3): expected-doctype-but-got-chars
 (1,11): illegal-codepoint-for-numeric-entity
+#new-errors
+(1:12) control-character-reference
 #document
 | <html>
 |   <head>
@@ -533,6 +609,8 @@ FOO&#x009A;ZOO
 #errors
 (1,3): expected-doctype-but-got-chars
 (1,11): illegal-codepoint-for-numeric-entity
+#new-errors
+(1:12) control-character-reference
 #document
 | <html>
 |   <head>
@@ -544,6 +622,8 @@ FOO&#x009B;ZOO
 #errors
 (1,3): expected-doctype-but-got-chars
 (1,11): illegal-codepoint-for-numeric-entity
+#new-errors
+(1:12) control-character-reference
 #document
 | <html>
 |   <head>
@@ -555,6 +635,8 @@ FOO&#x009C;ZOO
 #errors
 (1,3): expected-doctype-but-got-chars
 (1,11): illegal-codepoint-for-numeric-entity
+#new-errors
+(1:12) control-character-reference
 #document
 | <html>
 |   <head>
@@ -566,6 +648,8 @@ FOO&#x009D;ZOO
 #errors
 (1,3): expected-doctype-but-got-chars
 (1,11): illegal-codepoint-for-numeric-entity
+#new-errors
+(1:12) control-character-reference
 #document
 | <html>
 |   <head>
@@ -577,6 +661,8 @@ FOO&#x009E;ZOO
 #errors
 (1,3): expected-doctype-but-got-chars
 (1,11): illegal-codepoint-for-numeric-entity
+#new-errors
+(1:12) control-character-reference
 #document
 | <html>
 |   <head>
@@ -588,6 +674,8 @@ FOO&#x009F;ZOO
 #errors
 (1,3): expected-doctype-but-got-chars
 (1,11): illegal-codepoint-for-numeric-entity
+#new-errors
+(1:12) control-character-reference
 #document
 | <html>
 |   <head>
@@ -619,6 +707,8 @@ FOO&#xD800;ZOO
 #errors
 (1,3): expected-doctype-but-got-chars
 (1,11): illegal-codepoint-for-numeric-entity
+#new-errors
+(1:12) surrogate-character-reference
 #document
 | <html>
 |   <head>
@@ -630,6 +720,8 @@ FOO&#xD801;ZOO
 #errors
 (1,3): expected-doctype-but-got-chars
 (1,11): illegal-codepoint-for-numeric-entity
+#new-errors
+(1:12) surrogate-character-reference
 #document
 | <html>
 |   <head>
@@ -641,6 +733,8 @@ FOO&#xDFFE;ZOO
 #errors
 (1,3): expected-doctype-but-got-chars
 (1,11): illegal-codepoint-for-numeric-entity
+#new-errors
+(1:12) surrogate-character-reference
 #document
 | <html>
 |   <head>
@@ -652,6 +746,8 @@ FOO&#xDFFF;ZOO
 #errors
 (1,3): expected-doctype-but-got-chars
 (1,11): illegal-codepoint-for-numeric-entity
+#new-errors
+(1:12) surrogate-character-reference
 #document
 | <html>
 |   <head>
@@ -673,6 +769,8 @@ FOO&#x10FFFE;ZOO
 #errors
 (1,3): expected-doctype-but-got-chars
 (1,13): illegal-codepoint-for-numeric-entity
+#new-errors
+(1:14) noncharacter-character-reference
 #document
 | <html>
 |   <head>
@@ -694,6 +792,8 @@ FOO&#x10FFFF;ZOO
 #errors
 (1,3): expected-doctype-but-got-chars
 (1,13): illegal-codepoint-for-numeric-entity
+#new-errors
+(1:14) noncharacter-character-reference
 #document
 | <html>
 |   <head>
@@ -705,6 +805,8 @@ FOO&#x110000;ZOO
 #errors
 (1,3): expected-doctype-but-got-chars
 (1,13): illegal-codepoint-for-numeric-entity
+#new-errors
+(1:14) character-reference-outside-unicode-range
 #document
 | <html>
 |   <head>
@@ -716,6 +818,8 @@ FOO&#xFFFFFF;ZOO
 #errors
 (1,3): expected-doctype-but-got-chars
 (1,13): illegal-codepoint-for-numeric-entity
+#new-errors
+(1:14) character-reference-outside-unicode-range
 #document
 | <html>
 |   <head>
@@ -728,6 +832,9 @@ FOO&#11111111111
 (1,3): expected-doctype-but-got-chars
 (1,13): illegal-codepoint-for-numeric-entity
 (1,13): eof-in-numeric-entity
+#new-errors
+(1:17) missing-semicolon-after-character-reference
+(1:17) character-reference-outside-unicode-range
 #document
 | <html>
 |   <head>
@@ -740,6 +847,9 @@ FOO&#1111111111
 (1,3): expected-doctype-but-got-chars
 (1,13): illegal-codepoint-for-numeric-entity
 (1,13): eof-in-numeric-entity
+#new-errors
+(1:16) missing-semicolon-after-character-reference
+(1:16) character-reference-outside-unicode-range
 #document
 | <html>
 |   <head>
@@ -752,6 +862,9 @@ FOO&#111111111111
 (1,3): expected-doctype-but-got-chars
 (1,13): illegal-codepoint-for-numeric-entity
 (1,13): eof-in-numeric-entity
+#new-errors
+(1:18) missing-semicolon-after-character-reference
+(1:18) character-reference-outside-unicode-range
 #document
 | <html>
 |   <head>
@@ -764,6 +877,9 @@ FOO&#11111111111ZOO
 (1,3): expected-doctype-but-got-chars
 (1,16): numeric-entity-without-semicolon
 (1,16): illegal-codepoint-for-numeric-entity
+#new-errors
+(1:17) missing-semicolon-after-character-reference
+(1:17) character-reference-outside-unicode-range
 #document
 | <html>
 |   <head>
@@ -776,6 +892,9 @@ FOO&#1111111111ZOO
 (1,3): expected-doctype-but-got-chars
 (1,15): numeric-entity-without-semicolon
 (1,15): illegal-codepoint-for-numeric-entity
+#new-errors
+(1:16) missing-semicolon-after-character-reference
+(1:16) character-reference-outside-unicode-range
 #document
 | <html>
 |   <head>
@@ -788,6 +907,9 @@ FOO&#111111111111ZOO
 (1,3): expected-doctype-but-got-chars
 (1,17): numeric-entity-without-semicolon
 (1,17): illegal-codepoint-for-numeric-entity
+#new-errors
+(1:18) missing-semicolon-after-character-reference
+(1:18) character-reference-outside-unicode-range
 #document
 | <html>
 |   <head>
