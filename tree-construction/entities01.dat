@@ -73,7 +73,7 @@ I'm &notin; I tell you
 (1,1): expected-doctype-but-got-chars
 (1,7): unknown-named-character-reference
 #new-errors
-(1:7) missing-semicolon-after-character-reference
+(1:7) unknown-named-character-reference
 #document
 | <html>
 |   <head>
@@ -86,7 +86,7 @@ I'm &notin; I tell you
 (1,1): expected-doctype-but-got-chars
 (1,950): unknown-named-character-reference
 #new-errors
-(1:950) missing-semicolon-after-character-reference
+(1:950) unknown-named-character-reference
 #document
 | <html>
 |   <head>
