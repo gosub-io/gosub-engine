@@ -84,14 +84,6 @@ If `test.doubleEscaped` is present and `true`, then every string within
 `test.output` must be further unescaped (as described above) before
 comparing with the tokenizer's output.
 
-`test.ignoreErrorOrder` is a boolean value indicating that the order of
-`ParseError` tokens relative to other tokens in the output stream is
-unimportant, and implementations should ignore such differences between
-their output and `expected_output_tokens`. (This is used for errors
-emitted by the input stream preprocessing stage, since it is useful to
-test that code but it is undefined when the errors occur). If it is
-omitted, it defaults to `false`.
-
 xmlViolation tests
 ------------------
 
