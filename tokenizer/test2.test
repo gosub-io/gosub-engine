@@ -119,7 +119,7 @@
 
 {"description":"Hexadecimal entity pair representing a surrogate pair",
 "input":"&#xD869;&#xDED6;",
-"output":[["Character", "\uFFFD"], ["Character", "\uFFFD"]],
+"output":[["Character", "\uFFFD\uFFFD"]],
 "errors":[
     { "code": "surrogate-character-reference", "line": 1, "col": 9 },
     { "code": "surrogate-character-reference", "line": 1, "col": 17 }
@@ -195,7 +195,7 @@
 
 {"description":"Unescaped <",
 "input":"foo < bar",
-"output":[["Character", "foo "], ["Character", "< bar"]],
+"output":[["Character", "foo < bar"]],
 "errors":[
     { "code": "invalid-first-character-of-tag-name", "line": 1, "col": 6 }
 ]},
@@ -242,7 +242,7 @@
 
 {"description":"Empty end tag with following characters",
 "input":"a</>bc",
-"output":[["Character", "a"], ["Character", "bc"]],
+"output":[["Character", "abc"]],
 "errors":[
     { "code": "missing-end-tag-name", "line": 1, "col": 4 }
 ]},

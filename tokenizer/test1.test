@@ -182,14 +182,14 @@
 
 {"description":"Entity without trailing semicolon (1)",
 "input":"I'm &notit",
-"output":[["Character","I'm "], ["Character", "\u00ACit"]],
+"output":[["Character","I'm \u00ACit"]],
 "errors": [
     {"code" : "missing-semicolon-after-character-reference", "line": 1, "col": 9 }
 ]},
 
 {"description":"Entity without trailing semicolon (2)",
 "input":"I'm &notin",
-"output":[["Character","I'm "], ["Character", "\u00ACin"]],
+"output":[["Character","I'm \u00ACin"]],
 "errors": [
     {"code" : "missing-semicolon-after-character-reference", "line": 1, "col": 9 }
 ]},
