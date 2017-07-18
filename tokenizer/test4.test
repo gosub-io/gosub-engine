@@ -190,7 +190,7 @@
 
 {"description":"Empty hex numeric entities",
 "input":"&#x &#X ",
-"output":[["Character", "&#x "], ["Character", "&#X "]],
+"output":[["Character", "&#x &#X "]],
 "errors":[
     { "code": "absence-of-digits-in-numeric-character-reference", "line": 1, "col": 4 },
     { "code": "absence-of-digits-in-numeric-character-reference", "line": 1, "col": 8 }
@@ -205,7 +205,7 @@
 
 {"description":"Empty decimal numeric entities",
 "input":"&# &#; ",
-"output":[["Character", "&# "], ["Character", "&#; "]],
+"output":[["Character", "&# &#; "]],
 "errors":[
     { "code": "absence-of-digits-in-numeric-character-reference", "line": 1, "col": 3 },
     { "code": "absence-of-digits-in-numeric-character-reference", "line": 1, "col": 6 }
@@ -274,7 +274,7 @@
 
 {"description":"Surrogate code point edge cases",
 "input":"&#xD7FF;&#xD800;&#xD801;&#xDFFE;&#xDFFF;&#xE000;",
-"output":[["Character", "\uD7FF"], ["Character", "\uFFFD"], ["Character", "\uFFFD"], ["Character", "\uFFFD"], ["Character", "\uFFFD\uE000"]],
+"output":[["Character", "\uD7FF\uFFFD\uFFFD\uFFFD\uFFFD\uE000"]],
 "errors":[
     { "code": "surrogate-character-reference", "line": 1, "col": 17 },
     { "code": "surrogate-character-reference", "line": 1, "col": 25 },

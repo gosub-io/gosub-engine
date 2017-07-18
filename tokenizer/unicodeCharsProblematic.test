@@ -18,7 +18,7 @@
 {"description": "Invalid Unicode character U+DFFF with valid preceding character",
 "doubleEscaped":true,
 "input": "a\\uDFFF",
-"output":[["Character", "a"], ["Character", "\\uDFFF"]],
+"output":[["Character", "a\\uDFFF"]],
 "errors":[
     { "code": "surrogate-in-input-stream", "line": 1, "col": 2 }
 ]},
@@ -33,7 +33,7 @@
 
 {"description":"CR followed by U+0000",
 "input":"\r\u0000",
-"output":[["Character", "\n"], ["Character", "\u0000"]],
+"output":[["Character", "\n\u0000"]],
 "errors":[
     { "code": "unexpected-null-character", "line": 2, "col": 1 }
 ]}

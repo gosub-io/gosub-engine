@@ -88,7 +88,7 @@
 
 {"description":"<\\u0000",
 "input":"<\u0000",
-"output":[["Character", "<"], ["Character", "\u0000"]],
+"output":[["Character", "<\u0000"]],
 "errors":[
     { "code": "invalid-first-character-of-tag-name", "line": 1, "col": 2 },
     { "code": "unexpected-null-character", "line": 1, "col": 2 }
@@ -8415,7 +8415,7 @@
 
 {"description":"<<",
 "input":"<<",
-"output":[["Character", "<"], ["Character", "<"]],
+"output":[["Character", "<<"]],
 "errors":[
     { "code": "invalid-first-character-of-tag-name", "line": 1, "col": 2 },
     { "code": "eof-before-tag-name", "line": 1, "col": 3 }
