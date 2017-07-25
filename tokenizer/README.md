@@ -45,9 +45,18 @@ into the corresponding Unicode code point. (Note that this option also
 affects the interpretation of `test.output`.)
 
 `test.initialStates` is a list of strings, each being the name of a
-tokenizer state. The test should be run once for each string, using it
+tokenizer state which can be one of the following:
+
+-   `Data state`
+-   `PLAINTEXT state`
+-   `RCDATA state`
+-   `RAWTEXT state`
+-   `Script data state`
+-   `CDATA section state`
+
+ The test should be run once for each string, using it
 to set the tokenizer's initial state for that run. If
-`test.initialStates` is omitted, it defaults to `["data state"]`.
+`test.initialStates` is omitted, it defaults to `["Data state"]`.
 
 `test.lastStartTag` is a lowercase string that should be used as "the
 tag name of the last start tag to have been emitted from this
