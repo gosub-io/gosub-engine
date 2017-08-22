@@ -364,7 +364,8 @@
 "input":"<!doc\u0000",
 "output":[["Comment", "doc\uFFFD"]],
 "errors":[
-    { "code": "incorrectly-opened-comment", "line": 1, "col": 3 }
+    { "code": "incorrectly-opened-comment", "line": 1, "col": 3 },
+    { "code": "unexpected-null-character", "line": 1, "col": 6 }
 ]},
 
 {"description":"U+0080 in lookahead region",
