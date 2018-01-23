@@ -51,11 +51,11 @@
 
 #data
 <!doctype html><html><noscript><plaintext></plaintext>
-#script-off
 #errors
 42: Bad start tag in “plaintext” in “head”.
 54: End of file seen and there were open elements.
 42: Unclosed element “plaintext”.
+#script-off
 #document
 | <!DOCTYPE html>
 | <html>
