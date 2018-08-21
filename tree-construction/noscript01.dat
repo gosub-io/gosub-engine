@@ -1,9 +1,9 @@
 #data
 <head><noscript><!doctype html><!--foo--></noscript>
-#script-off
 #errors
 Line: 1 Col: 6 Unexpected start tag (head). Expected DOCTYPE.
 Line: 1 Col: 31 Unexpected DOCTYPE. Ignored.
+#script-off
 #document
 | <html>
 |   <head>
@@ -13,10 +13,10 @@ Line: 1 Col: 31 Unexpected DOCTYPE. Ignored.
 
 #data
 <head><noscript><html class="foo"><!--foo--></noscript>
-#script-off
 #errors
 Line: 1 Col: 6 Unexpected start tag (head). Expected DOCTYPE.
 Line: 1 Col: 34 html needs to be the first start tag.
+#script-off
 #document
 | <html>
 |   class="foo"
@@ -27,9 +27,9 @@ Line: 1 Col: 34 html needs to be the first start tag.
 
 #data
 <head><noscript></noscript>
-#script-off
 #errors
 (1,6): expected-doctype-but-got-tag
+#script-off
 #document
 | <html>
 |   <head>
@@ -38,9 +38,9 @@ Line: 1 Col: 34 html needs to be the first start tag.
 
 #data
 <head><noscript>   </noscript>
-#script-off
 #errors
 Line: 1 Col: 6 Unexpected start tag (head). Expected DOCTYPE.
+#script-off
 #document
 | <html>
 |   <head>
@@ -50,9 +50,9 @@ Line: 1 Col: 6 Unexpected start tag (head). Expected DOCTYPE.
 
 #data
 <head><noscript><!--foo--></noscript>
-#script-off
 #errors
 (1,6): expected-doctype-but-got-tag
+#script-off
 #document
 | <html>
 |   <head>
@@ -62,9 +62,9 @@ Line: 1 Col: 6 Unexpected start tag (head). Expected DOCTYPE.
 
 #data
 <head><noscript><basefont><!--foo--></noscript>
-#script-off
 #errors
 Line: 1 Col: 6 Unexpected start tag (head). Expected DOCTYPE.
+#script-off
 #document
 | <html>
 |   <head>
@@ -75,9 +75,9 @@ Line: 1 Col: 6 Unexpected start tag (head). Expected DOCTYPE.
 
 #data
 <head><noscript><bgsound><!--foo--></noscript>
-#script-off
 #errors
 Line: 1 Col: 6 Unexpected start tag (head). Expected DOCTYPE.
+#script-off
 #document
 | <html>
 |   <head>
@@ -88,9 +88,9 @@ Line: 1 Col: 6 Unexpected start tag (head). Expected DOCTYPE.
 
 #data
 <head><noscript><link><!--foo--></noscript>
-#script-off
 #errors
 Line: 1 Col: 6 Unexpected start tag (head). Expected DOCTYPE.
+#script-off
 #document
 | <html>
 |   <head>
@@ -101,9 +101,9 @@ Line: 1 Col: 6 Unexpected start tag (head). Expected DOCTYPE.
 
 #data
 <head><noscript><meta><!--foo--></noscript>
-#script-off
 #errors
 Line: 1 Col: 6 Unexpected start tag (head). Expected DOCTYPE.
+#script-off
 #document
 | <html>
 |   <head>
@@ -114,9 +114,9 @@ Line: 1 Col: 6 Unexpected start tag (head). Expected DOCTYPE.
 
 #data
 <head><noscript><noframes>XXX</noscript></noframes></noscript>
-#script-off
 #errors
 Line: 1 Col: 6 Unexpected start tag (head). Expected DOCTYPE.
+#script-off
 #document
 | <html>
 |   <head>
@@ -127,9 +127,9 @@ Line: 1 Col: 6 Unexpected start tag (head). Expected DOCTYPE.
 
 #data
 <head><noscript><style>XXX</style></noscript>
-#script-off
 #errors
 Line: 1 Col: 6 Unexpected start tag (head). Expected DOCTYPE.
+#script-off
 #document
 | <html>
 |   <head>
@@ -140,12 +140,12 @@ Line: 1 Col: 6 Unexpected start tag (head). Expected DOCTYPE.
 
 #data
 <head><noscript></br><!--foo--></noscript>
-#script-off
 #errors
 Line: 1 Col: 6 Unexpected start tag (head). Expected DOCTYPE.
 Line: 1 Col: 21 Element br not allowed in a inhead-noscript context
 Line: 1 Col: 21 Unexpected end tag (br). Treated as br element.
 Line: 1 Col: 42 Unexpected end tag (noscript). Ignored.
+#script-off
 #document
 | <html>
 |   <head>
@@ -156,10 +156,10 @@ Line: 1 Col: 42 Unexpected end tag (noscript). Ignored.
 
 #data
 <head><noscript><head class="foo"><!--foo--></noscript>
-#script-off
 #errors
 Line: 1 Col: 6 Unexpected start tag (head). Expected DOCTYPE.
 Line: 1 Col: 34 Unexpected start tag (head).
+#script-off
 #document
 | <html>
 |   <head>
@@ -169,10 +169,10 @@ Line: 1 Col: 34 Unexpected start tag (head).
 
 #data
 <head><noscript><noscript class="foo"><!--foo--></noscript>
-#script-off
 #errors
 Line: 1 Col: 6 Unexpected start tag (head). Expected DOCTYPE.
 Line: 1 Col: 34 Unexpected start tag (noscript).
+#script-off
 #document
 | <html>
 |   <head>
@@ -182,10 +182,10 @@ Line: 1 Col: 34 Unexpected start tag (noscript).
 
 #data
 <head><noscript></p><!--foo--></noscript>
-#script-off
 #errors
 Line: 1 Col: 6 Unexpected start tag (head). Expected DOCTYPE.
 Line: 1 Col: 20 Unexpected end tag (p). Ignored.
+#script-off
 #document
 | <html>
 |   <head>
@@ -195,11 +195,11 @@ Line: 1 Col: 20 Unexpected end tag (p). Ignored.
 
 #data
 <head><noscript><p><!--foo--></noscript>
-#script-off
 #errors
 Line: 1 Col: 6 Unexpected start tag (head). Expected DOCTYPE.
 Line: 1 Col: 19 Element p not allowed in a inhead-noscript context
 Line: 1 Col: 40 Unexpected end tag (noscript). Ignored.
+#script-off
 #document
 | <html>
 |   <head>
@@ -210,12 +210,12 @@ Line: 1 Col: 40 Unexpected end tag (noscript). Ignored.
 
 #data
 <head><noscript>XXX<!--foo--></noscript></head>
-#script-off
 #errors
 Line: 1 Col: 6 Unexpected start tag (head). Expected DOCTYPE.
 Line: 1 Col: 19 Unexpected non-space character. Expected inhead-noscript content
 Line: 1 Col: 30 Unexpected end tag (noscript). Ignored.
 Line: 1 Col: 37 Unexpected end tag (head). Ignored.
+#script-off
 #document
 | <html>
 |   <head>
@@ -226,10 +226,10 @@ Line: 1 Col: 37 Unexpected end tag (head). Ignored.
 
 #data
 <head><noscript>
-#script-off
 #errors
 (1,6): expected-doctype-but-got-tag
 (1,6): eof-in-head-noscript
+#script-off
 #document
 | <html>
 |   <head>
