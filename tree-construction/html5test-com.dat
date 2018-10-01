@@ -142,7 +142,6 @@
 #data
 <!--foo--bar-->
 #errors
-(1,10): unexpected-char-in-comment
 (1,15): expected-doctype-but-got-eof
 #document
 | <!-- foo--bar -->
