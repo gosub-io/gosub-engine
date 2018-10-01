@@ -90,6 +90,9 @@ x"
 #data
 <table><li><li></table>
 #errors
+(1,7): expected-doctype-but-got-start-tag
+(1,11): foster-parenting-start-tag
+(1,15): foster-parenting-start-tag
 #document
 | <html>
 |   <head>
