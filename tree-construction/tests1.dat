@@ -425,7 +425,6 @@ Line1<br>Line2<br>Line3<br>Line4
 #data
 <!-----><font><div>hello<table>excite!<b>me!<th><i>please!</tr><!--X-->
 #errors
-(1,7): unexpected-dash-after-double-dash-in-comment
 (1,14): expected-doctype-but-got-start-tag
 (1,41): unexpected-start-tag-implies-table-voodoo
 (1,48): foster-parenting-character-in-table

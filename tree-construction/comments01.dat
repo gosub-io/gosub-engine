@@ -194,7 +194,6 @@ FOO<!-->BAZ
 FOO<!----->BAZ
 #errors
 (1,3): expected-doctype-but-got-chars
-(1,10): unexpected-dash-after-double-dash-in-comment
 #document
 | <html>
 |   <head>
