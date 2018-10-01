@@ -203,6 +203,7 @@
 <html><ruby>a<rtc>b<span></ruby></html>
 #errors
 (1,6): expected-doctype-but-got-start-tag
+(1,32): unexpected-end-tag
 #document
 | <html>
 |   <head>
