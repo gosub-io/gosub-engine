@@ -557,6 +557,7 @@
 <math><annotation-xml></svg>x
 #errors
 (1,6): expected-doctype-but-got-start-tag
+(1,28): unexpected-end-tag-in-math
 (1,28): unexpected-end-tag
 (1,29): expected-closing-tag-but-got-eof
 #document
