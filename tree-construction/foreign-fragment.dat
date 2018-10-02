@@ -3,7 +3,6 @@
 #errors
 6: HTML start tag “nobr” in a foreign namespace context.
 7: End of file seen and there were open elements.
-6: Unclosed element “nobr”.
 #document-fragment
 svg path
 #document
@@ -35,7 +34,6 @@ svg path
 #errors
 10: End tag “path” did not match the name of the current open element (“g”).
 11: End of file seen and there were open elements.
-3: Unclosed element “g”.
 #document-fragment
 svg path
 #document
@@ -173,7 +171,6 @@ math ms
 #errors
 51: Self-closing syntax (“/>”) used on a non-void HTML element. Ignoring the slash and treating as a start tag.
 52: End of file seen and there were open elements.
-51: Unclosed element “ms”.
 #new-errors
 (1:44-1:49) non-void-html-element-start-tag-with-trailing-solidus
 #document-fragment
@@ -216,7 +213,6 @@ math ms
 #errors
 51: Self-closing syntax (“/>”) used on a non-void HTML element. Ignoring the slash and treating as a start tag.
 52: End of file seen and there were open elements.
-51: Unclosed element “mn”.
 #new-errors
 (1:44-1:49) non-void-html-element-start-tag-with-trailing-solidus
 #document-fragment
@@ -259,7 +255,6 @@ math mn
 #errors
 51: Self-closing syntax (“/>”) used on a non-void HTML element. Ignoring the slash and treating as a start tag.
 52: End of file seen and there were open elements.
-51: Unclosed element “mo”.
 #new-errors
 (1:44-1:49) non-void-html-element-start-tag-with-trailing-solidus
 #document-fragment
@@ -302,7 +297,6 @@ math mo
 #errors
 51: Self-closing syntax (“/>”) used on a non-void HTML element. Ignoring the slash and treating as a start tag.
 52: End of file seen and there were open elements.
-51: Unclosed element “mi”.
 #new-errors
 (1:44-1:49) non-void-html-element-start-tag-with-trailing-solidus
 #document-fragment
@@ -345,7 +339,6 @@ math mi
 #errors
 51: Self-closing syntax (“/>”) used on a non-void HTML element. Ignoring the slash and treating as a start tag.
 52: End of file seen and there were open elements.
-51: Unclosed element “mtext”.
 #new-errors
 (1:44-1:52) non-void-html-element-start-tag-with-trailing-solidus
 #document-fragment
