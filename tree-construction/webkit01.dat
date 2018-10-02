@@ -687,6 +687,10 @@ console.log("FOO<span>BAR</span>BAZ");
 #data
 <table><tr><td><svg><desc><td></desc><circle>
 #errors
+(1,7): expected-doctype-but-got-start-tag
+(1,30): unexpected-start-tag
+(1,37): unexpected-end-tag
+(1,22): expected-closing-tag-but-got-eof
 #document
 | <html>
 |   <head>

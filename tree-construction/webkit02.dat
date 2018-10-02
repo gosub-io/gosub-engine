@@ -138,6 +138,7 @@
 #data
 <legend>test</legend>
 #errors
+(1,7): expected-doctype-but-got-start-tag
 #document
 | <html>
 |   <head>
@@ -148,6 +149,9 @@
 #data
 <table><input>
 #errors
+(1,7): expected-doctype-but-got-start-tag
+(1,14): foster-parenting-start-tag
+(1,15): expected-closing-tag-but-got-eof
 #document
 | <html>
 |   <head>
@@ -158,6 +162,9 @@
 #data
 <b><em><foo><foo><aside></b>
 #errors
+(1,3): expected-doctype-but-got-start-tag
+(1,28): adoption-agency-9
+(1,29): expected-closing-tag-but-got-eof
 #document
 | <html>
 |   <head>
@@ -173,6 +180,10 @@
 #data
 <b><em><foo><foo><aside></b></em>
 #errors
+(1,3): expected-doctype-but-got-start-tag
+(1,28): adoption-agency-9
+(1,33): adoption-agency-9
+(1,34): expected-closing-tag-but-got-eof
 #document
 | <html>
 |   <head>
@@ -189,6 +200,9 @@
 #data
 <b><em><foo><foo><foo><aside></b>
 #errors
+(1,3): expected-doctype-but-got-start-tag
+(1,33): adoption-agency-9
+(1,34): expected-closing-tag-but-got-eof
 #document
 | <html>
 |   <head>
@@ -204,6 +218,10 @@
 #data
 <b><em><foo><foo><foo><aside></b></em>
 #errors
+(1,3): expected-doctype-but-got-start-tag
+(1,33): adoption-agency-9
+(1,38): adoption-agency-9
+(1,39): expected-closing-tag-but-got-eof
 #document
 | <html>
 |   <head>
@@ -219,6 +237,9 @@
 #data
 <b><em><foo><foo><foo><foo><foo><foo><foo><foo><foo><foo><aside></b></em>
 #errors
+(1,68): adoption-agency-9
+(1,73): adoption-agency-9
+(1,74): expected-closing-tag-but-got-eof
 #document-fragment
 div
 #document
@@ -240,6 +261,9 @@ div
 #data
 <b><em><foo><foob><foob><foob><foob><fooc><fooc><fooc><fooc><food><aside></b></em>
 #errors
+(1,77): adoption-agency-9
+(1,82): adoption-agency-9
+(1,83): expected-closing-tag-but-got-eof
 #document-fragment
 div
 #document
@@ -261,6 +285,8 @@ div
 #data
 <option><XH<optgroup></optgroup>
 #errors
+(1,21): unexpected-start-tag-in-select
+(1,32): unexpected-end-tag-in-select
 #document-fragment
 select
 #document
@@ -269,6 +295,8 @@ select
 #data
 <svg><foreignObject><div>foo</div><plaintext></foreignObject></svg><div>bar</div>
 #errors
+(1,5): expected-doctype-but-got-start-tag
+(1,82): expected-closing-tag-but-got-eof
 #document
 | <html>
 |   <head>
@@ -283,6 +311,8 @@ select
 #data
 <svg><foreignObject></foreignObject><title></svg>foo
 #errors
+(1,5): expected-doctype-but-got-start-tag
+(1,49): expected-one-end-tag-but-got-another
 #document
 | <html>
 |   <head>
@@ -295,6 +325,9 @@ select
 #data
 </foreignObject><plaintext><div>foo</div>
 #errors
+(1,16): expected-doctype-but-got-end-tag
+(1,16): unexpected-end-tag-before-html
+(1,42): expected-closing-tag-but-got-eof
 #document
 | <html>
 |   <head>
