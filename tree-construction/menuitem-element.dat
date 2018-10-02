@@ -3,7 +3,6 @@
 #errors
 10: Start tag seen without seeing a doctype first. Expected “<!DOCTYPE html>”.
 10: End of file seen and there were open elements.
-10: Unclosed element “menuitem”.
 #document
 | <html>
 |   <head>
@@ -24,7 +23,6 @@
 <!DOCTYPE html><body><menuitem>A
 #errors
 32: End of file seen and there were open elements.
-31: Unclosed element “menuitem”.
 #document
 | <!DOCTYPE html>
 | <html>
@@ -37,8 +35,6 @@
 <!DOCTYPE html><body><menuitem>A<menuitem>B
 #errors
 43: End of file seen and there were open elements.
-42: Unclosed element “menuitem”.
-31: Unclosed element “menuitem”.
 #document
 | <!DOCTYPE html>
 | <html>
@@ -53,7 +49,6 @@
 <!DOCTYPE html><body><menuitem>A<menu>B</menu>
 #errors
 46: End of file seen and there were open elements.
-31: Unclosed element “menuitem”.
 #document
 | <!DOCTYPE html>
 | <html>
@@ -68,7 +63,6 @@
 <!DOCTYPE html><body><menuitem>A<hr>B
 #errors
 37: End of file seen and there were open elements.
-31: Unclosed element “menuitem”.
 #document
 | <!DOCTYPE html>
 | <html>
@@ -83,7 +77,6 @@
 <!DOCTYPE html><li><menuitem><li>
 #errors
 33: End tag “li” implied, but there were open elements.
-29: Unclosed element “menuitem”.
 #document
 | <!DOCTYPE html>
 | <html>
@@ -98,7 +91,6 @@
 #errors
 39: Stray end tag “menuitem”.
 40: End of file seen and there were open elements.
-25: Unclosed element “menuitem”.
 #document
 | <!DOCTYPE html>
 | <html>
@@ -112,9 +104,7 @@
 <!DOCTYPE html><p><b></p><menuitem>
 #errors
 25: End tag “p” seen, but there were open elements.
-21: Unclosed element “b”.
 35: End of file seen and there were open elements.
-35: Unclosed element “menuitem”.
 #document
 | <!DOCTYPE html>
 | <html>
@@ -129,7 +119,6 @@
 <!DOCTYPE html><menuitem><asdf></menuitem>x
 #errors
 42: End tag “menuitem” seen, but there were open elements.
-31: Unclosed element “asdf”.
 #document
 | <!DOCTYPE html>
 | <html>
@@ -184,7 +173,6 @@
 <!DOCTYPE html><option><menuitem>
 #errors
 33: End of file seen and there were open elements.
-33: Unclosed element “menuitem”.
 #document
 | <!DOCTYPE html>
 | <html>
@@ -197,7 +185,6 @@
 <!DOCTYPE html><menuitem><option>
 #errors
 33: End of file seen and there were open elements.
-25: Unclosed element “menuitem”.
 #document
 | <!DOCTYPE html>
 | <html>
@@ -210,7 +197,6 @@
 <!DOCTYPE html><menuitem></body>
 #errors
 32: End tag for  “body” seen, but there were unclosed elements.
-25: Unclosed element “menuitem”.
 #document
 | <!DOCTYPE html>
 | <html>
@@ -222,7 +208,6 @@
 <!DOCTYPE html><menuitem></html>
 #errors
 32: End tag for  “html” seen, but there were unclosed elements.
-25: Unclosed element “menuitem”.
 #document
 | <!DOCTYPE html>
 | <html>
@@ -234,7 +219,6 @@
 <!DOCTYPE html><menuitem><p>
 #errors
 28: End of file seen and there were open elements.
-25: Unclosed element “menuitem”.
 #document
 | <!DOCTYPE html>
 | <html>
@@ -247,7 +231,6 @@
 <!DOCTYPE html><menuitem><li>
 #errors
 29: End of file seen and there were open elements.
-25: Unclosed element “menuitem”.
 #document
 | <!DOCTYPE html>
 | <html>
