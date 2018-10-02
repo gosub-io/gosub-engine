@@ -48,7 +48,6 @@
 #data
 <!doctype>
 #errors
-(1,9): need-space-after-doctype
 (1,10): expected-doctype-name-but-got-right-bracket
 (1,10): unknown-doctype
 #new-errors
@@ -604,6 +603,7 @@ html
 #data
 <!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN"><html></html>
 #errors
+(1,50): doctype-has-public-identifier
 #document
 | <!DOCTYPE html "-//W3C//DTD HTML 4.01//EN" "">
 | <html>
