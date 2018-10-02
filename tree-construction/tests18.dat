@@ -3,7 +3,6 @@
 #errors
 11: Start tag seen without seeing a doctype first. Expected “<!DOCTYPE html>”.
 23: End of file seen and there were open elements.
-11: Unclosed element “plaintext”.
 #document
 | <html>
 |   <head>
@@ -27,7 +26,6 @@
 <!doctype html><html><plaintext></plaintext>
 #errors
 44: End of file seen and there were open elements.
-32: Unclosed element “plaintext”.
 #document
 | <!DOCTYPE html>
 | <html>
@@ -40,7 +38,6 @@
 <!doctype html><head><plaintext></plaintext>
 #errors
 44: End of file seen and there were open elements.
-32: Unclosed element “plaintext”.
 #document
 | <!DOCTYPE html>
 | <html>
@@ -54,7 +51,6 @@
 #errors
 42: Bad start tag in “plaintext” in “head”.
 54: End of file seen and there were open elements.
-42: Unclosed element “plaintext”.
 #script-off
 #document
 | <!DOCTYPE html>
@@ -69,7 +65,6 @@
 <!doctype html></head><plaintext></plaintext>
 #errors
 45: End of file seen and there were open elements.
-33: Unclosed element “plaintext”.
 #document
 | <!DOCTYPE html>
 | <html>
@@ -82,7 +77,6 @@
 <!doctype html><body><plaintext></plaintext>
 #errors
 44: End of file seen and there were open elements.
-32: Unclosed element “plaintext”.
 #document
 | <!DOCTYPE html>
 | <html>
@@ -95,8 +89,19 @@
 <!doctype html><table><plaintext></plaintext>
 #errors
 (1,33): foster-parenting-start-tag
-(1,45): foster-parenting-character
-(1,45): eof-in-table
+(1,46): foster-parenting-character
+(1,46): foster-parenting-character
+(1,46): foster-parenting-character
+(1,46): foster-parenting-character
+(1,46): foster-parenting-character
+(1,46): foster-parenting-character
+(1,46): foster-parenting-character
+(1,46): foster-parenting-character
+(1,46): foster-parenting-character
+(1,46): foster-parenting-character
+(1,46): foster-parenting-character
+(1,46): foster-parenting-character
+(1,46): eof-in-table
 #document
 | <!DOCTYPE html>
 | <html>
@@ -110,8 +115,19 @@
 <!doctype html><table><tbody><plaintext></plaintext>
 #errors
 (1,40): foster-parenting-start-tag
-(1,41): foster-parenting-character
-(1,52): eof-in-table
+(1,53): foster-parenting-character
+(1,53): foster-parenting-character
+(1,53): foster-parenting-character
+(1,53): foster-parenting-character
+(1,53): foster-parenting-character
+(1,53): foster-parenting-character
+(1,53): foster-parenting-character
+(1,53): foster-parenting-character
+(1,53): foster-parenting-character
+(1,53): foster-parenting-character
+(1,53): foster-parenting-character
+(1,53): foster-parenting-character
+(1,53): eof-in-table
 #document
 | <!DOCTYPE html>
 | <html>
@@ -126,8 +142,19 @@
 <!doctype html><table><tbody><tr><plaintext></plaintext>
 #errors
 (1,44): foster-parenting-start-tag
-(1,56): foster-parenting-character
-(1,56): eof-in-table
+(1,57): foster-parenting-character
+(1,57): foster-parenting-character
+(1,57): foster-parenting-character
+(1,57): foster-parenting-character
+(1,57): foster-parenting-character
+(1,57): foster-parenting-character
+(1,57): foster-parenting-character
+(1,57): foster-parenting-character
+(1,57): foster-parenting-character
+(1,57): foster-parenting-character
+(1,57): foster-parenting-character
+(1,57): foster-parenting-character
+(1,57): eof-in-table
 #document
 | <!DOCTYPE html>
 | <html>
@@ -173,11 +200,20 @@
 #data
 <!doctype html><table><colgroup><plaintext></plaintext>
 #errors
-43: Start tag “plaintext” seen in “table”.
-55: Misplaced non-space characters inside a table.
+(1,43): foster-parenting-start-tag
+(1,56): foster-parenting-character
+(1,56): foster-parenting-character
+(1,56): foster-parenting-character
+(1,56): foster-parenting-character
+(1,56): foster-parenting-character
+(1,56): foster-parenting-character
+(1,56): foster-parenting-character
+(1,56): foster-parenting-character
+(1,56): foster-parenting-character
+(1,56): foster-parenting-character
+(1,56): foster-parenting-character
+(1,56): foster-parenting-character
 55: End of file seen and there were open elements.
-43: Unclosed element “plaintext”.
-22: Unclosed element “table”.
 #document
 | <!DOCTYPE html>
 | <html>
@@ -194,7 +230,6 @@
 34: Stray start tag “plaintext”.
 46: Stray end tag “plaintext”.
 47: End of file seen and there were open elements.
-23: Unclosed element “select”.
 #document
 | <!DOCTYPE html>
 | <html>
@@ -210,8 +245,6 @@
 41: Stray start tag “plaintext”.
 51: “caption” start tag with “select” open.
 52: End of file seen and there were open elements.
-51: Unclosed element “caption”.
-22: Unclosed element “table”.
 #document
 | <!DOCTYPE html>
 | <html>
@@ -227,8 +260,6 @@
 <!doctype html><template><plaintext>a</template>b
 #errors
 49: End of file seen and there were open elements.
-36: Unclosed element “plaintext”.
-25: Unclosed element “template”.
 #document
 | <!DOCTYPE html>
 | <html>
@@ -244,7 +275,6 @@
 #errors
 39: Stray start tag “plaintext”.
 51: End of file seen and there were open elements.
-39: Unclosed element “plaintext”.
 #document
 | <!DOCTYPE html>
 | <html>
@@ -259,7 +289,6 @@
 36: Stray start tag “plaintext”.
 48: Stray end tag “plaintext”.
 48: End of file seen and there were open elements.
-25: Unclosed element “frameset”.
 #document
 | <!DOCTYPE html>
 | <html>
@@ -282,7 +311,6 @@
 #errors
 46: Stray start tag “plaintext”.
 58: End of file seen and there were open elements.
-46: Unclosed element “plaintext”.
 #document
 | <!DOCTYPE html>
 | <html>
@@ -306,7 +334,6 @@
 <!doctype html><svg><plaintext>a</plaintext>b
 #errors
 45: End of file seen and there were open elements.
-20: Unclosed element “svg”.
 #document
 | <!DOCTYPE html>
 | <html>
@@ -321,9 +348,6 @@
 <!doctype html><svg><title><plaintext>a</plaintext>b
 #errors
 52: End of file seen and there were open elements.
-38: Unclosed element “plaintext”.
-27: Unclosed element “title”.
-20: Unclosed element “svg”.
 #document
 | <!DOCTYPE html>
 | <html>
