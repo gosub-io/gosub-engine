@@ -34,7 +34,6 @@
 #data
 <!DOCTYPE>Hello
 #errors
-(1,9): need-space-after-doctype
 (1,10): expected-doctype-name-but-got-right-bracket
 (1,10): unknown-doctype
 #new-errors
@@ -337,6 +336,7 @@
 <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN"
    "http://www.w3.org/TR/html4/strict.dtd">Hello
 #errors
+(2,43): unknown-doctype
 #document
 | <!DOCTYPE html "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
 | <html>
@@ -421,6 +421,7 @@
 <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN""http://www.w3.org/TR/html4/strict.dtd">
 #errors
 (1,50): unexpected-char-in-doctype
+(1,89): unknown-doctype
 #new-errors
 (1:50) missing-whitespace-between-doctype-public-and-system-identifiers
 #document
@@ -433,6 +434,7 @@
 <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN"'http://www.w3.org/TR/html4/strict.dtd'>
 #errors
 (1,50): unexpected-char-in-doctype
+(1,89): unknown-doctype
 #new-errors
 (1:50) missing-whitespace-between-doctype-public-and-system-identifiers
 #document
@@ -446,6 +448,7 @@
 #errors
 (1,21): unexpected-char-in-doctype
 (1,49): unexpected-char-in-doctype
+(1,88): unknown-doctype
 #new-errors
 (1:22) missing-whitespace-after-doctype-public-keyword
 (1:49) missing-whitespace-between-doctype-public-and-system-identifiers
@@ -460,6 +463,7 @@
 #errors
 (1,21): unexpected-char-in-doctype
 (1,49): unexpected-char-in-doctype
+(1,88): unknown-doctype
 #new-errors
 (1:22) missing-whitespace-after-doctype-public-keyword
 (1:49) missing-whitespace-between-doctype-public-and-system-identifiers
