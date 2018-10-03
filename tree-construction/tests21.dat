@@ -41,6 +41,7 @@
 <svg><![CDATA[foo
 #errors
 (1,5): expected-doctype-but-got-start-tag
+(1:18) eof-in-cdata
 (1,17): expected-closing-tag-but-got-eof
 #new-errors
 (1:18) eof-in-cdata
@@ -55,6 +56,7 @@
 <svg><![CDATA[foo
 #errors
 (1,5): expected-doctype-but-got-start-tag
+(1:18) eof-in-cdata
 (1,17): expected-closing-tag-but-got-eof
 #new-errors
 (1:18) eof-in-cdata
@@ -69,6 +71,7 @@
 <svg><![CDATA[
 #errors
 (1,5): expected-doctype-but-got-start-tag
+(1:15) eof-in-cdata
 (1,14): expected-closing-tag-but-got-eof
 #new-errors
 (1:15) eof-in-cdata
@@ -117,6 +120,7 @@
 <svg><![CDATA[]]
 #errors
 (1,5): expected-doctype-but-got-start-tag
+(1:17) eof-in-cdata
 (1,16): expected-closing-tag-but-got-eof
 #new-errors
 (1:17) eof-in-cdata
@@ -131,6 +135,7 @@
 <svg><![CDATA[]
 #errors
 (1,5): expected-doctype-but-got-start-tag
+(1:16) eof-in-cdata
 (1,15): expected-closing-tag-but-got-eof
 #new-errors
 (1:16) eof-in-cdata
@@ -145,6 +150,7 @@
 <svg><![CDATA[]>a
 #errors
 (1,5): expected-doctype-but-got-start-tag
+(1:16) eof-in-cdata
 (1,17): expected-closing-tag-but-got-eof
 #new-errors
 (1:18) eof-in-cdata
@@ -236,6 +242,7 @@
 <svg><![CDATA[<svg>a
 #errors
 (1,5): expected-doctype-but-got-start-tag
+(1:21) eof-in-cdata
 (1,20): expected-closing-tag-but-got-eof
 #new-errors
 (1:21) eof-in-cdata
@@ -250,6 +257,7 @@
 <svg><![CDATA[</svg>a
 #errors
 (1,5): expected-doctype-but-got-start-tag
+(1:22) eof-in-cdata
 (1,21): expected-closing-tag-but-got-eof
 #new-errors
 (1:22) eof-in-cdata
