@@ -954,6 +954,34 @@
     { "code": "incorrectly-closed-comment", "line": 1, "col": 8 }
 ]},
 
+{"description":"<!----! >",
+"input":"<!----! >",
+"output":[["Comment", "--! >"]],
+"errors":[
+    { "code": "incorrectly-closed-comment", "line": 1, "col": 8 }
+]},
+
+{"description":"<!----!LF>",
+"input":"<!----!\n>",
+"output":[["Comment", "--!\n>"]],
+"errors":[
+    { "code": "incorrectly-closed-comment", "line": 1, "col": 8 }
+]},
+
+{"description":"<!----!CR>",
+"input":"<!----!\r>",
+"output":[["Comment", "--!\n>"]],
+"errors":[
+    { "code": "incorrectly-closed-comment", "line": 1, "col": 8 }
+]},
+
+{"description":"<!----!CRLF>",
+"input":"<!----!\r\n>",
+"output":[["Comment", "--!\n>"]],
+"errors":[
+    { "code": "incorrectly-closed-comment", "line": 1, "col": 8 }
+]},
+
 {"description":"<!----!a",
 "input":"<!----!a",
 "output":[["Comment", "--!a"]],
