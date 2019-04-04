@@ -958,28 +958,28 @@
 "input":"<!----! >",
 "output":[["Comment", "--! >"]],
 "errors":[
-    { "code": "incorrectly-closed-comment", "line": 1, "col": 8 }
+    { "code": "eof-in-comment", "line": 1, "col": 9 }
 ]},
 
 {"description":"<!----!LF>",
 "input":"<!----!\n>",
 "output":[["Comment", "--!\n>"]],
 "errors":[
-    { "code": "incorrectly-closed-comment", "line": 1, "col": 8 }
+    { "code": "eof-in-comment", "line": 1, "col": 9 }
 ]},
 
 {"description":"<!----!CR>",
 "input":"<!----!\r>",
 "output":[["Comment", "--!\n>"]],
 "errors":[
-    { "code": "incorrectly-closed-comment", "line": 1, "col": 8 }
+    { "code": "eof-in-comment", "line": 1, "col": 9 }
 ]},
 
 {"description":"<!----!CRLF>",
 "input":"<!----!\r\n>",
 "output":[["Comment", "--!\n>"]],
 "errors":[
-    { "code": "incorrectly-closed-comment", "line": 1, "col": 8 }
+    { "code": "eof-in-comment", "line": 1, "col": 9 }
 ]},
 
 {"description":"<!----!a",

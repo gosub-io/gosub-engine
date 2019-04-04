@@ -30,7 +30,7 @@ FOO<!-- BAR --! >BAZ
 #errors
 (1,3): expected-doctype-but-got-chars
 #new-errors
-(1:20) incorrectly-closed-comment
+(1:20) eof-in-comment
 #document
 | <html>
 |   <head>
@@ -44,7 +44,7 @@ FOO<!-- BAR --!
 #errors
 (1,3): expected-doctype-but-got-chars
 #new-errors
-(1:20) incorrectly-closed-comment
+(1:20) eof-in-comment
 #document
 | <html>
 |   <head>
