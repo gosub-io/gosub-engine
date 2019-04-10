@@ -21,9 +21,13 @@ final newline (on the last line) removed.
 Then there must be a line that says "\#errors". It must be followed by
 one line per parse error that a conformant checker would return. It
 doesn't matter what those lines are, although they can't be
-"\#document-fragment", "\#document", "\#script-off", "\#script-on", or
-empty, the only thing that matters is that there be the right number
-of parse errors.
+"\#new-errors", "\#document-fragment", "\#document", "\#script-off",
+"\#script-on", or empty, the only thing that matters is that there be
+the right number of parse errors.
+
+Then there \*may\* be a line that says "\#new-errors", which works like
+the "\#errors" section adding more errors to the expected number of
+errors.
 
 Then there \*may\* be a line that says "\#document-fragment", which must
 be followed by a newline (LF), followed by a string of characters that
