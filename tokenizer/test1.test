@@ -102,11 +102,22 @@
 "input":"<!-- --comment -->",
 "output":[["Comment", " --comment "]]},
 
+{"description":"Comment, central less-than bang",
+"input":"<!--<!-->",
+"output":[["Comment", "<!"]]},
+
 {"description":"Unfinished comment",
 "input":"<!--comment",
 "output":[["Comment", "comment"]],
 "errors":[
     { "code": "eof-in-comment", "line": 1, "col": 12 }
+]},
+
+{"description":"Unfinished comment after start of nested comment",
+"input":"<!-- <!--",
+"output":[["Comment", " <!"]],
+"errors":[
+    { "code": "eof-in-comment", "line": 1, "col": 10 }
 ]},
 
 {"description":"Start of a comment",
@@ -123,7 +134,6 @@
     { "code": "abrupt-closing-of-empty-comment", "line": 1, "col": 5 }
 ]},
 
-
 {"description":"Short comment two",
 "input":"<!--->",
 "output":[["Comment", ""]],
@@ -135,12 +145,96 @@
  "input":"<!---->",
  "output":[["Comment", ""]]},
 
+{"description":"< in comment",
+"input":"<!-- <test-->",
+"output":[["Comment", " <test"]]},
+
+{"description":"<! in comment",
+"input":"<!-- <!test-->",
+"output":[["Comment", " <!test"]]},
+
+{"description":"<!- in comment",
+"input":"<!-- <!-test-->",
+"output":[["Comment", " <!-test"]]},
+
 {"description":"Nested comment",
 "input":"<!-- <!--test-->",
 "output":[["Comment", " <!--test"]],
 "errors":[
     { "code": "nested-comment", "line": 1, "col": 10 }
 ]},
+
+{"description":"Nested comment with extra <",
+"input":"<!-- <<!--test-->",
+"output":[["Comment", " <<!--test"]],
+"errors":[
+    { "code": "nested-comment", "line": 1, "col": 11 }
+]},
+
+{"description":"< in script data",
+"initialStates":["Script data state"],
+"input":"<test-->",
+"output":[["Character", "<test-->"]]},
+
+{"description":"<! in script data",
+"initialStates":["Script data state"],
+"input":"<!test-->",
+"output":[["Character", "<!test-->"]]},
+
+{"description":"<!- in script data",
+"initialStates":["Script data state"],
+"input":"<!-test-->",
+"output":[["Character", "<!-test-->"]]},
+
+{"description":"Escaped script data",
+"initialStates":["Script data state"],
+"input":"<!--test-->",
+"output":[["Character", "<!--test-->"]]},
+
+{"description":"< in script HTML comment",
+"initialStates":["Script data state"],
+"input":"<!-- < test -->",
+"output":[["Character", "<!-- < test -->"]]},
+
+{"description":"</ in script HTML comment",
+"initialStates":["Script data state"],
+"input":"<!-- </ test -->",
+"output":[["Character", "<!-- </ test -->"]]},
+
+{"description":"Start tag in script HTML comment",
+"initialStates":["Script data state"],
+"input":"<!-- <test> -->",
+"output":[["Character", "<!-- <test> -->"]]},
+
+{"description":"End tag in script HTML comment",
+"initialStates":["Script data state"],
+"input":"<!-- </test> -->",
+"output":[["Character", "<!-- </test> -->"]]},
+
+{"description":"- in script HTML comment double escaped",
+"initialStates":["Script data state"],
+"input":"<!--<script>-</script>-->",
+"output":[["Character", "<!--<script>-</script>-->"]]},
+
+{"description":"-- in script HTML comment double escaped",
+"initialStates":["Script data state"],
+"input":"<!--<script>--</script>-->",
+"output":[["Character", "<!--<script>--</script>-->"]]},
+
+{"description":"--- in script HTML comment double escaped",
+"initialStates":["Script data state"],
+"input":"<!--<script>---</script>-->",
+"output":[["Character", "<!--<script>---</script>-->"]]},
+
+{"description":"- spaced in script HTML comment double escaped",
+"initialStates":["Script data state"],
+"input":"<!--<script> - </script>-->",
+"output":[["Character", "<!--<script> - </script>-->"]]},
+
+{"description":"-- spaced in script HTML comment double escaped",
+"initialStates":["Script data state"],
+"input":"<!--<script> -- </script>-->",
+"output":[["Character", "<!--<script> -- </script>-->"]]},
 
 {"description":"Ampersand EOF",
 "input":"&",

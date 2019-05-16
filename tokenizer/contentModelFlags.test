@@ -6,6 +6,12 @@
 "input":"<head>&body;",
 "output":[["Character", "<head>&body;"]]},
 
+{"description":"PLAINTEXT with seeming close tag",
+"initialStates":["PLAINTEXT state"],
+"lastStartTag":"plaintext",
+"input":"</plaintext>&body;",
+"output":[["Character", "</plaintext>&body;"]]},
+
 {"description":"End tag closing RCDATA or RAWTEXT",
 "initialStates":["RCDATA state", "RAWTEXT state"],
 "lastStartTag":"xmp",

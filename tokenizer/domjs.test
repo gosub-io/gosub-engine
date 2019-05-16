@@ -25,7 +25,7 @@
             ]
         },
         {
-            "description":"NUL in RCDATA, RAWTEXT, PLAINTEXT and Script data",
+            "description":"Raw NUL replacement",
             "doubleEscaped":true,
             "initialStates":["RCDATA state", "RAWTEXT state", "PLAINTEXT state", "Script data state"],
             "input":"\\u0000",
@@ -33,6 +33,13 @@
             "errors":[
                 { "code": "unexpected-null-character", "line": 1, "col": 1 }
             ]
+        },
+        {
+            "description":"NUL in CDATA section",
+            "doubleEscaped":true,
+            "initialStates":["CDATA section state"],
+            "input":"\\u0000]]>",
+            "output":[["Character", "\\u0000"]]
         },
         {
            "description":"NUL in script HTML comment",
@@ -113,19 +120,94 @@
            ]
         },
         {
+            "description":"Dash in script HTML comment",
+            "initialStates":["Script data state"],
+            "input":"<!-- - -->",
+            "output":[["Character", "<!-- - -->"]]
+        },
+        {
+            "description":"Dash less-than in script HTML comment",
+            "initialStates":["Script data state"],
+            "input":"<!-- -< -->",
+            "output":[["Character", "<!-- -< -->"]]
+        },
+        {
+            "description":"Dash at end of script HTML comment",
+            "initialStates":["Script data state"],
+            "input":"<!--test--->",
+            "output":[["Character", "<!--test--->"]]
+        },
+        {
+            "description":"</script> in script HTML comment",
+            "initialStates":["Script data state"],
+            "lastStartTag":"script",
+            "input":"<!-- </script> --></script>",
+            "output":[["Character", "<!-- "], ["EndTag", "script"], ["Character", " -->"], ["EndTag", "script"]]
+        },
+        {
+            "description":"</script> in script HTML comment - double escaped",
+            "initialStates":["Script data state"],
+            "lastStartTag":"script",
+            "input":"<!-- <script></script> --></script>",
+            "output":[["Character", "<!-- <script></script> -->"], ["EndTag", "script"]]
+        },
+        {
+            "description":"</script> in script HTML comment - double escaped with nested <script>",
+            "initialStates":["Script data state"],
+            "lastStartTag":"script",
+            "input":"<!-- <script><script></script></script> --></script>",
+            "output":[["Character", "<!-- <script><script></script>"], ["EndTag", "script"], ["Character", " -->"], ["EndTag", "script"]]
+        },
+        {
+            "description":"</script> in script HTML comment - double escaped with abrupt end",
+            "initialStates":["Script data state"],
+            "lastStartTag":"script",
+            "input":"<!-- <script>--></script> --></script>",
+            "output":[["Character", "<!-- <script>-->"], ["EndTag", "script"], ["Character", " -->"], ["EndTag", "script"]]
+        },
+        {
+            "description":"Incomplete start tag in script HTML comment double escaped",
+            "initialStates":["Script data state"],
+            "lastStartTag":"script",
+            "input":"<!--<scrip></script>-->",
+            "output":[["Character", "<!--<scrip>"], ["EndTag", "script"], ["Character", "-->"]]
+        },
+        {
+            "description":"Unclosed start tag in script HTML comment double escaped",
+            "initialStates":["Script data state"],
+            "lastStartTag":"script",
+            "input":"<!--<script</script>-->",
+            "output":[["Character", "<!--<script"], ["EndTag", "script"], ["Character", "-->"]]
+        },
+        {
+            "description":"Incomplete end tag in script HTML comment double escaped",
+            "initialStates":["Script data state"],
+            "lastStartTag":"script",
+            "input":"<!--<script></scrip>-->",
+            "output":[["Character", "<!--<script></scrip>-->"]]
+        },
+        {
+            "description":"Unclosed end tag in script HTML comment double escaped",
+            "initialStates":["Script data state"],
+            "lastStartTag":"script",
+            "input":"<!--<script></script-->",
+            "output":[["Character", "<!--<script></script-->"]]
+        },
+        {
             "description":"leading U+FEFF must pass through",
+            "initialStates":["Data state", "RCDATA state", "RAWTEXT state", "Script data state"],
             "doubleEscaped":true,
             "input":"\\uFEFFfoo\\uFEFFbar",
             "output":[["Character", "\\uFEFFfoo\\uFEFFbar"]]
         },
         {
-            "description":"Non BMP-charref in in RCDATA",
+            "description":"Non BMP-charref in RCDATA",
             "initialStates":["RCDATA state"],
             "input":"&NotEqualTilde;",
             "output":[["Character", "\u2242\u0338"]]
         },
         {
-            "description":"Bad charref in in RCDATA",
+            "description":"Bad charref in RCDATA",
             "initialStates":["RCDATA state"],
             "input":"&NotEqualTild;",
             "output":[["Character", "&NotEqualTild;"]],
@@ -134,36 +216,36 @@
             ]
         },
         {
-            "description":"lowercase endtags in RCDATA and RAWTEXT",
-            "initialStates":["RCDATA state", "RAWTEXT state"],
+            "description":"lowercase endtags",
+            "initialStates":["RCDATA state", "RAWTEXT state", "Script data state"],
             "lastStartTag":"xmp",
             "input":"</XMP>",
             "output":[["EndTag","xmp"]]
         },
         {
-            "description":"bad endtag in RCDATA and RAWTEXT",
-            "initialStates":["RCDATA state", "RAWTEXT state"],
+            "description":"bad endtag (space before name)",
+            "initialStates":["RCDATA state", "RAWTEXT state", "Script data state"],
             "lastStartTag":"xmp",
             "input":"</ XMP>",
             "output":[["Character","</ XMP>"]]
         },
         {
-            "description":"bad endtag in RCDATA and RAWTEXT",
-            "initialStates":["RCDATA state", "RAWTEXT state"],
+            "description":"bad endtag (not matching last start tag)",
+            "initialStates":["RCDATA state", "RAWTEXT state", "Script data state"],
             "lastStartTag":"xmp",
             "input":"</xm>",
             "output":[["Character","</xm>"]]
         },
         {
-            "description":"bad endtag in RCDATA and RAWTEXT",
-            "initialStates":["RCDATA state", "RAWTEXT state"],
+            "description":"bad endtag (without close bracket)",
+            "initialStates":["RCDATA state", "RAWTEXT state", "Script data state"],
             "lastStartTag":"xmp",
             "input":"</xm ",
             "output":[["Character","</xm "]]
         },
         {
-            "description":"bad endtag in RCDATA and RAWTEXT",
-            "initialStates":["RCDATA state", "RAWTEXT state"],
+            "description":"bad endtag (trailing solidus)",
+            "initialStates":["RCDATA state", "RAWTEXT state", "Script data state"],
             "lastStartTag":"xmp",
             "input":"</xm/",
             "output":[["Character","</xm/"]]
@@ -200,11 +282,47 @@
         },
         {
             "description":"CDATA content",
-            "input":"foo&bar",
+            "input":"foo&#32;]]>",
             "initialStates":["CDATA section state"],
-            "output":[["Character", "foo&bar"]],
+            "output":[["Character", "foo&#32;"]]
+        },
+        {
+            "description":"CDATA followed by HTML content",
+            "input":"foo&#32;]]>&#32;",
+            "initialStates":["CDATA section state"],
+            "output":[["Character", "foo&#32; "]]
+        },
+        {
+            "description":"CDATA with extra bracket",
+            "input":"foo]]]>",
+            "initialStates":["CDATA section state"],
+            "output":[["Character", "foo]"]]
+        },
+        {
+            "description":"CDATA without end marker",
+            "input":"foo",
+            "initialStates":["CDATA section state"],
+            "output":[["Character", "foo"]],
             "errors":[
-                { "code": "eof-in-cdata", "line": 1, "col": 8 }
+                { "code": "eof-in-cdata", "line": 1, "col": 4 }
+            ]
+        },
+        {
+            "description":"CDATA with single bracket ending",
+            "input":"foo]",
+            "initialStates":["CDATA section state"],
+            "output":[["Character", "foo]"]],
+            "errors":[
+                { "code": "eof-in-cdata", "line": 1, "col": 5 }
+            ]
+        },
+        {
+            "description":"CDATA with two brackets ending",
+            "input":"foo]]",
+            "initialStates":["CDATA section state"],
+            "output":[["Character", "foo]]"]],
+            "errors":[
+                { "code": "eof-in-cdata", "line": 1, "col": 6 }
             ]
         }
 

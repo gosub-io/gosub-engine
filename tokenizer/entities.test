@@ -1,12 +1,46 @@
 {"tests": [
 
-{"description": "Undefined named entity in attribute value ending in semicolon and whose name starts with a known entity name.",
+{"description": "Undefined named entity in a double-quoted attribute value ending in semicolon and whose name starts with a known entity name.",
+"input":"<h a=\"&noti;\">",
+"output": [["StartTag", "h", {"a": "&noti;"}]]},
+
+{"description": "Entity name requiring semicolon instead followed by the equals sign in a double-quoted attribute value.",
+"input":"<h a=\"&lang=\">",
+"output": [["StartTag", "h", {"a": "&lang="}]]},
+
+{"description": "Valid entity name followed by the equals sign in a double-quoted attribute value.",
+"input":"<h a=\"&not=\">",
+"output": [["StartTag", "h", {"a": "&not="}]]},
+
+{"description": "Undefined named entity in a single-quoted attribute value ending in semicolon and whose name starts with a known entity name.",
 "input":"<h a='&noti;'>",
 "output": [["StartTag", "h", {"a": "&noti;"}]]},
 
-{"description": "Entity name followed by the equals sign in an attribute value.",
+{"description": "Entity name requiring semicolon instead followed by the equals sign in a single-quoted attribute value.",
 "input":"<h a='&lang='>",
 "output": [["StartTag", "h", {"a": "&lang="}]]},
+
+{"description": "Valid entity name followed by the equals sign in a single-quoted attribute value.",
+"input":"<h a='&not='>",
+"output": [["StartTag", "h", {"a": "&not="}]]},
+
+{"description": "Undefined named entity in an unquoted attribute value ending in semicolon and whose name starts with a known entity name.",
+"input":"<h a=&noti;>",
+"output": [["StartTag", "h", {"a": "&noti;"}]]},
+
+{"description": "Entity name requiring semicolon instead followed by the equals sign in an unquoted attribute value.",
+"input":"<h a=&lang=>",
+"output": [["StartTag", "h", {"a": "&lang="}]],
+"errors":[
+    { "code": "unexpected-character-in-unquoted-attribute-value", "line": 1, "col": 11 }
+]},
+
+{"description": "Valid entity name followed by the equals sign in an unquoted attribute value.",
+"input":"<h a=&not=>",
+"output": [["StartTag", "h", {"a": "&not="}]],
+"errors":[
+    { "code": "unexpected-character-in-unquoted-attribute-value", "line": 1, "col": 10 }
+]},
 
 {"description": "Ambiguous ampersand.",
 "input":"&rrrraannddom;",
