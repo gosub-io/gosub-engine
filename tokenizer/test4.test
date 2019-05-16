@@ -8,7 +8,7 @@
     { "code": "unexpected-character-in-attribute-name", "line": 1, "col": 7 }
 ]},
 
-{"description":"",
+{"description":"< in unquoted attribute value",
 "input":"<z x=<>",
 "output":[["StartTag", "z", {"x": "<"}]],
 "errors":[
