@@ -52,6 +52,16 @@
 	["ident", "Ͷ76Ͷ76\uFFFD"]
 ],
 
+"rgba0('a' rgba1(a b rgba2(rgba3('b", [
+	["function", "rgba0", ["string", "a"], " ",
+		["function", "rgba1", ["ident", "a"], " ", ["ident", "b"], " ",
+			["function", "rgba2",
+				["function", "rgba3", ["string", "b"], ["error", "eof-in-string"]]
+			]
+		]
+	]
+],
+
 "rgba0() -rgba() --rgba() -\\-rgba() 0rgba() -0rgba() _rgba() .rgba() rgbâ() \\30rgba() rgba () @rgba() #rgba()", [
 	["function", "rgba0"], " ",
 	["function", "-rgba"], " ",
