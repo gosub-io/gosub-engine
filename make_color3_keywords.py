@@ -172,6 +172,7 @@ def replace(s, i, r):
     i %= len(s)
     return s[:i] + r(s[i]) + s[i + 1:]
 
+
 print('[')
 print(',\n'.join(
     '"%s", %s' % (css, list(rgba) if valid else 'null')
