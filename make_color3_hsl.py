@@ -1,5 +1,10 @@
 import colorsys  # It turns out Python already does HSL -> RGB!
-trim = lambda s: s if not s.endswith('.0') else s[:-2]
+
+
+def trim(s):
+    return s if not s.endswith('.0') else s[:-2]
+
+
 print('[')
 print(',\n'.join(
     '"hsl%s(%s, %s%%, %s%%%s)", [%s, %s, %s, %s]' % (
