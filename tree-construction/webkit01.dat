@@ -308,6 +308,20 @@ console.log("FOO<span>BAR</span>BAZ");
 | <!--  Hi there  -->
 
 #data
+<html><body></body></html><!-- Comment A --><!-- Comment B --><!-- Comment C --><!-- Comment D --><!-- Comment E -->
+#errors
+(1,6): expected-doctype-but-got-start-tag
+#document
+| <html>
+|   <head>
+|   <body>
+| <!--  Comment A  -->
+| <!--  Comment B  -->
+| <!--  Comment C  -->
+| <!--  Comment D  -->
+| <!--  Comment E  -->
+
+#data
 <html><body></body></html>x<!-- Hi there -->
 #errors
 (1,6): expected-doctype-but-got-start-tag
