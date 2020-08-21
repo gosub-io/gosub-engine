@@ -358,12 +358,6 @@ iso-8859-2
 
 #data
 <!DOCTYPE HTML>
-<script>document.write('<meta charset="ISO-8859-' + '2">')</script>
-#encoding
-iso-8859-2
-
-#data
-<!DOCTYPE HTML>
 <script>document.write('<meta charset="iso8859-2">')</script>
 #encoding
 iso-8859-2
