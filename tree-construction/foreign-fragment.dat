@@ -7,7 +7,7 @@
 #document-fragment
 svg path
 #document
-| <svg nobr>
+| <nobr>
 |   "X"
 
 #data
@@ -17,7 +17,7 @@ svg path
 #document-fragment
 svg path
 #document
-| <svg font>
+| <font>
 |   color=""
 | "X"
 
@@ -390,7 +390,7 @@ math mtext
 #document-fragment
 math annotation-xml
 #document
-| <math div>
+| <div>
 
 #data
 <figure></figure>
@@ -407,7 +407,7 @@ math annotation-xml
 #document-fragment
 math math
 #document
-| <math div>
+| <div>
 
 #data
 <figure></figure>
@@ -461,12 +461,11 @@ svg desc
 <div><h1>X</h1></div>
 #errors
 5: HTML start tag “div” in a foreign namespace context.
-9: HTML start tag “h1” in a foreign namespace context.
 #document-fragment
 svg svg
 #document
-| <svg div>
-|   <svg h1>
+| <div>
+|   <h1>
 |     "X"
 
 #data
@@ -476,7 +475,7 @@ svg svg
 #document-fragment
 svg svg
 #document
-| <svg div>
+| <div>
 
 #data
 <div></div>
@@ -557,3 +556,51 @@ svg desc
 svg desc
 #document
 | "X"
+
+#data
+<svg><p>
+#errors
+8: HTML start tag “p” in a foreign namespace context.
+#document-fragment
+div
+#document
+| <svg svg>
+| <p>
+
+#data
+<p>
+#errors
+3: HTML start tag “p” in a foreign namespace context.
+#document-fragment
+svg svg
+#document
+| <p>
+
+#data
+<body><foo>
+#errors
+6: HTML start tag “body” in a foreign namespace context.
+#document-fragment
+svg svg
+#document
+| <svg foo>
+
+#data
+<p><foo>
+#errors
+3: HTML start tag “p” in a foreign namespace context.
+#document-fragment
+svg svg
+#document
+| <p>
+|   <foo>
+
+#data
+<p></p><foo>
+#errors
+3: HTML start tag “p” in a foreign namespace context.
+#document-fragment
+svg svg
+#document
+| <p>
+| <svg foo>
