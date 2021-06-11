@@ -577,6 +577,48 @@ svg svg
 | <p>
 
 #data
+<svg></p><foo>
+#errors
+9: HTML end tag “p” in a foreign namespace context.
+#document-fragment
+div
+#document
+| <svg svg>
+| <p>
+| <foo>
+
+#data
+<svg></br><foo>
+#errors
+10: HTML end tag “br” in a foreign namespace context.
+#document-fragment
+div
+#document
+| <svg svg>
+| <br>
+| <foo>
+
+#data
+</p><foo>
+#errors
+4: HTML end tag “p” in a foreign namespace context.
+#document-fragment
+svg svg
+#document
+| <p>
+| <svg foo>
+
+#data
+</br><foo>
+#errors
+5: HTML end tag “br” in a foreign namespace context.
+#document-fragment
+svg svg
+#document
+| <br>
+| <svg foo>
+
+#data
 <body><foo>
 #errors
 6: HTML start tag “body” in a foreign namespace context.

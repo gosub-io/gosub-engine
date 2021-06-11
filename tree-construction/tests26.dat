@@ -391,3 +391,51 @@ Line 1 Col 19 Expected closing tag. Unexpected end of file.
 |     <button>
 |       <p>
 |     <button>
+
+#data
+<svg></p><foo>
+#errors
+9: HTML end tag “p” in a foreign namespace context.
+#document
+| <html>
+|   <head>
+|   <body>
+|     <svg svg>
+|     <p>
+|     <foo>
+
+#data
+<svg></br><foo>
+#errors
+10: HTML end tag “br” in a foreign namespace context.
+#document
+| <html>
+|   <head>
+|   <body>
+|     <svg svg>
+|     <br>
+|     <foo>
+
+#data
+<math></p><foo>
+#errors
+10: HTML end tag “p” in a foreign namespace context.
+#document
+| <html>
+|   <head>
+|   <body>
+|     <math math>
+|     <p>
+|     <foo>
+
+#data
+<math></br><foo>
+#errors
+11: HTML end tag “br” in a foreign namespace context.
+#document
+| <html>
+|   <head>
+|   <body>
+|     <math math>
+|     <br>
+|     <foo>
