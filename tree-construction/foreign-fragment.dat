@@ -573,6 +573,8 @@ svg svg
 <svg></p><foo>
 #errors
 9: HTML end tag “p” in a foreign namespace context.
+(1:6) Unexpected </p> from in body insertion mode
+(1:15) Unexpected EOF
 #document-fragment
 div
 #document
@@ -584,6 +586,8 @@ div
 <svg></br><foo>
 #errors
 10: HTML end tag “br” in a foreign namespace context.
+(1:6) Unexpected </br> from in body insertion mode
+(1:16) Unexpected EOF
 #document-fragment
 div
 #document
@@ -595,6 +599,8 @@ div
 </p><foo>
 #errors
 4: HTML end tag “p” in a foreign namespace context.
+(1:1) Unexpected </p> from in body insertion mode
+(1:10) Unexpected EOF
 #document-fragment
 svg svg
 #document
@@ -605,6 +611,8 @@ svg svg
 </br><foo>
 #errors
 5: HTML end tag “br” in a foreign namespace context.
+(1:1) Unexpected </br> from in body insertion mode
+(1:11) Unexpected EOF
 #document-fragment
 svg svg
 #document
@@ -615,6 +623,8 @@ svg svg
 <body><foo>
 #errors
 6: HTML start tag “body” in a foreign namespace context.
+(1:1) Unexpected <body> from in body insertion mode
+(1:12) Unexpected EOF
 #document-fragment
 svg svg
 #document
@@ -624,6 +634,7 @@ svg svg
 <p><foo>
 #errors
 3: HTML start tag “p” in a foreign namespace context.
+(1:9) Unexpected EOF
 #document-fragment
 svg svg
 #document
@@ -634,6 +645,7 @@ svg svg
 <p></p><foo>
 #errors
 3: HTML start tag “p” in a foreign namespace context.
+(1:13) Unexpected EOF
 #document-fragment
 svg svg
 #document
