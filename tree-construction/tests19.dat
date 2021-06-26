@@ -1015,7 +1015,6 @@
 <!doctype html><p><math></p>a
 #errors
 (1,28): unexpected-end-tag
-(1,28): unexpected-end-tag
 #document
 | <!DOCTYPE html>
 | <html>
