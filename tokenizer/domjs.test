@@ -324,7 +324,12 @@
             "errors":[
                 { "code": "eof-in-cdata", "line": 1, "col": 6 }
             ]
+        },
+        {
+            "description": "HTML tag in script data",
+            "input": "<b>hello world</b>",
+            "initialStates": ["Script data state"],
+            "output": [["Character", "<b>hello world</b>"]]
         }
-
     ]
 }
