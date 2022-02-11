@@ -26,6 +26,32 @@
 |         <address>
 
 #data
+<!doctype html><p><button><article>
+#errors
+(1,36): expected-closing-tag-but-got-eof
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|       <button>
+|         <article>
+
+#data
+<!doctype html><p><button><aside>
+#errors
+(1,34): expected-closing-tag-but-got-eof
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|       <button>
+|         <aside>
+
+#data
 <!doctype html><p><button><blockquote>
 #errors
 (1,38): expected-closing-tag-but-got-eof
@@ -37,6 +63,175 @@
 |     <p>
 |       <button>
 |         <blockquote>
+
+#data
+<!doctype html><p><button><center>
+#errors
+(1,35): expected-closing-tag-but-got-eof
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|       <button>
+|         <center>
+
+#data
+<!doctype html><p><button><details>
+#errors
+(1,36): expected-closing-tag-but-got-eof
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|       <button>
+|         <details>
+
+#data
+<!doctype html><p><button><dialog>
+#errors
+(1,35): expected-closing-tag-but-got-eof
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|       <button>
+|         <dialog>
+
+#data
+<!doctype html><p><button><dir>
+#errors
+(1,32): expected-closing-tag-but-got-eof
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|       <button>
+|         <dir>
+
+#data
+<!doctype html><p><button><div>
+#errors
+(1,32): expected-closing-tag-but-got-eof
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|       <button>
+|         <div>
+
+#data
+<!doctype html><p><button><dl>
+#errors
+(1,31): expected-closing-tag-but-got-eof
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|       <button>
+|         <dl>
+
+#data
+<!doctype html><p><button><fieldset>
+#errors
+(1,37): expected-closing-tag-but-got-eof
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|       <button>
+|         <fieldset>
+
+#data
+<!doctype html><p><button><figcaption>
+#errors
+(1,39): expected-closing-tag-but-got-eof
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|       <button>
+|         <figcaption>
+
+#data
+<!doctype html><p><button><figure>
+#errors
+(1,35): expected-closing-tag-but-got-eof
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|       <button>
+|         <figure>
+
+#data
+<!doctype html><p><button><footer>
+#errors
+(1,35): expected-closing-tag-but-got-eof
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|       <button>
+|         <footer>
+
+#data
+<!doctype html><p><button><header>
+#errors
+(1,35): expected-closing-tag-but-got-eof
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|       <button>
+|         <header>
+
+#data
+<!doctype html><p><button><hgroup>
+#errors
+(1,35): expected-closing-tag-but-got-eof
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|       <button>
+|         <hgroup>
+
+#data
+<!doctype html><p><button><main>
+#errors
+(1,33): expected-closing-tag-but-got-eof
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|       <button>
+|         <main>
 
 #data
 <!doctype html><p><button><menu>
@@ -52,6 +247,32 @@
 |         <menu>
 
 #data
+<!doctype html><p><button><nav>
+#errors
+(1,32): expected-closing-tag-but-got-eof
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|       <button>
+|         <nav>
+
+#data
+<!doctype html><p><button><ol>
+#errors
+(1,31): expected-closing-tag-but-got-eof
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|       <button>
+|         <ol>
+
+#data
 <!doctype html><p><button><p>
 #errors
 (1,29): expected-closing-tag-but-got-eof
@@ -63,6 +284,45 @@
 |     <p>
 |       <button>
 |         <p>
+
+#data
+<!doctype html><p><button><search>
+#errors
+(1,35): expected-closing-tag-but-got-eof
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|       <button>
+|         <search>
+
+#data
+<!doctype html><p><button><section>
+#errors
+(1,36): expected-closing-tag-but-got-eof
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|       <button>
+|         <section>
+
+#data
+<!doctype html><p><button><summary>
+#errors
+(1,36): expected-closing-tag-but-got-eof
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+|     <p>
+|       <button>
+|         <summary>
 
 #data
 <!doctype html><p><button><ul>
