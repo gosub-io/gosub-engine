@@ -149,6 +149,10 @@
 "input":"<!-- <test-->",
 "output":[["Comment", " <test"]]},
 
+{"description":"<< in comment",
+"input":"<!--<<-->",
+"output":[["Comment", "<<"]]},
+
 {"description":"<! in comment",
 "input":"<!-- <!test-->",
 "output":[["Comment", " <!test"]]},
