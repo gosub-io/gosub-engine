@@ -1611,3 +1611,17 @@ eof table
 |           <a>
 |           <table>
 |   <body>
+
+#data
+<template><form><input name="q"></form><div>second</div></template>
+#document-fragment
+template
+#errors
+#document
+| <template>
+|   content
+|     <form>
+|       <input>
+|         name="q"
+|     <div>
+|       "second"
