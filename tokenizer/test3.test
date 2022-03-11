@@ -10,7 +10,7 @@
 "input":"",
 "output":[],
 "errors":[
-    { "code": "eof-in-cdata", "line": 1, "col": 2 }
+    { "code": "eof-in-cdata", "line": 1, "col": 1 }
 ]},
 
 {"description":"\\u0009",
@@ -36,7 +36,7 @@
 "input":"\u000A",
 "output":[["Character", "\u000A"]],
 "errors":[
-    { "code": "eof-in-cdata", "line": 1, "col": 2 }
+    { "code": "eof-in-cdata", "line": 2, "col": 1 }
 ]},
 
 {"description":"\\u000B",
@@ -443,7 +443,7 @@
 "input":";\uDBC0\uDC00",
 "output":[["Character", ";\uDBC0\uDC00"]],
 "errors":[
-    { "code": "eof-in-cdata", "line": 1, "col": 3 }
+    { "code": "eof-in-cdata", "line": 1, "col": 4 }
 ]},
 
 {"description":"<",
@@ -1325,28 +1325,28 @@
 "input":"<!----! >",
 "output":[["Comment", "--! >"]],
 "errors":[
-    { "code": "eof-in-comment", "line": 1, "col": 9 }
+    { "code": "eof-in-comment", "line": 1, "col": 10 }
 ]},
 
 {"description":"<!----!LF>",
 "input":"<!----!\n>",
 "output":[["Comment", "--!\n>"]],
 "errors":[
-    { "code": "eof-in-comment", "line": 1, "col": 9 }
+    { "code": "eof-in-comment", "line": 2, "col": 2 }
 ]},
 
 {"description":"<!----!CR>",
 "input":"<!----!\r>",
 "output":[["Comment", "--!\n>"]],
 "errors":[
-    { "code": "eof-in-comment", "line": 1, "col": 9 }
+    { "code": "eof-in-comment", "line": 2, "col": 2 }
 ]},
 
 {"description":"<!----!CRLF>",
 "input":"<!----!\r\n>",
 "output":[["Comment", "--!\n>"]],
 "errors":[
-    { "code": "eof-in-comment", "line": 1, "col": 9 }
+    { "code": "eof-in-comment", "line": 2, "col": 2 }
 ]},
 
 {"description":"<!----!a",
@@ -11227,7 +11227,7 @@
 "input":"\uDBC0\uDC00",
 "output":[["Character", "\uDBC0\uDC00"]],
 "errors":[
-    { "code": "eof-in-cdata", "line": 1, "col": 2 }
+    { "code": "eof-in-cdata", "line": 1, "col": 3 }
 ]}
 
 ]}
