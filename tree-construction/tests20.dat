@@ -511,9 +511,6 @@
 #data
 <!doctype html><button><p></button>x
 #errors
-(1,35): end-tag-too-early
-(1,36): expected-named-closing-tag-but-got-eof
-(1,36): expected-closing-tag-but-got-eof
 #document
 | <!DOCTYPE html>
 | <html>
