@@ -1628,8 +1628,6 @@ template
 
 #data
 <!DOCTYPE HTML><template><tr><td>cell</td></tr></template>
-#document-fragment
-template
 #errors
 #document
 | <!DOCTYPE html>
@@ -1644,8 +1642,6 @@ template
 
 #data
 <!DOCTYPE HTML><template> <tr> <td>cell</td> </tr> </template>
-#document-fragment
-template
 #errors
 #document
 | <!DOCTYPE html>
@@ -1664,8 +1660,6 @@ template
 
 #data
 <!DOCTYPE HTML><template><tr><td>cell</td></tr>a</template>
-#document-fragment
-template
 #errors
 (1,59): foster-parenting-character
 #document
