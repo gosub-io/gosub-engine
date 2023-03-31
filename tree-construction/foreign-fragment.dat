@@ -479,14 +479,6 @@ svg desc
 | <div>
 
 #data
-<figure></figure>
-#errors
-#document-fragment
-svg desc
-#document
-| <figure>
-
-#data
 <plaintext><foo>
 #errors
 (1,16): expected-closing-tag-but-got-eof

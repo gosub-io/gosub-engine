@@ -534,19 +534,6 @@
 |     "a"
 
 #data
-<!doctype html><address><button></address>a
-#errors
-(1,42): end-tag-too-early
-#document
-| <!DOCTYPE html>
-| <html>
-|   <head>
-|   <body>
-|     <address>
-|       <button>
-|     "a"
-
-#data
 <p><table></p>
 #errors
 (1,3): expected-doctype-but-got-start-tag

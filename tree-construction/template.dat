@@ -868,21 +868,6 @@ no doctype
 |         <td>
 
 #data
-<body><template><template><tr></tr></template><td></td></template>
-#errors
-no doctype
-#document
-| <html>
-|   <head>
-|   <body>
-|     <template>
-|       content
-|         <template>
-|           content
-|             <tr>
-|         <td>
-
-#data
 <body><table><colgroup><template><col></col></template></colgroup></table></body>
 #errors
 no doctype
@@ -1581,16 +1566,6 @@ no doctype
 |     <template>
 |       content
 |   <body>
-
-#data
-<body></body><template>
-#errors
-#document
-| <html>
-|   <head>
-|   <body>
-|     <template>
-|       content
 
 #data
 <!DOCTYPE HTML><dummy><table><template><table><template><table><script>

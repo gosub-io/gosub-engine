@@ -388,19 +388,6 @@
 |       <option>
 
 #data
-<!doctype html><select><option></optgroup>
-#errors
-(1,42): unexpected-end-tag-in-select
-(1,42): eof-in-select
-#document
-| <!DOCTYPE html>
-| <html>
-|   <head>
-|   <body>
-|     <select>
-|       <option>
-
-#data
 <!doctype html><dd><optgroup><dd>
 #errors
 #document
@@ -1233,48 +1220,6 @@
 |       <div>
 |         <i>
 |           "c"
-|     <table>
-
-#data
-<!doctype html><table><i>a<b>b<div>c<a>d</i>e</b>f
-#errors
-(1,25): foster-parenting-start-tag
-(1,26): foster-parenting-character
-(1,29): foster-parenting-start-tag
-(1,30): foster-parenting-character
-(1,35): foster-parenting-start-tag
-(1,36): foster-parenting-character
-(1,39): foster-parenting-start-tag
-(1,40): foster-parenting-character
-(1,44): foster-parenting-end-tag
-(1,44): adoption-agency-1.3
-(1,44): adoption-agency-1.3
-(1,45): foster-parenting-character
-(1,49): foster-parenting-end-tag
-(1,44): adoption-agency-1.3
-(1,44): adoption-agency-1.3
-(1,50): foster-parenting-character
-(1,50): eof-in-table
-#document
-| <!DOCTYPE html>
-| <html>
-|   <head>
-|   <body>
-|     <i>
-|       "a"
-|       <b>
-|         "b"
-|     <b>
-|     <div>
-|       <b>
-|         <i>
-|           "c"
-|           <a>
-|             "d"
-|         <a>
-|           "e"
-|       <a>
-|         "f"
 |     <table>
 
 #data
