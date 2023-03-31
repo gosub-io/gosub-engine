@@ -1573,6 +1573,26 @@ no doctype
 |   <body>
 
 #data
+<html><head></head><template></template><head>
+#errors
+#document
+| <html>
+|   <head>
+|     <template>
+|       content
+|   <body>
+
+#data
+<body></body><template>
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <template>
+|       content
+
+#data
 <!DOCTYPE HTML><dummy><table><template><table><template><table><script>
 #errors
 eof script

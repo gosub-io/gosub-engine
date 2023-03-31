@@ -160,6 +160,27 @@
 |     <table>
 
 #data
+<b><em><dcell><postfield><postfield><postfield><postfield><missing_glyph><missing_glyph><missing_glyph><missing_glyph><hkern><aside></b></em>
+#errors
+#document-fragment
+div
+#document
+| <b>
+|   <em>
+|     <dcell>
+|       <postfield>
+|         <postfield>
+|           <postfield>
+|             <postfield>
+|               <missing_glyph>
+|                 <missing_glyph>
+|                   <missing_glyph>
+|                     <missing_glyph>
+|                       <hkern>
+| <aside>
+|   <b>
+
+#data
 <b><em><foo><foo><aside></b>
 #errors
 (1,3): expected-doctype-but-got-start-tag
