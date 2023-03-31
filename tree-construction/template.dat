@@ -1635,8 +1635,6 @@ eof table
 #data
 <template><form><input name="q"></form><div>second</div></template>
 #errors
-#document-fragment
-template
 #document
 | <template>
 |   content
