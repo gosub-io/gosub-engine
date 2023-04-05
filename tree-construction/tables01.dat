@@ -284,3 +284,18 @@
 |             <svg svg>
 |               <svg desc>
 |           <td>
+
+#data
+<div><table><svg><foreignObject><select><table><s>
+#errors
+#document
+| <html>
+|   <head>
+|   <body>
+|     <div>
+|       <svg svg>
+|         <svg foreignObject>
+|           <select>
+|       <table>
+|       <s>
+|       <table>
