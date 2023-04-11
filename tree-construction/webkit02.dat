@@ -162,6 +162,9 @@
 #data
 <b><em><dcell><postfield><postfield><postfield><postfield><missing_glyph><missing_glyph><missing_glyph><missing_glyph><hkern><aside></b></em>
 #errors
+unexpected-b-end-tag
+unexpected-em-end-tag
+eof-in-aside
 #document-fragment
 div
 #document
@@ -359,6 +362,8 @@ select
 #data
 <svg xml:base xml:lang xml:space xml:baaah definitionurl>
 #errors
+no-doctype
+eof-in-svg
 #document
 | <html>
 |   <head>
@@ -373,6 +378,8 @@ select
 #data
 <math definitionurl xlink:title xlink:show>
 #errors
+no-doctype
+eof-in-math
 #document
 | <html>
 |   <head>
@@ -385,6 +392,8 @@ select
 #data
 <math DEFINITIONURL>
 #errors
+no-doctype
+eof-in-math
 #document
 | <html>
 |   <head>

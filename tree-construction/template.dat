@@ -1560,6 +1560,9 @@ no doctype
 #data
 <html><head></head><template></template><head>
 #errors
+no doctype
+template-after-head
+head-after-head
 #document
 | <html>
 |   <head>
@@ -1610,6 +1613,8 @@ eof table
 #data
 <template><form><input name="q"></form><div>second</div></template>
 #errors
+#document-fragment
+template
 #document
 | <template>
 |   content

@@ -363,6 +363,7 @@ console.log("FOO<span>BAR</span>BAZ");
 <html><body></body>
    <!-- Hi there --></html>
 #errors
+no-doctype
 #document
 | <html>
 |   <head>
@@ -375,6 +376,7 @@ console.log("FOO<span>BAR</span>BAZ");
 <html><body></body></html>
    <!-- Hi there -->
 #errors
+no-doctype
 #document
 | <html>
 |   <head>
