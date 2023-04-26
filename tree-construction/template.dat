@@ -1092,7 +1092,7 @@ eof in template
 <body><template><i><menu>Foo</i>
 #errors
 no doctype
-mising /menu
+missing /menu
 eof in template
 #document
 | <html>

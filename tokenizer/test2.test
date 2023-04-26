@@ -190,7 +190,7 @@
     { "code": "unexpected-question-mark-instead-of-tag-name", "line": 1, "col": 2 }
 ]},
 
-{"description":"A bogus comment stops at >, even if preceeded by two dashes",
+{"description":"A bogus comment stops at >, even if preceded by two dashes",
 "input":"<?foo-->",
 "output":[["Comment", "?foo--"]],
 "errors":[
