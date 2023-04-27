@@ -288,6 +288,13 @@
 #data
 <div><table><svg><foreignObject><select><table><s>
 #errors
+1:1: Expected a doctype token
+1:13: 'svg' tag isn't allowed here. Currently open tags: html, body, div, table.
+1:33: 'select' tag isn't allowed here. Currently open tags: html, body, div, table, svg, foreignobject.
+1:41: 'table' tag isn't allowed here. Currently open tags: html, body, div, table, svg, foreignobject, select.
+1:41: 'table' tag isn't allowed here. Currently open tags: html, body, div, table, svg, foreignobject.
+1:48: 's' tag isn't allowed here. Currently open tags: html, body, div, table.
+1:51: Premature end of file. Currently open tags: html, body, div, table, s.
 #document
 | <html>
 |   <head>
