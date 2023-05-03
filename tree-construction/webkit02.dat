@@ -404,6 +404,8 @@ eof-in-math
 #data
 <select><hr>
 #errors
+1:1: ERROR: Expected a doctype token
+1:13: ERROR: Premature end of file. Currently open tags: html, body, select.
 #document
 | <html>
 |   <head>
@@ -414,6 +416,8 @@ eof-in-math
 #data
 <select><option><hr>
 #errors
+1:1: ERROR: Expected a doctype token
+1:21: ERROR: Premature end of file. Currently open tags: html, body, select.
 #document
 | <html>
 |   <head>
@@ -425,6 +429,8 @@ eof-in-math
 #data
 <select><optgroup><option><hr>
 #errors
+1:1: ERROR: Expected a doctype token
+1:31: ERROR: Premature end of file. Currently open tags: html, body, select.
 #document
 | <html>
 |   <head>
@@ -437,6 +443,8 @@ eof-in-math
 #data
 <select><optgroup><hr>
 #errors
+1:1: ERROR: Expected a doctype token
+1:23: ERROR: Premature end of file. Currently open tags: html, body, select.
 #document
 | <html>
 |   <head>
@@ -448,6 +456,8 @@ eof-in-math
 #data
 <select><option><optgroup><hr>
 #errors
+1:1: ERROR: Expected a doctype token
+1:31: ERROR: Premature end of file. Currently open tags: html, body, select.
 #document
 | <html>
 |   <head>
@@ -460,6 +470,8 @@ eof-in-math
 #data
 <table><tr><td><select><hr>
 #errors
+1:1: ERROR: Expected a doctype token
+1:28: ERROR: Premature end of file. Currently open tags: html, body, table, tbody, tr, td, select.
 #document
 | <html>
 |   <head>
@@ -474,6 +486,8 @@ eof-in-math
 #data
 <table><tr><td><select><option><hr>
 #errors
+1:1: ERROR: Expected a doctype token
+1:36: ERROR: Premature end of file. Currently open tags: html, body, table, tbody, tr, td, select.
 #document
 | <html>
 |   <head>
@@ -489,6 +503,8 @@ eof-in-math
 #data
 <table><tr><td><select><optgroup><option><hr>
 #errors
+1:1: ERROR: Expected a doctype token
+1:46: ERROR: Premature end of file. Currently open tags: html, body, table, tbody, tr, td, select.
 #document
 | <html>
 |   <head>
@@ -505,6 +521,8 @@ eof-in-math
 #data
 <table><tr><td><select><optgroup><hr>
 #errors
+1:1: ERROR: Expected a doctype token
+1:38: ERROR: Premature end of file. Currently open tags: html, body, table, tbody, tr, td, select.
 #document
 | <html>
 |   <head>
@@ -520,6 +538,8 @@ eof-in-math
 #data
 <table><tr><td><select><option><optgroup><hr>
 #errors
+1:1: ERROR: Expected a doctype token
+1:46: ERROR: Premature end of file. Currently open tags: html, body, table, tbody, tr, td, select.
 #document
 | <html>
 |   <head>
