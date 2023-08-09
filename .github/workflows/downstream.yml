@@ -38,3 +38,20 @@ jobs:
       - run: npm ci
       - run: npm run build --if-present
       - run: npm run unit-tests
+
+  html5gum:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          repository: untitaker/html5gum
+      - run: rm -rf tests/html5lib-tests/
+      - uses: actions/checkout@v2
+        with:
+          path: tests/html5lib-tests/
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+      - run: cargo test
