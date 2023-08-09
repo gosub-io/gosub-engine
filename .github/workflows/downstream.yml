@@ -19,3 +19,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: echo hello world
+
+  parse5:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          repository: inikulin/parse5
+          submodules: recursive
+      - run: rm -rf test/data/html5lib-tests/
+      - uses: actions/checkout@v2
+        with:
+          path: test/data/html5lib-tests/
+      - uses: actions/setup-node@v3
+        with:
+          node-version: lts/*
+          cache: npm
+      - run: npm ci
+      - run: npm run build --if-present
+      - run: npm run unit-tests
