@@ -55,3 +55,22 @@ jobs:
           toolchain: stable
           override: true
       - run: cargo test
+
+  nokogiri:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/sparklemotion/nokogiri-test:mri-3.2
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          repository: sparklemotion/nokogiri
+          path: nokogiri
+      - uses: actions/checkout@v3
+        with:
+          path: nokogiri/test/html5lib-tests
+      - working-directory: nokogiri
+        name: "Run the Nokogiri test suite"
+        run: |
+          bundle install
+          bundle exec rake compile -- --enable-system-libraries
+          bundle exec rake test
