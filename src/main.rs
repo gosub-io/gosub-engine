@@ -1,6 +1,6 @@
 use std::fs::File;
-mod input_stream;
-use crate::input_stream::{InputStream, Confidence, Encoding};
+mod parser;
+use parser::input_stream::{InputStream, Confidence, Encoding};
 
 fn main() {
     let file = File::open("hello.html").expect("could not open file");

@@ -81,6 +81,7 @@ impl InputStream {
         Ok(())
     }
 
+    // Reads a character and increases the current pointer
     pub fn read_char(&mut self) -> char
     {
         if self.eof() {
@@ -90,5 +91,23 @@ impl InputStream {
         let c = self.buffer[self.current];
         self.current+=1;
         c
+    }
+
+    // Returns the number of characters left in the buffer
+    pub fn chars_left(&self) -> usize {
+        self.length - self.current
+    }
+
+    // Looks ahead in the stream, can use an optional index if we want to seek further (or back) in the stream
+    pub fn look_char(&self, idx: Option<isize>) -> char {
+        if self.current < idx.unwrap_or(0) as usize {
+            return 0x0 as char;
+        }
+
+        if self.current + idx.unwrap_or(0) > self.length {
+            return 0x0 as char;
+        }
+
+        self.buffer[self.current + idx.unwrap_or(0)]
     }
 }
