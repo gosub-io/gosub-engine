@@ -2,6 +2,7 @@ use std::fs::File;
 mod html_parser;
 use html_parser::input_stream::{InputStream, Encoding};
 use crate::html_parser::input_stream::Confidence;
+use crate::html_parser::parser::HtmlParser;
 
 fn main() {
     let file = File::open("hello.html").expect("could not open file");
@@ -20,26 +21,32 @@ fn main() {
     }
 
     stream.reset();
-    println!("{}", stream.read_char());
-    println!("{}", stream.read_char());
-    println!("{}", stream.read_char());
-    println!("{}", stream.read_char());
-    println!("{}", stream.read_char());
-    println!("{}", stream.read_char());
-    println!("{}", stream.read_char());
+    println!("{}", stream.read_char().unwrap());
+    println!("{}", stream.read_char().unwrap());
+    println!("{}", stream.read_char().unwrap());
+    println!("{}", stream.read_char().unwrap());
+    println!("{}", stream.read_char().unwrap());
+    println!("{}", stream.read_char().unwrap());
+    println!("{}", stream.read_char().unwrap());
 
     // The unicode bytes is not valid characters anymore
     stream.set_encoding(Encoding::ASCII);
 
     stream.reset();
-    println!("{}", stream.read_char());
-    println!("{}", stream.read_char());
-    println!("{}", stream.read_char());
-    println!("{}", stream.read_char());
-    println!("{}", stream.read_char());
-    println!("{}", stream.read_char());
-    println!("{}", stream.read_char());
-    println!("{}", stream.read_char());
+    println!("{}", stream.read_char().unwrap());
+    println!("{}", stream.read_char().unwrap());
+    println!("{}", stream.read_char().unwrap());
+    println!("{}", stream.read_char().unwrap());
+    println!("{}", stream.read_char().unwrap());
+    println!("{}", stream.read_char().unwrap());
+    println!("{}", stream.read_char().unwrap());
+    println!("{}", stream.read_char().unwrap());
 
     println!("{}", stream.eof());
+
+
+    stream.reset();
+
+    let parser = HtmlParser::new(stream);
+    parser.parse();
 }
