@@ -15,7 +15,7 @@ impl HtmlParser {
     }
 
     // Parses the input stream into a Node tree
-    pub fn parse() -> Node {
+    pub fn parse(&self) -> Node {
         // Tokenize stuff
 
         Node::new(String::from("root"))

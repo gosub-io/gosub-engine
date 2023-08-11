@@ -1,6 +1,6 @@
 use std::fs::File;
 use std::io;
-use std::io::{ErrorKind, Read};
+use std::io::Read;
 
 // Encoding defines the way the buffer stream is read, as what defines a "character".
 #[derive(PartialEq)]
@@ -124,38 +124,44 @@ impl InputStream {
     }
 
     // Returns the number of characters left in the buffer
-    pub fn chars_left(&self) -> usize {
+    pub(crate) fn chars_left(&self) -> usize {
         self.length - self.current
     }
 
     // Reads a character and increases the current pointer
-    pub fn read_char(&mut self) -> Result<char, io::Error>
+    pub(crate) fn read_char(&mut self) -> Option<char>
     {
         if self.eof() {
-            return Err(io::Error::new(ErrorKind::unexpectedEof, "reached EOF"));
+            return None;
         }
 
         let c = self.buffer[self.current];
         self.current+=1;
 
-        return Ok(c)
+        return Some(c)
+    }
+
+    pub(crate) fn unread(&mut self) {
+        if self.current > 1 {
+            self.current -= 1;
+        }
     }
 
     // Looks ahead in the stream, can use an optional index if we want to seek further
     // (or back) in the stream.
-    pub fn look_ahead(&self, idx: i32) -> Result<char, io::Error> {
-        let u_len = idx.unwrap_or(0) as usize;
+    pub(crate) fn look_ahead(&self, idx: i32) -> Option<char> {
+        let idx = idx as usize;
 
         // Trying to look after the stream
-        if self.current + u_len > self.length {
-            return Err(io::Error::new(ErrorKind::unexpectedEof, "reached EOF"));
+        if self.current + idx > self.length {
+            return None
         }
 
         // Trying to look before the stream
-        if self.current + u_len < 0 {
-            return Err(io::Error::new(ErrorKind::unexpectedEof, "reached EOF"));
+        if self.current + idx < 0 {
+            return None
         }
 
-        Ok(self.buffer[self.current + u_len])
+        Some(self.buffer[self.current + idx])
     }
 }
