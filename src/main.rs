@@ -1,5 +1,8 @@
 use std::fs::File;
+
+#[allow(dead_code)]
 mod html_parser;
+
 use html_parser::input_stream::{InputStream, Encoding};
 use crate::html_parser::input_stream::Confidence;
 use crate::html_parser::parser::HtmlParser;
@@ -47,6 +50,6 @@ fn main() {
 
     stream.reset();
 
-    let parser = HtmlParser::new(stream);
+    let parser = HtmlParser::new(&mut stream);
     parser.parse();
 }

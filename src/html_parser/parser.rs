@@ -2,13 +2,13 @@ use crate::html_parser::tokenizer::Tokenizer;
 use crate::html_parser::input_stream::InputStream;
 use crate::html_parser::node::Node;
 
-pub struct HtmlParser {
-    tokenizer: Tokenizer,           // Actual tokenizer
+pub struct HtmlParser<'a> {
+    tokenizer: Tokenizer<'a>,           // Actual tokenizer
 }
 
-impl HtmlParser {
+impl<'a> HtmlParser<'a> {
     // Creates a new parser object with the given input stream
-    pub fn new(stream: InputStream) -> Self {
+    pub fn new(stream: &'a mut InputStream) -> Self {
         return HtmlParser {
             tokenizer: Tokenizer::new(stream)
         }
@@ -18,6 +18,6 @@ impl HtmlParser {
     pub fn parse(&self) -> Node {
         // Tokenize stuff
 
-        Node::new(String::from("root"))
+        Node::new("root")
     }
 }
