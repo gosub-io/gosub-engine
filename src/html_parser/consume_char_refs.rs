@@ -1,7 +1,8 @@
+use crate::html_parser::token_named_characters::TOKEN_NAMED_CHARS;
 use crate::html_parser::token_replacements::TOKEN_REPLACEMENTS;
 use crate::html_parser::tokenizer::{Tokenizer};
 
-impl Tokenizer {
+impl<'a> Tokenizer<'a> {
     // Consumes a character reference and places this in the tokenizer consume buffer
     pub fn consume_character_reference(&mut self, additional_allowed_char: Option<char>) {
         let c = match self.stream.read_char() {
@@ -163,5 +164,73 @@ impl Tokenizer {
     }
 
     // This will consume any other matter that does not start with &# (ie: &raquo; &#copy;)
-    fn consume_anything_else(&mut self) {}
+    fn consume_anything_else(&mut self) {
+        let mut match_str = String::from("");
+        let mut current_found_match = String::from("");
+
+        loop {
+            let c = match self.stream.read_char() {
+                Some(c) => c,
+                None => {
+                    break;
+                }
+            };
+
+            if c == ';' {
+                break;
+            }
+
+            match_str.push(c);
+
+            // If we match "not" we can safely set this. If later we match "notit", that will override
+            // the current_match_found.
+            if TOKEN_NAMED_CHARS.contains_key(&*match_str) {
+                current_found_match = match_str.clone()
+            }
+        }
+
+        for c in current_found_match.chars() {
+            self.consume(c);
+        }
+        self.consume(';');
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::html_parser::input_stream::InputStream;
+    use super::*;
+
+    #[test]
+    fn test_consume_character_reference() {
+        let mut is = InputStream::new();
+        is.read_from_str("&#10;", None);
+        let mut tok = Tokenizer::new(&mut is);
+        tok.next_token();
+        // // assert_eq!(t, Token::String);
+
+        let mut is = InputStream::new();
+        is.read_from_str("&#x124;", None);
+        let mut tok = Tokenizer::new(&mut is);
+        tok.next_token();
+        // // assert_eq!(t, Token::String);
+
+        let mut is = InputStream::new();
+        is.read_from_str("&#x80;", None);
+        let mut tok = Tokenizer::new(&mut is);
+        tok.next_token();
+        // // assert_eq!(t, Token::String);
+
+        let mut is = InputStream::new();
+        is.read_from_str("&not;", None);
+        let mut tok = Tokenizer::new(&mut is);
+        tok.next_token();
+        // // assert_eq!(t, Token::String);
+
+        let mut is = InputStream::new();
+        is.read_from_str("&notit;", None);
+        let mut tok = Tokenizer::new(&mut is);
+        tok.next_token();
+        // assert_eq!(t, Token::String);
+    }
 }

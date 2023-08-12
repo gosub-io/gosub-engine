@@ -118,9 +118,16 @@ impl InputStream {
     pub fn read_from_file(&mut self, mut f: File, e: Option<Encoding>) -> io::Result<()> {
         // First we read the u8 bytes into a buffer
         f.read_to_end(&mut self.u8_buffer).expect("uh oh");
-
         self.force_set_encoding(e.unwrap_or(Encoding::UTF8));
+        self.current = 0;
         Ok(())
+    }
+
+    // Populates the current buffer with the contents of the given string s
+    pub fn read_from_str(&mut self, s: &str, e: Option<Encoding>) {
+        self.u8_buffer = Vec::from(s.as_bytes());
+        self.force_set_encoding(e.unwrap_or(Encoding::UTF8));
+        self.current = 0;
     }
 
     // Returns the number of characters left in the buffer
@@ -149,19 +156,114 @@ impl InputStream {
 
     // Looks ahead in the stream, can use an optional index if we want to seek further
     // (or back) in the stream.
+    // @TODO: idx can be pos or neg. But self.current is always positive. This clashes.
     pub(crate) fn look_ahead(&self, idx: i32) -> Option<char> {
-        let idx = idx as usize;
+        let c = self.current as i32;
 
         // Trying to look after the stream
-        if self.current + idx > self.length {
+        if c + idx > self.length as i32 {
             return None
         }
 
         // Trying to look before the stream
-        if self.current + idx < 0 {
+        if c + idx < 0 {
             return None
         }
 
-        Some(self.buffer[self.current + idx])
+        Some(self.buffer[(c + idx) as usize])
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_stream() {
+        let mut is = InputStream::new();
+        assert_eq!(is.eof(), true);
+
+        is.read_from_str("foo", Some(Encoding::ASCII));
+        assert_eq!(is.length, 3);
+        assert_eq!(is.eof(), false);
+        assert_eq!(is.chars_left(), 3);
+
+        is.read_from_str("f👽f", Some(Encoding::UTF8));
+        assert_eq!(is.length, 3);
+        assert_eq!(is.eof(), false);
+        assert_eq!(is.chars_left(), 3);
+        assert_eq!(is.read_char().unwrap(), 'f');
+        assert_eq!(is.chars_left(), 2);
+        assert_eq!(is.eof(), false);
+        assert_eq!(is.read_char().unwrap(), '👽');
+        assert_eq!(is.eof(), false);
+        assert_eq!(is.chars_left(), 1);
+        assert_eq!(is.read_char().unwrap(), 'f');
+        assert_eq!(is.eof(), true);
+        assert_eq!(is.chars_left(), 0);
+
+        is.reset();
+        is.set_encoding(Encoding::ASCII);
+        assert_eq!(is.length, 6);
+        assert_eq!(is.read_char().unwrap(), 'f');
+        assert_eq!(is.read_char().unwrap(), '?');
+        assert_eq!(is.read_char().unwrap(), '?');
+        assert_eq!(is.read_char().unwrap(), '?');
+        assert_eq!(is.read_char().unwrap(), '?');
+        assert_eq!(is.read_char().unwrap(), 'f');
+        assert_eq!(is.read_char(), None);
+
+        is.unread();
+        assert_eq!(is.chars_left(), 1);
+        is.unread();
+        assert_eq!(is.chars_left(), 2);
+
+        is.reset();
+        assert_eq!(is.chars_left(), 6);
+        is.unread();
+        assert_eq!(is.chars_left(), 6);
+    }
+
+    #[test]
+    fn test_certainty() {
+        let mut is = InputStream::new();
+        assert_eq!(is.is_certain_encoding(), false);
+
+        is.set_confidence(Confidence::Certain);
+        assert_eq!(is.is_certain_encoding(), true);
+
+        is.set_confidence(Confidence::Tentative);
+        assert_eq!(is.is_certain_encoding(), false);
+    }
+
+    #[test]
+    fn test_seek() {
+        let mut is = InputStream::new();
+        is.read_from_str("ab👽cd", Some(Encoding::UTF8));
+        assert_eq!(is.length, 5);
+        assert_eq!(is.chars_left(), 5);
+        assert_eq!(is.read_char().unwrap(), 'a');
+        assert_eq!(is.read_char().unwrap(), 'b');
+        assert_eq!(is.chars_left(), 3);
+        is.seek(0);
+        assert_eq!(is.chars_left(), 5);
+        assert_eq!(is.read_char().unwrap(), 'a');
+        assert_eq!(is.read_char().unwrap(), 'b');
+        assert_eq!(is.chars_left(), 3);
+        is.seek(3);
+        assert_eq!(is.chars_left(), 2);
+        assert_eq!(is.read_char().unwrap(), 'c');
+        assert_eq!(is.read_char().unwrap(), 'd');
+        assert_eq!(is.chars_left(), 0);
+        assert_eq!(is.eof(), true);
+
+        is.reset();
+        assert_eq!(is.look_ahead(0).unwrap(), 'a');
+        assert_eq!(is.look_ahead(3).unwrap(), 'c');
+        assert_eq!(is.look_ahead(1).unwrap(), 'b');
+        assert_eq!(is.look_ahead(100), None);
+        assert_eq!(is.look_ahead(-1), None);
+        is.seek(4);
+        assert_eq!(is.look_ahead(-1).unwrap(), 'c');
     }
 }

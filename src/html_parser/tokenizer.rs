@@ -8,6 +8,8 @@ pub(crate) const CHAR_FF: char = '\u{000C}';
 pub(crate) const CHAR_REPLACEMENT: char = '\u{FFFD}';
 
 // Different tokens types that can be emitted by the tokenizer
+#[derive(Debug)]
+#[derive(PartialEq)]
 pub(crate) enum Token {
     EOF,                // End of file
     None,               // No token (?)
@@ -16,8 +18,8 @@ pub(crate) enum Token {
 }
 
 // The tokenizer will read the input stream and emit tokens that can be used by the parser.
-pub struct Tokenizer {
-    pub stream: InputStream,            // HTML character input stream
+pub struct Tokenizer<'a> {
+    pub stream: &'a mut InputStream,            // HTML character input stream
     pub state: State,                   // Current state of the tokenizer
     pub consumed: Vec<char>,            // Current consumed characters for current token
 }
@@ -34,9 +36,9 @@ pub struct Tokenizer {
 //     };
 // }
 
-impl Tokenizer {
+impl<'a> Tokenizer<'a> {
 
-    pub fn new(input: InputStream) -> Self {
+    pub fn new(input: &'a mut InputStream) -> Self {
         return Tokenizer{
             stream: input,
             state: State::DataState,
