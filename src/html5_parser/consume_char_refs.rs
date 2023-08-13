@@ -9,7 +9,6 @@ impl<'a> Tokenizer<'a> {
     // ref: 8.2.4.69 Tokenizing character references
     pub fn consume_character_reference(&mut self, additional_allowed_char: Option<char>, as_attribute: bool) -> Option<String> {
         self.clear_consume_buffer();
-        self.consume('&');
 
         if as_attribute {
             // When we are inside an attribute context, things (will/might) be different. Not sure how yet.
@@ -44,31 +43,28 @@ impl<'a> Tokenizer<'a> {
 
         // Consume a number when we found &#
         if c == '#' {
+            self.consume('&');
             self.consume(c);
-            match self.consume_number() {
-                Some(_) => {}
-                None => {
-                    self.stream.unread();
-                    return None;
-                }
+            if self.consume_number().is_err() {
+                self.stream.unread();
+                return None;
             }
 
             return Some(self.get_consumed_str());
         }
 
         // Consume anything else when we found & with another char after (ie: &raquo;)
-        match self.consume_anything_else() {
-            Some(_) => {}
-            None => {
-                self.stream.unread();
-                return None;
-            }
+        self.stream.unread();
+        if self.consume_anything_else().is_err() {
+            self.stream.unread();
+            return None;
         }
+
         return Some(self.get_consumed_str());
     }
 
     // Consume a number like #x1234, #123 etc
-    fn consume_number(&mut self) -> Option<String> {
+    fn consume_number(&mut self) -> Result<String, String> {
         let mut str_num = String::new();
 
         // Save current position for easy recovery
@@ -79,7 +75,7 @@ impl<'a> Tokenizer<'a> {
         let hex = match self.stream.look_ahead(0) {
             Some(hex) => hex,
             None => {
-                return None
+                return Err(String::new());
             }
         };
 
@@ -91,7 +87,7 @@ impl<'a> Tokenizer<'a> {
                 Some(c) => c,
                 None => {
                     self.stream.seek(cp);
-                    return None
+                    return Err(String::new());
                 }
             };
 
@@ -104,7 +100,7 @@ impl<'a> Tokenizer<'a> {
                 Some(c) => c,
                 None => {
                     self.stream.seek(cp);
-                    return None
+                    return Err(String::new());
                 }
             };
 
@@ -127,7 +123,7 @@ impl<'a> Tokenizer<'a> {
             Some(c) => c,
             None => {
                 self.stream.seek(cp);
-                return None
+                return Err(String::new());
             }
         };
 
@@ -135,7 +131,7 @@ impl<'a> Tokenizer<'a> {
         if c != ';' {
             self.parse_error("expected a ';'");
             self.stream.seek(cp);
-            return None
+            return Err(String::new());
         }
 
         self.consume(c);
@@ -144,7 +140,7 @@ impl<'a> Tokenizer<'a> {
         if i == 0 {
             self.parse_error("didn't expect #;");
             self.stream.seek(cp);
-            return None
+            return Err(String::new());
         }
 
         // check if we need to replace the character. First convert the number to a uint, and use that
@@ -157,7 +153,7 @@ impl<'a> Tokenizer<'a> {
         if TOKEN_REPLACEMENTS.contains_key(&num) {
             // self.stream.seek(cp);
             let s = *TOKEN_REPLACEMENTS.get(&num).unwrap();
-            return Some(String::from(s));
+            return Ok(String::from(s));
         }
 
         // Next, check if we are in the 0xD800..0xDFFF or 0x10FFFF range, if so, replace
@@ -173,7 +169,7 @@ impl<'a> Tokenizer<'a> {
             self.clear_consume_buffer();
         }
 
-        return Some(self.get_consumed_str());
+        return Ok(String::new());
     }
 
     // Returns if the given codepoint number is in a reserved range (as defined in
@@ -203,37 +199,52 @@ impl<'a> Tokenizer<'a> {
     }
 
     // This will consume any other matter that does not start with &# (ie: &raquo; &#copy;)
-    fn consume_anything_else(&mut self) -> Option<String> {
-        let mut match_str = String::from("");
-        let mut current_found_match = String::from("");
-
-        let mut tmp = String::new();
+    fn consume_anything_else(&mut self) -> Result<String, String> {
+        let mut s = String::new();
+        let mut current_match: Option<String> = None;
 
         loop {
-            let c = match self.stream.read_char() {
-                Some(c) => c,
-                None => {
-                    break;
+            if let Some(c) = self.stream.read_char() {
+                // When we encounter a ;, we return
+                if c == ';' {
+                    if current_match.is_some() {
+                        if ! s.is_empty() {
+                            s.push(';');
+                        }
+                        // Replace our entity with the correct char(acters) and add the "rest" (; or anything before)
+                        let value = TOKEN_NAMED_CHARS[current_match.unwrap().as_str()].to_string() + s.as_str();
+                        self.consume_string(value);
+                        return Ok(String::new());
+                    }
+
+                    return Err(String::new());
                 }
-            };
 
-            if c == ';' {
-                break;
-            }
+                // Add current read character to the string
+                s.push(c);
 
-            match_str.push(c);
+                // Find all keys that start with the string 's'  (ie: co => copy, copyright etc)
+                let possible_matches: Vec<_> = TOKEN_NAMED_CHARS
+                    .keys()
+                    .filter(|&&key| key.starts_with(&s))
+                    .collect()
+                    ;
 
-            // If we match "not" we can safely set this. If later we match "notit", that will override
-            // the current_match_found.
-            if TOKEN_NAMED_CHARS.contains_key(&*match_str) {
-                current_found_match = match_str.clone()
+                // No matches found, it means we don't have anything that matches the current
+                if possible_matches.is_empty() && current_match.is_none() {
+                    return Err(String::new());
+                }
+
+                // Found a match in the tokens, so we assume for now that this is our match. Empty 's' because
+                // we might need to fill it with pending data between our entity and the ;  (ie: &notit; -> it will be in 's' when reaching ;)
+                if TOKEN_NAMED_CHARS.contains_key(&*s) {
+                    current_match = Some(s.clone());
+                    s = String::new();
+                }
+            } else {
+                return Err(String::new());
             }
         }
-
-        tmp = tmp + &current_found_match;
-        tmp.push(';');
-
-        return Some(tmp)
     }
 }
 
@@ -260,6 +271,7 @@ mod tests {
     }
 
     token_tests! {
+        // Numbers
         token_0: ("&#10;", "str[&#10;]")
         token_1: ("&#0;", "str[&#0;]")
         token_2: ("&#x0;", "str[&#x0;]")
@@ -277,5 +289,18 @@ mod tests {
         token_14: ("&#x0009;", "str[&#x0009;]")
         token_15: ("&#x007F;", "str[]")             // reserved codepoint
         token_16: ("&#xFDD0;", "str[]")             // reserved codepoint
+
+        // Entities
+        token_100: ("&copy;", "str[©]")
+        token_101: ("&copyThing;", "str[©Thing;]")
+        token_102: ("&raquo;", "str[»]")
+        token_103: ("&laquo;", "str[«]")
+        token_104: ("&not;", "str[¬]")
+        token_105: ("&notit;", "str[\u{2062}]")
+        token_106: ("&notin;", "str[∈]")
+        token_107: ("&fo", "str[&fo]")
+        token_108: ("&xxx", "str[&xxx]")
+        token_109: ("&copy", "str[&copy]")
+        token_110: ("&fo;", "str[&copy]")
     }
 }
