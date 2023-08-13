@@ -30,6 +30,7 @@ pub struct InputStream {
     // If all things are ok, both buffer and u8_buffer should refer to the same memory location
 }
 
+
 impl InputStream {
     // Create a new default empty input stream
     pub fn new() -> Self {
@@ -73,6 +74,10 @@ impl InputStream {
         }
 
         self.current = off
+    }
+
+    pub fn tell(&self) -> usize {
+        self.current
     }
 
     // Set the given confidence of the input stream encoding

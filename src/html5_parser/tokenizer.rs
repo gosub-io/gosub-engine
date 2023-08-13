@@ -8,6 +8,7 @@ use crate::html5_parser::token_states::State;
 pub const CHAR_TAB: char = '\u{0009}';
 pub const CHAR_LF: char = '\u{000A}';
 pub const CHAR_FF: char = '\u{000C}';
+pub const CHAR_SPACE: char = '\u{0020}';
 pub const CHAR_REPLACEMENT: char = '\u{FFFD}';
 
 
@@ -137,14 +138,14 @@ pub(crate) enum Token {
 impl fmt::Display for Token {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Token::DocType(doctype) => write!(f, "{}", doctype),
-            Token::StartTag(tag) => write!(f, "{}", tag),
-            Token::EndTag(tag) => write!(f, "{}", tag),
-            Token::Attribute(s) => write!(f, "{}", s),
-            Token::Comment(s) => write!(f, "{}", s),
-            Token::String(s) => write!(f, "{}", s),
-            Token::Error { error, span} => write!(f, "{:?} {}", error, span),
-            Token::EOF => write!(f, "[[EOF]]"),
+            Token::DocType(doctype) => write!(f, "doctype[{}]", doctype),
+            Token::StartTag(tag) => write!(f, "starttag[{}]", tag),
+            Token::EndTag(tag) => write!(f, "endtag[{}]", tag),
+            Token::Attribute(s) => write!(f, "attr[{}]", s),
+            Token::Comment(s) => write!(f, "comment[{}]", s),
+            Token::String(s) => write!(f, "str[{}]", s),
+            Token::Error { error, span} => write!(f, "err[{:?} {}]", error, span),
+            Token::EOF => write!(f, "eof[]"),
         }
     }
 }
@@ -195,10 +196,10 @@ impl<'a> Tokenizer<'a> {
                     }
                 }
                 State::CharacterReferenceInDataState => {
-                    // consume character references
+                    // consume character reference
                     let t = match self.consume_character_reference(None, false)
                     {
-                        Some(c) => Token::String(String::from(c)),
+                        Some(s) => Token::String(s),
                         None => Token::String(String::from('&')),
                     };
 
@@ -305,6 +306,7 @@ impl<'a> Tokenizer<'a> {
     // Creates a parser log error message
     pub(crate) fn parse_error(&mut self, _str: &str) {
         // Add to parse log
+        println!("parse_error: {}", _str)
     }
 }
 
