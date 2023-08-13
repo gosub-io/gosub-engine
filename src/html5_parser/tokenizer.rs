@@ -282,6 +282,13 @@ impl<'a> Tokenizer<'a> {
         self.consumed.push(c)
     }
 
+    pub(crate) fn consume_string(&mut self, s: String) {
+        // Add c to the current token data
+        for c in s.chars() {
+            self.consumed.push(c)
+        }
+    }
+
     // Return the length of the current consumed array. This allows easy return to a previous
     // state if tokenizing needs to return.
     pub(crate) fn get_consume_len(&self) -> usize {
