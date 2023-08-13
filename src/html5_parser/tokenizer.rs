@@ -318,21 +318,21 @@ mod tests {
     #[test]
     fn test_tokens() {
         let t = Token::Comment(String::from("this is a comment"));
-        assert_eq!("this is a comment", t.to_string());
+        assert_eq!("comment[this is a comment]", t.to_string());
 
         let t = Token::String(String::from("this is a string"));
-        assert_eq!("this is a string", t.to_string());
+        assert_eq!("str[this is a string]", t.to_string());
 
         let t = Token::StartTag(StartTag::new(String::from("tag"), true, String::from("")));
-        assert_eq!("<tag/>", t.to_string());
+        assert_eq!("starttag[<tag/>]", t.to_string());
 
         let t = Token::StartTag(StartTag::new(String::from("tag"), false, String::from("")));
-        assert_eq!("<tag>", t.to_string());
+        assert_eq!("starttag[<tag>]", t.to_string());
 
         let t = Token::EndTag(EndTag::new(String::from("tag"), String::from("")));
-        assert_eq!("</tag>", t.to_string());
+        assert_eq!("endtag[</tag>]", t.to_string());
 
         let t = Token::DocType(DocType::new(String::from("html"), true, Option::from(String::from("foo")), Option::from(String::from("bar"))));
-        assert_eq!("</tag>", t.to_string());
+        assert_eq!("doctype[<html  FORCE_QUIRKS! foo bar>]", t.to_string());
     }
 }

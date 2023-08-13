@@ -238,7 +238,7 @@ impl<'a> Tokenizer<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::html_parser::input_stream::InputStream;
+    use crate::html5_parser::input_stream::InputStream;
     use super::*;
 
     #[test]
