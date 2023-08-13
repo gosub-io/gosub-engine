@@ -1,11 +1,11 @@
 use std::fs::File;
 
 #[allow(dead_code)]
-mod html_parser;
+mod html5_parser;
 
-use html_parser::input_stream::{InputStream, Encoding};
-use crate::html_parser::input_stream::Confidence;
-use crate::html_parser::parser::HtmlParser;
+use html5_parser::input_stream::{InputStream, Encoding};
+use html5_parser::input_stream::Confidence;
+use html5_parser::Html5Parser;
 
 fn main() {
     let file = File::open("hello.html").expect("could not open file");
@@ -23,33 +23,6 @@ fn main() {
         stream.detect_encoding()
     }
 
-    stream.reset();
-    println!("{}", stream.read_char().unwrap());
-    println!("{}", stream.read_char().unwrap());
-    println!("{}", stream.read_char().unwrap());
-    println!("{}", stream.read_char().unwrap());
-    println!("{}", stream.read_char().unwrap());
-    println!("{}", stream.read_char().unwrap());
-    println!("{}", stream.read_char().unwrap());
-
-    // The unicode bytes is not valid characters anymore
-    stream.set_encoding(Encoding::ASCII);
-
-    stream.reset();
-    println!("{}", stream.read_char().unwrap());
-    println!("{}", stream.read_char().unwrap());
-    println!("{}", stream.read_char().unwrap());
-    println!("{}", stream.read_char().unwrap());
-    println!("{}", stream.read_char().unwrap());
-    println!("{}", stream.read_char().unwrap());
-    println!("{}", stream.read_char().unwrap());
-    println!("{}", stream.read_char().unwrap());
-
-    println!("{}", stream.eof());
-
-
-    stream.reset();
-
-    let parser = HtmlParser::new(&mut stream);
-    parser.parse();
+    let mut parser = Html5Parser::new(&mut stream);
+    let _root = parser.parse();
 }
