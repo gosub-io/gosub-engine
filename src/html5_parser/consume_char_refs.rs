@@ -263,17 +263,19 @@ mod tests {
         token_0: ("&#10;", "str[&#10;]")
         token_1: ("&#0;", "str[&#0;]")
         token_2: ("&#x0;", "str[&#x0;]")
-        token_3: ("&#xdeadbeef;", "str[�]")
-        token_4: ("&#xd888;", "str[�]")
+        token_3: ("&#xdeadbeef;", "str[�]")     // replace with replacement char
+        token_4: ("&#xd888;", "str[�]")         // replace with replacement char
         token_5: ("&#xbeef;", "str[&#xbeef;]")
-        token_6: ("&#x10;", "str[&#x10;]")
+        token_6: ("&#x10;", "str[]")                // reserved codepoint
         token_7: ("&#;", "str[&]")
         token_8: ("&;", "str[&]")
         token_9: ("&", "str[&]")
-        token_10: ("&#x0001;", "str[]")
-        token_11: ("&#x0008;", "str[]")
-        token_12: ("&#x0009;", "str[&#x0009;]")
-        token_13: ("&#x007F;", "str[]")
-        token_14: ("&#xFDD0;", "str[]")
+        token_10: ("&#x0001;", "str[]")             // reserved codepoint
+        token_11: ("&#x0008;", "str[]")             // reserved codepoint
+        token_12: ("&#0008;", "str[]")             // reserved codepoint
+        token_13: ("&#8;", "str[]")             // reserved codepoint
+        token_14: ("&#x0009;", "str[&#x0009;]")
+        token_15: ("&#x007F;", "str[]")             // reserved codepoint
+        token_16: ("&#xFDD0;", "str[]")             // reserved codepoint
     }
 }
