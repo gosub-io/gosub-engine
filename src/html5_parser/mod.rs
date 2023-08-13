@@ -28,16 +28,10 @@ impl<'a> Html5Parser<'a> {
     pub fn parse(&mut self) -> Node {
         // Tokenize stuff
 
-        let t = self.tokenizer.next_token();
-        println!("{}", t);
-        let t = self.tokenizer.next_token();
-        println!("{}", t);
-        let t = self.tokenizer.next_token();
-        println!("{}", t);
-        let t = self.tokenizer.next_token();
-        println!("{}", t);
-        let t = self.tokenizer.next_token();
-        println!("{}", t);
+        for _ in 1..=20 {
+            let t = self.tokenizer.next_token();
+            println!("{}", t);
+        }
 
         let mut n = Node::new("root");
         n.add_child(Node::new("child"));
