@@ -7,3 +7,4 @@ edition = "2021"
 
 [dependencies]
 phf = { version = "0.11.2", features = ["macros"] }
+derive_more = "0.99"

@@ -1,15 +1,22 @@
-use crate::html_parser::token_named_characters::TOKEN_NAMED_CHARS;
-use crate::html_parser::token_replacements::TOKEN_REPLACEMENTS;
-use crate::html_parser::tokenizer::{Tokenizer};
+use crate::html5_parser::token_named_characters::TOKEN_NAMED_CHARS;
+use crate::html5_parser::token_replacements::TOKEN_REPLACEMENTS;
+use crate::html5_parser::tokenizer::Tokenizer;
 
 impl<'a> Tokenizer<'a> {
     // Consumes a character reference and places this in the tokenizer consume buffer
-    pub fn consume_character_reference(&mut self, additional_allowed_char: Option<char>) {
+    pub fn consume_character_reference(&mut self, additional_allowed_char: Option<char>, as_attribute: bool) -> Option<String> {
+        // Clear temp buf
+        self.tmp_buf = Vec::new();
+        self.tmp_buf.push('&');
+
+        if as_attribute {
+        }
+
         let c = match self.stream.read_char() {
             Some(c) => c,
             None => {
                 self.clear_consume_buffer();
-                return;
+                return None;
             }
         };
 
@@ -17,20 +24,20 @@ impl<'a> Tokenizer<'a> {
         if additional_allowed_char.is_some() && c == additional_allowed_char.unwrap() {
             self.stream.unread();
             self.clear_consume_buffer();
-            return
+            return None;
         }
 
         match c {
-            crate::html_parser::tokenizer::CHAR_TAB |
-            crate::html_parser::tokenizer::CHAR_LF |
-            crate::html_parser::tokenizer::CHAR_FF => return,
+            crate::html5_parser::tokenizer::CHAR_TAB |
+            crate::html5_parser::tokenizer::CHAR_LF |
+            crate::html5_parser::tokenizer::CHAR_FF => c,
             '#' => self.consume_dash_entity(),
             _ => self.consume_anything_else(),
-        }
+        };
     }
 
     // Consume a dash entity #x1234, #123 etc
-    fn consume_dash_entity(&mut self) {
+    fn consume_dash_entity(&mut self) -> Option<String> {
         let mut str_num = String::new();
 
         // Save length for easy recovery
@@ -45,7 +52,7 @@ impl<'a> Tokenizer<'a> {
             Some(hex) => hex,
             None => {
                 self.reset_consume_len(len);
-                return
+                return None
             }
         };
 
@@ -56,7 +63,7 @@ impl<'a> Tokenizer<'a> {
                 Some(c) => c,
                 None => {
                     self.reset_consume_len(len);
-                    return
+                    return None
                 }
             };
 
@@ -69,7 +76,7 @@ impl<'a> Tokenizer<'a> {
                 Some(c) => c,
                 None => {
                     self.reset_consume_len(len);
-                    return
+                    return None
                 }
             };
 
@@ -80,6 +87,7 @@ impl<'a> Tokenizer<'a> {
                 str_num.push(c);
                 self.consume(c);
             } else {
+                self.stream.unread();
                 break;
             }
 
@@ -92,7 +100,7 @@ impl<'a> Tokenizer<'a> {
             Some(c) => c,
             None => {
                 self.reset_consume_len(len);
-                return
+                return None
             }
         };
 
@@ -100,14 +108,14 @@ impl<'a> Tokenizer<'a> {
         if c != ';' {
             self.parse_error("expected a ';'");
             self.reset_consume_len(len);
-            return
+            return None
         }
 
         // If we found ;. we need to check how many digits we have parsed. It needs to be at least 1,
         if i == 0 {
             self.parse_error("didn't expect #;");
             self.reset_consume_len(len);
-            return
+            return None
         }
 
         // check if we need to replace the character. First convert the number to a uint, and use that
@@ -119,15 +127,15 @@ impl<'a> Tokenizer<'a> {
 
         if TOKEN_REPLACEMENTS.contains_key(&num) {
             self.reset_consume_len(len);
-            self.consume(*TOKEN_REPLACEMENTS.get(&num).unwrap());
-            return;
+            let s = *TOKEN_REPLACEMENTS.get(&num).unwrap();
+            return Some(String::from(s));
         }
 
         // Next, check if we are in the 0xD800..0xDFFF or 0x10FFFF range, if so, replace
         if (num > 0xD800 && num < 0xDFFF) || (num > 0x10FFFFF) {
             self.reset_consume_len(len);
             self.parse_error("within reserved codepoint range, but replaced");
-            self.consume(crate::html_parser::tokenizer::CHAR_REPLACEMENT);
+            self.consume(crate::html5_parser::tokenizer::CHAR_REPLACEMENT);
         }
 
         // Check if it's in a reserved range, in that case, we ignore the data
@@ -135,6 +143,8 @@ impl<'a> Tokenizer<'a> {
             self.reset_consume_len(len);
             self.parse_error("within reserved codepoint range, ignored");
         }
+
+        return Some(self.get_consumed_str());
     }
 
     // Returns if the given codepoint number is in a reserved range (as defined in
@@ -164,9 +174,11 @@ impl<'a> Tokenizer<'a> {
     }
 
     // This will consume any other matter that does not start with &# (ie: &raquo; &#copy;)
-    fn consume_anything_else(&mut self) {
+    fn consume_anything_else(&mut self) -> Option<String> {
         let mut match_str = String::from("");
         let mut current_found_match = String::from("");
+
+        let mut tmp = String::new();
 
         loop {
             let c = match self.stream.read_char() {
@@ -189,10 +201,10 @@ impl<'a> Tokenizer<'a> {
             }
         }
 
-        for c in current_found_match.chars() {
-            self.consume(c);
-        }
-        self.consume(';');
+        tmp = tmp + &current_found_match;
+        tmp.push(';');
+
+        return Some(tmp)
     }
 }
 
