@@ -12,6 +12,7 @@ impl<'a> Tokenizer<'a> {
         self.consume('&');
 
         if as_attribute {
+            // When we are inside an attribute context, things (will/might) be different. Not sure how yet.
         }
 
         let c = match self.stream.read_char() {
@@ -179,7 +180,7 @@ impl<'a> Tokenizer<'a> {
     // https://dev.w3.org/html5/spec-LC/tokenization.html#consume-a-character-reference)
     fn in_reserved_number_range(&self, codepoint: u32) -> bool {
         if
-        (0x0001..=0x0008).contains(&codepoint) ||
+            (0x0001..=0x0008).contains(&codepoint) ||
             (0x000E..=0x001F).contains(&codepoint) ||
             (0x007F..=0x009F).contains(&codepoint) ||
             (0xFDD0..=0xFDEF).contains(&codepoint) ||
@@ -241,36 +242,38 @@ mod tests {
     use crate::html5_parser::input_stream::InputStream;
     use super::*;
 
-    #[test]
-    fn test_consume_character_reference() {
-        let mut is = InputStream::new();
-        is.read_from_str("&#10;", None);
-        let mut tok = Tokenizer::new(&mut is);
-        tok.next_token();
-        // // assert_eq!(t, Token::String);
+    macro_rules! token_tests {
+        ($($name:ident : $value:expr)*) => {
+            $(
+                #[test]
+                fn $name() {
+                    let (input, expected) = $value;
 
-        let mut is = InputStream::new();
-        is.read_from_str("&#x124;", None);
-        let mut tok = Tokenizer::new(&mut is);
-        tok.next_token();
-        // // assert_eq!(t, Token::String);
+                    let mut is = InputStream::new();
+                    is.read_from_str(input, None);
+                    let mut tok = Tokenizer::new(&mut is);
+                    let t = tok.next_token();
+                    assert_eq!(expected, t.to_string());
+                }
+            )*
+        }
+    }
 
-        let mut is = InputStream::new();
-        is.read_from_str("&#x80;", None);
-        let mut tok = Tokenizer::new(&mut is);
-        tok.next_token();
-        // // assert_eq!(t, Token::String);
-
-        let mut is = InputStream::new();
-        is.read_from_str("&not;", None);
-        let mut tok = Tokenizer::new(&mut is);
-        tok.next_token();
-        // // assert_eq!(t, Token::String);
-
-        let mut is = InputStream::new();
-        is.read_from_str("&notit;", None);
-        let mut tok = Tokenizer::new(&mut is);
-        tok.next_token();
-        // assert_eq!(t, Token::String);
+    token_tests! {
+        token_0: ("&#10;", "str[&#10;]")
+        token_1: ("&#0;", "str[&#0;]")
+        token_2: ("&#x0;", "str[&#x0;]")
+        token_3: ("&#xdeadbeef;", "str[�]")
+        token_4: ("&#xd888;", "str[�]")
+        token_5: ("&#xbeef;", "str[&#xbeef;]")
+        token_6: ("&#x10;", "str[&#x10;]")
+        token_7: ("&#;", "str[&]")
+        token_8: ("&;", "str[&]")
+        token_9: ("&", "str[&]")
+        token_10: ("&#x0001;", "str[]")
+        token_11: ("&#x0008;", "str[]")
+        token_12: ("&#x0009;", "str[&#x0009;]")
+        token_13: ("&#x007F;", "str[]")
+        token_14: ("&#xFDD0;", "str[]")
     }
 }
