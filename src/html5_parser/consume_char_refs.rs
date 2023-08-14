@@ -209,44 +209,55 @@ impl<'a> Tokenizer<'a> {
     fn consume_anything_else(&mut self) -> Result<String, String> {
 
 
-/*
-"&copy;"		-> "(c)"		// case 1: simple entity terminated with ;
-"&copyright;"	-> "(c)"		// case 2: another known entity that takes precedence over the earlier "copy" entity (but happens to be the same returning character)
-"&copynot;"	    -> "(c)not"		// case 3: unknown entity, but &copy is something, so return (c) plus the remainder until ;
-"&copy "		-> "(c)"		// case 4: Terminated by the space, so it's ok
-"&copya"		-> "&copya"		// case 5: Not terminated by a ; (end-of-stream) so "as-is"
-"&copya "		-> "&copya " 	// case 6: Terminated by a space, but not an entity (even though &copy is there), so "as-is"
-"&copy"         -> "&copy"      // case 7: Not terminated by anything (end-of-stream), so "as-is"
-*/
+        /*
+            "&copy;"		-> "(c)"		// case 1: simple entity terminated with ;
+            "&copyright;"	-> "(c)"		// case 2: another known entity that takes precedence over the earlier "copy" entity (but happens to be the same returning character)
+            "&copynot;"	    -> "(c)not"		// case 3: unknown entity, but &copy is something, so return (c) plus the remainder until ;
+            "&copy "		-> "(c)"		// case 4: Terminated by the space, so it's ok
+            "&copya"		-> "&copya"		// case 5: Not terminated by a ; (end-of-stream) so "as-is"
+            "&copya "		-> "&copya " 	// case 6: Terminated by a space, but not an entity (even though &copy is there), so "as-is"
+            "&copy"         -> "&copy"      // case 7: Not terminated by anything (end-of-stream), so "as-is"
+        */
 
-        let mut s = String::new();
         let mut current_match: Option<String> = None;
-        let mut captured: String::new(); = None;
-        let t = String::new();
+        let mut captured: String::new(); None;
+        let mut t = String::new();
+        let mut s = String::new();
 
         loop {
-            c = self.stream.read_char();
+            let c = self.stream.read_char();
             if c == None {
-                // End of stream
-                break;
+                // End of stream. Consume as-is (case 5 and 7)
+                self.consume_string(captured);
+                return Ok(string::new());
             }
 
             captured.push(c.unwrap());
 
             if [' ', '&', '<'].contains(c.unwrap()) {
-                // Same as above, but we don't consume the character
-                break;
-            }
-
-            // If we find a ;, we also terminate, but we 
-            if c.unwrap() == ';' {
                 if current_match.is_some() {
                     // Replace our entity with the correct char(acters) and add the "rest" (; or anything before)
                     let value = TOKEN_NAMED_CHARS[current_match.unwrap().as_str()].to_string() + s.as_str();
                     self.consume_string(value);
+                    self.consume(c.unwrap());
                     return Ok(String::new());
                 }
             }
+
+            if TOKEN_NAMED_CHARS.contains_key(&captured) {
+                current_match = Some(captured.clone());
+            }
+
+            // // If we find a ;, we also terminate, but we 
+            // if c.unwrap() == ';' {
+            //     if current_match.is_some() {
+            //         // Replace our entity with the correct char(acters) and add the "rest" (; or anything before)
+            //         let value = TOKEN_NAMED_CHARS[current_match.unwrap().as_str()].to_string() + s.as_str();
+            //         self.consume_string(value);
+            //         // don't consume the ; 
+            //         return Ok(String::new());
+            //     }
+            // }
 
             if let Some(c) = self.stream.read_char() {
                 // When we encounter a terminating item (such as ;, but others might too), we return
@@ -336,7 +347,6 @@ mod tests {
     }
 
     token_tests! {
-        /*
         // Numbers
         token_0: ("&#10;", "str[\n]")
         token_1: ("&#0;", "str[�]")
@@ -355,7 +365,7 @@ mod tests {
         token_14: ("&#x0009;", "str[\t]")
         token_15: ("&#x007F;", "str[]")             // reserved codepoint
         token_16: ("&#xFDD0;", "str[]")             // reserved codepoint
-*/
+
         // Entities
         token_100: ("&copy;", "str[©]")
         token_101: ("&copyThing;", "str[©Thing;]")
@@ -373,7 +383,6 @@ mod tests {
         token_113: ("&#169;", "str[©]")
         token_114: ("&copy&", "str[©&]")
 
-        /*
         // ChatGPT generated tests
         token_200: ("&copy;", "str[©]")
         token_201: ("&copy ", "str[©]")
@@ -434,6 +443,5 @@ mod tests {
         token_256: ("&unknownchar;", "str[&unknownchar;]")
         token_257: ("&#9999999;", "str[�]")
         token_259: ("&#11;", "str[&#11;]")
-        */
     }
 }
