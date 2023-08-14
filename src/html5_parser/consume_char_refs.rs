@@ -209,7 +209,7 @@ impl<'a> Tokenizer<'a> {
     fn consume_anything_else(&mut self) -> Result<String, String> {
         let mut s = String::new();
         let mut current_match: Option<String> = None;
-
+    
         loop {
             if let Some(c) = self.stream.read_char() {
                 // When we encounter a ;, we return
@@ -230,17 +230,19 @@ impl<'a> Tokenizer<'a> {
                 // Add current read character to the string
                 s.push(c);
 
-                // Find all keys that start with the string 's'  (ie: co => copy, copyright etc)
-                let possible_matches: Vec<_> = TOKEN_NAMED_CHARS
-                    .keys()
-                    .filter(|&&key| key.starts_with(&s))
-                    .collect()
-                    ;
+                // // Find all keys that start with the string 's'  (ie: co => copy, copyright etc)
+                // let possible_matches: Vec<_> = TOKEN_NAMED_CHARS
+                //     .keys()
+                //     .filter(|&&key| key.starts_with(&s))
+                //     .collect()
+                //     ;
 
-                // No matches found, it means we don't have anything that matches the current
-                if possible_matches.is_empty() && current_match.is_none() {
-                    return Err(String::new());
-                }
+                // // No matches found, it means we don't have anything that matches the current
+                // if possible_matches.is_empty() && current_match.is_none() {
+                //     self.consume('&');
+                //     self.consume_string(s);
+                //     return Ok(String::new());
+                // }
 
                 // Found a match in the tokens, so we assume for now that this is our match. Empty 's' because
                 // we might need to fill it with pending data between our entity and the ;  (ie: &notit; -> it will be in 's' when reaching ;)
@@ -250,7 +252,9 @@ impl<'a> Tokenizer<'a> {
                     s = String::new();
                 }
             } else {
-                return Err(String::new());
+                self.consume('&');
+                self.consume_string(s);
+                return Ok(String::new());
             }
         }
     }
@@ -311,7 +315,7 @@ mod tests {
         token_109: ("&copy", "str[&copy]")
         token_110: ("&copy ", "str[©]")
         token_111: ("&copya", "str[&copya]")
-        token_112: ("&copya;", "str[&©a;]")
+        token_112: ("&copya;", "str[©a;]")
         token_113: ("&#169;", "str[©]")
 
         // ChatGPT generated tests
