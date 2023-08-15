@@ -57,7 +57,7 @@ impl<'a> Tokenizer<'a> {
 
         // Consume anything else when we found & with another char after (ie: &raquo;)
         self.stream.unread();
-        if self.consume_anything_else().is_err() {
+        if self.consume_entity(as_attribute).is_err() {
             self.stream.unread();
             return None;
         }
@@ -205,9 +205,76 @@ impl<'a> Tokenizer<'a> {
         return false;
     }
 
-    // This will consume any other matter that does not start with &# (ie: &raquo; &#copy;)
-    fn consume_anything_else(&mut self) -> Result<String, String> {
+    // This will consume an entity that does not start with &# (ie: &raquo; &#copy;)
+    fn consume_entity(&mut self, as_attribute: bool) -> Result<String, String> {
 
+        let mut capture = String::new();
+
+        loop {
+            let c = self.stream.read_char();
+            match c {
+                Some(c) => {
+                    capture.push(c);
+
+                    // If we captured [azAZ09], just continue the capture
+                    if 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9' {
+                        continue;
+                    }
+
+                    // If it's something not a ;, we need to unread it
+                    if c != ';' {
+                        capture.pop();
+                    }
+
+                    break;
+                }
+                None => {
+                    self.parse_error("unexpected end of stream");
+                    return Err(String::new());
+                }
+            }
+        }
+
+        // At this point, we have a consume buffer with the entity name in it. We need to check if it's a known entity
+
+        if capture.len() == 0 {
+            // If we found nohting (ie: &;)
+            self.parse_error("expected entity name");
+            return Err(String::new());          
+
+        // } else if as_attribute {
+            // If we need to consume an entity as an attribute, we need to check if the next character is a valid
+            // attribute stuff
+
+        } else if TOKEN_NAMED_CHARS.contains_key(capture.as_str()) {            
+            // If we found a known entity, we need to replace it
+
+            let entity = TOKEN_NAMED_CHARS.get(capture.as_str()).unwrap();
+            self.consume_string((*entity).to_string());
+            return Ok(String::new());
+
+        } else if ! as_attribute {
+            // If we found some text, but it's not an entity. We decrease the text until we find something that matches an entity.            
+            let mut max_len = capture.len();
+
+            // Largest entity is 6 chars. We don't need to check for more
+            if max_len > 6 {
+                max_len = 6;
+            }
+
+            for j in (1..=max_len).rev() {
+                let substr: String = capture.chars().take(j).collect();
+                if TOKEN_NAMED_CHARS.contains_key(substr.as_str()) {
+                    let entity = TOKEN_NAMED_CHARS.get(substr.as_str()).unwrap();
+                    self.consume_string((*entity).to_string());
+                    self.consume_string(capture.chars().skip(j).collect());
+                    return Ok(String::new());
+                }
+            }
+        }   
+
+        self.consume_string(String::from("????"));
+        return Ok(String::new());
 
         /*
             "&copy;"		-> "(c)"		// case 1: simple entity terminated with ;
@@ -218,109 +285,6 @@ impl<'a> Tokenizer<'a> {
             "&copya "		-> "&copya " 	// case 6: Terminated by a space, but not an entity (even though &copy is there), so "as-is"
             "&copy"         -> "&copy"      // case 7: Not terminated by anything (end-of-stream), so "as-is"
         */
-
-        let mut current_match: Option<String> = None;
-        let mut captured: String::new(); None;
-        let mut t = String::new();
-        let mut s = String::new();
-
-        loop {
-            let c = self.stream.read_char();
-            if c == None {
-                // End of stream. Consume as-is (case 5 and 7)
-                self.consume_string(captured);
-                return Ok(string::new());
-            }
-
-            captured.push(c.unwrap());
-
-            if [' ', '&', '<'].contains(c.unwrap()) {
-                if current_match.is_some() {
-                    // Replace our entity with the correct char(acters) and add the "rest" (; or anything before)
-                    let value = TOKEN_NAMED_CHARS[current_match.unwrap().as_str()].to_string() + s.as_str();
-                    self.consume_string(value);
-                    self.consume(c.unwrap());
-                    return Ok(String::new());
-                }
-            }
-
-            if TOKEN_NAMED_CHARS.contains_key(&captured) {
-                current_match = Some(captured.clone());
-            }
-
-            // // If we find a ;, we also terminate, but we 
-            // if c.unwrap() == ';' {
-            //     if current_match.is_some() {
-            //         // Replace our entity with the correct char(acters) and add the "rest" (; or anything before)
-            //         let value = TOKEN_NAMED_CHARS[current_match.unwrap().as_str()].to_string() + s.as_str();
-            //         self.consume_string(value);
-            //         // don't consume the ; 
-            //         return Ok(String::new());
-            //     }
-            // }
-
-            if let Some(c) = self.stream.read_char() {
-                // When we encounter a terminating item (such as ;, but others might too), we return
-                if [';', ' ', '&', '<'].contains(&c) {
-                    if current_match.is_none() {
-                        // Nothing found that matches
-                        return Err(String::new());
-                    }
-                    
-                    // add the current character to the string
-                    if ! s.is_empty() {
-                        s.push(c);
-                    }
-
-                    // Replace our entity with the correct char(acters) and add the "rest" (; or anything before)
-                    let value = TOKEN_NAMED_CHARS[current_match.unwrap().as_str()].to_string() + s.as_str();
-                    self.consume_string(value);
-                    return Ok(String::new());
-                }
-
-                // Add current read character to the string
-                s.push(c);
-
-                // // Find all keys that start with the string 's'  (ie: co => copy, copyright etc)
-                // let possible_matches: Vec<_> = TOKEN_NAMED_CHARS
-                //     .keys()
-                //     .filter(|&&key| key.starts_with(&s))
-                //     .collect()
-                //     ;
-
-                // // No matches found, it means we don't have anything that matches the current
-                // if possible_matches.is_empty() && current_match.is_none() {
-                //     self.consume('&');
-                //     self.consume_string(s);
-                //     return Ok(String::new());
-                // }
-
-                // Found a match in the tokens, so we assume for now that this is our match. Empty 's' because
-                // we might need to fill it with pending data between our entity and the ;  (ie: &notit; -> it will be in 's' when reaching ;)
-                let value = current_match.clone().unwrap_or(String::new()) + &s.clone();                
-                if TOKEN_NAMED_CHARS.contains_key(&value) {
-                    current_match = Some(s.clone());
-                    s = String::new();
-                }
-
-                // // This is an edge-case where we find a match, but no extra character later on (ie:   "&copy"). 
-                // // In this case, it should return the string as-is.
-                // if self.stream.eof() {
-                //     self.consume('&');
-                //     self.consume_string(s);
-                //     return Ok(String::new());    
-                // }
-
-            } else {
-                if current_match.is_none() {
-                    self.consume('&');
-                } else {
-                    self.consume_string(current_match.unwrap());
-                }
-                self.consume_string(s);
-                return Ok(String::new());
-            }
-        }
     }
 }
 
@@ -382,6 +346,9 @@ mod tests {
         token_112: ("&copya;", "str[©a;]")
         token_113: ("&#169;", "str[©]")
         token_114: ("&copy&", "str[©&]")
+        token_115: ("&copya ", "str[©&]")
+        token_116: ("&#169f ", "str[©f]")
+
 
         // ChatGPT generated tests
         token_200: ("&copy;", "str[©]")
