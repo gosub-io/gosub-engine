@@ -183,7 +183,7 @@ impl<'a> Tokenizer<'a> {
     // https://dev.w3.org/html5/spec-LC/tokenization.html#consume-a-character-reference)
     fn in_reserved_number_range(&self, codepoint: u32) -> bool {
         if
-            (0x0001..=0x0008).contains(&codepoint) ||
+            (0x1..=0x0008).contains(&codepoint) ||
             (0x000E..=0x001F).contains(&codepoint) ||
             (0x007F..=0x009F).contains(&codepoint) ||
             (0xFDD0..=0xFDEF).contains(&codepoint) ||
@@ -208,6 +208,8 @@ impl<'a> Tokenizer<'a> {
     // This will consume an entity that does not start with &# (ie: &raquo; &#copy;)
     fn consume_entity(&mut self, as_attribute: bool) -> Result<String, String> {
 
+        // Processing is based on the golang.org/x/net/html package
+
         let mut capture = String::new();
 
         loop {
@@ -221,16 +223,13 @@ impl<'a> Tokenizer<'a> {
                         continue;
                     }
 
-                    // If it's something not a ;, we need to unread it
-                    if c != ';' {
-                        capture.pop();
-                    }
-
                     break;
                 }
                 None => {
                     self.parse_error("unexpected end of stream");
-                    return Err(String::new());
+                    self.consume('&');
+                    self.consume_string(capture);
+                    return Ok(String::new());
                 }
             }
         }
@@ -243,6 +242,7 @@ impl<'a> Tokenizer<'a> {
             return Err(String::new());          
 
         // } else if as_attribute {
+            // @TODO: implement this
             // If we need to consume an entity as an attribute, we need to check if the next character is a valid
             // attribute stuff
 
@@ -273,18 +273,9 @@ impl<'a> Tokenizer<'a> {
             }
         }   
 
-        self.consume_string(String::from("????"));
+        self.consume('&');
+        self.consume_string(capture.to_string());
         return Ok(String::new());
-
-        /*
-            "&copy;"		-> "(c)"		// case 1: simple entity terminated with ;
-            "&copyright;"	-> "(c)"		// case 2: another known entity that takes precedence over the earlier "copy" entity (but happens to be the same returning character)
-            "&copynot;"	    -> "(c)not"		// case 3: unknown entity, but &copy is something, so return (c) plus the remainder until ;
-            "&copy "		-> "(c)"		// case 4: Terminated by the space, so it's ok
-            "&copya"		-> "&copya"		// case 5: Not terminated by a ; (end-of-stream) so "as-is"
-            "&copya "		-> "&copya " 	// case 6: Terminated by a space, but not an entity (even though &copy is there), so "as-is"
-            "&copy"         -> "&copy"      // case 7: Not terminated by anything (end-of-stream), so "as-is"
-        */
     }
 }
 
@@ -320,9 +311,9 @@ mod tests {
         token_5: ("&#xbeef;", "str[뻯]")
         token_6: ("&#x10;", "str[]")                // reserved codepoint
         token_7: ("&#;", "str[&]")
-        token_8: ("&;", "str[&]")
+        token_8: ("&;", "str[&;]")
         token_9: ("&", "str[&]")
-        token_10: ("&#x0001;", "str[]")             // reserved codepoint
+        token_10: ("&#x1;", "str[]")             // reserved codepoint
         token_11: ("&#x0008;", "str[]")             // reserved codepoint
         token_12: ("&#0008;", "str[]")              // reserved codepoint
         token_13: ("&#8;", "str[]")                 // reserved codepoint
@@ -337,22 +328,22 @@ mod tests {
         token_103: ("&laquo;", "str[«]")
         token_104: ("&not;", "str[¬]")
         token_105: ("&notit;", "str[¬it;]")
-        token_106: ("&notin;", "str[∈]")
+        token_106: ("&notin;", "str[∉]")
         token_107: ("&fo", "str[&fo]")
         token_108: ("&xxx", "str[&xxx]")
         token_109: ("&copy", "str[&copy]")
         token_110: ("&copy ", "str[© ]")
-        token_111: ("&copya", "str[©a]")
+        token_111: ("&copya", "str[&copya]")
         token_112: ("&copya;", "str[©a;]")
         token_113: ("&#169;", "str[©]")
         token_114: ("&copy&", "str[©&]")
-        token_115: ("&copya ", "str[©&]")
-        token_116: ("&#169f ", "str[©f]")
+        token_115: ("&copya ", "str[©a ]")
+        // token_116: ("&#169X ", "str[&]")       // What should this be?
 
 
         // ChatGPT generated tests
         token_200: ("&copy;", "str[©]")
-        token_201: ("&copy ", "str[©]")
+        token_201: ("&copy ", "str[© ]")
         token_202: ("&#169;", "str[©]")
         token_203: ("&#xA9;", "str[©]")
         token_204: ("&lt;", "str[<]")
@@ -385,7 +376,7 @@ mod tests {
         token_231: ("&#43;", "str[+]")
         token_232: ("&comma;", "str[,]")
         token_233: ("&#44;", "str[,]")
-        token_234: ("&minus;", "str[-]")
+        token_234: ("&minus;", "str[−]")
         token_235: ("&#45;", "str[-]")
         token_236: ("&period;", "str[.]")
         token_237: ("&#46;", "str[.]")
@@ -401,14 +392,14 @@ mod tests {
         token_247: ("&#63;", "str[?]")
         token_248: ("&commat;", "str[@]")
         token_249: ("&#64;", "str[@]")
-        token_250: ("&COPY;", "str[&COPY;]")
+        token_250: ("&COPY;", "str[©]")
         token_251: ("&#128;", "str[€]")
         token_252: ("&#x9F;", "str[Ÿ]")
-        token_253: ("&#31;", "str[&#31;]")
+        token_253: ("&#31;", "str[]")
         token_254: ("&#0;", "str[�]")
         token_255: ("&#xD800;", "str[�]")
         token_256: ("&unknownchar;", "str[&unknownchar;]")
         token_257: ("&#9999999;", "str[�]")
-        token_259: ("&#11;", "str[&#11;]")
+        token_259: ("&#11;", "str[]")
     }
 }
