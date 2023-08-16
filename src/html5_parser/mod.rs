@@ -1,16 +1,17 @@
 pub mod input_stream;
 
+mod consume_char_refs;
+mod emitter;
 mod node;
-mod tokenizer;
+mod token;
+mod token_named_characters;
 mod token_replacements;
 mod token_states;
-mod consume_char_refs;
-mod token_named_characters;
-mod emitter;
+mod tokenizer;
 
-use tokenizer::Tokenizer;
 use input_stream::InputStream;
 use node::Node;
+use tokenizer::Tokenizer;
 
 pub struct Html5Parser<'a> {
     tokenizer: Tokenizer<'a>,
@@ -30,7 +31,7 @@ impl<'a> Html5Parser<'a> {
 
         for _ in 1..=20 {
             let t = self.tokenizer.next_token();
-            println!("{}", t);
+            println!("{}", t.to_string());
         }
 
         let mut n = Node::new("root");
