@@ -5,31 +5,30 @@ use std::io::Read;
 // Encoding defines the way the buffer stream is read, as what defines a "character".
 #[derive(PartialEq)]
 pub enum Encoding {
-    UTF8,           // Stream is of UTF8 characters
-    ASCII,          // Stream is of 8bit ASCII
-    // Iso88591        // Stream is of iso_8859_1
-    // More
+    UTF8, // Stream is of UTF8 characters
+    ASCII, // Stream is of 8bit ASCII
+          // Iso88591        // Stream is of iso_8859_1
+          // More
 }
 
 // The confidence decides how confident we are that the input stream is of this encoding
 #[derive(PartialEq)]
 pub enum Confidence {
-    Tentative,          // This encoding might be the one we need
-    Certain,            // We are certain to use this encoding
-    // Irrelevant          // There is no content encoding for this stream
+    Tentative, // This encoding might be the one we need
+    Certain,   // We are certain to use this encoding
+               // Irrelevant          // There is no content encoding for this stream
 }
 
 // HTML(5) input stream structure
 pub struct InputStream {
-    encoding: Encoding,                 // Current encoding
-    pub(crate) confidence: Confidence,  // How confident are we that this is the correct encoding?
-    current: usize,                     // Current offset of the reader
-    length: usize,                      // Length (in bytes) of the buffer
-    buffer: Vec<char>,                  // Reference to the actual buffer stream in characters
-    u8_buffer: Vec<u8>                  // Reference to the actual buffer stream in u8 bytes
-    // If all things are ok, both buffer and u8_buffer should refer to the same memory location
+    encoding: Encoding,                // Current encoding
+    pub(crate) confidence: Confidence, // How confident are we that this is the correct encoding?
+    current: usize,                    // Current offset of the reader
+    length: usize,                     // Length (in bytes) of the buffer
+    buffer: Vec<char>,                 // Reference to the actual buffer stream in characters
+    u8_buffer: Vec<u8>,                // Reference to the actual buffer stream in u8 bytes
+                                       // If all things are ok, both buffer and u8_buffer should refer to the same memory location
 }
-
 
 impl InputStream {
     // Create a new default empty input stream
@@ -55,20 +54,17 @@ impl InputStream {
     }
 
     // Returns true when the stream pointer is at the end of the stream
-    pub fn eof(&self) -> bool
-    {
+    pub fn eof(&self) -> bool {
         self.current >= self.length
     }
 
     // Reset the stream reader back to the start
-    pub fn reset(&mut self)
-    {
+    pub fn reset(&mut self) {
         self.current = 0
     }
 
     // Seek explicit offset in the stream (based on chars)
-    pub fn seek(&mut self, mut off: usize)
-    {
+    pub fn seek(&mut self, mut off: usize) {
         if off > self.length {
             off = self.length
         }
@@ -81,17 +77,15 @@ impl InputStream {
     }
 
     // Set the given confidence of the input stream encoding
-    pub fn set_confidence(&mut self, c: Confidence)
-    {
+    pub fn set_confidence(&mut self, c: Confidence) {
         self.confidence = c;
     }
 
     // Changes the encoding and if necessary, decodes the u8 buffer into the correct encoding
-    pub fn set_encoding(&mut self, e: Encoding)
-    {
+    pub fn set_encoding(&mut self, e: Encoding) {
         // Don't convert if the encoding is the same as it already is
         if self.encoding == e {
-            return
+            return;
         }
 
         self.force_set_encoding(e)
@@ -111,7 +105,11 @@ impl InputStream {
             }
             Encoding::ASCII => {
                 // Convert the string into characters so we can use easy indexing. Any non-ascii chars (> 0x7F) are converted to '?'
-                self.buffer = self.u8_buffer.iter().map(|&byte| if byte.is_ascii() { byte as char } else { '?' }).collect();
+                self.buffer = self
+                    .u8_buffer
+                    .iter()
+                    .map(|&byte| if byte.is_ascii() { byte as char } else { '?' })
+                    .collect();
                 self.length = self.buffer.len();
             }
         }
@@ -141,16 +139,15 @@ impl InputStream {
     }
 
     // Reads a character and increases the current pointer
-    pub(crate) fn read_char(&mut self) -> Option<char>
-    {
+    pub(crate) fn read_char(&mut self) -> Option<char> {
         if self.eof() {
             return None;
         }
 
         let c = self.buffer[self.current];
-        self.current+=1;
+        self.current += 1;
 
-        return Some(c)
+        return Some(c);
     }
 
     pub(crate) fn unread(&mut self) {
@@ -167,12 +164,12 @@ impl InputStream {
 
         // Trying to look after the stream
         if c + idx > self.length as i32 {
-            return None
+            return None;
         }
 
         // Trying to look before the stream
         if c + idx < 0 {
-            return None
+            return None;
         }
 
         Some(self.buffer[(c + idx) as usize])

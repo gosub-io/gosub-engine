@@ -2142,7 +2142,7 @@ pub static TOKEN_NAMED_CHARS: phf::Map<&'static str, &'static str> = phf_map! {
     "yacute" => "\u{00FD}",
     "yen" => "\u{00A5}",
     "yuml" => "\u{00FF}",
-    
+
     "nLt;" =>"\u{226A}{20D2}",
     "nGt;" =>"\u{226B}{20D2}",
     "NotEqualTilde;" =>"\u{2242}{0338}",

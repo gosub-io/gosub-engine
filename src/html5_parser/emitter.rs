@@ -1,5 +1,5 @@
+use crate::html5_parser::token::Token;
 use std::fmt::{Display, Formatter};
-use crate::html5_parser::tokenizer::Token;
 
 pub(crate) trait Emitter: Display {
     fn emit(&mut self, t: Token);
@@ -7,7 +7,7 @@ pub(crate) trait Emitter: Display {
 
 // Emitter that will send the output to a string
 struct StrEmitter {
-    output: String
+    output: String,
 }
 
 impl StrEmitter {
@@ -31,12 +31,11 @@ impl Emitter for StrEmitter {
 }
 
 // Default emitter that will emit tokens to the std output
-pub struct IoEmitter {
-}
+pub struct IoEmitter {}
 
 impl IoEmitter {
     pub fn new() -> Self {
-        IoEmitter{}
+        IoEmitter {}
     }
 }
 
@@ -67,4 +66,3 @@ mod test {
     //     assert_eq!(e.output, "<tag/>");
     // }
 }
-

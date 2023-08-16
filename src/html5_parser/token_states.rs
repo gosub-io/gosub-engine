@@ -1,4 +1,5 @@
 // These are the states in which the tokenizer can be in.
+#[derive(Debug)]
 pub enum State {
     DataState,
     CharacterReferenceInDataState,
