@@ -306,3 +306,17 @@
 |       <table>
 |       <s>
 |       <table>
+
+#data
+<table>a<!doctype html>
+#errors
+(1,1): expected-doctype-but-got-start-tag
+(1,8): illegal-character-token
+(1,9): illegal-doctype
+(1,24): expected-closing-tag-but-got-eof
+#document
+| <html>
+|   <head>
+|   <body>
+|     "a"
+|     <table>

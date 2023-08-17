@@ -585,6 +585,16 @@
 |   <body>
 
 #data
+<!DOCTYPE html> <!DOCTYPE html>
+#errors
+Line: 1 Col: 31 Unexpected DOCTYPE. Ignored.
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|   <body>
+
+#data
 test
 test
 #errors

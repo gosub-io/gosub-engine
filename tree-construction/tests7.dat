@@ -47,6 +47,42 @@
 |   <body>
 
 #data
+<!doctype html></head><base>X
+#errors
+(1,28): unexpected-start-tag-out-of-my-head
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|     <base>
+|   <body>
+|     "X"
+
+#data
+<!doctype html></head><basefont>X
+#errors
+(1,32): unexpected-start-tag-out-of-my-head
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|     <basefont>
+|   <body>
+|     "X"
+
+#data
+<!doctype html></head><bgsound>X
+#errors
+(1,31): unexpected-start-tag-out-of-my-head
+#document
+| <!DOCTYPE html>
+| <html>
+|   <head>
+|     <bgsound>
+|   <body>
+|     "X"
+
+#data
 <!doctype html><table><meta></table>
 #errors
 (1,28): unexpected-start-tag-implies-table-voodoo
