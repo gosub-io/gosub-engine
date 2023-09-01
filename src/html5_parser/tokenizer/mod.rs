@@ -1,9 +1,18 @@
-use crate::html5_parser::input_stream::InputStream;
+pub mod token;
+pub mod state;
+
+mod character_reference;
+mod replacement_tables;
+
+use std::cell::{Ref, RefCell};
+use std::collections::HashMap;
+use std::rc::Rc;
+use crate::html5_parser::error_logger::{ErrorLogger, ParserError};
+use crate::html5_parser::input_stream::{InputStream, Position};
 use crate::html5_parser::input_stream::Element;
 use crate::html5_parser::input_stream::SeekMode::SeekCur;
-use crate::html5_parser::parse_errors::ParserError;
-use crate::html5_parser::token::Token;
-use crate::html5_parser::token_states::State;
+use crate::html5_parser::tokenizer::state::State;
+use crate::html5_parser::tokenizer::token::Token;
 
 // Constants that are not directly captured as visible chars
 pub const CHAR_NUL: char = '\u{0000}';
@@ -21,12 +30,12 @@ pub struct Tokenizer<'a> {
     pub consumed: Vec<char>,            // Current consumed characters for current token
     pub current_attr_name: String,      // Current attribute name that we need to store temporary in case we are parsing attributes
     pub current_attr_value: String,     // Current attribute value that we need to store temporary in case we are parsing attributes
-    pub current_attrs: Vec<(String, String)>,  // Current attributes
+    pub current_attrs: HashMap<String, String>,  // Current attributes
     pub current_token: Option<Token>,   // Token that is currently in the making (if any)
     pub temporary_buffer: Vec<char>,    // Temporary buffer
     pub token_queue: Vec<Token>,        // Queue of emitted tokens. Needed because we can generate multiple tokens during iteration
-    pub errors: Vec<ParseError>,        // Parse errors (if any)
     pub last_start_token: String,       // The last emitted start token (or empty if none)
+    pub error_logger: Rc<RefCell<ErrorLogger>>,      // Parse errors
 }
 
 pub struct Options {
@@ -80,6 +89,7 @@ macro_rules! set_public_identifier {
         }
     }
 }
+
 macro_rules! add_public_identifier {
     ($self:expr, $c:expr) => {
         match &mut $self.current_token {
@@ -170,15 +180,6 @@ macro_rules! emit_token {
             _ => {}
         }
 
-        // match $token {
-        //     Token::EndTagToken { .. } => {
-        //         if !$self.current_attrs.is_empty() {
-        //             $self.parse_error(ParserError::EndTagWithAttributes);
-        //         }
-        //     }
-        //     _ => {}
-        // }
-
         // If there is any consumed data, emit this first as a text token
         if $self.has_consumed_data() {
             $self.token_queue.push(Token::TextToken{
@@ -191,18 +192,9 @@ macro_rules! emit_token {
     }
 }
 
-// Parser error that defines an error (message) on the given position
-#[derive(PartialEq)]
-pub struct ParseError {
-    pub message: String,  // Parse message
-    pub line: usize,        // Line number of the error
-    pub col: usize,         // Offset on line of the error
-    pub offset: usize,      // Position of the error on the line
-}
-
 impl<'a> Tokenizer<'a> {
     // Creates a new tokenizer with the given inputstream and additional options if any
-    pub fn new(input: &'a mut InputStream /*, emitter: &'a mut dyn Emitter*/, opts: Option<Options>) -> Self {
+    pub fn new(input: &'a mut InputStream, opts: Option<Options>, error_logger: Rc<RefCell<ErrorLogger>>) -> Self {
         return Tokenizer {
             stream: input,
             state: opts.as_ref().map_or(State::DataState, |o| o.initial_state),
@@ -212,11 +204,15 @@ impl<'a> Tokenizer<'a> {
             token_queue: vec![],
             current_attr_name: String::new(),
             current_attr_value: String::new(),
-            current_attrs: vec![],
+            current_attrs: HashMap::new(),
             temporary_buffer: vec![],
-            errors: vec![],
+            error_logger: error_logger
         };
     }
+
+    pub(crate) fn get_position(&self) -> Position {
+            return self.stream.position;
+        }
 
     // Retrieves the next token from the input stream or Token::EOF when the end is reached
     pub fn next_token(&mut self) -> Token {
@@ -227,6 +223,10 @@ impl<'a> Tokenizer<'a> {
         }
 
         return self.token_queue.remove(0);
+    }
+
+    pub fn get_error_logger(&self) -> Ref<ErrorLogger> {
+        self.error_logger.borrow()
     }
 
     // Consumes the input stream. Continues until the stream is completed or a token has been generated.
@@ -249,10 +249,10 @@ impl<'a> Tokenizer<'a> {
                         },
                         Element::Eof => {
                             // EOF
-                            if self.has_consumed_data() {
-                                emit_token!(self, Token::TextToken { value: self.get_consumed_str() });
-                                self.clear_consume_buffer();
-                            }
+                            // if self.has_consumed_data() {
+                            //     emit_token!(self, Token::TextToken { value: self.get_consumed_str() });
+                            //     self.clear_consume_buffer();
+                            // }
                             emit_token!(self, Token::EofToken);
                         },
                         _ => self.consume(c.utf8()),
@@ -270,10 +270,10 @@ impl<'a> Tokenizer<'a> {
                         },
                         Element::Utf8('<') => self.state = State::RcDataLessThanSignState,
                         Element::Eof => {
-                            if self.has_consumed_data() {
-                                emit_token!(self, Token::TextToken { value: self.get_consumed_str().clone() });
-                                self.clear_consume_buffer();
-                            }
+                            // if self.has_consumed_data() {
+                            //     emit_token!(self, Token::TextToken { value: self.get_consumed_str().clone() });
+                            //     self.clear_consume_buffer();
+                            // }
                             emit_token!(self, Token::EofToken);
                         },
                         Element::Utf8(CHAR_NUL) => {
@@ -298,10 +298,10 @@ impl<'a> Tokenizer<'a> {
                         },
                         Element::Eof => {
                             // EOF
-                            if self.has_consumed_data() {
-                                emit_token!(self, Token::TextToken { value: self.get_consumed_str() });
-                                self.clear_consume_buffer();
-                            }
+                            // if self.has_consumed_data() {
+                            //     emit_token!(self, Token::TextToken { value: self.get_consumed_str() });
+                            //     self.clear_consume_buffer();
+                            // }
                             emit_token!(self, Token::EofToken);
                         },
                         _ => self.consume(c.utf8()),
@@ -316,10 +316,10 @@ impl<'a> Tokenizer<'a> {
                             self.consume(CHAR_REPLACEMENT);
                         },
                         Element::Eof => {
-                            if self.has_consumed_data() {
-                                emit_token!(self, Token::TextToken { value: self.get_consumed_str().clone() });
-                                self.clear_consume_buffer();
-                            }
+                            // if self.has_consumed_data() {
+                            //     emit_token!(self, Token::TextToken { value: self.get_consumed_str().clone() });
+                            //     self.clear_consume_buffer();
+                            // }
                             emit_token!(self, Token::EofToken);
                         },
                         _ => self.consume(c.utf8()),
@@ -333,10 +333,10 @@ impl<'a> Tokenizer<'a> {
                             self.consume(CHAR_REPLACEMENT);
                         },
                         Element::Eof => {
-                            if self.has_consumed_data() {
-                                emit_token!(self, Token::TextToken { value: self.get_consumed_str().clone() });
-                                self.clear_consume_buffer();
-                            }
+                            // if self.has_consumed_data() {
+                            //     emit_token!(self, Token::TextToken { value: self.get_consumed_str().clone() });
+                            //     self.clear_consume_buffer();
+                            // }
                             emit_token!(self, Token::EofToken);
                         },
                         _ => self.consume(c.utf8()),
@@ -351,7 +351,7 @@ impl<'a> Tokenizer<'a> {
                             self.current_token = Some(Token::StartTagToken{
                                 name: "".into(),
                                 is_self_closing: false,
-                                attributes: vec![],
+                                attributes: HashMap::new(),
                             });
 
                             add_to_token_name!(self, to_lowercase!(ch));
@@ -361,7 +361,7 @@ impl<'a> Tokenizer<'a> {
                             self.current_token = Some(Token::StartTagToken{
                                 name: "".into(),
                                 is_self_closing: false,
-                                attributes: vec![],
+                                attributes: HashMap::new(),
                             });
 
                             add_to_token_name!(self, ch);
@@ -394,6 +394,8 @@ impl<'a> Tokenizer<'a> {
                         Element::Utf8(ch @ 'A'..='Z') => {
                             self.current_token = Some(Token::EndTagToken{
                                 name: "".into(),
+                                is_self_closing: false,
+                                attributes: HashMap::new()
                             });
 
                             add_to_token_name!(self, to_lowercase!(ch));
@@ -402,6 +404,8 @@ impl<'a> Tokenizer<'a> {
                         Element::Utf8(ch @ 'a'..='z') => {
                             self.current_token = Some(Token::EndTagToken{
                                 name: "".into(),
+                                is_self_closing: false,
+                                attributes: HashMap::new()
                             });
 
                             add_to_token_name!(self, ch);
@@ -472,6 +476,8 @@ impl<'a> Tokenizer<'a> {
                         Element::Utf8(ch @ 'A'..='Z') => {
                             self.current_token = Some(Token::EndTagToken{
                                 name: "".into(),
+                                is_self_closing: false,
+                                attributes: HashMap::new()
                             });
                             self.temporary_buffer.push(to_lowercase!(ch));
                             self.state = State::RcDataEndTagNameState;
@@ -479,6 +485,8 @@ impl<'a> Tokenizer<'a> {
                         Element::Utf8(ch @ 'a'..='z') => {
                             self.current_token = Some(Token::EndTagToken{
                                 name: "".into(),
+                                is_self_closing: false,
+                                attributes: HashMap::new()
                             });
                             self.temporary_buffer.push(ch);
                             self.state = State::RcDataEndTagNameState;
@@ -570,6 +578,8 @@ impl<'a> Tokenizer<'a> {
                         Element::Utf8(ch @ 'A'..='Z') => {
                             self.current_token = Some(Token::EndTagToken{
                                 name: "".into(),
+                                is_self_closing: false,
+                                attributes: HashMap::new()
                             });
                             // add_to_token_name!(self, to_lowercase!(ch));
                             self.temporary_buffer.push(to_lowercase!(ch));
@@ -578,6 +588,8 @@ impl<'a> Tokenizer<'a> {
                         Element::Utf8(ch @ 'a'..='z') => {
                             self.current_token = Some(Token::EndTagToken{
                                 name: "".into(),
+                                is_self_closing: false,
+                                attributes: HashMap::new()
                             });
                             // add_to_token_name!(self, ch);
                             self.temporary_buffer.push(ch);
@@ -683,6 +695,8 @@ impl<'a> Tokenizer<'a> {
                     if c.utf8().is_ascii_alphabetic() {
                         self.current_token = Some(Token::EndTagToken{
                             name: "".into(),
+                            is_self_closing: false,
+                            attributes: HashMap::new()
                         });
 
                         self.stream.unread();
@@ -883,6 +897,8 @@ impl<'a> Tokenizer<'a> {
                     if c.is_utf8() && c.utf8().is_ascii_alphabetic() {
                         self.current_token = Some(Token::EndTagToken{
                             name: "".into(),
+                            is_self_closing: false,
+                            attributes: HashMap::new()
                         });
 
                         self.stream.unread();
@@ -2192,39 +2208,12 @@ impl<'a> Tokenizer<'a> {
         self.consumed.clear()
     }
 
-    // Return the list of current parse errors
-    pub fn get_errors(&self) -> &Vec<ParseError> {
-        &self.errors
-    }
-
     // Creates a parser log error message
-    pub(crate) fn parse_error(&mut self, error: ParserError) {
-
+    pub(crate) fn parse_error(&mut self, message: ParserError) {
         // The previous position is where the error occurred
         let pos = self.stream.get_previous_position();
 
-        let mut already_exists= false;
-        for err in &self.errors {
-            if err.line == pos.line && err.col == pos.col && err.message == error.as_str().to_string() {
-                already_exists = true;
-            }
-        }
-
-        // Don't add when this error already exists (for this exact position)
-        if already_exists {
-            // self.stream.seek(SeekCur, 1);
-            return
-        }
-
-        // Add to parse log
-        self.errors.push(ParseError{
-            message: error.as_str().to_string(),
-            line: pos.line,
-            col: pos.col,
-            offset: pos.offset,
-        });
-
-        // self.stream.seek(SeekCur, 1);
+        self.error_logger.borrow_mut().add_error(pos, message.as_str());
     }
 
     // Set is_closing_tag in current token
@@ -2255,9 +2244,7 @@ impl<'a> Tokenizer<'a> {
     fn set_add_attribute_to_current_token(&mut self, name: String, value: String) {
         match &mut self.current_token.as_mut().unwrap() {
             Token::StartTagToken { attributes, .. } => {
-                attributes.push(
-                    (name.clone(), value.clone())
-                );
+                attributes.insert(name.clone(), value.clone());
             }
             _ => {}
         }
@@ -2280,13 +2267,13 @@ impl<'a> Tokenizer<'a> {
 
     // This function checks to see if there is already an attribute name like the one in current_attr_name.
     fn attr_already_exists(&mut self) -> bool {
-        return self.current_attrs.iter().any(|(name, ..)| name == &self.current_attr_name);
+        return self.current_attrs.contains_key(&self.current_attr_name);
     }
 
     // Saves the current attribute name and value onto the current_attrs stack, if there is anything to store
     fn store_and_clear_current_attribute(&mut self) {
-        if !self.current_attr_name.is_empty() && ! self.attr_already_exists() {
-            self.current_attrs.push((self.current_attr_name.clone(), self.current_attr_value.clone()));
+        if !self.current_attr_name.is_empty() && ! self.current_attrs.contains_key(&self.current_attr_name) {
+            self.current_attrs.insert(self.current_attr_name.clone(), self.current_attr_value.clone());
         }
 
         self.current_attr_name = String::new();
@@ -2307,10 +2294,10 @@ impl<'a> Tokenizer<'a> {
                 self.parse_error(ParserError::EndTagWithAttributes);
             },
             Token::StartTagToken { attributes, .. } => {
-                for attr in &self.current_attrs {
-                    attributes.push(attr.clone());
+                for (key, value) in &self.current_attrs {
+                    attributes.insert(key.clone(), value.clone());
                 }
-                self.current_attrs = vec![];
+                self.current_attrs = HashMap::new();
             }
             _ => {},
         }

@@ -1,7 +1,7 @@
 use std::fs::File;
 use std::io;
 use std::io::Read;
-use crate::html5_parser::tokenizer::{CHAR_LF, CHAR_CR};
+use crate::html5_parser::tokenizer::{CHAR_CR, CHAR_LF};
 
 // Encoding defines the way the buffer stream is read, as what defines a "character".
 #[derive(PartialEq)]
@@ -25,6 +25,22 @@ pub struct Position {
     pub offset: usize,
     pub line: usize,
     pub col: usize,
+}
+
+impl Position {
+    // Create a new position
+    pub fn new(offset: usize, line: usize, col: usize) -> Self {
+        Position {
+            offset,
+            line,
+            col,
+        }
+    }
+
+    // Returns a string representation of the position
+    pub fn to_string(&self) -> String {
+        format!("{}:{}:{}", self.offset, self.line, self.col)
+    }
 }
 
 #[derive(PartialEq, Debug, Copy, Clone)]
@@ -134,7 +150,7 @@ impl InputStream {
 
     // Returns true when the stream pointer is at the end of the stream
     pub fn eof(&self) -> bool {
-        self.has_read_eof || self.position.offset as usize >= self.length
+        self.has_read_eof || self.position.offset >= self.length
     }
 
     // Reset the stream reader back to the start
@@ -200,7 +216,7 @@ impl InputStream {
         let mut last_line: usize = 0;
         let mut last_offset = self.line_offsets[last_line];
         for i in 0..self.line_offsets.len() {
-            if self.line_offsets[i] > abs_offset as usize {
+            if self.line_offsets[i] > abs_offset {
                 break;
             }
 
@@ -217,7 +233,7 @@ impl InputStream {
     }
 
     pub fn tell(&self) -> usize {
-        self.position.offset as usize
+        self.position.offset
     }
 
     // Set the given confidence of the input stream encoding
@@ -331,10 +347,10 @@ impl InputStream {
         }
 
         // If we still can move forward in the stream, move forwards
-        if self.position.offset < self.length {
+        return if self.position.offset < self.length {
             let c = self.buffer[self.position.offset].clone();
             self.seek(SeekMode::SeekCur, 1);
-            return c;
+            c
         } else {
             // otherwise, we have reached the end of the stream
             self.has_read_eof = true;
@@ -348,7 +364,7 @@ impl InputStream {
             //     col: self.position.col,
             // };
 
-            return Element::Eof;
+            Element::Eof
         }
     }
 
@@ -369,7 +385,7 @@ impl InputStream {
     pub(crate) fn look_ahead_slice(&self, len: usize) -> String {
         let end_pos = std::cmp::min(self.length, self.position.offset + len);
 
-        let slice = &self.buffer[self.position.offset as usize..end_pos];
+        let slice = &self.buffer[self.position.offset..end_pos];
         slice.iter().map(|e| e.to_string()).collect()
     }
 
@@ -388,7 +404,7 @@ impl InputStream {
     fn read_line_endings_until(&mut self, abs_offset: usize) {
         let mut last_offset = *self.line_offsets.last().unwrap();
 
-        while last_offset <= abs_offset as usize {
+        while last_offset <= abs_offset {
             if last_offset >= self.length {
                 self.line_offsets.push(last_offset + 1);
                 break;

@@ -1,23 +1,19 @@
 use std::{env, fs, io};
+use std::cell::RefCell;
 use std::collections::HashSet;
-
+use std::rc::Rc;
 use serde_json::Value;
-use gosub_engine::html5_parser::input_stream::InputStream;
-use gosub_engine::html5_parser::token_states::{State as TokenState};
-use gosub_engine::html5_parser::tokenizer::{Options, Tokenizer};
-use gosub_engine::html5_parser::token::{Token, TokenTrait, TokenType};
-
 extern crate regex;
 use regex::Regex;
+use gosub_engine::html5_parser::error_logger::ErrorLogger;
+
+use gosub_engine::html5_parser::input_stream::InputStream;
+use gosub_engine::html5_parser::tokenizer::state::{State as TokenState};
+use gosub_engine::html5_parser::tokenizer::{Options, Tokenizer};
+use gosub_engine::html5_parser::tokenizer::token::{Attribute, Token, TokenTrait, TokenType};
 
 #[macro_use]
 extern crate serde_derive;
-
-// These tests are skipped for various reasons. See test_results.md
-const SKIP_TESTS: [&str; 1] = [
-    "<!DOCTYPE a PUBLIC'\\uDBC0\\uDC00",
-
-];
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -96,13 +92,6 @@ fn main () -> io::Result<()> {
 
 fn run_token_test(test: &Test, results: &mut TestResults)
 {
-    for skip in SKIP_TESTS {
-        if test.description == skip {
-            println!("🧪 Skipping test: {}", test.description);
-            return;
-        }
-    }
-
     println!("🧪 Running test: {}", test.description);
 
     results.tests += 1;
@@ -131,12 +120,13 @@ fn run_token_test(test: &Test, results: &mut TestResults)
         } else {
             test.input.to_string()
         };
-
         is.read_from_str(input.as_str(), None);
+
+        let error_logger = Rc::new(RefCell::new(ErrorLogger::new()));
         let mut tokenizer = Tokenizer::new(&mut is, Some(Options{
             initial_state: state,
             last_start_tag: test.last_start_tag.clone().unwrap_or(String::from("")),
-        }));
+        }), error_logger.clone());
 
         // If there is no output, still do an (initial) next token so the parser can generate
         // errors.
@@ -153,12 +143,13 @@ fn run_token_test(test: &Test, results: &mut TestResults)
             }
         }
 
-        if tokenizer.errors.len() != test.errors.len() {
-            println!("❌ Unexpected errors found (wanted {}, got {}): ", test.errors.len(), tokenizer.errors.len());
+        let borrowed_error_logger = error_logger.borrow();
+        if borrowed_error_logger.get_errors().len() != test.errors.len() {
+            println!("❌ Unexpected errors found (wanted {}, got {}): ", test.errors.len(), borrowed_error_logger.get_errors().len());
             for want_err in &test.errors {
                 println!("     * Want: '{}' at {}:{}", want_err.code, want_err.line, want_err.col);
             }
-            for got_err in tokenizer.get_errors() {
+            for got_err in borrowed_error_logger.get_errors() {
                 println!("     * Got: '{}' at {}:{}", got_err.message, got_err.line, got_err.col);
             }
             results.assertions += 1;
@@ -196,9 +187,8 @@ enum ErrorResult {
 }
 
 fn match_error(tokenizer: &Tokenizer, expected_err: &Error) -> ErrorResult {
-
     // Iterate all generated errors to see if we have an exact match
-    for got_err in tokenizer.get_errors() {
+    for got_err in tokenizer.get_error_logger().get_errors() {
         if got_err.message == expected_err.code && got_err.line as i64 == expected_err.line && got_err.col as i64 == expected_err.col {
             // Found an exact match
             println!("✅ Found parse error '{}' at {}:{}", got_err.message, got_err.line, got_err.col);
@@ -210,7 +200,7 @@ fn match_error(tokenizer: &Tokenizer, expected_err: &Error) -> ErrorResult {
     // Try and find an error that matches the code, but has a different line/pos. Even though
     // it's not always correct, it might be a off-by-one position.
     let mut result = ErrorResult::Failure;
-    for got_err in tokenizer.get_errors() {
+    for got_err in tokenizer.get_error_logger().get_errors() {
         if got_err.message == expected_err.code {
             if got_err.line as i64 != expected_err.line || got_err.col as i64 != expected_err.col {
                 // println!("❌ Expected error '{}' at {}:{}", expected_err.code, expected_err.line, expected_err.col);
@@ -223,7 +213,7 @@ fn match_error(tokenizer: &Tokenizer, expected_err: &Error) -> ErrorResult {
     println!("❌ Expected error '{}' at {}:{}", expected_err.code, expected_err.line, expected_err.col);
 
     println!("   Parser errors generated:");
-    for got_err in tokenizer.get_errors() {
+    for got_err in tokenizer.get_error_logger().get_errors() {
         println!("     * '{}' at {}:{}", got_err.message, got_err.line, got_err.col);
     }
 
@@ -283,7 +273,7 @@ fn match_token(have: Token, expected: &[Value], double_escaped: bool) -> bool {
     true
 }
 
-fn check_match_starttag(expected: &[Value], name: String, attributes: Vec<(String, String)>, is_self_closing: bool) -> Result<(), ()> {
+fn check_match_starttag(expected: &[Value], name: String, attributes: Vec<Attribute>, is_self_closing: bool) -> Result<(), ()> {
     let expected_name = expected.get(1).and_then(|v| v.as_str()).unwrap();
     let expected_attrs = expected.get(2).and_then(|v| v.as_object());
     let expected_self_closing = expected.get(3).and_then(|v| v.as_bool());
@@ -304,10 +294,10 @@ fn check_match_starttag(expected: &[Value], name: String, attributes: Vec<(Strin
     }
 
     // Convert the expected attr to Vec<(string, string)>
-    let expected_attrs: Vec<(String, String)> = expected_attrs.map_or(Vec::new(), |map| {
+    let expected_attrs: Vec<Attribute> = expected_attrs.map_or(Vec::new(), |map| {
         map.iter()
             .filter_map(|(key, value)| {
-                value.as_str().map(|v| (key.clone(), v.to_string()))
+                value.as_str().map(|v| Attribute{name: key.clone(), value: v.to_string()})
             })
             .collect()
     });
@@ -319,10 +309,10 @@ fn check_match_starttag(expected: &[Value], name: String, attributes: Vec<(Strin
         println!("❌ Attributes mismatch");
 
         for attr in expected_attrs {
-            println!("     * Want: '{}={}'", &attr.0, &attr.1);
+            println!("     * Want: '{}={}'", &attr.name, &attr.value);
         }
         for attr in attributes {
-            println!("     * Got: '{}={}'", attr.0, attr.1);
+            println!("     * Got: '{}={}'", attr.name, attr.value);
         }
 
         return Err(())
