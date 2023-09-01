@@ -1,5 +1,5 @@
 // These are the states in which the tokenizer can be in.
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum State {
     DataState,
     CharacterReferenceInDataState,
@@ -24,6 +24,7 @@ pub enum State {
     ScriptDataEscapeStartDashState,
     ScriptDataEscapedState,
     ScriptDataEscapedDashState,
+    ScriptDataEscapedDashDashState,
     ScriptDataEscapedLessThanSignState,
     ScriptDataEscapedEndTagOpenState,
     ScriptDataEscapedEndTagNameState,
@@ -35,6 +36,7 @@ pub enum State {
     ScriptDataDoubleEscapeEndState,
     BeforeAttributeNameState,
     AttributeNameState,
+    AfterAttributeNameState,
     BeforeAttributeValueState,
     AttributeValueDoubleQuotedState,
     AttributeValueSingleQuotedState,
@@ -47,6 +49,10 @@ pub enum State {
     CommentStartState,
     CommentStartDashState,
     CommentState,
+    CommentLessThanSignState,
+    CommentLessThanSignBangState,
+    CommentLessThanSignBangDashState,
+    CommentLessThanSignBangDashDashState,
     CommentEndDashState,
     CommentEndState,
     CommentEndBangState,
@@ -61,10 +67,12 @@ pub enum State {
     AfterDoctypePublicIdentifierState,
     BetweenDocTypePublicAndSystemIdentifiersState,
     AfterDocTypeSystemKeywordState,
-    BeforeDocTypeSystemIdentifiedState,
+    BeforeDocTypeSystemIdentifierState,
     DocTypeSystemIdentifierDoubleQuotedState,
     DocTypeSystemIdentifierSingleQuotedState,
-    AfterDocTypeSystemIdentifiedState,
+    AfterDocTypeSystemIdentifierState,
     BogusDocTypeState,
     CDataSectionState,
+    CDataSectionBracketState,
+    CDataSectionEndState,
 }

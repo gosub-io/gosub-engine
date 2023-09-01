@@ -9,9 +9,11 @@ pub enum TokenType {
     EofToken,
 }
 
+// The different token structures that can be emitted by the tokenizer
+#[derive(Clone, PartialEq)]
 pub enum Token {
     DocTypeToken {
-        name: String,
+        name: Option<String>,
         force_quirks: bool,
         pub_identifier: Option<String>,
         sys_identifier: Option<String>,
@@ -33,6 +35,7 @@ pub enum Token {
     EofToken,
 }
 
+// Each token can be displayed as a string
 impl std::fmt::Display for Token {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
@@ -42,20 +45,20 @@ impl std::fmt::Display for Token {
                 pub_identifier,
                 sys_identifier,
             } => {
-                let mut result = format!("<{} ", name);
+                let mut result = format!("<!DOCTYPE {:?}", name);
                 if *force_quirks {
                     result.push_str(" FORCE_QUIRKS!");
                 }
                 if let Some(pub_id) = pub_identifier {
-                    result.push_str(&format!(" {} ", pub_id));
+                    result.push_str(&format!(" {}", pub_id));
                 }
                 if let Some(sys_id) = sys_identifier {
-                    result.push_str(&format!(" {} ", sys_id));
+                    result.push_str(&format!(" {}", sys_id));
                 }
-                result.push('>');
+                result.push_str(" />");
                 write!(f, "{}", result)
             }
-            Token::CommentToken { value } => write!(f, "<!--{}-->", value),
+            Token::CommentToken { value } => write!(f, "<!-- {} -->", value),
             Token::TextToken { value } => write!(f, "{}", value),
             Token::StartTagToken {
                 name,
@@ -83,6 +86,7 @@ pub trait TokenTrait {
     fn type_of(&self) -> TokenType;
 }
 
+// Each token implements the TokenTrait and has a type_of that will return the tokentype.
 impl TokenTrait for Token {
     fn type_of(&self) -> TokenType {
         match self {

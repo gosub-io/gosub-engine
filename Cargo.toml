@@ -1,10 +1,20 @@
 [package]
-name = "gosub-browser"
+name = "gosub-engine"
 version = "0.1.0"
 edition = "2021"
+authors = ["Joshua Thijssen <jaytaph@deadcode.nl>"]
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+description = "html5 browser engine"
+license = "MIT"
+repository = "https://github.com/jaytaph/gosub-browser"
+readme = "README.MD"
+keywords = ["html5", "parser"]
 
 [dependencies]
 phf = { version = "0.11.2", features = ["macros"] }
 derive_more = "0.99"
+serde = "1.0"
+serde_json = "1.0"
+serde_derive = "1.0"
+regex = "1"
+lazy_static = "1.4"

@@ -1,14 +1,11 @@
 use std::fs::File;
 
-#[allow(dead_code)]
-mod html5_parser;
-
-use html5_parser::input_stream::Confidence;
-use html5_parser::input_stream::{Encoding, InputStream};
-use html5_parser::Html5Parser;
+use gosub_engine::html5_parser::input_stream::Confidence;
+use gosub_engine::html5_parser::input_stream::{Encoding, InputStream};
+use gosub_engine::html5_parser::parser::Html5Parser;
 
 fn main() {
-    let file = File::open("hello.html").expect("could not open file");
+    let file = File::open("../../hello.html").expect("could not open file");
 
     // We just read the stream from a file. It will use UTF8 as the default encoding.
     let mut stream = InputStream::new();
