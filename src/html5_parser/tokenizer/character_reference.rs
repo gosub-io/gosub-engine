@@ -1,15 +1,12 @@
-use crate::html5_parser::parse_errors::ParserError;
-use crate::html5_parser::token_named_characters::TOKEN_NAMED_CHARS;
-use crate::html5_parser::token_replacements::TOKEN_REPLACEMENTS;
-use crate::html5_parser::tokenizer::Tokenizer;
 use crate::html5_parser::input_stream::Element;
+use crate::html5_parser::error_logger::ParserError;
 use crate::read_char;
 
 extern crate lazy_static;
 use lazy_static::lazy_static;
 use crate::html5_parser::input_stream::SeekMode::SeekCur;
-
-use super::tokenizer::CHAR_REPLACEMENT;
+use crate::html5_parser::tokenizer::{CHAR_REPLACEMENT, Tokenizer};
+use crate::html5_parser::tokenizer::replacement_tables::{TOKEN_NAMED_CHARS, TOKEN_REPLACEMENTS};
 
 // Different states for the character references
 pub enum CcrState {
@@ -108,7 +105,7 @@ impl<'a> Tokenizer<'a> {
 
                         if entity.chars().last().unwrap() != ';' {
                             // We need to return the position where we expected the ';'
-                            self.stream.read_char();    // @TODO: We can't use skip, as this might interfere with EOF stuff (fix it)
+                            self.stream.read_char();    // We can't use skip, as this might interfere with EOF stuff (fix it)
                             self.parse_error(ParserError::MissingSemicolonAfterCharacterReference);
                             self.stream.unread();
                         }
@@ -350,7 +347,10 @@ lazy_static! {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::rc::Rc;
+    use std::cell::RefCell;
     use crate::html5_parser::input_stream::InputStream;
+    use crate::html5_parser::error_logger::ErrorLogger;
 
     macro_rules! entity_tests {
         ($($name:ident : $value:expr)*) => {
@@ -361,9 +361,12 @@ mod tests {
 
                     let mut is = InputStream::new();
                     is.read_from_str(input, None);
-                    let mut tok = Tokenizer::new(&mut is, None);
-                    let t = tok.next_token();
-                    assert_eq!(expected, t.to_string());
+
+                    let error_logger = Rc::new(RefCell::new(ErrorLogger::new()));
+                    let mut tokenizer = Tokenizer::new(&mut is, None, error_logger.clone());
+
+                    let token = tokenizer.next_token();
+                    assert_eq!(expected, token.to_string());
                 }
             )*
         }

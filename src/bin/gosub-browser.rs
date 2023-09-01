@@ -5,7 +5,7 @@ use gosub_engine::html5_parser::input_stream::{Encoding, InputStream};
 use gosub_engine::html5_parser::parser::Html5Parser;
 
 fn main() {
-    let file = File::open("../../hello.html").expect("could not open file");
+    let file = File::open("testfile.html").expect("could not open file");
 
     // We just read the stream from a file. It will use UTF8 as the default encoding.
     let mut stream = InputStream::new();
@@ -23,5 +23,7 @@ fn main() {
     }
 
     let mut parser = Html5Parser::new(&mut stream);
-    let _root = parser.parse();
+    let document = parser.parse();
+
+    println!("Generated tree: \n\n {}", document.root);
 }
