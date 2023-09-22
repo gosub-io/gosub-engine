@@ -71,44 +71,58 @@ impl Document {
 }
 
 impl Document {
-    fn display_tree(&self, node: &Node, indent: usize, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut prefix = " ".repeat(indent);
-        if !prefix.is_empty() {
-            prefix = format!("{}└─ ", prefix);
+    /// Print a node and all its children in a tree-like structure
+    pub fn print_tree(&self, node: &Node, prefix: String, last: bool, f: &mut fmt::Formatter<'_>) {
+        let mut buffer = prefix.clone();
+        if last {
+            buffer.push_str("└─ ");
+        } else {
+            buffer.push_str("├─ ");
         }
 
         match &node.data {
             NodeData::Document => {
-                writeln!(f, "{}Document", prefix)?;
+                _ = writeln!(f, "{}Document", buffer);
             }
             NodeData::Text { value } => {
-                writeln!(f, "{}{}", prefix, value)?;
+                _ = writeln!(f, "{}\"{}\"", buffer, value);
             }
             NodeData::Comment { value } => {
-                writeln!(f, "{}<!-- {} -->", prefix, value)?;
+                _ = writeln!(f, "{}<!-- {} -->", buffer, value);
             }
             NodeData::Element { name, attributes } => {
-                write!(f, "{}<{}", prefix, name)?;
+                _ = write!(f, "{}<{}", buffer, name);
                 for (key, value) in attributes.iter() {
-                    write!(f, " {}={}", key, value)?;
+                    _ = write!(f, " {}={}", key, value);
                 }
-                writeln!(f, ">")?;
+                _ = writeln!(f, ">");
             }
         }
 
-        for child_id in &node.children {
-            if let Some(child) = self.arena.get_node(*child_id) {
-                self.display_tree(child, indent + 2, f)?;
-            }
+        if prefix.len() > 40 {
+            _ = writeln!(f, "...");
+            return;
         }
 
-        Ok(())
+        let mut buffer = prefix;
+        if last {
+            buffer.push_str("   ");
+        } else {
+            buffer.push_str("│  ");
+        }
+
+        let len = node.children.len();
+        for (i, child) in node.children.iter().enumerate() {
+            let child = self.arena.get_node(*child).expect("Child not found");
+            self.print_tree(child, buffer.clone(), i == len - 1, f);
+        }
     }
 }
 
 impl fmt::Display for Document {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.display_tree(self.get_root(), 0, f)
+        self.print_tree(self.get_root(), "".to_string(), true, f);
+        Ok(())
     }
 }
 
