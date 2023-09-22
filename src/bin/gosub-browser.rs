@@ -23,7 +23,11 @@ fn main() {
     }
 
     let mut parser = Html5Parser::new(&mut stream);
-    let document = parser.parse();
+    let (document, parse_error) = parser.parse();
 
-    println!("Generated tree: \n\n {}", document.root);
+    println!("Generated tree: \n\n {}", document);
+
+    for e in parse_error{
+        println!("Parse Error: {}", e.message)
+    }
 }
