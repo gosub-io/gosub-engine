@@ -223,7 +223,9 @@ fn match_error(tokenizer: &Tokenizer, expected_err: &Error) -> ErrorResult {
     // it's not always correct, it might be a off-by-one position.
     let mut result = ErrorResult::Failure;
     for got_err in tokenizer.get_error_logger().get_errors() {
-        if got_err.message == expected_err.code && (got_err.line as i64 != expected_err.line || got_err.col as i64 != expected_err.col) {
+        if got_err.message == expected_err.code
+            && (got_err.line as i64 != expected_err.line || got_err.col as i64 != expected_err.col)
+        {
             // println!("❌ Expected error '{}' at {}:{}", expected_err.code, expected_err.line, expected_err.col);
             result = ErrorResult::PositionFailure;
             break;

@@ -91,7 +91,10 @@ macro_rules! set_public_identifier {
 macro_rules! add_public_identifier {
     ($self:expr, $c:expr) => {
         match &mut $self.current_token {
-            Some(Token::DocTypeToken { pub_identifier: Some(pid), .. }) => {
+            Some(Token::DocTypeToken {
+                pub_identifier: Some(pid),
+                ..
+            }) => {
                 pid.push($c);
             }
             _ => {}
@@ -113,7 +116,10 @@ macro_rules! set_system_identifier {
 macro_rules! add_system_identifier {
     ($self:expr, $c:expr) => {
         match &mut $self.current_token {
-            Some(Token::DocTypeToken { sys_identifier: Some(sid), .. }) => {
+            Some(Token::DocTypeToken {
+                sys_identifier: Some(sid),
+                ..
+            }) => {
                 sid.push($c);
             }
             _ => {}
@@ -2291,7 +2297,8 @@ impl<'a> Tokenizer<'a> {
 
     // Set force_quirk mode in current token
     fn set_quirks_mode(&mut self, quirky: bool) {
-        if let Token::DocTypeToken { force_quirks, .. } = &mut self.current_token.as_mut().unwrap() {
+        if let Token::DocTypeToken { force_quirks, .. } = &mut self.current_token.as_mut().unwrap()
+        {
             *force_quirks = quirky;
         }
     }

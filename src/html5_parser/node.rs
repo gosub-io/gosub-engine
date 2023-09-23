@@ -113,13 +113,19 @@ impl Node {
 
     // Returns true if the given node is "special" node based on the namespace and name
     pub fn is_special(&self) -> bool {
-        if self.namespace == Some(HTML_NAMESPACE.into()) && SPECIAL_HTML_ELEMENTS.contains(&self.name.as_str()) {
+        if self.namespace == Some(HTML_NAMESPACE.into())
+            && SPECIAL_HTML_ELEMENTS.contains(&self.name.as_str())
+        {
             return true;
         }
-        if self.namespace == Some(MATHML_NAMESPACE.into()) && SPECIAL_MATHML_ELEMENTS.contains(&self.name.as_str()) {
+        if self.namespace == Some(MATHML_NAMESPACE.into())
+            && SPECIAL_MATHML_ELEMENTS.contains(&self.name.as_str())
+        {
             return true;
         }
-        if self.namespace == Some(SVG_NAMESPACE.into()) && SPECIAL_SVG_ELEMENTS.contains(&self.name.as_str()) {
+        if self.namespace == Some(SVG_NAMESPACE.into())
+            && SPECIAL_SVG_ELEMENTS.contains(&self.name.as_str())
+        {
             return true;
         }
 
