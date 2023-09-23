@@ -147,7 +147,7 @@ fn run_tree_test(test_idx: usize,test: &Test, results: &mut TestResults) {
     is.read_from_str(test.data.as_str(), None);
 
     let mut parser = Html5Parser::new(&mut is);
-    let (document, parse_errors) = parser.parse();
+    let (document, _parse_errors) = parser.parse();
 
     match_document_tree(&document, &test.document);
 
@@ -219,6 +219,7 @@ fn run_tree_test(test_idx: usize,test: &Test, results: &mut TestResults) {
     println!("----------------------------------------");
 }
 
+#[allow(dead_code)]
 #[derive(PartialEq)]
 enum ErrorResult {
     Success,            // Found the correct error
@@ -301,6 +302,7 @@ fn match_node(node_idx: usize, expected_id: isize, indent: isize, document: &Doc
     Some(next_expected_idx as usize)
 }
 
+#[allow(dead_code)]
 fn match_error(got_err: &Error, expected_err: &Error) -> ErrorResult {
     if got_err == expected_err {
         // Found an exact match
