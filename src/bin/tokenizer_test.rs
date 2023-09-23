@@ -174,7 +174,7 @@ fn run_token_test(test: &Test, results: &mut TestResults) {
 
         // Check error messages
         for error in &test.errors {
-            match match_error(&tokenizer, &error) {
+            match match_error(&tokenizer, error) {
                 ErrorResult::Failure => {
                     results.assertions += 1;
                     results.failed += 1;
@@ -223,12 +223,10 @@ fn match_error(tokenizer: &Tokenizer, expected_err: &Error) -> ErrorResult {
     // it's not always correct, it might be a off-by-one position.
     let mut result = ErrorResult::Failure;
     for got_err in tokenizer.get_error_logger().get_errors() {
-        if got_err.message == expected_err.code {
-            if got_err.line as i64 != expected_err.line || got_err.col as i64 != expected_err.col {
-                // println!("❌ Expected error '{}' at {}:{}", expected_err.code, expected_err.line, expected_err.col);
-                result = ErrorResult::PositionFailure;
-                break;
-            }
+        if got_err.message == expected_err.code && (got_err.line as i64 != expected_err.line || got_err.col as i64 != expected_err.col) {
+            // println!("❌ Expected error '{}' at {}:{}", expected_err.code, expected_err.line, expected_err.col);
+            result = ErrorResult::PositionFailure;
+            break;
         }
     }
 
@@ -342,7 +340,7 @@ fn check_match_starttag(
         return Err(());
     }
 
-    if expected_attrs.is_none() && attributes.len() == 0 {
+    if expected_attrs.is_none() && attributes.is_empty() {
         // No attributes to check
         return Ok(());
     }
@@ -452,7 +450,7 @@ fn check_match_doctype(
     let expected_sys = expected.get(3).unwrap().as_str();
     let expected_quirk = expected.get(4).unwrap().as_bool();
 
-    if expected_name.is_none() && !name.is_none() {
+    if expected_name.is_none() && name.is_some() {
         println!(
             "❌ Incorrect doctype (no name expected, but got '{}')",
             name.unwrap()

@@ -91,10 +91,8 @@ macro_rules! set_public_identifier {
 macro_rules! add_public_identifier {
     ($self:expr, $c:expr) => {
         match &mut $self.current_token {
-            Some(Token::DocTypeToken { pub_identifier, .. }) => {
-                if let Some(pid) = pub_identifier {
-                    pid.push($c);
-                }
+            Some(Token::DocTypeToken { pub_identifier: Some(pid), .. }) => {
+                pid.push($c);
             }
             _ => {}
         }
@@ -111,13 +109,12 @@ macro_rules! set_system_identifier {
         }
     };
 }
+
 macro_rules! add_system_identifier {
     ($self:expr, $c:expr) => {
         match &mut $self.current_token {
-            Some(Token::DocTypeToken { sys_identifier, .. }) => {
-                if let Some(sid) = sys_identifier {
-                    sid.push($c);
-                }
+            Some(Token::DocTypeToken { sys_identifier: Some(sid), .. }) => {
+                sid.push($c);
             }
             _ => {}
         }
@@ -210,23 +207,23 @@ impl<'a> Tokenizer<'a> {
             current_attr_value: String::new(),
             current_attrs: HashMap::new(),
             temporary_buffer: vec![],
-            error_logger: error_logger,
+            error_logger,
         };
     }
 
     pub(crate) fn get_position(&self) -> Position {
-        return self.stream.position;
+        self.stream.position
     }
 
     // Retrieves the next token from the input stream or Token::EOF when the end is reached
     pub fn next_token(&mut self) -> Token {
         self.consume_stream();
 
-        if self.token_queue.len() == 0 {
+        if self.token_queue.is_empty() {
             return Token::EofToken {};
         }
 
-        return self.token_queue.remove(0);
+        self.token_queue.remove(0)
     }
 
     pub fn get_error_logger(&self) -> Ref<ErrorLogger> {
@@ -237,7 +234,7 @@ impl<'a> Tokenizer<'a> {
     fn consume_stream(&mut self) {
         loop {
             // Something is already in the token buffer, so we can return it.
-            if self.token_queue.len() > 0 {
+            if !self.token_queue.is_empty() {
                 return;
             }
 
@@ -263,7 +260,7 @@ impl<'a> Tokenizer<'a> {
                     }
                 }
                 State::CharacterReferenceInDataState => {
-                    _ = self.consume_character_reference(None, false);
+                    self.consume_character_reference(None, false);
                     self.state = State::DataState;
                 }
                 State::RcDataState => {
@@ -287,7 +284,7 @@ impl<'a> Tokenizer<'a> {
                 }
                 State::CharacterReferenceInRcDataState => {
                     // consume character reference
-                    _ = self.consume_character_reference(None, false);
+                    self.consume_character_reference(None, false);
                     self.state = State::RcDataState;
                 }
                 State::RawTextState => {
@@ -1257,7 +1254,7 @@ impl<'a> Tokenizer<'a> {
                     match c {
                         Element::Utf8('"') => self.state = State::AfterAttributeValueQuotedState,
                         Element::Utf8('&') => {
-                            _ = self.consume_character_reference(Some(Element::Utf8('"')), true)
+                            self.consume_character_reference(Some(Element::Utf8('"')), true);
                         }
                         Element::Utf8(CHAR_NUL) => {
                             self.parse_error(ParserError::UnexpectedNullCharacter);
@@ -1277,7 +1274,7 @@ impl<'a> Tokenizer<'a> {
                     match c {
                         Element::Utf8('\'') => self.state = State::AfterAttributeValueQuotedState,
                         Element::Utf8('&') => {
-                            _ = self.consume_character_reference(Some(Element::Utf8('\'')), true)
+                            self.consume_character_reference(Some(Element::Utf8('\'')), true);
                         }
                         Element::Utf8(CHAR_NUL) => {
                             self.parse_error(ParserError::UnexpectedNullCharacter);
@@ -1302,7 +1299,7 @@ impl<'a> Tokenizer<'a> {
                             self.state = State::BeforeAttributeNameState;
                         }
                         Element::Utf8('&') => {
-                            _ = self.consume_character_reference(Some(Element::Utf8('>')), true)
+                            self.consume_character_reference(Some(Element::Utf8('>')), true);
                         }
                         Element::Utf8('>') => {
                             self.store_and_clear_current_attribute();
@@ -2247,7 +2244,7 @@ impl<'a> Tokenizer<'a> {
     }
 
     // Return true when the given end_token matches the stored start token (ie: 'table' matches when last_start_token = 'table')
-    fn is_appropriate_end_token(&self, end_token: &Vec<char>) -> bool {
+    fn is_appropriate_end_token(&self, end_token: &[char]) -> bool {
         let s: String = end_token.iter().collect();
         self.last_start_token == s
     }
@@ -2259,7 +2256,7 @@ impl<'a> Tokenizer<'a> {
 
     // Returns true if there is anything in the consume buffer
     pub fn has_consumed_data(&self) -> bool {
-        return self.consumed.len() > 0;
+        !self.consumed.is_empty()
     }
 
     // Clears the current consume buffer
@@ -2294,21 +2291,15 @@ impl<'a> Tokenizer<'a> {
 
     // Set force_quirk mode in current token
     fn set_quirks_mode(&mut self, quirky: bool) {
-        match &mut self.current_token.as_mut().unwrap() {
-            Token::DocTypeToken { force_quirks, .. } => {
-                *force_quirks = quirky;
-            }
-            _ => {}
+        if let Token::DocTypeToken { force_quirks, .. } = &mut self.current_token.as_mut().unwrap() {
+            *force_quirks = quirky;
         }
     }
 
     // Adds a new attribute to the current token
     fn set_add_attribute_to_current_token(&mut self, name: String, value: String) {
-        match &mut self.current_token.as_mut().unwrap() {
-            Token::StartTagToken { attributes, .. } => {
-                attributes.insert(name.clone(), value.clone());
-            }
-            _ => {}
+        if let Token::StartTagToken { attributes, .. } = &mut self.current_token.as_mut().unwrap() {
+            attributes.insert(name.clone(), value.clone());
         }
 
         self.current_attr_name.clear()
@@ -2329,7 +2320,7 @@ impl<'a> Tokenizer<'a> {
 
     // This function checks to see if there is already an attribute name like the one in current_attr_name.
     fn attr_already_exists(&mut self) -> bool {
-        return self.current_attrs.contains_key(&self.current_attr_name);
+        self.current_attrs.contains_key(&self.current_attr_name)
     }
 
     // Saves the current attribute name and value onto the current_attrs stack, if there is anything to store

@@ -20,65 +20,59 @@ impl<'a> Html5Parser<'a> {
             return QuirksMode::Quirks;
         }
 
-        if pub_identifer.is_some() {
-            let pub_id = pub_identifer.unwrap().to_lowercase();
+        if let Some(value) = pub_identifer {
+            let pub_id = value.to_lowercase();
             if QUIRKS_PUB_IDENTIFIER_EQ.contains(&pub_id.as_str()) {
                 return QuirksMode::Quirks;
             }
             if QUIRKS_PUB_IDENTIFIER_PREFIX
                 .iter()
-                .any(|&prefix| pub_id.as_str().starts_with(&prefix))
+                .any(|&prefix| pub_id.as_str().starts_with(prefix))
             {
                 return QuirksMode::Quirks;
             }
 
-            if sys_identifier.is_none() {
-                if QUIRKS_PUB_IDENTIFIER_PREFIX_MISSING_SYS
+            if sys_identifier.is_none() && QUIRKS_PUB_IDENTIFIER_PREFIX_MISSING_SYS
                     .iter()
-                    .any(|&prefix| pub_id.as_str().starts_with(&prefix))
-                {
-                    return QuirksMode::Quirks;
-                }
+                    .any(|&prefix| pub_id.as_str().starts_with(prefix)) {
+                return QuirksMode::Quirks;
             }
 
             if LIMITED_QUIRKS_PUB_IDENTIFIER_PREFIX
                 .iter()
-                .any(|&prefix| pub_id.as_str().starts_with(&prefix))
+                .any(|&prefix| pub_id.as_str().starts_with(prefix))
             {
                 return QuirksMode::LimitedQuirks;
             }
 
-            if sys_identifier.is_some() {
-                if LIMITED_QUIRKS_PUB_IDENTIFIER_PREFIX
+            if sys_identifier.is_some() && LIMITED_QUIRKS_PUB_IDENTIFIER_PREFIX
                     .iter()
-                    .any(|&prefix| pub_id.as_str().starts_with(&prefix))
-                {
-                    return QuirksMode::LimitedQuirks;
-                }
+                    .any(|&prefix| pub_id.as_str().starts_with(prefix)) {
+                return QuirksMode::LimitedQuirks;
             }
         }
 
-        if sys_identifier.is_some() {
-            let sys_id = sys_identifier.unwrap().to_lowercase();
+        if let Some(value) = sys_identifier {
+            let sys_id = value.to_lowercase();
             if QUIRKS_SYS_IDENTIFIER_EQ
                 .iter()
-                .any(|&prefix| sys_id.as_str().starts_with(&prefix))
+                .any(|&prefix| sys_id.as_str().starts_with(prefix))
             {
                 return QuirksMode::Quirks;
             }
         }
 
-        return QuirksMode::NoQuirks;
+        QuirksMode::NoQuirks
     }
 }
 
-static QUIRKS_PUB_IDENTIFIER_EQ: &'static [&'static str] = &[
+static QUIRKS_PUB_IDENTIFIER_EQ: &[&str] = &[
     "-//W3O//DTD W3 HTML Strict 3.0//EN//",
     "-/W3C/DTD HTML 4.0 Transitional/EN",
     "HTML",
 ];
 
-static QUIRKS_PUB_IDENTIFIER_PREFIX: &'static [&'static str] = &[
+static QUIRKS_PUB_IDENTIFIER_PREFIX: &[&str] = &[
     "+//Silmaril//dtd html Pro v0r11 19970101//",
     "-//AS//DTD HTML 3.0 asWedit + extensions//",
     "-//AdvaSoft Ltd//DTD HTML 3.0 asWedit + extensions//",
@@ -136,20 +130,20 @@ static QUIRKS_PUB_IDENTIFIER_PREFIX: &'static [&'static str] = &[
     "-//WebTechs//DTD Mozilla HTML//",
 ];
 
-static QUIRKS_PUB_IDENTIFIER_PREFIX_MISSING_SYS: &'static [&'static str] = &[
+static QUIRKS_PUB_IDENTIFIER_PREFIX_MISSING_SYS: &[&str] = &[
     "-//W3C//DTD HTML 4.01 Frameset//",
     "-//W3C//DTD HTML 4.01 Transitional//",
 ];
 
-static QUIRKS_SYS_IDENTIFIER_EQ: &'static [&'static str] =
+static QUIRKS_SYS_IDENTIFIER_EQ: &[&str] =
     &["http://www.ibm.com/data/dtd/v11/ibmxhtml1-transitional.dtd"];
 
-static LIMITED_QUIRKS_PUB_IDENTIFIER_PREFIX: &'static [&'static str] = &[
+static LIMITED_QUIRKS_PUB_IDENTIFIER_PREFIX: &[&str] = &[
     "-//W3C//DTD XHTML 1.0 Frameset//",
     "-//W3C//DTD XHTML 1.0 Transitional//",
 ];
 
-static LIMITED_QUIRKS_PUB_IDENTIFIER_PREFIX_NOT_MISSING_SYS: &'static [&'static str] = &[
+static LIMITED_QUIRKS_PUB_IDENTIFIER_PREFIX_NOT_MISSING_SYS: &[&str] = &[
     "-//W3C//DTD HTML 4.01 Frameset//",
     "-//W3C//DTD HTML 4.01 Transitional//",
 ];

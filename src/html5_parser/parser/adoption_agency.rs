@@ -50,20 +50,17 @@ impl<'a> Html5Parser<'a> {
                     ActiveElement::Marker => break,
                     ActiveElement::Node(node_id) => {
                         let temp_node = self.document.get_node_by_id(node_id).unwrap().clone();
-                        match temp_node.data {
-                            NodeData::Element {
-                                ref name,
-                                ref attributes,
-                                ..
-                            } => {
-                                if name == subject && attributes.len() > 0 {
-                                    formatting_element_idx = idx;
-                                    formatting_element_id = node_id;
-                                    formatting_element_name = String::from(name);
-                                    formatting_element_attributes = attributes.clone();
-                                }
+                        if let NodeData::Element {
+                            ref name,
+                            ref attributes,
+                            ..
+                        } = temp_node.data {
+                            if name == subject && !attributes.is_empty() {
+                                formatting_element_idx = idx;
+                                formatting_element_id = node_id;
+                                formatting_element_name = String::from(name);
+                                formatting_element_attributes = attributes.clone();
                             }
-                            _ => {}
                         }
                     }
                 }
@@ -215,7 +212,7 @@ impl<'a> Html5Parser<'a> {
             );
 
             // Step 4.16
-            if furthest_block_children.len() > 0 {
+            if !furthest_block_children.is_empty() {
                 for &child in furthest_block_children.iter() {
                     self.document.append(child, new_element.id)
                 }

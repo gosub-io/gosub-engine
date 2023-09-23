@@ -173,6 +173,12 @@ impl ErrorLogger {
     }
 }
 
+impl Default for ErrorLogger {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ErrorLogger {
     // Returns a cloned instance of the errors
     pub fn get_errors(&self) -> Vec<ParseError> {
@@ -183,7 +189,7 @@ impl ErrorLogger {
     pub fn add_error(&mut self, pos: Position, message: &str) {
         // Check if the error already exists, if so, don't add it again
         for err in &self.errors {
-            if err.line == pos.line && err.col == pos.col && err.message == message.to_string() {
+            if err.line == pos.line && err.col == pos.col && err.message == *message {
                 return;
             }
         }

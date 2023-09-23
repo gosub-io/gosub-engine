@@ -1626,16 +1626,16 @@ impl<'a> Html5Parser<'a> {
             Token::StartTagToken {
                 name, attributes, ..
             } => {
-                return Node::new_element(name, attributes.clone(), namespace);
+                Node::new_element(name, attributes.clone(), namespace)
             }
             Token::EndTagToken { name, .. } => {
-                return Node::new_element(name, HashMap::new(), namespace);
+                Node::new_element(name, HashMap::new(), namespace)
             }
             Token::CommentToken { value } => {
-                return Node::new_comment(value);
+                Node::new_comment(value)
             }
             Token::TextToken { value } => {
-                return Node::new_text(format!("{}", value).as_str());
+                Node::new_text(value.to_string().as_str())
             }
             Token::EofToken => {
                 panic!("EOF token not allowed");
@@ -1669,7 +1669,7 @@ impl<'a> Html5Parser<'a> {
     // This function will pop elements off the stack until it reaches the first element that matches
     // our condition (which can be changed with the except and thoroughly parameters)
     fn generate_all_implied_end_tags(&mut self, except: Option<&str>, thoroughly: bool) {
-        while self.open_elements.len() > 0 {
+        while !self.open_elements.is_empty() {
             let val = current_node!(self).name.clone();
 
             if except.is_some() && except.unwrap() == val {
@@ -1764,7 +1764,7 @@ impl<'a> Html5Parser<'a> {
                 return;
             }
             if node.name == "template" {
-                self.insertion_mode = self.template_insertion_mode.last().unwrap().clone();
+                self.insertion_mode = *self.template_insertion_mode.last().unwrap();
                 return;
             }
             if node.name == "head" && !last {
@@ -1798,7 +1798,7 @@ impl<'a> Html5Parser<'a> {
 
     // Pop all elements back to a table context
     fn clear_stack_back_to_table_context(&mut self) {
-        while self.open_elements.len() > 0 {
+        while !self.open_elements.is_empty() {
             if ["tbody", "tfoot", "thead", "template", "html"]
                 .contains(&current_node!(self).name.as_str())
             {
@@ -1810,7 +1810,7 @@ impl<'a> Html5Parser<'a> {
 
     // Pop all elements back to a table row context
     fn clear_stack_back_to_table_row_context(&mut self) {
-        while self.open_elements.len() > 0 {
+        while !self.open_elements.is_empty() {
             let val = current_node!(self).name.clone();
             if ["tr", "template", "html"].contains(&val.as_str()) {
                 return;
@@ -1975,7 +1975,7 @@ impl<'a> Html5Parser<'a> {
                     return;
                 }
 
-                if self.frameset_ok == false {
+                if !self.frameset_ok {
                     // ignore token
                     return;
                 }
@@ -2137,7 +2137,7 @@ impl<'a> Html5Parser<'a> {
             }
             Token::EndTagToken { name, .. } if name == "form" => {
                 if !open_elements_has!(self, "template") {
-                    let node_id = self.form_element.clone();
+                    let node_id = self.form_element;
                     self.form_element = None;
 
                     if node_id.is_none() || !self.in_scope(name, Scope::Regular) {
@@ -2964,57 +2964,48 @@ impl<'a> Html5Parser<'a> {
 
     // Adjusts attributes names in the given token for SVG
     fn adjust_svg_attributes(&self, token: &mut Token) {
-        match token {
-            Token::StartTagToken { attributes, .. } => {
-                let mut new_attributes = HashMap::new();
-                for (name, value) in attributes.iter() {
-                    if SVG_ADJUSTMENTS.contains_key(name) {
-                        let new_name = SVG_ADJUSTMENTS.get(name).unwrap();
-                        new_attributes.insert(new_name.to_string(), value.clone());
-                    } else {
-                        new_attributes.insert(name.clone(), value.clone());
-                    }
+        if let Token::StartTagToken { attributes, .. } = token {
+            let mut new_attributes = HashMap::new();
+            for (name, value) in attributes.iter() {
+                if SVG_ADJUSTMENTS.contains_key(name) {
+                    let new_name = SVG_ADJUSTMENTS.get(name).unwrap();
+                    new_attributes.insert(new_name.to_string(), value.clone());
+                } else {
+                    new_attributes.insert(name.clone(), value.clone());
                 }
-                *attributes = new_attributes;
             }
-            _ => {}
+            *attributes = new_attributes;
         }
     }
 
     // Adjust attribute names in the given token for MathML
     fn adjust_mathml_attributes(&self, token: &mut Token) {
-        match token {
-            Token::StartTagToken { attributes, .. } => {
-                let mut new_attributes = HashMap::new();
-                for (name, value) in attributes.iter() {
-                    if MATHML_ADJUSTMENTS.contains_key(name) {
-                        let new_name = SVG_ADJUSTMENTS.get(name).unwrap();
-                        new_attributes.insert(new_name.to_string(), value.clone());
-                    } else {
-                        new_attributes.insert(name.clone(), value.clone());
-                    }
+        if let Token::StartTagToken { attributes, .. } = token {
+            let mut new_attributes = HashMap::new();
+            for (name, value) in attributes.iter() {
+                if MATHML_ADJUSTMENTS.contains_key(name) {
+                    let new_name = SVG_ADJUSTMENTS.get(name).unwrap();
+                    new_attributes.insert(new_name.to_string(), value.clone());
+                } else {
+                    new_attributes.insert(name.clone(), value.clone());
                 }
-                *attributes = new_attributes;
             }
-            _ => {}
+            *attributes = new_attributes;
         }
     }
 
     fn adjust_foreign_attributes(&self, token: &mut Token) {
-        match token {
-            Token::StartTagToken { attributes, .. } => {
-                let mut new_attributes = HashMap::new();
-                for (name, value) in attributes.iter() {
-                    if XML_ADJUSTMENTS.contains_key(name) {
-                        let new_name = SVG_ADJUSTMENTS.get(name).unwrap();
-                        new_attributes.insert(new_name.to_string(), value.clone());
-                    } else {
-                        new_attributes.insert(name.clone(), value.clone());
-                    }
+        if let Token::StartTagToken { attributes, .. } = token {
+            let mut new_attributes = HashMap::new();
+            for (name, value) in attributes.iter() {
+                if XML_ADJUSTMENTS.contains_key(name) {
+                    let new_name = SVG_ADJUSTMENTS.get(name).unwrap();
+                    new_attributes.insert(new_name.to_string(), value.clone());
+                } else {
+                    new_attributes.insert(name.clone(), value.clone());
                 }
-                *attributes = new_attributes;
             }
-            _ => {}
+            *attributes = new_attributes;
         }
     }
 
@@ -3043,7 +3034,7 @@ impl<'a> Html5Parser<'a> {
         self.open_elements.push(node_id);
 
         // return element
-        return node_id;
+        node_id
     }
 
     fn parse_raw_data(&mut self) {
@@ -3093,6 +3084,6 @@ impl<'a> Html5Parser<'a> {
             // be the content
         }
 
-        return adjusted_insertion_location;
+        adjusted_insertion_location
     }
 }

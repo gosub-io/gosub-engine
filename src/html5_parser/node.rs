@@ -76,7 +76,7 @@ impl Node {
             children: vec![],
             data: NodeData::Element {
                 name: name.to_string(),
-                attributes: attributes,
+                attributes,
             },
             name: name.to_string(),
             namespace: Some(namespace.into()),
@@ -113,20 +113,14 @@ impl Node {
 
     // Returns true if the given node is "special" node based on the namespace and name
     pub fn is_special(&self) -> bool {
-        if self.namespace == Some(HTML_NAMESPACE.into()) {
-            if SPECIAL_HTML_ELEMENTS.contains(&self.name.as_str()) {
-                return true;
-            }
+        if self.namespace == Some(HTML_NAMESPACE.into()) && SPECIAL_HTML_ELEMENTS.contains(&self.name.as_str()) {
+            return true;
         }
-        if self.namespace == Some(MATHML_NAMESPACE.into()) {
-            if SPECIAL_MATHML_ELEMENTS.contains(&self.name.as_str()) {
-                return true;
-            }
+        if self.namespace == Some(MATHML_NAMESPACE.into()) && SPECIAL_MATHML_ELEMENTS.contains(&self.name.as_str()) {
+            return true;
         }
-        if self.namespace == Some(SVG_NAMESPACE.into()) {
-            if SPECIAL_SVG_ELEMENTS.contains(&self.name.as_str()) {
-                return true;
-            }
+        if self.namespace == Some(SVG_NAMESPACE.into()) && SPECIAL_SVG_ELEMENTS.contains(&self.name.as_str()) {
+            return true;
         }
 
         false
@@ -395,7 +389,7 @@ mod test {
             node.data,
             NodeData::Element {
                 name: "div".to_string(),
-                attributes: attributes,
+                attributes,
             }
         );
     }
@@ -409,7 +403,7 @@ mod test {
             node.data,
             NodeData::Element {
                 name: "div".to_string(),
-                attributes: attributes,
+                attributes,
             }
         );
     }
