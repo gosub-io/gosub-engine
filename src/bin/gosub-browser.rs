@@ -1,21 +1,26 @@
-use std::fs::File;
+use std::process::exit;
 
 use gosub_engine::html5_parser::input_stream::Confidence;
 use gosub_engine::html5_parser::input_stream::{Encoding, InputStream};
 use gosub_engine::html5_parser::parser::Html5Parser;
 
-fn main() {
-    let file = File::open("testfile.html").expect("could not open file");
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let url = std::env::args().nth(1).or_else(|| {
+        println!("Usage: gosub-browser <url>");
+        exit(1);
+    }).unwrap();
 
-    // We just read the stream from a file. It will use UTF8 as the default encoding.
+    // Fetch the html from the url
+    let response = reqwest::blocking::get(&url)?;
+    if ! response.status().is_success() {
+        println!("could not get url. Status code {}", response.status());
+        exit(1);
+    }
+    let html = response.text()?;
+
     let mut stream = InputStream::new();
-    stream
-        .read_from_file(file, Some(Encoding::UTF8))
-        .expect("can't read from file");
+    stream.read_from_str(&html, Some(Encoding::UTF8));
     stream.set_confidence(Confidence::Certain);
-
-    // We COULD set the encoding based on external input, like the content-type HTTP header, or
-    // maybe a user-setting, or something else that is set by the user-agent)
 
     // If the encoding confidence is not Confidence::Certain, we should detect the encoding.
     if !stream.is_certain_encoding() {
@@ -30,4 +35,6 @@ fn main() {
     for e in parse_error{
         println!("Parse Error: {}", e.message)
     }
+
+    Ok(())
 }
