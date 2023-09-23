@@ -1,6 +1,6 @@
 use std::{env, fs, io};
 use std::cell::RefCell;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use serde_json::Value;
 extern crate regex;
@@ -248,7 +248,7 @@ fn match_token(have: Token, expected: &[Value], double_escaped: bool) -> bool {
                 return false;
             }
         }
-        Token::EndTagToken{name} => {
+        Token::EndTagToken{name, ..} => {
             if check_match_endtag(expected, name, double_escaped).is_err() {
                 return false;
             }
@@ -273,7 +273,7 @@ fn match_token(have: Token, expected: &[Value], double_escaped: bool) -> bool {
     true
 }
 
-fn check_match_starttag(expected: &[Value], name: String, attributes: Vec<Attribute>, is_self_closing: bool) -> Result<(), ()> {
+fn check_match_starttag(expected: &[Value], name: String, attributes: HashMap<String, String>, is_self_closing: bool) -> Result<(), ()> {
     let expected_name = expected.get(1).and_then(|v| v.as_str()).unwrap();
     let expected_attrs = expected.get(2).and_then(|v| v.as_object());
     let expected_self_closing = expected.get(3).and_then(|v| v.as_bool());
@@ -301,6 +301,10 @@ fn check_match_starttag(expected: &[Value], name: String, attributes: Vec<Attrib
             })
             .collect()
     });
+
+    let attributes: Vec<Attribute> = attributes.iter()
+        .map(|(key, value)| Attribute{name: key.clone(), value: value.clone()})
+        .collect();
 
     let set1: HashSet<_> = expected_attrs.iter().collect();
     let set2: HashSet<_> = attributes.iter().collect();
