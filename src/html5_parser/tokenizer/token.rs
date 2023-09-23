@@ -77,19 +77,16 @@ impl std::fmt::Display for Token {
         match self {
             Token::DocTypeToken {
                 name,
-                force_quirks,
                 pub_identifier,
                 sys_identifier,
+                ..
             } => {
                 let mut result = format!("<!DOCTYPE {}", name.clone().unwrap_or("".to_string()));
-                if *force_quirks {
-                    result.push_str(" FORCE_QUIRKS!");
-                }
                 if let Some(pub_id) = pub_identifier {
-                    result.push_str(&format!(" {}", pub_id));
+                    result.push_str(&format!(" PUBLIC \"{}\"", pub_id));
                 }
                 if let Some(sys_id) = sys_identifier {
-                    result.push_str(&format!(" {}", sys_id));
+                    result.push_str(&format!(" SYSTEM \"{}\"", sys_id));
                 }
                 result.push_str(" />");
                 write!(f, "{}", result)
@@ -199,7 +196,7 @@ mod tests {
             pub_identifier: Some("foo".to_string()),
             sys_identifier: Some("bar".to_string()),
         };
-        assert_eq!(format!("{}", token), "<!DOCTYPE html />");
+        assert_eq!(format!("{}", token), "<!DOCTYPE html PUBLIC \"foo\" SYSTEM \"bar\" />");
     }
 
     #[test]
@@ -242,7 +239,7 @@ mod tests {
             is_self_closing: true,
             attributes: HashMap::new(),
         };
-        assert_eq!(format!("{}", token), "StartTag[<br/>]");
+        assert_eq!(format!("{}", token), "StartTag[<br />]");
     }
 
     #[test]

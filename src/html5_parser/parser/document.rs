@@ -179,23 +179,23 @@ mod tests {
         assert_eq!(
             format!("{}", document),
             r#"Document
-        └─ <html>
-            └─ <head>
-                └─ <title>
-                └─ Hello world
-            └─ <body>
-                └─ <p>
-                └─ This is a paragraph
-                └─ <!-- This is a comment -->
-                └─ This is another paragraph
-                └─ This is a third paragraph
-                └─ This is a fourth paragraph
-                └─ This is a fifth paragraph
-                └─ This is a sixth paragraph
-                └─ This is a seventh paragraph
-                └─ This is a eighth paragraph
-                └─ This is a ninth paragraph
-        "#
+  └─ <html>
+    └─ <head>
+      └─ <title>
+        └─ Hello world
+    └─ <body>
+      └─ <p>
+      └─ This is a paragraph
+      └─ <!-- This is a comment -->
+      └─ This is another paragraph
+      └─ This is a third paragraph
+      └─ This is a fourth paragraph
+      └─ This is a fifth paragraph
+      └─ This is a sixth paragraph
+      └─ This is a seventh paragraph
+      └─ This is a eighth paragraph
+      └─ This is a ninth paragraph
+      "#
         );
     }
 }
