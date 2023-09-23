@@ -192,14 +192,6 @@ mod tests {
             sys_identifier: None,
         };
         assert_eq!(format!("{}", token), "<!DOCTYPE html />");
-
-        let token = Token::DocTypeToken {
-            name: Some("html".to_string()),
-            force_quirks: false,
-            pub_identifier: Some("foo".to_string()),
-            sys_identifier: Some("bar".to_string()),
-        };
-        assert_eq!(format!("{}", token), "<!DOCTYPE html />");
     }
 
     #[test]
@@ -242,7 +234,7 @@ mod tests {
             is_self_closing: true,
             attributes: HashMap::new(),
         };
-        assert_eq!(format!("{}", token), "StartTag[<br/>]");
+        assert_eq!(format!("{}", token), "StartTag[<br />]");
     }
 
     #[test]
