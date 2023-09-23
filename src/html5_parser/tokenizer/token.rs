@@ -58,11 +58,7 @@ impl Token {
 
     // Returns true when the token is an EOF token
     pub fn is_eof(&self) -> bool {
-        if let Token::EofToken = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, Token::EofToken)
     }
 
     // Returns true if the text token is empty or only contains whitespace

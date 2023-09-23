@@ -1,6 +1,6 @@
 use crate::html5_parser::tokenizer::{CHAR_CR, CHAR_LF};
 use std::fs::File;
-use std::io;
+use std::{fmt, io};
 use std::io::Read;
 
 // Encoding defines the way the buffer stream is read, as what defines a "character".
@@ -32,10 +32,11 @@ impl Position {
     pub fn new(offset: usize, line: usize, col: usize) -> Self {
         Position { offset, line, col }
     }
+}
 
-    // Returns a string representation of the position
-    pub fn to_string(&self) -> String {
-        format!("{}:{}:{}", self.offset, self.line, self.col)
+impl fmt::Display for Position {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}:{}:{}", self.offset, self.line, self.col)
     }
 }
 
@@ -48,24 +49,15 @@ pub enum Element {
 
 impl Element {
     pub fn is_eof(&self) -> bool {
-        match self {
-            Element::Eof => true,
-            _ => false,
-        }
+        matches!(self, Element::Eof)
     }
 
     pub fn is_utf8(&self) -> bool {
-        match self {
-            Element::Utf8(_) => true,
-            _ => false,
-        }
+        matches!(self, Element::Utf8(_))
     }
 
     pub fn is_surrogate(&self) -> bool {
-        match self {
-            Element::Surrogate(_) => true,
-            _ => false,
-        }
+        matches!(self, Element::Surrogate(_))
     }
 
     pub fn u32(&self) -> u32 {
@@ -83,12 +75,14 @@ impl Element {
             Element::Eof => 0x0000 as char,
         }
     }
+}
 
-    pub fn to_string(&self) -> String {
+impl fmt::Display for Element {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Element::Utf8(ch) => ch.to_string(),
-            Element::Surrogate(surrogate) => format!("U+{:04X}", surrogate), // Or some other representation
-            Element::Eof => "EOF".to_string(),                               // Or an empty string
+            Element::Utf8(ch) => write!(f, "{}", ch),
+            Element::Surrogate(surrogate) => write!(f, "U+{:04X}", surrogate),
+            Element::Eof => write!(f, "EOF"),
         }
     }
 }
@@ -112,6 +106,12 @@ pub enum SeekMode {
     SeekSet, // Seek from the start of the stream
     SeekCur, // Seek from the current stream position
     SeekEnd, // Seek (backwards) from the end of the stream
+}
+
+impl Default for InputStream {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl InputStream {
@@ -167,7 +167,7 @@ impl InputStream {
             }
             SeekMode::SeekCur => {
                 if offset.is_negative() {
-                    self.position.offset - offset.abs() as usize
+                    self.position.offset - offset.unsigned_abs()
                 } else {
                     self.position.offset + offset as usize
                 }
@@ -177,7 +177,7 @@ impl InputStream {
                 if offset.abs() > self.length as isize {
                     0
                 } else {
-                    self.length - offset.abs() as usize
+                    self.length - offset.unsigned_abs()
                 }
             }
         };
@@ -219,11 +219,11 @@ impl InputStream {
         }
 
         // Set position values
-        return Position {
+        Position {
             offset: abs_offset,
             line: last_line + 1,
             col: abs_offset - last_offset + 1,
-        };
+        }
     }
 
     pub fn tell(&self) -> usize {
@@ -254,7 +254,7 @@ impl InputStream {
                 unsafe {
                     str_buf = std::str::from_utf8_unchecked(&self.u8_buffer)
                         .replace("\u{000D}\u{000A}", "\u{000A}")
-                        .replace("\u{000D}", "\u{000A}");
+                        .replace('\u{000D}', "\u{000A}");
                 }
 
                 // Convert the utf8 string into characters so we can use easy indexing
@@ -308,7 +308,7 @@ impl InputStream {
             }
         }
 
-        return result;
+        result
     }
 
     // Populates the current buffer with the contents of given file f
@@ -340,25 +340,24 @@ impl InputStream {
         }
 
         // If we still can move forward in the stream, move forwards
-        return if self.position.offset < self.length {
-            let c = self.buffer[self.position.offset].clone();
+        if self.position.offset < self.length {
+            let c = self.buffer[self.position.offset];
             self.seek(SeekMode::SeekCur, 1);
-            c
-        } else {
-            // otherwise, we have reached the end of the stream
-            self.has_read_eof = true;
+            return c;
+        }
 
-            self.seek(SeekMode::SeekEnd, 0);
+        // otherwise, we have reached the end of the stream
+        self.has_read_eof = true;
 
-            // // This is a kind of dummy position so the end of the files are read correctly.
-            // self.position = Position{
-            //     offset: self.position.offset,
-            //     line: self.position.line,
-            //     col: self.position.col,
-            // };
+        self.seek(SeekMode::SeekEnd, 0);
 
-            Element::Eof
-        };
+        // // This is a kind of dummy position so the end of the files are read correctly.
+        // self.position = Position{
+        //     offset: self.position.offset,
+        //     line: self.position.line,
+        //     col: self.position.col,
+        // };
+        Element::Eof
     }
 
     pub(crate) fn unread(&mut self) {
@@ -404,7 +403,7 @@ impl InputStream {
             }
 
             // Check the next char to see if it's a '\n'
-            let c = self.buffer[last_offset].clone();
+            let c = self.buffer[last_offset];
             if c == Element::Utf8('\n') {
                 self.line_offsets.push(last_offset + 1);
             }
@@ -421,25 +420,25 @@ mod test {
     #[test]
     fn test_stream() {
         let mut is = InputStream::new();
-        assert_eq!(is.eof(), true);
+        assert_eq!(is.eof());
 
         is.read_from_str("foo", Some(Encoding::ASCII));
         assert_eq!(is.length, 3);
-        assert_eq!(is.eof(), false);
+        assert_ne!(is.eof());
         assert_eq!(is.chars_left(), 3);
 
         is.read_from_str("f👽f", Some(Encoding::UTF8));
         assert_eq!(is.length, 3);
-        assert_eq!(is.eof(), false);
+        assert_ne!(is.eof());
         assert_eq!(is.chars_left(), 3);
         assert_eq!(is.read_char().utf8(), 'f');
         assert_eq!(is.chars_left(), 2);
-        assert_eq!(is.eof(), false);
+        assert_ne!(is.eof());
         assert_eq!(is.read_char().utf8(), '👽');
-        assert_eq!(is.eof(), false);
+        assert_ne!(is.eof());
         assert_eq!(is.chars_left(), 1);
         assert_eq!(is.read_char().utf8(), 'f');
-        assert_eq!(is.eof(), true);
+        assert!(is.eof());
         assert_eq!(is.chars_left(), 0);
 
         is.reset();
@@ -451,7 +450,7 @@ mod test {
         assert_eq!(is.read_char().utf8(), '?');
         assert_eq!(is.read_char().utf8(), '?');
         assert_eq!(is.read_char().utf8(), 'f');
-        assert_eq!(is.read_char().is_eof(), true);
+        assert!(is.read_char().is_eof());
 
         is.unread(); // unread eof
         is.unread(); // unread 'f'
@@ -476,21 +475,21 @@ mod test {
         assert_eq!(is.read_char().utf8(), 'c');
         is.unread();
         assert_eq!(is.read_char().utf8(), 'c');
-        assert_eq!(is.read_char().is_eof(), true);
+        assert!(is.read_char().is_eof());
         is.unread();
-        assert_eq!(is.read_char().is_eof(), true);
+        assert!(is.read_char().is_eof());
     }
 
     #[test]
     fn test_certainty() {
         let mut is = InputStream::new();
-        assert_eq!(is.is_certain_encoding(), false);
+        assert_ne!(is.is_certain_encoding());
 
         is.set_confidence(Confidence::Certain);
-        assert_eq!(is.is_certain_encoding(), true);
+        assert!(is.is_certain_encoding());
 
         is.set_confidence(Confidence::Tentative);
-        assert_eq!(is.is_certain_encoding(), false);
+        assert_ne!(is.is_certain_encoding());
     }
 
     #[test]

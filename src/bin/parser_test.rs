@@ -158,7 +158,7 @@ fn run_tree_test(test_idx: usize, test: &Test, results: &mut TestResults) {
     let mut parser = Html5Parser::new(&mut is);
     let (document, _parse_errors) = parser.parse();
 
-    match_document_tree(&document, &test.document);
+    match_document_tree(document, &test.document);
 
     // if parse_errors.len() != test.errors.len() {
     //     println!("❌ Unexpected errors found (wanted {}, got {}): ", test.errors.len(), parse_errors.len());
@@ -349,5 +349,6 @@ fn match_error(got_err: &Error, expected_err: &Error) -> ErrorResult {
         "⚠️ Unexpected error position '{}' at {}:{} (got: {}:{})",
         expected_err.code, expected_err.line, expected_err.col, got_err.line, got_err.col
     );
-    return ErrorResult::PositionFailure;
+
+    ErrorResult::PositionFailure
 }

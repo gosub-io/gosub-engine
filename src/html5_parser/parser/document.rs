@@ -15,13 +15,23 @@ pub struct Document {
     pub quirks_mode: QuirksMode, // Quirks mode
 }
 
+impl Default for Document {
+    fn default() -> Self {
+        Self {
+            arena: NodeArena::new(),
+            doctype: DocumentType::HTML,
+            quirks_mode: QuirksMode::NoQuirks,
+        }
+    }
+}
+
 impl Document {
     // Creates a new document
     pub fn new() -> Self {
         let mut arena = NodeArena::new();
         arena.add_node(Node::new_document());
         Self {
-            arena: arena,
+            arena,
             doctype: DocumentType::HTML,
             quirks_mode: QuirksMode::NoQuirks,
         }
@@ -86,7 +96,7 @@ impl Document {
 
         for child_id in &node.children {
             if let Some(child) = self.arena.get_node(*child_id) {
-                self.display_tree(&child, indent + 2, f)?;
+                self.display_tree(child, indent + 2, f)?;
             }
         }
 
