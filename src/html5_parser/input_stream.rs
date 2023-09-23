@@ -420,22 +420,22 @@ mod test {
     #[test]
     fn test_stream() {
         let mut is = InputStream::new();
-        assert_eq!(is.eof());
+        assert!(is.eof());
 
         is.read_from_str("foo", Some(Encoding::ASCII));
         assert_eq!(is.length, 3);
-        assert_ne!(is.eof());
+        assert!(!is.eof());
         assert_eq!(is.chars_left(), 3);
 
         is.read_from_str("f👽f", Some(Encoding::UTF8));
         assert_eq!(is.length, 3);
-        assert_ne!(is.eof());
+        assert!(!is.eof());
         assert_eq!(is.chars_left(), 3);
         assert_eq!(is.read_char().utf8(), 'f');
         assert_eq!(is.chars_left(), 2);
-        assert_ne!(is.eof());
+        assert!(!is.eof());
         assert_eq!(is.read_char().utf8(), '👽');
-        assert_ne!(is.eof());
+        assert!(!is.eof());
         assert_eq!(is.chars_left(), 1);
         assert_eq!(is.read_char().utf8(), 'f');
         assert!(is.eof());
@@ -483,13 +483,13 @@ mod test {
     #[test]
     fn test_certainty() {
         let mut is = InputStream::new();
-        assert_ne!(is.is_certain_encoding());
+        assert!(!is.is_certain_encoding());
 
         is.set_confidence(Confidence::Certain);
         assert!(is.is_certain_encoding());
 
         is.set_confidence(Confidence::Tentative);
-        assert_ne!(is.is_certain_encoding());
+        assert!(!is.is_certain_encoding());
     }
 
     #[test]

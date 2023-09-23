@@ -16,7 +16,7 @@ impl<'a> Html5Parser<'a> {
         sys_identifier: Option<String>,
         force_quirks: bool,
     ) -> QuirksMode {
-        if force_quirks || name.as_ref().map_or("", |s| &s[..]).to_uppercase() != "HTML" {
+        if force_quirks || name.as_ref().map_or("", |s| &s[..]) != "html" {
             return QuirksMode::Quirks;
         }
 
@@ -25,11 +25,20 @@ impl<'a> Html5Parser<'a> {
             if QUIRKS_PUB_IDENTIFIER_EQ.contains(&pub_id.as_str()) {
                 return QuirksMode::Quirks;
             }
+
             if QUIRKS_PUB_IDENTIFIER_PREFIX
                 .iter()
                 .any(|&prefix| pub_id.as_str().starts_with(prefix))
             {
                 return QuirksMode::Quirks;
+            }
+
+            if sys_identifier.is_some()
+                && LIMITED_QUIRKS_PUB_IDENTIFIER_PREFIX_NOT_MISSING_SYS
+                    .iter()
+                    .any(|&prefix| pub_id.as_str().starts_with(prefix))
+            {
+                return QuirksMode::LimitedQuirks;
             }
 
             if sys_identifier.is_none()
@@ -43,14 +52,6 @@ impl<'a> Html5Parser<'a> {
             if LIMITED_QUIRKS_PUB_IDENTIFIER_PREFIX
                 .iter()
                 .any(|&prefix| pub_id.as_str().starts_with(prefix))
-            {
-                return QuirksMode::LimitedQuirks;
-            }
-
-            if sys_identifier.is_some()
-                && LIMITED_QUIRKS_PUB_IDENTIFIER_PREFIX
-                    .iter()
-                    .any(|&prefix| pub_id.as_str().starts_with(prefix))
             {
                 return QuirksMode::LimitedQuirks;
             }
@@ -71,85 +72,85 @@ impl<'a> Html5Parser<'a> {
 }
 
 static QUIRKS_PUB_IDENTIFIER_EQ: &[&str] = &[
-    "-//W3O//DTD W3 HTML Strict 3.0//EN//",
-    "-/W3C/DTD HTML 4.0 Transitional/EN",
-    "HTML",
+    "-//w3o//dtd w3 html strict 3.0//en//",
+    "-/w3c/dtd html 4.0 transitional/en",
+    "html",
 ];
 
 static QUIRKS_PUB_IDENTIFIER_PREFIX: &[&str] = &[
-    "+//Silmaril//dtd html Pro v0r11 19970101//",
-    "-//AS//DTD HTML 3.0 asWedit + extensions//",
-    "-//AdvaSoft Ltd//DTD HTML 3.0 asWedit + extensions//",
-    "-//IETF//DTD HTML 2.0 Level 1//",
-    "-//IETF//DTD HTML 2.0 Level 2//",
-    "-//IETF//DTD HTML 2.0 Strict Level 1//",
-    "-//IETF//DTD HTML 2.0 Strict Level 2//",
-    "-//IETF//DTD HTML 2.0 Strict//",
-    "-//IETF//DTD HTML 2.0//",
-    "-//IETF//DTD HTML 2.1E//",
-    "-//IETF//DTD HTML 3.0//",
-    "-//IETF//DTD HTML 3.2 Final//",
-    "-//IETF//DTD HTML 3.2//",
-    "-//IETF//DTD HTML 3//",
-    "-//IETF//DTD HTML Level 0//",
-    "-//IETF//DTD HTML Level 1//",
-    "-//IETF//DTD HTML Level 2//",
-    "-//IETF//DTD HTML Level 3//",
-    "-//IETF//DTD HTML Strict Level 0//",
-    "-//IETF//DTD HTML Strict Level 1//",
-    "-//IETF//DTD HTML Strict Level 2//",
-    "-//IETF//DTD HTML Strict Level 3//",
-    "-//IETF//DTD HTML Strict//",
-    "-//IETF//DTD HTML//",
-    "-//Metrius//DTD Metrius Presentational//",
-    "-//Microsoft//DTD Internet Explorer 2.0 HTML Strict//",
-    "-//Microsoft//DTD Internet Explorer 2.0 HTML//",
-    "-//Microsoft//DTD Internet Explorer 2.0 Tables//",
-    "-//Microsoft//DTD Internet Explorer 3.0 HTML Strict//",
-    "-//Microsoft//DTD Internet Explorer 3.0 HTML//",
-    "-//Microsoft//DTD Internet Explorer 3.0 Tables//",
-    "-//Netscape Comm. Corp.//DTD HTML//",
-    "-//Netscape Comm. Corp.//DTD Strict HTML//",
-    "-//O'Reilly and Associates//DTD HTML 2.0//",
-    "-//O'Reilly and Associates//DTD HTML Extended 1.0//",
-    "-//O'Reilly and Associates//DTD HTML Extended Relaxed 1.0//",
-    "-//SQ//DTD HTML 2.0 HoTMetaL + extensions//",
-    "-//SoftQuad Software//DTD HoTMetaL PRO 6.0::19990601::extensions to HTML 4.0//",
-    "-//SoftQuad//DTD HoTMetaL PRO 4.0::19971010::extensions to HTML 4.0//",
-    "-//Spyglass//DTD HTML 2.0 Extended//",
-    "-//Sun Microsystems Corp.//DTD HotJava HTML//",
-    "-//Sun Microsystems Corp.//DTD HotJava Strict HTML//",
-    "-//W3C//DTD HTML 3 1995-03-24//",
-    "-//W3C//DTD HTML 3.2 Draft//",
-    "-//W3C//DTD HTML 3.2 Final//",
-    "-//W3C//DTD HTML 3.2//",
-    "-//W3C//DTD HTML 3.2S Draft//",
-    "-//W3C//DTD HTML 4.0 Frameset//",
-    "-//W3C//DTD HTML 4.0 Transitional//",
-    "-//W3C//DTD HTML Experimental 19960712//",
-    "-//W3C//DTD HTML Experimental 970421//",
-    "-//W3C//DTD W3 HTML//",
-    "-//W3O//DTD W3 HTML 3.0//",
-    "-//WebTechs//DTD Mozilla HTML 2.0//",
-    "-//WebTechs//DTD Mozilla HTML//",
+    "+//silmaril//dtd html pro v0r11 19970101//",
+    "-//as//dtd html 3.0 aswedit + extensions//",
+    "-//advasoft ltd//dtd html 3.0 aswedit + extensions//",
+    "-//ietf//dtd html 2.0 level 1//",
+    "-//ietf//dtd html 2.0 level 2//",
+    "-//ietf//dtd html 2.0 strict level 1//",
+    "-//ietf//dtd html 2.0 strict level 2//",
+    "-//ietf//dtd html 2.0 strict//",
+    "-//ietf//dtd html 2.0//",
+    "-//ietf//dtd html 2.1e//",
+    "-//ietf//dtd html 3.0//",
+    "-//ietf//dtd html 3.2 final//",
+    "-//ietf//dtd html 3.2//",
+    "-//ietf//dtd html 3//",
+    "-//ietf//dtd html level 0//",
+    "-//ietf//dtd html level 1//",
+    "-//ietf//dtd html level 2//",
+    "-//ietf//dtd html level 3//",
+    "-//ietf//dtd html strict level 0//",
+    "-//ietf//dtd html strict level 1//",
+    "-//ietf//dtd html strict level 2//",
+    "-//ietf//dtd html strict level 3//",
+    "-//ietf//dtd html strict//",
+    "-//ietf//dtd html//",
+    "-//metrius//dtd metrius presentational//",
+    "-//microsoft//dtd internet explorer 2.0 html strict//",
+    "-//microsoft//dtd internet explorer 2.0 html//",
+    "-//microsoft//dtd internet explorer 2.0 tables//",
+    "-//microsoft//dtd internet explorer 3.0 html strict//",
+    "-//microsoft//dtd internet explorer 3.0 html//",
+    "-//microsoft//dtd internet explorer 3.0 tables//",
+    "-//netscape comm. corp.//dtd html//",
+    "-//netscape comm. corp.//dtd strict html//",
+    "-//o'reilly and associates//dtd html 2.0//",
+    "-//o'reilly and associates//dtd html extended 1.0//",
+    "-//o'reilly and associates//dtd html extended relaxed 1.0//",
+    "-//sq//dtd html 2.0 hotmetal + extensions//",
+    "-//softquad software//dtd hotmetal pro 6.0::19990601::extensions to html 4.0//",
+    "-//softquad//dtd hotmetal pro 4.0::19971010::extensions to html 4.0//",
+    "-//spyglass//dtd html 2.0 extended//",
+    "-//sun microsystems corp.//dtd hotjava html//",
+    "-//sun microsystems corp.//dtd hotjava strict html//",
+    "-//w3c//dtd html 3 1995-03-24//",
+    "-//w3c//dtd html 3.2 draft//",
+    "-//w3c//dtd html 3.2 final//",
+    "-//w3c//dtd html 3.2//",
+    "-//w3c//dtd html 3.2s draft//",
+    "-//w3c//dtd html 4.0 frameset//",
+    "-//w3c//dtd html 4.0 transitional//",
+    "-//w3c//dtd html experimental 19960712//",
+    "-//w3c//dtd html experimental 970421//",
+    "-//w3c//dtd w3 html//",
+    "-//w3o//dtd w3 html 3.0//",
+    "-//webtechs//dtd mozilla html 2.0//",
+    "-//webtechs//dtd mozilla html//",
 ];
 
 static QUIRKS_PUB_IDENTIFIER_PREFIX_MISSING_SYS: &[&str] = &[
-    "-//W3C//DTD HTML 4.01 Frameset//",
-    "-//W3C//DTD HTML 4.01 Transitional//",
+    "-//w3c//dtd html 4.01 frameset//",
+    "-//w3c//dtd html 4.01 transitional//",
 ];
 
 static QUIRKS_SYS_IDENTIFIER_EQ: &[&str] =
     &["http://www.ibm.com/data/dtd/v11/ibmxhtml1-transitional.dtd"];
 
 static LIMITED_QUIRKS_PUB_IDENTIFIER_PREFIX: &[&str] = &[
-    "-//W3C//DTD XHTML 1.0 Frameset//",
-    "-//W3C//DTD XHTML 1.0 Transitional//",
+    "-//w3c//dtd xhtml 1.0 frameset//",
+    "-//w3c//dtd xhtml 1.0 transitional//",
 ];
 
 static LIMITED_QUIRKS_PUB_IDENTIFIER_PREFIX_NOT_MISSING_SYS: &[&str] = &[
-    "-//W3C//DTD HTML 4.01 Frameset//",
-    "-//W3C//DTD HTML 4.01 Transitional//",
+    "-//w3c//dtd html 4.01 frameset//",
+    "-//w3c//dtd html 4.01 transitional//",
 ];
 
 #[cfg(test)]
@@ -170,6 +171,14 @@ mod tests {
         assert_eq!(
             parser.identify_quirks_mode(&Some("html".to_string()), None, None, false),
             QuirksMode::NoQuirks
+        );
+        assert_eq!(
+            parser.identify_quirks_mode(&Some("HTML".to_string()), None, None, false),
+            QuirksMode::Quirks
+        );
+        assert_eq!(
+            parser.identify_quirks_mode(&Some("HTml".to_string()), None, None, false),
+            QuirksMode::Quirks
         );
         assert_eq!(
             parser.identify_quirks_mode(
@@ -214,7 +223,7 @@ mod tests {
                 None,
                 false
             ),
-            QuirksMode::LimitedQuirks
+            QuirksMode::Quirks
         );
         assert_eq!(
             parser.identify_quirks_mode(
@@ -223,12 +232,12 @@ mod tests {
                 None,
                 false
             ),
-            QuirksMode::LimitedQuirks
+            QuirksMode::Quirks
         );
         assert_eq!(
             parser.identify_quirks_mode(
                 &Some("html".to_string()),
-                Some("-//W3C//DTD XHTML 1.0 Frameset//".to_string()),
+                Some("-//W3C//DTD XHTML 1.0 Frameset//EN".to_string()),
                 None,
                 false
             ),
@@ -347,7 +356,7 @@ mod tests {
                 None,
                 false
             ),
-            QuirksMode::LimitedQuirks
+            QuirksMode::Quirks
         );
     }
 }
