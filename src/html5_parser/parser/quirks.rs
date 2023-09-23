@@ -32,9 +32,11 @@ impl<'a> Html5Parser<'a> {
                 return QuirksMode::Quirks;
             }
 
-            if sys_identifier.is_none() && QUIRKS_PUB_IDENTIFIER_PREFIX_MISSING_SYS
+            if sys_identifier.is_none()
+                && QUIRKS_PUB_IDENTIFIER_PREFIX_MISSING_SYS
                     .iter()
-                    .any(|&prefix| pub_id.as_str().starts_with(prefix)) {
+                    .any(|&prefix| pub_id.as_str().starts_with(prefix))
+            {
                 return QuirksMode::Quirks;
             }
 
@@ -45,9 +47,11 @@ impl<'a> Html5Parser<'a> {
                 return QuirksMode::LimitedQuirks;
             }
 
-            if sys_identifier.is_some() && LIMITED_QUIRKS_PUB_IDENTIFIER_PREFIX
+            if sys_identifier.is_some()
+                && LIMITED_QUIRKS_PUB_IDENTIFIER_PREFIX
                     .iter()
-                    .any(|&prefix| pub_id.as_str().starts_with(prefix)) {
+                    .any(|&prefix| pub_id.as_str().starts_with(prefix))
+            {
                 return QuirksMode::LimitedQuirks;
             }
         }

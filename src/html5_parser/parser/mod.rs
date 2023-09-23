@@ -1625,18 +1625,10 @@ impl<'a> Html5Parser<'a> {
             }
             Token::StartTagToken {
                 name, attributes, ..
-            } => {
-                Node::new_element(name, attributes.clone(), namespace)
-            }
-            Token::EndTagToken { name, .. } => {
-                Node::new_element(name, HashMap::new(), namespace)
-            }
-            Token::CommentToken { value } => {
-                Node::new_comment(value)
-            }
-            Token::TextToken { value } => {
-                Node::new_text(value.to_string().as_str())
-            }
+            } => Node::new_element(name, attributes.clone(), namespace),
+            Token::EndTagToken { name, .. } => Node::new_element(name, HashMap::new(), namespace),
+            Token::CommentToken { value } => Node::new_comment(value),
+            Token::TextToken { value } => Node::new_text(value.to_string().as_str()),
             Token::EofToken => {
                 panic!("EOF token not allowed");
             }
