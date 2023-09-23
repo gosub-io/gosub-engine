@@ -1,9 +1,9 @@
-use std::collections::HashMap;
 use crate::html5_parser::node::Node;
+use std::collections::HashMap;
 
 pub struct NodeArena {
-    nodes: HashMap<usize, Node>,        // Current nodes
-    next_id: usize,                     // next id to use
+    nodes: HashMap<usize, Node>, // Current nodes
+    next_id: usize,              // next id to use
 }
 
 impl NodeArena {
@@ -67,8 +67,8 @@ impl NodeArena {
 
 #[cfg(test)]
 mod tests {
-    use crate::html5_parser::node::HTML_NAMESPACE;
     use super::*;
+    use crate::html5_parser::node::HTML_NAMESPACE;
 
     #[test]
     fn test_add_node() {
@@ -160,7 +160,6 @@ mod tests {
         let parent = arena.get_node(parent_id);
         assert_eq!(parent.unwrap().children.len(), 1);
     }
-
 
     #[test]
     fn test_remove_node_with_children() {

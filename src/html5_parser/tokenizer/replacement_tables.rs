@@ -40,8 +40,6 @@ pub static TOKEN_REPLACEMENTS: phf::Map<u32, char> = phf::phf_map! {
     0x9F_u32 => '\u{0178}',
 };
 
-
-
 // Converted from golang.org/x/net/html/entity.go
 // Taken from https://dev.w3.org/html5/spec-LC/named-character-references.html#named-character-references
 

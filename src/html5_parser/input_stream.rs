@@ -1,7 +1,7 @@
+use crate::html5_parser::tokenizer::{CHAR_CR, CHAR_LF};
 use std::fs::File;
 use std::io;
 use std::io::Read;
-use crate::html5_parser::tokenizer::{CHAR_CR, CHAR_LF};
 
 // Encoding defines the way the buffer stream is read, as what defines a "character".
 #[derive(PartialEq)]
@@ -30,11 +30,7 @@ pub struct Position {
 impl Position {
     // Create a new position
     pub fn new(offset: usize, line: usize, col: usize) -> Self {
-        Position {
-            offset,
-            line,
-            col,
-        }
+        Position { offset, line, col }
     }
 
     // Returns a string representation of the position
@@ -45,9 +41,9 @@ impl Position {
 
 #[derive(PartialEq, Debug, Copy, Clone)]
 pub enum Element {
-    Utf8(char),             // Standard UTF character
-    Surrogate(u16),         // Surrogate character (since they cannot be stored in <char>)
-    Eof,                    // End of stream
+    Utf8(char),     // Standard UTF character
+    Surrogate(u16), // Surrogate character (since they cannot be stored in <char>)
+    Eof,            // End of stream
 }
 
 impl Element {
@@ -92,31 +88,30 @@ impl Element {
         match self {
             Element::Utf8(ch) => ch.to_string(),
             Element::Surrogate(surrogate) => format!("U+{:04X}", surrogate), // Or some other representation
-            Element::Eof => "EOF".to_string(), // Or an empty string
+            Element::Eof => "EOF".to_string(),                               // Or an empty string
         }
     }
 }
 
 // HTML(5) input stream structure
 pub struct InputStream {
-    pub encoding: Encoding,             // Current encoding
-    pub confidence: Confidence,         // How confident are we that this is the correct encoding?
+    pub encoding: Encoding,     // Current encoding
+    pub confidence: Confidence, // How confident are we that this is the correct encoding?
 
-    pub position: Position,             // Current positions
-    pub length: usize,                  // Length (in chars) of the buffer
-    line_offsets: Vec<usize>,           // Offsets of the given lines
+    pub position: Position,   // Current positions
+    pub length: usize,        // Length (in chars) of the buffer
+    line_offsets: Vec<usize>, // Offsets of the given lines
 
-    buffer: Vec<Element>,               // Reference to the actual buffer stream in characters
-    u8_buffer: Vec<u8>,                 // Reference to the actual buffer stream in u8 bytes
-                                        // If all things are ok, both buffer and u8_buffer should refer to the same memory location (?)
-
-    pub has_read_eof: bool,             // True when we just read an EOF
+    buffer: Vec<Element>, // Reference to the actual buffer stream in characters
+    u8_buffer: Vec<u8>,   // Reference to the actual buffer stream in u8 bytes
+    // If all things are ok, both buffer and u8_buffer should refer to the same memory location (?)
+    pub has_read_eof: bool, // True when we just read an EOF
 }
 
 pub enum SeekMode {
-    SeekSet,       // Seek from the start of the stream
-    SeekCur,       // Seek from the current stream position
-    SeekEnd,       // Seek (backwards) from the end of the stream
+    SeekSet, // Seek from the start of the stream
+    SeekCur, // Seek from the current stream position
+    SeekEnd, // Seek (backwards) from the end of the stream
 }
 
 impl InputStream {
@@ -125,13 +120,13 @@ impl InputStream {
         InputStream {
             encoding: Encoding::UTF8,
             confidence: Confidence::Tentative,
-            position: Position{
+            position: Position {
                 offset: 0,
                 line: 1,
                 col: 1,
             },
             length: 0,
-            line_offsets: vec![0],      // first line always starts at 0
+            line_offsets: vec![0], // first line always starts at 0
             buffer: Vec::new(),
             u8_buffer: Vec::new(),
             has_read_eof: false,
@@ -191,7 +186,6 @@ impl InputStream {
     }
 
     pub fn get_previous_position(&mut self) -> Position {
-
         // if we are at the begining or the end of the stream, we just return the current position
         if self.position.offset == 0 || self.has_read_eof {
             return self.position;
@@ -205,7 +199,7 @@ impl InputStream {
         let mut abs_offset = abs_offset;
 
         // Cap to length if we read past the end of the stream
-        if abs_offset > self.length + 1  {
+        if abs_offset > self.length + 1 {
             abs_offset = self.length;
             self.has_read_eof = true;
         }
@@ -225,11 +219,11 @@ impl InputStream {
         }
 
         // Set position values
-        return Position{
+        return Position {
             offset: abs_offset,
             line: last_line + 1,
             col: abs_offset - last_offset + 1,
-        }
+        };
     }
 
     pub fn tell(&self) -> usize {
@@ -266,7 +260,6 @@ impl InputStream {
                 // Convert the utf8 string into characters so we can use easy indexing
                 self.buffer = vec![];
                 for c in str_buf.chars() {
-
                     // // Check if we have a non-bmp character. This means it's above 0x10000
                     // let cp = c as u32;
                     // if cp > 0x10000 && cp <= 0x10FFFF {
@@ -315,7 +308,7 @@ impl InputStream {
             }
         }
 
-        return result
+        return result;
     }
 
     // Populates the current buffer with the contents of given file f
@@ -365,7 +358,7 @@ impl InputStream {
             // };
 
             Element::Eof
-        }
+        };
     }
 
     pub(crate) fn unread(&mut self) {
@@ -460,9 +453,9 @@ mod test {
         assert_eq!(is.read_char().utf8(), 'f');
         assert_eq!(is.read_char().is_eof(), true);
 
-        is.unread();    // unread eof
-        is.unread();    // unread 'f'
-        is.unread();    // Unread '?'
+        is.unread(); // unread eof
+        is.unread(); // unread 'f'
+        is.unread(); // Unread '?'
         assert_eq!(is.chars_left(), 2);
         is.unread();
         assert_eq!(is.chars_left(), 3);
@@ -471,7 +464,6 @@ mod test {
         assert_eq!(is.chars_left(), 6);
         is.unread();
         assert_eq!(is.chars_left(), 6);
-
 
         is.read_from_str("abc", Some(Encoding::UTF8));
         is.reset();
@@ -505,56 +497,163 @@ mod test {
     fn test_offsets() {
         let mut is = InputStream::new();
         is.read_from_str("abc", Some(Encoding::UTF8));
-        assert_eq!(is.position, Position{ offset: 0, line: 1, col: 1});
+        assert_eq!(
+            is.position,
+            Position {
+                offset: 0,
+                line: 1,
+                col: 1
+            }
+        );
         assert_eq!('a', is.read_char().utf8());
-        assert_eq!(is.position, Position{ offset: 1, line: 1, col: 2});
+        assert_eq!(
+            is.position,
+            Position {
+                offset: 1,
+                line: 1,
+                col: 2
+            }
+        );
         assert_eq!('b', is.read_char().utf8());
-        assert_eq!(is.position, Position{ offset: 2, line: 1, col: 3});
+        assert_eq!(
+            is.position,
+            Position {
+                offset: 2,
+                line: 1,
+                col: 3
+            }
+        );
         assert_eq!('c', is.read_char().utf8());
-        assert_eq!(is.position, Position{ offset: 3, line: 1, col: 4});
+        assert_eq!(
+            is.position,
+            Position {
+                offset: 3,
+                line: 1,
+                col: 4
+            }
+        );
         assert_eq!(is.read_char().is_eof(), true);
-        assert_eq!(is.position, Position{ offset: 3, line: 1, col: 4});
+        assert_eq!(
+            is.position,
+            Position {
+                offset: 3,
+                line: 1,
+                col: 4
+            }
+        );
         assert_eq!(is.read_char().is_eof(), true);
-        assert_eq!(is.position, Position{ offset: 3, line: 1, col: 4});
-
+        assert_eq!(
+            is.position,
+            Position {
+                offset: 3,
+                line: 1,
+                col: 4
+            }
+        );
 
         let mut is = InputStream::new();
-        is.read_from_str("abc\ndefg\n\nhi\njk\nlmno\n\n\npqrst\nu\nv\nw\n\nxy\nz", Some(Encoding::UTF8));
+        is.read_from_str(
+            "abc\ndefg\n\nhi\njk\nlmno\n\n\npqrst\nu\nv\nw\n\nxy\nz",
+            Some(Encoding::UTF8),
+        );
         assert_eq!(is.length, 40);
 
         is.seek(SeekMode::SeekSet, 0);
-        assert_eq!(is.position, Position{ offset: 0, line: 1, col: 1});
+        assert_eq!(
+            is.position,
+            Position {
+                offset: 0,
+                line: 1,
+                col: 1
+            }
+        );
         let c = is.read_char();
         assert_eq!('a', c.utf8());
-        assert_eq!(is.position, Position{ offset: 1, line: 1, col: 2});
+        assert_eq!(
+            is.position,
+            Position {
+                offset: 1,
+                line: 1,
+                col: 2
+            }
+        );
 
         is.seek(SeekMode::SeekSet, 7);
-        assert_eq!(is.position, Position{ offset: 7, line: 2, col: 4});
+        assert_eq!(
+            is.position,
+            Position {
+                offset: 7,
+                line: 2,
+                col: 4
+            }
+        );
         assert_eq!(is.chars_left(), 33);
 
         let c = is.read_char();
         assert_eq!('g', c.utf8());
-        assert_eq!(is.position, Position{ offset: 8, line: 2, col: 5});
+        assert_eq!(
+            is.position,
+            Position {
+                offset: 8,
+                line: 2,
+                col: 5
+            }
+        );
 
         let c = is.read_char();
         assert_eq!('\n', c.utf8());
-        assert_eq!(is.position, Position{ offset: 9, line: 3, col: 1});
+        assert_eq!(
+            is.position,
+            Position {
+                offset: 9,
+                line: 3,
+                col: 1
+            }
+        );
 
         let c = is.read_char();
         assert_eq!('\n', c.utf8());
-        assert_eq!(is.position, Position{ offset: 10, line: 4, col: 1});
+        assert_eq!(
+            is.position,
+            Position {
+                offset: 10,
+                line: 4,
+                col: 1
+            }
+        );
 
         let c = is.read_char();
         assert_eq!('h', c.utf8());
-        assert_eq!(is.position, Position{ offset: 11, line: 4, col: 2});
+        assert_eq!(
+            is.position,
+            Position {
+                offset: 11,
+                line: 4,
+                col: 2
+            }
+        );
         assert_eq!(is.chars_left(), 29);
 
         is.reset();
-        assert_eq!(is.position, Position{ offset: 0, line: 1, col: 1});
+        assert_eq!(
+            is.position,
+            Position {
+                offset: 0,
+                line: 1,
+                col: 1
+            }
+        );
         assert_eq!(is.chars_left(), 40);
 
         is.seek(SeekMode::SeekSet, 100);
-        assert_eq!(is.position, Position{ offset: 40, line: 15, col: 2});
+        assert_eq!(
+            is.position,
+            Position {
+                offset: 40,
+                line: 15,
+                col: 2
+            }
+        );
         assert_eq!(is.chars_left(), 0);
     }
 
@@ -597,7 +696,6 @@ mod test {
         is.seek(SeekMode::SeekSet, 3);
         assert_eq!(is.look_ahead_slice(1), "c");
         assert_eq!(is.look_ahead_slice(2), "cd");
-
 
         is.seek(SeekMode::SeekSet, 0);
         assert_eq!(is.position.offset, 0);

@@ -1,10 +1,10 @@
+pub mod node;
 pub mod parser;
 pub mod tokenizer;
-pub mod node;
 
 pub mod dom;
 
-pub mod input_stream;
 pub mod error_logger;
+pub mod input_stream;
 
 mod node_arena;
