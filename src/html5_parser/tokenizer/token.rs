@@ -196,7 +196,10 @@ mod tests {
             pub_identifier: Some("foo".to_string()),
             sys_identifier: Some("bar".to_string()),
         };
-        assert_eq!(format!("{}", token), "<!DOCTYPE html PUBLIC \"foo\" SYSTEM \"bar\" />");
+        assert_eq!(
+            format!("{}", token),
+            "<!DOCTYPE html PUBLIC \"foo\" SYSTEM \"bar\" />"
+        );
     }
 
     #[test]
