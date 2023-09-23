@@ -54,7 +54,8 @@ impl<'a> Html5Parser<'a> {
                             ref name,
                             ref attributes,
                             ..
-                        } = temp_node.data {
+                        } = temp_node.data
+                        {
                             if name == subject && !attributes.is_empty() {
                                 formatting_element_idx = idx;
                                 formatting_element_id = node_id;
