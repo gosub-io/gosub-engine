@@ -8,10 +8,14 @@ pub enum QuirksMode {
 }
 
 impl<'a> Html5Parser<'a> {
-
     // returns the correct quirk mode for the given doctype
-    pub(crate) fn identify_quirks_mode(&self, name: &Option<String>, pub_identifer: Option<String>, sys_identifier: Option<String>, force_quirks: bool) -> QuirksMode
-    {
+    pub(crate) fn identify_quirks_mode(
+        &self,
+        name: &Option<String>,
+        pub_identifer: Option<String>,
+        sys_identifier: Option<String>,
+        force_quirks: bool,
+    ) -> QuirksMode {
         if force_quirks || name.as_ref().map_or("", |s| &s[..]).to_uppercase() != "HTML" {
             return QuirksMode::Quirks;
         }
@@ -21,22 +25,34 @@ impl<'a> Html5Parser<'a> {
             if QUIRKS_PUB_IDENTIFIER_EQ.contains(&pub_id.as_str()) {
                 return QuirksMode::Quirks;
             }
-            if QUIRKS_PUB_IDENTIFIER_PREFIX.iter().any(|&prefix| pub_id.as_str().starts_with(&prefix)) {
+            if QUIRKS_PUB_IDENTIFIER_PREFIX
+                .iter()
+                .any(|&prefix| pub_id.as_str().starts_with(&prefix))
+            {
                 return QuirksMode::Quirks;
             }
 
             if sys_identifier.is_none() {
-                if QUIRKS_PUB_IDENTIFIER_PREFIX_MISSING_SYS.iter().any(|&prefix| pub_id.as_str().starts_with(&prefix)) {
+                if QUIRKS_PUB_IDENTIFIER_PREFIX_MISSING_SYS
+                    .iter()
+                    .any(|&prefix| pub_id.as_str().starts_with(&prefix))
+                {
                     return QuirksMode::Quirks;
                 }
             }
 
-            if LIMITED_QUIRKS_PUB_IDENTIFIER_PREFIX.iter().any(|&prefix| pub_id.as_str().starts_with(&prefix)) {
+            if LIMITED_QUIRKS_PUB_IDENTIFIER_PREFIX
+                .iter()
+                .any(|&prefix| pub_id.as_str().starts_with(&prefix))
+            {
                 return QuirksMode::LimitedQuirks;
             }
 
             if sys_identifier.is_some() {
-                if LIMITED_QUIRKS_PUB_IDENTIFIER_PREFIX.iter().any(|&prefix| pub_id.as_str().starts_with(&prefix)) {
+                if LIMITED_QUIRKS_PUB_IDENTIFIER_PREFIX
+                    .iter()
+                    .any(|&prefix| pub_id.as_str().starts_with(&prefix))
+                {
                     return QuirksMode::LimitedQuirks;
                 }
             }
@@ -44,7 +60,10 @@ impl<'a> Html5Parser<'a> {
 
         if sys_identifier.is_some() {
             let sys_id = sys_identifier.unwrap().to_lowercase();
-            if QUIRKS_SYS_IDENTIFIER_EQ.iter().any(|&prefix| sys_id.as_str().starts_with(&prefix)) {
+            if QUIRKS_SYS_IDENTIFIER_EQ
+                .iter()
+                .any(|&prefix| sys_id.as_str().starts_with(&prefix))
+            {
                 return QuirksMode::Quirks;
             }
         }
@@ -56,7 +75,7 @@ impl<'a> Html5Parser<'a> {
 static QUIRKS_PUB_IDENTIFIER_EQ: &'static [&'static str] = &[
     "-//W3O//DTD W3 HTML Strict 3.0//EN//",
     "-/W3C/DTD HTML 4.0 Transitional/EN",
-    "HTML"
+    "HTML",
 ];
 
 static QUIRKS_PUB_IDENTIFIER_PREFIX: &'static [&'static str] = &[
@@ -122,13 +141,12 @@ static QUIRKS_PUB_IDENTIFIER_PREFIX_MISSING_SYS: &'static [&'static str] = &[
     "-//W3C//DTD HTML 4.01 Transitional//",
 ];
 
-static QUIRKS_SYS_IDENTIFIER_EQ: &'static [&'static str] = &[
-    "http://www.ibm.com/data/dtd/v11/ibmxhtml1-transitional.dtd"
-];
+static QUIRKS_SYS_IDENTIFIER_EQ: &'static [&'static str] =
+    &["http://www.ibm.com/data/dtd/v11/ibmxhtml1-transitional.dtd"];
 
 static LIMITED_QUIRKS_PUB_IDENTIFIER_PREFIX: &'static [&'static str] = &[
     "-//W3C//DTD XHTML 1.0 Frameset//",
-    "-//W3C//DTD XHTML 1.0 Transitional//"
+    "-//W3C//DTD XHTML 1.0 Transitional//",
 ];
 
 static LIMITED_QUIRKS_PUB_IDENTIFIER_PREFIX_NOT_MISSING_SYS: &'static [&'static str] = &[
@@ -147,15 +165,77 @@ mod tests {
         let mut stream = InputStream::new();
         let parser = Html5Parser::new(&mut stream);
 
-        assert_eq!(parser.identify_quirks_mode(&None, None, None, false), QuirksMode::Quirks);
-        assert_eq!(parser.identify_quirks_mode(&Some("html".to_string()), None, None, false), QuirksMode::NoQuirks);
-        assert_eq!(parser.identify_quirks_mode(&Some("html".to_string()), Some("-//W3O//DTD W3 HTML Strict 3.0//EN//".to_string()), None, false), QuirksMode::Quirks);
-        assert_eq!(parser.identify_quirks_mode(&Some("html".to_string()), Some("-//W3C//DTD HTML 4.0 Transitional//EN".to_string()), None, false), QuirksMode::Quirks);
-        assert_eq!(parser.identify_quirks_mode(&Some("html".to_string()), Some("-/W3C/DTD HTML 4.0 Transitional/EN".to_string()), None, false), QuirksMode::Quirks);
-        assert_eq!(parser.identify_quirks_mode(&Some("html".to_string()), Some("-/W3C/DTD HTML 4.0 Transitional/EN".to_string()), None, false), QuirksMode::Quirks);
-        assert_eq!(parser.identify_quirks_mode(&Some("html".to_string()), Some("-//W3C//DTD HTML 4.01 Frameset//".to_string()), None, false), QuirksMode::LimitedQuirks);
-        assert_eq!(parser.identify_quirks_mode(&Some("html".to_string()), Some("-//W3C//DTD HTML 4.01 Transitional//".to_string()), None, false), QuirksMode::LimitedQuirks);
-        assert_eq!(parser.identify_quirks_mode(&Some("html".to_string()), Some("-//W3C//DTD XHTML 1.0 Frameset//".to_string()), None, false), QuirksMode::LimitedQuirks);
+        assert_eq!(
+            parser.identify_quirks_mode(&None, None, None, false),
+            QuirksMode::Quirks
+        );
+        assert_eq!(
+            parser.identify_quirks_mode(&Some("html".to_string()), None, None, false),
+            QuirksMode::NoQuirks
+        );
+        assert_eq!(
+            parser.identify_quirks_mode(
+                &Some("html".to_string()),
+                Some("-//W3O//DTD W3 HTML Strict 3.0//EN//".to_string()),
+                None,
+                false
+            ),
+            QuirksMode::Quirks
+        );
+        assert_eq!(
+            parser.identify_quirks_mode(
+                &Some("html".to_string()),
+                Some("-//W3C//DTD HTML 4.0 Transitional//EN".to_string()),
+                None,
+                false
+            ),
+            QuirksMode::Quirks
+        );
+        assert_eq!(
+            parser.identify_quirks_mode(
+                &Some("html".to_string()),
+                Some("-/W3C/DTD HTML 4.0 Transitional/EN".to_string()),
+                None,
+                false
+            ),
+            QuirksMode::Quirks
+        );
+        assert_eq!(
+            parser.identify_quirks_mode(
+                &Some("html".to_string()),
+                Some("-/W3C/DTD HTML 4.0 Transitional/EN".to_string()),
+                None,
+                false
+            ),
+            QuirksMode::Quirks
+        );
+        assert_eq!(
+            parser.identify_quirks_mode(
+                &Some("html".to_string()),
+                Some("-//W3C//DTD HTML 4.01 Frameset//".to_string()),
+                None,
+                false
+            ),
+            QuirksMode::LimitedQuirks
+        );
+        assert_eq!(
+            parser.identify_quirks_mode(
+                &Some("html".to_string()),
+                Some("-//W3C//DTD HTML 4.01 Transitional//".to_string()),
+                None,
+                false
+            ),
+            QuirksMode::LimitedQuirks
+        );
+        assert_eq!(
+            parser.identify_quirks_mode(
+                &Some("html".to_string()),
+                Some("-//W3C//DTD XHTML 1.0 Frameset//".to_string()),
+                None,
+                false
+            ),
+            QuirksMode::LimitedQuirks
+        );
     }
 
     #[test]
@@ -163,14 +243,73 @@ mod tests {
         let mut stream = InputStream::new();
         let parser = Html5Parser::new(&mut stream);
 
-        assert_eq!(parser.identify_quirks_mode(&Some("html".to_string()), None, None, true), QuirksMode::Quirks);
-        assert_eq!(parser.identify_quirks_mode(&Some("html".to_string()), Some("-//W3O//DTD W3 HTML Strict 3.0//EN//".to_string()), None, true), QuirksMode::Quirks);
-        assert_eq!(parser.identify_quirks_mode(&Some("html".to_string()), Some("-//W3C//DTD HTML 4.0 Transitional//EN".to_string()), None, true), QuirksMode::Quirks);
-        assert_eq!(parser.identify_quirks_mode(&Some("html".to_string()), Some("-/W3C/DTD HTML 4.0 Transitional/EN".to_string()), None, true), QuirksMode::Quirks);
-        assert_eq!(parser.identify_quirks_mode(&Some("html".to_string()), Some("-/W3C/DTD HTML 4.0 Transitional/EN".to_string()), None, true), QuirksMode::Quirks);
-        assert_eq!(parser.identify_quirks_mode(&Some("html".to_string()), Some("-//W3C//DTD HTML 4.01 Frameset//".to_string()), None, true), QuirksMode::Quirks);
-        assert_eq!(parser.identify_quirks_mode(&Some("html".to_string()), Some("-//W3C//DTD HTML 4.01 Transitional//".to_string()), None, true), QuirksMode::Quirks);
-        assert_eq!(parser.identify_quirks_mode(&Some("html".to_string()), Some("-//W3C//DTD XHTML 1.0 Frameset//".to_string()), None, true), QuirksMode::Quirks);
+        assert_eq!(
+            parser.identify_quirks_mode(&Some("html".to_string()), None, None, true),
+            QuirksMode::Quirks
+        );
+        assert_eq!(
+            parser.identify_quirks_mode(
+                &Some("html".to_string()),
+                Some("-//W3O//DTD W3 HTML Strict 3.0//EN//".to_string()),
+                None,
+                true
+            ),
+            QuirksMode::Quirks
+        );
+        assert_eq!(
+            parser.identify_quirks_mode(
+                &Some("html".to_string()),
+                Some("-//W3C//DTD HTML 4.0 Transitional//EN".to_string()),
+                None,
+                true
+            ),
+            QuirksMode::Quirks
+        );
+        assert_eq!(
+            parser.identify_quirks_mode(
+                &Some("html".to_string()),
+                Some("-/W3C/DTD HTML 4.0 Transitional/EN".to_string()),
+                None,
+                true
+            ),
+            QuirksMode::Quirks
+        );
+        assert_eq!(
+            parser.identify_quirks_mode(
+                &Some("html".to_string()),
+                Some("-/W3C/DTD HTML 4.0 Transitional/EN".to_string()),
+                None,
+                true
+            ),
+            QuirksMode::Quirks
+        );
+        assert_eq!(
+            parser.identify_quirks_mode(
+                &Some("html".to_string()),
+                Some("-//W3C//DTD HTML 4.01 Frameset//".to_string()),
+                None,
+                true
+            ),
+            QuirksMode::Quirks
+        );
+        assert_eq!(
+            parser.identify_quirks_mode(
+                &Some("html".to_string()),
+                Some("-//W3C//DTD HTML 4.01 Transitional//".to_string()),
+                None,
+                true
+            ),
+            QuirksMode::Quirks
+        );
+        assert_eq!(
+            parser.identify_quirks_mode(
+                &Some("html".to_string()),
+                Some("-//W3C//DTD XHTML 1.0 Frameset//".to_string()),
+                None,
+                true
+            ),
+            QuirksMode::Quirks
+        );
     }
 
     #[test]
@@ -178,8 +317,24 @@ mod tests {
         let mut stream = InputStream::new();
         let parser = Html5Parser::new(&mut stream);
 
-        assert_eq!(parser.identify_quirks_mode(&Some("html".to_string()), Some("-//W3C//DTD HTML 4.0 Transitional//EN".to_string()), Some("http://www.w3.org/TR/html4/loose.dtd".to_string()), false), QuirksMode::Quirks);
-        assert_eq!(parser.identify_quirks_mode(&Some("html".to_string()), Some("-//W3C//DTD HTML 4.01 Frameset//".to_string()), Some("http://www.w3.org/TR/html4/frameset.dtd".to_string()), false), QuirksMode::LimitedQuirks);
+        assert_eq!(
+            parser.identify_quirks_mode(
+                &Some("html".to_string()),
+                Some("-//W3C//DTD HTML 4.0 Transitional//EN".to_string()),
+                Some("http://www.w3.org/TR/html4/loose.dtd".to_string()),
+                false
+            ),
+            QuirksMode::Quirks
+        );
+        assert_eq!(
+            parser.identify_quirks_mode(
+                &Some("html".to_string()),
+                Some("-//W3C//DTD HTML 4.01 Frameset//".to_string()),
+                Some("http://www.w3.org/TR/html4/frameset.dtd".to_string()),
+                false
+            ),
+            QuirksMode::LimitedQuirks
+        );
     }
 
     #[test]
@@ -187,6 +342,14 @@ mod tests {
         let mut stream = InputStream::new();
         let parser = Html5Parser::new(&mut stream);
 
-        assert_eq!(parser.identify_quirks_mode(&Some("html".to_string()), Some("-//W3C//DTD HTML 4.01 Frameset//".to_string()), None, false), QuirksMode::LimitedQuirks);
+        assert_eq!(
+            parser.identify_quirks_mode(
+                &Some("html".to_string()),
+                Some("-//W3C//DTD HTML 4.01 Frameset//".to_string()),
+                None,
+                false
+            ),
+            QuirksMode::LimitedQuirks
+        );
     }
 }

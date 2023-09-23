@@ -1,7 +1,7 @@
-use std::fmt;
 use crate::html5_parser::node::{Node, NodeData};
 use crate::html5_parser::node_arena::NodeArena;
 use crate::html5_parser::parser::quirks::QuirksMode;
+use std::fmt;
 
 #[derive(PartialEq, Debug, Copy, Clone)]
 pub enum DocumentType {
@@ -11,8 +11,8 @@ pub enum DocumentType {
 
 pub struct Document {
     arena: NodeArena,
-    pub doctype: DocumentType,    // Document type
-    pub quirks_mode: QuirksMode,  // Quirks mode
+    pub doctype: DocumentType,   // Document type
+    pub quirks_mode: QuirksMode, // Quirks mode
 }
 
 impl Document {
@@ -60,28 +60,28 @@ impl Document {
 
 impl Document {
     fn display_tree(&self, node: &Node, indent: usize, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut prefix= " ".repeat(indent);
-        if ! prefix.is_empty() {
+        let mut prefix = " ".repeat(indent);
+        if !prefix.is_empty() {
             prefix = format!("{}└─ ", prefix);
         }
 
         match &node.data {
             NodeData::Document => {
                 writeln!(f, "{}Document", prefix)?;
-            },
+            }
             NodeData::Text { value } => {
                 writeln!(f, "{}{}", prefix, value)?;
-            },
+            }
             NodeData::Comment { value } => {
                 writeln!(f, "{}<!-- {} -->", prefix, value)?;
-            },
+            }
             NodeData::Element { name, attributes } => {
                 write!(f, "{}<{}", prefix, name)?;
                 for (key, value) in attributes.iter() {
                     write!(f, " {}={}", key, value)?;
                 }
                 writeln!(f, ">")?;
-            },
+            }
         }
 
         for child_id in &node.children {
@@ -102,29 +102,52 @@ impl fmt::Display for Document {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
     use crate::html5_parser::node::HTML_NAMESPACE;
+    use std::collections::HashMap;
 
     #[test]
     fn test_document() {
         let mut document = super::Document::new();
         let root_id = document.get_root().id;
-        let html_id = document.add_node(super::Node::new_element("html", HashMap::new(), HTML_NAMESPACE), root_id);
-        let head_id = document.add_node(super::Node::new_element("head", HashMap::new(), HTML_NAMESPACE), html_id);
-        let body_id = document.add_node(super::Node::new_element("body", HashMap::new(), HTML_NAMESPACE), html_id);
-        let title_id = document.add_node(super::Node::new_element("title", HashMap::new(), HTML_NAMESPACE), head_id);
+        let html_id = document.add_node(
+            super::Node::new_element("html", HashMap::new(), HTML_NAMESPACE),
+            root_id,
+        );
+        let head_id = document.add_node(
+            super::Node::new_element("head", HashMap::new(), HTML_NAMESPACE),
+            html_id,
+        );
+        let body_id = document.add_node(
+            super::Node::new_element("body", HashMap::new(), HTML_NAMESPACE),
+            html_id,
+        );
+        let title_id = document.add_node(
+            super::Node::new_element("title", HashMap::new(), HTML_NAMESPACE),
+            head_id,
+        );
         let title_text_id = document.add_node(super::Node::new_text("Hello world"), title_id);
-        let p_id = document.add_node(super::Node::new_element("p", HashMap::new(), HTML_NAMESPACE), body_id);
+        let p_id = document.add_node(
+            super::Node::new_element("p", HashMap::new(), HTML_NAMESPACE),
+            body_id,
+        );
         let p_text_id = document.add_node(super::Node::new_text("This is a paragraph"), p_id);
         let p_comment_id = document.add_node(super::Node::new_comment("This is a comment"), p_id);
-        let p_text2_id = document.add_node(super::Node::new_text("This is another paragraph"), p_id);
-        let p_text3_id = document.add_node(super::Node::new_text("This is a third paragraph"), p_id);
-        let p_text4_id = document.add_node(super::Node::new_text("This is a fourth paragraph"), p_id);
-        let p_text5_id = document.add_node(super::Node::new_text("This is a fifth paragraph"), p_id);
-        let p_text6_id = document.add_node(super::Node::new_text("This is a sixth paragraph"), p_id);
-        let p_text7_id = document.add_node(super::Node::new_text("This is a seventh paragraph"), p_id);
-        let p_text8_id = document.add_node(super::Node::new_text("This is a eighth paragraph"), p_id);
-        let p_text9_id = document.add_node(super::Node::new_text("This is a ninth paragraph"), p_id);
+        let p_text2_id =
+            document.add_node(super::Node::new_text("This is another paragraph"), p_id);
+        let p_text3_id =
+            document.add_node(super::Node::new_text("This is a third paragraph"), p_id);
+        let p_text4_id =
+            document.add_node(super::Node::new_text("This is a fourth paragraph"), p_id);
+        let p_text5_id =
+            document.add_node(super::Node::new_text("This is a fifth paragraph"), p_id);
+        let p_text6_id =
+            document.add_node(super::Node::new_text("This is a sixth paragraph"), p_id);
+        let p_text7_id =
+            document.add_node(super::Node::new_text("This is a seventh paragraph"), p_id);
+        let p_text8_id =
+            document.add_node(super::Node::new_text("This is a eighth paragraph"), p_id);
+        let p_text9_id =
+            document.add_node(super::Node::new_text("This is a ninth paragraph"), p_id);
 
         document.append(p_text9_id, p_id);
         document.append(p_text8_id, p_id);
@@ -143,7 +166,9 @@ mod tests {
         document.append(body_id, html_id);
         document.append(html_id, root_id);
 
-        assert_eq!(format!("{}", document), r#"Document
+        assert_eq!(
+            format!("{}", document),
+            r#"Document
         └─ <html>
             └─ <head>
                 └─ <title>
@@ -160,7 +185,7 @@ mod tests {
                 └─ This is a seventh paragraph
                 └─ This is a eighth paragraph
                 └─ This is a ninth paragraph
-        "#);
+        "#
+        );
     }
-
 }

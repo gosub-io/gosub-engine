@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
-pub const HTML_NAMESPACE:    &str = "http://www.w3.org/1999/xhtml";
-pub const MATHML_NAMESPACE:  &str = "http://www.w3.org/1998/Math/MathML";
-pub const SVG_NAMESPACE:     &str = "http://www.w3.org/2000/svg";
-pub const XLINK_NAMESPACE:   &str = "http://www.w3.org/1999/xlink";
-pub const XML_NAMESPACE:     &str = "http://www.w3.org/XML/1998/namespace";
-pub const XMLNS_NAMESPACE:   &str = "http://www.w3.org/2000/xmlns/";
+pub const HTML_NAMESPACE: &str = "http://www.w3.org/1999/xhtml";
+pub const MATHML_NAMESPACE: &str = "http://www.w3.org/1998/Math/MathML";
+pub const SVG_NAMESPACE: &str = "http://www.w3.org/2000/svg";
+pub const XLINK_NAMESPACE: &str = "http://www.w3.org/1999/xlink";
+pub const XML_NAMESPACE: &str = "http://www.w3.org/XML/1998/namespace";
+pub const XMLNS_NAMESPACE: &str = "http://www.w3.org/2000/xmlns/";
 
 // Different types of nodes
 #[derive(Debug, PartialEq)]
@@ -20,19 +20,26 @@ pub enum NodeType {
 #[derive(Debug, PartialEq, Clone)]
 pub enum NodeData {
     Document,
-    Text { value: String },
-    Comment { value: String },
-    Element { name: String, attributes: HashMap<String, String> },
+    Text {
+        value: String,
+    },
+    Comment {
+        value: String,
+    },
+    Element {
+        name: String,
+        attributes: HashMap<String, String>,
+    },
 }
 
 // Node that resembles a DOM node
 pub struct Node {
-    pub id: usize,                  // ID of the node, 0 is always the root / document node
-    pub parent: Option<usize>,      // parent of the node, if any
-    pub children: Vec<usize>,       // children of the node
-    pub name: String,               // name of the node, or empty when it's not a tag
-    pub namespace: Option<String>,  // namespace of the node
-    pub data: NodeData,             // actual data of the node
+    pub id: usize,                 // ID of the node, 0 is always the root / document node
+    pub parent: Option<usize>,     // parent of the node, if any
+    pub children: Vec<usize>,      // children of the node
+    pub name: String,              // name of the node, or empty when it's not a tag
+    pub namespace: Option<String>, // namespace of the node
+    pub data: NodeData,            // actual data of the node
 }
 
 impl Clone for Node {
@@ -55,7 +62,7 @@ impl Node {
             id: 0,
             parent: None,
             children: vec![],
-            data: NodeData::Document{},
+            data: NodeData::Document {},
             name: "".to_string(),
             namespace: None,
         }
@@ -67,12 +74,12 @@ impl Node {
             id: 0,
             parent: None,
             children: vec![],
-            data: NodeData::Element{
+            data: NodeData::Element {
                 name: name.to_string(),
                 attributes: attributes,
             },
             name: name.to_string(),
-            namespace: Some(namespace.into())
+            namespace: Some(namespace.into()),
         }
     }
 
@@ -82,7 +89,7 @@ impl Node {
             id: 0,
             parent: None,
             children: vec![],
-            data: NodeData::Comment{
+            data: NodeData::Comment {
                 value: value.to_string(),
             },
             name: "".to_string(),
@@ -96,7 +103,7 @@ impl Node {
             id: 0,
             parent: None,
             children: vec![],
-            data: NodeData::Text{
+            data: NodeData::Text {
                 value: value.to_string(),
             },
             name: "".to_string(),
@@ -144,24 +151,92 @@ impl NodeTrait for Node {
 }
 
 pub static SPECIAL_HTML_ELEMENTS: [&str; 81] = [
-    "applet", "area", "article", "aside", "base", "basefont", "bgsound", "blockquote", "body",
-    "br", "button", "caption", "center", "col", "colgroup", "dd", "details", "dir", "div", "dl",
-    "dt", "embed", "fieldset", "figcaption", "figure", "footer", "form", "frame", "frameset",
-    "h1", "h2", "h3", "h4", "h5", "h6", "head", "header", "hgroup", "hr", "html", "iframe",
-    "img", "input", "keygen", "li", "link", "listing", "main", "marquee", "menu", "meta", "nav",
-    "noembed", "noframes", "noscript", "object", "ol", "p", "param", "plaintext", "pre", "script",
-    "section", "select", "source", "style", "summary", "table", "tbody", "td", "template",
-    "textarea", "tfoot", "th", "thead", "title", "tr", "track", "ul", "wbr", "xmp",
+    "applet",
+    "area",
+    "article",
+    "aside",
+    "base",
+    "basefont",
+    "bgsound",
+    "blockquote",
+    "body",
+    "br",
+    "button",
+    "caption",
+    "center",
+    "col",
+    "colgroup",
+    "dd",
+    "details",
+    "dir",
+    "div",
+    "dl",
+    "dt",
+    "embed",
+    "fieldset",
+    "figcaption",
+    "figure",
+    "footer",
+    "form",
+    "frame",
+    "frameset",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "head",
+    "header",
+    "hgroup",
+    "hr",
+    "html",
+    "iframe",
+    "img",
+    "input",
+    "keygen",
+    "li",
+    "link",
+    "listing",
+    "main",
+    "marquee",
+    "menu",
+    "meta",
+    "nav",
+    "noembed",
+    "noframes",
+    "noscript",
+    "object",
+    "ol",
+    "p",
+    "param",
+    "plaintext",
+    "pre",
+    "script",
+    "section",
+    "select",
+    "source",
+    "style",
+    "summary",
+    "table",
+    "tbody",
+    "td",
+    "template",
+    "textarea",
+    "tfoot",
+    "th",
+    "thead",
+    "title",
+    "tr",
+    "track",
+    "ul",
+    "wbr",
+    "xmp",
 ];
 
-pub static SPECIAL_MATHML_ELEMENTS: [&str; 6] = [
-    "mi", "mo", "mn", "ms", "mtext", "annotation-xml",
-];
+pub static SPECIAL_MATHML_ELEMENTS: [&str; 6] = ["mi", "mo", "mn", "ms", "mtext", "annotation-xml"];
 
-pub static SPECIAL_SVG_ELEMENTS: [&str; 3] = [
-    "foreignObject", "desc", "title",
-];
-
+pub static SPECIAL_SVG_ELEMENTS: [&str; 3] = ["foreignObject", "desc", "title"];
 
 #[cfg(test)]
 mod test {
@@ -188,10 +263,13 @@ mod test {
         assert_eq!(node.children, vec![]);
         assert_eq!(node.name, "div".to_string());
         assert_eq!(node.namespace, Some(HTML_NAMESPACE.into()));
-        assert_eq!(node.data, NodeData::Element {
-            name: "div".to_string(),
-            attributes: attributes.clone(),
-        });
+        assert_eq!(
+            node.data,
+            NodeData::Element {
+                name: "div".to_string(),
+                attributes: attributes.clone(),
+            }
+        );
     }
 
     #[test]
@@ -202,9 +280,12 @@ mod test {
         assert_eq!(node.children, vec![]);
         assert_eq!(node.name, "".to_string());
         assert_eq!(node.namespace, None);
-        assert_eq!(node.data, NodeData::Comment {
-            value: "test".to_string(),
-        });
+        assert_eq!(
+            node.data,
+            NodeData::Comment {
+                value: "test".to_string(),
+            }
+        );
     }
 
     #[test]
@@ -215,9 +296,12 @@ mod test {
         assert_eq!(node.children, vec![]);
         assert_eq!(node.name, "".to_string());
         assert_eq!(node.namespace, None);
-        assert_eq!(node.data, NodeData::Text {
-            value: "test".to_string(),
-        });
+        assert_eq!(
+            node.data,
+            NodeData::Text {
+                value: "test".to_string(),
+            }
+        );
     }
 
     #[test]
@@ -291,20 +375,29 @@ mod test {
         let node = Node::new_document();
         assert_eq!(node.data, NodeData::Document {});
         let node = Node::new_text("test");
-        assert_eq!(node.data, NodeData::Text {
-            value: "test".to_string(),
-        });
+        assert_eq!(
+            node.data,
+            NodeData::Text {
+                value: "test".to_string(),
+            }
+        );
         let node = Node::new_comment("test");
-        assert_eq!(node.data, NodeData::Comment {
-            value: "test".to_string(),
-        });
+        assert_eq!(
+            node.data,
+            NodeData::Comment {
+                value: "test".to_string(),
+            }
+        );
         let mut attributes = HashMap::new();
         attributes.insert("id".to_string(), "test".to_string());
         let node = Node::new_element("div", attributes.clone(), HTML_NAMESPACE);
-        assert_eq!(node.data, NodeData::Element {
-            name: "div".to_string(),
-            attributes: attributes,
-        });
+        assert_eq!(
+            node.data,
+            NodeData::Element {
+                name: "div".to_string(),
+                attributes: attributes,
+            }
+        );
     }
 
     #[test]
@@ -312,26 +405,35 @@ mod test {
         let mut attributes = HashMap::new();
         attributes.insert("id".to_string(), "test".to_string());
         let node = Node::new_element("div", attributes.clone(), HTML_NAMESPACE);
-        assert_eq!(node.data, NodeData::Element {
-            name: "div".to_string(),
-            attributes: attributes,
-        });
+        assert_eq!(
+            node.data,
+            NodeData::Element {
+                name: "div".to_string(),
+                attributes: attributes,
+            }
+        );
     }
 
     #[test]
     fn test_type_of_node_data_text() {
         let node = Node::new_text("test");
-        assert_eq!(node.data, NodeData::Text {
-            value: "test".to_string(),
-        });
+        assert_eq!(
+            node.data,
+            NodeData::Text {
+                value: "test".to_string(),
+            }
+        );
     }
 
     #[test]
     fn test_type_of_node_data_comment() {
         let node = Node::new_comment("test");
-        assert_eq!(node.data, NodeData::Comment {
-            value: "test".to_string(),
-        });
+        assert_eq!(
+            node.data,
+            NodeData::Comment {
+                value: "test".to_string(),
+            }
+        );
     }
 
     #[test]
