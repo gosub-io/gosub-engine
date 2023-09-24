@@ -81,10 +81,7 @@ fn read_tests(file_path: PathBuf) -> io::Result<Vec<Test>> {
     };
     let mut section: Option<&str> = None;
 
-    let mut line_num: usize = 0;
-    for line in reader.lines() {
-        line_num += 1;
-
+    for (line_num, line) in reader.lines().enumerate() {
         let line = line?;
 
         if line.starts_with("#data") {

@@ -2189,16 +2189,13 @@ impl<'a> Html5Parser<'a> {
                 any_other_end_tag = true;
             }
             Token::StartTagToken { name, .. } if name == "a" => {
-                match self.active_formatting_elements_has_until_marker("a") {
-                    Some(node_id) => {
-                        self.parse_error("a tag in active formatting elements");
-                        self.run_adoption_agency(&self.current_token.clone());
+                if let Some(node_id) = self.active_formatting_elements_has_until_marker("a") {
+                    self.parse_error("a tag in active formatting elements");
+                    self.run_adoption_agency(&self.current_token.clone());
 
-                        // Remove from lists if not done already by the adoption agency
-                        open_elements_remove!(self, node_id);
-                        self.active_formatting_elements_remove(node_id);
-                    }
-                    _ => {},
+                    // Remove from lists if not done already by the adoption agency
+                    open_elements_remove!(self, node_id);
+                    self.active_formatting_elements_remove(node_id);
                 }
 
                 self.reconstruct_formatting();
@@ -2891,7 +2888,7 @@ impl<'a> Html5Parser<'a> {
 
         let mut found = 0;
         loop {
-            let active_elem = self.active_formatting_elements.get(idx - 1).expect("index out of bounds").clone();
+            let active_elem = *self.active_formatting_elements.get(idx - 1).expect("index out of bounds");
             if let ActiveElement::Marker = active_elem {
                 // Don't continue after the last marker
                 break;
@@ -2927,7 +2924,7 @@ impl<'a> Html5Parser<'a> {
         }
 
         let mut entry_index: usize = self.active_formatting_elements.len() - 1;
-        let entry = self.active_formatting_elements[entry_index].clone();
+        let entry = self.active_formatting_elements[entry_index];
 
         // If it's a marker or in the stack of open elements, nothing to reconstruct.
         if let ActiveElement::Marker = entry {
@@ -2939,7 +2936,7 @@ impl<'a> Html5Parser<'a> {
         }
 
         loop {
-            let entry = self.active_formatting_elements[entry_index].clone();
+            let entry = self.active_formatting_elements[entry_index];
 
             // If it's a marker or in the stack of open elements, nothing to reconstruct.
             if let ActiveElement::Marker = entry {
@@ -2958,7 +2955,7 @@ impl<'a> Html5Parser<'a> {
         }
 
         loop {
-            let entry = self.active_formatting_elements[entry_index].clone();
+            let entry = self.active_formatting_elements[entry_index];
             let node_id = entry.node_id().expect("node id not found");
 
             let entry_node = self.document.get_node_by_id(node_id).expect("node not found").clone();
