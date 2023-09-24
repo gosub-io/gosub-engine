@@ -72,7 +72,7 @@ fn read_tests(file_path: PathBuf) -> io::Result<Vec<Test>> {
 
     let mut tests = Vec::new();
     let mut current_test = Test {
-        file_path: file_path.to_str().unwrap().clone().to_string(),
+        file_path: file_path.to_str().unwrap().to_string(),
         line: 1,
         data: "".to_string(),
         errors: vec![],
@@ -95,7 +95,7 @@ fn read_tests(file_path: PathBuf) -> io::Result<Vec<Test>> {
                 current_test.data = current_test.data.trim_end().to_string();
                 tests.push(current_test);
                 current_test = Test {
-                    file_path: file_path.to_str().unwrap().clone().to_string(),
+                    file_path: file_path.to_str().unwrap().to_string(),
                     line: line_num,
                     data: "".to_string(),
                     errors: vec![],
