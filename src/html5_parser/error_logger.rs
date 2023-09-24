@@ -163,7 +163,7 @@ pub struct ParseError {
 
 #[derive(Clone)]
 pub struct ErrorLogger {
-    errors: Vec<ParseError>, // List of errors that occured during parsing
+    errors: Vec<ParseError>, // List of errors that occurred during parsing
 }
 
 impl ErrorLogger {
