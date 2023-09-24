@@ -531,7 +531,7 @@ mod test {
                 col: 4
             }
         );
-        assert_eq!(is.read_char().is_eof(), true);
+        assert!(is.read_char().is_eof());
         assert_eq!(
             is.position,
             Position {
@@ -540,7 +540,7 @@ mod test {
                 col: 4
             }
         );
-        assert_eq!(is.read_char().is_eof(), true);
+        assert!(is.read_char().is_eof());
         assert_eq!(
             is.position,
             Position {
@@ -675,13 +675,13 @@ mod test {
         assert_eq!(is.read_char().utf8(), 'c');
         assert_eq!(is.read_char().utf8(), 'd');
         assert_eq!(is.chars_left(), 0);
-        assert_eq!(is.eof(), true);
+        assert!(is.eof());
 
         is.reset();
         assert_eq!(is.look_ahead(0).utf8(), 'a');
         assert_eq!(is.look_ahead(3).utf8(), 'c');
         assert_eq!(is.look_ahead(1).utf8(), 'b');
-        assert_eq!(is.look_ahead(100).is_eof(), true);
+        assert!(is.look_ahead(100).is_eof());
 
         is.seek(SeekMode::SeekSet, 0);
         assert_eq!(is.look_ahead_slice(1), "a");
@@ -733,19 +733,19 @@ mod test {
         assert_eq!(is.read_char().utf8(), 'a');
         assert_eq!(is.read_char().utf8(), 'b');
         assert_eq!(is.read_char().utf8(), 'c');
-        assert_eq!(is.read_char().is_eof(), true);
-        assert_eq!(is.read_char().is_eof(), true);
-        assert_eq!(is.read_char().is_eof(), true);
-        assert_eq!(is.read_char().is_eof(), true);
+        assert!(is.read_char().is_eof());
+        assert!(is.read_char().is_eof());
+        assert!(is.read_char().is_eof());
+        assert!(is.read_char().is_eof());
         is.unread();
-        assert_eq!(is.read_char().is_eof(), true);
-        is.unread();
-        is.unread();
-        assert_eq!(is.read_char().is_eof(), false);
-        assert_eq!(is.read_char().is_eof(), true);
+        assert!(is.read_char().is_eof());
         is.unread();
         is.unread();
-        assert_eq!(is.read_char().is_eof(), false);
+        assert!(!is.read_char().is_eof());
+        assert!(is.read_char().is_eof());
+        is.unread();
+        is.unread();
+        assert!(!is.read_char().is_eof());
         is.unread();
         is.unread();
         is.unread();
@@ -764,12 +764,12 @@ mod test {
         assert_eq!(is.read_char().utf8(), 'a');
         assert_eq!(is.read_char().utf8(), 'b');
         assert_eq!(is.read_char().utf8(), 'c');
-        assert_eq!(is.read_char().is_eof(), true);
+        assert!(is.read_char().is_eof());
         is.unread();
         is.unread();
         assert_eq!(is.read_char().utf8(), 'c');
-        assert_eq!(is.read_char().is_eof(), true);
+        assert!(is.read_char().is_eof());
         is.unread();
-        assert_eq!(is.read_char().is_eof(), true);
+        assert!(is.read_char().is_eof());
     }
 }
