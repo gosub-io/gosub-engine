@@ -7,8 +7,12 @@ authors = ["Joshua Thijssen <jaytaph@deadcode.nl>"]
 description = "html5 browser engine"
 license = "MIT"
 repository = "https://github.com/jaytaph/gosub-browser"
-readme = "README.MD"
+readme = "README.md"
 keywords = ["html5", "parser"]
+
+[[test]]
+name = "tokenizer"
+path = "tests/tokenizer.rs"
 
 [dependencies]
 phf = { version = "0.11.2", features = ["macros"] }
@@ -20,3 +24,4 @@ regex = "1"
 lazy_static = "1.4"
 typed-arena = "2.0.2"
 reqwest = { version = "0.11.12", features = ["blocking"] }
+test-case = "3.2.1"

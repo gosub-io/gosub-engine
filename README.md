@@ -74,12 +74,3 @@ to specify the directory to the html5lib-test in order to run, or it will use th
 ```shell
 $ parser_test /path/to/html5lib-tests
 ```
-
-### Tokenizer_test
-
-This is a test suite for the tokenizer. It is not a standalone project. It is used by the gosub-engine project. You need
-to specify the directory to the html5lib-test in order to run, or it will use the default one (./html5lib-tests).
-
-```shell
-$ tokenizer_test /path/to/html5lib-tests
-```
