@@ -391,17 +391,21 @@ mod tests {
         entity_3: ("&#xdeadbeef;", "�")     // replace with replacement char
         entity_4: ("&#xd888;", "�")         // replace with replacement char
         entity_5: ("&#xbeef;", "뻯")
-        entity_6: ("&#x10;", "�")                // reserved codepoint
+        entity_6: ("&#x10;", "\u{10}")
         entity_7: ("&#;", "&#;")
         entity_8: ("&;", "&;")
         entity_9: ("&", "&")
-        entity_10: ("&#x1;", "�")                // reserved codepoint
-        entity_11: ("&#x0008;", "�")             // reserved codepoint
-        entity_12: ("&#0008;", "�")              // reserved codepoint
-        entity_13: ("&#8;", "�")                 // reserved codepoint
+        entity_10: ("&#x1;", "\u{1}")                // reserved codepoint
+        entity_11: ("&#x0008;", "\u{8}")             // reserved codepoint
+        entity_12: ("&#0008;", "\u{8}")              // reserved codepoint
+        entity_13: ("&#8;", "\u{8}")                 // reserved codepoint
         entity_14: ("&#x0009;", "\t")
-        entity_15: ("&#x007F;", "�")             // reserved codepoint
-        entity_16: ("&#xFDD0;", "�")             // reserved codepoint
+        entity_15: ("&#x007F;", "\u{7f}")
+        entity_16: ("&#x80;", "\u{20ac}")
+        entity_17: ("&#x82;", "\u{201a}")
+        entity_18: ("&#X8c;", "\u{0152}")
+        entity_19: ("&#x8d;", "\u{8d}")
+
 
         // Entities
         entity_100: ("&copy;", "©")
@@ -477,11 +481,14 @@ mod tests {
         entity_250: ("&COPY;", "©")
         entity_251: ("&#128;", "€")
         entity_252: ("&#x9F;", "Ÿ")
-        entity_253: ("&#31;", "")
+        entity_253: ("&#31;", "\u{1f}")
         entity_254: ("&#0;", "�")
         entity_255: ("&#xD800;", "�")
         entity_256: ("&unknownchar;", "&unknownchar;")
         entity_257: ("&#9999999;", "�")
-        entity_259: ("&#11;", "")
+        entity_258: ("&#10;", "\u{a}")
+        entity_259: ("&#11;", "\u{b}")
+        entity_260: ("&#12;", "\u{c}")
+        entity_261: ("&#13;", "\u{d}")
     }
 }
