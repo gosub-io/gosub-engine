@@ -1,0 +1,24 @@
+diff --git a/lint_lib/_vendor/funcparserlib/parser.py b/lint_lib/_vendor/funcparserlib/parser.py
+index eb2f53f..0f86e6c 100644
+--- a/lint_lib/_vendor/funcparserlib/parser.py
++++ b/lint_lib/_vendor/funcparserlib/parser.py
+@@ -137,19 +137,6 @@ class Parser(object):
+         "('x', 'y')"
+ 
+         ```
+-
+-        !!! Note
+-
+-            You can enable the parsing log this way:
+-
+-            ```python
+-            import logging
+-            logging.basicConfig(level=logging.DEBUG)
+-            import funcparserlib.parser
+-            funcparserlib.parser.debug = True
+-            ```
+-
+-            The way to enable the parsing log may be changed in future versions.
+         """
+         self.name = name
+         return self
