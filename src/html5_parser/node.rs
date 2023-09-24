@@ -309,7 +309,7 @@ mod test {
         let mut attributes = HashMap::new();
         attributes.insert("id".to_string(), "test".to_string());
         let node = Node::new_element("div", attributes, HTML_NAMESPACE);
-        assert_eq!(node.is_special(), true);
+        assert!(node.is_special());
     }
 
     #[test]
@@ -332,7 +332,7 @@ mod test {
             let mut attributes = HashMap::new();
             attributes.insert("id".to_string(), "test".to_string());
             let node = Node::new_element(element, attributes, HTML_NAMESPACE);
-            assert_eq!(node.is_special(), true);
+            assert!(node.is_special());
         }
     }
 
@@ -342,7 +342,7 @@ mod test {
             let mut attributes = HashMap::new();
             attributes.insert("id".to_string(), "test".to_string());
             let node = Node::new_element(element, attributes, MATHML_NAMESPACE);
-            assert_eq!(node.is_special(), true);
+            assert!(node.is_special());
         }
     }
 
@@ -352,7 +352,7 @@ mod test {
             let mut attributes = HashMap::new();
             attributes.insert("id".to_string(), "test".to_string());
             let node = Node::new_element(element, attributes, SVG_NAMESPACE);
-            assert_eq!(node.is_special(), true);
+            assert!(node.is_special());
         }
     }
 
