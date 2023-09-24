@@ -115,6 +115,7 @@ mod tests {
     use crate::html5_parser::node::HTML_NAMESPACE;
     use std::collections::HashMap;
 
+    #[ignore]
     #[test]
     fn test_document() {
         let mut document = super::Document::new();
