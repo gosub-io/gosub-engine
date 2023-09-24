@@ -1,35 +1,35 @@
-use std::{env, fs, io};
-use std::fs::File;
-use regex::Regex;
-use std::io::{BufRead, BufReader};
-use std::path::PathBuf;
 use gosub_engine::html5_parser::input_stream::InputStream;
 use gosub_engine::html5_parser::node::NodeData;
-use gosub_engine::html5_parser::parser::Html5Parser;
 use gosub_engine::html5_parser::parser::document::Document;
+use gosub_engine::html5_parser::parser::Html5Parser;
+use regex::Regex;
+use std::fs::File;
+use std::io::{BufRead, BufReader};
+use std::path::PathBuf;
+use std::{env, fs, io};
 
-pub struct TestResults{
-    tests: usize,               // Number of tests (as defined in the suite)
-    assertions: usize,          // Number of assertions (different combinations of input/output per test)
-    succeeded: usize,           // How many succeeded assertions
-    failed: usize,              // How many failed assertions
-    failed_position: usize,     // How many failed assertions where position is not correct
+pub struct TestResults {
+    tests: usize,           // Number of tests (as defined in the suite)
+    assertions: usize, // Number of assertions (different combinations of input/output per test)
+    succeeded: usize,  // How many succeeded assertions
+    failed: usize,     // How many failed assertions
+    failed_position: usize, // How many failed assertions where position is not correct
 }
 
 struct Test {
-    file_path: String,                  // Filename of the test
-    line: usize,                        // Line number of the test
-    data: String,                       // input stream
-    errors: Vec<Error>,                 // errors
-    document: Vec<String>,              // document tree
-    document_fragment: Vec<String>,     // fragment
+    file_path: String,              // Filename of the test
+    line: usize,                    // Line number of the test
+    data: String,                   // input stream
+    errors: Vec<Error>,             // errors
+    document: Vec<String>,          // document tree
+    document_fragment: Vec<String>, // fragment
 }
 
-fn main () -> io::Result<()> {
+fn main() -> io::Result<()> {
     let default_dir = "./html5lib-tests";
     let dir = env::args().nth(1).unwrap_or(default_dir.to_string());
 
-    let mut results = TestResults{
+    let mut results = TestResults {
         tests: 0,
         assertions: 0,
         succeeded: 0,
@@ -41,7 +41,7 @@ fn main () -> io::Result<()> {
         let entry = entry?;
         let path = entry.path();
 
-        if ! path.ends_with("tests1.dat") {
+        if !path.ends_with("tests1.dat") {
             continue;
         }
 
@@ -85,10 +85,13 @@ fn read_tests(file_path: PathBuf) -> io::Result<Vec<Test>> {
         let line = line?;
 
         if line.starts_with("#data") {
-            if !current_test.data.is_empty() || !current_test.errors.is_empty() || !current_test.document.is_empty() {
+            if !current_test.data.is_empty()
+                || !current_test.errors.is_empty()
+                || !current_test.document.is_empty()
+            {
                 current_test.data = current_test.data.trim_end().to_string();
                 tests.push(current_test);
-                current_test = Test{
+                current_test = Test {
                     file_path: file_path.to_str().unwrap().clone().to_string(),
                     line: line_num,
                     data: "".to_string(),
@@ -114,9 +117,9 @@ fn read_tests(file_path: PathBuf) -> io::Result<Vec<Test>> {
                         let col = caps.name("col").unwrap().as_str().parse::<i64>().unwrap();
                         let code = caps.name("code").unwrap().as_str().to_string();
 
-                        current_test.errors.push(Error{ code, line, col });
+                        current_test.errors.push(Error { code, line, col });
                     }
-                },
+                }
                 "document" => current_test.document.push(line),
                 "document_fragment" => current_test.document_fragment.push(line),
                 _ => (),
@@ -125,7 +128,10 @@ fn read_tests(file_path: PathBuf) -> io::Result<Vec<Test>> {
     }
 
     // Push the last test if it has data
-    if !current_test.data.is_empty() || !current_test.errors.is_empty() || !current_test.document.is_empty() {
+    if !current_test.data.is_empty()
+        || !current_test.errors.is_empty()
+        || !current_test.document.is_empty()
+    {
         current_test.data = current_test.data.trim_end().to_string();
         tests.push(current_test);
     }
@@ -133,8 +139,11 @@ fn read_tests(file_path: PathBuf) -> io::Result<Vec<Test>> {
     Ok(tests)
 }
 
-fn run_tree_test(test_idx: usize,test: &Test, results: &mut TestResults) {
-    println!("🧪 Running test #{}: {}::{}", test_idx, test.file_path, test.line);
+fn run_tree_test(test_idx: usize, test: &Test, results: &mut TestResults) {
+    println!(
+        "🧪 Running test #{}: {}::{}",
+        test_idx, test.file_path, test.line
+    );
 
     results.tests += 1;
 
@@ -155,7 +164,11 @@ fn run_tree_test(test_idx: usize,test: &Test, results: &mut TestResults) {
     }
 
     if parse_errors.len() != test.errors.len() {
-         println!("❌ Unexpected errors found (wanted {}, got {}): ", test.errors.len(), parse_errors.len());
+        println!(
+            "❌ Unexpected errors found (wanted {}, got {}): ",
+            test.errors.len(),
+            parse_errors.len()
+        );
     //     for want_err in &test.errors {
     //         println!("     * Want: '{}' at {}:{}", want_err.code, want_err.line, want_err.col);
     //     }
@@ -165,7 +178,7 @@ fn run_tree_test(test_idx: usize,test: &Test, results: &mut TestResults) {
     //     results.assertions += 1;
     //     results.failed += 1;
     } else {
-         println!("✅ Found {} errors", parse_errors.len());
+        println!("✅ Found {} errors", parse_errors.len());
     }
     //
     // // Check each error messages
@@ -204,7 +217,6 @@ fn run_tree_test(test_idx: usize,test: &Test, results: &mut TestResults) {
     //     idx += 1;
     // }
 
-
     if old_failed != results.failed {
         println!("----------------------------------------");
         println!("📄 Input stream: ");
@@ -226,9 +238,9 @@ fn run_tree_test(test_idx: usize,test: &Test, results: &mut TestResults) {
 
 #[derive(PartialEq)]
 enum ErrorResult {
-    Success,            // Found the correct error
-    Failure,            // Didn't find the error (not even with incorrect position)
-    PositionFailure,    // Found the error, but on an incorrect position
+    Success,         // Found the correct error
+    Failure,         // Didn't find the error (not even with incorrect position)
+    PositionFailure, // Found the error, but on an incorrect position
 }
 
 #[derive(PartialEq)]
@@ -242,27 +254,39 @@ fn match_document_tree(document: &Document, expected: &Vec<String>) -> bool {
     match_node(0, -1, -1, document, expected).is_some()
 }
 
-fn match_node(node_idx: usize, expected_id: isize, indent: isize, document: &Document, expected: &Vec<String>) -> Option<usize> {
+fn match_node(
+    node_idx: usize,
+    expected_id: isize,
+    indent: isize,
+    document: &Document,
+    expected: &Vec<String>,
+) -> Option<usize> {
     let node = document.get_node_by_id(node_idx).unwrap();
 
     if node_idx > 0 {
         match &node.data {
             NodeData::Element { name, .. } => {
                 let value = format!("|{}<{}>", " ".repeat((indent as usize * 2) + 1), name);
-                if value != expected[expected_id  as usize] {
-                    println!("❌ {}, Found unexpected element node: {}", expected[expected_id  as usize], name);
+                if value != expected[expected_id as usize] {
+                    println!(
+                        "❌ {}, Found unexpected element node: {}",
+                        expected[expected_id as usize], name
+                    );
                     return None;
                 } else {
-                    println!("✅ {}", expected[expected_id  as usize]);
+                    println!("✅ {}", expected[expected_id as usize]);
                 }
             }
             NodeData::Text { value } => {
-                let value = format!("|{}\"{}\"", " ".repeat(indent  as usize * 2 + 1), value);
+                let value = format!("|{}\"{}\"", " ".repeat(indent as usize * 2 + 1), value);
                 if value != expected[expected_id as usize] {
-                    println!("❌ {}, Found unexpected text node: {}", expected[expected_id  as usize], value);
+                    println!(
+                        "❌ {}, Found unexpected text node: {}",
+                        expected[expected_id as usize], value
+                    );
                     return None;
                 } else {
-                    println!("✅ {}", expected[expected_id  as usize]);
+                    println!("✅ {}", expected[expected_id as usize]);
                 }
             }
             _ => {}
@@ -272,7 +296,9 @@ fn match_node(node_idx: usize, expected_id: isize, indent: isize, document: &Doc
     let mut next_expected_idx = expected_id + 1;
 
     for &child_idx in &node.children {
-        if let Some(new_idx)  = match_node(child_idx, next_expected_idx, indent + 1, document, expected) {
+        if let Some(new_idx) =
+            match_node(child_idx, next_expected_idx, indent + 1, document, expected)
+        {
             next_expected_idx = new_idx as isize;
         } else {
             return None;
@@ -286,17 +312,26 @@ fn match_node(node_idx: usize, expected_id: isize, indent: isize, document: &Doc
 fn match_error(got_err: &Error, expected_err: &Error) -> ErrorResult {
     if got_err == expected_err {
         // Found an exact match
-        println!("✅ Found parse error '{}' at {}:{}", got_err.code, got_err.line, got_err.col);
+        println!(
+            "✅ Found parse error '{}' at {}:{}",
+            got_err.code, got_err.line, got_err.col
+        );
 
         return ErrorResult::Success;
     }
 
     if got_err.code != expected_err.code {
-        println!("❌ Expected error '{}' at {}:{}", expected_err.code, expected_err.line, expected_err.col);
+        println!(
+            "❌ Expected error '{}' at {}:{}",
+            expected_err.code, expected_err.line, expected_err.col
+        );
         return ErrorResult::Failure;
     }
 
     // Found an error with the same code, but different line/pos
-    println!("⚠️ Unexpected error position '{}' at {}:{} (got: {}:{})", expected_err.code, expected_err.line, expected_err.col, got_err.line, got_err.col);
+    println!(
+        "⚠️ Unexpected error position '{}' at {}:{} (got: {}:{})",
+        expected_err.code, expected_err.line, expected_err.col, got_err.line, got_err.col
+    );
     ErrorResult::PositionFailure
 }

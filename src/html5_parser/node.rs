@@ -52,9 +52,7 @@ impl Node {
     // This will only compare against the tag, namespace and attributes. Both nodes could still have
     // other parents and children.
     pub fn matches_tag_and_attrs(&self, other: &Self) -> bool {
-        self.name == other.name &&
-        self.namespace == other.namespace &&
-        self.data == other.data
+        self.name == other.name && self.namespace == other.namespace && self.data == other.data
     }
 }
 

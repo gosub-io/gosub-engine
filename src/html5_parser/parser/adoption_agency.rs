@@ -17,7 +17,12 @@ impl<'a> Html5Parser<'a> {
 
         // Step 2
         let current_node_id = current_node!(self).id;
-        if current_node!(self).name == *subject && ! self.active_formatting_elements.iter().any(|elem| elem == &ActiveElement::NodeId(current_node_id)) {
+        if current_node!(self).name == *subject
+            && !self
+                .active_formatting_elements
+                .iter()
+                .any(|elem| elem == &ActiveElement::NodeId(current_node_id))
+        {
             self.open_elements.pop();
             return;
         }
@@ -77,7 +82,9 @@ impl<'a> Html5Parser<'a> {
             }
 
             // Step 4.5
-            if open_elements_has!(self, formatting_element_name) && ! self.is_in_scope(&formatting_element_name, Scope::Regular) {
+            if open_elements_has!(self, formatting_element_name)
+                && !self.is_in_scope(&formatting_element_name, Scope::Regular)
+            {
                 self.parse_error("formatting element not in scope");
                 return;
             }
@@ -95,7 +102,7 @@ impl<'a> Html5Parser<'a> {
 
             for idx in (0..formatting_element_idx).rev() {
                 match self.active_formatting_elements[idx] {
-                    ActiveElement::Marker => {},
+                    ActiveElement::Marker => {}
                     ActiveElement::NodeId(node_id) => {
                         let node = self.document.get_node_by_id(node_id).unwrap();
                         if node.is_special() {
@@ -162,12 +169,19 @@ impl<'a> Html5Parser<'a> {
                 }
 
                 // Step 4.13.4
-                if inner_loop_counter > ADOPTION_AGENCY_INNER_LOOP_DEPTH && self.active_formatting_elements.contains(&ActiveElement::NodeId(node_id)) {
+                if inner_loop_counter > ADOPTION_AGENCY_INNER_LOOP_DEPTH
+                    && self
+                        .active_formatting_elements
+                        .contains(&ActiveElement::NodeId(node_id))
+                {
                     self.active_formatting_elements.remove(node_idx);
                 }
 
                 // Step 4.13.5
-                if ! self.active_formatting_elements.contains(&ActiveElement::NodeId(node_id)) {
+                if !self
+                    .active_formatting_elements
+                    .contains(&ActiveElement::NodeId(node_id))
+                {
                     // We have removed the node from the given node_idx
                     self.open_elements.remove(node_idx);
                     continue;
@@ -210,8 +224,10 @@ impl<'a> Html5Parser<'a> {
             let new_element_id = self.document.add_node(new_element, furthest_block_id);
 
             // Step 4.18
-            self.active_formatting_elements.remove(formatting_element_idx);
-            self.active_formatting_elements.insert(bookmark, ActiveElement::NodeId(new_element_id));
+            self.active_formatting_elements
+                .remove(formatting_element_idx);
+            self.active_formatting_elements
+                .insert(bookmark, ActiveElement::NodeId(new_element_id));
 
             // Step 4.19
             // Remove formatting element from the stack of open elements, and insert the new element into the stack of open elements immediately below the position of furthest block in that stack.
