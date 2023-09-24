@@ -91,8 +91,8 @@ impl std::fmt::Display for Token {
                 result.push_str(" />");
                 write!(f, "{}", result)
             }
-            Token::CommentToken { value } => write!(f, "Comment[<!-- {} -->]", value),
-            Token::TextToken { value } => write!(f, "Text[{}]", value),
+            Token::CommentToken { value } => write!(f, "<!-- {} -->", value),
+            Token::TextToken { value } => write!(f, "{}", value),
             Token::StartTagToken {
                 name,
                 is_self_closing,
@@ -106,18 +106,13 @@ impl std::fmt::Display for Token {
                     result.push_str(" /");
                 }
                 result.push('>');
-                write!(f, "StartTag[{}]", result)
+                write!(f, "{}", result)
             }
             Token::EndTagToken {
                 name,
                 is_self_closing,
                 ..
-            } => write!(
-                f,
-                "EndTag[</{}{}>]",
-                name,
-                if *is_self_closing { "/" } else { "" }
-            ),
+            } => write!(f, "</{}{}>", name, if *is_self_closing { "/" } else { "" }),
             Token::EofToken => write!(f, "EOF"),
         }
     }
@@ -207,7 +202,7 @@ mod tests {
         let token = Token::CommentToken {
             value: "Hello World".to_string(),
         };
-        assert_eq!(format!("{}", token), "Comment[<!-- Hello World -->]");
+        assert_eq!(format!("{}", token), "<!-- Hello World -->");
     }
 
     #[test]
@@ -215,7 +210,7 @@ mod tests {
         let token = Token::TextToken {
             value: "Hello World".to_string(),
         };
-        assert_eq!(format!("{}", token), "Text[Hello World]");
+        assert_eq!(format!("{}", token), "Hello World");
     }
 
     #[test]
@@ -225,7 +220,7 @@ mod tests {
             is_self_closing: false,
             attributes: HashMap::new(),
         };
-        assert_eq!(format!("{}", token), "StartTag[<html>]");
+        assert_eq!(format!("{}", token), "<html>");
 
         let mut attributes = HashMap::new();
         attributes.insert("foo".to_string(), "bar".to_string());
@@ -235,14 +230,14 @@ mod tests {
             is_self_closing: false,
             attributes,
         };
-        assert_eq!(format!("{}", token), "StartTag[<html foo=\"bar\">]");
+        assert_eq!(format!("{}", token), "<html foo=\"bar\">");
 
         let token = Token::StartTagToken {
             name: "br".to_string(),
             is_self_closing: true,
             attributes: HashMap::new(),
         };
-        assert_eq!(format!("{}", token), "StartTag[<br />]");
+        assert_eq!(format!("{}", token), "<br />");
     }
 
     #[test]
@@ -252,7 +247,7 @@ mod tests {
             is_self_closing: false,
             attributes: HashMap::new(),
         };
-        assert_eq!(format!("{}", token), "EndTag[</html>]");
+        assert_eq!(format!("{}", token), "</html>");
     }
 
     #[test]
