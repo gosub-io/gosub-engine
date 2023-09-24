@@ -80,7 +80,7 @@ impl Document {
                 writeln!(f, "{}Document", prefix)?;
             }
             NodeData::Text { value } => {
-                writeln!(f, "{}{}", prefix, value)?;
+                writeln!(f, "{}\"{}\"", prefix, value)?;
             }
             NodeData::Comment { value } => {
                 writeln!(f, "{}<!-- {} -->", prefix, value)?;

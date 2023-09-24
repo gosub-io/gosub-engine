@@ -207,7 +207,7 @@ macro_rules! current_node_mut {
 mod adoption_agency;
 
 // Active formatting elements, which could be a regular node(id), or a marker
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone, Copy)]
 enum ActiveElement {
     NodeId(usize),
     Marker,
@@ -302,7 +302,7 @@ impl<'a> Html5Parser<'a> {
                 break;
             }
 
-            self.display_stack(&self.open_elements);
+            self.display_debug_info();
 
             // println!("Token: {}", self.current_token);
 
@@ -1753,7 +1753,7 @@ impl<'a> Html5Parser<'a> {
 
     // Pop all elements back to a table context
     fn clear_stack_back_to_table_context(&mut self) {
-        while self.open_elements.len() > 0 {
+        while !self.open_elements.is_empty() {
             if ["table", "template", "html"].contains(&current_node!(self).name.as_str()) {
                 return;
             }
@@ -1763,7 +1763,7 @@ impl<'a> Html5Parser<'a> {
 
     // Pop all elements back to a table context
     fn clear_stack_back_to_table_body_context(&mut self) {
-        while self.open_elements.len() > 0 {
+        while !self.open_elements.is_empty() {
             if ["tbody", "tfoot", "thead", "template", "html"].contains(&current_node!(self).name.as_str()) {
                 return;
             }
@@ -2827,7 +2827,7 @@ impl<'a> Html5Parser<'a> {
 
     // Returns true if the given tag if found in the active formatting elements list (until the first marker)
     fn active_formatting_elements_has_until_marker(&self, tag: &str) -> Option<usize> {
-        if self.active_formatting_elements.len() == 0 {
+        if self.active_formatting_elements.is_empty() {
             return None;
         }
 
@@ -2891,7 +2891,7 @@ impl<'a> Html5Parser<'a> {
 
         let mut found = 0;
         loop {
-            let active_elem = self.active_formatting_elements.get(idx - 1).expect("index out of bounds");
+            let active_elem = self.active_formatting_elements.get(idx - 1).expect("index out of bounds").clone();
             if let ActiveElement::Marker = active_elem {
                 // Don't continue after the last marker
                 break;
@@ -2899,7 +2899,7 @@ impl<'a> Html5Parser<'a> {
 
             // Fetch the node we want to compare with
             let match_node = match active_elem {
-                ActiveElement::NodeId(node_id) => self.document.get_node_by_id(*node_id).expect("node id not found"),
+                ActiveElement::NodeId(node_id) => self.document.get_node_by_id(node_id).expect("node id not found"),
                 ActiveElement::Marker => unreachable!(),
             };
             if match_node.matches_tag_and_attrs(element_node) {
@@ -2926,57 +2926,76 @@ impl<'a> Html5Parser<'a> {
             return; // Nothing to reconstruct.
         }
 
-        let mut entry_index = self.active_formatting_elements.len() - 1;
+        let mut entry_index: usize = self.active_formatting_elements.len() - 1;
+        let entry = self.active_formatting_elements[entry_index].clone();
+
+        // If it's a marker or in the stack of open elements, nothing to reconstruct.
+        if let ActiveElement::Marker = entry {
+            return;
+        }
+
+        if self.open_elements.contains(&entry.node_id().expect("node id not found")) {
+            return;
+        }
 
         loop {
-            // Let entry be the last (most recently added) element in the list of active formatting elements.
-            let entry = &self.active_formatting_elements[entry_index];
+            let entry = self.active_formatting_elements[entry_index].clone();
 
             // If it's a marker or in the stack of open elements, nothing to reconstruct.
             if let ActiveElement::Marker = entry {
-                return;
-            }
-            if self.open_elements.contains(&entry.node_id().expect("node id not found")) {
-                return;
+                break;
             }
 
-            // Rewind
-            if entry_index == 0 {
-                break; // Go to 'create' step
+            if self.open_elements.contains(&entry.node_id().expect("node id not found")) {
+                break;
             }
+
+            if entry_index == 0 {
+                break;
+            }
+
             entry_index -= 1;
         }
 
         loop {
-            // If we reach here, we're at the 'create' step.
-            entry_index += 1;
-            let current_entry = &self.active_formatting_elements[entry_index];
+            let entry = self.active_formatting_elements[entry_index].clone();
+            let node_id = entry.node_id().expect("node id not found");
 
-            // Create new element for the token.
-            let new_element = self.create_new_element(/* the token for which entry was created */);
-            let active_element = ActiveElement::NodeId(new_element.id);
+            let entry_node = self.document.get_node_by_id(node_id).expect("node not found").clone();
+            let new_node_id = self.clone_node(entry_node);
 
-            // Replace the entry with the new element.
-            self.active_formatting_elements[entry_index] = active_element;
+            self.active_formatting_elements[entry_index] = ActiveElement::NodeId(new_node_id);
 
-            // Check if it's the last in the list.
             if entry_index == self.active_formatting_elements.len() - 1 {
                 break;
             }
+
+            entry_index += 1;
         }
     }
 
-    fn create_new_formatting_element(&mut self, idx: usize, node: &Node) {
-        match &node.data {
-            NodeData::Element { name, attributes } => {
-                let token = Token::StartTagToken { name: name.clone(), is_self_closing: false, attributes: attributes.clone() };
-                let node_id = self.insert_html_element(&token);
+    fn clone_node(&mut self, org_node: Node) -> usize {
+        let new_node = org_node.clone();
 
-                self.active_formatting_elements[idx] = ActiveElement::NodeId(node_id);
-            }
-            _ => {}
+        let new_node_id = self.document.add_node(new_node, current_node!(self).id);
+        if let NodeData::Element { .. } = org_node.data {
+            self.open_elements.push(new_node_id);
         }
+
+        new_node_id
     }
+
+    // fn create_new_formatting_element(&mut self, idx: usize, node: &Node) {
+    //     match &node.data {
+    //         NodeData::Element { name, attributes } => {
+    //             let token = Token::StartTagToken { name: name.clone(), is_self_closing: false, attributes: attributes.clone() };
+    //             let node_id = self.insert_html_element(&token);
+    //
+    //             self.active_formatting_elements[idx] = ActiveElement::NodeId(node_id);
+    //         }
+    //         _ => {}
+    //     }
+    // }
 
     fn stop_parsing(&self) {
         todo!()
@@ -3130,12 +3149,34 @@ impl<'a> Html5Parser<'a> {
         adjusted_insertion_location
     }
 
-    fn display_stack(&self, stack: &Vec<usize>) {
-        println!("-- stack start --");
-        for node_id in stack {
+    #[cfg(debug_assertions)]
+    fn display_debug_info(&self) {
+        println!("** Frame **************************");
+        println!("current token  : {}", self.current_token);
+        println!("insertion mode : {:?}", self.insertion_mode);
+
+        println!("-- open elements  -----------");
+        for node_id in &self.open_elements {
             let node = self.document.get_node_by_id(*node_id).unwrap();
-            println!("{}: {}", node.id, node.name);
+            println!("({}) {}", node.id, node.name);
         }
-        println!("-- stack end --");
+        println!("-----------------------------");
+
+        println!("-- active formatting elems --");
+        for elem in &self.active_formatting_elements {
+            match elem {
+                ActiveElement::NodeId(node_id) => {
+                    let node = self.document.get_node_by_id(*node_id).unwrap();
+                    println!("({}) {}", node.id, node.name);
+                }
+                ActiveElement::Marker => {
+                    println!("marker");
+                }
+            }
+        }
+        println!("-----------------------------");
+        println!("-- TREE ---------------------");
+        println!("{}", self.document);
+        println!("-----------------------------");
     }
 }

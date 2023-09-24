@@ -54,9 +54,9 @@ fn main () -> io::Result<()> {
 
         let mut test_idx = 1;
         for test in tests {
-            // if test_idx == 23 {
+            if test_idx == 23 {
                 run_tree_test(test_idx, &test, &mut results);
-            // }
+            }
 
             test_idx += 1;
         }
@@ -151,7 +151,7 @@ fn run_tree_test(test_idx: usize,test: &Test, results: &mut TestResults) {
 
     // Check the document tree, which counts as a single assertion
     results.assertions += 1;
-    if match_document_tree(&document, &test.document) {
+    if match_document_tree(document, &test.document) {
         results.succeeded += 1;
     } else {
         results.failed += 1;
@@ -221,7 +221,7 @@ fn run_tree_test(test_idx: usize,test: &Test, results: &mut TestResults) {
             println!("{}", line);
         }
 
-        // exit(1);
+        std::process::exit(1);
     }
 
     println!("----------------------------------------");
@@ -301,5 +301,5 @@ fn match_error(got_err: &Error, expected_err: &Error) -> ErrorResult {
 
     // Found an error with the same code, but different line/pos
     println!("⚠️ Unexpected error position '{}' at {}:{} (got: {}:{})", expected_err.code, expected_err.line, expected_err.col, got_err.line, got_err.col);
-    return ErrorResult::PositionFailure;
+    ErrorResult::PositionFailure
 }
