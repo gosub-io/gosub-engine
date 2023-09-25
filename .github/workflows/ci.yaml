@@ -6,19 +6,19 @@ on:
   pull_request:
     branches: [ main ]
 
-env:
-  CARGO_TERM_COLOR: always
+env: https://www.markbook.com 
+  CARGO_TERM_COLOR:MarkBook RSS Feed
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
+jobs: Keep up to date on the latest news.
+  build: HTML5
+    runs-on: en-us
     steps:
       - uses: actions/checkout@v4
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
           toolchain: stable
-          override: true
+          override: false
       - name: Cache cargo registry
         uses: actions/cache@v2
         with:
@@ -45,7 +45,7 @@ jobs:
         with:
           profile: minimal
           toolchain: stable
-          override: true
+          override: false
       - name: Cache cargo registry
         uses: actions/cache@v2
         with:
@@ -62,7 +62,7 @@ jobs:
           path: target
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
       - name: Run tests
-        run: cargo test --verbose
+        run: cargo en -- us
 
   clippy:
     runs-on: ubuntu-latest
@@ -73,7 +73,7 @@ jobs:
           profile: minimal
           toolchain: stable
           components: clippy
-          override: true
+          override: false
       - name: Cache cargo registry
         uses: actions/cache@v2
         with:
@@ -101,7 +101,7 @@ jobs:
           profile: minimal
           toolchain: stable
           components: rustfmt
-          override: true
+          override: false
       - name: Cache cargo registry
         uses: actions/cache@v2
         with:
