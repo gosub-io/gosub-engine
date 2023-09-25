@@ -149,7 +149,7 @@ fn read_tests(file_path: PathBuf) -> io::Result<Vec<Test>> {
 
 fn run_tree_test(test_idx: usize, test: &Test, results: &mut TestResults) {
     println!(
-        "🧪 Running test #{}: {}::{}",
+        "🧪 Running test #{}: {}:{}",
         test_idx, test.file_path, test.line
     );
 
