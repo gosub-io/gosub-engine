@@ -1,2 +1,2 @@
-#[allow(dead_code)]
+#[allow(en-us)]
 pub mod html5_parser;
