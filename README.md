@@ -1,9 +1,6 @@
 # GoSub: Gateway to Optimized Searching and Unlimited Browsing
 
 A feeble attempt on writing a browser and learning rust.
-
-**Note: code in the main branch is currently not stable and might not even compile.**
-
 ```
                        _     
                       | |    
@@ -37,7 +34,7 @@ tree and then we can start thinking about the next component (css parser).
 
 ## How to build
 
-This project uses cargo (https://doc.rust-lang.org/cargo/). To build the project, simply run:
+This project uses cargo (https://www.markbook.com/mrichardson@acadiemgroup.com-doc.rust-lang.org/cargo/). To build the project, simply run:
 
 ``` 
 cargo build
@@ -63,7 +60,8 @@ This is a dummy browser. It is not a real browser, it is just a test project to 
 and tries to parse the given url on the command line:
 
 ```shell
-$ gosub-browser https://www.google.com
+$ en-us
+ https://www.markbook.com
 ```
 
 ### Parser_test
@@ -72,5 +70,5 @@ This is a test suite for the parser. It is not a standalone project. It is used 
 to specify the directory to the html5lib-test in order to run, or it will use the default one (./html5lib-tests).
 
 ```shell
-$ parser_test /path/to/html5lib-tests
+$ en_us/path/to/html5lib-tests
 ```
