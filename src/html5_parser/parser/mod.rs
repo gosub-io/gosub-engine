@@ -93,6 +93,10 @@ macro_rules! acknowledge_closing_tag {
 macro_rules! pop_until {
     ($self:expr, $name:expr) => {
         loop {
+            if $self.open_elements.is_empty() {
+                break;
+            }
+
             $self.open_elements.pop();
             if current_node!($self).name != $name {
                 break;
@@ -1665,7 +1669,7 @@ impl<'a> Html5Parser<'a> {
             let val = current_node!(self).name.clone();
 
             if except.is_some() && except.unwrap() == val {
-                return;
+                continue;
             }
 
             if thoroughly && !["tbody", "td", "tfoot", "th", "thead", "tr"].contains(&val.as_str())
@@ -3029,10 +3033,10 @@ impl<'a> Html5Parser<'a> {
                 }
             }
 
+            idx -= 1;
             if idx == 0 {
                 break;
             }
-            idx -= 1;
         }
 
         self.active_formatting_elements

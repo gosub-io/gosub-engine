@@ -250,3 +250,30 @@ impl<'a> Html5Parser<'a> {
         replacement_node_id
     }
 }
+
+#[cfg(test)]
+mod test {
+    use crate::html5_parser::input_stream::{Encoding, InputStream};
+    use super::*;
+
+    #[test]
+    fn test_adoption_agency() {
+        let mut stream = InputStream::new();
+        stream.read_from_str("<p>One <b>Two <i>Three</p> Four</i> Five</b> Six</p>", Some(Encoding::UTF8));
+        let mut parser = Html5Parser::new(&mut stream);
+        parser.parse();
+
+        println!("{}", parser.document);
+        // let document = parser.document;
+        // let table = document.get_node_by_id(1).unwrap();
+        // let tr = document.get_node_by_id(2).unwrap();
+        // let td = document.get_node_by_id(3).unwrap();
+        // let select = document.get_node_by_id(4).unwrap();
+        // let option = document.get_node_by_id(5).unwrap();
+        //
+        // assert_eq!(table.children, vec![tr.id]);
+        // assert_eq!(tr.children, vec![td.id]);
+        // assert_eq!(td.children, vec![select.id]);
+        // assert_eq!(select.children, vec![option.id]);
+    }
+}
