@@ -3,21 +3,22 @@ use std::fs::File;
 use std::io::Read;
 use std::{fmt, io};
 
-// Encoding defines the way the buffer stream is read, as what defines a "character".
+/// Encoding defines the way the buffer stream is read, as what defines a "character".
 #[derive(PartialEq)]
 pub enum Encoding {
-    UTF8, // Stream is of UTF8 characters
-    ASCII, // Stream is of 8bit ASCII
-          // Iso88591        // Stream is of iso_8859_1
-          // More
+    /// Stream is of UTF8 characters
+    UTF8,
+    // Stream is of 8bit ASCII
+    ASCII,
 }
 
 // The confidence decides how confident we are that the input stream is of this encoding
 #[derive(PartialEq)]
 pub enum Confidence {
-    Tentative, // This encoding might be the one we need
-    Certain,   // We are certain to use this encoding
-               // Irrelevant          // There is no content encoding for this stream
+    /// This encoding might be the one we need
+    Tentative,
+    /// We are certain to use this encoding
+    Certain,
 }
 
 #[derive(PartialEq, Debug, Copy, Clone)]
@@ -28,7 +29,7 @@ pub struct Position {
 }
 
 impl Position {
-    // Create a new position
+    /// Create a new position
     pub fn new(offset: usize, line: usize, col: usize) -> Self {
         Position { offset, line, col }
     }
@@ -42,9 +43,12 @@ impl fmt::Display for Position {
 
 #[derive(PartialEq, Debug, Copy, Clone)]
 pub enum Element {
-    Utf8(char),     // Standard UTF character
-    Surrogate(u16), // Surrogate character (since they cannot be stored in <char>)
-    Eof,            // End of stream
+    // Standard UTF character
+    Utf8(char),
+    // Surrogate character (since they cannot be stored in <char>)
+    Surrogate(u16),
+    // End of stream
+    Eof,
 }
 
 impl Element {
@@ -87,25 +91,33 @@ impl fmt::Display for Element {
     }
 }
 
-// HTML(5) input stream structure
+/// HTML(5) input stream structure
 pub struct InputStream {
-    pub encoding: Encoding,     // Current encoding
-    pub confidence: Confidence, // How confident are we that this is the correct encoding?
-
-    pub position: Position,   // Current positions
-    pub length: usize,        // Length (in chars) of the buffer
-    line_offsets: Vec<usize>, // Offsets of the given lines
-
-    buffer: Vec<Element>, // Reference to the actual buffer stream in characters
-    u8_buffer: Vec<u8>,   // Reference to the actual buffer stream in u8 bytes
-    // If all things are ok, both buffer and u8_buffer should refer to the same memory location (?)
+    /// Current encoding
+    pub encoding: Encoding,
+    /// How confident are we that this is the correct encoding?
+    pub confidence: Confidence,
+    /// Current positions
+    pub position: Position,
+    /// Length (in chars) of the buffer
+    pub length: usize,
+    /// Offsets of the given lines
+    line_offsets: Vec<usize>,
+    /// Reference to the actual buffer stream in characters
+    buffer: Vec<Element>,
+    /// Reference to the actual buffer stream in u8 bytes
+    u8_buffer: Vec<u8>,
+    /// If all things are ok, both buffer and u8_buffer should refer to the same memory location (?)
     pub has_read_eof: bool, // True when we just read an EOF
 }
 
 pub enum SeekMode {
-    SeekSet, // Seek from the start of the stream
-    SeekCur, // Seek from the current stream position
-    SeekEnd, // Seek (backwards) from the end of the stream
+    /// Seek from the start of the stream
+    SeekSet,
+    /// Seek from the current stream position
+    SeekCur,
+    /// Seek (backwards) from the end of the stream
+    SeekEnd,
 }
 
 impl Default for InputStream {
@@ -115,7 +127,7 @@ impl Default for InputStream {
 }
 
 impl InputStream {
-    // Create a new default empty input stream
+    /// Create a new default empty input stream
     pub fn new() -> Self {
         InputStream {
             encoding: Encoding::UTF8,
@@ -133,29 +145,29 @@ impl InputStream {
         }
     }
 
-    // Returns true when the encoding encountered is defined as certain
+    /// Returns true when the encoding encountered is defined as certain
     pub fn is_certain_encoding(&self) -> bool {
         self.confidence == Confidence::Certain
     }
 
-    // Detect the given encoding from stream analysis
+    /// Detect the given encoding from stream analysis
     pub fn detect_encoding(&self) {
         todo!()
     }
 
-    // Returns true when the stream pointer is at the end of the stream
+    /// Returns true when the stream pointer is at the end of the stream
     pub fn eof(&self) -> bool {
         self.has_read_eof || self.position.offset >= self.length
     }
 
-    // Reset the stream reader back to the start
+    /// Reset the stream reader back to the start
     pub fn reset(&mut self) {
         self.position.offset = 0;
         self.position.line = 1;
         self.position.col = 1;
     }
 
-    // Seek explicit offset in the stream (based on chars)
+    /// Seek explicit offset in the stream (based on chars)
     pub fn seek(&mut self, mode: SeekMode, offset: isize) {
         let abs_offset = match mode {
             SeekMode::SeekSet => {
@@ -194,7 +206,7 @@ impl InputStream {
         self.generate_position(self.position.offset - 1)
     }
 
-    // Generate a new position structure for given offset
+    /// Generate a new position structure for given offset
     fn generate_position(&mut self, abs_offset: usize) -> Position {
         let mut abs_offset = abs_offset;
 
@@ -230,12 +242,12 @@ impl InputStream {
         self.position.offset
     }
 
-    // Set the given confidence of the input stream encoding
+    /// Set the given confidence of the input stream encoding
     pub fn set_confidence(&mut self, c: Confidence) {
         self.confidence = c;
     }
 
-    // Changes the encoding and if necessary, decodes the u8 buffer into the correct encoding
+    /// Changes the encoding and if necessary, decodes the u8 buffer into the correct encoding
     pub fn set_encoding(&mut self, e: Encoding) {
         // Don't convert if the encoding is the same as it already is
         if self.encoding == e {
@@ -245,8 +257,8 @@ impl InputStream {
         self.force_set_encoding(e)
     }
 
-    // Sets the encoding for this stream, and decodes the u8_buffer into the buffer with the
-    // correct encoding.
+    /// Sets the encoding for this stream, and decodes the u8_buffer into the buffer with the
+    /// correct encoding.
     pub fn force_set_encoding(&mut self, e: Encoding) {
         match e {
             Encoding::UTF8 => {
@@ -311,7 +323,7 @@ impl InputStream {
         result
     }
 
-    // Populates the current buffer with the contents of given file f
+    /// Populates the current buffer with the contents of given file f
     pub fn read_from_file(&mut self, mut f: File, e: Option<Encoding>) -> io::Result<()> {
         // First we read the u8 bytes into a buffer
         f.read_to_end(&mut self.u8_buffer).expect("uh oh");
@@ -320,19 +332,19 @@ impl InputStream {
         Ok(())
     }
 
-    // Populates the current buffer with the contents of the given string s
+    /// Populates the current buffer with the contents of the given string s
     pub fn read_from_str(&mut self, s: &str, e: Option<Encoding>) {
         self.u8_buffer = Vec::from(s.as_bytes());
         self.force_set_encoding(e.unwrap_or(Encoding::UTF8));
         self.reset();
     }
 
-    // Returns the number of characters left in the buffer
+    /// Returns the number of characters left in the buffer
     pub(crate) fn chars_left(&self) -> usize {
         self.length - self.position.offset
     }
 
-    // Reads a character and increases the current pointer, or read EOF as None
+    /// Reads a character and increases the current pointer, or read EOF as None
     pub(crate) fn read_char(&mut self) -> Element {
         // Return none if we already have read EOF
         if self.has_read_eof {
@@ -373,7 +385,7 @@ impl InputStream {
         }
     }
 
-    // Looks ahead in the stream and returns len characters
+    /// Looks ahead in the stream and returns len characters
     pub(crate) fn look_ahead_slice(&self, len: usize) -> String {
         let end_pos = std::cmp::min(self.length, self.position.offset + len);
 
@@ -381,8 +393,8 @@ impl InputStream {
         slice.iter().map(|e| e.to_string()).collect()
     }
 
-    // Looks ahead in the stream, can use an optional index if we want to seek further
-    // (or back) in the stream.
+    /// Looks ahead in the stream, can use an optional index if we want to seek further
+    /// (or back) in the stream.
     pub(crate) fn look_ahead(&self, offset: usize) -> Element {
         // Trying to look after the stream
         if self.position.offset + offset >= self.length {
@@ -392,7 +404,7 @@ impl InputStream {
         self.buffer[self.position.offset + offset]
     }
 
-    // Populates the line endings
+    /// Populates the line endings
     fn read_line_endings_until(&mut self, abs_offset: usize) {
         let mut last_offset = *self.line_offsets.last().unwrap();
 

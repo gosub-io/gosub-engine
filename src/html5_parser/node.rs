@@ -7,7 +7,7 @@ pub const XLINK_NAMESPACE: &str = "http://www.w3.org/1999/xlink";
 pub const XML_NAMESPACE: &str = "http://www.w3.org/XML/1998/namespace";
 pub const XMLNS_NAMESPACE: &str = "http://www.w3.org/2000/xmlns/";
 
-// Different types of nodes
+/// Different types of nodes
 #[derive(Debug, PartialEq)]
 pub enum NodeType {
     Document,
@@ -16,7 +16,7 @@ pub enum NodeType {
     Element,
 }
 
-// Different type of node data
+/// Different type of node data
 #[derive(Debug, PartialEq, Clone)]
 pub enum NodeData {
     Document,
@@ -32,14 +32,20 @@ pub enum NodeData {
     },
 }
 
-// Node that resembles a DOM node
+/// Node that resembles a DOM node
 pub struct Node {
-    pub id: usize,                 // ID of the node, 0 is always the root / document node
-    pub parent: Option<usize>,     // parent of the node, if any
-    pub children: Vec<usize>,      // children of the node
-    pub name: String,              // name of the node, or empty when it's not a tag
-    pub namespace: Option<String>, // namespace of the node
-    pub data: NodeData,            // actual data of the node
+    /// ID of the node, 0 is always the root / document node
+    pub id: usize,
+    /// parent of the node, if any
+    pub parent: Option<usize>,
+    /// children of the node
+    pub children: Vec<usize>,
+    /// name of the node, or empty when it's not a tag
+    pub name: String,
+    /// namespace of the node
+    pub namespace: Option<String>,
+    /// actual data of the node
+    pub data: NodeData,
 }
 
 impl Clone for Node {
@@ -56,7 +62,7 @@ impl Clone for Node {
 }
 
 impl Node {
-    // Create a new document node
+    /// Create a new document node
     pub fn new_document() -> Self {
         Node {
             id: 0,
@@ -68,7 +74,7 @@ impl Node {
         }
     }
 
-    // Create a new element node with the given name and attributes and namespace
+    /// Create a new element node with the given name and attributes and namespace
     pub fn new_element(name: &str, attributes: HashMap<String, String>, namespace: &str) -> Self {
         Node {
             id: 0,
@@ -83,7 +89,7 @@ impl Node {
         }
     }
 
-    // Create a new comment node
+    /// Create a new comment node
     pub fn new_comment(value: &str) -> Self {
         Node {
             id: 0,
@@ -97,7 +103,7 @@ impl Node {
         }
     }
 
-    // Create a new text node
+    /// Create a new text node
     pub fn new_text(value: &str) -> Self {
         Node {
             id: 0,
@@ -111,7 +117,7 @@ impl Node {
         }
     }
 
-    // Returns true if the given node is "special" node based on the namespace and name
+    /// Returns true if the given node is "special" node based on the namespace and name
     pub fn is_special(&self) -> bool {
         if self.namespace == Some(HTML_NAMESPACE.into())
             && SPECIAL_HTML_ELEMENTS.contains(&self.name.as_str())

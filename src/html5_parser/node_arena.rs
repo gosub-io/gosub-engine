@@ -7,7 +7,7 @@ pub struct NodeArena {
 }
 
 impl NodeArena {
-    // Create a new NodeArena
+    /// Create a new NodeArena
     pub fn new() -> Self {
         Self {
             nodes: HashMap::new(),
@@ -15,17 +15,17 @@ impl NodeArena {
         }
     }
 
-    // Get the node with the given id
+    /// Get the node with the given id
     pub fn get_node(&self, node_id: usize) -> Option<&Node> {
         self.nodes.get(&node_id)
     }
 
-    // Get the node with the given id as a mutable reference
+    /// Get the node with the given id as a mutable reference
     pub fn get_mut_node(&mut self, node_id: usize) -> Option<&mut Node> {
         self.nodes.get_mut(&node_id)
     }
 
-    // Add the node to the arena and return its id
+    /// Add the node to the arena and return its id
     pub fn add_node(&mut self, mut node: Node) -> usize {
         let id = self.next_id;
         self.next_id += 1;
@@ -35,7 +35,7 @@ impl NodeArena {
         id
     }
 
-    // Add the node as a child the parent node
+    /// Add the node as a child the parent node
     pub fn attach_node(&mut self, parent_id: usize, node_id: usize) {
         if let Some(parent_node) = self.nodes.get_mut(&parent_id) {
             parent_node.children.push(node_id);
@@ -45,10 +45,9 @@ impl NodeArena {
         }
     }
 
-    // Removes the node with the given id from the arena
+    /// Removes the node with the given id from the arena
     fn remove_node(&mut self, node_id: usize) {
         // Remove children
-
         if let Some(node) = self.nodes.get_mut(&node_id) {
             for child_id in node.children.clone() {
                 self.remove_node(child_id);
