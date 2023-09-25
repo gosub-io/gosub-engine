@@ -5,8 +5,9 @@ use gosub_engine::html5_parser::parser::Html5Parser;
 use regex::Regex;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
-use std::path::PathBuf;
-use std::{env, fs, io};
+use std::path::{Path, PathBuf};
+use std::process::exit;
+use std::{fs, io};
 
 pub struct TestResults {
     tests: usize,           // Number of tests (as defined in the suite)
@@ -26,8 +27,12 @@ struct Test {
 }
 
 fn main() -> io::Result<()> {
-    let default_dir = "./html5lib-tests";
-    let dir = env::args().nth(1).unwrap_or(default_dir.to_string());
+    let default_dir = "tests/data/html5lib-tests".to_string();
+
+    if !Path::new(&default_dir).exists() {
+        println!("Missing 'html5lib-tests'. It is not located at '{default_dir}' \nIt should be cloned first from here https://github.com/html5lib/html5lib-tests");
+        exit(1)
+    }
 
     let mut results = TestResults {
         tests: 0,
@@ -37,7 +42,7 @@ fn main() -> io::Result<()> {
         failed_position: 0,
     };
 
-    for entry in fs::read_dir(dir + "/tree-construction")? {
+    for entry in fs::read_dir(default_dir + "/tree-construction")? {
         let entry = entry?;
         let path = entry.path();
 
