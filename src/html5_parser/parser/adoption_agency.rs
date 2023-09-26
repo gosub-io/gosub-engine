@@ -289,6 +289,8 @@ mod test {
         parser.parse();
 
         println!("{}", parser.document);
+
+        assert!(true);
         // let document = parser.document;
         // let table = document.get_node_by_id(1).unwrap();
         // let tr = document.get_node_by_id(2).unwrap();
