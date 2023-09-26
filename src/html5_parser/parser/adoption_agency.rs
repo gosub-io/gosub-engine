@@ -6,8 +6,13 @@ use std::collections::HashMap;
 const ADOPTION_AGENCY_OUTER_LOOP_DEPTH: usize = 8;
 const ADOPTION_AGENCY_INNER_LOOP_DEPTH: usize = 3;
 
+enum AdoptionResult {
+    ProcessAsAnyOther,
+    Completed,
+}
+
 impl<'a> Html5Parser<'a> {
-    pub fn run_adoption_agency(&mut self, token: &Token) {
+    pub fn run_adoption_agency(&mut self, token: &Token) -> Result<AdoptionResult, Err> {
         // Step 1
         let subject = match token {
             Token::EndTagToken { name, .. } => name,
@@ -24,7 +29,7 @@ impl<'a> Html5Parser<'a> {
                 .any(|elem| elem == &ActiveElement::NodeId(current_node_id))
         {
             self.open_elements.pop();
-            return;
+            return Ok(AdoptionResult::Completed)
         }
 
         // Step 3
@@ -34,7 +39,7 @@ impl<'a> Html5Parser<'a> {
         loop {
             // Step 4.1
             if outer_loop_counter >= ADOPTION_AGENCY_OUTER_LOOP_DEPTH {
-                return;
+                return Ok(AdoptionResult::Completed)
             }
 
             // Step 4.2
@@ -50,7 +55,7 @@ impl<'a> Html5Parser<'a> {
                 match self.active_formatting_elements[idx] {
                     ActiveElement::Marker => break,
                     ActiveElement::NodeId(node_id) => {
-                        let temp_node = self.document.get_node_by_id(node_id).unwrap().clone();
+                        let temp_node = self.document.get_node_by_id(node_id).expect("node not found").clone();
                         if let NodeData::Element {
                             ref name,
                             ref attributes,
@@ -69,8 +74,7 @@ impl<'a> Html5Parser<'a> {
             }
 
             if formatting_element_idx == 0 {
-                // @TODO: process as any other end tag
-                return;
+                return Ok(AdoptionResult::ProcessAsAnyOther)
             }
 
             // Step 4.4
@@ -78,7 +82,8 @@ impl<'a> Html5Parser<'a> {
                 self.parse_error("formatting element not in open elements");
                 self.active_formatting_elements
                     .remove(formatting_element_idx);
-                return;
+
+                return Ok(AdoptionResult::Completed)
             }
 
             // Step 4.5
@@ -104,7 +109,7 @@ impl<'a> Html5Parser<'a> {
                 match self.active_formatting_elements[idx] {
                     ActiveElement::Marker => {}
                     ActiveElement::NodeId(node_id) => {
-                        let node = self.document.get_node_by_id(node_id).unwrap();
+                        let node = self.document.get_node_by_id(node_id).expect("node not found");
                         if node.is_special() {
                             furthest_block_idx = idx;
                             furthest_block_id = node_id;
@@ -121,12 +126,14 @@ impl<'a> Html5Parser<'a> {
 
             // Step 4.8
             if furthest_block_idx == 0 {
+                // @TODO We must pop from the bottom of the stack????
                 while current_node!(self).id != formatting_element_id {
                     self.open_elements.pop();
                 }
                 self.active_formatting_elements
                     .remove(formatting_element_idx);
-                return;
+
+                return Ok(AdoptionResult::Completed)
             }
 
             // Step 4.9
@@ -276,4 +283,5 @@ mod test {
         // assert_eq!(td.children, vec![select.id]);
         // assert_eq!(select.children, vec![option.id]);
     }
+
 }

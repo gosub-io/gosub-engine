@@ -307,8 +307,6 @@ impl<'a> Html5Parser<'a> {
                 break;
             }
 
-            self.display_debug_info();
-
             // println!("Token: {}", self.current_token);
 
             match self.insertion_mode {
@@ -1606,6 +1604,9 @@ impl<'a> Html5Parser<'a> {
                     }
                 }
             }
+
+
+            self.display_debug_info();
         }
 
         (
@@ -3283,32 +3284,32 @@ impl<'a> Html5Parser<'a> {
 
     #[cfg(debug_assertions)]
     fn display_debug_info(&self) {
-        println!("** Frame **************************");
-        println!("current token  : {}", self.current_token);
-        println!("insertion mode : {:?}", self.insertion_mode);
-
-        println!("-- open elements  -----------");
+        println!("-----------------------------------------\n");
+        println!("current token   : {}", self.current_token);
+        println!("insertion mode  : {:?}", self.insertion_mode);
+        print!("Open elements   : [ ");
         for node_id in &self.open_elements {
             let node = self.document.get_node_by_id(*node_id).unwrap();
-            println!("({}) {}", node.id, node.name);
+            print!("{}, ", node.name);
         }
-        println!("-----------------------------");
+        println!("]");
 
-        println!("-- active formatting elems --");
+        print!("Active elements : [");
         for elem in &self.active_formatting_elements {
             match elem {
                 ActiveElement::NodeId(node_id) => {
                     let node = self.document.get_node_by_id(*node_id).unwrap();
-                    println!("({}) {}", node.id, node.name);
+                    print!("{}, ", node.name);
                 }
                 ActiveElement::Marker => {
-                    println!("marker");
+                    print!("marker");
                 }
             }
         }
-        println!("-----------------------------");
-        println!("-- TREE ---------------------");
+        println!("]");
+
+        println!("Output:");
         println!("{}", self.document);
-        println!("-----------------------------");
+
     }
 }
