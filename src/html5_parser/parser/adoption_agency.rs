@@ -6,13 +6,13 @@ use std::collections::HashMap;
 const ADOPTION_AGENCY_OUTER_LOOP_DEPTH: usize = 8;
 const ADOPTION_AGENCY_INNER_LOOP_DEPTH: usize = 3;
 
-enum AdoptionResult {
+pub enum AdoptionResult {
     ProcessAsAnyOther,
     Completed,
 }
 
 impl<'a> Html5Parser<'a> {
-    pub fn run_adoption_agency(&mut self, token: &Token) -> Result<AdoptionResult, Err> {
+    pub fn run_adoption_agency(&mut self, token: &Token) -> AdoptionResult {
         // Step 1
         let subject = match token {
             Token::EndTagToken { name, .. } => name,
@@ -29,7 +29,7 @@ impl<'a> Html5Parser<'a> {
                 .any(|elem| elem == &ActiveElement::NodeId(current_node_id))
         {
             self.open_elements.pop();
-            return Ok(AdoptionResult::Completed)
+            return AdoptionResult::Completed
         }
 
         // Step 3
@@ -39,7 +39,7 @@ impl<'a> Html5Parser<'a> {
         loop {
             // Step 4.1
             if outer_loop_counter >= ADOPTION_AGENCY_OUTER_LOOP_DEPTH {
-                return Ok(AdoptionResult::Completed)
+                return AdoptionResult::Completed
             }
 
             // Step 4.2
@@ -74,7 +74,7 @@ impl<'a> Html5Parser<'a> {
             }
 
             if formatting_element_idx == 0 {
-                return Ok(AdoptionResult::ProcessAsAnyOther)
+                return AdoptionResult::ProcessAsAnyOther
             }
 
             // Step 4.4
@@ -83,7 +83,7 @@ impl<'a> Html5Parser<'a> {
                 self.active_formatting_elements
                     .remove(formatting_element_idx);
 
-                return Ok(AdoptionResult::Completed)
+                return AdoptionResult::Completed
             }
 
             // Step 4.5
@@ -91,7 +91,7 @@ impl<'a> Html5Parser<'a> {
                 && !self.is_in_scope(&formatting_element_name, Scope::Regular)
             {
                 self.parse_error("formatting element not in scope");
-                return;
+                return AdoptionResult::Completed;
             }
 
             // Step 4.6
@@ -101,40 +101,31 @@ impl<'a> Html5Parser<'a> {
             }
 
             // Step 4.7
-            let mut furthest_block_idx = 0;
-            let mut furthest_block_id = 0;
-            let mut furthest_block_children = Vec::new();
-
-            for idx in (0..formatting_element_idx).rev() {
-                match self.active_formatting_elements[idx] {
-                    ActiveElement::Marker => {}
-                    ActiveElement::NodeId(node_id) => {
-                        let node = self.document.get_node_by_id(node_id).expect("node not found");
-                        if node.is_special() {
-                            furthest_block_idx = idx;
-                            furthest_block_id = node_id;
-                            furthest_block_children = self
-                                .document
-                                .get_node_by_id(furthest_block_id)
-                                .expect("Node should exist.")
-                                .children
-                                .clone();
-                        }
-                    }
-                }
-            }
+            let furthest_block_idx = self.find_furthest_block_idx(formatting_element_id);
 
             // Step 4.8
-            if furthest_block_idx == 0 {
-                // @TODO We must pop from the bottom of the stack????
-                while current_node!(self).id != formatting_element_id {
-                    self.open_elements.pop();
+            if furthest_block_idx.is_none() {
+                // Remove up until and including the formatting element from the stack of open elements
+                while let Some(top) = self.open_elements.pop() {
+                    if top == formatting_element_id {
+                        self.open_elements.pop();
+                        break;
+                    } else {
+                        self.open_elements.pop();
+                    }
                 }
-                self.active_formatting_elements
-                    .remove(formatting_element_idx);
 
-                return Ok(AdoptionResult::Completed)
+                // Remove the formatting element from the list of active formatting elements
+                if let Some(pos) = self.active_formatting_elements.iter().position(|elem| elem == &ActiveElement::NodeId(formatting_element_id)) {
+                    self.active_formatting_elements.remove(pos);
+                }
+
+                return AdoptionResult::Completed
             }
+
+            let furthest_block_idx = furthest_block_idx.expect("furthest block not found");
+            let node_id = *self.open_elements.get(furthest_block_idx).expect("furthest block not found");
+            let furthest_block = self.document.get_node_by_id(node_id).expect("furthest block not found").clone();
 
             // Step 4.9
             let common_ancestor_idx = formatting_element_idx - 1;
@@ -221,14 +212,14 @@ impl<'a> Html5Parser<'a> {
             );
 
             // Step 4.16
-            if !furthest_block_children.is_empty() {
-                for &child in furthest_block_children.iter() {
+            if !furthest_block.children.is_empty() {
+                for &child in furthest_block.children.iter() {
                     self.document.append(child, new_element.id)
                 }
             }
 
             // Step 4.17
-            let new_element_id = self.document.add_node(new_element, furthest_block_id);
+            let new_element_id = self.document.add_node(new_element, furthest_block.id);
 
             // Step 4.18
             self.active_formatting_elements
@@ -255,6 +246,33 @@ impl<'a> Html5Parser<'a> {
         self.open_elements[node_idx] = replacement_node_id;
 
         replacement_node_id
+    }
+
+    fn find_furthest_block_idx(&self, formatting_element_id: usize) -> Option<usize> {
+        let mut index_of_formatting_element = None;
+
+        for (idx, &element_id) in self.open_elements.iter().enumerate() {
+            if element_id == formatting_element_id {
+                index_of_formatting_element = Some(idx);
+                break;
+            }
+        }
+
+        let index_of_formatting_element = match index_of_formatting_element {
+            Some(idx) => idx,
+            None => return None,
+        };
+
+        for idx in (0..index_of_formatting_element).rev() {
+            let element_id = self.open_elements[idx];
+            let element = self.document.get_node_by_id(element_id).expect("element not found");
+
+            if element.is_special() {
+                return Some(idx);
+            }
+        }
+
+        None
     }
 }
 

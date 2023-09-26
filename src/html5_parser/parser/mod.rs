@@ -18,6 +18,7 @@ use crate::html5_parser::tokenizer::{Tokenizer, CHAR_NUL};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
+use crate::html5_parser::parser::adoption_agency::AdoptionResult;
 
 // Insertion modes as defined in 13.2.4.1
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -98,11 +99,10 @@ macro_rules! pop_until {
             }
 
             $self.open_elements.pop();
-            if current_node!($self).name != $name {
+            if current_node!($self).name == $name {
                 break;
             }
         }
-        // $self.open_elements.pop_until(|node_id| $self.document.get_node_by_id(*node_id).expect("node not found").name == $name);
     };
 }
 
@@ -190,10 +190,10 @@ macro_rules! open_elements_has {
 // Returns the current node: the last node in the open elements list
 macro_rules! current_node {
     ($self:expr) => {{
-        let current_node_idx = $self.open_elements.last().unwrap_or(&0);
+        let node_id = $self.open_elements.last().unwrap_or(&0);
         $self
             .document
-            .get_node_by_id(*current_node_idx)
+            .get_node_by_id(*node_id)
             .expect("Current node not found")
     }};
 }
@@ -1670,7 +1670,7 @@ impl<'a> Html5Parser<'a> {
             let val = current_node!(self).name.clone();
 
             if except.is_some() && except.unwrap() == val {
-                continue;
+                return;
             }
 
             if thoroughly && !["tbody", "td", "tfoot", "th", "thead", "tr"].contains(&val.as_str())
@@ -1828,9 +1828,9 @@ impl<'a> Html5Parser<'a> {
 
     // Checks if the given element is in given scope
     fn is_in_scope(&self, tag: &str, scope: Scope) -> bool {
-        let mut idx = self.open_elements.len() - 1;
-        loop {
-            let node = open_elements_get!(self, idx);
+        for &node_id in self.open_elements.iter().rev() {
+            let node = self.document.get_node_by_id(node_id).expect("node not found");
+
             if node.name == tag {
                 return true;
             }
@@ -1878,9 +1878,9 @@ impl<'a> Html5Parser<'a> {
                     }
                 }
             }
-
-            idx -= 1;
         }
+
+        false
     }
 
     // Closes a table cell and switches the insertion mode to InRow
@@ -2229,9 +2229,12 @@ impl<'a> Html5Parser<'a> {
                 if !self.is_in_scope(name, Scope::Button) {
                     self.parse_error("end tag not in scope");
 
-                    self.insert_html_element(&self.current_token.clone());
-
-                    return;
+                    let token = Token::StartTagToken {
+                        name: "p".to_string(),
+                        is_self_closing: false,
+                        attributes: HashMap::new(),
+                    };
+                    self.insert_html_element(&token);
                 }
 
                 self.close_p_element();
@@ -2301,17 +2304,26 @@ impl<'a> Html5Parser<'a> {
             Token::StartTagToken { name, .. } if name == "a" => {
                 if let Some(node_id) = self.active_formatting_elements_has_until_marker("a") {
                     self.parse_error("a tag in active formatting elements");
-                    self.run_adoption_agency(&self.current_token.clone());
+                    match self.run_adoption_agency(&self.current_token.clone()) {
+                        AdoptionResult::Completed => {},
+                        AdoptionResult::ProcessAsAnyOther => {
+                            any_other_end_tag = true;
+                        }
+                    }
 
-                    // Remove from lists if not done already by the adoption agency
-                    open_elements_remove!(self, node_id);
-                    self.active_formatting_elements_remove(node_id);
+                    if !any_other_end_tag {
+                        // Remove from lists if not done already by the adoption agency
+                        open_elements_remove!(self, node_id);
+                        self.active_formatting_elements_remove(node_id);
+                    }
                 }
 
-                self.reconstruct_formatting();
+                if !any_other_end_tag {
+                    self.reconstruct_formatting();
 
-                let node_id = self.insert_html_element(&self.current_token.clone());
-                self.active_formatting_elements_push(node_id);
+                    let node_id = self.insert_html_element(&self.current_token.clone());
+                    self.active_formatting_elements_push(node_id);
+                }
             }
             Token::StartTagToken { name, .. }
                 if name == "b"
@@ -3118,18 +3130,6 @@ impl<'a> Html5Parser<'a> {
         new_node_id
     }
 
-    // fn create_new_formatting_element(&mut self, idx: usize, node: &Node) {
-    //     match &node.data {
-    //         NodeData::Element { name, attributes } => {
-    //             let token = Token::StartTagToken { name: name.clone(), is_self_closing: false, attributes: attributes.clone() };
-    //             let node_id = self.insert_html_element(&token);
-    //
-    //             self.active_formatting_elements[idx] = ActiveElement::NodeId(node_id);
-    //         }
-    //         _ => {}
-    //     }
-    // }
-
     fn stop_parsing(&self) {
         todo!()
     }
@@ -3143,6 +3143,7 @@ impl<'a> Html5Parser<'a> {
         }
 
         pop_until!(self, "p");
+        self.open_elements.pop(); // Pop the p element itself
     }
 
     // Adjusts attributes names in the given token for SVG
@@ -3310,6 +3311,239 @@ impl<'a> Html5Parser<'a> {
 
         println!("Output:");
         println!("{}", self.document);
+    }
+}
 
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    macro_rules! node_create {
+        ($self:expr, $name:expr) => {
+            {
+                let node = Node::new_element($name, HashMap::new(), HTML_NAMESPACE);
+                let node_id = $self.document.add_node(node, 0);
+                $self.open_elements.push(node_id);
+            }
+        };
+    }
+
+    #[test]
+    fn test_is_in_scope() {
+        let mut stream = InputStream::new();
+        let mut parser = Html5Parser::new(&mut stream);
+
+        node_create!(parser, "html");
+        node_create!(parser, "div");
+        node_create!(parser, "p");
+        node_create!(parser, "button");
+        assert_eq!(parser.is_in_scope("p", Scope::Regular), true);
+        assert_eq!(parser.is_in_scope("p", Scope::Button), false);
+        assert_eq!(parser.is_in_scope("p", Scope::ListItem), true);
+        assert_eq!(parser.is_in_scope("p", Scope::Select), false);
+    }
+
+    #[test]
+    fn test_is_in_scope_empty_stack() {
+        let mut stream = InputStream::new();
+        let mut parser = Html5Parser::new(&mut stream);
+
+        parser.open_elements.clear();
+        assert_eq!(parser.is_in_scope("p", Scope::Regular), false);
+        assert_eq!(parser.is_in_scope("p", Scope::Button), false);
+        assert_eq!(parser.is_in_scope("p", Scope::ListItem), false);
+        assert_eq!(parser.is_in_scope("p", Scope::Select), false);
+    }
+
+    #[test]
+    fn test_is_in_scope_non_existing_node() {
+        let mut stream = InputStream::new();
+        let mut parser = Html5Parser::new(&mut stream);
+
+        node_create!(parser, "html");
+        node_create!(parser, "div");
+        node_create!(parser, "p");
+        node_create!(parser, "button");
+
+        assert_eq!(parser.is_in_scope("foo", Scope::Regular), false);
+        assert_eq!(parser.is_in_scope("foo", Scope::Button), false);
+        assert_eq!(parser.is_in_scope("foo", Scope::ListItem), false);
+        assert_eq!(parser.is_in_scope("foo", Scope::Select), false);
+    }
+
+    #[test]
+    fn test_is_in_scope_1() {
+        let mut stream = InputStream::new();
+        let mut parser = Html5Parser::new(&mut stream);
+
+        node_create!(parser, "html");
+        node_create!(parser, "div");
+        node_create!(parser, "table");
+        node_create!(parser, "tr");
+        node_create!(parser, "td");
+        node_create!(parser, "p");
+        node_create!(parser, "span");
+
+        assert_eq!(parser.is_in_scope("p", Scope::Regular), true);
+        assert_eq!(parser.is_in_scope("p", Scope::ListItem), true);
+        assert_eq!(parser.is_in_scope("p", Scope::Button), true);
+        assert_eq!(parser.is_in_scope("p", Scope::Table), true);
+        assert_eq!(parser.is_in_scope("p", Scope::Select), false);
+
+        assert_eq!(parser.is_in_scope("div", Scope::Regular), false);
+        assert_eq!(parser.is_in_scope("div", Scope::ListItem), false);
+        assert_eq!(parser.is_in_scope("div", Scope::Button), false);
+        assert_eq!(parser.is_in_scope("div", Scope::Table), false);
+        assert_eq!(parser.is_in_scope("div", Scope::Select), false);
+
+        assert_eq!(parser.is_in_scope("tr", Scope::Regular), false);
+        assert_eq!(parser.is_in_scope("tr", Scope::ListItem), false);
+        assert_eq!(parser.is_in_scope("tr", Scope::Button), false);
+        assert_eq!(parser.is_in_scope("tr", Scope::Table), true);
+        assert_eq!(parser.is_in_scope("tr", Scope::Select), false);
+
+        assert_eq!(parser.is_in_scope("xmp", Scope::Regular), false);
+        assert_eq!(parser.is_in_scope("xmp", Scope::ListItem), false);
+        assert_eq!(parser.is_in_scope("xmp", Scope::Button), false);
+        assert_eq!(parser.is_in_scope("xmp", Scope::Table), false);
+        assert_eq!(parser.is_in_scope("xmp", Scope::Select), false);
+
+    }
+
+    #[test]
+    fn test_is_in_scope_2() {
+        let mut stream = InputStream::new();
+        let mut parser = Html5Parser::new(&mut stream);
+
+        node_create!(parser, "html");
+        node_create!(parser, "body");
+        node_create!(parser, "ul");
+        node_create!(parser, "li");
+        node_create!(parser, "div");
+        node_create!(parser, "button");
+
+        assert_eq!(parser.is_in_scope("li", Scope::Regular), true);
+        assert_eq!(parser.is_in_scope("li", Scope::ListItem), true);
+        assert_eq!(parser.is_in_scope("li", Scope::Button), false);
+        assert_eq!(parser.is_in_scope("li", Scope::Table), true);
+        assert_eq!(parser.is_in_scope("li", Scope::Select), false);
+    }
+
+    #[test]
+    fn test_is_in_scope_3() {
+        let mut stream = InputStream::new();
+        let mut parser = Html5Parser::new(&mut stream);
+
+        node_create!(parser, "html");
+        node_create!(parser, "body");
+        node_create!(parser, "div");
+        node_create!(parser, "ul");
+        node_create!(parser, "li");
+        node_create!(parser, "p");
+
+        assert_eq!(parser.is_in_scope("li", Scope::Regular), true);
+        assert_eq!(parser.is_in_scope("li", Scope::ListItem), true);
+        assert_eq!(parser.is_in_scope("li", Scope::Button), true);
+        assert_eq!(parser.is_in_scope("li", Scope::Table), true);
+        assert_eq!(parser.is_in_scope("li", Scope::Select), false);
+    }
+
+    #[test]
+    fn test_is_in_scope_4() {
+        let mut stream = InputStream::new();
+        let mut parser = Html5Parser::new(&mut stream);
+
+        node_create!(parser, "html");
+        node_create!(parser, "body");
+        node_create!(parser, "table");
+        node_create!(parser, "tbody");
+        node_create!(parser, "tr");
+        node_create!(parser, "td");
+        node_create!(parser, "button");
+        node_create!(parser, "span");
+
+        assert_eq!(parser.is_in_scope("td", Scope::Regular), true);
+        assert_eq!(parser.is_in_scope("td", Scope::ListItem), true);
+        assert_eq!(parser.is_in_scope("td", Scope::Button), false);
+        assert_eq!(parser.is_in_scope("td", Scope::Table), true);
+        assert_eq!(parser.is_in_scope("td", Scope::Select), false);
+    }
+
+    #[test]
+    fn test_is_in_scope_5() {
+        let mut stream = InputStream::new();
+        let mut parser = Html5Parser::new(&mut stream);
+
+        node_create!(parser, "html");
+        node_create!(parser, "body");
+        node_create!(parser, "div");
+        node_create!(parser, "object");
+        node_create!(parser, "p");
+        node_create!(parser, "a");
+        node_create!(parser, "span");
+
+        assert_eq!(parser.is_in_scope("div", Scope::Regular), false);
+        assert_eq!(parser.is_in_scope("div", Scope::ListItem), false);
+        assert_eq!(parser.is_in_scope("div", Scope::Button), false);
+        assert_eq!(parser.is_in_scope("div", Scope::Table), true);
+        assert_eq!(parser.is_in_scope("div", Scope::Select), false);
+    }
+
+    #[test]
+    fn test_is_in_scope_6() {
+        let mut stream = InputStream::new();
+        let mut parser = Html5Parser::new(&mut stream);
+
+        node_create!(parser, "html");
+        node_create!(parser, "body");
+        node_create!(parser, "div");
+        node_create!(parser, "ul");
+        node_create!(parser, "li");
+        node_create!(parser, "marquee");
+        node_create!(parser, "p");
+
+        assert_eq!(parser.is_in_scope("ul", Scope::Regular), false);
+        assert_eq!(parser.is_in_scope("ul", Scope::ListItem), false);
+        assert_eq!(parser.is_in_scope("ul", Scope::Button), false);
+        assert_eq!(parser.is_in_scope("ul", Scope::Table), true);
+        assert_eq!(parser.is_in_scope("ul", Scope::Select), false);
+    }
+
+    #[test]
+    fn test_is_in_scope_7() {
+        let mut stream = InputStream::new();
+        let mut parser = Html5Parser::new(&mut stream);
+
+        node_create!(parser, "html");
+        node_create!(parser, "body");
+        node_create!(parser, "div");
+        node_create!(parser, "table");
+        node_create!(parser, "caption");
+        node_create!(parser, "p");
+
+        assert_eq!(parser.is_in_scope("table", Scope::Regular), false);
+        assert_eq!(parser.is_in_scope("table", Scope::ListItem), false);
+        assert_eq!(parser.is_in_scope("table", Scope::Button), false);
+        assert_eq!(parser.is_in_scope("table", Scope::Table), true);
+        assert_eq!(parser.is_in_scope("table", Scope::Select), false);
+    }
+
+    #[test]
+    fn test_is_in_scope_8() {
+        let mut stream = InputStream::new();
+        let mut parser = Html5Parser::new(&mut stream);
+
+        node_create!(parser, "html");
+        node_create!(parser, "body");
+        node_create!(parser, "select");
+        node_create!(parser, "optgroup");
+        node_create!(parser, "option");
+
+        assert_eq!(parser.is_in_scope("select", Scope::Regular), true);
+        assert_eq!(parser.is_in_scope("select", Scope::ListItem), true);
+        assert_eq!(parser.is_in_scope("select", Scope::Button), true);
+        assert_eq!(parser.is_in_scope("select", Scope::Table), true);
+        assert_eq!(parser.is_in_scope("select", Scope::Select), true);
     }
 }
