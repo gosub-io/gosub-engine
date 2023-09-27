@@ -3107,7 +3107,7 @@ impl<'a> Html5Parser<'a> {
                 .get_node_by_id(node_id)
                 .expect("node not found")
                 .clone();
-            let new_node_id = self.clone_node(entry_node);
+            let new_node_id = self.clone_node_without_children(entry_node);
 
             self.active_formatting_elements[entry_index] = ActiveElement::NodeId(new_node_id);
 
@@ -3119,8 +3119,10 @@ impl<'a> Html5Parser<'a> {
         }
     }
 
-    fn clone_node(&mut self, org_node: Node) -> usize {
-        let new_node = org_node.clone();
+    fn clone_node_without_children(&mut self, org_node: Node) -> usize {
+        let mut new_node = org_node.clone();
+        new_node.children = Vec::new();
+        new_node.parent = None;
 
         let new_node_id = self.document.add_node(new_node, current_node!(self).id);
         if let NodeData::Element { .. } = org_node.data {
