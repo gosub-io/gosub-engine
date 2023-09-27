@@ -2666,6 +2666,36 @@ impl<'a> Html5Parser<'a> {
         }
 
         if any_other_end_tag {
+            if self.open_elements.is_empty() {
+                self.parse_error("no open elements");
+                // ignore token
+                return;
+            }
+
+            let mut idx = self.open_elements.len() - 1;
+            loop {
+                let node_id = self.open_elements[idx];
+                let node = self.document.get_node_by_id(node_id).expect("node not found").clone();
+
+                self.generate_all_implied_end_tags(Some(node.name.as_str()), false);
+                if current_node!(self).id == node.id {
+                    self.parse_error("end tag not at top of stack");
+                    pop_until!(self, node.name);
+                    break;
+                }
+
+                if node.is_special(){
+                    self.parse_error("thisi s a special node");
+                    // ignore node
+                    break;
+                }
+
+                if idx == 0 {
+                    break;
+                }
+
+                idx-=1;
+            }
             // @TODO: do stuff
         }
     }
@@ -3293,7 +3323,7 @@ impl<'a> Html5Parser<'a> {
         print!("Open elements   : [ ");
         for node_id in &self.open_elements {
             let node = self.document.get_node_by_id(*node_id).unwrap();
-            print!("{}, ", node.name);
+            print!("({}) {}, ", node_id, node.name);
         }
         println!("]");
 
@@ -3302,7 +3332,7 @@ impl<'a> Html5Parser<'a> {
             match elem {
                 ActiveElement::NodeId(node_id) => {
                     let node = self.document.get_node_by_id(*node_id).unwrap();
-                    print!("{}, ", node.name);
+                    print!("({}) {}, ", node_id, node.name);
                 }
                 ActiveElement::Marker => {
                     print!("marker");
