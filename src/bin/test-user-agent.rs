@@ -3,8 +3,8 @@ use std::process::exit;
 use gosub_engine::html5_parser::input_stream::Confidence;
 use gosub_engine::html5_parser::input_stream::{Encoding, InputStream};
 use gosub_engine::html5_parser::node::{Node, NodeData};
-use gosub_engine::html5_parser::parser::Html5Parser;
 use gosub_engine::html5_parser::parser::document::Document;
+use gosub_engine::html5_parser::parser::Html5Parser;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let url = std::env::args()
@@ -39,7 +39,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         None => {
             println!("[No Body Found]");
         }
-        Some(node) => display_node(document, &node)
+        Some(node) => display_node(document, node),
     }
 
     for e in parse_error {
@@ -60,7 +60,7 @@ fn get_node<'a>(document: &'a Document, parent: &'a Node, name: &'a str) -> Opti
             }
         }
     }
-    return None;
+    None
 }
 
 fn get_node_by_path<'a>(document: &'a Document, path: Vec<&'a str>) -> Option<&'a Node> {
@@ -76,18 +76,18 @@ fn get_node_by_path<'a>(document: &'a Document, path: Vec<&'a str>) -> Option<&'
     for name in path {
         match get_node(document, node, name) {
             Some(new_node) => {
-                node = &new_node;
-            },
+                node = new_node;
+            }
             None => {
                 return None;
-            },
+            }
         }
     }
-    return Some(node);
+    Some(node)
 }
 
 fn display_node(document: &Document, node: &Node) {
-    if let NodeData::Text {value} = &node.data {
+    if let NodeData::Text { value } = &node.data {
         if !value.eq("\n") {
             println!("{}", value);
         }
