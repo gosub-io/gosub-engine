@@ -46,39 +46,17 @@ impl<'a> Html5Parser<'a> {
             outer_loop_counter += 1;
 
             // Step 4.3
-            let mut formatting_element_idx: usize = 0;
-            let mut formatting_element_id: usize = 0;
-            let mut formatting_element_name = String::from("");
-            let mut formatting_element_attributes = HashMap::new();
-
-            for idx in (0..self.active_formatting_elements.len()).rev() {
-                match self.active_formatting_elements[idx] {
-                    ActiveElement::Marker => break,
-                    ActiveElement::NodeId(node_id) => {
-                        let temp_node = self.document.get_node_by_id(node_id).expect("node not found").clone();
-                        if let NodeData::Element {
-                            ref name,
-                            ref attributes,
-                            ..
-                        } = temp_node.data
-                        {
-                            if name == subject && !attributes.is_empty() {
-                                formatting_element_idx = idx;
-                                formatting_element_id = node_id;
-                                formatting_element_name = String::from(name);
-                                formatting_element_attributes = attributes.clone();
-                            }
-                        }
-                    }
-                }
-            }
-
-            if formatting_element_idx == 0 {
+            let formatting_element_idx = self.find_formatting_element(subject);
+            if formatting_element_idx.is_none() {
                 return AdoptionResult::ProcessAsAnyOther
             }
 
+            let formatting_element_idx = formatting_element_idx.expect("formatting element not found");
+            let formatting_element_id = self.active_formatting_elements[formatting_element_idx].node_id().expect("formatting element not found");
+            let formatting_element_node= self.document.get_node_by_id(formatting_element_id).expect("formatting element not found").clone();
+
             // Step 4.4
-            if !open_elements_has!(self, formatting_element_name) {
+            if !open_elements_has!(self, formatting_element_node.name) {
                 self.parse_error("formatting element not in open elements");
                 self.active_formatting_elements
                     .remove(formatting_element_idx);
@@ -87,8 +65,8 @@ impl<'a> Html5Parser<'a> {
             }
 
             // Step 4.5
-            if open_elements_has!(self, formatting_element_name)
-                && !self.is_in_scope(&formatting_element_name, Scope::Regular)
+            if open_elements_has!(self, formatting_element_node.name)
+                && !self.is_in_scope(&formatting_element_node.name, Scope::Regular)
             {
                 self.parse_error("formatting element not in scope");
                 return AdoptionResult::Completed;
@@ -205,11 +183,16 @@ impl<'a> Html5Parser<'a> {
             // Insert whatever last node ended up being in the previous step at the appropriate place for inserting a node, but using common ancestor as the override target.
 
             // Step 4.15
-            let new_element = Node::new_element(
-                formatting_element_name.as_str(),
-                formatting_element_attributes,
-                HTML_NAMESPACE,
-            );
+            let new_element = match formatting_element_node.data {
+                NodeData::Element { ref attributes, .. } => {
+                     Node::new_element(
+                        formatting_element_node.name.as_str(),
+                        attributes.clone(),
+                        HTML_NAMESPACE,
+                    )
+                }
+                _ => panic!("formatting element is not an element")
+            };
 
             // Step 4.16
             if !furthest_block.children.is_empty() {
@@ -248,6 +231,7 @@ impl<'a> Html5Parser<'a> {
         replacement_node_id
     }
 
+    // Find the furthest block element in the stack of open elements that is above the formatting element
     fn find_furthest_block_idx(&self, formatting_element_id: usize) -> Option<usize> {
         let mut index_of_formatting_element = None;
 
@@ -274,7 +258,48 @@ impl<'a> Html5Parser<'a> {
 
         None
     }
+
+
+    // Find the formatting element with the given subject between the end of the list and the first marker (or start when there is no marker)
+    fn find_formatting_element(&self, subject: &str) -> Option<usize> {
+        if self.active_formatting_elements.is_empty() {
+            return None;
+        }
+
+        let mut idx = self.active_formatting_elements.len() - 1;
+        loop {
+            match self.active_formatting_elements[idx] {
+                ActiveElement::Marker => {
+                    // Marker found, do not continue
+                    break;
+                },
+                ActiveElement::NodeId(node_id) => {
+                    // Check if the given node is an element with the given subject
+                    let node = self.document.get_node_by_id(node_id).expect("node not found").clone();
+                    if let NodeData::Element {
+                        ref name,
+                        ref attributes,
+                        ..
+                    } = node.data
+                    {
+                        if name == subject && !attributes.is_empty() {
+                            return Some(idx);
+                        }
+                    }
+                }
+            }
+
+            if idx == 0 {
+                break;
+            }
+
+            idx -= 1;
+        }
+
+        None
+    }
 }
+
 
 #[cfg(test)]
 mod test {
@@ -290,18 +315,16 @@ mod test {
 
         println!("{}", parser.document);
 
-        assert_eq!(true, true);
-        // let document = parser.document;
-        // let table = document.get_node_by_id(1).unwrap();
-        // let tr = document.get_node_by_id(2).unwrap();
-        // let td = document.get_node_by_id(3).unwrap();
-        // let select = document.get_node_by_id(4).unwrap();
-        // let option = document.get_node_by_id(5).unwrap();
-        //
-        // assert_eq!(table.children, vec![tr.id]);
-        // assert_eq!(tr.children, vec![td.id]);
-        // assert_eq!(td.children, vec![select.id]);
-        // assert_eq!(select.children, vec![option.id]);
+//         assert!(match_tree(parser.document, 'Document
+//   └─ <html>
+//     └─ <head>
+//     └─ <body>
+//       └─ <p>
+//         └─ <b>
+//           └─ "bold"
+//           └─ <i>
+//             └─ "bold and italic"
+//             └─ "italic"
+// '));
     }
-
 }

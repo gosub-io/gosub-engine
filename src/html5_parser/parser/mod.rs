@@ -3107,9 +3107,14 @@ impl<'a> Html5Parser<'a> {
         }
 
         loop {
-            let entry = self.active_formatting_elements[entry_index];
+            if entry_index == 0 {
+                break;
+            }
+
+            entry_index -= 1;
 
             // If it's a marker or in the stack of open elements, nothing to reconstruct.
+            let entry = self.active_formatting_elements[entry_index];
             if let ActiveElement::Marker = entry {
                 break;
             }
@@ -3118,18 +3123,17 @@ impl<'a> Html5Parser<'a> {
                 .open_elements
                 .contains(&entry.node_id().expect("node id not found"))
             {
+                entry_index += 1;
                 break;
             }
-
-            if entry_index == 0 {
-                break;
-            }
-
-            entry_index -= 1;
         }
 
         loop {
             let entry = self.active_formatting_elements[entry_index];
+            if let ActiveElement::Marker = entry {
+                // Marker found. This should not happen!
+                break;
+            }
             let node_id = entry.node_id().expect("node id not found");
 
             let entry_node = self
@@ -3349,6 +3353,7 @@ impl<'a> Html5Parser<'a> {
 
 #[cfg(test)]
 mod test {
+    use crate::html5_parser::input_stream::Encoding;
     use super::*;
 
     macro_rules! node_create {
@@ -3577,5 +3582,16 @@ mod test {
         assert_eq!(parser.is_in_scope("select", Scope::Button), true);
         assert_eq!(parser.is_in_scope("select", Scope::Table), true);
         assert_eq!(parser.is_in_scope("select", Scope::Select), true);
+    }
+
+    #[test]
+    fn test_reconstruct_formatting() {
+        let mut stream = InputStream::new();
+        stream.read_from_str("<p><b>bold<i>bold and italic</b>italic</i></p>", Some(Encoding::UTF8));
+
+        let mut parser = Html5Parser::new(&mut stream);
+        parser.parse();
+
+        println!("{}", parser.document);
     }
 }
