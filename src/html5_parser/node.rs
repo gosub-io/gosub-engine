@@ -38,7 +38,7 @@ pub struct Node {
     pub id: usize,
     /// parent of the node, if any
     pub parent: Option<usize>,
-    /// children of the node
+    /// node IDs of the children of this node (if any)
     pub children: Vec<usize>,
     /// name of the node, or empty when it's not a tag
     pub name: String,
@@ -57,11 +57,12 @@ impl Node {
 }
 
 impl Clone for Node {
+    // Clones the node, but without the parent and children
     fn clone(&self) -> Self {
         Node {
             id: self.id,
-            parent: self.parent,
-            children: self.children.clone(),
+            parent: None,
+            children: vec![],
             name: self.name.clone(),
             namespace: self.namespace.clone(),
             data: self.data.clone(),
@@ -261,7 +262,7 @@ mod test {
         let node = Node::new_document();
         assert_eq!(node.id, 0);
         assert_eq!(node.parent, None);
-        assert_eq!(node.children, vec![]);
+        assert_eq!(node.children, vec![] as Vec<usize>);
         assert_eq!(node.name, "".to_string());
         assert_eq!(node.namespace, None);
         assert_eq!(node.data, NodeData::Document {});
@@ -274,7 +275,7 @@ mod test {
         let node = Node::new_element("div", attributes.clone(), HTML_NAMESPACE);
         assert_eq!(node.id, 0);
         assert_eq!(node.parent, None);
-        assert_eq!(node.children, vec![]);
+        assert_eq!(node.children, vec![] as Vec<usize>);
         assert_eq!(node.name, "div".to_string());
         assert_eq!(node.namespace, Some(HTML_NAMESPACE.into()));
         assert_eq!(
@@ -291,7 +292,7 @@ mod test {
         let node = Node::new_comment("test");
         assert_eq!(node.id, 0);
         assert_eq!(node.parent, None);
-        assert_eq!(node.children, vec![]);
+        assert_eq!(node.children, vec![] as Vec<usize>);
         assert_eq!(node.name, "".to_string());
         assert_eq!(node.namespace, None);
         assert_eq!(
@@ -307,7 +308,7 @@ mod test {
         let node = Node::new_text("test");
         assert_eq!(node.id, 0);
         assert_eq!(node.parent, None);
-        assert_eq!(node.children, vec![]);
+        assert_eq!(node.children, vec![] as Vec<usize>);
         assert_eq!(node.name, "".to_string());
         assert_eq!(node.namespace, None);
         assert_eq!(

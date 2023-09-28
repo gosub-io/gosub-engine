@@ -18,6 +18,7 @@ use crate::html5_parser::tokenizer::{Tokenizer, CHAR_NUL};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::io::prelude::*;
 use crate::html5_parser::parser::adoption_agency::AdoptionResult;
 
 // Insertion modes as defined in 13.2.4.1
@@ -185,6 +186,12 @@ macro_rules! open_elements_has {
                 == $name
         })
     };
+}
+
+macro_rules! open_elements_has_id {
+    ($self:expr, $id:expr) => {
+        $self.open_elements.iter().rev().any(|node_id| *node_id == $id)
+    }
 }
 
 // Returns the current node: the last node in the open elements list
@@ -1666,7 +1673,11 @@ impl<'a> Html5Parser<'a> {
     // This function will pop elements off the stack until it reaches the first element that matches
     // our condition (which can be changed with the except and thoroughly parameters)
     fn generate_all_implied_end_tags(&mut self, except: Option<&str>, thoroughly: bool) {
-        while !self.open_elements.is_empty() {
+        loop {
+            if self.open_elements.is_empty() {
+                return;
+            }
+
             let val = current_node!(self).name.clone();
 
             if except.is_some() && except.unwrap() == val {
@@ -2349,8 +2360,17 @@ impl<'a> Html5Parser<'a> {
 
                 if self.is_in_scope("nobr", Scope::Regular) {
                     self.parse_error("nobr tag in scope");
-                    self.run_adoption_agency(&self.current_token.clone());
-                    self.reconstruct_formatting();
+                    match self.run_adoption_agency(&self.current_token.clone()) {
+                        AdoptionResult::Completed => {},
+                        AdoptionResult::ProcessAsAnyOther => {
+                            any_other_end_tag = true;
+                        }
+                    }
+
+                    if ! any_other_end_tag {
+                        // @todo: do we run this even when we run the adoption agency with out processAsAnyOther?
+                        self.reconstruct_formatting();
+                    }
                 }
 
                 let node_id = self.insert_html_element(&self.current_token.clone());
@@ -2372,7 +2392,12 @@ impl<'a> Html5Parser<'a> {
                     || name == "tt"
                     || name == "u" =>
             {
-                self.run_adoption_agency(&self.current_token.clone());
+                match self.run_adoption_agency(&self.current_token.clone()) {
+                    AdoptionResult::Completed => {},
+                    AdoptionResult::ProcessAsAnyOther => {
+                        any_other_end_tag = true;
+                    }
+                }
             }
             Token::StartTagToken { name, .. }
                 if name == "applet" || name == "marquee" || name == "object" =>
@@ -2672,31 +2697,39 @@ impl<'a> Html5Parser<'a> {
                 return;
             }
 
-            let mut idx = self.open_elements.len() - 1;
-            loop {
+            let token_name = match self.current_token {
+                Token::EndTagToken { ref name, .. } => name.clone(),
+                _ => unreachable!(),
+            };
+
+            for idx in (0..self.open_elements.len()).rev() {
                 let node_id = self.open_elements[idx];
                 let node = self.document.get_node_by_id(node_id).expect("node not found").clone();
 
-                self.generate_all_implied_end_tags(Some(node.name.as_str()), false);
-                if current_node!(self).id == node.id {
-                    self.parse_error("end tag not at top of stack");
-                    pop_until!(self, node.name);
+                if node.name == token_name {
+                    self.generate_all_implied_end_tags(Some(node.name.as_str()), false);
+
+                    // It might be possible that the last item is not our node_id. Emit parse error if so
+                    if current_node!(self).id != node.id {
+                        self.parse_error("end tag not at top of stack");
+                    }
+
+                    // Pop until we reach the node.id
+                    while current_node!(self).id != node.id {
+                        self.open_elements.pop();
+                    }
+                    // Pop node_id as well
+                    self.open_elements.pop();
+
                     break;
                 }
 
-                if node.is_special(){
-                    self.parse_error("thisi s a special node");
-                    // ignore node
-                    break;
+                if node.is_special() {
+                    self.parse_error("special node");
+                    // ignore token
+                    return;
                 }
-
-                if idx == 0 {
-                    break;
-                }
-
-                idx-=1;
             }
-            // @TODO: do stuff
         }
     }
 
@@ -3107,15 +3140,10 @@ impl<'a> Html5Parser<'a> {
         }
 
         loop {
-            if entry_index == 0 {
-                break;
-            }
-
-            entry_index -= 1;
-
             // If it's a marker or in the stack of open elements, nothing to reconstruct.
             let entry = self.active_formatting_elements[entry_index];
             if let ActiveElement::Marker = entry {
+                entry_index += 1;
                 break;
             }
 
@@ -3126,6 +3154,12 @@ impl<'a> Html5Parser<'a> {
                 entry_index += 1;
                 break;
             }
+
+            if entry_index == 0 {
+                break;
+            }
+
+            entry_index -= 1;
         }
 
         loop {
@@ -3154,9 +3188,8 @@ impl<'a> Html5Parser<'a> {
     }
 
     fn clone_node_without_children(&mut self, org_node: Node) -> usize {
-        let mut new_node = org_node.clone();
-        new_node.children = Vec::new();
-        new_node.parent = None;
+        // Create a node, but without children and push it onto the open elements stack (if needed)
+        let new_node = org_node.clone();
 
         let new_node_id = self.document.add_node(new_node, current_node!(self).id);
         if let NodeData::Element { .. } = org_node.data {
@@ -3347,6 +3380,8 @@ impl<'a> Html5Parser<'a> {
 
         println!("Output:");
         println!("{}", self.document);
+
+        std::io::stdout().flush().ok().expect("Could not flush stdout");
     }
 }
 

@@ -56,7 +56,7 @@ impl<'a> Html5Parser<'a> {
             let formatting_element_node= self.document.get_node_by_id(formatting_element_id).expect("formatting element not found").clone();
 
             // Step 4.4
-            if !open_elements_has!(self, formatting_element_node.name) {
+            if !open_elements_has_id!(self, formatting_element_id) {
                 self.parse_error("formatting element not in open elements");
                 self.active_formatting_elements
                     .remove(formatting_element_idx);
@@ -65,8 +65,7 @@ impl<'a> Html5Parser<'a> {
             }
 
             // Step 4.5
-            if open_elements_has!(self, formatting_element_node.name)
-                && !self.is_in_scope(&formatting_element_node.name, Scope::Regular)
+            if !self.is_in_scope(&formatting_element_node.name, Scope::Regular)
             {
                 self.parse_error("formatting element not in scope");
                 return AdoptionResult::Completed;
@@ -84,8 +83,8 @@ impl<'a> Html5Parser<'a> {
             // Step 4.8
             if furthest_block_idx.is_none() {
                 // Remove up until and including the formatting element from the stack of open elements
-                while let Some(top) = self.open_elements.pop() {
-                    if top == formatting_element_id {
+                while let Some(top) = self.open_elements.last() {
+                    if top == &formatting_element_id {
                         self.open_elements.pop();
                         break;
                     } else {
@@ -102,8 +101,9 @@ impl<'a> Html5Parser<'a> {
             }
 
             let furthest_block_idx = furthest_block_idx.expect("furthest block not found");
-            let node_id = *self.open_elements.get(furthest_block_idx).expect("furthest block not found");
-            let furthest_block = self.document.get_node_by_id(node_id).expect("furthest block not found").clone();
+
+            let node_id = *self.open_elements.get(furthest_block_idx).expect("node not found");
+            let furthest_block = self.document.get_node_by_id(node_id).expect("node not found").clone();
 
             // Step 4.9
             let common_ancestor_idx = formatting_element_idx - 1;
@@ -116,7 +116,7 @@ impl<'a> Html5Parser<'a> {
             let mut bookmark = formatting_element_idx;
 
             // Step 4.11
-            let node_idx = furthest_block_idx;
+            let mut node_idx = furthest_block_idx;
             let last_node_idx = furthest_block_idx;
             let mut last_node_id = *self
                 .open_elements
@@ -131,12 +131,10 @@ impl<'a> Html5Parser<'a> {
                 // Step 4.13.1
                 inner_loop_counter += 1;
 
+                node_idx -= 1;
+
                 // Step 4.13.2
-                let &node_idx = self
-                    .open_elements
-                    .get(node_idx - 1)
-                    .expect("node not found");
-                let node_id = *self.open_elements.get(node_idx).expect("node not found");
+                let node_id = self.open_elements[node_idx];
                 let node = open_elements_get!(self, node_idx).clone();
 
                 // Step 4.13.3
@@ -151,6 +149,12 @@ impl<'a> Html5Parser<'a> {
                         .contains(&ActiveElement::NodeId(node_id))
                 {
                     self.active_formatting_elements.remove(node_idx);
+
+                    if node_id <= bookmark {
+                        bookmark -= 1;
+                    }
+
+                    continue;
                 }
 
                 // Step 4.13.5
@@ -235,6 +239,7 @@ impl<'a> Html5Parser<'a> {
     fn find_furthest_block_idx(&self, formatting_element_id: usize) -> Option<usize> {
         let mut index_of_formatting_element = None;
 
+        // Find the index of the wanted formatting element id
         for (idx, &element_id) in self.open_elements.iter().enumerate() {
             if element_id == formatting_element_id {
                 index_of_formatting_element = Some(idx);
@@ -247,7 +252,8 @@ impl<'a> Html5Parser<'a> {
             None => return None,
         };
 
-        for idx in (0..index_of_formatting_element).rev() {
+        // Iterate
+        for idx in (index_of_formatting_element..self.open_elements.len()).rev() {
             let element_id = self.open_elements[idx];
             let element = self.document.get_node_by_id(element_id).expect("element not found");
 
@@ -266,8 +272,7 @@ impl<'a> Html5Parser<'a> {
             return None;
         }
 
-        let mut idx = self.active_formatting_elements.len() - 1;
-        loop {
+        for idx in (0..self.active_formatting_elements.len()).rev() {
             match self.active_formatting_elements[idx] {
                 ActiveElement::Marker => {
                     // Marker found, do not continue
@@ -278,22 +283,15 @@ impl<'a> Html5Parser<'a> {
                     let node = self.document.get_node_by_id(node_id).expect("node not found").clone();
                     if let NodeData::Element {
                         ref name,
-                        ref attributes,
                         ..
                     } = node.data
                     {
-                        if name == subject && !attributes.is_empty() {
+                        if name == subject {
                             return Some(idx);
                         }
                     }
                 }
             }
-
-            if idx == 0 {
-                break;
-            }
-
-            idx -= 1;
         }
 
         None
@@ -306,10 +304,24 @@ mod test {
     use crate::html5_parser::input_stream::{Encoding, InputStream};
     use super::*;
 
+    macro_rules! generate_node {
+        ($self:expr, $tag:expr) => {
+            {
+                let token = Token::StartTagToken {
+                    name: $tag.to_string(),
+                    is_self_closing: false,
+                    attributes: HashMap::new(),
+                };
+                let node = $self.create_node(&token, HTML_NAMESPACE);
+                $self.document.add_node(node, 0)
+            }
+        };
+    }
+
     #[test]
     fn test_adoption_agency() {
         let mut stream = InputStream::new();
-        stream.read_from_str("<p>One <b>Two <i>Three</p> Four</i> Five</b> Six</p>", Some(Encoding::UTF8));
+        stream.read_from_str("<p>1<b>2<i>3</b>4</i>5</p>", Some(Encoding::UTF8));
         let mut parser = Html5Parser::new(&mut stream);
         parser.parse();
 
@@ -326,5 +338,29 @@ mod test {
 //             └─ "bold and italic"
 //             └─ "italic"
 // '));
+    }
+
+    #[test]
+    fn test_current_node_is_valid() {
+        let mut stream = InputStream::new();
+        let mut parser = Html5Parser::new(&mut stream);
+
+
+        parser.open_elements.push(generate_node!(parser, "html"));
+        parser.open_elements.push(generate_node!(parser, "body"));
+        parser.open_elements.push(generate_node!(parser, "b"));
+        parser.open_elements.push(generate_node!(parser, "i"));
+
+        parser.active_formatting_elements.push(ActiveElement::NodeId(parser.open_elements[2]));
+        parser.active_formatting_elements.push(ActiveElement::NodeId(parser.open_elements[3]));
+
+        parser.run_adoption_agency(&Token::EndTagToken {
+            name: "i".to_string(),
+            is_self_closing: false,
+            attributes: HashMap::new(),
+        });
+
+        assert_eq!(parser.open_elements.len(), 4);
+        assert_eq!(parser.active_formatting_elements.len(), 2);
     }
 }
