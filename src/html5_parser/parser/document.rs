@@ -97,6 +97,11 @@ impl Document {
             }
         }
 
+        if prefix.len() > 40 {
+            _ = writeln!(f, "...");
+            return;
+        }
+
         let mut buffer = prefix;
         if last {
             buffer.push_str("   ");

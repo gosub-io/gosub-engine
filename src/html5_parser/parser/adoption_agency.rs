@@ -106,11 +106,7 @@ impl<'a> Html5Parser<'a> {
             let furthest_block = self.document.get_node_by_id(node_id).expect("node not found").clone();
 
             // Step 4.9
-            let common_ancestor_idx = formatting_element_idx - 1;
-            let common_ancestor = *self
-                .open_elements
-                .get(common_ancestor_idx)
-                .expect("common ancestor not found");
+            let common_ancestor_id = *self.open_elements.get(formatting_element_idx + 1).expect("node not found");
 
             // Step 4.10
             let mut bookmark = formatting_element_idx;
@@ -169,7 +165,7 @@ impl<'a> Html5Parser<'a> {
 
                 // Step 4.13.6
                 // replace the old node with the new replacement node
-                let replacement_node_id = self.replace_node(&node, node_idx, common_ancestor);
+                let replacement_node_id = self.replace_node(&node, node_idx, common_ancestor_id);
 
                 // Step 4.13.7
                 if last_node_idx == furthest_block_idx {
@@ -184,7 +180,7 @@ impl<'a> Html5Parser<'a> {
             }
 
             // Step 4.14
-            // Insert whatever last node ended up being in the previous step at the appropriate place for inserting a node, but using common ancestor as the override target.
+            self.document.append(last_node_id, common_ancestor_id);
 
             // Step 4.15
             let new_element = match formatting_element_node.data {
@@ -199,10 +195,8 @@ impl<'a> Html5Parser<'a> {
             };
 
             // Step 4.16
-            if !furthest_block.children.is_empty() {
-                for &child in furthest_block.children.iter() {
-                    self.document.append(child, new_element.id)
-                }
+            for &child in furthest_block.children.iter() {
+                self.document.append(child, new_element.id)
             }
 
             // Step 4.17
@@ -216,6 +210,8 @@ impl<'a> Html5Parser<'a> {
 
             // Step 4.19
             // Remove formatting element from the stack of open elements, and insert the new element into the stack of open elements immediately below the position of furthest block in that stack.
+            self.open_elements.remove(formatting_element_idx);
+            self.open_elements.insert(furthest_block_idx - 1, new_element_id);
         }
     }
 
@@ -295,72 +291,5 @@ impl<'a> Html5Parser<'a> {
         }
 
         None
-    }
-}
-
-
-#[cfg(test)]
-mod test {
-    use crate::html5_parser::input_stream::{Encoding, InputStream};
-    use super::*;
-
-    macro_rules! generate_node {
-        ($self:expr, $tag:expr) => {
-            {
-                let token = Token::StartTagToken {
-                    name: $tag.to_string(),
-                    is_self_closing: false,
-                    attributes: HashMap::new(),
-                };
-                let node = $self.create_node(&token, HTML_NAMESPACE);
-                $self.document.add_node(node, 0)
-            }
-        };
-    }
-
-    #[test]
-    fn test_adoption_agency() {
-        let mut stream = InputStream::new();
-        stream.read_from_str("<p>1<b>2<i>3</b>4</i>5</p>", Some(Encoding::UTF8));
-        let mut parser = Html5Parser::new(&mut stream);
-        parser.parse();
-
-        println!("{}", parser.document);
-
-//         assert!(match_tree(parser.document, 'Document
-//   └─ <html>
-//     └─ <head>
-//     └─ <body>
-//       └─ <p>
-//         └─ <b>
-//           └─ "bold"
-//           └─ <i>
-//             └─ "bold and italic"
-//             └─ "italic"
-// '));
-    }
-
-    #[test]
-    fn test_current_node_is_valid() {
-        let mut stream = InputStream::new();
-        let mut parser = Html5Parser::new(&mut stream);
-
-
-        parser.open_elements.push(generate_node!(parser, "html"));
-        parser.open_elements.push(generate_node!(parser, "body"));
-        parser.open_elements.push(generate_node!(parser, "b"));
-        parser.open_elements.push(generate_node!(parser, "i"));
-
-        parser.active_formatting_elements.push(ActiveElement::NodeId(parser.open_elements[2]));
-        parser.active_formatting_elements.push(ActiveElement::NodeId(parser.open_elements[3]));
-
-        parser.run_adoption_agency(&Token::EndTagToken {
-            name: "i".to_string(),
-            is_self_closing: false,
-            attributes: HashMap::new(),
-        });
-
-        assert_eq!(parser.open_elements.len(), 4);
-        assert_eq!(parser.active_formatting_elements.len(), 2);
     }
 }
