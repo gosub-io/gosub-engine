@@ -120,12 +120,12 @@ pub fn escape(input: &str) -> String {
     .into_owned()
 }
 
-pub fn from_filename(filename: &str) -> Result<Root, serde_json::Error> {
+pub fn fixture_from_filename(filename: &str) -> Result<Root, serde_json::Error> {
     let path = PathBuf::from(FIXTURE_ROOT).join("tokenizer").join(filename);
-    from_path(&path)
+    fixture_from_path(&path)
 }
 
-pub fn from_path<P>(path: &P) -> Result<Root, serde_json::Error>
+pub fn fixture_from_path<P>(path: &P) -> Result<Root, serde_json::Error>
 where
     P: AsRef<Path>,
 {
@@ -138,6 +138,6 @@ pub fn fixtures() -> impl Iterator<Item = Root> {
     let root = PathBuf::from(FIXTURE_ROOT).join("tokenizer");
     fs::read_dir(root).unwrap().flat_map(|entry| {
         let path = format!("{}", entry.unwrap().path().display());
-        from_path(&path).ok()
+        fixture_from_path(&path).ok()
     })
 }
