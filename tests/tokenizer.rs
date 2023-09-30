@@ -239,7 +239,7 @@ fn assert_doctype(
 #[test_case("unicodeChars.test")]
 // #[test_case("xmlViolation.test")]
 fn tokenization(filename: &str) {
-    let root = tokenizer::from_filename(&filename).unwrap();
+    let root = tokenizer::fixture_from_filename(&filename).unwrap();
     for test in root.tests {
         assert_tokenization(&test)
     }

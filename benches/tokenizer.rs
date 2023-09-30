@@ -19,15 +19,26 @@ fn tokenize(test: &Test) {
 }
 
 fn criterion_benchmark(c: &mut Criterion) {
-    c.bench_function("tokenization", |b| {
+    // Criterion can report inconsistent results from run to run in some cases.  We attempt to
+    // minimize that in this setup.
+    // https://stackoverflow.com/a/74136347/61048
+    let mut group = c.benchmark_group("tokenization");
+    group.significance_level(0.1).sample_size(500);
+
+    // Fetch the files outside of the closure to avoid issues with file io
+    let fixtures = tokenizer::fixtures().collect::<Vec<_>>();
+
+    group.bench_function("fixtures", |b| {
         b.iter(|| {
-            for root in tokenizer::fixtures() {
+            for root in &fixtures {
                 for test in &root.tests {
                     tokenize(black_box(test))
                 }
             }
         })
     });
+
+    group.finish();
 }
 
 criterion_group!(benches, criterion_benchmark);
