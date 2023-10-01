@@ -7,7 +7,6 @@ on:
 
 jobs:
   docs:
-    if: github.event.pull_request.merged && github.event.pull_request.base.ref == 'main'
     runs-on: ubuntu-latest
     steps:
       - name: Build docs
