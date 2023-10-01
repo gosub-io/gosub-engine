@@ -34,3 +34,5 @@ anyhow = "1.0.75"
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
 test-case = "3.2.1"
+colored = "2.0.4"
+uuid = { version = "1.4.1", features = ["v4"] }
