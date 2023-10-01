@@ -630,10 +630,7 @@ mod test {
     fn test_insert_attrubte_non_element() {
         let mut node = Node::new_document();
         let result = node.insert_attribute("name".to_string(), "value".to_string());
-        match result {
-            Err(_) => assert!(true),
-            Ok(_) => assert!(false),
-        }
+        assert!(result.is_err());
     }
 
     #[test]
@@ -654,10 +651,7 @@ mod test {
     fn test_remove_attribute_non_element() {
         let mut node = Node::new_document();
         let result = node.remove_attribute("name".to_string());
-        match result {
-            Err(_) => assert!(true),
-            Ok(_) => assert!(false),
-        }
+        assert!(result.is_err());
     }
 
     #[test]
@@ -677,11 +671,8 @@ mod test {
     #[test]
     fn test_get_attribute_non_element() {
         let node = Node::new_document();
-
-        match node.get_attribute("name".to_string()) {
-            Err(_) => assert!(true),
-            Ok(_) => assert!(false),
-        }
+        let result = node.get_attribute("name".to_string());
+        assert!(result.is_err());
     }
 
     #[test]
@@ -702,11 +693,8 @@ mod test {
     #[test]
     fn test_get_mut_attribute_non_element() {
         let mut node = Node::new_document();
-
-        match node.get_mut_attribute("key".to_string()) {
-            Err(_) => assert!(true),
-            Ok(_) => assert!(false),
-        }
+        let result = node.get_mut_attribute("key".to_string());
+        assert!(result.is_err());
     }
 
     #[test]
@@ -734,11 +722,8 @@ mod test {
     #[test]
     fn test_clear_attributes_non_element() {
         let mut node = Node::new_document();
-
-        match node.clear_attributes() {
-            Err(_) => assert!(true),
-            Ok(_) => assert!(false),
-        }
+        let result = node.clear_attributes();
+        assert!(result.is_err());
     }
 
     #[test]
