@@ -552,10 +552,7 @@ mod test {
     fn test_contains_attribute_non_element() {
         let node = Node::new_document();
         let result = node.contains_attribute("x".to_string());
-        match result {
-            Err(_) => assert!(true),
-            Ok(_) => assert!(false),
-        }
+        assert!(result.is_err())
     }
 
     #[test]
