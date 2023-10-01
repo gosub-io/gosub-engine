@@ -57,7 +57,7 @@ impl<'a> Html5Parser<'a> {
                         } = temp_node.data
                         {
                             if name == subject && !attributes.is_empty() {
-                                formatting_element_idx = NodeId::new(idx);
+                                formatting_element_idx = idx.into();
                                 formatting_element_id = node_id;
                                 formatting_element_name = String::from(name);
                                 formatting_element_attributes = attributes.clone();
@@ -105,7 +105,7 @@ impl<'a> Html5Parser<'a> {
                     ActiveElement::Node(node_id) => {
                         let node = self.document.get_node_by_id(node_id).unwrap();
                         if node.is_special() {
-                            furthest_block_idx = NodeId::new(idx);
+                            furthest_block_idx = idx.into();
                             furthest_block_id = node_id;
                             furthest_block_children = self
                                 .document

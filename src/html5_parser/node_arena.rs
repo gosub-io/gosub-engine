@@ -122,7 +122,7 @@ mod tests {
         let node = Node::new_element("test", HashMap::new(), HTML_NAMESPACE);
         let id = arena.add_node(node);
         assert_eq!(arena.nodes.len(), 1);
-        assert_eq!(arena.next_id, NodeId::new(1));
+        assert_eq!(arena.next_id, 1.into());
         assert_eq!(id, NodeId::default());
     }
 
