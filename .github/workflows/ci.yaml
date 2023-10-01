@@ -119,18 +119,3 @@ jobs:
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
       - name: Run fmt
         run: cargo fmt -- --check
-
-  docs:
-    if: github.event.pull_request.merged && github.event.pull_request.base.ref == 'main'
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Build docs
-        run: cargo doc --no-deps
-      - name: Prepare docs
-        run: echo "<meta http-equiv=\"refresh\" content=\"0; url=gosub_engine\">" > target/doc/index.html
-      - name: Deploy to github pages
-        uses: peaceiris/actions-gh-pages@v3
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./target/doc
