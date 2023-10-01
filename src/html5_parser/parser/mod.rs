@@ -1965,7 +1965,7 @@ impl<'a> Html5Parser<'a> {
                 self.parse_error("body tag not allowed in in body insertion mode");
 
                 if self.open_elements.len() == 1
-                    || open_elements_get!(self, NodeId::new(1)).name != "body"
+                    || open_elements_get!(self, NodeId::root().next()).name != "body"
                 {
                     // ignore token
                     return;

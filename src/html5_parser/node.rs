@@ -42,6 +42,12 @@ impl From<NodeId> for usize {
     }
 }
 
+impl From<usize> for NodeId {
+    fn from(value: usize) -> Self {
+        Self(value)
+    }
+}
+
 impl Default for &NodeId {
     fn default() -> Self {
         &NodeId(0)
@@ -54,10 +60,6 @@ impl NodeId {
 
     pub fn root() -> Self {
         Self(Self::ROOT_NODE)
-    }
-
-    pub fn new(id: usize) -> Self {
-        Self(id)
     }
 
     pub fn is_positive(&self) -> bool {
