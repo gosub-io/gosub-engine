@@ -19,6 +19,8 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
+use super::node::NodeId;
+
 // Insertion modes as defined in 13.2.4.1
 #[derive(Debug, Copy, Clone, PartialEq)]
 enum InsertionMode {
@@ -57,10 +59,10 @@ trait VecExtensions<T> {
         F: FnMut(&T) -> bool;
 }
 
-impl VecExtensions<usize> for Vec<usize> {
+impl VecExtensions<NodeId> for Vec<NodeId> {
     fn pop_until<F>(&mut self, mut f: F)
     where
-        F: FnMut(&usize) -> bool,
+        F: FnMut(&NodeId) -> bool,
     {
         while let Some(top) = self.last() {
             if f(top) {
@@ -72,7 +74,7 @@ impl VecExtensions<usize> for Vec<usize> {
 
     fn pop_check<F>(&mut self, mut f: F) -> bool
     where
-        F: FnMut(&usize) -> bool,
+        F: FnMut(&NodeId) -> bool,
     {
         match self.pop() {
             Some(popped_value) => f(&popped_value),
@@ -137,7 +139,7 @@ macro_rules! pop_check {
 // Checks if the last element on the open elements is $name, and panics if not
 macro_rules! check_last_element {
     ($self:expr, $name:expr) => {
-        let node_id = $self.open_elements.last().unwrap_or(&0);
+        let node_id = $self.open_elements.last().unwrap_or_default();
         if $self
             .document
             .get_node_by_id(*node_id)
@@ -155,7 +157,7 @@ macro_rules! open_elements_get {
     ($self:expr, $idx:expr) => {
         $self
             .document
-            .get_node_by_id($self.open_elements[$idx])
+            .get_node_by_id($self.open_elements[usize::from($idx)])
             .expect("Open element not found")
     };
 }
@@ -177,7 +179,7 @@ macro_rules! open_elements_has {
 // Returns the current node: the last node in the open elements list
 macro_rules! current_node {
     ($self:expr) => {{
-        let current_node_idx = $self.open_elements.last().unwrap_or(&0);
+        let current_node_idx = $self.open_elements.last().unwrap_or_default();
         $self
             .document
             .get_node_by_id(*current_node_idx)
@@ -188,7 +190,7 @@ macro_rules! current_node {
 // Returns the current node as a mutable reference
 macro_rules! current_node_mut {
     ($self:expr) => {{
-        let current_node_idx = $self.open_elements.last().unwrap_or(&0);
+        let current_node_idx = $self.open_elements.last().unwrap_or_default();
         $self
             .document
             .get_mut_node_by_id(*current_node_idx)
@@ -202,7 +204,7 @@ mod adoption_agency;
 // Active formatting elements, which could be a regular node(id), or a marker
 #[derive(PartialEq)]
 enum ActiveElement {
-    Node(usize),
+    Node(NodeId),
     Marker,
 }
 
@@ -215,9 +217,9 @@ pub struct Html5Parser<'a> {
     parser_cannot_change_mode: bool,                // ??
     current_token: Token,                           // Current token from the tokenizer
     reprocess_token: bool, // If true, the current token should be processed again
-    open_elements: Vec<usize>, // Stack of open elements
-    head_element: Option<usize>, // Current head element
-    form_element: Option<usize>, // Current form element
+    open_elements: Vec<NodeId>, // Stack of open elements
+    head_element: Option<NodeId>, // Current head element
+    form_element: Option<NodeId>, // Current form element
     scripting_enabled: bool, // If true, scripting is enabled
     frameset_ok: bool,     // if true, we can insert a frameset
     foster_parenting: bool, // Foster parenting flag
@@ -302,7 +304,7 @@ impl<'a> Html5Parser<'a> {
                         Token::CommentToken { .. } => {
                             let node = self.create_node(&self.current_token, HTML_NAMESPACE);
                             // add to end of the document(node)
-                            self.document.add_node(node, 0);
+                            self.document.add_node(node, NodeId::default());
                         }
                         Token::DocTypeToken {
                             name,
@@ -375,7 +377,7 @@ impl<'a> Html5Parser<'a> {
                         }
                         Token::CommentToken { .. } => {
                             let node = self.create_node(&self.current_token, HTML_NAMESPACE);
-                            self.document.add_node(node, 0);
+                            self.document.add_node(node, NodeId::default());
                         }
                         Token::TextToken { .. } if self.current_token.is_empty_or_white() => {
                             // ignore token
@@ -1400,7 +1402,7 @@ impl<'a> Html5Parser<'a> {
                         }
                         Token::CommentToken { .. } => {
                             let node = self.create_node(&self.current_token, HTML_NAMESPACE);
-                            let html_node_id = self.open_elements.first().unwrap_or(&0);
+                            let html_node_id = self.open_elements.first().unwrap_or_default();
                             self.document.add_node(node, *html_node_id);
                         }
                         Token::DocTypeToken { .. } => {
@@ -1530,7 +1532,7 @@ impl<'a> Html5Parser<'a> {
                 InsertionMode::AfterAfterBody => match &self.current_token {
                     Token::CommentToken { .. } => {
                         let node = self.create_node(&self.current_token, HTML_NAMESPACE);
-                        self.document.add_node(node, 0);
+                        self.document.add_node(node, NodeId::default());
                     }
                     Token::DocTypeToken { .. } => {
                         self.handle_in_body();
@@ -1557,7 +1559,7 @@ impl<'a> Html5Parser<'a> {
                     match &self.current_token {
                         Token::CommentToken { .. } => {
                             let node = self.create_node(&self.current_token, HTML_NAMESPACE);
-                            self.document.add_node(node, 0);
+                            self.document.add_node(node, NodeId::default());
                         }
                         Token::DocTypeToken { .. } => {
                             self.handle_in_body();
@@ -1962,7 +1964,9 @@ impl<'a> Html5Parser<'a> {
             Token::StartTagToken { name, .. } if name == "body" => {
                 self.parse_error("body tag not allowed in in body insertion mode");
 
-                if self.open_elements.len() == 1 || open_elements_get!(self, 1).name != "body" {
+                if self.open_elements.len() == 1
+                    || open_elements_get!(self, NodeId::new(1)).name != "body"
+                {
                     // ignore token
                     return;
                 }
@@ -3001,11 +3005,11 @@ impl<'a> Html5Parser<'a> {
         }
     }
 
-    fn insert_html_element(&mut self, token: &Token) -> usize {
+    fn insert_html_element(&mut self, token: &Token) -> NodeId {
         self.insert_foreign_element(token, Some(HTML_NAMESPACE))
     }
 
-    fn insert_foreign_element(&mut self, token: &Token, namespace: Option<&str>) -> usize {
+    fn insert_foreign_element(&mut self, token: &Token, namespace: Option<&str>) -> NodeId {
         // adjusted insert location
         let adjusted_insert_location = self.adjusted_insert_location(None);
         //        let parent_id = current_node!(self).id;
@@ -3037,7 +3041,7 @@ impl<'a> Html5Parser<'a> {
         todo!()
     }
 
-    fn adjusted_insert_location(&self, override_node: Option<&Node>) -> usize {
+    fn adjusted_insert_location(&self, override_node: Option<&Node>) -> NodeId {
         let target = match override_node {
             Some(node) => node,
             None => current_node!(self),

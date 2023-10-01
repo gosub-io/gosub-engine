@@ -32,14 +32,61 @@ pub enum NodeData {
     },
 }
 
+/// Id used to identify a node
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub struct NodeId(usize);
+
+impl From<NodeId> for usize {
+    fn from(value: NodeId) -> Self {
+        value.0
+    }
+}
+
+impl Default for &NodeId {
+    fn default() -> Self {
+        &NodeId(0)
+    }
+}
+
+impl NodeId {
+    // TODO: Drop Default derive and only use 0 for the root, or choose another id for the root
+    pub const ROOT_NODE: usize = 0;
+
+    pub fn root() -> Self {
+        Self(Self::ROOT_NODE)
+    }
+
+    pub fn new(id: usize) -> Self {
+        Self(id)
+    }
+
+    pub fn is_positive(&self) -> bool {
+        self.0 > 0
+    }
+
+    pub fn is_root(&self) -> bool {
+        self.0 == Self::ROOT_NODE
+    }
+
+    pub fn next(&self) -> Self {
+        // Might panic
+        Self(self.0 + 1)
+    }
+
+    pub fn prev(&self) -> Self {
+        // Might panic
+        Self(self.0 - 1)
+    }
+}
+
 /// Node that resembles a DOM node
 pub struct Node {
     /// ID of the node, 0 is always the root / document node
-    pub id: usize,
+    pub id: NodeId,
     /// parent of the node, if any
-    pub parent: Option<usize>,
+    pub parent: Option<NodeId>,
     /// children of the node
-    pub children: Vec<usize>,
+    pub children: Vec<NodeId>,
     /// name of the node, or empty when it's not a tag
     pub name: String,
     /// namespace of the node
@@ -65,7 +112,7 @@ impl Node {
     /// Create a new document node
     pub fn new_document() -> Self {
         Node {
-            id: 0,
+            id: Default::default(),
             parent: None,
             children: vec![],
             data: NodeData::Document {},
@@ -77,7 +124,7 @@ impl Node {
     /// Create a new element node with the given name and attributes and namespace
     pub fn new_element(name: &str, attributes: HashMap<String, String>, namespace: &str) -> Self {
         Node {
-            id: 0,
+            id: Default::default(),
             parent: None,
             children: vec![],
             data: NodeData::Element {
@@ -92,7 +139,7 @@ impl Node {
     /// Create a new comment node
     pub fn new_comment(value: &str) -> Self {
         Node {
-            id: 0,
+            id: Default::default(),
             parent: None,
             children: vec![],
             data: NodeData::Comment {
@@ -106,7 +153,7 @@ impl Node {
     /// Create a new text node
     pub fn new_text(value: &str) -> Self {
         Node {
-            id: 0,
+            id: Default::default(),
             parent: None,
             children: vec![],
             data: NodeData::Text {
@@ -251,7 +298,7 @@ mod test {
     #[test]
     fn test_new_document() {
         let node = Node::new_document();
-        assert_eq!(node.id, 0);
+        assert_eq!(node.id, NodeId::default());
         assert_eq!(node.parent, None);
         assert!(node.children.is_empty());
         assert_eq!(node.name, "".to_string());
@@ -264,7 +311,7 @@ mod test {
         let mut attributes = HashMap::new();
         attributes.insert("id".to_string(), "test".to_string());
         let node = Node::new_element("div", attributes.clone(), HTML_NAMESPACE);
-        assert_eq!(node.id, 0);
+        assert_eq!(node.id, NodeId::default());
         assert_eq!(node.parent, None);
         assert!(node.children.is_empty());
         assert_eq!(node.name, "div".to_string());
@@ -281,7 +328,7 @@ mod test {
     #[test]
     fn test_new_comment() {
         let node = Node::new_comment("test");
-        assert_eq!(node.id, 0);
+        assert_eq!(node.id, NodeId::default());
         assert_eq!(node.parent, None);
         assert!(node.children.is_empty());
         assert_eq!(node.name, "".to_string());
@@ -297,7 +344,7 @@ mod test {
     #[test]
     fn test_new_text() {
         let node = Node::new_text("test");
-        assert_eq!(node.id, 0);
+        assert_eq!(node.id, NodeId::default());
         assert_eq!(node.parent, None);
         assert!(node.children.is_empty());
         assert_eq!(node.name, "".to_string());
