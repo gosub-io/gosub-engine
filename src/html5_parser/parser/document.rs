@@ -1,4 +1,4 @@
-use crate::html5_parser::node::{Node, NodeData};
+use crate::html5_parser::node::{Node, NodeData, NodeId};
 use crate::html5_parser::node_arena::NodeArena;
 use crate::html5_parser::parser::quirks::QuirksMode;
 use std::fmt;
@@ -38,33 +38,35 @@ impl Document {
     }
 
     // Fetches a node by id or returns None when no node with this ID is found
-    pub fn get_node_by_id(&self, node_id: usize) -> Option<&Node> {
+    pub fn get_node_by_id(&self, node_id: NodeId) -> Option<&Node> {
         self.arena.get_node(node_id)
     }
 
-    pub fn get_mut_node_by_id(&mut self, node_id: usize) -> Option<&mut Node> {
+    pub fn get_mut_node_by_id(&mut self, node_id: NodeId) -> Option<&mut Node> {
         self.arena.get_mut_node(node_id)
     }
 
     // Add to the document
-    pub fn add_node(&mut self, node: Node, parent_id: usize) -> usize {
+    pub fn add_node(&mut self, node: Node, parent_id: NodeId) -> NodeId {
         let node_id = self.arena.add_node(node);
         self.arena.attach_node(parent_id, node_id);
         node_id
     }
 
-    pub fn append(&mut self, node_id: usize, parent_id: usize) {
+    pub fn append(&mut self, node_id: NodeId, parent_id: NodeId) {
         self.arena.attach_node(parent_id, node_id);
     }
 
     // // append a node to another parent
-    // pub fn append(&mut self, node_id: usize, parent_id: usize) {
+    // pub fn append(&mut self, node_id: NodeId, parent_id: NodeId) {
     //     self.arena.attach_node(parent_id, node_id);
     // }
 
     // return the root node
     pub fn get_root(&self) -> &Node {
-        self.arena.get_node(0).expect("Root node not found !?")
+        self.arena
+            .get_node(NodeId::root())
+            .expect("Root node not found !?")
     }
 }
 

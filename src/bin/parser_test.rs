@@ -1,5 +1,5 @@
 use gosub_engine::html5_parser::input_stream::InputStream;
-use gosub_engine::html5_parser::node::NodeData;
+use gosub_engine::html5_parser::node::{NodeData, NodeId};
 use gosub_engine::html5_parser::parser::document::Document;
 use gosub_engine::html5_parser::parser::Html5Parser;
 use regex::Regex;
@@ -271,12 +271,12 @@ pub struct Error {
 **/
 
 fn match_document_tree(document: &Document, expected: &Vec<String>) -> bool {
-    match_node(0, -1, -1, document, expected);
+    match_node(NodeId::root(), -1, -1, document, expected);
     true
 }
 
 fn match_node(
-    node_idx: usize,
+    node_idx: NodeId,
     expected_id: isize,
     indent: isize,
     document: &Document,
@@ -284,7 +284,7 @@ fn match_node(
 ) -> Option<usize> {
     let node = document.get_node_by_id(node_idx).unwrap();
 
-    if node_idx > 0 {
+    if node_idx.is_positive() {
         match &node.data {
             NodeData::Element { name, .. } => {
                 let value = format!("|{}<{}>", " ".repeat((indent as usize * 2) + 1), name);
