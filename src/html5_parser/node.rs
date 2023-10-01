@@ -154,8 +154,8 @@ impl Node {
         Ok(contains)
     }
 
-    /// Add a new attribute
-    pub fn add_attribute(&mut self, name: String, value: String) -> Result<(), String> {
+    /// Add or update a an attribute
+    pub fn insert_attribute(&mut self, name: String, value: String) -> Result<(), String> {
         if self.type_of() != NodeType::Element {
             return Err(String::from(ATTRIBUTE_NODETYPE_ERR_MSG));
         }
@@ -163,19 +163,6 @@ impl Node {
         if let NodeData::Element { attributes, .. } = &mut self.data {
             attributes.insert(name, value);
         }
-
-        Ok(())
-    }
-
-    /// Update an attribute value
-    pub fn update_attribute(&mut self, name: String, new_value: String) -> Result<(), String> {
-        // the insert method on a map actually updates a value
-        // if the key already exists, so the implementation is the same.
-
-        // this method only exists for clarity for the end user using this API
-
-        self.add_attribute(name, new_value)
-            .expect(ATTRIBUTE_NODETYPE_ERR_MSG);
 
         Ok(())
     }
@@ -193,7 +180,7 @@ impl Node {
         Ok(())
     }
 
-    /// Get a constant reference to the attribute value 
+    /// Get a constant reference to the attribute value
     /// (or None if attribute doesn't exist)
     pub fn get_attribute(&self, name: String) -> Result<Option<&String>, String> {
         if self.type_of() != NodeType::Element {
@@ -234,6 +221,21 @@ impl Node {
         }
 
         Ok(())
+    }
+
+    /// Check if node has any attributes
+    /// (NOTE: if node is not Element type, returns false anyways)
+    pub fn has_attributes(&self) -> bool {
+        if self.type_of() != NodeType::Element {
+            return false;
+        }
+
+        let mut has_attr: bool = false;
+        if let NodeData::Element { attributes, .. } = &self.data {
+            has_attr = !attributes.is_empty();
+        }
+
+        has_attr
     }
 }
 
@@ -551,8 +553,8 @@ mod test {
         let node = Node::new_document();
         let result = node.contains_attribute("x".to_string());
         match result {
-            Ok(_) => assert!(false),
             Err(_) => assert!(true),
+            Ok(_) => assert!(false),
         }
     }
 
@@ -561,10 +563,7 @@ mod test {
         let mut attr = HashMap::new();
         attr.insert("x".to_string(), "value".to_string());
 
-        let node = Node::new_element(
-            "node",
-            attr.clone(),
-            HTML_NAMESPACE);
+        let node = Node::new_element("node", attr.clone(), HTML_NAMESPACE);
 
         match node.contains_attribute("x".to_string()) {
             Err(_) => assert!(false),
@@ -578,6 +577,151 @@ mod test {
             Ok(result) => {
                 assert_eq!(result, false);
             }
+        }
+    }
+
+    #[test]
+    fn test_insert_attrubte_non_element() {
+        let mut node = Node::new_document();
+        let result = node.insert_attribute("name".to_string(), "value".to_string());
+        match result {
+            Err(_) => assert!(true),
+            Ok(_) => assert!(false),
+        }
+    }
+
+    #[test]
+    fn test_insert_attribute() {
+        let attr = HashMap::new();
+        let mut node = Node::new_element("name", attr.clone(), HTML_NAMESPACE);
+        if let Ok(_) = node.insert_attribute("key".to_string(), "value".to_string()) {
+            if let Ok(value) = node.get_attribute("key".to_string()) {
+                match value {
+                    None => assert!(false),
+                    Some(val) => assert_eq!(*val, "value".to_string()),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_remove_attribute_non_element() {
+        let mut node = Node::new_document();
+        let result = node.remove_attribute("name".to_string());
+        match result {
+            Err(_) => assert!(true),
+            Ok(_) => assert!(false),
+        }
+    }
+
+    #[test]
+    fn test_remove_attribute() {
+        let mut attr = HashMap::new();
+        attr.insert("key".to_string(), "value".to_string());
+
+        let mut node = Node::new_element("name", attr.clone(), HTML_NAMESPACE);
+
+        if let Ok(_) = node.remove_attribute("key".to_string()) {
+            if let Ok(result) = node.contains_attribute("key".to_string()) {
+                assert_eq!(result, false);
+            }
+        }
+    }
+
+    #[test]
+    fn test_get_attribute_non_element() {
+        let node = Node::new_document();
+
+        match node.get_attribute("name".to_string()) {
+            Err(_) => assert!(true),
+            Ok(_) => assert!(false),
+        }
+    }
+
+    #[test]
+    fn test_get_attribute() {
+        let mut attr = HashMap::new();
+        attr.insert("key".to_string(), "value".to_string());
+
+        let node = Node::new_element("name", attr.clone(), HTML_NAMESPACE);
+
+        if let Ok(value) = node.get_attribute("key".to_string()) {
+            match value {
+                None => assert!(false),
+                Some(value_str) => assert_eq!(*value_str, "value".to_string()),
+            }
+        }
+    }
+
+    #[test]
+    fn test_get_mut_attribute_non_element() {
+        let mut node = Node::new_document();
+
+        match node.get_mut_attribute("key".to_string()) {
+            Err(_) => assert!(true),
+            Ok(_) => assert!(false),
+        }
+    }
+
+    #[test]
+    fn test_get_mut_attribute() {
+        let mut attr = HashMap::new();
+        attr.insert("key".to_string(), "value".to_string());
+
+        let mut node = Node::new_element("name", attr.clone(), HTML_NAMESPACE);
+
+        if let Ok(value) = node.get_mut_attribute("key".to_string()) {
+            match value {
+                None => assert!(false),
+                Some(value_str) => (*value_str).push_str(" appended"),
+            }
+
+            if let Ok(value2) = node.get_attribute("key".to_string()) {
+                match value2 {
+                    None => assert!(false),
+                    Some(value_str) => assert_eq!(*value_str, "value appended"),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_clear_attributes_non_element() {
+        let mut node = Node::new_document();
+
+        match node.clear_attributes() {
+            Err(_) => assert!(true),
+            Ok(_) => assert!(false),
+        }
+    }
+
+    #[test]
+    fn test_clear_attributes() {
+        let mut attr = HashMap::new();
+        attr.insert("key".to_string(), "value".to_string());
+
+        let mut node = Node::new_element("name", attr.clone(), HTML_NAMESPACE);
+        if let Ok(_) = node.clear_attributes() {
+            assert_eq!(node.has_attributes(), false);
+        }
+    }
+
+    #[test]
+    fn test_has_attributes_non_element() {
+        // if node is a non-element, will always return false
+        let node = Node::new_document();
+        assert_eq!(node.has_attributes(), false);
+    }
+
+    #[test]
+    fn test_has_attributes() {
+        let attr = HashMap::new();
+
+        let mut node = Node::new_element("name", attr.clone(), HTML_NAMESPACE);
+        assert_eq!(node.has_attributes(), false);
+
+        if let Ok(_) = node.insert_attribute("key".to_string(), "value".to_string()) {
+            assert_eq!(node.has_attributes(), true);
         }
     }
 }
