@@ -1,6 +1,6 @@
 .SILENT:
 
-SHELL=/usr/bin/env bash -O globstar
+#SHELL=/usr/bin/env bash -O globstar
 
 all: help
 

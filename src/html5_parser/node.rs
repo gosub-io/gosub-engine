@@ -7,6 +7,8 @@ pub const XLINK_NAMESPACE: &str = "http://www.w3.org/1999/xlink";
 pub const XML_NAMESPACE: &str = "http://www.w3.org/XML/1998/namespace";
 pub const XMLNS_NAMESPACE: &str = "http://www.w3.org/2000/xmlns/";
 
+const ATTRIBUTE_NODETYPE_ERR_MSG: &str = "Node type must be Element to access attributes";
+
 /// Different types of nodes
 #[derive(Debug, PartialEq)]
 pub enum NodeType {
@@ -185,6 +187,102 @@ impl Node {
         }
 
         false
+    }
+
+    /// Check if an attribute exists
+    pub fn contains_attribute(&self, name: String) -> Result<bool, String> {
+        if self.type_of() != NodeType::Element {
+            return Err(String::from(ATTRIBUTE_NODETYPE_ERR_MSG));
+        }
+
+        let contains: bool = match &self.data {
+            NodeData::Element { attributes, .. } => attributes.contains_key(&name),
+            _ => false,
+        };
+
+        Ok(contains)
+    }
+
+    /// Add a new attribute
+    pub fn add_attribute(&mut self, name: String, value: String) -> Result<(), String> {
+        if self.type_of() != NodeType::Element {
+            return Err(String::from(ATTRIBUTE_NODETYPE_ERR_MSG));
+        }
+
+        if let NodeData::Element { attributes, .. } = &mut self.data {
+            attributes.insert(name, value);
+        }
+
+        Ok(())
+    }
+
+    /// Update an attribute value
+    pub fn update_attribute(&mut self, name: String, new_value: String) -> Result<(), String> {
+        // the insert method on a map actually updates a value
+        // if the key already exists, so the implementation is the same.
+
+        // this method only exists for clarity for the end user using this API
+
+        self.add_attribute(name, new_value)
+            .expect(ATTRIBUTE_NODETYPE_ERR_MSG);
+
+        Ok(())
+    }
+
+    /// Remove an attribute. If attribute doesn't exist, nothing happens.
+    pub fn remove_attribute(&mut self, name: String) -> Result<(), String> {
+        if self.type_of() != NodeType::Element {
+            return Err(String::from(ATTRIBUTE_NODETYPE_ERR_MSG));
+        }
+
+        if let NodeData::Element { attributes, .. } = &mut self.data {
+            attributes.remove(&name);
+        }
+
+        Ok(())
+    }
+
+    /// Get a constant reference to the attribute value 
+    /// (or None if attribute doesn't exist)
+    pub fn get_attribute(&self, name: String) -> Result<Option<&String>, String> {
+        if self.type_of() != NodeType::Element {
+            return Err(String::from(ATTRIBUTE_NODETYPE_ERR_MSG));
+        }
+
+        let mut value: Option<&String> = None;
+        if let NodeData::Element { attributes, .. } = &self.data {
+            value = attributes.get(&name);
+        }
+
+        Ok(value)
+    }
+
+    /// Get a mutable reference to the attribute value
+    /// (or None if the attribute doesn't exist)
+    pub fn get_mut_attribute(&mut self, name: String) -> Result<Option<&mut String>, String> {
+        if self.type_of() != NodeType::Element {
+            return Err(String::from(ATTRIBUTE_NODETYPE_ERR_MSG));
+        }
+
+        let mut value: Option<&mut String> = None;
+        if let NodeData::Element { attributes, .. } = &mut self.data {
+            value = attributes.get_mut(&name);
+        }
+
+        Ok(value)
+    }
+
+    /// Remove all attributes
+    pub fn clear_attributes(&mut self) -> Result<(), String> {
+        if self.type_of() != NodeType::Element {
+            return Err(String::from(ATTRIBUTE_NODETYPE_ERR_MSG));
+        }
+
+        if let NodeData::Element { attributes, .. } = &mut self.data {
+            attributes.clear();
+        }
+
+        Ok(())
     }
 }
 
@@ -495,5 +593,40 @@ mod test {
     fn test_type_of_node_data_document() {
         let node = Node::new_document();
         assert_eq!(node.data, NodeData::Document {});
+    }
+
+    #[test]
+    fn test_contains_attribute_non_element() {
+        let node = Node::new_document();
+        let result = node.contains_attribute("x".to_string());
+        match result {
+            Ok(_) => assert!(false),
+            Err(_) => assert!(true),
+        }
+    }
+
+    #[test]
+    fn test_contains_attribute() {
+        let mut attr = HashMap::new();
+        attr.insert("x".to_string(), "value".to_string());
+
+        let node = Node::new_element(
+            "node",
+            attr.clone(),
+            HTML_NAMESPACE);
+
+        match node.contains_attribute("x".to_string()) {
+            Err(_) => assert!(false),
+            Ok(result) => {
+                assert_eq!(result, true);
+            }
+        }
+
+        match node.contains_attribute("z".to_string()) {
+            Err(_) => assert!(false),
+            Ok(result) => {
+                assert_eq!(result, false);
+            }
+        }
     }
 }
