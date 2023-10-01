@@ -1,83 +1,14 @@
-use gosub_engine::html5_parser::error_logger::ErrorLogger;
-use regex::Regex;
-use serde_derive::{Deserialize, Serialize};
 use serde_json::Value;
-use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
-use std::fs;
-use std::path::PathBuf;
-use std::rc::Rc;
 use test_case::test_case;
 
-use gosub_engine::html5_parser::input_stream::InputStream;
-use gosub_engine::html5_parser::tokenizer::state::State as TokenState;
 use gosub_engine::html5_parser::tokenizer::token::{Attribute, Token, TokenTrait, TokenType};
-use gosub_engine::html5_parser::tokenizer::{Options, Tokenizer};
-
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Root {
-    pub tests: Vec<Test>,
-}
-
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Test {
-    pub description: String,
-    pub input: String,
-    pub output: Vec<Vec<Value>>,
-    #[serde(default)]
-    pub errors: Vec<Error>,
-    #[serde(default)]
-    pub double_escaped: Option<bool>,
-    #[serde(default)]
-    pub initial_states: Vec<String>,
-    pub last_start_tag: Option<String>,
-}
-
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Error {
-    pub code: String,
-    pub line: i64,
-    pub col: i64,
-}
+use gosub_engine::html5_parser::tokenizer::Tokenizer;
+use gosub_engine::testing::tokenizer::{self, escape, Error, Test};
 
 fn assert_tokenization(test: &Test) {
-    // If no initial state is given, assume Data state
-    let mut states = test.initial_states.clone();
-    if states.is_empty() {
-        states.push(String::from("Data state"));
-    }
-
-    for state in states.iter() {
-        let state = match state.as_str() {
-            "PLAINTEXT state" => TokenState::PlaintextState,
-            "RAWTEXT state" => TokenState::RawTextState,
-            "RCDATA state" => TokenState::RcDataState,
-            "Script data state" => TokenState::ScriptDataState,
-            "CDATA section state" => TokenState::CDataSectionState,
-            "Data state" => TokenState::DataState,
-            _ => panic!("unknown state found in test: {} ", state),
-        };
-
-        let mut is = InputStream::new();
-        let input = if test.double_escaped.unwrap_or(false) {
-            escape(test.input.as_str())
-        } else {
-            test.input.to_string()
-        };
-        is.read_from_str(input.as_str(), None);
-
-        let error_logger = Rc::new(RefCell::new(ErrorLogger::new()));
-        let mut tokenizer = Tokenizer::new(
-            &mut is,
-            Some(Options {
-                initial_state: state,
-                last_start_tag: test.last_start_tag.clone().unwrap_or(String::from("")),
-            }),
-            error_logger.clone(),
-        );
+    for mut builder in test.builders() {
+        let mut tokenizer = builder.build();
 
         // If there is no output, still do an (initial) next token so the parser can generate
         // errors.
@@ -91,7 +22,7 @@ fn assert_tokenization(test: &Test) {
             assert_token(t, expected_token, test.double_escaped.unwrap_or(false));
         }
 
-        let borrowed_error_logger = error_logger.borrow();
+        let borrowed_error_logger = tokenizer.error_logger.borrow();
         assert_eq!(borrowed_error_logger.get_errors().len(), test.errors.len());
 
         // Check error messages
@@ -266,13 +197,7 @@ fn assert_doctype(
     let expected_sys = expected[3].as_str();
     let expected_quirk = expected[4].as_bool();
 
-    match (expected_name, &name) {
-        (Some(_), Some(_)) | (None, Some(_)) | (Some(_), None) => {
-            assert_eq!(expected_name, name.as_deref(), "incorrect doctype");
-        }
-
-        (None, None) => {}
-    }
+    assert_eq!(expected_name, name.as_deref(), "incorrect doctype");
 
     if let Some(expected_quirk) = expected_quirk {
         assert_ne!(
@@ -299,17 +224,6 @@ fn assert_doctype(
     );
 }
 
-fn escape(input: &str) -> String {
-    let re = Regex::new(r"\\u([0-9a-fA-F]{4})").unwrap();
-    re.replace_all(input, |caps: &regex::Captures| {
-        let hex_val = u32::from_str_radix(&caps[1], 16).unwrap();
-
-        // This will also convert surrogates?
-        unsafe { char::from_u32_unchecked(hex_val).to_string() }
-    })
-    .into_owned()
-}
-
 #[test_case("contentModelFlags.test")]
 #[test_case("domjs.test")]
 #[test_case("entities.test")]
@@ -325,12 +239,8 @@ fn escape(input: &str) -> String {
 #[test_case("unicodeChars.test")]
 // #[test_case("xmlViolation.test")]
 fn tokenization(filename: &str) {
-    const ROOT: &str = "./tests/data/html5lib-tests/tokenizer";
-    let path = PathBuf::from(ROOT).join(filename);
-    let contents = fs::read_to_string(&path).unwrap();
-    let container: Root = serde_json::from_str(&contents).unwrap();
-
-    for test in container.tests {
+    let root = tokenizer::fixture_from_filename(&filename).unwrap();
+    for test in root.tests {
         assert_tokenization(&test)
     }
 }

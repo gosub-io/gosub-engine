@@ -253,7 +253,7 @@ mod test {
         let node = Node::new_document();
         assert_eq!(node.id, 0);
         assert_eq!(node.parent, None);
-        assert_eq!(node.children, vec![]);
+        assert!(node.children.is_empty());
         assert_eq!(node.name, "".to_string());
         assert_eq!(node.namespace, None);
         assert_eq!(node.data, NodeData::Document {});
@@ -266,7 +266,7 @@ mod test {
         let node = Node::new_element("div", attributes.clone(), HTML_NAMESPACE);
         assert_eq!(node.id, 0);
         assert_eq!(node.parent, None);
-        assert_eq!(node.children, vec![]);
+        assert!(node.children.is_empty());
         assert_eq!(node.name, "div".to_string());
         assert_eq!(node.namespace, Some(HTML_NAMESPACE.into()));
         assert_eq!(
@@ -283,7 +283,7 @@ mod test {
         let node = Node::new_comment("test");
         assert_eq!(node.id, 0);
         assert_eq!(node.parent, None);
-        assert_eq!(node.children, vec![]);
+        assert!(node.children.is_empty());
         assert_eq!(node.name, "".to_string());
         assert_eq!(node.namespace, None);
         assert_eq!(
@@ -299,7 +299,7 @@ mod test {
         let node = Node::new_text("test");
         assert_eq!(node.id, 0);
         assert_eq!(node.parent, None);
-        assert_eq!(node.children, vec![]);
+        assert!(node.children.is_empty());
         assert_eq!(node.name, "".to_string());
         assert_eq!(node.namespace, None);
         assert_eq!(

@@ -6,6 +6,9 @@ all: help
 
 test: test_unit test_clippy test_fmt ## Runs tests
 
+bench:
+	cargo bench
+
 build: ## Build	the project
 	source test-utils.sh ;\
 	section "Cargo build" ;\
