@@ -9,8 +9,15 @@ jobs:
   docs:
     runs-on: ubuntu-latest
     steps:
-      - name: Build docs
-        run: cargo doc --no-deps
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+      - uses: actions-rs/cargo@v1
+        with:
+          command: doc
+          args: --no-deps
+
       - name: Prepare docs
         run: echo "<meta http-equiv=\"refresh\" content=\"0; url=gosub_engine\">" > target/doc/index.html
       - name: Deploy to github pages
