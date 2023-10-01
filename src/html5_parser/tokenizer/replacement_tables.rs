@@ -1,48 +1,81 @@
 use phf::phf_map;
 
-// These are token replacements as defined by
-// https://dev.w3.org/html5/spec-LC/tokenization.html#consume-a-character-reference
-// If a character (#0x80; for instance) is found, it must be replaced by the given character
+/// These are token replacements as defined by
+/// https://dev.w3.org/html5/spec-LC/tokenization.html#consume-a-character-reference
+/// If a character (#0x80; for instance) is found, it must be replaced by the given character
 pub static TOKEN_REPLACEMENTS: phf::Map<u32, char> = phf::phf_map! {
+    // REPLACEMENT CHARACTER
     0x00_u32 => '\u{FFFD}',
+    // CARRIAGE RETURN (CR)
     0x0d_u32 => '\u{000D}',
+    // EURO SIGN (€)
     0x80_u32 => '\u{20AC}',
+    // <control>
     0x81_u32 => '\u{0081}',
+    // SINGLE LOW-9 QUOTATION MARK (‚)
     0x82_u32 => '\u{201A}',
+    // LATIN SMALL LETTER F WITH HOOK (ƒ)
     0x83_u32 => '\u{0192}',
+    // DOUBLE LOW-9 QUOTATION MARK („)
     0x84_u32 => '\u{201E}',
+    // HORIZONTAL ELLIPSIS (…)
     0x85_u32 => '\u{2026}',
+    // DAGGER (†)
     0x86_u32 => '\u{2020}',
+    // DOUBLE DAGGER (‡)
     0x87_u32 => '\u{2021}',
+    // MODIFIER LETTER CIRCUMFLEX ACCENT (ˆ)
     0x88_u32 => '\u{02C6}',
+    // PER MILLE SIGN (‰)
     0x89_u32 => '\u{2030}',
+    // LATIN CAPITAL LETTER S WITH CARON (Š)
     0x8A_u32 => '\u{0160}',
+    // SINGLE LEFT-POINTING ANGLE QUOTATION MARK (‹)
     0x8B_u32 => '\u{2039}',
+    // LATIN CAPITAL LIGATURE OE (Œ)
     0x8C_u32 => '\u{0152}',
+    // <control>
     0x8D_u32 => '\u{008D}',
+    // LATIN CAPITAL LETTER Z WITH CARON (Ž)
     0x8E_u32 => '\u{017D}',
+    // <control>
     0x8F_u32 => '\u{008F}',
+    // <control>
     0x90_u32 => '\u{0090}',
+    // LEFT SINGLE QUOTATION MARK (‘)
     0x91_u32 => '\u{2018}',
+    // RIGHT SINGLE QUOTATION MARK (’)
     0x92_u32 => '\u{2019}',
+    // LEFT DOUBLE QUOTATION MARK (“)
     0x93_u32 => '\u{201C}',
+    // 	RIGHT DOUBLE QUOTATION MARK (”)
     0x94_u32 => '\u{201D}',
+    // BULLET (•)
     0x95_u32 => '\u{2022}',
+    // EN DASH (–)
     0x96_u32 => '\u{2013}',
+    // EM DASH (—)
     0x97_u32 => '\u{2014}',
+    // SMALL TILDE (˜)
     0x98_u32 => '\u{02DC}',
+    // TRADE MARK SIGN (™)
     0x99_u32 => '\u{2122}',
+    // LATIN SMALL LETTER S WITH CARON (š)
     0x9A_u32 => '\u{0161}',
+    // SINGLE RIGHT-POINTING ANGLE QUOTATION MARK (›)
     0x9B_u32 => '\u{203A}',
+    // LATIN SMALL LIGATURE OE (œ)
     0x9C_u32 => '\u{0153}',
+    // <control>
     0x9D_u32 => '\u{009D}',
+    // LATIN SMALL LETTER Z WITH CARON (ž)
     0x9E_u32 => '\u{017E}',
+    // LATIN CAPITAL LETTER Y WITH DIAERESIS (Ÿ)
     0x9F_u32 => '\u{0178}',
 };
 
-// Converted from golang.org/x/net/html/entity.go
-// Taken from https://dev.w3.org/html5/spec-LC/named-character-references.html#named-character-references
-
+/// Converted from golang.org/x/net/html/entity.go
+/// Taken from https://dev.w3.org/html5/spec-LC/named-character-references.html#named-character-references
 pub static TOKEN_NAMED_CHARS: phf::Map<&'static str, &'static str> = phf_map! {
     "AElig;" 		                    => "\u{00C6}",
     "AMP;" 			                    => "\u{0026}",
