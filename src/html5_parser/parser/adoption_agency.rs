@@ -54,15 +54,15 @@ impl<'a> Html5Parser<'a> {
             outer_loop_counter += 1;
 
             // Step 4.3
-            let formatting_element_idx_in_afe = self.find_formatting_element(subject);
-            if formatting_element_idx_in_afe.is_none() {
+            let formatting_element_idx = self.find_formatting_element(subject);
+            if formatting_element_idx.is_none() {
                 return AdoptionResult::ProcessAsAnyOther;
             }
 
-            let formatting_element_idx_in_afe =
-                formatting_element_idx_in_afe.expect("formatting element not found");
+            let formatting_element_idx =
+                formatting_element_idx.expect("formatting element not found");
             let formatting_element_id = self.active_formatting_elements
-                [formatting_element_idx_in_afe]
+                [formatting_element_idx]
                 .node_id()
                 .expect("formatting element not found");
             let formatting_element_node = self
@@ -75,7 +75,7 @@ impl<'a> Html5Parser<'a> {
             if !open_elements_has_id!(self, formatting_element_id) {
                 self.parse_error("formatting element not in open elements");
                 self.active_formatting_elements
-                    .remove(formatting_element_idx_in_afe);
+                    .remove(formatting_element_idx);
 
                 return AdoptionResult::Completed;
             }
@@ -120,41 +120,31 @@ impl<'a> Html5Parser<'a> {
             }
 
             let furthest_block_idx = furthest_block_idx.expect("furthest block not found");
-            let furthest_block_id = *self
-                .open_elements
-                .get(furthest_block_idx)
-                .expect("node not found");
+            let furthest_block_id = open_elements_get!(self, furthest_block_idx).id;
             let mut furthest_block_node = self
                 .document
                 .get_node_by_id(furthest_block_id)
                 .expect("node not found")
                 .clone();
 
+
+
             // Step 4.9
-            let formatting_element_idx_in_oe = self
-                .open_elements
-                .iter()
-                .position(|&id| id == formatting_element_id)
-                .expect("formatting element not found");
+            // Find the index of the wanted formatting element id in the open elements stack
+            let idx = open_elements_find_index!(self, formatting_element_id);
+
             let common_ancestor_id = *self
                 .open_elements
-                .get(formatting_element_idx_in_oe - 1)
+                .get(idx + 1)
                 .expect("node not found");
 
             // Step 4.10
-            let mut bookmark = formatting_element_idx_in_afe;
+            let mut bookmark = formatting_element_idx;
 
             // Step 4.11
-            let last_node_idx = furthest_block_idx;
-            let mut last_node_id = *self
-                .open_elements
-                .get(last_node_idx)
-                .expect("last node not found");
-            // let last_node = self.document.get_node_by_id(last_node_id).expect("last node not found").clone();
-
-            // let node_id = *self.open_elements.get(furthest_block_idx).expect("node not found");
             let mut node_idx = furthest_block_idx;
-            // let node = self.document.get_node_by_id(node_id).expect("node not found").clone();
+            let last_node_idx = furthest_block_idx;
+            let mut last_node_id = open_elements_get!(self, last_node_idx).id;
 
             // Step 4.12
             let mut inner_loop_counter = 0;
@@ -168,7 +158,7 @@ impl<'a> Html5Parser<'a> {
 
                 // Step 4.13.2
                 let mut node = open_elements_get!(self, node_idx).clone();
-                let node_id = self.open_elements[node_idx];
+                let node_id = node.id;
 
                 // Step 4.13.3
                 if node_id == formatting_element_id {
@@ -258,36 +248,37 @@ impl<'a> Html5Parser<'a> {
 
             // Step 4.18
             self.active_formatting_elements
-                .remove(formatting_element_idx_in_afe);
+                .remove(formatting_element_idx);
             self.active_formatting_elements
                 .insert(bookmark, ActiveElement::Node(new_element_id));
 
             // Step 4.19
-            self.open_elements.remove(formatting_element_idx_in_oe);
+            let idx = open_elements_find_index!(self, formatting_element_id);
+            self.open_elements.remove(idx);
             self.open_elements
-                .insert(furthest_block_idx, new_element_id);
+                .insert(furthest_block_idx - 1, new_element_id);
         }
     }
 
     // Find the furthest block element in the stack of open elements that is above the formatting element
     fn find_furthest_block_idx(&self, formatting_element_id: NodeId) -> Option<usize> {
-        let mut formatting_element_idx = None;
+        let mut formatting_element_idx_in_oe = None;
 
         // Find the index of the wanted formatting element id
         for (idx, &element_id) in self.open_elements.iter().enumerate() {
             if element_id == formatting_element_id {
-                formatting_element_idx = Some(idx);
+                formatting_element_idx_in_oe = Some(idx);
                 break;
             }
         }
 
-        let formatting_element_idx = match formatting_element_idx {
+        let formatting_element_idx_in_oe = match formatting_element_idx_in_oe {
             Some(idx) => idx,
             None => return None,
         };
 
         // Iterate
-        for idx in (0..formatting_element_idx).rev() {
+        for idx in (0..formatting_element_idx_in_oe).rev() {
             let element_id = self.open_elements[idx];
             let element = self
                 .document
