@@ -1,7 +1,6 @@
+use crate::console::Printer;
 use std::fmt;
 use std::io::Write;
-use crate::console::Printer;
-use colored::*;
 
 pub struct Group {
     collapsed: bool,
@@ -22,23 +21,22 @@ impl<W: Write> TextPrinter<W> {
 }
 
 impl<W: Write> Printer for TextPrinter<W> {
-    fn print(&mut self, log_level: &str, args: &[&dyn fmt::Display], _options: &[&str])
-    {
-        if args.len() == 0 {
+    fn print(&mut self, log_level: &str, args: &[&dyn fmt::Display], _options: &[&str]) {
+        if args.is_empty() {
             return;
         }
 
         match log_level {
             "group" => {
                 self.groups.push(Group { collapsed: false });
-            },
+            }
             "groupCollapse" => {
                 self.groups.push(Group { collapsed: true });
             }
             "groupEnd" => {
                 self.groups.pop();
-            },
-            _ => {},
+            }
+            _ => {}
         }
 
         let group_prefix = " > ".repeat(self.groups.len());
@@ -50,11 +48,9 @@ impl<W: Write> Printer for TextPrinter<W> {
         data = data.trim_end().to_string();
 
         let _ = match log_level {
-            "info" => writeln!(self.writer, "{}[{}] {}", group_prefix, log_level, data.on_bright_blue().color("white")),
-            "warn" => writeln!(self.writer, "{}[{}] {}", group_prefix, log_level, data.on_bright_yellow().color("black")),
-            "error" => writeln!(self.writer, "{}[{}] {}", group_prefix, log_level, data.on_bright_red().color("white")),
-            "log" => writeln!(self.writer, "{}[{}] {}", group_prefix, log_level, data),
-            "assert" => writeln!(self.writer, "{}[{}] {}", group_prefix, log_level, data),
+            "info" | "warn" | "error" | "log" | "assert" => {
+                writeln!(self.writer, "{}[{}] {}", group_prefix, log_level, data)
+            }
             "group" => writeln!(self.writer, "{}Expanded group: {}", group_prefix, data),
             "groupCollapsed" => writeln!(self.writer, "{}Collapsed group: {}", group_prefix, data),
             "timeEnd" => writeln!(self.writer, "{}{} - timer ended", group_prefix, data),
@@ -74,8 +70,8 @@ impl<W: Write> Printer for TextPrinter<W> {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Cursor;
     use super::*;
+    use std::io::Cursor;
 
     #[test]
     fn test_text_printer() {
@@ -83,13 +79,19 @@ mod tests {
         let mut printer = TextPrinter::new(Cursor::new(&mut buffer));
 
         printer.print("log", &[&"Hello", &"World"], &vec![]);
-        assert_eq!(String::from_utf8(buffer).expect("failed to convert"), "[log] Hello World");
+        assert_eq!(
+            String::from_utf8(buffer).expect("failed to convert"),
+            "[log] Hello World\n"
+        );
 
         let mut buffer = Vec::new();
         let mut printer = TextPrinter::new(Cursor::new(&mut buffer));
         printer.print("info", &[&"Foo", &2, &false], &vec![]);
         printer.print("warn", &[&"a", &"b"], &vec![]);
         printer.print("error", &[], &vec![]);
-        assert_eq!(String::from_utf8(buffer).expect("failed to convert"), "[info] Foo 2 false\n[warn] a b");
+        assert_eq!(
+            String::from_utf8(buffer).expect("failed to convert"),
+            "[info] Foo 2 false\n[warn] a b\n"
+        );
     }
 }

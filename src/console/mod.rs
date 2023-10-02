@@ -1,10 +1,11 @@
-mod text_printer;
 mod formatter;
+mod text_printer;
 
+use crate::console::formatter::Formatter;
 use std::collections::HashMap;
 use std::fmt;
 use std::time::{SystemTime, UNIX_EPOCH};
-use crate::console::formatter::Formatter;
+use uuid::Uuid;
 
 /// Timer holds the start and end time of a timer.
 struct Timer {
@@ -34,7 +35,7 @@ impl Console {
             timers: HashMap::new(),
             counts: HashMap::new(),
             group_stacks: vec![],
-            printer: printer,
+            printer,
             formatter: Formatter::new(),
             current_group_stack: None,
         }
@@ -49,18 +50,17 @@ impl Console {
 
         let message = "Assertion failed";
 
-        let concat;
-        if data.is_empty() {
-            concat = message.to_string();
+        let concat = if data.is_empty() {
+            message.to_string()
         } else {
-            concat = format!("{}: {}", message, data[0]);
-        }
+            format!("{}: {}", message, data[0])
+        };
 
-        self.logger("assert".into(), &[&concat]);
+        self.logger("assert", &[&concat]);
     }
 
     fn clear(&mut self) {
-        if ! self.group_stacks.is_empty() {
+        if !self.group_stacks.is_empty() {
             // Clear group stack (what is this?)
         }
 
@@ -68,20 +68,19 @@ impl Console {
     }
 
     fn debug(&mut self, data: &[&dyn fmt::Display]) {
-        self.logger("debug".into(), data);
+        self.logger("debug", data);
     }
 
     fn error(&mut self, data: &[&dyn fmt::Display]) {
-        self.logger("error".into(), data);
+        self.logger("error", data);
     }
 
     fn info(&mut self, data: &[&dyn fmt::Display]) {
-        self.logger("info".into(), data);
+        self.logger("info", data);
     }
 
     fn log(&mut self, data: &[&dyn fmt::Display]) {
-        self.logger("log".into(), data);
-
+        self.logger("log", data);
     }
 
     fn table(&mut self, _tabular_data: String, _properties: &[&str]) {
@@ -93,11 +92,11 @@ impl Console {
     }
 
     fn warn(&mut self, data: &[&dyn fmt::Display]) {
-        self.logger("warn".into(), data);
+        self.logger("warn", data);
     }
 
     fn dir(&mut self, item: &dyn fmt::Display, options: &[&str]) {
-        self.printer.print("dir".into(), &[&item], options);
+        self.printer.print("dir", &[&item], options);
     }
 
     fn dirxml(&self, _data: &[&dyn fmt::Display]) {
@@ -113,12 +112,12 @@ impl Console {
         self.counts.insert(label.clone(), cnt + 1);
 
         let concat = format!("{}: {}", label, cnt);
-        self.logger("count".into(), &[&concat]);
+        self.logger("count", &[&concat]);
     }
 
     fn count_reset(&mut self, label: String) {
         if !self.counts.contains_key(&label) {
-            self.logger("countReset".into(), &[&"label does not exist"]);
+            self.logger("countReset", &[&"label does not exist"]);
             return;
         }
 
@@ -127,37 +126,35 @@ impl Console {
 
     /// Create an expanded group
     fn group(&mut self, data: &[&dyn fmt::Display]) {
-        let group_label;
-        if data.is_empty() {
-            group_label = format!("console.group.{}", uuid::Uuid::new_v4().to_string());
+        let group_label = if data.is_empty() {
+            format!("console.group.{}", Uuid::new_v4())
         } else {
-            group_label = self.formatter.format(data).to_string();
+            self.formatter.format(data).to_string()
         };
 
-        let group = Group{
+        let group = Group {
             label: group_label.clone(),
         };
 
         // Group should be expanded
-        self.printer.print("group".into(), &[&group.label], &[]);
+        self.printer.print("group", &[&group.label], &[]);
 
         self.group_stacks.push(group);
     }
 
     /// Create a collapsed group
     fn group_collapsed(&mut self, data: &[&dyn fmt::Display]) {
-        let group_label;
-        if data.is_empty() {
-            group_label = format!("console.group.{}", uuid::Uuid::new_v4().to_string());
+        let group_label = if data.is_empty() {
+            format!("console.group.{}", Uuid::new_v4())
         } else {
-            group_label = self.formatter.format(data).to_string();
+            self.formatter.format(data).to_string()
         };
 
-        let group = Group{
+        let group = Group {
             label: group_label.clone(),
         };
 
-        self.printer.print("groupCollapsed".into(), &[&group.label], &[]);
+        self.printer.print("groupCollapsed", &[&group.label], &[]);
 
         self.group_stacks.push(group);
     }
@@ -172,7 +169,7 @@ impl Console {
     fn time(&mut self, label: String) {
         if self.timers.contains_key(&label) {
             let warning = format!("Timer '{}' already started", label);
-            self.logger("warning".into(), &[&warning]);
+            self.logger("warning", &[&warning]);
             return;
         }
 
@@ -181,18 +178,20 @@ impl Console {
             Err(_) => 0,
         };
 
-        self.timers.insert(label.clone(), Timer {
-            label: label.clone(),
-            start,
-            end: None,
-        });
+        self.timers.insert(
+            label.clone(),
+            Timer {
+                label: label.clone(),
+                start,
+                end: None,
+            },
+        );
     }
 
     /// Log time
     fn time_log(&self, _label: String, _data: &[&dyn fmt::Display]) {
         todo!()
     }
-
 
     /// End the given timer
     fn time_end(&mut self, label: String) {
@@ -201,24 +200,28 @@ impl Console {
             Err(_) => 0,
         };
 
-        let concat = format!("{}: {}ms", label, end - self.timers.get(&label).unwrap().start);
-        self.printer.print("timeEnd".into(), &[&concat], &[]);
+        let concat = format!(
+            "{}: {}ms",
+            label,
+            end - self.timers.get(&label).unwrap().start
+        );
+        self.printer.print("timeEnd", &[&concat], &[]);
     }
 
-
     fn logger(&mut self, log_level: &str, args: &[&dyn fmt::Display]) {
-        if args.len() == 0 {
+        if args.is_empty() {
             return;
         }
 
         let first = args[0];
         let rest = &args[1..];
-        if rest.len() == 0 {
+        if rest.is_empty() {
             self.printer.print(log_level, &[&first], &[]);
             return;
         }
 
-        self.printer.print(log_level, &[&self.formatter.format(args)], &[]);
+        self.printer
+            .print(log_level, &[&self.formatter.format(args)], &[]);
     }
 }
 
@@ -231,9 +234,9 @@ trait Printer {
 #[cfg(test)]
 
 mod tests {
-    use std::thread::sleep;
     use super::*;
     use crate::console::text_printer::TextPrinter;
+    use std::thread::sleep;
 
     #[test]
     fn test_console() {
