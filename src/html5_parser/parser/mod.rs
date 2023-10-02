@@ -3398,9 +3398,7 @@ impl<'a> Html5Parser<'a> {
         println!("Output:");
         println!("{}", self.document);
 
-        std::io::stdout()
-            .flush()
-            .ok();
+        std::io::stdout().flush().ok();
     }
 }
 
