@@ -20,7 +20,6 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::prelude::*;
 use std::rc::Rc;
-
 use super::node::NodeId;
 
 // Insertion modes as defined in 13.2.4.1
@@ -166,6 +165,18 @@ macro_rules! check_last_element {
         }
     };
 }
+
+// Get the idx element from the open elements stack
+macro_rules! open_elements_find_index {
+    ($self:expr, $node_id:expr) => {
+        $self
+            .open_elements
+            .iter()
+            .position(|&x| x == $node_id)
+            .expect("Open element not found")
+    };
+}
+
 
 // Get the idx element from the open elements stack
 macro_rules! open_elements_get {
@@ -1619,7 +1630,7 @@ impl<'a> Html5Parser<'a> {
                 }
             }
 
-            self.display_debug_info();
+            // self.display_debug_info();
         }
 
         (
@@ -3369,14 +3380,13 @@ impl<'a> Html5Parser<'a> {
         adjusted_insertion_location
     }
 
-    #[cfg(debug_assertions)]
     fn display_debug_info(&self) {
         println!("-----------------------------------------\n");
         println!("current token   : {}", self.current_token);
         println!("insertion mode  : {:?}", self.insertion_mode);
         print!("Open elements   : [ ");
         for node_id in &self.open_elements {
-            let node = self.document.get_node_by_id(*node_id).unwrap();
+               let node = self.document.get_node_by_id(*node_id).unwrap();
             print!("({}) {}, ", node_id, node.name);
         }
         println!("]");
