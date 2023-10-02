@@ -1,4 +1,4 @@
-use crate::html5_parser::node::{Node, NodeData, HTML_NAMESPACE};
+use crate::html5_parser::node::{Node, NodeData, NodeId, HTML_NAMESPACE};
 use crate::html5_parser::parser::{ActiveElement, Html5Parser, Scope};
 use crate::html5_parser::tokenizer::token::Token;
 use std::collections::HashMap;
@@ -40,8 +40,8 @@ impl<'a> Html5Parser<'a> {
             outer_loop_counter += 1;
 
             // Step 4.3
-            let mut formatting_element_idx: usize = 0;
-            let mut formatting_element_id: usize = 0;
+            let mut formatting_element_idx = NodeId::default();
+            let mut formatting_element_id = NodeId::default();
             let mut formatting_element_name = String::from("");
             let mut formatting_element_attributes = HashMap::new();
 
@@ -57,7 +57,7 @@ impl<'a> Html5Parser<'a> {
                         } = temp_node.data
                         {
                             if name == subject && !attributes.is_empty() {
-                                formatting_element_idx = idx;
+                                formatting_element_idx = idx.into();
                                 formatting_element_id = node_id;
                                 formatting_element_name = String::from(name);
                                 formatting_element_attributes = attributes.clone();
@@ -67,7 +67,7 @@ impl<'a> Html5Parser<'a> {
                 }
             }
 
-            if formatting_element_idx == 0 {
+            if formatting_element_idx.is_root() {
                 // @TODO: process as any other end tag
                 return;
             }
@@ -76,7 +76,7 @@ impl<'a> Html5Parser<'a> {
             if !open_elements_has!(self, formatting_element_name) {
                 self.parse_error("formatting element not in open elements");
                 self.active_formatting_elements
-                    .remove(formatting_element_idx);
+                    .remove(formatting_element_idx.into());
                 return;
             }
 
@@ -95,17 +95,17 @@ impl<'a> Html5Parser<'a> {
             }
 
             // Step 4.7
-            let mut furthest_block_idx = 0;
-            let mut furthest_block_id = 0;
+            let mut furthest_block_idx = NodeId::default();
+            let mut furthest_block_id = NodeId::default();
             let mut furthest_block_children = Vec::new();
 
-            for idx in (0..formatting_element_idx).rev() {
+            for idx in (0..formatting_element_idx.into()).rev() {
                 match self.active_formatting_elements[idx] {
                     ActiveElement::Marker => {}
                     ActiveElement::Node(node_id) => {
                         let node = self.document.get_node_by_id(node_id).unwrap();
                         if node.is_special() {
-                            furthest_block_idx = idx;
+                            furthest_block_idx = idx.into();
                             furthest_block_id = node_id;
                             furthest_block_children = self
                                 .document
@@ -119,20 +119,20 @@ impl<'a> Html5Parser<'a> {
             }
 
             // Step 4.8
-            if furthest_block_idx == 0 {
+            if furthest_block_idx.is_root() {
                 while current_node!(self).id != formatting_element_id {
                     self.open_elements.pop();
                 }
                 self.active_formatting_elements
-                    .remove(formatting_element_idx);
+                    .remove(formatting_element_idx.into());
                 return;
             }
 
             // Step 4.9
-            let common_ancestor_idx = formatting_element_idx - 1;
+            let common_ancestor_idx = formatting_element_idx.prev();
             let common_ancestor = *self
                 .open_elements
-                .get(common_ancestor_idx)
+                .get(usize::from(common_ancestor_idx))
                 .expect("common ancestor not found");
 
             // Step 4.10
@@ -143,7 +143,7 @@ impl<'a> Html5Parser<'a> {
             let last_node_idx = furthest_block_idx;
             let mut last_node_id = *self
                 .open_elements
-                .get(last_node_idx)
+                .get(usize::from(last_node_idx))
                 .expect("last node not found");
 
             // Step 4.12
@@ -155,11 +155,14 @@ impl<'a> Html5Parser<'a> {
                 inner_loop_counter += 1;
 
                 // Step 4.13.2
-                let &node_idx = self
+                let node_idx: NodeId = *self
                     .open_elements
-                    .get(node_idx - 1)
+                    .get(usize::from(node_idx.prev()))
                     .expect("node not found");
-                let node_id = *self.open_elements.get(node_idx).expect("node not found");
+                let node_id = *self
+                    .open_elements
+                    .get(usize::from(node_idx))
+                    .expect("node not found");
                 let node = open_elements_get!(self, node_idx).clone();
 
                 // Step 4.13.3
@@ -173,7 +176,7 @@ impl<'a> Html5Parser<'a> {
                         .active_formatting_elements
                         .contains(&ActiveElement::Node(node_id))
                 {
-                    self.active_formatting_elements.remove(node_idx);
+                    self.active_formatting_elements.remove(node_idx.into());
                 }
 
                 // Step 4.13.5
@@ -182,7 +185,7 @@ impl<'a> Html5Parser<'a> {
                     .contains(&ActiveElement::Node(node_id))
                 {
                     // We have removed the node from the given node_idx
-                    self.open_elements.remove(node_idx);
+                    self.open_elements.remove(node_idx.into());
                     continue;
                 }
 
@@ -192,7 +195,7 @@ impl<'a> Html5Parser<'a> {
 
                 // Step 4.13.7
                 if last_node_idx == furthest_block_idx {
-                    bookmark = node_idx + 1;
+                    bookmark = node_idx.next();
                 }
 
                 // Step 4.13.8
@@ -224,16 +227,16 @@ impl<'a> Html5Parser<'a> {
 
             // Step 4.18
             self.active_formatting_elements
-                .remove(formatting_element_idx);
+                .remove(formatting_element_idx.into());
             self.active_formatting_elements
-                .insert(bookmark, ActiveElement::Node(new_element_id));
+                .insert(bookmark.into(), ActiveElement::Node(new_element_id));
 
             // Step 4.19
             // Remove formatting element from the stack of open elements, and insert the new element into the stack of open elements immediately below the position of furthest block in that stack.
         }
     }
 
-    fn replace_node(&mut self, node: &Node, node_idx: usize, common_ancestor: usize) -> usize {
+    fn replace_node(&mut self, node: &Node, node_idx: NodeId, common_ancestor: NodeId) -> NodeId {
         let node_attributes = match node.data {
             NodeData::Element { ref attributes, .. } => attributes.clone(),
             _ => HashMap::new(),
@@ -243,8 +246,9 @@ impl<'a> Html5Parser<'a> {
             Node::new_element(node.name.as_str(), node_attributes, HTML_NAMESPACE);
         let replacement_node_id = self.document.add_node(replacement_node, common_ancestor);
 
-        self.active_formatting_elements[node_idx] = ActiveElement::Node(replacement_node_id);
-        self.open_elements[node_idx] = replacement_node_id;
+        self.active_formatting_elements[usize::from(node_idx)] =
+            ActiveElement::Node(replacement_node_id);
+        self.open_elements[usize::from(node_idx)] = replacement_node_id;
 
         replacement_node_id
     }

@@ -1,9 +1,11 @@
 use crate::html5_parser::node::Node;
 use std::collections::HashMap;
 
+use super::node::NodeId;
+
 pub struct NodeArena {
-    nodes: HashMap<usize, Node>, // Current nodes
-    next_id: usize,              // next id to use
+    nodes: HashMap<NodeId, Node>, // Current nodes
+    next_id: NodeId,              // next id to use
 }
 
 impl NodeArena {
@@ -11,24 +13,24 @@ impl NodeArena {
     pub fn new() -> Self {
         Self {
             nodes: HashMap::new(),
-            next_id: 0,
+            next_id: Default::default(),
         }
     }
 
     /// Get the node with the given id
-    pub fn get_node(&self, node_id: usize) -> Option<&Node> {
+    pub fn get_node(&self, node_id: NodeId) -> Option<&Node> {
         self.nodes.get(&node_id)
     }
 
     /// Get the node with the given id as a mutable reference
-    pub fn get_mut_node(&mut self, node_id: usize) -> Option<&mut Node> {
+    pub fn get_mut_node(&mut self, node_id: NodeId) -> Option<&mut Node> {
         self.nodes.get_mut(&node_id)
     }
 
     /// Add the node to the arena and return its id
-    pub fn add_node(&mut self, mut node: Node) -> usize {
+    pub fn add_node(&mut self, mut node: Node) -> NodeId {
         let id = self.next_id;
-        self.next_id += 1;
+        self.next_id = id.next();
 
         node.id = id;
         self.nodes.insert(id, node);
@@ -36,7 +38,7 @@ impl NodeArena {
     }
 
     /// Add the node as a child the parent node
-    pub fn attach_node(&mut self, parent_id: usize, node_id: usize) {
+    pub fn attach_node(&mut self, parent_id: NodeId, node_id: NodeId) {
         //check if any children of node have parent as child
         if parent_id == node_id || has_child_recursive(self, node_id, parent_id) {
             return;
@@ -50,7 +52,7 @@ impl NodeArena {
     }
 
     /// Removes the node with the given id from the arena
-    fn remove_node(&mut self, node_id: usize) {
+    fn remove_node(&mut self, node_id: NodeId) {
         // Remove children
         if let Some(node) = self.nodes.get_mut(&node_id) {
             for child_id in node.children.clone() {
@@ -68,7 +70,7 @@ impl NodeArena {
     }
 }
 
-fn has_child_recursive(arena: &mut NodeArena, parent_id: usize, child_id: usize) -> bool {
+fn has_child_recursive(arena: &mut NodeArena, parent_id: NodeId, child_id: NodeId) -> bool {
     let node = arena.get_mut_node(parent_id).cloned();
     if node.is_none() {
         return false;
@@ -86,7 +88,7 @@ fn has_child_recursive(arena: &mut NodeArena, parent_id: usize, child_id: usize)
     false
 }
 
-fn has_child(arena: &mut NodeArena, parent: Option<Node>, child_id: usize) -> bool {
+fn has_child(arena: &mut NodeArena, parent: Option<Node>, child_id: NodeId) -> bool {
     let parent_node = if let Some(node) = parent {
         node
     } else {
@@ -120,8 +122,8 @@ mod tests {
         let node = Node::new_element("test", HashMap::new(), HTML_NAMESPACE);
         let id = arena.add_node(node);
         assert_eq!(arena.nodes.len(), 1);
-        assert_eq!(arena.next_id, 1);
-        assert_eq!(id, 0);
+        assert_eq!(arena.next_id, 1.into());
+        assert_eq!(id, NodeId::default());
     }
 
     #[test]
