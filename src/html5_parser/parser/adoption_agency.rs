@@ -61,8 +61,7 @@ impl<'a> Html5Parser<'a> {
 
             let formatting_element_idx =
                 formatting_element_idx.expect("formatting element not found");
-            let formatting_element_id = self.active_formatting_elements
-                [formatting_element_idx]
+            let formatting_element_id = self.active_formatting_elements[formatting_element_idx]
                 .node_id()
                 .expect("formatting element not found");
             let formatting_element_node = self
@@ -127,16 +126,11 @@ impl<'a> Html5Parser<'a> {
                 .expect("node not found")
                 .clone();
 
-
-
             // Step 4.9
             // Find the index of the wanted formatting element id in the open elements stack
             let idx = open_elements_find_index!(self, formatting_element_id);
 
-            let common_ancestor_id = *self
-                .open_elements
-                .get(idx + 1)
-                .expect("node not found");
+            let common_ancestor_id = *self.open_elements.get(idx + 1).expect("node not found");
 
             // Step 4.10
             let mut bookmark = formatting_element_idx;
