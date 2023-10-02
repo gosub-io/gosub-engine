@@ -7,6 +7,7 @@ mod quirks;
 use crate::html5_parser::error_logger::{ErrorLogger, ParseError, ParserError};
 use crate::html5_parser::input_stream::InputStream;
 use crate::html5_parser::node::{Node, NodeData, HTML_NAMESPACE, MATHML_NAMESPACE, SVG_NAMESPACE};
+use crate::html5_parser::parser::adoption_agency::AdoptionResult;
 use crate::html5_parser::parser::attr_replacements::{
     MATHML_ADJUSTMENTS, SVG_ADJUSTMENTS, XML_ADJUSTMENTS,
 };
@@ -17,9 +18,8 @@ use crate::html5_parser::tokenizer::token::Token;
 use crate::html5_parser::tokenizer::{Tokenizer, CHAR_NUL};
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::rc::Rc;
 use std::io::prelude::*;
-use crate::html5_parser::parser::adoption_agency::AdoptionResult;
+use std::rc::Rc;
 
 // Insertion modes as defined in 13.2.4.1
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -190,8 +190,12 @@ macro_rules! open_elements_has {
 
 macro_rules! open_elements_has_id {
     ($self:expr, $id:expr) => {
-        $self.open_elements.iter().rev().any(|node_id| *node_id == $id)
-    }
+        $self
+            .open_elements
+            .iter()
+            .rev()
+            .any(|node_id| *node_id == $id)
+    };
 }
 
 // Returns the current node: the last node in the open elements list
@@ -1612,8 +1616,7 @@ impl<'a> Html5Parser<'a> {
                 }
             }
 
-
-            self.display_debug_info();
+            // self.display_debug_info();
         }
 
         (
@@ -1840,7 +1843,10 @@ impl<'a> Html5Parser<'a> {
     // Checks if the given element is in given scope
     fn is_in_scope(&self, tag: &str, scope: Scope) -> bool {
         for &node_id in self.open_elements.iter().rev() {
-            let node = self.document.get_node_by_id(node_id).expect("node not found");
+            let node = self
+                .document
+                .get_node_by_id(node_id)
+                .expect("node not found");
 
             if node.name == tag {
                 return true;
@@ -2316,7 +2322,7 @@ impl<'a> Html5Parser<'a> {
                 if let Some(node_id) = self.active_formatting_elements_has_until_marker("a") {
                     self.parse_error("a tag in active formatting elements");
                     match self.run_adoption_agency(&self.current_token.clone()) {
-                        AdoptionResult::Completed => {},
+                        AdoptionResult::Completed => {}
                         AdoptionResult::ProcessAsAnyOther => {
                             any_other_end_tag = true;
                         }
@@ -2361,13 +2367,13 @@ impl<'a> Html5Parser<'a> {
                 if self.is_in_scope("nobr", Scope::Regular) {
                     self.parse_error("nobr tag in scope");
                     match self.run_adoption_agency(&self.current_token.clone()) {
-                        AdoptionResult::Completed => {},
+                        AdoptionResult::Completed => {}
                         AdoptionResult::ProcessAsAnyOther => {
                             any_other_end_tag = true;
                         }
                     }
 
-                    if ! any_other_end_tag {
+                    if !any_other_end_tag {
                         // @todo: do we run this even when we run the adoption agency with out processAsAnyOther?
                         self.reconstruct_formatting();
                     }
@@ -2393,7 +2399,7 @@ impl<'a> Html5Parser<'a> {
                     || name == "u" =>
             {
                 match self.run_adoption_agency(&self.current_token.clone()) {
-                    AdoptionResult::Completed => {},
+                    AdoptionResult::Completed => {}
                     AdoptionResult::ProcessAsAnyOther => {
                         any_other_end_tag = true;
                     }
@@ -2704,7 +2710,11 @@ impl<'a> Html5Parser<'a> {
 
             for idx in (0..self.open_elements.len()).rev() {
                 let node_id = self.open_elements[idx];
-                let node = self.document.get_node_by_id(node_id).expect("node not found").clone();
+                let node = self
+                    .document
+                    .get_node_by_id(node_id)
+                    .expect("node not found")
+                    .clone();
 
                 if node.name == token_name {
                     self.generate_all_implied_end_tags(Some(node.name.as_str()), false);
@@ -3352,14 +3362,13 @@ impl<'a> Html5Parser<'a> {
         adjusted_insertion_location
     }
 
-    #[cfg(debug_assertions)]
     fn display_debug_info(&self) {
         println!("-----------------------------------------\n");
         println!("current token   : {}", self.current_token);
         println!("insertion mode  : {:?}", self.insertion_mode);
         print!("Open elements   : [ ");
         for node_id in &self.open_elements {
-            let node = self.document.get_node_by_id(*node_id).unwrap();
+               let node = self.document.get_node_by_id(*node_id).unwrap();
             print!("({}) {}, ", node_id, node.name);
         }
         println!("]");
@@ -3381,24 +3390,24 @@ impl<'a> Html5Parser<'a> {
         println!("Output:");
         println!("{}", self.document);
 
-        std::io::stdout().flush().ok().expect("Could not flush stdout");
+        std::io::stdout()
+            .flush()
+            .ok()
+            .expect("Could not flush stdout");
     }
 }
 
-
 #[cfg(test)]
 mod test {
-    use crate::html5_parser::input_stream::Encoding;
     use super::*;
+    use crate::html5_parser::input_stream::Encoding;
 
     macro_rules! node_create {
-        ($self:expr, $name:expr) => {
-            {
-                let node = Node::new_element($name, HashMap::new(), HTML_NAMESPACE);
-                let node_id = $self.document.add_node(node, 0);
-                $self.open_elements.push(node_id);
-            }
-        };
+        ($self:expr, $name:expr) => {{
+            let node = Node::new_element($name, HashMap::new(), HTML_NAMESPACE);
+            let node_id = $self.document.add_node(node, 0);
+            $self.open_elements.push(node_id);
+        }};
     }
 
     #[test]
@@ -3480,7 +3489,6 @@ mod test {
         assert_eq!(parser.is_in_scope("xmp", Scope::Button), false);
         assert_eq!(parser.is_in_scope("xmp", Scope::Table), false);
         assert_eq!(parser.is_in_scope("xmp", Scope::Select), false);
-
     }
 
     #[test]
@@ -3622,7 +3630,10 @@ mod test {
     #[test]
     fn test_reconstruct_formatting() {
         let mut stream = InputStream::new();
-        stream.read_from_str("<p><b>bold<i>bold and italic</b>italic</i></p>", Some(Encoding::UTF8));
+        stream.read_from_str(
+            "<p><b>bold<i>bold and italic</b>italic</i></p>",
+            Some(Encoding::UTF8),
+        );
 
         let mut parser = Html5Parser::new(&mut stream);
         parser.parse();

@@ -9,24 +9,35 @@ use std::path::PathBuf;
 use std::{env, fs, io};
 
 pub struct TestResults {
-    tests: usize,           // Number of tests (as defined in the suite)
-    assertions: usize, // Number of assertions (different combinations of input/output per test)
-    succeeded: usize,  // How many succeeded assertions
-    failed: usize,     // How many failed assertions
-    failed_position: usize, // How many failed assertions where position is not correct
+    /// Number of tests (as defined in the suite)
+    tests: usize,
+    /// Number of assertions (different combinations of input/output per test)
+    assertions: usize,
+    /// How many succeeded assertions
+    succeeded: usize,
+    /// How many failed assertions
+    failed: usize,
+    /// How many failed assertions where position is not correct
+    failed_position: usize,
 }
 
 struct Test {
-    file_path: String,              // Filename of the test
-    line: usize,                    // Line number of the test
-    data: String,                   // input stream
-    errors: Vec<Error>,             // errors
-    document: Vec<String>,          // document tree
-    document_fragment: Vec<String>, // fragment
+    /// Filename of the test
+    file_path: String,
+    /// Line number of the test
+    line: usize,
+    /// input stream
+    data: String,
+    /// errors
+    errors: Vec<Error>,
+    /// document tree
+    document: Vec<String>,
+    /// fragment
+    document_fragment: Vec<String>,
 }
 
 fn main() -> io::Result<()> {
-    let default_dir = "./html5lib-tests";
+    let default_dir = "./tests/data/html5lib-tests";
     let dir = env::args().nth(1).unwrap_or(default_dir.to_string());
 
     let mut results = TestResults {
@@ -41,10 +52,12 @@ fn main() -> io::Result<()> {
         let entry = entry?;
         let path = entry.path();
 
+        // Only run the tests1.dat file for now
         if !path.ends_with("tests1.dat") {
             continue;
         }
 
+        // Skip dirs and non-dat files
         if !path.is_file() || path.extension().unwrap() != "dat" {
             continue;
         }
@@ -54,10 +67,7 @@ fn main() -> io::Result<()> {
 
         let mut test_idx = 1;
         for test in tests {
-            if test_idx == 23 {
-                run_tree_test(test_idx, &test, &mut results);
-            }
-
+            run_tree_test(test_idx, &test, &mut results);
             test_idx += 1;
         }
     }
@@ -66,6 +76,7 @@ fn main() -> io::Result<()> {
     Ok(())
 }
 
+/// Read given tests file and extract all test data
 fn read_tests(file_path: PathBuf) -> io::Result<Vec<Test>> {
     let file = File::open(file_path.clone())?;
     let reader = BufReader::new(file);
@@ -149,6 +160,7 @@ fn run_tree_test(test_idx: usize, test: &Test, results: &mut TestResults) {
 
     let old_failed = results.failed;
 
+    // Do the actual parsing
     let mut is = InputStream::new();
     is.read_from_str(test.data.as_str(), None);
 
@@ -169,18 +181,23 @@ fn run_tree_test(test_idx: usize, test: &Test, results: &mut TestResults) {
             test.errors.len(),
             parse_errors.len()
         );
-    //     for want_err in &test.errors {
-    //         println!("     * Want: '{}' at {}:{}", want_err.code, want_err.line, want_err.col);
-    //     }
-    //     for got_err in &parse_errors {
-    //         println!("     * Got: '{}' at {}:{}", got_err.message, got_err.line, got_err.col);
-    //     }
-    //     results.assertions += 1;
-    //     results.failed += 1;
+
+        for want_err in &test.errors {
+            println!("     * Want: '{}' at {}:{}", want_err.code, want_err.line, want_err.col);
+        }
+        for got_err in &parse_errors {
+            println!("     * Got: '{}' at {}:{}", got_err.message, got_err.line, got_err.col);
+        }
+        results.assertions += 1;
+        results.failed += 1;
     } else {
         println!("✅ Found {} errors", parse_errors.len());
     }
-    //
+
+    // For now, we skip the tests that checks for errors as most of the errors do not match
+    // with the actual tests, as these errors as specific from html5lib. Either we reuse them
+    // or have some kind of mapping to our own errors if we decide to use our custom errors.
+
     // // Check each error messages
     // let mut idx = 0;
     // for error in &test.errors {
@@ -217,6 +234,7 @@ fn run_tree_test(test_idx: usize, test: &Test, results: &mut TestResults) {
     //     idx += 1;
     // }
 
+    // Display additional data if there a failure is found
     if old_failed != results.failed {
         println!("----------------------------------------");
         println!("📄 Input stream: ");
@@ -230,7 +248,8 @@ fn run_tree_test(test_idx: usize, test: &Test, results: &mut TestResults) {
             println!("{}", line);
         }
 
-        std::process::exit(1);
+        // // End at the first failure
+        // std::process::exit(1);
     }
 
     println!("----------------------------------------");
@@ -238,9 +257,12 @@ fn run_tree_test(test_idx: usize, test: &Test, results: &mut TestResults) {
 
 #[derive(PartialEq)]
 enum ErrorResult {
-    Success,         // Found the correct error
-    Failure,         // Didn't find the error (not even with incorrect position)
-    PositionFailure, // Found the error, but on an incorrect position
+    /// Found the correct error
+    Success,
+    /// Didn't find the error (not even with incorrect position)
+    Failure,
+    /// Found the error, but on an incorrect position
+    PositionFailure,
 }
 
 #[derive(PartialEq)]
@@ -251,6 +273,9 @@ pub struct Error {
 }
 
 fn match_document_tree(document: &Document, expected: &Vec<String>) -> bool {
+    // We need a better tree match system. Right now we match the tree based on the (debug) output
+    // of the tree. Instead, we should generate a document-tree from the expected output and compare
+    // it against the current generated tree.
     match_node(0, -1, -1, document, expected).is_some()
 }
 

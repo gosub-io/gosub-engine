@@ -29,7 +29,7 @@ impl<'a> Html5Parser<'a> {
                 .any(|elem| elem == &ActiveElement::NodeId(current_node_id))
         {
             self.open_elements.pop();
-            return AdoptionResult::Completed
+            return AdoptionResult::Completed;
         }
 
         // Step 3
@@ -39,7 +39,7 @@ impl<'a> Html5Parser<'a> {
         loop {
             // Step 4.1
             if outer_loop_counter >= ADOPTION_AGENCY_OUTER_LOOP_DEPTH {
-                return AdoptionResult::Completed
+                return AdoptionResult::Completed;
             }
 
             // Step 4.2
@@ -48,12 +48,19 @@ impl<'a> Html5Parser<'a> {
             // Step 4.3
             let formatting_element_idx = self.find_formatting_element(subject);
             if formatting_element_idx.is_none() {
-                return AdoptionResult::ProcessAsAnyOther
+                return AdoptionResult::ProcessAsAnyOther;
             }
 
-            let formatting_element_idx = formatting_element_idx.expect("formatting element not found");
-            let formatting_element_id = self.active_formatting_elements[formatting_element_idx].node_id().expect("formatting element not found");
-            let formatting_element_node= self.document.get_node_by_id(formatting_element_id).expect("formatting element not found").clone();
+            let formatting_element_idx =
+                formatting_element_idx.expect("formatting element not found");
+            let formatting_element_id = self.active_formatting_elements[formatting_element_idx]
+                .node_id()
+                .expect("formatting element not found");
+            let formatting_element_node = self
+                .document
+                .get_node_by_id(formatting_element_id)
+                .expect("formatting element not found")
+                .clone();
 
             // Step 4.4
             if !open_elements_has_id!(self, formatting_element_id) {
@@ -61,12 +68,11 @@ impl<'a> Html5Parser<'a> {
                 self.active_formatting_elements
                     .remove(formatting_element_idx);
 
-                return AdoptionResult::Completed
+                return AdoptionResult::Completed;
             }
 
             // Step 4.5
-            if !self.is_in_scope(&formatting_element_node.name, Scope::Regular)
-            {
+            if !self.is_in_scope(&formatting_element_node.name, Scope::Regular) {
                 self.parse_error("formatting element not in scope");
                 return AdoptionResult::Completed;
             }
@@ -93,20 +99,34 @@ impl<'a> Html5Parser<'a> {
                 }
 
                 // Remove the formatting element from the list of active formatting elements
-                if let Some(pos) = self.active_formatting_elements.iter().position(|elem| elem == &ActiveElement::NodeId(formatting_element_id)) {
+                if let Some(pos) = self
+                    .active_formatting_elements
+                    .iter()
+                    .position(|elem| elem == &ActiveElement::NodeId(formatting_element_id))
+                {
                     self.active_formatting_elements.remove(pos);
                 }
 
-                return AdoptionResult::Completed
+                return AdoptionResult::Completed;
             }
 
             let furthest_block_idx = furthest_block_idx.expect("furthest block not found");
 
-            let node_id = *self.open_elements.get(furthest_block_idx).expect("node not found");
-            let furthest_block = self.document.get_node_by_id(node_id).expect("node not found").clone();
+            let node_id = *self
+                .open_elements
+                .get(furthest_block_idx)
+                .expect("node not found");
+            let furthest_block = self
+                .document
+                .get_node_by_id(node_id)
+                .expect("node not found")
+                .clone();
 
             // Step 4.9
-            let common_ancestor_id = *self.open_elements.get(formatting_element_idx + 1).expect("node not found");
+            let common_ancestor_id = *self
+                .open_elements
+                .get(formatting_element_idx + 1)
+                .expect("node not found");
 
             // Step 4.10
             let mut bookmark = formatting_element_idx;
@@ -184,14 +204,12 @@ impl<'a> Html5Parser<'a> {
 
             // Step 4.15
             let new_element = match formatting_element_node.data {
-                NodeData::Element { ref attributes, .. } => {
-                     Node::new_element(
-                        formatting_element_node.name.as_str(),
-                        attributes.clone(),
-                        HTML_NAMESPACE,
-                    )
-                }
-                _ => panic!("formatting element is not an element")
+                NodeData::Element { ref attributes, .. } => Node::new_element(
+                    formatting_element_node.name.as_str(),
+                    attributes.clone(),
+                    HTML_NAMESPACE,
+                ),
+                _ => panic!("formatting element is not an element"),
             };
 
             // Step 4.16
@@ -211,7 +229,8 @@ impl<'a> Html5Parser<'a> {
             // Step 4.19
             // Remove formatting element from the stack of open elements, and insert the new element into the stack of open elements immediately below the position of furthest block in that stack.
             self.open_elements.remove(formatting_element_idx);
-            self.open_elements.insert(furthest_block_idx - 1, new_element_id);
+            self.open_elements
+                .insert(furthest_block_idx - 1, new_element_id);
         }
     }
 
@@ -251,7 +270,10 @@ impl<'a> Html5Parser<'a> {
         // Iterate
         for idx in (index_of_formatting_element..self.open_elements.len()).rev() {
             let element_id = self.open_elements[idx];
-            let element = self.document.get_node_by_id(element_id).expect("element not found");
+            let element = self
+                .document
+                .get_node_by_id(element_id)
+                .expect("element not found");
 
             if element.is_special() {
                 return Some(idx);
@@ -260,7 +282,6 @@ impl<'a> Html5Parser<'a> {
 
         None
     }
-
 
     // Find the formatting element with the given subject between the end of the list and the first marker (or start when there is no marker)
     fn find_formatting_element(&self, subject: &str) -> Option<usize> {
@@ -273,15 +294,15 @@ impl<'a> Html5Parser<'a> {
                 ActiveElement::Marker => {
                     // Marker found, do not continue
                     break;
-                },
+                }
                 ActiveElement::NodeId(node_id) => {
                     // Check if the given node is an element with the given subject
-                    let node = self.document.get_node_by_id(node_id).expect("node not found").clone();
-                    if let NodeData::Element {
-                        ref name,
-                        ..
-                    } = node.data
-                    {
+                    let node = self
+                        .document
+                        .get_node_by_id(node_id)
+                        .expect("node not found")
+                        .clone();
+                    if let NodeData::Element { ref name, .. } = node.data {
                         if name == subject {
                             return Some(idx);
                         }
