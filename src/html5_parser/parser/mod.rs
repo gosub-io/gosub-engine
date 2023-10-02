@@ -4,6 +4,7 @@ mod quirks;
 
 // ------------------------------------------------------------
 
+use super::node::NodeId;
 use crate::html5_parser::error_logger::{ErrorLogger, ParseError, ParserError};
 use crate::html5_parser::input_stream::InputStream;
 use crate::html5_parser::node::{Node, NodeData, HTML_NAMESPACE, MATHML_NAMESPACE, SVG_NAMESPACE};
@@ -20,7 +21,6 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::prelude::*;
 use std::rc::Rc;
-use super::node::NodeId;
 
 // Insertion modes as defined in 13.2.4.1
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -176,7 +176,6 @@ macro_rules! open_elements_find_index {
             .expect("Open element not found")
     };
 }
-
 
 // Get the idx element from the open elements stack
 macro_rules! open_elements_get {
@@ -3386,7 +3385,7 @@ impl<'a> Html5Parser<'a> {
         println!("insertion mode  : {:?}", self.insertion_mode);
         print!("Open elements   : [ ");
         for node_id in &self.open_elements {
-               let node = self.document.get_node_by_id(*node_id).unwrap();
+            let node = self.document.get_node_by_id(*node_id).unwrap();
             print!("({}) {}, ", node_id, node.name);
         }
         println!("]");
