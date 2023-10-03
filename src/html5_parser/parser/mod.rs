@@ -268,7 +268,7 @@ pub struct Html5Parser<'a> {
     frameset_ok: bool,     // if true, we can insert a frameset
     foster_parenting: bool, // Foster parenting flag
     script_already_started: bool, // If true, the script engine has already started
-    pending_table_character_tokens: Vec<char>, // Pending table character tokens
+    pending_table_character_tokens: String, // Pending table character tokens
     ack_self_closing: bool, // Acknowledge self closing tags
     active_formatting_elements: Vec<ActiveElement>, // List of active formatting elements or markers
     is_fragment_case: bool, // Is the current parsing a fragment case
@@ -308,7 +308,7 @@ impl<'a> Html5Parser<'a> {
             frameset_ok: true,
             foster_parenting: false,
             script_already_started: false,
-            pending_table_character_tokens: vec![],
+            pending_table_character_tokens: String::new(),
             ack_self_closing: false,
             active_formatting_elements: vec![],
             is_fragment_case: false,
@@ -725,8 +725,32 @@ impl<'a> Html5Parser<'a> {
                             }
                         }
                         _ => {
-                            // @TODO: this needs to check if there are any non-whitespaces, if so then reprocess using anything_else in "in_table"
-                            self.flush_pending_table_character_tokens();
+                            let tokens = self.pending_table_character_tokens.clone();
+
+                            let mut process_as_intable_anything_else = false;
+
+                            for c in self.pending_table_character_tokens.chars() {
+                                if !c.is_ascii_whitespace() {
+                                    self.parse_error("non whitespace character in pending table character tokens");
+                                    process_as_intable_anything_else = true;
+                                    break;
+                                }
+                            }
+
+                            if process_as_intable_anything_else {
+                                self.current_token = Token::TextToken {
+                                    value: tokens,
+                                };
+
+                                self.foster_parenting = true;
+                                self.handle_in_body();
+                                self.foster_parenting = false;
+                            } else {
+                                let node = self.create_node(&Token::TextToken { value: tokens }, HTML_NAMESPACE);
+                                self.document.add_node(node, current_node!(self).id);
+                            }
+
+                            self.pending_table_character_tokens.clear();
 
                             self.insertion_mode = self.original_insertion_mode;
                             self.reprocess_token = true;
@@ -1682,8 +1706,8 @@ impl<'a> Html5Parser<'a> {
         }
     }
 
-    fn flush_pending_table_character_tokens(&self) {
-        todo!()
+    fn flush_pending_table_character_tokens(&mut self) {
+
     }
 
     // This function will pop elements off the stack until it reaches the first element that matches
@@ -2885,7 +2909,7 @@ impl<'a> Html5Parser<'a> {
                     .iter()
                     .any(|&node| node == current_node!(self).name) =>
             {
-                self.pending_table_character_tokens = Vec::new();
+                self.pending_table_character_tokens = String::new();
                 self.original_insertion_mode = self.insertion_mode;
                 self.insertion_mode = InsertionMode::InTableText;
                 self.reprocess_token = true;
