@@ -257,7 +257,10 @@ impl<'a> Html5Parser<'a> {
     // Find the furthest block element in the stack of open elements that is above the formatting element
     fn find_furthest_block_idx(&self, formatting_element_id: NodeId) -> Option<usize> {
         // Find the index of the wanted formatting element id
-        let element_idx = self.open_elements.iter().position(|&element_id| element_id == formatting_element_id);
+        let element_idx = self
+            .open_elements
+            .iter()
+            .position(|&element_id| element_id == formatting_element_id);
 
         let element_idx = match element_idx {
             Some(element_idx) => element_idx,
