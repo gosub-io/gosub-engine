@@ -394,7 +394,7 @@ pub static SPECIAL_MATHML_ELEMENTS: [&str; 6] = ["mi", "mo", "mn", "ms", "mtext"
 pub static SPECIAL_SVG_ELEMENTS: [&str; 3] = ["foreignObject", "desc", "title"];
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
 
     #[test]
