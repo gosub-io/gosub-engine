@@ -704,14 +704,14 @@ mod tests {
 
         let mut node = Node::new_element("name", attr.clone(), HTML_NAMESPACE);
         assert!(node.clear_attributes().is_ok());
-        assert_eq!(node.has_attributes(), false);
+        assert!(!node.has_attributes());
     }
 
     #[test]
     fn has_attributes_non_element() {
         // if node is a non-element, will always return false
         let node = Node::new_document();
-        assert_eq!(node.has_attributes(), false);
+        assert!(!node.has_attributes());
     }
 
     #[test]
@@ -722,6 +722,6 @@ mod tests {
         assert_eq!(node.has_attributes(), false);
 
         assert!(node.insert_attribute("key", "value").is_ok());
-        assert_eq!(node.has_attributes(), true);
+        assert!(node.has_attributes());
     }
 }
