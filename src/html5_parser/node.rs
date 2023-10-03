@@ -107,12 +107,11 @@ impl Node {
 }
 
 impl Clone for Node {
-    // Clones the node, but without the parent and children
     fn clone(&self) -> Self {
         Node {
             id: self.id,
-            parent: None,
-            children: vec![],
+            parent: self.parent,
+            children: self.children.clone(),
             name: self.name.clone(),
             namespace: self.namespace.clone(),
             data: self.data.clone(),
