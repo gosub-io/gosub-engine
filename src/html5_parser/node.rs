@@ -1,3 +1,4 @@
+use derive_more::Display;
 use std::collections::HashMap;
 
 pub const HTML_NAMESPACE: &str = "http://www.w3.org/1999/xhtml";
@@ -35,8 +36,8 @@ pub enum NodeData {
 }
 
 /// Id used to identify a node
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
-pub struct NodeId(usize);
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq, Display)]
+pub struct NodeId(pub usize);
 
 impl From<NodeId> for usize {
     fn from(value: NodeId) -> Self {
@@ -97,6 +98,14 @@ pub struct Node {
     pub namespace: Option<String>,
     /// actual data of the node
     pub data: NodeData,
+}
+
+impl Node {
+    // This will only compare against the tag, namespace and attributes. Both nodes could still have
+    // other parents and children.
+    pub fn matches_tag_and_attrs(&self, other: &Self) -> bool {
+        self.name == other.name && self.namespace == other.namespace && self.data == other.data
+    }
 }
 
 impl Clone for Node {
@@ -166,6 +175,12 @@ impl Node {
             name: "".to_string(),
             namespace: None,
         }
+    }
+
+    /// Returns true if the given node is a "formatting" node
+    pub fn is_formatting(&self) -> bool {
+        self.namespace == Some(HTML_NAMESPACE.into())
+            && FORMATTING_HTML_ELEMENTS.contains(&self.name.as_str())
     }
 
     /// Returns true if the given node is "special" node based on the namespace and name
@@ -305,7 +320,12 @@ impl NodeTrait for Node {
     }
 }
 
-pub static SPECIAL_HTML_ELEMENTS: [&str; 81] = [
+pub static FORMATTING_HTML_ELEMENTS: [&str; 14] = [
+    "a", "b", "big", "code", "em", "font", "i", "nobr", "s", "small", "strike", "strong", "tt", "u",
+];
+
+pub static SPECIAL_HTML_ELEMENTS: [&str; 83] = [
+    "address",
     "applet",
     "area",
     "article",
@@ -368,6 +388,7 @@ pub static SPECIAL_HTML_ELEMENTS: [&str; 81] = [
     "plaintext",
     "pre",
     "script",
+    "search",
     "section",
     "select",
     "source",

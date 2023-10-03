@@ -6,12 +6,26 @@ use std::collections::HashMap;
 const ADOPTION_AGENCY_OUTER_LOOP_DEPTH: usize = 8;
 const ADOPTION_AGENCY_INNER_LOOP_DEPTH: usize = 3;
 
+pub enum AdoptionResult {
+    ProcessAsAnyOther,
+    Completed,
+}
+
 impl<'a> Html5Parser<'a> {
-    pub fn run_adoption_agency(&mut self, token: &Token) {
+    /**
+     * When we talk about nodes, there are 3 contexts to consider:
+     *
+     * - The actual node data. This is called "node" in the code.
+     * - The node id. This is called "node_id" in the code.
+     * - The node index. This is called "node_idx" in the code. This is the index of the node in
+     *   either the open_elements or active_formatting_elements stack.
+     */
+    pub fn run_adoption_agency(&mut self, token: &Token) -> AdoptionResult {
         // Step 1
         let subject = match token {
             Token::EndTagToken { name, .. } => name,
-            _ => panic!("run adoption agency called with non end tag token"),
+            Token::StartTagToken { name, .. } => name,
+            _ => panic!("run adoption agency called with non start/end tag token"),
         };
 
         // Step 2
@@ -23,7 +37,7 @@ impl<'a> Html5Parser<'a> {
                 .any(|elem| elem == &ActiveElement::Node(current_node_id))
         {
             self.open_elements.pop();
-            return;
+            return AdoptionResult::Completed;
         }
 
         // Step 3
@@ -33,59 +47,42 @@ impl<'a> Html5Parser<'a> {
         loop {
             // Step 4.1
             if outer_loop_counter >= ADOPTION_AGENCY_OUTER_LOOP_DEPTH {
-                return;
+                return AdoptionResult::Completed;
             }
 
             // Step 4.2
             outer_loop_counter += 1;
 
             // Step 4.3
-            let mut formatting_element_idx = NodeId::default();
-            let mut formatting_element_id = NodeId::default();
-            let mut formatting_element_name = String::from("");
-            let mut formatting_element_attributes = HashMap::new();
-
-            for idx in (0..self.active_formatting_elements.len()).rev() {
-                match self.active_formatting_elements[idx] {
-                    ActiveElement::Marker => break,
-                    ActiveElement::Node(node_id) => {
-                        let temp_node = self.document.get_node_by_id(node_id).unwrap().clone();
-                        if let NodeData::Element {
-                            ref name,
-                            ref attributes,
-                            ..
-                        } = temp_node.data
-                        {
-                            if name == subject && !attributes.is_empty() {
-                                formatting_element_idx = idx.into();
-                                formatting_element_id = node_id;
-                                formatting_element_name = String::from(name);
-                                formatting_element_attributes = attributes.clone();
-                            }
-                        }
-                    }
-                }
+            let formatting_element_idx = self.find_formatting_element(subject);
+            if formatting_element_idx.is_none() {
+                return AdoptionResult::ProcessAsAnyOther;
             }
 
-            if formatting_element_idx.is_root() {
-                // @TODO: process as any other end tag
-                return;
-            }
+            let formatting_element_idx =
+                formatting_element_idx.expect("formatting element not found");
+            let formatting_element_id = self.active_formatting_elements[formatting_element_idx]
+                .node_id()
+                .expect("formatting element not found");
+            let formatting_element_node = self
+                .document
+                .get_node_by_id(formatting_element_id)
+                .expect("formatting element not found")
+                .clone();
 
             // Step 4.4
-            if !open_elements_has!(self, formatting_element_name) {
+            if !open_elements_has_id!(self, formatting_element_id) {
                 self.parse_error("formatting element not in open elements");
                 self.active_formatting_elements
-                    .remove(formatting_element_idx.into());
-                return;
+                    .remove(formatting_element_idx);
+
+                return AdoptionResult::Completed;
             }
 
             // Step 4.5
-            if open_elements_has!(self, formatting_element_name)
-                && !self.in_scope(&formatting_element_name, Scope::Regular)
-            {
+            if !self.is_in_scope(&formatting_element_node.name, Scope::Regular) {
                 self.parse_error("formatting element not in scope");
-                return;
+                return AdoptionResult::Completed;
             }
 
             // Step 4.6
@@ -95,56 +92,53 @@ impl<'a> Html5Parser<'a> {
             }
 
             // Step 4.7
-            let mut furthest_block_idx = NodeId::default();
-            let mut furthest_block_id = NodeId::default();
-            let mut furthest_block_children = Vec::new();
-
-            for idx in (0..formatting_element_idx.into()).rev() {
-                match self.active_formatting_elements[idx] {
-                    ActiveElement::Marker => {}
-                    ActiveElement::Node(node_id) => {
-                        let node = self.document.get_node_by_id(node_id).unwrap();
-                        if node.is_special() {
-                            furthest_block_idx = idx.into();
-                            furthest_block_id = node_id;
-                            furthest_block_children = self
-                                .document
-                                .get_node_by_id(furthest_block_id)
-                                .expect("Node should exist.")
-                                .children
-                                .clone();
-                        }
-                    }
-                }
-            }
+            let furthest_block_idx = self.find_furthest_block_idx(formatting_element_id);
 
             // Step 4.8
-            if furthest_block_idx.is_root() {
-                while current_node!(self).id != formatting_element_id {
-                    self.open_elements.pop();
+            if furthest_block_idx.is_none() {
+                // Remove up until and including the formatting element from the stack of open elements
+                while let Some(top) = self.open_elements.last() {
+                    if top == &formatting_element_id {
+                        self.open_elements.pop();
+                        break;
+                    } else {
+                        self.open_elements.pop();
+                    }
                 }
-                self.active_formatting_elements
-                    .remove(formatting_element_idx.into());
-                return;
+
+                // Remove the formatting element from the list of active formatting elements
+                if let Some(pos) = self
+                    .active_formatting_elements
+                    .iter()
+                    .position(|elem| elem == &ActiveElement::Node(formatting_element_id))
+                {
+                    self.active_formatting_elements.remove(pos);
+                }
+
+                return AdoptionResult::Completed;
             }
 
+            let furthest_block_idx = furthest_block_idx.expect("furthest block not found");
+            let furthest_block_id = open_elements_get!(self, furthest_block_idx).id;
+            let mut furthest_block_node = self
+                .document
+                .get_node_by_id(furthest_block_id)
+                .expect("node not found")
+                .clone();
+
             // Step 4.9
-            let common_ancestor_idx = formatting_element_idx.prev();
-            let common_ancestor = *self
-                .open_elements
-                .get(usize::from(common_ancestor_idx))
-                .expect("common ancestor not found");
+            // Find the index of the wanted formatting element id in the open elements stack
+            let idx = open_elements_find_index!(self, formatting_element_id);
+
+            let common_ancestor_id = *self.open_elements.get(idx + 1).expect("node not found");
 
             // Step 4.10
             let mut bookmark = formatting_element_idx;
 
             // Step 4.11
-            let node_idx = furthest_block_idx;
+            let mut node_idx = furthest_block_idx;
             let last_node_idx = furthest_block_idx;
-            let mut last_node_id = *self
-                .open_elements
-                .get(usize::from(last_node_idx))
-                .expect("last node not found");
+            let mut last_node_id = open_elements_get!(self, last_node_idx).id;
 
             // Step 4.12
             let mut inner_loop_counter = 0;
@@ -154,16 +148,11 @@ impl<'a> Html5Parser<'a> {
                 // Step 4.13.1
                 inner_loop_counter += 1;
 
+                node_idx -= 1;
+
                 // Step 4.13.2
-                let node_idx: NodeId = *self
-                    .open_elements
-                    .get(usize::from(node_idx.prev()))
-                    .expect("node not found");
-                let node_id = *self
-                    .open_elements
-                    .get(usize::from(node_idx))
-                    .expect("node not found");
-                let node = open_elements_get!(self, node_idx).clone();
+                let mut node = open_elements_get!(self, node_idx).clone();
+                let node_id = node.id;
 
                 // Step 4.13.3
                 if node_id == formatting_element_id {
@@ -176,7 +165,8 @@ impl<'a> Html5Parser<'a> {
                         .active_formatting_elements
                         .contains(&ActiveElement::Node(node_id))
                 {
-                    self.active_formatting_elements.remove(node_idx.into());
+                    self.active_formatting_elements.remove(node_idx);
+                    continue;
                 }
 
                 // Step 4.13.5
@@ -185,71 +175,275 @@ impl<'a> Html5Parser<'a> {
                     .contains(&ActiveElement::Node(node_id))
                 {
                     // We have removed the node from the given node_idx
-                    self.open_elements.remove(node_idx.into());
+                    self.open_elements.remove(node_idx);
                     continue;
+                }
+
+                if last_node_id == furthest_block_id {
+                    bookmark = node_idx + 1;
                 }
 
                 // Step 4.13.6
                 // replace the old node with the new replacement node
-                let replacement_node_id = self.replace_node(&node, node_idx, common_ancestor);
+                let node_attributes = match node.data {
+                    NodeData::Element { ref attributes, .. } => attributes.clone(),
+                    _ => HashMap::new(),
+                };
+
+                let replacement_node =
+                    Node::new_element(node.name.as_str(), node_attributes, HTML_NAMESPACE);
+                let replacement_node_id =
+                    self.document.add_node(replacement_node, common_ancestor_id);
+
+                self.active_formatting_elements[node_idx] =
+                    ActiveElement::Node(replacement_node_id);
+                self.open_elements[node_idx] = replacement_node_id;
+
+                if node.parent.is_some() {
+                    node.parent = None
+                }
+
+                let node_id = replacement_node_id;
+                // let node = self.document.get_node_by_id(node_id).expect("node not found").clone();
 
                 // Step 4.13.7
                 if last_node_idx == furthest_block_idx {
-                    bookmark = node_idx.next();
+                    bookmark = node_idx - 1;
                 }
 
                 // Step 4.13.8
-                self.document.append(last_node_id, replacement_node_id);
+                self.document.append(last_node_id, node_id);
 
                 // Step 4.13.9
-                last_node_id = replacement_node_id;
+                last_node_id = node_id;
             }
 
             // Step 4.14
-            // Insert whatever last node ended up being in the previous step at the appropriate place for inserting a node, but using common ancestor as the override target.
+            self.document.append(last_node_id, common_ancestor_id);
 
             // Step 4.15
-            let new_element = Node::new_element(
-                formatting_element_name.as_str(),
-                formatting_element_attributes,
-                HTML_NAMESPACE,
-            );
+            let new_element = match formatting_element_node.data {
+                NodeData::Element { ref attributes, .. } => Node::new_element(
+                    formatting_element_node.name.as_str(),
+                    attributes.clone(),
+                    HTML_NAMESPACE,
+                ),
+                _ => panic!("formatting element is not an element"),
+            };
 
             // Step 4.16
-            if !furthest_block_children.is_empty() {
-                for &child in furthest_block_children.iter() {
-                    self.document.append(child, new_element.id)
-                }
+            for &child in furthest_block_node.children.iter() {
+                self.document.append(child, new_element.id)
             }
+            furthest_block_node.children.clear();
 
             // Step 4.17
-            let new_element_id = self.document.add_node(new_element, furthest_block_id);
+            let new_element_id = self.document.add_node(new_element, furthest_block_node.id);
 
             // Step 4.18
             self.active_formatting_elements
-                .remove(formatting_element_idx.into());
+                .remove(formatting_element_idx);
             self.active_formatting_elements
-                .insert(bookmark.into(), ActiveElement::Node(new_element_id));
+                .insert(bookmark, ActiveElement::Node(new_element_id));
 
             // Step 4.19
-            // Remove formatting element from the stack of open elements, and insert the new element into the stack of open elements immediately below the position of furthest block in that stack.
+            let idx = open_elements_find_index!(self, formatting_element_id);
+            self.open_elements.remove(idx);
+            self.open_elements
+                .insert(furthest_block_idx - 1, new_element_id);
         }
     }
 
-    fn replace_node(&mut self, node: &Node, node_idx: NodeId, common_ancestor: NodeId) -> NodeId {
-        let node_attributes = match node.data {
-            NodeData::Element { ref attributes, .. } => attributes.clone(),
-            _ => HashMap::new(),
+    // Find the furthest block element in the stack of open elements that is above the formatting element
+    fn find_furthest_block_idx(&self, formatting_element_id: NodeId) -> Option<usize> {
+        // Find the index of the wanted formatting element id
+        let element_idx = self
+            .open_elements
+            .iter()
+            .position(|&element_id| element_id == formatting_element_id);
+
+        let element_idx = match element_idx {
+            Some(element_idx) => element_idx,
+            None => return None,
         };
 
-        let replacement_node =
-            Node::new_element(node.name.as_str(), node_attributes, HTML_NAMESPACE);
-        let replacement_node_id = self.document.add_node(replacement_node, common_ancestor);
+        // Iterate
+        for idx in (element_idx + 1)..self.open_elements.len() {
+            // for idx in (0..element_idx).rev() {
+            let node = open_elements_get!(self, idx);
+            if node.is_special() {
+                return Some(idx);
+            }
+        }
 
-        self.active_formatting_elements[usize::from(node_idx)] =
-            ActiveElement::Node(replacement_node_id);
-        self.open_elements[usize::from(node_idx)] = replacement_node_id;
+        None
+    }
 
-        replacement_node_id
+    // Find the formatting element with the given subject between the end of the list and the first marker (or start when there is no marker)
+    fn find_formatting_element(&self, subject: &str) -> Option<usize> {
+        if self.active_formatting_elements.is_empty() {
+            return None;
+        }
+
+        for idx in (0..self.active_formatting_elements.len()).rev() {
+            match self.active_formatting_elements[idx] {
+                ActiveElement::Marker => {
+                    // Marker found, do not continue
+                    break;
+                }
+                ActiveElement::Node(node_id) => {
+                    // Check if the given node is an element with the given subject
+                    let node = self
+                        .document
+                        .get_node_by_id(node_id)
+                        .expect("node not found")
+                        .clone();
+                    if let NodeData::Element { ref name, .. } = node.data {
+                        if name == subject {
+                            return Some(idx);
+                        }
+                    }
+                }
+            }
+        }
+
+        None
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::html5_parser::input_stream::InputStream;
+
+    macro_rules! node_create {
+        ($self:expr, $name:expr) => {{
+            let node = Node::new_element($name, HashMap::new(), HTML_NAMESPACE);
+            let node_id = $self.document.add_node(node, NodeId::root());
+            $self.open_elements.push(node_id);
+        }};
+    }
+
+    #[test]
+    fn test_find_furthest_block_idx_1() {
+        let mut stream = InputStream::new();
+        let mut parser = Html5Parser::new(&mut stream);
+
+        // Node 0 is the document node
+        node_create!(parser, "div"); // node 1
+        node_create!(parser, "ul");
+        node_create!(parser, "b");
+        node_create!(parser, "li");
+        node_create!(parser, "p");
+        node_create!(parser, "table");
+        node_create!(parser, "i"); // node 7
+
+        parser
+            .active_formatting_elements
+            .push(ActiveElement::Node(NodeId(3)));
+        parser
+            .active_formatting_elements
+            .push(ActiveElement::Node(NodeId(7)));
+
+        assert_eq!(
+            parser
+                .find_furthest_block_idx(NodeId(1))
+                .expect("furthest element not found"),
+            1
+        );
+        assert_eq!(
+            parser
+                .find_furthest_block_idx(NodeId(2))
+                .expect("furthest element not found"),
+            3
+        );
+        assert_eq!(
+            parser
+                .find_furthest_block_idx(NodeId(3))
+                .expect("furthest element not found"),
+            3
+        );
+        assert_eq!(
+            parser
+                .find_furthest_block_idx(NodeId(4))
+                .expect("furthest element not found"),
+            4
+        );
+        assert_eq!(
+            parser
+                .find_furthest_block_idx(NodeId(5))
+                .expect("furthest element not found"),
+            5
+        );
+        assert!(parser.find_furthest_block_idx(NodeId(6)).is_none());
+        assert!(parser.find_furthest_block_idx(NodeId(7)).is_none());
+    }
+
+    #[test]
+    fn find_furthest_block_idx_3() {
+        let mut stream = InputStream::new();
+        let mut parser = Html5Parser::new(&mut stream);
+
+        // Node 0 is the document node
+        node_create!(parser, "p"); // node 1
+        node_create!(parser, "b");
+        node_create!(parser, "i"); // node 3
+
+        assert!(parser.find_furthest_block_idx(NodeId(2)).is_none());
+    }
+
+    #[test]
+    fn find_furthest_block_idx_4() {
+        let mut stream = InputStream::new();
+        let mut parser = Html5Parser::new(&mut stream);
+
+        // Node 0 is the document node
+        node_create!(parser, "html"); // node 1
+        node_create!(parser, "body"); // node 2
+        node_create!(parser, "p"); // node 3
+        node_create!(parser, "b"); // node 4
+        node_create!(parser, "i"); // node 5
+
+        assert_eq!(parser.find_furthest_block_idx(NodeId(4)), None);
+        assert_eq!(parser.find_furthest_block_idx(NodeId(5)), None);
+        assert_eq!(parser.find_furthest_block_idx(NodeId(3)), None);
+        assert_eq!(parser.find_furthest_block_idx(NodeId(2)), Some(2));
+    }
+
+    #[test]
+    fn find_furthest_block_idx_5() {
+        let mut stream = InputStream::new();
+        let mut parser = Html5Parser::new(&mut stream);
+
+        // Node 0 is the document node
+        node_create!(parser, "html"); // node 1
+        node_create!(parser, "body"); // node 2
+        node_create!(parser, "b"); // node 3
+        node_create!(parser, "p"); // node 4
+
+        assert_eq!(parser.find_furthest_block_idx(NodeId(3)), Some(3));
+    }
+
+    #[test]
+    fn find_furthest_block_idx_6() {
+        let mut stream = InputStream::new();
+        let mut parser = Html5Parser::new(&mut stream);
+
+        // Node 0 is the document node
+        node_create!(parser, "html"); // node 1
+        node_create!(parser, "body"); // node 2
+        node_create!(parser, "b"); // node 3
+        node_create!(parser, "p"); // node 4
+        node_create!(parser, "b");
+        node_create!(parser, "b");
+        node_create!(parser, "b");
+        node_create!(parser, "b"); // 8
+        node_create!(parser, "b");
+        node_create!(parser, "i");
+        node_create!(parser, "p"); // 11
+        node_create!(parser, "i");
+        node_create!(parser, "b"); // 13
+
+        assert_eq!(parser.find_furthest_block_idx(NodeId(10)), Some(10));
     }
 }

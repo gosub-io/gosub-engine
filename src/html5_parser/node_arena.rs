@@ -38,10 +38,10 @@ impl NodeArena {
     }
 
     /// Add the node as a child the parent node
-    pub fn attach_node(&mut self, parent_id: NodeId, node_id: NodeId) {
+    pub fn attach_node(&mut self, parent_id: NodeId, node_id: NodeId) -> bool {
         //check if any children of node have parent as child
         if parent_id == node_id || has_child_recursive(self, node_id, parent_id) {
-            return;
+            return false;
         }
         if let Some(parent_node) = self.nodes.get_mut(&parent_id) {
             parent_node.children.push(node_id);
@@ -49,6 +49,8 @@ impl NodeArena {
         if let Some(node) = self.nodes.get_mut(&node_id) {
             node.parent = Some(parent_id);
         }
+
+        true
     }
 
     /// Removes the node with the given id from the arena
@@ -75,6 +77,7 @@ fn has_child_recursive(arena: &mut NodeArena, parent_id: NodeId, child_id: NodeI
     if node.is_none() {
         return false;
     }
+
     let node = node.unwrap();
     for id in node.children.iter() {
         if *id == child_id {
@@ -117,7 +120,7 @@ mod tests {
     use crate::html5_parser::node::HTML_NAMESPACE;
 
     #[test]
-    fn test_add_node() {
+    fn add_node() {
         let mut arena = NodeArena::new();
         let node = Node::new_element("test", HashMap::new(), HTML_NAMESPACE);
         let id = arena.add_node(node);
@@ -127,7 +130,7 @@ mod tests {
     }
 
     #[test]
-    fn test_get_node() {
+    fn get_node() {
         let mut arena = NodeArena::new();
         let node = Node::new_element("test", HashMap::new(), HTML_NAMESPACE);
         let id = arena.add_node(node);
@@ -137,78 +140,130 @@ mod tests {
     }
 
     #[test]
-    fn test_get_mut_node() {
+    fn get_mut_node() {
         let mut arena = NodeArena::new();
+
         let node = Node::new_element("test", HashMap::new(), HTML_NAMESPACE);
         let id = arena.add_node(node);
+
         let node = arena.get_mut_node(id);
         assert!(node.is_some());
         assert_eq!(node.unwrap().name, "test");
     }
 
     #[test]
-    fn test_attach_node() {
+    fn attach_node() {
         let mut arena = NodeArena::new();
+
         let parent = Node::new_element("parent", HashMap::new(), HTML_NAMESPACE);
         let parent_id = arena.add_node(parent);
         let child = Node::new_element("child", HashMap::new(), HTML_NAMESPACE);
         let child_id = arena.add_node(child);
-        arena.attach_node(parent_id, child_id);
+
+        assert!(arena.attach_node(parent_id, child_id));
+
         let parent = arena.get_node(parent_id);
         assert!(parent.is_some());
         assert_eq!(parent.unwrap().children.len(), 1);
         assert_eq!(parent.unwrap().children[0], child_id);
+
         let child = arena.get_node(child_id);
         assert!(child.is_some());
         assert_eq!(child.unwrap().parent, Some(parent_id));
     }
 
     #[test]
-    fn test_attach_node_to_itself() {
+    fn attach_node_to_itself() {
         let mut arena = NodeArena::new();
+
         let node = Node::new_element("some_node", HashMap::new(), HTML_NAMESPACE);
         let node_id = arena.add_node(node);
-        arena.attach_node(node_id, node_id);
+
+        assert!(!arena.attach_node(node_id, node_id));
+
         let node = arena.get_node(node_id);
         assert!(node.is_some());
         assert_eq!(node.unwrap().children.len(), 0);
     }
 
     #[test]
-    fn test_attach_node_with_loop_pointer() {
+    fn attach_node_with_loop_pointer() {
         let mut arena = NodeArena::new();
         let parent = Node::new_element("parent", HashMap::new(), HTML_NAMESPACE);
         let mut child = Node::new_element("child", HashMap::new(), HTML_NAMESPACE);
+
+        // push the PARENT to the CHILD
         let parent_id = arena.add_node(parent);
         child.children.push(parent_id);
+
+        // try and add the CHILD to the PARENT
         let child_id = arena.add_node(child);
-        arena.attach_node(parent_id, child_id);
+        assert!(!arena.attach_node(parent_id, child_id));
+
         let parent = arena.get_node(parent_id);
         let child = arena.get_node(child_id);
         assert!(parent.is_some());
         assert!(child.is_some());
-        assert_eq!(parent.unwrap().children.len(), 0);
+        assert_eq!(parent.unwrap().children.len(), 0); // parent could not add child, recursive
+        assert_eq!(child.unwrap().children.len(), 1); // child adding the parent is ok
     }
 
     #[test]
-    fn test_remove_node() {
+    fn attach_node_with_indirect_loop_pointer() {
         let mut arena = NodeArena::new();
+        let parent = Node::new_element("parent", HashMap::new(), HTML_NAMESPACE);
+        let child1 = Node::new_element("child1", HashMap::new(), HTML_NAMESPACE);
+        let child2 = Node::new_element("child2", HashMap::new(), HTML_NAMESPACE);
+
+        let parent_id = arena.add_node(parent);
+        let child1_id = arena.add_node(child1);
+        let child2_id = arena.add_node(child2);
+
+        assert!(arena.attach_node(parent_id, child1_id));
+        assert!(arena.attach_node(child1_id, child2_id));
+
+        let parent = arena.get_node(parent_id);
+        let child1 = arena.get_node(child1_id);
+        let child2 = arena.get_node(child2_id);
+        assert_eq!(parent.unwrap().children.len(), 1);
+        assert_eq!(child1.unwrap().children.len(), 1);
+        assert_eq!(child2.unwrap().children.len(), 0);
+
+        // Add parent to child 2, thus creating a loop
+        assert!(!arena.attach_node(child2_id, parent_id));
+
+        let parent = arena.get_node(parent_id);
+        let child1 = arena.get_node(child1_id);
+        let child2 = arena.get_node(child2_id);
+        assert_eq!(parent.unwrap().children.len(), 1);
+        assert_eq!(child1.unwrap().children.len(), 1);
+        assert_eq!(child2.unwrap().children.len(), 0);
+    }
+
+    #[test]
+    fn remove_node() {
+        let mut arena = NodeArena::new();
+
         let parent = Node::new_element("parent", HashMap::new(), HTML_NAMESPACE);
         let parent_id = arena.add_node(parent);
         let child = Node::new_element("child", HashMap::new(), HTML_NAMESPACE);
         let child_id = arena.add_node(child);
+
         arena.attach_node(parent_id, child_id);
         arena.remove_node(child_id);
+
         let parent = arena.get_node(parent_id);
         assert!(parent.is_some());
         assert_eq!(parent.unwrap().children.len(), 0);
+
         let child = arena.get_node(child_id);
         assert!(child.is_none());
     }
 
     #[test]
-    fn test_remove_child_node() {
+    fn remove_child_node() {
         let mut arena = NodeArena::new();
+
         let parent = Node::new_element("parent", HashMap::new(), HTML_NAMESPACE);
         let parent_id = arena.add_node(parent);
         let child1 = Node::new_element("child1", HashMap::new(), HTML_NAMESPACE);
@@ -235,14 +290,17 @@ mod tests {
     }
 
     #[test]
-    fn test_remove_node_with_children() {
+    fn remove_node_with_children() {
         let mut arena = NodeArena::new();
+
         let parent = Node::new_element("parent", HashMap::new(), HTML_NAMESPACE);
         let parent_id = arena.add_node(parent);
         let child = Node::new_element("child", HashMap::new(), HTML_NAMESPACE);
         let child_id = arena.add_node(child);
+
         arena.attach_node(parent_id, child_id);
         arena.remove_node(parent_id);
+
         let parent = arena.get_node(parent_id);
         assert!(parent.is_none());
         let child = arena.get_node(child_id);
@@ -250,15 +308,18 @@ mod tests {
     }
 
     #[test]
-    fn test_remove_node_with_children_and_parent() {
+    fn remove_node_with_children_and_parent() {
         let mut arena = NodeArena::new();
+
         let parent = Node::new_element("parent", HashMap::new(), HTML_NAMESPACE);
         let parent_id = arena.add_node(parent);
         let child = Node::new_element("child", HashMap::new(), HTML_NAMESPACE);
         let child_id = arena.add_node(child);
+
         arena.attach_node(parent_id, child_id);
         arena.remove_node(child_id);
         arena.remove_node(parent_id);
+
         let parent = arena.get_node(parent_id);
         assert!(parent.is_none());
         let child = arena.get_node(child_id);
@@ -266,18 +327,21 @@ mod tests {
     }
 
     #[test]
-    fn test_remove_node_with_children_and_parent_and_grandchildren() {
+    fn remove_node_with_children_and_parent_and_grandchildren() {
         let mut arena = NodeArena::new();
+
         let parent = Node::new_element("parent", HashMap::new(), HTML_NAMESPACE);
         let parent_id = arena.add_node(parent);
         let child = Node::new_element("child", HashMap::new(), HTML_NAMESPACE);
         let child_id = arena.add_node(child);
         let grandchild = Node::new_element("grandchild", HashMap::new(), HTML_NAMESPACE);
         let grandchild_id = arena.add_node(grandchild);
+
         arena.attach_node(parent_id, child_id);
         arena.attach_node(child_id, grandchild_id);
         arena.remove_node(child_id);
         arena.remove_node(parent_id);
+
         let parent = arena.get_node(parent_id);
         assert!(parent.is_none());
         let child = arena.get_node(child_id);
@@ -287,8 +351,9 @@ mod tests {
     }
 
     #[test]
-    fn test_remove_node_with_children_and_parent_and_grandchildren_and_siblings() {
+    fn remove_node_with_children_and_parent_and_grandchildren_and_siblings() {
         let mut arena = NodeArena::new();
+
         let parent = Node::new_element("parent", HashMap::new(), HTML_NAMESPACE);
         let parent_id = arena.add_node(parent);
         let child = Node::new_element("child", HashMap::new(), HTML_NAMESPACE);
@@ -297,11 +362,13 @@ mod tests {
         let grandchild_id = arena.add_node(grandchild);
         let sibling = Node::new_element("sibling", HashMap::new(), HTML_NAMESPACE);
         let sibling_id = arena.add_node(sibling);
+
         arena.attach_node(parent_id, child_id);
         arena.attach_node(child_id, grandchild_id);
         arena.attach_node(parent_id, sibling_id);
         arena.remove_node(child_id);
         arena.remove_node(parent_id);
+
         let parent = arena.get_node(parent_id);
         assert!(parent.is_none());
         let child = arena.get_node(child_id);
