@@ -738,15 +738,16 @@ impl<'a> Html5Parser<'a> {
                             }
 
                             if process_as_intable_anything_else {
-                                self.current_token = Token::TextToken {
-                                    value: tokens,
-                                };
+                                self.current_token = Token::TextToken { value: tokens };
 
                                 self.foster_parenting = true;
                                 self.handle_in_body();
                                 self.foster_parenting = false;
                             } else {
-                                let node = self.create_node(&Token::TextToken { value: tokens }, HTML_NAMESPACE);
+                                let node = self.create_node(
+                                    &Token::TextToken { value: tokens },
+                                    HTML_NAMESPACE,
+                                );
                                 self.document.add_node(node, current_node!(self).id);
                             }
 
@@ -1706,9 +1707,7 @@ impl<'a> Html5Parser<'a> {
         }
     }
 
-    fn flush_pending_table_character_tokens(&mut self) {
-
-    }
+    fn flush_pending_table_character_tokens(&mut self) {}
 
     // This function will pop elements off the stack until it reaches the first element that matches
     // our condition (which can be changed with the except and thoroughly parameters)
