@@ -268,8 +268,8 @@ impl<'a> Html5Parser<'a> {
         };
 
         // Iterate
-        for idx in (element_idx+1)..self.open_elements.len() {
-        // for idx in (0..element_idx).rev() {
+        for idx in (element_idx + 1)..self.open_elements.len() {
+            // for idx in (0..element_idx).rev() {
             let node = open_elements_get!(self, idx);
             if node.is_special() {
                 return Some(idx);
@@ -385,9 +385,9 @@ mod test {
         let mut parser = Html5Parser::new(&mut stream);
 
         // Node 0 is the document node
-        node_create!(parser, "p");  // node 1
+        node_create!(parser, "p"); // node 1
         node_create!(parser, "b");
-        node_create!(parser, "i");  // node 3
+        node_create!(parser, "i"); // node 3
 
         assert!(parser.find_furthest_block_idx(NodeId(2)).is_none());
     }
@@ -398,11 +398,11 @@ mod test {
         let mut parser = Html5Parser::new(&mut stream);
 
         // Node 0 is the document node
-        node_create!(parser, "html");  // node 1
-        node_create!(parser, "body");  // node 2
-        node_create!(parser, "p");  // node 3
-        node_create!(parser, "b");  // node 4
-        node_create!(parser, "i");  // node 5
+        node_create!(parser, "html"); // node 1
+        node_create!(parser, "body"); // node 2
+        node_create!(parser, "p"); // node 3
+        node_create!(parser, "b"); // node 4
+        node_create!(parser, "i"); // node 5
 
         assert_eq!(parser.find_furthest_block_idx(NodeId(4)), None);
         assert_eq!(parser.find_furthest_block_idx(NodeId(5)), None);
@@ -416,10 +416,10 @@ mod test {
         let mut parser = Html5Parser::new(&mut stream);
 
         // Node 0 is the document node
-        node_create!(parser, "html");  // node 1
-        node_create!(parser, "body");  // node 2
-        node_create!(parser, "b");  // node 3
-        node_create!(parser, "p");  // node 4
+        node_create!(parser, "html"); // node 1
+        node_create!(parser, "body"); // node 2
+        node_create!(parser, "b"); // node 3
+        node_create!(parser, "p"); // node 4
 
         assert_eq!(parser.find_furthest_block_idx(NodeId(3)), Some(3));
     }
@@ -430,19 +430,19 @@ mod test {
         let mut parser = Html5Parser::new(&mut stream);
 
         // Node 0 is the document node
-        node_create!(parser, "html");  // node 1
-        node_create!(parser, "body");  // node 2
-        node_create!(parser, "b");  // node 3
-        node_create!(parser, "p");  // node 4
+        node_create!(parser, "html"); // node 1
+        node_create!(parser, "body"); // node 2
+        node_create!(parser, "b"); // node 3
+        node_create!(parser, "p"); // node 4
         node_create!(parser, "b");
         node_create!(parser, "b");
         node_create!(parser, "b");
         node_create!(parser, "b"); // 8
         node_create!(parser, "b");
         node_create!(parser, "i");
-        node_create!(parser, "p");  // 11
+        node_create!(parser, "p"); // 11
         node_create!(parser, "i");
-        node_create!(parser, "b");  // 13
+        node_create!(parser, "b"); // 13
 
         assert_eq!(parser.find_furthest_block_idx(NodeId(10)), Some(10));
     }
