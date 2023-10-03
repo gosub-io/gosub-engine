@@ -268,7 +268,8 @@ impl<'a> Html5Parser<'a> {
         };
 
         // Iterate
-        for idx in element_idx..self.open_elements.len() {
+        for idx in (element_idx+1)..self.open_elements.len() {
+        // for idx in (0..element_idx).rev() {
             let node = open_elements_get!(self, idx);
             if node.is_special() {
                 return Some(idx);
@@ -344,116 +345,105 @@ mod test {
             .active_formatting_elements
             .push(ActiveElement::Node(NodeId(7)));
 
-        assert!(parser.find_furthest_block_idx(NodeId(1)).is_none());
+        assert_eq!(
+            parser
+                .find_furthest_block_idx(NodeId(1))
+                .expect("furthest element not found"),
+            1
+        );
         assert_eq!(
             parser
                 .find_furthest_block_idx(NodeId(2))
-                .expect("furthest element not found"),
-            0
-        );
-        assert_eq!(
-            parser
-                .find_furthest_block_idx(NodeId(3))
-                .expect("furthest element not found"),
-            1
-        );
-        assert_eq!(
-            parser
-                .find_furthest_block_idx(NodeId(4))
-                .expect("furthest element not found"),
-            1
-        );
-        assert_eq!(
-            parser
-                .find_furthest_block_idx(NodeId(5))
                 .expect("furthest element not found"),
             3
         );
         assert_eq!(
             parser
-                .find_furthest_block_idx(NodeId(6))
-                .expect("furthest element not found"),
-            4
-        );
-        assert_eq!(
-            parser
-                .find_furthest_block_idx(NodeId(7))
-                .expect("furthest element not found"),
-            5
-        );
-    }
-
-    #[test]
-    fn test_find_furthest_block_idx_2() {
-        let mut stream = InputStream::new();
-        let mut parser = Html5Parser::new(&mut stream);
-
-        // Node 0 is the document node
-        node_create!(parser, "div"); // node 1
-        node_create!(parser, "ul");
-        node_create!(parser, "b");
-        node_create!(parser, "span");
-        node_create!(parser, "li");
-        node_create!(parser, "a");
-        node_create!(parser, "p");
-        node_create!(parser, "table");
-        node_create!(parser, "i"); // node 9
-
-        parser
-            .active_formatting_elements
-            .push(ActiveElement::Node(NodeId(3)));
-        parser
-            .active_formatting_elements
-            .push(ActiveElement::Node(NodeId(9)));
-
-        assert!(parser.find_furthest_block_idx(NodeId(1)).is_none());
-        assert_eq!(
-            parser
-                .find_furthest_block_idx(NodeId(2))
-                .expect("furthest element not found"),
-            0
-        );
-        assert_eq!(
-            parser
                 .find_furthest_block_idx(NodeId(3))
                 .expect("furthest element not found"),
-            1
+            3
         );
         assert_eq!(
             parser
                 .find_furthest_block_idx(NodeId(4))
                 .expect("furthest element not found"),
-            1
+            4
         );
         assert_eq!(
             parser
                 .find_furthest_block_idx(NodeId(5))
                 .expect("furthest element not found"),
-            1
+            5
         );
-        assert_eq!(
-            parser
-                .find_furthest_block_idx(NodeId(6))
-                .expect("furthest element not found"),
-            4
-        );
-        assert_eq!(
-            parser
-                .find_furthest_block_idx(NodeId(7))
-                .expect("furthest element not found"),
-            4
-        );
-        assert_eq!(
-            parser
-                .find_furthest_block_idx(NodeId(8))
-                .expect("furthest element not found"),
-            6
-        );
-        assert_eq!(
-            parser
-                .find_furthest_block_idx(NodeId(9))
-                .expect("furthest element not found"),
-            7
-        );
+        assert!(parser.find_furthest_block_idx(NodeId(6)).is_none());
+        assert!(parser.find_furthest_block_idx(NodeId(7)).is_none());
+    }
+
+    #[test]
+    fn find_furthest_block_idx_3() {
+        let mut stream = InputStream::new();
+        let mut parser = Html5Parser::new(&mut stream);
+
+        // Node 0 is the document node
+        node_create!(parser, "p");  // node 1
+        node_create!(parser, "b");
+        node_create!(parser, "i");  // node 3
+
+        assert!(parser.find_furthest_block_idx(NodeId(2)).is_none());
+    }
+
+    #[test]
+    fn find_furthest_block_idx_4() {
+        let mut stream = InputStream::new();
+        let mut parser = Html5Parser::new(&mut stream);
+
+        // Node 0 is the document node
+        node_create!(parser, "html");  // node 1
+        node_create!(parser, "body");  // node 2
+        node_create!(parser, "p");  // node 3
+        node_create!(parser, "b");  // node 4
+        node_create!(parser, "i");  // node 5
+
+        assert_eq!(parser.find_furthest_block_idx(NodeId(4)), None);
+        assert_eq!(parser.find_furthest_block_idx(NodeId(5)), None);
+        assert_eq!(parser.find_furthest_block_idx(NodeId(3)), None);
+        assert_eq!(parser.find_furthest_block_idx(NodeId(2)), Some(2));
+    }
+
+    #[test]
+    fn find_furthest_block_idx_5() {
+        let mut stream = InputStream::new();
+        let mut parser = Html5Parser::new(&mut stream);
+
+        // Node 0 is the document node
+        node_create!(parser, "html");  // node 1
+        node_create!(parser, "body");  // node 2
+        node_create!(parser, "b");  // node 3
+        node_create!(parser, "p");  // node 4
+
+        assert_eq!(parser.find_furthest_block_idx(NodeId(3)), Some(3));
+    }
+
+    #[test]
+    fn find_furthest_block_idx_6() {
+        let mut stream = InputStream::new();
+        let mut parser = Html5Parser::new(&mut stream);
+
+        // Node 0 is the document node
+        node_create!(parser, "html");  // node 1
+        node_create!(parser, "body");  // node 2
+        node_create!(parser, "b");  // node 3
+        node_create!(parser, "p");  // node 4
+        node_create!(parser, "b");
+        node_create!(parser, "b");
+        node_create!(parser, "b");
+        node_create!(parser, "b"); // 8
+        node_create!(parser, "b");
+        node_create!(parser, "i");
+        node_create!(parser, "p");  // 11
+        node_create!(parser, "i");
+        node_create!(parser, "b");  // 13
+
+        assert_eq!(parser.find_furthest_block_idx(NodeId(10)), Some(10));
     }
 }
