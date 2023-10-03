@@ -529,7 +529,7 @@ impl<'a> Tokenizer<'a> {
                         Element::Utf8('>') => {
                             if self.is_appropriate_end_token(&self.temporary_buffer) {
                                 let s: String = self.temporary_buffer.iter().collect::<String>();
-                                self.set_name_in_current_token(s);
+                                self.set_name_in_current_token(&s);
 
                                 self.last_start_token = String::new();
                                 emit_current_token!(self);
@@ -633,7 +633,7 @@ impl<'a> Tokenizer<'a> {
                         Element::Utf8('>') => {
                             if self.is_appropriate_end_token(&self.temporary_buffer) {
                                 let s: String = self.temporary_buffer.iter().collect::<String>();
-                                self.set_name_in_current_token(s);
+                                self.set_name_in_current_token(&s);
                                 self.last_start_token = String::new();
                                 emit_current_token!(self);
                                 self.state = State::DataState;
@@ -738,7 +738,7 @@ impl<'a> Tokenizer<'a> {
                         Element::Utf8('>') => {
                             if self.is_appropriate_end_token(&self.temporary_buffer) {
                                 let s: String = self.temporary_buffer.iter().collect::<String>();
-                                self.set_name_in_current_token(s);
+                                self.set_name_in_current_token(&s);
 
                                 self.last_start_token = String::new();
                                 emit_current_token!(self);
@@ -942,7 +942,7 @@ impl<'a> Tokenizer<'a> {
                         Element::Utf8('>') => {
                             if self.is_appropriate_end_token(&self.temporary_buffer) {
                                 let s: String = self.temporary_buffer.iter().collect::<String>();
-                                self.set_name_in_current_token(s);
+                                self.set_name_in_current_token(&s);
 
                                 self.last_start_token = String::new();
                                 emit_current_token!(self);
@@ -2304,22 +2304,22 @@ impl<'a> Tokenizer<'a> {
     }
 
     // Adds a new attribute to the current token
-    fn set_add_attribute_to_current_token(&mut self, name: String, value: String) {
+    fn set_add_attribute_to_current_token(&mut self, name: &str, value: &str) {
         if let Token::StartTagToken { attributes, .. } = &mut self.current_token.as_mut().unwrap() {
-            attributes.insert(name.clone(), value.clone());
+            attributes.insert(name.into(), value.into());
         }
 
         self.current_attr_name.clear()
     }
 
     // Sets the given name into the current token
-    fn set_name_in_current_token(&mut self, new_name: String) {
+    fn set_name_in_current_token(&mut self, new_name: &str) {
         match &mut self.current_token.as_mut().unwrap() {
             Token::StartTagToken { name, .. } => {
-                *name = new_name.clone();
+                *name = new_name.into();
             }
             Token::EndTagToken { name, .. } => {
-                *name = new_name.clone();
+                *name = new_name.into();
             }
             _ => panic!("trying to set the name of a non start/end tag token"),
         }

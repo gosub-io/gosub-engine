@@ -93,17 +93,17 @@ fn assert_token(have: Token, expected: &[Value], double_escaped: bool) {
             name,
             attributes,
             is_self_closing,
-        } => assert_starttag(expected, name, attributes, is_self_closing),
-        Token::EndTagToken { name, .. } => assert_endtag(expected, name, double_escaped),
-        Token::CommentToken { value } => assert_comment(expected, value, double_escaped),
-        Token::TextToken { value } => assert_text(expected, value, double_escaped),
+        } => assert_starttag(expected, &name, attributes, is_self_closing),
+        Token::EndTagToken { name, .. } => assert_endtag(expected, &name, double_escaped),
+        Token::CommentToken { value } => assert_comment(expected, &value, double_escaped),
+        Token::TextToken { value } => assert_text(expected, &value, double_escaped),
         Token::EofToken => panic!("expected eof token"),
     }
 }
 
 fn assert_starttag(
     expected: &[Value],
-    name: String,
+    name: &str,
     attributes: HashMap<String, String>,
     is_self_closing: bool,
 ) {
@@ -151,7 +151,7 @@ fn assert_starttag(
     assert_eq!(set1, set2, "attribute mismatch");
 }
 
-fn assert_comment(expected: &[Value], value: String, is_double_escaped: bool) {
+fn assert_comment(expected: &[Value], value: &str, is_double_escaped: bool) {
     let output_ref = expected.get(1).unwrap().as_str().unwrap();
     let output = if is_double_escaped {
         escape(output_ref)
@@ -162,7 +162,7 @@ fn assert_comment(expected: &[Value], value: String, is_double_escaped: bool) {
     assert_eq!(value, output, "incorrect text found in comment token");
 }
 
-fn assert_text(expected: &[Value], value: String, is_double_escaped: bool) {
+fn assert_text(expected: &[Value], value: &str, is_double_escaped: bool) {
     let output_ref = expected.get(1).unwrap().as_str().unwrap();
     let output = if is_double_escaped {
         escape(output_ref)
@@ -173,7 +173,7 @@ fn assert_text(expected: &[Value], value: String, is_double_escaped: bool) {
     assert_eq!(value, output, "incorrect text found in text token",);
 }
 
-fn assert_endtag(expected: &[Value], name: String, is_double_escaped: bool) {
+fn assert_endtag(expected: &[Value], name: &str, is_double_escaped: bool) {
     let output_ref = expected.get(1).unwrap().as_str().unwrap();
     let output = if is_double_escaped {
         escape(output_ref)
