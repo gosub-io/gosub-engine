@@ -3216,7 +3216,9 @@ impl<'a> Html5Parser<'a> {
 
     fn clone_node_without_children(&mut self, org_node: Node) -> NodeId {
         // Create a node, but without children and push it onto the open elements stack (if needed)
-        let new_node = org_node.clone();
+        let mut new_node = org_node.clone();
+        new_node.children = Vec::new();
+        new_node.parent = None;
 
         let new_node_id = self.document.add_node(new_node, current_node!(self).id);
         if let NodeData::Element { .. } = org_node.data {
