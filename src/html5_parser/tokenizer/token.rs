@@ -206,6 +206,14 @@ mod tests {
     }
 
     #[test]
+    fn test_token_display_comment_with_html() {
+        let token = Token::CommentToken {
+            value: "<p>Hello world</p>".to_string(),
+        };
+        assert_eq!(format!("{}", token), "<!-- <p>Hello world</p> -->");
+    }
+
+    #[test]
     fn test_token_display_text() {
         let token = Token::TextToken {
             value: "Hello World".to_string(),

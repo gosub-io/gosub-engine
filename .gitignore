@@ -1,1 +1,5 @@
-/target
+target/
+
+# vim
+*.swo*
+*.swp*

@@ -23,12 +23,10 @@ pub enum CcrState {
 
 macro_rules! consume_temp_buffer {
     ($self:expr, $as_attribute:expr) => {
-        for c in $self.temporary_buffer.clone() {
-            if $as_attribute {
-                $self.current_attr_value.push(c);
-            } else {
-                $self.consume(c);
-            }
+        if $as_attribute {
+            $self.current_attr_value.push_str(&$self.temporary_buffer);
+        } else {
+            $self.consumed.push_str(&$self.temporary_buffer);
         }
         $self.temporary_buffer.clear();
     };
@@ -50,7 +48,8 @@ impl<'a> Tokenizer<'a> {
         loop {
             match ccr_state {
                 CcrState::CharacterReference => {
-                    self.temporary_buffer = vec!['&'];
+                    self.temporary_buffer.clear();
+                    self.temporary_buffer.push('&');
 
                     let c = read_char!(self);
                     match c {
@@ -299,8 +298,9 @@ impl<'a> Tokenizer<'a> {
                         }
                     }
 
-                    self.temporary_buffer =
-                        vec![char::from_u32(char_ref_code).unwrap_or(CHAR_REPLACEMENT)];
+                    self.temporary_buffer.clear();
+                    let c = char::from_u32(char_ref_code).unwrap_or(CHAR_REPLACEMENT);
+                    self.temporary_buffer.push(c);
                     consume_temp_buffer!(self, as_attribute);
 
                     return;
