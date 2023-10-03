@@ -27,12 +27,12 @@ pub const CHAR_REPLACEMENT: char = '\u{FFFD}';
 pub struct Tokenizer<'a> {
     pub stream: &'a mut InputStream, // HTML character input stream
     pub state: State,                // Current state of the tokenizer
-    pub consumed: Vec<char>,         // Current consumed characters for current token
+    pub consumed: String,            // Current consumed characters for current token
     pub current_attr_name: String, // Current attribute name that we need to store temporary in case we are parsing attributes
     pub current_attr_value: String, // Current attribute value that we need to store temporary in case we are parsing attributes
     pub current_attrs: HashMap<String, String>, // Current attributes
     pub current_token: Option<Token>, // Token that is currently in the making (if any)
-    pub temporary_buffer: Vec<char>, // Temporary buffer
+    pub temporary_buffer: String,   // Temporary buffer
     pub token_queue: Vec<Token>, // Queue of emitted tokens. Needed because we can generate multiple tokens during iteration
     pub last_start_token: String, // The last emitted start token (or empty if none)
     pub error_logger: Rc<RefCell<ErrorLogger>>, // Parse errors
@@ -183,9 +183,8 @@ macro_rules! emit_token {
 
         // If there is any consumed data, emit this first as a text token
         if $self.has_consumed_data() {
-            $self.token_queue.push(Token::TextToken {
-                value: $self.get_consumed_str(),
-            });
+            let value = $self.get_consumed_str().to_string();
+            $self.token_queue.push(Token::TextToken { value });
             $self.clear_consume_buffer();
         }
 
@@ -206,13 +205,13 @@ impl<'a> Tokenizer<'a> {
             last_start_token: opts
                 .as_ref()
                 .map_or(String::new(), |o| o.last_start_tag.clone()),
-            consumed: vec![],
+            consumed: String::new(),
             current_token: None,
             token_queue: vec![],
             current_attr_name: String::new(),
             current_attr_value: String::new(),
             current_attrs: HashMap::new(),
-            temporary_buffer: vec![],
+            temporary_buffer: String::new(),
             error_logger,
         };
     }
@@ -463,7 +462,7 @@ impl<'a> Tokenizer<'a> {
                     let c = read_char!(self);
                     match c {
                         Element::Utf8('/') => {
-                            self.temporary_buffer = vec![];
+                            self.temporary_buffer.clear();
                             self.state = State::RcDataEndTagOpenState;
                         }
                         _ => {
@@ -528,8 +527,7 @@ impl<'a> Tokenizer<'a> {
                         }
                         Element::Utf8('>') => {
                             if self.is_appropriate_end_token(&self.temporary_buffer) {
-                                let s: String = self.temporary_buffer.iter().collect::<String>();
-                                self.set_name_in_current_token(s);
+                                self.set_name_in_current_token(self.temporary_buffer.clone());
 
                                 self.last_start_token = String::new();
                                 emit_current_token!(self);
@@ -550,22 +548,14 @@ impl<'a> Tokenizer<'a> {
                     }
 
                     if consume_anything_else {
-                        self.consume('<');
-                        self.consume('/');
-                        for c in self.temporary_buffer.clone() {
-                            self.consume(c);
-                        }
-                        self.temporary_buffer.clear();
-
-                        self.stream.unread();
-                        self.state = State::RcDataState;
+                        self.transition_to(State::RcDataState);
                     }
                 }
                 State::RawTextLessThanSignState => {
                     let c = read_char!(self);
                     match c {
                         Element::Utf8('/') => {
-                            self.temporary_buffer = vec![];
+                            self.temporary_buffer.clear();
                             self.state = State::RawTextEndTagOpenState;
                         }
                         _ => {
@@ -632,8 +622,7 @@ impl<'a> Tokenizer<'a> {
                         }
                         Element::Utf8('>') => {
                             if self.is_appropriate_end_token(&self.temporary_buffer) {
-                                let s: String = self.temporary_buffer.iter().collect::<String>();
-                                self.set_name_in_current_token(s);
+                                self.set_name_in_current_token(self.temporary_buffer.clone());
                                 self.last_start_token = String::new();
                                 emit_current_token!(self);
                                 self.state = State::DataState;
@@ -655,22 +644,14 @@ impl<'a> Tokenizer<'a> {
                     }
 
                     if consume_anything_else {
-                        self.consume('<');
-                        self.consume('/');
-                        for c in self.temporary_buffer.clone() {
-                            self.consume(c);
-                        }
-                        self.temporary_buffer.clear();
-
-                        self.stream.unread();
-                        self.state = State::RawTextState;
+                        self.transition_to(State::RawTextState);
                     }
                 }
                 State::ScriptDataLessThenSignState => {
                     let c = read_char!(self);
                     match c {
                         Element::Utf8('/') => {
-                            self.temporary_buffer = vec![];
+                            self.temporary_buffer.clear();
                             self.state = State::ScriptDataEndTagOpenState;
                         }
                         Element::Utf8('!') => {
@@ -737,8 +718,7 @@ impl<'a> Tokenizer<'a> {
                         }
                         Element::Utf8('>') => {
                             if self.is_appropriate_end_token(&self.temporary_buffer) {
-                                let s: String = self.temporary_buffer.iter().collect::<String>();
-                                self.set_name_in_current_token(s);
+                                self.set_name_in_current_token(self.temporary_buffer.clone());
 
                                 self.last_start_token = String::new();
                                 emit_current_token!(self);
@@ -759,15 +739,7 @@ impl<'a> Tokenizer<'a> {
                     }
 
                     if consume_anything_else {
-                        self.consume('<');
-                        self.consume('/');
-                        for c in self.temporary_buffer.clone() {
-                            self.consume(c);
-                        }
-                        self.temporary_buffer.clear();
-
-                        self.stream.unread();
-                        self.state = State::ScriptDataState;
+                        self.transition_to(State::ScriptDataState);
                     }
                 }
                 State::ScriptDataEscapeStartState => {
@@ -876,12 +848,12 @@ impl<'a> Tokenizer<'a> {
                     let c = read_char!(self);
                     match c {
                         Element::Utf8('/') => {
-                            self.temporary_buffer = vec![];
+                            self.temporary_buffer.clear();
                             self.state = State::ScriptDataEscapedEndTagOpenState;
                         }
                         _ => {
                             if c.is_utf8() && c.utf8().is_ascii_alphabetic() {
-                                self.temporary_buffer = vec![];
+                                self.temporary_buffer.clear();
                                 self.consume('<');
                                 self.stream.unread();
                                 self.state = State::ScriptDataDoubleEscapeStartState;
@@ -941,9 +913,7 @@ impl<'a> Tokenizer<'a> {
                         }
                         Element::Utf8('>') => {
                             if self.is_appropriate_end_token(&self.temporary_buffer) {
-                                let s: String = self.temporary_buffer.iter().collect::<String>();
-                                self.set_name_in_current_token(s);
-
+                                self.set_name_in_current_token(self.temporary_buffer.clone());
                                 self.last_start_token = String::new();
                                 emit_current_token!(self);
                                 self.state = State::DataState;
@@ -963,15 +933,7 @@ impl<'a> Tokenizer<'a> {
                     }
 
                     if consume_anything_else {
-                        self.consume('<');
-                        self.consume('/');
-                        for c in self.temporary_buffer.clone() {
-                            self.consume(c);
-                        }
-                        self.temporary_buffer.clear();
-
-                        self.stream.unread();
-                        self.state = State::ScriptDataEscapedState;
+                        self.transition_to(State::ScriptDataEscapedState);
                     }
                 }
                 State::ScriptDataDoubleEscapeStartState => {
@@ -983,12 +945,7 @@ impl<'a> Tokenizer<'a> {
                         | Element::Utf8(CHAR_SPACE)
                         | Element::Utf8('/')
                         | Element::Utf8('>') => {
-                            if self
-                                .temporary_buffer
-                                .iter()
-                                .collect::<String>()
-                                .eq("script")
-                            {
+                            if self.temporary_buffer == "script" {
                                 self.state = State::ScriptDataDoubleEscapedState;
                             } else {
                                 self.state = State::ScriptDataEscapedState;
@@ -1088,7 +1045,7 @@ impl<'a> Tokenizer<'a> {
                     let c = read_char!(self);
                     match c {
                         Element::Utf8('/') => {
-                            self.temporary_buffer = vec![];
+                            self.temporary_buffer.clear();
                             self.consume('/');
                             self.state = State::ScriptDataDoubleEscapeEndState;
                         }
@@ -1107,12 +1064,7 @@ impl<'a> Tokenizer<'a> {
                         | Element::Utf8(CHAR_SPACE)
                         | Element::Utf8('/')
                         | Element::Utf8('>') => {
-                            if self
-                                .temporary_buffer
-                                .iter()
-                                .collect::<String>()
-                                .eq("script")
-                            {
+                            if self.temporary_buffer == "script" {
                                 self.state = State::ScriptDataEscapedState;
                             } else {
                                 self.state = State::ScriptDataDoubleEscapedState;
@@ -2241,23 +2193,29 @@ impl<'a> Tokenizer<'a> {
         self.consumed.push(c)
     }
 
-    // Consumes the given string
-    pub(crate) fn consume_string(&mut self, s: &str) {
-        // Add c to the current token data
-        for c in s.chars() {
-            self.consumed.push(c)
-        }
+    fn transition_to(&mut self, state: State) {
+        self.consumed.push_str("</");
+        self.consumed.push_str(&self.temporary_buffer);
+        self.temporary_buffer.clear();
+        self.stream.unread();
+        self.state = state;
     }
 
-    // Return true when the given end_token matches the stored start token (ie: 'table' matches when last_start_token = 'table')
-    fn is_appropriate_end_token(&self, end_token: &[char]) -> bool {
-        let s: String = end_token.iter().collect();
-        self.last_start_token == s
+    // Consumes the given string
+    pub(crate) fn consume_str(&mut self, s: &str) {
+        // Add s to the current token data
+        self.consumed.push_str(s);
+    }
+
+    // Return true when the given end_token matches the stored start token (ie: 'table' matches when
+    // last_start_token = 'table')
+    fn is_appropriate_end_token(&self, end_token: &str) -> bool {
+        self.last_start_token == end_token
     }
 
     // Return the consumed string as a String
-    pub fn get_consumed_str(&self) -> String {
-        return self.consumed.iter().collect();
+    pub fn get_consumed_str(&self) -> &str {
+        &self.consumed
     }
 
     // Returns true if there is anything in the consume buffer
@@ -2304,9 +2262,9 @@ impl<'a> Tokenizer<'a> {
     }
 
     // Adds a new attribute to the current token
-    fn set_add_attribute_to_current_token(&mut self, name: String, value: String) {
+    fn set_add_attribute_to_current_token(&mut self, name: &str, value: &str) {
         if let Token::StartTagToken { attributes, .. } = &mut self.current_token.as_mut().unwrap() {
-            attributes.insert(name.clone(), value.clone());
+            attributes.insert(name.into(), value.into());
         }
 
         self.current_attr_name.clear()
@@ -2316,10 +2274,10 @@ impl<'a> Tokenizer<'a> {
     fn set_name_in_current_token(&mut self, new_name: String) {
         match &mut self.current_token.as_mut().unwrap() {
             Token::StartTagToken { name, .. } => {
-                *name = new_name.clone();
+                *name = new_name;
             }
             Token::EndTagToken { name, .. } => {
-                *name = new_name.clone();
+                *name = new_name;
             }
             _ => panic!("trying to set the name of a non start/end tag token"),
         }
