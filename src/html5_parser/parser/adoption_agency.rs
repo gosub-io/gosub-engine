@@ -256,30 +256,18 @@ impl<'a> Html5Parser<'a> {
 
     // Find the furthest block element in the stack of open elements that is above the formatting element
     fn find_furthest_block_idx(&self, formatting_element_id: NodeId) -> Option<usize> {
-        let mut formatting_element_idx_in_oe = None;
-
         // Find the index of the wanted formatting element id
-        for (idx, &element_id) in self.open_elements.iter().enumerate() {
-            if element_id == formatting_element_id {
-                formatting_element_idx_in_oe = Some(idx);
-                break;
-            }
-        }
+        let element_idx = self.open_elements.iter().position(|&element_id| element_id == formatting_element_id);
 
-        let formatting_element_idx_in_oe = match formatting_element_idx_in_oe {
-            Some(idx) => idx,
+        let element_idx = match element_idx {
+            Some(element_idx) => element_idx,
             None => return None,
         };
 
         // Iterate
-        for idx in (0..formatting_element_idx_in_oe).rev() {
-            let element_id = self.open_elements[idx];
-            let element = self
-                .document
-                .get_node_by_id(element_id)
-                .expect("element not found");
-
-            if element.is_special() {
+        for idx in element_idx..self.open_elements.len() {
+            let node = open_elements_get!(self, idx);
+            if node.is_special() {
                 return Some(idx);
             }
         }

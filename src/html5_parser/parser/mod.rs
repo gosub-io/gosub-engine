@@ -3644,7 +3644,6 @@ mod test {
     }
 
     #[test]
-    #[ignore]
     fn reconstruct_formatting() {
         let mut stream = InputStream::new();
         stream.read_from_str(
