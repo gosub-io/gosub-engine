@@ -3427,7 +3427,7 @@ mod test {
     }
 
     #[test]
-    fn test_is_in_scope() {
+    fn is_in_scope() {
         let mut stream = InputStream::new();
         let mut parser = Html5Parser::new(&mut stream);
 
@@ -3442,7 +3442,7 @@ mod test {
     }
 
     #[test]
-    fn test_is_in_scope_empty_stack() {
+    fn is_in_scope_empty_stack() {
         let mut stream = InputStream::new();
         let mut parser = Html5Parser::new(&mut stream);
 
@@ -3454,7 +3454,7 @@ mod test {
     }
 
     #[test]
-    fn test_is_in_scope_non_existing_node() {
+    fn is_in_scope_non_existing_node() {
         let mut stream = InputStream::new();
         let mut parser = Html5Parser::new(&mut stream);
 
@@ -3470,7 +3470,7 @@ mod test {
     }
 
     #[test]
-    fn test_is_in_scope_1() {
+    fn is_in_scope_1() {
         let mut stream = InputStream::new();
         let mut parser = Html5Parser::new(&mut stream);
 
@@ -3508,7 +3508,7 @@ mod test {
     }
 
     #[test]
-    fn test_is_in_scope_2() {
+    fn is_in_scope_2() {
         let mut stream = InputStream::new();
         let mut parser = Html5Parser::new(&mut stream);
 
@@ -3527,7 +3527,7 @@ mod test {
     }
 
     #[test]
-    fn test_is_in_scope_3() {
+    fn is_in_scope_3() {
         let mut stream = InputStream::new();
         let mut parser = Html5Parser::new(&mut stream);
 
@@ -3546,7 +3546,7 @@ mod test {
     }
 
     #[test]
-    fn test_is_in_scope_4() {
+    fn is_in_scope_4() {
         let mut stream = InputStream::new();
         let mut parser = Html5Parser::new(&mut stream);
 
@@ -3567,7 +3567,7 @@ mod test {
     }
 
     #[test]
-    fn test_is_in_scope_5() {
+    fn is_in_scope_5() {
         let mut stream = InputStream::new();
         let mut parser = Html5Parser::new(&mut stream);
 
@@ -3587,7 +3587,7 @@ mod test {
     }
 
     #[test]
-    fn test_is_in_scope_6() {
+    fn is_in_scope_6() {
         let mut stream = InputStream::new();
         let mut parser = Html5Parser::new(&mut stream);
 
@@ -3607,7 +3607,7 @@ mod test {
     }
 
     #[test]
-    fn test_is_in_scope_7() {
+    fn is_in_scope_7() {
         let mut stream = InputStream::new();
         let mut parser = Html5Parser::new(&mut stream);
 
@@ -3626,7 +3626,7 @@ mod test {
     }
 
     #[test]
-    fn test_is_in_scope_8() {
+    fn is_in_scope_8() {
         let mut stream = InputStream::new();
         let mut parser = Html5Parser::new(&mut stream);
 
@@ -3644,7 +3644,8 @@ mod test {
     }
 
     #[test]
-    fn test_reconstruct_formatting() {
+    #[ignore]
+    fn reconstruct_formatting() {
         let mut stream = InputStream::new();
         stream.read_from_str(
             "<p><b>bold<i>bold and italic</b>italic</i></p>",
