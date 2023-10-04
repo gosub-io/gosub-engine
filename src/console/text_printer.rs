@@ -48,11 +48,17 @@ impl<W: Write> Printer for TextPrinter<W> {
         data = data.trim_end().to_string();
 
         let _ = match log_level {
-            LogLevel::Info | LogLevel::Warn | LogLevel::Error | LogLevel::Log | LogLevel::Assert => {
+            LogLevel::Info
+            | LogLevel::Warn
+            | LogLevel::Error
+            | LogLevel::Log
+            | LogLevel::Assert => {
                 writeln!(self.writer, "{}[{}] {}", group_prefix, log_level, data)
             }
             LogLevel::Group => writeln!(self.writer, "{}Expanded group: {}", group_prefix, data),
-            LogLevel::GroupCollapsed => writeln!(self.writer, "{}Collapsed group: {}", group_prefix, data),
+            LogLevel::GroupCollapsed => {
+                writeln!(self.writer, "{}Collapsed group: {}", group_prefix, data)
+            }
             LogLevel::TimeEnd => writeln!(self.writer, "{}{} - timer ended", group_prefix, data),
             _ => Ok(()),
         };
