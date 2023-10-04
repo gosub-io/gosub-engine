@@ -182,7 +182,7 @@ fn run_tree_test(test_idx: usize, test: &Test, results: &mut TestResults) {
 
     if parse_errors.len() != test.errors.len() {
         println!(
-            "❌ Unexpected errors found (wanted {}, got {}): ",
+            "⚠️ Unexpected errors found (wanted {}, got {}): ",
             test.errors.len(),
             parse_errors.len()
         );
@@ -202,7 +202,7 @@ fn run_tree_test(test_idx: usize, test: &Test, results: &mut TestResults) {
         results.assertions += 1;
         results.failed += 1;
     } else {
-        println!("✅ Found {} errors", parse_errors.len());
+        println!("✅  Found {} errors", parse_errors.len());
     }
 
     // For now, we skip the tests that checks for errors as most of the errors do not match
@@ -310,7 +310,7 @@ fn match_node(
                     );
                     return None;
                 } else {
-                    println!("✅ {}", expected[expected_id as usize]);
+                    println!("✅  {}", expected[expected_id as usize]);
                 }
             }
             NodeData::Text { value } => {
@@ -322,7 +322,7 @@ fn match_node(
                     );
                     return None;
                 } else {
-                    println!("✅ {}", expected[expected_id as usize]);
+                    println!("✅  {}", expected[expected_id as usize]);
                 }
             }
             _ => {}
@@ -349,7 +349,7 @@ fn match_error(got_err: &Error, expected_err: &Error) -> ErrorResult {
     if got_err == expected_err {
         // Found an exact match
         println!(
-            "✅ Found parse error '{}' at {}:{}",
+            "✅  Found parse error '{}' at {}:{}",
             got_err.code, got_err.line, got_err.col
         );
 

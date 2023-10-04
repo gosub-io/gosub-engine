@@ -235,6 +235,12 @@ macro_rules! current_node_mut {
     }};
 }
 
+macro_rules! get_node_by_id {
+    ($self:expr, $id:expr) => {{
+        $self.document.get_node_by_id($id).expect("Node not found")
+    }};
+}
+
 #[macro_use]
 mod adoption_agency;
 
@@ -3080,7 +3086,7 @@ impl<'a> Html5Parser<'a> {
             match self.active_formatting_elements[idx] {
                 ActiveElement::Marker => return None,
                 ActiveElement::Node(node_id) => {
-                    if self.document.get_node_by_id(node_id).expect("node_id").name == tag {
+                    if get_node_by_id!(self, node_id).name == tag {
                         return Some(node_id);
                     }
                 }
@@ -3422,11 +3428,13 @@ impl<'a> Html5Parser<'a> {
 
     fn display_debug_info(&self) {
         println!("-----------------------------------------\n");
+        self.document.print_nodes();
+        println!("-----------------------------------------\n");
         println!("current token   : {}", self.current_token);
         println!("insertion mode  : {:?}", self.insertion_mode);
         print!("Open elements   : [ ");
         for node_id in &self.open_elements {
-            let node = self.document.get_node_by_id(*node_id).unwrap();
+            let node = get_node_by_id!(self, *node_id);
             print!("({}) {}, ", node_id, node.name);
         }
         println!("]");
@@ -3435,7 +3443,7 @@ impl<'a> Html5Parser<'a> {
         for elem in &self.active_formatting_elements {
             match elem {
                 ActiveElement::Node(node_id) => {
-                    let node = self.document.get_node_by_id(*node_id).unwrap();
+                    let node = get_node_by_id!(self, *node_id);
                     print!("({}) {}, ", node_id, node.name);
                 }
                 ActiveElement::Marker => {

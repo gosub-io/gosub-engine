@@ -5,7 +5,16 @@ use super::node::NodeId;
 
 pub struct NodeArena {
     nodes: HashMap<NodeId, Node>, // Current nodes
+    order: Vec<NodeId>,           // Order of nodes
     next_id: NodeId,              // next id to use
+}
+
+impl NodeArena {
+    pub(crate) fn print_nodes(&self) {
+        for id in self.order.iter() {
+            println!("({}): {:?}", id, self.nodes.get(id).expect("node"));
+        }
+    }
 }
 
 impl NodeArena {
@@ -14,6 +23,7 @@ impl NodeArena {
         Self {
             nodes: HashMap::new(),
             next_id: Default::default(),
+            order: Vec::new(),
         }
     }
 
@@ -34,6 +44,7 @@ impl NodeArena {
 
         node.id = id;
         self.nodes.insert(id, node);
+        self.order.push(id);
         id
     }
 
@@ -54,15 +65,17 @@ impl NodeArena {
     }
 
     /// Removes the node with the given id from the arena
-    fn remove_node(&mut self, node_id: NodeId) {
+    fn detach_node(&mut self, node_id: NodeId) {
         // Remove children
         if let Some(node) = self.nodes.get_mut(&node_id) {
             for child_id in node.children.clone() {
-                self.remove_node(child_id);
+                self.detach_node(child_id);
             }
         }
 
         if let Some(node) = self.nodes.remove(&node_id) {
+            self.order.retain(|&id| id != node_id);
+
             if let Some(parent_id) = node.parent {
                 if let Some(parent_node) = self.nodes.get_mut(&parent_id) {
                     parent_node.children.retain(|&id| id != node_id);
@@ -241,7 +254,7 @@ mod tests {
     }
 
     #[test]
-    fn remove_node() {
+    fn detach_node() {
         let mut arena = NodeArena::new();
 
         let parent = Node::new_element("parent", HashMap::new(), HTML_NAMESPACE);
@@ -250,7 +263,7 @@ mod tests {
         let child_id = arena.add_node(child);
 
         arena.attach_node(parent_id, child_id);
-        arena.remove_node(child_id);
+        arena.detach_node(child_id);
 
         let parent = arena.get_node(parent_id);
         assert!(parent.is_some());
@@ -277,7 +290,7 @@ mod tests {
         assert!(parent.is_some());
         assert_eq!(parent.unwrap().children.len(), 2);
 
-        arena.remove_node(child1_id);
+        arena.detach_node(child1_id);
 
         let child = arena.get_node(child1_id);
         assert!(child.is_none());
@@ -290,7 +303,7 @@ mod tests {
     }
 
     #[test]
-    fn remove_node_with_children() {
+    fn detach_node_with_children() {
         let mut arena = NodeArena::new();
 
         let parent = Node::new_element("parent", HashMap::new(), HTML_NAMESPACE);
@@ -299,7 +312,7 @@ mod tests {
         let child_id = arena.add_node(child);
 
         arena.attach_node(parent_id, child_id);
-        arena.remove_node(parent_id);
+        arena.detach_node(parent_id);
 
         let parent = arena.get_node(parent_id);
         assert!(parent.is_none());
@@ -308,7 +321,7 @@ mod tests {
     }
 
     #[test]
-    fn remove_node_with_children_and_parent() {
+    fn detach_node_with_children_and_parent() {
         let mut arena = NodeArena::new();
 
         let parent = Node::new_element("parent", HashMap::new(), HTML_NAMESPACE);
@@ -317,8 +330,8 @@ mod tests {
         let child_id = arena.add_node(child);
 
         arena.attach_node(parent_id, child_id);
-        arena.remove_node(child_id);
-        arena.remove_node(parent_id);
+        arena.detach_node(child_id);
+        arena.detach_node(parent_id);
 
         let parent = arena.get_node(parent_id);
         assert!(parent.is_none());
@@ -327,7 +340,7 @@ mod tests {
     }
 
     #[test]
-    fn remove_node_with_children_and_parent_and_grandchildren() {
+    fn detach_node_with_children_and_parent_and_grandchildren() {
         let mut arena = NodeArena::new();
 
         let parent = Node::new_element("parent", HashMap::new(), HTML_NAMESPACE);
@@ -339,8 +352,8 @@ mod tests {
 
         arena.attach_node(parent_id, child_id);
         arena.attach_node(child_id, grandchild_id);
-        arena.remove_node(child_id);
-        arena.remove_node(parent_id);
+        arena.detach_node(child_id);
+        arena.detach_node(parent_id);
 
         let parent = arena.get_node(parent_id);
         assert!(parent.is_none());
@@ -351,7 +364,7 @@ mod tests {
     }
 
     #[test]
-    fn remove_node_with_children_and_parent_and_grandchildren_and_siblings() {
+    fn detach_node_with_children_and_parent_and_grandchildren_and_siblings() {
         let mut arena = NodeArena::new();
 
         let parent = Node::new_element("parent", HashMap::new(), HTML_NAMESPACE);
@@ -366,8 +379,8 @@ mod tests {
         arena.attach_node(parent_id, child_id);
         arena.attach_node(child_id, grandchild_id);
         arena.attach_node(parent_id, sibling_id);
-        arena.remove_node(child_id);
-        arena.remove_node(parent_id);
+        arena.detach_node(child_id);
+        arena.detach_node(parent_id);
 
         let parent = arena.get_node(parent_id);
         assert!(parent.is_none());

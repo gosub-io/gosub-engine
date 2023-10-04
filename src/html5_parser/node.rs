@@ -86,6 +86,7 @@ impl NodeId {
 }
 
 /// Node that resembles a DOM node
+#[derive(Debug, PartialEq)]
 pub struct Node {
     /// ID of the node, 0 is always the root / document node
     pub id: NodeId,
