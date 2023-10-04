@@ -1,8 +1,7 @@
 # GoSub: Gateway to Optimized Searching and Unlimited Browsing
 
-A feeble attempt at writing a browser and learning rust.
-
-**Note: code in the main branch is currently unstable and might not even compile.**
+This repository holds the GoSub HTML5 parser/tokenizer. It is a standalone library that can be used by other projects
+but will ultimately be used by the GoSub browser. See the [About](#about) section for more information.
 
 ```
                        _     
@@ -30,14 +29,20 @@ agent. This could be a text-mode browser, but the idea is to have a graphical br
 
 ## Status
 
+> This project is in its infancy. There is no browser you can use yet.
+
 This is a work in progress. The current status is that the parser can parse a few HTML5 documents, but it is far from
 ready. The main goal is to be able to parse correctly all the tests in the html5lib-tests repository 
-(https://github.com/html5lib/html5lib-tests). As soon as we can do this, we can try and see if we can generate a DOM 
-tree, and then we can start thinking about the next component (CSS parser).
+(https://github.com/html5lib/html5lib-tests). 
+
+Our goal at the moment is to research as much as possible and to setup proof-of-concepts in order to gain more 
+understanding in the field of browsers. We are not trying to create a full-fledged browser at the moment, but it will
+be our ultimate goal. 
 
 ## How to build
 
 This project uses cargo (https://doc.rust-lang.org/cargo/). To build the project, run:
+
 ```bash
 cargo build
 ```
@@ -47,23 +52,12 @@ This will create the following binaries and libs:
 | File           | Type | Description                       |
 |----------------|------|-----------------------------------|
 | gosub-engine   | lib  | The actual html5 parser/tokenizer |
-| gosub-browser  | bin  | Dummy browser (see below)         |
 | parser_test    | bin  | A test suite for the parser       |
-| tokenizer_test | bin  | A test suite for the tokenizer    |
 
 ### Gosub-engine
 
 This is the actual html5 parser/tokenizer. It is a library that can be used for other projects. It is not a standalone
-project. It is used by the `gosub-browser` project.
-
-### Gosub-browser
-
-This is a dummy browser. It is not a real browser, it is just a test project to see if the parser/tokenizer is working 
-and tries to parse the given URL on the command line:
-
-```bash
-$ gosub-browser https://www.google.com
-```
+project but can be incorporated into other projects. 
 
 ### Parser_test
 
@@ -71,5 +65,5 @@ This is a test suite for the parser. It is not a standalone project. It is used 
 to specify the directory to the html5lib-test to run, or it will use the default one (./html5lib-tests).
 
 ```bash
-$ parser_test /path/to/html5lib-tests
+$ parser_test 
 ```
