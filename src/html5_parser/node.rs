@@ -37,7 +37,7 @@ pub enum NodeData {
 
 /// Id used to identify a node
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq, Display)]
-pub struct NodeId(pub(crate) usize);
+pub(crate) struct NodeId(pub usize);
 
 impl From<NodeId> for usize {
     fn from(value: NodeId) -> Self {
