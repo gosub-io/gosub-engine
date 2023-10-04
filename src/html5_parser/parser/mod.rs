@@ -17,6 +17,9 @@ use crate::html5_parser::parser::quirks::QuirksMode;
 use crate::html5_parser::tokenizer::state::State;
 use crate::html5_parser::tokenizer::token::Token;
 use crate::html5_parser::tokenizer::{Tokenizer, CHAR_NUL};
+use crate::html5_parser::node::NodeType;
+use crate::html5_parser::element_class::ElementClass;
+use crate::html5_parser::node::NodeTrait;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::prelude::*;
@@ -3323,7 +3326,13 @@ impl<'a> Html5Parser<'a> {
         let adjusted_insert_location = self.adjusted_insert_location(None);
         //        let parent_id = current_node!(self).id;
 
-        let node = self.create_node(token, namespace.unwrap_or(HTML_NAMESPACE));
+        let mut node = self.create_node(token, namespace.unwrap_or(HTML_NAMESPACE));
+        //@ TODO: if node is ElementType and has attributes, check for class
+        // attribute and add class element
+        //@ TODO: get rid of these unwraps()
+        if node.type_of() == NodeType::Element && node.contains_attribute("class").unwrap() {
+            node.classes = Some(ElementClass::from_string(node.get_attribute("class").unwrap().unwrap()));
+        }
 
         // if parent_id is possible to insert element  (for instance: document already has child element etc)
         //    if parser not created  as part of html fragmentparsing algorithm

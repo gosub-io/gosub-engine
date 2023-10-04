@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ElementClass {
     /// a map of classes applied to an HTML element.
     /// key = name, value = is_active
@@ -20,6 +20,19 @@ impl ElementClass {
         ElementClass {
             class_map: HashMap::new(),
         }
+    }
+
+    /// Initialize a class from a class string
+    /// with space-delimited class names
+    pub fn from_string(class_string: &str) -> Self {
+        let mut element_class = ElementClass::new();
+        let classes = class_string.split_whitespace();
+        for class_name in classes {
+            element_class.add(class_name);
+            println!("{}", class_name);
+        }
+
+       element_class 
     }
 
     /// Check if class name exists

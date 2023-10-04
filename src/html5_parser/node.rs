@@ -1,5 +1,6 @@
 use derive_more::Display;
 use std::collections::HashMap;
+use crate::html5_parser::element_class::ElementClass;
 
 pub const HTML_NAMESPACE: &str = "http://www.w3.org/1999/xhtml";
 pub const MATHML_NAMESPACE: &str = "http://www.w3.org/1998/Math/MathML";
@@ -98,6 +99,8 @@ pub struct Node {
     pub namespace: Option<String>,
     /// actual data of the node
     pub data: NodeData,
+    /// CSS classes (only relevant for NodeType::Element, otherwise None)
+    pub classes: Option<ElementClass>,
 }
 
 impl Node {
@@ -117,6 +120,7 @@ impl Clone for Node {
             name: self.name.clone(),
             namespace: self.namespace.clone(),
             data: self.data.clone(),
+            classes: self.classes.clone(),
         }
     }
 }
@@ -131,6 +135,7 @@ impl Node {
             data: NodeData::Document {},
             name: "".to_string(),
             namespace: None,
+            classes: None,
         }
     }
 
@@ -146,6 +151,7 @@ impl Node {
             },
             name: name.to_string(),
             namespace: Some(namespace.into()),
+            classes: Some(ElementClass::new()),
         }
     }
 
@@ -160,6 +166,7 @@ impl Node {
             },
             name: "".to_string(),
             namespace: None,
+            classes: None,
         }
     }
 
@@ -174,6 +181,7 @@ impl Node {
             },
             name: "".to_string(),
             namespace: None,
+            classes: None,
         }
     }
 
