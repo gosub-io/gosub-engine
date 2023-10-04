@@ -83,4 +83,34 @@ mod tests {
         classes.add("yep");
         assert_eq!(classes.contains("yep"), true);
     }
+
+    #[test]
+    fn add_class() {
+        let mut classes = ElementClass::new();
+        classes.add("yep");
+        assert_eq!(classes.is_active("yep"), true);
+
+        classes.set_active("yep", false);
+        classes.add("yep"); // should be ignored
+        assert_eq!(classes.is_active("yep"), false);
+    }
+
+    #[test]
+    fn remove_class() {
+        let mut classes = ElementClass::new();
+        classes.add("yep");
+        classes.remove("yep");
+        assert_eq!(classes.contains("yep"), false);
+    }
+
+    #[test]
+    fn toggle_class() {
+        let mut classes = ElementClass::new();
+        classes.add("yep");
+        assert_eq!(classes.is_active("yep"), true);
+        classes.toggle("yep");
+        assert_eq!(classes.is_active("yep"), false);
+        classes.toggle("yep");
+        assert_eq!(classes.is_active("yep"), true);
+    }
 }
