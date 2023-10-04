@@ -1,22 +1,5 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use gosub_engine::testing::tokenizer::{self, Test};
-
-fn tokenize(test: &Test) {
-    for mut builder in test.builders() {
-        let mut tokenizer = builder.build();
-
-        // If there is no output, still do an (initial) next token so the parser can generate
-        // errors.
-        if test.output.is_empty() {
-            tokenizer.next_token();
-        }
-
-        // There can be multiple tokens to match. Make sure we match all of them
-        for _ in test.output.iter() {
-            tokenizer.next_token();
-        }
-    }
-}
+use criterion::{criterion_group, criterion_main, Criterion};
+use gosub_engine::testing::tokenizer;
 
 fn criterion_benchmark(c: &mut Criterion) {
     // Criterion can report inconsistent results from run to run in some cases.  We attempt to
@@ -32,7 +15,7 @@ fn criterion_benchmark(c: &mut Criterion) {
         b.iter(|| {
             for root in &fixtures {
                 for test in &root.tests {
-                    tokenize(black_box(test))
+                    test.tokenize();
                 }
             }
         })
