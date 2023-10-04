@@ -1,4 +1,4 @@
-use crate::console::Printer;
+use crate::console::{LogLevel, Printer};
 use std::fmt;
 use std::io::Write;
 
@@ -21,19 +21,19 @@ impl<W: Write> TextPrinter<W> {
 }
 
 impl<W: Write> Printer for TextPrinter<W> {
-    fn print(&mut self, log_level: &str, args: &[&dyn fmt::Display], _options: &[&str]) {
+    fn print(&mut self, log_level: LogLevel, args: &[&dyn fmt::Display], _options: &[&str]) {
         if args.is_empty() {
             return;
         }
 
         match log_level {
-            "group" => {
+            LogLevel::Group => {
                 self.groups.push(Group { collapsed: false });
             }
-            "groupCollapse" => {
+            LogLevel::GroupCollapsed => {
                 self.groups.push(Group { collapsed: true });
             }
-            "groupEnd" => {
+            LogLevel::GroupEnd => {
                 self.groups.pop();
             }
             _ => {}
@@ -48,12 +48,12 @@ impl<W: Write> Printer for TextPrinter<W> {
         data = data.trim_end().to_string();
 
         let _ = match log_level {
-            "info" | "warn" | "error" | "log" | "assert" => {
+            LogLevel::Info | LogLevel::Warn | LogLevel::Error | LogLevel::Log | LogLevel::Assert => {
                 writeln!(self.writer, "{}[{}] {}", group_prefix, log_level, data)
             }
-            "group" => writeln!(self.writer, "{}Expanded group: {}", group_prefix, data),
-            "groupCollapsed" => writeln!(self.writer, "{}Collapsed group: {}", group_prefix, data),
-            "timeEnd" => writeln!(self.writer, "{}{} - timer ended", group_prefix, data),
+            LogLevel::Group => writeln!(self.writer, "{}Expanded group: {}", group_prefix, data),
+            LogLevel::GroupCollapsed => writeln!(self.writer, "{}Collapsed group: {}", group_prefix, data),
+            LogLevel::TimeEnd => writeln!(self.writer, "{}{} - timer ended", group_prefix, data),
             _ => Ok(()),
         };
     }
@@ -78,7 +78,7 @@ mod tests {
         let mut buffer = Vec::new();
         let mut printer = TextPrinter::new(Cursor::new(&mut buffer));
 
-        printer.print("log", &[&"Hello", &"World"], &vec![]);
+        printer.print(LogLevel::Log, &[&"Hello", &"World"], &vec![]);
         assert_eq!(
             String::from_utf8(buffer).expect("failed to convert"),
             "[log] Hello World\n"
@@ -86,9 +86,9 @@ mod tests {
 
         let mut buffer = Vec::new();
         let mut printer = TextPrinter::new(Cursor::new(&mut buffer));
-        printer.print("info", &[&"Foo", &2, &false], &vec![]);
-        printer.print("warn", &[&"a", &"b"], &vec![]);
-        printer.print("error", &[], &vec![]);
+        printer.print(LogLevel::Info, &[&"Foo", &2, &false], &vec![]);
+        printer.print(LogLevel::Warn, &[&"a", &"b"], &vec![]);
+        printer.print(LogLevel::Error, &[], &vec![]);
         assert_eq!(
             String::from_utf8(buffer).expect("failed to convert"),
             "[info] Foo 2 false\n[warn] a b\n"

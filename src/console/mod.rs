@@ -7,6 +7,34 @@ use std::fmt;
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
+/// LogLevel is the type of log level.
+#[derive(Debug)]
+enum LogLevel {
+    Info,
+    Warn,
+    Error,
+    Log,
+    Debug,
+    Assert,
+    Group,
+    GroupCollapsed,
+    GroupEnd,
+    TimeEnd,
+    Count,
+    CountReset,
+    Dir,
+    Dirxml,
+    Table,
+    Trace,
+}
+
+impl fmt::Display for LogLevel {
+    // When displaying the enum, make sure it is in lowercase
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", format!("{:?}", self).to_lowercase())
+    }
+}
+
 /// Timer holds the start and end time of a timer.
 struct Timer {
     label: String,
@@ -56,7 +84,7 @@ impl Console {
             format!("{}: {}", message, data[0])
         };
 
-        self.logger("assert", &[&concat]);
+        self.logger(LogLevel::Assert, &[&concat]);
     }
 
     fn clear(&mut self) {
@@ -68,19 +96,19 @@ impl Console {
     }
 
     fn debug(&mut self, data: &[&dyn fmt::Display]) {
-        self.logger("debug", data);
+        self.logger(LogLevel::Debug, data);
     }
 
     fn error(&mut self, data: &[&dyn fmt::Display]) {
-        self.logger("error", data);
+        self.logger(LogLevel::Error, data);
     }
 
     fn info(&mut self, data: &[&dyn fmt::Display]) {
-        self.logger("info", data);
+        self.logger(LogLevel::Info, data);
     }
 
     fn log(&mut self, data: &[&dyn fmt::Display]) {
-        self.logger("log", data);
+        self.logger(LogLevel::Log, data);
     }
 
     fn table(&mut self, _tabular_data: String, _properties: &[&str]) {
@@ -92,36 +120,36 @@ impl Console {
     }
 
     fn warn(&mut self, data: &[&dyn fmt::Display]) {
-        self.logger("warn", data);
+        self.logger(LogLevel::Warn, data);
     }
 
     fn dir(&mut self, item: &dyn fmt::Display, options: &[&str]) {
-        self.printer.print("dir", &[&item], options);
+        self.printer.print(LogLevel::Dir, &[&item], options);
     }
 
     fn dirxml(&self, _data: &[&dyn fmt::Display]) {
         todo!()
     }
 
-    fn count(&mut self, label: String) {
+    fn count(&mut self, label: &str) {
         let mut cnt = 1;
-        if self.counts.contains_key(&label) {
-            cnt = self.counts.get(&label).unwrap() + 1;
+        if self.counts.contains_key(&label.to_owned()) {
+            cnt = self.counts.get(&label.to_owned()).unwrap() + 1;
         }
 
-        self.counts.insert(label.clone(), cnt + 1);
+        self.counts.insert(label.to_owned(), cnt + 1);
 
-        let concat = format!("{}: {}", label, cnt);
-        self.logger("count", &[&concat]);
+        let concat = format!("{}: {}", label.to_owned(), cnt);
+        self.logger(LogLevel::Count, &[&concat]);
     }
 
-    fn count_reset(&mut self, label: String) {
-        if !self.counts.contains_key(&label) {
-            self.logger("countReset", &[&"label does not exist"]);
+    fn count_reset(&mut self, label: &str) {
+        if !self.counts.contains_key(&label.to_owned()) {
+            self.logger(LogLevel::CountReset, &[&"label does not exist"]);
             return;
         }
 
-        self.counts.insert(label.clone(), 1);
+        self.counts.insert(label.to_owned(), 1);
     }
 
     /// Create an expanded group
@@ -137,7 +165,7 @@ impl Console {
         };
 
         // Group should be expanded
-        self.printer.print("group", &[&group.label], &[]);
+        self.printer.print(LogLevel::Group, &[&group.label], &[]);
 
         self.group_stacks.push(group);
     }
@@ -154,7 +182,7 @@ impl Console {
             label: group_label.clone(),
         };
 
-        self.printer.print("groupCollapsed", &[&group.label], &[]);
+        self.printer.print(LogLevel::GroupCollapsed, &[&group.label], &[]);
 
         self.group_stacks.push(group);
     }
@@ -166,10 +194,10 @@ impl Console {
     }
 
     /// Create a timer
-    fn time(&mut self, label: String) {
-        if self.timers.contains_key(&label) {
+    fn time(&mut self, label: &str) {
+        if self.timers.contains_key(&label.to_owned()) {
             let warning = format!("Timer '{}' already started", label);
-            self.logger("warning", &[&warning]);
+            self.logger(LogLevel::Warn, &[&warning]);
             return;
         }
 
@@ -179,9 +207,9 @@ impl Console {
         };
 
         self.timers.insert(
-            label.clone(),
+            label.to_owned(),
             Timer {
-                label: label.clone(),
+                label: label.to_owned(),
                 start,
                 end: None,
             },
@@ -189,12 +217,12 @@ impl Console {
     }
 
     /// Log time
-    fn time_log(&self, _label: String, _data: &[&dyn fmt::Display]) {
+    fn time_log(&self, _label: &str, _data: &[&dyn fmt::Display]) {
         todo!()
     }
 
     /// End the given timer
-    fn time_end(&mut self, label: String) {
+    fn time_end(&mut self, label: &str) {
         let end = match SystemTime::now().duration_since(UNIX_EPOCH) {
             Ok(n) => n.as_millis(),
             Err(_) => 0,
@@ -202,13 +230,13 @@ impl Console {
 
         let concat = format!(
             "{}: {}ms",
-            label,
-            end - self.timers.get(&label).unwrap().start
+            label.to_owned(),
+            end - self.timers.get(&label.to_owned()).unwrap().start
         );
-        self.printer.print("timeEnd", &[&concat], &[]);
+        self.printer.print(LogLevel::TimeEnd, &[&concat], &[]);
     }
 
-    fn logger(&mut self, log_level: &str, args: &[&dyn fmt::Display]) {
+    fn logger(&mut self, log_level: LogLevel, args: &[&dyn fmt::Display]) {
         if args.is_empty() {
             return;
         }
@@ -226,20 +254,19 @@ impl Console {
 }
 
 trait Printer {
-    fn print(&mut self, log_level: &str, args: &[&dyn fmt::Display], _options: &[&str]);
+    fn print(&mut self, log_level: LogLevel, args: &[&dyn fmt::Display], _options: &[&str]);
     fn clear(&mut self);
     fn end_group(&mut self);
 }
 
 #[cfg(test)]
-
 mod tests {
     use super::*;
     use crate::console::text_printer::TextPrinter;
     use std::thread::sleep;
 
     #[test]
-    fn test_console() {
+    fn console() {
         let stdout = std::io::stdout();
         let handle = stdout.lock();
 

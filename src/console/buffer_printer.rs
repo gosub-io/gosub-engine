@@ -21,20 +21,20 @@ impl BufferPrinter {
 }
 
 impl Printer for BufferPrinter {
-    fn print(&mut self, log_level: String, args: &[&dyn fmt::Display], _options: &[&str])
+    fn print(&mut self, log_level: LogLevel, args: &[&dyn fmt::Display], _options: &[&str])
     {
-        if args.len() == 0 {
+        if args.is_empty() {
             return;
         }
 
-        match log_level.as_str() {
-            "group" => {
+        match log_level {
+            LogLevel::Group => {
                 self.groups.push(Group { collapsed: false });
             },
-            "groupCollapse" => {
+            LogLevel::GroupCollapsed => {
                 self.groups.push(Group { collapsed: true });
             }
-            "groupEnd" => {
+            Loglevel::GroupEnd => {
                 self.groups.pop();
             },
             _ => {},
@@ -47,15 +47,15 @@ impl Printer for BufferPrinter {
             data.push_str(format!("{}", arg).as_str());
         }
 
-        match log_level.as_str() {
-            "info" => println!("{}[{}] {}", group_prefix, log_level, data.on_bright_blue().color("white")),
-            "warn" => println!("{}[{}] {}", group_prefix, log_level, data.on_bright_yellow().color("black")),
-            "error" => println!("{}[{}] {}", group_prefix, log_level, data.on_bright_red().color("white")),
-            "log" => println!("{}[{}] {}", group_prefix, log_level, data),
-            "assert" => println!("{}[{}] {}", group_prefix, log_level, data),
-            "group" => println!("{}Expanded group: {}", group_prefix, data),
-            "groupCollapsed" => println!("{}Collapsed group: {}", group_prefix, data),
-            "timeEnd" => println!("{}{} - timer ended", group_prefix, data),
+        match log_level {
+            LogLevel::Info => println!("{}[{}] {}", group_prefix, log_level, data.on_bright_blue().color("white")),
+            LogLevel::Warn => println!("{}[{}] {}", group_prefix, log_level, data.on_bright_yellow().color("black")),
+            LogLevel::Error => println!("{}[{}] {}", group_prefix, log_level, data.on_bright_red().color("white")),
+            LogLevel::Log => println!("{}[{}] {}", group_prefix, log_level, data),
+            LogLevel::Assert => println!("{}[{}] {}", group_prefix, log_level, data),
+            LogLevel::Group => println!("{}Expanded group: {}", group_prefix, data),
+            LogLevel::GroupCollapsed => println!("{}Collapsed group: {}", group_prefix, data),
+            LogLevel::TimeEnd => println!("{}{} - timer ended", group_prefix, data),
             _ => {},
         }
     }
@@ -75,7 +75,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_buffer_printer() {
+    fn buffer_printer() {
         let mut printer = BufferPrinter::new();
         printer.print("log".into(), &[&"Hello".to_string(), &"World".to_string()], &vec![]);
         printer.print("info".into(), &[&"Something when wrong".to_string(), &"This too!".to_string()], &vec![]);
