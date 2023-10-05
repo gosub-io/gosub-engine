@@ -1,6 +1,6 @@
+use crate::html5_parser::element_class::ElementClass;
 use derive_more::Display;
 use std::collections::HashMap;
-use crate::html5_parser::element_class::ElementClass;
 
 pub const HTML_NAMESPACE: &str = "http://www.w3.org/1999/xhtml";
 pub const MATHML_NAMESPACE: &str = "http://www.w3.org/1998/Math/MathML";
@@ -254,9 +254,9 @@ impl Node {
 
     /// Get a constant reference to the attribute value
     /// (or None if attribute doesn't exist)
-    pub fn get_attribute(&self, name: &str) -> Result<Option<&String>, String> {
+    pub fn get_attribute(&self, name: &str) -> Option<&String> {
         if self.type_of() != NodeType::Element {
-            return Err(ATTRIBUTE_NODETYPE_ERR_MSG.into());
+            return None;
         }
 
         let mut value: Option<&String> = None;
@@ -264,14 +264,14 @@ impl Node {
             value = attributes.get(name);
         }
 
-        Ok(value)
+        value
     }
 
     /// Get a mutable reference to the attribute value
     /// (or None if the attribute doesn't exist)
-    pub fn get_mut_attribute(&mut self, name: &str) -> Result<Option<&mut String>, String> {
+    pub fn get_mut_attribute(&mut self, name: &str) -> Option<&mut String> {
         if self.type_of() != NodeType::Element {
-            return Err(ATTRIBUTE_NODETYPE_ERR_MSG.into());
+            return None;
         }
 
         let mut value: Option<&mut String> = None;
@@ -279,7 +279,7 @@ impl Node {
             value = attributes.get_mut(name);
         }
 
-        Ok(value)
+        value
     }
 
     /// Remove all attributes
@@ -657,7 +657,7 @@ mod tests {
         let mut node = Node::new_element("name", attr.clone(), HTML_NAMESPACE);
 
         assert!(node.insert_attribute("key", "value").is_ok());
-        let value = node.get_attribute("key").unwrap().unwrap();
+        let value = node.get_attribute("key").unwrap();
         assert_eq!(value, "value");
     }
 
@@ -684,7 +684,7 @@ mod tests {
     fn get_attribute_non_element() {
         let node = Node::new_document();
         let result = node.get_attribute("name");
-        assert!(result.is_err());
+        assert!(result.is_none());
     }
 
     #[test]
@@ -694,7 +694,7 @@ mod tests {
 
         let node = Node::new_element("name", attr.clone(), HTML_NAMESPACE);
 
-        let value = node.get_attribute("key").unwrap().unwrap();
+        let value = node.get_attribute("key").unwrap();
         assert_eq!(value, "value");
     }
 
@@ -702,7 +702,7 @@ mod tests {
     fn get_mut_attribute_non_element() {
         let mut node = Node::new_document();
         let result = node.get_mut_attribute("key");
-        assert!(result.is_err());
+        assert!(result.is_none());
     }
 
     #[test]
@@ -712,10 +712,10 @@ mod tests {
 
         let mut node = Node::new_element("name", attr.clone(), HTML_NAMESPACE);
 
-        let value = node.get_mut_attribute("key").unwrap().unwrap();
+        let value = node.get_mut_attribute("key").unwrap();
         value.push_str(" appended");
 
-        let value = node.get_attribute("key").unwrap().unwrap();
+        let value = node.get_attribute("key").unwrap();
         assert_eq!(value, "value appended");
     }
 

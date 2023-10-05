@@ -5,6 +5,7 @@ mod quirks;
 // ------------------------------------------------------------
 
 use super::node::NodeId;
+use crate::html5_parser::element_class::ElementClass;
 use crate::html5_parser::error_logger::{ErrorLogger, ParseError, ParserError};
 use crate::html5_parser::input_stream::InputStream;
 use crate::html5_parser::node::{Node, NodeData, HTML_NAMESPACE, MATHML_NAMESPACE, SVG_NAMESPACE};
@@ -17,9 +18,6 @@ use crate::html5_parser::parser::quirks::QuirksMode;
 use crate::html5_parser::tokenizer::state::State;
 use crate::html5_parser::tokenizer::token::Token;
 use crate::html5_parser::tokenizer::{Tokenizer, CHAR_NUL};
-use crate::html5_parser::node::NodeType;
-use crate::html5_parser::element_class::ElementClass;
-use crate::html5_parser::node::NodeTrait;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::prelude::*;
@@ -3327,11 +3325,17 @@ impl<'a> Html5Parser<'a> {
         //        let parent_id = current_node!(self).id;
 
         let mut node = self.create_node(token, namespace.unwrap_or(HTML_NAMESPACE));
-        //@ TODO: if node is ElementType and has attributes, check for class
-        // attribute and add class element
-        //@ TODO: get rid of these unwraps()
-        if node.type_of() == NodeType::Element && node.contains_attribute("class").unwrap() {
-            node.classes = Some(ElementClass::from_string(node.get_attribute("class").unwrap().unwrap()));
+
+        // add CSS classes from class attribute in element
+        // e.g., <div class="one two three">
+        // NOTE: it seems in base rust, you can't really combine "if" and "if let" so I
+        // had to introduce more nesting... please suggest cleaner alternatives if any!
+        if let Ok(contains_class) = node.contains_attribute("class") {
+            if contains_class {
+                if let Some(class_string) = node.get_attribute("class") {
+                    node.classes = Some(ElementClass::from_string(class_string));
+                }
+            }
         }
 
         // if parent_id is possible to insert element  (for instance: document already has child element etc)
@@ -3687,5 +3691,69 @@ mod test {
         parser.parse();
 
         println!("{}", parser.document);
+    }
+
+    #[test]
+    fn element_no_classes() {
+        let mut stream = InputStream::new();
+        stream.read_from_str("<div></div>", Some(Encoding::UTF8));
+
+        let mut parser = Html5Parser::new(&mut stream);
+        let (doc, _) = parser.parse();
+
+        assert_eq!(doc.get_root().classes.is_none(), true);
+    }
+
+    #[test]
+    fn element_with_classes() {
+        let mut stream = InputStream::new();
+        stream.read_from_str("<div class=\"one two three\"></div>", Some(Encoding::UTF8));
+
+        let mut parser = Html5Parser::new(&mut stream);
+        let (doc, _) = parser.parse();
+
+        // document -> html -> head -> body -> div
+        let div = doc.get_node_by_id(NodeId(4)).unwrap();
+        assert!(div.classes.is_some());
+
+        if let Some(&ref classes) = div.classes.as_ref() {
+            assert_eq!(classes.count(), 3);
+
+            assert_eq!(classes.contains("one"), true);
+            assert_eq!(classes.contains("two"), true);
+            assert_eq!(classes.contains("three"), true);
+
+            assert_eq!(classes.is_active("one"), true);
+            assert_eq!(classes.is_active("two"), true);
+            assert_eq!(classes.is_active("three"), true);
+        }
+    }
+
+    #[test]
+    fn element_with_classes_extra_whitespace() {
+        let mut stream = InputStream::new();
+        stream.read_from_str(
+            "<div class=\" one    two     three   \"></div>",
+            Some(Encoding::UTF8),
+        );
+
+        let mut parser = Html5Parser::new(&mut stream);
+        let (doc, _) = parser.parse();
+
+        // document -> html -> head -> body -> div
+        let div = doc.get_node_by_id(NodeId(4)).unwrap();
+        assert!(div.classes.is_some());
+
+        if let Some(&ref classes) = div.classes.as_ref() {
+            assert_eq!(classes.count(), 3);
+
+            assert_eq!(classes.contains("one"), true);
+            assert_eq!(classes.contains("two"), true);
+            assert_eq!(classes.contains("three"), true);
+
+            assert_eq!(classes.is_active("one"), true);
+            assert_eq!(classes.is_active("two"), true);
+            assert_eq!(classes.is_active("three"), true);
+        }
     }
 }

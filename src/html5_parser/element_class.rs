@@ -25,14 +25,26 @@ impl ElementClass {
     /// Initialize a class from a class string
     /// with space-delimited class names
     pub fn from_string(class_string: &str) -> Self {
-        let mut element_class = ElementClass::new();
+        let mut class_map_local = HashMap::new();
         let classes = class_string.split_whitespace();
         for class_name in classes {
-            element_class.add(class_name);
-            println!("{}", class_name);
+            class_map_local.insert(class_name.to_owned(), true);
         }
 
-       element_class 
+        ElementClass {
+            class_map: class_map_local,
+        }
+    }
+
+    /// Count the number of classes (active or inactive)
+    /// assigned to an element
+    pub fn count(&self) -> usize {
+        self.class_map.len()
+    }
+
+    /// Check if any classes are present
+    pub fn is_empty(&self) -> bool {
+        self.class_map.is_empty()
     }
 
     /// Check if class name exists
@@ -83,6 +95,22 @@ impl ElementClass {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn is_empty() {
+        let mut classes = ElementClass::new();
+        assert_eq!(classes.is_empty(), true);
+        classes.add("one");
+        assert_eq!(classes.is_empty(), false);
+    }
+
+    #[test]
+    fn count_classes() {
+        let mut classes = ElementClass::new();
+        classes.add("one");
+        classes.add("two");
+        assert_eq!(classes.count(), 2);
+    }
 
     #[test]
     fn contains_nonexistant_class() {
