@@ -1,3 +1,5 @@
+use crate::html5_parser::node::NodeTrait;
+use crate::html5_parser::node::NodeType;
 use crate::html5_parser::node::{Node, NodeData, NodeId};
 use crate::html5_parser::node_arena::NodeArena;
 use crate::html5_parser::parser::quirks::QuirksMode;
@@ -90,15 +92,42 @@ impl Document {
             return;
         }
 
+        // if ID already exists in DOM tree, do nothing
+        if self.named_id_elements.contains_key(named_id) {
+            return;
+        }
+
+        let mut old_named_id: Option<String> = None;
         if let Some(node) = self.get_mut_node_by_id(node_id) {
-            let _ = node.insert_attribute("id", named_id);
+            if node.type_of() != NodeType::Element {
+                return;
+            }
+
+            old_named_id = node.get_named_id();
+
+            node.set_named_id(named_id);
             self.named_id_elements.insert(named_id.to_owned(), node_id);
+        }
+
+        if let Some(old_named_id) = old_named_id {
+            self.named_id_elements.remove(&old_named_id);
         }
     }
 
     // Add to the document
     pub fn add_node(&mut self, node: Node, parent_id: NodeId) -> NodeId {
+        let mut node_named_id: Option<String> = None;
+        if let Ok(Some(named_id)) = node.get_attribute("id") {
+            node_named_id = Some(named_id.clone());
+        }
+
+        let node_type = node.type_of();
         let node_id = self.arena.add_node(node);
+        if node_type == NodeType::Element {
+            if let Some(node_named_id) = node_named_id {
+                self.set_node_named_id(node_id, &node_named_id);
+            }
+        }
         self.arena.attach_node(parent_id, node_id);
         node_id
     }
@@ -179,6 +208,7 @@ impl fmt::Display for Document {
 #[cfg(test)]
 mod tests {
     use crate::html5_parser::node::HTML_NAMESPACE;
+    use crate::html5_parser::parser::{Document, Node, NodeId};
     use std::collections::HashMap;
 
     #[ignore]
@@ -264,5 +294,70 @@ mod tests {
       └─ This is a ninth paragraph
       "#
         );
+    }
+
+    #[test]
+    fn set_named_id_to_element() {
+        let attributes = HashMap::new();
+        let node = Node::new_element("div", attributes.clone(), HTML_NAMESPACE);
+        let mut doc = Document::new();
+        let node_id = NodeId(1);
+        let _ = doc.add_node(node, node_id);
+        // invalid name (empty)
+        doc.set_node_named_id(node_id, "");
+        assert!(!doc.get_node_by_id(node_id).unwrap().has_named_id());
+        // invalid name (spaces)
+        doc.set_node_named_id(node_id, "my id");
+        assert!(!doc.get_node_by_id(node_id).unwrap().has_named_id());
+        // invalid name (no characters)
+        doc.set_node_named_id(node_id, "123");
+        assert!(!doc.get_node_by_id(node_id).unwrap().has_named_id());
+        // valid name
+        doc.set_node_named_id(node_id, "myid");
+        assert!(doc.get_node_by_id(node_id).unwrap().has_named_id());
+        assert_eq!(
+            doc.get_node_by_id(node_id).unwrap().get_named_id(),
+            Some("myid".to_owned())
+        );
+    }
+
+    #[test]
+    fn set_named_id_to_non_element() {
+        let node = Node::new_text("sample");
+        let mut doc = Document::new();
+        let node_id = NodeId(1);
+        let _ = doc.add_node(node, node_id);
+
+        // even if this is a valid name, nothing will happen since it's not an Element type
+        doc.set_node_named_id(node_id, "myid");
+        assert!(!doc.get_node_by_id(node_id).unwrap().has_named_id());
+    }
+
+    #[test]
+    fn duplicate_named_id_elements() {
+        let attributes = HashMap::new();
+
+        let mut node1 = Node::new_element("div", attributes.clone(), HTML_NAMESPACE);
+        let mut node2 = Node::new_element("div", attributes.clone(), HTML_NAMESPACE);
+
+        let _ = node1.insert_attribute("id", "myid");
+        let _ = node2.insert_attribute("id", "myid");
+
+        let mut doc = Document::new();
+        let _ = doc.add_node(node1, NodeId(1));
+        let _ = doc.add_node(node2, NodeId(2));
+
+        // two elements here have the same ID, the ID will only be tied to NodeId(1) since
+        // the HTML5 spec specifies that every ID must uniquely specify one element in the DOM
+        // and we inserted NodeId(1) first
+        assert_eq!(doc.get_node_by_named_id("myid").unwrap().id, NodeId(1));
+
+        // however, with that in mind, NodeId(2) will still have id="myid" on the Node itself,
+        // but it is not searchable in the DOM. Even if you change the id of NodeId(1), NodeId(2)
+        // will still NOT be searchable under get_node_by_named_id. This behaviour can be changed
+        // by using a stack/vector/queue/whatever in the HashMap, but since the spec states
+        // there should be one unique ID per element, I don't think we should support it
+        doc.set_node_named_id(NodeId(1), "otherid");
+        assert!(doc.get_node_by_named_id("myid").is_none());
     }
 }
