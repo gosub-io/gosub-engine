@@ -1,6 +1,7 @@
 use crate::html5_parser::node::{Node, NodeData, NodeId};
 use crate::html5_parser::node_arena::NodeArena;
 use crate::html5_parser::parser::quirks::QuirksMode;
+use crate::html5_parser::parser::HashMap;
 use std::fmt;
 
 #[derive(PartialEq, Debug, Copy, Clone)]
@@ -11,14 +12,16 @@ pub enum DocumentType {
 
 pub struct Document {
     arena: NodeArena,
-    pub doctype: DocumentType,   // Document type
-    pub quirks_mode: QuirksMode, // Quirks mode
+    named_id_elements: HashMap<String, NodeId>, // HTML elements with ID (e.g., <div id="myid">)
+    pub doctype: DocumentType,                  // Document type
+    pub quirks_mode: QuirksMode,                // Quirks mode
 }
 
 impl Default for Document {
     fn default() -> Self {
         Self {
             arena: NodeArena::new(),
+            named_id_elements: HashMap::new(),
             doctype: DocumentType::HTML,
             quirks_mode: QuirksMode::NoQuirks,
         }
@@ -32,18 +35,65 @@ impl Document {
         arena.add_node(Node::new_document());
         Self {
             arena,
+            named_id_elements: HashMap::new(),
             doctype: DocumentType::HTML,
             quirks_mode: QuirksMode::NoQuirks,
         }
     }
 
-    // Fetches a node by id or returns None when no node with this ID is found
+    /// Fetches a node by id or returns None when no node with this ID is found
     pub fn get_node_by_id(&self, node_id: NodeId) -> Option<&Node> {
         self.arena.get_node(node_id)
     }
 
+    /// Fetches a mutable node by id or returns None when no node with this ID is found
     pub fn get_mut_node_by_id(&mut self, node_id: NodeId) -> Option<&mut Node> {
         self.arena.get_mut_node(node_id)
+    }
+
+    /// Fetches a node by named id (string) or returns None when no node with this ID is found
+    pub fn get_node_by_named_id(&self, named_id: &str) -> Option<&Node> {
+        let node_id = self.named_id_elements.get(named_id)?;
+        self.arena.get_node(*node_id)
+    }
+
+    /// Fetches a mutable node by named id (string) or returns None when no node with this ID is found
+    pub fn get_mut_node_by_named_id(&mut self, named_id: &str) -> Option<&mut Node> {
+        let node_id = self.named_id_elements.get(named_id)?;
+        self.arena.get_mut_node(*node_id)
+    }
+
+    // according to HTML5 spec: 3.2.3.1
+    // https://www.w3.org/TR/2011/WD-html5-20110405/elements.html#the-id-attribute
+    fn validate_named_id(&self, named_id: &str) -> bool {
+        if named_id.contains(char::is_whitespace) {
+            return false;
+        }
+
+        if named_id.is_empty() {
+            return false;
+        }
+
+        // must contain at least one character, but
+        // doesn't specify it should *start* with a character
+        if !named_id.contains(char::is_alphabetic) {
+            return false;
+        }
+
+        true
+    }
+
+    /// Set a new named ID on a node (also updates the underlying node's attribute)
+    /// ID will NOT be set if it doesn't pass validation
+    pub fn set_node_named_id(&mut self, node_id: NodeId, named_id: &str) {
+        if !self.validate_named_id(named_id) {
+            return;
+        }
+
+        if let Some(node) = self.get_mut_node_by_id(node_id) {
+            let _ = node.insert_attribute("id", named_id);
+            self.named_id_elements.insert(named_id.to_owned(), node_id);
+        }
     }
 
     // Add to the document
