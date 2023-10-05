@@ -99,9 +99,9 @@ mod tests {
     #[test]
     fn is_empty() {
         let mut classes = ElementClass::new();
-        assert_eq!(classes.is_empty(), true);
+        assert!(classes.is_empty());
         classes.add("one");
-        assert_eq!(classes.is_empty(), false);
+        assert!(!classes.is_empty());
     }
 
     #[test]
@@ -115,25 +115,25 @@ mod tests {
     #[test]
     fn contains_nonexistant_class() {
         let classes = ElementClass::new();
-        assert_eq!(classes.contains("nope"), false);
+        assert!(!classes.contains("nope"));
     }
 
     #[test]
     fn contains_valid_class() {
         let mut classes = ElementClass::new();
         classes.add("yep");
-        assert_eq!(classes.contains("yep"), true);
+        assert!(classes.contains("yep"));
     }
 
     #[test]
     fn add_class() {
         let mut classes = ElementClass::new();
         classes.add("yep");
-        assert_eq!(classes.is_active("yep"), true);
+        assert!(classes.is_active("yep"));
 
         classes.set_active("yep", false);
         classes.add("yep"); // should be ignored
-        assert_eq!(classes.is_active("yep"), false);
+        assert!(!classes.is_active("yep"));
     }
 
     #[test]
@@ -141,17 +141,17 @@ mod tests {
         let mut classes = ElementClass::new();
         classes.add("yep");
         classes.remove("yep");
-        assert_eq!(classes.contains("yep"), false);
+        assert!(!classes.contains("yep"));
     }
 
     #[test]
     fn toggle_class() {
         let mut classes = ElementClass::new();
         classes.add("yep");
-        assert_eq!(classes.is_active("yep"), true);
+        assert!(classes.is_active("yep"));
         classes.toggle("yep");
-        assert_eq!(classes.is_active("yep"), false);
+        assert!(!classes.is_active("yep"));
         classes.toggle("yep");
-        assert_eq!(classes.is_active("yep"), true);
+        assert!(classes.is_active("yep"));
     }
 }
