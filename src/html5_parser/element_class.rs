@@ -38,7 +38,7 @@ impl ElementClass {
 
     /// Count the number of classes (active or inactive)
     /// assigned to an element
-    pub fn count(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.class_map.len()
     }
 
@@ -109,7 +109,7 @@ mod tests {
         let mut classes = ElementClass::new();
         classes.add("one");
         classes.add("two");
-        assert_eq!(classes.count(), 2);
+        assert_eq!(classes.len(), 2);
     }
 
     #[test]

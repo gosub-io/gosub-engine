@@ -3717,7 +3717,7 @@ mod test {
         assert!(div.classes.is_some());
 
         if let Some(&ref classes) = div.classes.as_ref() {
-            assert_eq!(classes.count(), 3);
+            assert_eq!(classes.len(), 3);
 
             assert_eq!(classes.contains("one"), true);
             assert_eq!(classes.contains("two"), true);
@@ -3745,7 +3745,7 @@ mod test {
         assert!(div.classes.is_some());
 
         if let Some(&ref classes) = div.classes.as_ref() {
-            assert_eq!(classes.count(), 3);
+            assert_eq!(classes.len(), 3);
 
             assert_eq!(classes.contains("one"), true);
             assert_eq!(classes.contains("two"), true);
