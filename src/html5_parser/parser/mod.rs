@@ -229,7 +229,7 @@ macro_rules! current_node_mut {
         let current_node_idx = $self.open_elements.last().unwrap_or_default();
         $self
             .document
-            .get_mut_node_by_id(*current_node_idx)
+            .get_node_by_id_mut(*current_node_idx)
             .expect("Current node not found")
     }};
 }

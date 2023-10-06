@@ -23,7 +23,7 @@ impl NodeArena {
     }
 
     /// Get the node with the given id as a mutable reference
-    pub fn get_mut_node(&mut self, node_id: NodeId) -> Option<&mut Node> {
+    pub fn get_node_mut(&mut self, node_id: NodeId) -> Option<&mut Node> {
         self.nodes.get_mut(&node_id)
     }
 
@@ -73,7 +73,7 @@ impl NodeArena {
 }
 
 fn has_child_recursive(arena: &mut NodeArena, parent_id: NodeId, child_id: NodeId) -> bool {
-    let node = arena.get_mut_node(parent_id).cloned();
+    let node = arena.get_node_mut(parent_id).cloned();
     if node.is_none() {
         return false;
     }
@@ -83,7 +83,7 @@ fn has_child_recursive(arena: &mut NodeArena, parent_id: NodeId, child_id: NodeI
         if *id == child_id {
             return true;
         }
-        let child = arena.get_mut_node(*id).cloned();
+        let child = arena.get_node_mut(*id).cloned();
         if has_child(arena, child, child_id) {
             return true;
         }
@@ -106,7 +106,7 @@ fn has_child(arena: &mut NodeArena, parent: Option<Node>, child_id: NodeId) -> b
         if id == child_id {
             return true;
         }
-        let node = arena.get_mut_node(id).cloned();
+        let node = arena.get_node_mut(id).cloned();
         if has_child(arena, node, child_id) {
             return true;
         }
@@ -140,13 +140,13 @@ mod tests {
     }
 
     #[test]
-    fn get_mut_node() {
+    fn get_node_mut() {
         let mut arena = NodeArena::new();
 
         let node = Node::new_element("test", HashMap::new(), HTML_NAMESPACE);
         let id = arena.add_node(node);
 
-        let node = arena.get_mut_node(id);
+        let node = arena.get_node_mut(id);
         assert!(node.is_some());
         assert_eq!(node.unwrap().name, "test");
     }

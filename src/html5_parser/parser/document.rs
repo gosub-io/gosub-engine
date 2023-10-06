@@ -49,8 +49,8 @@ impl Document {
     }
 
     /// Fetches a mutable node by id or returns None when no node with this ID is found
-    pub fn get_mut_node_by_id(&mut self, node_id: NodeId) -> Option<&mut Node> {
-        self.arena.get_mut_node(node_id)
+    pub fn get_node_by_id_mut(&mut self, node_id: NodeId) -> Option<&mut Node> {
+        self.arena.get_node_mut(node_id)
     }
 
     /// Fetches a node by named id (string) or returns None when no node with this ID is found
@@ -60,9 +60,9 @@ impl Document {
     }
 
     /// Fetches a mutable node by named id (string) or returns None when no node with this ID is found
-    pub fn get_mut_node_by_named_id(&mut self, named_id: &str) -> Option<&mut Node> {
+    pub fn get_node_by_named_id_mut(&mut self, named_id: &str) -> Option<&mut Node> {
         let node_id = self.named_id_elements.get(named_id)?;
-        self.arena.get_mut_node(*node_id)
+        self.arena.get_node_mut(*node_id)
     }
 
     // according to HTML5 spec: 3.2.3.1
@@ -98,7 +98,7 @@ impl Document {
         }
 
         let mut old_named_id: Option<String> = None;
-        if let Some(node) = self.get_mut_node_by_id(node_id) {
+        if let Some(node) = self.get_node_by_id_mut(node_id) {
             if node.type_of() != NodeType::Element {
                 return;
             }
