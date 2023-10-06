@@ -1,12 +1,14 @@
+use gosub_engine::{
+    html5_parser::{
+        input_stream::{Confidence, Encoding, InputStream},
+        node::{Node, NodeData},
+        parser::{document::Document, Html5Parser},
+    },
+    types::Result,
+};
 use std::process::exit;
 
-use gosub_engine::html5_parser::input_stream::Confidence;
-use gosub_engine::html5_parser::input_stream::{Encoding, InputStream};
-use gosub_engine::html5_parser::node::{Node, NodeData};
-use gosub_engine::html5_parser::parser::document::Document;
-use gosub_engine::html5_parser::parser::Html5Parser;
-
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<()> {
     let url = std::env::args()
         .nth(1)
         .or_else(|| {
@@ -16,12 +18,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap();
 
     // Fetch the html from the url
-    let response = reqwest::blocking::get(&url)?;
-    if !response.status().is_success() {
+    let response = ureq::get(&url).call().map_err(Box::new)?;
+    if !response.status() == 200 {
         println!("could not get url. Status code {}", response.status());
         exit(1);
     }
-    let html = response.text()?;
+    let html = response.into_string()?;
 
     let mut stream = InputStream::new();
     stream.read_from_str(&html, Some(Encoding::UTF8));
@@ -33,7 +35,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let mut parser = Html5Parser::new(&mut stream);
-    let (document, parse_error) = parser.parse();
+    let (document, parse_error) = parser.parse()?;
 
     match get_node_by_path(document, vec!["html", "body"]) {
         None => {

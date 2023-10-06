@@ -340,43 +340,43 @@ mod test {
 
         parser
             .active_formatting_elements
-            .push(ActiveElement::Node(NodeId(3)));
+            .push(ActiveElement::Node(3.into()));
         parser
             .active_formatting_elements
-            .push(ActiveElement::Node(NodeId(7)));
+            .push(ActiveElement::Node(7.into()));
 
         assert_eq!(
             parser
-                .find_furthest_block_idx(NodeId(1))
+                .find_furthest_block_idx(1.into())
                 .expect("furthest element not found"),
             1
         );
         assert_eq!(
             parser
-                .find_furthest_block_idx(NodeId(2))
+                .find_furthest_block_idx(2.into())
                 .expect("furthest element not found"),
             3
         );
         assert_eq!(
             parser
-                .find_furthest_block_idx(NodeId(3))
+                .find_furthest_block_idx(3.into())
                 .expect("furthest element not found"),
             3
         );
         assert_eq!(
             parser
-                .find_furthest_block_idx(NodeId(4))
+                .find_furthest_block_idx(4.into())
                 .expect("furthest element not found"),
             4
         );
         assert_eq!(
             parser
-                .find_furthest_block_idx(NodeId(5))
+                .find_furthest_block_idx(5.into())
                 .expect("furthest element not found"),
             5
         );
-        assert!(parser.find_furthest_block_idx(NodeId(6)).is_none());
-        assert!(parser.find_furthest_block_idx(NodeId(7)).is_none());
+        assert!(parser.find_furthest_block_idx(6.into()).is_none());
+        assert!(parser.find_furthest_block_idx(7.into()).is_none());
     }
 
     #[test]
@@ -389,7 +389,7 @@ mod test {
         node_create!(parser, "b");
         node_create!(parser, "i"); // node 3
 
-        assert!(parser.find_furthest_block_idx(NodeId(2)).is_none());
+        assert!(parser.find_furthest_block_idx(2.into()).is_none());
     }
 
     #[test]
@@ -404,10 +404,10 @@ mod test {
         node_create!(parser, "b"); // node 4
         node_create!(parser, "i"); // node 5
 
-        assert_eq!(parser.find_furthest_block_idx(NodeId(4)), None);
-        assert_eq!(parser.find_furthest_block_idx(NodeId(5)), None);
-        assert_eq!(parser.find_furthest_block_idx(NodeId(3)), None);
-        assert_eq!(parser.find_furthest_block_idx(NodeId(2)), Some(2));
+        assert_eq!(parser.find_furthest_block_idx(4.into()), None);
+        assert_eq!(parser.find_furthest_block_idx(5.into()), None);
+        assert_eq!(parser.find_furthest_block_idx(3.into()), None);
+        assert_eq!(parser.find_furthest_block_idx(2.into()), Some(2));
     }
 
     #[test]
@@ -421,7 +421,7 @@ mod test {
         node_create!(parser, "b"); // node 3
         node_create!(parser, "p"); // node 4
 
-        assert_eq!(parser.find_furthest_block_idx(NodeId(3)), Some(3));
+        assert_eq!(parser.find_furthest_block_idx(3.into()), Some(3));
     }
 
     #[test]
@@ -444,6 +444,6 @@ mod test {
         node_create!(parser, "i");
         node_create!(parser, "b"); // 13
 
-        assert_eq!(parser.find_furthest_block_idx(NodeId(10)), Some(10));
+        assert_eq!(parser.find_furthest_block_idx(10.into()), Some(10));
     }
 }

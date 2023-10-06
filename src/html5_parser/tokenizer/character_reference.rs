@@ -376,7 +376,7 @@ mod tests {
                     let error_logger = Rc::new(RefCell::new(ErrorLogger::new()));
                     let mut tokenizer = Tokenizer::new(&mut is, None, error_logger.clone());
 
-                    let token = tokenizer.next_token();
+                    let token = tokenizer.next_token().unwrap();
                     assert_eq!(expected, token.to_string());
                 }
             )*
