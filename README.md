@@ -1,7 +1,6 @@
 # GoSub: Gateway to Optimized Searching and Unlimited Browsing
 
-This repository holds the GoSub HTML5 parser/tokenizer. It is a standalone library that can be used by other projects
-but will ultimately be used by the GoSub browser. See the [About](#about) section for more information.
+This repository holds the GoSub HTML5 parser/tokenizer. It is a standalone library that can be used by other projects but will ultimately be used by the GoSub browser. See the [About](#about) section for more information.
 
 ```
                        _     
@@ -18,13 +17,9 @@ but will ultimately be used by the GoSub browser. See the [About](#about) sectio
 
 ## About
 
-This repository is part of the GoSub browser project. Currently, there is only a single component/repository (this one), 
-but the idea will be that there are many other components that, as a whole, make up a full-fledged browser. Each of the 
-components can probably function as something standalone (ie, html5 parser, CSS parser, etc.).
+This repository is part of the GoSub browser project. Currently, there is only a single component/repository (this one), but the idea will be that there are many other components that, as a whole, make up a full-fledged browser. Each of the components can probably function as something standalone (ie, html5 parser, CSS parser, etc.).
 
-In the future, this component (HTML5 parser) will receive a stream of bytes through an API and output a stream of
-events. The next component will consume the events, and so on, until we can display something in a window/user 
-agent. This could be a text-mode browser, but the idea is to have a graphical browser.
+In the future, this component (HTML5 parser) will receive a stream of bytes through an API and output a stream of events. The next component will consume the events, and so on, until we can display something in a window/user agent. This could be a text-mode browser, but the idea is to have a graphical browser.
 
 
 ## Status
@@ -41,29 +36,60 @@ be our ultimate goal.
 
 ## How to build
 
-This project uses cargo (https://doc.rust-lang.org/cargo/). To build the project, run:
+This project uses [cargo](https://doc.rust-lang.org/cargo/) and [rustup](https://www.rust-lang.org/tools/install).  First you must install `rustup` at the link provided.  After installing `rustup`, run:
 
 ```bash
-cargo build
+$ rustup toolchain install 1.73
+$ rustc --version
+rustc 1.73.0 (cc66ad468 2023-10-03)
 ```
 
-This will create the following binaries and libs:
+Once Rust is installed, run this command to build the project:
 
-| File           | Type | Description                       |
-|----------------|------|-----------------------------------|
-| gosub-engine   | lib  | The actual html5 parser/tokenizer |
-| parser_test    | bin  | A test suite for the parser       |
+```bash
+$ cargo build
+```
 
-### Gosub-engine
+Doing this will create the following binaries:
+
+| File                          | Type | Description                       |
+|-------------------------------|------|-----------------------------------|
+| `target/debug/gosub-parser`   | bin  | The actual html5 parser/tokenizer |
+| `target/debug/parser_test`    | bin  | A test suite for the parser       |
+
+You can then run the binaries like so:
+
+```bash
+$ ./target/debug/gosub-parser https://news.ycombinator.com/
+$ ./target/debug/parser_test
+```
+
+To build the release build, run:
+
+```bash
+$ cargo build --release
+$ ./target/release/gosub-parser https://news.ycombinator.com/
+```
+
+To run the tests and benchmark suite, do:
+
+```bash
+$ make test
+$ cargo bench
+$ ls target/criterion/report 
+index.html
+```
+
+### gosub-parser
 
 This is the actual html5 parser/tokenizer. It is a library that can be used for other projects. It is not a standalone
 project but can be incorporated into other projects. 
 
-### Parser_test
+### parser_test
 
 This is a test suite for the parser. It is not a standalone project. It is used by the gosub-engine project. You need 
 to specify the directory to the html5lib-test to run, or it will use the default one (./html5lib-tests).
 
 ```bash
-$ parser_test 
+$ ./target/debug/parser_test 
 ```
