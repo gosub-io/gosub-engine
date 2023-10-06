@@ -1,3 +1,4 @@
+use std::fs;
 use std::process::exit;
 
 use gosub_engine::html5_parser::input_stream::Confidence;
@@ -8,18 +9,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let url = std::env::args()
         .nth(1)
         .or_else(|| {
-            println!("Usage: gosub-browser <url>");
+            println!("Usage: gosub-parser <url>");
             exit(1);
         })
         .unwrap();
 
-    // Fetch the html from the url
-    let response = reqwest::blocking::get(&url)?;
-    if !response.status().is_success() {
-        println!("could not get url. Status code {}", response.status());
-        exit(1);
-    }
-    let html = response.text()?;
+    let html = if url.starts_with("http://") || url.starts_with("https://") {
+        // Fetch the html from the url
+        let response = reqwest::blocking::get(&url)?;
+        if !response.status().is_success() {
+            println!("could not get url. Status code {}", response.status());
+            exit(1);
+        }
+        response.text()?
+    } else {
+        // Get html from the file
+        fs::read_to_string(&url)?
+    };
 
     let mut stream = InputStream::new();
     stream.read_from_str(&html, Some(Encoding::UTF8));
