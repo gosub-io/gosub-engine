@@ -117,7 +117,7 @@ impl Document {
     // Add to the document
     pub fn add_node(&mut self, node: Node, parent_id: NodeId) -> NodeId {
         let mut node_named_id: Option<String> = None;
-        if let Ok(Some(named_id)) = node.get_attribute("id") {
+        if let Some(named_id) = node.get_attribute("id") {
             node_named_id = Some(named_id.clone());
         }
 
