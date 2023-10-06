@@ -170,7 +170,7 @@ fn run_tree_test(test_idx: usize, test: &Test, results: &mut TestResults) {
     is.read_from_str(test.data.as_str(), None);
 
     let mut parser = Html5Parser::new(&mut is);
-    let (document, parse_errors) = parser.parse();
+    let (document, parse_errors) = parser.parse().unwrap();
 
     // Check the document tree, which counts as a single assertion
     results.assertions += 1;

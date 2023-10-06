@@ -1,12 +1,8 @@
-pub mod node;
-pub mod parser;
-pub mod tokenizer;
-
 pub mod dom;
-
+pub mod element_class;
 pub mod error_logger;
 pub mod input_stream;
-
-pub mod element_class;
-
+pub mod node;
 mod node_arena;
+pub mod parser;
+pub mod tokenizer;
