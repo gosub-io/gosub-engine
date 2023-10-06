@@ -1,5 +1,5 @@
-use std::process::exit;
 use std::fs;
+use std::process::exit;
 
 use gosub_engine::html5_parser::input_stream::Confidence;
 use gosub_engine::html5_parser::input_stream::{Encoding, InputStream};
@@ -14,7 +14,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .unwrap();
 
-    let html = if url.starts_with("http://") || url.starts_with("https://") { 
+    let html = if url.starts_with("http://") || url.starts_with("https://") {
         // Fetch the html from the url
         let response = reqwest::blocking::get(&url)?;
         if !response.status().is_success() {
@@ -22,7 +22,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             exit(1);
         }
         response.text()?
-    } else { 
+    } else {
         // Get html from the file
         fs::read_to_string(&url)?
     };
