@@ -153,7 +153,7 @@ impl ParserError {
 }
 
 // Parser error that defines an error (message) on the given position
-#[derive(PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct ParseError {
     pub message: String, // Parse message
     pub line: usize,     // Line number of the error
