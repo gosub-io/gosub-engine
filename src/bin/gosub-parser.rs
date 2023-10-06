@@ -9,7 +9,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let url = std::env::args()
         .nth(1)
         .or_else(|| {
-            println!("Usage: gosub-browser <url>");
+            println!("Usage: gosub-parser <url>");
             exit(1);
         })
         .unwrap();
