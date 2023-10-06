@@ -14,6 +14,9 @@ build: ## Build	the project
 	section "Cargo build" ;\
 	cargo build
 
+fix:
+	cargo clippy --fix --allow-dirty --allow-staged
+
 test_unit:
 	source test-utils.sh ;\
 	section "Cargo test" ;\

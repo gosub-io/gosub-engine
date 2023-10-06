@@ -3458,10 +3458,10 @@ mod test {
         node_create!(parser, "div");
         node_create!(parser, "p");
         node_create!(parser, "button");
-        assert_eq!(parser.is_in_scope("p", Scope::Regular), true);
-        assert_eq!(parser.is_in_scope("p", Scope::Button), false);
-        assert_eq!(parser.is_in_scope("p", Scope::ListItem), true);
-        assert_eq!(parser.is_in_scope("p", Scope::Select), false);
+        assert!(parser.is_in_scope("p", Scope::Regular));
+        assert!(!parser.is_in_scope("p", Scope::Button));
+        assert!(parser.is_in_scope("p", Scope::ListItem));
+        assert!(!parser.is_in_scope("p", Scope::Select));
     }
 
     #[test]
@@ -3470,10 +3470,10 @@ mod test {
         let mut parser = Html5Parser::new(&mut stream);
 
         parser.open_elements.clear();
-        assert_eq!(parser.is_in_scope("p", Scope::Regular), false);
-        assert_eq!(parser.is_in_scope("p", Scope::Button), false);
-        assert_eq!(parser.is_in_scope("p", Scope::ListItem), false);
-        assert_eq!(parser.is_in_scope("p", Scope::Select), false);
+        assert!(!parser.is_in_scope("p", Scope::Regular));
+        assert!(!parser.is_in_scope("p", Scope::Button));
+        assert!(!parser.is_in_scope("p", Scope::ListItem));
+        assert!(!parser.is_in_scope("p", Scope::Select));
     }
 
     #[test]
@@ -3486,10 +3486,10 @@ mod test {
         node_create!(parser, "p");
         node_create!(parser, "button");
 
-        assert_eq!(parser.is_in_scope("foo", Scope::Regular), false);
-        assert_eq!(parser.is_in_scope("foo", Scope::Button), false);
-        assert_eq!(parser.is_in_scope("foo", Scope::ListItem), false);
-        assert_eq!(parser.is_in_scope("foo", Scope::Select), false);
+        assert!(!parser.is_in_scope("foo", Scope::Regular));
+        assert!(!parser.is_in_scope("foo", Scope::Button));
+        assert!(!parser.is_in_scope("foo", Scope::ListItem));
+        assert!(!parser.is_in_scope("foo", Scope::Select));
     }
 
     #[test]
@@ -3505,29 +3505,29 @@ mod test {
         node_create!(parser, "p");
         node_create!(parser, "span");
 
-        assert_eq!(parser.is_in_scope("p", Scope::Regular), true);
-        assert_eq!(parser.is_in_scope("p", Scope::ListItem), true);
-        assert_eq!(parser.is_in_scope("p", Scope::Button), true);
-        assert_eq!(parser.is_in_scope("p", Scope::Table), true);
-        assert_eq!(parser.is_in_scope("p", Scope::Select), false);
+        assert!(parser.is_in_scope("p", Scope::Regular));
+        assert!(parser.is_in_scope("p", Scope::ListItem));
+        assert!(parser.is_in_scope("p", Scope::Button));
+        assert!(parser.is_in_scope("p", Scope::Table));
+        assert!(!parser.is_in_scope("p", Scope::Select));
 
-        assert_eq!(parser.is_in_scope("div", Scope::Regular), false);
-        assert_eq!(parser.is_in_scope("div", Scope::ListItem), false);
-        assert_eq!(parser.is_in_scope("div", Scope::Button), false);
-        assert_eq!(parser.is_in_scope("div", Scope::Table), false);
-        assert_eq!(parser.is_in_scope("div", Scope::Select), false);
+        assert!(!parser.is_in_scope("div", Scope::Regular));
+        assert!(!parser.is_in_scope("div", Scope::ListItem));
+        assert!(!parser.is_in_scope("div", Scope::Button));
+        assert!(!parser.is_in_scope("div", Scope::Table));
+        assert!(!parser.is_in_scope("div", Scope::Select));
 
-        assert_eq!(parser.is_in_scope("tr", Scope::Regular), false);
-        assert_eq!(parser.is_in_scope("tr", Scope::ListItem), false);
-        assert_eq!(parser.is_in_scope("tr", Scope::Button), false);
-        assert_eq!(parser.is_in_scope("tr", Scope::Table), true);
-        assert_eq!(parser.is_in_scope("tr", Scope::Select), false);
+        assert!(!parser.is_in_scope("tr", Scope::Regular));
+        assert!(!parser.is_in_scope("tr", Scope::ListItem));
+        assert!(!parser.is_in_scope("tr", Scope::Button));
+        assert!(parser.is_in_scope("tr", Scope::Table));
+        assert!(!parser.is_in_scope("tr", Scope::Select));
 
-        assert_eq!(parser.is_in_scope("xmp", Scope::Regular), false);
-        assert_eq!(parser.is_in_scope("xmp", Scope::ListItem), false);
-        assert_eq!(parser.is_in_scope("xmp", Scope::Button), false);
-        assert_eq!(parser.is_in_scope("xmp", Scope::Table), false);
-        assert_eq!(parser.is_in_scope("xmp", Scope::Select), false);
+        assert!(!parser.is_in_scope("xmp", Scope::Regular));
+        assert!(!parser.is_in_scope("xmp", Scope::ListItem));
+        assert!(!parser.is_in_scope("xmp", Scope::Button));
+        assert!(!parser.is_in_scope("xmp", Scope::Table));
+        assert!(!parser.is_in_scope("xmp", Scope::Select));
     }
 
     #[test]
@@ -3542,11 +3542,11 @@ mod test {
         node_create!(parser, "div");
         node_create!(parser, "button");
 
-        assert_eq!(parser.is_in_scope("li", Scope::Regular), true);
-        assert_eq!(parser.is_in_scope("li", Scope::ListItem), true);
-        assert_eq!(parser.is_in_scope("li", Scope::Button), false);
-        assert_eq!(parser.is_in_scope("li", Scope::Table), true);
-        assert_eq!(parser.is_in_scope("li", Scope::Select), false);
+        assert!(parser.is_in_scope("li", Scope::Regular));
+        assert!(parser.is_in_scope("li", Scope::ListItem));
+        assert!(!parser.is_in_scope("li", Scope::Button));
+        assert!(parser.is_in_scope("li", Scope::Table));
+        assert!(!parser.is_in_scope("li", Scope::Select));
     }
 
     #[test]
@@ -3561,11 +3561,11 @@ mod test {
         node_create!(parser, "li");
         node_create!(parser, "p");
 
-        assert_eq!(parser.is_in_scope("li", Scope::Regular), true);
-        assert_eq!(parser.is_in_scope("li", Scope::ListItem), true);
-        assert_eq!(parser.is_in_scope("li", Scope::Button), true);
-        assert_eq!(parser.is_in_scope("li", Scope::Table), true);
-        assert_eq!(parser.is_in_scope("li", Scope::Select), false);
+        assert!(parser.is_in_scope("li", Scope::Regular));
+        assert!(parser.is_in_scope("li", Scope::ListItem));
+        assert!(parser.is_in_scope("li", Scope::Button));
+        assert!(parser.is_in_scope("li", Scope::Table));
+        assert!(!parser.is_in_scope("li", Scope::Select));
     }
 
     #[test]
@@ -3582,11 +3582,11 @@ mod test {
         node_create!(parser, "button");
         node_create!(parser, "span");
 
-        assert_eq!(parser.is_in_scope("td", Scope::Regular), true);
-        assert_eq!(parser.is_in_scope("td", Scope::ListItem), true);
-        assert_eq!(parser.is_in_scope("td", Scope::Button), false);
-        assert_eq!(parser.is_in_scope("td", Scope::Table), true);
-        assert_eq!(parser.is_in_scope("td", Scope::Select), false);
+        assert!(parser.is_in_scope("td", Scope::Regular));
+        assert!(parser.is_in_scope("td", Scope::ListItem));
+        assert!(!parser.is_in_scope("td", Scope::Button));
+        assert!(parser.is_in_scope("td", Scope::Table));
+        assert!(!parser.is_in_scope("td", Scope::Select));
     }
 
     #[test]
@@ -3602,11 +3602,11 @@ mod test {
         node_create!(parser, "a");
         node_create!(parser, "span");
 
-        assert_eq!(parser.is_in_scope("div", Scope::Regular), false);
-        assert_eq!(parser.is_in_scope("div", Scope::ListItem), false);
-        assert_eq!(parser.is_in_scope("div", Scope::Button), false);
-        assert_eq!(parser.is_in_scope("div", Scope::Table), true);
-        assert_eq!(parser.is_in_scope("div", Scope::Select), false);
+        assert!(!parser.is_in_scope("div", Scope::Regular));
+        assert!(!parser.is_in_scope("div", Scope::ListItem));
+        assert!(!parser.is_in_scope("div", Scope::Button));
+        assert!(parser.is_in_scope("div", Scope::Table));
+        assert!(!parser.is_in_scope("div", Scope::Select));
     }
 
     #[test]
@@ -3622,11 +3622,11 @@ mod test {
         node_create!(parser, "marquee");
         node_create!(parser, "p");
 
-        assert_eq!(parser.is_in_scope("ul", Scope::Regular), false);
-        assert_eq!(parser.is_in_scope("ul", Scope::ListItem), false);
-        assert_eq!(parser.is_in_scope("ul", Scope::Button), false);
-        assert_eq!(parser.is_in_scope("ul", Scope::Table), true);
-        assert_eq!(parser.is_in_scope("ul", Scope::Select), false);
+        assert!(!parser.is_in_scope("ul", Scope::Regular));
+        assert!(!parser.is_in_scope("ul", Scope::ListItem));
+        assert!(!parser.is_in_scope("ul", Scope::Button));
+        assert!(parser.is_in_scope("ul", Scope::Table));
+        assert!(!parser.is_in_scope("ul", Scope::Select));
     }
 
     #[test]
@@ -3641,11 +3641,11 @@ mod test {
         node_create!(parser, "caption");
         node_create!(parser, "p");
 
-        assert_eq!(parser.is_in_scope("table", Scope::Regular), false);
-        assert_eq!(parser.is_in_scope("table", Scope::ListItem), false);
-        assert_eq!(parser.is_in_scope("table", Scope::Button), false);
-        assert_eq!(parser.is_in_scope("table", Scope::Table), true);
-        assert_eq!(parser.is_in_scope("table", Scope::Select), false);
+        assert!(!parser.is_in_scope("table", Scope::Regular));
+        assert!(!parser.is_in_scope("table", Scope::ListItem));
+        assert!(!parser.is_in_scope("table", Scope::Button));
+        assert!(parser.is_in_scope("table", Scope::Table));
+        assert!(!parser.is_in_scope("table", Scope::Select));
     }
 
     #[test]
@@ -3659,11 +3659,11 @@ mod test {
         node_create!(parser, "optgroup");
         node_create!(parser, "option");
 
-        assert_eq!(parser.is_in_scope("select", Scope::Regular), true);
-        assert_eq!(parser.is_in_scope("select", Scope::ListItem), true);
-        assert_eq!(parser.is_in_scope("select", Scope::Button), true);
-        assert_eq!(parser.is_in_scope("select", Scope::Table), true);
-        assert_eq!(parser.is_in_scope("select", Scope::Select), true);
+        assert!(parser.is_in_scope("select", Scope::Regular));
+        assert!(parser.is_in_scope("select", Scope::ListItem));
+        assert!(parser.is_in_scope("select", Scope::Button));
+        assert!(parser.is_in_scope("select", Scope::Table));
+        assert!(parser.is_in_scope("select", Scope::Select));
     }
 
     #[test]

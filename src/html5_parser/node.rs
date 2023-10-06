@@ -740,7 +740,7 @@ mod tests {
         let attr = HashMap::new();
 
         let mut node = Node::new_element("name", attr.clone(), HTML_NAMESPACE);
-        assert_eq!(node.has_attributes(), false);
+        assert!(!node.has_attributes());
 
         assert!(node.insert_attribute("key", "value").is_ok());
         assert!(node.has_attributes());
