@@ -10,6 +10,7 @@ use crate::html5_parser::input_stream::SeekMode::SeekCur;
 use crate::html5_parser::input_stream::{InputStream, Position};
 use crate::html5_parser::tokenizer::state::State;
 use crate::html5_parser::tokenizer::token::Token;
+use crate::types::{Error, Result};
 use std::cell::{Ref, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -221,14 +222,14 @@ impl<'a> Tokenizer<'a> {
     }
 
     // Retrieves the next token from the input stream or Token::EOF when the end is reached
-    pub fn next_token(&mut self) -> Token {
-        self.consume_stream();
+    pub fn next_token(&mut self) -> Result<Token> {
+        self.consume_stream()?;
 
         if self.token_queue.is_empty() {
-            return Token::EofToken {};
+            return Ok(Token::EofToken);
         }
 
-        self.token_queue.remove(0)
+        Ok(self.token_queue.remove(0))
     }
 
     pub fn get_error_logger(&self) -> Ref<ErrorLogger> {
@@ -236,11 +237,11 @@ impl<'a> Tokenizer<'a> {
     }
 
     // Consumes the input stream. Continues until the stream is completed or a token has been generated.
-    fn consume_stream(&mut self) {
+    fn consume_stream(&mut self) -> Result<()> {
         loop {
             // Something is already in the token buffer, so we can return it.
             if !self.token_queue.is_empty() {
-                return;
+                return Ok(());
             }
 
             match self.state {
@@ -527,7 +528,7 @@ impl<'a> Tokenizer<'a> {
                         }
                         Element::Utf8('>') => {
                             if self.is_appropriate_end_token(&self.temporary_buffer) {
-                                self.set_name_in_current_token(self.temporary_buffer.clone());
+                                self.set_name_in_current_token(self.temporary_buffer.clone())?;
 
                                 self.last_start_token = String::new();
                                 emit_current_token!(self);
@@ -622,7 +623,7 @@ impl<'a> Tokenizer<'a> {
                         }
                         Element::Utf8('>') => {
                             if self.is_appropriate_end_token(&self.temporary_buffer) {
-                                self.set_name_in_current_token(self.temporary_buffer.clone());
+                                self.set_name_in_current_token(self.temporary_buffer.clone())?;
                                 self.last_start_token = String::new();
                                 emit_current_token!(self);
                                 self.state = State::DataState;
@@ -718,7 +719,7 @@ impl<'a> Tokenizer<'a> {
                         }
                         Element::Utf8('>') => {
                             if self.is_appropriate_end_token(&self.temporary_buffer) {
-                                self.set_name_in_current_token(self.temporary_buffer.clone());
+                                self.set_name_in_current_token(self.temporary_buffer.clone())?;
 
                                 self.last_start_token = String::new();
                                 emit_current_token!(self);
@@ -913,7 +914,7 @@ impl<'a> Tokenizer<'a> {
                         }
                         Element::Utf8('>') => {
                             if self.is_appropriate_end_token(&self.temporary_buffer) {
-                                self.set_name_in_current_token(self.temporary_buffer.clone());
+                                self.set_name_in_current_token(self.temporary_buffer.clone())?;
                                 self.last_start_token = String::new();
                                 emit_current_token!(self);
                                 self.state = State::DataState;
@@ -2271,16 +2272,22 @@ impl<'a> Tokenizer<'a> {
     }
 
     // Sets the given name into the current token
-    fn set_name_in_current_token(&mut self, new_name: String) {
-        match &mut self.current_token.as_mut().unwrap() {
+    fn set_name_in_current_token(&mut self, new_name: String) -> Result<()> {
+        match &mut self.current_token.as_mut().expect("current token") {
             Token::StartTagToken { name, .. } => {
                 *name = new_name;
             }
             Token::EndTagToken { name, .. } => {
                 *name = new_name;
             }
-            _ => panic!("trying to set the name of a non start/end tag token"),
+            _ => {
+                return Err(Error::Parse(
+                    "trying to set the name of a non start/end tag token".into(),
+                ))
+            }
         }
+
+        Ok(())
     }
 
     // This function checks to see if there is already an attribute name like the one in current_attr_name.
@@ -2312,7 +2319,7 @@ impl<'a> Tokenizer<'a> {
             return;
         }
 
-        match self.current_token.as_mut().unwrap() {
+        match self.current_token.as_mut().expect("current token") {
             Token::EndTagToken { .. } => {
                 self.parse_error(ParserError::EndTagWithAttributes);
             }

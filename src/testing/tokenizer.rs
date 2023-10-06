@@ -118,12 +118,12 @@ impl Test {
             // If there is no output, still do an (initial) next token so the parser can generate
             // errors.
             if self.output.is_empty() {
-                tokenizer.next_token();
+                tokenizer.next_token().unwrap();
             }
 
             // There can be multiple tokens to match. Make sure we match all of them
             for expected_token in self.output.iter() {
-                let t = tokenizer.next_token();
+                let t = tokenizer.next_token().unwrap();
                 self.assert_token(t, expected_token);
             }
 
@@ -144,7 +144,7 @@ impl Test {
             let mut tokenizer = builder.build();
 
             for _ in self.output.iter() {
-                tokenizer.next_token();
+                tokenizer.next_token().unwrap();
             }
         }
     }
