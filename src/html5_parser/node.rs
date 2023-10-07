@@ -367,7 +367,7 @@ mod tests {
         assert_eq!(node.namespace, None);
         match &node.data {
             NodeData::Document(_) => assert!(true),
-            _ => assert!(false),
+            _ => unreachable!(),
         }
     }
 
@@ -387,7 +387,7 @@ mod tests {
                 assert!(element.attributes.contains("id"));
                 assert_eq!(element.attributes.get("id").unwrap(), "test");
             }
-            _ => assert!(false),
+            _ => unreachable!(),
         }
     }
 
@@ -403,7 +403,7 @@ mod tests {
             NodeData::Comment(comment) => {
                 assert_eq!(comment.get_value(), "test");
             }
-            _ => assert!(false),
+            _ => unreachable!(),
         }
     }
 
@@ -419,7 +419,7 @@ mod tests {
             NodeData::Text(text) => {
                 assert_eq!(text.get_value(), "test");
             }
-            _ => assert!(false),
+            _ => unreachable!(),
         }
     }
 
@@ -501,7 +501,7 @@ mod tests {
                 assert!(element.attributes.contains("x"));
                 assert!(!element.attributes.contains("z"));
             }
-            _ => assert!(false),
+            _ => unreachable!(),
         }
     }
 
@@ -515,7 +515,7 @@ mod tests {
                 element.attributes.insert("key", "value");
                 assert_eq!(element.attributes.get("key").unwrap(), "value");
             }
-            _ => assert!(false),
+            _ => unreachable!(),
         }
     }
 
@@ -531,7 +531,7 @@ mod tests {
                 element.attributes.remove("key");
                 assert!(!element.attributes.contains("key"));
             }
-            _ => assert!(false),
+            _ => unreachable!(),
         }
     }
 
@@ -546,7 +546,7 @@ mod tests {
             NodeData::Element(element) => {
                 assert_eq!(element.attributes.get("key").unwrap(), "value");
             }
-            _ => assert!(false),
+            _ => unreachable!(),
         }
     }
 
@@ -564,7 +564,7 @@ mod tests {
 
                 assert_eq!(element.attributes.get("key").unwrap(), "value appended");
             }
-            _ => assert!(false),
+            _ => unreachable!(),
         }
     }
 
@@ -580,7 +580,7 @@ mod tests {
                 element.attributes.clear();
                 assert!(element.attributes.is_empty());
             }
-            _ => assert!(false),
+            _ => unreachable!(),
         }
     }
 
@@ -596,7 +596,7 @@ mod tests {
                 element.attributes.insert("key", "value");
                 assert!(!element.attributes.is_empty());
             }
-            _ => assert!(false),
+            _ => unreachable!(),
         }
     }
 }
