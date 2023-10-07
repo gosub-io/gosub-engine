@@ -1,4 +1,4 @@
-use crate::console::{LogLevel, Printer};
+use crate::api::console::{LogLevel, Printer};
 use std::fmt;
 use std::io::Write;
 
@@ -17,6 +17,14 @@ impl<W: Write> TextPrinter<W> {
             writer,
             groups: vec![],
         }
+    }
+
+    pub fn get_writer(&self) -> &W {
+        &self.writer
+    }
+
+    pub fn into_writer(self) -> W {
+        self.writer
     }
 }
 
@@ -80,7 +88,7 @@ mod tests {
     use std::io::Cursor;
 
     #[test]
-    fn test_text_printer() {
+    fn text_printer() {
         let mut buffer = Vec::new();
         let mut printer = TextPrinter::new(Cursor::new(&mut buffer));
 
