@@ -367,14 +367,14 @@ mod tests {
             NodeData::Element(element) => {
                 element.attributes.insert("id", "myid");
             }
-            _ => assert!(false),
+            _ => panic!(),
         }
 
         match &mut node2.data {
             NodeData::Element(element) => {
                 element.attributes.insert("id", "myid");
             }
-            _ => assert!(false),
+            _ => panic!(),
         }
 
         let mut doc = Document::new();
