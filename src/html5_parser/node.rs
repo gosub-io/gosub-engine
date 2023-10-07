@@ -1,4 +1,8 @@
 use crate::html5_parser::element_class::ElementClass;
+use crate::html5_parser::node_data::document_data::DocumentData;
+use crate::html5_parser::node_data::text_data::TextData;
+use crate::html5_parser::node_data::comment_data::CommentData;
+use crate::html5_parser::node_data::element_data::ElementData;
 use derive_more::Display;
 use std::collections::HashMap;
 
@@ -23,17 +27,10 @@ pub enum NodeType {
 /// Different type of node data
 #[derive(Debug, PartialEq, Clone)]
 pub enum NodeData {
-    Document,
-    Text {
-        value: String,
-    },
-    Comment {
-        value: String,
-    },
-    Element {
-        name: String,
-        attributes: HashMap<String, String>,
-    },
+    Document(DocumentData),
+    Text(TextData),
+    Comment(CommentData),
+    Element(ElementData),
 }
 
 /// Id used to identify a node
@@ -250,104 +247,6 @@ impl Node {
 
         // don't want to return the actual internal String
         self.named_id.clone()
-    }
-
-    /// Check if an attribute exists
-    pub fn contains_attribute(&self, name: &str) -> Result<bool, String> {
-        if self.type_of() != NodeType::Element {
-            return Err(ATTRIBUTE_NODETYPE_ERR_MSG.into());
-        }
-
-        let contains: bool = match &self.data {
-            NodeData::Element { attributes, .. } => attributes.contains_key(name),
-            _ => false,
-        };
-
-        Ok(contains)
-    }
-
-    /// Add or update a an attribute
-    pub fn insert_attribute(&mut self, name: &str, value: &str) -> Result<(), String> {
-        if self.type_of() != NodeType::Element {
-            return Err(ATTRIBUTE_NODETYPE_ERR_MSG.into());
-        }
-
-        if let NodeData::Element { attributes, .. } = &mut self.data {
-            attributes.insert(name.to_owned(), value.to_owned());
-        }
-
-        Ok(())
-    }
-
-    /// Remove an attribute. If attribute doesn't exist, nothing happens.
-    pub fn remove_attribute(&mut self, name: &str) -> Result<(), String> {
-        if self.type_of() != NodeType::Element {
-            return Err(ATTRIBUTE_NODETYPE_ERR_MSG.into());
-        }
-
-        if let NodeData::Element { attributes, .. } = &mut self.data {
-            attributes.remove(name);
-        }
-
-        Ok(())
-    }
-
-    /// Get a constant reference to the attribute value
-    /// (or None if attribute doesn't exist)
-    pub fn get_attribute(&self, name: &str) -> Option<&String> {
-        if self.type_of() != NodeType::Element {
-            return None;
-        }
-
-        let mut value: Option<&String> = None;
-        if let NodeData::Element { attributes, .. } = &self.data {
-            value = attributes.get(name);
-        }
-
-        value
-    }
-
-    /// Get a mutable reference to the attribute value
-    /// (or None if the attribute doesn't exist)
-    pub fn get_mut_attribute(&mut self, name: &str) -> Option<&mut String> {
-        if self.type_of() != NodeType::Element {
-            return None;
-        }
-
-        let mut value: Option<&mut String> = None;
-        if let NodeData::Element { attributes, .. } = &mut self.data {
-            value = attributes.get_mut(name);
-        }
-
-        value
-    }
-
-    /// Remove all attributes
-    pub fn clear_attributes(&mut self) -> Result<(), String> {
-        if self.type_of() != NodeType::Element {
-            return Err(String::from(ATTRIBUTE_NODETYPE_ERR_MSG));
-        }
-
-        if let NodeData::Element { attributes, .. } = &mut self.data {
-            attributes.clear();
-        }
-
-        Ok(())
-    }
-
-    /// Check if node has any attributes
-    /// (NOTE: if node is not Element type, returns false anyways)
-    pub fn has_attributes(&self) -> bool {
-        if self.type_of() != NodeType::Element {
-            return false;
-        }
-
-        let mut has_attr: bool = false;
-        if let NodeData::Element { attributes, .. } = &self.data {
-            has_attr = !attributes.is_empty();
-        }
-
-        has_attr
     }
 }
 
