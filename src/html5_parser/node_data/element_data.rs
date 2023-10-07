@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use std::collections::hash_map::Iter;
+use std::collections::HashMap;
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct ElementAttributes {
@@ -55,7 +55,7 @@ impl ElementAttributes {
         self.attributes.iter()
     }
 
-    pub fn clone(&self) -> HashMap<String, String> {
+    pub fn clone_attributes(&self) -> HashMap<String, String> {
         self.attributes.clone()
     }
 

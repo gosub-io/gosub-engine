@@ -187,10 +187,10 @@ impl Document {
                 _ = writeln!(f, "{}Document", buffer);
             }
             NodeData::Text(text) => {
-                _ = writeln!(f, "{}\"{}\"", buffer, text.get_value() );
+                _ = writeln!(f, "{}\"{}\"", buffer, text.get_value());
             }
             NodeData::Comment(comment) => {
-                _ = writeln!(f, "{}<!-- {} -->", buffer, comment.get_value() );
+                _ = writeln!(f, "{}<!-- {} -->", buffer, comment.get_value());
             }
             NodeData::Element(element) => {
                 _ = write!(f, "{}<{}", buffer, element.get_name());
@@ -231,7 +231,7 @@ impl fmt::Display for Document {
 #[cfg(test)]
 mod tests {
     use crate::html5_parser::node::HTML_NAMESPACE;
-    use crate::html5_parser::parser::{Document, Node, NodeId};
+    use crate::html5_parser::parser::{Document, Node, NodeData, NodeId};
     use std::collections::HashMap;
 
     #[ignore]
@@ -363,8 +363,19 @@ mod tests {
         let mut node1 = Node::new_element("div", attributes.clone(), HTML_NAMESPACE);
         let mut node2 = Node::new_element("div", attributes.clone(), HTML_NAMESPACE);
 
-        let _ = node1.insert_attribute("id", "myid");
-        let _ = node2.insert_attribute("id", "myid");
+        match &mut node1.data {
+            NodeData::Element(element) => {
+                element.attributes.insert("id", "myid");
+            }
+            _ => assert!(false),
+        }
+
+        match &mut node2.data {
+            NodeData::Element(element) => {
+                element.attributes.insert("id", "myid");
+            }
+            _ => assert!(false),
+        }
 
         let mut doc = Document::new();
         let _ = doc.add_node(node1, NodeId(1));

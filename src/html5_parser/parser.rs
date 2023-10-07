@@ -3418,7 +3418,7 @@ impl<'a> Html5Parser<'a> {
                 .document
                 .get_node_by_id_mut(*last_child_id)
                 .expect("node not found");
-            if let NodeData::Text(text)  = &mut last_child.data {
+            if let NodeData::Text(text) = &mut last_child.data {
                 text.push_str(&token.to_string().clone());
                 return;
             }

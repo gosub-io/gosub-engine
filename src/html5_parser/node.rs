@@ -1,8 +1,8 @@
 use crate::html5_parser::element_class::ElementClass;
-use crate::html5_parser::node_data::document_data::DocumentData;
-use crate::html5_parser::node_data::text_data::TextData;
 use crate::html5_parser::node_data::comment_data::CommentData;
+use crate::html5_parser::node_data::document_data::DocumentData;
 use crate::html5_parser::node_data::element_data::ElementData;
+use crate::html5_parser::node_data::text_data::TextData;
 use derive_more::Display;
 use std::collections::HashMap;
 
@@ -146,7 +146,7 @@ impl Node {
             named_id: None,
             parent: None,
             children: vec![],
-            data: NodeData::Element(ElementData::new_with_name_and_attributes(name, attributes)), 
+            data: NodeData::Element(ElementData::new_with_name_and_attributes(name, attributes)),
             name: name.to_string(),
             namespace: Some(namespace.into()),
             classes: Some(ElementClass::new()),
@@ -160,7 +160,7 @@ impl Node {
             named_id: None,
             parent: None,
             children: vec![],
-            data: NodeData::Comment(CommentData::new_with_value(value)), 
+            data: NodeData::Comment(CommentData::new_with_value(value)),
             name: "".to_string(),
             namespace: None,
             classes: None,
@@ -366,8 +366,8 @@ mod tests {
         assert_eq!(node.name, "".to_string());
         assert_eq!(node.namespace, None);
         match &node.data {
-            NodeData::Document(document) => assert!(true),
-            _ => assert!(false)
+            NodeData::Document(_) => assert!(true),
+            _ => assert!(false),
         }
     }
 
@@ -386,7 +386,7 @@ mod tests {
                 assert_eq!(element.get_name(), "div");
                 assert!(element.attributes.contains("id"));
                 assert_eq!(element.attributes.get("id").unwrap(), "test");
-            },
+            }
             _ => assert!(false),
         }
     }
@@ -402,7 +402,7 @@ mod tests {
         match &node.data {
             NodeData::Comment(comment) => {
                 assert_eq!(comment.get_value(), "test");
-            },
+            }
             _ => assert!(false),
         }
     }
@@ -418,7 +418,7 @@ mod tests {
         match &node.data {
             NodeData::Text(text) => {
                 assert_eq!(text.get_value(), "test");
-            },
+            }
             _ => assert!(false),
         }
     }
@@ -500,7 +500,7 @@ mod tests {
             NodeData::Element(element) => {
                 assert!(element.attributes.contains("x"));
                 assert!(!element.attributes.contains("z"));
-            },
+            }
             _ => assert!(false),
         }
     }
@@ -514,7 +514,7 @@ mod tests {
             NodeData::Element(element) => {
                 element.attributes.insert("key", "value");
                 assert_eq!(element.attributes.get("key").unwrap(), "value");
-            },
+            }
             _ => assert!(false),
         }
     }
@@ -530,7 +530,7 @@ mod tests {
             NodeData::Element(element) => {
                 element.attributes.remove("key");
                 assert!(!element.attributes.contains("key"));
-            },
+            }
             _ => assert!(false),
         }
     }
@@ -545,7 +545,7 @@ mod tests {
         match &node.data {
             NodeData::Element(element) => {
                 assert_eq!(element.attributes.get("key").unwrap(), "value");
-            },
+            }
             _ => assert!(false),
         }
     }
@@ -559,11 +559,11 @@ mod tests {
 
         match &mut node.data {
             NodeData::Element(element) => {
-                let mut attr_val = element.attributes.get_mut("key").unwrap();
+                let attr_val = element.attributes.get_mut("key").unwrap();
                 attr_val.push_str(" appended");
 
                 assert_eq!(element.attributes.get("key").unwrap(), "value appended");
-            },
+            }
             _ => assert!(false),
         }
     }
@@ -579,7 +579,7 @@ mod tests {
             NodeData::Element(element) => {
                 element.attributes.clear();
                 assert!(element.attributes.is_empty());
-            },
+            }
             _ => assert!(false),
         }
     }
@@ -595,7 +595,7 @@ mod tests {
                 assert!(element.attributes.is_empty());
                 element.attributes.insert("key", "value");
                 assert!(!element.attributes.is_empty());
-            },
+            }
             _ => assert!(false),
         }
     }

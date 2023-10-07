@@ -179,7 +179,7 @@ impl<'a> Html5Parser<'a> {
                 // Step 4.13.6
                 // replace the old node with the new replacement node
                 let node_attributes = match node.data {
-                    NodeData::Element(element)  => element.attributes.clone(),
+                    NodeData::Element(element) => element.attributes.clone_attributes(),
                     _ => HashMap::new(),
                 };
 
@@ -220,13 +220,11 @@ impl<'a> Html5Parser<'a> {
 
             // Step 4.15
             let new_element = match formatting_element_node.data {
-                NodeData::Element(element) =>{
-                    Node::new_element(
-                        element.get_name().as_str(), 
-                        element.attributes.clone(), 
-                        HTML_NAMESPACE
-                    )
-                }
+                NodeData::Element(element) => Node::new_element(
+                    element.get_name().as_str(),
+                    element.attributes.clone_attributes(),
+                    HTML_NAMESPACE,
+                ),
                 _ => panic!("formatting element is not an element"),
             };
 
