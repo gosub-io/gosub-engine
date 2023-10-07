@@ -10,14 +10,14 @@ pub struct Group {
 
 type Writer<W> = Rc<RefCell<W>>;
 
-pub(crate) struct TextPrinter<W: Write> {
+pub(crate) struct WritablePrinter<W: Write> {
     writer: Writer<W>,
     groups: Vec<Group>,
 }
 
-impl<W: Write> TextPrinter<W> {
-    pub fn new(writer: Rc<RefCell<W>>) -> TextPrinter<W> {
-        TextPrinter {
+impl<W: Write> WritablePrinter<W> {
+    pub fn new(writer: Rc<RefCell<W>>) -> WritablePrinter<W> {
+        WritablePrinter {
             writer,
             groups: vec![],
         }
@@ -32,7 +32,7 @@ impl<W: Write> TextPrinter<W> {
     }
 }
 
-impl<W: Write> Printer for TextPrinter<W> {
+impl<W: Write> Printer for WritablePrinter<W> {
     fn print(&mut self, log_level: LogLevel, args: &[&dyn fmt::Display], _options: &[&str]) {
         if args.is_empty() {
             return;
@@ -93,9 +93,9 @@ mod tests {
     use crate::api::console::buffer::Buffer;
 
     #[test]
-    fn text_printer() {
+    fn printer() {
         let buffer = Rc::new(RefCell::new(Buffer::new()));
-        let mut printer = TextPrinter::new(Rc::clone(&buffer));
+        let mut printer = WritablePrinter::new(Rc::clone(&buffer));
 
         printer.print(LogLevel::Log, &[&"Hello", &"World"], &vec![]);
         assert_eq!(
@@ -104,7 +104,7 @@ mod tests {
         );
 
         let buffer = Rc::new(RefCell::new(Buffer::new()));
-        let mut printer = TextPrinter::new(Rc::clone(&buffer));
+        let mut printer = WritablePrinter::new(Rc::clone(&buffer));
         printer.print(LogLevel::Info, &[&"Foo", &2i32, &false], &vec![]);
         printer.print(LogLevel::Warn, &[&"a", &"b"], &vec![]);
         printer.print(LogLevel::Error, &[], &vec![]);

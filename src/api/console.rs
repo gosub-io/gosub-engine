@@ -1,6 +1,6 @@
 mod buffer;
 mod formatter;
-mod text_printer;
+mod writable_printer;
 
 use crate::api::console::formatter::Formatter;
 use std::collections::HashMap;
@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 /// LogLevel is the type of log level.
 #[derive(Debug)]
-enum LogLevel {
+pub enum LogLevel {
     Info,
     Warn,
     Error,
@@ -20,12 +20,12 @@ enum LogLevel {
     Group,
     GroupCollapsed,
     GroupEnd,
+    TimeLog,
     TimeEnd,
     Count,
     CountReset,
     Dir,
     Dirxml,
-    Table,
     Trace,
 }
 
@@ -43,38 +43,42 @@ struct Timer {
     end: Option<u128>,
 }
 
-struct Group {
+pub struct Group {
     label: String,
 }
 
 /// Console is the main struct that holds all the console methods.
 pub struct Console {
-    timers: HashMap<String, Timer>,
-    counts: HashMap<String, usize>,
+    /// Timers that are currently running or have run
+    timer_map: HashMap<String, Timer>,
+    /// Counts that are currently running or have run
+    count_map: HashMap<String, usize>,
+    /// Stack of groups. The last group is the current group
     group_stacks: Vec<Group>,
+    /// Printer that will output any data from the console
     printer: Box<dyn Printer>,
+    /// Formatter that will format any data that is passed to the console
     formatter: Formatter,
-    current_group_stack: Option<usize>,
 }
 
 impl Console {
     /// Creates a new Console struct.
-    fn new(printer: Box<dyn Printer>) -> Console {
+    pub fn new(printer: Box<dyn Printer>) -> Console {
         Console {
-            timers: HashMap::new(),
-            counts: HashMap::new(),
+            timer_map: HashMap::new(),
+            count_map: HashMap::new(),
             group_stacks: vec![],
             printer,
             formatter: Formatter::new(),
-            current_group_stack: None,
         }
     }
 
-    fn get_printer(self) -> Box<dyn Printer> {
+    pub fn get_printer(self) -> Box<dyn Printer> {
         self.printer
     }
 
-    fn assert(&mut self, condition: bool, data: &[&dyn fmt::Display]) {
+    /// Emit an assert message if the condition is true
+    pub fn assert(&mut self, condition: bool, data: &[&dyn fmt::Display]) {
         if condition {
             return;
         }
@@ -90,73 +94,83 @@ impl Console {
         self.logger(LogLevel::Assert, &[&concat]);
     }
 
-    fn clear(&mut self) {
-        if !self.group_stacks.is_empty() {
-            // Clear group stack (what is this?)
-        }
-
+    /// Clears the console output (if possible)
+    pub fn clear(&mut self) {
         self.printer.clear();
     }
 
-    fn debug(&mut self, data: &[&dyn fmt::Display]) {
+    /// Emit debug message
+    pub fn debug(&mut self, data: &[&dyn fmt::Display]) {
         self.logger(LogLevel::Debug, data);
     }
 
-    fn error(&mut self, data: &[&dyn fmt::Display]) {
+    /// Emit error message
+    pub fn error(&mut self, data: &[&dyn fmt::Display]) {
         self.logger(LogLevel::Error, data);
     }
 
-    fn info(&mut self, data: &[&dyn fmt::Display]) {
+    /// Emit info message
+    pub fn info(&mut self, data: &[&dyn fmt::Display]) {
         self.logger(LogLevel::Info, data);
     }
 
-    fn log(&mut self, data: &[&dyn fmt::Display]) {
+    /// Emit log message
+    pub fn log(&mut self, data: &[&dyn fmt::Display]) {
         self.logger(LogLevel::Log, data);
     }
 
-    fn table(&mut self, _tabular_data: String, _properties: &[&str]) {
-        todo!()
+    /// Emit table if tabular data is supported
+    pub fn table(&mut self, tabular_data: String, _properties: &[&str]) {
+        // TODO: needs implementation
+        self.printer.print(LogLevel::Log, &[&tabular_data], &[])
     }
 
-    fn trace(&mut self, _item: &dyn fmt::Display, _options: &[&str]) {
-        todo!()
+    /// Emit a trace message
+    pub fn trace(&mut self, data: &[&dyn fmt::Display]) {
+        let formatted_data = self.formatter.format(data);
+
+        self.printer.print(LogLevel::Trace, &[&formatted_data], &[]);
     }
 
-    fn warn(&mut self, data: &[&dyn fmt::Display]) {
+    /// Emit a warning
+    pub fn warn(&mut self, data: &[&dyn fmt::Display]) {
         self.logger(LogLevel::Warn, data);
     }
 
-    fn dir(&mut self, item: &dyn fmt::Display, options: &[&str]) {
+    /// Emit a list of properties of the given item
+    pub fn dir(&mut self, item: &dyn fmt::Display, options: &[&str]) {
         self.printer.print(LogLevel::Dir, &[&item], options);
     }
 
-    fn dirxml(&self, _data: &[&dyn fmt::Display]) {
+    pub fn dirxml(&self, _data: &[&dyn fmt::Display]) {
         todo!()
     }
 
-    fn count(&mut self, label: &str) {
+    /// Create a counter named "label"
+    pub fn count(&mut self, label: &str) {
         let mut cnt = 1;
-        if self.counts.contains_key(&label.to_owned()) {
-            cnt = self.counts.get(&label.to_owned()).unwrap() + 1;
+        if self.count_map.contains_key(&label.to_owned()) {
+            cnt = self.count_map.get(&label.to_owned()).unwrap() + 1;
         }
 
-        self.counts.insert(label.to_owned(), cnt + 1);
+        self.count_map.insert(label.to_owned(), cnt);
 
         let concat = format!("{}: {}", label.to_owned(), cnt);
         self.logger(LogLevel::Count, &[&concat]);
     }
 
-    fn count_reset(&mut self, label: &str) {
-        if !self.counts.contains_key(&label.to_owned()) {
+    /// Reset count of the given label to 0
+    pub fn count_reset(&mut self, label: &str) {
+        if !self.count_map.contains_key(&label.to_owned()) {
             self.logger(LogLevel::CountReset, &[&"label does not exist"]);
             return;
         }
 
-        self.counts.insert(label.to_owned(), 1);
+        self.count_map.insert(label.to_owned(), 0);
     }
 
-    /// Create an expanded group
-    fn group(&mut self, data: &[&dyn fmt::Display]) {
+    /// Create an group that will be displayed as expanded
+    pub fn group(&mut self, data: &[&dyn fmt::Display]) {
         let group_label = if data.is_empty() {
             format!("console.group.{}", Uuid::new_v4())
         } else {
@@ -173,8 +187,8 @@ impl Console {
         self.group_stacks.push(group);
     }
 
-    /// Create a collapsed group
-    fn group_collapsed(&mut self, data: &[&dyn fmt::Display]) {
+    /// Create a group that will be displayed as collapsed
+    pub fn group_collapsed(&mut self, data: &[&dyn fmt::Display]) {
         let group_label = if data.is_empty() {
             format!("console.group.{}", Uuid::new_v4())
         } else {
@@ -191,15 +205,15 @@ impl Console {
         self.group_stacks.push(group);
     }
 
-    /// End the last group
-    fn group_end(&mut self) -> Option<Group> {
+    /// End the current group (if any)
+    pub fn group_end(&mut self) -> Option<Group> {
         self.printer.end_group();
         self.group_stacks.pop()
     }
 
-    /// Create a timer
-    fn time(&mut self, label: &str) {
-        if self.timers.contains_key(&label.to_owned()) {
+    /// Create a timer with given label
+    pub fn time(&mut self, label: &str) {
+        if self.timer_map.contains_key(&label.to_owned()) {
             let warning = format!("Timer '{}' already started", label);
             self.logger(LogLevel::Warn, &[&warning]);
             return;
@@ -210,7 +224,7 @@ impl Console {
             Err(_) => 0,
         };
 
-        self.timers.insert(
+        self.timer_map.insert(
             label.to_owned(),
             Timer {
                 label: label.to_owned(),
@@ -221,12 +235,29 @@ impl Console {
     }
 
     /// Log time
-    fn time_log(&self, _label: &str, _data: &[&dyn fmt::Display]) {
-        todo!()
+    pub fn time_log(&mut self, label: &str, data: &[&dyn fmt::Display]) {
+        let mut message = String::from(" ");
+        for arg in data {
+            message.push_str(&format!("{} ", arg));
+        }
+        let message = message.trim_end();
+
+        let cur = match SystemTime::now().duration_since(UNIX_EPOCH) {
+            Ok(n) => n.as_millis(),
+            Err(_) => 0,
+        };
+
+        let concat = format!(
+            "{}: {}ms{}",
+            label.to_owned(),
+            cur - self.timer_map.get(&label.to_owned()).unwrap().start,
+            message
+        );
+        self.printer.print(LogLevel::TimeLog, &[&concat], &[]);
     }
 
-    /// End the given timer
-    fn time_end(&mut self, label: &str) {
+    /// End the timer with the given label
+    pub fn time_end(&mut self, label: &str) {
         let end = match SystemTime::now().duration_since(UNIX_EPOCH) {
             Ok(n) => n.as_millis(),
             Err(_) => 0,
@@ -235,7 +266,7 @@ impl Console {
         let concat = format!(
             "{}: {}ms",
             label.to_owned(),
-            end - self.timers.get(&label.to_owned()).unwrap().start
+            end - self.timer_map.get(&label.to_owned()).unwrap().start
         );
         self.printer.print(LogLevel::TimeEnd, &[&concat], &[]);
     }
@@ -257,51 +288,91 @@ impl Console {
     }
 }
 
-trait Printer {
+pub trait Printer {
+    /// Prints the given data
     fn print(&mut self, log_level: LogLevel, args: &[&dyn fmt::Display], _options: &[&str]);
+    /// Clears the console output (if possible)
     fn clear(&mut self);
+    /// Notify the printer that the current group has ended
     fn end_group(&mut self);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::api::console::{buffer::Buffer, text_printer::TextPrinter};
+    use crate::api::console::{buffer::Buffer, writable_printer::WritablePrinter};
     use std::cell::RefCell;
     use std::rc::Rc;
+    use std::thread::sleep;
+    use regex::Regex;
 
     #[test]
     fn console() {
         let buffer = Rc::new(RefCell::new(Buffer::new()));
-        let printer = TextPrinter::new(Rc::clone(&buffer));
+        let printer = WritablePrinter::new(Rc::clone(&buffer));
         let mut c = Console::new(Box::new(printer));
 
         c.log(&[&"some", &"data", &12i32]);
-
-        let out = buffer.borrow().to_string().unwrap();
-        assert_eq!(out, "[log] some data 12");
-
-        let out = buffer.borrow().to_string().unwrap();
         c.warn(&[&"Hello", &"World"]);
-        assert_eq!(out, "[log] some data 12");
-        // c.time("foo".into());
-        // c.group(&[&"foo"]);
-        // c.warn(&[&"Hello", &"World"]);
-        // c.group(&[&"bar"]);
-        // c.warn(&[&"Hello", &"World"]);
-        // c.group_end();
-        // c.warn(&[&"Hello", &"World"]);
-        // c.clear();
-        // c.group_end();
-        // sleep(std::time::Duration::from_millis(123));
-        // c.time_end("foo".into());
-        // c.group_end();
-        // c.group_end();
-        // c.warn(&[&"Back", &"To root"]);
-        //
-        // c.assert(true, &[&"This assertion asserts"]);
-        // c.assert(false, &[&"This assertion does not assert"]);
-        // c.assert(true, &[]);
-        // c.assert(false, &[]);
+
+        let out = buffer.borrow().to_string().unwrap();
+        assert_eq!(out, "\
+[log] some data 12\n\
+[warn] Hello World\n\
+");
+    }
+
+    #[test]
+    fn groups_and_timers() {
+        let buffer = Rc::new(RefCell::new(Buffer::new()));
+        let printer = WritablePrinter::new(Rc::clone(&buffer));
+        let mut c = Console::new(Box::new(printer));
+
+        c.clear();
+        c.time("foo".into());
+        c.group(&[&"foo"]);
+        c.warn(&[&"Hello", &"World"]);
+        c.group(&[&"bar"]);
+        c.warn(&[&"Hello", &"World"]);
+        c.group_end();
+        c.warn(&[&"Hello", &"World"]);
+        c.clear();
+        c.group_end();
+        sleep(std::time::Duration::from_millis(123));
+        c.time_end("foo".into());
+        c.group_end();
+        c.group_end();
+        c.warn(&[&"Back", &"To root"]);
+
+        let out = buffer.borrow().to_string().unwrap();
+        let re = Regex::new(r#"^--- Clear ---
+ > Expanded group: foo
+ > \[warn\] Hello World
+ >  > Expanded group: bar
+ >  > \[warn\] Hello World
+ > \[warn\] Hello World
+--- Clear ---
+foo: 1\d\dms - timer ended
+\[warn\] Back To root
+$"#).unwrap();
+        assert!(re.is_match(&out));
+    }
+
+    #[test]
+    fn assertions() {
+        let buffer = Rc::new(RefCell::new(Buffer::new()));
+        let printer = WritablePrinter::new(Rc::clone(&buffer));
+        let mut c = Console::new(Box::new(printer));
+
+        c.assert(true, &[&"This assertion asserts"]);
+        c.assert(false, &[&"This assertion does not assert"]);
+        c.assert(true, &[]);
+        c.assert(false, &[]);
+
+        let out = buffer.borrow().to_string().unwrap();
+        assert_eq!(out, "\
+[assert] Assertion failed: This assertion does not assert\n\
+[assert] Assertion failed\n\
+");
     }
 }
