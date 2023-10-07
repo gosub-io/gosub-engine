@@ -59,7 +59,7 @@ impl<'a> Html5Parser<'a> {
                 return AdoptionResult::ProcessAsAnyOther;
             }
 
-            let formatting_element_idx_afe =
+            let mut formatting_element_idx_afe =
                 formatting_element_idx_afe.expect("formatting element not found");
             let formatting_element_id = self.active_formatting_elements[formatting_element_idx_afe]
                 .node_id()
@@ -237,6 +237,13 @@ impl<'a> Html5Parser<'a> {
             }
 
             // Step 4.18
+            // if the bookmark_afe is BEFORE the formatting_elements_idx_afe, then we need to adjust
+            // the formatting_element_idx, as we insert a new element and the formatting_element_idx_afe
+            // has changed.
+            if bookmark_afe < formatting_element_idx_afe {
+                formatting_element_idx_afe += 1;
+            }
+
             self.active_formatting_elements
                 .insert(bookmark_afe, ActiveElement::Node(new_element_id));
             self.active_formatting_elements
