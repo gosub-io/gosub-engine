@@ -301,10 +301,10 @@ pub trait Printer {
 mod tests {
     use super::*;
     use crate::api::console::{buffer::Buffer, writable_printer::WritablePrinter};
+    use regex::Regex;
     use std::cell::RefCell;
     use std::rc::Rc;
     use std::thread::sleep;
-    use regex::Regex;
 
     #[test]
     fn console() {
@@ -316,10 +316,13 @@ mod tests {
         c.warn(&[&"Hello", &"World"]);
 
         let out = buffer.borrow().to_string().unwrap();
-        assert_eq!(out, "\
+        assert_eq!(
+            out,
+            "\
 [log] some data 12\n\
 [warn] Hello World\n\
-");
+"
+        );
     }
 
     #[test]
@@ -345,7 +348,8 @@ mod tests {
         c.warn(&[&"Back", &"To root"]);
 
         let out = buffer.borrow().to_string().unwrap();
-        let re = Regex::new(r#"^--- Clear ---
+        let re = Regex::new(
+            r#"^--- Clear ---
  > Expanded group: foo
  > \[warn\] Hello World
  >  > Expanded group: bar
@@ -354,7 +358,9 @@ mod tests {
 --- Clear ---
 foo: 1\d\dms - timer ended
 \[warn\] Back To root
-$"#).unwrap();
+$"#,
+        )
+        .unwrap();
         assert!(re.is_match(&out));
     }
 
@@ -370,9 +376,12 @@ $"#).unwrap();
         c.assert(false, &[]);
 
         let out = buffer.borrow().to_string().unwrap();
-        assert_eq!(out, "\
+        assert_eq!(
+            out,
+            "\
 [assert] Assertion failed: This assertion does not assert\n\
 [assert] Assertion failed\n\
-");
+"
+        );
     }
 }
