@@ -89,6 +89,8 @@ impl NodeId {
 pub struct Node {
     /// ID of the node, 0 is always the root / document node
     pub id: NodeId,
+    /// Named ID of the node, from the "id" attribute on an HTML element
+    pub named_id: Option<String>,
     /// parent of the node, if any
     pub parent: Option<NodeId>,
     /// children of the node
@@ -115,6 +117,7 @@ impl Clone for Node {
     fn clone(&self) -> Self {
         Node {
             id: self.id,
+            named_id: self.named_id.clone(),
             parent: self.parent,
             children: self.children.clone(),
             name: self.name.clone(),
@@ -130,6 +133,7 @@ impl Node {
     pub fn new_document() -> Self {
         Node {
             id: Default::default(),
+            named_id: None,
             parent: None,
             children: vec![],
             data: NodeData::Document {},
@@ -143,6 +147,7 @@ impl Node {
     pub fn new_element(name: &str, attributes: HashMap<String, String>, namespace: &str) -> Self {
         Node {
             id: Default::default(),
+            named_id: None,
             parent: None,
             children: vec![],
             data: NodeData::Element {
@@ -159,6 +164,7 @@ impl Node {
     pub fn new_comment(value: &str) -> Self {
         Node {
             id: Default::default(),
+            named_id: None,
             parent: None,
             children: vec![],
             data: NodeData::Comment {
@@ -174,6 +180,7 @@ impl Node {
     pub fn new_text(value: &str) -> Self {
         Node {
             id: Default::default(),
+            named_id: None,
             parent: None,
             children: vec![],
             data: NodeData::Text {
@@ -210,6 +217,38 @@ impl Node {
         }
 
         false
+    }
+
+    /// Check if node has a named ID
+    pub fn has_named_id(&self) -> bool {
+        if self.type_of() != NodeType::Element {
+            return false;
+        }
+
+        self.named_id.is_some()
+    }
+
+    /// Set named ID (only applies to Element type, does nothing otherwise)
+    pub fn set_named_id(&mut self, named_id: &str) {
+        if self.type_of() == NodeType::Element {
+            self.named_id = Some(named_id.to_owned());
+            // TODO: log a warning/error if this fails for some reason
+            let _ = self.insert_attribute("id", named_id);
+        }
+    }
+
+    /// Get named ID. If not present or type is not Element, returns None
+    pub fn get_named_id(&self) -> Option<String> {
+        if self.type_of() != NodeType::Element {
+            return None;
+        }
+
+        if !self.has_named_id() {
+            return None;
+        }
+
+        // don't want to return the actual internal String
+        self.named_id.clone()
     }
 
     /// Check if an attribute exists

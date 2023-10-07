@@ -32,5 +32,5 @@ ureq = "2.8.0"
 anyhow = "1.0.75"
 
 [dev-dependencies]
-criterion = { version = "0.4", features = ["html_reports"] }
+criterion = { version = "0.5", features = ["html_reports"] }
 test-case = "3.2.1"

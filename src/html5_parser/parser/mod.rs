@@ -230,7 +230,7 @@ macro_rules! current_node_mut {
         let current_node_idx = $self.open_elements.last().unwrap_or_default();
         $self
             .document
-            .get_mut_node_by_id(*current_node_idx)
+            .get_node_by_id_mut(*current_node_idx)
             .expect("Current node not found")
     }};
 }
@@ -320,7 +320,7 @@ impl<'a> Html5Parser<'a> {
     }
 
     // Parses the input stream into a Node tree
-    pub fn parse(&mut self) -> Result<(&Document, Vec<ParseError>)> {
+    pub fn parse(&mut self) -> Result<(&mut Document, Vec<ParseError>)> {
         loop {
             // If reprocess_token is true, we should process the same token again
             if !self.reprocess_token {
@@ -1660,7 +1660,7 @@ impl<'a> Html5Parser<'a> {
         }
 
         Ok((
-            &self.document,
+            &mut self.document,
             self.error_logger.borrow().get_errors().clone(),
         ))
     }
@@ -3758,5 +3758,47 @@ mod test {
             assert!(classes.is_active("two"));
             assert!(classes.is_active("three"));
         }
+    }
+
+    #[test]
+    fn element_with_invalid_named_id() {
+        let mut stream = InputStream::new();
+        stream.read_from_str(
+            "<div id=\"my id\"></div> \
+             <div id=\"123\"></div> \
+             <div id=\"\"></div>",
+            Some(Encoding::UTF8),
+        );
+
+        let mut parser = Html5Parser::new(&mut stream);
+        let (doc, _) = parser.parse().expect("doc");
+
+        let div1 = doc.get_node_by_id(NodeId(4)).unwrap();
+        assert!(!div1.has_named_id());
+
+        let div2 = doc.get_node_by_id(NodeId(5)).unwrap();
+        assert!(!div2.has_named_id());
+
+        let div3 = doc.get_node_by_id(NodeId(6)).unwrap();
+        assert!(!div3.has_named_id());
+    }
+
+    #[test]
+    fn element_with_named_id() {
+        let mut stream = InputStream::new();
+        stream.read_from_str(
+            "<div id=\"myid\"></div> \
+             <div id=\"myid\"></div>",
+            Some(Encoding::UTF8),
+        );
+
+        let mut parser = Html5Parser::new(&mut stream);
+        let (doc, _) = parser.parse().expect("doc");
+
+        let div = doc.get_node_by_named_id("myid").unwrap();
+        assert_eq!(div.id, NodeId(4));
+
+        doc.set_node_named_id(NodeId(4), "otherid");
+        assert!(doc.get_node_by_named_id("myid").is_none());
     }
 }
