@@ -19,6 +19,12 @@ pub struct Document {
     pub quirks_mode: QuirksMode,                // Quirks mode
 }
 
+impl Document {
+    pub(crate) fn print_nodes(&self) {
+        self.arena.print_nodes();
+    }
+}
+
 impl Default for Document {
     fn default() -> Self {
         Self {
@@ -136,10 +142,25 @@ impl Document {
         self.arena.attach_node(parent_id, node_id);
     }
 
-    // // append a node to another parent
-    // pub fn append(&mut self, node_id: NodeId, parent_id: NodeId) {
-    //     self.arena.attach_node(parent_id, node_id);
-    // }
+    pub fn relocate(&mut self, node_id: NodeId, parent_id: NodeId) {
+        // Remove the node from its current parent (if any)
+        let cur_parent_id = self.arena.get_node(node_id).expect("node not found").parent;
+        if let Some(parent_node_id) = cur_parent_id {
+            let cur_parent = self
+                .arena
+                .get_node_mut(parent_node_id)
+                .expect("node not found");
+            cur_parent.children.retain(|&x| x != node_id);
+        }
+
+        // Add the node to the new parent as a child, and update the node's parent
+        self.arena
+            .get_node_mut(parent_id)
+            .unwrap()
+            .children
+            .push(node_id);
+        self.arena.get_node_mut(node_id).unwrap().parent = Some(parent_id);
+    }
 
     // return the root node
     pub fn get_root(&self) -> &Node {
