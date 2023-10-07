@@ -370,7 +370,9 @@ impl<'a> Html5Parser<'a> {
                                 self.parse_error("doctype not allowed in initial insertion mode");
                             }
 
-                            self.insert_html_element(&self.current_token.clone());
+
+                            let node = self.create_node(&self.current_token, HTML_NAMESPACE);
+                            self.document.add_node(node, NodeId::root());
 
                             if self.document.doctype != DocumentType::IframeSrcDoc
                                 && self.parser_cannot_change_mode
@@ -592,8 +594,7 @@ impl<'a> Html5Parser<'a> {
 
                     match &self.current_token {
                         Token::TextToken { .. } if self.current_token.is_empty_or_white() => {
-                            let node = self.create_node(&self.current_token, HTML_NAMESPACE);
-                            self.document.add_node(node, current_node!(self).id);
+                            self.create_or_merge_text(self.current_token.clone());
                         }
                         Token::CommentToken { .. } => {
                             let node = self.create_node(&self.current_token, HTML_NAMESPACE);
@@ -688,8 +689,7 @@ impl<'a> Html5Parser<'a> {
                 InsertionMode::Text => {
                     match &self.current_token {
                         Token::TextToken { .. } => {
-                            let node = self.create_node(&self.current_token, HTML_NAMESPACE);
-                            self.document.add_node(node, current_node!(self).id);
+                            self.create_or_merge_text(self.current_token.clone());
                         }
                         Token::EofToken => {
                             self.parse_error("eof not allowed in text insertion mode");
@@ -835,8 +835,7 @@ impl<'a> Html5Parser<'a> {
                 InsertionMode::InColumnGroup => {
                     match &self.current_token {
                         Token::TextToken { .. } if self.current_token.is_empty_or_white() => {
-                            let node = self.create_node(&self.current_token, HTML_NAMESPACE);
-                            self.document.add_node(node, current_node!(self).id);
+                            self.create_or_merge_text(self.current_token.clone());
                         }
                         Token::CommentToken { .. } => {
                             let node = self.create_node(&self.current_token, HTML_NAMESPACE);
@@ -1197,8 +1196,7 @@ impl<'a> Html5Parser<'a> {
                             // ignore token
                         }
                         Token::TextToken { .. } => {
-                            let node = self.create_node(&self.current_token, HTML_NAMESPACE);
-                            self.document.add_node(node, current_node!(self).id);
+                            self.create_or_merge_text(self.current_token.clone());
                         }
                         Token::CommentToken { .. } => {
                             let node = self.create_node(&self.current_token, HTML_NAMESPACE);
@@ -1509,8 +1507,7 @@ impl<'a> Html5Parser<'a> {
                 InsertionMode::InFrameset => {
                     match &self.current_token {
                         Token::TextToken { .. } if self.current_token.is_empty_or_white() => {
-                            let node = self.create_node(&self.current_token, HTML_NAMESPACE);
-                            self.document.add_node(node, current_node!(self).id);
+                            self.create_or_merge_text(self.current_token.clone());
                         }
                         Token::CommentToken { .. } => {
                             let node = self.create_node(&self.current_token, HTML_NAMESPACE);
@@ -1573,8 +1570,7 @@ impl<'a> Html5Parser<'a> {
                 InsertionMode::AfterFrameset => {
                     match &self.current_token {
                         Token::TextToken { .. } if self.current_token.is_empty_or_white() => {
-                            let node = self.create_node(&self.current_token, HTML_NAMESPACE);
-                            self.document.add_node(node, current_node!(self).id);
+                            self.create_or_merge_text(self.current_token.clone());
                         }
                         Token::CommentToken { .. } => {
                             let node = self.create_node(&self.current_token, HTML_NAMESPACE);
@@ -1689,16 +1685,13 @@ impl<'a> Html5Parser<'a> {
         match token {
             Token::DocTypeToken {
                 name,
-                pub_identifier,
-                sys_identifier,
-                force_quirks,
+                ..
             } => {
                 val = format!(
-                    "doctype[{} {} {} {}]",
+                    "!DOCTYPE {}",
                     name.as_deref().unwrap_or(""),
-                    pub_identifier.as_deref().unwrap_or(""),
-                    sys_identifier.as_deref().unwrap_or(""),
-                    force_quirks
+                    // pub_identifier.as_deref().unwrap_or(""),
+                    // sys_identifier.as_deref().unwrap_or(""),
                 );
 
                 return Node::new_element(val.as_str(), HashMap::new(), namespace);
@@ -1979,8 +1972,7 @@ impl<'a> Html5Parser<'a> {
             Token::TextToken { .. } => {
                 self.reconstruct_formatting();
 
-                let node = self.create_node(&self.current_token, HTML_NAMESPACE);
-                self.document.add_node(node, current_node!(self).id);
+                self.create_or_merge_text(self.current_token.clone());
 
                 self.frameset_ok = false;
             }
@@ -2799,8 +2791,7 @@ impl<'a> Html5Parser<'a> {
 
         match &self.current_token {
             Token::TextToken { .. } if self.current_token.is_empty_or_white() => {
-                let node = self.create_node(&self.current_token, HTML_NAMESPACE);
-                self.document.add_node(node, current_node!(self).id);
+                self.create_or_merge_text(self.current_token.clone());
             }
             Token::CommentToken { .. } => {
                 let node = self.create_node(&self.current_token, HTML_NAMESPACE);
@@ -3424,6 +3415,22 @@ impl<'a> Html5Parser<'a> {
         }
 
         adjusted_insertion_location
+    }
+
+    /// Merges the text with the last child of the current node if that is also a text node
+    fn create_or_merge_text(&mut self, token: Token) {
+        let node = current_node!(self);
+
+        if let Some(last_child_id) = node.children.last() {
+            let last_child = self.document.get_node_by_id_mut(*last_child_id).expect("node not found");
+            if let NodeData::Text { ref mut value } = &mut last_child.data {
+                value.push_str(&token.to_string().clone());
+                return;
+            }
+        }
+
+        let node = self.create_node(&self.current_token, HTML_NAMESPACE);
+        self.document.add_node(node, current_node!(self).id);
     }
 
     fn display_debug_info(&self) {
