@@ -1,29 +1,33 @@
 use crate::api::console::{LogLevel, Printer};
+use std::cell::RefCell;
 use std::fmt;
 use std::io::Write;
+use std::rc::Rc;
 
 pub struct Group {
     collapsed: bool,
 }
 
+type Writer<W> = Rc<RefCell<W>>;
+
 pub(crate) struct TextPrinter<W: Write> {
-    writer: W,
+    writer: Writer<W>,
     groups: Vec<Group>,
 }
 
 impl<W: Write> TextPrinter<W> {
-    pub fn new(writer: W) -> TextPrinter<W> {
+    pub fn new(writer: Rc<RefCell<W>>) -> TextPrinter<W> {
         TextPrinter {
             writer,
             groups: vec![],
         }
     }
 
-    pub fn get_writer(&self) -> &W {
+    pub fn get_writer(&self) -> &Writer<W> {
         &self.writer
     }
 
-    pub fn into_writer(self) -> W {
+    pub fn into_writer(self) -> Writer<W> {
         self.writer
     }
 }
@@ -54,6 +58,7 @@ impl<W: Write> Printer for TextPrinter<W> {
             data.push_str(format!("{} ", arg).as_str());
         }
         data = data.trim_end().to_string();
+        let mut writer = self.writer.borrow_mut();
 
         let _ = match log_level {
             LogLevel::Info
@@ -61,20 +66,20 @@ impl<W: Write> Printer for TextPrinter<W> {
             | LogLevel::Error
             | LogLevel::Log
             | LogLevel::Assert => {
-                writeln!(self.writer, "{}[{}] {}", group_prefix, log_level, data)
+                writeln!(writer, "{}[{}] {}", group_prefix, log_level, data)
             }
-            LogLevel::Group => writeln!(self.writer, "{}Expanded group: {}", group_prefix, data),
+            LogLevel::Group => writeln!(writer, "{}Expanded group: {}", group_prefix, data),
             LogLevel::GroupCollapsed => {
-                writeln!(self.writer, "{}Collapsed group: {}", group_prefix, data)
+                writeln!(writer, "{}Collapsed group: {}", group_prefix, data)
             }
-            LogLevel::TimeEnd => writeln!(self.writer, "{}{} - timer ended", group_prefix, data),
+            LogLevel::TimeEnd => writeln!(writer, "{}{} - timer ended", group_prefix, data),
             _ => Ok(()),
         };
     }
 
     fn clear(&mut self) {
         // nothing to clear
-        _ = writeln!(self.writer, "--- Clear ---");
+        _ = writeln!(self.writer.borrow_mut(), "--- Clear ---");
     }
 
     fn end_group(&mut self) {
@@ -85,26 +90,26 @@ impl<W: Write> Printer for TextPrinter<W> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Cursor;
+    use crate::api::console::buffer::Buffer;
 
     #[test]
     fn text_printer() {
-        let mut buffer = Vec::new();
-        let mut printer = TextPrinter::new(Cursor::new(&mut buffer));
+        let buffer = Rc::new(RefCell::new(Buffer::new()));
+        let mut printer = TextPrinter::new(Rc::clone(&buffer));
 
         printer.print(LogLevel::Log, &[&"Hello", &"World"], &vec![]);
         assert_eq!(
-            String::from_utf8(buffer).expect("failed to convert"),
+            buffer.borrow_mut().to_string().expect("failed to convert"),
             "[log] Hello World\n"
         );
 
-        let mut buffer = Vec::new();
-        let mut printer = TextPrinter::new(Cursor::new(&mut buffer));
-        printer.print(LogLevel::Info, &[&"Foo", &2, &false], &vec![]);
+        let buffer = Rc::new(RefCell::new(Buffer::new()));
+        let mut printer = TextPrinter::new(Rc::clone(&buffer));
+        printer.print(LogLevel::Info, &[&"Foo", &2i32, &false], &vec![]);
         printer.print(LogLevel::Warn, &[&"a", &"b"], &vec![]);
         printer.print(LogLevel::Error, &[], &vec![]);
         assert_eq!(
-            String::from_utf8(buffer).expect("failed to convert"),
+            buffer.borrow_mut().to_string().expect("failed to convert"),
             "[info] Foo 2 false\n[warn] a b\n"
         );
     }

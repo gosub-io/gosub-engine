@@ -1,3 +1,4 @@
+mod buffer;
 mod formatter;
 mod text_printer;
 
@@ -77,8 +78,6 @@ impl Console {
         if condition {
             return;
         }
-
-        let data = data.clone();
 
         let message = "Assertion failed";
 
@@ -266,25 +265,23 @@ trait Printer {
 
 #[cfg(test)]
 mod tests {
-    use std::cell::RefCell;
-    use std::io::Cursor;
-    use std::rc::Rc;
     use super::*;
-    use crate::api::console::text_printer::TextPrinter;
-    use std::thread::sleep;
+    use crate::api::console::{buffer::Buffer, text_printer::TextPrinter};
+    use std::cell::RefCell;
+    use std::rc::Rc;
 
     #[test]
     fn console() {
-        let buffer = Rc::new(RefCell::new(Cursor::new(Vec::new())));
-        let printer = TextPrinter::new(buffer.borrow_mut());
+        let buffer = Rc::new(RefCell::new(Buffer::new()));
+        let printer = TextPrinter::new(Rc::clone(&buffer));
         let mut c = Console::new(Box::new(printer));
 
-        c.log(&[&"some", &"data", &12]);
+        c.log(&[&"some", &"data", &12i32]);
 
-        let out = String::from_utf8(buffer.borrow().get_ref().clone()).unwrap();
+        let out = buffer.borrow().to_string().unwrap();
         assert_eq!(out, "[log] some data 12");
 
-        let out = String::from_utf8(buffer.borrow().get_ref().clone()).unwrap();
+        let out = buffer.borrow().to_string().unwrap();
         c.warn(&[&"Hello", &"World"]);
         assert_eq!(out, "[log] some data 12");
         // c.time("foo".into());
