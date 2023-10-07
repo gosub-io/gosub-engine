@@ -370,7 +370,6 @@ impl<'a> Html5Parser<'a> {
                                 self.parse_error("doctype not allowed in initial insertion mode");
                             }
 
-
                             let node = self.create_node(&self.current_token, HTML_NAMESPACE);
                             self.document.add_node(node, NodeId::root());
 
@@ -1683,10 +1682,7 @@ impl<'a> Html5Parser<'a> {
     fn create_node(&self, token: &Token, namespace: &str) -> Node {
         let val: String;
         match token {
-            Token::DocTypeToken {
-                name,
-                ..
-            } => {
+            Token::DocTypeToken { name, .. } => {
                 val = format!(
                     "!DOCTYPE {}",
                     name.as_deref().unwrap_or(""),
@@ -3422,7 +3418,10 @@ impl<'a> Html5Parser<'a> {
         let node = current_node!(self);
 
         if let Some(last_child_id) = node.children.last() {
-            let last_child = self.document.get_node_by_id_mut(*last_child_id).expect("node not found");
+            let last_child = self
+                .document
+                .get_node_by_id_mut(*last_child_id)
+                .expect("node not found");
             if let NodeData::Text { ref mut value } = &mut last_child.data {
                 value.push_str(&token.to_string().clone());
                 return;
