@@ -134,7 +134,7 @@ impl Node {
             named_id: None,
             parent: None,
             children: vec![],
-            data: NodeData::Document {},
+            data: NodeData::Document(DocumentData::new()),
             name: "".to_string(),
             namespace: None,
             classes: None,
@@ -148,10 +148,7 @@ impl Node {
             named_id: None,
             parent: None,
             children: vec![],
-            data: NodeData::Element {
-                name: name.to_string(),
-                attributes,
-            },
+            data: NodeData::Element(ElementData::new_with_name_and_attributes(name, attributes)), 
             name: name.to_string(),
             namespace: Some(namespace.into()),
             classes: Some(ElementClass::new()),
@@ -165,9 +162,7 @@ impl Node {
             named_id: None,
             parent: None,
             children: vec![],
-            data: NodeData::Comment {
-                value: value.to_string(),
-            },
+            data: NodeData::Comment(CommentData::new_with_value(value)), 
             name: "".to_string(),
             namespace: None,
             classes: None,
@@ -181,9 +176,7 @@ impl Node {
             named_id: None,
             parent: None,
             children: vec![],
-            data: NodeData::Text {
-                value: value.to_string(),
-            },
+            data: NodeData::Text(TextData::new_with_value(value)),
             name: "".to_string(),
             namespace: None,
             classes: None,
@@ -230,8 +223,9 @@ impl Node {
     pub fn set_named_id(&mut self, named_id: &str) {
         if self.type_of() == NodeType::Element {
             self.named_id = Some(named_id.to_owned());
-            // TODO: log a warning/error if this fails for some reason
-            let _ = self.insert_attribute("id", named_id);
+            if let NodeData::Element(element) = &mut self.data {
+                element.attributes.insert("id", named_id);
+            }
         }
     }
 

@@ -123,8 +123,10 @@ impl Document {
     // Add to the document
     pub fn add_node(&mut self, node: Node, parent_id: NodeId) -> NodeId {
         let mut node_named_id: Option<String> = None;
-        if let Some(named_id) = node.get_attribute("id") {
-            node_named_id = Some(named_id.clone());
+        if let NodeData::Element(element) = &node.data {
+            if let Some(named_id) = element.attributes.get("id") {
+                node_named_id = Some(named_id.clone());
+            }
         }
 
         let node_type = node.type_of();
@@ -181,18 +183,18 @@ impl Document {
         }
 
         match &node.data {
-            NodeData::Document => {
+            NodeData::Document(_) => {
                 _ = writeln!(f, "{}Document", buffer);
             }
-            NodeData::Text { value } => {
-                _ = writeln!(f, "{}\"{}\"", buffer, value);
+            NodeData::Text(text) => {
+                _ = writeln!(f, "{}\"{}\"", buffer, text.get_value() );
             }
-            NodeData::Comment { value } => {
-                _ = writeln!(f, "{}<!-- {} -->", buffer, value);
+            NodeData::Comment(comment) => {
+                _ = writeln!(f, "{}<!-- {} -->", buffer, comment.get_value() );
             }
-            NodeData::Element { name, attributes } => {
-                _ = write!(f, "{}<{}", buffer, name);
-                for (key, value) in attributes.iter() {
+            NodeData::Element(element) => {
+                _ = write!(f, "{}<{}", buffer, element.get_name());
+                for (key, value) in element.attributes.iter() {
                     _ = write!(f, " {}={}", key, value);
                 }
                 _ = writeln!(f, ">");

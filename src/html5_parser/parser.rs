@@ -1991,14 +1991,10 @@ impl<'a> Html5Parser<'a> {
                 }
 
                 // Add attributes to html element
-                if let NodeData::Element {
-                    attributes: node_attributes,
-                    ..
-                } = &mut current_node_mut!(self).data
-                {
+                if let NodeData::Element(element) = &mut current_node_mut!(self).data {
                     for (key, value) in attributes {
-                        if !node_attributes.contains_key(key) {
-                            node_attributes.insert(key.clone(), value.clone());
+                        if !element.attributes.contains(key) {
+                            element.attributes.insert(key, value);
                         }
                     }
                 };
@@ -3326,9 +3322,9 @@ impl<'a> Html5Parser<'a> {
         // e.g., <div class="one two three">
         // NOTE: it seems in base rust, you can't really combine "if" and "if let" so I
         // had to introduce more nesting... please suggest cleaner alternatives if any!
-        if let Ok(contains_class) = node.contains_attribute("class") {
-            if contains_class {
-                if let Some(class_string) = node.get_attribute("class") {
+        if let NodeData::Element(element) = &node.data {
+            if element.attributes.contains("class") {
+                if let Some(class_string) = element.attributes.get("class") {
                     node.classes = Some(ElementClass::from_string(class_string));
                 }
             }
@@ -3422,8 +3418,8 @@ impl<'a> Html5Parser<'a> {
                 .document
                 .get_node_by_id_mut(*last_child_id)
                 .expect("node not found");
-            if let NodeData::Text { ref mut value } = &mut last_child.data {
-                value.push_str(&token.to_string().clone());
+            if let NodeData::Text(text)  = &mut last_child.data {
+                text.push_str(&token.to_string().clone());
                 return;
             }
         }
