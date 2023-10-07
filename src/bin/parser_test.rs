@@ -311,7 +311,7 @@ fn match_node(
                 if value != expected[expected_id as usize] {
                     println!(
                         "❌ {}, Found unexpected element node: {}",
-                        expected[expected_id as usize], value
+                        expected[expected_id as usize], element_name
                     );
                     return None;
                 } else {
