@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - docs-push
 
 jobs:
   docs:
@@ -18,10 +19,14 @@ jobs:
           command: doc
           args: --no-deps
 
-      - name: Prepare docs
-        run: echo "<meta http-equiv=\"refresh\" content=\"0; url=gosub_engine\">" > target/doc/index.html
-      - name: Deploy to github pages
-        uses: peaceiris/actions-gh-pages@v3
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./target/doc
+      - name: SSH setup
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_DEPLOY_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          echo "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+        env:
+          SSH_KNOWN_HOSTS: ${{secrets.SSH_KNOWN_HOSTS}}
+          SSH_DEPLOY_KEY: ${{secrets.SSH_DEPLOY_KEY}}
+      - name: Rsync
+        run: rsync -avz target/doc/ deploy@developer.gosub.io:/wwwroot/docs.developer.gosub.io/public
