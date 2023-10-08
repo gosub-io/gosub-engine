@@ -302,16 +302,16 @@ fn match_node(
     if node_idx.is_positive() {
         match &node.data {
             NodeData::Element(element) => {
-                let element_name: String = element.get_name();
                 let value = format!(
                     "|{}<{}>",
                     " ".repeat((indent as usize * 2) + 1),
-                    element_name
+                    element.name()
                 );
                 if value != expected[expected_id as usize] {
                     println!(
                         "❌ {}, Found unexpected element node: {}",
-                        expected[expected_id as usize], element_name
+                        expected[expected_id as usize],
+                        element.name()
                     );
                     return None;
                 } else {
@@ -319,12 +319,16 @@ fn match_node(
                 }
             }
             NodeData::Text(text) => {
-                let text_value: String = text.get_value();
-                let value = format!("|{}\"{}\"", " ".repeat(indent as usize * 2 + 1), text_value);
+                let value = format!(
+                    "|{}\"{}\"",
+                    " ".repeat(indent as usize * 2 + 1),
+                    text.value()
+                );
                 if value != expected[expected_id as usize] {
                     println!(
                         "❌ {}, Found unexpected text node: {}",
-                        expected[expected_id as usize], value
+                        expected[expected_id as usize],
+                        text.value()
                     );
                     return None;
                 } else {

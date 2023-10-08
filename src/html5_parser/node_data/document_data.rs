@@ -8,7 +8,7 @@ impl Default for DocumentData {
 }
 
 impl DocumentData {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         DocumentData {}
     }
 }

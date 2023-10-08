@@ -2,6 +2,9 @@ use crate::html5_parser::node::NodeTrait;
 use crate::html5_parser::node::NodeType;
 use crate::html5_parser::node::{Node, NodeData, NodeId};
 use crate::html5_parser::node_arena::NodeArena;
+use crate::html5_parser::node_data::{
+    comment_data::CommentData, element_data::ElementData, text_data::TextData,
+};
 use crate::html5_parser::parser::quirks::QuirksMode;
 use crate::html5_parser::parser::HashMap;
 use std::fmt;
@@ -186,15 +189,15 @@ impl Document {
             NodeData::Document(_) => {
                 _ = writeln!(f, "{}Document", buffer);
             }
-            NodeData::Text(text) => {
-                _ = writeln!(f, "{}\"{}\"", buffer, text.get_value());
+            NodeData::Text(TextData { value }) => {
+                _ = writeln!(f, "{}\"{}\"", buffer, value);
             }
-            NodeData::Comment(comment) => {
-                _ = writeln!(f, "{}<!-- {} -->", buffer, comment.get_value());
+            NodeData::Comment(CommentData { value }) => {
+                _ = writeln!(f, "{}<!-- {} -->", buffer, value);
             }
-            NodeData::Element(element) => {
-                _ = write!(f, "{}<{}", buffer, element.get_name());
-                for (key, value) in element.attributes.iter() {
+            NodeData::Element(ElementData { name, attributes }) => {
+                _ = write!(f, "{}<{}", buffer, name);
+                for (key, value) in attributes.iter() {
                     _ = write!(f, " {}={}", key, value);
                 }
                 _ = writeln!(f, ">");

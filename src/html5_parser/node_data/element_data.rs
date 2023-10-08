@@ -2,8 +2,8 @@ use std::collections::hash_map::Iter;
 use std::collections::HashMap;
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct ElementAttributes {
-    attributes: HashMap<String, String>,
+pub(crate) struct ElementAttributes {
+    pub(crate) attributes: HashMap<String, String>,
 }
 
 impl Default for ElementAttributes {
@@ -17,49 +17,51 @@ impl Default for ElementAttributes {
 /// This "controls" what you're allowed to do with an element's attributes
 /// so there are no unexpected modifications.
 impl ElementAttributes {
-    pub fn new() -> Self {
-        ElementAttributes {
+    pub(crate) fn new() -> Self {
+        Self {
             attributes: HashMap::new(),
         }
     }
 
-    pub fn contains(&self, name: &str) -> bool {
+    pub(crate) fn with_attributes(attributes: HashMap<String, String>) -> Self {
+        Self {
+            attributes: attributes.clone(),
+        }
+    }
+
+    pub(crate) fn contains(&self, name: &str) -> bool {
         self.attributes.contains_key(name)
     }
 
-    pub fn insert(&mut self, name: &str, value: &str) {
+    pub(crate) fn insert(&mut self, name: &str, value: &str) {
         self.attributes.insert(name.to_owned(), value.to_owned());
     }
 
-    pub fn remove(&mut self, name: &str) {
+    pub(crate) fn remove(&mut self, name: &str) {
         self.attributes.remove(name);
     }
 
-    pub fn get(&self, name: &str) -> Option<&String> {
+    pub(crate) fn get(&self, name: &str) -> Option<&String> {
         self.attributes.get(name)
     }
 
-    pub fn get_mut(&mut self, name: &str) -> Option<&mut String> {
+    pub(crate) fn get_mut(&mut self, name: &str) -> Option<&mut String> {
         self.attributes.get_mut(name)
     }
 
-    pub fn clear(&mut self) {
+    pub(crate) fn clear(&mut self) {
         self.attributes.clear();
     }
 
-    pub fn is_empty(&self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         self.attributes.is_empty()
     }
 
-    pub fn iter(&self) -> Iter<'_, String, String> {
+    pub(crate) fn iter(&self) -> Iter<'_, String, String> {
         self.attributes.iter()
     }
 
-    pub fn clone_attributes(&self) -> HashMap<String, String> {
-        self.attributes.clone()
-    }
-
-    pub fn copy_from(&mut self, attribute_map: HashMap<String, String>) {
+    pub(crate) fn copy_from(&mut self, attribute_map: HashMap<String, String>) {
         for (key, value) in attribute_map.iter() {
             self.insert(key, value);
         }
@@ -68,8 +70,8 @@ impl ElementAttributes {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct ElementData {
-    name: String,
-    pub attributes: ElementAttributes,
+    pub(crate) name: String,
+    pub(crate) attributes: ElementAttributes,
 }
 
 impl Default for ElementData {
@@ -79,26 +81,24 @@ impl Default for ElementData {
 }
 
 impl ElementData {
-    pub fn new() -> Self {
-        ElementData {
+    pub(crate) fn new() -> Self {
+        Self {
             name: "".to_string(),
             attributes: ElementAttributes::new(),
         }
     }
 
-    pub fn new_with_name_and_attributes(name: &str, attributes: HashMap<String, String>) -> Self {
-        let mut element_data = ElementData::new();
-        element_data.set_name(name);
-        element_data.attributes.copy_from(attributes);
-
-        element_data
+    pub(crate) fn with_name_and_attributes(
+        name: &str,
+        attributes: HashMap<String, String>,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            attributes: ElementAttributes::with_attributes(attributes),
+        }
     }
 
-    pub fn get_name(&self) -> String {
-        self.name.clone()
-    }
-
-    pub fn set_name(&mut self, new_name: &str) {
-        self.name = new_name.to_owned();
+    pub fn name(&self) -> &str {
+        &self.name
     }
 }

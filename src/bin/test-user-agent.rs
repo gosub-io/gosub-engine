@@ -90,9 +90,8 @@ fn get_node_by_path<'a>(document: &'a Document, path: Vec<&'a str>) -> Option<&'
 
 fn display_node(document: &Document, node: &Node) {
     if let NodeData::Text(text) = &node.data {
-        let text_value: String = text.get_value();
-        if !text_value.eq("\n") {
-            println!("{}", text_value);
+        if !text.value().eq("\n") {
+            println!("{}", text.value());
         }
     }
     for child_id in &node.children {

@@ -1,6 +1,6 @@
 #[derive(Debug, PartialEq, Clone)]
 pub struct CommentData {
-    value: String,
+    pub(crate) value: String,
 }
 
 impl Default for CommentData {
@@ -10,24 +10,19 @@ impl Default for CommentData {
 }
 
 impl CommentData {
-    pub fn new() -> Self {
-        CommentData {
+    pub(crate) fn new() -> Self {
+        Self {
             value: "".to_string(),
         }
     }
 
-    pub fn new_with_value(value: &str) -> Self {
-        let mut comment_data = CommentData::new();
-        comment_data.set_value(value);
-
-        comment_data
+    pub(crate) fn with_value(value: &str) -> Self {
+        Self {
+            value: value.to_string(),
+        }
     }
 
-    pub fn get_value(&self) -> String {
-        self.value.clone()
-    }
-
-    pub fn set_value(&mut self, new_value: &str) {
-        self.value = new_value.to_owned();
+    pub fn value(&self) -> &str {
+        &self.value
     }
 }

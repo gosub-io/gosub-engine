@@ -9,6 +9,7 @@ use crate::html5_parser::element_class::ElementClass;
 use crate::html5_parser::error_logger::{ErrorLogger, ParseError, ParserError};
 use crate::html5_parser::input_stream::InputStream;
 use crate::html5_parser::node::{Node, NodeData, HTML_NAMESPACE, MATHML_NAMESPACE, SVG_NAMESPACE};
+use crate::html5_parser::node_data::text_data::TextData;
 use crate::html5_parser::parser::adoption_agency::AdoptionResult;
 use crate::html5_parser::parser::attr_replacements::{
     MATHML_ADJUSTMENTS, SVG_ADJUSTMENTS, XML_ADJUSTMENTS,
@@ -3418,8 +3419,8 @@ impl<'a> Html5Parser<'a> {
                 .document
                 .get_node_by_id_mut(*last_child_id)
                 .expect("node not found");
-            if let NodeData::Text(text) = &mut last_child.data {
-                text.push_str(&token.to_string().clone());
+            if let NodeData::Text(TextData { value, .. }) = &mut last_child.data {
+                value.push_str(&token.to_string().clone());
                 return;
             }
         }

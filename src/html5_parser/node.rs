@@ -146,7 +146,7 @@ impl Node {
             named_id: None,
             parent: None,
             children: vec![],
-            data: NodeData::Element(ElementData::new_with_name_and_attributes(name, attributes)),
+            data: NodeData::Element(ElementData::with_name_and_attributes(name, attributes)),
             name: name.to_string(),
             namespace: Some(namespace.into()),
             classes: Some(ElementClass::new()),
@@ -160,7 +160,7 @@ impl Node {
             named_id: None,
             parent: None,
             children: vec![],
-            data: NodeData::Comment(CommentData::new_with_value(value)),
+            data: NodeData::Comment(CommentData::with_value(value)),
             name: "".to_string(),
             namespace: None,
             classes: None,
@@ -174,7 +174,7 @@ impl Node {
             named_id: None,
             parent: None,
             children: vec![],
-            data: NodeData::Text(TextData::new_with_value(value)),
+            data: NodeData::Text(TextData::with_value(value)),
             name: "".to_string(),
             namespace: None,
             classes: None,
@@ -381,14 +381,15 @@ mod tests {
         assert!(node.children.is_empty());
         assert_eq!(node.name, "div".to_string());
         assert_eq!(node.namespace, Some(HTML_NAMESPACE.into()));
-        match &node.data {
-            NodeData::Element(element) => {
-                assert_eq!(element.get_name(), "div");
-                assert!(element.attributes.contains("id"));
-                assert_eq!(element.attributes.get("id").unwrap(), "test");
-            }
-            _ => panic!(),
-        }
+        let NodeData::Element(ElementData {
+            name, attributes, ..
+        }) = &node.data
+        else {
+            panic!()
+        };
+        assert_eq!(name, "div");
+        assert!(attributes.contains("id"));
+        assert_eq!(attributes.get("id").unwrap(), "test");
     }
 
     #[test]
@@ -399,12 +400,10 @@ mod tests {
         assert!(node.children.is_empty());
         assert_eq!(node.name, "".to_string());
         assert_eq!(node.namespace, None);
-        match &node.data {
-            NodeData::Comment(comment) => {
-                assert_eq!(comment.get_value(), "test");
-            }
-            _ => panic!(),
-        }
+        let NodeData::Comment(CommentData { value, .. }) = &node.data else {
+            panic!()
+        };
+        assert_eq!(value, "test");
     }
 
     #[test]
@@ -415,12 +414,10 @@ mod tests {
         assert!(node.children.is_empty());
         assert_eq!(node.name, "".to_string());
         assert_eq!(node.namespace, None);
-        match &node.data {
-            NodeData::Text(text) => {
-                assert_eq!(text.get_value(), "test");
-            }
-            _ => panic!(),
-        }
+        let NodeData::Text(TextData { value }) = &node.data else {
+            panic!()
+        };
+        assert_eq!(value, "test");
     }
 
     #[test]
@@ -493,110 +490,82 @@ mod tests {
     fn contains_attribute() {
         let mut attr = HashMap::new();
         attr.insert("x".to_string(), "value".to_string());
-
         let node = Node::new_element("node", attr.clone(), HTML_NAMESPACE);
-
-        match &node.data {
-            NodeData::Element(element) => {
-                assert!(element.attributes.contains("x"));
-                assert!(!element.attributes.contains("z"));
-            }
-            _ => panic!(),
-        }
+        let NodeData::Element(ElementData { attributes, .. }) = &node.data else {
+            panic!()
+        };
+        assert!(attributes.contains("x"));
+        assert!(!attributes.contains("z"));
     }
 
     #[test]
     fn insert_attribute() {
         let attr = HashMap::new();
         let mut node = Node::new_element("name", attr.clone(), HTML_NAMESPACE);
-
-        match &mut node.data {
-            NodeData::Element(element) => {
-                element.attributes.insert("key", "value");
-                assert_eq!(element.attributes.get("key").unwrap(), "value");
-            }
-            _ => panic!(),
-        }
+        let NodeData::Element(element) = &mut node.data else {
+            panic!()
+        };
+        element.attributes.insert("key", "value");
+        assert_eq!(element.attributes.get("key").unwrap(), "value");
     }
 
     #[test]
     fn remove_attribute() {
         let mut attr = HashMap::new();
         attr.insert("key".to_string(), "value".to_string());
-
         let mut node = Node::new_element("name", attr.clone(), HTML_NAMESPACE);
-
-        match &mut node.data {
-            NodeData::Element(element) => {
-                element.attributes.remove("key");
-                assert!(!element.attributes.contains("key"));
-            }
-            _ => panic!(),
-        }
+        let NodeData::Element(ElementData { attributes, .. }) = &mut node.data else {
+            panic!()
+        };
+        attributes.remove("key");
+        assert!(!attributes.contains("key"));
     }
 
     #[test]
     fn get_attribute() {
         let mut attr = HashMap::new();
         attr.insert("key".to_string(), "value".to_string());
-
         let node = Node::new_element("name", attr.clone(), HTML_NAMESPACE);
-
-        match &node.data {
-            NodeData::Element(element) => {
-                assert_eq!(element.attributes.get("key").unwrap(), "value");
-            }
-            _ => panic!(),
-        }
+        let NodeData::Element(ElementData { attributes, .. }) = &node.data else {
+            panic!()
+        };
+        assert_eq!(attributes.get("key").unwrap(), "value");
     }
 
     #[test]
     fn get_mut_attribute() {
         let mut attr = HashMap::new();
         attr.insert("key".to_string(), "value".to_string());
-
         let mut node = Node::new_element("name", attr.clone(), HTML_NAMESPACE);
-
-        match &mut node.data {
-            NodeData::Element(element) => {
-                let attr_val = element.attributes.get_mut("key").unwrap();
-                attr_val.push_str(" appended");
-
-                assert_eq!(element.attributes.get("key").unwrap(), "value appended");
-            }
-            _ => panic!(),
-        }
+        let NodeData::Element(ElementData { attributes, .. }) = &mut node.data else {
+            panic!()
+        };
+        let attr_val = attributes.get_mut("key").unwrap();
+        attr_val.push_str(" appended");
+        assert_eq!(attributes.get("key").unwrap(), "value appended");
     }
 
     #[test]
     fn clear_attributes() {
         let mut attr = HashMap::new();
         attr.insert("key".to_string(), "value".to_string());
-
         let mut node = Node::new_element("name", attr.clone(), HTML_NAMESPACE);
-
-        match &mut node.data {
-            NodeData::Element(element) => {
-                element.attributes.clear();
-                assert!(element.attributes.is_empty());
-            }
-            _ => panic!(),
-        }
+        let NodeData::Element(ElementData { attributes, .. }) = &mut node.data else {
+            panic!()
+        };
+        attributes.clear();
+        assert!(attributes.is_empty());
     }
 
     #[test]
     fn has_attributes() {
         let attr = HashMap::new();
-
         let mut node = Node::new_element("name", attr.clone(), HTML_NAMESPACE);
-
-        match &mut node.data {
-            NodeData::Element(element) => {
-                assert!(element.attributes.is_empty());
-                element.attributes.insert("key", "value");
-                assert!(!element.attributes.is_empty());
-            }
-            _ => panic!(),
-        }
+        let NodeData::Element(ElementData { attributes, .. }) = &mut node.data else {
+            panic!()
+        };
+        assert!(attributes.is_empty());
+        attributes.insert("key", "value");
+        assert!(!attributes.is_empty());
     }
 }
