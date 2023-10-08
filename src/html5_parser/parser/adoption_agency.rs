@@ -1,4 +1,5 @@
 use crate::html5_parser::node::{Node, NodeData, NodeId, HTML_NAMESPACE};
+use crate::html5_parser::node_data::element_data::ElementData;
 use crate::html5_parser::parser::{ActiveElement, Html5Parser, Scope};
 use crate::html5_parser::tokenizer::token::Token;
 use std::collections::HashMap;
@@ -179,7 +180,9 @@ impl<'a> Html5Parser<'a> {
                 // Step 4.13.6
                 // replace the old node with the new replacement node
                 let node_attributes = match node.data {
-                    NodeData::Element { ref attributes, .. } => attributes.clone(),
+                    NodeData::Element(ElementData { attributes, .. }) => {
+                        attributes.attributes.clone()
+                    }
                     _ => HashMap::new(),
                 };
 
@@ -220,11 +223,11 @@ impl<'a> Html5Parser<'a> {
 
             // Step 4.15
             let new_element = match formatting_element_node.data {
-                NodeData::Element {
-                    ref name,
-                    ref attributes,
-                    ..
-                } => Node::new_element(name.as_str(), attributes.clone(), HTML_NAMESPACE),
+                NodeData::Element(ElementData {
+                    name, attributes, ..
+                }) => {
+                    Node::new_element(name.as_str(), attributes.attributes.clone(), HTML_NAMESPACE)
+                }
                 _ => panic!("formatting element is not an element"),
             };
 
@@ -301,7 +304,7 @@ impl<'a> Html5Parser<'a> {
                         .get_node_by_id(node_id)
                         .expect("node not found")
                         .clone();
-                    if let NodeData::Element { ref name, .. } = node.data {
+                    if let NodeData::Element(ElementData { name, .. }) = node.data {
                         if name == subject {
                             return Some(idx);
                         }

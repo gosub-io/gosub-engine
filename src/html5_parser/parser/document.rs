@@ -2,6 +2,9 @@ use crate::html5_parser::node::NodeTrait;
 use crate::html5_parser::node::NodeType;
 use crate::html5_parser::node::{Node, NodeData, NodeId};
 use crate::html5_parser::node_arena::NodeArena;
+use crate::html5_parser::node_data::{
+    comment_data::CommentData, element_data::ElementData, text_data::TextData,
+};
 use crate::html5_parser::parser::quirks::QuirksMode;
 use crate::html5_parser::parser::HashMap;
 use std::fmt;
@@ -123,8 +126,10 @@ impl Document {
     // Add to the document
     pub fn add_node(&mut self, node: Node, parent_id: NodeId) -> NodeId {
         let mut node_named_id: Option<String> = None;
-        if let Some(named_id) = node.get_attribute("id") {
-            node_named_id = Some(named_id.clone());
+        if let NodeData::Element(element) = &node.data {
+            if let Some(named_id) = element.attributes.get("id") {
+                node_named_id = Some(named_id.clone());
+            }
         }
 
         let node_type = node.type_of();
@@ -181,16 +186,16 @@ impl Document {
         }
 
         match &node.data {
-            NodeData::Document => {
+            NodeData::Document(_) => {
                 _ = writeln!(f, "{}Document", buffer);
             }
-            NodeData::Text { value } => {
+            NodeData::Text(TextData { value }) => {
                 _ = writeln!(f, "{}\"{}\"", buffer, value);
             }
-            NodeData::Comment { value } => {
+            NodeData::Comment(CommentData { value }) => {
                 _ = writeln!(f, "{}<!-- {} -->", buffer, value);
             }
-            NodeData::Element { name, attributes } => {
+            NodeData::Element(ElementData { name, attributes }) => {
                 _ = write!(f, "{}<{}", buffer, name);
                 for (key, value) in attributes.iter() {
                     _ = write!(f, " {}={}", key, value);
@@ -229,7 +234,7 @@ impl fmt::Display for Document {
 #[cfg(test)]
 mod tests {
     use crate::html5_parser::node::HTML_NAMESPACE;
-    use crate::html5_parser::parser::{Document, Node, NodeId};
+    use crate::html5_parser::parser::{Document, Node, NodeData, NodeId};
     use std::collections::HashMap;
 
     #[ignore]
@@ -361,8 +366,19 @@ mod tests {
         let mut node1 = Node::new_element("div", attributes.clone(), HTML_NAMESPACE);
         let mut node2 = Node::new_element("div", attributes.clone(), HTML_NAMESPACE);
 
-        let _ = node1.insert_attribute("id", "myid");
-        let _ = node2.insert_attribute("id", "myid");
+        match &mut node1.data {
+            NodeData::Element(element) => {
+                element.attributes.insert("id", "myid");
+            }
+            _ => panic!(),
+        }
+
+        match &mut node2.data {
+            NodeData::Element(element) => {
+                element.attributes.insert("id", "myid");
+            }
+            _ => panic!(),
+        }
 
         let mut doc = Document::new();
         let _ = doc.add_node(node1, NodeId(1));
