@@ -1,9 +1,9 @@
 use crate::html5_parser::node::NodeTrait;
 use crate::html5_parser::node::NodeType;
 use crate::html5_parser::node::{Node, NodeData, NodeId};
-use crate::html5_parser::node_arena::NodeArena;
-use crate::html5_parser::node_data::{
-    comment_data::CommentData, element_data::ElementData, text_data::TextData,
+use crate::html5_parser::node::arena::NodeArena;
+use crate::html5_parser::node::data::{
+    comment::CommentData, element::ElementData, text::TextData,
 };
 use crate::html5_parser::parser::quirks::QuirksMode;
 use crate::html5_parser::parser::HashMap;
