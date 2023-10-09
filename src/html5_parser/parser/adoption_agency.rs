@@ -1,5 +1,5 @@
 use crate::html5_parser::node::{Node, NodeData, NodeId, HTML_NAMESPACE};
-use crate::html5_parser::node_data::element_data::ElementData;
+use crate::html5_parser::node::data::element::ElementData;
 use crate::html5_parser::parser::{ActiveElement, Html5Parser, Scope};
 use crate::html5_parser::tokenizer::token::Token;
 use std::collections::HashMap;
