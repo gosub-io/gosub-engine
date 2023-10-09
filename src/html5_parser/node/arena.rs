@@ -85,6 +85,12 @@ impl NodeArena {
     }
 }
 
+impl Default for NodeArena {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 fn has_child_recursive(arena: &mut NodeArena, parent_id: NodeId, child_id: NodeId) -> bool {
     let node = arena.get_node_mut(parent_id).cloned();
     if node.is_none() {
