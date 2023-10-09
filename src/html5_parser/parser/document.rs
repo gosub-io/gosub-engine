@@ -2,6 +2,9 @@ use crate::html5_parser::node::NodeTrait;
 use crate::html5_parser::node::NodeType;
 use crate::html5_parser::node::{Node, NodeData, NodeId};
 use crate::html5_parser::node_arena::NodeArena;
+use crate::html5_parser::node_data::{
+    comment_data::CommentData, element_data::ElementData, text_data::TextData,
+};
 use crate::html5_parser::parser::quirks::QuirksMode;
 use crate::html5_parser::parser::HashMap;
 use std::fmt;
@@ -17,6 +20,12 @@ pub struct Document {
     named_id_elements: HashMap<String, NodeId>, // HTML elements with ID (e.g., <div id="myid">)
     pub doctype: DocumentType,                  // Document type
     pub quirks_mode: QuirksMode,                // Quirks mode
+}
+
+impl Document {
+    pub(crate) fn print_nodes(&self) {
+        self.arena.print_nodes();
+    }
 }
 
 impl Default for Document {
@@ -117,8 +126,10 @@ impl Document {
     // Add to the document
     pub fn add_node(&mut self, node: Node, parent_id: NodeId) -> NodeId {
         let mut node_named_id: Option<String> = None;
-        if let Some(named_id) = node.get_attribute("id") {
-            node_named_id = Some(named_id.clone());
+        if let NodeData::Element(element) = &node.data {
+            if let Some(named_id) = element.attributes.get("id") {
+                node_named_id = Some(named_id.clone());
+            }
         }
 
         let node_type = node.type_of();
@@ -136,10 +147,25 @@ impl Document {
         self.arena.attach_node(parent_id, node_id);
     }
 
-    // // append a node to another parent
-    // pub fn append(&mut self, node_id: NodeId, parent_id: NodeId) {
-    //     self.arena.attach_node(parent_id, node_id);
-    // }
+    pub fn relocate(&mut self, node_id: NodeId, parent_id: NodeId) {
+        // Remove the node from its current parent (if any)
+        let cur_parent_id = self.arena.get_node(node_id).expect("node not found").parent;
+        if let Some(parent_node_id) = cur_parent_id {
+            let cur_parent = self
+                .arena
+                .get_node_mut(parent_node_id)
+                .expect("node not found");
+            cur_parent.children.retain(|&x| x != node_id);
+        }
+
+        // Add the node to the new parent as a child, and update the node's parent
+        self.arena
+            .get_node_mut(parent_id)
+            .unwrap()
+            .children
+            .push(node_id);
+        self.arena.get_node_mut(node_id).unwrap().parent = Some(parent_id);
+    }
 
     // return the root node
     pub fn get_root(&self) -> &Node {
@@ -160,16 +186,16 @@ impl Document {
         }
 
         match &node.data {
-            NodeData::Document => {
+            NodeData::Document(_) => {
                 _ = writeln!(f, "{}Document", buffer);
             }
-            NodeData::Text { value } => {
+            NodeData::Text(TextData { value }) => {
                 _ = writeln!(f, "{}\"{}\"", buffer, value);
             }
-            NodeData::Comment { value } => {
+            NodeData::Comment(CommentData { value }) => {
                 _ = writeln!(f, "{}<!-- {} -->", buffer, value);
             }
-            NodeData::Element { name, attributes } => {
+            NodeData::Element(ElementData { name, attributes }) => {
                 _ = write!(f, "{}<{}", buffer, name);
                 for (key, value) in attributes.iter() {
                     _ = write!(f, " {}={}", key, value);
@@ -208,7 +234,7 @@ impl fmt::Display for Document {
 #[cfg(test)]
 mod tests {
     use crate::html5_parser::node::HTML_NAMESPACE;
-    use crate::html5_parser::parser::{Document, Node, NodeId};
+    use crate::html5_parser::parser::{Document, Node, NodeData, NodeId};
     use std::collections::HashMap;
 
     #[ignore]
@@ -340,8 +366,19 @@ mod tests {
         let mut node1 = Node::new_element("div", attributes.clone(), HTML_NAMESPACE);
         let mut node2 = Node::new_element("div", attributes.clone(), HTML_NAMESPACE);
 
-        let _ = node1.insert_attribute("id", "myid");
-        let _ = node2.insert_attribute("id", "myid");
+        match &mut node1.data {
+            NodeData::Element(element) => {
+                element.attributes.insert("id", "myid");
+            }
+            _ => panic!(),
+        }
+
+        match &mut node2.data {
+            NodeData::Element(element) => {
+                element.attributes.insert("id", "myid");
+            }
+            _ => panic!(),
+        }
 
         let mut doc = Document::new();
         let _ = doc.add_node(node1, NodeId(1));

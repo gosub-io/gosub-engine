@@ -2,11 +2,11 @@
 name = "gosub-engine"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.73"
 authors = ["Joshua Thijssen <jaytaph@deadcode.nl>"]
-
 description = "html5 browser engine"
 license = "MIT"
-repository = "https://github.com/jaytaph/gosub-browser"
+repository = "https://github.com/gosub-browser/gosub-engine"
 readme = "README.md"
 keywords = ["html5", "parser"]
 
@@ -30,6 +30,8 @@ typed-arena = "2.0.2"
 thiserror = "1.0.49"
 ureq = "2.8.0"
 anyhow = "1.0.75"
+uuid = { version = "1.4.1", features = ["v4"] }
+colored = "2.0.4"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

@@ -1,4 +1,5 @@
 use crate::html5_parser::node::{Node, NodeData, NodeId, HTML_NAMESPACE};
+use crate::html5_parser::node_data::element_data::ElementData;
 use crate::html5_parser::parser::{ActiveElement, Html5Parser, Scope};
 use crate::html5_parser::tokenizer::token::Token;
 use std::collections::HashMap;
@@ -54,14 +55,14 @@ impl<'a> Html5Parser<'a> {
             outer_loop_counter += 1;
 
             // Step 4.3
-            let formatting_element_idx = self.find_formatting_element(subject);
-            if formatting_element_idx.is_none() {
+            let formatting_element_idx_afe = self.find_formatting_element(subject);
+            if formatting_element_idx_afe.is_none() {
                 return AdoptionResult::ProcessAsAnyOther;
             }
 
-            let formatting_element_idx =
-                formatting_element_idx.expect("formatting element not found");
-            let formatting_element_id = self.active_formatting_elements[formatting_element_idx]
+            let mut formatting_element_idx_afe =
+                formatting_element_idx_afe.expect("formatting element not found");
+            let formatting_element_id = self.active_formatting_elements[formatting_element_idx_afe]
                 .node_id()
                 .expect("formatting element not found");
             let formatting_element_node = self
@@ -74,7 +75,7 @@ impl<'a> Html5Parser<'a> {
             if !open_elements_has_id!(self, formatting_element_id) {
                 self.parse_error("formatting element not in open elements");
                 self.active_formatting_elements
-                    .remove(formatting_element_idx);
+                    .remove(formatting_element_idx_afe);
 
                 return AdoptionResult::Completed;
             }
@@ -92,10 +93,10 @@ impl<'a> Html5Parser<'a> {
             }
 
             // Step 4.7
-            let furthest_block_idx = self.find_furthest_block_idx(formatting_element_id);
+            let furthest_block_idx_oe = self.find_furthest_block_idx(formatting_element_id);
 
             // Step 4.8
-            if furthest_block_idx.is_none() {
+            if furthest_block_idx_oe.is_none() {
                 // Remove up until and including the formatting element from the stack of open elements
                 while let Some(top) = self.open_elements.last() {
                     if top == &formatting_element_id {
@@ -107,20 +108,15 @@ impl<'a> Html5Parser<'a> {
                 }
 
                 // Remove the formatting element from the list of active formatting elements
-                if let Some(pos) = self
-                    .active_formatting_elements
-                    .iter()
-                    .position(|elem| elem == &ActiveElement::Node(formatting_element_id))
-                {
-                    self.active_formatting_elements.remove(pos);
-                }
+                self.active_formatting_elements
+                    .remove(formatting_element_idx_afe);
 
                 return AdoptionResult::Completed;
             }
 
-            let furthest_block_idx = furthest_block_idx.expect("furthest block not found");
-            let furthest_block_id = open_elements_get!(self, furthest_block_idx).id;
-            let mut furthest_block_node = self
+            let furthest_block_idx_oe = furthest_block_idx_oe.expect("furthest block not found");
+            let furthest_block_id = open_elements_get!(self, furthest_block_idx_oe).id;
+            let furthest_block_node = self
                 .document
                 .get_node_by_id(furthest_block_id)
                 .expect("node not found")
@@ -129,16 +125,15 @@ impl<'a> Html5Parser<'a> {
             // Step 4.9
             // Find the index of the wanted formatting element id in the open elements stack
             let idx = open_elements_find_index!(self, formatting_element_id);
-
-            let common_ancestor_id = *self.open_elements.get(idx + 1).expect("node not found");
+            let common_ancestor_id = *self.open_elements.get(idx - 1).expect("node not found");
 
             // Step 4.10
-            let mut bookmark = formatting_element_idx;
+            let mut bookmark_afe = formatting_element_idx_afe;
 
             // Step 4.11
-            let mut node_idx = furthest_block_idx;
-            let last_node_idx = furthest_block_idx;
-            let mut last_node_id = open_elements_get!(self, last_node_idx).id;
+            let mut node_idx_oe = furthest_block_idx_oe;
+            let last_node_idx_oe = furthest_block_idx_oe;
+            let mut last_node_id = open_elements_get!(self, last_node_idx_oe).id;
 
             // Step 4.12
             let mut inner_loop_counter = 0;
@@ -148,11 +143,10 @@ impl<'a> Html5Parser<'a> {
                 // Step 4.13.1
                 inner_loop_counter += 1;
 
-                node_idx -= 1;
-
                 // Step 4.13.2
-                let mut node = open_elements_get!(self, node_idx).clone();
-                let node_id = node.id;
+                node_idx_oe -= 1;
+                let node_id = open_elements_get!(self, node_idx_oe).id;
+                let node = get_node_by_id!(self, node_id).clone();
 
                 // Step 4.13.3
                 if node_id == formatting_element_id {
@@ -165,8 +159,12 @@ impl<'a> Html5Parser<'a> {
                         .active_formatting_elements
                         .contains(&ActiveElement::Node(node_id))
                 {
-                    self.active_formatting_elements.remove(node_idx);
-                    continue;
+                    let idx_afe = self
+                        .active_formatting_elements
+                        .iter()
+                        .position(|elem| elem == &ActiveElement::Node(node_id))
+                        .expect("node not found");
+                    self.active_formatting_elements.remove(idx_afe);
                 }
 
                 // Step 4.13.5
@@ -175,18 +173,16 @@ impl<'a> Html5Parser<'a> {
                     .contains(&ActiveElement::Node(node_id))
                 {
                     // We have removed the node from the given node_idx
-                    self.open_elements.remove(node_idx);
+                    self.open_elements.remove(node_idx_oe);
                     continue;
-                }
-
-                if last_node_id == furthest_block_id {
-                    bookmark = node_idx + 1;
                 }
 
                 // Step 4.13.6
                 // replace the old node with the new replacement node
                 let node_attributes = match node.data {
-                    NodeData::Element { ref attributes, .. } => attributes.clone(),
+                    NodeData::Element(ElementData { attributes, .. }) => {
+                        attributes.attributes.clone()
+                    }
                     _ => HashMap::new(),
                 };
 
@@ -195,80 +191,90 @@ impl<'a> Html5Parser<'a> {
                 let replacement_node_id =
                     self.document.add_node(replacement_node, common_ancestor_id);
 
-                self.active_formatting_elements[node_idx] =
-                    ActiveElement::Node(replacement_node_id);
-                self.open_elements[node_idx] = replacement_node_id;
-
-                if node.parent.is_some() {
-                    node.parent = None
-                }
+                let afe_idx = self
+                    .active_formatting_elements
+                    .iter()
+                    .position(|elem| elem == &ActiveElement::Node(node_id))
+                    .expect("node not found");
+                self.active_formatting_elements[afe_idx] = ActiveElement::Node(replacement_node_id);
+                let idx = self
+                    .open_elements
+                    .iter()
+                    .position(|elem| elem == &node_id)
+                    .expect("node not found");
+                self.open_elements[idx] = replacement_node_id;
 
                 let node_id = replacement_node_id;
-                // let node = self.document.get_node_by_id(node_id).expect("node not found").clone();
 
                 // Step 4.13.7
-                if last_node_idx == furthest_block_idx {
-                    bookmark = node_idx - 1;
+                if last_node_id == furthest_block_id {
+                    bookmark_afe = afe_idx + 1;
                 }
 
                 // Step 4.13.8
-                self.document.append(last_node_id, node_id);
+                self.document.relocate(last_node_id, node_id);
 
                 // Step 4.13.9
                 last_node_id = node_id;
             }
 
             // Step 4.14
-            self.document.append(last_node_id, common_ancestor_id);
+            self.document.relocate(last_node_id, common_ancestor_id);
 
             // Step 4.15
             let new_element = match formatting_element_node.data {
-                NodeData::Element { ref attributes, .. } => Node::new_element(
-                    formatting_element_node.name.as_str(),
-                    attributes.clone(),
-                    HTML_NAMESPACE,
-                ),
+                NodeData::Element(ElementData {
+                    name, attributes, ..
+                }) => {
+                    Node::new_element(name.as_str(), attributes.attributes.clone(), HTML_NAMESPACE)
+                }
                 _ => panic!("formatting element is not an element"),
             };
 
-            // Step 4.16
-            for &child in furthest_block_node.children.iter() {
-                self.document.append(child, new_element.id)
-            }
-            furthest_block_node.children.clear();
-
             // Step 4.17
-            let new_element_id = self.document.add_node(new_element, furthest_block_node.id);
+            let new_element_id = self.document.add_node(new_element, furthest_block_id);
+
+            // Step 4.16
+            for child in furthest_block_node.children.iter() {
+                self.document.relocate(*child, new_element_id);
+            }
 
             // Step 4.18
+            // if the bookmark_afe is BEFORE the formatting_elements_idx_afe, then we need to adjust
+            // the formatting_element_idx, as we insert a new element and the formatting_element_idx_afe
+            // has changed.
+            if bookmark_afe < formatting_element_idx_afe {
+                formatting_element_idx_afe += 1;
+            }
+
             self.active_formatting_elements
-                .remove(formatting_element_idx);
+                .insert(bookmark_afe, ActiveElement::Node(new_element_id));
             self.active_formatting_elements
-                .insert(bookmark, ActiveElement::Node(new_element_id));
+                .remove(formatting_element_idx_afe);
 
             // Step 4.19
+            self.open_elements
+                .insert(furthest_block_idx_oe - 1, new_element_id);
             let idx = open_elements_find_index!(self, formatting_element_id);
             self.open_elements.remove(idx);
-            self.open_elements
-                .insert(furthest_block_idx - 1, new_element_id);
         }
     }
 
     // Find the furthest block element in the stack of open elements that is above the formatting element
     fn find_furthest_block_idx(&self, formatting_element_id: NodeId) -> Option<usize> {
         // Find the index of the wanted formatting element id
-        let element_idx = self
+        let element_idx_oe = self
             .open_elements
             .iter()
             .position(|&element_id| element_id == formatting_element_id);
 
-        let element_idx = match element_idx {
-            Some(element_idx) => element_idx,
+        let element_idx_oe = match element_idx_oe {
+            Some(idx) => idx,
             None => return None,
         };
 
         // Iterate
-        for idx in (element_idx + 1)..self.open_elements.len() {
+        for idx in (element_idx_oe + 1)..self.open_elements.len() {
             // for idx in (0..element_idx).rev() {
             let node = open_elements_get!(self, idx);
             if node.is_special() {
@@ -298,7 +304,7 @@ impl<'a> Html5Parser<'a> {
                         .get_node_by_id(node_id)
                         .expect("node not found")
                         .clone();
-                    if let NodeData::Element { ref name, .. } = node.data {
+                    if let NodeData::Element(ElementData { name, .. }) = node.data {
                         if name == subject {
                             return Some(idx);
                         }
