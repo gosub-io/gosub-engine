@@ -1,7 +1,8 @@
-use crate::html5_parser::node_data::comment_data::CommentData;
-use crate::html5_parser::node_data::document_data::DocumentData;
-use crate::html5_parser::node_data::element_data::ElementData;
-use crate::html5_parser::node_data::text_data::TextData;
+use crate::html5_parser::element_class::ElementClass;
+use crate::html5_parser::node::data::comment::CommentData;
+use crate::html5_parser::node::data::document::DocumentData;
+use crate::html5_parser::node::data::element::ElementData;
+use crate::html5_parser::node::data::text::TextData;
 use derive_more::Display;
 use std::collections::HashMap;
 
@@ -11,6 +12,9 @@ pub const SVG_NAMESPACE: &str = "http://www.w3.org/2000/svg";
 pub const XLINK_NAMESPACE: &str = "http://www.w3.org/1999/xlink";
 pub const XML_NAMESPACE: &str = "http://www.w3.org/XML/1998/namespace";
 pub const XMLNS_NAMESPACE: &str = "http://www.w3.org/2000/xmlns/";
+
+pub mod arena;
+pub mod data;
 
 /// Different types of nodes
 #[derive(Debug, PartialEq)]
