@@ -75,7 +75,7 @@ pub struct ElementData {
     pub(crate) name: String,
     /// Element's attributes stored as key-value pairs
     pub(crate) attributes: ElementAttributes,
-    /// CSS classes (only relevant for NodeType::Element, otherwise None)
+    /// CSS classes
     pub(crate) classes: ElementClass,
 }
 
