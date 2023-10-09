@@ -3321,12 +3321,13 @@ impl<'a> Html5Parser<'a> {
 
         // add CSS classes from class attribute in element
         // e.g., <div class="one two three">
-        // NOTE: it seems in base rust, you can't really combine "if" and "if let" so I
-        // had to introduce more nesting... please suggest cleaner alternatives if any!
-        if let NodeData::Element(element) = &node.data {
+        // TODO: this will be refactored later in ElementAttributes to do this
+        // when inserting a "class" attribute. Similar to "id" to attach it to the DOM
+        // named_id_list. Although this will require some shared pointers
+        if let NodeData::Element(element) = &mut node.data {
             if element.attributes.contains("class") {
                 if let Some(class_string) = element.attributes.get("class") {
-                    node.classes = Some(ElementClass::from_string(class_string));
+                    element.classes = ElementClass::from_string(class_string);
                 }
             }
         }
@@ -3467,6 +3468,7 @@ impl<'a> Html5Parser<'a> {
 mod test {
     use super::*;
     use crate::html5_parser::input_stream::Encoding;
+    use crate::html5_parser::node_data::element_data::ElementData;
 
     macro_rules! node_create {
         ($self:expr, $name:expr) => {{
@@ -3708,17 +3710,6 @@ mod test {
     }
 
     #[test]
-    fn element_no_classes() {
-        let mut stream = InputStream::new();
-        stream.read_from_str("<div></div>", Some(Encoding::UTF8));
-
-        let mut parser = Html5Parser::new(&mut stream);
-        let (doc, _) = parser.parse().unwrap();
-
-        assert!(doc.get_root().classes.is_none());
-    }
-
-    #[test]
     fn element_with_classes() {
         let mut stream = InputStream::new();
         stream.read_from_str("<div class=\"one two three\"></div>", Some(Encoding::UTF8));
@@ -3728,19 +3719,20 @@ mod test {
 
         // document -> html -> head -> body -> div
         let div = doc.get_node_by_id(4.into()).unwrap();
-        assert!(div.classes.is_some());
 
-        if let Some(classes) = div.classes.as_ref() {
-            assert_eq!(classes.len(), 3);
+        let NodeData::Element(ElementData { classes, .. }) = &div.data else {
+            panic!()
+        };
 
-            assert!(classes.contains("one"));
-            assert!(classes.contains("two"));
-            assert!(classes.contains("three"));
+        assert_eq!(classes.len(), 3);
 
-            assert!(classes.is_active("one"));
-            assert!(classes.is_active("two"));
-            assert!(classes.is_active("three"));
-        }
+        assert!(classes.contains("one"));
+        assert!(classes.contains("two"));
+        assert!(classes.contains("three"));
+
+        assert!(classes.is_active("one"));
+        assert!(classes.is_active("two"));
+        assert!(classes.is_active("three"));
     }
 
     #[test]
@@ -3756,19 +3748,20 @@ mod test {
 
         // document -> html -> head -> body -> div
         let div = doc.get_node_by_id(4.into()).unwrap();
-        assert!(div.classes.is_some());
 
-        if let Some(classes) = div.classes.as_ref() {
-            assert_eq!(classes.len(), 3);
+        let NodeData::Element(ElementData { classes, .. }) = &div.data else {
+            panic!()
+        };
 
-            assert!(classes.contains("one"));
-            assert!(classes.contains("two"));
-            assert!(classes.contains("three"));
+        assert_eq!(classes.len(), 3);
 
-            assert!(classes.is_active("one"));
-            assert!(classes.is_active("two"));
-            assert!(classes.is_active("three"));
-        }
+        assert!(classes.contains("one"));
+        assert!(classes.contains("two"));
+        assert!(classes.contains("three"));
+
+        assert!(classes.is_active("one"));
+        assert!(classes.is_active("two"));
+        assert!(classes.is_active("three"));
     }
 
     #[test]

@@ -189,13 +189,15 @@ impl Document {
             NodeData::Document(_) => {
                 _ = writeln!(f, "{}Document", buffer);
             }
-            NodeData::Text(TextData { value }) => {
+            NodeData::Text(TextData { value, .. }) => {
                 _ = writeln!(f, "{}\"{}\"", buffer, value);
             }
-            NodeData::Comment(CommentData { value }) => {
+            NodeData::Comment(CommentData { value, .. }) => {
                 _ = writeln!(f, "{}<!-- {} -->", buffer, value);
             }
-            NodeData::Element(ElementData { name, attributes }) => {
+            NodeData::Element(ElementData {
+                name, attributes, ..
+            }) => {
                 _ = write!(f, "{}<{}", buffer, name);
                 for (key, value) in attributes.iter() {
                     _ = write!(f, " {}={}", key, value);

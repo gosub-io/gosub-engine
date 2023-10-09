@@ -1,4 +1,3 @@
-use crate::html5_parser::element_class::ElementClass;
 use crate::html5_parser::node_data::comment_data::CommentData;
 use crate::html5_parser::node_data::document_data::DocumentData;
 use crate::html5_parser::node_data::element_data::ElementData;
@@ -97,8 +96,6 @@ pub struct Node {
     pub namespace: Option<String>,
     /// actual data of the node
     pub data: NodeData,
-    /// CSS classes (only relevant for NodeType::Element, otherwise None)
-    pub classes: Option<ElementClass>,
 }
 
 impl Node {
@@ -119,7 +116,6 @@ impl Clone for Node {
             name: self.name.clone(),
             namespace: self.namespace.clone(),
             data: self.data.clone(),
-            classes: self.classes.clone(),
         }
     }
 }
@@ -135,7 +131,6 @@ impl Node {
             data: NodeData::Document(DocumentData::new()),
             name: "".to_string(),
             namespace: None,
-            classes: None,
         }
     }
 
@@ -149,7 +144,6 @@ impl Node {
             data: NodeData::Element(ElementData::with_name_and_attributes(name, attributes)),
             name: name.to_string(),
             namespace: Some(namespace.into()),
-            classes: Some(ElementClass::new()),
         }
     }
 
@@ -163,7 +157,6 @@ impl Node {
             data: NodeData::Comment(CommentData::with_value(value)),
             name: "".to_string(),
             namespace: None,
-            classes: None,
         }
     }
 
@@ -177,7 +170,6 @@ impl Node {
             data: NodeData::Text(TextData::with_value(value)),
             name: "".to_string(),
             namespace: None,
-            classes: None,
         }
     }
 

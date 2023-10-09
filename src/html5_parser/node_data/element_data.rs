@@ -1,3 +1,4 @@
+use crate::html5_parser::element_class::ElementClass;
 use std::collections::hash_map::Iter;
 use std::collections::HashMap;
 
@@ -70,8 +71,12 @@ impl ElementAttributes {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct ElementData {
+    /// Name of the element (e.g., div)
     pub(crate) name: String,
+    /// Element's attributes stored as key-value pairs
     pub(crate) attributes: ElementAttributes,
+    /// CSS classes (only relevant for NodeType::Element, otherwise None)
+    pub(crate) classes: ElementClass,
 }
 
 impl Default for ElementData {
@@ -85,6 +90,7 @@ impl ElementData {
         Self {
             name: "".to_string(),
             attributes: ElementAttributes::new(),
+            classes: ElementClass::new(),
         }
     }
 
@@ -95,6 +101,7 @@ impl ElementData {
         Self {
             name: name.into(),
             attributes: ElementAttributes::with_attributes(attributes),
+            classes: ElementClass::new(),
         }
     }
 
