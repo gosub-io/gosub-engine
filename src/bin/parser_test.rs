@@ -3,10 +3,12 @@ use gosub_engine::html5_parser::node::{NodeData, NodeId};
 use gosub_engine::html5_parser::parser::document::Document;
 use gosub_engine::html5_parser::parser::Html5Parser;
 use regex::Regex;
+use std::cell::RefCell;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::exit;
+use std::rc::Rc;
 use std::{fs, io};
 
 pub struct TestResults {
@@ -72,7 +74,9 @@ fn main() -> io::Result<()> {
 
         let mut test_idx = 1;
         for test in tests {
-            run_tree_test(test_idx, &test, &mut results);
+            if test_idx == 27 {
+                run_tree_test(test_idx, &test, &mut results);
+            }
             test_idx += 1;
         }
     }
@@ -170,11 +174,12 @@ fn run_tree_test(test_idx: usize, test: &Test, results: &mut TestResults) {
     is.read_from_str(test.data.as_str(), None);
 
     let mut parser = Html5Parser::new(&mut is);
-    let (document, parse_errors) = parser.parse().unwrap();
+    let document = Rc::new(RefCell::new(Document::new()));
+    let parse_errors = parser.parse(document.clone()).unwrap();
 
     // Check the document tree, which counts as a single assertion
     results.assertions += 1;
-    if match_document_tree(document, &test.document) {
+    if match_document_tree(&document.borrow(), &test.document) {
         results.succeeded += 1;
     } else {
         results.failed += 1;
@@ -252,7 +257,7 @@ fn run_tree_test(test_idx: usize, test: &Test, results: &mut TestResults) {
         println!("{}", test.data);
         println!("----------------------------------------");
         println!("🌳 Generated tree: ");
-        println!("{}", document);
+        println!("{}", document.borrow());
         println!("----------------------------------------");
         println!("🌳 Expected tree: ");
         for line in &test.document {

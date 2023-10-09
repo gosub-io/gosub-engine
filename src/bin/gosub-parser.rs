@@ -1,10 +1,13 @@
 use anyhow::Result;
+use gosub_engine::html5_parser::parser::document::Document;
 use gosub_engine::html5_parser::{
     input_stream::{Confidence, Encoding, InputStream},
     parser::Html5Parser,
 };
+use std::cell::RefCell;
 use std::fs;
 use std::process::exit;
+use std::rc::Rc;
 
 fn bail(message: &str) -> ! {
     println!("{}", message);
@@ -41,11 +44,12 @@ fn main() -> Result<()> {
     }
 
     let mut parser = Html5Parser::new(&mut stream);
-    let (document, parse_error) = parser.parse()?;
+    let document = Rc::new(RefCell::new(Document::new()));
+    let parse_errors = parser.parse(document.clone())?;
 
-    println!("Generated tree: \n\n {}", document);
+    println!("Generated tree: \n\n {}", document.borrow());
 
-    for e in parse_error {
+    for e in parse_errors {
         println!("Parse Error: {}", e.message)
     }
 

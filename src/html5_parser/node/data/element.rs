@@ -1,4 +1,5 @@
 use crate::html5_parser::element_class::ElementClass;
+use crate::html5_parser::parser::document::DocumentFragment;
 use std::collections::hash_map::Iter;
 use std::collections::HashMap;
 
@@ -88,6 +89,10 @@ pub struct ElementData {
     pub(crate) attributes: ElementAttributes,
     /// CSS classes
     pub(crate) classes: ElementClass,
+    // Only used for <script> elements
+    pub(crate) force_async: bool,
+    // Template contents (when it's a template element)
+    pub(crate) template_contents: Option<DocumentFragment>,
 }
 
 impl Default for ElementData {
@@ -102,6 +107,8 @@ impl ElementData {
             name: "".to_string(),
             attributes: ElementAttributes::new(),
             classes: ElementClass::new(),
+            force_async: false,
+            template_contents: None,
         }
     }
 
@@ -113,6 +120,8 @@ impl ElementData {
             name: name.into(),
             attributes: ElementAttributes::with_attributes(attributes),
             classes: ElementClass::new(),
+            force_async: false,
+            template_contents: None,
         }
     }
 

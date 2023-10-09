@@ -25,7 +25,7 @@ pub enum NodeType {
 }
 
 /// Different type of node data
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum NodeData {
     Document(DocumentData),
     Text(TextData),
@@ -34,7 +34,7 @@ pub enum NodeData {
 }
 
 /// Id used to identify a node
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq, Display)]
+#[derive(Copy, Debug, Default, Eq, Hash, PartialEq, Display)]
 pub struct NodeId(pub(crate) usize);
 
 impl From<NodeId> for usize {
@@ -74,6 +74,10 @@ impl NodeId {
     pub fn next(&self) -> Self {
         // Might panic
         Self(self.0 + 1)
+    }
+
+    pub fn as_usize(&self) -> usize {
+        self.0
     }
 
     pub fn prev(&self) -> Self {
@@ -242,7 +246,7 @@ pub trait NodeTrait {
     fn type_of(&self) -> NodeType;
 }
 
-/// Each node implements the NodeTrait and has a type_of that will return the node type.
+// Each node implements the NodeTrait and has a type_of that will return the node type.
 impl NodeTrait for Node {
     fn type_of(&self) -> NodeType {
         match self.data {

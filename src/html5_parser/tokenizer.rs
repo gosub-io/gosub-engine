@@ -25,9 +25,9 @@ pub const CHAR_SPACE: char = '\u{0020}';
 pub const CHAR_REPLACEMENT: char = '\u{FFFD}';
 
 /// The tokenizer will read the input stream and emit tokens that can be used by the parser.
-pub struct Tokenizer<'a> {
+pub struct Tokenizer<'stream> {
     /// HTML character input stream
-    pub stream: &'a mut InputStream,
+    pub stream: &'stream mut InputStream,
     /// Current state of the tokenizer
     pub state: State,
     /// Current consumed characters for current token
@@ -66,10 +66,45 @@ macro_rules! to_lowercase {
     };
 }
 
-impl<'a> Tokenizer<'a> {
+/// Emits the current stored token
+macro_rules! emit_current_token {
+    ($self:expr) => {
+        match $self.current_token {
+            None => {}
+            _ => {
+                emit_token!($self, $self.current_token.as_ref().unwrap());
+            }
+        };
+        $self.current_token = None;
+    };
+}
+
+/// Emits the given stored token. It does not have to be stored first.
+macro_rules! emit_token {
+    ($self:expr, $token:expr) => {
+        // Save the start token name if we are pushing it. This helps us in detecting matching tags.
+        match $token {
+            Token::StartTagToken { name, .. } => {
+                $self.last_start_token = String::from(name);
+            }
+            _ => {}
+        }
+
+        // If there is any consumed data, emit this first as a text token
+        if $self.has_consumed_data() {
+            let value = $self.get_consumed_str().to_string();
+            $self.token_queue.push(Token::TextToken { value });
+            $self.clear_consume_buffer();
+        }
+
+        $self.token_queue.push($token.clone());
+    };
+}
+
+impl<'stream> Tokenizer<'stream> {
     /// Creates a new tokenizer with the given inputstream and additional options if any
     pub fn new(
-        input: &'a mut InputStream,
+        input: &'stream mut InputStream,
         opts: Option<Options>,
         error_logger: Rc<RefCell<ErrorLogger>>,
     ) -> Self {

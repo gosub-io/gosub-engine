@@ -12,13 +12,15 @@ pub enum AdoptionResult {
     Completed,
 }
 
-impl<'a> Html5Parser<'a> {
-    /// When we talk about nodes, there are 3 contexts to consider:
-    ///
-    /// - The actual node data. This is called "node" in the code.
-    /// - The node id. This is called "node_id" in the code.
-    /// - The node index. This is called "node_idx" in the code. This is the index of the node in  
-    /// either the open_elements or active_formatting_elements stack.
+impl<'stream> Html5Parser<'stream> {
+    /**
+     * When we talk about nodes, there are 3 contexts to consider:
+     *
+     * - The actual node data. This is called "node" in the code.
+     * - The node id. This is called "node_id" in the code.
+     * - The node index. This is called "node_idx" in the code. This is the index of the node in
+     *   either the open_elements or active_formatting_elements stack.
+     */
     pub fn run_adoption_agency(&mut self, token: &Token) -> AdoptionResult {
         // Step 1
         let subject = match token {
@@ -28,8 +30,8 @@ impl<'a> Html5Parser<'a> {
         };
 
         // Step 2
-        let current_node_id = self.current_node().id;
-        if self.current_node().name == *subject
+        let current_node_id = current_node!(self).id;
+        if current_node!(self).name == *subject
             && !self
                 .active_formatting_elements
                 .iter()
@@ -63,11 +65,7 @@ impl<'a> Html5Parser<'a> {
             let formatting_element_id = self.active_formatting_elements[formatting_element_idx_afe]
                 .node_id()
                 .expect("formatting element not found");
-            let formatting_element_node = self
-                .document
-                .get_node_by_id(formatting_element_id)
-                .expect("formatting element not found")
-                .clone();
+            let formatting_element_node = get_node_by_id!(self, formatting_element_id).clone();
 
             // Step 4.4
             if !self.open_elements_has_id(formatting_element_id) {
@@ -113,12 +111,8 @@ impl<'a> Html5Parser<'a> {
             }
 
             let furthest_block_idx_oe = furthest_block_idx_oe.expect("furthest block not found");
-            let furthest_block_id = self.open_elements_get(furthest_block_idx_oe).id;
-            let furthest_block_node = self
-                .document
-                .get_node_by_id(furthest_block_id)
-                .expect("node not found")
-                .clone();
+            let furthest_block_id = open_elements_get!(self, furthest_block_idx_oe).id;
+            let furthest_block_node = get_node_by_id!(self, furthest_block_id).clone();
 
             // Step 4.9
             // Find the index of the wanted formatting element id in the open elements stack
@@ -131,7 +125,7 @@ impl<'a> Html5Parser<'a> {
             // Step 4.11
             let mut node_idx_oe = furthest_block_idx_oe;
             let last_node_idx_oe = furthest_block_idx_oe;
-            let mut last_node_id = self.open_elements_get(last_node_idx_oe).id;
+            let mut last_node_id = open_elements_get!(self, last_node_idx_oe).id;
 
             // Step 4.12
             let mut inner_loop_counter = 0;
@@ -143,8 +137,8 @@ impl<'a> Html5Parser<'a> {
 
                 // Step 4.13.2
                 node_idx_oe -= 1;
-                let node_id = self.open_elements_get(node_idx_oe).id;
-                let node = self.get_node_by_id(node_id).clone();
+                let node_id = open_elements_get!(self, node_idx_oe).id;
+                let node = get_node_by_id!(self, node_id).clone();
 
                 // Step 4.13.3
                 if node_id == formatting_element_id {
@@ -186,8 +180,10 @@ impl<'a> Html5Parser<'a> {
 
                 let replacement_node =
                     Node::new_element(node.name.as_str(), node_attributes, HTML_NAMESPACE);
-                let replacement_node_id =
-                    self.document.add_node(replacement_node, common_ancestor_id);
+                let replacement_node_id = self
+                    .document
+                    .borrow_mut()
+                    .add_node(replacement_node, common_ancestor_id);
 
                 let afe_idx = self
                     .active_formatting_elements
@@ -210,14 +206,16 @@ impl<'a> Html5Parser<'a> {
                 }
 
                 // Step 4.13.8
-                self.document.relocate(last_node_id, node_id);
+                self.document.borrow_mut().relocate(last_node_id, node_id);
 
                 // Step 4.13.9
                 last_node_id = node_id;
             }
 
             // Step 4.14
-            self.document.relocate(last_node_id, common_ancestor_id);
+            self.document
+                .borrow_mut()
+                .relocate(last_node_id, common_ancestor_id);
 
             // Step 4.15
             let new_element = match formatting_element_node.data {
@@ -230,11 +228,14 @@ impl<'a> Html5Parser<'a> {
             };
 
             // Step 4.17
-            let new_element_id = self.document.add_node(new_element, furthest_block_id);
+            let new_element_id = self
+                .document
+                .borrow_mut()
+                .add_node(new_element, furthest_block_id);
 
             // Step 4.16
             for child in furthest_block_node.children.iter() {
-                self.document.relocate(*child, new_element_id);
+                self.document.borrow_mut().relocate(*child, new_element_id);
             }
 
             // Step 4.18
@@ -273,9 +274,7 @@ impl<'a> Html5Parser<'a> {
 
         // Iterate
         for idx in (element_idx_oe + 1)..self.open_elements.len() {
-            // for idx in (0..element_idx).rev() {
-            let node = self.open_elements_get(idx);
-            if node.is_special() {
+            if open_elements_get!(self, idx).is_special() {
                 return Some(idx);
             }
         }
@@ -297,12 +296,8 @@ impl<'a> Html5Parser<'a> {
                 }
                 ActiveElement::Node(node_id) => {
                     // Check if the given node is an element with the given subject
-                    let node = self
-                        .document
-                        .get_node_by_id(node_id)
-                        .expect("node not found")
-                        .clone();
-                    if let NodeData::Element(ElementData { name, .. }) = node.data {
+                    let node = get_node_by_id!(self, node_id).clone();
+                    if let NodeData::Element(ElementData { name, .. }) = &node.data {
                         if name == subject {
                             return Some(idx);
                         }
@@ -323,7 +318,7 @@ mod test {
     macro_rules! node_create {
         ($self:expr, $name:expr) => {{
             let node = Node::new_element($name, HashMap::new(), HTML_NAMESPACE);
-            let node_id = $self.document.add_node(node, NodeId::root());
+            let node_id = $self.document.borrow_mut().add_node(node, NodeId::root());
             $self.open_elements.push(node_id);
         }};
     }

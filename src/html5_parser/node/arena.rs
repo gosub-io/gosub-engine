@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use super::NodeId;
 
 /// The node arena is the single source for nodes in a document (or fragment).
+#[derive(Debug, Clone, PartialEq)]
 pub struct NodeArena {
     /// Current nodes stored as <id, node>
     nodes: HashMap<NodeId, Node>,
@@ -11,6 +12,12 @@ pub struct NodeArena {
     order: Vec<NodeId>,
     /// Next node ID to use
     next_id: NodeId,
+}
+
+impl Clone for NodeId {
+    fn clone(&self) -> Self {
+        Self(self.0)
+    }
 }
 
 impl NodeArena {
