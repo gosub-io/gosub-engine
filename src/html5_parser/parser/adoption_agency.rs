@@ -28,8 +28,8 @@ impl<'a> Html5Parser<'a> {
         };
 
         // Step 2
-        let current_node_id = current_node!(self).id;
-        if current_node!(self).name == *subject
+        let current_node_id = self.current_node().id;
+        if self.current_node().name == *subject
             && !self
                 .active_formatting_elements
                 .iter()
@@ -70,7 +70,7 @@ impl<'a> Html5Parser<'a> {
                 .clone();
 
             // Step 4.4
-            if !open_elements_has_id!(self, formatting_element_id) {
+            if !self.open_elements_has_id(formatting_element_id) {
                 self.parse_error("formatting element not in open elements");
                 self.active_formatting_elements
                     .remove(formatting_element_idx_afe);
@@ -113,7 +113,7 @@ impl<'a> Html5Parser<'a> {
             }
 
             let furthest_block_idx_oe = furthest_block_idx_oe.expect("furthest block not found");
-            let furthest_block_id = open_elements_get!(self, furthest_block_idx_oe).id;
+            let furthest_block_id = self.open_elements_get(furthest_block_idx_oe).id;
             let furthest_block_node = self
                 .document
                 .get_node_by_id(furthest_block_id)
@@ -122,7 +122,7 @@ impl<'a> Html5Parser<'a> {
 
             // Step 4.9
             // Find the index of the wanted formatting element id in the open elements stack
-            let idx = open_elements_find_index!(self, formatting_element_id);
+            let idx = self.open_elements_find_index(formatting_element_id);
             let common_ancestor_id = *self.open_elements.get(idx - 1).expect("node not found");
 
             // Step 4.10
@@ -131,7 +131,7 @@ impl<'a> Html5Parser<'a> {
             // Step 4.11
             let mut node_idx_oe = furthest_block_idx_oe;
             let last_node_idx_oe = furthest_block_idx_oe;
-            let mut last_node_id = open_elements_get!(self, last_node_idx_oe).id;
+            let mut last_node_id = self.open_elements_get(last_node_idx_oe).id;
 
             // Step 4.12
             let mut inner_loop_counter = 0;
@@ -143,8 +143,8 @@ impl<'a> Html5Parser<'a> {
 
                 // Step 4.13.2
                 node_idx_oe -= 1;
-                let node_id = open_elements_get!(self, node_idx_oe).id;
-                let node = get_node_by_id!(self, node_id).clone();
+                let node_id = self.open_elements_get(node_idx_oe).id;
+                let node = self.get_node_by_id(node_id).clone();
 
                 // Step 4.13.3
                 if node_id == formatting_element_id {
@@ -253,7 +253,7 @@ impl<'a> Html5Parser<'a> {
             // Step 4.19
             self.open_elements
                 .insert(furthest_block_idx_oe - 1, new_element_id);
-            let idx = open_elements_find_index!(self, formatting_element_id);
+            let idx = self.open_elements_find_index(formatting_element_id);
             self.open_elements.remove(idx);
         }
     }
@@ -274,7 +274,7 @@ impl<'a> Html5Parser<'a> {
         // Iterate
         for idx in (element_idx_oe + 1)..self.open_elements.len() {
             // for idx in (0..element_idx).rev() {
-            let node = open_elements_get!(self, idx);
+            let node = self.open_elements_get(idx);
             if node.is_special() {
                 return Some(idx);
             }
