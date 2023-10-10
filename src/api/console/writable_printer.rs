@@ -97,7 +97,7 @@ mod tests {
         let buffer = Rc::new(RefCell::new(Buffer::new()));
         let mut printer = WritablePrinter::new(Rc::clone(&buffer));
 
-        printer.print(LogLevel::Log, &[&"Hello", &"World"], &vec![]);
+        printer.print(LogLevel::Log, &[&"Hello", &"World"], &[]);
         assert_eq!(
             buffer.borrow_mut().to_string().expect("failed to convert"),
             "[log] Hello World\n"
@@ -105,9 +105,9 @@ mod tests {
 
         let buffer = Rc::new(RefCell::new(Buffer::new()));
         let mut printer = WritablePrinter::new(Rc::clone(&buffer));
-        printer.print(LogLevel::Info, &[&"Foo", &2i32, &false], &vec![]);
-        printer.print(LogLevel::Warn, &[&"a", &"b"], &vec![]);
-        printer.print(LogLevel::Error, &[], &vec![]);
+        printer.print(LogLevel::Info, &[&"Foo", &2i32, &false], &[]);
+        printer.print(LogLevel::Warn, &[&"a", &"b"], &[]);
+        printer.print(LogLevel::Error, &[], &[]);
         assert_eq!(
             buffer.borrow_mut().to_string().expect("failed to convert"),
             "[info] Foo 2 false\n[warn] a b\n"
