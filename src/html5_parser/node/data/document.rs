@@ -1,4 +1,5 @@
 #[derive(Debug, PartialEq, Clone)]
+/// Data structure for document nodes
 pub struct DocumentData {}
 
 impl Default for DocumentData {

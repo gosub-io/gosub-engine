@@ -1,5 +1,7 @@
 #[derive(Debug, PartialEq, Clone)]
+/// Data structure for comment nodes
 pub struct CommentData {
+    /// The actual comment value
     pub(crate) value: String,
 }
 

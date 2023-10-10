@@ -1,5 +1,7 @@
 #[derive(Debug, PartialEq, Clone)]
+/// Data structure for text nodes
 pub struct TextData {
+    /// Actual text
     pub(crate) value: String,
 }
 

@@ -1,3 +1,4 @@
+//! This module contains the console api as described by <https://console.spec.whatwg.org/>
 mod buffer;
 mod formatter;
 mod writable_printer;

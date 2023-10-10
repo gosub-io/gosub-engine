@@ -3,16 +3,19 @@ use std::collections::HashMap;
 
 use super::NodeId;
 
+/// The node arena is the single source for nodes in a document (or fragment).
 pub struct NodeArena {
-    /// Current nodes
+    /// Current nodes stored as <id, node>
     nodes: HashMap<NodeId, Node>,
     /// Order of nodes
     order: Vec<NodeId>,
-    /// next id to use
+    /// Next node ID to use
     next_id: NodeId,
 }
 
 impl NodeArena {
+    /// Prints the list of nodes in sequential order. This makes debugging a bit easier, but should
+    /// be removed.
     pub(crate) fn print_nodes(&self) {
         for id in self.order.iter() {
             println!("({}): {:?}", id, self.nodes.get(id).expect("node"));
@@ -94,6 +97,8 @@ impl Default for NodeArena {
     }
 }
 
+/// Returns true when the parent node has the child node as a child, or if any of the children of
+/// the parent node have the child node as a child.
 fn has_child_recursive(arena: &mut NodeArena, parent_id: NodeId, child_id: NodeId) -> bool {
     let node = arena.get_node_mut(parent_id).cloned();
     if node.is_none() {

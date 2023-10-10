@@ -15,7 +15,7 @@ use std::cell::{Ref, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 
-// Constants that are not directly captured as visible chars
+/// Constants that are not directly captured as visible chars
 pub const CHAR_NUL: char = '\u{0000}';
 pub const CHAR_TAB: char = '\u{0009}';
 pub const CHAR_LF: char = '\u{000A}';
@@ -46,10 +46,11 @@ pub struct Tokenizer<'a> {
     pub token_queue: Vec<Token>,
     /// The last emitted start token (or empty if none)
     pub last_start_token: String,
-    /// Parse errors
+    /// Error logger to log errors to
     pub error_logger: Rc<RefCell<ErrorLogger>>,
 }
 
+/// Options that can be passed to the tokenizer. Mostly needed when dealing with tests.
 pub struct Options {
     /// Sets the initial state of the tokenizer. Normally only needed when dealing with tests
     pub initial_state: State,
@@ -57,6 +58,8 @@ pub struct Options {
     pub last_start_tag: String,
 }
 
+/// This macro reads a character from the input stream and optionally generates (tokenization)
+/// errors if the character is not valid.
 #[macro_export]
 macro_rules! read_char {
     ($self:expr) => {{
@@ -79,7 +82,7 @@ macro_rules! read_char {
     }};
 }
 
-// Adds the given character to the current token's value (if applicable)
+/// Adds the given character to the current token's value (if applicable)
 macro_rules! add_to_token_value {
     ($self:expr, $c:expr) => {
         match &mut $self.current_token {
@@ -91,6 +94,7 @@ macro_rules! add_to_token_value {
     };
 }
 
+/// Sets the public identifier of the current token (if applicable)
 macro_rules! set_public_identifier {
     ($self:expr, $str:expr) => {
         match &mut $self.current_token {
@@ -102,6 +106,7 @@ macro_rules! set_public_identifier {
     };
 }
 
+/// Adds the given character to the current token's public identifier (if applicable)
 macro_rules! add_public_identifier {
     ($self:expr, $c:expr) => {
         match &mut $self.current_token {
@@ -116,6 +121,7 @@ macro_rules! add_public_identifier {
     };
 }
 
+/// Sets the system identifier of the current token (if applicable)
 macro_rules! set_system_identifier {
     ($self:expr, $str:expr) => {
         match &mut $self.current_token {
@@ -127,6 +133,7 @@ macro_rules! set_system_identifier {
     };
 }
 
+/// Adds the given character to the current token's system identifier (if applicable)
 macro_rules! add_system_identifier {
     ($self:expr, $c:expr) => {
         match &mut $self.current_token {
@@ -230,6 +237,7 @@ impl<'a> Tokenizer<'a> {
         };
     }
 
+    /// Returns the current position in the stream (with line/col number and position)
     pub(crate) fn get_position(&self) -> Position {
         self.stream.position
     }
@@ -245,6 +253,7 @@ impl<'a> Tokenizer<'a> {
         Ok(self.token_queue.remove(0))
     }
 
+    /// Returns the error logger
     pub fn get_error_logger(&self) -> Ref<ErrorLogger> {
         self.error_logger.borrow()
     }
@@ -2201,12 +2210,13 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
-    /// Consumes the given char
+    // Consumes the given character
     pub(crate) fn consume(&mut self, c: char) {
         // Add c to the current token data
         self.consumed.push(c)
     }
 
+    /// Pushes a end-tag and changes to the given state
     fn transition_to(&mut self, state: State) {
         self.consumed.push_str("</");
         self.consumed.push_str(&self.temporary_buffer);
