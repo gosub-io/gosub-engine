@@ -259,7 +259,6 @@ pub static FORMATTING_HTML_ELEMENTS: [&str; 14] = [
     "a", "b", "big", "code", "em", "font", "i", "nobr", "s", "small", "strike", "strong", "tt", "u",
 ];
 
-
 /// The HTML elements that are considered special elements
 pub static SPECIAL_HTML_ELEMENTS: [&str; 83] = [
     "address",
