@@ -1,3 +1,4 @@
+use crate::html5_parser::element_class::ElementClass;
 use std::collections::hash_map::Iter;
 use std::collections::HashMap;
 
