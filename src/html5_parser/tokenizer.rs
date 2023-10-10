@@ -486,7 +486,7 @@ impl<'a> Tokenizer<'a> {
                                 Some(Token::EndTagToken { name, .. }) => name,
                                 _ => "",
                             };
-                            if self.is_appropriate_end_token(&current_end_tag_name) {
+                            if self.is_appropriate_end_token(current_end_tag_name) {
                                 self.state = State::BeforeAttributeNameState;
                             } else {
                                 consume_anything_else = true;
@@ -497,7 +497,7 @@ impl<'a> Tokenizer<'a> {
                                 Some(Token::EndTagToken { name, .. }) => name,
                                 _ => "",
                             };
-                            if self.is_appropriate_end_token(&current_end_tag_name) {
+                            if self.is_appropriate_end_token(current_end_tag_name) {
                                 self.state = State::SelfClosingStartState;
                             } else {
                                 consume_anything_else = true;
@@ -508,7 +508,7 @@ impl<'a> Tokenizer<'a> {
                                 Some(Token::EndTagToken { name, .. }) => name,
                                 _ => "",
                             };
-                            if self.is_appropriate_end_token(&current_end_tag_name) {
+                            if self.is_appropriate_end_token(current_end_tag_name) {
                                 emit_current_token!(self);
                                 self.last_start_token = String::new();
                                 self.state = State::DataState;
@@ -582,7 +582,7 @@ impl<'a> Tokenizer<'a> {
                                 Some(Token::EndTagToken { name, .. }) => name,
                                 _ => "",
                             };
-                            if self.is_appropriate_end_token(&current_end_tag_name) {
+                            if self.is_appropriate_end_token(current_end_tag_name) {
                                 self.state = State::BeforeAttributeNameState;
                             } else {
                                 consume_anything_else = true;
@@ -593,7 +593,7 @@ impl<'a> Tokenizer<'a> {
                                 Some(Token::EndTagToken { name, .. }) => name,
                                 _ => "",
                             };
-                            if self.is_appropriate_end_token(&current_end_tag_name) {
+                            if self.is_appropriate_end_token(current_end_tag_name) {
                                 self.state = State::SelfClosingStartState;
                             } else {
                                 consume_anything_else = true;
@@ -604,7 +604,7 @@ impl<'a> Tokenizer<'a> {
                                 Some(Token::EndTagToken { name, .. }) => name,
                                 _ => "",
                             };
-                            if self.is_appropriate_end_token(&current_end_tag_name) {
+                            if self.is_appropriate_end_token(current_end_tag_name) {
                                 emit_current_token!(self);
                                 self.last_start_token = String::new();
                                 self.state = State::DataState;
@@ -683,7 +683,7 @@ impl<'a> Tokenizer<'a> {
                                 Some(Token::EndTagToken { name, .. }) => name,
                                 _ => "",
                             };
-                            if self.is_appropriate_end_token(&current_end_tag_name) {
+                            if self.is_appropriate_end_token(current_end_tag_name) {
                                 self.state = State::BeforeAttributeNameState;
                             } else {
                                 consume_anything_else = true;
@@ -694,7 +694,7 @@ impl<'a> Tokenizer<'a> {
                                 Some(Token::EndTagToken { name, .. }) => name,
                                 _ => "",
                             };
-                            if self.is_appropriate_end_token(&current_end_tag_name) {
+                            if self.is_appropriate_end_token(current_end_tag_name) {
                                 self.state = State::SelfClosingStartState;
                             } else {
                                 consume_anything_else = true;
@@ -705,7 +705,7 @@ impl<'a> Tokenizer<'a> {
                                 Some(Token::EndTagToken { name, .. }) => name,
                                 _ => "",
                             };
-                            if self.is_appropriate_end_token(&current_end_tag_name) {
+                            if self.is_appropriate_end_token(current_end_tag_name) {
                                 emit_current_token!(self);
                                 self.last_start_token = String::new();
                                 self.state = State::DataState;
@@ -890,7 +890,7 @@ impl<'a> Tokenizer<'a> {
                                 Some(Token::EndTagToken { name, .. }) => name,
                                 _ => "",
                             };
-                            if self.is_appropriate_end_token(&current_end_tag_name) {
+                            if self.is_appropriate_end_token(current_end_tag_name) {
                                 self.state = State::BeforeAttributeNameState;
                             } else {
                                 consume_anything_else = true;
@@ -901,7 +901,7 @@ impl<'a> Tokenizer<'a> {
                                 Some(Token::EndTagToken { name, .. }) => name,
                                 _ => "",
                             };
-                            if self.is_appropriate_end_token(&current_end_tag_name) {
+                            if self.is_appropriate_end_token(current_end_tag_name) {
                                 self.state = State::SelfClosingStartState;
                             } else {
                                 consume_anything_else = true;
@@ -912,7 +912,7 @@ impl<'a> Tokenizer<'a> {
                                 Some(Token::EndTagToken { name, .. }) => name,
                                 _ => "",
                             };
-                            if self.is_appropriate_end_token(&current_end_tag_name) {
+                            if self.is_appropriate_end_token(current_end_tag_name) {
                                 emit_current_token!(self);
                                 self.last_start_token = String::new();
                                 self.state = State::DataState;
