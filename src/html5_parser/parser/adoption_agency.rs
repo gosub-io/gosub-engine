@@ -14,7 +14,7 @@ pub enum AdoptionResult {
 
 impl<'a> Html5Parser<'a> {
     /// When we talk about nodes, there are 3 contexts to consider:
-    /// 
+    ///
     /// - The actual node data. This is called "node" in the code.
     /// - The node id. This is called "node_id" in the code.
     /// - The node index. This is called "node_idx" in the code. This is the index of the node in  
