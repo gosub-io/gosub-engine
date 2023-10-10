@@ -4,9 +4,12 @@ use std::collections::HashMap;
 use super::NodeId;
 
 pub struct NodeArena {
-    nodes: HashMap<NodeId, Node>, // Current nodes
-    order: Vec<NodeId>,           // Order of nodes
-    next_id: NodeId,              // next id to use
+    /// Current nodes
+    nodes: HashMap<NodeId, Node>,
+    /// Order of nodes
+    order: Vec<NodeId>,
+    /// next id to use
+    next_id: NodeId,
 }
 
 impl NodeArena {

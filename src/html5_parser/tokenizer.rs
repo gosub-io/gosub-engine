@@ -24,24 +24,37 @@ pub const CHAR_FF: char = '\u{000C}';
 pub const CHAR_SPACE: char = '\u{0020}';
 pub const CHAR_REPLACEMENT: char = '\u{FFFD}';
 
-// The tokenizer will read the input stream and emit tokens that can be used by the parser.
+/// The tokenizer will read the input stream and emit tokens that can be used by the parser.
 pub struct Tokenizer<'a> {
-    pub stream: &'a mut InputStream, // HTML character input stream
-    pub state: State,                // Current state of the tokenizer
-    pub consumed: String,            // Current consumed characters for current token
-    pub current_attr_name: String, // Current attribute name that we need to store temporary in case we are parsing attributes
-    pub current_attr_value: String, // Current attribute value that we need to store temporary in case we are parsing attributes
-    pub current_attrs: HashMap<String, String>, // Current attributes
-    pub current_token: Option<Token>, // Token that is currently in the making (if any)
-    pub temporary_buffer: String,   // Temporary buffer
-    pub token_queue: Vec<Token>, // Queue of emitted tokens. Needed because we can generate multiple tokens during iteration
-    pub last_start_token: String, // The last emitted start token (or empty if none)
-    pub error_logger: Rc<RefCell<ErrorLogger>>, // Parse errors
+    /// HTML character input stream
+    pub stream: &'a mut InputStream,
+    /// Current state of the tokenizer
+    pub state: State,
+    /// Current consumed characters for current token
+    pub consumed: String,
+    /// Current attribute name that we need to store temporary in case we are parsing attributes
+    pub current_attr_name: String,
+    /// Current attribute value that we need to store temporary in case we are parsing attributes
+    pub current_attr_value: String,
+    /// Current attributes
+    pub current_attrs: HashMap<String, String>,
+    /// Token that is currently in the making (if any)
+    pub current_token: Option<Token>,
+    /// Temporary buffer
+    pub temporary_buffer: String,
+    /// Queue of emitted tokens. Needed because we can generate multiple tokens during iteration
+    pub token_queue: Vec<Token>,
+    /// The last emitted start token (or empty if none)
+    pub last_start_token: String,
+    /// Parse errors
+    pub error_logger: Rc<RefCell<ErrorLogger>>,
 }
 
 pub struct Options {
-    pub initial_state: State, // Sets the initial state of the tokenizer. Normally only needed when dealing with tests
-    pub last_start_tag: String, // Sets the last starting tag in the tokenizer. Normally only needed when dealing with tests
+    /// Sets the initial state of the tokenizer. Normally only needed when dealing with tests
+    pub initial_state: State,
+    /// Sets the last starting tag in the tokenizer. Normally only needed when dealing with tests
+    pub last_start_tag: String,
 }
 
 #[macro_export]
@@ -128,7 +141,7 @@ macro_rules! add_system_identifier {
     };
 }
 
-// Adds the given character to the current token's name (if applicable)
+/// Adds the given character to the current token's name (if applicable)
 macro_rules! add_to_token_name {
     ($self:expr, $c:expr) => {
         match &mut $self.current_token {
@@ -150,7 +163,7 @@ macro_rules! add_to_token_name {
     };
 }
 
-// Convert a character to lower case value (assumes character is in A-Z range)
+/// Convert a character to lower case value (assumes character is in A-Z range)
 macro_rules! to_lowercase {
     // Converts A-Z to a-z
     ($c:expr) => {
@@ -158,7 +171,7 @@ macro_rules! to_lowercase {
     };
 }
 
-// Emits the current stored token
+/// Emits the current stored token
 macro_rules! emit_current_token {
     ($self:expr) => {
         match $self.current_token {
@@ -171,7 +184,7 @@ macro_rules! emit_current_token {
     };
 }
 
-// Emits the given stored token. It does not have to be stored first.
+/// Emits the given stored token. It does not have to be stored first.
 macro_rules! emit_token {
     ($self:expr, $token:expr) => {
         // Save the start token name if we are pushing it. This helps us in detecting matching tags.
@@ -194,7 +207,7 @@ macro_rules! emit_token {
 }
 
 impl<'a> Tokenizer<'a> {
-    // Creates a new tokenizer with the given inputstream and additional options if any
+    /// Creates a new tokenizer with the given inputstream and additional options if any
     pub fn new(
         input: &'a mut InputStream,
         opts: Option<Options>,
@@ -221,7 +234,7 @@ impl<'a> Tokenizer<'a> {
         self.stream.position
     }
 
-    // Retrieves the next token from the input stream or Token::EOF when the end is reached
+    /// Retrieves the next token from the input stream or Token::EOF when the end is reached
     pub fn next_token(&mut self) -> Result<Token> {
         self.consume_stream()?;
 
@@ -236,7 +249,7 @@ impl<'a> Tokenizer<'a> {
         self.error_logger.borrow()
     }
 
-    // Consumes the input stream. Continues until the stream is completed or a token has been generated.
+    /// Consumes the input stream. Continues until the stream is completed or a token has been generated.
     fn consume_stream(&mut self) -> Result<()> {
         loop {
             // Something is already in the token buffer, so we can return it.
@@ -2188,7 +2201,7 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
-    // Consumes the given char
+    /// Consumes the given char
     pub(crate) fn consume(&mut self, c: char) {
         // Add c to the current token data
         self.consumed.push(c)
@@ -2202,34 +2215,34 @@ impl<'a> Tokenizer<'a> {
         self.state = state;
     }
 
-    // Consumes the given string
+    /// Consumes the given string
     pub(crate) fn consume_str(&mut self, s: &str) {
         // Add s to the current token data
         self.consumed.push_str(s);
     }
 
-    // Return true when the given end_token matches the stored start token (ie: 'table' matches when
-    // last_start_token = 'table')
+    /// Return true when the given end_token matches the stored start token (ie: 'table' matches when
+    /// last_start_token = 'table')
     fn is_appropriate_end_token(&self, end_token: &str) -> bool {
         self.last_start_token == end_token
     }
 
-    // Return the consumed string as a String
+    /// Return the consumed string as a String
     pub fn get_consumed_str(&self) -> &str {
         &self.consumed
     }
 
-    // Returns true if there is anything in the consume buffer
+    /// Returns true if there is anything in the consume buffer
     pub fn has_consumed_data(&self) -> bool {
         !self.consumed.is_empty()
     }
 
-    // Clears the current consume buffer
+    /// Clears the current consume buffer
     pub(crate) fn clear_consume_buffer(&mut self) {
         self.consumed.clear()
     }
 
-    // Creates a parser log error message
+    /// Creates a parser log error message
     pub(crate) fn parse_error(&mut self, message: ParserError) {
         // The previous position is where the error occurred
         let pos = self.stream.get_previous_position();
@@ -2239,7 +2252,7 @@ impl<'a> Tokenizer<'a> {
             .add_error(pos, message.as_str());
     }
 
-    // Set is_closing_tag in current token
+    /// Set is_closing_tag in current token
     fn set_is_closing_in_current_token(&mut self, is_closing: bool) {
         match &mut self.current_token.as_mut().unwrap() {
             Token::EndTagToken { .. } => {
@@ -2254,7 +2267,7 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
-    // Set force_quirk mode in current token
+    /// Set force_quirk mode in current token
     fn set_quirks_mode(&mut self, quirky: bool) {
         if let Token::DocTypeToken { force_quirks, .. } = &mut self.current_token.as_mut().unwrap()
         {
@@ -2262,7 +2275,7 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
-    // Adds a new attribute to the current token
+    /// Adds a new attribute to the current token
     fn set_add_attribute_to_current_token(&mut self, name: &str, value: &str) {
         if let Token::StartTagToken { attributes, .. } = &mut self.current_token.as_mut().unwrap() {
             attributes.insert(name.into(), value.into());
@@ -2271,7 +2284,7 @@ impl<'a> Tokenizer<'a> {
         self.current_attr_name.clear()
     }
 
-    // Sets the given name into the current token
+    /// Sets the given name into the current token
     fn set_name_in_current_token(&mut self, new_name: String) -> Result<()> {
         match &mut self.current_token.as_mut().expect("current token") {
             Token::StartTagToken { name, .. } => {
@@ -2290,12 +2303,12 @@ impl<'a> Tokenizer<'a> {
         Ok(())
     }
 
-    // This function checks to see if there is already an attribute name like the one in current_attr_name.
+    /// This function checks to see if there is already an attribute name like the one in current_attr_name.
     fn attr_already_exists(&mut self) -> bool {
         self.current_attrs.contains_key(&self.current_attr_name)
     }
 
-    // Saves the current attribute name and value onto the current_attrs stack, if there is anything to store
+    /// Saves the current attribute name and value onto the current_attrs stack, if there is anything to store
     fn store_and_clear_current_attribute(&mut self) {
         if !self.current_attr_name.is_empty()
             && !self.current_attrs.contains_key(&self.current_attr_name)
@@ -2310,7 +2323,7 @@ impl<'a> Tokenizer<'a> {
         self.current_attr_value = String::new();
     }
 
-    // This method will add current generated attributes to the current (start) token if needed.
+    /// This method will add current generated attributes to the current (start) token if needed.
     fn add_stored_attributes_to_current_token(&mut self) {
         if self.current_token.is_none() {
             return;

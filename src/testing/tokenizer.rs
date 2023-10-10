@@ -137,8 +137,8 @@ impl Test {
         }
     }
 
-    // Run through the parsing without making assertions, for use in benchmarking and in order to
-    // disclose any panics that might happen
+    /// Run through the parsing without making assertions, for use in benchmarking and in order to
+    /// disclose any panics that might happen
     pub fn tokenize(&self) {
         for mut builder in self.builders() {
             let mut tokenizer = builder.build();
@@ -306,7 +306,7 @@ impl Test {
         assert_eq!(name, output, "incorrect end tag");
     }
 
-    // Check if a given doctype matches the expected result
+    /// Check if a given doctype matches the expected result
     fn assert_doctype(
         &self,
         expected: &[Value],
