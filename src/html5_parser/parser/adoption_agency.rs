@@ -13,14 +13,12 @@ pub enum AdoptionResult {
 }
 
 impl<'a> Html5Parser<'a> {
-    /**
-     * When we talk about nodes, there are 3 contexts to consider:
-     *
-     * - The actual node data. This is called "node" in the code.
-     * - The node id. This is called "node_id" in the code.
-     * - The node index. This is called "node_idx" in the code. This is the index of the node in
-     *   either the open_elements or active_formatting_elements stack.
-     */
+    /// When we talk about nodes, there are 3 contexts to consider:
+    ///
+    /// - The actual node data. This is called "node" in the code.
+    /// - The node id. This is called "node_id" in the code.
+    /// - The node index. This is called "node_idx" in the code. This is the index of the node in  
+    /// either the open_elements or active_formatting_elements stack.
     pub fn run_adoption_agency(&mut self, token: &Token) -> AdoptionResult {
         // Step 1
         let subject = match token {
@@ -260,7 +258,7 @@ impl<'a> Html5Parser<'a> {
         }
     }
 
-    // Find the furthest block element in the stack of open elements that is above the formatting element
+    /// Find the furthest block element in the stack of open elements that is above the formatting element
     fn find_furthest_block_idx(&self, formatting_element_id: NodeId) -> Option<usize> {
         // Find the index of the wanted formatting element id
         let element_idx_oe = self
@@ -285,7 +283,7 @@ impl<'a> Html5Parser<'a> {
         None
     }
 
-    // Find the formatting element with the given subject between the end of the list and the first marker (or start when there is no marker)
+    /// Find the formatting element with the given subject between the end of the list and the first marker (or start when there is no marker)
     fn find_formatting_element(&self, subject: &str) -> Option<usize> {
         if self.active_formatting_elements.is_empty() {
             return None;

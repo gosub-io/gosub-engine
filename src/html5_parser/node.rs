@@ -102,8 +102,8 @@ pub struct Node {
 }
 
 impl Node {
-    // This will only compare against the tag, namespace and attributes. Both nodes could still have
-    // other parents and children.
+    /// This will only compare against the tag, namespace and attributes. Both nodes could still have
+    /// other parents and children.
     pub fn matches_tag_and_attrs(&self, other: &Self) -> bool {
         self.name == other.name && self.namespace == other.namespace && self.data == other.data
     }
@@ -238,11 +238,11 @@ impl Node {
 }
 
 pub trait NodeTrait {
-    // Return the token type of the given token
+    /// Return the token type of the given token
     fn type_of(&self) -> NodeType;
 }
 
-// Each node implements the NodeTrait and has a type_of that will return the node type.
+/// Each node implements the NodeTrait and has a type_of that will return the node type.
 impl NodeTrait for Node {
     fn type_of(&self) -> NodeType {
         match self.data {

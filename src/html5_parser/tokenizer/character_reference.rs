@@ -8,7 +8,7 @@ use crate::html5_parser::tokenizer::replacement_tables::{TOKEN_NAMED_CHARS, TOKE
 use crate::html5_parser::tokenizer::{Tokenizer, CHAR_REPLACEMENT};
 use lazy_static::lazy_static;
 
-// Different states for the character references
+/// Different states for the character references
 pub enum CcrState {
     CharacterReference,
     NamedCharacterReference,
@@ -33,10 +33,10 @@ macro_rules! consume_temp_buffer {
 }
 
 impl<'a> Tokenizer<'a> {
-    // Consumes a character reference and places this in the tokenizer consume buffer
-    // ref: 8.2.4.69 Tokenizing character references
-
-    // @TODO: fix additional allowed char
+    /// Consumes a character reference and places this in the tokenizer consume buffer
+    /// ref: 8.2.4.69 Tokenizing character references
+    ///
+    /// @TODO: fix additional allowed char
     pub fn consume_character_reference(
         &mut self,
         _additional_allowed_char: Option<Element>,
@@ -333,8 +333,8 @@ impl<'a> Tokenizer<'a> {
         (0x0001..=0x001F).contains(&num) || (0x007F..=0x009F).contains(&num)
     }
 
-    // Finds the longest entity from the current position in the stream. Returns the entity
-    // replacement OR None when no entity has been found.
+    /// Finds the longest entity from the current position in the stream. Returns the entity
+    /// replacement OR None when no entity has been found.
     fn find_entity(&mut self) -> Option<String> {
         let s = self.stream.look_ahead_slice(*LONGEST_ENTITY_LENGTH);
         for i in (0..=s.len()).rev() {

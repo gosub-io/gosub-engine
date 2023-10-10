@@ -38,7 +38,7 @@ impl Default for Document {
 }
 
 impl Document {
-    // Creates a new document
+    /// Creates a new document
     pub fn new() -> Self {
         let mut arena = NodeArena::new();
         arena.add_node(Node::new_document());
@@ -72,8 +72,8 @@ impl Document {
         self.arena.get_node_mut(*node_id)
     }
 
-    // according to HTML5 spec: 3.2.3.1
-    // https://www.w3.org/TR/2011/WD-html5-20110405/elements.html#the-id-attribute
+    /// according to HTML5 spec: 3.2.3.1
+    /// https://www.w3.org/TR/2011/WD-html5-20110405/elements.html#the-id-attribute
     fn validate_named_id(&self, named_id: &str) -> bool {
         if named_id.contains(char::is_whitespace) {
             return false;
@@ -121,7 +121,7 @@ impl Document {
         }
     }
 
-    // Add to the document
+    /// Add to the document
     pub fn add_node(&mut self, node: Node, parent_id: NodeId) -> NodeId {
         let mut node_named_id: Option<String> = None;
         if let NodeData::Element(element) = &node.data {
@@ -165,7 +165,7 @@ impl Document {
         self.arena.get_node_mut(node_id).unwrap().parent = Some(parent_id);
     }
 
-    // return the root node
+    /// return the root node
     pub fn get_root(&self) -> &Node {
         self.arena
             .get_node(NodeId::root())

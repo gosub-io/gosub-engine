@@ -8,11 +8,11 @@ use std::{fmt, io};
 pub enum Encoding {
     /// Stream is of UTF8 characters
     UTF8,
-    // Stream is of 8bit ASCII
+    /// Stream is of 8bit ASCII
     ASCII,
 }
 
-// The confidence decides how confident we are that the input stream is of this encoding
+/// The confidence decides how confident we are that the input stream is of this encoding
 #[derive(PartialEq)]
 pub enum Confidence {
     /// This encoding might be the one we need
@@ -43,11 +43,11 @@ impl fmt::Display for Position {
 
 #[derive(PartialEq, Debug, Copy, Clone)]
 pub enum Element {
-    // Standard UTF character
+    /// Standard UTF character
     Utf8(char),
-    // Surrogate character (since they cannot be stored in <char>)
+    /// Surrogate character (since they cannot be stored in <char>)
     Surrogate(u16),
-    // End of stream
+    /// End of stream
     Eof,
 }
 

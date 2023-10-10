@@ -25,7 +25,7 @@ use std::collections::HashMap;
 use std::io::prelude::*;
 use std::rc::Rc;
 
-// Insertion modes as defined in 13.2.4.1
+/// Insertion modes as defined in 13.2.4.1
 #[derive(Debug, Copy, Clone, PartialEq)]
 enum InsertionMode {
     Initial,
@@ -53,7 +53,7 @@ enum InsertionMode {
     AfterAfterFrameset,
 }
 
-// Additional extensions to the Vec type so we can do some stack operations
+/// Additional extensions to the Vec type so we can do some stack operations
 trait VecExtensions<T> {
     fn pop_until<F>(&mut self, f: F)
     where
@@ -95,7 +95,7 @@ macro_rules! acknowledge_closing_tag {
     };
 }
 
-// Pops the last element from the open elements until we reach $name
+/// Pops the last element from the open elements until we reach $name
 macro_rules! pop_until {
     ($self:expr, $name:expr) => {
         loop {
@@ -112,7 +112,7 @@ macro_rules! pop_until {
     };
 }
 
-// Pops the last element from the open elements until we reach any of the elements in $arr
+/// Pops the last element from the open elements until we reach any of the elements in $arr
 macro_rules! pop_until_any {
     ($self:expr, $arr:expr) => {
         $self.open_elements.pop_until(|node_id| {
@@ -128,7 +128,7 @@ macro_rules! pop_until_any {
     };
 }
 
-// Remove the given node_id from the open elements stack
+/// Remove the given node_id from the open elements stack
 macro_rules! open_elements_remove {
     ($self:expr, $target_node_id: expr) => {
         $self
@@ -137,7 +137,7 @@ macro_rules! open_elements_remove {
     };
 }
 
-// Pops the last element from the open elements, and panics if it is not $name
+/// Pops the last element from the open elements, and panics if it is not $name
 macro_rules! pop_check {
     ($self:expr, $name:expr) => {
         if !$self.open_elements.pop_check(|&node_id| {
@@ -153,7 +153,7 @@ macro_rules! pop_check {
     };
 }
 
-// Checks if the last element on the open elements is $name, and panics if not
+/// Checks if the last element on the open elements is $name, and panics if not
 macro_rules! check_last_element {
     ($self:expr, $name:expr) => {
         let node_id = $self.open_elements.last().unwrap_or_default();
@@ -169,7 +169,7 @@ macro_rules! check_last_element {
     };
 }
 
-// Get the idx element from the open elements stack
+/// Get the idx element from the open elements stack
 macro_rules! open_elements_find_index {
     ($self:expr, $node_id:expr) => {
         $self
@@ -180,7 +180,7 @@ macro_rules! open_elements_find_index {
     };
 }
 
-// Get the idx element from the open elements stack
+/// Get the idx element from the open elements stack
 macro_rules! open_elements_get {
     ($self:expr, $idx:expr) => {
         $self
@@ -190,7 +190,7 @@ macro_rules! open_elements_get {
     };
 }
 
-// Returns true when the open elements has $name
+/// Returns true when the open elements has $name
 macro_rules! open_elements_has {
     ($self:expr, $name:expr) => {
         $self.open_elements.iter().rev().any(|node_id| {
@@ -214,7 +214,7 @@ macro_rules! open_elements_has_id {
     };
 }
 
-// Returns the current node: the last node in the open elements list
+/// Returns the current node: the last node in the open elements list
 macro_rules! current_node {
     ($self:expr) => {{
         let current_node_idx = $self.open_elements.last().unwrap_or_default();
@@ -225,7 +225,7 @@ macro_rules! current_node {
     }};
 }
 
-// Returns the current node as a mutable reference
+/// Returns the current node as a mutable reference
 macro_rules! current_node_mut {
     ($self:expr) => {{
         let current_node_idx = $self.open_elements.last().unwrap_or_default();
@@ -245,7 +245,7 @@ macro_rules! get_node_by_id {
 #[macro_use]
 mod adoption_agency;
 
-// Active formatting elements, which could be a regular node(id), or a marker
+/// Active formatting elements, which could be a regular node(id), or a marker
 #[derive(PartialEq, Clone, Copy)]
 enum ActiveElement {
     Node(NodeId),
@@ -261,31 +261,51 @@ impl ActiveElement {
     }
 }
 
-// The main parser object
+/// The main parser object
 pub struct Html5Parser<'a> {
-    tokenizer: Tokenizer<'a>,                       // tokenizer object
-    insertion_mode: InsertionMode,                  // current insertion mode
-    original_insertion_mode: InsertionMode,         // original insertion mode (used for text mode)
-    template_insertion_mode: Vec<InsertionMode>,    // template insertion mode stack
-    parser_cannot_change_mode: bool,                // ??
-    current_token: Token,                           // Current token from the tokenizer
-    reprocess_token: bool, // If true, the current token should be processed again
-    open_elements: Vec<NodeId>, // Stack of open elements
-    head_element: Option<NodeId>, // Current head element
-    form_element: Option<NodeId>, // Current form element
-    scripting_enabled: bool, // If true, scripting is enabled
-    frameset_ok: bool,     // if true, we can insert a frameset
-    foster_parenting: bool, // Foster parenting flag
-    script_already_started: bool, // If true, the script engine has already started
-    pending_table_character_tokens: String, // Pending table character tokens
-    ack_self_closing: bool, // Acknowledge self closing tags
-    active_formatting_elements: Vec<ActiveElement>, // List of active formatting elements or markers
-    is_fragment_case: bool, // Is the current parsing a fragment case
-    document: Document,    // A reference to the document we are parsing
-    error_logger: Rc<RefCell<ErrorLogger>>, // Error logger, which is shared with the tokenizer
+    /// tokenizer object
+    tokenizer: Tokenizer<'a>,
+    /// current insertion mode
+    insertion_mode: InsertionMode,
+    /// original insertion mode (used for text mode)
+    original_insertion_mode: InsertionMode,
+    /// template insertion mode stack
+    template_insertion_mode: Vec<InsertionMode>,
+    /// ??
+    parser_cannot_change_mode: bool,
+    /// Current token from the tokenizer
+    current_token: Token,
+    /// If true, the current token should be processed again
+    reprocess_token: bool,
+    /// Stack of open elements
+    open_elements: Vec<NodeId>,
+    /// Current head element
+    head_element: Option<NodeId>,
+    /// Current form element
+    form_element: Option<NodeId>,
+    /// If true, scripting is enabled
+    scripting_enabled: bool,
+    /// if true, we can insert a frameset
+    frameset_ok: bool,
+    /// Foster parenting flag
+    foster_parenting: bool,
+    /// If true, the script engine has already started
+    script_already_started: bool,
+    /// Pending table character tokens
+    pending_table_character_tokens: String,
+    /// Acknowledge self closing tags
+    ack_self_closing: bool,
+    /// List of active formatting elements or markers
+    active_formatting_elements: Vec<ActiveElement>,
+    /// Is the current parsing a fragment case
+    is_fragment_case: bool,
+    /// A reference to the document we are parsing
+    document: Document,
+    /// Error logger, which is shared with the tokenizer
+    error_logger: Rc<RefCell<ErrorLogger>>,
 }
 
-// Defines the scopes for in_scope()
+/// Defines the scopes for in_scope()
 enum Scope {
     Regular,
     ListItem,
@@ -295,7 +315,7 @@ enum Scope {
 }
 
 impl<'a> Html5Parser<'a> {
-    // Creates a new parser object with the given input stream
+    /// Creates a new parser object with the given input stream
     pub fn new(stream: &'a mut InputStream) -> Self {
         // Create a new error logger that will be used in both the tokenizer and the parser
         let error_logger = Rc::new(RefCell::new(ErrorLogger::new()));
@@ -326,7 +346,7 @@ impl<'a> Html5Parser<'a> {
         }
     }
 
-    // Parses the input stream into a Node tree
+    /// Parses the input stream into a Node tree
     pub fn parse(&mut self) -> Result<(&mut Document, Vec<ParseError>)> {
         loop {
             // If reprocess_token is true, we should process the same token again
@@ -1667,19 +1687,19 @@ impl<'a> Html5Parser<'a> {
         ))
     }
 
-    // Retrieves a list of all errors generated by the parser/tokenizer
+    /// Retrieves a list of all errors generated by the parser/tokenizer
     pub fn get_parse_errors(&self) -> Vec<ParseError> {
         self.error_logger.borrow().get_errors().clone()
     }
 
-    // Send a parse error to the error logger
+    /// Send a parse error to the error logger
     fn parse_error(&self, message: &str) {
         self.error_logger
             .borrow_mut()
             .add_error(self.tokenizer.get_position(), message);
     }
 
-    // Create a new node that is not connected or attached to the document arena
+    /// Create a new node that is not connected or attached to the document arena
     fn create_node(&self, token: &Token, namespace: &str) -> Node {
         let val: String;
         match token {
@@ -1707,8 +1727,8 @@ impl<'a> Html5Parser<'a> {
 
     fn flush_pending_table_character_tokens(&mut self) {}
 
-    // This function will pop elements off the stack until it reaches the first element that matches
-    // our condition (which can be changed with the except and thoroughly parameters)
+    /// This function will pop elements off the stack until it reaches the first element that matches
+    /// our condition (which can be changed with the except and thoroughly parameters)
     fn generate_all_implied_end_tags(&mut self, except: Option<&str>, thoroughly: bool) {
         loop {
             if self.open_elements.is_empty() {
@@ -1740,7 +1760,7 @@ impl<'a> Html5Parser<'a> {
         }
     }
 
-    // Reset insertion mode based on all kind of rules
+    /// Reset insertion mode based on all kind of rules
     fn reset_insertion_mode(&mut self) {
         let mut last = false;
         let mut idx = self.open_elements.len() - 1;
@@ -1843,7 +1863,7 @@ impl<'a> Html5Parser<'a> {
         }
     }
 
-    // Pop all elements back to a table context
+    /// Pop all elements back to a table context
     fn clear_stack_back_to_table_context(&mut self) {
         while !self.open_elements.is_empty() {
             if ["table", "template", "html"].contains(&current_node!(self).name.as_str()) {
@@ -1853,7 +1873,7 @@ impl<'a> Html5Parser<'a> {
         }
     }
 
-    // Pop all elements back to a table context
+    /// Pop all elements back to a table context
     fn clear_stack_back_to_table_body_context(&mut self) {
         while !self.open_elements.is_empty() {
             if ["tbody", "tfoot", "thead", "template", "html"]
@@ -1865,7 +1885,7 @@ impl<'a> Html5Parser<'a> {
         }
     }
 
-    // Pop all elements back to a table row context
+    /// Pop all elements back to a table row context
     fn clear_stack_back_to_table_row_context(&mut self) {
         while !self.open_elements.is_empty() {
             let val = current_node!(self).name.clone();
@@ -1876,7 +1896,7 @@ impl<'a> Html5Parser<'a> {
         }
     }
 
-    // Checks if the given element is in given scope
+    /// Checks if the given element is in given scope
     fn is_in_scope(&self, tag: &str, scope: Scope) -> bool {
         for &node_id in self.open_elements.iter().rev() {
             let node = self
@@ -1936,7 +1956,7 @@ impl<'a> Html5Parser<'a> {
         false
     }
 
-    // Closes a table cell and switches the insertion mode to InRow
+    /// Closes a table cell and switches the insertion mode to InRow
     fn close_cell(&mut self) {
         self.generate_all_implied_end_tags(None, false);
 
@@ -1951,7 +1971,7 @@ impl<'a> Html5Parser<'a> {
         self.insertion_mode = InsertionMode::InRow;
     }
 
-    // Handle insertion mode "in_body"
+    /// Handle insertion mode "in_body"
     fn handle_in_body(&mut self) {
         let mut any_other_end_tag = false;
 
@@ -2778,7 +2798,7 @@ impl<'a> Html5Parser<'a> {
         }
     }
 
-    // Handle insertion mode "in_head"
+    /// Handle insertion mode "in_head"
     fn handle_in_head(&mut self) {
         let mut anything_else = false;
 
@@ -2887,12 +2907,12 @@ impl<'a> Html5Parser<'a> {
         }
     }
 
-    // Handle insertion mode "in_template"
+    /// Handle insertion mode "in_template"
     fn handle_in_template(&mut self) {
         todo!()
     }
 
-    // Handle insertion mode "in_table"
+    /// Handle insertion mode "in_table"
     fn handle_in_table(&mut self) {
         let mut anything_else = false;
 
@@ -3054,12 +3074,12 @@ impl<'a> Html5Parser<'a> {
         }
     }
 
-    // Handle insertion mode "in_select"
+    /// Handle insertion mode "in_select"
     fn handle_in_select(&mut self) {
         todo!()
     }
 
-    // Returns true if the given tag if found in the active formatting elements list (until the first marker)
+    /// Returns true if the given tag if found in the active formatting elements list (until the first marker)
     fn active_formatting_elements_has_until_marker(&self, tag: &str) -> Option<NodeId> {
         if self.active_formatting_elements.is_empty() {
             return None;
@@ -3085,12 +3105,12 @@ impl<'a> Html5Parser<'a> {
         }
     }
 
-    // Adds a marker to the active formatting stack
+    /// Adds a marker to the active formatting stack
     fn active_formatting_elements_push_marker(&mut self) {
         self.active_formatting_elements.push(ActiveElement::Marker);
     }
 
-    // Clear the active formatting stack until we reach the first marker
+    /// Clear the active formatting stack until we reach the first marker
     fn active_formatting_elements_clear_until_marker(&mut self) {
         while let Some(active_elem) = self.active_formatting_elements.pop() {
             if let ActiveElement::Marker = active_elem {
@@ -3100,7 +3120,7 @@ impl<'a> Html5Parser<'a> {
         }
     }
 
-    // Remove the given node_id from the active formatting elements list
+    /// Remove the given node_id from the active formatting elements list
     fn active_formatting_elements_remove(&mut self, target_node_id: NodeId) {
         self.active_formatting_elements
             .retain(|node_id| match node_id {
@@ -3109,7 +3129,7 @@ impl<'a> Html5Parser<'a> {
             });
     }
 
-    // Push a node onto the active formatting stack, make sure only max 3 of them can be added (between markers)
+    /// Push a node onto the active formatting stack, make sure only max 3 of them can be added (between markers)
     fn active_formatting_elements_push(&mut self, node_id: NodeId) {
         let mut idx = self.active_formatting_elements.len();
         if idx == 0 {
@@ -3249,7 +3269,7 @@ impl<'a> Html5Parser<'a> {
         todo!()
     }
 
-    // Close the p element that may or may not be on the open elements stack
+    /// Close the p element that may or may not be on the open elements stack
     fn close_p_element(&mut self) {
         self.generate_all_implied_end_tags(Some("p"), false);
 
@@ -3261,7 +3281,7 @@ impl<'a> Html5Parser<'a> {
         self.open_elements.pop(); // Pop the p element itself
     }
 
-    // Adjusts attributes names in the given token for SVG
+    /// Adjusts attributes names in the given token for SVG
     fn adjust_svg_attributes(&self, token: &mut Token) {
         if let Token::StartTagToken { attributes, .. } = token {
             let mut new_attributes = HashMap::new();
@@ -3349,7 +3369,7 @@ impl<'a> Html5Parser<'a> {
         node_id
     }
 
-    // Switch the parser and tokenizer to the RAWTEXT state
+    /// Switch the parser and tokenizer to the RAWTEXT state
     fn parse_raw_data(&mut self) {
         self.insert_html_element(&self.current_token.clone());
 
@@ -3359,7 +3379,7 @@ impl<'a> Html5Parser<'a> {
         self.insertion_mode = InsertionMode::Text;
     }
 
-    // Switch the parser and tokenizer to the RCDATA state
+    /// Switch the parser and tokenizer to the RCDATA state
     fn parse_rcdata(&mut self) {
         self.insert_html_element(&self.current_token.clone());
 

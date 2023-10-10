@@ -1,4 +1,4 @@
-// These are the states in which the tokenizer can be in.
+/// These are the states in which the tokenizer can be in.
 #[derive(Debug, Copy, Clone)]
 pub enum State {
     DataState,
