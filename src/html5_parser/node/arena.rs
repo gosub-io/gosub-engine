@@ -1,7 +1,7 @@
 use crate::html5_parser::node::Node;
 use std::collections::HashMap;
 
-use super::node::NodeId;
+use super::NodeId;
 
 pub struct NodeArena {
     nodes: HashMap<NodeId, Node>, // Current nodes
@@ -82,6 +82,12 @@ impl NodeArena {
                 }
             }
         }
+    }
+}
+
+impl Default for NodeArena {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
