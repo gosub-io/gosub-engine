@@ -1,4 +1,3 @@
-use crate::html5_parser::element_class::ElementClass;
 use crate::html5_parser::node::data::comment::CommentData;
 use crate::html5_parser::node::data::document::DocumentData;
 use crate::html5_parser::node::data::element::ElementData;

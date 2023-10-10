@@ -3468,7 +3468,7 @@ impl<'a> Html5Parser<'a> {
 mod test {
     use super::*;
     use crate::html5_parser::input_stream::Encoding;
-    use crate::html5_parser::node_data::element_data::ElementData;
+    use crate::html5_parser::node::data::element::ElementData;
 
     macro_rules! node_create {
         ($self:expr, $name:expr) => {{
