@@ -1,6 +1,6 @@
 use crate::html5_parser::error_logger::ParserError;
 use crate::html5_parser::input_stream::Element;
-use crate::read_char;
+// use crate::read_char;
 
 extern crate lazy_static;
 use crate::html5_parser::input_stream::SeekMode::SeekCur;
@@ -51,7 +51,7 @@ impl<'a> Tokenizer<'a> {
                     self.temporary_buffer.clear();
                     self.temporary_buffer.push('&');
 
-                    let c = read_char!(self);
+                    let c = self.read_char();
                     match c {
                         Element::Utf8(ch) if ch.is_ascii_alphanumeric() => {
                             self.stream.unread();
@@ -113,7 +113,7 @@ impl<'a> Tokenizer<'a> {
                     ccr_state = CcrState::AmbiguousAmpersand;
                 }
                 CcrState::AmbiguousAmpersand => {
-                    let c = read_char!(self);
+                    let c = self.read_char();
                     match c {
                         // Element::Eof => return,
                         Element::Utf8(ch) if ch.is_ascii_alphanumeric() => {
@@ -137,7 +137,7 @@ impl<'a> Tokenizer<'a> {
                 CcrState::NumericCharacterReference => {
                     char_ref_code = Some(0);
 
-                    let c = read_char!(self);
+                    let c = self.read_char();
                     match c {
                         // Element::Eof => ccr_state = CcrState::NumericalCharacterReferenceEndState,
                         Element::Utf8('X') | Element::Utf8('x') => {
@@ -151,7 +151,7 @@ impl<'a> Tokenizer<'a> {
                     }
                 }
                 CcrState::HexadecimalCharacterReferenceStart => {
-                    let c = read_char!(self);
+                    let c = self.read_char();
                     match c {
                         // Element::Eof => ccr_state = CcrState::NumericalCharacterReferenceEndState,
                         Element::Utf8('0'..='9')
@@ -172,7 +172,7 @@ impl<'a> Tokenizer<'a> {
                     }
                 }
                 CcrState::DecimalCharacterReferenceStart => {
-                    let c = read_char!(self);
+                    let c = self.read_char();
                     match c {
                         Element::Utf8('0'..='9') => {
                             self.stream.unread();
@@ -190,7 +190,7 @@ impl<'a> Tokenizer<'a> {
                     }
                 }
                 CcrState::HexadecimalCharacterReference => {
-                    let c = read_char!(self);
+                    let c = self.read_char();
                     match c {
                         // Element::Eof => ccr_state = CcrState::NumericalCharacterReferenceEndState,
                         Element::Utf8('0'..='9') => {
@@ -228,7 +228,7 @@ impl<'a> Tokenizer<'a> {
                     }
                 }
                 CcrState::DecimalCharacterReference => {
-                    let c = read_char!(self);
+                    let c = self.read_char();
                     match c {
                         // Element::Eof => ccr_state = CcrState::NumericalCharacterReferenceEndState,
                         Element::Utf8('0'..='9') => {
