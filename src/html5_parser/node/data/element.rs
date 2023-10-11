@@ -3,6 +3,7 @@ use std::collections::hash_map::Iter;
 use std::collections::HashMap;
 
 #[derive(Debug, PartialEq, Clone)]
+/// Data structure for storing element attributes (ie: class="foo")
 pub(crate) struct ElementAttributes {
     pub(crate) attributes: HashMap<String, String>,
 }
@@ -30,38 +31,47 @@ impl ElementAttributes {
         }
     }
 
+    /// Returns true when the attribute map contains the given name.
     pub(crate) fn contains(&self, name: &str) -> bool {
         self.attributes.contains_key(name)
     }
 
+    /// Inserts a new attribute into the map.
     pub(crate) fn insert(&mut self, name: &str, value: &str) {
         self.attributes.insert(name.to_owned(), value.to_owned());
     }
 
+    /// Removes an attribute from the map.
     pub(crate) fn remove(&mut self, name: &str) {
         self.attributes.remove(name);
     }
 
+    /// Returns the value of the attribute with the given name.
     pub(crate) fn get(&self, name: &str) -> Option<&String> {
         self.attributes.get(name)
     }
 
+    /// Returns a mutable reference to the value of the attribute with the given name.
     pub(crate) fn get_mut(&mut self, name: &str) -> Option<&mut String> {
         self.attributes.get_mut(name)
     }
 
+    /// Clears the attribute map.
     pub(crate) fn clear(&mut self) {
         self.attributes.clear();
     }
 
+    /// Returns true if the attribute map is empty.
     pub(crate) fn is_empty(&self) -> bool {
         self.attributes.is_empty()
     }
 
+    /// Returns an iterator over the attribute map.
     pub(crate) fn iter(&self) -> Iter<'_, String, String> {
         self.attributes.iter()
     }
 
+    /// Adds the given attributes to the attribute map.
     pub(crate) fn copy_from(&mut self, attribute_map: HashMap<String, String>) {
         for (key, value) in attribute_map.iter() {
             self.insert(key, value);
@@ -70,6 +80,7 @@ impl ElementAttributes {
 }
 
 #[derive(Debug, PartialEq, Clone)]
+/// Data structure for element nodes
 pub struct ElementData {
     /// Name of the element (e.g., div)
     pub(crate) name: String,

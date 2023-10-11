@@ -155,13 +155,13 @@ impl ParserError {
 /// Parser error that defines an error (message) on the given position
 #[derive(Debug, PartialEq, Clone)]
 pub struct ParseError {
-    /// Parse message
+    /// Parse error message
     pub message: String,
-    /// Line number of the error
+    /// Line number (1-based) of the error
     pub line: usize,
-    /// Offset on line of the error
+    // Column (1-based) on line of the error
     pub col: usize,
-    /// Position of the error on the line
+    // Position (0-based) of the error in the input stream
     pub offset: usize,
 }
 

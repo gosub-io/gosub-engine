@@ -1,5 +1,6 @@
 use thiserror::Error;
 
+/// Generic error types that can be returned from the library.
 #[derive(Error, Debug)]
 pub enum Error {
     #[error("ureq error")]
@@ -15,4 +16,5 @@ pub enum Error {
     Utf8(#[from] std::string::FromUtf8Error),
 }
 
+/// Result that can be returned which holds either T or an Error
 pub type Result<T> = std::result::Result<T, Error>;

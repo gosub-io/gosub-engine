@@ -254,10 +254,12 @@ impl NodeTrait for Node {
     }
 }
 
+/// The HTML elements that are considered formatting elements
 pub static FORMATTING_HTML_ELEMENTS: [&str; 14] = [
     "a", "b", "big", "code", "em", "font", "i", "nobr", "s", "small", "strike", "strong", "tt", "u",
 ];
 
+/// The HTML elements that are considered special elements
 pub static SPECIAL_HTML_ELEMENTS: [&str; 83] = [
     "address",
     "applet",
@@ -344,8 +346,10 @@ pub static SPECIAL_HTML_ELEMENTS: [&str; 83] = [
     "xmp",
 ];
 
+/// The MathML elements that are considered special elements
 pub static SPECIAL_MATHML_ELEMENTS: [&str; 6] = ["mi", "mo", "mn", "ms", "mtext", "annotation-xml"];
 
+/// The SVG elements that are considered special elements
 pub static SPECIAL_SVG_ELEMENTS: [&str; 3] = ["foreignObject", "desc", "title"];
 
 #[cfg(test)]
