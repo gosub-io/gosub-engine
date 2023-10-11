@@ -21,17 +21,6 @@ pub enum CcrState {
     NumericalCharacterReferenceEnd,
 }
 
-macro_rules! consume_temp_buffer {
-    ($self:expr, $as_attribute:expr) => {
-        if $as_attribute {
-            $self.current_attr_value.push_str(&$self.temporary_buffer);
-        } else {
-            $self.consumed.push_str(&$self.temporary_buffer);
-        }
-        $self.temporary_buffer.clear();
-    };
-}
-
 impl<'a> Tokenizer<'a> {
     /// Consumes a character reference and places this in the tokenizer consume buffer
     /// ref: 8.2.4.69 Tokenizing character references
@@ -62,7 +51,7 @@ impl<'a> Tokenizer<'a> {
                             ccr_state = CcrState::NumericCharacterReference;
                         }
                         _ => {
-                            consume_temp_buffer!(self, as_attribute);
+                            self.consume_temp_buffer(as_attribute);
 
                             self.stream.unread();
                             return;
@@ -83,7 +72,7 @@ impl<'a> Tokenizer<'a> {
                                 self.temporary_buffer.push(c);
                             }
 
-                            consume_temp_buffer!(self, as_attribute);
+                            self.consume_temp_buffer(as_attribute);
                             return;
                         }
 
@@ -109,7 +98,7 @@ impl<'a> Tokenizer<'a> {
                         return;
                     }
 
-                    consume_temp_buffer!(self, as_attribute);
+                    self.consume_temp_buffer(as_attribute);
                     ccr_state = CcrState::AmbiguousAmpersand;
                 }
                 CcrState::AmbiguousAmpersand => {
@@ -164,7 +153,7 @@ impl<'a> Tokenizer<'a> {
                             self.parse_error(
                                 ParserError::AbsenceOfDigitsInNumericCharacterReference,
                             );
-                            consume_temp_buffer!(self, as_attribute);
+                            self.consume_temp_buffer(as_attribute);
 
                             self.stream.unread();
                             return;
@@ -182,7 +171,7 @@ impl<'a> Tokenizer<'a> {
                             self.parse_error(
                                 ParserError::AbsenceOfDigitsInNumericCharacterReference,
                             );
-                            consume_temp_buffer!(self, as_attribute);
+                            self.consume_temp_buffer(as_attribute);
 
                             self.stream.unread();
                             return;
@@ -292,12 +281,21 @@ impl<'a> Tokenizer<'a> {
                     self.temporary_buffer.clear();
                     let c = char::from_u32(char_ref_code).unwrap_or(CHAR_REPLACEMENT);
                     self.temporary_buffer.push(c);
-                    consume_temp_buffer!(self, as_attribute);
+                    self.consume_temp_buffer(as_attribute);
 
                     return;
                 }
             }
         }
+    }
+
+    fn consume_temp_buffer(&mut self, as_attribute: bool) {
+        if as_attribute {
+            self.current_attr_value.push_str(&self.temporary_buffer);
+        } else {
+            self.consumed.push_str(&self.temporary_buffer);
+        }
+        self.temporary_buffer.clear();
     }
 
     pub(crate) fn is_surrogate(&self, num: u32) -> bool {
