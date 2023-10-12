@@ -1596,7 +1596,7 @@ impl<'a> Html5Parser<'a> {
             .name
             != name
         {
-            panic!("$name tag should be last element in open elements");
+            panic!("{name} tag should be last element in open elements");
         }
     }
 
@@ -1702,7 +1702,7 @@ impl<'a> Html5Parser<'a> {
                 return;
             }
 
-            let val = self.current_node().name.clone();
+            let val = self.current_node().name.as_str();
 
             if let Some(except) = except {
                 if except == val {
@@ -1710,15 +1710,14 @@ impl<'a> Html5Parser<'a> {
                 }
             }
 
-            if thoroughly && !["tbody", "td", "tfoot", "th", "thead", "tr"].contains(&val.as_str())
-            {
+            if thoroughly && !["tbody", "td", "tfoot", "th", "thead", "tr"].contains(&val) {
                 return;
             }
 
             if ![
                 "dd", "dt", "li", "option", "optgroup", "p", "rb", "rp", "rt", "rtc",
             ]
-            .contains(&val.as_str())
+            .contains(&val)
             {
                 return;
             }
@@ -1855,8 +1854,8 @@ impl<'a> Html5Parser<'a> {
     /// Pop all elements back to a table row context
     fn clear_stack_back_to_table_row_context(&mut self) {
         while !self.open_elements.is_empty() {
-            let val = self.current_node().name.clone();
-            if ["tr", "template", "html"].contains(&val.as_str()) {
+            let val = self.current_node().name.as_str();
+            if ["tr", "template", "html"].contains(&val) {
                 return;
             }
             self.open_elements.pop();
@@ -1927,7 +1926,7 @@ impl<'a> Html5Parser<'a> {
     fn close_cell(&mut self) {
         self.generate_all_implied_end_tags(None, false);
 
-        let tag = self.current_node().name.clone();
+        let tag = self.current_node().name.as_str();
         if tag != "td" && tag != "th" {
             self.parse_error("current node should be td or th");
         }
@@ -3408,7 +3407,7 @@ impl<'a> Html5Parser<'a> {
                 .get_node_by_id_mut(*last_child_id)
                 .expect("node not found");
             if let NodeData::Text(TextData { value, .. }) = &mut last_child.data {
-                value.push_str(&token.to_string().clone());
+                value.push_str(&token.to_string());
                 return;
             }
         }
