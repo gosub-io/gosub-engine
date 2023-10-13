@@ -1981,9 +1981,10 @@ impl<'stream> Html5Parser<'stream> {
                 self.reconstruct_formatting();
 
                 let node = self.create_node(&self.current_token, HTML_NAMESPACE);
+                let parent_node = current_node!(self);
                 self.document
                     .borrow_mut()
-                    .add_node(node, current_node!(self).id);
+                    .add_node(node, parent_node.id);
             }
             Token::TextToken { .. } => {
                 self.reconstruct_formatting();
@@ -3873,13 +3874,14 @@ mod test {
         let document = Rc::new(RefCell::new(Document::new()));
         parser.parse(document.clone()).expect("doc");
 
-        let binding = document.borrow();
-        let div = binding.get_node_by_named_id("myid").unwrap();
-        assert_eq!(div.id, NodeId(4));
+        {
+            let binding = document.borrow();
+            let div = binding.get_node_by_named_id("myid").unwrap();
+            assert_eq!(div.id, NodeId(4));
+        }
 
-        document
-            .borrow_mut()
-            .set_node_named_id(NodeId(4), "otherid");
+        let mut binding = document.borrow_mut();
+        binding.set_node_named_id(NodeId(4), "otherid");
         assert!(binding.get_node_by_named_id("myid").is_none());
     }
 }
