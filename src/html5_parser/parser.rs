@@ -1546,6 +1546,7 @@ impl<'a> Html5Parser<'a> {
             }
 
             if self.current_node().name == name {
+                self.open_elements.pop();
                 break;
             }
 
