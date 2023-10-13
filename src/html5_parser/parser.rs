@@ -225,8 +225,7 @@ impl<'stream> Html5Parser<'stream> {
 
         // Dummy document. Will be replaced later by the parse() function
         let document = Rc::new(RefCell::new(Document::new()));
-        let document_root = Node::new_document(&document);
-        document.borrow_mut().add_node(document_root, NodeId::from(0));
+        document.borrow_mut().create_root(&document);
 
         let tokenizer = Tokenizer::new(stream, None, error_logger.clone());
 
@@ -257,6 +256,7 @@ impl<'stream> Html5Parser<'stream> {
     /// Parses the input stream into a Node tree
     pub fn parse(&mut self, document: Rc<RefCell<Document>>) -> Result<Vec<ParseError>> {
         self.document = document;
+        self.document.borrow_mut().create_root(&self.document);
 
         loop {
             // If reprocess_token is true, we should process the same token again
@@ -3783,7 +3783,7 @@ mod test {
 
         let mut parser = Html5Parser::new(&mut stream);
         let document = Rc::new(RefCell::new(Document::new()));
-        parser.parse(document.clone()).expect("");
+        parser.parse(Rc::clone(&document)).expect("");
 
         let binding = document.borrow();
 

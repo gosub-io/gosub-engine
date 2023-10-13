@@ -15,9 +15,7 @@ pub struct NodeArena {
 }
 
 impl Clone for NodeId {
-    fn clone(&self) -> Self {
-        Self(self.0)
-    }
+    fn clone(&self) -> Self { *self }
 }
 
 impl NodeArena {

@@ -89,6 +89,15 @@ impl Document {
         }
     }
 
+    /// Create DOCUMENT root node
+    pub fn create_root(&mut self, document: &Rc<RefCell<Document>>) {
+        // previously this used to be in the constructor, but now that
+        // we require a document pointer with every node creation, this
+        // was separated.
+
+        self.arena.add_node(Node::new_document(document));
+    }
+
     /// Fetches a node by id or returns None when no node with this ID is found
     pub fn get_node_by_id(&self, node_id: NodeId) -> Option<&Node> {
         self.arena.get_node(node_id)
