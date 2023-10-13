@@ -273,13 +273,7 @@ impl<'stream> Html5Parser<'stream> {
         };
 
         // Iterate
-        for idx in (element_idx_oe + 1)..self.open_elements.len() {
-            if open_elements_get!(self, idx).is_special() {
-                return Some(idx);
-            }
-        }
-
-        None
+        ((element_idx_oe + 1)..self.open_elements.len()).find(|&idx| open_elements_get!(self, idx).is_special())
     }
 
     /// Find the formatting element with the given subject between the end of the list and the first marker (or start when there is no marker)

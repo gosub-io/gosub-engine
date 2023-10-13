@@ -1745,7 +1745,8 @@ impl<'stream> Html5Parser<'stream> {
                 }
             }
 
-            if thoroughly && !["tbody", "td", "tfoot", "th", "thead", "tr"].contains(&val.as_str()) {
+            if thoroughly && !["tbody", "td", "tfoot", "th", "thead", "tr"].contains(&val.as_str())
+            {
                 return;
             }
 
@@ -1983,9 +1984,7 @@ impl<'stream> Html5Parser<'stream> {
 
                 let node = self.create_node(&self.current_token, HTML_NAMESPACE);
                 let parent_node = current_node!(self);
-                self.document
-                    .borrow_mut()
-                    .add_node(node, parent_node.id);
+                self.document.borrow_mut().add_node(node, parent_node.id);
             }
             Token::TextToken { .. } => {
                 self.reconstruct_formatting();
@@ -2877,7 +2876,7 @@ impl<'stream> Html5Parser<'stream> {
                 // TODO If parser is created as part of HTML fragment parsing algorithm, set the element's "already started" flag to true
                 // TODO if the parser was invoked by document.write/writln, set script's element already started flag to true
 
-                self.open_elements.push(node.id.clone());
+                self.open_elements.push(node.id);
                 self.document
                     .borrow_mut()
                     .add_node(node, adjusted_insertion_location);
@@ -2897,7 +2896,7 @@ impl<'stream> Html5Parser<'stream> {
                 let node_id = self.insert_html_element(&self.current_token.clone());
 
                 {
-                    let current_node_id = current_node!(self).id.clone();
+                    let current_node_id = current_node!(self).id;
 
                     let mut node = get_node_by_id_mut!(self, node_id);
                     if let NodeData::Element(data) = &mut node.data {
