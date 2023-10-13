@@ -179,7 +179,7 @@ impl<'stream> Html5Parser<'stream> {
                 };
 
                 let replacement_node =
-                    Node::new_element(node.name.as_str(), node_attributes, HTML_NAMESPACE);
+                    Node::new_element(&self.document, node.name.as_str(), node_attributes, HTML_NAMESPACE);
                 let replacement_node_id = self
                     .document
                     .borrow_mut()
@@ -222,7 +222,7 @@ impl<'stream> Html5Parser<'stream> {
                 NodeData::Element(ElementData {
                     name, attributes, ..
                 }) => {
-                    Node::new_element(name.as_str(), attributes.attributes.clone(), HTML_NAMESPACE)
+                    Node::new_element(&self.document, name.as_str(), attributes.attributes.clone(), HTML_NAMESPACE)
                 }
                 _ => panic!("formatting element is not an element"),
             };
@@ -312,7 +312,7 @@ mod test {
 
     macro_rules! node_create {
         ($self:expr, $name:expr) => {{
-            let node = Node::new_element($name, HashMap::new(), HTML_NAMESPACE);
+            let node = Node::new_element(&$self.document, $name, HashMap::new(), HTML_NAMESPACE);
             let node_id = $self.document.borrow_mut().add_node(node, NodeId::root());
             $self.open_elements.push(node_id);
         }};

@@ -152,11 +152,15 @@ fn has_child(arena: &mut NodeArena, parent: Option<Node>, child_id: NodeId) -> b
 mod tests {
     use super::*;
     use crate::html5_parser::node::HTML_NAMESPACE;
+    use crate::html5_parser::parser::document::Document;
+    use std::cell::RefCell;
+    use std::rc::Rc;
 
     #[test]
     fn add_node() {
         let mut arena = NodeArena::new();
-        let node = Node::new_element("test", HashMap::new(), HTML_NAMESPACE);
+        let document = Rc::new(RefCell::new(Document::new()));
+        let node = Node::new_element(&document, "test", HashMap::new(), HTML_NAMESPACE);
         let id = arena.add_node(node);
         assert_eq!(arena.nodes.len(), 1);
         assert_eq!(arena.next_id, 1.into());
@@ -166,7 +170,8 @@ mod tests {
     #[test]
     fn get_node() {
         let mut arena = NodeArena::new();
-        let node = Node::new_element("test", HashMap::new(), HTML_NAMESPACE);
+        let document = Rc::new(RefCell::new(Document::new()));
+        let node = Node::new_element(&document, "test", HashMap::new(), HTML_NAMESPACE);
         let id = arena.add_node(node);
         let node = arena.get_node(id);
         assert!(node.is_some());
@@ -176,10 +181,9 @@ mod tests {
     #[test]
     fn get_node_mut() {
         let mut arena = NodeArena::new();
-
-        let node = Node::new_element("test", HashMap::new(), HTML_NAMESPACE);
+        let document = Rc::new(RefCell::new(Document::new()));
+        let node = Node::new_element(&document, "test", HashMap::new(), HTML_NAMESPACE);
         let id = arena.add_node(node);
-
         let node = arena.get_node_mut(id);
         assert!(node.is_some());
         assert_eq!(node.unwrap().name, "test");
@@ -188,10 +192,12 @@ mod tests {
     #[test]
     fn attach_node() {
         let mut arena = NodeArena::new();
+        let document = Rc::new(RefCell::new(Document::new()));
 
-        let parent = Node::new_element("parent", HashMap::new(), HTML_NAMESPACE);
+        let parent = Node::new_element(&document, "parent", HashMap::new(), HTML_NAMESPACE);
         let parent_id = arena.add_node(parent);
-        let child = Node::new_element("child", HashMap::new(), HTML_NAMESPACE);
+
+        let child = Node::new_element(&document, "child", HashMap::new(), HTML_NAMESPACE);
         let child_id = arena.add_node(child);
 
         assert!(arena.attach_node(parent_id, child_id));
@@ -209,8 +215,9 @@ mod tests {
     #[test]
     fn attach_node_to_itself() {
         let mut arena = NodeArena::new();
+        let document = Rc::new(RefCell::new(Document::new()));
 
-        let node = Node::new_element("some_node", HashMap::new(), HTML_NAMESPACE);
+        let node = Node::new_element(&document, "some_node", HashMap::new(), HTML_NAMESPACE);
         let node_id = arena.add_node(node);
 
         assert!(!arena.attach_node(node_id, node_id));
@@ -223,8 +230,9 @@ mod tests {
     #[test]
     fn attach_node_with_loop_pointer() {
         let mut arena = NodeArena::new();
-        let parent = Node::new_element("parent", HashMap::new(), HTML_NAMESPACE);
-        let mut child = Node::new_element("child", HashMap::new(), HTML_NAMESPACE);
+        let document = Rc::new(RefCell::new(Document::new()));
+        let parent = Node::new_element(&document, "parent", HashMap::new(), HTML_NAMESPACE);
+        let mut child = Node::new_element(&document, "child", HashMap::new(), HTML_NAMESPACE);
 
         // push the PARENT to the CHILD
         let parent_id = arena.add_node(parent);
@@ -245,9 +253,10 @@ mod tests {
     #[test]
     fn attach_node_with_indirect_loop_pointer() {
         let mut arena = NodeArena::new();
-        let parent = Node::new_element("parent", HashMap::new(), HTML_NAMESPACE);
-        let child1 = Node::new_element("child1", HashMap::new(), HTML_NAMESPACE);
-        let child2 = Node::new_element("child2", HashMap::new(), HTML_NAMESPACE);
+        let document = Rc::new(RefCell::new(Document::new()));
+        let parent = Node::new_element(&document, "parent", HashMap::new(), HTML_NAMESPACE);
+        let child1 = Node::new_element(&document, "child1", HashMap::new(), HTML_NAMESPACE);
+        let child2 = Node::new_element(&document, "child2", HashMap::new(), HTML_NAMESPACE);
 
         let parent_id = arena.add_node(parent);
         let child1_id = arena.add_node(child1);
@@ -277,10 +286,11 @@ mod tests {
     #[test]
     fn detach_node() {
         let mut arena = NodeArena::new();
+        let document = Rc::new(RefCell::new(Document::new()));
 
-        let parent = Node::new_element("parent", HashMap::new(), HTML_NAMESPACE);
+        let parent = Node::new_element(&document, "parent", HashMap::new(), HTML_NAMESPACE);
         let parent_id = arena.add_node(parent);
-        let child = Node::new_element("child", HashMap::new(), HTML_NAMESPACE);
+        let child = Node::new_element(&document, "child", HashMap::new(), HTML_NAMESPACE);
         let child_id = arena.add_node(child);
 
         arena.attach_node(parent_id, child_id);
@@ -297,12 +307,13 @@ mod tests {
     #[test]
     fn remove_child_node() {
         let mut arena = NodeArena::new();
+        let document = Rc::new(RefCell::new(Document::new()));
 
-        let parent = Node::new_element("parent", HashMap::new(), HTML_NAMESPACE);
+        let parent = Node::new_element(&document, "parent", HashMap::new(), HTML_NAMESPACE);
         let parent_id = arena.add_node(parent);
-        let child1 = Node::new_element("child1", HashMap::new(), HTML_NAMESPACE);
+        let child1 = Node::new_element(&document, "child1", HashMap::new(), HTML_NAMESPACE);
         let child1_id = arena.add_node(child1);
-        let child2 = Node::new_element("child2", HashMap::new(), HTML_NAMESPACE);
+        let child2 = Node::new_element(&document, "child2", HashMap::new(), HTML_NAMESPACE);
         let child2_id = arena.add_node(child2);
 
         arena.attach_node(parent_id, child1_id);
@@ -326,10 +337,11 @@ mod tests {
     #[test]
     fn detach_node_with_children() {
         let mut arena = NodeArena::new();
+        let document = Rc::new(RefCell::new(Document::new()));
 
-        let parent = Node::new_element("parent", HashMap::new(), HTML_NAMESPACE);
+        let parent = Node::new_element(&document, "parent", HashMap::new(), HTML_NAMESPACE);
         let parent_id = arena.add_node(parent);
-        let child = Node::new_element("child", HashMap::new(), HTML_NAMESPACE);
+        let child = Node::new_element(&document, "child", HashMap::new(), HTML_NAMESPACE);
         let child_id = arena.add_node(child);
 
         arena.attach_node(parent_id, child_id);
@@ -344,10 +356,11 @@ mod tests {
     #[test]
     fn detach_node_with_children_and_parent() {
         let mut arena = NodeArena::new();
+        let document = Rc::new(RefCell::new(Document::new()));
 
-        let parent = Node::new_element("parent", HashMap::new(), HTML_NAMESPACE);
+        let parent = Node::new_element(&document, "parent", HashMap::new(), HTML_NAMESPACE);
         let parent_id = arena.add_node(parent);
-        let child = Node::new_element("child", HashMap::new(), HTML_NAMESPACE);
+        let child = Node::new_element(&document, "child", HashMap::new(), HTML_NAMESPACE);
         let child_id = arena.add_node(child);
 
         arena.attach_node(parent_id, child_id);
@@ -363,12 +376,13 @@ mod tests {
     #[test]
     fn detach_node_with_children_and_parent_and_grandchildren() {
         let mut arena = NodeArena::new();
+        let document = Rc::new(RefCell::new(Document::new()));
 
-        let parent = Node::new_element("parent", HashMap::new(), HTML_NAMESPACE);
+        let parent = Node::new_element(&document, "parent", HashMap::new(), HTML_NAMESPACE);
         let parent_id = arena.add_node(parent);
-        let child = Node::new_element("child", HashMap::new(), HTML_NAMESPACE);
+        let child = Node::new_element(&document, "child", HashMap::new(), HTML_NAMESPACE);
         let child_id = arena.add_node(child);
-        let grandchild = Node::new_element("grandchild", HashMap::new(), HTML_NAMESPACE);
+        let grandchild = Node::new_element(&document, "grandchild", HashMap::new(), HTML_NAMESPACE);
         let grandchild_id = arena.add_node(grandchild);
 
         arena.attach_node(parent_id, child_id);
@@ -387,14 +401,15 @@ mod tests {
     #[test]
     fn detach_node_with_children_and_parent_and_grandchildren_and_siblings() {
         let mut arena = NodeArena::new();
+        let document = Rc::new(RefCell::new(Document::new()));
 
-        let parent = Node::new_element("parent", HashMap::new(), HTML_NAMESPACE);
+        let parent = Node::new_element(&document, "parent", HashMap::new(), HTML_NAMESPACE);
         let parent_id = arena.add_node(parent);
-        let child = Node::new_element("child", HashMap::new(), HTML_NAMESPACE);
+        let child = Node::new_element(&document, "child", HashMap::new(), HTML_NAMESPACE);
         let child_id = arena.add_node(child);
-        let grandchild = Node::new_element("grandchild", HashMap::new(), HTML_NAMESPACE);
+        let grandchild = Node::new_element(&document, "grandchild", HashMap::new(), HTML_NAMESPACE);
         let grandchild_id = arena.add_node(grandchild);
-        let sibling = Node::new_element("sibling", HashMap::new(), HTML_NAMESPACE);
+        let sibling = Node::new_element(&document, "sibling", HashMap::new(), HTML_NAMESPACE);
         let sibling_id = arena.add_node(sibling);
 
         arena.attach_node(parent_id, child_id);

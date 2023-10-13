@@ -225,6 +225,8 @@ impl<'stream> Html5Parser<'stream> {
 
         // Dummy document. Will be replaced later by the parse() function
         let document = Rc::new(RefCell::new(Document::new()));
+        let document_root = Node::new_document(&document);
+        document.borrow_mut().add_node(document_root, NodeId::from(0));
 
         let tokenizer = Tokenizer::new(stream, None, error_logger.clone());
 
@@ -1714,14 +1716,14 @@ impl<'stream> Html5Parser<'stream> {
                     // sys_identifier.as_deref().unwrap_or(""),
                 );
 
-                return Node::new_element(val.as_str(), HashMap::new(), namespace);
+                return Node::new_element(&self.document, val.as_str(), HashMap::new(), namespace);
             }
             Token::StartTagToken {
                 name, attributes, ..
-            } => Node::new_element(name, attributes.clone(), namespace),
-            Token::EndTagToken { name, .. } => Node::new_element(name, HashMap::new(), namespace),
-            Token::CommentToken { value } => Node::new_comment(value),
-            Token::TextToken { value } => Node::new_text(value.to_string().as_str()),
+            } => Node::new_element(&self.document, name, attributes.clone(), namespace),
+            Token::EndTagToken { name, .. } => Node::new_element(&self.document, name, HashMap::new(), namespace),
+            Token::CommentToken { value } => Node::new_comment(&self.document, value),
+            Token::TextToken { value } => Node::new_text(&self.document, value.to_string().as_str()),
             Token::EofToken => {
                 panic!("EOF token not allowed");
             }
@@ -3536,7 +3538,7 @@ mod test {
 
     macro_rules! node_create {
         ($self:expr, $name:expr) => {{
-            let node = Node::new_element($name, HashMap::new(), HTML_NAMESPACE);
+            let node = Node::new_element(&$self.document, $name, HashMap::new(), HTML_NAMESPACE);
             let node_id = $self.document.borrow_mut().add_node(node, NodeId::root());
             $self.open_elements.push(node_id);
         }};

@@ -52,7 +52,7 @@ impl DocumentFragment {
     }
 }
 
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct Document {
     arena: NodeArena,
     named_id_elements: HashMap<String, NodeId>, // HTML elements with ID (e.g., <div id="myid">)
@@ -80,8 +80,7 @@ impl Default for Document {
 impl Document {
     // Creates a new document
     pub fn new() -> Self {
-        let mut arena = NodeArena::new();
-        arena.add_node(Node::new_document());
+        let arena = NodeArena::new();
         Self {
             arena,
             named_id_elements: HashMap::new(),
@@ -275,64 +274,69 @@ impl fmt::Display for Document {
 mod tests {
     use crate::html5_parser::node::HTML_NAMESPACE;
     use crate::html5_parser::parser::{Document, Node, NodeData, NodeId};
+    use std::cell::RefCell;
     use std::collections::HashMap;
+    use std::rc::Rc;
 
     #[ignore]
     #[test]
     fn test_document() {
-        let mut document = Document::new();
-        let root_id = document.get_root().id;
-        let html_id = document.add_node(
-            Node::new_element("html", HashMap::new(), HTML_NAMESPACE),
+        let document = Rc::new(RefCell::new(Document::new()));
+        let root_id = document.borrow().get_root().id;
+        let html_id = document.borrow_mut().add_node(
+            Node::new_element(&document, "html", HashMap::new(), HTML_NAMESPACE),
             root_id,
         );
-        let head_id = document.add_node(
-            Node::new_element("head", HashMap::new(), HTML_NAMESPACE),
+        let head_id = document.borrow_mut().add_node(
+            Node::new_element(&document, "head", HashMap::new(), HTML_NAMESPACE),
             html_id,
         );
-        let body_id = document.add_node(
-            Node::new_element("body", HashMap::new(), HTML_NAMESPACE),
+        let body_id = document.borrow_mut().add_node(
+            Node::new_element(&document, "body", HashMap::new(), HTML_NAMESPACE),
             html_id,
         );
-        let title_id = document.add_node(
-            Node::new_element("title", HashMap::new(), HTML_NAMESPACE),
+        let title_id = document.borrow_mut().add_node(
+            Node::new_element(&document, "title", HashMap::new(), HTML_NAMESPACE),
             head_id,
         );
-        let title_text_id = document.add_node(Node::new_text("Hello world"), title_id);
-        let p_id = document.add_node(
-            Node::new_element("p", HashMap::new(), HTML_NAMESPACE),
+        let title_text_id = document.borrow_mut().add_node(
+            Node::new_text(&document, "Hello world"),
+            title_id
+        );
+        let p_id = document.borrow_mut().add_node(
+            Node::new_element(&document, "p", HashMap::new(), HTML_NAMESPACE),
             body_id,
         );
-        let p_text_id = document.add_node(Node::new_text("This is a paragraph"), p_id);
-        let p_comment_id = document.add_node(Node::new_comment("This is a comment"), p_id);
-        let p_text2_id = document.add_node(Node::new_text("This is another paragraph"), p_id);
-        let p_text3_id = document.add_node(Node::new_text("This is a third paragraph"), p_id);
-        let p_text4_id = document.add_node(Node::new_text("This is a fourth paragraph"), p_id);
-        let p_text5_id = document.add_node(Node::new_text("This is a fifth paragraph"), p_id);
-        let p_text6_id = document.add_node(Node::new_text("This is a sixth paragraph"), p_id);
-        let p_text7_id = document.add_node(Node::new_text("This is a seventh paragraph"), p_id);
-        let p_text8_id = document.add_node(Node::new_text("This is a eighth paragraph"), p_id);
-        let p_text9_id = document.add_node(Node::new_text("This is a ninth paragraph"), p_id);
+        let p_text_id = document.borrow_mut().add_node(Node::new_text(&document, "This is a paragraph"), p_id);
+        let p_comment_id = document.borrow_mut().add_node(Node::new_comment(&document, "This is a comment"), p_id);
+        let p_text2_id = document.borrow_mut().add_node(Node::new_text(&document, "This is another paragraph"), p_id);
+        let p_text3_id = document.borrow_mut().add_node(Node::new_text(&document, "This is a third paragraph"), p_id);
+        let p_text4_id = document.borrow_mut().add_node(Node::new_text(&document, "This is a fourth paragraph"), p_id);
+        let p_text5_id = document.borrow_mut().add_node(Node::new_text(&document, "This is a fifth paragraph"), p_id);
+        let p_text6_id = document.borrow_mut().add_node(Node::new_text(&document, "This is a sixth paragraph"), p_id);
+        let p_text7_id = document.borrow_mut().add_node(Node::new_text(&document, "This is a seventh paragraph"), p_id);
+        let p_text8_id = document.borrow_mut().add_node(Node::new_text(&document, "This is a eighth paragraph"), p_id);
+        let p_text9_id = document.borrow_mut().add_node(Node::new_text(&document, "This is a ninth paragraph"), p_id);
 
-        document.append(p_text9_id, p_id);
-        document.append(p_text8_id, p_id);
-        document.append(p_text7_id, p_id);
-        document.append(p_text6_id, p_id);
-        document.append(p_text5_id, p_id);
-        document.append(p_text4_id, p_id);
-        document.append(p_text3_id, p_id);
-        document.append(p_text2_id, p_id);
-        document.append(p_comment_id, p_id);
-        document.append(p_text_id, p_id);
-        document.append(p_id, body_id);
-        document.append(title_text_id, title_id);
-        document.append(title_id, head_id);
-        document.append(head_id, html_id);
-        document.append(body_id, html_id);
-        document.append(html_id, root_id);
+        document.borrow_mut().append(p_text9_id, p_id);
+        document.borrow_mut().append(p_text8_id, p_id);
+        document.borrow_mut().append(p_text7_id, p_id);
+        document.borrow_mut().append(p_text6_id, p_id);
+        document.borrow_mut().append(p_text5_id, p_id);
+        document.borrow_mut().append(p_text4_id, p_id);
+        document.borrow_mut().append(p_text3_id, p_id);
+        document.borrow_mut().append(p_text2_id, p_id);
+        document.borrow_mut().append(p_comment_id, p_id);
+        document.borrow_mut().append(p_text_id, p_id);
+        document.borrow_mut().append(p_id, body_id);
+        document.borrow_mut().append(title_text_id, title_id);
+        document.borrow_mut().append(title_id, head_id);
+        document.borrow_mut().append(head_id, html_id);
+        document.borrow_mut().append(body_id, html_id);
+        document.borrow_mut().append(html_id, root_id);
 
         assert_eq!(
-            format!("{}", document),
+            format!("{}", document.borrow()),
             r#"Document
   └─ <html>
     └─ <head>
@@ -357,46 +361,48 @@ mod tests {
     #[test]
     fn set_named_id_to_element() {
         let attributes = HashMap::new();
-        let node = Node::new_element("div", attributes.clone(), HTML_NAMESPACE);
-        let mut doc = Document::new();
-        let node_id = NodeId(1);
-        let _ = doc.add_node(node, node_id);
+        let document = Rc::new(RefCell::new(Document::new()));
+        let node = Node::new_element(&document, "div", attributes.clone(), HTML_NAMESPACE);
+        let node_id = NodeId(0);
+        let _ = document.borrow_mut().add_node(node, node_id);
         // invalid name (empty)
-        doc.set_node_named_id(node_id, "");
-        assert!(!doc.get_node_by_id(node_id).unwrap().has_named_id());
+        document.borrow_mut().set_node_named_id(node_id, "");
+        assert!(!document.borrow().get_node_by_id(node_id).unwrap().has_named_id());
         // invalid name (spaces)
-        doc.set_node_named_id(node_id, "my id");
-        assert!(!doc.get_node_by_id(node_id).unwrap().has_named_id());
+        document.borrow_mut().set_node_named_id(node_id, "my id");
+        assert!(!document.borrow().get_node_by_id(node_id).unwrap().has_named_id());
         // invalid name (no characters)
-        doc.set_node_named_id(node_id, "123");
-        assert!(!doc.get_node_by_id(node_id).unwrap().has_named_id());
+        document.borrow_mut().set_node_named_id(node_id, "123");
+        assert!(!document.borrow().get_node_by_id(node_id).unwrap().has_named_id());
         // valid name
-        doc.set_node_named_id(node_id, "myid");
-        assert!(doc.get_node_by_id(node_id).unwrap().has_named_id());
+        document.borrow_mut().set_node_named_id(node_id, "myid");
+        assert!(document.borrow().get_node_by_id(node_id).unwrap().has_named_id());
         assert_eq!(
-            doc.get_node_by_id(node_id).unwrap().get_named_id(),
+            document.borrow().get_node_by_id(node_id).unwrap().get_named_id(),
             Some("myid".to_owned())
         );
     }
 
     #[test]
     fn set_named_id_to_non_element() {
-        let node = Node::new_text("sample");
-        let mut doc = Document::new();
-        let node_id = NodeId(1);
-        let _ = doc.add_node(node, node_id);
+        let document = Rc::new(RefCell::new(Document::new()));
+        let node = Node::new_text(&document, "sample");
+        let node_id = NodeId(0);
+        let _ = document.borrow_mut().add_node(node, node_id);
 
         // even if this is a valid name, nothing will happen since it's not an Element type
-        doc.set_node_named_id(node_id, "myid");
-        assert!(!doc.get_node_by_id(node_id).unwrap().has_named_id());
+        document.borrow_mut().set_node_named_id(node_id, "myid");
+        assert!(!document.borrow().get_node_by_id(node_id).unwrap().has_named_id());
     }
 
     #[test]
     fn duplicate_named_id_elements() {
         let attributes = HashMap::new();
 
-        let mut node1 = Node::new_element("div", attributes.clone(), HTML_NAMESPACE);
-        let mut node2 = Node::new_element("div", attributes.clone(), HTML_NAMESPACE);
+        let document = Rc::new(RefCell::new(Document::new()));
+
+        let mut node1 = Node::new_element(&document, "div", attributes.clone(), HTML_NAMESPACE);
+        let mut node2 = Node::new_element(&document, "div", attributes.clone(), HTML_NAMESPACE);
 
         match &mut node1.data {
             NodeData::Element(element) => {
@@ -412,21 +418,20 @@ mod tests {
             _ => panic!(),
         }
 
-        let mut doc = Document::new();
-        let _ = doc.add_node(node1, NodeId(1));
-        let _ = doc.add_node(node2, NodeId(2));
+        let _ = document.borrow_mut().add_node(node1, NodeId(0));
+        let _ = document.borrow_mut().add_node(node2, NodeId(1));
 
-        // two elements here have the same ID, the ID will only be tied to NodeId(1) since
+        // two elements here have the same ID, the ID will only be tied to NodeId(0) since
         // the HTML5 spec specifies that every ID must uniquely specify one element in the DOM
-        // and we inserted NodeId(1) first
-        assert_eq!(doc.get_node_by_named_id("myid").unwrap().id, NodeId(1));
+        // and we inserted NodeId(0) first
+        assert_eq!(document.borrow().get_node_by_named_id("myid").unwrap().id, NodeId(0));
 
-        // however, with that in mind, NodeId(2) will still have id="myid" on the Node itself,
-        // but it is not searchable in the DOM. Even if you change the id of NodeId(1), NodeId(2)
+        // however, with that in mind, NodeId(1) will still have id="myid" on the Node itself,
+        // but it is not searchable in the DOM. Even if you change the id of NodeId(0), NodeId(1)
         // will still NOT be searchable under get_node_by_named_id. This behaviour can be changed
         // by using a stack/vector/queue/whatever in the HashMap, but since the spec states
         // there should be one unique ID per element, I don't think we should support it
-        doc.set_node_named_id(NodeId(1), "otherid");
-        assert!(doc.get_node_by_named_id("myid").is_none());
+        document.borrow_mut().set_node_named_id(NodeId(0), "otherid");
+        assert!(document.borrow().get_node_by_named_id("myid").is_none());
     }
 }
