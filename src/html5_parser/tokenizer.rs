@@ -66,41 +66,6 @@ macro_rules! to_lowercase {
     };
 }
 
-/// Emits the current stored token
-macro_rules! emit_current_token {
-    ($self:expr) => {
-        match $self.current_token {
-            None => {}
-            _ => {
-                emit_token!($self, $self.current_token.as_ref().unwrap());
-            }
-        };
-        $self.current_token = None;
-    };
-}
-
-/// Emits the given stored token. It does not have to be stored first.
-macro_rules! emit_token {
-    ($self:expr, $token:expr) => {
-        // Save the start token name if we are pushing it. This helps us in detecting matching tags.
-        match $token {
-            Token::StartTagToken { name, .. } => {
-                $self.last_start_token = String::from(name);
-            }
-            _ => {}
-        }
-
-        // If there is any consumed data, emit this first as a text token
-        if $self.has_consumed_data() {
-            let value = $self.get_consumed_str().to_string();
-            $self.token_queue.push(Token::TextToken { value });
-            $self.clear_consume_buffer();
-        }
-
-        $self.token_queue.push($token.clone());
-    };
-}
-
 impl<'stream> Tokenizer<'stream> {
     /// Creates a new tokenizer with the given inputstream and additional options if any
     pub fn new(

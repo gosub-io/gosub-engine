@@ -1745,14 +1745,14 @@ impl<'stream> Html5Parser<'stream> {
                 }
             }
 
-            if thoroughly && !["tbody", "td", "tfoot", "th", "thead", "tr"].contains(&val) {
+            if thoroughly && !["tbody", "td", "tfoot", "th", "thead", "tr"].contains(&val.as_str()) {
                 return;
             }
 
             if ![
                 "dd", "dt", "li", "option", "optgroup", "p", "rb", "rp", "rt", "rtc",
             ]
-            .contains(&val)
+            .contains(&val.as_str())
             {
                 return;
             }
@@ -1889,8 +1889,8 @@ impl<'stream> Html5Parser<'stream> {
     /// Pop all elements back to a table row context
     fn clear_stack_back_to_table_row_context(&mut self) {
         while !self.open_elements.is_empty() {
-            let val = current_node!(self).name.as_str();
-            if ["tr", "template", "html"].contains(&val) {
+            let val = current_node!(self).name.clone();
+            if ["tr", "template", "html"].contains(&val.as_str()) {
                 return;
             }
             self.open_elements.pop();
@@ -1957,7 +1957,8 @@ impl<'stream> Html5Parser<'stream> {
     fn close_cell(&mut self) {
         self.generate_all_implied_end_tags(None, false);
 
-        let tag = current_node!(self).name.as_str();
+        let current_node = current_node!(self);
+        let tag = current_node.name.as_str();
         if tag != "td" && tag != "th" {
             self.parse_error("current node should be td or th");
         }
