@@ -3,3 +3,6 @@ target/
 # vim
 *.swo*
 *.swp*
+
+# Local testing 
+local/
