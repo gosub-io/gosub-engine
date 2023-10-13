@@ -6,9 +6,7 @@ use gosub_engine::{
     },
     types::Result,
 };
-use std::cell::RefCell;
 use std::process::exit;
-use std::rc::Rc;
 
 fn main() -> Result<()> {
     let url = std::env::args()
@@ -38,14 +36,14 @@ fn main() -> Result<()> {
 
     let mut parser = Html5Parser::new(&mut stream);
 
-    let document = Rc::new(RefCell::new(Document::new()));
-    let parse_errors = parser.parse(document.clone())?;
+    let document = Document::shared();
+    let parse_errors = parser.parse(Document::clone(&document))?;
 
-    match get_node_by_path(&document.borrow(), vec!["html", "body"]) {
+    match get_node_by_path(&document.get(), vec!["html", "body"]) {
         None => {
             println!("[No Body Found]");
         }
-        Some(node) => display_node(&document.borrow(), node),
+        Some(node) => display_node(&document.get(), node),
     }
 
     for e in parse_errors {

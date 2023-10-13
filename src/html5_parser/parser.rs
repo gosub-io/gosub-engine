@@ -4,6 +4,8 @@ mod quirks;
 
 // ------------------------------------------------------------
 
+use self::document::DocumentHandle;
+
 use super::node::NodeId;
 use crate::html5_parser::element_class::ElementClass;
 use crate::html5_parser::error_logger::{ErrorLogger, ParseError, ParserError};
@@ -92,7 +94,7 @@ macro_rules! get_node_by_id {
     ($self:expr, $id:expr) => {
         $self
             .document
-            .borrow()
+            .get()
             .get_node_by_id($id)
             .expect("Node not found")
             .clone()
@@ -103,7 +105,7 @@ macro_rules! get_node_by_id_mut {
     ($self:expr, $id:expr) => {
         $self
             .document
-            .borrow_mut()
+            .get_mut()
             .get_node_by_id_mut($id)
             .expect("Node not found")
             .clone()
@@ -115,7 +117,7 @@ macro_rules! current_node {
         let current_node_idx = $self.open_elements.last().unwrap_or_default();
         $self
             .document
-            .borrow()
+            .get()
             .get_node_by_id(*current_node_idx)
             .expect("Current node not found")
             .clone()
@@ -127,7 +129,7 @@ macro_rules! current_node_mut {
         let current_node_idx = $self.open_elements.last().unwrap_or_default();
         $self
             .document
-            .borrow_mut()
+            .get_mut()
             .get_node_by_id_mut(*current_node_idx)
             .expect("Current node not found")
             .clone()
@@ -138,8 +140,8 @@ macro_rules! open_elements_get {
     ($self:expr, $idx:expr) => {{
         $self
             .document
-            .borrow_mut()
-            .get_node_by_id_mut($self.open_elements[$idx])
+            .get()
+            .get_node_by_id($self.open_elements[$idx])
             .expect("Current node not found")
             .clone()
     }};
@@ -203,7 +205,7 @@ pub struct Html5Parser<'stream> {
     /// Is the current parsing a fragment case
     is_fragment_case: bool,
     /// A reference to the document we are parsing
-    document: Rc<RefCell<Document>>,
+    document: DocumentHandle,
     /// Error logger, which is shared with the tokenizer
     error_logger: Rc<RefCell<ErrorLogger>>,
 }
@@ -224,8 +226,10 @@ impl<'stream> Html5Parser<'stream> {
         let error_logger = Rc::new(RefCell::new(ErrorLogger::new()));
 
         // Dummy document. Will be replaced later by the parse() function
-        let document = Rc::new(RefCell::new(Document::new()));
-        document.borrow_mut().create_root(&document);
+        let mut document = Document::shared();
+        // Revisit this
+        let root = Document::clone(&document);
+        document.get_mut().create_root(&root);
 
         let tokenizer = Tokenizer::new(stream, None, error_logger.clone());
 
@@ -254,9 +258,11 @@ impl<'stream> Html5Parser<'stream> {
     }
 
     /// Parses the input stream into a Node tree
-    pub fn parse(&mut self, document: Rc<RefCell<Document>>) -> Result<Vec<ParseError>> {
+    pub fn parse(&mut self, document: DocumentHandle) -> Result<Vec<ParseError>> {
         self.document = document;
-        self.document.borrow_mut().create_root(&self.document);
+        // Revisit approach
+        let root = Document::clone(&self.document);
+        self.document.get_mut().create_root(&root);
 
         loop {
             // If reprocess_token is true, we should process the same token again
@@ -285,7 +291,7 @@ impl<'stream> Html5Parser<'stream> {
                         Token::CommentToken { .. } => {
                             let node = self.create_node(&self.current_token, HTML_NAMESPACE);
                             // add to end of the document(node)
-                            self.document.borrow_mut().add_node(node, NodeId::default());
+                            self.document.get_mut().add_node(node, NodeId::default());
                         }
                         Token::DocTypeToken {
                             name,
@@ -302,12 +308,12 @@ impl<'stream> Html5Parser<'stream> {
                             }
 
                             let node = self.create_node(&self.current_token, HTML_NAMESPACE);
-                            self.document.borrow_mut().add_node(node, NodeId::root());
+                            self.document.get_mut().add_node(node, NodeId::root());
 
-                            if self.document.borrow_mut().doctype != DocumentType::IframeSrcDoc
+                            if self.document.get_mut().doctype != DocumentType::IframeSrcDoc
                                 && self.parser_cannot_change_mode
                             {
-                                self.document.borrow_mut().quirks_mode = self.identify_quirks_mode(
+                                self.document.get_mut().quirks_mode = self.identify_quirks_mode(
                                     name,
                                     pub_identifier.clone(),
                                     sys_identifier.clone(),
@@ -318,7 +324,7 @@ impl<'stream> Html5Parser<'stream> {
                             self.insertion_mode = InsertionMode::BeforeHtml;
                         }
                         Token::StartTagToken { .. } => {
-                            if self.document.borrow_mut().doctype != DocumentType::IframeSrcDoc {
+                            if self.document.get_mut().doctype != DocumentType::IframeSrcDoc {
                                 self.parse_error(
                                     ParserError::ExpectedDocTypeButGotStartTag.as_str(),
                                 );
@@ -326,13 +332,13 @@ impl<'stream> Html5Parser<'stream> {
                             anything_else = true;
                         }
                         Token::EndTagToken { .. } => {
-                            if self.document.borrow_mut().doctype != DocumentType::IframeSrcDoc {
+                            if self.document.get_mut().doctype != DocumentType::IframeSrcDoc {
                                 self.parse_error(ParserError::ExpectedDocTypeButGotEndTag.as_str());
                             }
                             anything_else = true;
                         }
                         Token::TextToken { .. } => {
-                            if self.document.borrow_mut().doctype != DocumentType::IframeSrcDoc {
+                            if self.document.get_mut().doctype != DocumentType::IframeSrcDoc {
                                 self.parse_error(ParserError::ExpectedDocTypeButGotChars.as_str());
                             }
                             anything_else = true;
@@ -342,7 +348,7 @@ impl<'stream> Html5Parser<'stream> {
 
                     if anything_else {
                         if self.parser_cannot_change_mode {
-                            self.document.borrow_mut().quirks_mode = QuirksMode::Quirks;
+                            self.document.get_mut().quirks_mode = QuirksMode::Quirks;
                         }
 
                         self.insertion_mode = InsertionMode::BeforeHtml;
@@ -359,7 +365,7 @@ impl<'stream> Html5Parser<'stream> {
                         }
                         Token::CommentToken { .. } => {
                             let node = self.create_node(&self.current_token, HTML_NAMESPACE);
-                            self.document.borrow_mut().add_node(node, NodeId::default());
+                            self.document.get_mut().add_node(node, NodeId::default());
                         }
                         Token::TextToken { .. } if self.current_token.is_empty_or_white() => {
                             // ignore token
@@ -408,7 +414,7 @@ impl<'stream> Html5Parser<'stream> {
                         Token::CommentToken { .. } => {
                             let node = self.create_node(&self.current_token, HTML_NAMESPACE);
                             let parent_id = current_node!(self).id;
-                            self.document.borrow_mut().add_node(node, parent_id);
+                            self.document.get_mut().add_node(node, parent_id);
                         }
                         Token::DocTypeToken { .. } => {
                             self.parse_error("doctype not allowed in before head insertion mode");
@@ -530,7 +536,7 @@ impl<'stream> Html5Parser<'stream> {
                         Token::CommentToken { .. } => {
                             let node = self.create_node(&self.current_token, HTML_NAMESPACE);
                             let parent_id = current_node!(self).id;
-                            self.document.borrow_mut().add_node(node, parent_id);
+                            self.document.get_mut().add_node(node, parent_id);
                         }
                         Token::DocTypeToken { .. } => {
                             self.parse_error("doctype not allowed in after head insertion mode");
@@ -689,7 +695,7 @@ impl<'stream> Html5Parser<'stream> {
                                     HTML_NAMESPACE,
                                 );
                                 let parent_id = current_node!(self).id;
-                                self.document.borrow_mut().add_node(node, parent_id);
+                                self.document.get_mut().add_node(node, parent_id);
                             }
 
                             self.pending_table_character_tokens.clear();
@@ -773,7 +779,7 @@ impl<'stream> Html5Parser<'stream> {
                         Token::CommentToken { .. } => {
                             let node = self.create_node(&self.current_token, HTML_NAMESPACE);
                             let parent_id = current_node!(self).id;
-                            self.document.borrow_mut().add_node(node, parent_id);
+                            self.document.get_mut().add_node(node, parent_id);
                         }
                         Token::DocTypeToken { .. } => {
                             self.parse_error("doctype not allowed in column group insertion mode");
@@ -1134,9 +1140,7 @@ impl<'stream> Html5Parser<'stream> {
                         }
                         Token::CommentToken { .. } => {
                             let node = self.create_node(&self.current_token, HTML_NAMESPACE);
-                            self.document
-                                .borrow_mut()
-                                .add_node(node, current_node!(self).id);
+                            self.add_node(node);
                         }
                         Token::DocTypeToken { .. } => {
                             self.parse_error("doctype not allowed in in select insertion mode");
@@ -1413,7 +1417,7 @@ impl<'stream> Html5Parser<'stream> {
                         Token::CommentToken { .. } => {
                             let node = self.create_node(&self.current_token, HTML_NAMESPACE);
                             let html_node_id = self.open_elements.first().unwrap_or_default();
-                            self.document.borrow_mut().add_node(node, *html_node_id);
+                            self.document.get_mut().add_node(node, *html_node_id);
                         }
                         Token::DocTypeToken { .. } => {
                             self.parse_error("doctype not allowed in after body insertion mode");
@@ -1447,9 +1451,7 @@ impl<'stream> Html5Parser<'stream> {
                         }
                         Token::CommentToken { .. } => {
                             let node = self.create_node(&self.current_token, HTML_NAMESPACE);
-                            self.document
-                                .borrow_mut()
-                                .add_node(node, current_node!(self).id);
+                            self.add_node(node);
                         }
                         Token::DocTypeToken { .. } => {
                             self.parse_error("doctype not allowed in frameset insertion mode");
@@ -1512,9 +1514,7 @@ impl<'stream> Html5Parser<'stream> {
                         }
                         Token::CommentToken { .. } => {
                             let node = self.create_node(&self.current_token, HTML_NAMESPACE);
-                            self.document
-                                .borrow_mut()
-                                .add_node(node, current_node!(self).id);
+                            self.add_node(node);
                         }
                         Token::DocTypeToken { .. } => {
                             self.parse_error("doctype not allowed in frameset insertion mode");
@@ -1544,7 +1544,7 @@ impl<'stream> Html5Parser<'stream> {
                 InsertionMode::AfterAfterBody => match &self.current_token {
                     Token::CommentToken { .. } => {
                         let node = self.create_node(&self.current_token, HTML_NAMESPACE);
-                        self.document.borrow_mut().add_node(node, NodeId::default());
+                        self.document.get_mut().add_node(node, NodeId::default());
                     }
                     Token::DocTypeToken { .. } => {
                         self.handle_in_body();
@@ -1571,7 +1571,7 @@ impl<'stream> Html5Parser<'stream> {
                     match &self.current_token {
                         Token::CommentToken { .. } => {
                             let node = self.create_node(&self.current_token, HTML_NAMESPACE);
-                            self.document.borrow_mut().add_node(node, NodeId::default());
+                            self.document.get_mut().add_node(node, NodeId::default());
                         }
                         Token::DocTypeToken { .. } => {
                             self.handle_in_body();
@@ -1677,7 +1677,7 @@ impl<'stream> Html5Parser<'stream> {
     fn open_elements_has(&self, name: &str) -> bool {
         self.open_elements.iter().rev().any(|node_id| {
             self.document
-                .borrow_mut()
+                .get()
                 .get_node_by_id(*node_id)
                 .expect("node not found")
                 .name
@@ -1721,9 +1721,13 @@ impl<'stream> Html5Parser<'stream> {
             Token::StartTagToken {
                 name, attributes, ..
             } => Node::new_element(&self.document, name, attributes.clone(), namespace),
-            Token::EndTagToken { name, .. } => Node::new_element(&self.document, name, HashMap::new(), namespace),
+            Token::EndTagToken { name, .. } => {
+                Node::new_element(&self.document, name, HashMap::new(), namespace)
+            }
             Token::CommentToken { value } => Node::new_comment(&self.document, value),
-            Token::TextToken { value } => Node::new_text(&self.document, value.to_string().as_str()),
+            Token::TextToken { value } => {
+                Node::new_text(&self.document, value.to_string().as_str())
+            }
             Token::EofToken => {
                 panic!("EOF token not allowed");
             }
@@ -1986,7 +1990,7 @@ impl<'stream> Html5Parser<'stream> {
 
                 let node = self.create_node(&self.current_token, HTML_NAMESPACE);
                 let parent_node = current_node!(self);
-                self.document.borrow_mut().add_node(node, parent_node.id);
+                self.document.get_mut().add_node(node, parent_node.id);
             }
             Token::TextToken { .. } => {
                 self.reconstruct_formatting();
@@ -1997,9 +2001,7 @@ impl<'stream> Html5Parser<'stream> {
             }
             Token::CommentToken { .. } => {
                 let node = self.create_node(&self.current_token, HTML_NAMESPACE);
-                self.document
-                    .borrow_mut()
-                    .add_node(node, current_node!(self).id);
+                self.add_node(node);
             }
             Token::DocTypeToken { .. } => {
                 self.parse_error("doctype not allowed in in body insertion mode");
@@ -2493,7 +2495,7 @@ impl<'stream> Html5Parser<'stream> {
                 self.active_formatting_elements_clear_until_marker();
             }
             Token::StartTagToken { name, .. } if name == "table" => {
-                if self.document.borrow_mut().quirks_mode != QuirksMode::Quirks
+                if self.document.get_mut().quirks_mode != QuirksMode::Quirks
                     && self.is_in_scope("p", Scope::Button)
                 {
                     self.close_p_element();
@@ -2519,9 +2521,7 @@ impl<'stream> Html5Parser<'stream> {
                 }
 
                 let node = self.create_node(&br, HTML_NAMESPACE);
-                self.document
-                    .borrow_mut()
-                    .add_node(node, current_node!(self).id);
+                self.add_node(node);
 
                 self.open_elements.pop();
                 self.acknowledge_closing_tag(*is_self_closing);
@@ -2554,9 +2554,7 @@ impl<'stream> Html5Parser<'stream> {
                 self.reconstruct_formatting();
 
                 let node = self.create_node(&self.current_token, HTML_NAMESPACE);
-                self.document
-                    .borrow_mut()
-                    .add_node(node, current_node!(self).id);
+                self.add_node(node);
                 self.open_elements.pop();
 
                 self.acknowledge_closing_tag(*is_self_closing);
@@ -2573,9 +2571,7 @@ impl<'stream> Html5Parser<'stream> {
                 ..
             } if name == "param" || name == "source" || name == "track" => {
                 let node = self.create_node(&self.current_token, HTML_NAMESPACE);
-                self.document
-                    .borrow_mut()
-                    .add_node(node, current_node!(self).id);
+                self.add_node(node);
                 self.open_elements.pop();
 
                 self.acknowledge_closing_tag(*is_self_closing);
@@ -2590,9 +2586,7 @@ impl<'stream> Html5Parser<'stream> {
                 }
 
                 let node = self.create_node(&self.current_token, HTML_NAMESPACE);
-                self.document
-                    .borrow_mut()
-                    .add_node(node, current_node!(self).id);
+                self.add_node(node);
                 self.open_elements.pop();
 
                 self.acknowledge_closing_tag(*is_self_closing);
@@ -2613,9 +2607,7 @@ impl<'stream> Html5Parser<'stream> {
             }
             Token::StartTagToken { name, .. } if name == "textarea" => {
                 let node = self.create_node(&self.current_token, HTML_NAMESPACE);
-                self.document
-                    .borrow_mut()
-                    .add_node(node, current_node!(self).id);
+                self.add_node(node);
                 self.open_elements.pop();
 
                 // @TODO: if next token == LF, ignore and move on to the next one
@@ -2648,9 +2640,7 @@ impl<'stream> Html5Parser<'stream> {
                 self.reconstruct_formatting();
 
                 let node = self.create_node(&self.current_token, HTML_NAMESPACE);
-                self.document
-                    .borrow_mut()
-                    .add_node(node, current_node!(self).id);
+                self.add_node(node);
                 self.open_elements.pop();
 
                 self.frameset_ok = false;
@@ -2674,9 +2664,7 @@ impl<'stream> Html5Parser<'stream> {
                 self.reconstruct_formatting();
 
                 let node = self.create_node(&self.current_token, HTML_NAMESPACE);
-                self.document
-                    .borrow_mut()
-                    .add_node(node, current_node!(self).id);
+                self.add_node(node);
             }
             Token::StartTagToken { name, .. } if name == "rb" || name == "rtc" => {
                 if self.is_in_scope("ruby", Scope::Regular) {
@@ -2688,9 +2676,7 @@ impl<'stream> Html5Parser<'stream> {
                 }
 
                 let node = self.create_node(&self.current_token, HTML_NAMESPACE);
-                self.document
-                    .borrow_mut()
-                    .add_node(node, current_node!(self).id);
+                self.add_node(node);
             }
             Token::StartTagToken { name, .. } if name == "rp" || name == "rt" => {
                 if self.is_in_scope("ruby", Scope::Regular) {
@@ -2702,9 +2688,7 @@ impl<'stream> Html5Parser<'stream> {
                 }
 
                 let node = self.create_node(&self.current_token, HTML_NAMESPACE);
-                self.document
-                    .borrow_mut()
-                    .add_node(node, current_node!(self).id);
+                self.add_node(node);
             }
             Token::StartTagToken {
                 name,
@@ -2816,6 +2800,11 @@ impl<'stream> Html5Parser<'stream> {
         }
     }
 
+    fn add_node(&mut self, node: Node) {
+        let node_id = current_node!(self).id;
+        self.document.get_mut().add_node(node, node_id);
+    }
+
     /// Handle insertion mode "in_head"
     fn handle_in_head(&mut self) {
         let mut anything_else = false;
@@ -2826,9 +2815,7 @@ impl<'stream> Html5Parser<'stream> {
             }
             Token::CommentToken { .. } => {
                 let node = self.create_node(&self.current_token, HTML_NAMESPACE);
-                self.document
-                    .borrow_mut()
-                    .add_node(node, current_node!(self).id);
+                self.add_node(node);
             }
             Token::DocTypeToken { .. } => {
                 self.parse_error("doctype not allowed in before head insertion mode");
@@ -2880,7 +2867,7 @@ impl<'stream> Html5Parser<'stream> {
 
                 self.open_elements.push(node.id);
                 self.document
-                    .borrow_mut()
+                    .get_mut()
                     .add_node(node, adjusted_insertion_location);
 
                 self.tokenizer.state = State::ScriptDataState;
@@ -2902,7 +2889,7 @@ impl<'stream> Html5Parser<'stream> {
 
                     let mut node = get_node_by_id_mut!(self, node_id);
                     if let NodeData::Element(data) = &mut node.data {
-                        let doc = self.document.clone();
+                        let doc = Document::clone(&self.document);
                         data.template_contents = Some(DocumentFragment::new(doc, current_node_id));
                     }
                 }
@@ -2975,7 +2962,7 @@ impl<'stream> Html5Parser<'stream> {
             Token::CommentToken { .. } => {
                 let node = self.create_node(&self.current_token, HTML_NAMESPACE);
                 let parent_id = current_node!(self).id;
-                self.document.borrow_mut().add_node(node, parent_id);
+                self.document.get_mut().add_node(node, parent_id);
             }
             Token::DocTypeToken { .. } => {
                 self.parse_error("doctype not allowed in in table insertion mode");
@@ -3294,7 +3281,7 @@ impl<'stream> Html5Parser<'stream> {
         new_node.parent = None;
 
         let parent_id = current_node!(self).id;
-        let new_node_id = self.document.borrow_mut().add_node(new_node, parent_id);
+        let new_node_id = self.document.get_mut().add_node(new_node, parent_id);
         if let NodeData::Element { .. } = org_node.data {
             self.open_elements.push(new_node_id);
         }
@@ -3395,7 +3382,7 @@ impl<'stream> Html5Parser<'stream> {
         //   insert element into adjusted_insert_location
         let node_id = self
             .document
-            .borrow_mut()
+            .get_mut()
             .add_node(node, adjusted_insert_location);
 
         //     if parser not created as part of html fragment parsing algorithm
@@ -3435,12 +3422,7 @@ impl<'stream> Html5Parser<'stream> {
             None => &current_node,
         };
 
-        let adjusted_insertion_location = if self.foster_parenting {
-            target.id
-        } else {
-            // No foster parenting
-            target.id
-        };
+        let adjusted_insertion_location = target.id;
 
         //     && ["table", "tbody", "thead", "tfoot", "tr"].contains(&target.name.as_str())
         // {
@@ -3493,12 +3475,12 @@ impl<'stream> Html5Parser<'stream> {
 
         let node = self.create_node(&self.current_token, HTML_NAMESPACE);
         let parent_id = current_node!(self).id;
-        self.document.borrow_mut().add_node(node, parent_id);
+        self.document.get_mut().add_node(node, parent_id);
     }
 
     fn display_debug_info(&self) {
         println!("-----------------------------------------\n");
-        self.document.borrow_mut().print_nodes();
+        self.document.get().print_nodes();
         println!("-----------------------------------------\n");
         println!("current token   : {}", self.current_token);
         println!("insertion mode  : {:?}", self.insertion_mode);
@@ -3524,7 +3506,7 @@ impl<'stream> Html5Parser<'stream> {
         println!("]");
 
         println!("Output:");
-        println!("{}", self.document.borrow_mut());
+        println!("{}", self.document);
 
         std::io::stdout().flush().ok();
     }
@@ -3539,7 +3521,7 @@ mod test {
     macro_rules! node_create {
         ($self:expr, $name:expr) => {{
             let node = Node::new_element(&$self.document, $name, HashMap::new(), HTML_NAMESPACE);
-            let node_id = $self.document.borrow_mut().add_node(node, NodeId::root());
+            let node_id = $self.document.get_mut().add_node(node, NodeId::root());
             $self.open_elements.push(node_id);
         }};
     }
@@ -3770,10 +3752,10 @@ mod test {
         );
 
         let mut parser = Html5Parser::new(&mut stream);
-        let document = Rc::new(RefCell::new(Document::new()));
-        parser.parse(document.clone()).expect("");
+        let document = Document::shared();
+        parser.parse(Document::clone(&document)).expect("");
 
-        println!("{}", document.borrow());
+        println!("{}", document);
     }
 
     #[test]
@@ -3782,10 +3764,10 @@ mod test {
         stream.read_from_str("<div class=\"one two three\"></div>", Some(Encoding::UTF8));
 
         let mut parser = Html5Parser::new(&mut stream);
-        let document = Rc::new(RefCell::new(Document::new()));
-        parser.parse(Rc::clone(&document)).expect("");
+        let document = Document::shared();
+        parser.parse(Document::clone(&document)).expect("");
 
-        let binding = document.borrow();
+        let binding = document.get();
 
         // document -> html -> head -> body -> div
         let div = binding.get_node_by_id(4.into()).unwrap();
@@ -3814,10 +3796,10 @@ mod test {
         );
 
         let mut parser = Html5Parser::new(&mut stream);
-        let document = Rc::new(RefCell::new(Document::new()));
-        parser.parse(document.clone()).expect("");
+        let document = Document::shared();
+        parser.parse(Document::clone(&document)).expect("");
 
-        let binding = document.borrow();
+        let binding = document.get();
 
         // document -> html -> head -> body -> div
         let div = binding.get_node_by_id(4.into()).unwrap();
@@ -3848,10 +3830,10 @@ mod test {
         );
 
         let mut parser = Html5Parser::new(&mut stream);
-        let document = Rc::new(RefCell::new(Document::new()));
-        parser.parse(document.clone()).expect("");
+        let document = Document::shared();
+        parser.parse(Document::clone(&document)).expect("");
 
-        let binding = document.borrow();
+        let binding = document.get();
 
         let div1 = binding.get_node_by_id(NodeId(4)).unwrap();
         assert!(!div1.has_named_id());
@@ -3873,16 +3855,16 @@ mod test {
         );
 
         let mut parser = Html5Parser::new(&mut stream);
-        let document = Rc::new(RefCell::new(Document::new()));
-        parser.parse(document.clone()).expect("doc");
+        let mut document = Document::shared();
+        parser.parse(Document::clone(&document)).expect("doc");
 
         {
-            let binding = document.borrow();
+            let binding = document.get();
             let div = binding.get_node_by_named_id("myid").unwrap();
             assert_eq!(div.id, NodeId(4));
         }
 
-        let mut binding = document.borrow_mut();
+        let mut binding = document.get_mut();
         binding.set_node_named_id(NodeId(4), "otherid");
         assert!(binding.get_node_by_named_id("myid").is_none());
     }

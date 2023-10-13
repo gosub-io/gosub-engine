@@ -178,11 +178,15 @@ impl<'stream> Html5Parser<'stream> {
                     _ => HashMap::new(),
                 };
 
-                let replacement_node =
-                    Node::new_element(&self.document, node.name.as_str(), node_attributes, HTML_NAMESPACE);
+                let replacement_node = Node::new_element(
+                    &self.document,
+                    node.name.as_str(),
+                    node_attributes,
+                    HTML_NAMESPACE,
+                );
                 let replacement_node_id = self
                     .document
-                    .borrow_mut()
+                    .get_mut()
                     .add_node(replacement_node, common_ancestor_id);
 
                 let afe_idx = self
@@ -206,7 +210,7 @@ impl<'stream> Html5Parser<'stream> {
                 }
 
                 // Step 4.13.8
-                self.document.borrow_mut().relocate(last_node_id, node_id);
+                self.document.get_mut().relocate(last_node_id, node_id);
 
                 // Step 4.13.9
                 last_node_id = node_id;
@@ -214,28 +218,31 @@ impl<'stream> Html5Parser<'stream> {
 
             // Step 4.14
             self.document
-                .borrow_mut()
+                .get_mut()
                 .relocate(last_node_id, common_ancestor_id);
 
             // Step 4.15
             let new_element = match formatting_element_node.data {
                 NodeData::Element(ElementData {
                     name, attributes, ..
-                }) => {
-                    Node::new_element(&self.document, name.as_str(), attributes.attributes.clone(), HTML_NAMESPACE)
-                }
+                }) => Node::new_element(
+                    &self.document,
+                    name.as_str(),
+                    attributes.attributes.clone(),
+                    HTML_NAMESPACE,
+                ),
                 _ => panic!("formatting element is not an element"),
             };
 
             // Step 4.17
             let new_element_id = self
                 .document
-                .borrow_mut()
+                .get_mut()
                 .add_node(new_element, furthest_block_id);
 
             // Step 4.16
             for child in furthest_block_node.children.iter() {
-                self.document.borrow_mut().relocate(*child, new_element_id);
+                self.document.get_mut().relocate(*child, new_element_id);
             }
 
             // Step 4.18
@@ -313,7 +320,7 @@ mod test {
     macro_rules! node_create {
         ($self:expr, $name:expr) => {{
             let node = Node::new_element(&$self.document, $name, HashMap::new(), HTML_NAMESPACE);
-            let node_id = $self.document.borrow_mut().add_node(node, NodeId::root());
+            let node_id = $self.document.get_mut().add_node(node, NodeId::root());
             $self.open_elements.push(node_id);
         }};
     }

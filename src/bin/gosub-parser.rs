@@ -4,10 +4,8 @@ use gosub_engine::html5_parser::{
     input_stream::{Confidence, Encoding, InputStream},
     parser::Html5Parser,
 };
-use std::cell::RefCell;
 use std::fs;
 use std::process::exit;
-use std::rc::Rc;
 
 fn bail(message: &str) -> ! {
     println!("{}", message);
@@ -44,10 +42,10 @@ fn main() -> Result<()> {
     }
 
     let mut parser = Html5Parser::new(&mut stream);
-    let document = Rc::new(RefCell::new(Document::new()));
-    let parse_errors = parser.parse(document.clone())?;
+    let document = Document::shared();
+    let parse_errors = parser.parse(Document::clone(&document))?;
 
-    println!("Generated tree: \n\n {}", document.borrow());
+    println!("Generated tree: \n\n {}", document);
 
     for e in parse_errors {
         println!("Parse Error: {}", e.message)
