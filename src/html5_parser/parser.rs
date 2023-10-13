@@ -1546,6 +1546,7 @@ impl<'a> Html5Parser<'a> {
             }
 
             if self.current_node().name == name {
+                self.open_elements.pop();
                 break;
             }
 
@@ -3244,7 +3245,6 @@ impl<'a> Html5Parser<'a> {
         }
 
         self.pop_until("p");
-        self.open_elements.pop(); // Pop the p element itself
     }
 
     /// Adjusts attributes names in the given token for SVG
