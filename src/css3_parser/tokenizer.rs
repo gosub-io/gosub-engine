@@ -8,14 +8,19 @@ pub struct CSSTokenizer {
     raw: String,
 }
 
+impl Default for CSSTokenizer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CSSTokenizer {
-    pub fn new() -> CSSTokenizer {
+    pub fn new() -> Self {
         CSSTokenizer {
             cursor: 0,
             raw: String::new(),
         }
     }
-
     pub fn init(&mut self, raw: &str) {
         self.raw = raw.to_string();
         self.cursor = 0;
@@ -60,7 +65,7 @@ impl CSSTokenizer {
             }
         }
 
-        return None;
+        None
     }
 }
 
@@ -90,7 +95,7 @@ mod test {
 
     #[test]
     fn should_match_tokens() {
-        let mut tokenizer = CSSTokenizer::new();
+        let mut tokenizer = CSSTokenizer::default();
         tokenizer.init(".><,");
         assert_eq!(tokenizer.is_eof(), false);
         assert_eq!(tokenizer.has_more_tokens(), true);
@@ -107,7 +112,7 @@ mod test {
 
     #[test]
     fn should_skip_spaces() {
-        let mut tokenizer = CSSTokenizer::new();
+        let mut tokenizer = CSSTokenizer::default();
         tokenizer.init("#id > .class {}");
 
         assert_eq!(tokenizer.is_eof(), false);
@@ -125,7 +130,7 @@ mod test {
 
     #[test]
     fn should_handle_multiline_input() {
-        let mut tokenizer = CSSTokenizer::new();
+        let mut tokenizer = CSSTokenizer::default();
 
         tokenizer.init(
             r#"

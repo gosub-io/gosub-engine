@@ -8,6 +8,12 @@ pub struct CSSStyleSheet {
     css_rules: Vec<CSSRule>,
 }
 
+impl Default for CSSStyleSheet {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CSSStyleSheet {
     pub fn new() -> CSSStyleSheet {
         CSSStyleSheet {
@@ -28,6 +34,12 @@ pub struct CSSStyleDeclaration {
 #[derive(Debug, PartialEq)]
 pub struct CSSSelector {
     path: Vec<String>,
+}
+
+impl Default for CSSSelector {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl CSSSelector {
@@ -85,17 +97,26 @@ pub enum CSSRule {
     CSSMeidaRule(CSSMeidaRule),
 }
 
+/// # CSS3 Parser
+/// The parser using the Recursive Descent Parser algorithm (predictive parser).
+/// The grammer rules is defined using Backus–Naur form (BNF)
 #[derive(Debug, PartialEq)]
-struct CSS3Parser {
+pub struct CSS3Parser {
     tokenizer: CSSTokenizer,
     lookahead: Option<Token>,
     raw: String,
 }
 
+impl Default for CSS3Parser {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CSS3Parser {
     pub fn new() -> CSS3Parser {
         CSS3Parser {
-            tokenizer: CSSTokenizer::new(),
+            tokenizer: CSSTokenizer::default(),
             lookahead: None,
             raw: "".to_string(),
         }
@@ -106,7 +127,7 @@ impl CSS3Parser {
         self.tokenizer.init(raw);
         self.lookahead = self.tokenizer.get_next_token();
 
-        return self.css_style_sheet();
+        self.css_style_sheet()
     }
 
     /// ```txt
@@ -134,7 +155,7 @@ impl CSS3Parser {
             rules.push(self.css_rule());
         }
 
-        return rules;
+        rules
     }
 
     /// ```txt
@@ -196,7 +217,7 @@ impl CSS3Parser {
             }
         }
 
-        return conditions;
+        conditions
     }
 
     /// ```txt
@@ -210,7 +231,7 @@ impl CSS3Parser {
             return MediaCondition::Feature(self.media_feature());
         };
 
-        return MediaCondition::Type(self.media_type());
+        MediaCondition::Type(self.media_type())
     }
 
     /// ```txt
@@ -295,12 +316,12 @@ impl CSS3Parser {
     fn css_style_declaration_list(&mut self) -> Vec<CSSStyleDeclaration> {
         let mut list = Vec::new();
 
-        // todo: add condtion
+        // todo: add condition
         while self.is_next_token(TokenType::Identifier) {
             list.push(self.css_style_declaration());
         }
 
-        return list;
+        list
     }
 
     /// ```txt
@@ -324,7 +345,7 @@ impl CSS3Parser {
     /// ```
     fn prop_name(&mut self) -> String {
         let token = self.consume(TokenType::Identifier);
-        return token.value.to_string();
+        token.value.to_string()
     }
 
     /// ```txt
@@ -334,7 +355,7 @@ impl CSS3Parser {
     /// ```
     fn prop_value(&mut self) -> String {
         let token = self.consume(TokenType::Identifier);
-        return token.value.to_string();
+        token.value.to_string()
     }
 
     fn consume(&mut self, token_type: TokenType) -> Token {
@@ -361,7 +382,7 @@ impl CSS3Parser {
             return token.token_type == token_type;
         }
 
-        return false;
+        false
     }
 
     fn is_next_tokens(&self, token_types: Vec<TokenType>) -> bool {
@@ -370,7 +391,7 @@ impl CSS3Parser {
                 return true;
             }
         }
-        return false;
+        false
     }
 
     fn get_next_token_type(&self) -> Option<TokenType> {
@@ -378,7 +399,7 @@ impl CSS3Parser {
             return Some(token.token_type);
         }
 
-        return None;
+        None
     }
 }
 

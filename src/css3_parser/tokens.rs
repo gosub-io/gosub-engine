@@ -31,7 +31,7 @@ impl Token {
     }
 }
 
-pub static TOKENS_REGEXS: [(&'static str, Option<TokenType>); 19] = [
+pub static TOKENS_REGEXS: [(&str, Option<TokenType>); 19] = [
     (r"^\.", Some(TokenType::Dot)),
     (r"^>", Some(TokenType::GreaterThan)),
     (r"^<", Some(TokenType::LessThan)),
