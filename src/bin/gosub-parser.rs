@@ -1,4 +1,5 @@
 use anyhow::Result;
+use gosub_engine::html5_parser::parser::document::Document;
 use gosub_engine::html5_parser::{
     input_stream::{Confidence, Encoding, InputStream},
     parser::Html5Parser,
@@ -41,11 +42,12 @@ fn main() -> Result<()> {
     }
 
     let mut parser = Html5Parser::new(&mut stream);
-    let (document, parse_error) = parser.parse()?;
+    let document = Document::shared();
+    let parse_errors = parser.parse(Document::clone(&document))?;
 
     println!("Generated tree: \n\n {}", document);
 
-    for e in parse_error {
+    for e in parse_errors {
         println!("Parse Error: {}", e.message)
     }
 

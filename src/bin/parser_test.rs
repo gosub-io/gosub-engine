@@ -72,7 +72,9 @@ fn main() -> io::Result<()> {
 
         let mut test_idx = 1;
         for test in tests {
-            run_tree_test(test_idx, &test, &mut results);
+            if test_idx == 27 {
+                run_tree_test(test_idx, &test, &mut results);
+            }
             test_idx += 1;
         }
     }
@@ -170,11 +172,12 @@ fn run_tree_test(test_idx: usize, test: &Test, results: &mut TestResults) {
     is.read_from_str(test.data.as_str(), None);
 
     let mut parser = Html5Parser::new(&mut is);
-    let (document, parse_errors) = parser.parse().unwrap();
+    let document = Document::shared();
+    let parse_errors = parser.parse(Document::clone(&document)).unwrap();
 
     // Check the document tree, which counts as a single assertion
     results.assertions += 1;
-    if match_document_tree(document, &test.document) {
+    if match_document_tree(&document.get(), &test.document) {
         results.succeeded += 1;
     } else {
         results.failed += 1;

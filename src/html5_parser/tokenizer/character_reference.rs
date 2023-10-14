@@ -21,7 +21,7 @@ pub enum CcrState {
     NumericalCharacterReferenceEnd,
 }
 
-impl<'a> Tokenizer<'a> {
+impl<'stream> Tokenizer<'stream> {
     /// Consumes a character reference and places this in the tokenizer consume buffer
     /// ref: 8.2.4.69 Tokenizing character references
     ///

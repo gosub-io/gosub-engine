@@ -25,9 +25,9 @@ pub const CHAR_SPACE: char = '\u{0020}';
 pub const CHAR_REPLACEMENT: char = '\u{FFFD}';
 
 /// The tokenizer will read the input stream and emit tokens that can be used by the parser.
-pub struct Tokenizer<'a> {
+pub struct Tokenizer<'stream> {
     /// HTML character input stream
-    pub stream: &'a mut InputStream,
+    pub stream: &'stream mut InputStream,
     /// Current state of the tokenizer
     pub state: State,
     /// Current consumed characters for current token
@@ -66,10 +66,10 @@ macro_rules! to_lowercase {
     };
 }
 
-impl<'a> Tokenizer<'a> {
+impl<'stream> Tokenizer<'stream> {
     /// Creates a new tokenizer with the given inputstream and additional options if any
     pub fn new(
-        input: &'a mut InputStream,
+        input: &'stream mut InputStream,
         opts: Option<Options>,
         error_logger: Rc<RefCell<ErrorLogger>>,
     ) -> Self {
