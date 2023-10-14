@@ -12,6 +12,8 @@ pub enum AtRulePreludeValue {
     None,
 }
 
+/// CSS [At Rule](https://drafts.csswg.org/css-conditional-3/)
+/// E.g. @import @media @keyframes @supports
 pub struct AtRule {
     name: String,
     prelude: AtRulePreludeValue,
@@ -27,17 +29,36 @@ pub struct AtRulePrelude {
 }
 
 pub enum AttributeSelectorValue {
-    String(CSSString),
+    String(CssString),
     Identifier(IdSelector),
     None,
 }
 
+/// [Attribute Selector](https://drafts.csswg.org/selectors/#attribute-selectors)
 pub struct AttributeSelector {
     name: Identifier,
     matcher: Option<String>,
     value: AttributeSelectorValue,
     flags: Option<String>,
 }
+
+/// [Id Selector](https://drafts.csswg.org/selectors/#id-selectors)
+pub struct IdSelector {
+    name: String,
+}
+
+/// [Class Selector](https://drafts.csswg.org/selectors/#class-html)
+pub struct ClassSelector {
+    name: String,
+}
+
+/// [TypeSelector](https://drafts.csswg.org/selectors/#type-selectors)
+pub struct TypeSelector {
+    name: String,
+}
+
+/// [Nesting Selector](https://drafts.csswg.org/css-nesting/#nest-selector)
+pub struct NestingSelector;
 
 pub enum BlockChild {
     Rule(Rule),
@@ -60,10 +81,6 @@ pub struct Identifier {
 pub struct CDC;
 pub struct CDO;
 
-pub struct ClassSelector {
-    name: String,
-}
-
 pub struct Combinator {
     name: String,
 }
@@ -79,10 +96,6 @@ pub struct Declaration {
     value: DeclarationValue,
 }
 
-pub struct DeclarationList {
-    // children: List,
-}
-
 pub struct Dimension {
     value: String,
     unit: String,
@@ -90,29 +103,15 @@ pub struct Dimension {
 
 pub enum MediaFeatureValue {
     Identifier(Identifier),
-    Number(CSSNumber),
+    Number(CssNumber),
     Dimension(Dimension),
     Ratio(Ratio),
     Function(Function),
 }
+
 pub struct MediaFeature {
     name: String,
     value: Option<MediaFeatureValue>,
-}
-
-pub struct FeatureFunction {
-    kind: String,
-    feature: String,
-    // value: <Declaration> | <Selector>
-}
-
-pub struct FeatureRange {
-    kind: String,
-    // left: <Identifier> | <Number> | <Dimension> | <Ratio> | <Function>,
-    // leftComparison: String,
-    // middle: <Identifier> | <Number> | <Dimension> | <Ratio> | <Function>,
-    // rightComparison: String | null,
-    //  right: <Identifier> | <Number> | <Dimension> | <Ratio> | <Function> | null
 }
 
 pub enum FunctionChild {
@@ -126,18 +125,8 @@ pub struct Function {
     children: Vec<FunctionChild>,
 }
 
-pub struct GeneralEnclosed {
-    kind: String,
-    function: Option<String>,
-    // children: List,
-}
-
 pub struct Hash {
     value: String,
-}
-
-pub struct IdSelector {
-    name: String,
 }
 
 pub struct Layer {
@@ -161,17 +150,19 @@ pub struct MediaQueryList {
     children: Vec<MediaQuery>,
 }
 
-pub struct NestingSelector;
-
+pub enum NthValue {
+    AnPlusB(AnPlusB),
+    Identifier(Identifier),
+}
 pub struct Nth {
-    // nth: <AnPlusB> | <Identifier>,
-    // selector: Option<SelectorList>
+    nth: NthValue,
+    selector: Option<SelectorList>,
 }
 
-pub struct CSSNumber {
+pub struct CssNumber {
     value: String,
 }
-pub struct CSSString {
+pub struct CssString {
     value: String,
 }
 
@@ -184,44 +175,47 @@ pub struct Percentage {
     value: String,
 }
 
+/// [Pseudo-classes](https://drafts.csswg.org/selectors/#pseudo-classes)
 pub struct PseudoClassSelector {
     name: String,
-    // children: List | null
+    children: Option<SelectorList>,
 }
+
+/// [Pseudo-elements](https://drafts.csswg.org/selectors/#pseudo-elements)
 pub struct PseudoElementSelector {
     name: String,
-    // children: List | null
+    children: Option<SelectorList>,
 }
 
 pub struct Ratio {
-    // left: <Number> | <Function>,
-    // right: <Number> | <Function> | null
+    left: CssNumber,
+    right: CssNumber,
 }
 
 pub struct Raw {
     value: String,
 }
 
-pub struct Rule {
-    //  prelude: <SelectorList> | <Raw>,
-    // block: <Block>
-    block: Block,
+pub enum RulePrelude {
+    SelectorList(SelectorList),
+    Raw(Raw),
 }
 
-pub struct Scope {
-    // root: <SelectorList> | <Raw> | null,
-    //  limit: <SelectorList> | <Raw> | null
+pub struct Rule {
+    prelude: RulePrelude,
+    block: Block,
 }
 
 pub enum Selector {
     IdSelector(IdSelector),
     ClassSelector(ClassSelector),
-    Combinator(Combinator),
     AttributeSelector(AttributeSelector),
+    TypeSelector(TypeSelector),
+    NestingSelector(NestingSelector),
 }
 
 pub struct SelectorList {
-    // children: List
+    children: Vec<Selector>,
 }
 
 /// Used for the [Unicode-Range microsyntax](https://drafts.csswg.org/css-syntax/#urange).
