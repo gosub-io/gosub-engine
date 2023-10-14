@@ -40,3 +40,7 @@ colored = "2.0.4"
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
 test-case = "3.2.1"
+
+[features]
+# Enables extended debugging information during parsing.
+debug_parser = []

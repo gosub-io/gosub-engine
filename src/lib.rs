@@ -1,4 +1,5 @@
 extern crate alloc;
+extern crate core;
 
 pub mod api;
 #[allow(dead_code)]
