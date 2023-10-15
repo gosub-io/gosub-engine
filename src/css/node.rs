@@ -28,7 +28,7 @@ pub enum AtRulePreludeChild {
     MediaQueryList(MediaQueryList),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Default)]
 pub struct AtRulePrelude {
     children: Vec<AtRulePrelude>,
 }
@@ -50,15 +50,9 @@ pub struct AttributeSelector {
 }
 
 /// [Id Selector](https://drafts.csswg.org/selectors/#id-selectors)
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Default)]
 pub struct IdSelector {
     name: String,
-}
-
-impl Default for IdSelector {
-    fn default() -> IdSelector {
-        IdSelector::new(String::default())
-    }
 }
 
 impl IdSelector {
@@ -68,15 +62,9 @@ impl IdSelector {
 }
 
 /// [Class Selector](https://drafts.csswg.org/selectors/#class-html)
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Default)]
 pub struct ClassSelector {
     name: String,
-}
-
-impl Default for ClassSelector {
-    fn default() -> ClassSelector {
-        ClassSelector::new(String::default())
-    }
 }
 
 impl ClassSelector {
@@ -102,15 +90,9 @@ pub enum BlockChild {
     DeclarationList(DeclarationList),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Default)]
 pub struct Block {
     children: Vec<BlockChild>,
-}
-
-impl Default for Block {
-    fn default() -> Block {
-        Block::new(Vec::new())
-    }
 }
 
 impl Block {
@@ -123,15 +105,9 @@ impl Block {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Default)]
 pub struct Identifier {
     name: String,
-}
-
-impl Default for Identifier {
-    fn default() -> Identifier {
-        Identifier::new(String::default())
-    }
 }
 
 impl Identifier {
@@ -150,21 +126,11 @@ pub struct Combinator {
     name: String,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Default)]
 pub struct Declaration {
     important: bool,
     property: String,
     value: ValueList,
-}
-
-impl Default for Declaration {
-    fn default() -> Declaration {
-        Declaration {
-            important: false,
-            property: String::default(),
-            value: ValueList::default(),
-        }
-    }
 }
 
 impl Declaration {
@@ -181,15 +147,9 @@ impl Declaration {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Default)]
 pub struct DeclarationList {
     children: Vec<Declaration>,
-}
-
-impl Default for DeclarationList {
-    fn default() -> DeclarationList {
-        DeclarationList::new(Vec::new())
-    }
 }
 
 impl DeclarationList {
@@ -202,16 +162,10 @@ impl DeclarationList {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Default)]
 pub struct Dimension {
     value: String,
     unit: Option<String>,
-}
-
-impl Default for Dimension {
-    fn default() -> Dimension {
-        Dimension::new(String::default(), None)
-    }
 }
 
 impl Dimension {
@@ -336,16 +290,10 @@ pub struct Raw {
     value: String,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Default)]
 pub struct Rule {
     selectors: SelectorList,
     block: Block,
-}
-
-impl Default for Rule {
-    fn default() -> Rule {
-        Rule::new(SelectorList::default(), Block::default())
-    }
 }
 
 impl Rule {
@@ -363,15 +311,9 @@ pub enum Selector {
     NestingSelector(NestingSelector),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Default)]
 pub struct SelectorList {
     children: Vec<Selector>,
-}
-
-impl Default for SelectorList {
-    fn default() -> SelectorList {
-        Self::new(Vec::new())
-    }
 }
 
 impl SelectorList {
@@ -402,17 +344,9 @@ pub enum Value {
     Function(Function),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Default)]
 pub struct ValueList {
     pub children: Vec<Value>,
-}
-
-impl Default for ValueList {
-    fn default() -> ValueList {
-        ValueList {
-            children: Vec::new(),
-        }
-    }
 }
 
 impl ValueList {
@@ -431,15 +365,9 @@ pub enum StyleSheetRule {
     Rule(Rule),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Default)]
 pub struct StyleSheet {
     pub children: Vec<StyleSheetRule>,
-}
-
-impl Default for StyleSheet {
-    fn default() -> Self {
-        Self::new(Vec::new())
-    }
 }
 
 impl StyleSheet {
