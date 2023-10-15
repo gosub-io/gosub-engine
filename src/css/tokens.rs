@@ -1,22 +1,5 @@
 #[derive(PartialEq, Debug, Clone, Copy)]
 pub enum TokenType {
-    // Dot,
-    // GreaterThan,
-    // LessThan,
-    // Identifier,
-    // OpeningBracket,
-    // ClosingBracket,
-    // OpeningParenthesis,
-    // ClosingParenthesis,
-    // Colon,
-    // SimiColon,
-    // Comma,
-    // And,
-    // Hash,
-    // Media,
-    // MediaPrinterType,
-    // MediaScreenType,
-    // MediaAllType,
     At,
     Hash,
     Dot,
@@ -36,6 +19,7 @@ pub enum TokenType {
     Includes,
     Dashmatch,
     Ident,
+    Important,
     // todo: add unicode & ascii
 }
 
@@ -65,8 +49,9 @@ static COLON: &str = r"^:";
 static LCURLY: &str = r"^\{";
 static RCURLY: &str = r"^\}";
 static SPACE: &str = r"^[ \t\r\n\f]+";
+static IMPORTANT: &str = "^!important";
 
-pub static TOKEN_REFS: [(&str, Option<TokenType>); 10] = [
+pub static TOKEN_REFS: [(&str, Option<TokenType>); 11] = [
     (SPACE, None),
     (NUMBER, Some(TokenType::Number)),
     (IDENT, Some(TokenType::Ident)),
@@ -77,24 +62,5 @@ pub static TOKEN_REFS: [(&str, Option<TokenType>); 10] = [
     (LCURLY, Some(TokenType::LCurly)),
     (RCURLY, Some(TokenType::RCurly)),
     (COLON, Some(TokenType::Colon)),
-    // (r"^>", Some(TokenType::GreaterThan)),
-    // (r"^<", Some(TokenType::LessThan)),
-    // (r"^\{", Some(TokenType::OpeningBracket)),
-    // (r"^\}", Some(TokenType::ClosingBracket)),
-    // (r"^\(", Some(TokenType::OpeningParenthesis)),
-    // (r"^\)", Some(TokenType::ClosingParenthesis)),
-    // (r"^,", Some(TokenType::Comma)),
-    // (r"^:", Some(TokenType::Colon)),
-    // (r"^;", Some(TokenType::SimiColon)),
-    // (r"^#", Some(TokenType::Hash)),
-    // // Media queries tokens
-    // (r"^@media", Some(TokenType::Media)),
-    // (r"^printer", Some(TokenType::MediaPrinterType)),
-    // (r"^screen", Some(TokenType::MediaScreenType)),
-    // (r"^all", Some(TokenType::MediaAllType)),
-    // (r"^and", Some(TokenType::And)),
-    // // General tokens
-    // (r"^(\w|-)+", Some(TokenType::Identifier)),
-    // (r"^\s+", None),
-    // (r"^\/\*[^\/]*\*\/", None),
+    (IMPORTANT, Some(TokenType::Important)),
 ];

@@ -1,5 +1,7 @@
 // Note: every node should have a "loc" property
 
+use std::fmt::{self, Debug, Formatter};
+
 /// Used for the [An+B microsyntax](https://drafts.csswg.org/css-syntax/#anb-microsyntax).
 #[derive(Debug, PartialEq)]
 pub struct AnPlusB {
@@ -50,9 +52,15 @@ pub struct AttributeSelector {
 }
 
 /// [Id Selector](https://drafts.csswg.org/selectors/#id-selectors)
-#[derive(Debug, PartialEq, Default)]
+#[derive(PartialEq, Default)]
 pub struct IdSelector {
     name: String,
+}
+
+impl Debug for IdSelector {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "#{}", self.name)
+    }
 }
 
 impl IdSelector {
@@ -105,9 +113,15 @@ impl Block {
     }
 }
 
-#[derive(Debug, PartialEq, Default)]
+#[derive(PartialEq, Default)]
 pub struct Identifier {
     name: String,
+}
+
+impl Debug for Identifier {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.name)
+    }
 }
 
 impl Identifier {
@@ -128,12 +142,20 @@ pub struct Combinator {
 
 #[derive(Debug, PartialEq, Default)]
 pub struct Declaration {
-    important: bool,
-    property: String,
-    value: ValueList,
+    pub important: bool,
+    pub property: String,
+    pub value: ValueList,
 }
 
 impl Declaration {
+    pub fn new(property: String, value: ValueList) -> Declaration {
+        Declaration {
+            important: false,
+            property,
+            value,
+        }
+    }
+
     pub fn set_important_as(&mut self, important: bool) {
         self.important = important;
     }
@@ -162,10 +184,16 @@ impl DeclarationList {
     }
 }
 
-#[derive(Debug, PartialEq, Default)]
+#[derive(PartialEq, Default)]
 pub struct Dimension {
     value: String,
     unit: Option<String>,
+}
+
+impl Debug for Dimension {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}{}", self.value, self.unit.clone().unwrap_or_default())
+    }
 }
 
 impl Dimension {

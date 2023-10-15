@@ -1,112 +1,16 @@
-use super::{
-    node::{
-        Block, BlockChild, Declaration, DeclarationList, Dimension, IdSelector, Identifier, Rule,
-        Selector, SelectorList, StyleSheet, StyleSheetRule, Value, ValueList,
-    },
-    tokenizer::CSSTokenizer,
-    tokens::{Token, TokenType},
+use crate::css::node::{
+    Block, BlockChild, Declaration, DeclarationList, Dimension, IdSelector, Identifier, Rule,
+    Selector, SelectorList, StyleSheet, StyleSheetRule, Value, ValueList,
 };
-
-#[derive(Debug, PartialEq)]
-pub struct CSSStyleSheet {
-    css_rules: Vec<CSSRule>,
-}
-
-impl Default for CSSStyleSheet {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl CSSStyleSheet {
-    pub fn new() -> CSSStyleSheet {
-        CSSStyleSheet {
-            css_rules: Vec::new(),
-        }
-    }
-}
-
-pub type CSSPropName = String;
-pub type CSSPropValue = String;
-
-#[derive(Debug, PartialEq)]
-pub struct CSSStyleDeclaration {
-    name: CSSPropName,
-    value: CSSPropValue,
-}
-
-#[derive(Debug, PartialEq)]
-pub struct CSSSelector {
-    path: Vec<String>,
-}
-
-impl Default for CSSSelector {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl CSSSelector {
-    pub fn new() -> CSSSelector {
-        CSSSelector { path: Vec::new() }
-    }
-
-    pub fn from_str_slice(path: Vec<&str>) -> CSSSelector {
-        CSSSelector {
-            path: path.iter().map(|s| s.to_string()).collect::<Vec<String>>(),
-        }
-    }
-
-    pub fn add(&mut self, value: String) -> &mut CSSSelector {
-        self.path.push(value);
-
-        self
-    }
-}
-
-#[derive(Debug, PartialEq)]
-pub struct CSSStyleRule {
-    selector: CSSSelector,
-    style_declarations: Vec<CSSStyleDeclaration>,
-}
-
-#[derive(Debug, PartialEq)]
-pub struct CSSMeidaRule {
-    conditions: Vec<MediaCondition>,
-    css_rules: Vec<CSSRule>,
-}
-
-#[derive(Debug, PartialEq)]
-pub enum MediaType {
-    Screen,
-    Printer,
-    All,
-}
-
-#[derive(Debug, PartialEq)]
-pub struct MediaFeature {
-    name: String,
-    value: Option<String>,
-}
-
-#[derive(Debug, PartialEq)]
-pub enum MediaCondition {
-    Type(MediaType),
-    Feature(MediaFeature),
-}
-
-#[derive(Debug, PartialEq)]
-pub enum CSSRule {
-    CSSStyleRule(CSSStyleRule),
-    CSSMeidaRule(CSSMeidaRule),
-}
+use crate::css::tokenizer::Tokenizer;
+use crate::css::tokens::{Token, TokenType};
 
 /// # CSS3 Parser
 /// The parser using the Recursive Descent Parser algorithm (predictive parser).
 /// The grammer rules is defined using Backus–Naur form (BNF)
 #[derive(Debug, PartialEq)]
 pub struct CSS3Parser {
-    tokenizer: CSSTokenizer,
+    tokenizer: Tokenizer,
     lookahead: Option<Token>,
     raw: String,
 }
@@ -120,7 +24,7 @@ impl Default for CSS3Parser {
 impl CSS3Parser {
     pub fn new() -> CSS3Parser {
         CSS3Parser {
-            tokenizer: CSSTokenizer::default(),
+            tokenizer: Tokenizer::new(),
             lookahead: None,
             raw: "".to_string(),
         }
@@ -246,7 +150,7 @@ impl CSS3Parser {
 
     /// ```bnf
     ///  Declaration
-    ///     : IDENT COLON ValueList SEMICOLON
+    ///     : IDENT COLON ValueList IMPORTANT SEMICOLON
     ///     ;   
     /// ```
     fn declaration(&mut self) -> Declaration {
@@ -255,6 +159,12 @@ impl CSS3Parser {
         declaration.set_property(self.consume(TokenType::Ident).value);
         self.consume(TokenType::Colon);
         declaration.set_value(self.value_ist());
+
+        if self.is_next_token(TokenType::Important) {
+            self.consume(TokenType::Important);
+            declaration.set_important_as(true);
+        }
+
         self.consume(TokenType::Semicolon);
 
         declaration
@@ -268,7 +178,7 @@ impl CSS3Parser {
     fn value_ist(&mut self) -> ValueList {
         let mut value_list = ValueList::default();
 
-        while !self.is_next_token(TokenType::Semicolon) {
+        while !self.is_next_tokens(vec![TokenType::Semicolon, TokenType::Important]) {
             value_list.add_child(self.value());
         }
 
@@ -317,8 +227,6 @@ impl CSS3Parser {
     }
 
     fn consume(&mut self, token_type: TokenType) -> Token {
-        println!("Expecting: {:?}", token_type);
-
         if let Some(token) = self.lookahead.clone() {
             if token.token_type != token_type {
                 panic!(
@@ -368,7 +276,7 @@ mod test {
     use super::*;
 
     #[test]
-    fn should_parse_css() {
+    fn parse_css() {
         let mut parser = CSS3Parser::new();
         let style_sheet = parser.parse(
             r#"
@@ -376,97 +284,43 @@ mod test {
                 #header {
                     display: flex;
                     width: 100px;
-                    height: 200px;
-                    font-size: 18px;
+                    font-size: 1rem !important;
                 }
             "#,
         );
 
-        println!("{:?}", style_sheet);
-        // let style_sheet = parser.parse(
-        //     r#"
-        //     /* Shoud skip comments */
-
-        //     .header {
-        //         width: 10px;
-        //         font-size: 1rem;
-        //     }
-
-        //     #nav {
-        //         height: 200px;
-        //     }
-
-        //     @media screen, printer, all and (max-width: 600px) {
-        //         .header {
-        //             display: flex;
-        //         }
-
-        //         body {
-        //             max-height: 100vh;
-        //         }
-        //     }
-
-        //     @media all {}
-        // "#,
-        // );
-
-        // assert_eq!(
-        //     style_sheet,
-        //     CSSStyleSheet {
-        //         css_rules: vec![
-        //             CSSRule::CSSStyleRule(CSSStyleRule {
-        //                 selector: CSSSelector::from_str_slice(vec![".", "header"]),
-        //                 style_declarations: vec![
-        //                     CSSStyleDeclaration {
-        //                         name: "width".to_string(),
-        //                         value: "10px".to_string()
-        //                     },
-        //                     CSSStyleDeclaration {
-        //                         name: "font-size".to_string(),
-        //                         value: "1rem".to_string()
-        //                     }
-        //                 ],
-        //             }),
-        //             CSSRule::CSSStyleRule(CSSStyleRule {
-        //                 selector: CSSSelector::from_str_slice(vec!["#", "nav"]),
-        //                 style_declarations: vec![CSSStyleDeclaration {
-        //                     name: "height".to_string(),
-        //                     value: "200px".to_string()
-        //                 }],
-        //             }),
-        //             CSSRule::CSSMeidaRule(CSSMeidaRule {
-        //                 conditions: vec![
-        //                     MediaCondition::Type(MediaType::Screen),
-        //                     MediaCondition::Type(MediaType::Printer),
-        //                     MediaCondition::Type(MediaType::All),
-        //                     MediaCondition::Feature(MediaFeature {
-        //                         name: "max-width".to_string(),
-        //                         value: Some("600px".to_string())
-        //                     })
-        //                 ],
-        //                 css_rules: vec![
-        //                     CSSRule::CSSStyleRule(CSSStyleRule {
-        //                         selector: CSSSelector::from_str_slice(vec![".", "header"]),
-        //                         style_declarations: vec![CSSStyleDeclaration {
-        //                             name: "display".to_string(),
-        //                             value: "flex".to_string()
-        //                         }],
-        //                     }),
-        //                     CSSRule::CSSStyleRule(CSSStyleRule {
-        //                         selector: CSSSelector::from_str_slice(vec!["body"]),
-        //                         style_declarations: vec![CSSStyleDeclaration {
-        //                             name: "max-height".to_string(),
-        //                             value: "100vh".to_string()
-        //                         }],
-        //                     })
-        //                 ],
-        //             }),
-        //             CSSRule::CSSMeidaRule(CSSMeidaRule {
-        //                 conditions: vec![MediaCondition::Type(MediaType::All)],
-        //                 css_rules: Vec::new(),
-        //             })
-        //         ]
-        //     }
-        // )
+        assert_eq!(
+            style_sheet,
+            StyleSheet::new(vec![StyleSheetRule::Rule(Rule::new(
+                SelectorList::new(vec![Selector::IdSelector(IdSelector::new(
+                    "header".to_string()
+                ))]),
+                Block::new(vec![BlockChild::DeclarationList(DeclarationList::new(
+                    vec![
+                        Declaration::new(
+                            "display".to_string(),
+                            ValueList::new(vec![Value::Identifier(Identifier::new(
+                                "flex".to_string()
+                            ))])
+                        ),
+                        Declaration::new(
+                            "width".to_string(),
+                            ValueList::new(vec![Value::Dimension(Dimension::new(
+                                "100".to_string(),
+                                Some("px".to_string())
+                            ))])
+                        ),
+                        Declaration {
+                            important: true,
+                            property: "font-size".to_string(),
+                            value: ValueList::new(vec![Value::Dimension(Dimension::new(
+                                "1".to_string(),
+                                Some("rem".to_string())
+                            ))])
+                        }
+                    ]
+                ))])
+            ))])
+        )
     }
 }

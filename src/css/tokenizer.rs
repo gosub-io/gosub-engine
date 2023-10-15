@@ -2,25 +2,20 @@ use crate::css::tokens::{Token, TOKEN_REFS};
 use regex::{self, Regex};
 
 /// CSS Tokenizer
-#[derive(Debug, PartialEq)]
-pub struct CSSTokenizer {
+#[derive(Debug, Default, PartialEq)]
+pub struct Tokenizer {
     pub cursor: usize,
     raw: String,
 }
 
-impl Default for CSSTokenizer {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl CSSTokenizer {
+impl Tokenizer {
     pub fn new() -> Self {
-        CSSTokenizer {
+        Tokenizer {
             cursor: 0,
             raw: String::new(),
         }
     }
+
     pub fn init(&mut self, raw: &str) {
         self.raw = raw.to_string();
         self.cursor = 0;
@@ -91,28 +86,9 @@ mod test {
         };
     }
 
-    // #[test]
-    // fn match_micro_tokens() {
-    //     let mut tokenizer = CSSTokenizer::default();
-    //     tokenizer.init(" .{}@#;");
-    //     assert_eq!(tokenizer.is_eof(), false);
-    //     assert_eq!(tokenizer.has_more_tokens(), true);
-
-    //     assert_next_token!(tokenizer, Some(TokenType::Dot), Some("."));
-    //     assert_next_token!(tokenizer, Some(TokenType::LCurly), Some("{"));
-    //     assert_next_token!(tokenizer, Some(TokenType::RCurly), Some("}"));
-    //     assert_next_token!(tokenizer, Some(TokenType::At), Some("@"));
-    //     assert_next_token!(tokenizer, Some(TokenType::Hash), Some("#"));
-    //     assert_next_token!(tokenizer, Some(TokenType::Semicolon), Some(";"));
-    //     assert_next_token!(tokenizer, None::<TokenType>, None::<&str>);
-
-    //     assert_eq!(tokenizer.is_eof(), true);
-    //     assert_eq!(tokenizer.has_more_tokens(), false);
-    // }
-
     #[test]
     fn match_macro_tokens() {
-        let mut tokenizer = CSSTokenizer::default();
+        let mut tokenizer = Tokenizer::default();
         tokenizer.init("123 -ident-test-1");
 
         assert_eq!(tokenizer.is_eof(), false);
