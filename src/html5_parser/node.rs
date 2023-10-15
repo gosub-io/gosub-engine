@@ -158,7 +158,7 @@ impl Node {
             named_id: None,
             parent: None,
             children: vec![],
-            data: NodeData::Element(ElementData::with_name_and_attributes(name, attributes)),
+            data: NodeData::Element(ElementData::with_name_and_attributes(Default::default(), Document::clone(document), name, attributes)),
             name: name.to_string(),
             namespace: Some(namespace.into()),
             document: Document::clone(document),

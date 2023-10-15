@@ -173,7 +173,7 @@ impl<'stream> Html5Parser<'stream> {
                 // replace the old node with the new replacement node
                 let node_attributes = match node.data {
                     NodeData::Element(ElementData { attributes, .. }) => {
-                        attributes.attributes.clone()
+                        attributes.clone_map()
                     }
                     _ => HashMap::new(),
                 };
@@ -228,7 +228,7 @@ impl<'stream> Html5Parser<'stream> {
                 }) => Node::new_element(
                     &self.document,
                     name.as_str(),
-                    attributes.attributes.clone(),
+                    attributes.clone_map(),
                     HTML_NAMESPACE,
                 ),
                 _ => panic!("formatting element is not an element"),

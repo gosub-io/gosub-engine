@@ -304,6 +304,12 @@ impl PartialEq for DocumentHandle {
     }
 }
 
+impl Clone for DocumentHandle {
+    fn clone(&self) -> DocumentHandle {
+        DocumentHandle(Rc::clone(&self.0))
+    }
+}
+
 impl Eq for DocumentHandle {}
 
 impl DocumentHandle {
