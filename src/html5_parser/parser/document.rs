@@ -311,6 +311,10 @@ impl PartialEq for DocumentHandle {
     }
 }
 
+// NOTE: it is preferred to use Document::clone() when
+// copying a DocumentHandle reference. However, for
+// any structs using this handle that use #[derive(Clone)],
+// this implementation is required.
 impl Clone for DocumentHandle {
     fn clone(&self) -> DocumentHandle {
         DocumentHandle(Rc::clone(&self.0))
