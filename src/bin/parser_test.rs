@@ -2,12 +2,9 @@ use gosub_engine::html5_parser::input_stream::InputStream;
 use gosub_engine::html5_parser::node::{NodeData, NodeId};
 use gosub_engine::html5_parser::parser::document::Document;
 use gosub_engine::html5_parser::parser::Html5Parser;
-use regex::Regex;
-use std::fs::File;
-use std::io::{BufRead, BufReader};
-use std::path::{Path, PathBuf};
-use std::process::exit;
-use std::{fs, io};
+use gosub_engine::testing;
+use gosub_engine::testing::tree_construction::Test;
+use gosub_engine::types::Result;
 
 pub struct TestResults {
     /// Number of tests (as defined in the suite)
@@ -22,29 +19,7 @@ pub struct TestResults {
     failed_position: usize,
 }
 
-struct Test {
-    /// Filename of the test
-    file_path: String,
-    /// Line number of the test
-    line: usize,
-    /// input stream
-    data: String,
-    /// errors
-    errors: Vec<Error>,
-    /// document tree
-    document: Vec<String>,
-    /// fragment
-    document_fragment: Vec<String>,
-}
-
-fn main() -> io::Result<()> {
-    let default_dir = "tests/data/html5lib-tests".to_string();
-
-    if !Path::new(&default_dir).exists() {
-        println!("Missing 'html5lib-tests'. It is not located at '{default_dir}' \nIt should be cloned first from here https://github.com/html5lib/html5lib-tests");
-        exit(1)
-    }
-
+fn main() -> Result<()> {
     let mut results = TestResults {
         tests: 0,
         assertions: 0,
@@ -53,25 +28,18 @@ fn main() -> io::Result<()> {
         failed_position: 0,
     };
 
-    for entry in fs::read_dir(default_dir + "/tree-construction")? {
-        let entry = entry?;
-        let path = entry.path();
+    let filenames = Some(&["tests1.dat"][..]);
+    let fixtures = testing::tree_construction::fixtures(filenames).expect("fixtures");
 
-        // Only run the tests1.dat file for now
-        if !path.ends_with("tests1.dat") {
-            continue;
-        }
-
-        // Skip dirs and non-dat files
-        if !path.is_file() || path.extension().unwrap() != "dat" {
-            continue;
-        }
-
-        let tests = read_tests(path.clone())?;
-        println!("🏃‍♂️ Running {} tests from 🗄️ {:?}\n", tests.len(), path);
+    for fixture_file in fixtures {
+        println!(
+            "🏃‍♂️ Running {} tests from 🗄️ {:?}\n",
+            fixture_file.tests.len(),
+            fixture_file.path
+        );
 
         let mut test_idx = 1;
-        for test in tests {
+        for test in fixture_file.tests {
             if test_idx == 27 {
                 run_tree_test(test_idx, &test, &mut results);
             }
@@ -81,80 +49,6 @@ fn main() -> io::Result<()> {
 
     println!("🏁 Tests completed: Ran {} tests, {} assertions, {} succeeded, {} failed ({} position failures)", results.tests, results.assertions, results.succeeded, results.failed, results.failed_position);
     Ok(())
-}
-
-/// Read given tests file and extract all test data
-fn read_tests(file_path: PathBuf) -> io::Result<Vec<Test>> {
-    let file = File::open(file_path.clone())?;
-    let reader = BufReader::new(file);
-
-    let mut tests = Vec::new();
-    let mut current_test = Test {
-        file_path: file_path.to_str().unwrap().to_string(),
-        line: 1,
-        data: "".to_string(),
-        errors: vec![],
-        document: vec![],
-        document_fragment: vec![],
-    };
-    let mut section: Option<&str> = None;
-
-    for (line_num, line) in reader.lines().enumerate() {
-        let line = line?;
-
-        if line.starts_with("#data") {
-            if !current_test.data.is_empty()
-                || !current_test.errors.is_empty()
-                || !current_test.document.is_empty()
-            {
-                current_test.data = current_test.data.trim_end().to_string();
-                tests.push(current_test);
-                current_test = Test {
-                    file_path: file_path.to_str().unwrap().to_string(),
-                    line: line_num,
-                    data: "".to_string(),
-                    errors: vec![],
-                    document: vec![],
-                    document_fragment: vec![],
-                };
-            }
-            section = Some("data");
-        } else if line.starts_with('#') {
-            section = match line.as_str() {
-                "#errors" => Some("errors"),
-                "#document" => Some("document"),
-                _ => None,
-            };
-        } else if let Some(sec) = section {
-            match sec {
-                "data" => current_test.data.push_str(&line),
-                "errors" => {
-                    let re = Regex::new(r"\((?P<line>\d+),(?P<col>\d+)\): (?P<code>.+)").unwrap();
-                    if let Some(caps) = re.captures(&line) {
-                        let line = caps.name("line").unwrap().as_str().parse::<i64>().unwrap();
-                        let col = caps.name("col").unwrap().as_str().parse::<i64>().unwrap();
-                        let code = caps.name("code").unwrap().as_str().to_string();
-
-                        current_test.errors.push(Error { code, line, col });
-                    }
-                }
-                "document" => current_test.document.push(line),
-                "document_fragment" => current_test.document_fragment.push(line),
-                _ => (),
-            }
-        }
-    }
-
-    // Push the last test if it has data
-    if !current_test.data.is_empty()
-        || !current_test.errors.is_empty()
-        || !current_test.document.is_empty()
-    {
-        current_test.data = current_test.data.trim_end().to_string();
-        tests.push(current_test);
-    }
-
-    Ok(tests)
 }
 
 fn run_tree_test(test_idx: usize, test: &Test, results: &mut TestResults) {

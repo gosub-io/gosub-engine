@@ -91,13 +91,13 @@ mod test {
         let mut tokenizer = Tokenizer::default();
         tokenizer.init("123 -ident-test-1");
 
-        assert_eq!(tokenizer.is_eof(), false);
-        assert_eq!(tokenizer.has_more_tokens(), true);
+        assert!(!tokenizer.is_eof());
+        assert!(tokenizer.has_more_tokens());
 
         assert_next_token!(tokenizer, Some(TokenType::Number), Some("123"));
         assert_next_token!(tokenizer, Some(TokenType::Ident), Some("-ident-test-1"));
 
-        assert_eq!(tokenizer.is_eof(), true);
-        assert_eq!(tokenizer.has_more_tokens(), false);
+        assert!(tokenizer.is_eof());
+        assert!(!tokenizer.has_more_tokens());
     }
 }
