@@ -28,7 +28,11 @@ impl ElementAttributes {
         }
     }
 
-    pub(crate) fn with_attributes(node_id: NodeId, document: DocumentHandle, attributes: HashMap<String, String>) -> Self {
+    pub(crate) fn with_attributes(
+        node_id: NodeId,
+        document: DocumentHandle,
+        attributes: HashMap<String, String>,
+    ) -> Self {
         Self {
             node_id,
             document,
@@ -130,7 +134,11 @@ impl ElementData {
         Self {
             node_id,
             name: name.into(),
-            attributes: ElementAttributes::with_attributes(node_id, Document::clone(&document), attributes),
+            attributes: ElementAttributes::with_attributes(
+                node_id,
+                Document::clone(&document),
+                attributes,
+            ),
             classes: ElementClass::new(),
             force_async: false,
             template_contents: None,

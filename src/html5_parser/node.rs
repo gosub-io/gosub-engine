@@ -31,7 +31,7 @@ pub enum NodeData {
     Document(DocumentData),
     Text(TextData),
     Comment(CommentData),
-    Element(ElementData),
+    Element(Box<ElementData>),
 }
 
 /// Id used to identify a node
@@ -158,7 +158,12 @@ impl Node {
             named_id: None,
             parent: None,
             children: vec![],
-            data: NodeData::Element(ElementData::with_name_and_attributes(Default::default(), Document::clone(document), name, attributes)),
+            data: NodeData::Element(Box::new(ElementData::with_name_and_attributes(
+                Default::default(),
+                Document::clone(document),
+                name,
+                attributes,
+            ))),
             name: name.to_string(),
             namespace: Some(namespace.into()),
             document: Document::clone(document),
@@ -400,15 +405,12 @@ mod tests {
         assert!(node.children.is_empty());
         assert_eq!(node.name, "div".to_string());
         assert_eq!(node.namespace, Some(HTML_NAMESPACE.into()));
-        let NodeData::Element(ElementData {
-            name, attributes, ..
-        }) = &node.data
-        else {
+        let NodeData::Element(element) = &node.data else {
             panic!()
         };
-        assert_eq!(name, "div");
-        assert!(attributes.contains("id"));
-        assert_eq!(attributes.get("id").unwrap(), "test");
+        assert_eq!(element.name, "div");
+        assert!(element.attributes.contains("id"));
+        assert_eq!(element.attributes.get("id").unwrap(), "test");
     }
 
     #[test]
@@ -519,11 +521,11 @@ mod tests {
         attr.insert("x".to_string(), "value".to_string());
         let document = Document::shared();
         let node = Node::new_element(&document, "node", attr.clone(), HTML_NAMESPACE);
-        let NodeData::Element(ElementData { attributes, .. }) = &node.data else {
+        let NodeData::Element(element) = &node.data else {
             panic!()
         };
-        assert!(attributes.contains("x"));
-        assert!(!attributes.contains("z"));
+        assert!(element.attributes.contains("x"));
+        assert!(!element.attributes.contains("z"));
     }
 
     #[test]
@@ -544,11 +546,11 @@ mod tests {
         attr.insert("key".to_string(), "value".to_string());
         let document = Document::shared();
         let mut node = Node::new_element(&document, "name", attr.clone(), HTML_NAMESPACE);
-        let NodeData::Element(ElementData { attributes, .. }) = &mut node.data else {
+        let NodeData::Element(element) = &mut node.data else {
             panic!()
         };
-        attributes.remove("key");
-        assert!(!attributes.contains("key"));
+        element.attributes.remove("key");
+        assert!(!element.attributes.contains("key"));
     }
 
     #[test]
@@ -557,10 +559,10 @@ mod tests {
         attr.insert("key".to_string(), "value".to_string());
         let document = Document::shared();
         let node = Node::new_element(&document, "name", attr.clone(), HTML_NAMESPACE);
-        let NodeData::Element(ElementData { attributes, .. }) = &node.data else {
+        let NodeData::Element(element) = &node.data else {
             panic!()
         };
-        assert_eq!(attributes.get("key").unwrap(), "value");
+        assert_eq!(element.attributes.get("key").unwrap(), "value");
     }
 
     #[test]
@@ -569,12 +571,12 @@ mod tests {
         attr.insert("key".to_string(), "value".to_string());
         let document = Document::shared();
         let mut node = Node::new_element(&document, "name", attr.clone(), HTML_NAMESPACE);
-        let NodeData::Element(ElementData { attributes, .. }) = &mut node.data else {
+        let NodeData::Element(element) = &mut node.data else {
             panic!()
         };
-        let attr_val = attributes.get_mut("key").unwrap();
+        let attr_val = element.attributes.get_mut("key").unwrap();
         attr_val.push_str(" appended");
-        assert_eq!(attributes.get("key").unwrap(), "value appended");
+        assert_eq!(element.attributes.get("key").unwrap(), "value appended");
     }
 
     #[test]
@@ -583,11 +585,11 @@ mod tests {
         attr.insert("key".to_string(), "value".to_string());
         let document = Document::shared();
         let mut node = Node::new_element(&document, "name", attr.clone(), HTML_NAMESPACE);
-        let NodeData::Element(ElementData { attributes, .. }) = &mut node.data else {
+        let NodeData::Element(element) = &mut node.data else {
             panic!()
         };
-        attributes.clear();
-        assert!(attributes.is_empty());
+        element.attributes.clear();
+        assert!(element.attributes.is_empty());
     }
 
     #[test]
@@ -595,11 +597,11 @@ mod tests {
         let attr = HashMap::new();
         let document = Document::shared();
         let mut node = Node::new_element(&document, "name", attr.clone(), HTML_NAMESPACE);
-        let NodeData::Element(ElementData { attributes, .. }) = &mut node.data else {
+        let NodeData::Element(element) = &mut node.data else {
             panic!()
         };
-        assert!(attributes.is_empty());
-        attributes.insert("key", "value");
-        assert!(!attributes.is_empty());
+        assert!(element.attributes.is_empty());
+        element.attributes.insert("key", "value");
+        assert!(!element.attributes.is_empty());
     }
 }

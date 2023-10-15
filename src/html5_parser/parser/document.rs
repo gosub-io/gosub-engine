@@ -1,5 +1,5 @@
 use crate::html5_parser::node::arena::NodeArena;
-use crate::html5_parser::node::data::{comment::CommentData, element::ElementData, text::TextData};
+use crate::html5_parser::node::data::{comment::CommentData, text::TextData};
 use crate::html5_parser::node::NodeType;
 use crate::html5_parser::node::{Node, NodeData, NodeId};
 use crate::html5_parser::node::{NodeTrait, HTML_NAMESPACE};
@@ -251,11 +251,9 @@ impl Document {
             NodeData::Comment(CommentData { value, .. }) => {
                 _ = writeln!(f, "{}<!-- {} -->", buffer, value);
             }
-            NodeData::Element(ElementData {
-                name, attributes, ..
-            }) => {
-                _ = write!(f, "{}<{}", buffer, name);
-                for (key, value) in attributes.iter() {
+            NodeData::Element(element) => {
+                _ = write!(f, "{}<{}", buffer, element.name);
+                for (key, value) in element.attributes.iter() {
                     _ = write!(f, " {}={}", key, value);
                 }
                 _ = writeln!(f, ">");
