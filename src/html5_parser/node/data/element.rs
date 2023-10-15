@@ -1,18 +1,18 @@
 use crate::html5_parser::element_class::ElementClass;
-use crate::html5_parser::parser::document::DocumentFragment;
+use crate::html5_parser::node::NodeId;
+use crate::html5_parser::parser::document::{Document, DocumentFragment, DocumentHandle};
 use std::collections::hash_map::Iter;
 use std::collections::HashMap;
 
 #[derive(Debug, PartialEq, Clone)]
 /// Data structure for storing element attributes (ie: class="foo")
 pub(crate) struct ElementAttributes {
-    pub(crate) attributes: HashMap<String, String>,
-}
-
-impl Default for ElementAttributes {
-    fn default() -> Self {
-        Self::new()
-    }
+    /// Numerical ID of the node these attributes are tied to
+    pub(crate) node_id: NodeId,
+    /// Pointer to the document that the node associated with these attributes are tied to
+    pub(crate) document: DocumentHandle,
+    /// Key-value pair of all attributes
+    attributes: HashMap<String, String>,
 }
 
 /// This is a very thin wrapper around a HashMap.
@@ -20,14 +20,22 @@ impl Default for ElementAttributes {
 /// This "controls" what you're allowed to do with an element's attributes
 /// so there are no unexpected modifications.
 impl ElementAttributes {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(node_id: NodeId, document: DocumentHandle) -> Self {
         Self {
+            node_id,
+            document,
             attributes: HashMap::new(),
         }
     }
 
-    pub(crate) fn with_attributes(attributes: HashMap<String, String>) -> Self {
+    pub(crate) fn with_attributes(
+        node_id: NodeId,
+        document: DocumentHandle,
+        attributes: HashMap<String, String>,
+    ) -> Self {
         Self {
+            node_id,
+            document,
             attributes: attributes.clone(),
         }
     }
@@ -78,11 +86,18 @@ impl ElementAttributes {
             self.insert(key, value);
         }
     }
+
+    /// Clones the internal map of attributes (NOT the attributes object itself)
+    pub(crate) fn clone_map(&self) -> HashMap<String, String> {
+        self.attributes.clone()
+    }
 }
 
 #[derive(Debug, PartialEq, Clone)]
 /// Data structure for element nodes
 pub struct ElementData {
+    /// Numerical ID of the node this data is attached to
+    pub(crate) node_id: NodeId,
     /// Name of the element (e.g., div)
     pub(crate) name: String,
     /// Element's attributes stored as key-value pairs
@@ -93,39 +108,49 @@ pub struct ElementData {
     pub(crate) force_async: bool,
     // Template contents (when it's a template element)
     pub(crate) template_contents: Option<DocumentFragment>,
-}
-
-impl Default for ElementData {
-    fn default() -> Self {
-        Self::new()
-    }
+    /// Pointer to the document the node associated with this data is tied to
+    pub(crate) document: DocumentHandle,
 }
 
 impl ElementData {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(node_id: NodeId, document: DocumentHandle) -> Self {
         Self {
+            node_id,
             name: "".to_string(),
-            attributes: ElementAttributes::new(),
+            attributes: ElementAttributes::new(node_id, Document::clone(&document)),
             classes: ElementClass::new(),
             force_async: false,
             template_contents: None,
+            document,
         }
     }
 
     pub(crate) fn with_name_and_attributes(
+        node_id: NodeId,
+        document: DocumentHandle,
         name: &str,
         attributes: HashMap<String, String>,
     ) -> Self {
         Self {
+            node_id,
             name: name.into(),
-            attributes: ElementAttributes::with_attributes(attributes),
+            attributes: ElementAttributes::with_attributes(
+                node_id,
+                Document::clone(&document),
+                attributes,
+            ),
             classes: ElementClass::new(),
             force_async: false,
             template_contents: None,
+            document,
         }
     }
 
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    pub(crate) fn set_id(&mut self, node_id: NodeId) {
+        self.node_id = node_id;
     }
 }

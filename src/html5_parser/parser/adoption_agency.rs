@@ -1,4 +1,3 @@
-use crate::html5_parser::node::data::element::ElementData;
 use crate::html5_parser::node::{Node, NodeData, NodeId, HTML_NAMESPACE};
 use crate::html5_parser::parser::{ActiveElement, Html5Parser, Scope};
 use crate::html5_parser::tokenizer::token::Token;
@@ -172,9 +171,7 @@ impl<'stream> Html5Parser<'stream> {
                 // Step 4.13.6
                 // replace the old node with the new replacement node
                 let node_attributes = match node.data {
-                    NodeData::Element(ElementData { attributes, .. }) => {
-                        attributes.attributes.clone()
-                    }
+                    NodeData::Element(element) => element.attributes.clone_map(),
                     _ => HashMap::new(),
                 };
 
@@ -223,12 +220,10 @@ impl<'stream> Html5Parser<'stream> {
 
             // Step 4.15
             let new_element = match formatting_element_node.data {
-                NodeData::Element(ElementData {
-                    name, attributes, ..
-                }) => Node::new_element(
+                NodeData::Element(element) => Node::new_element(
                     &self.document,
-                    name.as_str(),
-                    attributes.attributes.clone(),
+                    element.name.as_str(),
+                    element.attributes.clone_map(),
                     HTML_NAMESPACE,
                 ),
                 _ => panic!("formatting element is not an element"),
@@ -299,8 +294,8 @@ impl<'stream> Html5Parser<'stream> {
                 ActiveElement::Node(node_id) => {
                     // Check if the given node is an element with the given subject
                     let node = get_node_by_id!(self, node_id).clone();
-                    if let NodeData::Element(ElementData { name, .. }) = &node.data {
-                        if name == subject {
+                    if let NodeData::Element(element) = &node.data {
+                        if element.name == subject {
                             return Some(idx);
                         }
                     }

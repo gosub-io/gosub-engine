@@ -1,5 +1,5 @@
 use crate::html5_parser::node::arena::NodeArena;
-use crate::html5_parser::node::data::{comment::CommentData, element::ElementData, text::TextData};
+use crate::html5_parser::node::data::{comment::CommentData, text::TextData};
 use crate::html5_parser::node::NodeType;
 use crate::html5_parser::node::{Node, NodeData, NodeId};
 use crate::html5_parser::node::{NodeTrait, HTML_NAMESPACE};
@@ -181,6 +181,8 @@ impl Document {
 
     // Add to the document
     pub fn add_node(&mut self, node: Node, parent_id: NodeId) -> NodeId {
+        // TODO: this will be refactored and removed in an upcoming PR
+        // when we make modifications to ElementAttributes.insert()
         let mut node_named_id: Option<String> = None;
         if let NodeData::Element(element) = &node.data {
             if let Some(named_id) = element.attributes.get("id") {
@@ -188,13 +190,20 @@ impl Document {
             }
         }
 
-        let node_type = node.type_of();
         let node_id = self.arena.add_node(node);
-        if node_type == NodeType::Element {
-            if let Some(node_named_id) = node_named_id {
-                self.set_node_named_id(node_id, &node_named_id);
+
+        // TODO: this will also be removed like above note
+        if let Some(named_id) = node_named_id {
+            self.set_node_named_id(node_id, &named_id);
+        }
+
+        // update the node's ID (it uses default ID when first created)
+        if let Some(node) = self.get_node_by_id_mut(node_id) {
+            if let NodeData::Element(element) = &mut node.data {
+                element.set_id(node_id);
             }
         }
+
         self.arena.attach_node(parent_id, node_id);
         node_id
     }
@@ -251,11 +260,9 @@ impl Document {
             NodeData::Comment(CommentData { value, .. }) => {
                 _ = writeln!(f, "{}<!-- {} -->", buffer, value);
             }
-            NodeData::Element(ElementData {
-                name, attributes, ..
-            }) => {
-                _ = write!(f, "{}<{}", buffer, name);
-                for (key, value) in attributes.iter() {
+            NodeData::Element(element) => {
+                _ = write!(f, "{}<{}", buffer, element.name);
+                for (key, value) in element.attributes.iter() {
                     _ = write!(f, " {}={}", key, value);
                 }
                 _ = writeln!(f, ">");
@@ -301,6 +308,16 @@ impl Display for DocumentHandle {
 impl PartialEq for DocumentHandle {
     fn eq(&self, other: &Self) -> bool {
         self.0.eq(&other.0)
+    }
+}
+
+// NOTE: it is preferred to use Document::clone() when
+// copying a DocumentHandle reference. However, for
+// any structs using this handle that use #[derive(Clone)],
+// this implementation is required.
+impl Clone for DocumentHandle {
+    fn clone(&self) -> DocumentHandle {
+        DocumentHandle(Rc::clone(&self.0))
     }
 }
 
@@ -399,7 +416,7 @@ mod tests {
         let attributes = HashMap::new();
         let mut document = Document::shared();
         let node = Node::new_element(&document, "div", attributes.clone(), HTML_NAMESPACE);
-        let node_id = NodeId(0);
+        let node_id = NodeId::from(0);
         let _ = document.get_mut().add_node(node, node_id);
         // invalid name (empty)
         document.get_mut().set_node_named_id(node_id, "");
@@ -443,7 +460,7 @@ mod tests {
     fn set_named_id_to_non_element() {
         let mut document = Document::shared();
         let node = Node::new_text(&document, "sample");
-        let node_id = NodeId(0);
+        let node_id = NodeId::from(0);
         let _ = document.get_mut().add_node(node, node_id);
 
         // even if this is a valid name, nothing will happen since it's not an Element type
@@ -478,15 +495,15 @@ mod tests {
             _ => panic!(),
         }
 
-        let _ = document.get_mut().add_node(node1, NodeId(0));
-        let _ = document.get_mut().add_node(node2, NodeId(1));
+        let _ = document.get_mut().add_node(node1, NodeId::from(0));
+        let _ = document.get_mut().add_node(node2, NodeId::from(1));
 
         // two elements here have the same ID, the ID will only be tied to NodeId(0) since
         // the HTML5 spec specifies that every ID must uniquely specify one element in the DOM
         // and we inserted NodeId(0) first
         assert_eq!(
             document.get().get_node_by_named_id("myid").unwrap().id,
-            NodeId(0)
+            NodeId::from(0)
         );
 
         // however, with that in mind, NodeId(1) will still have id="myid" on the Node itself,
@@ -494,7 +511,39 @@ mod tests {
         // will still NOT be searchable under get_node_by_named_id. This behaviour can be changed
         // by using a stack/vector/queue/whatever in the HashMap, but since the spec states
         // there should be one unique ID per element, I don't think we should support it
-        document.get_mut().set_node_named_id(NodeId(0), "otherid");
+        document
+            .get_mut()
+            .set_node_named_id(NodeId::from(0), "otherid");
         assert!(document.get().get_node_by_named_id("myid").is_none());
+    }
+
+    #[test]
+    fn verify_node_ids_in_element_data() {
+        let mut document = Document::shared();
+        let document_clone = Document::clone(&document);
+        document.get_mut().create_root(&document_clone);
+
+        let node1 = Node::new_element(&document, "div", HashMap::new(), HTML_NAMESPACE);
+        let node2 = Node::new_element(&document, "div", HashMap::new(), HTML_NAMESPACE);
+
+        document.get_mut().add_node(node1, NodeId::from(0));
+        document.get_mut().add_node(node2, NodeId::from(0));
+
+        let doc_ptr = document.get();
+
+        let get_node1 = doc_ptr.get_node_by_id(NodeId::from(1)).unwrap();
+        let get_node2 = doc_ptr.get_node_by_id(NodeId::from(2)).unwrap();
+
+        let NodeData::Element(element1) = &get_node1.data else {
+            panic!()
+        };
+
+        assert_eq!(element1.node_id, NodeId::from(1));
+
+        let NodeData::Element(element2) = &get_node2.data else {
+            panic!()
+        };
+
+        assert_eq!(element2.node_id, NodeId::from(2));
     }
 }

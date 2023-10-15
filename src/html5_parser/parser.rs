@@ -3516,7 +3516,6 @@ impl<'stream> Html5Parser<'stream> {
 mod test {
     use super::*;
     use crate::html5_parser::input_stream::Encoding;
-    use crate::html5_parser::node::data::element::ElementData;
 
     macro_rules! node_create {
         ($self:expr, $name:expr) => {{
@@ -3772,19 +3771,19 @@ mod test {
         // document -> html -> head -> body -> div
         let div = binding.get_node_by_id(4.into()).unwrap();
 
-        let NodeData::Element(ElementData { classes, .. }) = &div.data else {
+        let NodeData::Element(element) = &div.data else {
             panic!()
         };
 
-        assert_eq!(classes.len(), 3);
+        assert_eq!(element.classes.len(), 3);
 
-        assert!(classes.contains("one"));
-        assert!(classes.contains("two"));
-        assert!(classes.contains("three"));
+        assert!(element.classes.contains("one"));
+        assert!(element.classes.contains("two"));
+        assert!(element.classes.contains("three"));
 
-        assert!(classes.is_active("one"));
-        assert!(classes.is_active("two"));
-        assert!(classes.is_active("three"));
+        assert!(element.classes.is_active("one"));
+        assert!(element.classes.is_active("two"));
+        assert!(element.classes.is_active("three"));
     }
 
     #[test]
@@ -3804,19 +3803,19 @@ mod test {
         // document -> html -> head -> body -> div
         let div = binding.get_node_by_id(4.into()).unwrap();
 
-        let NodeData::Element(ElementData { classes, .. }) = &div.data else {
+        let NodeData::Element(element) = &div.data else {
             panic!()
         };
 
-        assert_eq!(classes.len(), 3);
+        assert_eq!(element.classes.len(), 3);
 
-        assert!(classes.contains("one"));
-        assert!(classes.contains("two"));
-        assert!(classes.contains("three"));
+        assert!(element.classes.contains("one"));
+        assert!(element.classes.contains("two"));
+        assert!(element.classes.contains("three"));
 
-        assert!(classes.is_active("one"));
-        assert!(classes.is_active("two"));
-        assert!(classes.is_active("three"));
+        assert!(element.classes.is_active("one"));
+        assert!(element.classes.is_active("two"));
+        assert!(element.classes.is_active("three"));
     }
 
     #[test]
