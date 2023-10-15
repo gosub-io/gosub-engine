@@ -45,8 +45,44 @@ impl ElementAttributes {
         self.attributes.contains_key(name)
     }
 
+    /// according to HTML5 spec: 3.2.3.1
+    /// https://www.w3.org/TR/2011/WD-html5-20110405/elements.html#the-id-attribute
+    fn validate_named_id(&self, named_id: &str) -> bool {
+        if named_id.contains(char::is_whitespace) {
+            return false;
+        }
+
+        if named_id.is_empty() {
+            return false;
+        }
+
+        // must contain at least one character, but
+        // doesn't specify it should *start* with a character
+        if !named_id.contains(char::is_alphabetic) {
+            return false;
+        }
+
+        true
+    }
+
     /// Inserts a new attribute into the map.
     pub(crate) fn insert(&mut self, name: &str, value: &str) {
+        // handle special cases
+        match name {
+            "id" => {
+                if self.validate_named_id(value) && !self.document.get().named_id_elements.contains_key(value) {
+                    if let Some(old_named_id) = self.attributes.get("id") {
+                        self.document.get_mut().named_id_elements.remove(old_named_id);
+                    }
+                    self.document.get_mut().named_id_elements.insert(name.to_owned(), self.node_id);
+                }
+            }
+            "class" => {
+                todo!()
+            }
+            _ => {}
+        }
+
         self.attributes.insert(name.to_owned(), value.to_owned());
     }
 
@@ -152,5 +188,6 @@ impl ElementData {
 
     pub(crate) fn set_id(&mut self, node_id: NodeId) {
         self.node_id = node_id;
+        self.attributes.node_id = node_id;
     }
 }

@@ -1,8 +1,7 @@
 use crate::html5_parser::node::arena::NodeArena;
 use crate::html5_parser::node::data::{comment::CommentData, text::TextData};
-use crate::html5_parser::node::NodeType;
 use crate::html5_parser::node::{Node, NodeData, NodeId};
-use crate::html5_parser::node::{NodeTrait, HTML_NAMESPACE};
+use crate::html5_parser::node::HTML_NAMESPACE;
 use crate::html5_parser::parser::quirks::QuirksMode;
 use alloc::rc::Rc;
 use core::fmt;
@@ -57,7 +56,7 @@ impl DocumentFragment {
 #[derive(Debug, PartialEq)]
 pub struct Document {
     arena: NodeArena,
-    named_id_elements: HashMap<String, NodeId>, // HTML elements with ID (e.g., <div id="myid">)
+    pub(crate) named_id_elements: HashMap<String, NodeId>, // HTML elements with ID (e.g., <div id="myid">)
     pub doctype: DocumentType,                  // Document type
     pub quirks_mode: QuirksMode,                // Quirks mode
 }
@@ -130,72 +129,10 @@ impl Document {
         self.arena.get_node_mut(*node_id)
     }
 
-    /// according to HTML5 spec: 3.2.3.1
-    /// https://www.w3.org/TR/2011/WD-html5-20110405/elements.html#the-id-attribute
-    fn validate_named_id(&self, named_id: &str) -> bool {
-        if named_id.contains(char::is_whitespace) {
-            return false;
-        }
-
-        if named_id.is_empty() {
-            return false;
-        }
-
-        // must contain at least one character, but
-        // doesn't specify it should *start* with a character
-        if !named_id.contains(char::is_alphabetic) {
-            return false;
-        }
-
-        true
-    }
-
-    /// Set a new named ID on a node (also updates the underlying node's attribute)
-    /// ID will NOT be set if it doesn't pass validation
-    pub fn set_node_named_id(&mut self, node_id: NodeId, named_id: &str) {
-        if !self.validate_named_id(named_id) {
-            return;
-        }
-
-        // if ID already exists in DOM tree, do nothing
-        if self.named_id_elements.contains_key(named_id) {
-            return;
-        }
-
-        let mut old_named_id: Option<String> = None;
-        if let Some(node) = self.get_node_by_id_mut(node_id) {
-            if node.type_of() != NodeType::Element {
-                return;
-            }
-
-            old_named_id = node.get_named_id();
-
-            node.set_named_id(named_id);
-            self.named_id_elements.insert(named_id.to_owned(), node_id);
-        }
-
-        if let Some(old_named_id) = old_named_id {
-            self.named_id_elements.remove(&old_named_id);
-        }
-    }
-
     // Add to the document
     pub fn add_node(&mut self, node: Node, parent_id: NodeId) -> NodeId {
-        // TODO: this will be refactored and removed in an upcoming PR
-        // when we make modifications to ElementAttributes.insert()
-        let mut node_named_id: Option<String> = None;
-        if let NodeData::Element(element) = &node.data {
-            if let Some(named_id) = element.attributes.get("id") {
-                node_named_id = Some(named_id.clone());
-            }
-        }
 
         let node_id = self.arena.add_node(node);
-
-        // TODO: this will also be removed like above note
-        if let Some(named_id) = node_named_id {
-            self.set_node_named_id(node_id, &named_id);
-        }
 
         // update the node's ID (it uses default ID when first created)
         if let Some(node) = self.get_node_by_id_mut(node_id) {
@@ -418,58 +355,39 @@ mod tests {
         let node = Node::new_element(&document, "div", attributes.clone(), HTML_NAMESPACE);
         let node_id = NodeId::from(0);
         let _ = document.get_mut().add_node(node, node_id);
+        let NodeData::Element(element) = &node.data else {
+            panic!()
+        };
         // invalid name (empty)
-        document.get_mut().set_node_named_id(node_id, "");
+        element.attributes.insert("id", "");
         assert!(!document
             .get()
-            .get_node_by_id(node_id)
-            .unwrap()
-            .has_named_id());
+            .named_id_elements
+            .contains_key(""));
         // invalid name (spaces)
-        document.get_mut().set_node_named_id(node_id, "my id");
+        element.attributes.insert("id", "my id");
         assert!(!document
             .get()
-            .get_node_by_id(node_id)
-            .unwrap()
-            .has_named_id());
+            .named_id_elements
+            .contains_key("my id"));
         // invalid name (no characters)
-        document.get_mut().set_node_named_id(node_id, "123");
+        element.attributes.insert("id", "123");
         assert!(!document
             .get()
-            .get_node_by_id(node_id)
-            .unwrap()
-            .has_named_id());
+            .named_id_elements
+            .contains_key("123"));
         // valid name
-        document.get_mut().set_node_named_id(node_id, "myid");
+        element.attributes.insert("id", "myid");
         assert!(document
             .get()
-            .get_node_by_id(node_id)
-            .unwrap()
-            .has_named_id());
+            .named_id_elements
+            .contains_key("myid"));
         assert_eq!(
-            document
+            *document
                 .get()
-                .get_node_by_id(node_id)
-                .unwrap()
-                .get_named_id(),
-            Some("myid".to_owned())
-        );
-    }
-
-    #[test]
-    fn set_named_id_to_non_element() {
-        let mut document = Document::shared();
-        let node = Node::new_text(&document, "sample");
-        let node_id = NodeId::from(0);
-        let _ = document.get_mut().add_node(node, node_id);
-
-        // even if this is a valid name, nothing will happen since it's not an Element type
-        document.get_mut().set_node_named_id(node_id, "myid");
-        assert!(!document
-            .get()
-            .get_node_by_id(node_id)
-            .unwrap()
-            .has_named_id());
+                .named_id_elements
+                .get("myid")
+                .unwrap(), NodeId::from(1));
     }
 
     #[test]
@@ -511,9 +429,13 @@ mod tests {
         // will still NOT be searchable under get_node_by_named_id. This behaviour can be changed
         // by using a stack/vector/queue/whatever in the HashMap, but since the spec states
         // there should be one unique ID per element, I don't think we should support it
-        document
-            .get_mut()
-            .set_node_named_id(NodeId::from(0), "otherid");
+        match &mut node1.data {
+            NodeData::Element(element) => {
+                element.attributes.insert("id", "otherid");
+            }
+            _ => panic!(),
+        }
+
         assert!(document.get().get_node_by_named_id("myid").is_none());
     }
 

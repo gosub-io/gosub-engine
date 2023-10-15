@@ -224,39 +224,6 @@ impl Node {
 
         false
     }
-
-    /// Check if node has a named ID
-    pub fn has_named_id(&self) -> bool {
-        if self.type_of() != NodeType::Element {
-            return false;
-        }
-
-        self.named_id.is_some()
-    }
-
-    /// Set named ID (only applies to Element type, does nothing otherwise)
-    pub fn set_named_id(&mut self, named_id: &str) {
-        if self.type_of() == NodeType::Element {
-            self.named_id = Some(named_id.to_owned());
-            if let NodeData::Element(element) = &mut self.data {
-                element.attributes.insert("id", named_id);
-            }
-        }
-    }
-
-    /// Get named ID. If not present or type is not Element, returns None
-    pub fn get_named_id(&self) -> Option<String> {
-        if self.type_of() != NodeType::Element {
-            return None;
-        }
-
-        if !self.has_named_id() {
-            return None;
-        }
-
-        // don't want to return the actual internal String
-        self.named_id.clone()
-    }
 }
 
 pub trait NodeTrait {
