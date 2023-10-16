@@ -42,13 +42,38 @@ pub enum AttributeSelectorValue {
     None,
 }
 
+#[derive(PartialEq)]
+pub enum AttributeMatcher {
+    IncludeMatch,
+    DashMatch,
+    PrefixMatch,
+    SuffixMatch,
+    SubstringMatch,
+    EqualityMatch,
+}
+
+impl Debug for AttributeMatcher {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let matcher = match self {
+            AttributeMatcher::IncludeMatch => "~=",
+            AttributeMatcher::DashMatch => "|=",
+            AttributeMatcher::PrefixMatch => "^=",
+            AttributeMatcher::SuffixMatch => "$=",
+            AttributeMatcher::SubstringMatch => "*=",
+            AttributeMatcher::EqualityMatch => "=",
+        };
+
+        write!(f, "{}", matcher)
+    }
+}
+
 /// [Attribute Selector](https://drafts.csswg.org/selectors/#attribute-selectors)
 #[derive(Debug, PartialEq)]
 pub struct AttributeSelector {
-    name: Identifier,
-    matcher: Option<String>,
-    value: AttributeSelectorValue,
-    flags: Option<String>,
+    pub name: Identifier,
+    pub matcher: Option<AttributeMatcher>,
+    pub value: Option<CssString>,
+    pub flag: Option<Identifier>,
 }
 
 /// [Id Selector](https://drafts.csswg.org/selectors/#id-selectors)
@@ -64,8 +89,8 @@ impl Debug for IdSelector {
 }
 
 impl IdSelector {
-    pub fn new(name: String) -> IdSelector {
-        IdSelector { name }
+    pub fn new<S: Into<String>>(name: S) -> IdSelector {
+        IdSelector { name: name.into() }
     }
 }
 
@@ -85,6 +110,12 @@ impl ClassSelector {
 #[derive(Debug, PartialEq)]
 pub struct TypeSelector {
     name: String,
+}
+
+impl TypeSelector {
+    pub fn new<S: Into<String>>(name: S) -> TypeSelector {
+        TypeSelector { name: name.into() }
+    }
 }
 
 /// [Nesting Selector](https://drafts.csswg.org/css-nesting/#nest-selector)
@@ -125,8 +156,8 @@ impl Debug for Identifier {
 }
 
 impl Identifier {
-    pub fn new(name: String) -> Identifier {
-        Identifier { name }
+    pub fn new<S: Into<String>>(name: S) -> Identifier {
+        Identifier { name: name.into() }
     }
 }
 
@@ -135,9 +166,31 @@ pub struct CDC;
 #[derive(Debug, PartialEq)]
 pub struct CDO;
 
-#[derive(Debug, PartialEq)]
-pub struct Combinator {
-    name: String,
+#[derive(PartialEq)]
+pub enum Combinator {
+    ChildCombinator,
+    ColumnCombinator,
+    SelectorListCombinator,
+    DescendantCombinator,
+    NamespaceSeparator,
+    NextSiblingCombinator,
+    SubsequentSiblingCombinator,
+}
+
+impl Debug for Combinator {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let combinator = match self {
+            Combinator::ChildCombinator => ">",
+            Combinator::ColumnCombinator => "||",
+            Combinator::SelectorListCombinator => ",",
+            Combinator::DescendantCombinator => "' '",
+            Combinator::NamespaceSeparator => "|",
+            Combinator::NextSiblingCombinator => "+",
+            Combinator::SubsequentSiblingCombinator => "~",
+        };
+
+        write!(f, "{}", combinator)
+    }
 }
 
 #[derive(Debug, PartialEq, Default)]
@@ -148,10 +201,10 @@ pub struct Declaration {
 }
 
 impl Declaration {
-    pub fn new(property: String, value: ValueList) -> Declaration {
+    pub fn new<S: Into<String>>(property: S, value: ValueList) -> Declaration {
         Declaration {
             important: false,
-            property,
+            property: property.into(),
             value,
         }
     }
@@ -160,8 +213,8 @@ impl Declaration {
         self.important = important;
     }
 
-    pub fn set_property(&mut self, property: String) {
-        self.property = property;
+    pub fn set_property<S: Into<String>>(&mut self, property: S) {
+        self.property = property.into();
     }
 
     pub fn set_value(&mut self, value: ValueList) {
@@ -197,8 +250,11 @@ impl Debug for Dimension {
 }
 
 impl Dimension {
-    pub fn new(value: String, unit: Option<String>) -> Dimension {
-        Dimension { value, unit }
+    pub fn new<S: Into<String>, U: Into<String>>(value: S, unit: Option<U>) -> Dimension {
+        Dimension {
+            value: value.into(),
+            unit: unit.map(|u| u.into()),
+        }
     }
 }
 
@@ -277,9 +333,17 @@ pub struct CssNumber {
     value: String,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Default, Debug, PartialEq)]
 pub struct CssString {
     value: String,
+}
+
+impl CssString {
+    pub fn new<S: Into<String>>(value: S) -> CssString {
+        CssString {
+            value: value.into(),
+        }
+    }
 }
 
 // todo: should be "enum"
@@ -337,6 +401,7 @@ pub enum Selector {
     AttributeSelector(AttributeSelector),
     TypeSelector(TypeSelector),
     NestingSelector(NestingSelector),
+    Combinator(Combinator),
 }
 
 #[derive(Debug, PartialEq, Default)]
