@@ -1,4 +1,4 @@
-use crate::css::tokens::{Token, TOKEN_REFS};
+use crate::css3::tokens::{Token, TOKEN_REFS};
 use regex::{self, Regex};
 
 /// CSS Tokenizer
@@ -40,10 +40,10 @@ impl Tokenizer {
             let result = re.captures(raw);
 
             println!(
-                "[get_next_token] value={:?}, token_type={:?} for raw={}",
+                "[get_next_token] value={:?}, token_type={:?} for raw={:?}",
                 result,
                 token_type,
-                &raw.trim(),
+                raw.trim().lines().collect::<Vec<&str>>().first(),
             );
 
             if let Some(cap) = result {
@@ -64,7 +64,7 @@ impl Tokenizer {
 
 #[cfg(test)]
 mod test {
-    use crate::css::tokens::TokenType;
+    use crate::css3::tokens::TokenType;
 
     use super::*;
 
