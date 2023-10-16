@@ -13,7 +13,8 @@ impl Default for DocumentData {
 
 impl Debug for DocumentData {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "[DocumentData]")
+        let mut debug = f.debug_struct("DocumentData");
+        debug.finish()
     }
 }
 

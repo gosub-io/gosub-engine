@@ -117,7 +117,16 @@ impl Debug for Node {
         debug.field("parent", &self.parent);
         debug.field("children", &self.children);
         debug.field("name", &self.name);
-        debug.field("namespace", &self.namespace);
+        match &self.namespace {
+            Some(namespace) if namespace == HTML_NAMESPACE => debug.field("namespace", &"HTML"),
+            Some(namespace) if namespace == XML_NAMESPACE => debug.field("namespace", &"XML"),
+            Some(namespace) if namespace == XMLNS_NAMESPACE => debug.field("namespace", &"XMLNS"),
+            Some(namespace) if namespace == MATHML_NAMESPACE => debug.field("namespace", &"MATHML"),
+            Some(namespace) if namespace == SVG_NAMESPACE => debug.field("namespace", &"SVG"),
+            Some(namespace) if namespace == XLINK_NAMESPACE => debug.field("namespace", &"XLINK"),
+            None => debug.field("namespace", &"None"),
+            _ => debug.field("namespace", &"unknown"),
+        };
         debug.field("data", &self.data);
         debug.finish()
     }

@@ -6,11 +6,6 @@ use std::collections::HashMap;
 const ADOPTION_AGENCY_OUTER_LOOP_DEPTH: usize = 8;
 const ADOPTION_AGENCY_INNER_LOOP_DEPTH: usize = 3;
 
-pub enum AdoptionResult {
-    ProcessAsAnyOther,
-    Completed,
-}
-
 impl<'stream> Html5Parser<'stream> {
     /**
      * When we talk about nodes, there are 3 contexts to consider:
@@ -20,7 +15,7 @@ impl<'stream> Html5Parser<'stream> {
      * - The node index. This is called "node_idx" in the code. This is the index of the node in
      *   either the open_elements or active_formatting_elements stack.
      */
-    pub fn run_adoption_agency(&mut self, token: &Token) -> AdoptionResult {
+    pub fn run_adoption_agency(&mut self, token: &Token) {
         // Step 1
         let subject = match token {
             Token::EndTagToken { name, .. } => name,
@@ -37,7 +32,7 @@ impl<'stream> Html5Parser<'stream> {
                 .any(|elem| elem == &ActiveElement::Node(current_node_id))
         {
             self.open_elements.pop();
-            return AdoptionResult::Completed;
+            return;
         }
 
         // Step 3
@@ -47,7 +42,7 @@ impl<'stream> Html5Parser<'stream> {
         loop {
             // Step 4.1
             if outer_loop_counter >= ADOPTION_AGENCY_OUTER_LOOP_DEPTH {
-                return AdoptionResult::Completed;
+                return;
             }
 
             // Step 4.2
@@ -56,7 +51,8 @@ impl<'stream> Html5Parser<'stream> {
             // Step 4.3
             let formatting_element_idx_afe = self.find_formatting_element(subject);
             if formatting_element_idx_afe.is_none() {
-                return AdoptionResult::ProcessAsAnyOther;
+                self.handle_in_body_any_other_end_tag();
+                return;
             }
 
             let mut formatting_element_idx_afe =
@@ -73,13 +69,13 @@ impl<'stream> Html5Parser<'stream> {
                 self.active_formatting_elements
                     .remove(formatting_element_idx_afe);
 
-                return AdoptionResult::Completed;
+                return;
             }
 
             // Step 4.5
             if !self.is_in_scope(&formatting_element_node.name, Scope::Regular) {
                 self.parse_error("formatting element not in scope");
-                return AdoptionResult::Completed;
+                return;
             }
 
             // Step 4.6
@@ -107,7 +103,7 @@ impl<'stream> Html5Parser<'stream> {
                 self.active_formatting_elements
                     .remove(formatting_element_idx_afe);
 
-                return AdoptionResult::Completed;
+                return;
             }
 
             let furthest_block_idx_oe = furthest_block_idx_oe.expect("furthest block not found");

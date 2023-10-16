@@ -1,8 +1,10 @@
 use crate::html5_parser::element_class::ElementClass;
 use crate::html5_parser::node::NodeId;
 use crate::html5_parser::parser::document::{Document, DocumentFragment, DocumentHandle};
+use core::fmt::{Debug, Formatter};
 use std::collections::hash_map::Iter;
 use std::collections::HashMap;
+use std::fmt;
 
 #[derive(Debug, PartialEq, Clone)]
 /// Data structure for storing element attributes (ie: class="foo")
@@ -93,7 +95,7 @@ impl ElementAttributes {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(PartialEq, Clone)]
 /// Data structure for element nodes
 pub struct ElementData {
     /// Numerical ID of the node this data is attached to
@@ -110,6 +112,13 @@ pub struct ElementData {
     pub(crate) template_contents: Option<DocumentFragment>,
     /// Pointer to the document the node associated with this data is tied to
     pub(crate) document: DocumentHandle,
+}
+
+impl Debug for ElementData {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let mut debug = f.debug_struct("ElementData");
+        debug.finish()
+    }
 }
 
 impl ElementData {
