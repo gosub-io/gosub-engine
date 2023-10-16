@@ -3,6 +3,7 @@ use crate::html5_parser::node::data::comment::CommentData;
 use crate::html5_parser::node::data::document::DocumentData;
 use crate::html5_parser::node::data::element::ElementData;
 use crate::html5_parser::node::data::text::TextData;
+use core::fmt::Debug;
 use derive_more::Display;
 use std::collections::HashMap;
 
@@ -35,7 +36,7 @@ pub enum NodeData {
 }
 
 /// Id used to identify a node
-#[derive(Copy, Debug, Default, Eq, Hash, PartialEq, Display)]
+#[derive(Copy, Debug, Default, Eq, Hash, PartialEq, Display, PartialOrd)]
 pub struct NodeId(pub(crate) usize);
 
 impl From<NodeId> for usize {
@@ -88,7 +89,7 @@ impl NodeId {
 }
 
 /// Node that resembles a DOM node
-#[derive(Debug, PartialEq)]
+#[derive(PartialEq)]
 pub struct Node {
     /// ID of the node, 0 is always the root / document node
     pub id: NodeId,
@@ -106,6 +107,20 @@ pub struct Node {
     pub data: NodeData,
     /// pointer to document this node is attached to
     pub document: DocumentHandle,
+}
+
+impl Debug for Node {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut debug = f.debug_struct("Node");
+        debug.field("id", &self.id);
+        debug.field("named_id", &self.named_id);
+        debug.field("parent", &self.parent);
+        debug.field("children", &self.children);
+        debug.field("name", &self.name);
+        debug.field("namespace", &self.namespace);
+        debug.field("data", &self.data);
+        debug.finish()
+    }
 }
 
 impl Node {

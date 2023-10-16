@@ -23,7 +23,7 @@ pub struct DocumentFragment {
     // Node elements inside this fragment
     arena: NodeArena,
     // Document contents owner
-    doc: DocumentHandle,
+    pub doc: DocumentHandle,
     // Host node
     host: NodeId,
 }
@@ -179,10 +179,13 @@ impl Document {
         }
     }
 
-    // Add to the document
-    pub fn add_node(&mut self, node: Node, parent_id: NodeId) -> NodeId {
-        // TODO: this will be refactored and removed in an upcoming PR
-        // when we make modifications to ElementAttributes.insert()
+    // Insert node to the parent node at the given position in the children (or none to add at the end)
+    pub fn insert_node(
+        &mut self,
+        node: Node,
+        parent_id: NodeId,
+        position: Option<usize>,
+    ) -> NodeId {
         let mut node_named_id: Option<String> = None;
         if let NodeData::Element(element) = &node.data {
             if let Some(named_id) = element.attributes.get("id") {
@@ -203,13 +206,24 @@ impl Document {
                 element.set_id(node_id);
             }
         }
+        self.arena.attach_node(parent_id, node_id, position);
 
-        self.arena.attach_node(parent_id, node_id);
         node_id
     }
 
+    // Add node to the parent node at the end of its current children
+    pub fn add_node(&mut self, node: Node, parent_id: NodeId) -> NodeId {
+        self.insert_node(node, parent_id, None)
+    }
+
+    /// Insert a node at position in the children of parent_id
+    pub fn insert(&mut self, node_id: NodeId, parent_id: NodeId, position: Option<usize>) {
+        self.arena.attach_node(parent_id, node_id, position);
+    }
+
+    // Append node directly at the end of the children of parent_id
     pub fn append(&mut self, node_id: NodeId, parent_id: NodeId) {
-        self.arena.attach_node(parent_id, node_id);
+        self.arena.attach_node(parent_id, node_id, None);
     }
 
     pub fn relocate(&mut self, node_id: NodeId, parent_id: NodeId) {
@@ -334,6 +348,19 @@ impl DocumentHandle {
 
     fn add_element(&mut self, parent_id: NodeId, name: &str) -> NodeId {
         let node = Node::new_element(self, name, HashMap::new(), HTML_NAMESPACE);
+        self.get_mut().add_node(node, parent_id)
+    }
+
+    pub fn add_node_before(
+        &mut self,
+        node: Node,
+        parent_id: NodeId,
+        child_position: Option<usize>,
+    ) -> NodeId {
+        self.get_mut().insert_node(node, parent_id, child_position)
+    }
+
+    pub fn add_node(&mut self, node: Node, parent_id: NodeId) -> NodeId {
         self.get_mut().add_node(node, parent_id)
     }
 

@@ -61,14 +61,28 @@ impl NodeArena {
         id
     }
 
-    /// Add the node as a child the parent node
-    pub fn attach_node(&mut self, parent_id: NodeId, node_id: NodeId) -> bool {
+    /// Add the node as a child the parent node. If position is given, it will be inserted as a
+    /// child at that given position
+    pub fn attach_node(
+        &mut self,
+        parent_id: NodeId,
+        node_id: NodeId,
+        position: Option<usize>,
+    ) -> bool {
         //check if any children of node have parent as child
         if parent_id == node_id || has_child_recursive(self, node_id, parent_id) {
             return false;
         }
         if let Some(parent_node) = self.nodes.get_mut(&parent_id) {
-            parent_node.children.push(node_id);
+            if let Some(mut position) = position {
+                if position >= parent_node.children.len() {
+                    position = parent_node.children.len();
+                }
+                parent_node.children.insert(position, node_id);
+            } else {
+                // NO position given, add to end
+                parent_node.children.push(node_id);
+            }
         }
         if let Some(node) = self.nodes.get_mut(&node_id) {
             node.parent = Some(parent_id);
@@ -198,7 +212,7 @@ mod tests {
         let child = Node::new_element(&document, "child", HashMap::new(), HTML_NAMESPACE);
         let child_id = arena.add_node(child);
 
-        assert!(arena.attach_node(parent_id, child_id));
+        assert!(arena.attach_node(parent_id, child_id, None));
 
         let parent = arena.get_node(parent_id);
         assert!(parent.is_some());
@@ -211,6 +225,46 @@ mod tests {
     }
 
     #[test]
+    fn attach_node_with_position() {
+        let mut arena = NodeArena::new();
+        let document = Document::shared();
+
+        let parent = Node::new_element(&document, "parent", HashMap::new(), HTML_NAMESPACE);
+        let parent_id = arena.add_node(parent);
+
+        let child1 = Node::new_element(&document, "child1", HashMap::new(), HTML_NAMESPACE);
+        let child1_id = arena.add_node(child1);
+        let child2 = Node::new_element(&document, "child2", HashMap::new(), HTML_NAMESPACE);
+        let child2_id = arena.add_node(child2);
+        let child3 = Node::new_element(&document, "child3", HashMap::new(), HTML_NAMESPACE);
+        let child3_id = arena.add_node(child3);
+        let child4 = Node::new_element(&document, "child4", HashMap::new(), HTML_NAMESPACE);
+        let child4_id = arena.add_node(child4);
+
+        assert!(arena.attach_node(parent_id, child1_id, None));
+        assert!(arena.attach_node(parent_id, child2_id, None));
+        assert!(arena.attach_node(parent_id, child3_id, Some(1)));
+
+        let parent = arena.get_node(parent_id);
+        assert!(parent.is_some());
+        assert_eq!(parent.unwrap().children.len(), 3);
+        assert_eq!(parent.unwrap().children[0], child1_id);
+        assert_eq!(parent.unwrap().children[1], child3_id);
+        assert_eq!(parent.unwrap().children[2], child2_id);
+
+        // Insert at a very large position which doesn't exist
+        assert!(arena.attach_node(parent_id, child4_id, Some(123456)));
+
+        let parent = arena.get_node(parent_id);
+        assert!(parent.is_some());
+        assert_eq!(parent.unwrap().children.len(), 4);
+        assert_eq!(parent.unwrap().children[0], child1_id);
+        assert_eq!(parent.unwrap().children[1], child3_id);
+        assert_eq!(parent.unwrap().children[2], child2_id);
+        assert_eq!(parent.unwrap().children[3], child4_id);
+    }
+
+    #[test]
     fn attach_node_to_itself() {
         let mut arena = NodeArena::new();
         let document = Document::shared();
@@ -218,7 +272,7 @@ mod tests {
         let node = Node::new_element(&document, "some_node", HashMap::new(), HTML_NAMESPACE);
         let node_id = arena.add_node(node);
 
-        assert!(!arena.attach_node(node_id, node_id));
+        assert!(!arena.attach_node(node_id, node_id, None));
 
         let node = arena.get_node(node_id);
         assert!(node.is_some());
@@ -238,7 +292,7 @@ mod tests {
 
         // try and add the CHILD to the PARENT
         let child_id = arena.add_node(child);
-        assert!(!arena.attach_node(parent_id, child_id));
+        assert!(!arena.attach_node(parent_id, child_id, None));
 
         let parent = arena.get_node(parent_id);
         let child = arena.get_node(child_id);
@@ -260,8 +314,8 @@ mod tests {
         let child1_id = arena.add_node(child1);
         let child2_id = arena.add_node(child2);
 
-        assert!(arena.attach_node(parent_id, child1_id));
-        assert!(arena.attach_node(child1_id, child2_id));
+        assert!(arena.attach_node(parent_id, child1_id, None));
+        assert!(arena.attach_node(child1_id, child2_id, None));
 
         let parent = arena.get_node(parent_id);
         let child1 = arena.get_node(child1_id);
@@ -271,7 +325,7 @@ mod tests {
         assert_eq!(child2.unwrap().children.len(), 0);
 
         // Add parent to child 2, thus creating a loop
-        assert!(!arena.attach_node(child2_id, parent_id));
+        assert!(!arena.attach_node(child2_id, parent_id, None));
 
         let parent = arena.get_node(parent_id);
         let child1 = arena.get_node(child1_id);
@@ -291,7 +345,7 @@ mod tests {
         let child = Node::new_element(&document, "child", HashMap::new(), HTML_NAMESPACE);
         let child_id = arena.add_node(child);
 
-        arena.attach_node(parent_id, child_id);
+        arena.attach_node(parent_id, child_id, None);
         arena.detach_node(child_id);
 
         let parent = arena.get_node(parent_id);
@@ -314,8 +368,8 @@ mod tests {
         let child2 = Node::new_element(&document, "child2", HashMap::new(), HTML_NAMESPACE);
         let child2_id = arena.add_node(child2);
 
-        arena.attach_node(parent_id, child1_id);
-        arena.attach_node(parent_id, child2_id);
+        arena.attach_node(parent_id, child1_id, None);
+        arena.attach_node(parent_id, child2_id, None);
         let parent = arena.get_node(parent_id);
         assert!(parent.is_some());
         assert_eq!(parent.unwrap().children.len(), 2);
@@ -342,7 +396,7 @@ mod tests {
         let child = Node::new_element(&document, "child", HashMap::new(), HTML_NAMESPACE);
         let child_id = arena.add_node(child);
 
-        arena.attach_node(parent_id, child_id);
+        arena.attach_node(parent_id, child_id, None);
         arena.detach_node(parent_id);
 
         let parent = arena.get_node(parent_id);
@@ -361,7 +415,7 @@ mod tests {
         let child = Node::new_element(&document, "child", HashMap::new(), HTML_NAMESPACE);
         let child_id = arena.add_node(child);
 
-        arena.attach_node(parent_id, child_id);
+        arena.attach_node(parent_id, child_id, None);
         arena.detach_node(child_id);
         arena.detach_node(parent_id);
 
@@ -383,8 +437,8 @@ mod tests {
         let grandchild = Node::new_element(&document, "grandchild", HashMap::new(), HTML_NAMESPACE);
         let grandchild_id = arena.add_node(grandchild);
 
-        arena.attach_node(parent_id, child_id);
-        arena.attach_node(child_id, grandchild_id);
+        arena.attach_node(parent_id, child_id, None);
+        arena.attach_node(child_id, grandchild_id, None);
         arena.detach_node(child_id);
         arena.detach_node(parent_id);
 
@@ -410,9 +464,9 @@ mod tests {
         let sibling = Node::new_element(&document, "sibling", HashMap::new(), HTML_NAMESPACE);
         let sibling_id = arena.add_node(sibling);
 
-        arena.attach_node(parent_id, child_id);
-        arena.attach_node(child_id, grandchild_id);
-        arena.attach_node(parent_id, sibling_id);
+        arena.attach_node(parent_id, child_id, None);
+        arena.attach_node(child_id, grandchild_id, None);
+        arena.attach_node(parent_id, sibling_id, None);
         arena.detach_node(child_id);
         arena.detach_node(parent_id);
 

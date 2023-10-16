@@ -64,7 +64,8 @@ impl<'stream> Html5Parser<'stream> {
             let formatting_element_id = self.active_formatting_elements[formatting_element_idx_afe]
                 .node_id()
                 .expect("formatting element not found");
-            let formatting_element_node = get_node_by_id!(self, formatting_element_id).clone();
+            let formatting_element_node =
+                get_node_by_id!(self.document, formatting_element_id).clone();
 
             // Step 4.4
             if !self.open_elements_has_id(formatting_element_id) {
@@ -111,7 +112,7 @@ impl<'stream> Html5Parser<'stream> {
 
             let furthest_block_idx_oe = furthest_block_idx_oe.expect("furthest block not found");
             let furthest_block_id = open_elements_get!(self, furthest_block_idx_oe).id;
-            let furthest_block_node = get_node_by_id!(self, furthest_block_id).clone();
+            let furthest_block_node = get_node_by_id!(self.document, furthest_block_id).clone();
 
             // Step 4.9
             // Find the index of the wanted formatting element id in the open elements stack
@@ -137,7 +138,7 @@ impl<'stream> Html5Parser<'stream> {
                 // Step 4.13.2
                 node_idx_oe -= 1;
                 let node_id = open_elements_get!(self, node_idx_oe).id;
-                let node = get_node_by_id!(self, node_id).clone();
+                let node = get_node_by_id!(self.document, node_id).clone();
 
                 // Step 4.13.3
                 if node_id == formatting_element_id {
@@ -293,7 +294,7 @@ impl<'stream> Html5Parser<'stream> {
                 }
                 ActiveElement::Node(node_id) => {
                     // Check if the given node is an element with the given subject
-                    let node = get_node_by_id!(self, node_id).clone();
+                    let node = get_node_by_id!(self.document, node_id).clone();
                     if let NodeData::Element(element) = &node.data {
                         if element.name == subject {
                             return Some(idx);
