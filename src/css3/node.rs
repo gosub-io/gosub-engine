@@ -107,9 +107,15 @@ impl ClassSelector {
 }
 
 /// [TypeSelector](https://drafts.csswg.org/selectors/#type-selectors)
-#[derive(Debug, PartialEq)]
+#[derive(PartialEq)]
 pub struct TypeSelector {
     name: String,
+}
+
+impl Debug for TypeSelector {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.name)
+    }
 }
 
 impl TypeSelector {
@@ -404,6 +410,16 @@ pub enum Selector {
     Combinator(Combinator),
 }
 
+impl Selector {
+    pub fn is_combinator(&self) -> bool {
+        matches!(self, Selector::Combinator(..))
+    }
+
+    pub fn is_descendant_combinator(&self) -> bool {
+        matches!(self, Selector::Combinator(Combinator::DescendantCombinator))
+    }
+}
+
 #[derive(Debug, PartialEq, Default)]
 pub struct SelectorList {
     children: Vec<Selector>,
@@ -414,8 +430,30 @@ impl SelectorList {
         SelectorList { children }
     }
 
-    pub fn add_child(&mut self, selector: Selector) {
-        self.children.push(selector)
+    pub fn push(&mut self, selector: Selector) -> &mut SelectorList {
+        self.children.push(selector);
+
+        self
+    }
+
+    pub fn pop(&mut self) -> &mut SelectorList {
+        self.children.pop();
+
+        self
+    }
+
+    pub fn last(&self) -> Option<&Selector> {
+        self.children.last()
+    }
+
+    pub fn is_last_child_descendant_combinator(&self) -> bool {
+        let selector_list = &self.children;
+
+        if let Some(last) = selector_list.last() {
+            return last.is_descendant_combinator();
+        }
+
+        false
     }
 }
 
