@@ -139,63 +139,60 @@ impl Test {
         document: &Document,
     ) -> SubtreeResult {
         let node = document.get_node_by_id(node_idx).unwrap();
-        let mut node_result = None;
 
-        if node_idx.is_positive() {
-            node_result = match &node.data {
-                NodeData::Element(element) => {
-                    let actual = format!(
-                        "|{}<{}>",
-                        " ".repeat((indent as usize * 2) + 1),
-                        element.name()
-                    );
-                    let expected = self.document[expected_id as usize].to_owned();
+        let node_result = match &node.data {
+            NodeData::Element(element) => {
+                let actual = format!(
+                    "|{}<{}>",
+                    " ".repeat((indent as usize * 2) + 1),
+                    element.name()
+                );
+                let expected = self.document[expected_id as usize].to_owned();
 
-                    if actual != expected {
-                        let node = Some(NodeResult::ElementMatchFailure {
-                            name: element.name().to_owned(),
-                            actual,
-                            expected,
-                        });
+                if actual != expected {
+                    let node = Some(NodeResult::ElementMatchFailure {
+                        name: element.name().to_owned(),
+                        actual,
+                        expected,
+                    });
 
-                        return SubtreeResult {
-                            node,
-                            children: vec![],
-                            next_expected_idx: None,
-                        };
-                    }
-
-                    Some(NodeResult::ElementMatchSuccess { actual })
+                    return SubtreeResult {
+                        node,
+                        children: vec![],
+                        next_expected_idx: None,
+                    };
                 }
 
-                NodeData::Text(text) => {
-                    let actual = format!(
-                        "|{}\"{}\"",
-                        " ".repeat(indent as usize * 2 + 1),
-                        text.value()
-                    );
-                    let expected = self.document[expected_id as usize].to_owned();
+                Some(NodeResult::ElementMatchSuccess { actual })
+            }
 
-                    if actual != expected {
-                        let node = Some(NodeResult::TextMatchFailure {
-                            actual,
-                            expected,
-                            text: text.value().to_owned(),
-                        });
+            NodeData::Text(text) => {
+                let actual = format!(
+                    "|{}\"{}\"",
+                    " ".repeat(indent as usize * 2 + 1),
+                    text.value()
+                );
+                let expected = self.document[expected_id as usize].to_owned();
 
-                        return SubtreeResult {
-                            node,
-                            children: vec![],
-                            next_expected_idx: None,
-                        };
-                    }
+                if actual != expected {
+                    let node = Some(NodeResult::TextMatchFailure {
+                        actual,
+                        expected,
+                        text: text.value().to_owned(),
+                    });
 
-                    Some(NodeResult::TextMatchSuccess { expected })
+                    return SubtreeResult {
+                        node,
+                        children: vec![],
+                        next_expected_idx: None,
+                    };
                 }
 
-                _ => None,
-            };
-        }
+                Some(NodeResult::TextMatchSuccess { expected })
+            }
+
+            _ => None,
+        };
 
         let mut next_expected_idx = expected_id + 1;
         let mut children = vec![];

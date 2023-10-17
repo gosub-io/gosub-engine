@@ -178,10 +178,10 @@ impl<'stream> Html5Parser<'stream> {
                     node_attributes,
                     HTML_NAMESPACE,
                 );
-                let replacement_node_id = self
-                    .document
-                    .get_mut()
-                    .add_node(replacement_node, common_ancestor_id);
+                let replacement_node_id =
+                    self.document
+                        .get_mut()
+                        .add_node(replacement_node, common_ancestor_id, None);
 
                 let afe_idx = self
                     .active_formatting_elements
@@ -208,12 +208,24 @@ impl<'stream> Html5Parser<'stream> {
 
                 // Step 4.13.9
                 last_node_id = node_id;
+
+                #[cfg(feature = "debug_parser")]
+                self.display_debug_info();
             }
 
+            #[cfg(feature = "debug_parser")]
+            self.display_debug_info();
+
             // Step 4.14
-            self.document
-                .get_mut()
-                .relocate(last_node_id, common_ancestor_id);
+            let common_ancestor_node = get_node_by_id!(self.document, common_ancestor_id).clone();
+            let insert_location = self.adjusted_insert_location(Some(&common_ancestor_node));
+
+            self.document.detach_node_from_parent(last_node_id);
+            self.document.attach_node_to_parent(
+                last_node_id,
+                insert_location.node_id,
+                insert_location.position,
+            );
 
             // Step 4.15
             let new_element = match formatting_element_node.data {
@@ -226,11 +238,14 @@ impl<'stream> Html5Parser<'stream> {
                 _ => panic!("formatting element is not an element"),
             };
 
+            #[cfg(feature = "debug_parser")]
+            self.display_debug_info();
+
             // Step 4.17
-            let new_element_id = self
-                .document
-                .get_mut()
-                .add_node(new_element, furthest_block_id);
+            let new_element_id =
+                self.document
+                    .get_mut()
+                    .add_node(new_element, furthest_block_id, None);
 
             // Step 4.16
             for child in furthest_block_node.children.iter() {
@@ -251,10 +266,11 @@ impl<'stream> Html5Parser<'stream> {
                 .remove(formatting_element_idx_afe);
 
             // Step 4.19
-            self.open_elements
-                .insert(furthest_block_idx_oe - 1, new_element_id);
             let idx = self.open_elements_find_index(formatting_element_id);
             self.open_elements.remove(idx);
+
+            let idx = self.open_elements_find_index(furthest_block_id);
+            self.open_elements.insert(idx /* + 1 */, new_element_id);
         }
     }
 
@@ -312,7 +328,10 @@ mod test {
     macro_rules! node_create {
         ($self:expr, $name:expr) => {{
             let node = Node::new_element(&$self.document, $name, HashMap::new(), HTML_NAMESPACE);
-            let node_id = $self.document.get_mut().add_node(node, NodeId::root());
+            let node_id = $self
+                .document
+                .get_mut()
+                .add_node(node, NodeId::root(), None);
             $self.open_elements.push(node_id);
         }};
     }
