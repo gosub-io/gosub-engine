@@ -67,7 +67,7 @@ fn run_tree_test(test_idx: usize, test: &Test, results: &mut TestResults) {
 
     results.tests += 1;
 
-    let result = test.run();
+    let result = test.run().expect("problem running tree construction test");
     print_test_result(&result);
 
     // Check the document tree, which counts as a single assertion

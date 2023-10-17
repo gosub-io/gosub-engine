@@ -22,6 +22,10 @@ path = "tests/tree_construction.rs"
 name = "tokenizer"
 harness = false
 
+[[bench]]
+name = "tree_construction"
+harness = false
+
 [dependencies]
 phf = { version = "0.11.2", features = ["macros"] }
 derive_more = "0.99"
