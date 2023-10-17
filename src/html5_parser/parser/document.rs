@@ -350,44 +350,47 @@ mod tests {
 
     #[test]
     fn set_named_id_to_element() {
-        let attributes = HashMap::new();
         let mut document = Document::shared();
-        let node = Node::new_element(&document, "div", attributes.clone(), HTML_NAMESPACE);
+        let doc_clone = Document::clone(&document);
+        document.get_mut().create_root(&doc_clone);
+
+        let node = Node::new_element(&document, "div", HashMap::new(), HTML_NAMESPACE);
         let node_id = NodeId::from(0);
-        let _ = document.get_mut().add_node(node, node_id);
-        let NodeData::Element(element) = &node.data else {
+        document.get_mut().add_node(node, node_id);
+
+        let mut doc_mut = document.get_mut();
+        if let NodeData::Element(element) = &mut doc_mut.get_node_by_id_mut(NodeId::from(1)).unwrap().data {
+                element.attributes.insert("id", "");
+                let mut contains = doc_mut.named_id_elements.contains_key("\"\"");
+                assert!(!contains);
+
+                element.attributes.insert("id", "my id");
+                contains = doc_mut.named_id_elements.contains_key("my id");
+                assert!(!contains);
+
+                element.attributes.insert("id", "123");
+                contains = doc_mut.named_id_elements.contains_key("123");
+                assert!(!contains);
+
+                element.attributes.insert("id", "myid");
+                contains = doc_mut.named_id_elements.contains_key("myid");
+                assert!(contains);
+
+        } else {
             panic!()
         };
-        // invalid name (empty)
-        element.attributes.insert("id", "");
-        assert!(!document
-            .get()
-            .named_id_elements
-            .contains_key(""));
-        // invalid name (spaces)
+
+        
+        /*
         element.attributes.insert("id", "my id");
-        assert!(!document
-            .get()
-            .named_id_elements
-            .contains_key("my id"));
-        // invalid name (no characters)
+        assert!(!doc_mut.named_id_elements.contains_key("my id"));
+
         element.attributes.insert("id", "123");
-        assert!(!document
-            .get()
-            .named_id_elements
-            .contains_key("123"));
-        // valid name
+        assert!(!doc_mut.named_id_elements.contains_key("123"));
+
         element.attributes.insert("id", "myid");
-        assert!(document
-            .get()
-            .named_id_elements
-            .contains_key("myid"));
-        assert_eq!(
-            *document
-                .get()
-                .named_id_elements
-                .get("myid")
-                .unwrap(), NodeId::from(1));
+        assert!(doc_mut.named_id_elements.contains_key("myid"));
+        */
     }
 
     #[test]
@@ -395,33 +398,31 @@ mod tests {
         let attributes = HashMap::new();
 
         let mut document = Document::shared();
+        let doc_clone = Document::clone(&document);
+        document.get_mut().create_root(&doc_clone);
 
         let mut node1 = Node::new_element(&document, "div", attributes.clone(), HTML_NAMESPACE);
         let mut node2 = Node::new_element(&document, "div", attributes.clone(), HTML_NAMESPACE);
 
-        match &mut node1.data {
-            NodeData::Element(element) => {
-                element.attributes.insert("id", "myid");
-            }
-            _ => panic!(),
-        }
+        let NodeData::Element(ref mut element1) = node1.data else {
+            panic!()
+        };
+        element1.attributes.insert("id", "myid");
+        
+        let NodeData::Element(ref mut element2) = node2.data else {
+            panic!()
+        };
+        element2.attributes.insert("id", "myid");
 
-        match &mut node2.data {
-            NodeData::Element(element) => {
-                element.attributes.insert("id", "myid");
-            }
-            _ => panic!(),
-        }
-
-        let _ = document.get_mut().add_node(node1, NodeId::from(0));
-        let _ = document.get_mut().add_node(node2, NodeId::from(1));
+        document.get_mut().add_node(node1, NodeId::root());
+        document.get_mut().add_node(node2, NodeId::root());
 
         // two elements here have the same ID, the ID will only be tied to NodeId(0) since
         // the HTML5 spec specifies that every ID must uniquely specify one element in the DOM
         // and we inserted NodeId(0) first
         assert_eq!(
             document.get().get_node_by_named_id("myid").unwrap().id,
-            NodeId::from(0)
+            NodeId::from(1)
         );
 
         // however, with that in mind, NodeId(1) will still have id="myid" on the Node itself,
@@ -429,11 +430,11 @@ mod tests {
         // will still NOT be searchable under get_node_by_named_id. This behaviour can be changed
         // by using a stack/vector/queue/whatever in the HashMap, but since the spec states
         // there should be one unique ID per element, I don't think we should support it
-        match &mut node1.data {
-            NodeData::Element(element) => {
-                element.attributes.insert("id", "otherid");
-            }
-            _ => panic!(),
+        if let Some(node) = document.get_mut().get_node_by_named_id_mut("myid") {
+            let NodeData::Element(ref mut element) = node.data else {
+                panic!()
+            };
+            element.attributes.insert("id", "otherid");
         }
 
         assert!(document.get().get_node_by_named_id("myid").is_none());

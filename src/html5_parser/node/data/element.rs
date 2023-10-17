@@ -7,7 +7,6 @@ use std::collections::HashMap;
 #[derive(Debug, PartialEq, Clone)]
 /// Data structure for storing element attributes (ie: class="foo")
 pub(crate) struct ElementAttributes {
-    /// Numerical ID of the node these attributes are tied to
     pub(crate) node_id: NodeId,
     /// Pointer to the document that the node associated with these attributes are tied to
     pub(crate) document: DocumentHandle,

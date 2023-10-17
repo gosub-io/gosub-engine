@@ -3834,14 +3834,14 @@ mod test {
 
         let binding = document.get();
 
-        let div1 = binding.get_node_by_id(NodeId(4)).unwrap();
-        assert!(!div1.has_named_id());
+        let div1 = binding.get_node_by_named_id("my id");
+        assert!(div1.is_none());
 
-        let div2 = binding.get_node_by_id(NodeId(5)).unwrap();
-        assert!(!div2.has_named_id());
+        let div2 = binding.get_node_by_named_id("123");
+        assert!(div2.is_none());
 
-        let div3 = binding.get_node_by_id(NodeId(6)).unwrap();
-        assert!(!div3.has_named_id());
+        let div3 = binding.get_node_by_named_id("\"\"");
+        assert!(div3.is_none());
     }
 
     #[test]
@@ -3863,8 +3863,15 @@ mod test {
             assert_eq!(div.id, NodeId(4));
         }
 
-        let mut binding = document.get_mut();
-        binding.set_node_named_id(NodeId(4), "otherid");
-        assert!(binding.get_node_by_named_id("myid").is_none());
+        if let Some(node) = document.get_mut().get_node_by_id_mut(NodeId::from(4)) {
+            if let NodeData::Element(element) = &mut node.data {
+                element.attributes.insert("id", "otherid");
+            }
+        }
+        
+        // since our implementation only allows binding to one node
+        // per ID, once the ID changes on that element it's bound to,
+        // the old ID should no longer be searchable
+        assert!(document.get().get_node_by_named_id("myid").is_none());
     }
 }
