@@ -562,12 +562,12 @@ mod test {
 
         assert_eq!(
             parser.parse(
-                r##"
+                r#"
             /* Links with "example" anywhere in the URL */
             a[href*="example"] {
                 background-color: silver;
             }
-        "##
+        "#
             ),
             StyleSheet::new(vec![StyleSheetRule::Rule(Rule::new(
                 SelectorList::new(vec![
@@ -590,13 +590,13 @@ mod test {
 
         assert_eq!(
             parser.parse(
-                r##"
+                r#"
             /* Links with "insensitive" anywhere in the URL,
             regardless of capitalization */
             a[href*="insensitive" i] {
                 color: cyan;
             }
-        "##
+        "#
             ),
             StyleSheet::new(vec![StyleSheetRule::Rule(Rule::new(
                 SelectorList::new(vec![
@@ -619,13 +619,13 @@ mod test {
 
         assert_eq!(
             parser.parse(
-                r##"
+                r#"
                     /* Links with "cAsE" anywhere in the URL,
                     with matching capitalization */
                     a[href*="cAsE" s] {
                         color: pink;
                     }
-                "##,
+                "#,
             ),
             StyleSheet::new(vec![StyleSheetRule::Rule(Rule::new(
                 SelectorList::new(vec![
@@ -648,14 +648,14 @@ mod test {
 
         assert_eq!(
             parser.parse(
-                r##"
+                r#"
             
             /* Links that end in ".org" */
             a[href$=".org"] {
                 color: red;
             }
 
-            "##
+            "#
             ),
             StyleSheet::new(vec![StyleSheetRule::Rule(Rule::new(
                 SelectorList::new(vec![
@@ -678,12 +678,12 @@ mod test {
 
         assert_eq!(
             parser.parse(
-                r##"
+                r#"
             /* Links that start with "https://" and end in ".org" */
             a[href^="https://"][href$=".org"] {
                 color: green;
             } 
-            "##
+            "#
             ),
             StyleSheet::new(vec![StyleSheetRule::Rule(Rule::new(
                 SelectorList::new(vec![
