@@ -3077,7 +3077,7 @@ impl<'stream> Html5Parser<'stream> {
         }
     }
 
-    /// Remove the given node_id from the active formatting elements list. Wil do nothing when the node is not found
+    /// Remove the given node_id from the active formatting elements list. Will do nothing when the node is not found
     fn active_formatting_elements_remove(&mut self, target_node_id: NodeId) {
         self.active_formatting_elements
             .retain(|node_id| match node_id {
