@@ -48,6 +48,12 @@ pub struct Test {
 }
 
 pub enum NodeResult {
+    AttributeMatchFailure {
+        name: String,
+        actual: String,
+        expected: String,
+    },
+
     ElementMatchFailure {
         name: String,
         actual: String,
@@ -161,16 +167,18 @@ impl Test {
     }
 
     fn match_document_tree(&self, document: &Document) -> SubtreeResult {
-        self.match_node(NodeId::root(), -1, -1, document)
+        self.match_node(NodeId::root(), 0, -1, document)
     }
 
     fn match_node(
         &self,
         node_idx: NodeId,
-        expected_id: isize,
+        document_offset_id: isize,
         indent: isize,
         document: &Document,
     ) -> SubtreeResult {
+        let mut next_expected_idx = document_offset_id;
+
         let node = document.get_node_by_id(node_idx).unwrap();
 
         let node_result = match &node.data {
@@ -180,7 +188,8 @@ impl Test {
                     " ".repeat((indent as usize * 2) + 1),
                     element.name()
                 );
-                let expected = self.document[expected_id as usize].to_owned();
+                let expected = self.document[next_expected_idx as usize].to_owned();
+                next_expected_idx += 1;
 
                 if actual != expected {
                     let node = Some(NodeResult::ElementMatchFailure {
@@ -196,6 +205,33 @@ impl Test {
                     };
                 }
 
+                // Check attributes if any
+                for attr in element.attributes.iter() {
+                    let expected = self.document[next_expected_idx as usize].to_owned();
+                    next_expected_idx += 1;
+
+                    let actual = format!(
+                        "|{}{}=\"{}\"",
+                        " ".repeat((indent as usize * 2) + 3),
+                        attr.0,
+                        attr.1
+                    );
+
+                    if actual != expected {
+                        let node = Some(NodeResult::AttributeMatchFailure {
+                            name: element.name().to_owned(),
+                            actual,
+                            expected,
+                        });
+
+                        return SubtreeResult {
+                            node,
+                            children: vec![],
+                            next_expected_idx: None,
+                        };
+                    }
+                }
+
                 Some(NodeResult::ElementMatchSuccess { actual })
             }
 
@@ -205,7 +241,8 @@ impl Test {
                     " ".repeat(indent as usize * 2 + 1),
                     text.value()
                 );
-                let expected = self.document[expected_id as usize].to_owned();
+                let expected = self.document[next_expected_idx as usize].to_owned();
+                next_expected_idx += 1;
 
                 if actual != expected {
                     let node = Some(NodeResult::TextMatchFailure {
@@ -227,7 +264,6 @@ impl Test {
             _ => None,
         };
 
-        let mut next_expected_idx = expected_id + 1;
         let mut children = vec![];
 
         for &child_idx in &node.children {

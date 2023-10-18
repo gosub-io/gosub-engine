@@ -189,6 +189,11 @@ fn print_node_result(result: &SubtreeResult) {
             println!("✅  {actual}");
         }
 
+        Some(NodeResult::AttributeMatchFailure { name, expected, .. }) => {
+            println!("❌ {expected}, Found unexpected attribute: {name}");
+        }
+
+
         Some(NodeResult::ElementMatchFailure { name, expected, .. }) => {
             println!("❌ {expected}, Found unexpected element node: {name}");
         }
