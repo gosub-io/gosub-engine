@@ -105,26 +105,59 @@ impl TestResult {
 
 impl Test {
     // Check that the tree construction code doesn't panic
-    pub fn run(&self) -> TestResult {
+    pub fn run(&self) -> Result<TestResult> {
+        let (actual_document, actual_errors) = self.parse()?;
+        let root = self.match_document_tree(&actual_document.get());
+
+        Ok(TestResult {
+            root,
+            actual_document,
+            actual_errors,
+        })
+    }
+
+    // Verify that the tree construction code obtains the right result
+    pub fn assert_valid(&self) {
+        let result = self.run().expect("failed to parse");
+
+        fn assert_tree(tree: &SubtreeResult) {
+            match &tree.node {
+                Some(NodeResult::ElementMatchSuccess { .. })
+                | Some(NodeResult::TextMatchSuccess { .. })
+                | None => {}
+
+                Some(NodeResult::TextMatchFailure {
+                    actual, expected, ..
+                }) => {
+                    panic!("text match failed, wanted: [{expected}], got: [{actual}]");
+                }
+
+                Some(NodeResult::ElementMatchFailure {
+                    actual,
+                    expected,
+                    name,
+                }) => {
+                    panic!("element [{name}] match failed, wanted: [{expected}], got: [{actual}]");
+                }
+            }
+
+            tree.children.iter().for_each(assert_tree);
+        }
+
+        assert_tree(&result.root);
+        assert!(result.success(), "invalid tree-construction result");
+    }
+
+    pub fn parse(&self) -> Result<(DocumentHandle, Vec<ParseError>)> {
         // Do the actual parsing
         let mut is = InputStream::new();
         is.read_from_str(self.data.as_str(), None);
 
         let mut parser = Html5Parser::new(&mut is);
         let document = Document::shared();
-        let parse_errors = parser.parse(Document::clone(&document)).unwrap();
-        let root = self.match_document_tree(&document.get());
+        let parse_errors = parser.parse(Document::clone(&document))?;
 
-        TestResult {
-            root,
-            actual_document: document,
-            actual_errors: parse_errors,
-        }
-    }
-
-    // Verify that the tree construction code obtains the right result
-    pub fn assert_valid(&self) {
-        // TODO: Fill this in later
+        Ok((document, parse_errors))
     }
 
     fn match_document_tree(&self, document: &Document) -> SubtreeResult {
