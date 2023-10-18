@@ -1,4 +1,4 @@
-use crate::html5_parser::input_stream::Position;
+use crate::html5::input_stream::Position;
 
 /// Possible parser error enumerated
 pub enum ParserError {

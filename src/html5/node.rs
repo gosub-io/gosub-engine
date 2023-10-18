@@ -1,8 +1,8 @@
 use super::parser::document::{Document, DocumentHandle};
-use crate::html5_parser::node::data::comment::CommentData;
-use crate::html5_parser::node::data::document::DocumentData;
-use crate::html5_parser::node::data::element::ElementData;
-use crate::html5_parser::node::data::text::TextData;
+use crate::html5::node::data::comment::CommentData;
+use crate::html5::node::data::document::DocumentData;
+use crate::html5::node::data::element::ElementData;
+use crate::html5::node::data::text::TextData;
 use core::fmt::Debug;
 use derive_more::Display;
 use std::collections::HashMap;
@@ -429,7 +429,7 @@ pub static SPECIAL_SVG_ELEMENTS: [&str; 3] = ["foreignObject", "desc", "title"];
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::html5_parser::parser::document::Document;
+    use crate::html5::parser::document::Document;
 
     #[test]
     fn new_document() {

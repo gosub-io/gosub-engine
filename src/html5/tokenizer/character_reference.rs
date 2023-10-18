@@ -1,11 +1,11 @@
-use crate::html5_parser::error_logger::ParserError;
-use crate::html5_parser::input_stream::Element;
+use crate::html5::error_logger::ParserError;
+use crate::html5::input_stream::Element;
 // use crate::read_char;
 
 extern crate lazy_static;
-use crate::html5_parser::input_stream::SeekMode::SeekCur;
-use crate::html5_parser::tokenizer::replacement_tables::{TOKEN_NAMED_CHARS, TOKEN_REPLACEMENTS};
-use crate::html5_parser::tokenizer::{Tokenizer, CHAR_REPLACEMENT};
+use crate::html5::input_stream::SeekMode::SeekCur;
+use crate::html5::tokenizer::replacement_tables::{TOKEN_NAMED_CHARS, TOKEN_REPLACEMENTS};
+use crate::html5::tokenizer::{Tokenizer, CHAR_REPLACEMENT};
 use lazy_static::lazy_static;
 
 /// Different states for the character references
@@ -347,8 +347,8 @@ lazy_static! {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::html5_parser::error_logger::ErrorLogger;
-    use crate::html5_parser::input_stream::InputStream;
+    use crate::html5::error_logger::ErrorLogger;
+    use crate::html5::input_stream::InputStream;
     use std::cell::RefCell;
     use std::rc::Rc;
 

@@ -7,19 +7,19 @@ mod quirks;
 use self::document::DocumentHandle;
 
 use super::node::NodeId;
-use crate::html5_parser::element_class::ElementClass;
-use crate::html5_parser::error_logger::{ErrorLogger, ParseError, ParserError};
-use crate::html5_parser::input_stream::InputStream;
-use crate::html5_parser::node::data::text::TextData;
-use crate::html5_parser::node::{Node, NodeData, HTML_NAMESPACE, MATHML_NAMESPACE, SVG_NAMESPACE};
-use crate::html5_parser::parser::attr_replacements::{
+use crate::html5::element_class::ElementClass;
+use crate::html5::error_logger::{ErrorLogger, ParseError, ParserError};
+use crate::html5::input_stream::InputStream;
+use crate::html5::node::data::text::TextData;
+use crate::html5::node::{Node, NodeData, HTML_NAMESPACE, MATHML_NAMESPACE, SVG_NAMESPACE};
+use crate::html5::parser::attr_replacements::{
     MATHML_ADJUSTMENTS, SVG_ADJUSTMENTS, XML_ADJUSTMENTS,
 };
-use crate::html5_parser::parser::document::{Document, DocumentFragment, DocumentType};
-use crate::html5_parser::parser::quirks::QuirksMode;
-use crate::html5_parser::tokenizer::state::State;
-use crate::html5_parser::tokenizer::token::Token;
-use crate::html5_parser::tokenizer::{Tokenizer, CHAR_NUL};
+use crate::html5::parser::document::{Document, DocumentFragment, DocumentType};
+use crate::html5::parser::quirks::QuirksMode;
+use crate::html5::tokenizer::state::State;
+use crate::html5::tokenizer::token::Token;
+use crate::html5::tokenizer::{Tokenizer, CHAR_NUL};
 use crate::types::Result;
 use alloc::rc::Rc;
 use core::cell::RefCell;
@@ -3550,7 +3550,7 @@ impl<'stream> Html5Parser<'stream> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::html5_parser::input_stream::Encoding;
+    use crate::html5::input_stream::Encoding;
 
     macro_rules! node_create {
         ($self:expr, $name:expr) => {{

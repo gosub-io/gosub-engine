@@ -1,5 +1,5 @@
 use gosub_engine::{
-    html5_parser::{
+    html5::{
         input_stream::{Confidence, Encoding, InputStream},
         node::{Node, NodeData},
         parser::{document::Document, Html5Parser},

@@ -1,6 +1,6 @@
 use super::FIXTURE_ROOT;
 use crate::{
-    html5_parser::{
+    html5::{
         error_logger::ParseError,
         input_stream::InputStream,
         node::{NodeData, NodeId},
