@@ -70,6 +70,12 @@ pub enum NodeResult {
         text: String,
     },
 
+    CommentMatchFailure {
+        actual: String,
+        expected: String,
+        comment: String,
+    },
+
     TextMatchSuccess {
         expected: String,
     },
@@ -261,6 +267,32 @@ impl Test {
                 Some(NodeResult::TextMatchSuccess { expected })
             }
 
+            NodeData::Comment(comment) => {
+                let actual = format!(
+                    "|{}<!-- {} -->",
+                    " ".repeat(indent as usize * 2 + 1),
+                    comment.value()
+                );
+                let expected = self.document[next_expected_idx as usize].to_owned();
+                next_expected_idx += 1;
+
+                if actual != expected {
+                    let node = Some(NodeResult::CommentMatchFailure {
+                        actual,
+                        expected,
+                        comment: comment.value().to_owned(),
+                    });
+
+                    return SubtreeResult {
+                        node,
+                        children: vec![],
+                        next_expected_idx: None,
+                    };
+                }
+
+                Some(NodeResult::TextMatchSuccess { expected })
+
+            }
             _ => None,
         };
 

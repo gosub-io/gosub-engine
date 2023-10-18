@@ -43,9 +43,9 @@ fn main() -> Result<()> {
 
         let mut test_idx = 1;
         for test in fixture_file.tests {
-            if test_idx == 57 {
+            // if test_idx == 34 {
                 run_tree_test(test_idx, &test, &mut results);
-            }
+            // }
             test_idx += 1;
         }
     }
@@ -204,6 +204,10 @@ fn print_node_result(result: &SubtreeResult) {
 
         Some(NodeResult::TextMatchFailure { expected, text, .. }) => {
             println!("❌ {expected}, Found unexpected text node: {text}");
+        }
+
+        Some(NodeResult::CommentMatchFailure { expected, comment, .. }) => {
+            println!("❌ {expected}, Found unexpected comment node: {comment}");
         }
 
         None => {}
