@@ -66,22 +66,6 @@ impl ElementAttributes {
 
     /// Inserts a new attribute into the map.
     pub(crate) fn insert(&mut self, name: &str, value: &str) {
-        // handle special cases
-        match name {
-            "id" => {
-                if self.validate_named_id(value) && !self.document.get().named_id_elements.contains_key(value) {
-                    if let Some(old_named_id) = self.attributes.get("id") {
-                        self.document.get_mut().named_id_elements.remove(old_named_id);
-                    }
-                    self.document.get_mut().named_id_elements.insert(name.to_owned(), self.node_id);
-                }
-            }
-            "class" => {
-                todo!()
-            }
-            _ => {}
-        }
-
         self.attributes.insert(name.to_owned(), value.to_owned());
     }
 
@@ -188,5 +172,12 @@ impl ElementData {
     pub(crate) fn set_id(&mut self, node_id: NodeId) {
         self.node_id = node_id;
         self.attributes.node_id = node_id;
+    }
+
+    pub(crate) fn with_attributes<F>(&mut self, f: F)
+    where
+        F: FnOnce(&mut ElementAttributes),
+    {
+        f(&mut self.attributes)
     }
 }
