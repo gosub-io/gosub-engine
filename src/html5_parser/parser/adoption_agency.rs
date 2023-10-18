@@ -256,7 +256,7 @@ impl<'stream> Html5Parser<'stream> {
             // if the bookmark_afe is BEFORE the formatting_elements_idx_afe, then we need to adjust
             // the formatting_element_idx, as we insert a new element and the formatting_element_idx_afe
             // has changed.
-            if bookmark_afe < formatting_element_idx_afe {
+            if bookmark_afe <= formatting_element_idx_afe {
                 formatting_element_idx_afe += 1;
             }
 
@@ -270,7 +270,10 @@ impl<'stream> Html5Parser<'stream> {
             self.open_elements.remove(idx);
 
             let idx = self.open_elements_find_index(furthest_block_id);
-            self.open_elements.insert(idx /* + 1 */, new_element_id);
+            self.open_elements.insert(idx + 1, new_element_id);
+
+            #[cfg(feature = "debug_parser")]
+            self.display_debug_info();
         }
     }
 
