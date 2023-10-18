@@ -44,7 +44,7 @@ fn main() -> Result<()> {
         let mut test_idx = 1;
         for test in fixture_file.tests {
             // if test_idx == 34 {
-                run_tree_test(test_idx, &test, &mut results);
+            run_tree_test(test_idx, &test, &mut results);
             // }
             test_idx += 1;
         }
@@ -156,7 +156,9 @@ fn run_tree_test(test_idx: usize, test: &Test, results: &mut TestResults) {
 
     // Display additional data if there a failure is found
     if !result.success() {
-        results.tests_failed.push((test_idx, test.line, test.data.to_string()));
+        results
+            .tests_failed
+            .push((test_idx, test.line, test.data.to_string()));
         println!("----------------------------------------");
         println!("📄 Input stream: ");
         println!("{}", test.data);
@@ -193,7 +195,6 @@ fn print_node_result(result: &SubtreeResult) {
             println!("❌ {expected}, Found unexpected attribute: {name}");
         }
 
-
         Some(NodeResult::ElementMatchFailure { name, expected, .. }) => {
             println!("❌ {expected}, Found unexpected element node: {name}");
         }
@@ -206,7 +207,9 @@ fn print_node_result(result: &SubtreeResult) {
             println!("❌ {expected}, Found unexpected text node: {text}");
         }
 
-        Some(NodeResult::CommentMatchFailure { expected, comment, .. }) => {
+        Some(NodeResult::CommentMatchFailure {
+            expected, comment, ..
+        }) => {
             println!("❌ {expected}, Found unexpected comment node: {comment}");
         }
 

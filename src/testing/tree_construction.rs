@@ -151,6 +151,22 @@ impl Test {
                 }) => {
                     panic!("element [{name}] match failed, wanted: [{expected}], got: [{actual}]");
                 }
+
+                Some(NodeResult::AttributeMatchFailure {
+                    name,
+                    actual,
+                    expected,
+                }) => {
+                    panic!(
+                        "attribute [{name}] match failed, wanted: [{expected}], got: [{actual}]"
+                    );
+                }
+
+                Some(NodeResult::CommentMatchFailure {
+                    actual, expected, ..
+                }) => {
+                    panic!("comment match failed, wanted: [{expected}], got: [{actual}]");
+                }
             }
 
             tree.children.iter().for_each(assert_tree);
@@ -291,7 +307,6 @@ impl Test {
                 }
 
                 Some(NodeResult::TextMatchSuccess { expected })
-
             }
             _ => None,
         };

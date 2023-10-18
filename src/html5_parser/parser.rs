@@ -3304,7 +3304,6 @@ impl<'stream> Html5Parser<'stream> {
             adjusted_insert_location.position,
         );
 
-
         node.id = node_id;
 
         //     if parser not created as part of html fragment parsing algorithm
