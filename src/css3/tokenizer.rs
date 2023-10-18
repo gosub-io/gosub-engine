@@ -39,12 +39,12 @@ impl Tokenizer {
             let re = Regex::new(regex).unwrap();
             let result = re.captures(raw);
 
-            println!(
-                "[get_next_token] value={:?}, token_type={:?} for raw={:?}",
-                result,
-                token_type,
-                raw.trim().lines().collect::<Vec<&str>>().first(),
-            );
+            // println!(
+            //     "[get_next_token] value={:?}, token_type={:?} for raw={:?}",
+            //     result,
+            //     token_type,
+            //     raw.lines().collect::<Vec<&str>>().first(),
+            // );
 
             if let Some(cap) = result {
                 let value = cap.get(0).unwrap().as_str();
@@ -95,6 +95,7 @@ mod test {
         assert!(tokenizer.has_more_tokens());
 
         assert_next_token!(tokenizer, Some(TokenType::Number), Some("123"));
+        assert_next_token!(tokenizer, Some(TokenType::WhiteSpace), Some(" "));
         assert_next_token!(tokenizer, Some(TokenType::Ident), Some("-ident-test-1"));
 
         assert!(tokenizer.is_eof());

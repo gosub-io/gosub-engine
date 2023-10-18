@@ -17,7 +17,7 @@ pub enum TokenType {
     RParen,
     LBracket,
     RBracket,
-    Comment,
+    WhiteSpace,
     /// A `~=` [`<include-match-token>`](https://drafts.csswg.org/css-syntax/#include-match-token-diagram)
     IncludeMatch,
     /// A `|=` [`<dash-match-token>`](https://drafts.csswg.org/css-syntax/#dash-match-token-diagram)
@@ -136,6 +136,6 @@ pub static TOKEN_REFS: [(&str, Option<TokenType>); 27] = [
         SUBSEQUENT_SIBLING_COMBINATOR,
         Some(TokenType::SubsequentSiblingCombinator),
     ),
-    (SPACE, None),
+    (SPACE, Some(TokenType::WhiteSpace)),
     (COMMENT, None),
 ];

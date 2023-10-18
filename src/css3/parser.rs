@@ -51,6 +51,7 @@ impl CSS3Parser {
         self.raw = raw.to_string();
         self.tokenizer.init(raw);
         self.lookahead = self.tokenizer.get_next_token();
+        self.skip_whitespace();
         self.style_sheet()
     }
 
@@ -85,12 +86,16 @@ impl CSS3Parser {
     ///     ;
     /// ```
     fn rule(&mut self) -> Rule {
+        self.skip_whitespace();
+
         let selectors = self.selector_list();
         let block = self.block();
+
+        self.skip_whitespace();
         Rule::new(selectors, block)
     }
 
-    ///```txt
+    ///```bnf
     /// SelectorList
     ///     : [Selector]*
     ///     ;
@@ -99,8 +104,29 @@ impl CSS3Parser {
         let mut selector_list = SelectorList::default();
 
         while !self.is_next_token(TokenType::LCurly) {
-            selector_list.add_child(self.selector())
+            let curr_selector = self.selector();
+
+            // todo: refactor this nested if else statements
+            if let Some(prev_selector) = selector_list.last() {
+                if curr_selector.is_combinator() && prev_selector.is_descendant_combinator() {
+                    selector_list.pop();
+                    selector_list.push(curr_selector);
+                } else if curr_selector.is_descendant_combinator() && prev_selector.is_combinator()
+                {
+                    continue;
+                } else {
+                    selector_list.push(curr_selector);
+                }
+            } else {
+                selector_list.push(curr_selector);
+            }
         }
+
+        if selector_list.is_last_child_descendant_combinator() {
+            selector_list.pop();
+        }
+
+        println!("Selector List: {:#?}", selector_list);
 
         selector_list
     }
@@ -136,7 +162,7 @@ impl CSS3Parser {
             return Selector::Combinator(self.combinator());
         }
 
-        unexpected_token!("Selector")
+        unexpected_token!(self.get_next_token_type(), "Selector")
     }
 
     /// ```bnf
@@ -145,7 +171,7 @@ impl CSS3Parser {
     ///     ;   
     /// ```
     fn type_selector(&mut self) -> TypeSelector {
-        TypeSelector::new(self.consume(TokenType::Ident).value)
+        TypeSelector::new(self.consume_token(TokenType::Ident).value)
     }
 
     /// ```bnf
@@ -154,8 +180,8 @@ impl CSS3Parser {
     ///     ;   
     /// ```
     fn id_selector(&mut self) -> IdSelector {
-        self.consume(TokenType::Hash);
-        let name = self.consume(TokenType::Ident).value;
+        self.consume_token(TokenType::Hash);
+        let name = self.consume_token(TokenType::Ident).value;
         IdSelector::new(name)
     }
 
@@ -165,8 +191,8 @@ impl CSS3Parser {
     ///     ;   
     /// ```
     fn class_selector(&mut self) -> ClassSelector {
-        self.consume(TokenType::Dot);
-        let name = self.consume(TokenType::Ident).value;
+        self.consume_token(TokenType::Dot);
+        let name = self.consume_token(TokenType::Ident).value;
         ClassSelector::new(name)
     }
 
@@ -176,8 +202,10 @@ impl CSS3Parser {
     ///     ;   
     /// ```
     fn attribute_selector(&mut self) -> AttributeSelector {
-        self.consume(TokenType::LBracket);
+        self.consume_token(TokenType::LBracket);
         let name = self.identifier();
+
+        self.skip_whitespace();
 
         let matcher = if !self.is_next_token(TokenType::RBracket) {
             Some(self.attribute_matcher())
@@ -185,13 +213,13 @@ impl CSS3Parser {
             None
         };
 
-        println!("matcher: {:?}", matcher);
-
         let value = if matcher.is_some() {
             Some(self.string())
         } else {
             None
         };
+
+        self.skip_whitespace();
 
         let flag = if !self.is_next_token(TokenType::RBracket) {
             Some(self.identifier())
@@ -199,7 +227,7 @@ impl CSS3Parser {
             None
         };
 
-        self.consume(TokenType::RBracket);
+        self.consume_token(TokenType::RBracket);
 
         AttributeSelector {
             name,
@@ -228,17 +256,14 @@ impl CSS3Parser {
                 TokenType::SuffixMatch => AttributeMatcher::SuffixMatch,
                 TokenType::SubstringMatch => AttributeMatcher::SubstringMatch,
                 TokenType::Equal => AttributeMatcher::EqualityMatch,
-                _ => panic!(
-                    "Unexpected token: {:?}, Expecting selector token",
-                    next_token_type
-                ),
+                _ => unexpected_token!(next_token_type, "AttributeMatcher"),
             };
 
-            self.consume(self.get_next_token_type().unwrap());
+            self.consume_token(self.get_next_token_type().unwrap());
             return matcher;
         }
 
-        panic!("Unexpecting end of input. Expecting a AttributeMatcher");
+        unexpected_token!("AttributeMatcher")
     }
 
     /// ```bnf
@@ -256,7 +281,7 @@ impl CSS3Parser {
             let combinator = match next_token_type {
                 TokenType::ChildCombinator => Combinator::ChildCombinator,
                 TokenType::ColumnCombinator => Combinator::ColumnCombinator,
-                TokenType::DescendantCombinator => Combinator::DescendantCombinator,
+                TokenType::WhiteSpace => Combinator::DescendantCombinator,
                 TokenType::NamespaceSeparator => Combinator::NamespaceSeparator,
                 TokenType::NextSiblingCombinator => Combinator::NextSiblingCombinator,
                 TokenType::SelectorListCombinator => Combinator::SelectorListCombinator,
@@ -266,7 +291,7 @@ impl CSS3Parser {
                 }
             };
 
-            self.consume(self.get_next_token_type().unwrap());
+            self.consume_token(self.get_next_token_type().unwrap());
             return combinator;
         };
 
@@ -279,7 +304,7 @@ impl CSS3Parser {
     ///     ;
     /// ```
     fn string(&mut self) -> CssString {
-        let mut value = self.consume(TokenType::String).value;
+        let mut value = self.consume_token(TokenType::String).value;
 
         // Remove starting and ending quotes
         value.pop();
@@ -299,13 +324,13 @@ impl CSS3Parser {
         // note: add support for 'DeclarationList' for now
         let mut block = Block::default();
 
-        self.consume(TokenType::LCurly);
+        self.consume_token(TokenType::LCurly);
 
         while !self.is_next_token(TokenType::RCurly) {
             block.add_child(BlockChild::DeclarationList(self.declaration_list()))
         }
 
-        self.consume(TokenType::RCurly);
+        self.consume_token(TokenType::RCurly);
 
         block
     }
@@ -319,7 +344,7 @@ impl CSS3Parser {
         let mut declaration_list = DeclarationList::default();
 
         while !self.is_next_token(TokenType::RCurly) {
-            declaration_list.add_child(self.declaration())
+            declaration_list.add_child(self.declaration());
         }
 
         declaration_list
@@ -333,16 +358,18 @@ impl CSS3Parser {
     fn declaration(&mut self) -> Declaration {
         let mut declaration = Declaration::default();
 
-        declaration.set_property(self.consume(TokenType::Ident).value);
-        self.consume(TokenType::Colon);
+        declaration.set_property(self.consume_token(TokenType::Ident).value);
+        self.consume_token(TokenType::Colon);
         declaration.set_value(self.value_list());
 
+        self.skip_whitespace();
         if self.is_next_token(TokenType::Important) {
-            self.consume(TokenType::Important);
+            self.consume_token(TokenType::Important);
             declaration.set_important_as(true);
         }
 
-        self.consume(TokenType::Semicolon);
+        self.consume_token(TokenType::Semicolon);
+        self.skip_whitespace();
 
         declaration
     }
@@ -356,7 +383,9 @@ impl CSS3Parser {
         let mut value_list = ValueList::default();
 
         while !self.is_next_tokens(vec![TokenType::Semicolon, TokenType::Important]) {
-            value_list.add_child(self.value());
+            let value = self.value();
+            value_list.add_child(value);
+            self.skip_whitespace();
         }
 
         value_list
@@ -369,6 +398,7 @@ impl CSS3Parser {
     /// ```
     fn value(&mut self) -> Value {
         // note: support only "Identifier" and "Dimension" for now
+        self.skip_whitespace();
 
         if self.is_next_token(TokenType::Ident) {
             return Value::Identifier(self.identifier());
@@ -383,7 +413,7 @@ impl CSS3Parser {
     ///     ;   
     /// ```
     fn identifier(&mut self) -> Identifier {
-        Identifier::new(self.consume(TokenType::Ident).value)
+        Identifier::new(self.consume_token(TokenType::Ident).value)
     }
 
     /// ```bnf
@@ -392,10 +422,10 @@ impl CSS3Parser {
     ///     ;   
     /// ```
     fn dimension(&mut self) -> Dimension {
-        let value = self.consume(TokenType::Number).value;
+        let value = self.consume_token(TokenType::Number).value;
 
         let unit = if self.is_next_token(TokenType::Ident) {
-            Some(self.consume(TokenType::Ident).value)
+            Some(self.consume_token(TokenType::Ident).value)
         } else {
             None
         };
@@ -420,6 +450,21 @@ impl CSS3Parser {
         }
 
         panic!("Unexpected end of input, expected: {:?}", token_type)
+    }
+
+    fn consume_token(&mut self, token_type: TokenType) -> Token {
+        if self.is_next_token(token_type) {
+            return self.consume(token_type);
+        }
+
+        self.skip_whitespace();
+        self.consume(token_type)
+    }
+
+    fn skip_whitespace(&mut self) {
+        while self.is_next_token(TokenType::WhiteSpace) {
+            self.consume(TokenType::WhiteSpace);
+        }
     }
 
     fn is_next_token(&self, token_type: TokenType) -> bool {
@@ -451,7 +496,7 @@ impl CSS3Parser {
         self.is_next_tokens(vec![
             TokenType::ChildCombinator,
             TokenType::ColumnCombinator,
-            TokenType::DescendantCombinator,
+            TokenType::WhiteSpace, // Descendant Combinator (Empty Space: ` `)
             TokenType::NamespaceSeparator,
             TokenType::NextSiblingCombinator,
             TokenType::SelectorListCombinator,
@@ -470,7 +515,7 @@ mod test {
         let style_sheet = parser.parse(
             r#"
             
-                #header {
+                #header div > p {
                     display: flex;
                     width: 100px;
                     font-size: 1rem !important;
@@ -481,7 +526,13 @@ mod test {
         assert_eq!(
             style_sheet,
             StyleSheet::new(vec![StyleSheetRule::Rule(Rule::new(
-                SelectorList::new(vec![Selector::IdSelector(IdSelector::new("header"))]),
+                SelectorList::new(vec![
+                    Selector::IdSelector(IdSelector::new("header")),
+                    Selector::Combinator(Combinator::DescendantCombinator),
+                    Selector::TypeSelector(TypeSelector::new("div")),
+                    Selector::Combinator(Combinator::ChildCombinator),
+                    Selector::TypeSelector(TypeSelector::new("p")),
+                ]),
                 Block::new(vec![BlockChild::DeclarationList(DeclarationList::new(
                     vec![
                         Declaration::new(
@@ -593,7 +644,7 @@ mod test {
                 r#"
             /* Links with "insensitive" anywhere in the URL,
             regardless of capitalization */
-            a[href*="insensitive" i] {
+            a[href *= "insensitive" i] {
                 color: cyan;
             }
         "#
@@ -722,6 +773,7 @@ mod test {
             Combinator::NamespaceSeparator,
             Combinator::NextSiblingCombinator,
             Combinator::SubsequentSiblingCombinator,
+            Combinator::DescendantCombinator,
         ];
 
         let mut rules = vec![];
@@ -752,6 +804,7 @@ mod test {
 
             ul ~ li {}
 
+            ul li {}
         "##
             ),
             StyleSheet::new(rules)
