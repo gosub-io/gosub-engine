@@ -1,8 +1,8 @@
 use crate::html5_parser::node::arena::NodeArena;
 use crate::html5_parser::node::data::{comment::CommentData, text::TextData};
+use crate::html5_parser::node::NodeTrait;
 use crate::html5_parser::node::NodeType;
 use crate::html5_parser::node::{Node, NodeData, NodeId};
-use crate::html5_parser::node::{NodeTrait, HTML_NAMESPACE};
 use crate::html5_parser::parser::quirks::QuirksMode;
 use alloc::rc::Rc;
 use core::fmt;
@@ -12,23 +12,28 @@ use std::collections::HashMap;
 use std::fmt::Display;
 use std::ops::{Deref, DerefMut};
 
+/// Type of the given document
 #[derive(PartialEq, Debug, Copy, Clone)]
 pub enum DocumentType {
+    /// HTML document
     HTML,
+    /// Iframe source document
     IframeSrcDoc,
 }
 
+/// Defines a document fragment which can be attached to for instance a <template> element
 #[derive(PartialEq)]
 pub struct DocumentFragment {
-    // Node elements inside this fragment
+    /// Node elements inside this fragment
     arena: NodeArena,
-    // Document contents owner
+    /// Document handle of the parent
     pub doc: DocumentHandle,
-    // Host node
+    /// Host node on which this fragment is attached
     host: NodeId,
 }
 
 impl Clone for DocumentFragment {
+    /// Clones the document fragment
     fn clone(&self) -> Self {
         Self {
             arena: self.arena.clone(),
@@ -45,6 +50,7 @@ impl Debug for DocumentFragment {
 }
 
 impl DocumentFragment {
+    /// Creates a new document fragment and attaches it to "host" node inside "doc"
     pub(crate) fn new(doc: DocumentHandle, host: NodeId) -> Self {
         Self {
             arena: NodeArena::new(),
@@ -54,15 +60,21 @@ impl DocumentFragment {
     }
 }
 
+/// Defines a document
 #[derive(Debug, PartialEq)]
 pub struct Document {
-    arena: NodeArena,
-    named_id_elements: HashMap<String, NodeId>, // HTML elements with ID (e.g., <div id="myid">)
-    pub doctype: DocumentType,                  // Document type
-    pub quirks_mode: QuirksMode,                // Quirks mode
+    /// Holds and owns all nodes in the document
+    pub(crate) arena: NodeArena,
+    /// HTML elements with ID (e.g., <div id="myid">)
+    named_id_elements: HashMap<String, NodeId>,
+    /// Document type of this document
+    pub doctype: DocumentType,
+    /// Quirks mode of this document
+    pub quirks_mode: QuirksMode,
 }
 
 impl Default for Document {
+    /// Returns a default document
     fn default() -> Self {
         Self {
             arena: NodeArena::new(),
@@ -74,7 +86,7 @@ impl Default for Document {
 }
 
 impl Document {
-    // Creates a new document
+    /// Creates a new document
     pub fn new() -> Self {
         let arena = NodeArena::new();
         Self {
@@ -85,6 +97,7 @@ impl Document {
         }
     }
 
+    /// Returns a shared reference-counted handle for the document
     pub fn shared() -> DocumentHandle {
         DocumentHandle(Rc::new(RefCell::new(Self::new())))
     }
@@ -99,13 +112,14 @@ impl Document {
         self.arena.print_nodes();
     }
 
-    /// Create DOCUMENT root node
+    /// Creates the document root node
     pub fn create_root(&mut self, document: &DocumentHandle) {
         // previously this used to be in the constructor, but now that
         // we require a document pointer with every node creation, this
         // was separated.
 
-        self.arena.add_node(Node::new_document(document));
+        let node = Node::new_document(document);
+        self.arena.register_node(node);
     }
 
     /// Fetches a node by id or returns None when no node with this ID is found
@@ -179,13 +193,9 @@ impl Document {
         }
     }
 
-    // Insert node to the parent node at the given position in the children (or none to add at the end)
-    pub fn insert_node(
-        &mut self,
-        node: Node,
-        parent_id: NodeId,
-        position: Option<usize>,
-    ) -> NodeId {
+    /// Inserts a node to the parent node at the given position in the children (or none
+    /// to add at the end). Will automatically register the node if not done so already
+    pub fn add_node(&mut self, node: Node, parent_id: NodeId, position: Option<usize>) -> NodeId {
         let mut node_named_id: Option<String> = None;
         if let NodeData::Element(element) = &node.data {
             if let Some(named_id) = element.attributes.get("id") {
@@ -193,7 +203,12 @@ impl Document {
             }
         }
 
-        let node_id = self.arena.add_node(node);
+        // Register the node if needed
+        let node_id = if !node.is_registered {
+            self.arena.register_node(node)
+        } else {
+            node.id
+        };
 
         // TODO: this will also be removed like above note
         if let Some(named_id) = node_named_id {
@@ -206,52 +221,131 @@ impl Document {
                 element.set_id(node_id);
             }
         }
-        self.arena.attach_node(parent_id, node_id, position);
+
+        self.attach_node_to_parent(node_id, parent_id, position);
 
         node_id
     }
 
-    // Add node to the parent node at the end of its current children
-    pub fn add_node(&mut self, node: Node, parent_id: NodeId) -> NodeId {
-        self.insert_node(node, parent_id, None)
-    }
-
-    /// Insert a node at position in the children of parent_id
-    pub fn insert(&mut self, node_id: NodeId, parent_id: NodeId, position: Option<usize>) {
-        self.arena.attach_node(parent_id, node_id, position);
-    }
-
-    // Append node directly at the end of the children of parent_id
-    pub fn append(&mut self, node_id: NodeId, parent_id: NodeId) {
-        self.arena.attach_node(parent_id, node_id, None);
-    }
-
+    /// Relocates a node to another parent node
     pub fn relocate(&mut self, node_id: NodeId, parent_id: NodeId) {
-        // Remove the node from its current parent (if any)
-        let cur_parent_id = self.arena.get_node(node_id).expect("node not found").parent;
-        if let Some(parent_node_id) = cur_parent_id {
-            let cur_parent = self
-                .arena
-                .get_node_mut(parent_node_id)
-                .expect("node not found");
-            cur_parent.children.retain(|&x| x != node_id);
+        let node = self.arena.get_node_mut(node_id).unwrap();
+        if !node.is_registered {
+            panic!("Node is not registered to the arena");
         }
 
-        // Add the node to the new parent as a child, and update the node's parent
-        self.arena
-            .get_node_mut(parent_id)
-            .unwrap()
-            .children
-            .push(node_id);
-        self.arena.get_node_mut(node_id).unwrap().parent = Some(parent_id);
+        if node.parent.is_some() && node.parent.unwrap() == parent_id {
+            // Nothing to do when we want to relocate to its own parent
+            return;
+        }
+
+        self.detach_node_from_parent(node_id);
+        self.attach_node_to_parent(node_id, parent_id, None);
     }
 
-    /// return the root node
+    /// Adds the node as a child the parent node. If position is given, it will be inserted as a
+    /// child at that given position
+    pub fn attach_node_to_parent(
+        &mut self,
+        node_id: NodeId,
+        parent_id: NodeId,
+        position: Option<usize>,
+    ) -> bool {
+        //check if any children of node have parent as child
+        if parent_id == node_id || self.has_cyclic_reference(node_id, parent_id) {
+            return false;
+        }
+
+        if let Some(parent_node) = self.get_node_by_id_mut(parent_id) {
+            // Make sure position can never be larger than the number of children in the parent
+            if let Some(mut position) = position {
+                if position > parent_node.children.len() {
+                    position = parent_node.children.len();
+                }
+                parent_node.children.insert(position, node_id);
+            } else {
+                // No position given, add to end of the children list
+                parent_node.children.push(node_id);
+            }
+        }
+
+        let node = self.arena.get_node_mut(node_id).unwrap();
+        node.parent = Some(parent_id);
+
+        true
+    }
+
+    /// Separates the given node from its parent node (if any)
+    pub fn detach_node_from_parent(&mut self, node_id: NodeId) {
+        let parent = self.get_node_by_id(node_id).expect("node not found").parent;
+
+        if let Some(parent_id) = parent {
+            let parent_node = self
+                .get_node_by_id_mut(parent_id)
+                .expect("parent node not found");
+            parent_node.children.retain(|&id| id != node_id);
+
+            let node = self.get_node_by_id_mut(node_id).expect("node not found");
+            node.parent = None;
+        }
+    }
+
+    /// returns the root node
     pub fn get_root(&self) -> &Node {
         self.arena
             .get_node(NodeId::root())
             .expect("Root node not found !?")
     }
+
+    /// Returns true when the given parent_id is a child of the node_id
+    pub fn has_cyclic_reference(&self, node_id: NodeId, parent_id: NodeId) -> bool {
+        has_child_recursive(&self.arena, node_id, parent_id)
+    }
+}
+
+/// Returns true when the parent node has the child node as a child, or if any of the children of
+/// the parent node have the child node as a child.
+fn has_child_recursive(arena: &NodeArena, parent_id: NodeId, child_id: NodeId) -> bool {
+    let node = arena.get_node(parent_id).cloned();
+    if node.is_none() {
+        return false;
+    }
+
+    let node = node.unwrap();
+    for id in node.children.iter() {
+        if *id == child_id {
+            return true;
+        }
+        let child = arena.get_node(*id).cloned();
+        if has_child(arena, child, child_id) {
+            return true;
+        }
+    }
+    false
+}
+
+fn has_child(arena: &NodeArena, parent: Option<Node>, child_id: NodeId) -> bool {
+    let parent_node = if let Some(node) = parent {
+        node
+    } else {
+        return false;
+    };
+
+    if parent_node.children.is_empty() {
+        return false;
+    }
+
+    for id in parent_node.children {
+        if id == child_id {
+            return true;
+        }
+        let node = arena.get_node(id).cloned();
+        if has_child(arena, node, child_id) {
+            return true;
+        }
+    }
+
+    false
 }
 
 impl Document {
@@ -263,6 +357,8 @@ impl Document {
         } else {
             buffer.push_str("├─ ");
         }
+
+        // buffer.push_str(&format!("({:?}) ", node.id.as_usize()));
 
         match &node.data {
             NodeData::Document(_) => {
@@ -338,35 +434,48 @@ impl Clone for DocumentHandle {
 impl Eq for DocumentHandle {}
 
 impl DocumentHandle {
+    /// Retrieves a immutable reference to the document
     pub fn get(&self) -> impl Deref<Target = Document> + '_ {
         self.0.borrow()
     }
 
+    /// Retrieves a mutable reference to the document
     pub fn get_mut(&mut self) -> impl DerefMut<Target = Document> + '_ {
         self.0.borrow_mut()
     }
 
-    fn add_element(&mut self, parent_id: NodeId, name: &str) -> NodeId {
-        let node = Node::new_element(self, name, HashMap::new(), HTML_NAMESPACE);
-        self.get_mut().add_node(node, parent_id)
-    }
-
-    pub fn add_node_before(
+    /// Attaches a node to the parent node at the given position in the children (or none
+    /// to add at the end).
+    pub fn attach_node_to_parent(
         &mut self,
-        node: Node,
+        node_id: NodeId,
         parent_id: NodeId,
-        child_position: Option<usize>,
-    ) -> NodeId {
-        self.get_mut().insert_node(node, parent_id, child_position)
+        position: Option<usize>,
+    ) -> bool {
+        self.get_mut()
+            .attach_node_to_parent(node_id, parent_id, position)
     }
 
-    pub fn add_node(&mut self, node: Node, parent_id: NodeId) -> NodeId {
-        self.get_mut().add_node(node, parent_id)
+    /// Separates the given node from its parent node (if any)
+    pub fn detach_node_from_parent(&mut self, node_id: NodeId) {
+        self.get_mut().detach_node_from_parent(node_id)
     }
 
-    fn add_text(&mut self, parent_id: NodeId, text: &str) -> NodeId {
-        let node = Node::new_text(self, text);
-        self.get_mut().add_node(node, parent_id)
+    /// Inserts a node to the parent node at the given position in the children (or none
+    /// to add at the end). Will automatically register the node if not done so already
+    /// Returns the node ID of the inserted node
+    pub fn add_node(&mut self, node: Node, parent_id: NodeId, position: Option<usize>) -> NodeId {
+        self.get_mut().add_node(node, parent_id, position)
+    }
+
+    /// Relocates a node to another parent node
+    pub fn relocate(&mut self, node_id: NodeId, parent_id: NodeId) {
+        self.get_mut().relocate(node_id, parent_id)
+    }
+
+    /// Returns true when there is a cyclic reference from the given node_id to the parent_id
+    pub fn has_cyclic_reference(&self, node_id: NodeId, parent_id: NodeId) -> bool {
+        self.get().has_cyclic_reference(node_id, parent_id)
     }
 }
 
@@ -376,65 +485,57 @@ mod tests {
     use crate::html5_parser::parser::{Document, Node, NodeData, NodeId};
     use std::collections::HashMap;
 
-    #[ignore]
     #[test]
-    fn test_document() {
+    fn relocate() {
         let mut document = Document::shared();
-        let root_id = document.get().get_root().id;
-        let html_id = document.add_element(root_id, "html");
-        let head_id = document.add_element(html_id, "head");
-        let body_id = document.add_element(html_id, "body");
-        let title_id = document.add_element(head_id, "title");
-        let title_text_id = document.add_text(title_id, "Hello world");
-        let p_id = document.add_element(body_id, "p");
-        let p_text_id = document.add_text(p_id, "This is a paragraph");
-        let p_comment_id = document.add_text(p_id, "This is a comment");
-        let p_text2_id = document.add_text(p_id, "This is another paragraph");
-        let p_text3_id = document.add_text(p_id, "This is a third paragraph");
-        let p_text4_id = document.add_text(p_id, "This is a fourth paragraph");
-        let p_text5_id = document.add_text(p_id, "This is a fifth paragraph");
-        let p_text6_id = document.add_text(p_id, "This is a sixth paragraph");
-        let p_text7_id = document.add_text(p_id, "This is a seventh paragraph");
-        let p_text8_id = document.add_text(p_id, "This is a eighth paragraph");
-        let p_text9_id = document.add_text(p_id, "This is a ninth paragraph");
+        let document_clone = Document::clone(&document);
+        document.get_mut().create_root(&document_clone);
 
-        document.get_mut().append(p_text9_id, p_id);
-        document.get_mut().append(p_text8_id, p_id);
-        document.get_mut().append(p_text7_id, p_id);
-        document.get_mut().append(p_text6_id, p_id);
-        document.get_mut().append(p_text5_id, p_id);
-        document.get_mut().append(p_text4_id, p_id);
-        document.get_mut().append(p_text3_id, p_id);
-        document.get_mut().append(p_text2_id, p_id);
-        document.get_mut().append(p_comment_id, p_id);
-        document.get_mut().append(p_text_id, p_id);
-        document.get_mut().append(p_id, body_id);
-        document.get_mut().append(title_text_id, title_id);
-        document.get_mut().append(title_id, head_id);
-        document.get_mut().append(head_id, html_id);
-        document.get_mut().append(body_id, html_id);
-        document.get_mut().append(html_id, root_id);
+        let parent = Node::new_element(&document, "parent", HashMap::new(), HTML_NAMESPACE);
+        let node1 = Node::new_element(&document, "div1", HashMap::new(), HTML_NAMESPACE);
+        let node2 = Node::new_element(&document, "div2", HashMap::new(), HTML_NAMESPACE);
+        let node3 = Node::new_element(&document, "div3", HashMap::new(), HTML_NAMESPACE);
+        let node3_1 = Node::new_element(&document, "div3_1", HashMap::new(), HTML_NAMESPACE);
+
+        let parent_id = document.get_mut().add_node(parent, NodeId::from(0), None);
+        let node1_id = document.get_mut().add_node(node1, parent_id, None);
+        let node2_id = document.get_mut().add_node(node2, parent_id, None);
+        let node3_id = document.get_mut().add_node(node3, parent_id, None);
+        let node3_1_id = document.get_mut().add_node(node3_1, node3_id, None);
 
         assert_eq!(
             format!("{}", document),
-            r#"Document
-    └─ <html>
-    └─ <head>
-        └─ <title>
-        └─ Hello world
-    └─ <body>
-        └─ <p>
-        └─ This is a paragraph
-        └─ <!-- This is a comment -->
-        └─ This is another paragraph
-        └─ This is a third paragraph
-        └─ This is a fourth paragraph
-        └─ This is a fifth paragraph
-        └─ This is a sixth paragraph
-        └─ This is a seventh paragraph
-        └─ This is a eighth paragraph
-        └─ This is a ninth paragraph
-        "#
+            r#"└─ Document
+   └─ <parent>
+      ├─ <div1>
+      ├─ <div2>
+      └─ <div3>
+         └─ <div3_1>
+"#
+        );
+
+        document.get_mut().relocate(node3_1_id, node1_id);
+        assert_eq!(
+            format!("{}", document),
+            r#"└─ Document
+   └─ <parent>
+      ├─ <div1>
+      │  └─ <div3_1>
+      ├─ <div2>
+      └─ <div3>
+"#
+        );
+
+        document.get_mut().relocate(node1_id, node2_id);
+        assert_eq!(
+            format!("{}", document),
+            r#"└─ Document
+   └─ <parent>
+      ├─ <div2>
+      │  └─ <div1>
+      │     └─ <div3_1>
+      └─ <div3>
+"#
         );
     }
 
@@ -444,7 +545,7 @@ mod tests {
         let mut document = Document::shared();
         let node = Node::new_element(&document, "div", attributes.clone(), HTML_NAMESPACE);
         let node_id = NodeId::from(0);
-        let _ = document.get_mut().add_node(node, node_id);
+        let _ = document.get_mut().add_node(node, node_id, None);
         // invalid name (empty)
         document.get_mut().set_node_named_id(node_id, "");
         assert!(!document
@@ -488,7 +589,7 @@ mod tests {
         let mut document = Document::shared();
         let node = Node::new_text(&document, "sample");
         let node_id = NodeId::from(0);
-        let _ = document.get_mut().add_node(node, node_id);
+        let _ = document.get_mut().add_node(node, node_id, None);
 
         // even if this is a valid name, nothing will happen since it's not an Element type
         document.get_mut().set_node_named_id(node_id, "myid");
@@ -522,8 +623,8 @@ mod tests {
             _ => panic!(),
         }
 
-        let _ = document.get_mut().add_node(node1, NodeId::from(0));
-        let _ = document.get_mut().add_node(node2, NodeId::from(1));
+        let _ = document.get_mut().add_node(node1, NodeId::from(0), None);
+        let _ = document.get_mut().add_node(node2, NodeId::from(1), None);
 
         // two elements here have the same ID, the ID will only be tied to NodeId(0) since
         // the HTML5 spec specifies that every ID must uniquely specify one element in the DOM
@@ -553,8 +654,8 @@ mod tests {
         let node1 = Node::new_element(&document, "div", HashMap::new(), HTML_NAMESPACE);
         let node2 = Node::new_element(&document, "div", HashMap::new(), HTML_NAMESPACE);
 
-        document.get_mut().add_node(node1, NodeId::from(0));
-        document.get_mut().add_node(node2, NodeId::from(0));
+        document.get_mut().add_node(node1, NodeId::from(0), None);
+        document.get_mut().add_node(node2, NodeId::from(0), None);
 
         let doc_ptr = document.get();
 
