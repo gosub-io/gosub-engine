@@ -2569,7 +2569,6 @@ impl<'stream> Html5Parser<'stream> {
             }
             Token::StartTagToken { name, .. } if name == "textarea" => {
                 self.insert_html_element(&self.current_token.clone());
-                self.open_elements.pop();
 
                 // @TODO: if next token == LF, ignore and move on to the next one
 
