@@ -383,6 +383,16 @@ impl InputStream {
         Element::Eof
     }
 
+    /// Reads the current character
+    pub(crate) fn current_char(&self) -> Element {
+        self.look_ahead(0)
+    }
+
+    /// Reads the next character
+    pub(crate) fn next_char(&self) -> Element {
+        self.look_ahead(1)
+    }
+
     pub(crate) fn unread(&mut self) {
         // We already read eof, so "unread" the eof by unsetting the flag
         if self.has_read_eof {
