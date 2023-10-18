@@ -17,6 +17,8 @@ pub struct TestResults {
     failed: usize,
     /// How many failed assertions where position is not correct
     failed_position: usize,
+    /// The actual tests that have failed
+    tests_failed: Vec<(usize, usize, String)>,
 }
 
 fn main() -> Result<()> {
@@ -26,6 +28,7 @@ fn main() -> Result<()> {
         succeeded: 0,
         failed: 0,
         failed_position: 0,
+        tests_failed: Vec::new(),
     };
 
     let filenames = Some(&["tests1.dat"][..]);
@@ -40,7 +43,7 @@ fn main() -> Result<()> {
 
         let mut test_idx = 1;
         for test in fixture_file.tests {
-            if test_idx == 74 {
+            if test_idx == 57 {
                 run_tree_test(test_idx, &test, &mut results);
             }
             test_idx += 1;
@@ -56,6 +59,14 @@ fn main() -> Result<()> {
         results.failed,
         results.failed_position
     );
+
+    if results.failed > 0 {
+        println!("❌ Failed tests:");
+        for (test_idx, line, data) in results.tests_failed {
+            println!("  * Test #{} at line {}:", test_idx, line);
+            println!("    {}", data);
+        }
+    }
     Ok(())
 }
 
@@ -145,6 +156,7 @@ fn run_tree_test(test_idx: usize, test: &Test, results: &mut TestResults) {
 
     // Display additional data if there a failure is found
     if !result.success() {
+        results.tests_failed.push((test_idx, test.line, test.data.to_string()));
         println!("----------------------------------------");
         println!("📄 Input stream: ");
         println!("{}", test.data);
