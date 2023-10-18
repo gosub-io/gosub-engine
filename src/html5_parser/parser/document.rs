@@ -259,7 +259,7 @@ impl Document {
         if let Some(parent_node) = self.get_node_by_id_mut(parent_id) {
             // Make sure position can never be larger than the number of children in the parent
             if let Some(mut position) = position {
-                if position >= parent_node.children.len() {
+                if position > parent_node.children.len() {
                     position = parent_node.children.len();
                 }
                 parent_node.children.insert(position, node_id);
