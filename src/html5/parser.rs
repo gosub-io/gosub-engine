@@ -786,7 +786,7 @@ impl<'stream> Html5Parser<'stream> {
                             // @TODO: check what fragment case means
                         }
 
-                        self.generate_all_implied_end_tags(None, false);
+                        self.generate_implied_end_tags(None, false);
 
                         if current_node!(self).name != "caption" {
                             self.parse_error("caption end tag not at top of stack");
@@ -1094,7 +1094,7 @@ impl<'stream> Html5Parser<'stream> {
                                 continue;
                             }
 
-                            self.generate_all_implied_end_tags(None, false);
+                            self.generate_implied_end_tags(None, false);
 
                             if current_node!(self).name != token_name {
                                 self.parse_error("current node should be th or td");
@@ -1648,18 +1648,16 @@ impl<'stream> Html5Parser<'stream> {
 
     /// Pops the last element from the open elements until we reach any of the elements in $arr
     fn pop_until_any(&mut self, arr: &[&str]) {
-        let mut pop_count = 0;
-
-        for node_id in self.open_elements.iter().rev() {
-            if arr.contains(&get_node_by_id!(self.document, *node_id).name.as_str()) {
-                pop_count += 1;
-            } else {
+        while !self.open_elements.is_empty() {
+            let node_id = self.open_elements.pop();
+            if node_id.is_none() {
                 break;
             }
-        }
 
-        for _ in 0..pop_count {
-            self.open_elements.pop();
+            let tag = get_node_by_id!(self.document, node_id.expect("node_id not found")).name;
+            if arr.contains(&tag.as_str()) {
+                break;
+            }
         }
     }
 
@@ -1760,20 +1758,20 @@ impl<'stream> Html5Parser<'stream> {
 
     /// This function will pop elements off the stack until it reaches the first element that matches
     /// our condition (which can be changed with the except and thoroughly parameters)
-    fn generate_all_implied_end_tags(&mut self, except: Option<&str>, thoroughly: bool) {
+    fn generate_implied_end_tags(&mut self, except: Option<&str>, thoroughly: bool) {
         loop {
             if self.open_elements.is_empty() {
                 return;
             }
 
-            let val = current_node!(self).name.clone();
+            let tag = current_node!(self).name.clone();
             if let Some(except) = except {
-                if except == val {
+                if except == tag {
                     return;
                 }
             }
 
-            if thoroughly && !["tbody", "td", "tfoot", "th", "thead", "tr"].contains(&val.as_str())
+            if thoroughly && !["tbody", "td", "tfoot", "th", "thead", "tr"].contains(&tag.as_str())
             {
                 return;
             }
@@ -1781,7 +1779,7 @@ impl<'stream> Html5Parser<'stream> {
             if ![
                 "dd", "dt", "li", "option", "optgroup", "p", "rb", "rp", "rt", "rtc",
             ]
-            .contains(&val.as_str())
+            .contains(&tag.as_str())
             {
                 return;
             }
@@ -1984,10 +1982,9 @@ impl<'stream> Html5Parser<'stream> {
 
     /// Closes a table cell and switches the insertion mode to InRow
     fn close_cell(&mut self) {
-        self.generate_all_implied_end_tags(None, false);
+        self.generate_implied_end_tags(None, false);
 
-        let current_node = current_node!(self);
-        let tag = current_node.name.as_str();
+        let tag = current_node!(self).name;
         if tag != "td" && tag != "th" {
             self.parse_error("current node should be td or th");
         }
@@ -2284,7 +2281,7 @@ impl<'stream> Html5Parser<'stream> {
             Token::StartTagToken { name, .. } if name == "button" => {
                 if self.is_in_scope("button", Scope::Regular) {
                     self.parse_error("button tag not allowed in in body insertion mode");
-                    self.generate_all_implied_end_tags(None, false);
+                    self.generate_implied_end_tags(None, false);
                     self.pop_until("button");
                 }
 
@@ -2326,7 +2323,7 @@ impl<'stream> Html5Parser<'stream> {
                     return;
                 }
 
-                self.generate_all_implied_end_tags(None, false);
+                self.generate_implied_end_tags(None, false);
 
                 let cn = current_node!(self);
                 if cn.name != *name {
@@ -2347,7 +2344,7 @@ impl<'stream> Html5Parser<'stream> {
                     }
                     let node_id = node_id.expect("node_id");
 
-                    self.generate_all_implied_end_tags(None, false);
+                    self.generate_implied_end_tags(None, false);
 
                     let cn = current_node!(self);
                     if cn.name != *name {
@@ -2364,7 +2361,7 @@ impl<'stream> Html5Parser<'stream> {
                         return;
                     }
 
-                    self.generate_all_implied_end_tags(None, false);
+                    self.generate_implied_end_tags(None, false);
 
                     let cn = current_node!(self);
                     if cn.name != *name {
@@ -2395,7 +2392,7 @@ impl<'stream> Html5Parser<'stream> {
                     return;
                 }
 
-                self.generate_all_implied_end_tags(Some("li"), false);
+                self.generate_implied_end_tags(Some("li"), false);
 
                 if current_node!(self).name != *name {
                     self.parse_error("end tag not at top of stack");
@@ -2410,7 +2407,7 @@ impl<'stream> Html5Parser<'stream> {
                     return;
                 }
 
-                self.generate_all_implied_end_tags(Some(name), false);
+                self.generate_implied_end_tags(Some(name), false);
 
                 if current_node!(self).name != *name {
                     self.parse_error("end tag not at top of stack");
@@ -2438,7 +2435,7 @@ impl<'stream> Html5Parser<'stream> {
                     return;
                 }
 
-                self.generate_all_implied_end_tags(Some(name), false);
+                self.generate_implied_end_tags(Some(name), false);
 
                 if current_node!(self).name != *name {
                     self.parse_error("end tag not at top of stack");
@@ -2536,7 +2533,7 @@ impl<'stream> Html5Parser<'stream> {
                     return;
                 }
 
-                self.generate_all_implied_end_tags(None, false);
+                self.generate_implied_end_tags(None, false);
 
                 if current_node!(self).name != *name {
                     self.parse_error("end tag not at top of stack");
@@ -2709,7 +2706,7 @@ impl<'stream> Html5Parser<'stream> {
             }
             Token::StartTagToken { name, .. } if name == "rb" || name == "rtc" => {
                 if self.is_in_scope("ruby", Scope::Regular) {
-                    self.generate_all_implied_end_tags(None, false);
+                    self.generate_implied_end_tags(None, false);
                 }
 
                 if current_node!(self).name != "ruby" {
@@ -2720,7 +2717,7 @@ impl<'stream> Html5Parser<'stream> {
             }
             Token::StartTagToken { name, .. } if name == "rp" || name == "rt" => {
                 if self.is_in_scope("ruby", Scope::Regular) {
-                    self.generate_all_implied_end_tags(Some("rtc"), false);
+                    self.generate_implied_end_tags(Some("rtc"), false);
                 }
 
                 if current_node!(self).name != "rtc" && current_node!(self).name != "ruby" {
@@ -2905,7 +2902,7 @@ impl<'stream> Html5Parser<'stream> {
                     return;
                 }
 
-                self.generate_all_implied_end_tags(None, true);
+                self.generate_implied_end_tags(None, true);
 
                 if current_node!(self).name != "template" {
                     self.parse_error("template end tag not at top of stack");
@@ -3289,7 +3286,7 @@ impl<'stream> Html5Parser<'stream> {
 
     /// Close the p element that may or may not be on the open elements stack
     fn close_p_element(&mut self) {
-        self.generate_all_implied_end_tags(Some("p"), false);
+        self.generate_implied_end_tags(Some("p"), false);
 
         if current_node!(self).name != "p" {
             self.parse_error("p element not at top of stack");
@@ -3602,7 +3599,7 @@ impl<'stream> Html5Parser<'stream> {
             let node = get_node_by_id!(self.document, node_id).clone();
 
             if node.name == token_name {
-                self.generate_all_implied_end_tags(Some(node.name.as_str()), false);
+                self.generate_implied_end_tags(Some(node.name.as_str()), false);
 
                 // It might be possible that the last item is not our node_id. Emit parse error if so
                 if current_node!(self).id != node.id {
