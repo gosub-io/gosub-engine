@@ -2431,6 +2431,9 @@ impl<'stream> Html5Parser<'stream> {
                     || name == "u" =>
             {
                 self.run_adoption_agency(&self.current_token.clone());
+
+                #[cfg(feature = "debug_parser")]
+                self.display_debug_info();
             }
             Token::StartTagToken { name, .. }
                 if name == "applet" || name == "marquee" || name == "object" =>
@@ -2569,7 +2572,6 @@ impl<'stream> Html5Parser<'stream> {
             }
             Token::StartTagToken { name, .. } if name == "textarea" => {
                 self.insert_html_element(&self.current_token.clone());
-                self.open_elements.pop();
 
                 // @TODO: if next token == LF, ignore and move on to the next one
 
@@ -3194,7 +3196,7 @@ impl<'stream> Html5Parser<'stream> {
         let mut new_node = org_node.clone();
         new_node.children = Vec::new();
         new_node.parent = None;
-        new_node.id = NodeId::default();
+        new_node.is_registered = false;
 
         self.insert_element_node(new_node)
     }
@@ -3301,6 +3303,8 @@ impl<'stream> Html5Parser<'stream> {
             adjusted_insert_location.node_id,
             adjusted_insert_location.position,
         );
+
+        node.id = node_id;
 
         //     if parser not created as part of html fragment parsing algorithm
         //       pop the top element queue from the relevant agent custom element reactions stack (???)
