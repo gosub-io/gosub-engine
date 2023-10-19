@@ -23,6 +23,7 @@ pub enum Token {
     Function(String),
     Url(String),
     BadUrl(String),
+    Dimension { unit: String, value: Number },
 }
 
 impl Number {
@@ -59,6 +60,29 @@ impl<'stream> Tokenizer<'stream> {
             // consume '*/'
             self.consume_chars(2);
         };
+    }
+
+    /// 4.3.3. [Consume a numeric token]()
+    /// Returns either a `<number-token>`, `<percentage-token>`, or `<dimension-token>`.
+    pub fn consume_numeric_token(&mut self) -> Token {
+        let number = self.consume_number();
+
+        // chec if the next 3 input code points would start an ident sequence
+        if self.is_ident_start(self.stream.current_char().utf8())  // idx=0
+            // idx=1
+            && self.is_ident_start(self.stream.next_char().utf8())
+            // idx=2
+            && self.is_ident_start(self.stream.look_ahead(2).utf8())
+        {
+            let unit = self.consume_ident();
+
+            return Token::Dimension {
+                unit,
+                value: number,
+            };
+        }
+
+        Token::Ident("".into())
     }
 
     /// 4.3.12. [Consume a number](https://www.w3.org/TR/css-syntax-3/#consume-number)
@@ -234,7 +258,7 @@ impl<'stream> Tokenizer<'stream> {
     pub fn consume_ident(&mut self) -> String {
         let mut value = String::new();
 
-        while self.is_ident_char() {
+        while self.is_ident_char(self.stream.current_char().utf8()) {
             value.push(self.stream.read_char().utf8());
             // todo: Consume an escaped code point.
         }
@@ -269,14 +293,12 @@ impl<'stream> Tokenizer<'stream> {
         }
     }
 
-    fn is_ident_start(&self) -> bool {
-        let char = self.stream.current_char().utf8();
+    fn is_ident_start(&self, char: char) -> bool {
         char.is_alphabetic() || !char.is_ascii() || char == get_unicode_char(UnicodeChar::LowLine)
     }
 
-    fn is_ident_char(&self) -> bool {
-        let char = self.stream.current_char().utf8();
-        self.is_ident_start() || char.is_numeric() || char == '\u{002D}' // ??
+    fn is_ident_char(&self, char: char) -> bool {
+        self.is_ident_start(char) || char.is_numeric() || char == '\u{002D}' // ??
     }
 
     /// def: [non-printable code point](https://www.w3.org/TR/css-syntax-3/#non-printable-code-point)
