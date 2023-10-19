@@ -217,6 +217,12 @@ pub struct Html5Parser<'stream> {
     document: DocumentHandle,
     /// Error logger, which is shared with the tokenizer
     error_logger: Rc<RefCell<ErrorLogger>>,
+    /// Levels of scripting we currently are in
+    script_nesting_level: u32,
+    /// If true, the parser is paused
+    parser_pause_flag: bool,
+    /// Keeps the position of where any document.write() should be inserted when running a script
+    insertion_point: Option<usize>
 }
 
 /// Defines the scopes for in_scope()
@@ -263,6 +269,9 @@ impl<'stream> Html5Parser<'stream> {
             is_fragment_case: false,
             document,
             error_logger,
+            script_nesting_level: 0,
+            parser_pause_flag: false,
+            insertion_point: None,
         }
     }
 
@@ -641,7 +650,26 @@ impl<'stream> Html5Parser<'stream> {
                             self.reprocess_token = true;
                         }
                         Token::EndTagToken { name, .. } if name == "script" => {
-                            // @TODO: do script stuff!!!!
+                            // @todo: If the active speculative HTML parser is null and the JavaScript execution context stack is empty, then perform a microtask checkpoint.
+
+                            let _script = current_node!(self);
+
+                            self.open_elements.pop();
+                            self.insertion_mode = self.original_insertion_mode;
+
+                            let old_insertion_point = self.insertion_point;
+                            self.insertion_point = Some(self.tokenizer.get_position().offset);
+
+                            self.script_nesting_level += 1;
+
+                            // do script stuff
+
+                            self.script_nesting_level -= 1;
+                            if self.script_nesting_level == 0 {
+                                self.parser_pause_flag = false;
+                            }
+
+                            self.insertion_point = old_insertion_point;
                         }
                         _ => {
                             self.open_elements.pop();
@@ -1981,10 +2009,7 @@ impl<'stream> Html5Parser<'stream> {
             }
             Token::TextToken { .. } if self.current_token.is_empty_or_white() => {
                 self.reconstruct_formatting();
-
-                let node = self.create_node(&self.current_token, HTML_NAMESPACE);
-                let parent_node = current_node!(self);
-                self.document.get_mut().add_node(node, parent_node.id, None);
+                self.create_or_merge_text(self.current_token.clone());
             }
             Token::TextToken { .. } => {
                 self.reconstruct_formatting();
@@ -3529,7 +3554,7 @@ impl<'stream> Html5Parser<'stream> {
         println!("-----------------------------------------\n");
         self.document.get().print_nodes();
         println!("-----------------------------------------\n");
-        println!("current token   : {}", self.current_token);
+        println!("current token   : '{}'", self.current_token);
         println!("insertion mode  : {:?}", self.insertion_mode);
         print!("Open elements   : [ ");
         for node_id in &self.open_elements {

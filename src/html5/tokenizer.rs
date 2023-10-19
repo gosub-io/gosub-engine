@@ -2149,11 +2149,30 @@ impl<'stream> Tokenizer<'stream> {
         // If there is any consumed data, emit this first as a text token
         if self.has_consumed_data() {
             let value = self.get_consumed_str().to_string();
-            self.token_queue.push(Token::TextToken { value });
+
+            self.push_text_token(value.as_str());
             self.clear_consume_buffer();
         }
 
-        self.token_queue.push(token);
+        if let Token::TextToken { value } = &token {
+            self.push_text_token(value.as_str());
+        } else {
+            self.token_queue.push(token);
+        }
+    }
+
+    /// Pushes a text token. This will split the given value into prefixed whitespaces and the rest
+    /// of the value. This will make sure that the text "  foobar" will be split into "  " and
+    /// "foobar".
+    fn push_text_token(&mut self, value: &str) {
+        let first_non_whitespace_index = value.chars().position(|c| !c.is_whitespace()).unwrap_or(0);
+        let (prefixed_whitespaces, value) = value.split_at(first_non_whitespace_index);
+
+        if !prefixed_whitespaces.is_empty() {
+            self.token_queue.push(Token::TextToken { value: prefixed_whitespaces.to_string() });
+        }
+
+        self.token_queue.push(Token::TextToken { value: value.to_string() });
     }
 
     // Consumes the given character
