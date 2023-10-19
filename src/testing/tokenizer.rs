@@ -1,5 +1,5 @@
 use super::FIXTURE_ROOT;
-use crate::html5_parser::{
+use crate::html5::{
     error_logger::ErrorLogger,
     input_stream::InputStream,
     tokenizer::{
@@ -179,7 +179,7 @@ impl Test {
     }
 
     fn assert_token(&self, have: Token, expected: &[Value]) {
-        use crate::html5_parser::tokenizer::token::TokenTrait;
+        use crate::html5::tokenizer::token::TokenTrait;
 
         let double_escaped = self.double_escaped.unwrap_or(false);
 

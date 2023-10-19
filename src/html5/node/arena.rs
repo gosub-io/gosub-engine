@@ -1,4 +1,4 @@
-use crate::html5_parser::node::Node;
+use crate::html5::node::Node;
 use std::collections::HashMap;
 
 use super::NodeId;
@@ -78,8 +78,8 @@ impl Default for NodeArena {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::html5_parser::node::HTML_NAMESPACE;
-    use crate::html5_parser::parser::document::Document;
+    use crate::html5::node::HTML_NAMESPACE;
+    use crate::html5::parser::document::Document;
 
     #[test]
     fn register_node() {

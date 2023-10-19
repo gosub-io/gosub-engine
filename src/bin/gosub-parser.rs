@@ -1,6 +1,6 @@
 use anyhow::Result;
-use gosub_engine::html5_parser::parser::document::Document;
-use gosub_engine::html5_parser::{
+use gosub_engine::html5::parser::document::Document;
+use gosub_engine::html5::{
     input_stream::{Confidence, Encoding, InputStream},
     parser::Html5Parser,
 };

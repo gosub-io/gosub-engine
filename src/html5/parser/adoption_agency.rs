@@ -1,6 +1,6 @@
-use crate::html5_parser::node::{Node, NodeData, NodeId, HTML_NAMESPACE};
-use crate::html5_parser::parser::{ActiveElement, Html5Parser, Scope};
-use crate::html5_parser::tokenizer::token::Token;
+use crate::html5::node::{Node, NodeData, NodeId, HTML_NAMESPACE};
+use crate::html5::parser::{ActiveElement, Html5Parser, Scope};
+use crate::html5::tokenizer::token::Token;
 use std::collections::HashMap;
 
 const ADOPTION_AGENCY_OUTER_LOOP_DEPTH: usize = 8;
@@ -326,7 +326,7 @@ impl<'stream> Html5Parser<'stream> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::html5_parser::input_stream::InputStream;
+    use crate::html5::input_stream::InputStream;
 
     macro_rules! node_create {
         ($self:expr, $name:expr) => {{

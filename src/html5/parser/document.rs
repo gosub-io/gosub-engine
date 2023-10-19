@@ -1,9 +1,9 @@
-use crate::html5_parser::node::arena::NodeArena;
-use crate::html5_parser::node::data::{comment::CommentData, text::TextData};
-use crate::html5_parser::node::NodeTrait;
-use crate::html5_parser::node::NodeType;
-use crate::html5_parser::node::{Node, NodeData, NodeId};
-use crate::html5_parser::parser::quirks::QuirksMode;
+use crate::html5::node::arena::NodeArena;
+use crate::html5::node::data::{comment::CommentData, text::TextData};
+use crate::html5::node::NodeTrait;
+use crate::html5::node::NodeType;
+use crate::html5::node::{Node, NodeData, NodeId};
+use crate::html5::parser::quirks::QuirksMode;
 use alloc::rc::Rc;
 use core::fmt;
 use core::fmt::Debug;
@@ -481,8 +481,8 @@ impl DocumentHandle {
 
 #[cfg(test)]
 mod tests {
-    use crate::html5_parser::node::HTML_NAMESPACE;
-    use crate::html5_parser::parser::{Document, Node, NodeData, NodeId};
+    use crate::html5::node::HTML_NAMESPACE;
+    use crate::html5::parser::{Document, Node, NodeData, NodeId};
     use std::collections::HashMap;
 
     #[test]

@@ -1,4 +1,4 @@
-use crate::html5_parser::tokenizer::CHAR_NUL;
+use crate::html5::tokenizer::CHAR_NUL;
 use std::collections::HashMap;
 
 /// The different tokens types that can be emitted by the tokenizer

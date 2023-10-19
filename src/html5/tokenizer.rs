@@ -4,12 +4,12 @@ pub mod token;
 mod character_reference;
 mod replacement_tables;
 
-use crate::html5_parser::error_logger::{ErrorLogger, ParserError};
-use crate::html5_parser::input_stream::Element;
-use crate::html5_parser::input_stream::SeekMode::SeekCur;
-use crate::html5_parser::input_stream::{InputStream, Position};
-use crate::html5_parser::tokenizer::state::State;
-use crate::html5_parser::tokenizer::token::Token;
+use crate::html5::error_logger::{ErrorLogger, ParserError};
+use crate::html5::input_stream::Element;
+use crate::html5::input_stream::SeekMode::SeekCur;
+use crate::html5::input_stream::{InputStream, Position};
+use crate::html5::tokenizer::state::State;
+use crate::html5::tokenizer::token::Token;
 use crate::types::{Error, Result};
 use std::cell::{Ref, RefCell};
 use std::collections::HashMap;

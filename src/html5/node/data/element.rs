@@ -1,6 +1,6 @@
-use crate::html5_parser::element_class::ElementClass;
-use crate::html5_parser::node::NodeId;
-use crate::html5_parser::parser::document::{Document, DocumentFragment, DocumentHandle};
+use crate::html5::element_class::ElementClass;
+use crate::html5::node::NodeId;
+use crate::html5::parser::document::{Document, DocumentFragment, DocumentHandle};
 use core::fmt::{Debug, Formatter};
 use std::collections::hash_map::Iter;
 use std::collections::HashMap;

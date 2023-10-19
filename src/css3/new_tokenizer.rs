@@ -1,5 +1,5 @@
 // note: input_stream should come from a shared lib.
-use crate::html5_parser::input_stream::InputStream;
+use crate::html5::input_stream::InputStream;
 
 #[derive(Debug, PartialEq)]
 pub enum NumberKind {
@@ -113,9 +113,8 @@ impl<'stream> Tokenizer<'stream> {
 
 #[cfg(test)]
 mod test {
-    use crate::html5_parser::input_stream::Encoding;
-
     use super::*;
+    use crate::html5::input_stream::Encoding;
 
     #[test]
     fn parse_comment() {
