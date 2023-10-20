@@ -76,10 +76,7 @@ impl<'a> Tokenizer<'a> {
                             return;
                         }
 
-
-                        let entity_chars = *TOKEN_NAMED_CHARS
-                            .get(entity.as_str())
-                            .unwrap();
+                        let entity_chars = *TOKEN_NAMED_CHARS.get(entity.as_str()).unwrap();
 
                         // Flush codepoints consumed as character reference
                         for c in entity_chars.chars() {
