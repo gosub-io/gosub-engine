@@ -5,7 +5,6 @@ mod quirks;
 // ------------------------------------------------------------
 
 use self::document::DocumentHandle;
-
 use super::node::NodeId;
 use crate::html5::element_class::ElementClass;
 use crate::html5::error_logger::{ErrorLogger, ParseError, ParserError};
@@ -20,11 +19,11 @@ use crate::html5::parser::quirks::QuirksMode;
 use crate::html5::tokenizer::state::State;
 use crate::html5::tokenizer::token::Token;
 use crate::html5::tokenizer::{Tokenizer, CHAR_NUL};
+use crate::types::AttributeMap;
 use crate::types::Result;
 use alloc::rc::Rc;
 use core::cell::RefCell;
 use core::option::Option::Some;
-use std::collections::HashMap;
 #[cfg(feature = "debug_parser")]
 use std::io::Write;
 
@@ -402,7 +401,7 @@ impl<'stream> Html5Parser<'stream> {
                         let token = Token::StartTagToken {
                             name: "html".to_string(),
                             is_self_closing: false,
-                            attributes: HashMap::new(),
+                            attributes: AttributeMap::new(),
                         };
                         self.insert_html_element(&token);
 
@@ -454,7 +453,7 @@ impl<'stream> Html5Parser<'stream> {
                         let token = Token::StartTagToken {
                             name: "head".to_string(),
                             is_self_closing: false,
-                            attributes: HashMap::new(),
+                            attributes: AttributeMap::new(),
                         };
                         let node_id = self.insert_html_element(&token);
                         self.head_element = Some(node_id);
@@ -616,7 +615,7 @@ impl<'stream> Html5Parser<'stream> {
                         let token = Token::StartTagToken {
                             name: "body".to_string(),
                             is_self_closing: false,
-                            attributes: HashMap::new(),
+                            attributes: AttributeMap::new(),
                         };
                         self.insert_html_element(&token);
 
@@ -864,7 +863,7 @@ impl<'stream> Html5Parser<'stream> {
                     // }
                     //
                     // if anything_else {
-                    //     let token = Token::StartTagToken { name: "body".to_string(), is_self_closing: false, attributes: HashMap::new() };
+                    //     let token = Token::StartTagToken { name: "body".to_string(), is_self_closing: false, attributes: AttributeMap::new() };
                     //     self.insert_html_element(&token);
                     //
                     //     self.insertion_mode = InsertionMode::InBody;
@@ -890,7 +889,7 @@ impl<'stream> Html5Parser<'stream> {
                             let token = Token::StartTagToken {
                                 name: "tr".to_string(),
                                 is_self_closing: false,
-                                attributes: HashMap::new(),
+                                attributes: AttributeMap::new(),
                             };
                             self.insert_html_element(&token);
 
@@ -1705,13 +1704,18 @@ impl<'stream> Html5Parser<'stream> {
                     // sys_identifier.as_deref().unwrap_or(""),
                 );
 
-                return Node::new_element(&self.document, val.as_str(), HashMap::new(), namespace);
+                return Node::new_element(
+                    &self.document,
+                    val.as_str(),
+                    AttributeMap::new(),
+                    namespace,
+                );
             }
             Token::StartTagToken {
                 name, attributes, ..
             } => Node::new_element(&self.document, name, attributes.clone(), namespace),
             Token::EndTagToken { name, .. } => {
-                Node::new_element(&self.document, name, HashMap::new(), namespace)
+                Node::new_element(&self.document, name, AttributeMap::new(), namespace)
             }
             Token::CommentToken { value } => Node::new_comment(&self.document, value),
             Token::TextToken { value } => {
@@ -1975,11 +1979,7 @@ impl<'stream> Html5Parser<'stream> {
                 // ignore token
             }
             Token::TextToken { .. } if self.current_token.is_empty_or_white() => {
-                self.reconstruct_formatting();
-
-                let node = self.create_node(&self.current_token, HTML_NAMESPACE);
-                let parent_node = current_node!(self);
-                self.document.get_mut().add_node(node, parent_node.id, None);
+                self.create_or_merge_text(self.current_token.clone());
             }
             Token::TextToken { .. } => {
                 self.reconstruct_formatting();
@@ -2299,7 +2299,7 @@ impl<'stream> Html5Parser<'stream> {
                     let token = Token::StartTagToken {
                         name: "p".to_string(),
                         is_self_closing: false,
-                        attributes: HashMap::new(),
+                        attributes: AttributeMap::new(),
                     };
                     self.insert_html_element(&token);
                 }
@@ -2902,7 +2902,7 @@ impl<'stream> Html5Parser<'stream> {
                 let token = Token::StartTagToken {
                     name: "colgroup".to_string(),
                     is_self_closing: false,
-                    attributes: HashMap::new(),
+                    attributes: AttributeMap::new(),
                 };
                 self.insert_html_element(&token);
 
@@ -2924,7 +2924,7 @@ impl<'stream> Html5Parser<'stream> {
                 let token = Token::StartTagToken {
                     name: "tbody".to_string(),
                     is_self_closing: false,
-                    attributes: HashMap::new(),
+                    attributes: AttributeMap::new(),
                 };
                 self.insert_html_element(&token);
 
@@ -3219,7 +3219,7 @@ impl<'stream> Html5Parser<'stream> {
     /// Adjusts attributes names in the given token for SVG
     fn adjust_svg_attributes(&self, token: &mut Token) {
         if let Token::StartTagToken { attributes, .. } = token {
-            let mut new_attributes = HashMap::new();
+            let mut new_attributes = AttributeMap::new();
             for (name, value) in attributes.iter() {
                 if SVG_ADJUSTMENTS.contains_key(name) {
                     let new_name = SVG_ADJUSTMENTS.get(name).expect("svg adjustments");
@@ -3235,7 +3235,7 @@ impl<'stream> Html5Parser<'stream> {
     // Adjust attribute names in the given token for MathML
     fn adjust_mathml_attributes(&self, token: &mut Token) {
         if let Token::StartTagToken { attributes, .. } = token {
-            let mut new_attributes = HashMap::new();
+            let mut new_attributes = AttributeMap::new();
             for (name, value) in attributes.iter() {
                 if MATHML_ADJUSTMENTS.contains_key(name) {
                     let new_name = SVG_ADJUSTMENTS.get(name).expect("svg adjustments");
@@ -3250,7 +3250,7 @@ impl<'stream> Html5Parser<'stream> {
 
     fn adjust_foreign_attributes(&self, token: &mut Token) {
         if let Token::StartTagToken { attributes, .. } = token {
-            let mut new_attributes = HashMap::new();
+            let mut new_attributes = AttributeMap::new();
             for (name, value) in attributes.iter() {
                 if XML_ADJUSTMENTS.contains_key(name) {
                     let new_name = SVG_ADJUSTMENTS.get(name).expect("svg adjustments");
@@ -3551,16 +3551,34 @@ impl<'stream> Html5Parser<'stream> {
 mod test {
     use super::*;
     use crate::html5::input_stream::Encoding;
+    use crate::types::AttributeMap;
+    use itertools::Itertools;
 
     macro_rules! node_create {
         ($self:expr, $name:expr) => {{
-            let node = Node::new_element(&$self.document, $name, HashMap::new(), HTML_NAMESPACE);
+            let node =
+                Node::new_element(&$self.document, $name, AttributeMap::new(), HTML_NAMESPACE);
             let node_id = $self
                 .document
                 .get_mut()
                 .add_node(node, NodeId::root(), None);
             $self.open_elements.push(node_id);
         }};
+    }
+
+    fn parse(i: &str) -> DocumentHandle {
+        let mut stream = InputStream::new();
+        stream.read_from_str(i, Some(Encoding::UTF8));
+        let mut parser = Html5Parser::new(&mut stream);
+        let document = Document::shared();
+        parser.parse(Document::clone(&document)).expect("doc");
+        document
+    }
+
+    fn assert_same(doc: &DocumentHandle, tree: &str) {
+        let actual = format!("{}", doc.tree_construction_format());
+        let expected = tree.trim().lines().map(|l| l.trim_start()).join("\n");
+        assert_eq!(actual.trim(), expected);
     }
 
     #[test]
@@ -3782,28 +3800,29 @@ mod test {
 
     #[test]
     fn reconstruct_formatting() {
-        let mut stream = InputStream::new();
-        stream.read_from_str(
-            "<p><b>bold<i>bold and italic</b>italic</i></p>",
-            Some(Encoding::UTF8),
-        );
-
-        let mut parser = Html5Parser::new(&mut stream);
-        let document = Document::shared();
-        parser.parse(Document::clone(&document)).expect("");
-
-        println!("{}", document);
+        let document = parse("<p><b>bold<i>bold and italic</b>italic</i></p>");
+        let s = format!("\n{}", document);
+        assert_eq!(
+            s,
+            r#"
+└─ Document
+   └─ <html>
+      ├─ <head>
+      └─ <body>
+         └─ <p>
+            ├─ <b>
+            │  ├─ "bold"
+            │  └─ <i>
+            │     └─ "bold and italic"
+            └─ <i>
+               └─ "italic"
+"#,
+        )
     }
 
     #[test]
     fn element_with_classes() {
-        let mut stream = InputStream::new();
-        stream.read_from_str("<div class=\"one two three\"></div>", Some(Encoding::UTF8));
-
-        let mut parser = Html5Parser::new(&mut stream);
-        let document = Document::shared();
-        parser.parse(Document::clone(&document)).expect("");
-
+        let document = parse(r#"<div class="one two three"></div>"#);
         let binding = document.get();
 
         // document -> html -> head -> body -> div
@@ -3826,16 +3845,7 @@ mod test {
 
     #[test]
     fn element_with_classes_extra_whitespace() {
-        let mut stream = InputStream::new();
-        stream.read_from_str(
-            "<div class=\" one    two     three   \"></div>",
-            Some(Encoding::UTF8),
-        );
-
-        let mut parser = Html5Parser::new(&mut stream);
-        let document = Document::shared();
-        parser.parse(Document::clone(&document)).expect("");
-
+        let document = parse(r#"<div class=" one    two     three   "></div>"#);
         let binding = document.get();
 
         // document -> html -> head -> body -> div
@@ -3858,18 +3868,7 @@ mod test {
 
     #[test]
     fn element_with_invalid_named_id() {
-        let mut stream = InputStream::new();
-        stream.read_from_str(
-            "<div id=\"my id\"></div> \
-             <div id=\"123\"></div> \
-             <div id=\"\"></div>",
-            Some(Encoding::UTF8),
-        );
-
-        let mut parser = Html5Parser::new(&mut stream);
-        let document = Document::shared();
-        parser.parse(Document::clone(&document)).expect("");
-
+        let document = parse(r#"<div id="my id"></div> <div id="123"></div> <div id=""></div>"#);
         let binding = document.get();
 
         let div1 = binding.get_node_by_id(NodeId(4)).unwrap();
@@ -3884,16 +3883,7 @@ mod test {
 
     #[test]
     fn element_with_named_id() {
-        let mut stream = InputStream::new();
-        stream.read_from_str(
-            "<div id=\"myid\"></div> \
-             <div id=\"myid\"></div>",
-            Some(Encoding::UTF8),
-        );
-
-        let mut parser = Html5Parser::new(&mut stream);
-        let mut document = Document::shared();
-        parser.parse(Document::clone(&document)).expect("doc");
+        let mut document = parse(r#"<div id="myid"></div> <div id="myid"></div>"#);
 
         {
             let binding = document.get();
@@ -3904,5 +3894,57 @@ mod test {
         let mut binding = document.get_mut();
         binding.set_node_named_id(NodeId(4), "otherid");
         assert!(binding.get_node_by_named_id("myid").is_none());
+    }
+
+    #[test]
+    fn tests2_dat_720() {
+        let document = parse("<!DOCTYPE html>X</html>X");
+
+        assert_same(
+            &document,
+            r#"
+            | <!DOCTYPE html>
+            | <html>
+            |   <head>
+            |   <body>
+            |     "XX"
+            "#,
+        );
+    }
+
+    #[test]
+    fn tests2_dat_731() {
+        let document = parse("<!DOCTYPE html>X</html> ");
+
+        assert_same(
+            &document,
+            r#"
+            | <!DOCTYPE html>
+            | <html>
+            |   <head>
+            |   <body>
+            |     "X "
+            "#,
+        );
+    }
+
+    #[test]
+    fn tests2_dat_754() {
+        let document = parse("<!DOCTYPE html>X<p/x/y/z>");
+
+        assert_same(
+            &document,
+            r#"
+            | <!DOCTYPE html>
+            | <html>
+            |   <head>
+            |   <body>
+            |     "X"
+            |     <p>
+            |       x=""
+            |       y=""
+            |       z=""            
+            "#,
+        );
     }
 }

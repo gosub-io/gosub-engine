@@ -40,9 +40,11 @@ ureq = "2.8.0"
 anyhow = "1.0.75"
 uuid = { version = "1.4.1", features = ["v4"] }
 colored = "2.0.4"
+indexmap = "2.0.2"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
+itertools = "0.11.0"
 test-case = "3.2.1"
 
 [features]

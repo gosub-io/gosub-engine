@@ -1,19 +1,22 @@
 use super::FIXTURE_ROOT;
-use crate::html5::{
-    error_logger::ErrorLogger,
-    input_stream::InputStream,
-    tokenizer::{
-        state::State as TokenState,
-        token::{Attribute, Token, TokenType},
-        {Options, Tokenizer},
-    },
-};
 use crate::types::Result;
+use crate::{
+    html5::{
+        error_logger::ErrorLogger,
+        input_stream::InputStream,
+        tokenizer::{
+            state::State as TokenState,
+            token::{Attribute, Token, TokenType},
+            {Options, Tokenizer},
+        },
+    },
+    types::AttributeMap,
+};
 use lazy_static::lazy_static;
 use regex::{Captures, Regex};
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::{cell::RefCell, rc::Rc};
 use std::{
     fs,
@@ -225,7 +228,7 @@ impl Test {
         &self,
         expected: &[Value],
         name: &str,
-        attributes: HashMap<String, String>,
+        attributes: AttributeMap,
         is_self_closing: bool,
     ) {
         let expected_name = expected.get(1).and_then(|v| v.as_str()).unwrap();

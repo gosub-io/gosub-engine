@@ -483,7 +483,7 @@ impl DocumentHandle {
 mod tests {
     use crate::html5::node::HTML_NAMESPACE;
     use crate::html5::parser::{Document, Node, NodeData, NodeId};
-    use std::collections::HashMap;
+    use crate::types::AttributeMap;
 
     #[test]
     fn relocate() {
@@ -491,11 +491,11 @@ mod tests {
         let document_clone = Document::clone(&document);
         document.get_mut().create_root(&document_clone);
 
-        let parent = Node::new_element(&document, "parent", HashMap::new(), HTML_NAMESPACE);
-        let node1 = Node::new_element(&document, "div1", HashMap::new(), HTML_NAMESPACE);
-        let node2 = Node::new_element(&document, "div2", HashMap::new(), HTML_NAMESPACE);
-        let node3 = Node::new_element(&document, "div3", HashMap::new(), HTML_NAMESPACE);
-        let node3_1 = Node::new_element(&document, "div3_1", HashMap::new(), HTML_NAMESPACE);
+        let parent = Node::new_element(&document, "parent", AttributeMap::new(), HTML_NAMESPACE);
+        let node1 = Node::new_element(&document, "div1", AttributeMap::new(), HTML_NAMESPACE);
+        let node2 = Node::new_element(&document, "div2", AttributeMap::new(), HTML_NAMESPACE);
+        let node3 = Node::new_element(&document, "div3", AttributeMap::new(), HTML_NAMESPACE);
+        let node3_1 = Node::new_element(&document, "div3_1", AttributeMap::new(), HTML_NAMESPACE);
 
         let parent_id = document.get_mut().add_node(parent, NodeId::from(0), None);
         let node1_id = document.get_mut().add_node(node1, parent_id, None);
@@ -541,7 +541,7 @@ mod tests {
 
     #[test]
     fn set_named_id_to_element() {
-        let attributes = HashMap::new();
+        let attributes = AttributeMap::new();
         let mut document = Document::shared();
         let node = Node::new_element(&document, "div", attributes.clone(), HTML_NAMESPACE);
         let node_id = NodeId::from(0);
@@ -602,8 +602,7 @@ mod tests {
 
     #[test]
     fn duplicate_named_id_elements() {
-        let attributes = HashMap::new();
-
+        let attributes = AttributeMap::new();
         let mut document = Document::shared();
 
         let mut node1 = Node::new_element(&document, "div", attributes.clone(), HTML_NAMESPACE);
@@ -651,8 +650,8 @@ mod tests {
         let document_clone = Document::clone(&document);
         document.get_mut().create_root(&document_clone);
 
-        let node1 = Node::new_element(&document, "div", HashMap::new(), HTML_NAMESPACE);
-        let node2 = Node::new_element(&document, "div", HashMap::new(), HTML_NAMESPACE);
+        let node1 = Node::new_element(&document, "div", AttributeMap::new(), HTML_NAMESPACE);
+        let node2 = Node::new_element(&document, "div", AttributeMap::new(), HTML_NAMESPACE);
 
         document.get_mut().add_node(node1, NodeId::from(0), None);
         document.get_mut().add_node(node2, NodeId::from(0), None);

@@ -1,5 +1,4 @@
-use crate::html5::tokenizer::CHAR_NUL;
-use std::collections::HashMap;
+use crate::{html5::tokenizer::CHAR_NUL, types::AttributeMap};
 
 /// The different tokens types that can be emitted by the tokenizer
 #[derive(Debug, PartialEq)]
@@ -19,7 +18,7 @@ pub struct Attribute {
 }
 
 /// The different token structures that can be emitted by the tokenizer
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Token {
     DocTypeToken {
         name: Option<String>,
@@ -30,12 +29,12 @@ pub enum Token {
     StartTagToken {
         name: String,
         is_self_closing: bool,
-        attributes: HashMap<String, String>,
+        attributes: AttributeMap,
     },
     EndTagToken {
         name: String,
         is_self_closing: bool,
-        attributes: HashMap<String, String>,
+        attributes: AttributeMap,
     },
     CommentToken {
         value: String,
@@ -226,11 +225,11 @@ mod tests {
         let token = Token::StartTagToken {
             name: "html".to_string(),
             is_self_closing: false,
-            attributes: HashMap::new(),
+            attributes: AttributeMap::new(),
         };
         assert_eq!(format!("{}", token), "<html>");
 
-        let mut attributes = HashMap::new();
+        let mut attributes = AttributeMap::new();
         attributes.insert("foo".to_string(), "bar".to_string());
 
         let token = Token::StartTagToken {
@@ -243,7 +242,7 @@ mod tests {
         let token = Token::StartTagToken {
             name: "br".to_string(),
             is_self_closing: true,
-            attributes: HashMap::new(),
+            attributes: AttributeMap::new(),
         };
         assert_eq!(format!("{}", token), "<br />");
     }
@@ -253,7 +252,7 @@ mod tests {
         let token = Token::EndTagToken {
             name: "html".to_string(),
             is_self_closing: false,
-            attributes: HashMap::new(),
+            attributes: AttributeMap::new(),
         };
         assert_eq!(format!("{}", token), "</html>");
     }

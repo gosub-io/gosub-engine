@@ -25,8 +25,7 @@ const DISABLED_CASES: &[&str] = &[
     "<!DOCTYPE html><script></script>  <title>x</title>  </head>",
     "<!DOCTYPE html><html><body><html id=x>",
     r#"<!DOCTYPE html>X</body><html id="x">"#,
-    "<!DOCTYPE html>X</html>",
-    "<!DOCTYPE html>X<p/x/y/z>",
+    "<!DOCTYPE html>X</html>", // Test formatting issue?
     "<!DOCTYPE <!DOCTYPE HTML>><!--<!--x-->-->",
     "<!doctype html><div><form></form><div></div></div>",
     // tests3.dat

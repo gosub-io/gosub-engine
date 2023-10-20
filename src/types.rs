@@ -1,3 +1,4 @@
+use indexmap::IndexMap;
 use thiserror::Error;
 
 /// Generic error types that can be returned from the library.
@@ -21,3 +22,6 @@ pub enum Error {
 
 /// Result that can be returned which holds either T or an Error
 pub type Result<T> = std::result::Result<T, Error>;
+
+/// Element attributes
+pub type AttributeMap = IndexMap<String, String>;

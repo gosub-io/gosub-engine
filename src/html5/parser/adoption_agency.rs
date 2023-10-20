@@ -1,7 +1,7 @@
 use crate::html5::node::{Node, NodeData, NodeId, HTML_NAMESPACE};
 use crate::html5::parser::{ActiveElement, Html5Parser, Scope};
 use crate::html5::tokenizer::token::Token;
-use std::collections::HashMap;
+use crate::types::AttributeMap;
 
 const ADOPTION_AGENCY_OUTER_LOOP_DEPTH: usize = 8;
 const ADOPTION_AGENCY_INNER_LOOP_DEPTH: usize = 3;
@@ -169,7 +169,7 @@ impl<'stream> Html5Parser<'stream> {
                 // replace the old node with the new replacement node
                 let node_attributes = match node.data {
                     NodeData::Element(element) => element.attributes.clone_map(),
-                    _ => HashMap::new(),
+                    _ => AttributeMap::new(),
                 };
 
                 let replacement_node = Node::new_element(
@@ -330,7 +330,8 @@ mod test {
 
     macro_rules! node_create {
         ($self:expr, $name:expr) => {{
-            let node = Node::new_element(&$self.document, $name, HashMap::new(), HTML_NAMESPACE);
+            let node =
+                Node::new_element(&$self.document, $name, AttributeMap::new(), HTML_NAMESPACE);
             let node_id = $self
                 .document
                 .get_mut()

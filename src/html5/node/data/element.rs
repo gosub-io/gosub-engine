@@ -1,9 +1,9 @@
 use crate::html5::element_class::ElementClass;
 use crate::html5::node::NodeId;
 use crate::html5::parser::document::{Document, DocumentFragment, DocumentHandle};
+use crate::types::AttributeMap;
 use core::fmt::{Debug, Formatter};
-use std::collections::hash_map::Iter;
-use std::collections::HashMap;
+
 use std::fmt;
 
 #[derive(Debug, PartialEq, Clone)]
@@ -14,7 +14,7 @@ pub(crate) struct ElementAttributes {
     /// Pointer to the document that the node associated with these attributes are tied to
     pub(crate) document: DocumentHandle,
     /// Key-value pair of all attributes
-    attributes: HashMap<String, String>,
+    attributes: AttributeMap,
 }
 
 /// This is a very thin wrapper around a HashMap.
@@ -26,14 +26,14 @@ impl ElementAttributes {
         Self {
             node_id,
             document,
-            attributes: HashMap::new(),
+            attributes: AttributeMap::new(),
         }
     }
 
     pub(crate) fn with_attributes(
         node_id: NodeId,
         document: DocumentHandle,
-        attributes: HashMap<String, String>,
+        attributes: AttributeMap,
     ) -> Self {
         Self {
             node_id,
@@ -78,19 +78,19 @@ impl ElementAttributes {
     }
 
     /// Returns an iterator over the attribute map.
-    pub(crate) fn iter(&self) -> Iter<'_, String, String> {
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (&String, &String)> {
         self.attributes.iter()
     }
 
     /// Adds the given attributes to the attribute map.
-    pub(crate) fn copy_from(&mut self, attribute_map: HashMap<String, String>) {
+    pub(crate) fn copy_from(&mut self, attribute_map: AttributeMap) {
         for (key, value) in attribute_map.iter() {
             self.insert(key, value);
         }
     }
 
     /// Clones the internal map of attributes (NOT the attributes object itself)
-    pub(crate) fn clone_map(&self) -> HashMap<String, String> {
+    pub(crate) fn clone_map(&self) -> AttributeMap {
         self.attributes.clone()
     }
 }
@@ -138,7 +138,7 @@ impl ElementData {
         node_id: NodeId,
         document: DocumentHandle,
         name: &str,
-        attributes: HashMap<String, String>,
+        attributes: AttributeMap,
     ) -> Self {
         Self {
             node_id,

@@ -3,9 +3,9 @@ use crate::html5::node::data::comment::CommentData;
 use crate::html5::node::data::document::DocumentData;
 use crate::html5::node::data::element::ElementData;
 use crate::html5::node::data::text::TextData;
+use crate::types::AttributeMap;
 use core::fmt::Debug;
 use derive_more::Display;
-use std::collections::HashMap;
 
 pub const HTML_NAMESPACE: &str = "http://www.w3.org/1999/xhtml";
 pub const MATHML_NAMESPACE: &str = "http://www.w3.org/1998/Math/MathML";
@@ -193,7 +193,7 @@ impl Node {
     pub fn new_element(
         document: &DocumentHandle,
         name: &str,
-        attributes: HashMap<String, String>,
+        attributes: AttributeMap,
         namespace: &str,
     ) -> Self {
         Node {
@@ -448,7 +448,7 @@ mod tests {
 
     #[test]
     fn new_element() {
-        let mut attributes = HashMap::new();
+        let mut attributes = AttributeMap::new();
         attributes.insert("id".to_string(), "test".to_string());
         let document = Document::shared();
         let node = Node::new_element(&document, "div", attributes.clone(), HTML_NAMESPACE);
@@ -497,7 +497,7 @@ mod tests {
 
     #[test]
     fn is_special() {
-        let mut attributes = HashMap::new();
+        let mut attributes = AttributeMap::new();
         attributes.insert("id".to_string(), "test".to_string());
         let document = Document::shared();
         let node = Node::new_element(&document, "div", attributes, HTML_NAMESPACE);
@@ -513,7 +513,7 @@ mod tests {
         assert_eq!(node.type_of(), NodeType::Text);
         let node = Node::new_comment(&document, "test");
         assert_eq!(node.type_of(), NodeType::Comment);
-        let mut attributes = HashMap::new();
+        let mut attributes = AttributeMap::new();
         attributes.insert("id".to_string(), "test".to_string());
         let node = Node::new_element(&document, "div", attributes, HTML_NAMESPACE);
         assert_eq!(node.type_of(), NodeType::Element);
@@ -523,7 +523,7 @@ mod tests {
     fn special_html_elements() {
         let document = Document::shared();
         for element in SPECIAL_HTML_ELEMENTS.iter() {
-            let mut attributes = HashMap::new();
+            let mut attributes = AttributeMap::new();
             attributes.insert("id".to_string(), "test".to_string());
             let node = Node::new_element(&document, element, attributes, HTML_NAMESPACE);
             assert!(node.is_special());
@@ -534,7 +534,7 @@ mod tests {
     fn special_mathml_elements() {
         let document = Document::shared();
         for element in SPECIAL_MATHML_ELEMENTS.iter() {
-            let mut attributes = HashMap::new();
+            let mut attributes = AttributeMap::new();
             attributes.insert("id".to_string(), "test".to_string());
             let node = Node::new_element(&document, element, attributes, MATHML_NAMESPACE);
             assert!(node.is_special());
@@ -545,7 +545,7 @@ mod tests {
     fn special_svg_elements() {
         let document = Document::shared();
         for element in SPECIAL_SVG_ELEMENTS.iter() {
-            let mut attributes = HashMap::new();
+            let mut attributes = AttributeMap::new();
             attributes.insert("id".to_string(), "test".to_string());
             let node = Node::new_element(&document, element, attributes, SVG_NAMESPACE);
             assert!(node.is_special());
@@ -561,7 +561,7 @@ mod tests {
         assert_eq!(node.type_of(), NodeType::Text);
         let node = Node::new_comment(&document, "test");
         assert_eq!(node.type_of(), NodeType::Comment);
-        let mut attributes = HashMap::new();
+        let mut attributes = AttributeMap::new();
         attributes.insert("id".to_string(), "test".to_string());
         let node = Node::new_element(&document, "div", attributes, HTML_NAMESPACE);
         assert_eq!(node.type_of(), NodeType::Element);
@@ -569,7 +569,7 @@ mod tests {
 
     #[test]
     fn contains_attribute() {
-        let mut attr = HashMap::new();
+        let mut attr = AttributeMap::new();
         attr.insert("x".to_string(), "value".to_string());
         let document = Document::shared();
         let node = Node::new_element(&document, "node", attr.clone(), HTML_NAMESPACE);
@@ -582,7 +582,7 @@ mod tests {
 
     #[test]
     fn insert_attribute() {
-        let attr = HashMap::new();
+        let attr = AttributeMap::new();
         let document = Document::shared();
         let mut node = Node::new_element(&document, "name", attr.clone(), HTML_NAMESPACE);
         let NodeData::Element(element) = &mut node.data else {
@@ -594,7 +594,7 @@ mod tests {
 
     #[test]
     fn remove_attribute() {
-        let mut attr = HashMap::new();
+        let mut attr = AttributeMap::new();
         attr.insert("key".to_string(), "value".to_string());
         let document = Document::shared();
         let mut node = Node::new_element(&document, "name", attr.clone(), HTML_NAMESPACE);
@@ -607,7 +607,7 @@ mod tests {
 
     #[test]
     fn get_attribute() {
-        let mut attr = HashMap::new();
+        let mut attr = AttributeMap::new();
         attr.insert("key".to_string(), "value".to_string());
         let document = Document::shared();
         let node = Node::new_element(&document, "name", attr.clone(), HTML_NAMESPACE);
@@ -619,7 +619,7 @@ mod tests {
 
     #[test]
     fn get_mut_attribute() {
-        let mut attr = HashMap::new();
+        let mut attr = AttributeMap::new();
         attr.insert("key".to_string(), "value".to_string());
         let document = Document::shared();
         let mut node = Node::new_element(&document, "name", attr.clone(), HTML_NAMESPACE);
@@ -633,7 +633,7 @@ mod tests {
 
     #[test]
     fn clear_attributes() {
-        let mut attr = HashMap::new();
+        let mut attr = AttributeMap::new();
         attr.insert("key".to_string(), "value".to_string());
         let document = Document::shared();
         let mut node = Node::new_element(&document, "name", attr.clone(), HTML_NAMESPACE);
@@ -646,7 +646,7 @@ mod tests {
 
     #[test]
     fn has_attributes() {
-        let attr = HashMap::new();
+        let attr = AttributeMap::new();
         let document = Document::shared();
         let mut node = Node::new_element(&document, "name", attr.clone(), HTML_NAMESPACE);
         let NodeData::Element(element) = &mut node.data else {

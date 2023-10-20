@@ -10,9 +10,8 @@ use crate::html5::input_stream::SeekMode::SeekCur;
 use crate::html5::input_stream::{InputStream, Position};
 use crate::html5::tokenizer::state::State;
 use crate::html5::tokenizer::token::Token;
-use crate::types::{Error, Result};
+use crate::types::{AttributeMap, Error, Result};
 use std::cell::{Ref, RefCell};
-use std::collections::HashMap;
 use std::rc::Rc;
 
 /// Constants that are not directly captured as visible chars
@@ -37,7 +36,7 @@ pub struct Tokenizer<'stream> {
     /// Current attribute value that we need to store temporary in case we are parsing attributes
     pub current_attr_value: String,
     /// Current attributes
-    pub current_attrs: HashMap<String, String>,
+    pub current_attrs: AttributeMap,
     /// Token that is currently in the making (if any)
     pub current_token: Option<Token>,
     /// Temporary buffer
@@ -82,7 +81,7 @@ impl<'stream> Tokenizer<'stream> {
             token_queue: vec![],
             current_attr_name: String::new(),
             current_attr_value: String::new(),
-            current_attrs: HashMap::new(),
+            current_attrs: AttributeMap::new(),
             temporary_buffer: String::new(),
             error_logger,
         };
@@ -229,7 +228,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.current_token = Some(Token::StartTagToken {
                                 name: "".into(),
                                 is_self_closing: false,
-                                attributes: HashMap::new(),
+                                attributes: AttributeMap::new(),
                             });
                             self.stream.unread();
                             self.state = State::TagNameState;
@@ -260,7 +259,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.current_token = Some(Token::EndTagToken {
                                 name: "".into(),
                                 is_self_closing: false,
-                                attributes: HashMap::new(),
+                                attributes: AttributeMap::new(),
                             });
                             self.stream.unread();
                             self.state = State::TagNameState;
@@ -329,7 +328,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.current_token = Some(Token::EndTagToken {
                                 name: "".into(),
                                 is_self_closing: false,
-                                attributes: HashMap::new(),
+                                attributes: AttributeMap::new(),
                             });
                             self.stream.unread();
                             self.state = State::RcDataEndTagNameState;
@@ -425,7 +424,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.current_token = Some(Token::EndTagToken {
                                 name: "".into(),
                                 is_self_closing: false,
-                                attributes: HashMap::new(),
+                                attributes: AttributeMap::new(),
                             });
                             self.stream.unread();
                             self.state = State::RawTextEndTagNameState;
@@ -526,7 +525,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.current_token = Some(Token::EndTagToken {
                                 name: "".into(),
                                 is_self_closing: false,
-                                attributes: HashMap::new(),
+                                attributes: AttributeMap::new(),
                             });
                             self.stream.unread();
                             self.state = State::ScriptDataEndTagNameState;
@@ -732,7 +731,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.current_token = Some(Token::EndTagToken {
                                 name: "".into(),
                                 is_self_closing: false,
-                                attributes: HashMap::new(),
+                                attributes: AttributeMap::new(),
                             });
 
                             self.stream.unread();
@@ -2296,7 +2295,7 @@ impl<'stream> Tokenizer<'stream> {
                 for (key, value) in &self.current_attrs {
                     attributes.insert(key.clone(), value.clone());
                 }
-                self.current_attrs = HashMap::new();
+                self.current_attrs = AttributeMap::new();
             }
             _ => {}
         }
