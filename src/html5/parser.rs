@@ -1723,7 +1723,9 @@ impl<'stream> Html5Parser<'stream> {
         }
     }
 
-    fn flush_pending_table_character_tokens(&mut self) {}
+    fn flush_pending_table_character_tokens(&mut self) {
+        todo!()
+    }
 
     /// This function will pop elements off the stack until it reaches the first element that matches
     /// our condition (which can be changed with the except and thoroughly parameters)
@@ -2188,8 +2190,60 @@ impl<'stream> Html5Parser<'stream> {
                     self.form_element = Some(node_id);
                 }
             }
-            Token::StartTagToken { name, .. } if name == "li" => {}
-            Token::StartTagToken { name, .. } if name == "dd" || name == "dt" => {}
+            Token::StartTagToken { name, .. } if name == "li" => {
+                self.frameset_ok = false;
+
+                let mut idx = self.open_elements.len() - 1;
+                loop {
+                    let node = open_elements_get!(self, idx);
+                    let tag = node.name.clone();
+
+                    if tag == "li" {
+                        self.generate_all_implied_end_tags(Some("li"), false);
+                        self.open_elements.pop();
+                        break;
+                    }
+
+                    if !["address", "div", "p"].contains(&tag.as_str()) && node.is_special() {
+                        break;
+                    }
+
+                    idx -= 1;
+                }
+
+                if self.is_in_scope("p", Scope::Button) {
+                    self.close_p_element();
+                }
+
+                self.insert_html_element(&self.current_token.clone());
+            }
+            Token::StartTagToken { name, .. } if name == "dd" || name == "dt" => {
+                self.frameset_ok = false;
+
+                let mut idx = self.open_elements.len() - 1;
+                loop {
+                    let node = open_elements_get!(self, idx);
+                    let tag = node.name.clone();
+
+                    if ["dd", "dt"].contains(&tag.as_str()) {
+                        self.generate_all_implied_end_tags(Some(tag.as_str()), false);
+                        self.open_elements.pop();
+                        break;
+                    }
+
+                    if !["address", "div", "p"].contains(&tag.as_str()) && node.is_special() {
+                        break;
+                    }
+
+                    idx -= 1;
+                }
+
+                if self.is_in_scope("p", Scope::Button) {
+                    self.close_p_element();
+                }
+
+                self.insert_html_element(&self.current_token.clone());
+            }
             Token::StartTagToken { name, .. } if name == "plaintext" => {
                 if self.is_in_scope("p", Scope::Button) {
                     self.close_p_element();
