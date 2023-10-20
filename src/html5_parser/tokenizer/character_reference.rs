@@ -76,7 +76,10 @@ impl<'a> Tokenizer<'a> {
                             return;
                         }
 
-                        let entity_chars = *TOKEN_NAMED_CHARS.get(entity.as_str()).unwrap();
+
+                        let entity_chars = *TOKEN_NAMED_CHARS
+                            .get(entity.as_str())
+                            .unwrap();
 
                         // Flush codepoints consumed as character reference
                         for c in entity_chars.chars() {
@@ -326,11 +329,14 @@ impl<'a> Tokenizer<'a> {
     /// replacement OR None when no entity has been found.
     fn find_entity(&mut self) -> Option<String> {
         let s = self.stream.look_ahead_slice(*LONGEST_ENTITY_LENGTH);
+        let chars: Vec<char> = s.chars().collect();
+
         for i in (0..=s.len()).rev() {
-            if TOKEN_NAMED_CHARS.contains_key(&s[0..i]) {
-                // Move forward with the number of chars matching
-                // self.stream.skip(i);
-                return Some(String::from(&s[0..i]));
+            if let Some(slice) = chars.get(0..i) {
+                let entity: String = slice.iter().collect();
+                if TOKEN_NAMED_CHARS.contains_key(&entity.as_str()) {
+                    return Some(entity);
+                }
             }
         }
         None
