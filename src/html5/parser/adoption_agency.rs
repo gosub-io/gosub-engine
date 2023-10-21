@@ -10,10 +10,10 @@ impl<'stream> Html5Parser<'stream> {
     /**
      * When we talk about nodes, there are 3 contexts to consider:
      *
-     * - The actual node data. This is called "node" in the code.
-     * - The node id. This is called "node_id" in the code.
+     * - The actual node data. This is called "<something>_node" in the code (current_node, node, parent_node etc)
+     * - The node id. This is called "<something>_node_id" in the code (current_node_id, parent_node_id, node_id)
      * - The node index. This is called "node_idx" in the code. This is the index of the node in
-     *   either the open_elements or active_formatting_elements stack.
+     *   either the open_elements or active_formatting_elements stack (current_node_idx, node_idx, parent_node_idx)
      */
     pub fn run_adoption_agency(&mut self, token: &Token) {
         // Step 1
@@ -208,13 +208,7 @@ impl<'stream> Html5Parser<'stream> {
 
                 // Step 4.13.9
                 last_node_id = node_id;
-
-                #[cfg(feature = "debug_parser")]
-                self.display_debug_info();
             }
-
-            #[cfg(feature = "debug_parser")]
-            self.display_debug_info();
 
             // Step 4.14
             let common_ancestor_node = get_node_by_id!(self.document, common_ancestor_id).clone();
@@ -237,9 +231,6 @@ impl<'stream> Html5Parser<'stream> {
                 ),
                 _ => panic!("formatting element is not an element"),
             };
-
-            #[cfg(feature = "debug_parser")]
-            self.display_debug_info();
 
             // Step 4.17
             let new_element_id =
@@ -271,9 +262,6 @@ impl<'stream> Html5Parser<'stream> {
 
             let idx = self.open_elements_find_index(furthest_block_id);
             self.open_elements.insert(idx + 1, new_element_id);
-
-            #[cfg(feature = "debug_parser")]
-            self.display_debug_info();
         }
     }
 

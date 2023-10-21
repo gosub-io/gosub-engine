@@ -683,11 +683,14 @@ impl<'stream> Html5Parser<'stream> {
                             }
 
                             if process_as_intable_anything_else {
+                                let tmp = self.current_token.clone();
                                 self.current_token = Token::TextToken { value: tokens };
 
                                 self.foster_parenting = true;
                                 self.handle_in_body();
                                 self.foster_parenting = false;
+
+                                self.current_token = tmp;
                             } else {
                                 let node = self.create_node(
                                     &Token::TextToken { value: tokens },
@@ -1052,7 +1055,7 @@ impl<'stream> Html5Parser<'stream> {
                 }
                 InsertionMode::InCell => {
                     match &self.current_token {
-                        Token::StartTagToken { name, .. } if name == "th" || name == "td" => {
+                        Token::EndTagToken { name, .. } if name == "th" || name == "td" => {
                             let token_name = name.clone();
 
                             if !self.is_in_scope(name.as_str(), Scope::Table) {
@@ -3486,7 +3489,6 @@ impl<'stream> Html5Parser<'stream> {
             let child_idx = parent_node
                 .children
                 .iter()
-                .rev()
                 .position(|&node_id| node_id == last_table_node.id)
                 .expect("table node not found in parent node children");
 
