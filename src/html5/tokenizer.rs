@@ -2149,7 +2149,11 @@ impl<'stream> Tokenizer<'stream> {
         // If there is any consumed data, emit this first as a text token
         if self.has_consumed_data() {
             let value = self.get_consumed_str().to_string();
-            self.token_queue.push(Token::TextToken { value });
+
+            self.token_queue.push(Token::TextToken {
+                value: value.to_string(),
+            });
+
             self.clear_consume_buffer();
         }
 
