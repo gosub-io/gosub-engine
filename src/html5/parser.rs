@@ -222,7 +222,7 @@ pub struct Html5Parser<'stream> {
     /// If true, the parser is paused
     parser_pause_flag: bool,
     /// Keeps the position of where any document.write() should be inserted when running a script
-    insertion_point: Option<usize>
+    insertion_point: Option<usize>,
 }
 
 /// Defines the scopes for in_scope()
