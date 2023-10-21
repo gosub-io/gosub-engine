@@ -223,6 +223,9 @@ pub struct Html5Parser<'stream> {
     parser_pause_flag: bool,
     /// Keeps the position of where any document.write() should be inserted when running a script
     insertion_point: Option<usize>,
+
+    // Sometimes tokens needs to be split up (and it seems the tokenizer cannot do this?)
+    token_queue: Vec<Token>,
 }
 
 /// Defines the scopes for in_scope()
@@ -272,6 +275,7 @@ impl<'stream> Html5Parser<'stream> {
             script_nesting_level: 0,
             parser_pause_flag: false,
             insertion_point: None,
+            token_queue: vec![],
         }
     }
 
@@ -285,7 +289,7 @@ impl<'stream> Html5Parser<'stream> {
         loop {
             // If reprocess_token is true, we should process the same token again
             if !self.reprocess_token {
-                self.current_token = self.tokenizer.next_token()?;
+                self.current_token = self.fetch_next_token();
             }
             self.reprocess_token = false;
 
@@ -3638,6 +3642,42 @@ impl<'stream> Html5Parser<'stream> {
         // The child node we need to insert after is not a text, so just add the text
         let node = self.create_node(&self.current_token, HTML_NAMESPACE);
         self.document.get_mut().add_node(node, parent_node.id, None);
+    }
+
+    /// Fetches the next token from the tokenizer. However, if the token is a text token AND
+    /// it starts with one or more whitespaces, the token is split into 2 tokens: the whitespace part
+    /// and the remainder.
+    fn fetch_next_token(&mut self) -> Token {
+        // If there are no tokens to fetch, fetch the next token from the tokenizer
+        if self.token_queue.is_empty() {
+            let token = self.tokenizer.next_token().expect("tokenizer error");
+
+            if let Token::TextToken { value } = token {
+                // check if the token needs splitting
+                let first_non_whitespace_position =
+                    value.chars().position(|c| !c.is_whitespace()).unwrap_or(0);
+
+                if first_non_whitespace_position > 0 {
+                    self.token_queue.push(Token::TextToken {
+                        value: value[0..first_non_whitespace_position].to_string(),
+                    });
+
+                    self.token_queue.push(Token::TextToken {
+                        value: value[first_non_whitespace_position..].to_string(),
+                    });
+                } else {
+                    self.token_queue.push(Token::TextToken { value });
+                }
+            } else {
+                // Simply return the token
+                return token;
+            }
+        }
+
+        let token = self.token_queue.get(0).cloned();
+        self.token_queue.remove(0);
+
+        token.expect("no token found")
     }
 }
 
