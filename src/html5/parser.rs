@@ -1055,7 +1055,7 @@ impl<'stream> Html5Parser<'stream> {
                 }
                 InsertionMode::InCell => {
                     match &self.current_token {
-                        Token::StartTagToken { name, .. } if name == "th" || name == "td" => {
+                        Token::EndTagToken { name, .. } if name == "th" || name == "td" => {
                             let token_name = name.clone();
 
                             if !self.is_in_scope(name.as_str(), Scope::Table) {
