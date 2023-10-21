@@ -2224,7 +2224,7 @@ impl<'stream> Html5Parser<'stream> {
                     let tag = node.name.clone();
 
                     if tag == "li" {
-                        self.generate_all_implied_end_tags(Some("li"), false);
+                        self.generate_implied_end_tags(Some("li"), false);
                         self.open_elements.pop();
                         break;
                     }
@@ -2251,7 +2251,7 @@ impl<'stream> Html5Parser<'stream> {
                     let tag = node.name.clone();
 
                     if ["dd", "dt"].contains(&tag.as_str()) {
-                        self.generate_all_implied_end_tags(Some(tag.as_str()), false);
+                        self.generate_implied_end_tags(Some(tag.as_str()), false);
                         self.open_elements.pop();
                         break;
                     }
