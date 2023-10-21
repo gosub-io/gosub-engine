@@ -543,7 +543,7 @@ impl<'stream> Html5Parser<'stream> {
 
                     match &self.current_token {
                         Token::TextToken { .. } if self.current_token.is_empty_or_white() => {
-                            self.create_or_merge_text(self.current_token.clone());
+                            self.insert_characters(self.current_token.clone());
                         }
                         Token::CommentToken { .. } => {
                             let node = self.create_node(&self.current_token, HTML_NAMESPACE);
@@ -637,7 +637,7 @@ impl<'stream> Html5Parser<'stream> {
                 InsertionMode::Text => {
                     match &self.current_token {
                         Token::TextToken { .. } => {
-                            self.create_or_merge_text(self.current_token.clone());
+                            self.insert_characters(self.current_token.clone());
                         }
                         Token::EofToken => {
                             self.parse_error("eof not allowed in text insertion mode");
@@ -720,12 +720,8 @@ impl<'stream> Html5Parser<'stream> {
 
                                 self.current_token = tmp;
                             } else {
-                                let node = self.create_node(
-                                    &Token::TextToken { value: tokens },
-                                    HTML_NAMESPACE,
-                                );
-                                let parent_id = current_node!(self).id;
-                                self.document.get_mut().add_node(node, parent_id, None);
+                                let token = Token::TextToken { value: tokens };
+                                self.insert_characters(token);
                             }
 
                             self.pending_table_character_tokens.clear();
@@ -802,7 +798,7 @@ impl<'stream> Html5Parser<'stream> {
                 InsertionMode::InColumnGroup => {
                     match &self.current_token {
                         Token::TextToken { .. } if self.current_token.is_empty_or_white() => {
-                            self.create_or_merge_text(self.current_token.clone());
+                            self.insert_characters(self.current_token.clone());
                         }
                         Token::CommentToken { .. } => {
                             let node = self.create_node(&self.current_token, HTML_NAMESPACE);
@@ -1162,7 +1158,7 @@ impl<'stream> Html5Parser<'stream> {
                             // ignore token
                         }
                         Token::TextToken { .. } => {
-                            self.create_or_merge_text(self.current_token.clone());
+                            self.insert_characters(self.current_token.clone());
                         }
                         Token::CommentToken { .. } => {
                             let node = self.create_node(&self.current_token, HTML_NAMESPACE);
@@ -1469,7 +1465,7 @@ impl<'stream> Html5Parser<'stream> {
                 InsertionMode::InFrameset => {
                     match &self.current_token {
                         Token::TextToken { .. } if self.current_token.is_empty_or_white() => {
-                            self.create_or_merge_text(self.current_token.clone());
+                            self.insert_characters(self.current_token.clone());
                         }
                         Token::CommentToken { .. } => {
                             let node = self.create_node(&self.current_token, HTML_NAMESPACE);
@@ -1531,7 +1527,7 @@ impl<'stream> Html5Parser<'stream> {
                 InsertionMode::AfterFrameset => {
                     match &self.current_token {
                         Token::TextToken { .. } if self.current_token.is_empty_or_white() => {
-                            self.create_or_merge_text(self.current_token.clone());
+                            self.insert_characters(self.current_token.clone());
                         }
                         Token::CommentToken { .. } => {
                             let node = self.create_node(&self.current_token, HTML_NAMESPACE);
@@ -1727,12 +1723,7 @@ impl<'stream> Html5Parser<'stream> {
         let val: String;
         match token {
             Token::DocTypeToken { name, .. } => {
-                val = format!(
-                    "!DOCTYPE {}",
-                    name.as_deref().unwrap_or(""),
-                    // pub_identifier.as_deref().unwrap_or(""),
-                    // sys_identifier.as_deref().unwrap_or(""),
-                );
+                val = format!("!DOCTYPE {}", name.as_deref().unwrap_or(""),);
 
                 return Node::new_element(&self.document, val.as_str(), HashMap::new(), namespace);
             }
@@ -2006,12 +1997,13 @@ impl<'stream> Html5Parser<'stream> {
             }
             Token::TextToken { .. } if self.current_token.is_empty_or_white() => {
                 self.reconstruct_formatting();
-                self.create_or_merge_text(self.current_token.clone());
+
+                self.insert_characters(self.current_token.clone());
             }
             Token::TextToken { .. } => {
                 self.reconstruct_formatting();
 
-                self.create_or_merge_text(self.current_token.clone());
+                self.insert_characters(self.current_token.clone());
 
                 self.frameset_ok = false;
             }
@@ -2804,7 +2796,7 @@ impl<'stream> Html5Parser<'stream> {
 
         match &self.current_token {
             Token::TextToken { .. } if self.current_token.is_empty_or_white() => {
-                self.create_or_merge_text(self.current_token.clone());
+                self.insert_characters(self.current_token.clone());
             }
             Token::CommentToken { .. } => {
                 let node = self.create_node(&self.current_token, HTML_NAMESPACE);
@@ -3525,27 +3517,6 @@ impl<'stream> Html5Parser<'stream> {
         NodeInsertLocation::new(Document::clone(&self.document), previous_element, None)
     }
 
-    /// Merges the text with the last child of the current node if that is also a text node
-    fn create_or_merge_text(&mut self, token: Token) {
-        let node = current_node!(self);
-
-        if let Some(last_child_id) = node.children.last() {
-            let mut doc_mut = self.document.get_mut();
-            let last_child = doc_mut
-                .get_node_by_id_mut(*last_child_id)
-                .expect("node not found");
-            // let last_child = get_node_by_id_mut!(self.document, *last_child_id);
-            if let NodeData::Text(TextData { ref mut value, .. }) = last_child.data {
-                value.push_str(&token.to_string());
-                return;
-            }
-        }
-
-        let node = self.create_node(&self.current_token, HTML_NAMESPACE);
-        let parent_id = current_node!(self).id;
-        self.document.get_mut().add_node(node, parent_id, None);
-    }
-
     #[cfg(feature = "debug_parser")]
     fn display_debug_info(&self) {
         println!("-----------------------------------------\n");
@@ -3622,6 +3593,48 @@ impl<'stream> Html5Parser<'stream> {
                 return;
             }
         }
+    }
+
+    /// Inserts characters
+    fn insert_characters(&mut self, token: Token) {
+        let adjusted_insert_location = self.adjusted_insert_location(None);
+
+        let parent_node = get_node_by_id!(self.document, adjusted_insert_location.node_id);
+        if let NodeData::Document { .. } = parent_node.data {
+            // value is dropped, as we cannot add text to the document node
+            return;
+        }
+
+        // If we don't have any children, or we need to add in front, we never need to merge
+        if parent_node.children.is_empty() || Some(0) == adjusted_insert_location.position {
+            // The child node we need to insert after is not a text, so just add the text
+            let node = self.create_node(&self.current_token, HTML_NAMESPACE);
+            self.document.get_mut().add_node(node, parent_node.id, None);
+
+            return;
+        }
+
+        let child_idx = if adjusted_insert_location.position.is_none() {
+            parent_node.children.len()
+        } else {
+            adjusted_insert_location.position.unwrap()
+        };
+
+        // Check if the child we need to insert after is a text, is so, merge the texts
+        if let Some(insert_after_id) = parent_node.children.get(child_idx - 1) {
+            let mut doc_mut = self.document.get_mut();
+            let insert_after_node = doc_mut
+                .get_node_by_id_mut(*insert_after_id)
+                .expect("node not found");
+            if let NodeData::Text(TextData { ref mut value, .. }) = insert_after_node.data {
+                value.push_str(&token.to_string());
+                return;
+            }
+        }
+
+        // The child node we need to insert after is not a text, so just add the text
+        let node = self.create_node(&self.current_token, HTML_NAMESPACE);
+        self.document.get_mut().add_node(node, parent_node.id, None);
     }
 }
 
