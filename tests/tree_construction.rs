@@ -5,9 +5,7 @@ use test_case::test_case;
 
 const DISABLED_CASES: &[&str] = &[
     // tests1.dat
-    "<!-----><font><div>hello<table>excite!<b>me!<th><i>please!</tr><!--X-->",
     "<!DOCTYPE html><script> <!-- </script> --> </script> EOF",
-    r#"<a href="blah">aba<table><tr><td><a href="foo">br</td></tr>x</table>aoe"#,
     "<ul><li></li><div><li></div><li><li><div><li><address><li><b><em></b><li></ul>",
     // tests2.dat
     "<!DOCTYPE html><dt><div><dd>",
