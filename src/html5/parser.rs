@@ -2215,7 +2215,12 @@ impl<'stream> Html5Parser<'stream> {
 
                     if tag == "li" {
                         self.generate_implied_end_tags(Some("li"), false);
-                        self.open_elements.pop();
+
+                        if current_node!(self).name != "li" {
+                            self.parse_error("li tag not at top of stack");
+                        }
+
+                        self.pop_until("li");
                         break;
                     }
 
