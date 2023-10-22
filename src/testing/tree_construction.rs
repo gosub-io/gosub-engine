@@ -392,7 +392,7 @@ pub fn fixture_from_path(path: &PathBuf) -> Result<FixtureFile> {
                 || !current_test.errors.is_empty()
                 || !current_test.document.is_empty()
             {
-                current_test.data = current_test.data.trim_end().to_string();
+                current_test.data = current_test.data.trim_end_matches("\n").to_string();
                 tests.push(current_test);
                 current_test = Test {
                     file_path: path.to_str().unwrap().to_string(),
@@ -412,7 +412,12 @@ pub fn fixture_from_path(path: &PathBuf) -> Result<FixtureFile> {
             };
         } else if let Some(sec) = section {
             match sec {
-                "data" => current_test.data.push_str(&line),
+                "data" => {
+                    if !current_test.data.is_empty() {
+                        current_test.data.push_str("\n");
+                    }
+                    current_test.data.push_str(&line);
+                }
                 "errors" => {
                     let re = Regex::new(r"\((?P<line>\d+),(?P<col>\d+)\): (?P<code>.+)").unwrap();
                     if let Some(caps) = re.captures(&line) {
@@ -423,7 +428,15 @@ pub fn fixture_from_path(path: &PathBuf) -> Result<FixtureFile> {
                         current_test.errors.push(Error { code, line, col });
                     }
                 }
-                "document" => current_test.document.push(line),
+                "document" => {
+                    let length = current_test.document.len();
+                    if length > 1 && !line.starts_with("|") && line != "" {
+                        current_test.document[length - 1].push_str("\n");
+                        current_test.document[length - 1].push_str(&line);
+                    } else {
+                        current_test.document.push(line);
+                    }
+                }
                 "document_fragment" => current_test.document_fragment.push(line),
                 _ => (),
             }
@@ -435,7 +448,7 @@ pub fn fixture_from_path(path: &PathBuf) -> Result<FixtureFile> {
         || !current_test.errors.is_empty()
         || !current_test.document.is_empty()
     {
-        current_test.data = current_test.data.trim_end().to_string();
+        current_test.data = current_test.data.trim_end_matches("\n").to_string();
         tests.push(current_test);
     }
 

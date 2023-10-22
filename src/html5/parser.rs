@@ -1212,7 +1212,7 @@ impl<'stream> Html5Parser<'stream> {
                         Token::EndTagToken { name, .. } if name == "optgroup" => {
                             if current_node!(self).name == "option"
                                 && self.open_elements.len() > 1
-                                && open_elements_get!(self, self.open_elements.len() - 1).name
+                                && open_elements_get!(self, self.open_elements.len() - 2).name
                                     == "optgroup"
                             {
                                 self.open_elements.pop();
@@ -2251,7 +2251,12 @@ impl<'stream> Html5Parser<'stream> {
 
                     if ["dd", "dt"].contains(&tag.as_str()) {
                         self.generate_implied_end_tags(Some(tag.as_str()), false);
-                        self.open_elements.pop();
+
+                        if current_node!(self).name != tag {
+                            self.parse_error("{tag} tag not at top of stack");
+                        }
+
+                        self.pop_until(tag.as_str());
                         break;
                     }
 
