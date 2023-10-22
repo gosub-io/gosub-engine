@@ -392,7 +392,7 @@ pub fn fixture_from_path(path: &PathBuf) -> Result<FixtureFile> {
                 || !current_test.errors.is_empty()
                 || !current_test.document.is_empty()
             {
-                current_test.data = current_test.data.trim_end_matches('\n').to_string();
+                current_test.data = current_test.data.strip_suffix('\n').unwrap().to_string();
                 tests.push(current_test);
                 current_test = Test {
                     file_path: path.to_str().unwrap().to_string(),
@@ -413,10 +413,8 @@ pub fn fixture_from_path(path: &PathBuf) -> Result<FixtureFile> {
         } else if let Some(sec) = section {
             match sec {
                 "data" => {
-                    if !current_test.data.is_empty() {
-                        current_test.data.push('\n');
-                    }
                     current_test.data.push_str(&line);
+                    current_test.data.push('\n');
                 }
                 "errors" => {
                     let re = Regex::new(r"\((?P<line>\d+),(?P<col>\d+)\): (?P<code>.+)").unwrap();
@@ -448,7 +446,7 @@ pub fn fixture_from_path(path: &PathBuf) -> Result<FixtureFile> {
         || !current_test.errors.is_empty()
         || !current_test.document.is_empty()
     {
-        current_test.data = current_test.data.trim_end_matches('\n').to_string();
+        current_test.data = current_test.data.strip_suffix('\n').unwrap().to_string();
         tests.push(current_test);
     }
 
