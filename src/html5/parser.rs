@@ -13,13 +13,13 @@ use crate::html5::input_stream::InputStream;
 use crate::html5::node::data::text::TextData;
 use crate::html5::node::{Node, NodeData, HTML_NAMESPACE, MATHML_NAMESPACE, SVG_NAMESPACE};
 use crate::html5::parser::attr_replacements::{
-    MATHML_ADJUSTMENTS, SVG_ADJUSTMENTS, XML_ADJUSTMENTS,
+    MATHML_ADJUSTMENTS, SVG_ADJUSTMENTS, SVG_TAGNAMES, XML_ADJUSTMENTS,
 };
 use crate::html5::parser::document::{Document, DocumentFragment, DocumentType};
 use crate::html5::parser::quirks::QuirksMode;
 use crate::html5::tokenizer::state::State;
 use crate::html5::tokenizer::token::Token;
-use crate::html5::tokenizer::{Tokenizer, CHAR_NUL};
+use crate::html5::tokenizer::{Tokenizer, CHAR_NUL, CHAR_REPLACEMENT};
 use crate::types::Result;
 use alloc::rc::Rc;
 use core::cell::RefCell;
@@ -229,6 +229,12 @@ enum Scope {
     Select,
 }
 
+/// Defines the mode we should dispatch
+enum DispatcherMode {
+    Foreign,
+    Html,
+}
+
 impl<'stream> Html5Parser<'stream> {
     // Creates a new parser object with the given input stream
     pub fn new(stream: &'stream mut InputStream) -> Self {
@@ -292,1134 +298,1350 @@ impl<'stream> Html5Parser<'stream> {
             }
             self.reprocess_token = false;
 
-            // Break when we reach the end of the token stream
-            if self.current_token.is_eof() {
-                break;
+            // Check how we should dispatch the token, and dispatch to the correct function
+            match self.select_dispatch_mode() {
+                DispatcherMode::Foreign => {
+                    self.process_foreign_content();
+                }
+                DispatcherMode::Html => {
+                    self.process_html_content();
+                }
             }
 
-            if self.ignore_lf {
-                if let Token::TextToken { value } = &self.current_token {
-                    if value.eq(&"\n".to_string()) {
-                        self.current_token = self.fetch_next_token();
+            #[cfg(feature = "debug_parser")]
+            self.display_debug_info();
+        }
+
+        let result = Ok(self.error_logger.borrow().get_errors().clone());
+        result
+    }
+
+    // Process token in foreign content (svg, mathml)
+    fn process_foreign_content(&mut self) {
+        let mut handle_as_script_endtag = false;
+
+        match &self.current_token.clone() {
+            Token::TextToken { .. } if self.current_token.is_null() => {
+                self.parse_error("null character not allowed in foreign content");
+                self.insert_characters(Token::TextToken {
+                    value: CHAR_REPLACEMENT.to_string(),
+                });
+            }
+            Token::TextToken { .. } if self.current_token.is_empty_or_white() => {
+                self.insert_characters(self.current_token.clone());
+            }
+            Token::TextToken { .. } => {
+                self.insert_characters(self.current_token.clone());
+
+                self.frameset_ok = false;
+            }
+            Token::CommentToken { .. } => {
+                let current_token = &self.current_token.clone();
+                self.insert_comment(current_token, None);
+            }
+            Token::DocTypeToken { .. } => {
+                self.parse_error("doctype not allowed in foreign content");
+                // ignore token
+            }
+            Token::StartTagToken { name, .. }
+                if name == "b"
+                    || name == "big"
+                    || name == "blockquote"
+                    || name == "body"
+                    || name == "br"
+                    || name == "center"
+                    || name == "code"
+                    || name == "dd"
+                    || name == "div"
+                    || name == "dl"
+                    || name == "dt"
+                    || name == "em"
+                    || name == "embed"
+                    || name == "h1"
+                    || name == "h2"
+                    || name == "h3"
+                    || name == "h4"
+                    || name == "h5"
+                    || name == "h6"
+                    || name == "head"
+                    || name == "hr"
+                    || name == "i"
+                    || name == "img"
+                    || name == "li"
+                    || name == "listing"
+                    || name == "menu"
+                    || name == "meta"
+                    || name == "nobr"
+                    || name == "ol"
+                    || name == "p"
+                    || name == "pre"
+                    || name == "ruby"
+                    || name == "s"
+                    || name == "small"
+                    || name == "span"
+                    || name == "strong"
+                    || name == "strike"
+                    || name == "sub"
+                    || name == "sup"
+                    || name == "table"
+                    || name == "tt"
+                    || name == "u"
+                    || name == "ul"
+                    || name == "var" =>
+            {
+                self.process_unexpected_html_tag();
+            }
+            Token::StartTagToken {
+                name, attributes, ..
+            } if name == "font" => {
+                if attributes.contains_key("color")
+                    || attributes.contains_key("face")
+                    || attributes.contains_key("size")
+                {
+                    self.process_unexpected_html_tag();
+                }
+            }
+            Token::EndTagToken { name, .. } if name == "br" || name == "p" => {
+                self.process_unexpected_html_tag();
+            }
+            Token::StartTagToken { .. } => {
+                let mut current_token = self.current_token.clone();
+
+                let acn = self.get_adjusted_current_node();
+                if acn.is_namespace(MATHML_NAMESPACE) {
+                    self.adjust_mathml_attributes(&mut current_token);
+                }
+
+                if acn.is_namespace(SVG_NAMESPACE) {
+                    self.adjust_svg_tag_names(&mut current_token);
+                    self.adjust_svg_attributes(&mut current_token);
+                }
+
+                self.adjust_foreign_attributes(&mut current_token);
+                self.insert_foreign_element(
+                    &current_token,
+                    Some(acn.namespace.clone().expect("namespace not found").as_str()),
+                );
+
+                if let Token::StartTagToken {
+                    name,
+                    is_self_closing,
+                    ..
+                } = &current_token
+                {
+                    if *is_self_closing {
+                        if name == "script"
+                            && current_node!(self).namespace.unwrap_or_default() == SVG_NAMESPACE
+                        {
+                            self.ack_self_closing = true;
+                            handle_as_script_endtag = true;
+                        } else {
+                            self.open_elements.pop();
+                            self.current_token = self.fetch_next_token();
+                            self.ack_self_closing = true;
+                        }
                     }
                 }
-                self.ignore_lf = false;
             }
+            Token::EndTagToken { name, .. } if name == "script" => {
+                handle_as_script_endtag = true;
+            }
+            Token::EndTagToken { name, .. } => {
+                if self.open_elements.is_empty() {
+                    return;
+                }
 
-            match self.insertion_mode {
-                InsertionMode::Initial => {
-                    let mut anything_else = false;
+                let mut node_idx = self.open_elements.len() - 1;
+                let mut node = get_node_by_id!(self.document, self.open_elements[node_idx]);
 
-                    match &self.current_token.clone() {
-                        Token::TextToken { .. } if self.current_token.is_empty_or_white() => {
-                            // ignore token
-                            continue;
-                        }
-                        Token::CommentToken { .. } => {
-                            let current_token = &self.current_token.clone();
-                            self.insert_comment(current_token, None);
-                        }
-                        Token::DocTypeToken {
-                            name,
-                            pub_identifier,
-                            sys_identifier,
-                            force_quirks,
-                        } => {
-                            if name.is_some() && name.as_ref().unwrap() != "html"
-                                || pub_identifier.is_some()
-                                || (sys_identifier.is_some()
-                                    && sys_identifier.as_ref().unwrap() != "about:legacy-compat")
-                            {
-                                self.parse_error("doctype not allowed in initial insertion mode");
-                            }
+                if node.name.to_lowercase() != *name {
+                    self.parse_error("end tag does not match current node");
+                }
 
-                            let node = self.create_node(&self.current_token, HTML_NAMESPACE);
-                            self.document.get_mut().add_node(node, NodeId::root(), None);
-
-                            if self.document.get_mut().doctype != DocumentType::IframeSrcDoc
-                                && self.parser_cannot_change_mode
-                            {
-                                self.document.get_mut().quirks_mode = self.identify_quirks_mode(
-                                    name,
-                                    pub_identifier.clone(),
-                                    sys_identifier.clone(),
-                                    *force_quirks,
-                                );
-                            }
-
-                            self.insertion_mode = InsertionMode::BeforeHtml;
-                        }
-                        Token::StartTagToken { .. } => {
-                            if self.document.get_mut().doctype != DocumentType::IframeSrcDoc {
-                                self.parse_error(
-                                    ParserError::ExpectedDocTypeButGotStartTag.as_str(),
-                                );
-                            }
-                            anything_else = true;
-                        }
-                        Token::EndTagToken { .. } => {
-                            if self.document.get_mut().doctype != DocumentType::IframeSrcDoc {
-                                self.parse_error(ParserError::ExpectedDocTypeButGotEndTag.as_str());
-                            }
-                            anything_else = true;
-                        }
-                        Token::TextToken { .. } => {
-                            if self.document.get_mut().doctype != DocumentType::IframeSrcDoc {
-                                self.parse_error(ParserError::ExpectedDocTypeButGotChars.as_str());
-                            }
-                            anything_else = true;
-                        }
-                        _ => anything_else = true,
+                loop {
+                    // Fragment case is when the first element in the stack is this node
+                    match self.open_elements.get(0) {
+                        Some(node_id) if *node_id == node.id => return,
+                        _ => {}
                     }
 
-                    if anything_else {
-                        if !self.parser_cannot_change_mode {
-                            self.document.get_mut().quirks_mode = QuirksMode::Quirks;
+                    if node.name.to_lowercase() == *name {
+                        while let Some(node_id) = self.open_elements.pop() {
+                            if node_id == node.id {
+                                break;
+                            }
+                        }
+                        return;
+                    }
+
+                    node_idx -= 1;
+                    node = get_node_by_id!(self.document, self.open_elements[node_idx]);
+
+                    if !node.is_namespace(HTML_NAMESPACE) {
+                        continue;
+                    }
+
+                    self.process_html_content();
+                    break;
+                }
+            }
+            Token::EofToken => {
+                panic!("eof is not expected here");
+            }
+        }
+
+        if handle_as_script_endtag {
+            self.open_elements.pop();
+            self.insertion_mode = self.original_insertion_mode;
+
+            let old_insertion_point = self.insertion_point;
+            self.insertion_point = Some(self.tokenizer.get_position().offset);
+
+            self.script_nesting_level += 1;
+
+            // @todo: do script stuff
+
+            self.script_nesting_level -= 1;
+            if self.script_nesting_level == 0 {
+                self.parser_pause_flag = false;
+            }
+
+            self.insertion_point = old_insertion_point;
+        }
+    }
+
+    /// Process a token in HTML content
+    fn process_html_content(&mut self) {
+        if self.ignore_lf {
+            if let Token::TextToken { value } = &self.current_token {
+                if value.eq(&"\n".to_string()) {
+                    self.current_token = self.fetch_next_token();
+                }
+            }
+            self.ignore_lf = false;
+        }
+
+        match self.insertion_mode {
+            InsertionMode::Initial => {
+                let mut anything_else = false;
+
+                match &self.current_token.clone() {
+                    Token::TextToken { .. } if self.current_token.is_empty_or_white() => {
+                        // ignore token
+                        return;
+                    }
+                    Token::CommentToken { .. } => {
+                        let current_token = &self.current_token.clone();
+                        self.insert_comment(current_token, None);
+                    }
+                    Token::DocTypeToken {
+                        name,
+                        pub_identifier,
+                        sys_identifier,
+                        force_quirks,
+                    } => {
+                        if name.is_some() && name.as_ref().unwrap() != "html"
+                            || pub_identifier.is_some()
+                            || (sys_identifier.is_some()
+                                && sys_identifier.as_ref().unwrap() != "about:legacy-compat")
+                        {
+                            self.parse_error("doctype not allowed in initial insertion mode");
+                        }
+
+                        let node = self.create_node(&self.current_token, HTML_NAMESPACE);
+                        self.document.get_mut().add_node(node, NodeId::root(), None);
+
+                        if self.document.get_mut().doctype != DocumentType::IframeSrcDoc
+                            && self.parser_cannot_change_mode
+                        {
+                            self.document.get_mut().quirks_mode = self.identify_quirks_mode(
+                                name,
+                                pub_identifier.clone(),
+                                sys_identifier.clone(),
+                                *force_quirks,
+                            );
                         }
 
                         self.insertion_mode = InsertionMode::BeforeHtml;
-                        self.reprocess_token = true;
                     }
+                    Token::StartTagToken { .. } => {
+                        if self.document.get_mut().doctype != DocumentType::IframeSrcDoc {
+                            self.parse_error(ParserError::ExpectedDocTypeButGotStartTag.as_str());
+                        }
+                        anything_else = true;
+                    }
+                    Token::EndTagToken { .. } => {
+                        if self.document.get_mut().doctype != DocumentType::IframeSrcDoc {
+                            self.parse_error(ParserError::ExpectedDocTypeButGotEndTag.as_str());
+                        }
+                        anything_else = true;
+                    }
+                    Token::TextToken { .. } => {
+                        if self.document.get_mut().doctype != DocumentType::IframeSrcDoc {
+                            self.parse_error(ParserError::ExpectedDocTypeButGotChars.as_str());
+                        }
+                        anything_else = true;
+                    }
+                    _ => anything_else = true,
                 }
-                InsertionMode::BeforeHtml => {
-                    let mut anything_else = false;
 
-                    match &self.current_token {
-                        Token::DocTypeToken { .. } => {
-                            self.parse_error("doctype not allowed in before html insertion mode");
-                        }
-                        Token::CommentToken { .. } => {
-                            let current_token = &self.current_token.clone();
-                            let root = get_node_by_id!(self.document, NodeId::root());
-                            self.insert_comment(current_token, Some(&root));
-                        }
-                        Token::TextToken { .. } if self.current_token.is_empty_or_white() => {
-                            // ignore token
-                        }
-                        Token::StartTagToken { name, .. } if name == "html" => {
-                            self.insert_html_element(&self.current_token.clone());
-
-                            self.insertion_mode = InsertionMode::BeforeHead;
-                        }
-                        Token::EndTagToken { name, .. }
-                            if name == "head"
-                                || name == "body"
-                                || name == "html"
-                                || name == "br" =>
-                        {
-                            anything_else = true;
-                        }
-                        Token::EndTagToken { .. } => {
-                            self.parse_error("end tag not allowed in before html insertion mode");
-                        }
-                        _ => {
-                            anything_else = true;
-                        }
+                if anything_else {
+                    if !self.parser_cannot_change_mode {
+                        self.document.get_mut().quirks_mode = QuirksMode::Quirks;
                     }
 
-                    if anything_else {
-                        let token = Token::StartTagToken {
-                            name: "html".to_string(),
-                            is_self_closing: false,
-                            attributes: HashMap::new(),
-                        };
-                        self.insert_html_element(&token);
+                    self.insertion_mode = InsertionMode::BeforeHtml;
+                    self.reprocess_token = true;
+                }
+            }
+            InsertionMode::BeforeHtml => {
+                let mut anything_else = false;
+
+                match &self.current_token {
+                    Token::DocTypeToken { .. } => {
+                        self.parse_error("doctype not allowed in before html insertion mode");
+                    }
+                    Token::CommentToken { .. } => {
+                        let current_token = &self.current_token.clone();
+                        let root = get_node_by_id!(self.document, NodeId::root());
+                        self.insert_comment(current_token, Some(&root));
+                    }
+                    Token::TextToken { .. } if self.current_token.is_empty_or_white() => {
+                        // ignore token
+                    }
+                    Token::StartTagToken { name, .. } if name == "html" => {
+                        self.insert_html_element(&self.current_token.clone());
 
                         self.insertion_mode = InsertionMode::BeforeHead;
-                        self.reprocess_token = true;
+                    }
+                    Token::EndTagToken { name, .. }
+                        if name == "head" || name == "body" || name == "html" || name == "br" =>
+                    {
+                        anything_else = true;
+                    }
+                    Token::EndTagToken { .. } => {
+                        self.parse_error("end tag not allowed in before html insertion mode");
+                    }
+                    _ => {
+                        anything_else = true;
                     }
                 }
-                InsertionMode::BeforeHead => {
-                    let mut anything_else = false;
 
-                    match &self.current_token {
-                        Token::TextToken { .. } if self.current_token.is_empty_or_white() => {
-                            // ignore token
-                        }
-                        Token::CommentToken { .. } => {
-                            self.insert_comment(&self.current_token.clone(), None);
-                        }
-                        Token::DocTypeToken { .. } => {
-                            self.parse_error("doctype not allowed in before head insertion mode");
-                            // ignore token
-                        }
-                        Token::StartTagToken { name, .. } if name == "html" => {
-                            self.handle_in_body();
-                        }
-                        Token::StartTagToken { name, .. } if name == "head" => {
-                            let node_id = self.insert_html_element(&self.current_token.clone());
-                            self.head_element = Some(node_id);
-                            self.insertion_mode = InsertionMode::InHead;
-                        }
-                        Token::EndTagToken { name, .. }
-                            if name == "head"
-                                || name == "body"
-                                || name == "html"
-                                || name == "br" =>
-                        {
-                            anything_else = true;
-                        }
-                        Token::EndTagToken { .. } => {
-                            self.parse_error("end tag not allowed in before head insertion mode");
-                            // ignore token
-                        }
-                        _ => {
-                            anything_else = true;
-                        }
+                if anything_else {
+                    let token = Token::StartTagToken {
+                        name: "html".to_string(),
+                        is_self_closing: false,
+                        attributes: HashMap::new(),
+                    };
+                    self.insert_html_element(&token);
+
+                    self.insertion_mode = InsertionMode::BeforeHead;
+                    self.reprocess_token = true;
+                }
+            }
+            InsertionMode::BeforeHead => {
+                let mut anything_else = false;
+
+                match &self.current_token {
+                    Token::TextToken { .. } if self.current_token.is_empty_or_white() => {
+                        // ignore token
                     }
-                    if anything_else {
-                        let token = Token::StartTagToken {
-                            name: "head".to_string(),
-                            is_self_closing: false,
-                            attributes: HashMap::new(),
-                        };
-                        let node_id = self.insert_html_element(&token);
+                    Token::CommentToken { .. } => {
+                        self.insert_comment(&self.current_token.clone(), None);
+                    }
+                    Token::DocTypeToken { .. } => {
+                        self.parse_error("doctype not allowed in before head insertion mode");
+                        // ignore token
+                    }
+                    Token::StartTagToken { name, .. } if name == "html" => {
+                        self.handle_in_body();
+                    }
+                    Token::StartTagToken { name, .. } if name == "head" => {
+                        let node_id = self.insert_html_element(&self.current_token.clone());
                         self.head_element = Some(node_id);
                         self.insertion_mode = InsertionMode::InHead;
-                        self.reprocess_token = true;
+                    }
+                    Token::EndTagToken { name, .. }
+                        if name == "head" || name == "body" || name == "html" || name == "br" =>
+                    {
+                        anything_else = true;
+                    }
+                    Token::EndTagToken { .. } => {
+                        self.parse_error("end tag not allowed in before head insertion mode");
+                        // ignore token
+                    }
+                    _ => {
+                        anything_else = true;
                     }
                 }
-                InsertionMode::InHead => self.handle_in_head(),
-                InsertionMode::InHeadNoscript => {
-                    let mut anything_else = false;
+                if anything_else {
+                    let token = Token::StartTagToken {
+                        name: "head".to_string(),
+                        is_self_closing: false,
+                        attributes: HashMap::new(),
+                    };
+                    let node_id = self.insert_html_element(&token);
+                    self.head_element = Some(node_id);
+                    self.insertion_mode = InsertionMode::InHead;
+                    self.reprocess_token = true;
+                }
+            }
+            InsertionMode::InHead => self.handle_in_head(),
+            InsertionMode::InHeadNoscript => {
+                let mut anything_else = false;
 
-                    match &self.current_token {
-                        Token::DocTypeToken { .. } => {
-                            self.parse_error(
-                                "doctype not allowed in 'head no script' insertion mode",
-                            );
-                            // ignore token
-                            continue;
-                        }
-                        Token::StartTagToken { name, .. } if name == "html" => {
-                            self.handle_in_body();
-                        }
-                        Token::EndTagToken { name, .. } if name == "noscript" => {
-                            self.pop_check("noscript");
-                            self.check_last_element("head");
-                            self.insertion_mode = InsertionMode::InHead;
-                        }
-                        Token::TextToken { .. } if self.current_token.is_empty_or_white() => {
-                            self.handle_in_head();
-                        }
-                        Token::CommentToken { .. } => {
-                            self.handle_in_head();
-                        }
-                        Token::StartTagToken { name, .. }
-                            if name == "basefont"
-                                || name == "bgsound"
-                                || name == "link"
-                                || name == "meta"
-                                || name == "noframes"
-                                || name == "style" =>
-                        {
-                            self.handle_in_head();
-                        }
-                        Token::EndTagToken { name, .. } if name == "br" => {
-                            anything_else = true;
-                        }
-                        Token::StartTagToken { name, .. }
-                            if name == "head" || name == "noscript" =>
-                        {
-                            self.parse_error(
-                                "head or noscript tag not allowed in after head insertion mode",
-                            );
-                            // ignore token
-                            continue;
-                        }
-                        Token::EndTagToken { .. } => {
-                            self.parse_error("end tag not allowed in after head insertion mode");
-                            // ignore token
-                            continue;
-                        }
-                        _ => {
-                            anything_else = true;
-                        }
+                match &self.current_token {
+                    Token::DocTypeToken { .. } => {
+                        self.parse_error("doctype not allowed in 'head no script' insertion mode");
+                        // ignore token
+                        return;
                     }
-                    if anything_else {
-                        self.parse_error("anything else not allowed in after head insertion mode");
-
+                    Token::StartTagToken { name, .. } if name == "html" => {
+                        self.handle_in_body();
+                    }
+                    Token::EndTagToken { name, .. } if name == "noscript" => {
                         self.pop_check("noscript");
                         self.check_last_element("head");
-
                         self.insertion_mode = InsertionMode::InHead;
+                    }
+                    Token::TextToken { .. } if self.current_token.is_empty_or_white() => {
+                        self.handle_in_head();
+                    }
+                    Token::CommentToken { .. } => {
+                        self.handle_in_head();
+                    }
+                    Token::StartTagToken { name, .. }
+                        if name == "basefont"
+                            || name == "bgsound"
+                            || name == "link"
+                            || name == "meta"
+                            || name == "noframes"
+                            || name == "style" =>
+                    {
+                        self.handle_in_head();
+                    }
+                    Token::EndTagToken { name, .. } if name == "br" => {
+                        anything_else = true;
+                    }
+                    Token::StartTagToken { name, .. } if name == "head" || name == "noscript" => {
+                        self.parse_error(
+                            "head or noscript tag not allowed in after head insertion mode",
+                        );
+                        // ignore token
+                        return;
+                    }
+                    Token::EndTagToken { .. } => {
+                        self.parse_error("end tag not allowed in after head insertion mode");
+                        // ignore token
+                        return;
+                    }
+                    _ => {
+                        anything_else = true;
+                    }
+                }
+                if anything_else {
+                    self.parse_error("anything else not allowed in after head insertion mode");
+
+                    self.pop_check("noscript");
+                    self.check_last_element("head");
+
+                    self.insertion_mode = InsertionMode::InHead;
+                    self.reprocess_token = true;
+                }
+            }
+            InsertionMode::AfterHead => {
+                let mut anything_else = false;
+
+                match &self.current_token {
+                    Token::TextToken { .. } if self.current_token.is_empty_or_white() => {
+                        self.insert_characters(self.current_token.clone());
+                    }
+                    Token::CommentToken { .. } => {
+                        self.insert_comment(&self.current_token.clone(), None);
+                    }
+                    Token::DocTypeToken { .. } => {
+                        self.parse_error("doctype not allowed in after head insertion mode");
+                        // ignore token
+                    }
+                    Token::StartTagToken { name, .. } if name == "html" => {
+                        self.handle_in_body();
+                    }
+                    Token::StartTagToken { name, .. } if name == "body" => {
+                        self.insert_html_element(&self.current_token.clone());
+
+                        self.frameset_ok = false;
+                        self.insertion_mode = InsertionMode::InBody;
+                    }
+                    Token::StartTagToken { name, .. } if name == "frameset" => {
+                        self.insert_html_element(&self.current_token.clone());
+
+                        self.insertion_mode = InsertionMode::InFrameset;
+                    }
+                    Token::StartTagToken { name, .. }
+                        if [
+                            "base", "basefont", "bgsound", "link", "meta", "noframes", "script",
+                            "style", "template", "title",
+                        ]
+                        .contains(&name.as_str()) =>
+                    {
+                        self.parse_error("invalid start tag in after head insertion mode");
+
+                        if self.head_element.is_none() {
+                            panic!("Head element should not be None");
+                        }
+
+                        if let Some(node_id) = self.head_element {
+                            self.open_elements.push(node_id);
+                        }
+
+                        self.handle_in_head();
+
+                        // Remove the node pointed to by the head element pointer from the stack of open elements (might not be current node at this point)
+                        if let Some(node_id) = self.head_element {
+                            self.open_elements.retain(|&x| x != node_id);
+                        }
+                    }
+                    Token::EndTagToken { name, .. } if name == "template" => {
+                        self.handle_in_head();
+                    }
+                    Token::EndTagToken { name, .. }
+                        if name == "body" || name == "html" || name == "br" =>
+                    {
+                        anything_else = true;
+                    }
+                    Token::StartTagToken { name, .. } if name == "head" => {
+                        self.parse_error("head tag not allowed in after head insertion mode");
+                        // ignore token
+                    }
+                    Token::EndTagToken { .. } => {
+                        self.parse_error("end tag not allowed in after head insertion mode");
+                        // Ignore token
+                    }
+                    _ => {
+                        anything_else = true;
+                    }
+                }
+
+                if anything_else {
+                    let token = Token::StartTagToken {
+                        name: "body".to_string(),
+                        is_self_closing: false,
+                        attributes: HashMap::new(),
+                    };
+                    self.insert_html_element(&token);
+
+                    self.insertion_mode = InsertionMode::InBody;
+                    self.reprocess_token = true;
+                }
+            }
+            InsertionMode::InBody => self.handle_in_body(),
+            InsertionMode::Text => {
+                match &self.current_token {
+                    Token::TextToken { .. } => {
+                        self.insert_characters(self.current_token.clone());
+                    }
+                    Token::EofToken => {
+                        self.parse_error("eof not allowed in text insertion mode");
+
+                        if current_node!(self).name == "script" {
+                            self.script_already_started = true;
+                        }
+                        self.open_elements.pop();
+                        self.insertion_mode = self.original_insertion_mode;
+                        self.reprocess_token = true;
+                    }
+                    Token::EndTagToken { name, .. } if name == "script" => {
+                        // @todo: If the active speculative HTML parser is null and the JavaScript execution context stack is empty, then perform a microtask checkpoint.
+
+                        let _script = current_node!(self);
+
+                        self.open_elements.pop();
+                        self.insertion_mode = self.original_insertion_mode;
+
+                        let old_insertion_point = self.insertion_point;
+                        self.insertion_point = Some(self.tokenizer.get_position().offset);
+
+                        self.script_nesting_level += 1;
+
+                        // do script stuff
+
+                        self.script_nesting_level -= 1;
+                        if self.script_nesting_level == 0 {
+                            self.parser_pause_flag = false;
+                        }
+
+                        self.insertion_point = old_insertion_point;
+                    }
+                    _ => {
+                        self.open_elements.pop();
+                        self.insertion_mode = self.original_insertion_mode;
+                    }
+                }
+            }
+            InsertionMode::InTable => self.handle_in_table(),
+            InsertionMode::InTableText => {
+                match &self.current_token {
+                    Token::TextToken { .. } if self.current_token.is_null() => {
+                        self.parse_error(
+                            "null character not allowed in in table text insertion mode",
+                        );
+                        // ignore token
+                    }
+                    Token::TextToken { value, .. } => {
+                        for c in value.chars() {
+                            if c == CHAR_NUL {
+                                self.parse_error(
+                                    "null character not allowed in in table insertion mode",
+                                );
+                            } else {
+                                self.pending_table_character_tokens.push(c);
+                            }
+                        }
+                    }
+                    Token::EofToken => {
+                        self.foster_parenting = true;
+                        self.handle_in_body();
+                        self.foster_parenting = false;
+                    }
+                    _ => {
+                        let tokens = self.pending_table_character_tokens.clone();
+
+                        let mut process_as_intable_anything_else = false;
+
+                        for c in self.pending_table_character_tokens.chars() {
+                            if !c.is_ascii_whitespace() {
+                                self.parse_error(
+                                    "non whitespace character in pending table character tokens",
+                                );
+                                process_as_intable_anything_else = true;
+                                break;
+                            }
+                        }
+
+                        if process_as_intable_anything_else {
+                            let tmp = self.current_token.clone();
+                            self.current_token = Token::TextToken { value: tokens };
+
+                            self.foster_parenting = true;
+                            self.handle_in_body();
+                            self.foster_parenting = false;
+
+                            self.current_token = tmp;
+                        } else {
+                            let token = Token::TextToken { value: tokens };
+                            self.insert_characters(token);
+                        }
+
+                        self.pending_table_character_tokens.clear();
+
+                        self.insertion_mode = self.original_insertion_mode;
                         self.reprocess_token = true;
                     }
                 }
-                InsertionMode::AfterHead => {
-                    let mut anything_else = false;
+            }
+            InsertionMode::InCaption => {
+                let mut process_incaption_body = false;
 
-                    match &self.current_token {
-                        Token::TextToken { .. } if self.current_token.is_empty_or_white() => {
-                            self.insert_characters(self.current_token.clone());
-                        }
-                        Token::CommentToken { .. } => {
-                            self.insert_comment(&self.current_token.clone(), None);
-                        }
-                        Token::DocTypeToken { .. } => {
-                            self.parse_error("doctype not allowed in after head insertion mode");
-                            // ignore token
-                        }
-                        Token::StartTagToken { name, .. } if name == "html" => {
-                            self.handle_in_body();
-                        }
-                        Token::StartTagToken { name, .. } if name == "body" => {
-                            self.insert_html_element(&self.current_token.clone());
+                match &self.current_token {
+                    Token::EndTagToken { name, .. } if name == "caption" => {
+                        process_incaption_body = true;
+                    }
+                    Token::StartTagToken { name, .. }
+                        if [
+                            "caption", "col", "colgroup", "tbody", "td", "tfoot", "th", "thead",
+                            "tr",
+                        ]
+                        .contains(&name.as_str()) =>
+                    {
+                        process_incaption_body = true;
+                        self.reprocess_token = true;
+                    }
+                    Token::EndTagToken { name, .. } if name == "table" => {
+                        process_incaption_body = true;
+                        self.reprocess_token = true;
+                    }
+                    Token::EndTagToken { name, .. }
+                        if name == "body"
+                            || name == "col"
+                            || name == "colgroup"
+                            || name == "html"
+                            || name == "tbody"
+                            || name == "td"
+                            || name == "tfoot"
+                            || name == "th"
+                            || name == "thead"
+                            || name == "tr" =>
+                    {
+                        self.parse_error("end tag not allowed in in caption insertion mode");
+                        // ignore token
+                    }
+                    _ => self.handle_in_body(),
+                }
 
-                            self.frameset_ok = false;
-                            self.insertion_mode = InsertionMode::InBody;
-                        }
-                        Token::StartTagToken { name, .. } if name == "frameset" => {
-                            self.insert_html_element(&self.current_token.clone());
+                if process_incaption_body {
+                    if !self.open_elements_has("caption") {
+                        self.parse_error(
+                            "caption end tag not allowed in in caption insertion mode",
+                        );
+                        // ignore token
+                        // self.reprocess_token = false;
+                        return;
 
-                            self.insertion_mode = InsertionMode::InFrameset;
-                        }
-                        Token::StartTagToken { name, .. }
-                            if [
-                                "base", "basefont", "bgsound", "link", "meta", "noframes",
-                                "script", "style", "template", "title",
-                            ]
-                            .contains(&name.as_str()) =>
-                        {
-                            self.parse_error("invalid start tag in after head insertion mode");
-
-                            if self.head_element.is_none() {
-                                panic!("Head element should not be None");
-                            }
-
-                            if let Some(node_id) = self.head_element {
-                                self.open_elements.push(node_id);
-                            }
-
-                            self.handle_in_head();
-
-                            // Remove the node pointed to by the head element pointer from the stack of open elements (might not be current node at this point)
-                            if let Some(node_id) = self.head_element {
-                                self.open_elements.retain(|&x| x != node_id);
-                            }
-                        }
-                        Token::EndTagToken { name, .. } if name == "template" => {
-                            self.handle_in_head();
-                        }
-                        Token::EndTagToken { name, .. }
-                            if name == "body" || name == "html" || name == "br" =>
-                        {
-                            anything_else = true;
-                        }
-                        Token::StartTagToken { name, .. } if name == "head" => {
-                            self.parse_error("head tag not allowed in after head insertion mode");
-                            // ignore token
-                        }
-                        Token::EndTagToken { .. } => {
-                            self.parse_error("end tag not allowed in after head insertion mode");
-                            // Ignore token
-                        }
-                        _ => {
-                            anything_else = true;
-                        }
+                        // @TODO: check what fragment case means
                     }
 
-                    if anything_else {
+                    self.generate_implied_end_tags(None, false);
+
+                    if current_node!(self).name != "caption" {
+                        self.parse_error("caption end tag not at top of stack");
+                    }
+
+                    self.pop_until("caption");
+                    self.active_formatting_elements_clear_until_marker();
+
+                    self.insertion_mode = InsertionMode::InTable;
+                }
+            }
+            InsertionMode::InColumnGroup => {
+                match &self.current_token {
+                    Token::TextToken { .. } if self.current_token.is_empty_or_white() => {
+                        self.insert_characters(self.current_token.clone());
+                    }
+                    Token::CommentToken { .. } => {
+                        self.insert_comment(&self.current_token.clone(), None);
+                    }
+                    Token::DocTypeToken { .. } => {
+                        self.parse_error("doctype not allowed in column group insertion mode");
+                        // ignore token
+                    }
+                    Token::StartTagToken { name, .. } if name == "html" => {
+                        self.handle_in_body();
+                    }
+                    Token::StartTagToken {
+                        name,
+                        is_self_closing,
+                        ..
+                    } if name == "col" => {
+                        self.acknowledge_closing_tag(*is_self_closing);
+
+                        self.insert_html_element(&self.current_token.clone());
+                        self.open_elements.pop();
+                    }
+                    Token::StartTagToken { name, .. } if name == "template" => {
+                        self.handle_in_head();
+                    }
+                    Token::EndTagToken { name, .. } if name == "template" => {
+                        self.handle_in_head();
+                    }
+                    Token::EndTagToken { name, .. } if name == "colgroup" => {
+                        if current_node!(self).name != "colgroup" {
+                            self.parse_error("colgroup end tag not at top of stack");
+                            // ignore token
+                            return;
+                        }
+
+                        self.open_elements.pop();
+                        self.insertion_mode = InsertionMode::InTable;
+                    }
+                    Token::EndTagToken { name, .. } if name == "col" => {
+                        self.parse_error("col end tag not allowed in column group insertion mode");
+                        // ignore token
+                    }
+                    _ => {
+                        if current_node!(self).name != "colgroup" {
+                            self.parse_error("colgroup end tag not at top of stack");
+                            // ignore token
+                            return;
+                        }
+                        self.open_elements.pop();
+                        self.insertion_mode = InsertionMode::InTable;
+                        self.reprocess_token = true;
+                    }
+                }
+
+                //     Token::StartTagToken { name, .. } if name == "frameset" => {
+                //         self.insert_html_element(&self.current_token);
+                //
+                //         self.insertion_mode = InsertionMode::InFrameset;
+                //     },
+                //
+                //     Token::StartTagToken { name, .. } if ["base", "basefront", "bgsound", "link", "meta", "noframes", "script", "style", "template", "title"].contains(&name.as_str()) => {
+                //         self.parse_error("invalid start tag in after head insertion mode");
+                //
+                //         if let Some(ref value) = self.head_element {
+                //             self.open_elements.push(value.clone());
+                //         }
+                //
+                //         self.handle_in_head();
+                //
+                //         // remove the node pointed to by the head element pointer from the stack of open elements (might not be current node at this point)
+                //     }
+                //     Token::EndTagToken { name, .. } if name == "template" => {
+                //         self.handle_in_head();
+                //     }
+                //     Token::EndTagToken { name, .. } if name == "body" || name == "html" || name == "br"=> {
+                //         anything_else = true;
+                //     }
+                //     Token::StartTagToken { name, .. } if name == "head" => {
+                //         self.parse_error("head tag not allowed in after head insertion mode");
+                //     }
+                //     Token::EndTagToken { .. }  => {
+                //         self.parse_error("end tag not allowed in after head insertion mode");
+                //     }
+                //     _ => {
+                //         anything_else = true;
+                //     }
+                // }
+                //
+                // if anything_else {
+                //     let token = Token::StartTagToken { name: "body".to_string(), is_self_closing: false, attributes: HashMap::new() };
+                //     self.insert_html_element(&token);
+                //
+                //     self.insertion_mode = InsertionMode::InBody;
+                //     self.reprocess_token = true;
+                // }
+            }
+            InsertionMode::InTableBody => {
+                match &self.current_token {
+                    Token::StartTagToken { name, .. } if name == "tr" => {
+                        self.clear_stack_back_to_table_body_context();
+
+                        self.insert_html_element(&self.current_token.clone());
+
+                        self.insertion_mode = InsertionMode::InRow;
+                    }
+                    Token::StartTagToken { name, .. } if name == "th" || name == "td" => {
+                        self.parse_error(
+                            "th or td tag not allowed in in table body insertion mode",
+                        );
+
+                        self.clear_stack_back_to_table_body_context();
+
                         let token = Token::StartTagToken {
-                            name: "body".to_string(),
+                            name: "tr".to_string(),
                             is_self_closing: false,
                             attributes: HashMap::new(),
                         };
                         self.insert_html_element(&token);
 
-                        self.insertion_mode = InsertionMode::InBody;
+                        self.insertion_mode = InsertionMode::InRow;
                         self.reprocess_token = true;
                     }
-                }
-                InsertionMode::InBody => self.handle_in_body(),
-                InsertionMode::Text => {
-                    match &self.current_token {
-                        Token::TextToken { .. } => {
-                            self.insert_characters(self.current_token.clone());
-                        }
-                        Token::EofToken => {
-                            self.parse_error("eof not allowed in text insertion mode");
-
-                            if current_node!(self).name == "script" {
-                                self.script_already_started = true;
-                            }
-                            self.open_elements.pop();
-                            self.insertion_mode = self.original_insertion_mode;
-                            self.reprocess_token = true;
-                        }
-                        Token::EndTagToken { name, .. } if name == "script" => {
-                            // @todo: If the active speculative HTML parser is null and the JavaScript execution context stack is empty, then perform a microtask checkpoint.
-
-                            let _script = current_node!(self);
-
-                            self.open_elements.pop();
-                            self.insertion_mode = self.original_insertion_mode;
-
-                            let old_insertion_point = self.insertion_point;
-                            self.insertion_point = Some(self.tokenizer.get_position().offset);
-
-                            self.script_nesting_level += 1;
-
-                            // do script stuff
-
-                            self.script_nesting_level -= 1;
-                            if self.script_nesting_level == 0 {
-                                self.parser_pause_flag = false;
-                            }
-
-                            self.insertion_point = old_insertion_point;
-                        }
-                        _ => {
-                            self.open_elements.pop();
-                            self.insertion_mode = self.original_insertion_mode;
-                        }
-                    }
-                }
-                InsertionMode::InTable => self.handle_in_table(),
-                InsertionMode::InTableText => {
-                    match &self.current_token {
-                        Token::TextToken { .. } if self.current_token.is_null() => {
-                            self.parse_error(
-                                "null character not allowed in in table text insertion mode",
-                            );
+                    Token::EndTagToken { name, .. }
+                        if name == "tbody" || name == "tfoot" || name == "thead" =>
+                    {
+                        if !self.is_in_scope(name, Scope::Table) {
+                            self.parse_error("tbody, tfoot or thead tag not allowed in in table body insertion mode");
                             // ignore token
+                            return;
                         }
-                        Token::TextToken { value, .. } => {
-                            for c in value.chars() {
-                                if c == CHAR_NUL {
-                                    self.parse_error(
-                                        "null character not allowed in in table insertion mode",
-                                    );
-                                } else {
-                                    self.pending_table_character_tokens.push(c);
-                                }
-                            }
-                        }
-                        _ => {
-                            let tokens = self.pending_table_character_tokens.clone();
 
-                            let mut process_as_intable_anything_else = false;
+                        self.clear_stack_back_to_table_body_context();
+                        self.open_elements.pop();
 
-                            for c in self.pending_table_character_tokens.chars() {
-                                if !c.is_ascii_whitespace() {
-                                    self.parse_error("non whitespace character in pending table character tokens");
-                                    process_as_intable_anything_else = true;
-                                    break;
-                                }
-                            }
-
-                            if process_as_intable_anything_else {
-                                let tmp = self.current_token.clone();
-                                self.current_token = Token::TextToken { value: tokens };
-
-                                self.foster_parenting = true;
-                                self.handle_in_body();
-                                self.foster_parenting = false;
-
-                                self.current_token = tmp;
-                            } else {
-                                let token = Token::TextToken { value: tokens };
-                                self.insert_characters(token);
-                            }
-
-                            self.pending_table_character_tokens.clear();
-
-                            self.insertion_mode = self.original_insertion_mode;
-                            self.reprocess_token = true;
-                        }
+                        self.insertion_mode = InsertionMode::InTable;
                     }
-                }
-                InsertionMode::InCaption => {
-                    let mut process_incaption_body = false;
-
-                    match &self.current_token {
-                        Token::EndTagToken { name, .. } if name == "caption" => {
-                            process_incaption_body = true;
-                        }
-                        Token::StartTagToken { name, .. }
-                            if [
-                                "caption", "col", "colgroup", "tbody", "td", "tfoot", "th",
-                                "thead", "tr",
-                            ]
+                    Token::StartTagToken { name, .. }
+                        if ["caption", "col", "colgroup", "tbody", "tfoot", "thead"]
                             .contains(&name.as_str()) =>
+                    {
+                        if !self.is_in_scope("tbody", Scope::Table)
+                            && !self.is_in_scope("tfoot", Scope::Table)
+                            && !self.is_in_scope("thead", Scope::Table)
                         {
-                            process_incaption_body = true;
-                            self.reprocess_token = true;
-                        }
-                        Token::EndTagToken { name, .. } if name == "table" => {
-                            process_incaption_body = true;
-                            self.reprocess_token = true;
-                        }
-                        Token::EndTagToken { name, .. }
-                            if name == "body"
-                                || name == "col"
-                                || name == "colgroup"
-                                || name == "html"
-                                || name == "tbody"
-                                || name == "td"
-                                || name == "tfoot"
-                                || name == "th"
-                                || name == "thead"
-                                || name == "tr" =>
-                        {
-                            self.parse_error("end tag not allowed in in caption insertion mode");
+                            self.parse_error("caption, col, colgroup, tbody, tfoot or thead tag not allowed in in table body insertion mode");
                             // ignore token
+                            return;
                         }
-                        _ => self.handle_in_body(),
+
+                        self.clear_stack_back_to_table_body_context();
+                        self.open_elements.pop();
+
+                        self.insertion_mode = InsertionMode::InTable;
+                        self.reprocess_token = true;
                     }
-
-                    if process_incaption_body {
-                        if !self.open_elements_has("caption") {
+                    Token::EndTagToken { name, .. } if name == "table" => {
+                        if !self.is_in_scope("tbody", Scope::Table)
+                            && !self.is_in_scope("tfoot", Scope::Table)
+                            && !self.is_in_scope("thead", Scope::Table)
+                        {
                             self.parse_error(
-                                "caption end tag not allowed in in caption insertion mode",
+                                "table end tag not allowed in in table body insertion mode",
                             );
-                            // ignore token
-                            // self.reprocess_token = false;
-                            continue;
+                            return;
+                        }
 
-                            // @TODO: check what fragment case means
+                        self.clear_stack_back_to_table_body_context();
+                        self.open_elements.pop();
+
+                        self.insertion_mode = InsertionMode::InTable;
+                        self.reprocess_token = true;
+                    }
+                    Token::EndTagToken { name, .. }
+                        if [
+                            "body", "caption", "col", "colgroup", "html", "td", "th", "tr",
+                        ]
+                        .contains(&name.as_str()) =>
+                    {
+                        self.parse_error("end tag not allowed in in table body insertion mode");
+                        // ignore token
+                    }
+                    _ => {
+                        self.handle_in_table();
+                    }
+                }
+            }
+            InsertionMode::InRow => {
+                match &self.current_token {
+                    Token::StartTagToken { name, .. } if name == "th" || name == "td" => {
+                        self.clear_stack_back_to_table_row_context();
+
+                        self.insert_html_element(&self.current_token.clone());
+
+                        self.insertion_mode = InsertionMode::InCell;
+                        self.active_formatting_elements_push_marker();
+                    }
+                    Token::EndTagToken { name, .. } if name == "tr" => {
+                        if !self.is_in_scope("tr", Scope::Table) {
+                            self.parse_error("tr tag not allowed in in row insertion mode");
+                            // ignore token
+                            return;
+                        }
+
+                        self.clear_stack_back_to_table_row_context();
+                        self.pop_check("tr");
+
+                        self.insertion_mode = InsertionMode::InTableBody;
+                    }
+                    Token::StartTagToken { name, .. }
+                        if [
+                            "caption", "col", "colgroup", "tbody", "tfoot", "thead", "tr",
+                        ]
+                        .contains(&name.as_str()) =>
+                    {
+                        if !self.is_in_scope("tr", Scope::Table) {
+                            self.parse_error("caption, col, colgroup, tbody, tfoot or thead tag not allowed in in row insertion mode");
+                            // ignore token
+                            return;
+                        }
+
+                        self.clear_stack_back_to_table_row_context();
+                        self.pop_check("tr");
+
+                        self.insertion_mode = InsertionMode::InTableBody;
+                        self.reprocess_token = true;
+                    }
+                    Token::EndTagToken { name, .. } if name == "table" => {
+                        if !self.is_in_scope("tr", Scope::Table) {
+                            self.parse_error("table tag not allowed in in row insertion mode");
+                            // ignore token
+                            return;
+                        }
+
+                        self.clear_stack_back_to_table_row_context();
+                        self.pop_check("tr");
+
+                        self.insertion_mode = InsertionMode::InTableBody;
+                        self.reprocess_token = true;
+                    }
+                    Token::EndTagToken { name, .. }
+                        if name == "tbody" || name == "tfoot" || name == "thead" =>
+                    {
+                        if !self.is_in_scope(name, Scope::Table) {
+                            self.parse_error("tbody, tfoot or thead tag not allowed in in table body insertion mode");
+                            // ignore token
+                            return;
+                        }
+
+                        if !self.is_in_scope("tr", Scope::Table) {
+                            // ignore token
+                            return;
+                        }
+
+                        self.clear_stack_back_to_table_row_context();
+                        self.pop_check("tr");
+
+                        self.insertion_mode = InsertionMode::InTableBody;
+                        self.reprocess_token = true;
+                    }
+                    Token::EndTagToken { name, .. }
+                        if name == "body"
+                            || name == "caption"
+                            || name == "col"
+                            || name == "colgroup"
+                            || name == "html"
+                            || name == "td"
+                            || name == "th" =>
+                    {
+                        self.parse_error("end tag not allowed in in row insertion mode");
+                        // ignore token
+                    }
+                    _ => self.handle_in_table(),
+                }
+            }
+            InsertionMode::InCell => {
+                match &self.current_token {
+                    Token::EndTagToken { name, .. } if name == "th" || name == "td" => {
+                        let token_name = name.clone();
+
+                        if !self.is_in_scope(name.as_str(), Scope::Table) {
+                            self.parse_error("th or td tag not allowed in in cell insertion mode");
+                            // ignore token
+                            return;
                         }
 
                         self.generate_implied_end_tags(None, false);
 
-                        if current_node!(self).name != "caption" {
-                            self.parse_error("caption end tag not at top of stack");
-                            continue;
+                        if current_node!(self).name != token_name {
+                            self.parse_error("current node should be th or td");
                         }
 
-                        self.pop_until("caption");
+                        self.pop_until(&token_name);
+
                         self.active_formatting_elements_clear_until_marker();
 
+                        self.insertion_mode = InsertionMode::InRow;
+                    }
+                    Token::StartTagToken { name, .. }
+                        if [
+                            "caption", "col", "colgroup", "tbody", "td", "tfoot", "th", "thead",
+                            "tr",
+                        ]
+                        .contains(&name.as_str()) =>
+                    {
+                        if !self.is_in_scope("td", Scope::Table)
+                            && !self.is_in_scope("th", Scope::Table)
+                        {
+                            self.parse_error("caption, col, colgroup, tbody, tfoot or thead tag not allowed in in cell insertion mode");
+                            // ignore token (fragment case?)
+                            return;
+                        }
+
+                        self.close_cell();
+                        self.reprocess_token = true;
+                    }
+                    Token::EndTagToken { name, .. }
+                        if name == "body"
+                            || name == "caption"
+                            || name == "col"
+                            || name == "colgroup"
+                            || name == "html" =>
+                    {
+                        self.parse_error("end tag not allowed in in cell insertion mode");
+                        // ignore token
+                    }
+                    Token::EndTagToken { name, .. }
+                        if name == "table"
+                            || name == "tbody"
+                            || name == "tfoot"
+                            || name == "thead"
+                            || name == "tr" =>
+                    {
+                        if !self.is_in_scope(name.as_str(), Scope::Table) {
+                            self.parse_error("tbody, tfoot or thead tag not allowed in in table body insertion mode");
+                            // ignore token
+                            return;
+                        }
+
+                        self.close_cell();
+                        self.reprocess_token = true;
+                    }
+                    _ => self.handle_in_body(),
+                }
+            }
+            InsertionMode::InSelect => self.handle_in_select(),
+            InsertionMode::InSelectInTable => {
+                match &self.current_token {
+                    Token::StartTagToken { name, .. }
+                        if name == "caption"
+                            || name == "table"
+                            || name == "tbody"
+                            || name == "tfoot"
+                            || name == "thead"
+                            || name == "tr"
+                            || name == "td"
+                            || name == "th" =>
+                    {
+                        self.parse_error("caption, table, tbody, tfoot, thead, tr, td or th tag not allowed in in select in table insertion mode");
+
+                        self.pop_until("select");
+                        self.reset_insertion_mode();
+                        self.reprocess_token = true;
+                    }
+                    Token::EndTagToken { name, .. }
+                        if name == "caption"
+                            || name == "table"
+                            || name == "tbody"
+                            || name == "tfoot"
+                            || name == "thead"
+                            || name == "tr"
+                            || name == "td"
+                            || name == "th" =>
+                    {
+                        self.parse_error("caption, table, tbody, tfoot, thead, tr, td or th tag not allowed in in select in table insertion mode");
+
+                        if !self.is_in_scope(name, Scope::Table) {
+                            // ignore token
+                            return;
+                        }
+
+                        self.pop_until("select");
+                        self.reset_insertion_mode();
+                        self.reprocess_token = true;
+                    }
+                    _ => self.handle_in_select(),
+                }
+            }
+            InsertionMode::InTemplate => {
+                match &self.current_token {
+                    Token::TextToken { .. } => {
+                        self.handle_in_body();
+                    }
+                    Token::CommentToken { .. } => {
+                        self.handle_in_body();
+                    }
+                    Token::DocTypeToken { .. } => {
+                        self.handle_in_body();
+                    }
+                    Token::StartTagToken { name, .. }
+                        if name == "base"
+                            || name == "basefont"
+                            || name == "bgsound"
+                            || name == "link"
+                            || name == "meta"
+                            || name == "noframes"
+                            || name == "script"
+                            || name == "style"
+                            || name == "template"
+                            || name == "title" =>
+                    {
+                        self.handle_in_head();
+                    }
+                    Token::EndTagToken { name, .. } if name == "template" => {
+                        self.handle_in_head();
+                    }
+                    Token::StartTagToken { name, .. }
+                        if name == "caption"
+                            || name == "colgroup"
+                            || name == "tbody"
+                            || name == "tfoot"
+                            || name == "thead" =>
+                    {
+                        self.template_insertion_mode.pop();
+                        self.template_insertion_mode.push(InsertionMode::InTable);
+
                         self.insertion_mode = InsertionMode::InTable;
+                        self.reprocess_token = true;
                     }
-                }
-                InsertionMode::InColumnGroup => {
-                    match &self.current_token {
-                        Token::TextToken { .. } if self.current_token.is_empty_or_white() => {
-                            self.insert_characters(self.current_token.clone());
-                        }
-                        Token::CommentToken { .. } => {
-                            self.insert_comment(&self.current_token.clone(), None);
-                        }
-                        Token::DocTypeToken { .. } => {
-                            self.parse_error("doctype not allowed in column group insertion mode");
-                            // ignore token
-                        }
-                        Token::StartTagToken { name, .. } if name == "html" => {
-                            self.handle_in_body();
-                        }
-                        Token::StartTagToken {
-                            name,
-                            is_self_closing,
-                            ..
-                        } if name == "col" => {
-                            self.acknowledge_closing_tag(*is_self_closing);
+                    Token::StartTagToken { name, .. } if name == "col" => {
+                        self.template_insertion_mode.pop();
+                        self.template_insertion_mode
+                            .push(InsertionMode::InColumnGroup);
 
-                            self.insert_html_element(&self.current_token.clone());
-                            self.open_elements.pop();
-                        }
-                        Token::StartTagToken { name, .. } if name == "template" => {
-                            self.handle_in_head();
-                        }
-                        Token::EndTagToken { name, .. } if name == "template" => {
-                            self.handle_in_head();
-                        }
-                        Token::EndTagToken { name, .. } if name == "colgroup" => {
-                            if current_node!(self).name != "colgroup" {
-                                self.parse_error("colgroup end tag not at top of stack");
-                                // ignore token
-                                continue;
-                            }
-
-                            self.open_elements.pop();
-                            self.insertion_mode = InsertionMode::InTable;
-                        }
-                        Token::EndTagToken { name, .. } if name == "col" => {
-                            self.parse_error(
-                                "col end tag not allowed in column group insertion mode",
-                            );
-                            // ignore token
-                        }
-                        _ => {
-                            if current_node!(self).name != "colgroup" {
-                                self.parse_error("colgroup end tag not at top of stack");
-                                // ignore token
-                                continue;
-                            }
-                            self.open_elements.pop();
-                            self.insertion_mode = InsertionMode::InTable;
-                            self.reprocess_token = true;
-                        }
+                        self.insertion_mode = InsertionMode::InColumnGroup;
+                        self.reprocess_token = true;
                     }
+                    Token::StartTagToken { name, .. } if name == "tr" => {
+                        self.template_insertion_mode.pop();
+                        self.template_insertion_mode
+                            .push(InsertionMode::InTableBody);
 
-                    //     Token::StartTagToken { name, .. } if name == "frameset" => {
-                    //         self.insert_html_element(&self.current_token);
-                    //
-                    //         self.insertion_mode = InsertionMode::InFrameset;
-                    //     },
-                    //
-                    //     Token::StartTagToken { name, .. } if ["base", "basefront", "bgsound", "link", "meta", "noframes", "script", "style", "template", "title"].contains(&name.as_str()) => {
-                    //         self.parse_error("invalid start tag in after head insertion mode");
-                    //
-                    //         if let Some(ref value) = self.head_element {
-                    //             self.open_elements.push(value.clone());
-                    //         }
-                    //
-                    //         self.handle_in_head();
-                    //
-                    //         // remove the node pointed to by the head element pointer from the stack of open elements (might not be current node at this point)
-                    //     }
-                    //     Token::EndTagToken { name, .. } if name == "template" => {
-                    //         self.handle_in_head();
-                    //     }
-                    //     Token::EndTagToken { name, .. } if name == "body" || name == "html" || name == "br"=> {
-                    //         anything_else = true;
-                    //     }
-                    //     Token::StartTagToken { name, .. } if name == "head" => {
-                    //         self.parse_error("head tag not allowed in after head insertion mode");
-                    //     }
-                    //     Token::EndTagToken { .. }  => {
-                    //         self.parse_error("end tag not allowed in after head insertion mode");
-                    //     }
-                    //     _ => {
-                    //         anything_else = true;
-                    //     }
-                    // }
-                    //
-                    // if anything_else {
-                    //     let token = Token::StartTagToken { name: "body".to_string(), is_self_closing: false, attributes: HashMap::new() };
-                    //     self.insert_html_element(&token);
-                    //
-                    //     self.insertion_mode = InsertionMode::InBody;
-                    //     self.reprocess_token = true;
-                    // }
-                }
-                InsertionMode::InTableBody => {
-                    match &self.current_token {
-                        Token::StartTagToken { name, .. } if name == "tr" => {
-                            self.clear_stack_back_to_table_body_context();
-
-                            self.insert_html_element(&self.current_token.clone());
-
-                            self.insertion_mode = InsertionMode::InRow;
-                        }
-                        Token::StartTagToken { name, .. } if name == "th" || name == "td" => {
-                            self.parse_error(
-                                "th or td tag not allowed in in table body insertion mode",
-                            );
-
-                            self.clear_stack_back_to_table_body_context();
-
-                            let token = Token::StartTagToken {
-                                name: "tr".to_string(),
-                                is_self_closing: false,
-                                attributes: HashMap::new(),
-                            };
-                            self.insert_html_element(&token);
-
-                            self.insertion_mode = InsertionMode::InRow;
-                            self.reprocess_token = true;
-                        }
-                        Token::EndTagToken { name, .. }
-                            if name == "tbody" || name == "tfoot" || name == "thead" =>
-                        {
-                            if !self.is_in_scope(name, Scope::Table) {
-                                self.parse_error("tbody, tfoot or thead tag not allowed in in table body insertion mode");
-                                // ignore token
-                                continue;
-                            }
-
-                            self.clear_stack_back_to_table_body_context();
-                            self.open_elements.pop();
-
-                            self.insertion_mode = InsertionMode::InTable;
-                        }
-                        Token::StartTagToken { name, .. }
-                            if ["caption", "col", "colgroup", "tbody", "tfoot", "thead"]
-                                .contains(&name.as_str()) =>
-                        {
-                            if !self.is_in_scope("tbody", Scope::Table)
-                                && !self.is_in_scope("tfoot", Scope::Table)
-                                && !self.is_in_scope("thead", Scope::Table)
-                            {
-                                self.parse_error("caption, col, colgroup, tbody, tfoot or thead tag not allowed in in table body insertion mode");
-                                // ignore token
-                                continue;
-                            }
-
-                            self.clear_stack_back_to_table_body_context();
-                            self.open_elements.pop();
-
-                            self.insertion_mode = InsertionMode::InTable;
-                            self.reprocess_token = true;
-                        }
-                        Token::EndTagToken { name, .. } if name == "table" => {
-                            if !self.is_in_scope("tbody", Scope::Table)
-                                && !self.is_in_scope("tfoot", Scope::Table)
-                                && !self.is_in_scope("thead", Scope::Table)
-                            {
-                                self.parse_error(
-                                    "table end tag not allowed in in table body insertion mode",
-                                );
-                                continue;
-                            }
-
-                            self.clear_stack_back_to_table_body_context();
-                            self.open_elements.pop();
-
-                            self.insertion_mode = InsertionMode::InTable;
-                            self.reprocess_token = true;
-                        }
-                        Token::EndTagToken { name, .. }
-                            if [
-                                "body", "caption", "col", "colgroup", "html", "td", "th", "tr",
-                            ]
-                            .contains(&name.as_str()) =>
-                        {
-                            self.parse_error("end tag not allowed in in table body insertion mode");
-                            // ignore token
-                        }
-                        _ => {
-                            self.handle_in_table();
-                        }
+                        self.insertion_mode = InsertionMode::InTableBody;
+                        self.reprocess_token = true;
                     }
-                }
-                InsertionMode::InRow => {
-                    match &self.current_token {
-                        Token::StartTagToken { name, .. } if name == "th" || name == "td" => {
-                            self.clear_stack_back_to_table_row_context();
+                    Token::StartTagToken { name, .. } if name == "td" || name == "th" => {
+                        self.template_insertion_mode.pop();
+                        self.template_insertion_mode.push(InsertionMode::InRow);
 
-                            self.insert_html_element(&self.current_token.clone());
-
-                            self.insertion_mode = InsertionMode::InCell;
-                            self.active_formatting_elements_push_marker();
-                        }
-                        Token::EndTagToken { name, .. } if name == "tr" => {
-                            if !self.is_in_scope("tr", Scope::Table) {
-                                self.parse_error("tr tag not allowed in in row insertion mode");
-                                // ignore token
-                                continue;
-                            }
-
-                            self.clear_stack_back_to_table_row_context();
-                            self.pop_check("tr");
-
-                            self.insertion_mode = InsertionMode::InTableBody;
-                        }
-                        Token::StartTagToken { name, .. }
-                            if [
-                                "caption", "col", "colgroup", "tbody", "tfoot", "thead", "tr",
-                            ]
-                            .contains(&name.as_str()) =>
-                        {
-                            if !self.is_in_scope("tr", Scope::Table) {
-                                self.parse_error("caption, col, colgroup, tbody, tfoot or thead tag not allowed in in row insertion mode");
-                                // ignore token
-                                continue;
-                            }
-
-                            self.clear_stack_back_to_table_row_context();
-                            self.pop_check("tr");
-
-                            self.insertion_mode = InsertionMode::InTableBody;
-                            self.reprocess_token = true;
-                        }
-                        Token::EndTagToken { name, .. } if name == "table" => {
-                            if !self.is_in_scope("tr", Scope::Table) {
-                                self.parse_error("table tag not allowed in in row insertion mode");
-                                // ignore token
-                                continue;
-                            }
-
-                            self.clear_stack_back_to_table_row_context();
-                            self.pop_check("tr");
-
-                            self.insertion_mode = InsertionMode::InTableBody;
-                            self.reprocess_token = true;
-                        }
-                        Token::EndTagToken { name, .. }
-                            if name == "tbody" || name == "tfoot" || name == "thead" =>
-                        {
-                            if !self.is_in_scope(name, Scope::Table) {
-                                self.parse_error("tbody, tfoot or thead tag not allowed in in table body insertion mode");
-                                // ignore token
-                                continue;
-                            }
-
-                            if !self.is_in_scope("tr", Scope::Table) {
-                                // ignore token
-                                continue;
-                            }
-
-                            self.clear_stack_back_to_table_row_context();
-                            self.pop_check("tr");
-
-                            self.insertion_mode = InsertionMode::InTableBody;
-                            self.reprocess_token = true;
-                        }
-                        Token::EndTagToken { name, .. }
-                            if name == "body"
-                                || name == "caption"
-                                || name == "col"
-                                || name == "colgroup"
-                                || name == "html"
-                                || name == "td"
-                                || name == "th" =>
-                        {
-                            self.parse_error("end tag not allowed in in row insertion mode");
-                            // ignore token
-                            continue;
-                        }
-                        _ => self.handle_in_table(),
+                        self.insertion_mode = InsertionMode::InRow;
+                        self.reprocess_token = true;
                     }
-                }
-                InsertionMode::InCell => {
-                    match &self.current_token {
-                        Token::EndTagToken { name, .. } if name == "th" || name == "td" => {
-                            let token_name = name.clone();
+                    Token::StartTagToken { .. } => {
+                        self.template_insertion_mode.pop();
+                        self.template_insertion_mode.push(InsertionMode::InBody);
 
-                            if !self.is_in_scope(name.as_str(), Scope::Table) {
-                                self.parse_error(
-                                    "th or td tag not allowed in in cell insertion mode",
-                                );
-                                // ignore token
-                                continue;
-                            }
-
-                            self.generate_implied_end_tags(None, false);
-
-                            if current_node!(self).name != token_name {
-                                self.parse_error("current node should be th or td");
-                            }
-
-                            self.pop_until(&token_name);
-
-                            self.active_formatting_elements_clear_until_marker();
-
-                            self.insertion_mode = InsertionMode::InRow;
-                        }
-                        Token::StartTagToken { name, .. }
-                            if [
-                                "caption", "col", "colgroup", "tbody", "td", "tfoot", "th",
-                                "thead", "tr",
-                            ]
-                            .contains(&name.as_str()) =>
-                        {
-                            if !self.is_in_scope("td", Scope::Table)
-                                && !self.is_in_scope("th", Scope::Table)
-                            {
-                                self.parse_error("caption, col, colgroup, tbody, tfoot or thead tag not allowed in in cell insertion mode");
-                                // ignore token (fragment case?)
-                                continue;
-                            }
-
-                            self.close_cell();
-                            self.reprocess_token = true;
-                        }
-                        Token::EndTagToken { name, .. }
-                            if name == "body"
-                                || name == "caption"
-                                || name == "col"
-                                || name == "colgroup"
-                                || name == "html" =>
-                        {
-                            self.parse_error("end tag not allowed in in cell insertion mode");
-                            // ignore token
-                        }
-                        Token::EndTagToken { name, .. }
-                            if name == "table"
-                                || name == "tbody"
-                                || name == "tfoot"
-                                || name == "thead"
-                                || name == "tr" =>
-                        {
-                            if !self.is_in_scope(name.as_str(), Scope::Table) {
-                                self.parse_error("tbody, tfoot or thead tag not allowed in in table body insertion mode");
-                                // ignore token
-                                continue;
-                            }
-
-                            self.close_cell();
-                            self.reprocess_token = true;
-                        }
-                        _ => self.handle_in_body(),
+                        self.insertion_mode = InsertionMode::InBody;
+                        self.reprocess_token = true;
                     }
-                }
-                InsertionMode::InSelect => self.handle_in_select(),
-                InsertionMode::InSelectInTable => {
-                    match &self.current_token {
-                        Token::StartTagToken { name, .. }
-                            if name == "caption"
-                                || name == "table"
-                                || name == "tbody"
-                                || name == "tfoot"
-                                || name == "thead"
-                                || name == "tr"
-                                || name == "td"
-                                || name == "th" =>
-                        {
-                            self.parse_error("caption, table, tbody, tfoot, thead, tr, td or th tag not allowed in in select in table insertion mode");
-
-                            self.pop_until("select");
-                            self.reset_insertion_mode();
-                            self.reprocess_token = true;
-                        }
-                        Token::EndTagToken { name, .. }
-                            if name == "caption"
-                                || name == "table"
-                                || name == "tbody"
-                                || name == "tfoot"
-                                || name == "thead"
-                                || name == "tr"
-                                || name == "td"
-                                || name == "th" =>
-                        {
-                            self.parse_error("caption, table, tbody, tfoot, thead, tr, td or th tag not allowed in in select in table insertion mode");
-
-                            if !self.is_in_scope(name, Scope::Select) {
-                                // ignore token
-                                continue;
-                            }
-
-                            self.pop_until("select");
-                            self.reset_insertion_mode();
-                            self.reprocess_token = true;
-                        }
-                        _ => self.handle_in_select(),
+                    Token::EndTagToken { .. } => {
+                        self.parse_error("end tag not allowed in in template insertion mode");
+                        // ignore token
                     }
-                }
-                InsertionMode::InTemplate => {
-                    match &self.current_token {
-                        Token::TextToken { .. } => {
-                            self.handle_in_body();
-                        }
-                        Token::CommentToken { .. } => {
-                            self.handle_in_body();
-                        }
-                        Token::DocTypeToken { .. } => {
-                            self.handle_in_body();
-                        }
-                        Token::StartTagToken { name, .. }
-                            if name == "base"
-                                || name == "basefont"
-                                || name == "bgsound"
-                                || name == "link"
-                                || name == "meta"
-                                || name == "noframes"
-                                || name == "script"
-                                || name == "style"
-                                || name == "template"
-                                || name == "title" =>
-                        {
-                            self.handle_in_head();
-                        }
-                        Token::EndTagToken { name, .. } if name == "template" => {
-                            self.handle_in_head();
-                        }
-                        Token::StartTagToken { name, .. }
-                            if name == "caption"
-                                || name == "colgroup"
-                                || name == "tbody"
-                                || name == "tfoot"
-                                || name == "thead" =>
-                        {
-                            self.template_insertion_mode.pop();
-                            self.template_insertion_mode.push(InsertionMode::InTable);
-
-                            self.insertion_mode = InsertionMode::InTable;
-                            self.reprocess_token = true;
-                        }
-                        Token::StartTagToken { name, .. } if name == "col" => {
-                            self.template_insertion_mode.pop();
-                            self.template_insertion_mode
-                                .push(InsertionMode::InColumnGroup);
-
-                            self.insertion_mode = InsertionMode::InColumnGroup;
-                            self.reprocess_token = true;
-                        }
-                        Token::StartTagToken { name, .. } if name == "tr" => {
-                            self.template_insertion_mode.pop();
-                            self.template_insertion_mode
-                                .push(InsertionMode::InTableBody);
-
-                            self.insertion_mode = InsertionMode::InTableBody;
-                            self.reprocess_token = true;
-                        }
-                        Token::StartTagToken { name, .. } if name == "td" || name == "th" => {
-                            self.template_insertion_mode.pop();
-                            self.template_insertion_mode.push(InsertionMode::InRow);
-
-                            self.insertion_mode = InsertionMode::InRow;
-                            self.reprocess_token = true;
-                        }
-                        Token::StartTagToken { .. } => {
-                            self.template_insertion_mode.pop();
-                            self.template_insertion_mode.push(InsertionMode::InBody);
-
-                            self.insertion_mode = InsertionMode::InBody;
-                            self.reprocess_token = true;
-                        }
-                        Token::EndTagToken { .. } => {
-                            self.parse_error("end tag not allowed in in template insertion mode");
-                            // ignore token
-                            continue;
-                        }
-                        Token::EofToken => {
-                            if !self.open_elements_has("template") {
-                                self.stop_parsing();
-                                continue;
-                            }
-
-                            self.parse_error("eof not allowed in in template insertion mode");
-
-                            self.pop_until("template");
-                            self.active_formatting_elements_clear_until_marker();
-                            self.template_insertion_mode.pop();
-                            self.reset_insertion_mode();
-                            self.reprocess_token = true;
-                        }
-                    }
-                }
-                InsertionMode::AfterBody => {
-                    match &self.current_token {
-                        Token::TextToken { .. } if self.current_token.is_empty_or_white() => {
-                            self.handle_in_body();
-                        }
-                        Token::CommentToken { .. } => {
-                            let html_node_id = self.open_elements.first().unwrap_or_default();
-                            let html_node = get_node_by_id!(self.document, *html_node_id);
-                            self.insert_comment(&self.current_token.clone(), Some(&html_node));
-                        }
-                        Token::DocTypeToken { .. } => {
-                            self.parse_error("doctype not allowed in after body insertion mode");
-                            // ignore token
-                        }
-                        Token::StartTagToken { name, .. } if name == "html" => {
-                            self.handle_in_body();
-                        }
-                        Token::EndTagToken { name, .. } if name == "html" => {
-                            // @TODO: something with fragment case
-                            self.insertion_mode = InsertionMode::AfterAfterBody;
-                        }
-                        Token::EofToken => {
+                    Token::EofToken => {
+                        if !self.open_elements_has("template") {
                             self.stop_parsing();
-                            continue;
+                            return;
                         }
-                        _ => {
-                            self.parse_error(
-                                "anything else not allowed in after body insertion mode",
-                            );
-                            self.insertion_mode = InsertionMode::InBody;
-                            self.reprocess_token = true;
-                        }
+
+                        self.parse_error("eof not allowed in in template insertion mode");
+
+                        self.pop_until("template");
+                        self.active_formatting_elements_clear_until_marker();
+                        self.template_insertion_mode.pop();
+                        self.reset_insertion_mode();
+                        self.reprocess_token = true;
                     }
                 }
-                InsertionMode::InFrameset => {
-                    match &self.current_token {
-                        Token::TextToken { value } => {
-                            // filter out non-whitespace characters
-                            let value = value
-                                .chars()
-                                .filter(|c| c.is_ascii_whitespace())
-                                .collect::<String>();
-                            if !value.is_empty() {
-                                self.insert_characters(Token::TextToken { value });
-                            }
-                        }
-                        Token::CommentToken { .. } => {
-                            self.insert_comment(&self.current_token.clone(), None);
-                        }
-                        Token::DocTypeToken { .. } => {
-                            self.parse_error("doctype not allowed in frameset insertion mode");
-                            // ignore token
-                        }
-                        Token::StartTagToken { name, .. } if name == "html" => {
-                            self.handle_in_body();
-                        }
-                        Token::StartTagToken { name, .. } if name == "frameset" => {
-                            self.insert_html_element(&self.current_token.clone());
-                        }
-                        Token::EndTagToken { name, .. } if name == "frameset" => {
-                            if current_node!(self).name == "html" {
-                                self.parse_error(
-                                    "frameset tag not allowed in frameset insertion mode",
-                                );
-                                // ignore token
-                                continue;
-                            }
-
-                            self.open_elements.pop();
-
-                            if !self.is_fragment_case && current_node!(self).name != "frameset" {
-                                self.insertion_mode = InsertionMode::AfterFrameset;
-                            }
-                        }
-                        Token::StartTagToken {
-                            name,
-                            is_self_closing,
-                            ..
-                        } if name == "frame" => {
-                            self.acknowledge_closing_tag(*is_self_closing);
-
-                            self.insert_html_element(&self.current_token.clone());
-                            self.open_elements.pop();
-                        }
-                        Token::StartTagToken { name, .. } if name == "noframes" => {
-                            self.handle_in_head();
-                        }
-                        Token::EofToken => {
-                            if current_node!(self).name != "html" {
-                                self.parse_error("eof not allowed in frameset insertion mode");
-                            }
-                            self.stop_parsing();
-                            continue;
-                        }
-                        _ => {
-                            self.parse_error(
-                                "anything else not allowed in frameset insertion mode",
-                            );
-                            // ignore token
-                        }
+            }
+            InsertionMode::AfterBody => {
+                match &self.current_token {
+                    Token::TextToken { .. } if self.current_token.is_empty_or_white() => {
+                        self.handle_in_body();
+                    }
+                    Token::CommentToken { .. } => {
+                        let html_node_id = self.open_elements.first().unwrap_or_default();
+                        let html_node = get_node_by_id!(self.document, *html_node_id);
+                        self.insert_comment(&self.current_token.clone(), Some(&html_node));
+                    }
+                    Token::DocTypeToken { .. } => {
+                        self.parse_error("doctype not allowed in after body insertion mode");
+                        // ignore token
+                    }
+                    Token::StartTagToken { name, .. } if name == "html" => {
+                        self.handle_in_body();
+                    }
+                    Token::EndTagToken { name, .. } if name == "html" => {
+                        // @TODO: something with fragment case
+                        self.insertion_mode = InsertionMode::AfterAfterBody;
+                    }
+                    Token::EofToken => {
+                        self.stop_parsing();
+                    }
+                    _ => {
+                        self.parse_error("anything else not allowed in after body insertion mode");
+                        self.insertion_mode = InsertionMode::InBody;
+                        self.reprocess_token = true;
                     }
                 }
-                InsertionMode::AfterFrameset => {
-                    match &self.current_token {
-                        Token::TextToken { value } => {
-                            // Strip away all non-whitespace characters from the value
-                            let value = value
-                                .chars()
-                                .filter(|c| c.is_whitespace())
-                                .collect::<String>();
+            }
+            InsertionMode::InFrameset => {
+                match &self.current_token {
+                    Token::TextToken { value } => {
+                        // filter out non-whitespace characters
+                        let value = value
+                            .chars()
+                            .filter(|c| c.is_ascii_whitespace())
+                            .collect::<String>();
+                        if !value.is_empty() {
                             self.insert_characters(Token::TextToken { value });
                         }
-                        Token::CommentToken { .. } => {
-                            self.insert_comment(&self.current_token.clone(), None);
-                        }
-                        Token::DocTypeToken { .. } => {
-                            self.parse_error("doctype not allowed in frameset insertion mode");
+                    }
+                    Token::CommentToken { .. } => {
+                        self.insert_comment(&self.current_token.clone(), None);
+                    }
+                    Token::DocTypeToken { .. } => {
+                        self.parse_error("doctype not allowed in frameset insertion mode");
+                        // ignore token
+                    }
+                    Token::StartTagToken { name, .. } if name == "html" => {
+                        self.handle_in_body();
+                    }
+                    Token::StartTagToken { name, .. } if name == "frameset" => {
+                        self.insert_html_element(&self.current_token.clone());
+                    }
+                    Token::EndTagToken { name, .. } if name == "frameset" => {
+                        if current_node!(self).name == "html" {
+                            self.parse_error("frameset tag not allowed in frameset insertion mode");
                             // ignore token
+                            return;
                         }
-                        Token::StartTagToken { name, .. } if name == "html" => {
-                            self.handle_in_body();
-                        }
-                        Token::EndTagToken { name, .. } if name == "html" => {
-                            self.insertion_mode = InsertionMode::AfterAfterFrameset;
-                        }
-                        Token::StartTagToken { name, .. } if name == "noframes" => {
-                            self.handle_in_head();
-                        }
-                        Token::EofToken => {
-                            self.stop_parsing();
-                        }
-                        _ => {
-                            self.parse_error(
-                                "anything else not allowed in after frameset insertion mode",
-                            );
-                            // ignore token
+
+                        self.open_elements.pop();
+
+                        if !self.is_fragment_case && current_node!(self).name != "frameset" {
+                            self.insertion_mode = InsertionMode::AfterFrameset;
                         }
                     }
+                    Token::StartTagToken {
+                        name,
+                        is_self_closing,
+                        ..
+                    } if name == "frame" => {
+                        self.acknowledge_closing_tag(*is_self_closing);
+
+                        self.insert_html_element(&self.current_token.clone());
+                        self.open_elements.pop();
+                    }
+                    Token::StartTagToken { name, .. } if name == "noframes" => {
+                        self.handle_in_head();
+                    }
+                    Token::EofToken => {
+                        if current_node!(self).name != "html" {
+                            self.parse_error("eof not allowed in frameset insertion mode");
+                        }
+                        self.stop_parsing();
+                    }
+                    _ => {
+                        self.parse_error("anything else not allowed in frameset insertion mode");
+                        // ignore token
+                    }
                 }
-                InsertionMode::AfterAfterBody => match &self.current_token {
+            }
+            InsertionMode::AfterFrameset => {
+                match &self.current_token {
+                    Token::TextToken { value } => {
+                        // Strip away all non-whitespace characters from the value
+                        let value = value
+                            .chars()
+                            .filter(|c| c.is_whitespace())
+                            .collect::<String>();
+                        self.insert_characters(Token::TextToken { value });
+                    }
+                    Token::CommentToken { .. } => {
+                        self.insert_comment(&self.current_token.clone(), None);
+                    }
+                    Token::DocTypeToken { .. } => {
+                        self.parse_error("doctype not allowed in frameset insertion mode");
+                        // ignore token
+                    }
+                    Token::StartTagToken { name, .. } if name == "html" => {
+                        self.handle_in_body();
+                    }
+                    Token::EndTagToken { name, .. } if name == "html" => {
+                        self.insertion_mode = InsertionMode::AfterAfterFrameset;
+                    }
+                    Token::StartTagToken { name, .. } if name == "noframes" => {
+                        self.handle_in_head();
+                    }
+                    Token::EofToken => {
+                        self.stop_parsing();
+                    }
+                    _ => {
+                        self.parse_error(
+                            "anything else not allowed in after frameset insertion mode",
+                        );
+                        // ignore token
+                    }
+                }
+            }
+            InsertionMode::AfterAfterBody => match &self.current_token {
+                Token::CommentToken { .. } => {
+                    let current_token = &self.current_token.clone();
+                    let root = get_node_by_id!(self.document, NodeId::root());
+                    self.insert_comment(current_token, Some(&root));
+                }
+                Token::DocTypeToken { .. } => {
+                    self.handle_in_body();
+                }
+                Token::TextToken { .. } if self.current_token.is_empty_or_white() => {
+                    self.handle_in_body();
+                }
+                Token::StartTagToken { name, .. } if name == "html" => {
+                    self.handle_in_body();
+                }
+                Token::EofToken => {
+                    self.stop_parsing();
+                }
+                _ => {
+                    self.parse_error(
+                        "anything else not allowed in after after body insertion mode",
+                    );
+                    self.insertion_mode = InsertionMode::InBody;
+                    self.reprocess_token = true;
+                }
+            },
+            InsertionMode::AfterAfterFrameset => {
+                match &self.current_token {
                     Token::CommentToken { .. } => {
                         let current_token = &self.current_token.clone();
                         let root = get_node_by_id!(self.document, NodeId::root());
@@ -1437,51 +1659,18 @@ impl<'stream> Html5Parser<'stream> {
                     Token::EofToken => {
                         self.stop_parsing();
                     }
+                    Token::StartTagToken { name, .. } if name == "noframes" => {
+                        self.handle_in_head();
+                    }
                     _ => {
                         self.parse_error(
-                            "anything else not allowed in after after body insertion mode",
+                            "anything else not allowed in after after frameset insertion mode",
                         );
-                        self.insertion_mode = InsertionMode::InBody;
-                        self.reprocess_token = true;
-                    }
-                },
-                InsertionMode::AfterAfterFrameset => {
-                    match &self.current_token {
-                        Token::CommentToken { .. } => {
-                            let current_token = &self.current_token.clone();
-                            let root = get_node_by_id!(self.document, NodeId::root());
-                            self.insert_comment(current_token, Some(&root));
-                        }
-                        Token::DocTypeToken { .. } => {
-                            self.handle_in_body();
-                        }
-                        Token::TextToken { .. } if self.current_token.is_empty_or_white() => {
-                            self.handle_in_body();
-                        }
-                        Token::StartTagToken { name, .. } if name == "html" => {
-                            self.handle_in_body();
-                        }
-                        Token::EofToken => {
-                            self.stop_parsing();
-                        }
-                        Token::StartTagToken { name, .. } if name == "noframes" => {
-                            self.handle_in_head();
-                        }
-                        _ => {
-                            self.parse_error(
-                                "anything else not allowed in after after frameset insertion mode",
-                            );
-                            // ignore token
-                        }
+                        // ignore token
                     }
                 }
             }
-
-            #[cfg(feature = "debug_parser")]
-            self.display_debug_info();
         }
-
-        Ok(self.error_logger.borrow().get_errors().clone())
     }
 
     /// Enables or disables scripting
@@ -3318,13 +3507,22 @@ impl<'stream> Html5Parser<'stream> {
         }
     }
 
+    /// Adjusts tag name in the given token for SVG
+    fn adjust_svg_tag_names(&self, token: &mut Token) {
+        if let Token::StartTagToken { name, .. } = token {
+            if SVG_TAGNAMES.contains_key(name) {
+                *name = SVG_TAGNAMES.get(name).expect("svg tagname").to_string();
+            }
+        }
+    }
+
     // Adjust attribute names in the given token for MathML
     fn adjust_mathml_attributes(&self, token: &mut Token) {
         if let Token::StartTagToken { attributes, .. } = token {
             let mut new_attributes = HashMap::new();
             for (name, value) in attributes.iter() {
                 if MATHML_ADJUSTMENTS.contains_key(name) {
-                    let new_name = SVG_ADJUSTMENTS.get(name).expect("svg adjustments");
+                    let new_name = MATHML_ADJUSTMENTS.get(name).expect("svg adjustments");
                     new_attributes.insert(new_name.to_string(), value.clone());
                 } else {
                     new_attributes.insert(name.clone(), value.clone());
@@ -3339,8 +3537,9 @@ impl<'stream> Html5Parser<'stream> {
             let mut new_attributes = HashMap::new();
             for (name, value) in attributes.iter() {
                 if XML_ADJUSTMENTS.contains_key(name) {
-                    let new_name = SVG_ADJUSTMENTS.get(name).expect("svg adjustments");
-                    new_attributes.insert(new_name.to_string(), value.clone());
+                    let (prefix, local_name, _namespace) =
+                        XML_ADJUSTMENTS.get(name).expect("svg adjustments");
+                    new_attributes.insert(format!("{} {}", prefix, local_name), value.clone());
                 } else {
                     new_attributes.insert(name.clone(), value.clone());
                 }
@@ -3693,6 +3892,82 @@ impl<'stream> Html5Parser<'stream> {
         self.token_queue.remove(0);
 
         token.expect("no token found")
+    }
+
+    fn get_adjusted_current_node(&self) -> Node {
+        // @todo: if the parser was created as part of the HTML fragment parsing algorithm, and the stack of open elements has only
+        // one element in it the adjusted current node is the context element
+
+        current_node!(self)
+    }
+
+    /// Checks the current token, node and parser context to see if the parser needs to switch to
+    /// the foreign content or html content mode.
+    fn select_dispatch_mode(&self) -> DispatcherMode {
+        let acn = self.get_adjusted_current_node();
+
+        if self.open_elements.is_empty() {
+            return DispatcherMode::Html;
+        }
+
+        if acn.is_namespace(HTML_NAMESPACE) {
+            return DispatcherMode::Html;
+        }
+
+        if acn.is_mathml_integration_point()
+            && (!self.current_token.is_start_tag("mglyph")
+                && !self.current_token.is_start_tag("malignmark"))
+        {
+            return DispatcherMode::Html;
+        }
+
+        if acn.is_mathml_integration_point() && self.current_token.is_text_token() {
+            return DispatcherMode::Html;
+        }
+
+        if acn.is_namespace(MATHML_NAMESPACE)
+            && acn.name == "annotation-xml"
+            && self.current_token.is_start_tag("svg")
+        {
+            return DispatcherMode::Html;
+        }
+
+        if acn.is_html_integration_point() && self.current_token.is_any_start_tag() {
+            return DispatcherMode::Html;
+        }
+
+        if acn.is_html_integration_point() && self.current_token.is_text_token() {
+            return DispatcherMode::Html;
+        }
+
+        if self.current_token.is_eof() {
+            return DispatcherMode::Html;
+        }
+
+        DispatcherMode::Foreign
+    }
+
+    /// Finds the node where to place an unexpected html tag. This can only be done on a mathml
+    /// insertion point, a svg_html insertion point, or at a regular html namespaced node.
+    fn process_unexpected_html_tag(&mut self) {
+        self.parse_error("process_unexpected_html_tag");
+
+        let mut current_node = current_node!(self);
+
+        while !current_node.is_mathml_integration_point()
+            && !current_node.is_html_integration_point()
+            && !current_node.is_namespace(HTML_NAMESPACE)
+        {
+            self.open_elements.pop();
+            if self.open_elements.is_empty() {
+                return;
+            }
+
+            current_node = current_node!(self);
+        }
+
+        // Process as HTML content
+        self.process_html_content();
     }
 }
 

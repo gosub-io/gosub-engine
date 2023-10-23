@@ -7,6 +7,16 @@ const DISABLED_CASES: &[&str] = &[
     // tests2.dat
     "<!DOCTYPE html><table><tr>TEST",
     "<!DOCTYPE html>X<p/x/y/z>",
+    // tests4.dat
+    "</plaintext>",
+    "direct div content",
+    "direct textarea content",
+    "textarea content with <em>pseudo</em> <foo>markup",
+    "this is &#x0043;DATA inside a <style> element",
+    "setting html's innerHTML",
+    "<title>setting head's innerHTML</title>",
+    "direct <title> content",
+    "<!-- inside </script> -->",
     // tests6.dat
     "<body>\n<div>",
     "<frameset></frameset><noframes>",
@@ -31,6 +41,13 @@ const DISABLED_CASES: &[&str] = &[
     // tests8.dat
     "x<table>x",
     "x<table><table>x",
+    // tests10.dat
+    "<!DOCTYPE html><body xlink:href=foo xml:lang=en><svg><g xml:lang=en xlink:href=foo />bar</svg>",
+    "<div><svg><path><foreignObject><math></div>a",
+    "<div><svg><path><foreignObject><p></div>a",
+    "<!DOCTYPE html><p><svg><desc><p>",
+    "<!DOCTYPE html><p><svg><title><p>",
+    "<svg><script></script><path>",
     // tests24.dat
     "<!DOCTYPE html>&ThickSpace;A",
 ];
@@ -46,9 +63,11 @@ lazy_static! {
 #[test_case("tests1.dat")]
 #[test_case("tests2.dat")]
 #[test_case("tests3.dat")]
+#[test_case("tests4.dat")]
 #[test_case("tests5.dat")]
 #[test_case("tests6.dat")]
 #[test_case("tests8.dat")]
+#[test_case("tests10.dat")]
 #[test_case("tests16.dat")]
 #[test_case("tests17.dat")]
 #[test_case("tests24.dat")]
