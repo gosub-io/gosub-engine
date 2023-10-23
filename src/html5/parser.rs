@@ -2009,7 +2009,7 @@ impl<'stream> Html5Parser<'stream> {
                 }
 
                 // Add attributes to html element
-                let first_node_id = self.open_elements.first().unwrap().clone();
+                let first_node_id = *self.open_elements.first().unwrap();
                 let mut doc = self.document.get_mut();
                 let first_node = doc
                     .get_node_by_id_mut(first_node_id)
@@ -3057,7 +3057,7 @@ impl<'stream> Html5Parser<'stream> {
                 attributes,
             } if name == "input" => {
                 if !attributes.contains_key("type")
-                    || attributes.get("type").unwrap().to_lowercase() != String::from("hidden")
+                    || attributes.get("type").unwrap().to_lowercase() != *"hidden"
                 {
                     anything_else = true;
                 } else {
