@@ -126,6 +126,44 @@ pub struct Node {
     pub is_registered: bool,
 }
 
+impl Node {
+    /// Returns true when the given node is of the given namespace
+    pub(crate) fn is_namespace(&self, namespace: &str) -> bool {
+        self.namespace == Some(namespace.into())
+    }
+
+    /// Returns true if the given node is a html integration point
+    /// See: https://html.spec.whatwg.org/multipage/parsing.html#html-integration-point
+    pub(crate) fn is_html_integration_point(&self) -> bool {
+        let namespace = self.namespace.clone().unwrap_or_default();
+
+        if namespace == MATHML_NAMESPACE && self.name == "annotation-xml" {
+            if let NodeData::Element(element) = &self.data {
+                if let Some(value) = element.attributes.get("encoding") {
+                    if value.eq_ignore_ascii_case("text/html") {
+                        return true;
+                    }
+                    if value.eq_ignore_ascii_case("application/xhtml+xml") {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        namespace == SVG_NAMESPACE
+            && ["foreignObject", "desc", "title"].contains(&self.name.as_str())
+    }
+
+    /// Returns true if the given node is a mathml integration point
+    /// See: https://html.spec.whatwg.org/multipage/parsing.html#mathml-text-integration-point
+    pub(crate) fn is_mathml_integration_point(&self) -> bool {
+        let namespace = self.namespace.clone().unwrap_or_default();
+
+        namespace == MATHML_NAMESPACE
+            && ["mi", "mo", "mn", "ms", "mtext"].contains(&self.name.as_str())
+    }
+}
+
 impl Debug for Node {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut debug = f.debug_struct("Node");
