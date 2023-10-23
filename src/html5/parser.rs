@@ -212,12 +212,12 @@ pub struct Html5Parser<'stream> {
     parser_pause_flag: bool,
     /// Keeps the position of where any document.write() should be inserted when running a script
     insertion_point: Option<usize>,
-
     // ignore when next token is LF
     ignore_lf: bool,
-
     // Sometimes tokens needs to be split up (and it seems the tokenizer cannot do this?)
     token_queue: Vec<Token>,
+    // When true, the parser is finished and should not consume more tokens (there aren't any)
+    parser_finished: bool,
 }
 
 /// Defines the scopes for in_scope()
@@ -269,6 +269,7 @@ impl<'stream> Html5Parser<'stream> {
             insertion_point: None,
             ignore_lf: false,
             token_queue: vec![],
+            parser_finished: false,
         }
     }
 
@@ -280,6 +281,11 @@ impl<'stream> Html5Parser<'stream> {
         self.document.get_mut().create_root(&root);
 
         loop {
+            // When the parser is signalled to finish, we break our main parser loop
+            if self.parser_finished {
+                break;
+            }
+
             // If reprocess_token is true, we should process the same token again
             if !self.reprocess_token {
                 self.current_token = self.fetch_next_token();
@@ -1310,8 +1316,15 @@ impl<'stream> Html5Parser<'stream> {
                 }
                 InsertionMode::InFrameset => {
                     match &self.current_token {
-                        Token::TextToken { .. } if self.current_token.is_empty_or_white() => {
-                            self.insert_characters(self.current_token.clone());
+                        Token::TextToken { value } => {
+                            // filter out non-whitespace characters
+                            let value = value
+                                .chars()
+                                .filter(|c| c.is_ascii_whitespace())
+                                .collect::<String>();
+                            if !value.is_empty() {
+                                self.insert_characters(Token::TextToken { value });
+                            }
                         }
                         Token::CommentToken { .. } => {
                             self.insert_comment(&self.current_token.clone(), None);
@@ -1371,8 +1384,13 @@ impl<'stream> Html5Parser<'stream> {
                 }
                 InsertionMode::AfterFrameset => {
                     match &self.current_token {
-                        Token::TextToken { .. } if self.current_token.is_empty_or_white() => {
-                            self.insert_characters(self.current_token.clone());
+                        Token::TextToken { value } => {
+                            // Strip away all non-whitespace characters from the value
+                            let value = value
+                                .chars()
+                                .filter(|c| c.is_whitespace())
+                                .collect::<String>();
+                            self.insert_characters(Token::TextToken { value });
                         }
                         Token::CommentToken { .. } => {
                             self.insert_comment(&self.current_token.clone(), None);
@@ -2514,6 +2532,7 @@ impl<'stream> Html5Parser<'stream> {
                 self.ignore_lf = true;
 
                 self.tokenizer.state = State::RcDataState;
+
                 self.original_insertion_mode = self.insertion_mode;
                 self.frameset_ok = false;
                 self.insertion_mode = InsertionMode::Text;
@@ -3268,8 +3287,8 @@ impl<'stream> Html5Parser<'stream> {
         self.insert_element_node(new_node)
     }
 
-    fn stop_parsing(&self) {
-        todo!()
+    fn stop_parsing(&mut self) {
+        self.parser_finished = true;
     }
 
     /// Close the p element that may or may not be on the open elements stack
@@ -3620,7 +3639,9 @@ impl<'stream> Html5Parser<'stream> {
         if parent_node.children.is_empty() || Some(0) == adjusted_insert_location.position {
             // The child node we need to insert after is not a text, so just add the text
             let node = self.create_node(&self.current_token, HTML_NAMESPACE);
-            doc_mut.add_node(node, parent_node.id, None);
+            self.document
+                .get_mut()
+                .add_node(node, parent_node.id, Some(0));
 
             return;
         }
