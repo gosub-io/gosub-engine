@@ -25,7 +25,6 @@ const DISABLED_CASES: &[&str] = &[
     "<!DOCTYPE html><html><head></head><body><pre>x<div>y</pre></body></html>",
     "<!DOCTYPE html><pre>&#x0a;&#x0a;A</pre>",
     "<!DOCTYPE html><textarea>foo</textarea>",
-    // "<!DOCTYPE html><html><head></head><body><ul><li><div><p><li></ul></body></html>",
     "<p><table></table>",
     // tests5.dat
     "<style> <!-- </style> --> </style>x",
