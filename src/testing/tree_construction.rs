@@ -45,6 +45,8 @@ pub struct Test {
     pub document: Vec<String>,
     /// fragment
     document_fragment: Vec<String>,
+    /// Scripting should be enabled
+    scripting_enabled: bool,
 }
 
 pub enum NodeResult {
@@ -182,6 +184,8 @@ impl Test {
         is.read_from_str(self.data.as_str(), None);
 
         let mut parser = Html5Parser::new(&mut is);
+        parser.enabled_scripting(self.scripting_enabled);
+
         let document = Document::shared();
         let parse_errors = parser.parse(Document::clone(&document))?;
 
@@ -378,6 +382,7 @@ pub fn fixture_from_path(path: &PathBuf) -> Result<FixtureFile> {
         file_path: path.to_str().unwrap().to_string(),
         line: 1,
         data: "".to_string(),
+        scripting_enabled: true,
         errors: vec![],
         document: vec![],
         document_fragment: vec![],
@@ -401,10 +406,18 @@ pub fn fixture_from_path(path: &PathBuf) -> Result<FixtureFile> {
                     errors: vec![],
                     document: vec![],
                     document_fragment: vec![],
+                    scripting_enabled: true,
                 };
             }
             section = Some("data");
         } else if line.starts_with('#') {
+            if line.as_str() == "#script-off" {
+                current_test.scripting_enabled = false;
+            }
+            if line.as_str() == "#script-on" {
+                current_test.scripting_enabled = true;
+            }
+
             section = match line.as_str() {
                 "#errors" => Some("errors"),
                 "#document" => Some("document"),

@@ -308,9 +308,8 @@ impl<'stream> Html5Parser<'stream> {
                             continue;
                         }
                         Token::CommentToken { .. } => {
-                            let node = self.create_node(&self.current_token, HTML_NAMESPACE);
-                            // add to end of the document(node)
-                            self.document.get_mut().add_node(node, NodeId::root(), None);
+                            let current_token = &self.current_token.clone();
+                            self.insert_comment(current_token, None);
                         }
                         Token::DocTypeToken {
                             name,
@@ -382,8 +381,9 @@ impl<'stream> Html5Parser<'stream> {
                             self.parse_error("doctype not allowed in before html insertion mode");
                         }
                         Token::CommentToken { .. } => {
-                            let node = self.create_node(&self.current_token, HTML_NAMESPACE);
-                            self.document.get_mut().add_node(node, NodeId::root(), None);
+                            let current_token = &self.current_token.clone();
+                            let root = get_node_by_id!(self.document, NodeId::root());
+                            self.insert_comment(current_token, Some(&root));
                         }
                         Token::TextToken { .. } if self.current_token.is_empty_or_white() => {
                             // ignore token
@@ -429,9 +429,7 @@ impl<'stream> Html5Parser<'stream> {
                             // ignore token
                         }
                         Token::CommentToken { .. } => {
-                            let node = self.create_node(&self.current_token, HTML_NAMESPACE);
-                            let parent_id = current_node!(self).id;
-                            self.document.get_mut().add_node(node, parent_id, None);
+                            self.insert_comment(&self.current_token.clone(), None);
                         }
                         Token::DocTypeToken { .. } => {
                             self.parse_error("doctype not allowed in before head insertion mode");
@@ -489,7 +487,7 @@ impl<'stream> Html5Parser<'stream> {
                             self.handle_in_body();
                         }
                         Token::EndTagToken { name, .. } if name == "noscript" => {
-                            self.pop_check("no_script");
+                            self.pop_check("noscript");
                             self.check_last_element("head");
                             self.insertion_mode = InsertionMode::InHead;
                         }
@@ -548,9 +546,7 @@ impl<'stream> Html5Parser<'stream> {
                             self.insert_characters(self.current_token.clone());
                         }
                         Token::CommentToken { .. } => {
-                            let node = self.create_node(&self.current_token, HTML_NAMESPACE);
-                            let parent_id = current_node!(self).id;
-                            self.document.get_mut().add_node(node, parent_id, None);
+                            self.insert_comment(&self.current_token.clone(), None);
                         }
                         Token::DocTypeToken { .. } => {
                             self.parse_error("doctype not allowed in after head insertion mode");
@@ -803,9 +799,7 @@ impl<'stream> Html5Parser<'stream> {
                             self.insert_characters(self.current_token.clone());
                         }
                         Token::CommentToken { .. } => {
-                            let node = self.create_node(&self.current_token, HTML_NAMESPACE);
-                            let parent_id = current_node!(self).id;
-                            self.document.get_mut().add_node(node, parent_id, None);
+                            self.insert_comment(&self.current_token.clone(), None);
                         }
                         Token::DocTypeToken { .. } => {
                             self.parse_error("doctype not allowed in column group insertion mode");
@@ -1163,8 +1157,7 @@ impl<'stream> Html5Parser<'stream> {
                             self.insert_characters(self.current_token.clone());
                         }
                         Token::CommentToken { .. } => {
-                            let node = self.create_node(&self.current_token, HTML_NAMESPACE);
-                            self.insert_element_node(node);
+                            self.insert_comment(&self.current_token.clone(), None);
                         }
                         Token::DocTypeToken { .. } => {
                             self.parse_error("doctype not allowed in in select insertion mode");
@@ -1436,9 +1429,9 @@ impl<'stream> Html5Parser<'stream> {
                             self.handle_in_body();
                         }
                         Token::CommentToken { .. } => {
-                            let node = self.create_node(&self.current_token, HTML_NAMESPACE);
                             let html_node_id = self.open_elements.first().unwrap_or_default();
-                            self.document.get_mut().add_node(node, *html_node_id, None);
+                            let html_node = get_node_by_id!(self.document, *html_node_id);
+                            self.insert_comment(&self.current_token.clone(), Some(&html_node));
                         }
                         Token::DocTypeToken { .. } => {
                             self.parse_error("doctype not allowed in after body insertion mode");
@@ -1470,8 +1463,7 @@ impl<'stream> Html5Parser<'stream> {
                             self.insert_characters(self.current_token.clone());
                         }
                         Token::CommentToken { .. } => {
-                            let node = self.create_node(&self.current_token, HTML_NAMESPACE);
-                            self.insert_element_node(node);
+                            self.insert_comment(&self.current_token.clone(), None);
                         }
                         Token::DocTypeToken { .. } => {
                             self.parse_error("doctype not allowed in frameset insertion mode");
@@ -1532,8 +1524,7 @@ impl<'stream> Html5Parser<'stream> {
                             self.insert_characters(self.current_token.clone());
                         }
                         Token::CommentToken { .. } => {
-                            let node = self.create_node(&self.current_token, HTML_NAMESPACE);
-                            self.insert_element_node(node);
+                            self.insert_comment(&self.current_token.clone(), None);
                         }
                         Token::DocTypeToken { .. } => {
                             self.parse_error("doctype not allowed in frameset insertion mode");
@@ -1561,8 +1552,9 @@ impl<'stream> Html5Parser<'stream> {
                 }
                 InsertionMode::AfterAfterBody => match &self.current_token {
                     Token::CommentToken { .. } => {
-                        let node = self.create_node(&self.current_token, HTML_NAMESPACE);
-                        self.document.get_mut().add_node(node, NodeId::root(), None);
+                        let current_token = &self.current_token.clone();
+                        let root = get_node_by_id!(self.document, NodeId::root());
+                        self.insert_comment(current_token, Some(&root));
                     }
                     Token::DocTypeToken { .. } => {
                         self.handle_in_body();
@@ -1587,8 +1579,9 @@ impl<'stream> Html5Parser<'stream> {
                 InsertionMode::AfterAfterFrameset => {
                     match &self.current_token {
                         Token::CommentToken { .. } => {
-                            let node = self.create_node(&self.current_token, HTML_NAMESPACE);
-                            self.document.get_mut().add_node(node, NodeId::root(), None);
+                            let current_token = &self.current_token.clone();
+                            let root = get_node_by_id!(self.document, NodeId::root());
+                            self.insert_comment(current_token, Some(&root));
                         }
                         Token::DocTypeToken { .. } => {
                             self.handle_in_body();
@@ -1620,6 +1613,11 @@ impl<'stream> Html5Parser<'stream> {
         }
 
         Ok(self.error_logger.borrow().get_errors().clone())
+    }
+
+    /// Enables or disables scripting
+    pub fn enabled_scripting(&mut self, enabled: bool) {
+        self.scripting_enabled = enabled;
     }
 
     fn acknowledge_closing_tag(&mut self, is_self_closing: bool) {
@@ -2010,8 +2008,7 @@ impl<'stream> Html5Parser<'stream> {
                 self.frameset_ok = false;
             }
             Token::CommentToken { .. } => {
-                let node = self.create_node(&self.current_token, HTML_NAMESPACE);
-                self.insert_element_node(node);
+                self.insert_comment(&self.current_token.clone(), None);
             }
             Token::DocTypeToken { .. } => {
                 self.parse_error("doctype not allowed in in body insertion mode");
@@ -2654,6 +2651,7 @@ impl<'stream> Html5Parser<'stream> {
                 // @TODO: if next token == LF, ignore and move on to the next one
 
                 self.tokenizer.state = State::RcDataState;
+                self.original_insertion_mode = self.insertion_mode;
                 self.frameset_ok = false;
                 self.insertion_mode = InsertionMode::Text;
             }
@@ -2806,8 +2804,7 @@ impl<'stream> Html5Parser<'stream> {
                 self.insert_characters(self.current_token.clone());
             }
             Token::CommentToken { .. } => {
-                let node = self.create_node(&self.current_token, HTML_NAMESPACE);
-                self.insert_element_node(node);
+                self.insert_comment(&self.current_token.clone(), None);
             }
             Token::DocTypeToken { .. } => {
                 self.parse_error("doctype not allowed in before head insertion mode");
@@ -2955,9 +2952,7 @@ impl<'stream> Html5Parser<'stream> {
                 self.reprocess_token = true;
             }
             Token::CommentToken { .. } => {
-                let node = self.create_node(&self.current_token, HTML_NAMESPACE);
-                let parent_id = current_node!(self).id;
-                self.document.get_mut().add_node(node, parent_id, None);
+                self.insert_comment(&self.current_token.clone(), None);
             }
             Token::DocTypeToken { .. } => {
                 self.parse_error("doctype not allowed in in table insertion mode");
@@ -3602,11 +3597,26 @@ impl<'stream> Html5Parser<'stream> {
         }
     }
 
+    fn insert_comment(&mut self, token: &Token, parent: Option<&Node>) {
+        let adjusted_insert_location = self.adjusted_insert_location(parent);
+
+        let mut node = self.create_node(token, HTML_NAMESPACE);
+        node.document = adjusted_insert_location.handle.clone();
+
+        let mut doc_mut = adjusted_insert_location.handle;
+        doc_mut.get_mut().add_node(
+            node,
+            adjusted_insert_location.node_id,
+            adjusted_insert_location.position,
+        );
+    }
+
     /// Inserts characters
     fn insert_characters(&mut self, token: Token) {
         let adjusted_insert_location = self.adjusted_insert_location(None);
 
-        let parent_node = get_node_by_id!(self.document, adjusted_insert_location.node_id);
+        let mut doc_mut = adjusted_insert_location.handle;
+        let parent_node = get_node_by_id!(doc_mut, adjusted_insert_location.node_id);
         if let NodeData::Document { .. } = parent_node.data {
             // value is dropped, as we cannot add text to the document node
             return;
@@ -3616,7 +3626,7 @@ impl<'stream> Html5Parser<'stream> {
         if parent_node.children.is_empty() || Some(0) == adjusted_insert_location.position {
             // The child node we need to insert after is not a text, so just add the text
             let node = self.create_node(&self.current_token, HTML_NAMESPACE);
-            self.document.get_mut().add_node(node, parent_node.id, None);
+            doc_mut.add_node(node, parent_node.id, None);
 
             return;
         }
@@ -3641,7 +3651,7 @@ impl<'stream> Html5Parser<'stream> {
 
         // The child node we need to insert after is not a text, so just add the text
         let node = self.create_node(&self.current_token, HTML_NAMESPACE);
-        self.document.get_mut().add_node(node, parent_node.id, None);
+        doc_mut.get_mut().add_node(node, parent_node.id, None);
     }
 
     /// Fetches the next token from the tokenizer. However, if the token is a text token AND
