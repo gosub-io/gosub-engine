@@ -1,3 +1,14 @@
+use super::FIXTURE_ROOT;
+use crate::html5::{
+    error_logger::ErrorLogger,
+    input_stream::InputStream,
+    tokenizer::{
+        state::State as TokenState,
+        token::{Attribute, Token, TokenType},
+        {Options, Tokenizer},
+    },
+};
+use crate::types::Result;
 use lazy_static::lazy_static;
 use regex::{Captures, Regex};
 use serde_derive::{Deserialize, Serialize};
@@ -9,21 +20,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::html5_parser::tokenizer::token::{Attribute, Token, TokenType};
-use crate::html5_parser::{
-    error_logger::ErrorLogger,
-    input_stream::InputStream,
-    tokenizer::{
-        state::State as TokenState,
-        {Options, Tokenizer},
-    },
-};
-
-pub const FIXTURE_ROOT: &str = "./tests/data/html5lib-tests";
-
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Root {
+pub struct FixtureFile {
     pub tests: Vec<Test>,
 }
 
@@ -137,8 +136,8 @@ impl Test {
         }
     }
 
-    // Run through the parsing without making assertions, for use in benchmarking and in order to
-    // disclose any panics that might happen
+    /// Run through the parsing without making assertions, for use in benchmarking and in order to
+    /// disclose any panics that might happen
     pub fn tokenize(&self) {
         for mut builder in self.builders() {
             let mut tokenizer = builder.build();
@@ -180,7 +179,7 @@ impl Test {
     }
 
     fn assert_token(&self, have: Token, expected: &[Value]) {
-        use crate::html5_parser::tokenizer::token::TokenTrait;
+        use crate::html5::tokenizer::token::TokenTrait;
 
         let double_escaped = self.double_escaped.unwrap_or(false);
 
@@ -306,7 +305,7 @@ impl Test {
         assert_eq!(name, output, "incorrect end tag");
     }
 
-    // Check if a given doctype matches the expected result
+    /// Check if a given doctype matches the expected result
     fn assert_doctype(
         &self,
         expected: &[Value],
@@ -367,21 +366,21 @@ pub fn from_utf16_lossy(input: &str) -> String {
     .to_string()
 }
 
-pub fn fixture_from_filename(filename: &str) -> Result<Root, serde_json::Error> {
+pub fn fixture_from_filename(filename: &str) -> Result<FixtureFile> {
     let path = PathBuf::from(FIXTURE_ROOT).join("tokenizer").join(filename);
     fixture_from_path(&path)
 }
 
-pub fn fixture_from_path<P>(path: &P) -> Result<Root, serde_json::Error>
+pub fn fixture_from_path<P>(path: &P) -> Result<FixtureFile>
 where
     P: AsRef<Path>,
 {
     let contents = fs::read_to_string(path).unwrap();
     // TODO: use thiserror to translate library errors
-    serde_json::from_str(&contents)
+    Ok(serde_json::from_str(&contents)?)
 }
 
-pub fn fixtures() -> impl Iterator<Item = Root> {
+pub fn fixtures() -> impl Iterator<Item = FixtureFile> {
     let root = PathBuf::from(FIXTURE_ROOT).join("tokenizer");
     fs::read_dir(root).unwrap().flat_map(|entry| {
         let path = format!("{}", entry.unwrap().path().display());

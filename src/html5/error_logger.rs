@@ -1,6 +1,6 @@
-use crate::html5_parser::input_stream::Position;
+use crate::html5::input_stream::Position;
 
-// Possible parser error enumerated
+/// Possible parser error enumerated
 pub enum ParserError {
     AbruptDoctypePublicIdentifier,
     AbruptDoctypeSystemIdentifier,
@@ -57,8 +57,8 @@ pub enum ParserError {
     ExpectedDocTypeButGotEndTag,
 }
 
-// Parser errors as string representation
 impl ParserError {
+    /// Parser errors as string representation
     pub fn as_str(&self) -> &'static str {
         match self {
             ParserError::AbruptDoctypePublicIdentifier => "abrupt-doctype-public-identifier",
@@ -152,22 +152,27 @@ impl ParserError {
     }
 }
 
-// Parser error that defines an error (message) on the given position
+/// Parser error that defines an error (message) on the given position
 #[derive(Debug, PartialEq, Clone)]
 pub struct ParseError {
-    pub message: String, // Parse message
-    pub line: usize,     // Line number of the error
-    pub col: usize,      // Offset on line of the error
-    pub offset: usize,   // Position of the error on the line
+    /// Parse error message
+    pub message: String,
+    /// Line number (1-based) of the error
+    pub line: usize,
+    // Column (1-based) on line of the error
+    pub col: usize,
+    // Position (0-based) of the error in the input stream
+    pub offset: usize,
 }
 
 #[derive(Clone)]
 pub struct ErrorLogger {
-    errors: Vec<ParseError>, // List of errors that occurred during parsing
+    /// List of errors that occurred during parsing
+    errors: Vec<ParseError>,
 }
 
 impl ErrorLogger {
-    // Creates a new error logger
+    /// Creates a new error logger
     pub fn new() -> Self {
         ErrorLogger { errors: Vec::new() }
     }
@@ -180,12 +185,12 @@ impl Default for ErrorLogger {
 }
 
 impl ErrorLogger {
-    // Returns a cloned instance of the errors
+    /// Returns a cloned instance of the errors
     pub fn get_errors(&self) -> Vec<ParseError> {
         self.errors.clone()
     }
 
-    // Adds a new error to the error logger
+    /// Adds a new error to the error logger
     pub fn add_error(&mut self, pos: Position, message: &str) {
         // Check if the error already exists, if so, don't add it again
         for err in &self.errors {

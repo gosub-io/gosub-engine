@@ -15,6 +15,7 @@ build: ## Build	the project
 	cargo build
 
 fix:
+	cargo fmt
 	cargo clippy --fix --allow-dirty --allow-staged
 
 test_unit:

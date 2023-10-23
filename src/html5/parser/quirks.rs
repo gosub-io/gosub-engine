@@ -1,4 +1,4 @@
-use crate::html5_parser::parser::Html5Parser;
+use crate::html5::parser::Html5Parser;
 
 #[derive(PartialEq, Debug)]
 pub enum QuirksMode {
@@ -7,7 +7,7 @@ pub enum QuirksMode {
     NoQuirks,
 }
 
-impl<'a> Html5Parser<'a> {
+impl<'stream> Html5Parser<'stream> {
     // returns the correct quirk mode for the given doctype
     pub(crate) fn identify_quirks_mode(
         &self,
@@ -155,9 +155,9 @@ static LIMITED_QUIRKS_PUB_IDENTIFIER_PREFIX_NOT_MISSING_SYS: &[&str] = &[
 
 #[cfg(test)]
 mod tests {
-    use crate::html5_parser::input_stream::InputStream;
-    use crate::html5_parser::parser::Html5Parser;
-    use crate::html5_parser::parser::QuirksMode;
+    use crate::html5::input_stream::InputStream;
+    use crate::html5::parser::Html5Parser;
+    use crate::html5::parser::QuirksMode;
 
     #[test]
     fn test_quirks_mode() {

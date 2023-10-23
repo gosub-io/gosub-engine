@@ -1,3 +1,4 @@
+//! This module contains the console api as described by <https://console.spec.whatwg.org/>
 mod buffer;
 mod formatter;
 mod writable_printer;
@@ -332,7 +333,7 @@ mod tests {
         let mut c = Console::new(Box::new(printer));
 
         c.clear();
-        c.time("foo".into());
+        c.time("foo");
         c.group(&[&"foo"]);
         c.warn(&[&"Hello", &"World"]);
         c.group(&[&"bar"]);
@@ -342,14 +343,14 @@ mod tests {
         c.clear();
         c.group_end();
         sleep(std::time::Duration::from_millis(123));
-        c.time_end("foo".into());
+        c.time_end("foo");
         c.group_end();
         c.group_end();
         c.warn(&[&"Back", &"To root"]);
 
         let out = buffer.borrow().to_string().unwrap();
         let re = Regex::new(
-            r#"^--- Clear ---
+            r"^--- Clear ---
  > Expanded group: foo
  > \[warn\] Hello World
  >  > Expanded group: bar
@@ -358,7 +359,7 @@ mod tests {
 --- Clear ---
 foo: 1\d\dms - timer ended
 \[warn\] Back To root
-$"#,
+$",
         )
         .unwrap();
         assert!(re.is_match(&out));

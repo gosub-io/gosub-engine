@@ -1,4 +1,4 @@
-use crate::html5_parser::tokenizer::{CHAR_CR, CHAR_LF};
+use crate::html5::tokenizer::{CHAR_CR, CHAR_LF};
 use std::fs::File;
 use std::io::Read;
 use std::{fmt, io};
@@ -8,11 +8,11 @@ use std::{fmt, io};
 pub enum Encoding {
     /// Stream is of UTF8 characters
     UTF8,
-    // Stream is of 8bit ASCII
+    /// Stream consists of 8-bit ASCII characters
     ASCII,
 }
 
-// The confidence decides how confident we are that the input stream is of this encoding
+/// The confidence decides how confident we are that the input stream is of this encoding
 #[derive(PartialEq)]
 pub enum Confidence {
     /// This encoding might be the one we need
@@ -21,10 +21,15 @@ pub enum Confidence {
     Certain,
 }
 
+/// This struct defines a position in the stream. POsition itself is 0-based, but line and col are
+/// 1-based and are calculated from the line_offsets vector.
 #[derive(PartialEq, Debug, Copy, Clone)]
 pub struct Position {
+    /// Offset in the stream
     pub offset: usize,
+    /// Line number (1-based)
     pub line: usize,
+    /// Column number (1-based)
     pub col: usize,
 }
 
@@ -41,29 +46,36 @@ impl fmt::Display for Position {
     }
 }
 
+/// Defines a single character/element in the stream. This is either a UTF8 character, or
+/// a surrogate characters since these cannot be stored in a single char.
+/// Eof is denoted as a separate element.
 #[derive(PartialEq, Debug, Copy, Clone)]
 pub enum Element {
-    // Standard UTF character
+    /// Standard UTF character
     Utf8(char),
-    // Surrogate character (since they cannot be stored in <char>)
+    /// Surrogate character (since they cannot be stored in char)
     Surrogate(u16),
-    // End of stream
+    /// End of stream
     Eof,
 }
 
 impl Element {
+    /// Returns true when the element is an EOF
     pub fn is_eof(&self) -> bool {
         matches!(self, Element::Eof)
     }
 
+    /// Returns true when the element is a UTF8 character
     pub fn is_utf8(&self) -> bool {
         matches!(self, Element::Utf8(_))
     }
 
+    /// Returns true when the element is a surrogate character
     pub fn is_surrogate(&self) -> bool {
         matches!(self, Element::Surrogate(_))
     }
 
+    /// Converts the given character to a u32
     pub fn u32(&self) -> u32 {
         match self {
             Element::Utf8(c) => *c as u32,
@@ -72,6 +84,8 @@ impl Element {
         }
     }
 
+    /// Converts the given character to a char. This is only valid for UTF8 characters. Surrogate
+    /// and EOF characters are converted to 0x0000
     pub fn utf8(&self) -> char {
         match self {
             Element::Utf8(c) => *c,
@@ -197,6 +211,7 @@ impl InputStream {
         self.position = self.generate_position(abs_offset);
     }
 
+    /// Returns the previous position based on the current position
     pub fn get_previous_position(&mut self) -> Position {
         // if we are at the begining or the end of the stream, we just return the current position
         if self.position.offset == 0 || self.has_read_eof {
@@ -238,6 +253,7 @@ impl InputStream {
         }
     }
 
+    /// Returns the current offset in the stream
     pub fn tell(&self) -> usize {
         self.position.offset
     }
@@ -301,6 +317,7 @@ impl InputStream {
         self.encoding = e;
     }
 
+    /// Normalizes newlines (CRLF/CR => LF) and converts high ascii to '?'
     fn normalize_newlines_and_ascii(&self, buffer: &Vec<u8>) -> Vec<Element> {
         let mut result = Vec::with_capacity(buffer.len());
 
@@ -363,13 +380,17 @@ impl InputStream {
 
         self.seek(SeekMode::SeekEnd, 0);
 
-        // // This is a kind of dummy position so the end of the files are read correctly.
-        // self.position = Position{
-        //     offset: self.position.offset,
-        //     line: self.position.line,
-        //     col: self.position.col,
-        // };
         Element::Eof
+    }
+
+    /// Reads the current character
+    pub(crate) fn current_char(&self) -> Element {
+        self.look_ahead(0)
+    }
+
+    /// Reads the next character
+    pub(crate) fn next_char(&self) -> Element {
+        self.look_ahead(1)
     }
 
     pub(crate) fn unread(&mut self) {
@@ -404,7 +425,7 @@ impl InputStream {
         self.buffer[self.position.offset + offset]
     }
 
-    /// Populates the line endings
+    /// Populates the line endings by reading the stream until the given length.
     fn read_line_endings_until(&mut self, abs_offset: usize) {
         let mut last_offset = *self.line_offsets.last().unwrap();
 

@@ -1,0 +1,34 @@
+name: GoSub Bench
+
+on:
+  push:
+    branches:
+      - main
+      - bench
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+      - uses: actions-rs/cargo@v1
+        with:
+          command: bench
+
+      - name: SSH setup
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_DEPLOY_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          echo "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+        env:
+          SSH_KNOWN_HOSTS: ${{secrets.SSH_KNOWN_HOSTS}}
+          SSH_DEPLOY_KEY: ${{secrets.SSH_DEPLOY_KEY}}
+      - name: create main index.html
+        run: |
+          echo "<meta http-equiv=\"refresh\" content=\"0; url=https://bench.developer.gosub.io/report/index.html\" />" > target/criterion/index.html
+      - name: Rsync
+        run: rsync -avz target/criterion/ deploy@developer.gosub.io:/wwwroot/bench.developer.gosub.io/public

@@ -1,5 +1,5 @@
 use gosub_engine::{
-    html5_parser::{
+    html5::{
         input_stream::{Confidence, Encoding, InputStream},
         node::{Node, NodeData},
         parser::{document::Document, Html5Parser},
@@ -35,16 +35,18 @@ fn main() -> Result<()> {
     }
 
     let mut parser = Html5Parser::new(&mut stream);
-    let (document, parse_error) = parser.parse()?;
 
-    match get_node_by_path(document, vec!["html", "body"]) {
+    let document = Document::shared();
+    let parse_errors = parser.parse(Document::clone(&document))?;
+
+    match get_node_by_path(&document.get(), vec!["html", "body"]) {
         None => {
             println!("[No Body Found]");
         }
-        Some(node) => display_node(document, node),
+        Some(node) => display_node(&document.get(), node),
     }
 
-    for e in parse_error {
+    for e in parse_errors {
         println!("Parse Error: {}", e.message)
     }
 

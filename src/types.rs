@@ -1,5 +1,6 @@
 use thiserror::Error;
 
+/// Generic error types that can be returned from the library.
 #[derive(Error, Debug)]
 pub enum Error {
     #[error("ureq error")]
@@ -13,6 +14,10 @@ pub enum Error {
 
     #[error("utf8 conversion error: {0}")]
     Utf8(#[from] std::string::FromUtf8Error),
+
+    #[error("json parsing error: {0}")]
+    JsonSerde(#[from] serde_json::Error),
 }
 
+/// Result that can be returned which holds either T or an Error
 pub type Result<T> = std::result::Result<T, Error>;
