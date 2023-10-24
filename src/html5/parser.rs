@@ -3032,7 +3032,6 @@ impl<'stream> Html5Parser<'stream> {
                 } else {
                     self.parse_error("optgroup end tag not allowed in in select insertion mode");
                     // ignore token
-                    return;
                 }
             }
             Token::EndTagToken { name, .. } if name == "option" => {
@@ -3041,7 +3040,6 @@ impl<'stream> Html5Parser<'stream> {
                 } else {
                     self.parse_error("option end tag not allowed in in select insertion mode");
                     // ignore token
-                    return;
                 }
             }
             Token::EndTagToken { name, .. } if name == "select" => {
