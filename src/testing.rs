@@ -1,3 +1,4 @@
+//! Testing harness and utilities for testing the engine
 pub mod tokenizer;
 pub mod tree_construction;
 
