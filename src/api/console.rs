@@ -69,12 +69,6 @@ impl Console {
     ///
     /// * `printer`   the printer that will be used to print any data that is passed to the console.
     ///
-    /// # Examples
-    ///
-    /// ```
-    /// let console = Console::new(Box::new(WritablePrinter::new()));
-    /// ```
-    ///
     /// # Returns
     ///
     /// A new Console struct

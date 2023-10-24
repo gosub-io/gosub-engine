@@ -72,9 +72,7 @@ pub enum NodeResult {
     },
 
     /// The element matches the expected element
-    ElementMatchSuccess {
-        actual: String,
-    },
+    ElementMatchSuccess { actual: String },
 
     /// A text node did not match
     TextMatchFailure {
@@ -91,9 +89,7 @@ pub enum NodeResult {
     },
 
     /// A text node matches
-    TextMatchSuccess {
-        expected: String,
-    },
+    TextMatchSuccess { expected: String },
 }
 
 pub struct SubtreeResult {
