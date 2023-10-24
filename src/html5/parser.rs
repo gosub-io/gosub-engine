@@ -112,17 +112,6 @@ macro_rules! current_node {
     }};
 }
 
-macro_rules! current_node_mut {
-    ($self:expr) => {{
-        let current_node_idx = $self.open_elements.last().unwrap_or_default();
-        $self
-            .document
-            .get_mut()
-            .get_node_by_id_mut(*current_node_idx)
-            .expect("Current node not found")
-    }};
-}
-
 macro_rules! open_elements_get {
     ($self:expr, $idx:expr) => {{
         $self
@@ -568,16 +557,8 @@ impl<'stream> Html5Parser<'stream> {
                         }
                         Token::StartTagToken { name, .. }
                             if [
-                                "base",
-                                "basefront",
-                                "bgsound",
-                                "link",
-                                "meta",
-                                "noframes",
-                                "script",
-                                "style",
-                                "template",
-                                "title",
+                                "base", "basefont", "bgsound", "link", "meta", "noframes",
+                                "script", "style", "template", "title",
                             ]
                             .contains(&name.as_str()) =>
                         {
@@ -2025,7 +2006,12 @@ impl<'stream> Html5Parser<'stream> {
                 }
 
                 // Add attributes to html element
-                if let NodeData::Element(element) = &mut current_node_mut!(self).data {
+                let first_node_id = *self.open_elements.first().unwrap();
+                let mut doc = self.document.get_mut();
+                let first_node = doc
+                    .get_node_by_id_mut(first_node_id)
+                    .expect("node not found");
+                if let NodeData::Element(element) = &mut first_node.data {
                     for (key, value) in attributes {
                         if !element.attributes.contains(key) {
                             element.attributes.insert(key, value);
@@ -2148,6 +2134,7 @@ impl<'stream> Html5Parser<'stream> {
                     || name == "nav"
                     || name == "ol"
                     || name == "p"
+                    || name == "search"
                     || name == "section"
                     || name == "summary"
                     || name == "ul" =>
@@ -2313,6 +2300,7 @@ impl<'stream> Html5Parser<'stream> {
                     || name == "nav"
                     || name == "ol"
                     || name == "pre"
+                    || name == "search"
                     || name == "section"
                     || name == "summary"
                     || name == "ul" =>
@@ -2814,6 +2802,9 @@ impl<'stream> Html5Parser<'stream> {
                 self.parse_error("doctype not allowed in before head insertion mode");
                 // ignore token
             }
+            Token::StartTagToken { name, .. } if name == "html" => {
+                self.handle_in_body();
+            }
             Token::StartTagToken {
                 name,
                 is_self_closing,
@@ -3061,7 +3052,7 @@ impl<'stream> Html5Parser<'stream> {
                 attributes,
             } if name == "input" => {
                 if !attributes.contains_key("type")
-                    || attributes.get("type") == Some(&String::from("hidden"))
+                    || attributes.get("type").unwrap().to_lowercase() != *"hidden"
                 {
                     anything_else = true;
                 } else {
