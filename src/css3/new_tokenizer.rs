@@ -4,13 +4,30 @@ use crate::html5::input_stream::InputStream;
 use crate::css3::unicode::{get_unicode_char, UnicodeChar};
 use std::usize;
 
-#[derive(Debug, PartialEq)]
-pub enum NumberKind {
-    Number,
-    Integer,
-}
-
 pub type Number = f32;
+
+pub enum TokenType {
+    AtKeyword,
+    Ident,
+    Function,
+    Url,
+    BadUrl,
+    Dimension,
+    Percentage,
+    Number,
+    QuotedString,
+    BadString,
+    Whitespace,
+    Hash,
+    IDHash,
+    Delim,
+    LCurly,
+    RCurly,
+    LParen,
+    RParen,
+    LBracket,
+    RBracket,
+}
 
 // todo: add def for each token
 #[derive(Debug, PartialEq)]
