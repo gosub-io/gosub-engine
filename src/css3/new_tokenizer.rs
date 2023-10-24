@@ -88,19 +88,42 @@ macro_rules! consume {
 /// CSS Tokenizer according to the [w3 specification](https://www.w3.org/TR/css-syntax-3/#tokenization)
 pub struct Tokenizer<'stream> {
     pub stream: &'stream mut InputStream,
-    /// Next token that has been consumed.
-    pub current_token: Option<String>,
-    /// Next token that has not yet been consumed
-    pub next_token: Option<String>,
+    /// Current position
+    position: usize,
+    /// Full list of all tokens produced by the tokenizer
+    tokens: Vec<Token>,
 }
 
 impl<'stream> Tokenizer<'stream> {
     pub fn new(stream: &'stream mut InputStream) -> Tokenizer {
         Tokenizer {
             stream,
-            current_token: None,
-            next_token: None,
+            position: 0,
+            tokens: Vec::new(),
         }
+    }
+
+    pub fn consume_all(&mut self) {
+        while !self.stream.eof() {
+            let token = self.consume_token();
+            self.tokens.push(token);
+        }
+
+        self.position = 0;
+    }
+
+    pub fn lookahead(&self, offset: usize) -> &Token {
+        if self.position + offset >= self.tokens.len() {
+            return &Token::EOF;
+        }
+
+        &self.tokens[self.position + offset]
+    }
+
+    pub fn consume(&mut self) -> &Token {
+        let token = &self.tokens[self.position];
+        self.position += 1;
+        token
     }
 
     /// 4.3.1. [Consume a token](https://www.w3.org/TR/css-syntax-3/#consume-token)
@@ -1601,5 +1624,21 @@ mod test {
         }
 
         assert!(tokenizer.stream.eof());
+    }
+
+    #[test]
+    fn consume_tokenizer_as_stream_of_tokens() {
+        let mut is = InputStream::new();
+        is.read_from_str("[][]", Some(Encoding::UTF8));
+
+        let mut tokenizer = Tokenizer::new(&mut is);
+        tokenizer.consume_all();
+
+        assert_eq!(tokenizer.lookahead(0), &Token::LBracket);
+        assert_eq!(tokenizer.lookahead(1), &Token::RBracket);
+        assert_eq!(tokenizer.lookahead(4), &Token::EOF);
+
+        assert_eq!(tokenizer.consume(), &Token::LBracket);
+        assert_eq!(tokenizer.lookahead(0), &Token::RBracket);
     }
 }
