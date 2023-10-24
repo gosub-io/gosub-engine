@@ -213,6 +213,9 @@ pub struct Html5Parser<'stream> {
     /// Keeps the position of where any document.write() should be inserted when running a script
     insertion_point: Option<usize>,
 
+    // ignore when next token is LF
+    ignore_lf: bool,
+
     // Sometimes tokens needs to be split up (and it seems the tokenizer cannot do this?)
     token_queue: Vec<Token>,
 }
@@ -264,6 +267,7 @@ impl<'stream> Html5Parser<'stream> {
             script_nesting_level: 0,
             parser_pause_flag: false,
             insertion_point: None,
+            ignore_lf: false,
             token_queue: vec![],
         }
     }
@@ -285,6 +289,15 @@ impl<'stream> Html5Parser<'stream> {
             // Break when we reach the end of the token stream
             if self.current_token.is_eof() {
                 break;
+            }
+
+            if self.ignore_lf {
+                if let Token::TextToken { value } = &self.current_token {
+                    if value.eq(&"\n".to_string()) {
+                        self.current_token = self.fetch_next_token();
+                    }
+                }
+                self.ignore_lf = false;
             }
 
             match self.insertion_mode {
@@ -2172,7 +2185,7 @@ impl<'stream> Html5Parser<'stream> {
 
                 self.insert_html_element(&self.current_token.clone());
 
-                // @TODO: Next token is LF, ignore and move on to the next one
+                self.ignore_lf = true;
 
                 self.frameset_ok = false;
             }
@@ -2342,6 +2355,7 @@ impl<'stream> Html5Parser<'stream> {
                     if node_id != cn.id {
                         self.parse_error("end tag not at top of stack");
                     }
+                    // self.open_elements.pop();
                 } else {
                     if !self.is_in_scope(name, Scope::Regular) {
                         self.parse_error("end tag not in scope");
@@ -2640,7 +2654,7 @@ impl<'stream> Html5Parser<'stream> {
             Token::StartTagToken { name, .. } if name == "textarea" => {
                 self.insert_html_element(&self.current_token.clone());
 
-                // @TODO: if next token == LF, ignore and move on to the next one
+                self.ignore_lf = true;
 
                 self.tokenizer.state = State::RcDataState;
                 self.original_insertion_mode = self.insertion_mode;
@@ -3658,20 +3672,10 @@ impl<'stream> Html5Parser<'stream> {
             let token = self.tokenizer.next_token().expect("tokenizer error");
 
             if let Token::TextToken { value } = token {
-                // check if the token needs splitting
-                let first_non_whitespace_position =
-                    value.chars().position(|c| !c.is_whitespace()).unwrap_or(0);
-
-                if first_non_whitespace_position > 0 {
+                for c in value.chars() {
                     self.token_queue.push(Token::TextToken {
-                        value: value[0..first_non_whitespace_position].to_string(),
+                        value: c.to_string(),
                     });
-
-                    self.token_queue.push(Token::TextToken {
-                        value: value[first_non_whitespace_position..].to_string(),
-                    });
-                } else {
-                    self.token_queue.push(Token::TextToken { value });
                 }
             } else {
                 // Simply return the token
