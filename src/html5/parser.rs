@@ -367,7 +367,7 @@ impl<'stream> Html5Parser<'stream> {
                     }
 
                     if anything_else {
-                        if self.parser_cannot_change_mode {
+                        if !self.parser_cannot_change_mode {
                             self.document.get_mut().quirks_mode = QuirksMode::Quirks;
                         }
 
@@ -533,7 +533,7 @@ impl<'stream> Html5Parser<'stream> {
                     if anything_else {
                         self.parse_error("anything else not allowed in after head insertion mode");
 
-                        self.pop_check("no_script");
+                        self.pop_check("noscript");
                         self.check_last_element("head");
 
                         self.insertion_mode = InsertionMode::InHead;
@@ -768,7 +768,7 @@ impl<'stream> Html5Parser<'stream> {
                                 "caption end tag not allowed in in caption insertion mode",
                             );
                             // ignore token
-                            self.reprocess_token = false;
+                            // self.reprocess_token = false;
                             continue;
 
                             // @TODO: check what fragment case means
@@ -914,7 +914,7 @@ impl<'stream> Html5Parser<'stream> {
                             self.insertion_mode = InsertionMode::InRow;
                             self.reprocess_token = true;
                         }
-                        Token::StartTagToken { name, .. }
+                        Token::EndTagToken { name, .. }
                             if name == "tbody" || name == "tfoot" || name == "thead" =>
                         {
                             if !self.is_in_scope(name, Scope::Table) {
@@ -1139,150 +1139,7 @@ impl<'stream> Html5Parser<'stream> {
                         _ => self.handle_in_body(),
                     }
                 }
-                InsertionMode::InSelect => {
-                    match &self.current_token {
-                        Token::TextToken { .. } if self.current_token.is_null() => {
-                            self.parse_error(
-                                "null character not allowed in in select insertion mode",
-                            );
-                            // ignore token
-                        }
-                        Token::TextToken { .. } => {
-                            self.insert_characters(self.current_token.clone());
-                        }
-                        Token::CommentToken { .. } => {
-                            self.insert_comment(&self.current_token.clone(), None);
-                        }
-                        Token::DocTypeToken { .. } => {
-                            self.parse_error("doctype not allowed in in select insertion mode");
-                            // ignore token
-                        }
-                        Token::StartTagToken { name, .. } if name == "html" => {
-                            self.handle_in_body();
-                        }
-                        Token::StartTagToken { name, .. } if name == "option" => {
-                            if current_node!(self).name == "option" {
-                                self.open_elements.pop();
-                            }
-
-                            self.insert_html_element(&self.current_token.clone());
-                        }
-                        Token::StartTagToken { name, .. } if name == "optgroup" => {
-                            if current_node!(self).name == "option" {
-                                self.open_elements.pop();
-                            }
-
-                            if current_node!(self).name == "optgroup" {
-                                self.open_elements.pop();
-                            }
-
-                            self.insert_html_element(&self.current_token.clone());
-                        }
-                        Token::StartTagToken {
-                            name,
-                            is_self_closing,
-                            ..
-                        } if name == "hr" => {
-                            if current_node!(self).name == "option" {
-                                self.open_elements.pop();
-                            }
-
-                            if current_node!(self).name == "optgroup" {
-                                self.open_elements.pop();
-                            }
-
-                            self.acknowledge_closing_tag(*is_self_closing);
-
-                            self.insert_html_element(&self.current_token.clone());
-                            self.open_elements.pop();
-                        }
-                        Token::EndTagToken { name, .. } if name == "optgroup" => {
-                            if current_node!(self).name == "option"
-                                && self.open_elements.len() > 1
-                                && open_elements_get!(self, self.open_elements.len() - 2).name
-                                    == "optgroup"
-                            {
-                                self.open_elements.pop();
-                            }
-
-                            if current_node!(self).name == "optgroup" {
-                                self.open_elements.pop();
-                            } else {
-                                self.parse_error(
-                                    "optgroup end tag not allowed in in select insertion mode",
-                                );
-                                // ignore token
-                                continue;
-                            }
-                        }
-                        Token::EndTagToken { name, .. } if name == "option" => {
-                            if current_node!(self).name == "option" {
-                                self.open_elements.pop();
-                            } else {
-                                self.parse_error(
-                                    "option end tag not allowed in in select insertion mode",
-                                );
-                                // ignore token
-                                continue;
-                            }
-                        }
-                        Token::EndTagToken { name, .. } if name == "select" => {
-                            if !self.is_in_scope("select", Scope::Select) {
-                                self.parse_error(
-                                    "select end tag not allowed in in select insertion mode",
-                                );
-                                // ignore token
-                                continue;
-                            }
-
-                            self.pop_until("select");
-                            self.reset_insertion_mode();
-                        }
-                        Token::StartTagToken { name, .. } if name == "select" => {
-                            self.parse_error("select tag not allowed in in select insertion mode");
-
-                            if !self.is_in_scope("select", Scope::Select) {
-                                // ignore token (fragment case?)
-                                continue;
-                            }
-
-                            self.pop_until("select");
-                            self.reset_insertion_mode();
-                        }
-                        Token::StartTagToken { name, .. }
-                            if name == "input" || name == "keygen" || name == "textarea" =>
-                        {
-                            self.parse_error("input, keygen or textarea tag not allowed in in select insertion mode");
-
-                            if !self.is_in_scope("select", Scope::Select) {
-                                // ignore token (fragment case)
-                                continue;
-                            }
-
-                            self.pop_until("select");
-                            self.reset_insertion_mode();
-                            self.reprocess_token = true;
-                        }
-
-                        Token::StartTagToken { name, .. }
-                            if name == "script" || name == "template" =>
-                        {
-                            self.handle_in_head();
-                        }
-                        Token::EndTagToken { name, .. } if name == "template" => {
-                            self.handle_in_head();
-                        }
-                        Token::EofToken => {
-                            self.handle_in_body();
-                        }
-                        _ => {
-                            self.parse_error(
-                                "anything else not allowed in in select insertion mode",
-                            );
-                            // ignore token
-                        }
-                    }
-                }
+                InsertionMode::InSelect => self.handle_in_select(),
                 InsertionMode::InSelectInTable => {
                     match &self.current_token {
                         Token::StartTagToken { name, .. }
@@ -2355,7 +2212,7 @@ impl<'stream> Html5Parser<'stream> {
                     if node_id != cn.id {
                         self.parse_error("end tag not at top of stack");
                     }
-                    // self.open_elements.pop();
+                    self.open_elements.retain(|&id| id != node_id);
                 } else {
                     if !self.is_in_scope(name, Scope::Regular) {
                         self.parse_error("end tag not in scope");
@@ -2608,7 +2465,7 @@ impl<'stream> Html5Parser<'stream> {
                 self.acknowledge_closing_tag(*is_self_closing);
 
                 if !attributes.contains_key("type")
-                    || attributes.get("type") != Some(&String::from("hidden"))
+                    || attributes.get("type").unwrap().to_lowercase() != *"hidden"
                 {
                     self.frameset_ok = false;
                 }
@@ -3108,7 +2965,135 @@ impl<'stream> Html5Parser<'stream> {
 
     /// Handle insertion mode "in_select"
     fn handle_in_select(&mut self) {
-        todo!()
+        match &self.current_token {
+            Token::TextToken { .. } if self.current_token.is_null() => {
+                self.parse_error("null character not allowed in in select insertion mode");
+                // ignore token
+            }
+            Token::TextToken { .. } => {
+                self.insert_characters(self.current_token.clone());
+            }
+            Token::CommentToken { .. } => {
+                self.insert_comment(&self.current_token.clone(), None);
+            }
+            Token::DocTypeToken { .. } => {
+                self.parse_error("doctype not allowed in in select insertion mode");
+                // ignore token
+            }
+            Token::StartTagToken { name, .. } if name == "html" => {
+                self.handle_in_body();
+            }
+            Token::StartTagToken { name, .. } if name == "option" => {
+                if current_node!(self).name == "option" {
+                    self.open_elements.pop();
+                }
+
+                self.insert_html_element(&self.current_token.clone());
+            }
+            Token::StartTagToken { name, .. } if name == "optgroup" => {
+                if current_node!(self).name == "option" {
+                    self.open_elements.pop();
+                }
+
+                if current_node!(self).name == "optgroup" {
+                    self.open_elements.pop();
+                }
+
+                self.insert_html_element(&self.current_token.clone());
+            }
+            Token::StartTagToken {
+                name,
+                is_self_closing,
+                ..
+            } if name == "hr" => {
+                if current_node!(self).name == "option" {
+                    self.open_elements.pop();
+                }
+
+                if current_node!(self).name == "optgroup" {
+                    self.open_elements.pop();
+                }
+
+                self.acknowledge_closing_tag(*is_self_closing);
+
+                self.insert_html_element(&self.current_token.clone());
+                self.open_elements.pop();
+            }
+            Token::EndTagToken { name, .. } if name == "optgroup" => {
+                if current_node!(self).name == "option"
+                    && self.open_elements.len() > 1
+                    && open_elements_get!(self, self.open_elements.len() - 2).name == "optgroup"
+                {
+                    self.open_elements.pop();
+                }
+
+                if current_node!(self).name == "optgroup" {
+                    self.open_elements.pop();
+                } else {
+                    self.parse_error("optgroup end tag not allowed in in select insertion mode");
+                    // ignore token
+                }
+            }
+            Token::EndTagToken { name, .. } if name == "option" => {
+                if current_node!(self).name == "option" {
+                    self.open_elements.pop();
+                } else {
+                    self.parse_error("option end tag not allowed in in select insertion mode");
+                    // ignore token
+                }
+            }
+            Token::EndTagToken { name, .. } if name == "select" => {
+                if !self.is_in_scope("select", Scope::Select) {
+                    self.parse_error("select end tag not allowed in in select insertion mode");
+                    // ignore token
+                    return;
+                }
+
+                self.pop_until("select");
+                self.reset_insertion_mode();
+            }
+            Token::StartTagToken { name, .. } if name == "select" => {
+                self.parse_error("select tag not allowed in in select insertion mode");
+
+                if !self.is_in_scope("select", Scope::Select) {
+                    // ignore token (fragment case?)
+                    return;
+                }
+
+                self.pop_until("select");
+                self.reset_insertion_mode();
+            }
+            Token::StartTagToken { name, .. }
+                if name == "input" || name == "keygen" || name == "textarea" =>
+            {
+                self.parse_error(
+                    "input, keygen or textarea tag not allowed in in select insertion mode",
+                );
+
+                if !self.is_in_scope("select", Scope::Select) {
+                    // ignore token (fragment case)
+                    return;
+                }
+
+                self.pop_until("select");
+                self.reset_insertion_mode();
+                self.reprocess_token = true;
+            }
+
+            Token::StartTagToken { name, .. } if name == "script" || name == "template" => {
+                self.handle_in_head();
+            }
+            Token::EndTagToken { name, .. } if name == "template" => {
+                self.handle_in_head();
+            }
+            Token::EofToken => {
+                self.handle_in_body();
+            }
+            _ => {
+                self.parse_error("anything else not allowed in in select insertion mode");
+                // ignore token
+            }
+        }
     }
 
     /// Returns true if the given tag if found in the active formatting elements list (until the first marker)

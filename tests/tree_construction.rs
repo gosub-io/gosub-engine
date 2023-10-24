@@ -6,13 +6,7 @@ use test_case::test_case;
 const DISABLED_CASES: &[&str] = &[
     // tests2.dat
     "<!DOCTYPE html><table><tr>TEST",
-    r#"<!DOCTYPE html><body><title>X</title><meta name=z><link rel=foo><style>x { content:"</style" } </style>"#,
-    "<!DOCTYPE html><html><body><html id=x>",
-    r#"<!DOCTYPE html>X</body><html id="x">"#,
     "<!DOCTYPE html>X<p/x/y/z>",
-    "<!doctype html><div><form></form><div></div></div>",
-    // tests3.dat
-    "<p><table></table>",
     // tests6.dat
     "<body>\n<div>",
     "<frameset></frameset><noframes>",
@@ -34,6 +28,11 @@ const DISABLED_CASES: &[&str] = &[
     "<track><frameset></frameset>",
     "</html><frameset></frameset>",
     "</body><frameset></frameset>",
+    // tests8.dat
+    "x<table>x",
+    "x<table><table>x",
+    // tests24.dat
+    "<!DOCTYPE html>&ThickSpace;A",
 ];
 
 lazy_static! {
@@ -49,6 +48,11 @@ lazy_static! {
 #[test_case("tests3.dat")]
 #[test_case("tests5.dat")]
 #[test_case("tests6.dat")]
+#[test_case("tests8.dat")]
+#[test_case("tests16.dat")]
+#[test_case("tests17.dat")]
+#[test_case("tests24.dat")]
+#[test_case("tests25.dat")]
 fn tree_construction(filename: &str) {
     let fixture_file = fixture_from_filename(filename).expect("fixture");
 
