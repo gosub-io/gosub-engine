@@ -18,66 +18,79 @@ use std::{
     path::{Path, PathBuf},
 };
 
+/// Holds all tests as found in the given fixture file
 #[derive(Debug, PartialEq)]
 pub struct FixtureFile {
     pub tests: Vec<Test>,
     pub path: PathBuf,
 }
 
+/// Holds information about an error
 #[derive(Clone, Debug, PartialEq)]
 pub struct Error {
+    /// The code or message of the error
     pub code: String,
+    /// The line number (1-based) where the error occurred
     pub line: i64,
+    /// The column number (1-based) where the error occurred
     pub col: i64,
 }
 
+/// Holds a single parser test
 #[derive(Debug, PartialEq)]
 pub struct Test {
     /// Filename of the test
     pub file_path: String,
     /// Line number of the test
     pub line: usize,
-    /// input stream
+    /// Actual input stream data
     pub data: String,
-    /// errors
+    /// Any errors that are expected to be found
     pub errors: Vec<Error>,
-    /// document tree
+    /// The document tree that is expected to be parsed
     pub document: Vec<String>,
-    /// fragment
+    /// The fragment that is expected to be parsed
     document_fragment: Vec<String>,
-    /// Scripting should be enabled
+    /// True when scripting in the parser should be enabled during test
     scripting_enabled: bool,
 }
 
+/// Holds the result of a single "node" (which is either an element, text or comment)
 pub enum NodeResult {
+    /// An attribute of an element node did not match
     AttributeMatchFailure {
         name: String,
         actual: String,
         expected: String,
     },
 
+    /// The actual element does not match the expected element
     ElementMatchFailure {
         name: String,
         actual: String,
         expected: String,
     },
 
+    /// The element matches the expected element
     ElementMatchSuccess {
         actual: String,
     },
 
+    /// A text node did not match
     TextMatchFailure {
         actual: String,
         expected: String,
         text: String,
     },
 
+    /// A comment node did not match
     CommentMatchFailure {
         actual: String,
         expected: String,
         comment: String,
     },
 
+    /// A text node matches
     TextMatchSuccess {
         expected: String,
     },
@@ -118,7 +131,7 @@ impl TestResult {
 }
 
 impl Test {
-    // Check that the tree construction code doesn't panic
+    /// Runs the test and returns the result
     pub fn run(&self) -> Result<TestResult> {
         let (actual_document, actual_errors) = self.parse()?;
         let root = self.match_document_tree(&actual_document.get());
@@ -130,7 +143,7 @@ impl Test {
         })
     }
 
-    // Verify that the tree construction code obtains the right result
+    /// Verifies that the tree construction code obtains the right result
     pub fn assert_valid(&self) {
         let result = self.run().expect("failed to parse");
 
@@ -178,6 +191,7 @@ impl Test {
         assert!(result.success(), "invalid tree-construction result");
     }
 
+    /// Run the parser and return the document and errors
     pub fn parse(&self) -> Result<(DocumentHandle, Vec<ParseError>)> {
         // Do the actual parsing
         let mut is = InputStream::new();
@@ -192,10 +206,12 @@ impl Test {
         Ok((document, parse_errors))
     }
 
+    /// Returns true if the whole document tree matches the expected result
     fn match_document_tree(&self, document: &Document) -> SubtreeResult {
         self.match_node(NodeId::root(), 0, -1, document)
     }
 
+    /// Match a single node and its children
     fn match_node(
         &self,
         node_idx: NodeId,
@@ -371,7 +387,7 @@ pub fn fixture_from_filename(filename: &str) -> Result<FixtureFile> {
     fixture_from_path(&path)
 }
 
-/// Read given tests file and extract all test data
+/// Reads a given test file and extract all test data
 pub fn fixture_from_path(path: &PathBuf) -> Result<FixtureFile> {
     let file = File::open(path)?;
     // TODO: use thiserror to translate library errors

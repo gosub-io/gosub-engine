@@ -1,4 +1,4 @@
-//! This module contains the HTML5 parser as specified by the W3C.
+//! HTML5 tokenizer and parser
 //!
 //! The parser's job is to take a stream of bytes and turn it into a DOM tree. The parser is
 //! implemented as a state machine and runs in the current thread.

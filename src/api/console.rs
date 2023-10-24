@@ -1,4 +1,4 @@
-//! This module contains the console api as described by <https://console.spec.whatwg.org/>
+//! Console api as described by <https://console.spec.whatwg.org/>
 mod buffer;
 mod formatter;
 mod writable_printer;
@@ -64,6 +64,20 @@ pub struct Console {
 
 impl Console {
     /// Creates a new Console struct.
+    ///
+    /// # Arguments
+    ///
+    /// * `printer`   the printer that will be used to print any data that is passed to the console.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let console = Console::new(Box::new(WritablePrinter::new()));
+    /// ```
+    ///
+    /// # Returns
+    ///
+    /// A new Console struct
     pub fn new(printer: Box<dyn Printer>) -> Console {
         Console {
             timer_map: HashMap::new(),
@@ -74,6 +88,7 @@ impl Console {
         }
     }
 
+    /// Returns the printer that is used by the console
     pub fn get_printer(self) -> Box<dyn Printer> {
         self.printer
     }
