@@ -1,6 +1,6 @@
 use crate::html5::element_class::ElementClass;
 use crate::html5::node::data::text::TextData;
-use crate::html5::node::{Node, NodeData, NodeId, HTML_NAMESPACE, MATHML_NAMESPACE, SVG_NAMESPACE};
+use crate::html5::node::{Node, NodeData, NodeId, HTML_NAMESPACE};
 use crate::html5::parser::{ActiveElement, Html5Parser, Scope};
 use crate::html5::tokenizer::token::Token;
 use std::collections::HashMap;
@@ -182,7 +182,6 @@ impl<'stream> Html5Parser<'stream> {
     pub fn insert_element(&mut self, node: Node, override_node: Option<NodeId>) -> NodeId {
         let node_id = self.document.get_mut().add_new_node(node);
         let insert_position = self.appropriate_place_insert(override_node);
-        // println!("------node_id{:?}-------insert_position{:?}----open_elements{:?}", node_id, insert_position, self.open_elements);
         self.insert_element_helper(node_id, insert_position);
 
         //     if parser not created as part of html fragment parsing algorithm
