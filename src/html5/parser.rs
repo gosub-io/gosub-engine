@@ -301,8 +301,7 @@ impl<'stream> Html5Parser<'stream> {
 
             // Break when we reach the end of the token stream
             if self.current_token.is_eof() {
-                finished_parse = true;
-                // break;
+                self.parser_finished = true;
             }
 
 
