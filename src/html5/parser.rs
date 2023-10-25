@@ -304,7 +304,6 @@ impl<'stream> Html5Parser<'stream> {
                 self.parser_finished = true;
             }
 
-
             match self.insertion_mode {
                 InsertionMode::Initial => {
                     let mut anything_else = false;
