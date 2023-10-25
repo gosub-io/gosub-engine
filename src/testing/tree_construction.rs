@@ -279,8 +279,23 @@ impl Test {
                     " ".repeat(indent as usize * 2 + 1),
                     text.value()
                 );
-                let expected = self.document[next_expected_idx as usize].to_owned();
-                next_expected_idx += 1;
+
+                // Text might be split over multiple lines, read all lines until we find the closing
+                // quote.
+                let mut expected = String::new();
+                loop {
+                    let tmp = self.document[next_expected_idx as usize].to_owned();
+                    next_expected_idx += 1;
+
+                    expected.push_str(&tmp);
+
+                    if tmp.ends_with('\"') {
+                        break;
+                    } else {
+                        // each line is terminated with a newline
+                        expected.push('\n');
+                    }
+                }
 
                 if actual != expected {
                     let node = Some(NodeResult::TextMatchFailure {
