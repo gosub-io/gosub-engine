@@ -11,7 +11,7 @@ use crate::html5::error_logger::{ErrorLogger, ParseError, ParserError};
 use crate::html5::input_stream::InputStream;
 use crate::html5::node::{Node, NodeData, HTML_NAMESPACE, MATHML_NAMESPACE, SVG_NAMESPACE};
 use crate::html5::parser::attr_replacements::{
-    MATHML_ADJUSTMENTS, SVG_ADJUSTMENTS_ATTRIBUTES, SVG_ADJUSTMENTS_TAG, XML_ADJUSTMENTS,
+    MATHML_ADJUSTMENTS, SVG_ADJUSTMENTS_ATTRIBUTES, XML_ADJUSTMENTS,
 };
 use crate::html5::parser::document::{Document, DocumentFragment, DocumentType};
 use crate::html5::parser::quirks::QuirksMode;
@@ -2218,8 +2218,8 @@ impl<'stream> Html5Parser<'stream> {
             {
                 if ["h1", "h2", "h3", "h4", "h5", "h6"]
                     .iter()
-                    .map(|x| self.is_in_scope(x, Scope::Regular))
-                    .any(|x| x == true)
+                    .map(|tag| self.is_in_scope(tag, Scope::Regular))
+                    .any(|res| res)
                 {
                     self.generate_implied_end_tags(Some(name), false);
 
@@ -2797,7 +2797,6 @@ impl<'stream> Html5Parser<'stream> {
             Token::EndTagToken { .. } => {
                 self.parse_error("end tag not allowed in in template insertion mode");
                 // ignore token
-                return;
             }
             Token::EofToken => {
                 if !self.open_elements_has("template") {
