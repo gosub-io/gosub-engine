@@ -31,7 +31,7 @@ fn main() -> Result<()> {
         tests_failed: Vec::new(),
     };
 
-    let filenames = Some(&["tests16.dat"][..]);
+    let filenames = Some(&["tests2.dat"][..]);
     let fixtures = testing::tree_construction::fixtures(filenames).expect("fixtures");
 
     for fixture_file in fixtures {
@@ -43,9 +43,9 @@ fn main() -> Result<()> {
 
         let mut test_idx = 1;
         for test in fixture_file.tests {
-            // if test_idx == 195 {
+            if test_idx == 6 {
             run_tree_test(test_idx, &test, &mut results);
-            // }
+            }
             test_idx += 1;
         }
 

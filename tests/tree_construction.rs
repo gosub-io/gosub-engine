@@ -37,10 +37,8 @@ const DISABLED_CASES: &[&str] = &[
     "<track><frameset></frameset>",
     "</html><frameset></frameset>",
     "</body><frameset></frameset>",
-<<<<<<< HEAD
     // tests7.dat
     "<body>X</body></body>",
-=======
     // tests8.dat
     "x<table>x",
     "x<table><table>x",
@@ -53,7 +51,6 @@ const DISABLED_CASES: &[&str] = &[
     "<svg><script></script><path>",
     // tests24.dat
     "<!DOCTYPE html>&ThickSpace;A",
->>>>>>> a75314c (Fixed foreign elements (svg, mathml))
 ];
 
 lazy_static! {
@@ -72,11 +69,8 @@ lazy_static! {
 #[test_case("tests6.dat")]
 #[test_case("tests7.dat")]
 #[test_case("tests8.dat")]
-<<<<<<< HEAD
-#[test_case("tests15.dat")]
-=======
 #[test_case("tests10.dat")]
->>>>>>> a75314c (Fixed foreign elements (svg, mathml))
+#[test_case("tests15.dat")]
 #[test_case("tests16.dat")]
 #[test_case("tests17.dat")]
 #[test_case("tests22.dat")]

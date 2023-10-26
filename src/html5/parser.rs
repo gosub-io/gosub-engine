@@ -299,21 +299,20 @@ impl<'stream> Html5Parser<'stream> {
         match &self.current_token.clone() {
             Token::TextToken { .. } if self.current_token.is_null() => {
                 self.parse_error("null character not allowed in foreign content");
-                self.insert_characters(Token::TextToken {
+                self.insert_text_element(&Token::TextToken {
                     value: CHAR_REPLACEMENT.to_string(),
                 });
             }
             Token::TextToken { .. } if self.current_token.is_empty_or_white() => {
-                self.insert_characters(self.current_token.clone());
+                self.insert_text_element(&self.current_token.clone());
             }
             Token::TextToken { .. } => {
-                self.insert_characters(self.current_token.clone());
+                self.insert_text_element(&self.current_token.clone());
 
                 self.frameset_ok = false;
             }
             Token::CommentToken { .. } => {
-                let current_token = &self.current_token.clone();
-                self.insert_comment(current_token, None);
+                self.insert_comment_element(&self.current_token.clone(), None);
             }
             Token::DocTypeToken { .. } => {
                 self.parse_error("doctype not allowed in foreign content");
@@ -394,10 +393,7 @@ impl<'stream> Html5Parser<'stream> {
                 }
 
                 self.adjust_foreign_attributes(&mut current_token);
-                self.insert_foreign_element(
-                    &current_token,
-                    Some(acn.namespace.clone().expect("namespace not found").as_str()),
-                );
+                self.insert_foreign_element(&current_token, acn.namespace.expect("namespace").as_str());
 
                 if let Token::StartTagToken {
                     name,
@@ -736,7 +732,7 @@ impl<'stream> Html5Parser<'stream> {
 
                 match &self.current_token {
                     Token::TextToken { .. } if self.current_token.is_empty_or_white() => {
-                        self.insert_text_element(self.current_token.clone());
+                        self.insert_text_element(&self.current_token.clone());
                     }
                     Token::CommentToken { .. } => {
                         self.insert_comment_element(&self.current_token.clone(), None);
@@ -820,7 +816,7 @@ impl<'stream> Html5Parser<'stream> {
             InsertionMode::Text => {
                 match &self.current_token {
                     Token::TextToken { .. } => {
-                        self.insert_text_element(self.current_token.clone());
+                        self.insert_text_element(&self.current_token.clone());
                     }
                     Token::EofToken => {
                         self.parse_error("eof not allowed in text insertion mode");
@@ -986,7 +982,7 @@ impl<'stream> Html5Parser<'stream> {
             InsertionMode::InColumnGroup => {
                 match &self.current_token {
                     Token::TextToken { .. } if self.current_token.is_empty_or_white() => {
-                        self.insert_text_element(self.current_token.clone());
+                        self.insert_text_element(&self.current_token.clone());
                     }
                     Token::CommentToken { .. } => {
                         self.insert_comment_element(&self.current_token.clone(), None);
@@ -1409,7 +1405,7 @@ impl<'stream> Html5Parser<'stream> {
             }
             InsertionMode::InFrameset => {
                 match &self.current_token {
-                    Token::TextToken { value } => {
+                    Token::TextToken { .. } if self.current_token.is_empty_or_white() => {
                         self.insert_text_element(&self.current_token.clone());
                     }
                     Token::CommentToken { .. } => {
@@ -1466,7 +1462,7 @@ impl<'stream> Html5Parser<'stream> {
             }
             InsertionMode::AfterFrameset => {
                 match &self.current_token {
-                    Token::TextToken { value } => {
+                    Token::TextToken { .. } => {
                         self.insert_text_element(&self.current_token.clone());
                     }
                     Token::CommentToken { .. } => {
@@ -1498,9 +1494,10 @@ impl<'stream> Html5Parser<'stream> {
             }
             InsertionMode::AfterAfterBody => match &self.current_token {
                 Token::CommentToken { .. } => {
-                    let current_token = &self.current_token.clone();
-                    let root = get_node_by_id!(self.document, NodeId::root());
-                    self.insert_comment(current_token, Some(&root));
+                    self.insert_comment_element(
+                        &self.current_token.clone(),
+                        Some(NodeId::root()),
+                    );
                 }
                 Token::DocTypeToken { .. } => {
                     self.handle_in_body();
