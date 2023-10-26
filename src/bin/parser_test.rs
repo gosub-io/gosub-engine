@@ -36,8 +36,7 @@ fn main() -> Result<()> {
 
     for fixture_file in fixtures {
         println!(
-            "\
-            🏃‍♂️ Running {} tests from 🗄️ {:?}",
+            "🏃‍♂️ Running {} tests from 🗄️ {:?}",
             fixture_file.tests.len(),
             fixture_file.path
         );
