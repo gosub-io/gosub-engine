@@ -493,10 +493,10 @@ impl<'stream> Html5Parser<'stream> {
             self.ignore_lf = false;
         }
 
-        // Break when we reach the end of the token stream
-        if self.current_token.is_eof() {
-            self.parser_finished = true;
-        }
+        // // Break when we reach the end of the token stream
+        // if self.current_token.is_eof() {
+        //     self.parser_finished = true;
+        // }
 
         match self.insertion_mode {
             InsertionMode::Initial => {
@@ -876,11 +876,11 @@ impl<'stream> Html5Parser<'stream> {
                             }
                         }
                     }
-                    Token::EofToken => {
-                        self.foster_parenting = true;
-                        self.handle_in_body();
-                        self.foster_parenting = false;
-                    }
+                    // Token::EofToken => {
+                    //     self.foster_parenting = true;
+                    //     self.handle_in_body();
+                    //     self.foster_parenting = false;
+                    // }
                     _ => {
                         let tokens = self.pending_table_character_tokens.clone();
 
@@ -1462,7 +1462,7 @@ impl<'stream> Html5Parser<'stream> {
             }
             InsertionMode::AfterFrameset => {
                 match &self.current_token {
-                    Token::TextToken { .. } => {
+                    Token::TextToken { .. } if self.current_token.is_empty_or_white() => {
                         self.insert_text_element(&self.current_token.clone());
                     }
                     Token::CommentToken { .. } => {
