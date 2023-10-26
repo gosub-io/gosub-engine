@@ -204,7 +204,7 @@ impl Test {
     }
 
     /// Returns true if the whole document tree matches the expected result
-    fn match_document_tree(&self, document: &Document) -> SubtreeResult {
+    pub fn match_document_tree(&self, document: &Document) -> SubtreeResult {
         self.match_node(NodeId::root(), 0, -1, document)
     }
 
@@ -509,7 +509,11 @@ pub fn fixture_from_path(path: &PathBuf) -> Result<FixtureFile> {
         || !current_test.errors.is_empty()
         || !current_test.document.is_empty()
     {
-        current_test.data = current_test.data.strip_suffix('\n').unwrap().to_string();
+        current_test.data = current_test
+            .data
+            .strip_suffix('\n')
+            .unwrap_or("")
+            .to_string();
         tests.push(current_test);
     }
 

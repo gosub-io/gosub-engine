@@ -412,7 +412,7 @@ impl<'stream> Html5Parser<'stream> {
                             handle_as_script_endtag = true;
                         } else {
                             self.open_elements.pop();
-                            self.current_token = self.fetch_next_token();
+                            // self.current_token = self.fetch_next_token();
                             self.ack_self_closing = true;
                         }
                     }
@@ -877,11 +877,6 @@ impl<'stream> Html5Parser<'stream> {
                             }
                         }
                     }
-                    // Token::EofToken => {
-                    //     self.foster_parenting = true;
-                    //     self.handle_in_body();
-                    //     self.foster_parenting = false;
-                    // }
                     _ => {
                         let tokens = self.pending_table_character_tokens.clone();
 
@@ -1010,6 +1005,9 @@ impl<'stream> Html5Parser<'stream> {
                     }
                     Token::EndTagToken { name, .. } if name == "template" => {
                         self.handle_in_head();
+                    }
+                    Token::EofToken => {
+                        self.handle_in_body();
                     }
                     Token::EndTagToken { name, .. } if name == "colgroup" => {
                         if current_node!(self).name != "colgroup" {
@@ -2843,9 +2841,8 @@ impl<'stream> Html5Parser<'stream> {
 
                 self.pop_until("template");
                 self.active_formatting_elements_clear_until_marker();
-                self.template_insertion_mode.pop();
-
                 self.reset_insertion_mode();
+                self.template_insertion_mode.pop();
             }
             Token::StartTagToken { name, .. } if name == "head" => {
                 self.parse_error("head tag not allowed in in head insertion mode");
@@ -2950,8 +2947,8 @@ impl<'stream> Html5Parser<'stream> {
 
                 self.pop_until("template");
                 self.active_formatting_elements_clear_until_marker();
-                self.template_insertion_mode.pop();
                 self.reset_insertion_mode();
+                self.template_insertion_mode.pop();
                 self.reprocess_token = true;
             }
         }

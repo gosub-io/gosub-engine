@@ -4,8 +4,6 @@ use std::collections::HashSet;
 use test_case::test_case;
 
 const DISABLED_CASES: &[&str] = &[
-    // tests2.dat
-    "<!DOCTYPE html>X<p/x/y/z>",
     // tests4.dat
     "</plaintext>",
     "direct div content",
@@ -39,18 +37,12 @@ const DISABLED_CASES: &[&str] = &[
     "</body><frameset></frameset>",
     // tests7.dat
     "<body>X</body></body>",
-    // tests8.dat
-    "x<table>x",
-    "x<table><table>x",
     // tests10.dat
-    "<!DOCTYPE html><body xlink:href=foo xml:lang=en><svg><g xml:lang=en xlink:href=foo />bar</svg>",
     "<div><svg><path><foreignObject><math></div>a",
     "<div><svg><path><foreignObject><p></div>a",
     "<!DOCTYPE html><p><svg><desc><p>",
     "<!DOCTYPE html><p><svg><title><p>",
     "<svg><script></script><path>",
-    // tests24.dat
-    "<!DOCTYPE html>&ThickSpace;A",
 ];
 
 lazy_static! {
