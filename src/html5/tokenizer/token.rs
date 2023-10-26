@@ -64,7 +64,7 @@ impl Token {
     /// Returns true if the text token is empty or only contains whitespace
     pub fn is_empty_or_white(&self) -> bool {
         if let Token::TextToken { value } = self {
-            value.trim().is_empty()
+            ["\u{0009}", "\u{000a}", "\u{000c}", "\u{000d}", "\u{0020}"].contains(&value.as_str())
         } else {
             false
         }
@@ -170,7 +170,7 @@ mod tests {
     #[test]
     fn test_token_is_empty_or_white() {
         let token = Token::TextToken {
-            value: "   ".to_string(),
+            value: " ".to_string(),
         };
         assert!(token.is_empty_or_white());
     }

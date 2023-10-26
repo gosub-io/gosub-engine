@@ -5,35 +5,9 @@ use test_case::test_case;
 
 const DISABLED_CASES: &[&str] = &[
     // tests2.dat
-    "<!DOCTYPE html><frameset> te st",
-    "<!DOCTYPE html><frameset></frameset> te st",
-    "<!DOCTYPE html><table><tr>TEST",
-    "<!doctypehtml><scrIPt type=text/x-foobar;baz>X</SCRipt",
-    "testtest",
-    r#"<!DOCTYPE html><body><title>X</title><meta name=z><link rel=foo><style>x { content:"</style" } </style>"#,
-    "<!DOCTYPE html><script></script>  <title>x</title>  </head>",
-    "<!DOCTYPE html><html><body><html id=x>",
-    r#"<!DOCTYPE html>X</body><html id="x">"#,
-    "<!DOCTYPE html>X</html>",
     "<!DOCTYPE html>X<p/x/y/z>",
-    "<!DOCTYPE <!DOCTYPE HTML>><!--<!--x-->-->",
-    "<!doctype html><div><form></form><div></div></div>",
-    // tests3.dat
-    "<head></head><!-- -->x<style></style><!-- --><script></script>",
-    "<!DOCTYPE html><html><head></head><body><pre>foo</pre></body></html>",
-    "<!DOCTYPE html><html><head></head><body><pre>xy</pre></body></html>",
-    "<!DOCTYPE html><html><head></head><body><pre>x<div>y</pre></body></html>",
-    "<!DOCTYPE html><pre>&#x0a;&#x0a;A</pre>",
-    "<!DOCTYPE html><textarea>foo</textarea>",
-    "<p><table></table>",
-    // tests5.dat
-    "<style> <!-- </style> --> </style>x",
-    "<script> <!-- </script> --> </script>x",
-    "<title> <!-- </title> --> </title>x",
-    "<textarea> <!--- </textarea>->x</textarea> --> </textarea>x",
-    "<noscript><!--</noscript>--></noscript>",
     // tests6.dat
-    "<body><div>",
+    "<body>\n<div>",
     "<frameset></frameset><noframes>",
     "</caption><div>",
     "</table><div>",
@@ -53,6 +27,8 @@ const DISABLED_CASES: &[&str] = &[
     "<track><frameset></frameset>",
     "</html><frameset></frameset>",
     "</body><frameset></frameset>",
+    // tests7.dat
+    "<body>X</body></body>",
 ];
 
 lazy_static! {
@@ -68,6 +44,14 @@ lazy_static! {
 #[test_case("tests3.dat")]
 #[test_case("tests5.dat")]
 #[test_case("tests6.dat")]
+#[test_case("tests7.dat")]
+#[test_case("tests8.dat")]
+#[test_case("tests15.dat")]
+#[test_case("tests16.dat")]
+#[test_case("tests17.dat")]
+#[test_case("tests22.dat")]
+#[test_case("tests24.dat")]
+#[test_case("tests25.dat")]
 fn tree_construction(filename: &str) {
     let fixture_file = fixture_from_filename(filename).expect("fixture");
 

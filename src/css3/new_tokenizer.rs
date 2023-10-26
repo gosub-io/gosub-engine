@@ -88,19 +88,42 @@ macro_rules! consume {
 /// CSS Tokenizer according to the [w3 specification](https://www.w3.org/TR/css-syntax-3/#tokenization)
 pub struct Tokenizer<'stream> {
     pub stream: &'stream mut InputStream,
-    /// Next token that has been consumed.
-    pub current_token: Option<String>,
-    /// Next token that has not yet been consumed
-    pub next_token: Option<String>,
+    /// Current position
+    position: usize,
+    /// Full list of all tokens produced by the tokenizer
+    tokens: Vec<Token>,
 }
 
 impl<'stream> Tokenizer<'stream> {
     pub fn new(stream: &'stream mut InputStream) -> Tokenizer {
         Tokenizer {
             stream,
-            current_token: None,
-            next_token: None,
+            position: 0,
+            tokens: Vec::new(),
         }
+    }
+
+    pub fn consume_all(&mut self) {
+        while !self.stream.eof() {
+            let token = self.consume_token();
+            self.tokens.push(token);
+        }
+
+        self.position = 0;
+    }
+
+    pub fn lookahead(&self, offset: usize) -> &Token {
+        if self.position + offset >= self.tokens.len() {
+            return &Token::EOF;
+        }
+
+        &self.tokens[self.position + offset]
+    }
+
+    pub fn consume(&mut self) -> &Token {
+        let token = &self.tokens[self.position];
+        self.position += 1;
+        token
     }
 
     /// 4.3.1. [Consume a token](https://www.w3.org/TR/css-syntax-3/#consume-token)
@@ -139,8 +162,8 @@ impl<'stream> Tokenizer<'stream> {
             ',' => consume!(self, Token::Comma),
             ':' => consume!(self, Token::Colon),
             ';' => consume!(self, Token::Semicolon),
-            '+' | '.' => {
-                if self.stream.next_char().utf8().is_numeric() {
+            '+' => {
+                if self.is_signed_decimal(0) {
                     return self.consume_numeric_token();
                 }
 
@@ -148,8 +171,17 @@ impl<'stream> Tokenizer<'stream> {
                 self.stream.read_char();
                 Token::Delim(current)
             }
-            '-' => {
+            '.' => {
                 if self.stream.next_char().utf8().is_numeric() {
+                    return self.consume_numeric_token();
+                }
+
+                // consume '.'
+                self.stream.read_char();
+                Token::Delim('.')
+            }
+            '-' => {
+                if self.is_signed_decimal(0) {
                     return self.consume_numeric_token();
                 }
 
@@ -160,10 +192,12 @@ impl<'stream> Tokenizer<'stream> {
                     return Token::CDC;
                 }
 
-                if self.is_ident_start(current) {
+                if self.is_next_3_points_starts_ident_seq(0) {
                     return self.consume_ident_like_seq();
                 }
 
+                // consume '-'
+                self.stream.read_char();
                 Token::Delim(current)
             }
             '<' => {
@@ -233,7 +267,7 @@ impl<'stream> Tokenizer<'stream> {
     pub fn consume_numeric_token(&mut self) -> Token {
         let number = self.consume_number();
 
-        if self.is_ident_start(self.stream.current_char().utf8()) {
+        if self.is_next_3_points_starts_ident_seq(0) {
             let unit = self.consume_ident();
 
             return Token::Dimension {
@@ -272,8 +306,23 @@ impl<'stream> Tokenizer<'stream> {
             }
 
             if self.stream.current_char().utf8() == '\\' && self.stream.next_char().utf8() == '\n' {
+                // consume '\\n'
+                self.consume_chars(2);
+                continue;
+            }
+
+            // todo: move to its own util function (used for string & ident tokens)
+            // TIMP: confirmation needed
+            // according to css tests `-\\-` should parsed to `--`
+            if self.stream.current_char().utf8() == '\\'
+                && !self.stream.next_char().utf8().is_ascii_hexdigit()
+                && !self.stream.next_char().is_eof()
+            {
                 // consume '\'
                 self.stream.read_char();
+
+                // consume char next to `\`
+                value.push(self.stream.read_char().utf8());
                 continue;
             }
 
@@ -477,8 +526,6 @@ impl<'stream> Tokenizer<'stream> {
                 continue;
             }
 
-            println!("here...");
-
             if self.is_start_of_escape(0) {
                 value.push(self.consume_escaped_token());
                 continue;
@@ -569,6 +616,16 @@ impl<'stream> Tokenizer<'stream> {
         }
 
         self.is_ident_start(first)
+    }
+
+    fn is_signed_decimal(&self, start: usize) -> bool {
+        let current = self.stream.look_ahead(start).utf8();
+        let next = self.stream.look_ahead(start + 1).utf8();
+        let last = self.stream.look_ahead(start + 2).utf8();
+
+        // e.g. +1, -1, +.1, -0.01
+        (current == '+' || current == '-')
+            && ((next == '.' && last.is_numeric()) || next.is_numeric())
     }
 
     fn is_any_of(&self, chars: Vec<char>) -> bool {
@@ -802,6 +859,121 @@ mod test {
                 .read_from_str(raw_string, Some(Encoding::UTF8));
             assert_eq!(tokenizer.consume_string_token(), string_token);
         }
+    }
+
+    #[test]
+    fn produce_stream_of_double_quoted_strings() {
+        let mut is = InputStream::new();
+
+        is.read_from_str(
+            "\"\" \"Lorem 'îpsum'\" \"a\\\nb\" \"a\nb \"eof",
+            Some(Encoding::UTF8),
+        );
+
+        let tokens = vec![
+            // `\"\"`
+            Token::QuotedString(String::new()),
+            Token::Whitespace,
+            // \"Lorem 'îpsum'\"
+            Token::QuotedString("Lorem 'îpsum'".into()),
+            Token::Whitespace,
+            // `\"a\\\nb\"`
+            Token::QuotedString("ab".into()),
+            Token::Whitespace,
+            Token::BadString("a".into()),
+            Token::Whitespace,
+            Token::Ident("b".into()),
+            Token::Whitespace,
+            Token::QuotedString("eof".into()),
+        ];
+        let mut tokenizer = Tokenizer::new(&mut is);
+
+        for token in tokens {
+            assert_eq!(tokenizer.consume_token(), token);
+        }
+
+        assert!(tokenizer.stream.eof());
+    }
+
+    #[test]
+    fn procude_stream_of_single_quoted_strings() {
+        let mut is = InputStream::new();
+
+        is.read_from_str(
+            "'' 'Lorem \"îpsum\"' 'a\\\nb' 'a\nb 'eof",
+            Some(Encoding::UTF8),
+        );
+
+        let tokens = vec![
+            // `\"\"`
+            Token::QuotedString(String::new()),
+            Token::Whitespace,
+            // \"Lorem 'îpsum'\"
+            Token::QuotedString("Lorem \"îpsum\"".into()),
+            Token::Whitespace,
+            // `\"a\\\nb\"`
+            Token::QuotedString("ab".into()),
+            Token::Whitespace,
+            Token::BadString("a".into()),
+            Token::Whitespace,
+            Token::Ident("b".into()),
+            Token::Whitespace,
+            Token::QuotedString("eof".into()),
+        ];
+        let mut tokenizer = Tokenizer::new(&mut is);
+
+        for token in tokens {
+            assert_eq!(tokenizer.consume_token(), token);
+        }
+
+        assert!(tokenizer.stream.eof());
+    }
+
+    #[test]
+    fn parse_urls_with_strings() {
+        let mut is = InputStream::new();
+
+        is.read_from_str(
+            "url( '') url('Lorem \"îpsum\"'\n) url('a\\\nb' ) url('a\nb) url('eof",
+            Some(Encoding::UTF8),
+        );
+
+        let tokens = vec![
+            // `url( '')`
+            Token::Function("url".into()),
+            Token::QuotedString("".into()),
+            Token::RParen,
+            Token::Whitespace,
+            // `url('Lorem \"îpsum\"'\n)`
+            Token::Function("url".into()),
+            Token::QuotedString("Lorem \"îpsum\"".into()),
+            Token::Whitespace,
+            Token::RParen,
+            Token::Whitespace,
+            // `url('a\\\nb' )`
+            Token::Function("url".into()),
+            Token::QuotedString("ab".into()),
+            Token::Whitespace,
+            Token::RParen,
+            Token::Whitespace,
+            // `url('a\nb)`
+            Token::Function("url".into()),
+            Token::BadString("a".into()),
+            Token::Whitespace,
+            Token::Ident("b".into()),
+            Token::RParen,
+            Token::Whitespace,
+            // `url('eof`
+            Token::Function("url".into()),
+            Token::QuotedString("eof".into()),
+        ];
+        let mut tokenizer = Tokenizer::new(&mut is);
+
+        for token in tokens {
+            assert_eq!(tokenizer.consume_token(), token);
+        }
+
+        assert!(tokenizer.stream.eof());
     }
 
     #[test]
@@ -1089,5 +1261,384 @@ mod test {
         }
 
         assert!(tokenizer.stream.eof());
+    }
+
+    #[test]
+    fn parse_dimension_tokens() {
+        let mut is = InputStream::new();
+
+        is.read_from_str(
+            "12red0 12.0-red 12--red 12-\\-red 120red 12-0red 12\\0000red 12_Red 12.red 12rêd",
+            Some(Encoding::UTF8),
+        );
+
+        let tokens = vec![
+            // `12red0`
+            Token::Dimension {
+                unit: "red0".into(),
+                value: 12.0,
+            },
+            Token::Whitespace,
+            // `12.0-red`
+            Token::Dimension {
+                unit: "-red".into(),
+                value: 12.0,
+            },
+            Token::Whitespace,
+            // `12--red`
+            Token::Dimension {
+                unit: "--red".into(),
+                value: 12.0,
+            },
+            Token::Whitespace,
+            // `12-\\-red`
+            Token::Dimension {
+                unit: "--red".into(),
+                value: 12.0,
+            },
+            Token::Whitespace,
+            // `120red`
+            Token::Dimension {
+                unit: "red".into(),
+                value: 120.0,
+            },
+            Token::Whitespace,
+            // `12-0red` => [12, -0red]
+            Token::Number(12.0),
+            Token::Dimension {
+                unit: "red".into(),
+                value: -0.0,
+            },
+            Token::Whitespace,
+            // `12\u{0000}red`
+            Token::Dimension {
+                unit: "\u{FFFD}red".into(),
+                value: 12.0,
+            },
+            Token::Whitespace,
+            // `12_Red`
+            Token::Dimension {
+                unit: "_Red".into(),
+                value: 12.0,
+            },
+            Token::Whitespace,
+            // `12.red` => [12, ., red]
+            Token::Number(12.0),
+            Token::Delim('.'),
+            Token::Ident("red".into()),
+            Token::Whitespace,
+            // `12rêd`
+            Token::Dimension {
+                unit: "rêd".into(),
+                value: 12.0,
+            },
+        ];
+        let mut tokenizer = Tokenizer::new(&mut is);
+
+        for token in tokens {
+            assert_eq!(tokenizer.consume_token(), token);
+        }
+
+        assert!(tokenizer.stream.eof());
+    }
+
+    #[test]
+    fn parse_dimension_tokens_2() {
+        let mut is = InputStream::new();
+
+        is.read_from_str(
+            "12e2px +34e+1px -45E-0px .68e+3px +.79e-1px -.01E2px 2.3E+1px +45.0e6px -0.67e0px",
+            Some(Encoding::UTF8),
+        );
+
+        let tokens = vec![
+            // `12e2px`
+            Token::Dimension {
+                unit: "px".into(),
+                value: 1200.0,
+            },
+            Token::Whitespace,
+            // `+34e+1px`
+            Token::Dimension {
+                unit: "px".into(),
+                value: 340.0,
+            },
+            Token::Whitespace,
+            // `-45E-0px`
+            Token::Dimension {
+                unit: "px".into(),
+                value: -45.0,
+            },
+            Token::Whitespace,
+            // `.68e+3px`
+            Token::Dimension {
+                unit: "px".into(),
+                value: 680.0,
+            },
+            Token::Whitespace,
+            // `+.79e-1px`
+            Token::Dimension {
+                unit: "px".into(),
+                value: 0.079,
+            },
+            Token::Whitespace,
+            // `-.01E2px`
+            Token::Dimension {
+                unit: "px".into(),
+                value: -1.0,
+            },
+            Token::Whitespace,
+            // `2.3E+1px`
+            Token::Dimension {
+                unit: "px".into(),
+                value: 23.0,
+            },
+            Token::Whitespace,
+            // `+45.0e6px`
+            Token::Dimension {
+                unit: "px".into(),
+                value: 45000000.0,
+            },
+            Token::Whitespace,
+            // `-0.67e0px`
+            Token::Dimension {
+                unit: "px".into(),
+                value: -0.67,
+            },
+            Token::EOF,
+        ];
+        let mut tokenizer = Tokenizer::new(&mut is);
+
+        for token in tokens {
+            assert_eq!(tokenizer.consume_token(), token);
+        }
+
+        assert!(tokenizer.stream.eof());
+    }
+
+    #[test]
+    fn parse_percentage() {
+        let mut is = InputStream::new();
+
+        is.read_from_str(
+            "12e2% +34e+1% -45E-0% .68e+3% +.79e-1% -.01E2% 2.3E+1% +45.0e6% -0.67e0%",
+            Some(Encoding::UTF8),
+        );
+
+        let tokens = vec![
+            // `12e2%`
+            Token::Percentage(1200.0),
+            Token::Whitespace,
+            // `+34e+1%`
+            Token::Percentage(340.0),
+            Token::Whitespace,
+            // `-45E-0%`
+            Token::Percentage(-45.0),
+            Token::Whitespace,
+            // `.68e+3%`
+            Token::Percentage(680.0),
+            Token::Whitespace,
+            // `+.79e-1%`
+            Token::Percentage(0.079),
+            Token::Whitespace,
+            // `-.01E2%`
+            Token::Percentage(-1.0),
+            Token::Whitespace,
+            // `2.3E+1%`
+            Token::Percentage(23.0),
+            Token::Whitespace,
+            // `+45.0e6%`
+            Token::Percentage(45000000.0),
+            Token::Whitespace,
+            // `-0.67e0%`
+            Token::Percentage(-0.67),
+            Token::EOF,
+        ];
+        let mut tokenizer = Tokenizer::new(&mut is);
+
+        for token in tokens {
+            assert_eq!(tokenizer.consume_token(), token);
+        }
+
+        assert!(tokenizer.stream.eof());
+    }
+
+    #[test]
+    fn parse_css_seq_1() {
+        let mut is = InputStream::new();
+
+        is.read_from_str(
+            "a:not([href^=http\\:],  [href ^=\t'https\\:'\n]) { color: rgba(0%, 100%, 50%); }",
+            Some(Encoding::UTF8),
+        );
+
+        let tokens = vec![
+            Token::Ident("a".into()),
+            Token::Colon,
+            Token::Function("not".into()),
+            Token::LBracket,
+            Token::Ident("href".into()),
+            Token::Delim('^'),
+            Token::Delim('='),
+            Token::Ident("http:".into()),
+            Token::RBracket,
+            Token::Comma,
+            Token::Whitespace,
+            Token::LBracket,
+            Token::Ident("href".into()),
+            Token::Whitespace,
+            Token::Delim('^'),
+            Token::Delim('='),
+            Token::Whitespace,
+            Token::QuotedString("https:".into()),
+            Token::Whitespace,
+            Token::RBracket,
+            Token::RParen,
+            Token::Whitespace,
+            Token::LCurly,
+            Token::Whitespace,
+            Token::Ident("color".into()),
+            Token::Colon,
+            Token::Whitespace,
+            Token::Function("rgba".into()),
+            Token::Percentage(0.0),
+            Token::Comma,
+            Token::Whitespace,
+            Token::Percentage(100.0),
+            Token::Comma,
+            Token::Whitespace,
+            Token::Percentage(50.0),
+            Token::RParen,
+            Token::Semicolon,
+            Token::Whitespace,
+            Token::RCurly,
+        ];
+        let mut tokenizer = Tokenizer::new(&mut is);
+
+        for token in tokens {
+            assert_eq!(tokenizer.consume_token(), token);
+        }
+
+        assert!(tokenizer.stream.eof());
+    }
+
+    #[test]
+    fn parse_css_seq_2() {
+        let mut is = InputStream::new();
+
+        is.read_from_str("red-->/* Not CDC */", Some(Encoding::UTF8));
+
+        let tokens = vec![Token::Ident("red--".into()), Token::Delim('>'), Token::EOF];
+        let mut tokenizer = Tokenizer::new(&mut is);
+
+        for token in tokens {
+            assert_eq!(tokenizer.consume_token(), token);
+        }
+
+        assert!(tokenizer.stream.eof());
+    }
+
+    #[test]
+    fn parse_css_seq_3() {
+        let mut is = InputStream::new();
+
+        is.read_from_str("\\- red0 -red --red -\\-red\\ blue 0red -0red \\0000red _Red .red rêd r\\êd \\007F\\0080\\0081", Some(Encoding::UTF8));
+
+        let tokens = vec![
+            // `\\-`
+            Token::Ident("-".into()),
+            Token::Whitespace,
+            // `red0`
+            Token::Ident("red0".into()),
+            Token::Whitespace,
+            // `-red`
+            Token::Ident("-red".into()),
+            Token::Whitespace,
+            // `--red`
+            Token::Ident("--red".into()),
+            Token::Whitespace,
+            // `-\\-red\\ blue`
+            Token::Ident("--red blue".into()),
+            Token::Whitespace,
+            // `0red`
+            Token::Dimension {
+                unit: "red".into(),
+                value: 0.0,
+            },
+            Token::Whitespace,
+            // `-0red`
+            Token::Dimension {
+                unit: "red".into(),
+                value: -0.0,
+            },
+            Token::Whitespace,
+            // `\\0000red`
+            Token::Ident("\u{FFFD}red".into()),
+            Token::Whitespace,
+            // `_Red`
+            Token::Ident("_Red".into()),
+            Token::Whitespace,
+            // `.red` => [., red]
+            Token::Delim('.'),
+            Token::Ident("red".into()),
+            Token::Whitespace,
+            // `rêd`
+            Token::Ident("rêd".into()),
+            Token::Whitespace,
+            // `r\\êd`
+            Token::Ident("rêd".into()),
+            Token::Whitespace,
+            // `\\007F\\0080\\0081`
+            Token::Ident("\u{7f}\u{80}\u{81}".into()),
+        ];
+        let mut tokenizer = Tokenizer::new(&mut is);
+
+        for token in tokens {
+            assert_eq!(tokenizer.consume_token(), token);
+        }
+
+        assert!(tokenizer.stream.eof());
+    }
+
+    #[test]
+    fn parse_css_seq_4() {
+        let mut is = InputStream::new();
+
+        is.read_from_str(
+            "p[example=\"\\\nfoo(int x) {\\\n   this.x = x;\\\n}\\\n\"]",
+            Some(Encoding::UTF8),
+        );
+
+        let tokens = vec![
+            Token::Ident("p".into()),
+            Token::LBracket,
+            Token::Ident("example".into()),
+            Token::Delim('='),
+            Token::QuotedString("foo(int x) {   this.x = x;}".into()),
+            Token::RBracket,
+        ];
+        let mut tokenizer = Tokenizer::new(&mut is);
+
+        for token in tokens {
+            assert_eq!(tokenizer.consume_token(), token);
+        }
+
+        assert!(tokenizer.stream.eof());
+    }
+
+    #[test]
+    fn consume_tokenizer_as_stream_of_tokens() {
+        let mut is = InputStream::new();
+        is.read_from_str("[][]", Some(Encoding::UTF8));
+
+        let mut tokenizer = Tokenizer::new(&mut is);
+        tokenizer.consume_all();
+
+        assert_eq!(tokenizer.lookahead(0), &Token::LBracket);
+        assert_eq!(tokenizer.lookahead(1), &Token::RBracket);
+        assert_eq!(tokenizer.lookahead(4), &Token::EOF);
+
+        assert_eq!(tokenizer.consume(), &Token::LBracket);
+        assert_eq!(tokenizer.lookahead(0), &Token::RBracket);
     }
 }

@@ -1,3 +1,4 @@
+//! Error results that can be returned from the engine
 use thiserror::Error;
 
 /// Generic error types that can be returned from the library.
