@@ -5,7 +5,6 @@ use test_case::test_case;
 
 const DISABLED_CASES: &[&str] = &[
     // tests2.dat
-    "<!DOCTYPE html><table><tr>TEST",
     "<!DOCTYPE html>X<p/x/y/z>",
     // tests6.dat
     "<body>\n<div>",
@@ -28,11 +27,8 @@ const DISABLED_CASES: &[&str] = &[
     "<track><frameset></frameset>",
     "</html><frameset></frameset>",
     "</body><frameset></frameset>",
-    // tests8.dat
-    "x<table>x",
-    "x<table><table>x",
-    // tests24.dat
-    "<!DOCTYPE html>&ThickSpace;A",
+    // tests7.dat
+    "<body>X</body></body>",
 ];
 
 lazy_static! {
@@ -48,9 +44,12 @@ lazy_static! {
 #[test_case("tests3.dat")]
 #[test_case("tests5.dat")]
 #[test_case("tests6.dat")]
+#[test_case("tests7.dat")]
 #[test_case("tests8.dat")]
+#[test_case("tests15.dat")]
 #[test_case("tests16.dat")]
 #[test_case("tests17.dat")]
+#[test_case("tests22.dat")]
 #[test_case("tests24.dat")]
 #[test_case("tests25.dat")]
 fn tree_construction(filename: &str) {

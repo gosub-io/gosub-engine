@@ -193,9 +193,7 @@ impl Document {
         }
     }
 
-    /// Inserts a node to the parent node at the given position in the children (or none
-    /// to add at the end). Will automatically register the node if not done so already
-    pub fn add_node(&mut self, node: Node, parent_id: NodeId, position: Option<usize>) -> NodeId {
+    pub fn add_new_node(&mut self, node: Node) -> NodeId {
         let mut node_named_id: Option<String> = None;
         if let NodeData::Element(element) = &node.data {
             if let Some(named_id) = element.attributes.get("id") {
@@ -221,6 +219,14 @@ impl Document {
                 element.set_id(node_id);
             }
         }
+
+        node_id
+    }
+
+    /// Inserts a node to the parent node at the given position in the children (or none
+    /// to add at the end). Will automatically register the node if not done so already
+    pub fn add_node(&mut self, node: Node, parent_id: NodeId, position: Option<usize>) -> NodeId {
+        let node_id = self.add_new_node(node);
 
         self.attach_node_to_parent(node_id, parent_id, position);
 
