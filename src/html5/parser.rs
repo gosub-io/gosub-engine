@@ -393,7 +393,10 @@ impl<'stream> Html5Parser<'stream> {
                 }
 
                 self.adjust_foreign_attributes(&mut current_token);
-                self.insert_foreign_element(&current_token, acn.namespace.expect("namespace").as_str());
+                self.insert_foreign_element(
+                    &current_token,
+                    acn.namespace.expect("namespace").as_str(),
+                );
 
                 if let Token::StartTagToken {
                     name,
@@ -521,7 +524,7 @@ impl<'stream> Html5Parser<'stream> {
                         if name.is_some() && name.as_ref().unwrap() != "html"
                             || pub_identifier.is_some()
                             || (sys_identifier.is_some()
-                            && sys_identifier.as_ref().unwrap() != "about:legacy-compat")
+                                && sys_identifier.as_ref().unwrap() != "about:legacy-compat")
                         {
                             self.parse_error("doctype not allowed in initial insertion mode");
                         }
@@ -543,9 +546,7 @@ impl<'stream> Html5Parser<'stream> {
                     }
                     Token::StartTagToken { .. } => {
                         if self.document.get_mut().doctype != DocumentType::IframeSrcDoc {
-                            self.parse_error(
-                                ParserError::ExpectedDocTypeButGotStartTag.as_str(),
-                            );
+                            self.parse_error(ParserError::ExpectedDocTypeButGotStartTag.as_str());
                         }
                         anything_else = true;
                     }
@@ -1452,7 +1453,6 @@ impl<'stream> Html5Parser<'stream> {
                             self.parse_error("eof not allowed in frameset insertion mode");
                         }
                         self.stop_parsing();
-                        return;
                     }
                     _ => {
                         self.parse_error("anything else not allowed in frameset insertion mode");
@@ -1494,10 +1494,7 @@ impl<'stream> Html5Parser<'stream> {
             }
             InsertionMode::AfterAfterBody => match &self.current_token {
                 Token::CommentToken { .. } => {
-                    self.insert_comment_element(
-                        &self.current_token.clone(),
-                        Some(NodeId::root()),
-                    );
+                    self.insert_comment_element(&self.current_token.clone(), Some(NodeId::root()));
                 }
                 Token::DocTypeToken { .. } => {
                     self.handle_in_body();
@@ -3453,7 +3450,10 @@ impl<'stream> Html5Parser<'stream> {
     fn adjust_svg_tag_names(&self, token: &mut Token) {
         if let Token::StartTagToken { name, .. } = token {
             if SVG_ADJUSTMENTS_TAGS.contains_key(name) {
-                *name = SVG_ADJUSTMENTS_TAGS.get(name).expect("svg tagname").to_string();
+                *name = SVG_ADJUSTMENTS_TAGS
+                    .get(name)
+                    .expect("svg tagname")
+                    .to_string();
             }
         }
     }

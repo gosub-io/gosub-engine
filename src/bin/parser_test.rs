@@ -43,8 +43,8 @@ fn main() -> Result<()> {
 
         let mut test_idx = 1;
         for test in fixture_file.tests {
-            if test_idx == 6 {
-            run_tree_test(test_idx, &test, &mut results);
+            if test_idx == 15 {
+                run_tree_test(test_idx, &test, &mut results);
             }
             test_idx += 1;
         }
