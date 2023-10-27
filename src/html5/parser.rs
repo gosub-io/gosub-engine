@@ -1839,46 +1839,56 @@ impl<'stream> Html5Parser<'stream> {
             if node.name == tag {
                 return true;
             }
-
+            let default_html_scope = ["applet", "caption", "html", "table", "td", "th", "marquee", "object", "template"];
+            let default_mathml_scope = ["mo", "mi", "ms", "mn", "mtext", "annotation-xml"];
+            let default_svg_scope = ["foreignObject", "desc", "title"];
             match scope {
                 Scope::Regular => {
-                    if [
-                        "applet", "caption", "html", "table", "td", "th", "marquee", "object",
-                        "template",
-                    ]
-                    .contains(&node.name.as_str())
+                    if (node.is_namespace(HTML_NAMESPACE)
+                        && default_html_scope.contains(&node.name.as_str()))
+                        || (node.is_namespace(MATHML_NAMESPACE)
+                            && default_mathml_scope.contains(&node.name.as_str()))
+                        || (node.is_namespace(SVG_NAMESPACE)
+                            && default_svg_scope.contains(&node.name.as_str()))
                     {
                         return false;
                     }
                 }
                 Scope::ListItem => {
-                    if [
-                        "applet", "caption", "html", "table", "td", "th", "marquee", "object",
-                        "template", "ol", "ul",
-                    ]
-                    .contains(&node.name.as_str())
+                    if (node.is_namespace(HTML_NAMESPACE)
+                        && (default_html_scope.contains(&node.name.as_str())
+                            || ["ol", "ul"].contains(&node.name.as_str())))
+                        || (node.is_namespace(MATHML_NAMESPACE)
+                            && default_mathml_scope.contains(&node.name.as_str()))
+                        || (node.is_namespace(SVG_NAMESPACE)
+                            && default_svg_scope.contains(&node.name.as_str()))
                     {
                         return false;
                     }
                 }
                 Scope::Button => {
-                    if [
-                        "applet", "caption", "html", "table", "td", "th", "marquee", "object",
-                        "template", "button",
-                    ]
-                    .contains(&node.name.as_str())
+                    if (node.is_namespace(HTML_NAMESPACE)
+                        && (default_html_scope.contains(&node.name.as_str())
+                            || node.name == "button"))
+                        || (node.is_namespace(MATHML_NAMESPACE)
+                            && default_mathml_scope.contains(&node.name.as_str()))
+                        || (node.is_namespace(SVG_NAMESPACE)
+                            && default_svg_scope.contains(&node.name.as_str()))
                     {
                         return false;
                     }
                 }
                 Scope::Table => {
-                    if ["html", "table", "template"].contains(&node.name.as_str()) {
+                    if node.is_namespace(HTML_NAMESPACE)
+                        && ["html", "template", "table"].contains(&node.name.as_str())
+                    {
                         return false;
                     }
                 }
                 Scope::Select => {
-                    // Note: NOT contains instead of contains
-                    if !["optgroup", "option"].contains(&node.name.as_str()) {
+                    if !(node.is_namespace(HTML_NAMESPACE)
+                        && ["optgroup", "option"].contains(&node.name.as_str()))
+                    {
                         return false;
                     }
                 }

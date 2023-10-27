@@ -43,6 +43,10 @@ const DISABLED_CASES: &[&str] = &[
     "<!DOCTYPE html><p><svg><desc><p>",
     "<!DOCTYPE html><p><svg><title><p>",
     "<svg><script></script><path>",
+    // tests18.dat
+    "<!doctype html><template><plaintext>a</template>b",
+    // tests19.dat
+    "<!doctype html><div><body><frameset>",
 ];
 
 lazy_static! {
@@ -61,16 +65,16 @@ lazy_static! {
 #[test_case("tests6.dat")]
 #[test_case("tests7.dat")]
 #[test_case("tests8.dat")]
-// #[test_case("tests9.dat")]
+#[test_case("tests9.dat")]
 #[test_case("tests10.dat")]
 #[test_case("tests11.dat")]
-// #[test_case("tests12.dat")]
+#[test_case("tests12.dat")]
 #[test_case("tests14.dat")]
 #[test_case("tests15.dat")]
 #[test_case("tests16.dat")]
 #[test_case("tests17.dat")]
-// #[test_case("tests18.dat")]
-// #[test_case("tests19.dat")]
+#[test_case("tests18.dat")]
+#[test_case("tests19.dat")]
 #[test_case("tests20.dat")]
 // #[test_case("tests21.dat")]
 #[test_case("tests22.dat")]
