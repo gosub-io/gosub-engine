@@ -1839,7 +1839,9 @@ impl<'stream> Html5Parser<'stream> {
             if node.name == tag {
                 return true;
             }
-            let default_html_scope = ["applet", "caption", "html", "table", "td", "th", "marquee", "object", "template"];
+            let default_html_scope = [
+                "applet", "caption", "html", "table", "td", "th", "marquee", "object", "template",
+            ];
             let default_mathml_scope = ["mo", "mi", "ms", "mn", "mtext", "annotation-xml"];
             let default_svg_scope = ["foreignObject", "desc", "title"];
             match scope {
