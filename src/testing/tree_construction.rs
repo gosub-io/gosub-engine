@@ -1,4 +1,5 @@
 use super::FIXTURE_ROOT;
+use crate::html5::node::{HTML_NAMESPACE, MATHML_NAMESPACE, SVG_NAMESPACE};
 use crate::{
     html5::{
         error_logger::ParseError,
@@ -203,7 +204,7 @@ impl Test {
     }
 
     /// Returns true if the whole document tree matches the expected result
-    fn match_document_tree(&self, document: &Document) -> SubtreeResult {
+    pub fn match_document_tree(&self, document: &Document) -> SubtreeResult {
         self.match_node(NodeId::root(), 0, -1, document)
     }
 
@@ -221,11 +222,25 @@ impl Test {
 
         let node_result = match &node.data {
             NodeData::Element(element) => {
+                let prefix: String = match &node.namespace {
+                    Some(namespace) => match namespace.as_str() {
+                        HTML_NAMESPACE => "".into(), // HTML elements don't have a prefix
+                        SVG_NAMESPACE => "svg ".into(),
+                        MATHML_NAMESPACE => "math ".into(),
+                        _ => {
+                            panic!("unknown namespace: {}", namespace);
+                        }
+                    },
+                    None => "".into(),
+                };
+
                 let actual = format!(
-                    "|{}<{}>",
+                    "|{}<{}{}>",
                     " ".repeat((indent as usize * 2) + 1),
+                    prefix,
                     element.name()
                 );
+
                 let expected = self.document[next_expected_idx as usize].to_owned();
                 next_expected_idx += 1;
 
@@ -244,7 +259,15 @@ impl Test {
                 }
 
                 // Check attributes if any
+
+                // Make sure the attributes are sorted
+                let mut sorted_attrs = vec![];
                 for attr in element.attributes.iter() {
+                    sorted_attrs.push(attr);
+                }
+                sorted_attrs.sort_by(|a, b| a.0.cmp(b.0));
+
+                for attr in sorted_attrs {
                     let expected = self.document[next_expected_idx as usize].to_owned();
                     next_expected_idx += 1;
 
@@ -486,7 +509,11 @@ pub fn fixture_from_path(path: &PathBuf) -> Result<FixtureFile> {
         || !current_test.errors.is_empty()
         || !current_test.document.is_empty()
     {
-        current_test.data = current_test.data.strip_suffix('\n').unwrap().to_string();
+        current_test.data = current_test
+            .data
+            .strip_suffix('\n')
+            .unwrap_or("")
+            .to_string();
         tests.push(current_test);
     }
 

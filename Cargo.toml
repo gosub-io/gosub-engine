@@ -40,6 +40,7 @@ ureq = "2.8.0"
 anyhow = "1.0.75"
 uuid = { version = "1.5.0", features = ["v4"] }
 colored = "2.0.4"
+walkdir = "2.3"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

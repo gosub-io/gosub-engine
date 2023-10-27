@@ -69,6 +69,22 @@ impl Token {
             false
         }
     }
+
+    pub(crate) fn is_start_tag(&self, wanted_name: &str) -> bool {
+        if let Token::StartTagToken { name, .. } = self {
+            name == wanted_name
+        } else {
+            false
+        }
+    }
+
+    pub(crate) fn is_any_start_tag(&self) -> bool {
+        matches!(self, Token::StartTagToken { .. })
+    }
+
+    pub(crate) fn is_text_token(&self) -> bool {
+        matches!(self, Token::TextToken { .. })
+    }
 }
 
 // Each token can be displayed as a string

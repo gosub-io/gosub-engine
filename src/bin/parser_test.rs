@@ -31,34 +31,34 @@ fn main() -> Result<()> {
         tests_failed: Vec::new(),
     };
 
-    let filenames = Some(&["tests3.dat"][..]);
+    let filenames = Some(&["template.dat"][..]);
     let fixtures = testing::tree_construction::fixtures(filenames).expect("fixtures");
 
     for fixture_file in fixtures {
         println!(
-            "🏃‍♂️ Running {} tests from 🗄️ {:?}\n",
+            "🏃‍♂️ Running {} tests from 🗄️ {:?}",
             fixture_file.tests.len(),
             fixture_file.path
         );
 
         let mut test_idx = 1;
         for test in fixture_file.tests {
-            if test_idx == 46 {
+            if test_idx == 39 {
                 run_tree_test(test_idx, &test, &mut results);
             }
             test_idx += 1;
         }
-    }
 
-    println!(
-        "\
-🏁 Tests completed: Ran {} tests, {} assertions, {} succeeded, {} failed ({} position failures)",
-        results.tests,
-        results.assertions,
-        results.succeeded,
-        results.failed,
-        results.failed_position
-    );
+        println!(
+            "\
+    🏁 Tests completed: Ran {} tests, {} assertions, {} succeeded, {} failed ({} position failures)\n",
+            results.tests,
+            results.assertions,
+            results.succeeded,
+            results.failed,
+            results.failed_position
+        );
+    }
 
     if results.failed > 0 {
         println!("❌ Failed tests:");
@@ -71,6 +71,7 @@ fn main() -> Result<()> {
 }
 
 fn run_tree_test(test_idx: usize, test: &Test, results: &mut TestResults) {
+    #[cfg(feature = "debug_parser_verbose")]
     println!(
         "🧪 Running test #{test_idx}: {}:{}",
         test.file_path, test.line
@@ -79,6 +80,8 @@ fn run_tree_test(test_idx: usize, test: &Test, results: &mut TestResults) {
     results.tests += 1;
 
     let result = test.run().expect("problem running tree construction test");
+
+    #[cfg(feature = "debug_parser")]
     print_test_result(&result);
 
     // Check the document tree, which counts as a single assertion
@@ -90,6 +93,7 @@ fn run_tree_test(test_idx: usize, test: &Test, results: &mut TestResults) {
     }
 
     if result.actual_errors.len() != test.errors.len() {
+        #[cfg(feature = "debug_parser")]
         println!(
             "⚠️ Unexpected errors found (wanted {}, got {}): ",
             test.errors.len(),
@@ -111,6 +115,7 @@ fn run_tree_test(test_idx: usize, test: &Test, results: &mut TestResults) {
         // results.assertions += 1;
         // results.failed += 1;
     } else {
+        #[cfg(feature = "debug_parser")]
         println!("✅  Found {} errors", result.actual_errors.len());
     }
 
@@ -159,25 +164,28 @@ fn run_tree_test(test_idx: usize, test: &Test, results: &mut TestResults) {
         results
             .tests_failed
             .push((test_idx, test.line, test.data.to_string()));
-        println!("----------------------------------------");
-        println!("📄 Input stream: ");
-        println!("{}", test.data);
-        println!("----------------------------------------");
-        println!("🌳 Generated tree: ");
-        println!("{}", result.actual_document);
-        println!("----------------------------------------");
-        println!("🌳 Expected tree: ");
-        for line in &test.document {
-            println!("{line}");
-        }
 
-        // // End at the first failure
-        // std::process::exit(1);
+        if cfg!(feature = "debug_parser") {
+            println!("----------------------------------------");
+            println!("📄 Input stream: ");
+            println!("{}", test.data);
+            println!("----------------------------------------");
+            println!("🌳 Generated tree: ");
+            println!("{}", result.actual_document);
+            println!("----------------------------------------");
+            println!("🌳 Expected tree: ");
+            for line in &test.document {
+                println!("{line}");
+            }
+        }
     }
 
+    #[cfg(feature = "debug_parser")]
     println!("----------------------------------------");
+    println!("Test index: {}", test_idx);
 }
 
+#[allow(dead_code)]
 fn print_test_result(result: &TestResult) {
     // We need a better tree match system. Right now we match the tree based on the (debug) output
     // of the tree. Instead, we should generate a document-tree from the expected output and compare
@@ -185,6 +193,7 @@ fn print_test_result(result: &TestResult) {
     print_node_result(&result.root)
 }
 
+#[allow(dead_code)]
 fn print_node_result(result: &SubtreeResult) {
     match &result.node {
         Some(NodeResult::ElementMatchSuccess { actual }) => {
