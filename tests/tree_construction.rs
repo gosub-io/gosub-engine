@@ -74,7 +74,7 @@ lazy_static! {
 #[test_case("tests20.dat")]
 // #[test_case("tests21.dat")]
 #[test_case("tests22.dat")]
-// #[test_case("tests23.dat")]
+#[test_case("tests23.dat")]
 #[test_case("tests24.dat")]
 #[test_case("tests25.dat")]
 #[test_case("tests26.dat")]

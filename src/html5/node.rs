@@ -188,10 +188,32 @@ impl Debug for Node {
 }
 
 impl Node {
-    /// This will only compare against the tag, namespace and attributes. Both nodes could still have
-    /// other parents and children.
-    pub fn matches_tag_and_attrs(&self, other: &Self) -> bool {
-        self.name == other.name && self.namespace == other.namespace && self.data == other.data
+    /// This will only compare against the tag, namespace and data same except element data.
+    /// for element data compaare against the tag, namespace and attributes without order.
+    /// Both nodes could still have other parents and children.
+    pub fn matches_tag_and_attrs_without_order(&self, other: &Self) -> bool {
+        if self.name != other.name || self.namespace != other.namespace {
+            return false;
+        }
+
+        if self.type_of() != other.type_of() {
+            return false;
+        }
+
+        match self.type_of() {
+            NodeType::Element => {
+                let mut self_attributes = None;
+                let mut other_attributes = None;
+                if let NodeData::Element(element) = &self.data {
+                    self_attributes = Some(element.attributes.clone_map());
+                }
+                if let NodeData::Element(element) = &other.data {
+                    other_attributes = Some(element.attributes.clone_map());
+                }
+                self_attributes.eq(&other_attributes)
+            }
+            _ => self.data == other.data
+        }
     }
 }
 
