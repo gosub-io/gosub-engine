@@ -6,7 +6,8 @@ use std::path::Path;
 use walkdir::WalkDir;
 
 fn main() -> Result<()> {
-    let files = get_files_from_path(format!("{}/tree-construction", FIXTURE_ROOT).as_str());
+    let mut files = get_files_from_path(format!("{}/tree-construction", FIXTURE_ROOT).as_str());
+    files.sort();
 
     let mut total = 0;
     let mut failed = 0;
