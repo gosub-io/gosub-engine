@@ -1839,46 +1839,58 @@ impl<'stream> Html5Parser<'stream> {
             if node.name == tag {
                 return true;
             }
-
+            let default_html_scope = [
+                "applet", "caption", "html", "table", "td", "th", "marquee", "object", "template",
+            ];
+            let default_mathml_scope = ["mo", "mi", "ms", "mn", "mtext", "annotation-xml"];
+            let default_svg_scope = ["foreignObject", "desc", "title"];
             match scope {
                 Scope::Regular => {
-                    if [
-                        "applet", "caption", "html", "table", "td", "th", "marquee", "object",
-                        "template",
-                    ]
-                    .contains(&node.name.as_str())
+                    if (node.is_namespace(HTML_NAMESPACE)
+                        && default_html_scope.contains(&node.name.as_str()))
+                        || (node.is_namespace(MATHML_NAMESPACE)
+                            && default_mathml_scope.contains(&node.name.as_str()))
+                        || (node.is_namespace(SVG_NAMESPACE)
+                            && default_svg_scope.contains(&node.name.as_str()))
                     {
                         return false;
                     }
                 }
                 Scope::ListItem => {
-                    if [
-                        "applet", "caption", "html", "table", "td", "th", "marquee", "object",
-                        "template", "ol", "ul",
-                    ]
-                    .contains(&node.name.as_str())
+                    if (node.is_namespace(HTML_NAMESPACE)
+                        && (default_html_scope.contains(&node.name.as_str())
+                            || ["ol", "ul"].contains(&node.name.as_str())))
+                        || (node.is_namespace(MATHML_NAMESPACE)
+                            && default_mathml_scope.contains(&node.name.as_str()))
+                        || (node.is_namespace(SVG_NAMESPACE)
+                            && default_svg_scope.contains(&node.name.as_str()))
                     {
                         return false;
                     }
                 }
                 Scope::Button => {
-                    if [
-                        "applet", "caption", "html", "table", "td", "th", "marquee", "object",
-                        "template", "button",
-                    ]
-                    .contains(&node.name.as_str())
+                    if (node.is_namespace(HTML_NAMESPACE)
+                        && (default_html_scope.contains(&node.name.as_str())
+                            || node.name == "button"))
+                        || (node.is_namespace(MATHML_NAMESPACE)
+                            && default_mathml_scope.contains(&node.name.as_str()))
+                        || (node.is_namespace(SVG_NAMESPACE)
+                            && default_svg_scope.contains(&node.name.as_str()))
                     {
                         return false;
                     }
                 }
                 Scope::Table => {
-                    if ["html", "table", "template"].contains(&node.name.as_str()) {
+                    if node.is_namespace(HTML_NAMESPACE)
+                        && ["html", "template", "table"].contains(&node.name.as_str())
+                    {
                         return false;
                     }
                 }
                 Scope::Select => {
-                    // Note: NOT contains instead of contains
-                    if !["optgroup", "option"].contains(&node.name.as_str()) {
+                    if !(node.is_namespace(HTML_NAMESPACE)
+                        && ["optgroup", "option"].contains(&node.name.as_str()))
+                    {
                         return false;
                     }
                 }
@@ -3300,46 +3312,27 @@ impl<'stream> Html5Parser<'stream> {
 
     /// Push a node onto the active formatting stack, make sure only max 3 of them can be added (between markers)
     fn active_formatting_elements_push(&mut self, node_id: NodeId) {
-        let mut idx = self.active_formatting_elements.len();
-        if idx == 0 {
-            self.active_formatting_elements
-                .push(ActiveElement::Node(node_id));
-            return;
-        }
-
-        // Fetch the node we want to push, so we can compare
-        let element_node = get_node_by_id!(self.document, node_id);
-
-        let mut found = 0;
-        loop {
-            let active_elem = *self
-                .active_formatting_elements
-                .get(idx - 1)
-                .expect("index out of bounds");
-            if let ActiveElement::Marker = active_elem {
-                // Don't continue after the last marker
-                break;
-            }
-
-            // Fetch the node we want to compare with
-            let match_node = match active_elem {
-                ActiveElement::Node(node_id) => get_node_by_id!(self.document, node_id),
-                ActiveElement::Marker => unreachable!(),
-            };
-            if match_node.matches_tag_and_attrs(&element_node) {
-                // Noah's Ark clause: we only allow 3 (instead of 2) of each tag (between markers)
-                found += 1;
-                if found == 3 {
-                    // Remove the element from the list
-                    self.active_formatting_elements.remove(idx - 1);
-                    break;
+        let mut matched = 0;
+        let mut first_matched = None;
+        let node = get_node_by_id!(self.document, node_id);
+        for entry in self.active_formatting_elements.iter().rev() {
+            match entry {
+                ActiveElement::Marker => break,
+                &ActiveElement::Node(id) => {
+                    let current_node = get_node_by_id!(self.document, id);
+                    if current_node.matches_tag_and_attrs_without_order(&node) {
+                        if matched >= 2 {
+                            first_matched = Some(id);
+                            break;
+                        }
+                        matched += 1;
+                    }
                 }
             }
-
-            idx -= 1;
-            if idx == 0 {
-                break;
-            }
+        }
+        if let Some(first_matched) = first_matched {
+            self.active_formatting_elements
+                .retain(|n| n != &ActiveElement::Node(first_matched));
         }
 
         self.active_formatting_elements
