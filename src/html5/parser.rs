@@ -5,9 +5,8 @@ mod quirks;
 // ------------------------------------------------------------
 
 use self::document::DocumentHandle;
-
 use super::node::NodeId;
-use crate::html5::error_logger::{ErrorLogger, ParseError, ParserError};
+use crate::html5::error_logger::{ErrorLogger, ParserError};
 use crate::html5::input_stream::InputStream;
 use crate::html5::node::{Node, NodeData, HTML_NAMESPACE, MATHML_NAMESPACE, SVG_NAMESPACE};
 use crate::html5::parser::attr_replacements::{
@@ -18,7 +17,7 @@ use crate::html5::parser::quirks::QuirksMode;
 use crate::html5::tokenizer::state::State;
 use crate::html5::tokenizer::token::Token;
 use crate::html5::tokenizer::{Tokenizer, CHAR_NUL, CHAR_REPLACEMENT};
-use crate::types::Result;
+use crate::types::{ParseError, Result};
 use alloc::rc::Rc;
 use core::cell::RefCell;
 use core::option::Option::Some;

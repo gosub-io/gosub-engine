@@ -92,11 +92,13 @@ fn run_tree_test(test_idx: usize, test: &Test, results: &mut TestResults) {
         results.failed += 1;
     }
 
-    if result.actual_errors.len() != test.errors.len() {
+    let errors = test.errors();
+
+    if result.actual_errors.len() != errors.len() {
         #[cfg(feature = "debug_parser")]
         println!(
             "⚠️ Unexpected errors found (wanted {}, got {}): ",
-            test.errors.len(),
+            errors.len(),
             result.actual_errors.len()
         );
 
@@ -163,12 +165,12 @@ fn run_tree_test(test_idx: usize, test: &Test, results: &mut TestResults) {
     if !result.success() {
         results
             .tests_failed
-            .push((test_idx, test.line, test.data.to_string()));
+            .push((test_idx, test.line, test.data().to_string()));
 
         if cfg!(feature = "debug_parser") {
             println!("----------------------------------------");
             println!("📄 Input stream: ");
-            println!("{}", test.data);
+            println!("{}", test.data());
             println!("----------------------------------------");
             println!("🌳 Generated tree: ");
             println!("{}", result.actual_document);

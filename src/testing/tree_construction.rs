@@ -1,8 +1,10 @@
+mod parser;
+
+use self::parser::{ErrorSpec, ScriptMode, TestSpec};
 use super::FIXTURE_ROOT;
 use crate::html5::node::{HTML_NAMESPACE, MATHML_NAMESPACE, SVG_NAMESPACE};
 use crate::{
     html5::{
-        error_logger::ParseError,
         input_stream::InputStream,
         node::{NodeData, NodeId},
         parser::{
@@ -10,12 +12,10 @@ use crate::{
             Html5Parser,
         },
     },
-    types::Result,
+    types::{ParseError, Result},
 };
-use regex::Regex;
 use std::{
-    fs::{self, File},
-    io::{BufRead, BufReader},
+    fs,
     path::{Path, PathBuf},
 };
 
@@ -23,12 +23,12 @@ use std::{
 #[derive(Debug, PartialEq)]
 pub struct FixtureFile {
     pub tests: Vec<Test>,
-    pub path: PathBuf,
+    pub path: String,
 }
 
 /// Holds information about an error
 #[derive(Clone, Debug, PartialEq)]
-pub struct Error {
+pub struct TestError {
     /// The code or message of the error
     pub code: String,
     /// The line number (1-based) where the error occurred
@@ -44,16 +44,10 @@ pub struct Test {
     pub file_path: String,
     /// Line number of the test
     pub line: usize,
-    /// Actual input stream data
-    pub data: String,
-    /// Any errors that are expected to be found
-    pub errors: Vec<Error>,
+    /// The specification of the test provided in the test file
+    pub spec: TestSpec,
     /// The document tree that is expected to be parsed
     pub document: Vec<String>,
-    /// The fragment that is expected to be parsed
-    document_fragment: Vec<String>,
-    /// True when scripting in the parser should be enabled during test
-    scripting_enabled: bool,
 }
 
 /// Holds the result of a single "node" (which is either an element, text or comment)
@@ -108,11 +102,17 @@ impl SubtreeResult {
 #[derive(PartialEq)]
 pub enum ErrorResult {
     /// Found the correct error
-    Success { actual: Error },
+    Success { actual: TestError },
     /// Didn't find the error (not even with incorrect position)
-    Failure { actual: Error, expected: Error },
+    Failure {
+        actual: TestError,
+        expected: TestError,
+    },
     /// Found the error, but on an incorrect position
-    PositionFailure { actual: Error, expected: Error },
+    PositionFailure {
+        actual: TestError,
+        expected: TestError,
+    },
 }
 
 pub struct TestResult {
@@ -128,6 +128,14 @@ impl TestResult {
 }
 
 impl Test {
+    pub fn data(&self) -> &str {
+        self.spec.data.strip_suffix('\n').unwrap_or_default()
+    }
+
+    pub fn errors(&self) -> &Vec<ErrorSpec> {
+        &self.spec.errors
+    }
+
     /// Runs the test and returns the result
     pub fn run(&self) -> Result<TestResult> {
         let (actual_document, actual_errors) = self.parse()?;
@@ -192,10 +200,14 @@ impl Test {
     pub fn parse(&self) -> Result<(DocumentHandle, Vec<ParseError>)> {
         // Do the actual parsing
         let mut is = InputStream::new();
-        is.read_from_str(self.data.as_str(), None);
-
+        is.read_from_str(self.data(), None);
         let mut parser = Html5Parser::new(&mut is);
-        parser.enabled_scripting(self.scripting_enabled);
+
+        let enabled = matches!(
+            self.spec.script_mode,
+            ScriptMode::ScriptOn | ScriptMode::Both
+        );
+        parser.enabled_scripting(enabled);
 
         let document = Document::shared();
         let parse_errors = parser.parse(Document::clone(&document))?;
@@ -393,7 +405,7 @@ impl Test {
     }
 
     #[allow(dead_code)]
-    fn match_error(actual: &Error, expected: &Error) -> ErrorResult {
+    fn match_error(actual: &TestError, expected: &TestError) -> ErrorResult {
         if actual == expected {
             return ErrorResult::Success {
                 actual: actual.to_owned(),
@@ -421,105 +433,39 @@ pub fn fixture_from_filename(filename: &str) -> Result<FixtureFile> {
     fixture_from_path(&path)
 }
 
-/// Reads a given test file and extract all test data
+// Split into an array of lines.  Combine lines in cases where a subsequent line does not
+// have a "|" prefix using an "\n" delimiter.  Otherwise strip "\n" from lines.
+fn document(s: &str) -> Vec<String> {
+    s.split('|')
+        .skip(1)
+        .filter_map(|l| {
+            if l.is_empty() {
+                None
+            } else {
+                Some(format!("|{}", l.trim_end()))
+            }
+        })
+        .collect::<Vec<_>>()
+}
+
+/// Read a given test file and extract all test data
 pub fn fixture_from_path(path: &PathBuf) -> Result<FixtureFile> {
-    let file = File::open(path)?;
-    // TODO: use thiserror to translate library errors
-    let reader = BufReader::new(file);
+    let input = fs::read_to_string(path)?;
+    let path = path.to_string_lossy().into_owned();
 
-    let mut tests = Vec::new();
-    let mut current_test = Test {
-        file_path: path.to_str().unwrap().to_string(),
-        line: 1,
-        data: "".to_string(),
-        scripting_enabled: true,
-        errors: vec![],
-        document: vec![],
-        document_fragment: vec![],
-    };
-    let mut section: Option<&str> = None;
-
-    for (line_num, line) in reader.lines().enumerate() {
-        let line = line?;
-
-        if line.starts_with("#data") {
-            if !current_test.data.is_empty()
-                || !current_test.errors.is_empty()
-                || !current_test.document.is_empty()
-            {
-                current_test.data = current_test.data.strip_suffix('\n').unwrap().to_string();
-                tests.push(current_test);
-                current_test = Test {
-                    file_path: path.to_str().unwrap().to_string(),
-                    line: line_num,
-                    data: "".to_string(),
-                    errors: vec![],
-                    document: vec![],
-                    document_fragment: vec![],
-                    scripting_enabled: true,
-                };
-            }
-            section = Some("data");
-        } else if line.starts_with('#') {
-            if line.as_str() == "#script-off" {
-                current_test.scripting_enabled = false;
-            }
-            if line.as_str() == "#script-on" {
-                current_test.scripting_enabled = true;
-            }
-
-            section = match line.as_str() {
-                "#errors" => Some("errors"),
-                "#document" => Some("document"),
-                _ => None,
-            };
-        } else if let Some(sec) = section {
-            match sec {
-                "data" => {
-                    current_test.data.push_str(&line);
-                    current_test.data.push('\n');
-                }
-                "errors" => {
-                    let re = Regex::new(r"\((?P<line>\d+),(?P<col>\d+)\): (?P<code>.+)").unwrap();
-                    if let Some(caps) = re.captures(&line) {
-                        let line = caps.name("line").unwrap().as_str().parse::<i64>().unwrap();
-                        let col = caps.name("col").unwrap().as_str().parse::<i64>().unwrap();
-                        let code = caps.name("code").unwrap().as_str().to_string();
-
-                        current_test.errors.push(Error { code, line, col });
-                    }
-                }
-                "document" => {
-                    let length = current_test.document.len();
-                    if length > 1 && !line.starts_with('|') && !line.is_empty() {
-                        current_test.document[length - 1].push('\n');
-                        current_test.document[length - 1].push_str(&line);
-                    } else {
-                        current_test.document.push(line)
-                    }
-                }
-                "document_fragment" => current_test.document_fragment.push(line),
-                _ => (),
-            }
-        }
-    }
-
-    // Push the last test if it has data
-    if !current_test.data.is_empty()
-        || !current_test.errors.is_empty()
-        || !current_test.document.is_empty()
-    {
-        current_test.data = current_test
-            .data
-            .strip_suffix('\n')
-            .unwrap_or("")
-            .to_string();
-        tests.push(current_test);
-    }
+    let tests = parser::parse_str(&input)?
+        .into_iter()
+        .map(|spec| Test {
+            file_path: path.to_string(),
+            line: spec.position.line,
+            document: document(&spec.document),
+            spec,
+        })
+        .collect::<Vec<_>>();
 
     Ok(FixtureFile {
         tests,
-        path: path.to_path_buf(),
+        path: path.to_string(),
     })
 }
 

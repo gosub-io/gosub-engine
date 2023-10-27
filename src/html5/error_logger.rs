@@ -1,4 +1,5 @@
 use crate::html5::input_stream::Position;
+use crate::types::ParseError;
 
 /// Possible parser error enumerated
 pub enum ParserError {
@@ -150,19 +151,6 @@ impl ParserError {
             ParserError::ExpectedDocTypeButGotEndTag => "expected-doctype-but-got-end-tag",
         }
     }
-}
-
-/// Parser error that defines an error (message) on the given position
-#[derive(Debug, PartialEq, Clone)]
-pub struct ParseError {
-    /// Parse error message
-    pub message: String,
-    /// Line number (1-based) of the error
-    pub line: usize,
-    // Column (1-based) on line of the error
-    pub col: usize,
-    // Position (0-based) of the error in the input stream
-    pub offset: usize,
 }
 
 #[derive(Clone)]

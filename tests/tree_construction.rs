@@ -117,13 +117,13 @@ fn tree_construction(filename: &str) {
     let fixture_file = fixture_from_filename(filename).expect("fixture");
 
     for test in fixture_file.tests {
-        if DISABLED.contains(&test.data) {
+        if DISABLED.contains(test.data()) {
             // Check that we don't panic
             let _ = test.parse().expect("problem parsing");
             continue;
         }
 
-        println!("tree construction: {}", test.data);
+        println!("tree construction: {}", test.data());
         test.assert_valid();
     }
 }
