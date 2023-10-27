@@ -212,7 +212,7 @@ impl Node {
                 }
                 self_attributes.eq(&other_attributes)
             }
-            _ => self.data == other.data
+            _ => self.data == other.data,
         }
     }
 }
