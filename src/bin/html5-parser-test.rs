@@ -13,7 +13,7 @@ fn main() -> Result<()> {
     let mut failed = 0;
 
     for file in files.iter() {
-        let fixture = fixture_from_filename(file.as_str())?;
+        let fixture = fixture_from_filename(file)?;
         print!("Test: ({:3}) {} [", fixture.tests.len(), file);
         let _ = std::io::stdout().flush();
 
