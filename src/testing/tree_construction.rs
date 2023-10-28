@@ -1,6 +1,6 @@
 mod parser;
 
-use self::parser::{ErrorSpec, ScriptMode, TestSpec};
+use self::parser::{ErrorSpec, ScriptMode, TestSpec, QUOTED_DOUBLE_NEWLINE};
 use super::FIXTURE_ROOT;
 use crate::html5::node::{HTML_NAMESPACE, MATHML_NAMESPACE, SVG_NAMESPACE};
 use crate::{
@@ -436,7 +436,9 @@ pub fn fixture_from_filename(filename: &str) -> Result<FixtureFile> {
 // Split into an array of lines.  Combine lines in cases where a subsequent line does not
 // have a "|" prefix using an "\n" delimiter.  Otherwise strip "\n" from lines.
 fn document(s: &str) -> Vec<String> {
-    s.split('|')
+    let mut document = s
+        .replace(QUOTED_DOUBLE_NEWLINE, "\"\n\n\"")
+        .split('|')
         .skip(1)
         .filter_map(|l| {
             if l.is_empty() {
@@ -445,7 +447,11 @@ fn document(s: &str) -> Vec<String> {
                 Some(format!("|{}", l.trim_end()))
             }
         })
-        .collect::<Vec<_>>()
+        .collect::<Vec<_>>();
+
+    // TODO: drop the following line
+    document.push("".into());
+    document
 }
 
 /// Read a given test file and extract all test data

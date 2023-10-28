@@ -11,6 +11,8 @@ use nom::{
 };
 use nom_locate::{position, LocatedSpan};
 
+pub const QUOTED_DOUBLE_NEWLINE: &str = ":quoted-double-newline:";
+
 type Span<'a> = LocatedSpan<&'a str>;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -306,7 +308,8 @@ fn test(i: Span) -> IResult<Span, TestSpec> {
 }
 
 pub fn parse_str(i: &str) -> Result<Vec<TestSpec>> {
-    let input = i.to_owned() + "\n";
+    // Deal with a corner case that makes it hard to parse tricky01.dat.
+    let input = i.replace("\"\n\n\"", QUOTED_DOUBLE_NEWLINE).to_owned() + "\n";
 
     let files = map(
         tuple((separated_list1(tag("\n\n"), test), multispace0)),
@@ -750,7 +753,7 @@ x"
 
     #[test]
     fn foreign_fragment_dat_169() {
-        let (_, test) = test(
+        let (_, test) = parse_test(
             r#"
 #data
 <b></b><mglyph/><i></i><malignmark/><u></u><ms/>X
@@ -770,8 +773,8 @@ math ms
 | <ms>
 |   "X"
 
-"#.trim_start().into(),
-        ).unwrap();
+"#,
+        );
 
         assert_eq!(test.errors.len(), 2);
         let error = test.errors.first().unwrap();
@@ -780,5 +783,46 @@ math ms
         assert_eq!(test.new_errors.len(), 1);
         let error = test.new_errors.first().unwrap();
         assert!(matches!(error, ErrorSpec::Span { .. }));
+    }
+
+    #[test]
+    fn tests10_data_638() {
+        let (_, test) = parse_test(
+            r#"
+#data
+<svg><script></script><path>
+#errors
+(1,5) expected-doctype-but-got-start-tag
+(1,28) expected-closing-tag-but-got-eof
+#document
+| <html>
+|   <head>
+|   <body>
+|     <svg svg>
+|       <svg script>
+|       <svg path>
+
+"#,
+        );
+
+        assert!(test.document.ends_with("path>"));
+    }
+
+    #[test]
+    fn tests_inner_html_1_dat_837() {
+        let (_, test) = parse_test(
+            r#"
+#data
+#errors
+#document-fragment
+html
+#document
+| <head>
+| <body>
+
+"#,
+        );
+
+        assert_eq!(test.data, "");
     }
 }
