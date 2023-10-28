@@ -467,7 +467,6 @@ impl<'stream> Html5Parser<'stream> {
 
         if handle_as_script_endtag {
             self.open_elements.pop();
-            self.insertion_mode = self.original_insertion_mode;
 
             let old_insertion_point = self.insertion_point;
             self.insertion_point = Some(self.tokenizer.get_position().offset);
