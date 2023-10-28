@@ -776,7 +776,7 @@ impl<'stream> Html5Parser<'stream> {
 
                         // Remove the node pointed to by the head element pointer from the stack of open elements (might not be current node at this point)
                         if let Some(node_id) = self.head_element {
-                            self.open_elements.retain(|&x| x != node_id);
+                            self.open_elements_remove(node_id);
                         }
                     }
                     Token::EndTagToken { name, .. } if name == "template" => {
@@ -1986,9 +1986,12 @@ impl<'stream> Html5Parser<'stream> {
             Token::StartTagToken { name, .. } if name == "body" => {
                 self.parse_error("body tag not allowed in in body insertion mode");
 
-                if self.open_elements.len() > 1
-                    || open_elements_get!(self, NodeId::root().next().as_usize()).name != "body"
-                {
+                if self.open_elements.len() == 1 {
+                    // ignore token
+                    return;
+                }
+
+                if open_elements_get!(self, NodeId::root().next().as_usize()).name != "body" {
                     // ignore token
                     return;
                 }
@@ -2297,7 +2300,7 @@ impl<'stream> Html5Parser<'stream> {
                     if node_id != cn.id {
                         self.parse_error("end tag not at top of stack");
                     }
-                    self.open_elements.retain(|&id| id != node_id);
+                    self.open_elements_remove(node_id);
                 } else {
                     if !self.is_in_scope(name, Scope::Regular) {
                         self.parse_error("end tag not in scope");

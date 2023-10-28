@@ -39,8 +39,6 @@ const DISABLED_CASES: &[&str] = &[
     "<body>X</body></body>",
     // tests18.dat
     "<!doctype html><template><plaintext>a</template>b",
-    // tests19.dat
-    "<!doctype html><div><body><frameset>",
 ];
 
 lazy_static! {
