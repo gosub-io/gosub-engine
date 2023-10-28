@@ -187,12 +187,14 @@ pub struct Html5Parser<'stream> {
     parser_pause_flag: bool,
     /// Keeps the position of where any document.write() should be inserted when running a script
     insertion_point: Option<usize>,
-    // ignore when next token is LF
+    /// ignore when next token is LF
     ignore_lf: bool,
-    // Sometimes tokens needs to be split up (and it seems the tokenizer cannot do this?)
+    /// Sometimes tokens needs to be split up (and it seems the tokenizer cannot do this?)
     token_queue: Vec<Token>,
-    // When true, the parser is finished and should not consume more tokens (there aren't any)
+    /// When true, the parser is finished and should not consume more tokens (there aren't any)
     parser_finished: bool,
+    /// Context node for fragment parsing
+    context: Option<NodeId>,
 }
 
 /// Defines the scopes for in_scope()
@@ -211,16 +213,10 @@ enum DispatcherMode {
 }
 
 impl<'stream> Html5Parser<'stream> {
-    // Creates a new parser object with the given input stream
-    pub fn new(stream: &'stream mut InputStream) -> Self {
+    // Initializes the parser for whole document parsing
+    pub fn new(stream: &'stream mut InputStream, document_handle: DocumentHandle) -> Self {
         // Create a new error logger that will be used in both the tokenizer and the parser
         let error_logger = Rc::new(RefCell::new(ErrorLogger::new()));
-
-        // Dummy document. Will be replaced later by the parse() function
-        let mut document = Document::shared();
-        // Revisit this
-        let root = Document::clone(&document);
-        document.get_mut().create_root(&root);
 
         let tokenizer = Tokenizer::new(stream, None, error_logger.clone());
 
@@ -243,7 +239,7 @@ impl<'stream> Html5Parser<'stream> {
             ack_self_closing: false,
             active_formatting_elements: vec![],
             is_fragment_case: false,
-            document,
+            document: document_handle,
             error_logger,
             script_nesting_level: 0,
             parser_pause_flag: false,
@@ -251,15 +247,71 @@ impl<'stream> Html5Parser<'stream> {
             ignore_lf: false,
             token_queue: vec![],
             parser_finished: false,
+            context: None,
+        }
+    }
+
+    // Initializes the parser for document fragment parsing
+    pub fn new_fragment(
+        stream: &'stream mut InputStream,
+        document_handle: DocumentHandle,
+        context: NodeId,
+        form_element: Option<NodeId>,
+    ) -> Self {
+        // @todo: maybe bound the error logger into the documentHandle, as errors are always bound to the document
+        // Create a new error logger that will be used in both the tokenizer and the parser
+        let error_logger = Rc::new(RefCell::new(ErrorLogger::new()));
+
+        let tokenizer = Tokenizer::new(stream, None, error_logger.clone());
+
+        // Check if we are a fragment in/on a template tag
+        let node = document_handle
+            .get()
+            .get_node_by_id(context)
+            .unwrap()
+            .clone();
+        let is_template_context = node.name == "template" && node.is_namespace(HTML_NAMESPACE);
+
+        Html5Parser {
+            tokenizer,
+            insertion_mode: InsertionMode::Initial,
+            original_insertion_mode: InsertionMode::Initial,
+            template_insertion_mode: if is_template_context {
+                vec![InsertionMode::InTemplate]
+            } else {
+                vec![]
+            },
+            parser_cannot_change_mode: false,
+            current_token: Token::EofToken,
+            reprocess_token: false,
+            open_elements: Vec::new(),
+            head_element: None,
+            form_element,
+            scripting_enabled: true,
+            frameset_ok: true,
+            foster_parenting: false,
+            script_already_started: false,
+            pending_table_character_tokens: String::new(),
+            ack_self_closing: false,
+            active_formatting_elements: vec![],
+            is_fragment_case: true,
+            document: document_handle,
+            error_logger,
+            script_nesting_level: 0,
+            parser_pause_flag: false,
+            insertion_point: None,
+            ignore_lf: false,
+            token_queue: vec![],
+            parser_finished: false,
+            context: Some(context),
         }
     }
 
     /// Parses the input stream into a Node tree
-    pub fn parse(&mut self, document: DocumentHandle) -> Result<Vec<ParseError>> {
-        self.document = document;
-        // Revisit approach
-        let root = Document::clone(&self.document);
-        self.document.get_mut().create_root(&root);
+    pub fn parse(&mut self) -> Result<Vec<ParseError>> {
+        // // Revisit approach
+        // let root = Document::clone(&self.document);
+        // self.document.get_mut().create_root(&root);
 
         loop {
             // When the parser is signalled to finish, we break our main parser loop
@@ -3604,6 +3656,9 @@ impl<'stream> Html5Parser<'stream> {
     }
 
     fn get_adjusted_current_node(&self) -> Node {
+        if self.is_fragment_case {
+            return get_node_by_id!(self.document, self.context.expect("node id not found"));
+        }
         // @todo: if the parser was created as part of the HTML fragment parsing algorithm, and the stack of open elements has only
         // one element in it the adjusted current node is the context element
 
@@ -3684,6 +3739,7 @@ impl<'stream> Html5Parser<'stream> {
 mod test {
     use super::*;
     use crate::html5::input_stream::Encoding;
+    use crate::html5::parser::document::DocumentBuilder;
 
     macro_rules! node_create {
         ($self:expr, $name:expr) => {{
@@ -3698,8 +3754,9 @@ mod test {
 
     #[test]
     fn is_in_scope() {
+        let document = DocumentBuilder::new_document();
         let mut stream = InputStream::new();
-        let mut parser = Html5Parser::new(&mut stream);
+        let mut parser = Html5Parser::new(&mut stream, document.clone());
 
         node_create!(parser, "html");
         node_create!(parser, "div");
@@ -3713,8 +3770,9 @@ mod test {
 
     #[test]
     fn is_in_scope_empty_stack() {
+        let document = DocumentBuilder::new_document();
         let mut stream = InputStream::new();
-        let mut parser = Html5Parser::new(&mut stream);
+        let mut parser = Html5Parser::new(&mut stream, document.clone());
 
         parser.open_elements.clear();
         assert!(!parser.is_in_scope("p", Scope::Regular));
@@ -3725,8 +3783,9 @@ mod test {
 
     #[test]
     fn is_in_scope_non_existing_node() {
+        let document = Document::shared();
         let mut stream = InputStream::new();
-        let mut parser = Html5Parser::new(&mut stream);
+        let mut parser = Html5Parser::new(&mut stream, document.clone());
 
         node_create!(parser, "html");
         node_create!(parser, "div");
@@ -3741,8 +3800,9 @@ mod test {
 
     #[test]
     fn is_in_scope_1() {
+        let document = Document::shared();
         let mut stream = InputStream::new();
-        let mut parser = Html5Parser::new(&mut stream);
+        let mut parser = Html5Parser::new(&mut stream, document.clone());
 
         node_create!(parser, "html");
         node_create!(parser, "div");
@@ -3779,8 +3839,9 @@ mod test {
 
     #[test]
     fn is_in_scope_2() {
+        let document = Document::shared();
         let mut stream = InputStream::new();
-        let mut parser = Html5Parser::new(&mut stream);
+        let mut parser = Html5Parser::new(&mut stream, document.clone());
 
         node_create!(parser, "html");
         node_create!(parser, "body");
@@ -3798,8 +3859,9 @@ mod test {
 
     #[test]
     fn is_in_scope_3() {
+        let document = Document::shared();
         let mut stream = InputStream::new();
-        let mut parser = Html5Parser::new(&mut stream);
+        let mut parser = Html5Parser::new(&mut stream, document.clone());
 
         node_create!(parser, "html");
         node_create!(parser, "body");
@@ -3817,8 +3879,9 @@ mod test {
 
     #[test]
     fn is_in_scope_4() {
+        let document = Document::shared();
         let mut stream = InputStream::new();
-        let mut parser = Html5Parser::new(&mut stream);
+        let mut parser = Html5Parser::new(&mut stream, document.clone());
 
         node_create!(parser, "html");
         node_create!(parser, "body");
@@ -3838,8 +3901,9 @@ mod test {
 
     #[test]
     fn is_in_scope_5() {
+        let document = Document::shared();
         let mut stream = InputStream::new();
-        let mut parser = Html5Parser::new(&mut stream);
+        let mut parser = Html5Parser::new(&mut stream, document.clone());
 
         node_create!(parser, "html");
         node_create!(parser, "body");
@@ -3858,8 +3922,9 @@ mod test {
 
     #[test]
     fn is_in_scope_6() {
+        let document = Document::shared();
         let mut stream = InputStream::new();
-        let mut parser = Html5Parser::new(&mut stream);
+        let mut parser = Html5Parser::new(&mut stream, document.clone());
 
         node_create!(parser, "html");
         node_create!(parser, "body");
@@ -3878,8 +3943,9 @@ mod test {
 
     #[test]
     fn is_in_scope_7() {
+        let document = Document::shared();
         let mut stream = InputStream::new();
-        let mut parser = Html5Parser::new(&mut stream);
+        let mut parser = Html5Parser::new(&mut stream, document.clone());
 
         node_create!(parser, "html");
         node_create!(parser, "body");
@@ -3897,8 +3963,9 @@ mod test {
 
     #[test]
     fn is_in_scope_8() {
+        let document = Document::shared();
         let mut stream = InputStream::new();
-        let mut parser = Html5Parser::new(&mut stream);
+        let mut parser = Html5Parser::new(&mut stream, document.clone());
 
         node_create!(parser, "html");
         node_create!(parser, "body");
@@ -3921,9 +3988,9 @@ mod test {
             Some(Encoding::UTF8),
         );
 
-        let mut parser = Html5Parser::new(&mut stream);
-        let document = Document::shared();
-        parser.parse(Document::clone(&document)).expect("");
+        let document = DocumentBuilder::new_document();
+        let mut parser = Html5Parser::new(&mut stream, document.clone());
+        parser.parse().expect("");
 
         println!("{}", document);
     }
@@ -3933,9 +4000,9 @@ mod test {
         let mut stream = InputStream::new();
         stream.read_from_str("<div class=\"one two three\"></div>", Some(Encoding::UTF8));
 
-        let mut parser = Html5Parser::new(&mut stream);
-        let document = Document::shared();
-        parser.parse(Document::clone(&document)).expect("");
+        let document = DocumentBuilder::new_document();
+        let mut parser = Html5Parser::new(&mut stream, document.clone());
+        parser.parse().expect("");
 
         let binding = document.get();
 
@@ -3965,9 +4032,9 @@ mod test {
             Some(Encoding::UTF8),
         );
 
-        let mut parser = Html5Parser::new(&mut stream);
-        let document = Document::shared();
-        parser.parse(Document::clone(&document)).expect("");
+        let document = DocumentBuilder::new_document();
+        let mut parser = Html5Parser::new(&mut stream, document.clone());
+        parser.parse().expect("");
 
         let binding = document.get();
 
@@ -3999,9 +4066,9 @@ mod test {
             Some(Encoding::UTF8),
         );
 
-        let mut parser = Html5Parser::new(&mut stream);
-        let document = Document::shared();
-        parser.parse(Document::clone(&document)).expect("");
+        let document = DocumentBuilder::new_document();
+        let mut parser = Html5Parser::new(&mut stream, document.clone());
+        parser.parse().expect("");
 
         let binding = document.get();
 
@@ -4024,18 +4091,22 @@ mod test {
             Some(Encoding::UTF8),
         );
 
-        let mut parser = Html5Parser::new(&mut stream);
-        let mut document = Document::shared();
-        parser.parse(Document::clone(&document)).expect("doc");
+        let document = DocumentBuilder::new_document();
+        let mut parser = Html5Parser::new(&mut stream, document.clone());
+        parser.parse().expect("doc");
 
         {
-            let binding = document.get();
-            let div = binding.get_node_by_named_id("myid").unwrap();
+            let binding = document.clone();
+            let handle = binding.get();
+            let div = handle.get_node_by_named_id("myid").unwrap();
             assert_eq!(div.id, NodeId(4));
         }
 
-        let mut binding = document.get_mut();
-        binding.set_node_named_id(NodeId(4), "otherid");
-        assert!(binding.get_node_by_named_id("myid").is_none());
+        {
+            let mut binding = document.clone();
+            let mut handle = binding.get_mut();
+            handle.set_node_named_id(NodeId(4), "otherid");
+            assert!(handle.get_node_by_named_id("myid").is_none());
+        }
     }
 }
