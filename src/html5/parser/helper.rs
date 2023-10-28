@@ -308,7 +308,7 @@ impl<'stream> Html5Parser<'stream> {
     pub fn adoption_agency_algorithm(&mut self, token: &Token) {
         // step 1
         let subject = match token {
-            Token::StartTagToken { name, .. } | Token::EndTagToken { name, .. } => name,
+            Token::StartTag { name, .. } | Token::EndTag { name, .. } => name,
             _ => panic!("un reached"),
         };
         let current_node = current_node!(self);
