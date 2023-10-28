@@ -137,20 +137,25 @@ impl Test {
     }
 
     /// Runs the test and returns the result
-    pub fn run(&self) -> Result<TestResult> {
-        let (actual_document, actual_errors) = self.parse()?;
-        let root = self.match_document_tree(&actual_document.get());
+    pub fn run(&self) -> Result<Vec<TestResult>> {
+        let mut results = vec![];
 
-        Ok(TestResult {
-            root,
-            actual_document,
-            actual_errors,
-        })
+        for &scripting_enabled in self.script_modes() {
+            let (actual_document, actual_errors) = self.parse(scripting_enabled)?;
+            let root = self.match_document_tree(&actual_document.get());
+            results.push(TestResult {
+                root,
+                actual_document,
+                actual_errors,
+            });
+        }
+
+        Ok(results)
     }
 
     /// Verifies that the tree construction code obtains the right result
     pub fn assert_valid(&self) {
-        let result = self.run().expect("failed to parse");
+        let results = self.run().expect("failed to parse");
 
         fn assert_tree(tree: &SubtreeResult) {
             match &tree.node {
@@ -192,22 +197,19 @@ impl Test {
             tree.children.iter().for_each(assert_tree);
         }
 
-        assert_tree(&result.root);
-        assert!(result.success(), "invalid tree-construction result");
+        for result in results {
+            assert_tree(&result.root);
+            assert!(result.success(), "invalid tree-construction result");
+        }
     }
 
     /// Run the parser and return the document and errors
-    pub fn parse(&self) -> Result<(DocumentHandle, Vec<ParseError>)> {
+    pub fn parse(&self, scripting_enabled: bool) -> Result<(DocumentHandle, Vec<ParseError>)> {
         // Do the actual parsing
         let mut is = InputStream::new();
         is.read_from_str(self.data(), None);
         let mut parser = Html5Parser::new(&mut is);
-
-        let enabled = matches!(
-            self.spec.script_mode,
-            ScriptMode::ScriptOn | ScriptMode::Both
-        );
-        parser.enabled_scripting(enabled);
+        parser.enabled_scripting(scripting_enabled);
 
         let document = Document::shared();
         let parse_errors = parser.parse(Document::clone(&document))?;
@@ -422,6 +424,14 @@ impl Test {
         ErrorResult::PositionFailure {
             expected: expected.to_owned(),
             actual: actual.to_owned(),
+        }
+    }
+
+    pub fn script_modes(&self) -> &[bool] {
+        match self.spec.script_mode {
+            ScriptMode::ScriptOff => &[false],
+            ScriptMode::ScriptOn => &[true],
+            ScriptMode::Both => &[false, true],
         }
     }
 }

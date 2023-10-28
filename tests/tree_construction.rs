@@ -118,8 +118,10 @@ fn tree_construction(filename: &str) {
 
     for test in fixture_file.tests {
         if DISABLED.contains(test.data()) {
-            // Check that we don't panic
-            let _ = test.parse().expect("problem parsing");
+            for &scripting_enabled in test.script_modes() {
+                // Check that we don't panic
+                let _ = test.parse(scripting_enabled).expect("problem parsing");
+            }
             continue;
         }
 
