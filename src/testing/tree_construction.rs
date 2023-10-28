@@ -3,6 +3,7 @@ mod parser;
 use self::parser::{ErrorSpec, ScriptMode, TestSpec, QUOTED_DOUBLE_NEWLINE};
 use super::FIXTURE_ROOT;
 use crate::html5::node::{HTML_NAMESPACE, MATHML_NAMESPACE, SVG_NAMESPACE};
+use crate::html5::parser::document::DocumentBuilder;
 use crate::{
     html5::{
         input_stream::InputStream,
@@ -205,14 +206,15 @@ impl Test {
 
     /// Run the parser and return the document and errors
     pub fn parse(&self, scripting_enabled: bool) -> Result<(DocumentHandle, Vec<ParseError>)> {
-        // Do the actual parsing
+        let document = DocumentBuilder::new_document();
+
         let mut is = InputStream::new();
         is.read_from_str(self.data(), None);
-        let mut parser = Html5Parser::new(&mut is);
+
+        let mut parser = Html5Parser::new(&mut is, Document::clone(&document));
         parser.enabled_scripting(scripting_enabled);
 
-        let document = Document::shared();
-        let parse_errors = parser.parse(Document::clone(&document))?;
+        let parse_errors = parser.parse()?;
 
         Ok((document, parse_errors))
     }
