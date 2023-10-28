@@ -19,16 +19,18 @@ fn main() -> Result<()> {
 
         // Run tests
         for test in fixture.tests {
-            let result = test.run().expect("problem running tree construction test");
+            let results = test.run().expect("problem running tree construction test");
 
-            total += 1;
-            if result.success() {
-                print!(".");
-            } else {
-                print!("X");
-                failed += 1;
+            for result in results {
+                total += 1;
+                if result.success() {
+                    print!(".");
+                } else {
+                    print!("X");
+                    failed += 1;
+                }
+                let _ = std::io::stdout().flush();
             }
-            let _ = std::io::stdout().flush();
         }
 
         println!("]");
