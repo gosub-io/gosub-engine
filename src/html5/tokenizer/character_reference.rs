@@ -129,7 +129,7 @@ impl<'stream> Tokenizer<'stream> {
 
                     let c = self.read_char();
                     match c {
-                        // Element::Eof => ccr_state = CcrState::NumericalCharacterReferenceEndState,
+                        // Element::Eof => ccr_state = CcrState::NumericalCharacterReferenceEnd,
                         Ch('X') | Ch('x') => {
                             self.temporary_buffer.push(c.into());
                             ccr_state = CcrState::HexadecimalCharacterReferenceStart;
@@ -143,7 +143,7 @@ impl<'stream> Tokenizer<'stream> {
                 CcrState::HexadecimalCharacterReferenceStart => {
                     let c = self.read_char();
                     match c {
-                        // Element::Eof => ccr_state = CcrState::NumericalCharacterReferenceEndState,
+                        // Element::Eof => ccr_state = CcrState::NumericalCharacterReferenceEnd,
                         Ch('0'..='9') | Ch('A'..='F') | Ch('a'..='f') => {
                             self.stream.unread();
                             ccr_state = CcrState::HexadecimalCharacterReference
@@ -180,7 +180,7 @@ impl<'stream> Tokenizer<'stream> {
                 CcrState::HexadecimalCharacterReference => {
                     let c = self.read_char();
                     match c {
-                        // Element::Eof => ccr_state = CcrState::NumericalCharacterReferenceEndState,
+                        // Element::Eof => ccr_state = CcrState::NumericalCharacterReferenceEnd,
                         Ch(c @ '0'..='9') => {
                             let i = c as u32 - 0x30;
                             if let Some(value) = char_ref_code {

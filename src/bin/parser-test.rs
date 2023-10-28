@@ -31,7 +31,7 @@ fn main() -> Result<()> {
         tests_failed: Vec::new(),
     };
 
-    let filenames = Some(&["template.dat"][..]);
+    let filenames = Some(&["tests19.dat"][..]);
     let fixtures = testing::tree_construction::fixtures(filenames).expect("fixtures");
 
     for fixture_file in fixtures {
@@ -43,9 +43,9 @@ fn main() -> Result<()> {
 
         let mut test_idx = 1;
         for test in fixture_file.tests {
-            if test_idx == 39 {
-                run_tree_test(test_idx, &test, &mut results);
-            }
+            // if test_idx == 81 {
+            run_tree_test(test_idx, &test, &mut results);
+            // }
             test_idx += 1;
         }
 
@@ -185,7 +185,6 @@ fn run_tree_test(test_idx: usize, test: &Test, all_results: &mut TestResults) {
 
         #[cfg(feature = "debug_parser")]
         println!("----------------------------------------");
-        println!("Test index: {}", test_idx);
     }
 }
 

@@ -246,6 +246,7 @@ impl<'stream> Html5Parser<'stream> {
         self.insert_text_helper(node_id, insertion_position, token);
     }
 
+    // @todo: where is the fragment case handled? (substep 4: https://html.spec.whatwg.org/multipage/parsing.html#appropriate-place-for-inserting-a-node)
     pub fn appropriate_place_insert(
         &self,
         override_node: Option<NodeId>,

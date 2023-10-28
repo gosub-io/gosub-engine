@@ -1,6 +1,6 @@
 use crate::html5::parser::Html5Parser;
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Copy, Clone)]
 pub enum QuirksMode {
     Quirks,
     LimitedQuirks,
@@ -156,15 +156,13 @@ static LIMITED_QUIRKS_PUB_IDENTIFIER_PREFIX_NOT_MISSING_SYS: &[&str] = &[
 #[cfg(test)]
 mod tests {
     use crate::html5::input_stream::InputStream;
-    use crate::html5::parser::document::DocumentBuilder;
     use crate::html5::parser::Html5Parser;
     use crate::html5::parser::QuirksMode;
 
     #[test]
     fn test_quirks_mode() {
-        let doc = DocumentBuilder::new_document();
-        let mut stream = InputStream::new();
-        let parser = Html5Parser::new(&mut stream, doc.clone());
+        let stream = &mut InputStream::new();
+        let parser = Html5Parser::new_parser(stream);
 
         assert_eq!(
             parser.identify_quirks_mode(&None, None, None, false),
@@ -249,9 +247,8 @@ mod tests {
 
     #[test]
     fn test_quirks_mode_force() {
-        let doc = DocumentBuilder::new_document();
-        let mut stream = InputStream::new();
-        let parser = Html5Parser::new(&mut stream, doc.clone());
+        let stream = &mut InputStream::new();
+        let parser = Html5Parser::new_parser(stream);
 
         assert_eq!(
             parser.identify_quirks_mode(&Some("html".to_string()), None, None, true),
@@ -324,9 +321,8 @@ mod tests {
 
     #[test]
     fn test_quirks_mode_sys() {
-        let doc = DocumentBuilder::new_document();
-        let mut stream = InputStream::new();
-        let parser = Html5Parser::new(&mut stream, doc.clone());
+        let stream = &mut InputStream::new();
+        let parser = Html5Parser::new_parser(stream);
 
         assert_eq!(
             parser.identify_quirks_mode(
@@ -350,9 +346,8 @@ mod tests {
 
     #[test]
     fn test_quirks_mode_sys_missing() {
-        let doc = DocumentBuilder::new_document();
-        let mut stream = InputStream::new();
-        let parser = Html5Parser::new(&mut stream, doc.clone());
+        let stream = &mut InputStream::new();
+        let parser = Html5Parser::new_parser(stream);
 
         assert_eq!(
             parser.identify_quirks_mode(
