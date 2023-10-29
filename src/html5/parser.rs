@@ -1709,86 +1709,90 @@ impl<'stream> Html5Parser<'stream> {
                 //   node = context element !???
                 // }
             }
-
-            if node.name == "select" {
-                if last {
-                    self.insertion_mode = InsertionMode::InSelect;
-                    return;
-                }
-
-                let mut ancestor_idx = idx;
-                loop {
-                    if ancestor_idx == 0 {
+            match node.name.as_str() {
+                "select" => {
+                    if last {
                         self.insertion_mode = InsertionMode::InSelect;
                         return;
                     }
 
-                    ancestor_idx -= 1;
-                    let ancestor = open_elements_get!(self, ancestor_idx);
+                    let mut ancestor_idx = idx;
+                    loop {
+                        if ancestor_idx == 0 {
+                            self.insertion_mode = InsertionMode::InSelect;
+                            return;
+                        }
 
-                    if ancestor.name == "template" {
-                        self.insertion_mode = InsertionMode::InSelect;
-                        return;
+                        ancestor_idx -= 1;
+                        let ancestor = open_elements_get!(self, ancestor_idx);
+                        match ancestor.name.as_str() {
+                            "template" => {
+                                self.insertion_mode = InsertionMode::InSelect;
+                                return;
+                            }
+                            "table" => {
+                                self.insertion_mode = InsertionMode::InSelectInTable;
+                                return;
+                            }
+                            _ => {}
+                        }
                     }
-
-                    if ancestor.name == "table" {
-                        self.insertion_mode = InsertionMode::InSelectInTable;
+                }
+                "td" | "th" => {
+                    if !last {
+                        self.insertion_mode = InsertionMode::InCell;
                         return;
                     }
                 }
-            }
-
-            if (node.name == "td" || node.name == "th") && !last {
-                self.insertion_mode = InsertionMode::InCell;
-                return;
-            }
-            if node.name == "tr" {
-                self.insertion_mode = InsertionMode::InRow;
-                return;
-            }
-            if ["tbody", "thead", "tfoot"]
-                .iter()
-                .any(|&elem| elem == node.name)
-            {
-                self.insertion_mode = InsertionMode::InTableBody;
-                return;
-            }
-            if node.name == "caption" {
-                self.insertion_mode = InsertionMode::InCaption;
-                return;
-            }
-            if node.name == "colgroup" {
-                self.insertion_mode = InsertionMode::InColumnGroup;
-                return;
-            }
-            if node.name == "table" {
-                self.insertion_mode = InsertionMode::InTable;
-                return;
-            }
-            if node.name == "template" {
-                self.insertion_mode = *self.template_insertion_mode.last().unwrap();
-                return;
-            }
-            if node.name == "head" && !last {
-                self.insertion_mode = InsertionMode::InHead;
-                return;
-            }
-            if node.name == "body" {
-                self.insertion_mode = InsertionMode::InBody;
-                return;
-            }
-            if node.name == "frameset" {
-                self.insertion_mode = InsertionMode::InFrameset;
-                return;
-            }
-            if node.name == "html" {
-                if self.head_element.is_none() {
-                    self.insertion_mode = InsertionMode::BeforeHead;
+                "tr" => {
+                    self.insertion_mode = InsertionMode::InRow;
                     return;
                 }
-                self.insertion_mode = InsertionMode::AfterHead;
-                return;
+                "tbody" | "thead" | "tfoot" => {
+                    self.insertion_mode = InsertionMode::InTableBody;
+                    return;
+                }
+                "caption" => {
+                    self.insertion_mode = InsertionMode::InCaption;
+                    return;
+                }
+                "colgroup" => {
+                    self.insertion_mode = InsertionMode::InColumnGroup;
+                    return;
+                }
+                "table" => {
+                    self.insertion_mode = InsertionMode::InTable;
+                    return;
+                }
+                "template" => {
+                    self.insertion_mode = *self.template_insertion_mode.last().unwrap();
+                    return;
+                }
+                "head" => {
+                    if !last {
+                        self.insertion_mode = InsertionMode::InHead;
+                        return;
+                    }
+                }
+                "body" => {
+                    self.insertion_mode = InsertionMode::InBody;
+                    return;
+                }
+                "frameset" => {
+                    self.insertion_mode = InsertionMode::InFrameset;
+                    return;
+                }
+                "html" => {
+                    if self.head_element.is_none() {
+                        self.insertion_mode = InsertionMode::BeforeHead;
+                        return;
+                    }
+                    self.insertion_mode = InsertionMode::AfterHead;
+                    return;
+                }
+                _ => {}
             }
+
             if last {
                 self.insertion_mode = InsertionMode::InBody;
                 return;
