@@ -13,10 +13,12 @@ fn criterion_benchmark(c: &mut Criterion) {
         b.iter(|| {
             for root in &fixtures {
                 for test in &root.tests {
-                    let _ = test.parse().unwrap();
+                    for &scripting_enabled in test.script_modes() {
+                        let _ = test.parse(scripting_enabled).unwrap();
+                    }
                 }
             }
-        })
+        });
     });
 
     group.finish();

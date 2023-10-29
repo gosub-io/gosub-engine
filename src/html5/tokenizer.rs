@@ -98,7 +98,7 @@ impl<'stream> Tokenizer<'stream> {
         self.consume_stream()?;
 
         if self.token_queue.is_empty() {
-            return Ok(Token::EofToken);
+            return Ok(Token::Eof);
         }
 
         Ok(self.token_queue.remove(0))
@@ -133,7 +133,7 @@ impl<'stream> Tokenizer<'stream> {
                             //     self.emit_token(Token::TextToken { value: self.get_consumed_str() });
                             //     self.clear_consume_buffer();
                             // }
-                            self.emit_token(Token::EofToken);
+                            self.emit_token(Token::Eof);
                         }
                         _ => self.consume(c.utf8()),
                     }
@@ -152,7 +152,7 @@ impl<'stream> Tokenizer<'stream> {
                             //     self.emit_token(Token::TextToken { value: self.get_consumed_str().clone() });
                             //     self.clear_consume_buffer();
                             // }
-                            self.emit_token(Token::EofToken);
+                            self.emit_token(Token::Eof);
                         }
                         Element::Utf8(CHAR_NUL) => {
                             self.consume(CHAR_REPLACEMENT);
@@ -180,7 +180,7 @@ impl<'stream> Tokenizer<'stream> {
                             //     self.emit_token(Token::TextToken { value: self.get_consumed_str() });
                             //     self.clear_consume_buffer();
                             // }
-                            self.emit_token(Token::EofToken);
+                            self.emit_token(Token::Eof);
                         }
                         _ => self.consume(c.utf8()),
                     }
@@ -198,7 +198,7 @@ impl<'stream> Tokenizer<'stream> {
                             //     self.emit_token(Token::TextToken { value: self.get_consumed_str().clone() });
                             //     self.clear_consume_buffer();
                             // }
-                            self.emit_token(Token::EofToken);
+                            self.emit_token(Token::Eof);
                         }
                         _ => self.consume(c.utf8()),
                     }
@@ -215,7 +215,7 @@ impl<'stream> Tokenizer<'stream> {
                             //     self.emit_token(Token::TextToken { value: self.get_consumed_str().clone() });
                             //     self.clear_consume_buffer();
                             // }
-                            self.emit_token(Token::EofToken);
+                            self.emit_token(Token::Eof);
                         }
                         _ => self.consume(c.utf8()),
                     }
@@ -226,7 +226,7 @@ impl<'stream> Tokenizer<'stream> {
                         Element::Utf8('!') => self.state = State::MarkupDeclarationOpenState,
                         Element::Utf8('/') => self.state = State::EndTagOpenState,
                         Element::Utf8(ch) if ch.is_ascii_alphabetic() => {
-                            self.current_token = Some(Token::StartTagToken {
+                            self.current_token = Some(Token::StartTag {
                                 name: "".into(),
                                 is_self_closing: false,
                                 attributes: HashMap::new(),
@@ -235,7 +235,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.state = State::TagNameState;
                         }
                         Element::Utf8('?') => {
-                            self.current_token = Some(Token::CommentToken { value: "".into() });
+                            self.current_token = Some(Token::Comment("".into()));
                             self.parse_error(ParserError::UnexpectedQuestionMarkInsteadOfTagName);
                             self.stream.unread();
                             self.state = State::BogusCommentState;
@@ -257,10 +257,9 @@ impl<'stream> Tokenizer<'stream> {
                     let c = self.read_char();
                     match c {
                         Element::Utf8(ch) if ch.is_ascii_alphabetic() => {
-                            self.current_token = Some(Token::EndTagToken {
+                            self.current_token = Some(Token::EndTag {
                                 name: "".into(),
                                 is_self_closing: false,
-                                attributes: HashMap::new(),
                             });
                             self.stream.unread();
                             self.state = State::TagNameState;
@@ -278,7 +277,7 @@ impl<'stream> Tokenizer<'stream> {
                         _ => {
                             self.parse_error(ParserError::InvalidFirstCharacterOfTagName);
 
-                            self.current_token = Some(Token::CommentToken { value: "".into() });
+                            self.current_token = Some(Token::Comment("".into()));
                             self.stream.unread();
                             self.state = State::BogusCommentState;
                         }
@@ -326,10 +325,9 @@ impl<'stream> Tokenizer<'stream> {
                     let c = self.read_char();
                     match c {
                         Element::Utf8(ch) if ch.is_ascii_alphabetic() => {
-                            self.current_token = Some(Token::EndTagToken {
+                            self.current_token = Some(Token::EndTag {
                                 name: "".into(),
                                 is_self_closing: false,
-                                attributes: HashMap::new(),
                             });
                             self.stream.unread();
                             self.state = State::RcDataEndTagNameState;
@@ -354,7 +352,7 @@ impl<'stream> Tokenizer<'stream> {
                         | Element::Utf8(CHAR_FF)
                         | Element::Utf8(CHAR_SPACE) => {
                             let current_end_tag_name = match &self.current_token {
-                                Some(Token::EndTagToken { name, .. }) => name,
+                                Some(Token::EndTag { name, .. }) => name,
                                 _ => "",
                             };
                             if self.is_appropriate_end_token(current_end_tag_name) {
@@ -365,7 +363,7 @@ impl<'stream> Tokenizer<'stream> {
                         }
                         Element::Utf8('/') => {
                             let current_end_tag_name = match &self.current_token {
-                                Some(Token::EndTagToken { name, .. }) => name,
+                                Some(Token::EndTag { name, .. }) => name,
                                 _ => "",
                             };
                             if self.is_appropriate_end_token(current_end_tag_name) {
@@ -376,7 +374,7 @@ impl<'stream> Tokenizer<'stream> {
                         }
                         Element::Utf8('>') => {
                             let current_end_tag_name = match &self.current_token {
-                                Some(Token::EndTagToken { name, .. }) => name,
+                                Some(Token::EndTag { name, .. }) => name,
                                 _ => "",
                             };
                             if self.is_appropriate_end_token(current_end_tag_name) {
@@ -422,10 +420,9 @@ impl<'stream> Tokenizer<'stream> {
                     let c = self.read_char();
                     match c {
                         Element::Utf8(ch) if ch.is_ascii_alphabetic() => {
-                            self.current_token = Some(Token::EndTagToken {
+                            self.current_token = Some(Token::EndTag {
                                 name: "".into(),
                                 is_self_closing: false,
-                                attributes: HashMap::new(),
                             });
                             self.stream.unread();
                             self.state = State::RawTextEndTagNameState;
@@ -450,7 +447,7 @@ impl<'stream> Tokenizer<'stream> {
                         | Element::Utf8(CHAR_FF)
                         | Element::Utf8(CHAR_SPACE) => {
                             let current_end_tag_name = match &self.current_token {
-                                Some(Token::EndTagToken { name, .. }) => name,
+                                Some(Token::EndTag { name, .. }) => name,
                                 _ => "",
                             };
                             if self.is_appropriate_end_token(current_end_tag_name) {
@@ -461,7 +458,7 @@ impl<'stream> Tokenizer<'stream> {
                         }
                         Element::Utf8('/') => {
                             let current_end_tag_name = match &self.current_token {
-                                Some(Token::EndTagToken { name, .. }) => name,
+                                Some(Token::EndTag { name, .. }) => name,
                                 _ => "",
                             };
                             if self.is_appropriate_end_token(current_end_tag_name) {
@@ -472,7 +469,7 @@ impl<'stream> Tokenizer<'stream> {
                         }
                         Element::Utf8('>') => {
                             let current_end_tag_name = match &self.current_token {
-                                Some(Token::EndTagToken { name, .. }) => name,
+                                Some(Token::EndTag { name, .. }) => name,
                                 _ => "",
                             };
                             if self.is_appropriate_end_token(current_end_tag_name) {
@@ -523,10 +520,9 @@ impl<'stream> Tokenizer<'stream> {
                     let c = self.read_char();
                     match c {
                         Element::Utf8(ch) if ch.is_ascii_alphabetic() => {
-                            self.current_token = Some(Token::EndTagToken {
+                            self.current_token = Some(Token::EndTag {
                                 name: "".into(),
                                 is_self_closing: false,
-                                attributes: HashMap::new(),
                             });
                             self.stream.unread();
                             self.state = State::ScriptDataEndTagNameState;
@@ -551,7 +547,7 @@ impl<'stream> Tokenizer<'stream> {
                         | Element::Utf8(CHAR_FF)
                         | Element::Utf8(CHAR_SPACE) => {
                             let current_end_tag_name = match &self.current_token {
-                                Some(Token::EndTagToken { name, .. }) => name,
+                                Some(Token::EndTag { name, .. }) => name,
                                 _ => "",
                             };
                             if self.is_appropriate_end_token(current_end_tag_name) {
@@ -562,7 +558,7 @@ impl<'stream> Tokenizer<'stream> {
                         }
                         Element::Utf8('/') => {
                             let current_end_tag_name = match &self.current_token {
-                                Some(Token::EndTagToken { name, .. }) => name,
+                                Some(Token::EndTag { name, .. }) => name,
                                 _ => "",
                             };
                             if self.is_appropriate_end_token(current_end_tag_name) {
@@ -573,7 +569,7 @@ impl<'stream> Tokenizer<'stream> {
                         }
                         Element::Utf8('>') => {
                             let current_end_tag_name = match &self.current_token {
-                                Some(Token::EndTagToken { name, .. }) => name,
+                                Some(Token::EndTag { name, .. }) => name,
                                 _ => "",
                             };
                             if self.is_appropriate_end_token(current_end_tag_name) {
@@ -729,10 +725,9 @@ impl<'stream> Tokenizer<'stream> {
 
                     match c {
                         Element::Utf8(ch) if ch.is_ascii_alphabetic() => {
-                            self.current_token = Some(Token::EndTagToken {
+                            self.current_token = Some(Token::EndTag {
                                 name: "".into(),
                                 is_self_closing: false,
-                                attributes: HashMap::new(),
                             });
 
                             self.stream.unread();
@@ -758,7 +753,7 @@ impl<'stream> Tokenizer<'stream> {
                         | Element::Utf8(CHAR_FF)
                         | Element::Utf8(CHAR_SPACE) => {
                             let current_end_tag_name = match &self.current_token {
-                                Some(Token::EndTagToken { name, .. }) => name,
+                                Some(Token::EndTag { name, .. }) => name,
                                 _ => "",
                             };
                             if self.is_appropriate_end_token(current_end_tag_name) {
@@ -769,7 +764,7 @@ impl<'stream> Tokenizer<'stream> {
                         }
                         Element::Utf8('/') => {
                             let current_end_tag_name = match &self.current_token {
-                                Some(Token::EndTagToken { name, .. }) => name,
+                                Some(Token::EndTag { name, .. }) => name,
                                 _ => "",
                             };
                             if self.is_appropriate_end_token(current_end_tag_name) {
@@ -780,7 +775,7 @@ impl<'stream> Tokenizer<'stream> {
                         }
                         Element::Utf8('>') => {
                             let current_end_tag_name = match &self.current_token {
-                                Some(Token::EndTagToken { name, .. }) => name,
+                                Some(Token::EndTag { name, .. }) => name,
                                 _ => "",
                             };
                             if self.is_appropriate_end_token(current_end_tag_name) {
@@ -1229,7 +1224,7 @@ impl<'stream> Tokenizer<'stream> {
                 }
                 State::MarkupDeclarationOpenState => {
                     if self.stream.look_ahead_slice(2) == "--" {
-                        self.current_token = Some(Token::CommentToken { value: "".into() });
+                        self.current_token = Some(Token::Comment("".into()));
 
                         // Skip the two -- signs
                         self.stream.seek(SeekCur, 2);
@@ -1251,9 +1246,7 @@ impl<'stream> Tokenizer<'stream> {
                         // then switch to the CDATA section state. Otherwise, this is a cdata-in-html-content parse error.
                         // Create a comment token whose data is the "[CDATA[" string. Switch to the bogus comment state.
                         self.parse_error(ParserError::CdataInHtmlContent);
-                        self.current_token = Some(Token::CommentToken {
-                            value: "[CDATA[".into(),
-                        });
+                        self.current_token = Some(Token::Comment("[CDATA[".into()));
 
                         self.state = State::BogusCommentState;
                         continue;
@@ -1262,7 +1255,7 @@ impl<'stream> Tokenizer<'stream> {
                     self.stream.seek(SeekCur, 1);
                     self.parse_error(ParserError::IncorrectlyOpenedComment);
                     self.stream.unread();
-                    self.current_token = Some(Token::CommentToken { value: "".into() });
+                    self.current_token = Some(Token::Comment("".into()));
 
                     self.state = State::BogusCommentState;
                 }
@@ -1465,7 +1458,7 @@ impl<'stream> Tokenizer<'stream> {
                         Element::Eof => {
                             self.parse_error(ParserError::EofInDoctype);
 
-                            self.emit_token(Token::DocTypeToken {
+                            self.emit_token(Token::DocType {
                                 name: None,
                                 force_quirks: true,
                                 pub_identifier: None,
@@ -1491,7 +1484,7 @@ impl<'stream> Tokenizer<'stream> {
                             // ignore
                         }
                         Element::Utf8(ch @ 'A'..='Z') => {
-                            self.current_token = Some(Token::DocTypeToken {
+                            self.current_token = Some(Token::DocType {
                                 name: None,
                                 force_quirks: false,
                                 pub_identifier: None,
@@ -1503,7 +1496,7 @@ impl<'stream> Tokenizer<'stream> {
                         }
                         Element::Utf8(CHAR_NUL) => {
                             self.parse_error(ParserError::UnexpectedNullCharacter);
-                            self.current_token = Some(Token::DocTypeToken {
+                            self.current_token = Some(Token::DocType {
                                 name: None,
                                 force_quirks: false,
                                 pub_identifier: None,
@@ -1515,7 +1508,7 @@ impl<'stream> Tokenizer<'stream> {
                         }
                         Element::Utf8('>') => {
                             self.parse_error(ParserError::MissingDoctypeName);
-                            self.emit_token(Token::DocTypeToken {
+                            self.emit_token(Token::DocType {
                                 name: None,
                                 force_quirks: true,
                                 pub_identifier: None,
@@ -1528,7 +1521,7 @@ impl<'stream> Tokenizer<'stream> {
                         Element::Eof => {
                             self.parse_error(ParserError::EofInDoctype);
 
-                            self.emit_token(Token::DocTypeToken {
+                            self.emit_token(Token::DocType {
                                 name: None,
                                 force_quirks: true,
                                 pub_identifier: None,
@@ -1538,7 +1531,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.state = State::DataState;
                         }
                         _ => {
-                            self.current_token = Some(Token::DocTypeToken {
+                            self.current_token = Some(Token::DocType {
                                 name: None,
                                 force_quirks: false,
                                 pub_identifier: None,
@@ -2071,21 +2064,21 @@ impl<'stream> Tokenizer<'stream> {
 
     /// Adds the given character to the current token's value (if applicable)
     fn add_to_token_value(&mut self, c: char) {
-        if let Some(Token::CommentToken { value, .. }) = &mut self.current_token {
+        if let Some(Token::Comment(value)) = &mut self.current_token {
             value.push(c);
         }
     }
 
     /// Sets the public identifier of the current token (if applicable)
     fn set_public_identifier(&mut self, s: String) {
-        if let Some(Token::DocTypeToken { pub_identifier, .. }) = &mut self.current_token {
+        if let Some(Token::DocType { pub_identifier, .. }) = &mut self.current_token {
             *pub_identifier = Some(s);
         }
     }
 
     /// Adds the given character to the current token's public identifier (if applicable)
     fn add_public_identifier(&mut self, c: char) {
-        if let Some(Token::DocTypeToken {
+        if let Some(Token::DocType {
             pub_identifier: Some(pid),
             ..
         }) = &mut self.current_token
@@ -2096,14 +2089,14 @@ impl<'stream> Tokenizer<'stream> {
 
     /// Sets the system identifier of the current token (if applicable)
     fn set_system_identifier(&mut self, s: String) {
-        if let Some(Token::DocTypeToken { sys_identifier, .. }) = &mut self.current_token {
+        if let Some(Token::DocType { sys_identifier, .. }) = &mut self.current_token {
             *sys_identifier = Some(s);
         }
     }
 
     /// Adds the given character to the current token's system identifier (if applicable)
     fn add_system_identifier(&mut self, c: char) {
-        if let Some(Token::DocTypeToken {
+        if let Some(Token::DocType {
             sys_identifier: Some(sid),
             ..
         }) = &mut self.current_token
@@ -2115,13 +2108,13 @@ impl<'stream> Tokenizer<'stream> {
     /// Adds the given character to the current token's name (if applicable)
     fn add_to_token_name(&mut self, c: char) {
         match &mut self.current_token {
-            Some(Token::StartTagToken { name, .. }) => {
+            Some(Token::StartTag { name, .. }) => {
                 name.push(c);
             }
-            Some(Token::EndTagToken { name, .. }) => {
+            Some(Token::EndTag { name, .. }) => {
                 name.push(c);
             }
-            Some(Token::DocTypeToken { name, .. }) => {
+            Some(Token::DocType { name, .. }) => {
                 // Doctype can have an optional name
                 match name {
                     Some(ref mut string) => string.push(c),
@@ -2142,7 +2135,7 @@ impl<'stream> Tokenizer<'stream> {
     /// Emits the given stored token. It does not have to be stored first.
     fn emit_token(&mut self, token: Token) {
         // Save the start token name if we are pushing it. This helps us in detecting matching tags.
-        if let Token::StartTagToken { name, .. } = &token {
+        if let Token::StartTag { name, .. } = &token {
             self.last_start_token = String::from(name);
         }
 
@@ -2150,9 +2143,7 @@ impl<'stream> Tokenizer<'stream> {
         if self.has_consumed_data() {
             let value = self.get_consumed_str().to_string();
 
-            self.token_queue.push(Token::TextToken {
-                value: value.to_string(),
-            });
+            self.token_queue.push(Token::Text(value.to_string()));
 
             self.clear_consume_buffer();
         }
@@ -2215,10 +2206,10 @@ impl<'stream> Tokenizer<'stream> {
     /// Set is_closing_tag in current token
     fn set_is_closing_in_current_token(&mut self, is_closing: bool) {
         match &mut self.current_token.as_mut().unwrap() {
-            Token::EndTagToken { .. } => {
+            Token::EndTag { .. } => {
                 self.parse_error(ParserError::EndTagWithTrailingSolidus);
             }
-            Token::StartTagToken {
+            Token::StartTag {
                 is_self_closing, ..
             } => {
                 *is_self_closing = is_closing;
@@ -2229,15 +2220,14 @@ impl<'stream> Tokenizer<'stream> {
 
     /// Set force_quirk mode in current token
     fn set_quirks_mode(&mut self, quirky: bool) {
-        if let Token::DocTypeToken { force_quirks, .. } = &mut self.current_token.as_mut().unwrap()
-        {
+        if let Token::DocType { force_quirks, .. } = &mut self.current_token.as_mut().unwrap() {
             *force_quirks = quirky;
         }
     }
 
     /// Adds a new attribute to the current token
     fn set_add_attribute_to_current_token(&mut self, name: &str, value: &str) {
-        if let Token::StartTagToken { attributes, .. } = &mut self.current_token.as_mut().unwrap() {
+        if let Token::StartTag { attributes, .. } = &mut self.current_token.as_mut().unwrap() {
             attributes.insert(name.into(), value.into());
         }
 
@@ -2247,10 +2237,10 @@ impl<'stream> Tokenizer<'stream> {
     /// Sets the given name into the current token
     fn set_name_in_current_token(&mut self, new_name: String) -> Result<()> {
         match &mut self.current_token.as_mut().expect("current token") {
-            Token::StartTagToken { name, .. } => {
+            Token::StartTag { name, .. } => {
                 *name = new_name;
             }
-            Token::EndTagToken { name, .. } => {
+            Token::EndTag { name, .. } => {
                 *name = new_name;
             }
             _ => {
@@ -2293,10 +2283,10 @@ impl<'stream> Tokenizer<'stream> {
         }
 
         match self.current_token.as_mut().expect("current token") {
-            Token::EndTagToken { .. } => {
+            Token::EndTag { .. } => {
                 self.parse_error(ParserError::EndTagWithAttributes);
             }
-            Token::StartTagToken { attributes, .. } => {
+            Token::StartTag { attributes, .. } => {
                 for (key, value) in &self.current_attrs {
                     attributes.insert(key.clone(), value.clone());
                 }

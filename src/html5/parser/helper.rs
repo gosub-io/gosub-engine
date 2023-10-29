@@ -308,7 +308,7 @@ impl<'stream> Html5Parser<'stream> {
     pub fn adoption_agency_algorithm(&mut self, token: &Token) {
         // step 1
         let subject = match token {
-            Token::StartTagToken { name, .. } | Token::EndTagToken { name, .. } => name,
+            Token::StartTag { name, .. } | Token::EndTag { name, .. } => name,
             _ => panic!("un reached"),
         };
         let current_node = current_node!(self);
@@ -468,10 +468,14 @@ impl<'stream> Html5Parser<'stream> {
             self.insert_element_helper(last_node_id, insert_position);
 
             // step 4.15
+            let format_elem_attributes = match format_elem_node.data {
+                NodeData::Element(element) => element.attributes.clone_map(),
+                _ => HashMap::new(),
+            };
             let new_format_node: Node = Node::new_element(
                 &self.document,
                 &format_elem_node.name,
-                HashMap::new(),
+                format_elem_attributes,
                 HTML_NAMESPACE,
             );
 

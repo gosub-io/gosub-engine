@@ -37,16 +37,8 @@ const DISABLED_CASES: &[&str] = &[
     "</body><frameset></frameset>",
     // tests7.dat
     "<body>X</body></body>",
-    // tests10.dat
-    "<div><svg><path><foreignObject><math></div>a",
-    "<div><svg><path><foreignObject><p></div>a",
-    "<!DOCTYPE html><p><svg><desc><p>",
-    "<!DOCTYPE html><p><svg><title><p>",
-    "<svg><script></script><path>",
     // tests18.dat
     "<!doctype html><template><plaintext>a</template>b",
-    // tests19.dat
-    "<!doctype html><div><body><frameset>",
 ];
 
 lazy_static! {
@@ -110,7 +102,7 @@ lazy_static! {
 #[test_case("tables01.dat")]
 // #[test_case("template.dat")]
 // #[test_case("test_innerHTML_1.dat")]
-// #[test_case("tricky01.dat")]
+#[test_case("tricky01.dat")]
 #[test_case("webkit01.dat")]
 // #[test_case("webkit02.dat")]
 fn tree_construction(filename: &str) {
@@ -118,8 +110,10 @@ fn tree_construction(filename: &str) {
 
     for test in fixture_file.tests {
         if DISABLED.contains(test.data()) {
-            // Check that we don't panic
-            let _ = test.parse().expect("problem parsing");
+            for &scripting_enabled in test.script_modes() {
+                // Check that we don't panic
+                let _ = test.parse(scripting_enabled).expect("problem parsing");
+            }
             continue;
         }
 

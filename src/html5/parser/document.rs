@@ -261,16 +261,6 @@ impl Document {
         self.arena.print_nodes();
     }
 
-    /// Creates the document root node
-    pub fn create_root(&mut self, document: &DocumentHandle) {
-        // previously this used to be in the constructor, but now that
-        // we require a document pointer with every node creation, this
-        // was separated.
-
-        let node = Node::new_document(document);
-        self.arena.register_node(node);
-    }
-
     /// Fetches a node by id or returns None when no node with this ID is found
     pub fn get_node_by_id(&self, node_id: NodeId) -> Option<&Node> {
         self.arena.get_node(node_id)
@@ -553,7 +543,7 @@ impl Document {
     }
 }
 
-impl fmt::Display for Document {
+impl Display for Document {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.print_tree(self.get_root(), "".to_string(), true, f);
         Ok(())
@@ -715,6 +705,28 @@ impl DocumentHandle {
     }
 }
 
+/// This struct will be used to create a fully initialized document or document fragment
+pub struct DocumentBuilder;
+
+impl DocumentBuilder {
+    /// Creates a new document with a document root node
+    pub fn new_document() -> DocumentHandle {
+        let mut doc = Document::shared();
+
+        let handle = &Document::clone(&doc);
+        let node = Node::new_document(handle);
+        doc.get_mut().arena.register_node(node);
+
+        doc
+    }
+
+    /// Creates a new document fragment with the context as the root node
+    pub fn new_document_fragment(_doc: DocumentHandle, _context: NodeId) -> DocumentHandle {
+        // @TODO: Create a document fragment and set doc/context as the root node
+        todo!();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::html5::node::{NodeTrait, HTML_NAMESPACE};
@@ -725,9 +737,7 @@ mod tests {
 
     #[test]
     fn relocate() {
-        let mut document = Document::shared();
-        let document_clone = Document::clone(&document);
-        document.get_mut().create_root(&document_clone);
+        let mut document = DocumentBuilder::new_document();
 
         let parent = Node::new_element(&document, "parent", HashMap::new(), HTML_NAMESPACE);
         let node1 = Node::new_element(&document, "div1", HashMap::new(), HTML_NAMESPACE);
@@ -779,11 +789,13 @@ mod tests {
 
     #[test]
     fn set_named_id_to_element() {
-        let attributes = HashMap::new();
         let mut document = Document::shared();
+
+        let attributes = HashMap::new();
         let node = Node::new_element(&document, "div", attributes.clone(), HTML_NAMESPACE);
         let node_id = NodeId::from(0);
         let _ = document.get_mut().add_node(node, node_id, None);
+
         // invalid name (empty)
         document.get_mut().set_node_named_id(node_id, "");
         assert!(!document
@@ -824,7 +836,7 @@ mod tests {
 
     #[test]
     fn set_named_id_to_non_element() {
-        let mut document = Document::shared();
+        let mut document = DocumentBuilder::new_document();
         let node = Node::new_text(&document, "sample");
         let node_id = NodeId::from(0);
         let _ = document.get_mut().add_node(node, node_id, None);
@@ -885,9 +897,7 @@ mod tests {
 
     #[test]
     fn verify_node_ids_in_element_data() {
-        let mut document = Document::shared();
-        let document_clone = Document::clone(&document);
-        document.get_mut().create_root(&document_clone);
+        let mut document = DocumentBuilder::new_document();
 
         let node1 = Node::new_element(&document, "div", HashMap::new(), HTML_NAMESPACE);
         let node2 = Node::new_element(&document, "div", HashMap::new(), HTML_NAMESPACE);
