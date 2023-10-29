@@ -61,10 +61,32 @@ pub struct TestSpec {
     pub errors: Vec<TokenError>,
     #[serde(default)]
     pub double_escaped: bool,
-    #[serde(default)]
-    pub initial_states: Vec<String>,
+    #[serde(default, deserialize_with = "deserialize_states")]
+    pub initial_states: Vec<TokenState>,
     #[serde(default)]
     pub last_start_tag: Option<String>,
+}
+
+// We only care about six states that are found in the tests rather than handling deserialization
+// of all possible states.
+fn deserialize_states<'de, D>(deserializer: D) -> std::result::Result<Vec<TokenState>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let values: Vec<Value> = Deserialize::deserialize(deserializer)?;
+    let states = values
+        .into_iter()
+        .map(|value| match value.as_str() {
+            Some("Data state") => TokenState::Data,
+            Some("CDATA section state") => TokenState::CDATASection,
+            Some("PLAINTEXT state") => TokenState::PLAINTEXT,
+            Some("RAWTEXT state") => TokenState::RAWTEXT,
+            Some("RCDATA state") => TokenState::RCDATA,
+            Some("Script data state") => TokenState::ScriptData,
+            _ => unreachable!("{}", value),
+        })
+        .collect::<Vec<_>>();
+    Ok(states)
 }
 
 // Deserialize the contents of the test.output array into Vec<Token>
@@ -158,20 +180,10 @@ impl TestSpec {
         // If no initial state is given, assume Data state
         let mut states = self.initial_states.clone();
         if states.is_empty() {
-            states.push(String::from("Data state"));
+            states.push(TokenState::Data);
         }
 
-        for state in states.iter() {
-            let state = match state.as_str() {
-                "PLAINTEXT state" => TokenState::PlaintextState,
-                "RAWTEXT state" => TokenState::RawTextState,
-                "RCDATA state" => TokenState::RcDataState,
-                "Script data state" => TokenState::ScriptDataState,
-                "CDATA section state" => TokenState::CDataSectionState,
-                "Data state" => TokenState::DataState,
-                _ => panic!("unknown state found in test: {} ", state),
-            };
-
+        for state in states.into_iter() {
             let mut is = InputStream::new();
             let input = if self.double_escaped {
                 from_utf16_lossy(&self.input)

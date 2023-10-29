@@ -2269,7 +2269,7 @@ impl<'stream> Html5Parser<'stream> {
 
                 self.insert_html_element(&self.current_token.clone());
 
-                self.tokenizer.state = State::PlaintextState;
+                self.tokenizer.state = State::PLAINTEXT;
             }
             Token::StartTag { name, .. } if name == "button" => {
                 if self.is_in_scope("button", Scope::Regular) {
@@ -2647,7 +2647,7 @@ impl<'stream> Html5Parser<'stream> {
 
                 self.ignore_lf = true;
 
-                self.tokenizer.state = State::RcDataState;
+                self.tokenizer.state = State::RCDATA;
                 self.original_insertion_mode = self.insertion_mode;
                 self.frameset_ok = false;
                 self.insertion_mode = InsertionMode::Text;
@@ -2858,7 +2858,7 @@ impl<'stream> Html5Parser<'stream> {
 
                 self.open_elements.push(node_id);
 
-                self.tokenizer.state = State::ScriptDataState;
+                self.tokenizer.state = State::ScriptData;
                 self.original_insertion_mode = self.insertion_mode;
                 self.insertion_mode = InsertionMode::Text;
             }
@@ -3534,7 +3534,7 @@ impl<'stream> Html5Parser<'stream> {
     fn parse_raw_data(&mut self) {
         self.insert_html_element(&self.current_token.clone());
 
-        self.tokenizer.state = State::RawTextState;
+        self.tokenizer.state = State::RAWTEXT;
 
         self.original_insertion_mode = self.insertion_mode;
         self.insertion_mode = InsertionMode::Text;
@@ -3544,7 +3544,7 @@ impl<'stream> Html5Parser<'stream> {
     fn parse_rcdata(&mut self) {
         self.insert_html_element(&self.current_token.clone());
 
-        self.tokenizer.state = State::RcDataState;
+        self.tokenizer.state = State::RCDATA;
 
         self.original_insertion_mode = self.insertion_mode;
         self.insertion_mode = InsertionMode::Text;
