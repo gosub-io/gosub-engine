@@ -1,6 +1,7 @@
 mod attr_replacements;
 pub mod document;
 mod quirks;
+mod tree_builder;
 
 // ------------------------------------------------------------
 
