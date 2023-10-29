@@ -37,16 +37,8 @@ const DISABLED_CASES: &[&str] = &[
     "</body><frameset></frameset>",
     // tests7.dat
     "<body>X</body></body>",
-    // tests10.dat
-    "<div><svg><path><foreignObject><math></div>a",
-    "<div><svg><path><foreignObject><p></div>a",
-    "<!DOCTYPE html><p><svg><desc><p>",
-    "<!DOCTYPE html><p><svg><title><p>",
-    "<svg><script></script><path>",
     // tests18.dat
     "<!doctype html><template><plaintext>a</template>b",
-    // tests19.dat
-    "<!doctype html><div><body><frameset>",
 ];
 
 lazy_static! {
