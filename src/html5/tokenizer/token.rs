@@ -19,37 +19,32 @@ pub struct Attribute {
 }
 
 /// The different token structures that can be emitted by the tokenizer
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Token {
-    DocTypeToken {
+    DocType {
         name: Option<String>,
         force_quirks: bool,
         pub_identifier: Option<String>,
         sys_identifier: Option<String>,
     },
-    StartTagToken {
+    StartTag {
         name: String,
         is_self_closing: bool,
         attributes: HashMap<String, String>,
     },
-    EndTagToken {
+    EndTag {
         name: String,
         is_self_closing: bool,
-        attributes: HashMap<String, String>,
     },
-    CommentToken {
-        value: String,
-    },
-    TextToken {
-        value: String,
-    },
-    EofToken,
+    Comment(String),
+    Text(String),
+    Eof,
 }
 
 impl Token {
     /// Returns true when any of the characters in the token are null
     pub fn is_null(&self) -> bool {
-        if let Token::TextToken { value } = self {
+        if let Token::Text(value) = self {
             value.chars().any(|ch| ch == CHAR_NUL)
         } else {
             false
@@ -58,12 +53,12 @@ impl Token {
 
     /// Returns true when the token is an EOF token
     pub fn is_eof(&self) -> bool {
-        matches!(self, Token::EofToken)
+        matches!(self, Token::Eof)
     }
 
     /// Returns true if the text token is empty or only contains whitespace
     pub fn is_empty_or_white(&self) -> bool {
-        if let Token::TextToken { value } = self {
+        if let Token::Text(value) = self {
             ["\u{0009}", "\u{000a}", "\u{000c}", "\u{000d}", "\u{0020}"].contains(&value.as_str())
         } else {
             false
@@ -71,7 +66,7 @@ impl Token {
     }
 
     pub(crate) fn is_start_tag(&self, wanted_name: &str) -> bool {
-        if let Token::StartTagToken { name, .. } = self {
+        if let Token::StartTag { name, .. } = self {
             name == wanted_name
         } else {
             false
@@ -79,11 +74,11 @@ impl Token {
     }
 
     pub(crate) fn is_any_start_tag(&self) -> bool {
-        matches!(self, Token::StartTagToken { .. })
+        matches!(self, Token::StartTag { .. })
     }
 
     pub(crate) fn is_text_token(&self) -> bool {
-        matches!(self, Token::TextToken { .. })
+        matches!(self, Token::Text(..))
     }
 }
 
@@ -91,7 +86,7 @@ impl Token {
 impl std::fmt::Display for Token {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            Token::DocTypeToken {
+            Token::DocType {
                 name,
                 pub_identifier,
                 sys_identifier,
@@ -107,9 +102,9 @@ impl std::fmt::Display for Token {
                 result.push_str(" />");
                 write!(f, "{}", result)
             }
-            Token::CommentToken { value } => write!(f, "<!-- {} -->", value),
-            Token::TextToken { value } => write!(f, "{}", value),
-            Token::StartTagToken {
+            Token::Comment(value) => write!(f, "<!-- {} -->", value),
+            Token::Text(value) => write!(f, "{}", value),
+            Token::StartTag {
                 name,
                 is_self_closing,
                 attributes,
@@ -124,76 +119,41 @@ impl std::fmt::Display for Token {
                 result.push('>');
                 write!(f, "{}", result)
             }
-            Token::EndTagToken {
+            Token::EndTag {
                 name,
                 is_self_closing,
                 ..
             } => write!(f, "</{}{}>", name, if *is_self_closing { "/" } else { "" }),
-            Token::EofToken => write!(f, "EOF"),
-        }
-    }
-}
-
-pub trait TokenTrait {
-    /// Return the token type of the given token
-    fn type_of(&self) -> TokenType;
-}
-
-// Each token implements the TokenTrait and has a type_of that will return the tokentype.
-impl TokenTrait for Token {
-    fn type_of(&self) -> TokenType {
-        match self {
-            Token::DocTypeToken { .. } => TokenType::DocTypeToken,
-            Token::StartTagToken { .. } => TokenType::StartTagToken,
-            Token::EndTagToken { .. } => TokenType::EndTagToken,
-            Token::CommentToken { .. } => TokenType::CommentToken,
-            Token::TextToken { .. } => TokenType::TextToken,
-            Token::EofToken => TokenType::EofToken,
+            Token::Eof => write!(f, "EOF"),
         }
     }
 }
 
 #[cfg(test)]
-
 mod tests {
     use super::*;
 
     #[test]
-    fn test_token_type() {
-        let token = Token::DocTypeToken {
-            name: None,
-            force_quirks: false,
-            pub_identifier: None,
-            sys_identifier: None,
-        };
-        assert_eq!(token.type_of(), TokenType::DocTypeToken);
-    }
-
-    #[test]
     fn test_token_is_null() {
-        let token = Token::TextToken {
-            value: "Hello\0World".to_string(),
-        };
+        let token = Token::Text("Hello\0World".to_string());
         assert!(token.is_null());
     }
 
     #[test]
     fn test_token_is_eof() {
-        let token = Token::EofToken;
+        let token = Token::Eof;
         assert!(token.is_eof());
     }
 
     #[test]
     fn test_token_is_empty_or_white() {
-        let token = Token::TextToken {
-            value: " ".to_string(),
-        };
+        let token = Token::Text(" ".to_string());
         assert!(token.is_empty_or_white());
     }
 
     #[test]
     fn test_token_display() {
-        let token = Token::DocTypeToken {
+        let token = Token::DocType {
             name: Some("html".to_string()),
             force_quirks: false,
             pub_identifier: None,
@@ -201,7 +161,7 @@ mod tests {
         };
         assert_eq!(format!("{}", token), "<!DOCTYPE html />");
 
-        let token = Token::DocTypeToken {
+        let token = Token::DocType {
             name: Some("html".to_string()),
             force_quirks: false,
             pub_identifier: Some("foo".to_string()),
@@ -215,31 +175,25 @@ mod tests {
 
     #[test]
     fn test_token_display_comment() {
-        let token = Token::CommentToken {
-            value: "Hello World".to_string(),
-        };
+        let token = Token::Comment("Hello World".to_string());
         assert_eq!(format!("{}", token), "<!-- Hello World -->");
     }
 
     #[test]
     fn test_token_display_comment_with_html() {
-        let token = Token::CommentToken {
-            value: "<p>Hello world</p>".to_string(),
-        };
+        let token = Token::Comment("<p>Hello world</p>".to_string());
         assert_eq!(format!("{}", token), "<!-- <p>Hello world</p> -->");
     }
 
     #[test]
     fn test_token_display_text() {
-        let token = Token::TextToken {
-            value: "Hello World".to_string(),
-        };
+        let token = Token::Text("Hello World".to_string());
         assert_eq!(format!("{}", token), "Hello World");
     }
 
     #[test]
     fn test_token_display_start_tag() {
-        let token = Token::StartTagToken {
+        let token = Token::StartTag {
             name: "html".to_string(),
             is_self_closing: false,
             attributes: HashMap::new(),
@@ -249,14 +203,14 @@ mod tests {
         let mut attributes = HashMap::new();
         attributes.insert("foo".to_string(), "bar".to_string());
 
-        let token = Token::StartTagToken {
+        let token = Token::StartTag {
             name: "html".to_string(),
             is_self_closing: false,
             attributes,
         };
         assert_eq!(format!("{}", token), "<html foo=\"bar\">");
 
-        let token = Token::StartTagToken {
+        let token = Token::StartTag {
             name: "br".to_string(),
             is_self_closing: true,
             attributes: HashMap::new(),
@@ -266,17 +220,16 @@ mod tests {
 
     #[test]
     fn test_token_display_end_tag() {
-        let token = Token::EndTagToken {
+        let token = Token::EndTag {
             name: "html".to_string(),
             is_self_closing: false,
-            attributes: HashMap::new(),
         };
         assert_eq!(format!("{}", token), "</html>");
     }
 
     #[test]
     fn test_token_display_eof() {
-        let token = Token::EofToken;
+        let token = Token::Eof;
         assert_eq!(format!("{}", token), "EOF");
     }
 }

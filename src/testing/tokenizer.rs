@@ -4,50 +4,23 @@ use crate::html5::{
     input_stream::InputStream,
     tokenizer::{
         state::State as TokenState,
-        token::{Attribute, Token, TokenType},
+        token::Token,
         {Options, Tokenizer},
     },
 };
 use crate::types::Result;
 use lazy_static::lazy_static;
 use regex::{Captures, Regex};
-use serde_derive::{Deserialize, Serialize};
+use serde::{
+    de::{Error, Unexpected},
+    Deserialize, Deserializer,
+};
 use serde_json::Value;
-use std::collections::{HashMap, HashSet};
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 use std::{
     fs,
     path::{Path, PathBuf},
 };
-
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FixtureFile {
-    pub tests: Vec<Test>,
-}
-
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Error {
-    pub code: String,
-    pub line: i64,
-    pub col: i64,
-}
-
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Test {
-    pub description: String,
-    pub input: String,
-    pub output: Vec<Vec<Value>>,
-    #[serde(default)]
-    pub errors: Vec<Error>,
-    #[serde(default)]
-    pub double_escaped: Option<bool>,
-    #[serde(default)]
-    pub initial_states: Vec<String>,
-    pub last_start_tag: Option<String>,
-}
 
 pub struct TokenizerBuilder {
     input_stream: InputStream,
@@ -69,7 +42,116 @@ impl TokenizerBuilder {
     }
 }
 
-impl Test {
+#[derive(Default, Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TokenError {
+    pub code: String,
+    pub line: usize,
+    pub col: usize,
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestSpec {
+    pub description: String,
+    pub input: String,
+    #[serde(deserialize_with = "deserialize_output")]
+    pub output: Vec<Token>,
+    #[serde(default)]
+    pub errors: Vec<TokenError>,
+    #[serde(default)]
+    pub double_escaped: bool,
+    #[serde(default)]
+    pub initial_states: Vec<String>,
+    #[serde(default)]
+    pub last_start_tag: Option<String>,
+}
+
+// Deserialize the contents of the test.output array into Vec<Token>
+fn deserialize_output<'de, D>(deserializer: D) -> std::result::Result<Vec<Token>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let tokens: Vec<Vec<Value>> = Deserialize::deserialize(deserializer)?;
+    let mut output = vec![];
+
+    fn attributes(value: &Value) -> HashMap<String, String> {
+        value
+            .as_object()
+            .unwrap()
+            .into_iter()
+            .filter_map(|(name, value)| {
+                if value.is_null() {
+                    None
+                } else {
+                    Some((name.to_owned(), value.as_str().unwrap().to_owned()))
+                }
+            })
+            .collect::<HashMap<String, String>>()
+    }
+
+    for values in tokens {
+        let kind: &str = values[0].as_str().unwrap();
+
+        let token = match values.len() {
+            2 => match kind {
+                "Character" => Token::Text(values[1].as_str().unwrap().to_owned()),
+                "Comment" => Token::Comment(values[1].as_str().unwrap().to_owned()),
+                "EndTag" => Token::EndTag {
+                    name: values[1].as_str().unwrap().to_owned(),
+                    is_self_closing: false,
+                },
+                _ => {
+                    return Err(D::Error::invalid_value(
+                        Unexpected::Str(kind),
+                        &"Character, Comment or EndTag",
+                    ))
+                }
+            },
+
+            3 => match kind {
+                "StartTag" => Token::StartTag {
+                    name: values[1].as_str().unwrap().to_owned(),
+                    attributes: attributes(&values[2]),
+                    is_self_closing: false,
+                },
+                _ => return Err(D::Error::invalid_value(Unexpected::Str(kind), &"StartTag")),
+            },
+
+            4 => match kind {
+                "StartTag" => Token::StartTag {
+                    name: values[1].as_str().unwrap().to_owned(),
+                    attributes: attributes(&values[2]),
+                    is_self_closing: values[3].as_bool().unwrap_or_default(),
+                },
+                _ => return Err(D::Error::invalid_value(Unexpected::Str(kind), &"StartTag")),
+            },
+
+            5 => match kind {
+                "DOCTYPE" => Token::DocType {
+                    name: values[1].as_str().map(str::to_owned),
+                    pub_identifier: values[2].as_str().map(str::to_owned),
+                    sys_identifier: values[3].as_str().map(str::to_owned),
+                    force_quirks: !values[4].as_bool().unwrap_or_default(),
+                },
+                _ => return Err(D::Error::invalid_value(Unexpected::Str(kind), &"DOCTYPE")),
+            },
+
+            _ => {
+                return Err(D::Error::invalid_length(
+                    values.len(),
+                    &"an array of length 2, 3, 4 or 5",
+                ))
+            }
+        };
+
+        output.push(token);
+    }
+
+    Ok(output)
+}
+
+impl TestSpec {
     pub fn builders(&self) -> Vec<TokenizerBuilder> {
         let mut builders = vec![];
 
@@ -91,8 +173,8 @@ impl Test {
             };
 
             let mut is = InputStream::new();
-            let input = if self.double_escaped.unwrap_or(false) {
-                from_utf16_lossy(self.input.as_str())
+            let input = if self.double_escaped {
+                from_utf16_lossy(&self.input)
             } else {
                 self.input.to_string()
             };
@@ -121,9 +203,9 @@ impl Test {
             }
 
             // There can be multiple tokens to match. Make sure we match all of them
-            for expected_token in self.output.iter() {
-                let t = tokenizer.next_token().unwrap();
-                self.assert_token(t, expected_token);
+            for expected in self.output.iter() {
+                let actual = tokenizer.next_token().unwrap();
+                assert_eq!(self.escape(&actual), self.escape(expected));
             }
 
             let borrowed_error_logger = tokenizer.error_logger.borrow();
@@ -148,12 +230,12 @@ impl Test {
         }
     }
 
-    fn assert_error(&self, tokenizer: &Tokenizer, expected: &Error) {
+    fn assert_error(&self, tokenizer: &Tokenizer, expected: &TokenError) {
         // Iterate all generated errors to see if we have an exact match
         for actual in tokenizer.get_error_logger().get_errors() {
             if actual.message == expected.code
-                && actual.line as i64 == expected.line
-                && actual.col as i64 == expected.col
+                && actual.line == expected.line
+                && actual.col == expected.col
             {
                 return;
             }
@@ -163,7 +245,7 @@ impl Test {
         // it's not always correct, it might be a off-by-one position.
         for actual in tokenizer.get_error_logger().get_errors() {
             if actual.message == expected.code
-                && (actual.line as i64 != expected.line || actual.col as i64 != expected.col)
+                && (actual.line != expected.line || actual.col != expected.col)
             {
                 panic!(
                     "[{}]: wanted {:?}, got {:?}",
@@ -178,173 +260,64 @@ impl Test {
         );
     }
 
-    fn assert_token(&self, have: Token, expected: &[Value]) {
-        use crate::html5::tokenizer::token::TokenTrait;
+    fn escape(&self, token: &Token) -> Token {
+        let escape = from_utf16_lossy;
 
-        let double_escaped = self.double_escaped.unwrap_or(false);
+        if !self.double_escaped {
+            return token.to_owned();
+        }
 
-        let tp = expected.get(0).unwrap();
+        match token {
+            Token::Comment(value) => Token::Comment(escape(value)),
 
-        let expected_token_type = match tp.as_str().unwrap() {
-            "DOCTYPE" => TokenType::DocTypeToken,
-            "StartTag" => TokenType::StartTagToken,
-            "EndTag" => TokenType::EndTagToken,
-            "Comment" => TokenType::CommentToken,
-            "Character" => TokenType::TextToken,
-            _ => panic!("unknown output token type {:?}", tp.as_str().unwrap()),
-        };
-
-        assert_eq!(
-            have.type_of(),
-            expected_token_type,
-            "incorrect token type found (want: {:?}, got {:?})",
-            expected_token_type,
-            have.type_of(),
-        );
-
-        match have {
-            Token::DocTypeToken {
+            Token::DocType {
                 name,
                 force_quirks,
                 pub_identifier,
                 sys_identifier,
-            } => self.assert_doctype(expected, name, force_quirks, pub_identifier, sys_identifier),
-            Token::StartTagToken {
+            } => Token::DocType {
+                name: name.as_ref().map(|name| escape(name)),
+                force_quirks: *force_quirks,
+                pub_identifier: pub_identifier.as_ref().map(|s| s.into()),
+                sys_identifier: sys_identifier.as_ref().map(|s| s.into()),
+            },
+
+            Token::EndTag {
                 name,
-                attributes,
                 is_self_closing,
-            } => self.assert_starttag(expected, &name, attributes, is_self_closing),
-            Token::EndTagToken { name, .. } => self.assert_endtag(expected, &name, double_escaped),
-            Token::CommentToken { value } => self.assert_comment(expected, &value, double_escaped),
-            Token::TextToken { value } => self.assert_text(expected, &value, double_escaped),
-            Token::EofToken => panic!("expected eof token"),
+            } => Token::EndTag {
+                name: escape(name),
+                is_self_closing: *is_self_closing,
+            },
+
+            Token::Eof => Token::Eof,
+
+            Token::StartTag {
+                name,
+                is_self_closing,
+                attributes,
+            } => Token::StartTag {
+                name: escape(name),
+                is_self_closing: *is_self_closing,
+                attributes: attributes.clone(),
+            },
+
+            Token::Text(value) => Token::Text(escape(value)),
         }
     }
+}
 
-    fn assert_starttag(
-        &self,
-        expected: &[Value],
-        name: &str,
-        attributes: HashMap<String, String>,
-        is_self_closing: bool,
-    ) {
-        let expected_name = expected.get(1).and_then(|v| v.as_str()).unwrap();
-        let expected_attrs = expected.get(2).and_then(|v| v.as_object());
-        let expected_self_closing = expected.get(3).and_then(|v| v.as_bool());
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub enum FixtureFile {
+    Tests {
+        tests: Vec<TestSpec>,
+    },
 
-        assert_eq!(expected_name, name, "incorrect start tag");
-
-        if let Some(expected_self_closing) = expected_self_closing {
-            assert_eq!(
-                expected_self_closing, is_self_closing,
-                "incorrect start tag (expected self-closing)"
-            );
-        }
-
-        if expected_attrs.is_none() && attributes.is_empty() {
-            // No attributes to check
-            return;
-        }
-
-        // Convert the expected attr to Vec<(string, string)>
-        let expected_attrs: Vec<Attribute> = expected_attrs.map_or(Vec::new(), |map| {
-            map.iter()
-                .filter_map(|(key, value)| {
-                    value.as_str().map(|v| Attribute {
-                        name: key.clone(),
-                        value: v.to_string(),
-                    })
-                })
-                .collect()
-        });
-
-        let attributes: Vec<Attribute> = attributes
-            .iter()
-            .map(|(key, value)| Attribute {
-                name: key.clone(),
-                value: value.clone(),
-            })
-            .collect();
-
-        let set1: HashSet<_> = expected_attrs.iter().collect();
-        let set2: HashSet<_> = attributes.iter().collect();
-
-        assert_eq!(set1, set2, "attribute mismatch");
-    }
-
-    fn assert_comment(&self, expected: &[Value], value: &str, is_double_escaped: bool) {
-        let output_ref = expected.get(1).unwrap().as_str().unwrap();
-        let output = if is_double_escaped {
-            from_utf16_lossy(output_ref)
-        } else {
-            output_ref.to_string()
-        };
-
-        assert_eq!(value, output, "incorrect text found in comment token");
-    }
-
-    fn assert_text(&self, expected: &[Value], value: &str, is_double_escaped: bool) {
-        let output_ref = expected.get(1).unwrap().as_str().unwrap();
-        let output = if is_double_escaped {
-            from_utf16_lossy(output_ref)
-        } else {
-            output_ref.to_string()
-        };
-
-        assert_eq!(value, output, "incorrect text found in text token",);
-    }
-
-    fn assert_endtag(&self, expected: &[Value], name: &str, is_double_escaped: bool) {
-        let output_ref = expected.get(1).unwrap().as_str().unwrap();
-        let output = if is_double_escaped {
-            from_utf16_lossy(output_ref)
-        } else {
-            output_ref.to_string()
-        };
-
-        assert_eq!(name, output, "incorrect end tag");
-    }
-
-    /// Check if a given doctype matches the expected result
-    fn assert_doctype(
-        &self,
-        expected: &[Value],
-        name: Option<String>,
-        force_quirks: bool,
-        pub_identifier: Option<String>,
-        sys_identifier: Option<String>,
-    ) {
-        let expected_name = expected[1].as_str();
-        let expected_pub = expected[2].as_str();
-        let expected_sys = expected[3].as_str();
-        let expected_quirk = expected[4].as_bool();
-
-        assert_eq!(expected_name, name.as_deref(), "incorrect doctype");
-
-        if let Some(expected_quirk) = expected_quirk {
-            assert_ne!(
-                expected_quirk, force_quirks,
-                "incorrect doctype (wanted quirk: {})",
-                expected_quirk
-            );
-        }
-
-        assert_eq!(
-            expected_pub,
-            pub_identifier.as_deref(),
-            "incorrect doctype (wanted pub id: '{:?}', got '{:?}')",
-            expected_pub,
-            pub_identifier,
-        );
-
-        assert_eq!(
-            expected_sys,
-            sys_identifier.as_deref(),
-            "incorrect doctype (wanted sys id: '{:?}', got '{:?}')",
-            expected_sys,
-            sys_identifier
-        );
-    }
+    XmlTests {
+        #[serde(rename = "xmlViolationTests")]
+        tests: Vec<TestSpec>,
+    },
 }
 
 pub fn from_utf16_lossy(input: &str) -> String {
@@ -376,7 +349,6 @@ where
     P: AsRef<Path>,
 {
     let contents = fs::read_to_string(path).unwrap();
-    // TODO: use thiserror to translate library errors
     Ok(serde_json::from_str(&contents)?)
 }
 
@@ -386,4 +358,144 @@ pub fn fixtures() -> impl Iterator<Item = FixtureFile> {
         let path = format!("{}", entry.unwrap().path().display());
         fixture_from_path(&path).ok()
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    fn parse(i: &str) -> TestSpec {
+        serde_json::from_str(i).expect("error parsing")
+    }
+
+    #[test]
+    fn entities1_test_3() {
+        let test = parse(
+            r#"{
+                "description": "Undefined named entity in a double-quoted attribute value ending in semicolon and whose name starts with a known entity name.",
+                "input":"<h a=\"&noti;\">",
+                "output": [["StartTag", "h", {"a": "&noti;"}]]
+            }"#,
+        );
+
+        assert!(test.description.starts_with("Undefined"));
+        assert_eq!(test.input, "<h a=\"&noti;\">");
+        assert_eq!(
+            test.output,
+            &[Token::StartTag {
+                name: "h".into(),
+                attributes: HashMap::from([("a".into(), "&noti;".into())]),
+                is_self_closing: false,
+            }],
+        );
+    }
+
+    #[test]
+    fn domjs_test_3() {
+        let test = parse(
+            r#"{
+                "description":"CR in bogus comment state",
+                "input":"<?\u000d",
+                "output":[["Comment", "?\u000a"]],
+                "errors":[
+                    { "code": "unexpected-question-mark-instead-of-tag-name", "line": 1, "col": 2 }
+                ]
+            }"#,
+        );
+
+        assert_eq!(test.description, "CR in bogus comment state");
+    }
+
+    #[test]
+    fn domjs_test_267() {
+        let test = parse(
+            r#"{
+                "description":"space EOF after doctype ",
+                "input":"<!DOCTYPE html ",
+                "output":[["DOCTYPE", "html", null, null , false]],
+                "errors":[
+                    { "code": "eof-in-doctype", "line": 1, "col": 16 }
+                ]
+            }"#,
+        );
+
+        assert_eq!(test.description, "space EOF after doctype ");
+
+        if let Token::DocType { name, .. } = &test.output[0] {
+            assert_eq!(name, &Some("html".into()));
+        } else {
+            panic!();
+        };
+
+        let error = &test.errors[0];
+        assert_eq!(
+            error,
+            &TokenError {
+                code: "eof-in-doctype".into(),
+                line: 1,
+                col: 16
+            }
+        );
+    }
+
+    #[test]
+    fn xml_violation_tests() {
+        let input = r#"
+        {"xmlViolationTests": [
+            {"description":"Non-XML character",
+            "input":"a\uFFFFb",
+            "output":[["Character","a\uFFFDb"]]},
+
+            {"description":"Non-XML space",
+            "input":"a\u000Cb",
+            "output":[["Character","a b"]]},
+
+            {"description":"Double hyphen in comment",
+            "input":"<!-- foo -- bar -->",
+            "output":[["Comment"," foo - - bar "]]},
+
+            {"description":"FF between attributes",
+            "input":"<a b=''\u000Cc=''>",
+            "output":[["StartTag","a",{"b":"","c":""}]]}
+        ]}"#;
+
+        let fixtures: FixtureFile = serde_json::from_str(input).expect("failed to parse");
+
+        if let FixtureFile::XmlTests { tests } = fixtures {
+            assert_eq!(tests.len(), 4);
+        } else {
+            panic!()
+        };
+    }
+
+    #[test]
+    fn test2_test_3() {
+        let input = r#"
+        {"description":"DOCTYPE without name",
+        "input":"<!DOCTYPE>",
+        "output":[["DOCTYPE", null, null, null, false]],
+        "errors":[
+            { "code": "missing-doctype-name", "line": 1, "col": 10 }
+        ]}"#;
+
+        let test = parse(input);
+
+        let output = &test.output[0];
+        assert!(matches!(output, Token::DocType { .. }));
+    }
+
+    #[test]
+    fn double_escaped() {
+        let input = r#"{
+            "description":"NUL in CDATA section",
+            "doubleEscaped":true,
+            "initialStates":["CDATA section state"],
+            "input":"\\u0000]]>",
+            "output":[["Character", "\\u0000"]]
+        }"#;
+
+        let test = parse(input);
+        assert!(test.double_escaped);
+    }
 }
