@@ -92,7 +92,15 @@ pub enum DocumentTask {
 
 /// Queue of tasks that will mutate the document to add/update
 /// nodes in the tree. These tasks are performed sequentially in the
-/// order they were created by the TreeBuilder.
+/// order they are created.
+///
+/// Once tasks are queued up, a call to flush() will commit all changes
+/// to the DOM. If there are errors during the application of these changes,
+/// flush() will return a list of the errors encountered but execution is not halted.
+///
+/// create_element() will generate and return a new NodeId for the parser to keep
+/// track of the current context node and optionally store this in a list of open elements.
+/// When encountering a closing tag, the parser must pop this ID off of its list.
 pub struct DocumentTaskQueue {
     /// Internal counter of the next ID to generate from the NodeArena
     /// without actually registering the node.
@@ -102,7 +110,7 @@ pub struct DocumentTaskQueue {
     next_node_id: NodeId,
     /// Reference to the document to commit changes to
     pub(crate) document: DocumentHandle,
-    /// List of tasks to commit upon execute() which is cleared after execution finishes.
+    /// List of tasks to commit upon flush() which is cleared after execution finishes.
     // IMPLEMENTATION NOTE: using a vec here since I'm assuming we are
     // executing all tasks at once. If we need to support stopping task
     // execution midway, then maybe a real "queue" structure that pops
@@ -110,12 +118,49 @@ pub struct DocumentTaskQueue {
     pub(crate) tasks: Vec<DocumentTask>,
 }
 
-// See tree_builder.rs for method comments
-impl TreeBuilder for DocumentTaskQueue {
-    fn is_empty(&self) -> bool {
+impl DocumentTaskQueue {
+    pub fn is_empty(&self) -> bool {
         self.tasks.is_empty()
     }
 
+    fn flush(&mut self) -> Vec<String> {
+        let mut errors = Vec::new();
+        for current_task in &self.tasks {
+            match current_task {
+                DocumentTask::CreateElement {
+                    name,
+                    parent_id,
+                    position,
+                    namespace,
+                } => {
+                    self.document
+                        .create_element(name, *parent_id, *position, namespace);
+                }
+                DocumentTask::CreateText { content, parent_id } => {
+                    self.document.create_text(content, *parent_id);
+                }
+                DocumentTask::CreateComment { content, parent_id } => {
+                    self.document.create_comment(content, *parent_id);
+                }
+                DocumentTask::InsertAttribute {
+                    key,
+                    value,
+                    element_id,
+                } => {
+                    if let Err(err) = self.document.insert_attribute(key, value, *element_id) {
+                        errors.push(err.to_string());
+                    }
+                }
+            }
+        }
+        self.tasks.clear();
+
+        errors
+    }
+}
+
+// See tree_builder.rs for method comments
+impl TreeBuilder for DocumentTaskQueue {
     fn create_element(
         &mut self,
         name: &str,
@@ -152,48 +197,14 @@ impl TreeBuilder for DocumentTaskQueue {
         self.tasks.push(comment);
     }
 
-    fn insert_attribute(&mut self, key: &str, value: &str, element_id: NodeId) {
+    fn insert_attribute(&mut self, key: &str, value: &str, element_id: NodeId) -> Result<()> {
         let attribute = DocumentTask::InsertAttribute {
             key: key.to_owned(),
             value: value.to_owned(),
             element_id,
         };
         self.tasks.push(attribute);
-    }
-
-    fn execute(&mut self) -> Vec<String> {
-        let mut errors = Vec::new();
-        for current_task in &self.tasks {
-            match current_task {
-                DocumentTask::CreateElement {
-                    name,
-                    parent_id,
-                    position,
-                    namespace,
-                } => {
-                    self.document
-                        .create_element(name, *parent_id, *position, namespace);
-                }
-                DocumentTask::CreateText { content, parent_id } => {
-                    self.document.create_text(content, *parent_id);
-                }
-                DocumentTask::CreateComment { content, parent_id } => {
-                    self.document.create_comment(content, *parent_id);
-                }
-                DocumentTask::InsertAttribute {
-                    key,
-                    value,
-                    element_id,
-                } => {
-                    if let Err(err) = self.document.insert_attribute(key, value, *element_id) {
-                        errors.push(err.to_string());
-                    }
-                }
-            }
-        }
-        self.tasks.clear();
-
-        errors
+        Ok(())
     }
 }
 
@@ -302,6 +313,7 @@ impl Document {
         true
     }
 
+    // TODO: remove this
     /// Set a new named ID on a node (also updates the underlying node's attribute)
     /// ID will NOT be set if it doesn't pass validation
     pub fn set_node_named_id(&mut self, node_id: NodeId, named_id: &str) {
@@ -622,30 +634,6 @@ impl DocumentHandle {
         self.get().has_cyclic_reference(node_id, parent_id)
     }
 
-    /// Creates and attaches a new element node to the document
-    pub fn create_element(
-        &mut self,
-        name: &str,
-        parent_id: NodeId,
-        position: Option<usize>,
-        namespace: &str,
-    ) {
-        let new_element = Node::new_element(self, name, HashMap::new(), namespace);
-        self.add_node(new_element, parent_id, position);
-    }
-
-    /// Creates and attaches a new text node to the document
-    pub fn create_text(&mut self, content: &str, parent_id: NodeId) {
-        let new_text = Node::new_text(self, content);
-        self.add_node(new_text, parent_id, None);
-    }
-
-    /// Creates and attaches a new comment node to the document
-    pub fn create_comment(&mut self, content: &str, parent_id: NodeId) {
-        let new_comment = Node::new_comment(self, content);
-        self.add_node(new_comment, parent_id, None);
-    }
-
     /// according to HTML5 spec: 3.2.3.1
     /// https://www.w3.org/TR/2011/WD-html5-20110405/elements.html#the-id-attribute
     fn validate_attribute_value(&self, value: &str) -> bool {
@@ -661,10 +649,36 @@ impl DocumentHandle {
         // but doesn't specify it should *start* with a character
         value.contains(char::is_alphabetic)
     }
+}
+
+impl TreeBuilder for DocumentHandle {
+    /// Creates and attaches a new element node to the document
+    fn create_element(
+        &mut self,
+        name: &str,
+        parent_id: NodeId,
+        position: Option<usize>,
+        namespace: &str,
+    ) -> NodeId {
+        let new_element = Node::new_element(self, name, HashMap::new(), namespace);
+        self.add_node(new_element, parent_id, position)
+    }
+
+    /// Creates and attaches a new text node to the document
+    fn create_text(&mut self, content: &str, parent_id: NodeId) {
+        let new_text = Node::new_text(self, content);
+        self.add_node(new_text, parent_id, None);
+    }
+
+    /// Creates and attaches a new comment node to the document
+    fn create_comment(&mut self, content: &str, parent_id: NodeId) {
+        let new_comment = Node::new_comment(self, content);
+        self.add_node(new_comment, parent_id, None);
+    }
 
     /// Inserts an attribute to an element node.
-    /// If node is not an element, returns an Err()
-    pub fn insert_attribute(&mut self, key: &str, value: &str, element_id: NodeId) -> Result<()> {
+    /// If node is not an element or if passing an invalid attribute value, returns an Err()
+    fn insert_attribute(&mut self, key: &str, value: &str, element_id: NodeId) -> Result<()> {
         if !self.validate_attribute_value(value) {
             return Err(Error::DocumentTask(format!(
                 "Attribute value '{}' did not pass validation",
@@ -730,7 +744,7 @@ impl DocumentBuilder {
 #[cfg(test)]
 mod tests {
     use crate::html5::node::{NodeTrait, HTML_NAMESPACE};
-    use crate::html5::parser::document::{DocumentTaskQueue, NodeType};
+    use crate::html5::parser::document::{DocumentBuilder, DocumentTaskQueue, NodeType};
     use crate::html5::parser::tree_builder::TreeBuilder;
     use crate::html5::parser::{Document, Node, NodeData, NodeId};
     use std::collections::HashMap;
@@ -925,9 +939,7 @@ mod tests {
 
     #[test]
     fn document_task_queue() {
-        let mut document = Document::shared();
-        let document_clone = Document::clone(&document);
-        document.get_mut().create_root(&document_clone);
+        let document = DocumentBuilder::new_document();
 
         // Using task queue to create the following structure initially:
         // <div>
@@ -938,7 +950,7 @@ mod tests {
         //   <!-- comment inside div -->
         // </div>
 
-        // then execute the queue and use it again to add an attribute to <p>:
+        // then flush the queue and use it again to add an attribute to <p>:
         // <p id="myid">hey</p>
         let mut task_queue = DocumentTaskQueue::new(&document);
 
@@ -958,7 +970,7 @@ mod tests {
 
         // validate our queue is loaded
         assert!(!task_queue.is_empty());
-        let errors = task_queue.execute();
+        let errors = task_queue.flush();
         assert!(errors.is_empty());
 
         // validate queue is empty
@@ -1015,39 +1027,41 @@ mod tests {
         }
 
         // use task queue again to add an ID attribute
-        task_queue.insert_attribute("id", "myid", div_id);
-        let errors = task_queue.execute();
+        // NOTE: inserting attribute in task queue always succeeds
+        // since it doesn't touch DOM until flush
+        let _ = task_queue.insert_attribute("id", "myid", p_id);
+        let errors = task_queue.flush();
         assert!(errors.is_empty());
 
         let doc_read = document.get();
         // validate ID is searchable in dom
-        assert_eq!(*doc_read.named_id_elements.get("myid").unwrap(), div_id);
+        assert_eq!(*doc_read.named_id_elements.get("myid").unwrap(), p_id);
 
         // validate attribute is applied to underlying element
-        let div_node = doc_read.get_node_by_id(div_id).unwrap();
-        let NodeData::Element(div_element) = &div_node.data else {
+        let p_node = doc_read.get_node_by_id(p_id).unwrap();
+        let NodeData::Element(p_element) = &p_node.data else {
             panic!()
         };
-        assert_eq!(div_element.attributes.get("id").unwrap(), "myid");
+        assert_eq!(p_element.attributes.get("id").unwrap(), "myid");
     }
 
     #[test]
     fn task_queue_insert_attribute_failues() {
-        let mut document = Document::shared();
-        let document_clone = Document::clone(&document);
-        document.get_mut().create_root(&document_clone);
+        let document = DocumentBuilder::new_document();
 
         let mut task_queue = DocumentTaskQueue::new(&document);
         let div_id = task_queue.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
         task_queue.create_comment("content", div_id); // this is NodeId::from(2)
-        task_queue.execute();
+        task_queue.flush();
 
-        task_queue.insert_attribute("id", "myid", NodeId::from(2));
-        task_queue.insert_attribute("id", "myid", NodeId::from(42));
-        task_queue.insert_attribute("id", "my id", NodeId::from(1));
-        task_queue.insert_attribute("id", "123", NodeId::from(1));
-        task_queue.insert_attribute("id", "", NodeId::from(1));
-        let errors = task_queue.execute();
+        // NOTE: inserting attribute in task queue always succeeds
+        // since it doesn't touch DOM until flush
+        let _ = task_queue.insert_attribute("id", "myid", NodeId::from(2));
+        let _ = task_queue.insert_attribute("id", "myid", NodeId::from(42));
+        let _ = task_queue.insert_attribute("id", "my id", NodeId::from(1));
+        let _ = task_queue.insert_attribute("id", "123", NodeId::from(1));
+        let _ = task_queue.insert_attribute("id", "", NodeId::from(1));
+        let errors = task_queue.flush();
         assert_eq!(errors.len(), 5);
         assert_eq!(
             errors[0],
@@ -1073,5 +1087,89 @@ mod tests {
         assert!(doc_read.named_id_elements.get("my id").is_none());
         assert!(doc_read.named_id_elements.get("123").is_none());
         assert!(doc_read.named_id_elements.get("").is_none());
+    }
+
+    // this is basically a replica of document_task_queue() test
+    // but using tree builder directly instead of the task queue
+    #[test]
+    fn document_tree_builder() {
+        let mut document = DocumentBuilder::new_document();
+
+        // Using tree builder to create the following structure:
+        // <div>
+        //   <p id="myid">
+        //     <!-- comment inside p -->
+        //     hey
+        //   </p>
+        //   <!-- comment inside div -->
+        // </div>
+
+        // NOTE: only elements return the ID
+        let div_id = document.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
+        assert_eq!(div_id, NodeId::from(1));
+
+        let p_id = document.create_element("p", div_id, None, HTML_NAMESPACE);
+        assert_eq!(p_id, NodeId::from(2));
+
+        document.create_comment("comment inside p", p_id);
+        document.create_text("hey", p_id);
+        document.create_comment("comment inside div", div_id);
+
+        let res = document.insert_attribute("id", "myid", p_id);
+        assert!(res.is_ok());
+
+        // DOM should now have all our nodes
+        assert_eq!(document.get().arena.count_nodes(), 6);
+
+        // validate DOM is correctly laid out
+        let doc_read = document.get();
+        let root = doc_read.get_root(); // <!DOCTYPE html>
+        let root_children = &root.children;
+
+        // div child
+        let div_child = doc_read.get_node_by_id(root_children[0]).unwrap();
+        assert_eq!(div_child.type_of(), NodeType::Element);
+        assert_eq!(div_child.name, "div");
+        let div_children = &div_child.children;
+
+        // p child
+        let p_child = doc_read.get_node_by_id(div_children[0]).unwrap();
+        assert_eq!(p_child.type_of(), NodeType::Element);
+        assert_eq!(p_child.name, "p");
+        let p_children = &p_child.children;
+
+        // comment inside p
+        let p_comment = doc_read.get_node_by_id(p_children[0]).unwrap();
+        assert_eq!(p_comment.type_of(), NodeType::Comment);
+        let NodeData::Comment(p_comment_data) = &p_comment.data else {
+            panic!()
+        };
+        assert_eq!(p_comment_data.value, "comment inside p");
+
+        // body inside p
+        let p_body = doc_read.get_node_by_id(p_children[1]).unwrap();
+        assert_eq!(p_body.type_of(), NodeType::Text);
+        let NodeData::Text(p_body_data) = &p_body.data else {
+            panic!()
+        };
+        assert_eq!(p_body_data.value, "hey");
+
+        // comment inside div
+        let div_comment = doc_read.get_node_by_id(div_children[1]).unwrap();
+        assert_eq!(div_comment.type_of(), NodeType::Comment);
+        let NodeData::Comment(div_comment_data) = &div_comment.data else {
+            panic!()
+        };
+        assert_eq!(div_comment_data.value, "comment inside div");
+
+        // validate ID is searchable in dom
+        assert_eq!(*doc_read.named_id_elements.get("myid").unwrap(), p_id);
+
+        // validate attribute is applied to underlying element
+        let p_node = doc_read.get_node_by_id(p_id).unwrap();
+        let NodeData::Element(p_element) = &p_node.data else {
+            panic!()
+        };
+        assert_eq!(p_element.attributes.get("id").unwrap(), "myid");
     }
 }
