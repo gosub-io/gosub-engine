@@ -6,15 +6,15 @@ all: help
 
 test: test_commands test_unit test_clippy test_fmt ## Runs tests
 
-bench:
+bench: ## Benchmark the project
 	cargo bench
 
-build: ## Build	the project
+build: ## Build the project
 	source test-utils.sh ;\
 	section "Cargo build" ;\
 	cargo build
 
-fix:
+fix:  ## Fix formatting and clippy errors
 	cargo fmt
 	cargo clippy --fix --allow-dirty --allow-staged
 

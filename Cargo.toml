@@ -3,12 +3,12 @@ name = "gosub-engine"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.73"
-authors = ["Joshua Thijssen <jaytaph@deadcode.nl>"]
-description = "html5 browser engine"
+authors = ["Gosub Community <info@gosub.io>"]
+description = "An HTML5 browser engine written in Rust."
 license = "MIT"
 repository = "https://github.com/gosub-browser/gosub-engine"
 readme = "README.md"
-keywords = ["html5", "parser"]
+keywords = ["html5", "parser", "browser", "Rust", "DOM"]
 
 [[test]]
 name = "tokenizer"
