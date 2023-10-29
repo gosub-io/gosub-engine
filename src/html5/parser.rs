@@ -2855,8 +2855,8 @@ impl<'stream> Html5Parser<'stream> {
 
                 self.pop_until("template");
                 self.active_formatting_elements_clear_until_marker();
-                self.template_insertion_mode.pop();
                 self.reset_insertion_mode();
+                self.template_insertion_mode.pop();
             }
             Token::StartTagToken { name, .. } if name == "head" => {
                 self.parse_error("head tag not allowed in in head insertion mode");
