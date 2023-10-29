@@ -110,7 +110,7 @@ lazy_static! {
 #[test_case("tables01.dat")]
 // #[test_case("template.dat")]
 // #[test_case("test_innerHTML_1.dat")]
-// #[test_case("tricky01.dat")]
+#[test_case("tricky01.dat")]
 #[test_case("webkit01.dat")]
 // #[test_case("webkit02.dat")]
 fn tree_construction(filename: &str) {
