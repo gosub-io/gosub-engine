@@ -1,6 +1,21 @@
+use super::new_tokenizer::{Token, TokenKind};
 use crate::{css3::new_tokenizer::Tokenizer, html5::input_stream::InputStream};
 
-use super::new_tokenizer::Token;
+struct Function {
+    name: String,
+    value: Vec<Token>,
+}
+
+enum SimpleBlockTokenKind {
+    Curly,
+    Bracket,
+    Paren,
+}
+
+struct SimpleBlock {
+    kind: SimpleBlockTokenKind,
+    value: Vec<Token>,
+}
 
 pub struct CSS3Parser<'stream> {
     tokenizer: Tokenizer<'stream>,
@@ -25,18 +40,72 @@ impl<'stream> CSS3Parser<'stream> {
         todo!()
     }
 
-    /// [5.4.1. Consume a list of rules](https://www.w3.org/TR/css-syntax-3/#consume-list-of-rules)
-    fn consume_list_of_rules(&mut self, is_top_level: bool) {
-        // let rules = Vec::new();
+    /// [5.4.9. Consume a function](https://www.w3.org/TR/css-syntax-3/#consume-function)
+    fn consume_function(&mut self) -> Function {
+        let name = self.consume_token(TokenKind::Function).value();
+        let mut value = Vec::new();
 
-        loop {}
+        loop {
+            let token = self.tokenizer.consume();
+
+            if token.kind() == TokenKind::LParen || token.is_eof() {
+                break;
+            }
+
+            value.push(token);
+        }
+
+        Function { name, value }
     }
 
-    fn current_token(&self) -> &Token {
+    /// [5.4.7. Consume a component value](https://www.w3.org/TR/css-syntax-3/#consume-a-component-value)
+    fn consume_component_value(&mut self) {}
+
+    /// [5.4.8. Consume a simple block](https://www.w3.org/TR/css-syntax-3/#consume-a-simple-block)
+    fn consume_simple_block(&mut self) -> SimpleBlock {
+        let start = self.current_token().kind();
+        // consume block start  <{-token>, <[-token>, or <(-token>.
+        self.consume_token(start);
+
+        let mut value = Vec::new();
+
+        loop {
+            // eof: parser error
+            if self.current_token().kind() == start || self.current_token().is_eof() {
+                break;
+            }
+
+            // todo: handle "component value" creation from a simple block
+
+            value.push(self.consume_token(TokenKind::Any))
+        }
+
+        let kind = match start {
+            TokenKind::LParen => SimpleBlockTokenKind::Paren,
+            TokenKind::LCurly => SimpleBlockTokenKind::Curly,
+            TokenKind::LBracket => SimpleBlockTokenKind::Bracket,
+            _ => todo!(),
+        };
+
+        SimpleBlock { kind, value }
+    }
+
+    fn current_token(&self) -> Token {
         self.tokenizer.lookahead(0)
     }
 
-    fn next_token(&self) -> &Token {
+    fn next_token(&self) -> Token {
         self.tokenizer.lookahead(1)
+    }
+
+    fn consume_token(&mut self, kind: TokenKind) -> Token {
+        let token = self.tokenizer.consume();
+
+        if kind != TokenKind::Any {
+            // safeguard, not to consume unexpected token
+            assert_eq!(token.kind(), kind);
+        }
+
+        token
     }
 }

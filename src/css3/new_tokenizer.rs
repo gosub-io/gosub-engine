@@ -6,7 +6,8 @@ use std::usize;
 
 pub type Number = f32;
 
-pub enum TokenType {
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub enum TokenKind {
     AtKeyword,
     Ident,
     Function,
@@ -27,10 +28,18 @@ pub enum TokenType {
     RParen,
     LBracket,
     RBracket,
+    Colon,
+    Semicolon,
+    Comma,
+    CDO,
+    CDC,
+    EOF,
+    // Match any token
+    Any,
 }
 
 // todo: add def for each token
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Token {
     /// A [`<at-keyword-token>`](https://drafts.csswg.org/css-syntax/#at-keyword-token-diagram)
     ///
@@ -94,6 +103,62 @@ pub enum Token {
     EOF,
 }
 
+impl Token {
+    pub fn kind(&self) -> TokenKind {
+        match self {
+            Token::AtKeyword(_) => TokenKind::AtKeyword,
+            Token::QuotedString(_) => TokenKind::QuotedString,
+            Token::BadString(_) => TokenKind::BadString,
+            Token::BadUrl(_) => TokenKind::BadUrl,
+            Token::Url(_) => TokenKind::Url,
+            Token::Delim(_) => TokenKind::Delim,
+            Token::Ident(_) => TokenKind::Ident,
+            Token::Function(_) => TokenKind::Function,
+            Token::Dimension { .. } => TokenKind::Dimension,
+            Token::Percentage(_) => TokenKind::Percentage,
+            Token::Number(_) => TokenKind::Number,
+            Token::Hash(_) => TokenKind::Hash,
+            Token::IDHash(_) => TokenKind::IDHash,
+            Token::Whitespace => TokenKind::Whitespace,
+            Token::LCurly => TokenKind::LCurly,
+            Token::RCurly => TokenKind::RCurly,
+            Token::LBracket => TokenKind::LBracket,
+            Token::RBracket => TokenKind::RBracket,
+            Token::LParen => TokenKind::LParen,
+            Token::RParen => TokenKind::RParen,
+            Token::Colon => TokenKind::Colon,
+            Token::Semicolon => TokenKind::Semicolon,
+            Token::Comma => TokenKind::Comma,
+            Token::CDO => TokenKind::CDO,
+            Token::CDC => TokenKind::CDC,
+            Token::EOF => TokenKind::EOF,
+        }
+    }
+
+    pub fn is_eof(&self) -> bool {
+        self.kind() == TokenKind::EOF
+    }
+
+    pub fn value(&self) -> String {
+        match self {
+            Token::Function(val) => val.clone(),
+            Token::AtKeyword(val) => val.clone(),
+            Token::QuotedString(val) => val.clone(),
+            Token::BadString(val) => val.clone(),
+            Token::BadUrl(val) => val.clone(),
+            Token::Url(val) => val.clone(),
+            Token::Delim(val) => val.to_string(),
+            Token::Ident(val) => val.clone(),
+            Token::Dimension { unit, .. } => unit.clone(),
+            Token::Percentage(val) => val.to_string(),
+            Token::Number(val) => val.to_string(),
+            Token::Hash(val) => val.clone(),
+            Token::IDHash(val) => val.clone(),
+            _ => String::new(),
+        }
+    }
+}
+
 macro_rules! consume {
     ($self:expr, $token:expr) => {{
         $self.stream.read_char();
@@ -129,18 +194,18 @@ impl<'stream> Tokenizer<'stream> {
         self.position = 0;
     }
 
-    pub fn lookahead(&self, offset: usize) -> &Token {
+    pub fn lookahead(&self, offset: usize) -> Token {
         if self.position + offset >= self.tokens.len() {
-            return &Token::EOF;
+            return Token::EOF;
         }
 
-        &self.tokens[self.position + offset]
+        self.tokens[self.position + offset].clone()
     }
 
-    pub fn consume(&mut self) -> &Token {
+    pub fn consume(&mut self) -> Token {
         let token = &self.tokens[self.position];
         self.position += 1;
-        token
+        token.clone()
     }
 
     /// 4.3.1. [Consume a token](https://www.w3.org/TR/css-syntax-3/#consume-token)
@@ -1651,11 +1716,11 @@ mod test {
         let mut tokenizer = Tokenizer::new(&mut is);
         tokenizer.consume_all();
 
-        assert_eq!(tokenizer.lookahead(0), &Token::LBracket);
-        assert_eq!(tokenizer.lookahead(1), &Token::RBracket);
-        assert_eq!(tokenizer.lookahead(4), &Token::EOF);
+        assert_eq!(tokenizer.lookahead(0), Token::LBracket);
+        assert_eq!(tokenizer.lookahead(1), Token::RBracket);
+        assert_eq!(tokenizer.lookahead(4), Token::EOF);
 
-        assert_eq!(tokenizer.consume(), &Token::LBracket);
-        assert_eq!(tokenizer.lookahead(0), &Token::RBracket);
+        assert_eq!(tokenizer.consume(), Token::LBracket);
+        assert_eq!(tokenizer.lookahead(0), Token::RBracket);
     }
 }
