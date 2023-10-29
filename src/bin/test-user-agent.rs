@@ -1,3 +1,4 @@
+use gosub_engine::html5::parser::document::DocumentBuilder;
 use gosub_engine::{
     html5::{
         input_stream::{Confidence, Encoding, InputStream},
@@ -34,10 +35,9 @@ fn main() -> Result<()> {
         stream.detect_encoding()
     }
 
-    let mut parser = Html5Parser::new(&mut stream);
-
-    let document = Document::shared();
-    let parse_errors = parser.parse(Document::clone(&document))?;
+    let document = DocumentBuilder::new_document();
+    let mut parser = Html5Parser::new(&mut stream, document.clone());
+    let parse_errors = parser.parse()?;
 
     match get_node_by_path(&document.get(), vec!["html", "body"]) {
         None => {
