@@ -6,15 +6,15 @@ all: help
 
 test: test_commands test_unit test_clippy test_fmt ## Runs tests
 
-bench:
+bench: ## Benchmark the project
 	cargo bench
 
-build: ## Build	the project
+build: ## Build the project
 	source test-utils.sh ;\
 	section "Cargo build" ;\
 	cargo build
 
-fix:
+fix:  ## Fix formatting and clippy errors
 	cargo fmt
 	cargo clippy --fix --allow-dirty --allow-staged
 
@@ -35,7 +35,7 @@ test_fmt:
 
 test_commands:
 	cargo run --bin html5-parser-test >/dev/null
-	cargo run --bin parser_test >/dev/null
+	cargo run --bin parser-test >/dev/null
 
 help: ## Display available commands
 	echo "Available make commands:"
