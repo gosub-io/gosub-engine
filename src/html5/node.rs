@@ -107,8 +107,6 @@ impl NodeId {
 pub struct Node {
     /// ID of the node, 0 is always the root / document node
     pub id: NodeId,
-    /// Named ID of the node, from the "id" attribute on an HTML element
-    pub named_id: Option<String>,
     /// parent of the node, if any
     pub parent: Option<NodeId>,
     /// children of the node
@@ -168,7 +166,6 @@ impl Debug for Node {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut debug = f.debug_struct("Node");
         debug.field("id", &self.id);
-        debug.field("named_id", &self.named_id);
         debug.field("parent", &self.parent);
         debug.field("children", &self.children);
         debug.field("name", &self.name);
@@ -205,10 +202,10 @@ impl Node {
                 let mut self_attributes = None;
                 let mut other_attributes = None;
                 if let NodeData::Element(element) = &self.data {
-                    self_attributes = Some(element.attributes.clone_map());
+                    self_attributes = Some(element.attributes.clone());
                 }
                 if let NodeData::Element(element) = &other.data {
-                    other_attributes = Some(element.attributes.clone_map());
+                    other_attributes = Some(element.attributes.clone());
                 }
                 self_attributes.eq(&other_attributes)
             }
@@ -221,7 +218,6 @@ impl Clone for Node {
     fn clone(&self) -> Self {
         Node {
             id: self.id,
-            named_id: self.named_id.clone(),
             parent: self.parent,
             children: self.children.clone(),
             name: self.name.clone(),
@@ -238,7 +234,6 @@ impl Node {
     pub fn new_document(document: &DocumentHandle) -> Self {
         Node {
             id: Default::default(),
-            named_id: None,
             parent: None,
             children: vec![],
             data: NodeData::Document(DocumentData::new()),
@@ -258,7 +253,6 @@ impl Node {
     ) -> Self {
         Node {
             id: Default::default(),
-            named_id: None,
             parent: None,
             children: vec![],
             data: NodeData::Element(Box::new(ElementData::with_name_and_attributes(
@@ -278,7 +272,6 @@ impl Node {
     pub fn new_comment(document: &DocumentHandle, value: &str) -> Self {
         Node {
             id: Default::default(),
-            named_id: None,
             parent: None,
             children: vec![],
             data: NodeData::Comment(CommentData::with_value(value)),
@@ -293,7 +286,6 @@ impl Node {
     pub fn new_text(document: &DocumentHandle, value: &str) -> Self {
         Node {
             id: Default::default(),
-            named_id: None,
             parent: None,
             children: vec![],
             data: NodeData::Text(TextData::with_value(value)),
@@ -329,39 +321,6 @@ impl Node {
         }
 
         false
-    }
-
-    /// Checks if node has a named ID
-    pub fn has_named_id(&self) -> bool {
-        if self.type_of() != NodeType::Element {
-            return false;
-        }
-
-        self.named_id.is_some()
-    }
-
-    /// Sets named ID (only applies to Element type, does nothing otherwise)
-    pub fn set_named_id(&mut self, named_id: &str) {
-        if self.type_of() == NodeType::Element {
-            self.named_id = Some(named_id.to_owned());
-            if let NodeData::Element(element) = &mut self.data {
-                element.attributes.insert("id", named_id);
-            }
-        }
-    }
-
-    /// Gets named ID. If not present or type is not Element, returns None
-    pub fn get_named_id(&self) -> Option<String> {
-        if self.type_of() != NodeType::Element {
-            return None;
-        }
-
-        if !self.has_named_id() {
-            return None;
-        }
-
-        // don't want to return the actual internal String
-        self.named_id.clone()
     }
 
     /// Returns true if this node is registered into an arena
@@ -521,7 +480,7 @@ mod tests {
             panic!()
         };
         assert_eq!(element.name, "div");
-        assert!(element.attributes.contains("id"));
+        assert!(element.attributes.contains_key("id"));
         assert_eq!(element.attributes.get("id").unwrap(), "test");
     }
 
@@ -625,95 +584,5 @@ mod tests {
         attributes.insert("id".to_string(), "test".to_string());
         let node = Node::new_element(&document, "div", attributes, HTML_NAMESPACE);
         assert_eq!(node.type_of(), NodeType::Element);
-    }
-
-    #[test]
-    fn contains_attribute() {
-        let mut attr = HashMap::new();
-        attr.insert("x".to_string(), "value".to_string());
-        let document = Document::shared();
-        let node = Node::new_element(&document, "node", attr.clone(), HTML_NAMESPACE);
-        let NodeData::Element(element) = &node.data else {
-            panic!()
-        };
-        assert!(element.attributes.contains("x"));
-        assert!(!element.attributes.contains("z"));
-    }
-
-    #[test]
-    fn insert_attribute() {
-        let attr = HashMap::new();
-        let document = Document::shared();
-        let mut node = Node::new_element(&document, "name", attr.clone(), HTML_NAMESPACE);
-        let NodeData::Element(element) = &mut node.data else {
-            panic!()
-        };
-        element.attributes.insert("key", "value");
-        assert_eq!(element.attributes.get("key").unwrap(), "value");
-    }
-
-    #[test]
-    fn remove_attribute() {
-        let mut attr = HashMap::new();
-        attr.insert("key".to_string(), "value".to_string());
-        let document = Document::shared();
-        let mut node = Node::new_element(&document, "name", attr.clone(), HTML_NAMESPACE);
-        let NodeData::Element(element) = &mut node.data else {
-            panic!()
-        };
-        element.attributes.remove("key");
-        assert!(!element.attributes.contains("key"));
-    }
-
-    #[test]
-    fn get_attribute() {
-        let mut attr = HashMap::new();
-        attr.insert("key".to_string(), "value".to_string());
-        let document = Document::shared();
-        let node = Node::new_element(&document, "name", attr.clone(), HTML_NAMESPACE);
-        let NodeData::Element(element) = &node.data else {
-            panic!()
-        };
-        assert_eq!(element.attributes.get("key").unwrap(), "value");
-    }
-
-    #[test]
-    fn get_mut_attribute() {
-        let mut attr = HashMap::new();
-        attr.insert("key".to_string(), "value".to_string());
-        let document = Document::shared();
-        let mut node = Node::new_element(&document, "name", attr.clone(), HTML_NAMESPACE);
-        let NodeData::Element(element) = &mut node.data else {
-            panic!()
-        };
-        let attr_val = element.attributes.get_mut("key").unwrap();
-        attr_val.push_str(" appended");
-        assert_eq!(element.attributes.get("key").unwrap(), "value appended");
-    }
-
-    #[test]
-    fn clear_attributes() {
-        let mut attr = HashMap::new();
-        attr.insert("key".to_string(), "value".to_string());
-        let document = Document::shared();
-        let mut node = Node::new_element(&document, "name", attr.clone(), HTML_NAMESPACE);
-        let NodeData::Element(element) = &mut node.data else {
-            panic!()
-        };
-        element.attributes.clear();
-        assert!(element.attributes.is_empty());
-    }
-
-    #[test]
-    fn has_attributes() {
-        let attr = HashMap::new();
-        let document = Document::shared();
-        let mut node = Node::new_element(&document, "name", attr.clone(), HTML_NAMESPACE);
-        let NodeData::Element(element) = &mut node.data else {
-            panic!()
-        };
-        assert!(element.attributes.is_empty());
-        element.attributes.insert("key", "value");
-        assert!(!element.attributes.is_empty());
     }
 }

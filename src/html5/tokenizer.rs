@@ -5,7 +5,7 @@ mod character_reference;
 mod replacement_tables;
 
 use crate::html5::error_logger::{ErrorLogger, ParserError};
-use crate::html5::input_stream::Element;
+use crate::html5::input_stream::Bytes::{self, *};
 use crate::html5::input_stream::SeekMode::SeekCur;
 use crate::html5::input_stream::{InputStream, Position};
 use crate::html5::tokenizer::state::State;
@@ -75,7 +75,7 @@ impl<'stream> Tokenizer<'stream> {
     ) -> Self {
         return Tokenizer {
             stream: input,
-            state: opts.as_ref().map_or(State::DataState, |o| o.initial_state),
+            state: opts.as_ref().map_or(State::Data, |o| o.initial_state),
             last_start_token: opts.map_or(String::new(), |o| o.last_start_tag),
             consumed: String::new(),
             current_token: None,
@@ -118,16 +118,16 @@ impl<'stream> Tokenizer<'stream> {
             }
 
             match self.state {
-                State::DataState => {
+                State::Data => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('&') => self.state = State::CharacterReferenceInDataState,
-                        Element::Utf8('<') => self.state = State::TagOpenState,
-                        Element::Utf8(CHAR_NUL) => {
-                            self.consume(c.utf8());
+                        Ch('&') => self.state = State::CharacterReferenceInData,
+                        Ch('<') => self.state = State::TagOpen,
+                        Ch(CHAR_NUL) => {
+                            self.consume(c.into());
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                         }
-                        Element::Eof => {
+                        Eof => {
                             // EOF
                             // if self.has_consumed_data() {
                             //     self.emit_token(Token::TextToken { value: self.get_consumed_str() });
@@ -135,46 +135,46 @@ impl<'stream> Tokenizer<'stream> {
                             // }
                             self.emit_token(Token::Eof);
                         }
-                        _ => self.consume(c.utf8()),
+                        _ => self.consume(c.into()),
                     }
                 }
-                State::CharacterReferenceInDataState => {
+                State::CharacterReferenceInData => {
                     self.consume_character_reference(None, false);
-                    self.state = State::DataState;
+                    self.state = State::Data;
                 }
-                State::RcDataState => {
+                State::RCDATA => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('&') => self.state = State::CharacterReferenceInRcDataState,
-                        Element::Utf8('<') => self.state = State::RcDataLessThanSignState,
-                        Element::Eof => {
+                        Ch('&') => self.state = State::CharacterReferenceInRcData,
+                        Ch('<') => self.state = State::RCDATALessThanSign,
+                        Eof => {
                             // if self.has_consumed_data() {
                             //     self.emit_token(Token::TextToken { value: self.get_consumed_str().clone() });
                             //     self.clear_consume_buffer();
                             // }
                             self.emit_token(Token::Eof);
                         }
-                        Element::Utf8(CHAR_NUL) => {
+                        Ch(CHAR_NUL) => {
                             self.consume(CHAR_REPLACEMENT);
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                         }
-                        _ => self.consume(c.utf8()),
+                        _ => self.consume(c.into()),
                     }
                 }
-                State::CharacterReferenceInRcDataState => {
+                State::CharacterReferenceInRcData => {
                     // consume character reference
                     self.consume_character_reference(None, false);
-                    self.state = State::RcDataState;
+                    self.state = State::RCDATA;
                 }
-                State::RawTextState => {
+                State::RAWTEXT => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('<') => self.state = State::RawTextLessThanSignState,
-                        Element::Utf8(CHAR_NUL) => {
+                        Ch('<') => self.state = State::RawTextLessThanSign,
+                        Ch(CHAR_NUL) => {
                             self.consume(CHAR_REPLACEMENT);
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                         }
-                        Element::Eof => {
+                        Eof => {
                             // EOF
                             // if self.has_consumed_data() {
                             //     self.emit_token(Token::TextToken { value: self.get_consumed_str() });
@@ -182,197 +182,193 @@ impl<'stream> Tokenizer<'stream> {
                             // }
                             self.emit_token(Token::Eof);
                         }
-                        _ => self.consume(c.utf8()),
+                        _ => self.consume(c.into()),
                     }
                 }
-                State::ScriptDataState => {
+                State::ScriptData => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('<') => self.state = State::ScriptDataLessThenSignState,
-                        Element::Utf8(CHAR_NUL) => {
+                        Ch('<') => self.state = State::ScriptDataLessThenSign,
+                        Ch(CHAR_NUL) => {
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                             self.consume(CHAR_REPLACEMENT);
                         }
-                        Element::Eof => {
+                        Eof => {
                             // if self.has_consumed_data() {
                             //     self.emit_token(Token::TextToken { value: self.get_consumed_str().clone() });
                             //     self.clear_consume_buffer();
                             // }
                             self.emit_token(Token::Eof);
                         }
-                        _ => self.consume(c.utf8()),
+                        _ => self.consume(c.into()),
                     }
                 }
-                State::PlaintextState => {
+                State::PLAINTEXT => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(CHAR_NUL) => {
+                        Ch(CHAR_NUL) => {
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                             self.consume(CHAR_REPLACEMENT);
                         }
-                        Element::Eof => {
+                        Eof => {
                             // if self.has_consumed_data() {
                             //     self.emit_token(Token::TextToken { value: self.get_consumed_str().clone() });
                             //     self.clear_consume_buffer();
                             // }
                             self.emit_token(Token::Eof);
                         }
-                        _ => self.consume(c.utf8()),
+                        _ => self.consume(c.into()),
                     }
                 }
-                State::TagOpenState => {
+                State::TagOpen => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('!') => self.state = State::MarkupDeclarationOpenState,
-                        Element::Utf8('/') => self.state = State::EndTagOpenState,
-                        Element::Utf8(ch) if ch.is_ascii_alphabetic() => {
+                        Ch('!') => self.state = State::MarkupDeclarationOpen,
+                        Ch('/') => self.state = State::EndTagOpen,
+                        Ch(ch) if ch.is_ascii_alphabetic() => {
                             self.current_token = Some(Token::StartTag {
                                 name: "".into(),
                                 is_self_closing: false,
                                 attributes: HashMap::new(),
                             });
                             self.stream.unread();
-                            self.state = State::TagNameState;
+                            self.state = State::TagName;
                         }
-                        Element::Utf8('?') => {
+                        Ch('?') => {
                             self.current_token = Some(Token::Comment("".into()));
                             self.parse_error(ParserError::UnexpectedQuestionMarkInsteadOfTagName);
                             self.stream.unread();
-                            self.state = State::BogusCommentState;
+                            self.state = State::BogusComment;
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofBeforeTagName);
                             self.consume('<');
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
                         _ => {
                             self.parse_error(ParserError::InvalidFirstCharacterOfTagName);
                             self.consume('<');
                             self.stream.unread();
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
                     }
                 }
-                State::EndTagOpenState => {
+                State::EndTagOpen => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(ch) if ch.is_ascii_alphabetic() => {
+                        Ch(ch) if ch.is_ascii_alphabetic() => {
                             self.current_token = Some(Token::EndTag {
                                 name: "".into(),
                                 is_self_closing: false,
                             });
                             self.stream.unread();
-                            self.state = State::TagNameState;
+                            self.state = State::TagName;
                         }
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             self.parse_error(ParserError::MissingEndTagName);
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofBeforeTagName);
                             self.consume('<');
                             self.consume('/');
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
                         _ => {
                             self.parse_error(ParserError::InvalidFirstCharacterOfTagName);
 
                             self.current_token = Some(Token::Comment("".into()));
                             self.stream.unread();
-                            self.state = State::BogusCommentState;
+                            self.state = State::BogusComment;
                         }
                     }
                 }
-                State::TagNameState => {
+                State::TagName => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(CHAR_TAB)
-                        | Element::Utf8(CHAR_LF)
-                        | Element::Utf8(CHAR_FF)
-                        | Element::Utf8(CHAR_SPACE) => self.state = State::BeforeAttributeNameState,
-                        Element::Utf8('/') => self.state = State::SelfClosingStartState,
-                        Element::Utf8('>') => {
-                            self.emit_current_token();
-                            self.state = State::DataState;
+                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
+                            self.state = State::BeforeAttributeName
                         }
-                        Element::Utf8(ch @ 'A'..='Z') => self.add_to_token_name(to_lowercase!(ch)),
-                        Element::Utf8(CHAR_NUL) => {
+                        Ch('/') => self.state = State::SelfClosingStart,
+                        Ch('>') => {
+                            self.emit_current_token();
+                            self.state = State::Data;
+                        }
+                        Ch(ch @ 'A'..='Z') => self.add_to_token_name(to_lowercase!(ch)),
+                        Ch(CHAR_NUL) => {
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                             self.add_to_token_name(CHAR_REPLACEMENT);
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInTag);
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
-                        _ => self.add_to_token_name(c.utf8()),
+                        _ => self.add_to_token_name(c.into()),
                     }
                 }
-                State::RcDataLessThanSignState => {
+                State::RCDATALessThanSign => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('/') => {
+                        Ch('/') => {
                             self.temporary_buffer.clear();
-                            self.state = State::RcDataEndTagOpenState;
+                            self.state = State::RCDATAEndTagOpen;
                         }
                         _ => {
                             self.consume('<');
                             self.stream.unread();
-                            self.state = State::RcDataState;
+                            self.state = State::RCDATA;
                         }
                     }
                 }
-                State::RcDataEndTagOpenState => {
+                State::RCDATAEndTagOpen => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(ch) if ch.is_ascii_alphabetic() => {
+                        Ch(ch) if ch.is_ascii_alphabetic() => {
                             self.current_token = Some(Token::EndTag {
                                 name: "".into(),
                                 is_self_closing: false,
                             });
                             self.stream.unread();
-                            self.state = State::RcDataEndTagNameState;
+                            self.state = State::RCDATAEndTagName;
                         }
                         _ => {
                             self.consume('<');
                             self.consume('/');
                             self.stream.unread();
-                            self.state = State::RcDataState;
+                            self.state = State::RCDATA;
                         }
                     }
                 }
-                State::RcDataEndTagNameState => {
+                State::RCDATAEndTagName => {
                     let c = self.read_char();
 
                     // we use this flag because a lot of matches will actually do the same thing
                     let mut consume_anything_else = false;
 
                     match c {
-                        Element::Utf8(CHAR_TAB)
-                        | Element::Utf8(CHAR_LF)
-                        | Element::Utf8(CHAR_FF)
-                        | Element::Utf8(CHAR_SPACE) => {
+                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
                             let current_end_tag_name = match &self.current_token {
                                 Some(Token::EndTag { name, .. }) => name,
                                 _ => "",
                             };
                             if self.is_appropriate_end_token(current_end_tag_name) {
-                                self.state = State::BeforeAttributeNameState;
+                                self.state = State::BeforeAttributeName;
                             } else {
                                 consume_anything_else = true;
                             }
                         }
-                        Element::Utf8('/') => {
+                        Ch('/') => {
                             let current_end_tag_name = match &self.current_token {
                                 Some(Token::EndTag { name, .. }) => name,
                                 _ => "",
                             };
                             if self.is_appropriate_end_token(current_end_tag_name) {
-                                self.state = State::SelfClosingStartState;
+                                self.state = State::SelfClosingStart;
                             } else {
                                 consume_anything_else = true;
                             }
                         }
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             let current_end_tag_name = match &self.current_token {
                                 Some(Token::EndTag { name, .. }) => name,
                                 _ => "",
@@ -380,16 +376,16 @@ impl<'stream> Tokenizer<'stream> {
                             if self.is_appropriate_end_token(current_end_tag_name) {
                                 self.emit_current_token();
                                 self.last_start_token = String::new();
-                                self.state = State::DataState;
+                                self.state = State::Data;
                             } else {
                                 consume_anything_else = true;
                             }
                         }
-                        Element::Utf8(ch @ 'A'..='Z') => {
+                        Ch(ch @ 'A'..='Z') => {
                             self.add_to_token_name(to_lowercase!(ch));
                             self.temporary_buffer.push(ch);
                         }
-                        Element::Utf8(ch @ 'a'..='z') => {
+                        Ch(ch @ 'a'..='z') => {
                             self.add_to_token_name(ch);
                             self.temporary_buffer.push(ch);
                         }
@@ -399,75 +395,72 @@ impl<'stream> Tokenizer<'stream> {
                     }
 
                     if consume_anything_else {
-                        self.transition_to(State::RcDataState);
+                        self.transition_to(State::RCDATA);
                     }
                 }
-                State::RawTextLessThanSignState => {
+                State::RawTextLessThanSign => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('/') => {
+                        Ch('/') => {
                             self.temporary_buffer.clear();
-                            self.state = State::RawTextEndTagOpenState;
+                            self.state = State::RawTextEndTagOpen;
                         }
                         _ => {
                             self.consume('<');
                             self.stream.unread();
-                            self.state = State::RawTextState;
+                            self.state = State::RAWTEXT;
                         }
                     }
                 }
-                State::RawTextEndTagOpenState => {
+                State::RawTextEndTagOpen => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(ch) if ch.is_ascii_alphabetic() => {
+                        Ch(ch) if ch.is_ascii_alphabetic() => {
                             self.current_token = Some(Token::EndTag {
                                 name: "".into(),
                                 is_self_closing: false,
                             });
                             self.stream.unread();
-                            self.state = State::RawTextEndTagNameState;
+                            self.state = State::RawTextEndTagName;
                         }
                         _ => {
                             self.consume('<');
                             self.consume('/');
                             self.stream.unread();
-                            self.state = State::RawTextState;
+                            self.state = State::RAWTEXT;
                         }
                     }
                 }
-                State::RawTextEndTagNameState => {
+                State::RawTextEndTagName => {
                     let c = self.read_char();
 
                     // we use this flag because a lot of matches will actually do the same thing
                     let mut consume_anything_else = false;
 
                     match c {
-                        Element::Utf8(CHAR_TAB)
-                        | Element::Utf8(CHAR_LF)
-                        | Element::Utf8(CHAR_FF)
-                        | Element::Utf8(CHAR_SPACE) => {
+                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
                             let current_end_tag_name = match &self.current_token {
                                 Some(Token::EndTag { name, .. }) => name,
                                 _ => "",
                             };
                             if self.is_appropriate_end_token(current_end_tag_name) {
-                                self.state = State::BeforeAttributeNameState;
+                                self.state = State::BeforeAttributeName;
                             } else {
                                 consume_anything_else = true;
                             }
                         }
-                        Element::Utf8('/') => {
+                        Ch('/') => {
                             let current_end_tag_name = match &self.current_token {
                                 Some(Token::EndTag { name, .. }) => name,
                                 _ => "",
                             };
                             if self.is_appropriate_end_token(current_end_tag_name) {
-                                self.state = State::SelfClosingStartState;
+                                self.state = State::SelfClosingStart;
                             } else {
                                 consume_anything_else = true;
                             }
                         }
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             let current_end_tag_name = match &self.current_token {
                                 Some(Token::EndTag { name, .. }) => name,
                                 _ => "",
@@ -475,16 +468,16 @@ impl<'stream> Tokenizer<'stream> {
                             if self.is_appropriate_end_token(current_end_tag_name) {
                                 self.emit_current_token();
                                 self.last_start_token = String::new();
-                                self.state = State::DataState;
+                                self.state = State::Data;
                             } else {
                                 consume_anything_else = true;
                             }
                         }
-                        Element::Utf8(ch @ 'A'..='Z') => {
+                        Ch(ch @ 'A'..='Z') => {
                             self.add_to_token_name(to_lowercase!(ch));
                             self.temporary_buffer.push(ch);
                         }
-                        Element::Utf8(ch @ 'a'..='z') => {
+                        Ch(ch @ 'a'..='z') => {
                             self.add_to_token_name(ch);
                             self.temporary_buffer.push(ch);
                         }
@@ -494,80 +487,77 @@ impl<'stream> Tokenizer<'stream> {
                     }
 
                     if consume_anything_else {
-                        self.transition_to(State::RawTextState);
+                        self.transition_to(State::RAWTEXT);
                     }
                 }
-                State::ScriptDataLessThenSignState => {
+                State::ScriptDataLessThenSign => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('/') => {
+                        Ch('/') => {
                             self.temporary_buffer.clear();
-                            self.state = State::ScriptDataEndTagOpenState;
+                            self.state = State::ScriptDataEndTagOpen;
                         }
-                        Element::Utf8('!') => {
+                        Ch('!') => {
                             self.consume('<');
                             self.consume('!');
-                            self.state = State::ScriptDataEscapeStartState;
+                            self.state = State::ScriptDataEscapeStart;
                         }
                         _ => {
                             self.consume('<');
                             self.stream.unread();
-                            self.state = State::ScriptDataState;
+                            self.state = State::ScriptData;
                         }
                     }
                 }
-                State::ScriptDataEndTagOpenState => {
+                State::ScriptDataEndTagOpen => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(ch) if ch.is_ascii_alphabetic() => {
+                        Ch(ch) if ch.is_ascii_alphabetic() => {
                             self.current_token = Some(Token::EndTag {
                                 name: "".into(),
                                 is_self_closing: false,
                             });
                             self.stream.unread();
-                            self.state = State::ScriptDataEndTagNameState;
+                            self.state = State::ScriptDataEndTagName;
                         }
                         _ => {
                             self.consume('<');
                             self.consume('/');
                             self.stream.unread();
-                            self.state = State::ScriptDataState;
+                            self.state = State::ScriptData;
                         }
                     }
                 }
-                State::ScriptDataEndTagNameState => {
+                State::ScriptDataEndTagName => {
                     let c = self.read_char();
 
                     // we use this flag because a lot of matches will actually do the same thing
                     let mut consume_anything_else = false;
 
                     match c {
-                        Element::Utf8(CHAR_TAB)
-                        | Element::Utf8(CHAR_LF)
-                        | Element::Utf8(CHAR_FF)
-                        | Element::Utf8(CHAR_SPACE) => {
+                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
                             let current_end_tag_name = match &self.current_token {
                                 Some(Token::EndTag { name, .. }) => name,
                                 _ => "",
                             };
                             if self.is_appropriate_end_token(current_end_tag_name) {
-                                self.state = State::BeforeAttributeNameState;
+                                self.state = State::BeforeAttributeName;
                             } else {
                                 consume_anything_else = true;
                             }
                         }
-                        Element::Utf8('/') => {
+                        Ch('/') => {
                             let current_end_tag_name = match &self.current_token {
                                 Some(Token::EndTag { name, .. }) => name,
                                 _ => "",
                             };
                             if self.is_appropriate_end_token(current_end_tag_name) {
-                                self.state = State::SelfClosingStartState;
+                                self.state = State::SelfClosingStart;
                             } else {
                                 consume_anything_else = true;
                             }
                         }
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             let current_end_tag_name = match &self.current_token {
                                 Some(Token::EndTag { name, .. }) => name,
                                 _ => "",
@@ -575,16 +565,16 @@ impl<'stream> Tokenizer<'stream> {
                             if self.is_appropriate_end_token(current_end_tag_name) {
                                 self.emit_current_token();
                                 self.last_start_token = String::new();
-                                self.state = State::DataState;
+                                self.state = State::Data;
                             } else {
                                 consume_anything_else = true;
                             }
                         }
-                        Element::Utf8(ch @ 'A'..='Z') => {
+                        Ch(ch @ 'A'..='Z') => {
                             self.add_to_token_name(to_lowercase!(ch));
                             self.temporary_buffer.push(ch);
                         }
-                        Element::Utf8(ch @ 'a'..='z') => {
+                        Ch(ch @ 'a'..='z') => {
                             self.add_to_token_name(ch);
                             self.temporary_buffer.push(ch);
                         }
@@ -594,186 +584,183 @@ impl<'stream> Tokenizer<'stream> {
                     }
 
                     if consume_anything_else {
-                        self.transition_to(State::ScriptDataState);
+                        self.transition_to(State::ScriptData);
                     }
                 }
-                State::ScriptDataEscapeStartState => {
+                State::ScriptDataEscapeStart => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('-') => {
+                        Ch('-') => {
                             self.consume('-');
-                            self.state = State::ScriptDataEscapeStartDashState;
+                            self.state = State::ScriptDataEscapeStartDash;
                         }
                         _ => {
                             self.stream.unread();
-                            self.state = State::ScriptDataState;
+                            self.state = State::ScriptData;
                         }
                     }
                 }
-                State::ScriptDataEscapeStartDashState => {
+                State::ScriptDataEscapeStartDash => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('-') => {
+                        Ch('-') => {
                             self.consume('-');
-                            self.state = State::ScriptDataEscapedDashDashState;
+                            self.state = State::ScriptDataEscapedDashDash;
                         }
                         _ => {
                             self.stream.unread();
-                            self.state = State::ScriptDataState;
+                            self.state = State::ScriptData;
                         }
                     }
                 }
-                State::ScriptDataEscapedState => {
+                State::ScriptDataEscaped => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('-') => {
+                        Ch('-') => {
                             self.consume('-');
-                            self.state = State::ScriptDataEscapedDashState;
+                            self.state = State::ScriptDataEscapedDash;
                         }
-                        Element::Utf8('<') => {
-                            self.state = State::ScriptDataEscapedLessThanSignState;
+                        Ch('<') => {
+                            self.state = State::ScriptDataEscapedLessThanSign;
                         }
-                        Element::Utf8(CHAR_NUL) => {
+                        Ch(CHAR_NUL) => {
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                             self.consume(CHAR_REPLACEMENT);
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInScriptHtmlCommentLikeText);
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
                         _ => {
-                            self.consume(c.utf8());
+                            self.consume(c.into());
                         }
                     }
                 }
-                State::ScriptDataEscapedDashState => {
+                State::ScriptDataEscapedDash => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('-') => {
+                        Ch('-') => {
                             self.consume('-');
-                            self.state = State::ScriptDataEscapedDashDashState;
+                            self.state = State::ScriptDataEscapedDashDash;
                         }
-                        Element::Utf8('<') => {
-                            self.state = State::ScriptDataEscapedLessThanSignState;
+                        Ch('<') => {
+                            self.state = State::ScriptDataEscapedLessThanSign;
                         }
-                        Element::Utf8(CHAR_NUL) => {
+                        Ch(CHAR_NUL) => {
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                             self.consume(CHAR_REPLACEMENT);
-                            self.state = State::ScriptDataEscapedState;
+                            self.state = State::ScriptDataEscaped;
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInScriptHtmlCommentLikeText);
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
                         _ => {
-                            self.consume(c.utf8());
-                            self.state = State::ScriptDataEscapedState;
+                            self.consume(c.into());
+                            self.state = State::ScriptDataEscaped;
                         }
                     }
                 }
-                State::ScriptDataEscapedDashDashState => {
+                State::ScriptDataEscapedDashDash => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('-') => {
+                        Ch('-') => {
                             self.consume('-');
                         }
-                        Element::Utf8('<') => {
-                            self.state = State::ScriptDataEscapedLessThanSignState;
+                        Ch('<') => {
+                            self.state = State::ScriptDataEscapedLessThanSign;
                         }
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             self.consume('>');
-                            self.state = State::ScriptDataState;
+                            self.state = State::ScriptData;
                         }
-                        Element::Utf8(CHAR_NUL) => {
+                        Ch(CHAR_NUL) => {
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                             self.consume(CHAR_REPLACEMENT);
-                            self.state = State::ScriptDataEscapedState;
+                            self.state = State::ScriptDataEscaped;
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInScriptHtmlCommentLikeText);
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
                         _ => {
-                            self.consume(c.utf8());
-                            self.state = State::ScriptDataEscapedState;
+                            self.consume(c.into());
+                            self.state = State::ScriptDataEscaped;
                         }
                     }
                 }
-                State::ScriptDataEscapedLessThanSignState => {
+                State::ScriptDataEscapedLessThanSign => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('/') => {
+                        Ch('/') => {
                             self.temporary_buffer.clear();
-                            self.state = State::ScriptDataEscapedEndTagOpenState;
+                            self.state = State::ScriptDataEscapedEndTagOpen;
                         }
-                        Element::Utf8(ch) if ch.is_ascii_alphabetic() => {
+                        Ch(ch) if ch.is_ascii_alphabetic() => {
                             self.temporary_buffer.clear();
                             self.consume('<');
                             self.stream.unread();
-                            self.state = State::ScriptDataDoubleEscapeStartState;
+                            self.state = State::ScriptDataDoubleEscapeStart;
                         }
                         _ => {
                             // anything else
                             self.consume('<');
                             self.stream.unread();
-                            self.state = State::ScriptDataEscapedState;
+                            self.state = State::ScriptDataEscaped;
                         }
                     }
                 }
-                State::ScriptDataEscapedEndTagOpenState => {
+                State::ScriptDataEscapedEndTagOpen => {
                     let c = self.read_char();
 
                     match c {
-                        Element::Utf8(ch) if ch.is_ascii_alphabetic() => {
+                        Ch(ch) if ch.is_ascii_alphabetic() => {
                             self.current_token = Some(Token::EndTag {
                                 name: "".into(),
                                 is_self_closing: false,
                             });
 
                             self.stream.unread();
-                            self.state = State::ScriptDataEscapedEndTagNameState;
+                            self.state = State::ScriptDataEscapedEndTagName;
                         }
                         _ => {
                             self.consume('<');
                             self.consume('/');
                             self.stream.unread();
-                            self.state = State::ScriptDataEscapedState;
+                            self.state = State::ScriptDataEscaped;
                         }
                     }
                 }
-                State::ScriptDataEscapedEndTagNameState => {
+                State::ScriptDataEscapedEndTagName => {
                     let c = self.read_char();
 
                     // we use this flag because a lot of matches will actually do the same thing
                     let mut consume_anything_else = false;
 
                     match c {
-                        Element::Utf8(CHAR_TAB)
-                        | Element::Utf8(CHAR_LF)
-                        | Element::Utf8(CHAR_FF)
-                        | Element::Utf8(CHAR_SPACE) => {
+                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
                             let current_end_tag_name = match &self.current_token {
                                 Some(Token::EndTag { name, .. }) => name,
                                 _ => "",
                             };
                             if self.is_appropriate_end_token(current_end_tag_name) {
-                                self.state = State::BeforeAttributeNameState;
+                                self.state = State::BeforeAttributeName;
                             } else {
                                 consume_anything_else = true;
                             }
                         }
-                        Element::Utf8('/') => {
+                        Ch('/') => {
                             let current_end_tag_name = match &self.current_token {
                                 Some(Token::EndTag { name, .. }) => name,
                                 _ => "",
                             };
                             if self.is_appropriate_end_token(current_end_tag_name) {
-                                self.state = State::SelfClosingStartState;
+                                self.state = State::SelfClosingStart;
                             } else {
                                 consume_anything_else = true;
                             }
                         }
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             let current_end_tag_name = match &self.current_token {
                                 Some(Token::EndTag { name, .. }) => name,
                                 _ => "",
@@ -781,16 +768,16 @@ impl<'stream> Tokenizer<'stream> {
                             if self.is_appropriate_end_token(current_end_tag_name) {
                                 self.emit_current_token();
                                 self.last_start_token = String::new();
-                                self.state = State::DataState;
+                                self.state = State::Data;
                             } else {
                                 consume_anything_else = true;
                             }
                         }
-                        Element::Utf8(ch @ 'A'..='Z') => {
+                        Ch(ch @ 'A'..='Z') => {
                             self.add_to_token_name(to_lowercase!(ch));
                             self.temporary_buffer.push(ch);
                         }
-                        Element::Utf8(ch @ 'a'..='z') => {
+                        Ch(ch @ 'a'..='z') => {
                             self.add_to_token_name(ch);
                             self.temporary_buffer.push(ch);
                         }
@@ -800,442 +787,409 @@ impl<'stream> Tokenizer<'stream> {
                     }
 
                     if consume_anything_else {
-                        self.transition_to(State::ScriptDataEscapedState);
+                        self.transition_to(State::ScriptDataEscaped);
                     }
                 }
-                State::ScriptDataDoubleEscapeStartState => {
+                State::ScriptDataDoubleEscapeStart => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(CHAR_TAB)
-                        | Element::Utf8(CHAR_LF)
-                        | Element::Utf8(CHAR_FF)
-                        | Element::Utf8(CHAR_SPACE)
-                        | Element::Utf8('/')
-                        | Element::Utf8('>') => {
+                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE | '/' | '>') => {
                             if self.temporary_buffer == "script" {
-                                self.state = State::ScriptDataDoubleEscapedState;
+                                self.state = State::ScriptDataDoubleEscaped;
                             } else {
-                                self.state = State::ScriptDataEscapedState;
+                                self.state = State::ScriptDataEscaped;
                             }
-                            self.consume(c.utf8());
+                            self.consume(c.into());
                         }
-                        Element::Utf8(ch @ 'A'..='Z') => {
-                            self.temporary_buffer.push(ch);
+                        Ch(ch @ 'A'..='Z') => {
+                            self.temporary_buffer.push(to_lowercase!(ch));
                             self.consume(ch);
                         }
-                        Element::Utf8(ch @ 'a'..='z') => {
+                        Ch(ch @ 'a'..='z') => {
                             self.temporary_buffer.push(ch);
                             self.consume(ch);
                         }
                         _ => {
                             self.stream.unread();
-                            self.state = State::ScriptDataEscapedState;
+                            self.state = State::ScriptDataEscaped;
                         }
                     }
                 }
-                State::ScriptDataDoubleEscapedState => {
+                State::ScriptDataDoubleEscaped => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('-') => {
+                        Ch('-') => {
                             self.consume('-');
-                            self.state = State::ScriptDataDoubleEscapedDashState;
+                            self.state = State::ScriptDataDoubleEscapedDash;
                         }
-                        Element::Utf8('<') => {
+                        Ch('<') => {
                             self.consume('<');
-                            self.state = State::ScriptDataDoubleEscapedLessThanSignState;
+                            self.state = State::ScriptDataDoubleEscapedLessThanSign;
                         }
-                        Element::Utf8(CHAR_NUL) => {
+                        Ch(CHAR_NUL) => {
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                             self.consume(CHAR_REPLACEMENT);
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInScriptHtmlCommentLikeText);
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
-                        _ => self.consume(c.utf8()),
+                        _ => self.consume(c.into()),
                     }
                 }
-                State::ScriptDataDoubleEscapedDashState => {
+                State::ScriptDataDoubleEscapedDash => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('-') => {
-                            self.state = State::ScriptDataDoubleEscapedDashDashState;
+                        Ch('-') => {
+                            self.state = State::ScriptDataDoubleEscapedDashDash;
                             self.consume('-');
                         }
-                        Element::Utf8('<') => {
-                            self.state = State::ScriptDataDoubleEscapedLessThanSignState;
+                        Ch('<') => {
+                            self.state = State::ScriptDataDoubleEscapedLessThanSign;
                             self.consume('<');
                         }
-                        Element::Utf8(CHAR_NUL) => {
+                        Ch(CHAR_NUL) => {
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                             self.consume(CHAR_REPLACEMENT);
-                            self.state = State::ScriptDataDoubleEscapedState;
+                            self.state = State::ScriptDataDoubleEscaped;
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInScriptHtmlCommentLikeText);
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
                         _ => {
-                            self.consume(c.utf8());
-                            self.state = State::ScriptDataDoubleEscapedState;
+                            self.consume(c.into());
+                            self.state = State::ScriptDataDoubleEscaped;
                         }
                     }
                 }
-                State::ScriptDataDoubleEscapedDashDashState => {
+                State::ScriptDataDoubleEscapedDashDash => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('-') => self.consume('-'),
-                        Element::Utf8('<') => {
+                        Ch('-') => self.consume('-'),
+                        Ch('<') => {
                             self.consume('<');
-                            self.state = State::ScriptDataDoubleEscapedLessThanSignState;
+                            self.state = State::ScriptDataDoubleEscapedLessThanSign;
                         }
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             self.consume('>');
-                            self.state = State::ScriptDataState;
+                            self.state = State::ScriptData;
                         }
-                        Element::Utf8(CHAR_NUL) => {
+                        Ch(CHAR_NUL) => {
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                             self.consume(CHAR_REPLACEMENT);
-                            self.state = State::ScriptDataDoubleEscapedState;
+                            self.state = State::ScriptDataDoubleEscaped;
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInScriptHtmlCommentLikeText);
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
                         _ => {
-                            self.consume(c.utf8());
-                            self.state = State::ScriptDataDoubleEscapedState;
+                            self.consume(c.into());
+                            self.state = State::ScriptDataDoubleEscaped;
                         }
                     }
                 }
-                State::ScriptDataDoubleEscapedLessThanSignState => {
+                State::ScriptDataDoubleEscapedLessThanSign => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('/') => {
+                        Ch('/') => {
                             self.temporary_buffer.clear();
                             self.consume('/');
-                            self.state = State::ScriptDataDoubleEscapeEndState;
+                            self.state = State::ScriptDataDoubleEscapeEnd;
                         }
                         _ => {
                             self.stream.unread();
-                            self.state = State::ScriptDataDoubleEscapedState;
+                            self.state = State::ScriptDataDoubleEscaped;
                         }
                     }
                 }
-                State::ScriptDataDoubleEscapeEndState => {
+                State::ScriptDataDoubleEscapeEnd => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(CHAR_TAB)
-                        | Element::Utf8(CHAR_LF)
-                        | Element::Utf8(CHAR_FF)
-                        | Element::Utf8(CHAR_SPACE)
-                        | Element::Utf8('/')
-                        | Element::Utf8('>') => {
+                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE | '/' | '>') => {
                             if self.temporary_buffer == "script" {
-                                self.state = State::ScriptDataEscapedState;
+                                self.state = State::ScriptDataEscaped;
                             } else {
-                                self.state = State::ScriptDataDoubleEscapedState;
+                                self.state = State::ScriptDataDoubleEscaped;
                             }
-                            self.consume(c.utf8());
+                            self.consume(c.into());
                         }
-                        Element::Utf8(ch @ 'A'..='Z') => {
-                            self.temporary_buffer.push(ch);
+                        Ch(ch @ 'A'..='Z') => {
+                            self.temporary_buffer.push(to_lowercase!(ch));
                             self.consume(ch);
                         }
-                        Element::Utf8(ch @ 'a'..='z') => {
+                        Ch(ch @ 'a'..='z') => {
                             self.temporary_buffer.push(ch);
                             self.consume(ch);
                         }
                         _ => {
                             self.stream.unread();
-                            self.state = State::ScriptDataDoubleEscapedState;
+                            self.state = State::ScriptDataDoubleEscaped;
                         }
                     }
                 }
-                State::BeforeAttributeNameState => {
+                State::BeforeAttributeName => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(CHAR_TAB)
-                        | Element::Utf8(CHAR_LF)
-                        | Element::Utf8(CHAR_FF)
-                        | Element::Utf8(CHAR_SPACE) => {
+                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
                             // Ignore character
                         }
-                        Element::Utf8('/') | Element::Utf8('>') | Element::Eof => {
+                        Ch('/' | '>') | Eof => {
                             self.stream.unread();
-                            self.state = State::AfterAttributeNameState;
+                            self.state = State::AfterAttributeName;
                         }
-                        Element::Utf8('=') => {
+                        Ch('=') => {
                             self.parse_error(ParserError::UnexpectedEqualsSignBeforeAttributeName);
 
                             self.store_and_clear_current_attribute();
-                            self.current_attr_name.push(c.utf8());
+                            self.current_attr_name.push(c.into());
 
-                            self.state = State::AttributeNameState;
+                            self.state = State::AttributeName;
                         }
                         _ => {
                             // Store an existing attribute if any and clear
                             self.store_and_clear_current_attribute();
 
                             self.stream.unread();
-                            self.state = State::AttributeNameState;
+                            self.state = State::AttributeName;
                         }
                     }
                 }
-                State::AttributeNameState => {
+                State::AttributeName => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(CHAR_TAB)
-                        | Element::Utf8(CHAR_LF)
-                        | Element::Utf8(CHAR_FF)
-                        | Element::Utf8(CHAR_SPACE)
-                        | Element::Utf8('/')
-                        | Element::Utf8('>')
-                        | Element::Eof => {
+                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE | '/' | '>') | Eof => {
                             if self.attr_already_exists() {
                                 self.parse_error(ParserError::DuplicateAttribute);
                             }
                             self.stream.unread();
 
-                            self.state = State::AfterAttributeNameState
+                            self.state = State::AfterAttributeName
                         }
-                        Element::Utf8('=') => {
+                        Ch('=') => {
                             if self.attr_already_exists() {
                                 self.parse_error(ParserError::DuplicateAttribute);
                             }
-                            self.state = State::BeforeAttributeValueState
+                            self.state = State::BeforeAttributeValue
                         }
-                        Element::Utf8(ch @ 'A'..='Z') => {
+                        Ch(ch @ 'A'..='Z') => {
                             self.current_attr_name.push(to_lowercase!(ch));
                         }
-                        Element::Utf8(CHAR_NUL) => {
+                        Ch(CHAR_NUL) => {
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                             self.current_attr_name.push(CHAR_REPLACEMENT);
                         }
-                        Element::Utf8('"') | Element::Utf8('\'') | Element::Utf8('<') => {
+                        Ch('"' | '\'' | '<') => {
                             self.parse_error(ParserError::UnexpectedCharacterInAttributeName);
-                            self.current_attr_name.push(c.utf8());
+                            self.current_attr_name.push(c.into());
                         }
-                        _ => self.current_attr_name.push(c.utf8()),
+                        _ => self.current_attr_name.push(c.into()),
                     }
                 }
-                State::AfterAttributeNameState => {
+                State::AfterAttributeName => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(CHAR_TAB)
-                        | Element::Utf8(CHAR_LF)
-                        | Element::Utf8(CHAR_FF)
-                        | Element::Utf8(CHAR_SPACE) => {
+                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
                             // Ignore
                         }
-                        Element::Utf8('/') => self.state = State::SelfClosingStartState,
-                        Element::Utf8('=') => self.state = State::BeforeAttributeValueState,
-                        Element::Utf8('>') => {
+                        Ch('/') => self.state = State::SelfClosingStart,
+                        Ch('=') => self.state = State::BeforeAttributeValue,
+                        Ch('>') => {
                             self.store_and_clear_current_attribute();
                             self.add_stored_attributes_to_current_token();
                             self.emit_current_token();
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInTag);
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
                         _ => {
                             self.store_and_clear_current_attribute();
                             self.stream.unread();
-                            self.state = State::AttributeNameState;
+                            self.state = State::AttributeName;
                         }
                     }
                 }
-                State::BeforeAttributeValueState => {
+                State::BeforeAttributeValue => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(CHAR_TAB)
-                        | Element::Utf8(CHAR_LF)
-                        | Element::Utf8(CHAR_FF)
-                        | Element::Utf8(CHAR_SPACE) => {
+                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
                             // Ignore
                         }
-                        Element::Utf8('"') => self.state = State::AttributeValueDoubleQuotedState,
-                        Element::Utf8('\'') => {
-                            self.state = State::AttributeValueSingleQuotedState;
+                        Ch('"') => self.state = State::AttributeValueDoubleQuoted,
+                        Ch('\'') => {
+                            self.state = State::AttributeValueSingleQuoted;
                         }
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             self.parse_error(ParserError::MissingAttributeValue);
 
                             self.store_and_clear_current_attribute();
                             self.add_stored_attributes_to_current_token();
                             self.emit_current_token();
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
                         _ => {
                             self.stream.unread();
-                            self.state = State::AttributeValueUnquotedState;
+                            self.state = State::AttributeValueUnquoted;
                         }
                     }
                 }
-                State::AttributeValueDoubleQuotedState => {
+                State::AttributeValueDoubleQuoted => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('"') => self.state = State::AfterAttributeValueQuotedState,
-                        Element::Utf8('&') => {
-                            self.consume_character_reference(Some(Element::Utf8('"')), true);
+                        Ch('"') => self.state = State::AfterAttributeValueQuoted,
+                        Ch('&') => {
+                            self.consume_character_reference(Some(Ch('"')), true);
                         }
-                        Element::Utf8(CHAR_NUL) => {
+                        Ch(CHAR_NUL) => {
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                             self.current_attr_value.push(CHAR_REPLACEMENT);
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInTag);
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
                         _ => {
-                            self.current_attr_value.push(c.utf8());
+                            self.current_attr_value.push(c.into());
                         }
                     }
                 }
-                State::AttributeValueSingleQuotedState => {
+                State::AttributeValueSingleQuoted => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('\'') => self.state = State::AfterAttributeValueQuotedState,
-                        Element::Utf8('&') => {
-                            self.consume_character_reference(Some(Element::Utf8('\'')), true);
+                        Ch('\'') => self.state = State::AfterAttributeValueQuoted,
+                        Ch('&') => {
+                            self.consume_character_reference(Some(Ch('\'')), true);
                         }
-                        Element::Utf8(CHAR_NUL) => {
+                        Ch(CHAR_NUL) => {
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                             self.current_attr_value.push(CHAR_REPLACEMENT);
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInTag);
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
                         _ => {
-                            self.current_attr_value.push(c.utf8());
+                            self.current_attr_value.push(c.into());
                         }
                     }
                 }
-                State::AttributeValueUnquotedState => {
+                State::AttributeValueUnquoted => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(CHAR_TAB)
-                        | Element::Utf8(CHAR_LF)
-                        | Element::Utf8(CHAR_FF)
-                        | Element::Utf8(CHAR_SPACE) => {
-                            self.state = State::BeforeAttributeNameState;
+                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
+                            self.state = State::BeforeAttributeName;
                         }
-                        Element::Utf8('&') => {
-                            self.consume_character_reference(Some(Element::Utf8('>')), true);
+                        Ch('&') => {
+                            self.consume_character_reference(Some(Ch('>')), true);
                         }
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             self.store_and_clear_current_attribute();
                             self.add_stored_attributes_to_current_token();
                             self.emit_current_token();
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
-                        Element::Utf8(CHAR_NUL) => {
+                        Ch(CHAR_NUL) => {
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                             self.current_attr_value.push(CHAR_REPLACEMENT);
                         }
-                        Element::Utf8('"')
-                        | Element::Utf8('\'')
-                        | Element::Utf8('<')
-                        | Element::Utf8('=')
-                        | Element::Utf8('`') => {
+                        Ch('"' | '\'' | '<' | '=' | '`') => {
                             self.parse_error(
                                 ParserError::UnexpectedCharacterInUnquotedAttributeValue,
                             );
-                            self.current_attr_value.push(c.utf8());
+                            self.current_attr_value.push(c.into());
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInTag);
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
                         _ => {
-                            self.current_attr_value.push(c.utf8());
+                            self.current_attr_value.push(c.into());
                         }
                     }
                 }
                 // State::CharacterReferenceInAttributeValueState => {}
-                State::AfterAttributeValueQuotedState => {
+                State::AfterAttributeValueQuoted => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(CHAR_TAB)
-                        | Element::Utf8(CHAR_LF)
-                        | Element::Utf8(CHAR_FF)
-                        | Element::Utf8(CHAR_SPACE) => self.state = State::BeforeAttributeNameState,
-                        Element::Utf8('/') => self.state = State::SelfClosingStartState,
-                        Element::Utf8('>') => {
+                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
+                            self.state = State::BeforeAttributeName
+                        }
+                        Ch('/') => self.state = State::SelfClosingStart,
+                        Ch('>') => {
                             self.store_and_clear_current_attribute();
                             self.add_stored_attributes_to_current_token();
                             self.emit_current_token();
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInTag);
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
                         _ => {
                             self.parse_error(ParserError::MissingWhitespaceBetweenAttributes);
                             self.stream.unread();
-                            self.state = State::BeforeAttributeNameState;
+                            self.state = State::BeforeAttributeName;
                         }
                     }
                 }
-                State::SelfClosingStartState => {
+                State::SelfClosingStart => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             self.set_is_closing_in_current_token(true);
                             self.store_and_clear_current_attribute();
                             self.add_stored_attributes_to_current_token();
                             self.emit_current_token();
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInTag);
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
                         _ => {
                             self.parse_error(ParserError::UnexpectedSolidusInTag);
                             self.stream.unread();
-                            self.state = State::BeforeAttributeNameState;
+                            self.state = State::BeforeAttributeName;
                         }
                     }
                 }
-                State::BogusCommentState => {
+                State::BogusComment => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             self.emit_current_token();
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.emit_current_token();
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
-                        Element::Utf8(CHAR_NUL) => {
+                        Ch(CHAR_NUL) => {
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                             self.add_to_token_value(CHAR_REPLACEMENT);
                         }
                         _ => {
-                            self.add_to_token_value(c.utf8());
+                            self.add_to_token_value(c.into());
                         }
                     }
                 }
-                State::MarkupDeclarationOpenState => {
+                State::MarkupDeclarationOpen => {
                     if self.stream.look_ahead_slice(2) == "--" {
                         self.current_token = Some(Token::Comment("".into()));
 
                         // Skip the two -- signs
                         self.stream.seek(SeekCur, 2);
 
-                        self.state = State::CommentStartState;
+                        self.state = State::CommentStart;
                         continue;
                     }
 
                     if self.stream.look_ahead_slice(7).to_uppercase() == "DOCTYPE" {
                         self.stream.seek(SeekCur, 7);
-                        self.state = State::DocTypeState;
+                        self.state = State::DocType;
                         continue;
                     }
 
@@ -1248,7 +1202,7 @@ impl<'stream> Tokenizer<'stream> {
                         self.parse_error(ParserError::CdataInHtmlContent);
                         self.current_token = Some(Token::Comment("[CDATA[".into()));
 
-                        self.state = State::BogusCommentState;
+                        self.state = State::BogusComment;
                         continue;
                     }
 
@@ -1257,205 +1211,204 @@ impl<'stream> Tokenizer<'stream> {
                     self.stream.unread();
                     self.current_token = Some(Token::Comment("".into()));
 
-                    self.state = State::BogusCommentState;
+                    self.state = State::BogusComment;
                 }
-                State::CommentStartState => {
+                State::CommentStart => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('-') => {
-                            self.state = State::CommentStartDashState;
+                        Ch('-') => {
+                            self.state = State::CommentStartDash;
                         }
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             self.parse_error(ParserError::AbruptClosingOfEmptyComment);
                             self.emit_current_token();
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
                         _ => {
                             self.stream.unread();
-                            self.state = State::CommentState;
+                            self.state = State::Comment;
                         }
                     }
                 }
-                State::CommentStartDashState => {
+                State::CommentStartDash => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('-') => {
-                            self.state = State::CommentEndState;
+                        Ch('-') => {
+                            self.state = State::CommentEnd;
                         }
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             self.parse_error(ParserError::AbruptClosingOfEmptyComment);
                             self.emit_current_token();
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInComment);
                             self.emit_current_token();
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
                         _ => {
                             self.add_to_token_value('-');
                             self.stream.unread();
-                            self.state = State::CommentState;
+                            self.state = State::Comment;
                         }
                     }
                 }
-                State::CommentState => {
+                State::Comment => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('<') => {
-                            self.add_to_token_value(c.utf8());
-                            self.state = State::CommentLessThanSignState;
+                        Ch('<') => {
+                            self.add_to_token_value(c.into());
+                            self.state = State::CommentLessThanSign;
                         }
-                        Element::Utf8('-') => self.state = State::CommentEndDashState,
-                        Element::Utf8(CHAR_NUL) => {
+                        Ch('-') => self.state = State::CommentEndDash,
+                        Ch(CHAR_NUL) => {
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                             self.add_to_token_value(CHAR_REPLACEMENT);
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInComment);
                             self.emit_current_token();
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
                         _ => {
-                            self.add_to_token_value(c.utf8());
+                            self.add_to_token_value(c.into());
                         }
                     }
                 }
-                State::CommentLessThanSignState => {
+                State::CommentLessThanSign => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('!') => {
-                            self.add_to_token_value(c.utf8());
-                            self.state = State::CommentLessThanSignBangState;
+                        Ch('!') => {
+                            self.add_to_token_value(c.into());
+                            self.state = State::CommentLessThanSignBang;
                         }
-                        Element::Utf8('<') => {
-                            self.add_to_token_value(c.utf8());
+                        Ch('<') => {
+                            self.add_to_token_value(c.into());
                         }
                         _ => {
                             self.stream.unread();
-                            self.state = State::CommentState;
+                            self.state = State::Comment;
                         }
                     }
                 }
-                State::CommentLessThanSignBangState => {
+                State::CommentLessThanSignBang => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('-') => {
-                            self.state = State::CommentLessThanSignBangDashState;
+                        Ch('-') => {
+                            self.state = State::CommentLessThanSignBangDash;
                         }
                         _ => {
                             self.stream.unread();
-                            self.state = State::CommentState;
+                            self.state = State::Comment;
                         }
                     }
                 }
-                State::CommentLessThanSignBangDashState => {
+                State::CommentLessThanSignBangDash => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('-') => {
-                            self.state = State::CommentLessThanSignBangDashDashState;
+                        Ch('-') => {
+                            self.state = State::CommentLessThanSignBangDashDash;
                         }
                         _ => {
                             self.stream.unread();
-                            self.state = State::CommentEndDashState;
+                            self.state = State::CommentEndDash;
                         }
                     }
                 }
-                State::CommentLessThanSignBangDashDashState => {
+                State::CommentLessThanSignBangDashDash => {
                     let c = self.read_char();
                     match c {
-                        Element::Eof | Element::Utf8('>') => {
+                        Eof | Ch('>') => {
                             self.stream.unread();
-                            self.state = State::CommentEndState;
+                            self.state = State::CommentEnd;
                         }
                         _ => {
                             self.parse_error(ParserError::NestedComment);
                             self.stream.unread();
-                            self.state = State::CommentEndState;
+                            self.state = State::CommentEnd;
                         }
                     }
                 }
-                State::CommentEndDashState => {
+                State::CommentEndDash => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('-') => {
-                            self.state = State::CommentEndState;
+                        Ch('-') => {
+                            self.state = State::CommentEnd;
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInComment);
                             self.emit_current_token();
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
                         _ => {
                             self.add_to_token_value('-');
                             self.stream.unread();
-                            self.state = State::CommentState;
+                            self.state = State::Comment;
                         }
                     }
                 }
-                State::CommentEndState => {
+                State::CommentEnd => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             self.emit_current_token();
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
-                        Element::Utf8('!') => self.state = State::CommentEndBangState,
-                        Element::Utf8('-') => self.add_to_token_value('-'),
-                        Element::Eof => {
+                        Ch('!') => self.state = State::CommentEndBang,
+                        Ch('-') => self.add_to_token_value('-'),
+                        Eof => {
                             self.parse_error(ParserError::EofInComment);
                             self.emit_current_token();
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
                         _ => {
                             self.add_to_token_value('-');
                             self.add_to_token_value('-');
                             self.stream.unread();
-                            self.state = State::CommentState;
+                            self.state = State::Comment;
                         }
                     }
                 }
-                State::CommentEndBangState => {
+                State::CommentEndBang => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('-') => {
+                        Ch('-') => {
                             self.add_to_token_value('-');
                             self.add_to_token_value('-');
                             self.add_to_token_value('!');
 
-                            self.state = State::CommentEndDashState;
+                            self.state = State::CommentEndDash;
                         }
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             self.parse_error(ParserError::IncorrectlyClosedComment);
                             self.emit_current_token();
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInComment);
                             self.emit_current_token();
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
                         _ => {
                             self.add_to_token_value('-');
                             self.add_to_token_value('-');
                             self.add_to_token_value('!');
                             self.stream.unread();
-                            self.state = State::CommentState;
+                            self.state = State::Comment;
                         }
                     }
                 }
-                State::DocTypeState => {
+                State::DocType => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(CHAR_TAB)
-                        | Element::Utf8(CHAR_LF)
-                        | Element::Utf8(CHAR_FF)
-                        | Element::Utf8(CHAR_SPACE) => self.state = State::BeforeDocTypeNameState,
-                        Element::Utf8('>') => {
-                            self.stream.unread();
-                            self.state = State::BeforeDocTypeNameState;
+                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
+                            self.state = State::BeforeDocTypeName
                         }
-                        Element::Eof => {
+                        Ch('>') => {
+                            self.stream.unread();
+                            self.state = State::BeforeDocTypeName;
+                        }
+                        Eof => {
                             self.parse_error(ParserError::EofInDoctype);
 
                             self.emit_token(Token::DocType {
@@ -1465,25 +1418,22 @@ impl<'stream> Tokenizer<'stream> {
                                 sys_identifier: None,
                             });
 
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
                         _ => {
                             self.parse_error(ParserError::MissingWhitespaceBeforeDoctypeName);
                             self.stream.unread();
-                            self.state = State::BeforeDocTypeNameState;
+                            self.state = State::BeforeDocTypeName;
                         }
                     }
                 }
-                State::BeforeDocTypeNameState => {
+                State::BeforeDocTypeName => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(CHAR_TAB)
-                        | Element::Utf8(CHAR_LF)
-                        | Element::Utf8(CHAR_FF)
-                        | Element::Utf8(CHAR_SPACE) => {
+                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
                             // ignore
                         }
-                        Element::Utf8(ch @ 'A'..='Z') => {
+                        Ch(ch @ 'A'..='Z') => {
                             self.current_token = Some(Token::DocType {
                                 name: None,
                                 force_quirks: false,
@@ -1492,9 +1442,9 @@ impl<'stream> Tokenizer<'stream> {
                             });
 
                             self.add_to_token_name(to_lowercase!(ch));
-                            self.state = State::DocTypeNameState;
+                            self.state = State::DocTypeName;
                         }
-                        Element::Utf8(CHAR_NUL) => {
+                        Ch(CHAR_NUL) => {
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                             self.current_token = Some(Token::DocType {
                                 name: None,
@@ -1504,9 +1454,9 @@ impl<'stream> Tokenizer<'stream> {
                             });
 
                             self.add_to_token_name(CHAR_REPLACEMENT);
-                            self.state = State::DocTypeNameState;
+                            self.state = State::DocTypeName;
                         }
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             self.parse_error(ParserError::MissingDoctypeName);
                             self.emit_token(Token::DocType {
                                 name: None,
@@ -1515,10 +1465,10 @@ impl<'stream> Tokenizer<'stream> {
                                 sys_identifier: None,
                             });
 
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
 
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInDoctype);
 
                             self.emit_token(Token::DocType {
@@ -1528,7 +1478,7 @@ impl<'stream> Tokenizer<'stream> {
                                 sys_identifier: None,
                             });
 
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
                         _ => {
                             self.current_token = Some(Token::DocType {
@@ -1538,65 +1488,61 @@ impl<'stream> Tokenizer<'stream> {
                                 sys_identifier: None,
                             });
 
-                            self.add_to_token_name(c.utf8());
-                            self.state = State::DocTypeNameState;
+                            self.add_to_token_name(c.into());
+                            self.state = State::DocTypeName;
                         }
                     }
                 }
-                State::DocTypeNameState => {
+                State::DocTypeName => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(CHAR_TAB)
-                        | Element::Utf8(CHAR_LF)
-                        | Element::Utf8(CHAR_FF)
-                        | Element::Utf8(CHAR_SPACE) => self.state = State::AfterDocTypeNameState,
-                        Element::Utf8('>') => {
-                            self.emit_current_token();
-                            self.state = State::DataState;
+                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
+                            self.state = State::AfterDocTypeName
                         }
-                        Element::Utf8(ch @ 'A'..='Z') => self.add_to_token_name(to_lowercase!(ch)),
-                        Element::Utf8(CHAR_NUL) => {
+                        Ch('>') => {
+                            self.emit_current_token();
+                            self.state = State::Data;
+                        }
+                        Ch(ch @ 'A'..='Z') => self.add_to_token_name(to_lowercase!(ch)),
+                        Ch(CHAR_NUL) => {
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                             self.add_to_token_name(CHAR_REPLACEMENT);
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInDoctype);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
-                        _ => self.add_to_token_name(c.utf8()),
+                        _ => self.add_to_token_name(c.into()),
                     }
                 }
-                State::AfterDocTypeNameState => {
+                State::AfterDocTypeName => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(CHAR_TAB)
-                        | Element::Utf8(CHAR_LF)
-                        | Element::Utf8(CHAR_FF)
-                        | Element::Utf8(CHAR_SPACE) => {
+                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
                             // ignore
                         }
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             self.emit_current_token();
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInDoctype);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
                         _ => {
                             self.stream.unread();
                             if self.stream.look_ahead_slice(6).to_uppercase() == "PUBLIC" {
                                 self.stream.seek(SeekCur, 6);
-                                self.state = State::AfterDocTypePublicKeywordState;
+                                self.state = State::AfterDocTypePublicKeyword;
                                 continue;
                             }
                             if self.stream.look_ahead_slice(6).to_uppercase() == "SYSTEM" {
                                 self.stream.seek(SeekCur, 6);
-                                self.state = State::AfterDocTypeSystemKeywordState;
+                                self.state = State::AfterDocTypeSystemKeyword;
                                 continue;
                             }
                             // Make sure the parser is on the correct position again since we just
@@ -1606,44 +1552,41 @@ impl<'stream> Tokenizer<'stream> {
                             self.stream.seek(SeekCur, -1);
                             self.set_quirks_mode(true);
                             self.stream.unread();
-                            self.state = State::BogusDocTypeState;
+                            self.state = State::BogusDocType;
                         }
                     }
                 }
-                State::AfterDocTypePublicKeywordState => {
+                State::AfterDocTypePublicKeyword => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(CHAR_TAB)
-                        | Element::Utf8(CHAR_LF)
-                        | Element::Utf8(CHAR_FF)
-                        | Element::Utf8(CHAR_SPACE) => {
-                            self.state = State::BeforeDocTypePublicIdentifierState
+                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
+                            self.state = State::BeforeDocTypePublicIdentifier
                         }
-                        Element::Utf8('"') => {
+                        Ch('"') => {
                             self.parse_error(
                                 ParserError::MissingWhitespaceAfterDoctypePublicKeyword,
                             );
                             self.set_public_identifier(String::new());
-                            self.state = State::DocTypePublicIdentifierDoubleQuotedState;
+                            self.state = State::DocTypePublicIdentifierDoubleQuoted;
                         }
-                        Element::Utf8('\'') => {
+                        Ch('\'') => {
                             self.parse_error(
                                 ParserError::MissingWhitespaceAfterDoctypePublicKeyword,
                             );
                             self.set_public_identifier(String::new());
-                            self.state = State::DocTypePublicIdentifierSingleQuotedState;
+                            self.state = State::DocTypePublicIdentifierSingleQuoted;
                         }
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             self.parse_error(ParserError::MissingDoctypePublicIdentifier);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInDoctype);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
                         _ => {
                             self.parse_error(
@@ -1651,38 +1594,35 @@ impl<'stream> Tokenizer<'stream> {
                             );
                             self.stream.unread();
                             self.set_quirks_mode(true);
-                            self.state = State::BogusDocTypeState;
+                            self.state = State::BogusDocType;
                         }
                     }
                 }
-                State::BeforeDocTypePublicIdentifierState => {
+                State::BeforeDocTypePublicIdentifier => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(CHAR_TAB)
-                        | Element::Utf8(CHAR_LF)
-                        | Element::Utf8(CHAR_FF)
-                        | Element::Utf8(CHAR_SPACE) => {
+                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
                             // ignore
                         }
-                        Element::Utf8('"') => {
+                        Ch('"') => {
                             self.set_public_identifier(String::new());
-                            self.state = State::DocTypePublicIdentifierDoubleQuotedState;
+                            self.state = State::DocTypePublicIdentifierDoubleQuoted;
                         }
-                        Element::Utf8('\'') => {
+                        Ch('\'') => {
                             self.set_public_identifier(String::new());
-                            self.state = State::DocTypePublicIdentifierSingleQuotedState;
+                            self.state = State::DocTypePublicIdentifierSingleQuoted;
                         }
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             self.parse_error(ParserError::MissingDoctypePublicIdentifier);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInDoctype);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
                         _ => {
                             self.stream.unread();
@@ -1690,86 +1630,81 @@ impl<'stream> Tokenizer<'stream> {
                                 ParserError::MissingQuoteBeforeDoctypePublicIdentifier,
                             );
                             self.set_quirks_mode(true);
-                            self.state = State::BogusDocTypeState;
+                            self.state = State::BogusDocType;
                         }
                     }
                 }
-                State::DocTypePublicIdentifierDoubleQuotedState => {
+                State::DocTypePublicIdentifierDoubleQuoted => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('"') => self.state = State::AfterDoctypePublicIdentifierState,
-                        Element::Utf8(CHAR_NUL) => {
+                        Ch('"') => self.state = State::AfterDoctypePublicIdentifier,
+                        Ch(CHAR_NUL) => {
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                             self.add_public_identifier(CHAR_REPLACEMENT);
                         }
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             self.parse_error(ParserError::AbruptDoctypePublicIdentifier);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInDoctype);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
-                        _ => self.add_public_identifier(c.utf8()),
+                        _ => self.add_public_identifier(c.into()),
                     }
                 }
-                State::DocTypePublicIdentifierSingleQuotedState => {
+                State::DocTypePublicIdentifierSingleQuoted => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('\'') => {
-                            self.state = State::AfterDoctypePublicIdentifierState
-                        }
-                        Element::Utf8(CHAR_NUL) => {
+                        Ch('\'') => self.state = State::AfterDoctypePublicIdentifier,
+                        Ch(CHAR_NUL) => {
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                             self.add_public_identifier(CHAR_REPLACEMENT);
                         }
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             self.parse_error(ParserError::AbruptDoctypePublicIdentifier);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInDoctype);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
-                        _ => self.add_public_identifier(c.utf8()),
+                        _ => self.add_public_identifier(c.into()),
                     }
                 }
-                State::AfterDoctypePublicIdentifierState => {
+                State::AfterDoctypePublicIdentifier => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(CHAR_TAB)
-                        | Element::Utf8(CHAR_LF)
-                        | Element::Utf8(CHAR_FF)
-                        | Element::Utf8(CHAR_SPACE) => {
-                            self.state = State::BetweenDocTypePublicAndSystemIdentifiersState
+                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
+                            self.state = State::BetweenDocTypePublicAndSystemIdentifiers
                         }
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             self.emit_current_token();
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
-                        Element::Utf8('"') => {
+                        Ch('"') => {
                             self.parse_error(ParserError::MissingWhitespaceBetweenDoctypePublicAndSystemIdentifiers);
                             self.set_system_identifier(String::new());
-                            self.state = State::DocTypeSystemIdentifierDoubleQuotedState;
+                            self.state = State::DocTypeSystemIdentifierDoubleQuoted;
                         }
-                        Element::Utf8('\'') => {
+                        Ch('\'') => {
                             self.parse_error(ParserError::MissingWhitespaceBetweenDoctypePublicAndSystemIdentifiers);
                             self.set_system_identifier(String::new());
-                            self.state = State::DocTypeSystemIdentifierSingleQuotedState;
+                            self.state = State::DocTypeSystemIdentifierSingleQuoted;
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInDoctype);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
                         _ => {
                             self.parse_error(
@@ -1777,36 +1712,33 @@ impl<'stream> Tokenizer<'stream> {
                             );
                             self.stream.unread();
                             self.set_quirks_mode(true);
-                            self.state = State::BogusDocTypeState;
+                            self.state = State::BogusDocType;
                         }
                     }
                 }
-                State::BetweenDocTypePublicAndSystemIdentifiersState => {
+                State::BetweenDocTypePublicAndSystemIdentifiers => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(CHAR_TAB)
-                        | Element::Utf8(CHAR_LF)
-                        | Element::Utf8(CHAR_FF)
-                        | Element::Utf8(CHAR_SPACE) => {
+                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
                             // ignore
                         }
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             self.emit_current_token();
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
-                        Element::Utf8('"') => {
+                        Ch('"') => {
                             self.set_system_identifier(String::new());
-                            self.state = State::DocTypeSystemIdentifierDoubleQuotedState;
+                            self.state = State::DocTypeSystemIdentifierDoubleQuoted;
                         }
-                        Element::Utf8('\'') => {
+                        Ch('\'') => {
                             self.set_system_identifier(String::new());
-                            self.state = State::DocTypeSystemIdentifierSingleQuotedState;
+                            self.state = State::DocTypeSystemIdentifierSingleQuoted;
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInDoctype);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
                         _ => {
                             self.parse_error(
@@ -1814,44 +1746,41 @@ impl<'stream> Tokenizer<'stream> {
                             );
                             self.stream.unread();
                             self.set_quirks_mode(true);
-                            self.state = State::BogusDocTypeState;
+                            self.state = State::BogusDocType;
                         }
                     }
                 }
-                State::AfterDocTypeSystemKeywordState => {
+                State::AfterDocTypeSystemKeyword => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(CHAR_TAB)
-                        | Element::Utf8(CHAR_LF)
-                        | Element::Utf8(CHAR_FF)
-                        | Element::Utf8(CHAR_SPACE) => {
-                            self.state = State::BeforeDocTypeSystemIdentifierState
+                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
+                            self.state = State::BeforeDocTypeSystemIdentifier
                         }
-                        Element::Utf8('"') => {
+                        Ch('"') => {
                             self.parse_error(
                                 ParserError::MissingWhitespaceAfterDoctypeSystemKeyword,
                             );
                             self.set_system_identifier(String::new());
-                            self.state = State::DocTypeSystemIdentifierDoubleQuotedState;
+                            self.state = State::DocTypeSystemIdentifierDoubleQuoted;
                         }
-                        Element::Utf8('\'') => {
+                        Ch('\'') => {
                             self.parse_error(
                                 ParserError::MissingWhitespaceAfterDoctypeSystemKeyword,
                             );
                             self.set_system_identifier(String::new());
-                            self.state = State::DocTypeSystemIdentifierSingleQuotedState;
+                            self.state = State::DocTypeSystemIdentifierSingleQuoted;
                         }
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             self.parse_error(ParserError::MissingDoctypeSystemIdentifier);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInDoctype);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
                         _ => {
                             self.parse_error(
@@ -1859,38 +1788,35 @@ impl<'stream> Tokenizer<'stream> {
                             );
                             self.stream.unread();
                             self.set_quirks_mode(true);
-                            self.state = State::BogusDocTypeState;
+                            self.state = State::BogusDocType;
                         }
                     }
                 }
-                State::BeforeDocTypeSystemIdentifierState => {
+                State::BeforeDocTypeSystemIdentifier => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(CHAR_TAB)
-                        | Element::Utf8(CHAR_LF)
-                        | Element::Utf8(CHAR_FF)
-                        | Element::Utf8(CHAR_SPACE) => {
+                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
                             // ignore
                         }
-                        Element::Utf8('"') => {
+                        Ch('"') => {
                             self.set_system_identifier(String::new());
-                            self.state = State::DocTypeSystemIdentifierDoubleQuotedState;
+                            self.state = State::DocTypeSystemIdentifierDoubleQuoted;
                         }
-                        Element::Utf8('\'') => {
+                        Ch('\'') => {
                             self.set_system_identifier(String::new());
-                            self.state = State::DocTypeSystemIdentifierSingleQuotedState;
+                            self.state = State::DocTypeSystemIdentifierSingleQuoted;
                         }
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             self.parse_error(ParserError::MissingDoctypeSystemIdentifier);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInDoctype);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
                         _ => {
                             self.parse_error(
@@ -1898,139 +1824,132 @@ impl<'stream> Tokenizer<'stream> {
                             );
                             self.stream.unread();
                             self.set_quirks_mode(true);
-                            self.state = State::BogusDocTypeState;
+                            self.state = State::BogusDocType;
                         }
                     }
                 }
-                State::DocTypeSystemIdentifierDoubleQuotedState => {
+                State::DocTypeSystemIdentifierDoubleQuoted => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('"') => self.state = State::AfterDocTypeSystemIdentifierState,
-                        Element::Utf8(CHAR_NUL) => {
+                        Ch('"') => self.state = State::AfterDocTypeSystemIdentifier,
+                        Ch(CHAR_NUL) => {
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                             self.add_system_identifier(CHAR_REPLACEMENT);
                         }
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             self.parse_error(ParserError::AbruptDoctypeSystemIdentifier);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInDoctype);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
-                        _ => self.add_system_identifier(c.utf8()),
+                        _ => self.add_system_identifier(c.into()),
                     }
                 }
-                State::DocTypeSystemIdentifierSingleQuotedState => {
+                State::DocTypeSystemIdentifierSingleQuoted => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('\'') => {
-                            self.state = State::AfterDocTypeSystemIdentifierState
-                        }
-                        Element::Utf8(CHAR_NUL) => {
+                        Ch('\'') => self.state = State::AfterDocTypeSystemIdentifier,
+                        Ch(CHAR_NUL) => {
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                             self.add_system_identifier(CHAR_REPLACEMENT);
                         }
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             self.parse_error(ParserError::AbruptDoctypeSystemIdentifier);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInDoctype);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
-                        _ => self.add_system_identifier(c.utf8()),
+                        _ => self.add_system_identifier(c.into()),
                     }
                 }
-                State::AfterDocTypeSystemIdentifierState => {
+                State::AfterDocTypeSystemIdentifier => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(CHAR_TAB)
-                        | Element::Utf8(CHAR_LF)
-                        | Element::Utf8(CHAR_FF)
-                        | Element::Utf8(CHAR_SPACE) => {
+                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
                             // ignore
                         }
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             self.emit_current_token();
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInDoctype);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
                         _ => {
                             self.parse_error(
                                 ParserError::UnexpectedCharacterAfterDoctypeSystemIdentifier,
                             );
                             self.stream.unread();
-                            self.state = State::BogusDocTypeState;
+                            self.state = State::BogusDocType;
                         }
                     }
                 }
-                State::BogusDocTypeState => {
+                State::BogusDocType => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             self.emit_current_token();
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
-                        Element::Utf8(CHAR_NUL) => {
-                            self.parse_error(ParserError::UnexpectedNullCharacter)
-                        }
-                        Element::Eof => {
+                        Ch(CHAR_NUL) => self.parse_error(ParserError::UnexpectedNullCharacter),
+                        Eof => {
                             self.emit_current_token();
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
                         _ => {
                             // ignore
                         }
                     }
                 }
-                State::CDataSectionState => {
+                State::CDATASection => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(']') => {
-                            self.state = State::CDataSectionBracketState;
+                        Ch(']') => {
+                            self.state = State::CDATASectionBracket;
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInCdata);
-                            self.state = State::DataState;
+                            self.state = State::Data;
                         }
-                        _ => self.consume(c.utf8()),
+                        _ => self.consume(c.into()),
                     }
                 }
-                State::CDataSectionBracketState => {
+                State::CDATASectionBracket => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(']') => self.state = State::CDataSectionEndState,
+                        Ch(']') => self.state = State::CDATASectionEnd,
                         _ => {
                             self.consume(']');
                             self.stream.unread();
-                            self.state = State::CDataSectionState;
+                            self.state = State::CDATASection;
                         }
                     }
                 }
-                State::CDataSectionEndState => {
+                State::CDATASectionEnd => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(']') => self.consume(']'),
-                        Element::Utf8('>') => self.state = State::DataState,
+                        Ch(']') => self.consume(']'),
+                        Ch('>') => self.state = State::Data,
                         _ => {
                             self.consume(']');
                             self.consume(']');
                             self.stream.unread();
-                            self.state = State::CDataSectionState;
+                            self.state = State::CDATASection;
                         }
                     }
                 }
@@ -2043,17 +1962,17 @@ impl<'stream> Tokenizer<'stream> {
 
     /// This macro reads a character from the input stream and optionally generates (tokenization)
     /// errors if the character is not valid.
-    fn read_char(&mut self) -> Element {
+    fn read_char(&mut self) -> Bytes {
         let mut c = self.stream.read_char();
         match c {
-            Element::Surrogate(..) => {
+            Bytes::Surrogate(..) => {
                 self.parse_error(ParserError::SurrogateInInputStream);
-                c = Element::Utf8(CHAR_REPLACEMENT);
+                c = Ch(CHAR_REPLACEMENT);
             }
-            Element::Utf8(c) if self.is_control_char(c as u32) => {
+            Ch(c) if self.is_control_char(c as u32) => {
                 self.parse_error(ParserError::ControlCharacterInInputStream);
             }
-            Element::Utf8(c) if self.is_noncharacter(c as u32) => {
+            Ch(c) if self.is_noncharacter(c as u32) => {
                 self.parse_error(ParserError::NoncharacterInInputStream);
             }
             _ => {}
