@@ -812,7 +812,7 @@ impl<'stream> Tokenizer<'stream> {
                         | Element::Utf8(CHAR_SPACE)
                         | Element::Utf8('/')
                         | Element::Utf8('>') => {
-                            if self.temporary_buffer == "script" {
+                            if self.temporary_buffer.to_lowercase() == "script" {
                                 self.state = State::ScriptDataDoubleEscapedState;
                             } else {
                                 self.state = State::ScriptDataEscapedState;

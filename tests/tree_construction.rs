@@ -96,7 +96,7 @@ lazy_static! {
 // #[test_case("plain-text-unsafe.dat")]
 // #[test_case("quirks01.dat")]
 #[test_case("ruby.dat")]
-// #[test_case("scriptdata01.dat")]
+#[test_case("scriptdata01.dat")]
 #[test_case("search-element.dat")]
 // #[test_case("svg.dat")]
 #[test_case("tables01.dat")]
