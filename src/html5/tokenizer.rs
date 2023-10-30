@@ -820,7 +820,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.consume(c.utf8());
                         }
                         Element::Utf8(ch @ 'A'..='Z') => {
-                            self.temporary_buffer.push(ch);
+                            self.temporary_buffer.push(to_lowercase!(ch));
                             self.consume(ch);
                         }
                         Element::Utf8(ch @ 'a'..='z') => {
@@ -939,7 +939,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.consume(c.utf8());
                         }
                         Element::Utf8(ch @ 'A'..='Z') => {
-                            self.temporary_buffer.push(ch);
+                            self.temporary_buffer.push(to_lowercase!(ch));
                             self.consume(ch);
                         }
                         Element::Utf8(ch @ 'a'..='z') => {
