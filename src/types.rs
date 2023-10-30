@@ -34,6 +34,9 @@ pub enum Error {
 
     #[error("test error: {0}")]
     Test(String),
+
+    #[error("document task error: {0}")]
+    DocumentTask(String),
 }
 
 /// Result that can be returned which holds either T or an Error
