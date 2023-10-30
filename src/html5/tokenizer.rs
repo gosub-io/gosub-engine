@@ -5,7 +5,7 @@ mod character_reference;
 mod replacement_tables;
 
 use crate::html5::error_logger::{ErrorLogger, ParserError};
-use crate::html5::input_stream::Element;
+use crate::html5::input_stream::Bytes::{self, *};
 use crate::html5::input_stream::SeekMode::SeekCur;
 use crate::html5::input_stream::{InputStream, Position};
 use crate::html5::tokenizer::state::State;
@@ -121,13 +121,13 @@ impl<'stream> Tokenizer<'stream> {
                 State::Data => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('&') => self.state = State::CharacterReferenceInData,
-                        Element::Utf8('<') => self.state = State::TagOpen,
-                        Element::Utf8(CHAR_NUL) => {
-                            self.consume(c.utf8());
+                        Ch('&') => self.state = State::CharacterReferenceInData,
+                        Ch('<') => self.state = State::TagOpen,
+                        Ch(CHAR_NUL) => {
+                            self.consume(c.into());
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                         }
-                        Element::Eof => {
+                        Eof => {
                             // EOF
                             // if self.has_consumed_data() {
                             //     self.emit_token(Token::TextToken { value: self.get_consumed_str() });
@@ -135,7 +135,7 @@ impl<'stream> Tokenizer<'stream> {
                             // }
                             self.emit_token(Token::Eof);
                         }
-                        _ => self.consume(c.utf8()),
+                        _ => self.consume(c.into()),
                     }
                 }
                 State::CharacterReferenceInData => {
@@ -145,20 +145,20 @@ impl<'stream> Tokenizer<'stream> {
                 State::RCDATA => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('&') => self.state = State::CharacterReferenceInRcData,
-                        Element::Utf8('<') => self.state = State::RCDATALessThanSign,
-                        Element::Eof => {
+                        Ch('&') => self.state = State::CharacterReferenceInRcData,
+                        Ch('<') => self.state = State::RCDATALessThanSign,
+                        Eof => {
                             // if self.has_consumed_data() {
                             //     self.emit_token(Token::TextToken { value: self.get_consumed_str().clone() });
                             //     self.clear_consume_buffer();
                             // }
                             self.emit_token(Token::Eof);
                         }
-                        Element::Utf8(CHAR_NUL) => {
+                        Ch(CHAR_NUL) => {
                             self.consume(CHAR_REPLACEMENT);
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                         }
-                        _ => self.consume(c.utf8()),
+                        _ => self.consume(c.into()),
                     }
                 }
                 State::CharacterReferenceInRcData => {
@@ -169,12 +169,12 @@ impl<'stream> Tokenizer<'stream> {
                 State::RAWTEXT => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('<') => self.state = State::RawTextLessThanSign,
-                        Element::Utf8(CHAR_NUL) => {
+                        Ch('<') => self.state = State::RawTextLessThanSign,
+                        Ch(CHAR_NUL) => {
                             self.consume(CHAR_REPLACEMENT);
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                         }
-                        Element::Eof => {
+                        Eof => {
                             // EOF
                             // if self.has_consumed_data() {
                             //     self.emit_token(Token::TextToken { value: self.get_consumed_str() });
@@ -182,50 +182,50 @@ impl<'stream> Tokenizer<'stream> {
                             // }
                             self.emit_token(Token::Eof);
                         }
-                        _ => self.consume(c.utf8()),
+                        _ => self.consume(c.into()),
                     }
                 }
                 State::ScriptData => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('<') => self.state = State::ScriptDataLessThenSign,
-                        Element::Utf8(CHAR_NUL) => {
+                        Ch('<') => self.state = State::ScriptDataLessThenSign,
+                        Ch(CHAR_NUL) => {
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                             self.consume(CHAR_REPLACEMENT);
                         }
-                        Element::Eof => {
+                        Eof => {
                             // if self.has_consumed_data() {
                             //     self.emit_token(Token::TextToken { value: self.get_consumed_str().clone() });
                             //     self.clear_consume_buffer();
                             // }
                             self.emit_token(Token::Eof);
                         }
-                        _ => self.consume(c.utf8()),
+                        _ => self.consume(c.into()),
                     }
                 }
                 State::PLAINTEXT => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(CHAR_NUL) => {
+                        Ch(CHAR_NUL) => {
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                             self.consume(CHAR_REPLACEMENT);
                         }
-                        Element::Eof => {
+                        Eof => {
                             // if self.has_consumed_data() {
                             //     self.emit_token(Token::TextToken { value: self.get_consumed_str().clone() });
                             //     self.clear_consume_buffer();
                             // }
                             self.emit_token(Token::Eof);
                         }
-                        _ => self.consume(c.utf8()),
+                        _ => self.consume(c.into()),
                     }
                 }
                 State::TagOpen => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('!') => self.state = State::MarkupDeclarationOpen,
-                        Element::Utf8('/') => self.state = State::EndTagOpen,
-                        Element::Utf8(ch) if ch.is_ascii_alphabetic() => {
+                        Ch('!') => self.state = State::MarkupDeclarationOpen,
+                        Ch('/') => self.state = State::EndTagOpen,
+                        Ch(ch) if ch.is_ascii_alphabetic() => {
                             self.current_token = Some(Token::StartTag {
                                 name: "".into(),
                                 is_self_closing: false,
@@ -234,13 +234,13 @@ impl<'stream> Tokenizer<'stream> {
                             self.stream.unread();
                             self.state = State::TagName;
                         }
-                        Element::Utf8('?') => {
+                        Ch('?') => {
                             self.current_token = Some(Token::Comment("".into()));
                             self.parse_error(ParserError::UnexpectedQuestionMarkInsteadOfTagName);
                             self.stream.unread();
                             self.state = State::BogusComment;
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofBeforeTagName);
                             self.consume('<');
                             self.state = State::Data;
@@ -256,7 +256,7 @@ impl<'stream> Tokenizer<'stream> {
                 State::EndTagOpen => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(ch) if ch.is_ascii_alphabetic() => {
+                        Ch(ch) if ch.is_ascii_alphabetic() => {
                             self.current_token = Some(Token::EndTag {
                                 name: "".into(),
                                 is_self_closing: false,
@@ -264,11 +264,11 @@ impl<'stream> Tokenizer<'stream> {
                             self.stream.unread();
                             self.state = State::TagName;
                         }
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             self.parse_error(ParserError::MissingEndTagName);
                             self.state = State::Data;
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofBeforeTagName);
                             self.consume('<');
                             self.consume('/');
@@ -286,31 +286,30 @@ impl<'stream> Tokenizer<'stream> {
                 State::TagName => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(CHAR_TAB)
-                        | Element::Utf8(CHAR_LF)
-                        | Element::Utf8(CHAR_FF)
-                        | Element::Utf8(CHAR_SPACE) => self.state = State::BeforeAttributeName,
-                        Element::Utf8('/') => self.state = State::SelfClosingStart,
-                        Element::Utf8('>') => {
+                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
+                            self.state = State::BeforeAttributeName
+                        }
+                        Ch('/') => self.state = State::SelfClosingStart,
+                        Ch('>') => {
                             self.emit_current_token();
                             self.state = State::Data;
                         }
-                        Element::Utf8(ch @ 'A'..='Z') => self.add_to_token_name(to_lowercase!(ch)),
-                        Element::Utf8(CHAR_NUL) => {
+                        Ch(ch @ 'A'..='Z') => self.add_to_token_name(to_lowercase!(ch)),
+                        Ch(CHAR_NUL) => {
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                             self.add_to_token_name(CHAR_REPLACEMENT);
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInTag);
                             self.state = State::Data;
                         }
-                        _ => self.add_to_token_name(c.utf8()),
+                        _ => self.add_to_token_name(c.into()),
                     }
                 }
                 State::RCDATALessThanSign => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('/') => {
+                        Ch('/') => {
                             self.temporary_buffer.clear();
                             self.state = State::RCDATAEndTagOpen;
                         }
@@ -324,7 +323,7 @@ impl<'stream> Tokenizer<'stream> {
                 State::RCDATAEndTagOpen => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(ch) if ch.is_ascii_alphabetic() => {
+                        Ch(ch) if ch.is_ascii_alphabetic() => {
                             self.current_token = Some(Token::EndTag {
                                 name: "".into(),
                                 is_self_closing: false,
@@ -347,10 +346,7 @@ impl<'stream> Tokenizer<'stream> {
                     let mut consume_anything_else = false;
 
                     match c {
-                        Element::Utf8(CHAR_TAB)
-                        | Element::Utf8(CHAR_LF)
-                        | Element::Utf8(CHAR_FF)
-                        | Element::Utf8(CHAR_SPACE) => {
+                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
                             let current_end_tag_name = match &self.current_token {
                                 Some(Token::EndTag { name, .. }) => name,
                                 _ => "",
@@ -361,7 +357,7 @@ impl<'stream> Tokenizer<'stream> {
                                 consume_anything_else = true;
                             }
                         }
-                        Element::Utf8('/') => {
+                        Ch('/') => {
                             let current_end_tag_name = match &self.current_token {
                                 Some(Token::EndTag { name, .. }) => name,
                                 _ => "",
@@ -372,7 +368,7 @@ impl<'stream> Tokenizer<'stream> {
                                 consume_anything_else = true;
                             }
                         }
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             let current_end_tag_name = match &self.current_token {
                                 Some(Token::EndTag { name, .. }) => name,
                                 _ => "",
@@ -385,11 +381,11 @@ impl<'stream> Tokenizer<'stream> {
                                 consume_anything_else = true;
                             }
                         }
-                        Element::Utf8(ch @ 'A'..='Z') => {
+                        Ch(ch @ 'A'..='Z') => {
                             self.add_to_token_name(to_lowercase!(ch));
                             self.temporary_buffer.push(ch);
                         }
-                        Element::Utf8(ch @ 'a'..='z') => {
+                        Ch(ch @ 'a'..='z') => {
                             self.add_to_token_name(ch);
                             self.temporary_buffer.push(ch);
                         }
@@ -405,7 +401,7 @@ impl<'stream> Tokenizer<'stream> {
                 State::RawTextLessThanSign => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('/') => {
+                        Ch('/') => {
                             self.temporary_buffer.clear();
                             self.state = State::RawTextEndTagOpen;
                         }
@@ -419,7 +415,7 @@ impl<'stream> Tokenizer<'stream> {
                 State::RawTextEndTagOpen => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(ch) if ch.is_ascii_alphabetic() => {
+                        Ch(ch) if ch.is_ascii_alphabetic() => {
                             self.current_token = Some(Token::EndTag {
                                 name: "".into(),
                                 is_self_closing: false,
@@ -442,10 +438,7 @@ impl<'stream> Tokenizer<'stream> {
                     let mut consume_anything_else = false;
 
                     match c {
-                        Element::Utf8(CHAR_TAB)
-                        | Element::Utf8(CHAR_LF)
-                        | Element::Utf8(CHAR_FF)
-                        | Element::Utf8(CHAR_SPACE) => {
+                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
                             let current_end_tag_name = match &self.current_token {
                                 Some(Token::EndTag { name, .. }) => name,
                                 _ => "",
@@ -456,7 +449,7 @@ impl<'stream> Tokenizer<'stream> {
                                 consume_anything_else = true;
                             }
                         }
-                        Element::Utf8('/') => {
+                        Ch('/') => {
                             let current_end_tag_name = match &self.current_token {
                                 Some(Token::EndTag { name, .. }) => name,
                                 _ => "",
@@ -467,7 +460,7 @@ impl<'stream> Tokenizer<'stream> {
                                 consume_anything_else = true;
                             }
                         }
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             let current_end_tag_name = match &self.current_token {
                                 Some(Token::EndTag { name, .. }) => name,
                                 _ => "",
@@ -480,11 +473,11 @@ impl<'stream> Tokenizer<'stream> {
                                 consume_anything_else = true;
                             }
                         }
-                        Element::Utf8(ch @ 'A'..='Z') => {
+                        Ch(ch @ 'A'..='Z') => {
                             self.add_to_token_name(to_lowercase!(ch));
                             self.temporary_buffer.push(ch);
                         }
-                        Element::Utf8(ch @ 'a'..='z') => {
+                        Ch(ch @ 'a'..='z') => {
                             self.add_to_token_name(ch);
                             self.temporary_buffer.push(ch);
                         }
@@ -500,11 +493,11 @@ impl<'stream> Tokenizer<'stream> {
                 State::ScriptDataLessThenSign => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('/') => {
+                        Ch('/') => {
                             self.temporary_buffer.clear();
                             self.state = State::ScriptDataEndTagOpen;
                         }
-                        Element::Utf8('!') => {
+                        Ch('!') => {
                             self.consume('<');
                             self.consume('!');
                             self.state = State::ScriptDataEscapeStart;
@@ -519,7 +512,7 @@ impl<'stream> Tokenizer<'stream> {
                 State::ScriptDataEndTagOpen => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(ch) if ch.is_ascii_alphabetic() => {
+                        Ch(ch) if ch.is_ascii_alphabetic() => {
                             self.current_token = Some(Token::EndTag {
                                 name: "".into(),
                                 is_self_closing: false,
@@ -542,10 +535,7 @@ impl<'stream> Tokenizer<'stream> {
                     let mut consume_anything_else = false;
 
                     match c {
-                        Element::Utf8(CHAR_TAB)
-                        | Element::Utf8(CHAR_LF)
-                        | Element::Utf8(CHAR_FF)
-                        | Element::Utf8(CHAR_SPACE) => {
+                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
                             let current_end_tag_name = match &self.current_token {
                                 Some(Token::EndTag { name, .. }) => name,
                                 _ => "",
@@ -556,7 +546,7 @@ impl<'stream> Tokenizer<'stream> {
                                 consume_anything_else = true;
                             }
                         }
-                        Element::Utf8('/') => {
+                        Ch('/') => {
                             let current_end_tag_name = match &self.current_token {
                                 Some(Token::EndTag { name, .. }) => name,
                                 _ => "",
@@ -567,7 +557,7 @@ impl<'stream> Tokenizer<'stream> {
                                 consume_anything_else = true;
                             }
                         }
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             let current_end_tag_name = match &self.current_token {
                                 Some(Token::EndTag { name, .. }) => name,
                                 _ => "",
@@ -580,11 +570,11 @@ impl<'stream> Tokenizer<'stream> {
                                 consume_anything_else = true;
                             }
                         }
-                        Element::Utf8(ch @ 'A'..='Z') => {
+                        Ch(ch @ 'A'..='Z') => {
                             self.add_to_token_name(to_lowercase!(ch));
                             self.temporary_buffer.push(ch);
                         }
-                        Element::Utf8(ch @ 'a'..='z') => {
+                        Ch(ch @ 'a'..='z') => {
                             self.add_to_token_name(ch);
                             self.temporary_buffer.push(ch);
                         }
@@ -600,7 +590,7 @@ impl<'stream> Tokenizer<'stream> {
                 State::ScriptDataEscapeStart => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('-') => {
+                        Ch('-') => {
                             self.consume('-');
                             self.state = State::ScriptDataEscapeStartDash;
                         }
@@ -613,7 +603,7 @@ impl<'stream> Tokenizer<'stream> {
                 State::ScriptDataEscapeStartDash => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('-') => {
+                        Ch('-') => {
                             self.consume('-');
                             self.state = State::ScriptDataEscapedDashDash;
                         }
@@ -626,47 +616,47 @@ impl<'stream> Tokenizer<'stream> {
                 State::ScriptDataEscaped => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('-') => {
+                        Ch('-') => {
                             self.consume('-');
                             self.state = State::ScriptDataEscapedDash;
                         }
-                        Element::Utf8('<') => {
+                        Ch('<') => {
                             self.state = State::ScriptDataEscapedLessThanSign;
                         }
-                        Element::Utf8(CHAR_NUL) => {
+                        Ch(CHAR_NUL) => {
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                             self.consume(CHAR_REPLACEMENT);
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInScriptHtmlCommentLikeText);
                             self.state = State::Data;
                         }
                         _ => {
-                            self.consume(c.utf8());
+                            self.consume(c.into());
                         }
                     }
                 }
                 State::ScriptDataEscapedDash => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('-') => {
+                        Ch('-') => {
                             self.consume('-');
                             self.state = State::ScriptDataEscapedDashDash;
                         }
-                        Element::Utf8('<') => {
+                        Ch('<') => {
                             self.state = State::ScriptDataEscapedLessThanSign;
                         }
-                        Element::Utf8(CHAR_NUL) => {
+                        Ch(CHAR_NUL) => {
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                             self.consume(CHAR_REPLACEMENT);
                             self.state = State::ScriptDataEscaped;
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInScriptHtmlCommentLikeText);
                             self.state = State::Data;
                         }
                         _ => {
-                            self.consume(c.utf8());
+                            self.consume(c.into());
                             self.state = State::ScriptDataEscaped;
                         }
                     }
@@ -674,27 +664,27 @@ impl<'stream> Tokenizer<'stream> {
                 State::ScriptDataEscapedDashDash => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('-') => {
+                        Ch('-') => {
                             self.consume('-');
                         }
-                        Element::Utf8('<') => {
+                        Ch('<') => {
                             self.state = State::ScriptDataEscapedLessThanSign;
                         }
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             self.consume('>');
                             self.state = State::ScriptData;
                         }
-                        Element::Utf8(CHAR_NUL) => {
+                        Ch(CHAR_NUL) => {
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                             self.consume(CHAR_REPLACEMENT);
                             self.state = State::ScriptDataEscaped;
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInScriptHtmlCommentLikeText);
                             self.state = State::Data;
                         }
                         _ => {
-                            self.consume(c.utf8());
+                            self.consume(c.into());
                             self.state = State::ScriptDataEscaped;
                         }
                     }
@@ -702,11 +692,11 @@ impl<'stream> Tokenizer<'stream> {
                 State::ScriptDataEscapedLessThanSign => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('/') => {
+                        Ch('/') => {
                             self.temporary_buffer.clear();
                             self.state = State::ScriptDataEscapedEndTagOpen;
                         }
-                        Element::Utf8(ch) if ch.is_ascii_alphabetic() => {
+                        Ch(ch) if ch.is_ascii_alphabetic() => {
                             self.temporary_buffer.clear();
                             self.consume('<');
                             self.stream.unread();
@@ -724,7 +714,7 @@ impl<'stream> Tokenizer<'stream> {
                     let c = self.read_char();
 
                     match c {
-                        Element::Utf8(ch) if ch.is_ascii_alphabetic() => {
+                        Ch(ch) if ch.is_ascii_alphabetic() => {
                             self.current_token = Some(Token::EndTag {
                                 name: "".into(),
                                 is_self_closing: false,
@@ -748,10 +738,7 @@ impl<'stream> Tokenizer<'stream> {
                     let mut consume_anything_else = false;
 
                     match c {
-                        Element::Utf8(CHAR_TAB)
-                        | Element::Utf8(CHAR_LF)
-                        | Element::Utf8(CHAR_FF)
-                        | Element::Utf8(CHAR_SPACE) => {
+                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
                             let current_end_tag_name = match &self.current_token {
                                 Some(Token::EndTag { name, .. }) => name,
                                 _ => "",
@@ -762,7 +749,7 @@ impl<'stream> Tokenizer<'stream> {
                                 consume_anything_else = true;
                             }
                         }
-                        Element::Utf8('/') => {
+                        Ch('/') => {
                             let current_end_tag_name = match &self.current_token {
                                 Some(Token::EndTag { name, .. }) => name,
                                 _ => "",
@@ -773,7 +760,7 @@ impl<'stream> Tokenizer<'stream> {
                                 consume_anything_else = true;
                             }
                         }
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             let current_end_tag_name = match &self.current_token {
                                 Some(Token::EndTag { name, .. }) => name,
                                 _ => "",
@@ -786,11 +773,11 @@ impl<'stream> Tokenizer<'stream> {
                                 consume_anything_else = true;
                             }
                         }
-                        Element::Utf8(ch @ 'A'..='Z') => {
+                        Ch(ch @ 'A'..='Z') => {
                             self.add_to_token_name(to_lowercase!(ch));
                             self.temporary_buffer.push(ch);
                         }
-                        Element::Utf8(ch @ 'a'..='z') => {
+                        Ch(ch @ 'a'..='z') => {
                             self.add_to_token_name(ch);
                             self.temporary_buffer.push(ch);
                         }
@@ -806,24 +793,19 @@ impl<'stream> Tokenizer<'stream> {
                 State::ScriptDataDoubleEscapeStart => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(CHAR_TAB)
-                        | Element::Utf8(CHAR_LF)
-                        | Element::Utf8(CHAR_FF)
-                        | Element::Utf8(CHAR_SPACE)
-                        | Element::Utf8('/')
-                        | Element::Utf8('>') => {
+                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE | '/' | '>') => {
                             if self.temporary_buffer == "script" {
                                 self.state = State::ScriptDataDoubleEscaped;
                             } else {
                                 self.state = State::ScriptDataEscaped;
                             }
-                            self.consume(c.utf8());
+                            self.consume(c.into());
                         }
-                        Element::Utf8(ch @ 'A'..='Z') => {
+                        Ch(ch @ 'A'..='Z') => {
                             self.temporary_buffer.push(to_lowercase!(ch));
                             self.consume(ch);
                         }
-                        Element::Utf8(ch @ 'a'..='z') => {
+                        Ch(ch @ 'a'..='z') => {
                             self.temporary_buffer.push(ch);
                             self.consume(ch);
                         }
@@ -836,47 +818,47 @@ impl<'stream> Tokenizer<'stream> {
                 State::ScriptDataDoubleEscaped => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('-') => {
+                        Ch('-') => {
                             self.consume('-');
                             self.state = State::ScriptDataDoubleEscapedDash;
                         }
-                        Element::Utf8('<') => {
+                        Ch('<') => {
                             self.consume('<');
                             self.state = State::ScriptDataDoubleEscapedLessThanSign;
                         }
-                        Element::Utf8(CHAR_NUL) => {
+                        Ch(CHAR_NUL) => {
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                             self.consume(CHAR_REPLACEMENT);
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInScriptHtmlCommentLikeText);
                             self.state = State::Data;
                         }
-                        _ => self.consume(c.utf8()),
+                        _ => self.consume(c.into()),
                     }
                 }
                 State::ScriptDataDoubleEscapedDash => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('-') => {
+                        Ch('-') => {
                             self.state = State::ScriptDataDoubleEscapedDashDash;
                             self.consume('-');
                         }
-                        Element::Utf8('<') => {
+                        Ch('<') => {
                             self.state = State::ScriptDataDoubleEscapedLessThanSign;
                             self.consume('<');
                         }
-                        Element::Utf8(CHAR_NUL) => {
+                        Ch(CHAR_NUL) => {
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                             self.consume(CHAR_REPLACEMENT);
                             self.state = State::ScriptDataDoubleEscaped;
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInScriptHtmlCommentLikeText);
                             self.state = State::Data;
                         }
                         _ => {
-                            self.consume(c.utf8());
+                            self.consume(c.into());
                             self.state = State::ScriptDataDoubleEscaped;
                         }
                     }
@@ -884,26 +866,26 @@ impl<'stream> Tokenizer<'stream> {
                 State::ScriptDataDoubleEscapedDashDash => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('-') => self.consume('-'),
-                        Element::Utf8('<') => {
+                        Ch('-') => self.consume('-'),
+                        Ch('<') => {
                             self.consume('<');
                             self.state = State::ScriptDataDoubleEscapedLessThanSign;
                         }
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             self.consume('>');
                             self.state = State::ScriptData;
                         }
-                        Element::Utf8(CHAR_NUL) => {
+                        Ch(CHAR_NUL) => {
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                             self.consume(CHAR_REPLACEMENT);
                             self.state = State::ScriptDataDoubleEscaped;
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInScriptHtmlCommentLikeText);
                             self.state = State::Data;
                         }
                         _ => {
-                            self.consume(c.utf8());
+                            self.consume(c.into());
                             self.state = State::ScriptDataDoubleEscaped;
                         }
                     }
@@ -911,7 +893,7 @@ impl<'stream> Tokenizer<'stream> {
                 State::ScriptDataDoubleEscapedLessThanSign => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('/') => {
+                        Ch('/') => {
                             self.temporary_buffer.clear();
                             self.consume('/');
                             self.state = State::ScriptDataDoubleEscapeEnd;
@@ -925,24 +907,19 @@ impl<'stream> Tokenizer<'stream> {
                 State::ScriptDataDoubleEscapeEnd => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(CHAR_TAB)
-                        | Element::Utf8(CHAR_LF)
-                        | Element::Utf8(CHAR_FF)
-                        | Element::Utf8(CHAR_SPACE)
-                        | Element::Utf8('/')
-                        | Element::Utf8('>') => {
+                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE | '/' | '>') => {
                             if self.temporary_buffer == "script" {
                                 self.state = State::ScriptDataEscaped;
                             } else {
                                 self.state = State::ScriptDataDoubleEscaped;
                             }
-                            self.consume(c.utf8());
+                            self.consume(c.into());
                         }
-                        Element::Utf8(ch @ 'A'..='Z') => {
+                        Ch(ch @ 'A'..='Z') => {
                             self.temporary_buffer.push(to_lowercase!(ch));
                             self.consume(ch);
                         }
-                        Element::Utf8(ch @ 'a'..='z') => {
+                        Ch(ch @ 'a'..='z') => {
                             self.temporary_buffer.push(ch);
                             self.consume(ch);
                         }
@@ -955,21 +932,18 @@ impl<'stream> Tokenizer<'stream> {
                 State::BeforeAttributeName => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(CHAR_TAB)
-                        | Element::Utf8(CHAR_LF)
-                        | Element::Utf8(CHAR_FF)
-                        | Element::Utf8(CHAR_SPACE) => {
+                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
                             // Ignore character
                         }
-                        Element::Utf8('/') | Element::Utf8('>') | Element::Eof => {
+                        Ch('/' | '>') | Eof => {
                             self.stream.unread();
                             self.state = State::AfterAttributeName;
                         }
-                        Element::Utf8('=') => {
+                        Ch('=') => {
                             self.parse_error(ParserError::UnexpectedEqualsSignBeforeAttributeName);
 
                             self.store_and_clear_current_attribute();
-                            self.current_attr_name.push(c.utf8());
+                            self.current_attr_name.push(c.into());
 
                             self.state = State::AttributeName;
                         }
@@ -985,13 +959,7 @@ impl<'stream> Tokenizer<'stream> {
                 State::AttributeName => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(CHAR_TAB)
-                        | Element::Utf8(CHAR_LF)
-                        | Element::Utf8(CHAR_FF)
-                        | Element::Utf8(CHAR_SPACE)
-                        | Element::Utf8('/')
-                        | Element::Utf8('>')
-                        | Element::Eof => {
+                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE | '/' | '>') | Eof => {
                             if self.attr_already_exists() {
                                 self.parse_error(ParserError::DuplicateAttribute);
                             }
@@ -999,44 +967,41 @@ impl<'stream> Tokenizer<'stream> {
 
                             self.state = State::AfterAttributeName
                         }
-                        Element::Utf8('=') => {
+                        Ch('=') => {
                             if self.attr_already_exists() {
                                 self.parse_error(ParserError::DuplicateAttribute);
                             }
                             self.state = State::BeforeAttributeValue
                         }
-                        Element::Utf8(ch @ 'A'..='Z') => {
+                        Ch(ch @ 'A'..='Z') => {
                             self.current_attr_name.push(to_lowercase!(ch));
                         }
-                        Element::Utf8(CHAR_NUL) => {
+                        Ch(CHAR_NUL) => {
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                             self.current_attr_name.push(CHAR_REPLACEMENT);
                         }
-                        Element::Utf8('"') | Element::Utf8('\'') | Element::Utf8('<') => {
+                        Ch('"' | '\'' | '<') => {
                             self.parse_error(ParserError::UnexpectedCharacterInAttributeName);
-                            self.current_attr_name.push(c.utf8());
+                            self.current_attr_name.push(c.into());
                         }
-                        _ => self.current_attr_name.push(c.utf8()),
+                        _ => self.current_attr_name.push(c.into()),
                     }
                 }
                 State::AfterAttributeName => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(CHAR_TAB)
-                        | Element::Utf8(CHAR_LF)
-                        | Element::Utf8(CHAR_FF)
-                        | Element::Utf8(CHAR_SPACE) => {
+                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
                             // Ignore
                         }
-                        Element::Utf8('/') => self.state = State::SelfClosingStart,
-                        Element::Utf8('=') => self.state = State::BeforeAttributeValue,
-                        Element::Utf8('>') => {
+                        Ch('/') => self.state = State::SelfClosingStart,
+                        Ch('=') => self.state = State::BeforeAttributeValue,
+                        Ch('>') => {
                             self.store_and_clear_current_attribute();
                             self.add_stored_attributes_to_current_token();
                             self.emit_current_token();
                             self.state = State::Data;
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInTag);
                             self.state = State::Data;
                         }
@@ -1050,17 +1015,14 @@ impl<'stream> Tokenizer<'stream> {
                 State::BeforeAttributeValue => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(CHAR_TAB)
-                        | Element::Utf8(CHAR_LF)
-                        | Element::Utf8(CHAR_FF)
-                        | Element::Utf8(CHAR_SPACE) => {
+                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
                             // Ignore
                         }
-                        Element::Utf8('"') => self.state = State::AttributeValueDoubleQuoted,
-                        Element::Utf8('\'') => {
+                        Ch('"') => self.state = State::AttributeValueDoubleQuoted,
+                        Ch('\'') => {
                             self.state = State::AttributeValueSingleQuoted;
                         }
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             self.parse_error(ParserError::MissingAttributeValue);
 
                             self.store_and_clear_current_attribute();
@@ -1077,81 +1039,74 @@ impl<'stream> Tokenizer<'stream> {
                 State::AttributeValueDoubleQuoted => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('"') => self.state = State::AfterAttributeValueQuoted,
-                        Element::Utf8('&') => {
-                            self.consume_character_reference(Some(Element::Utf8('"')), true);
+                        Ch('"') => self.state = State::AfterAttributeValueQuoted,
+                        Ch('&') => {
+                            self.consume_character_reference(Some(Ch('"')), true);
                         }
-                        Element::Utf8(CHAR_NUL) => {
+                        Ch(CHAR_NUL) => {
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                             self.current_attr_value.push(CHAR_REPLACEMENT);
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInTag);
                             self.state = State::Data;
                         }
                         _ => {
-                            self.current_attr_value.push(c.utf8());
+                            self.current_attr_value.push(c.into());
                         }
                     }
                 }
                 State::AttributeValueSingleQuoted => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('\'') => self.state = State::AfterAttributeValueQuoted,
-                        Element::Utf8('&') => {
-                            self.consume_character_reference(Some(Element::Utf8('\'')), true);
+                        Ch('\'') => self.state = State::AfterAttributeValueQuoted,
+                        Ch('&') => {
+                            self.consume_character_reference(Some(Ch('\'')), true);
                         }
-                        Element::Utf8(CHAR_NUL) => {
+                        Ch(CHAR_NUL) => {
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                             self.current_attr_value.push(CHAR_REPLACEMENT);
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInTag);
                             self.state = State::Data;
                         }
                         _ => {
-                            self.current_attr_value.push(c.utf8());
+                            self.current_attr_value.push(c.into());
                         }
                     }
                 }
                 State::AttributeValueUnquoted => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(CHAR_TAB)
-                        | Element::Utf8(CHAR_LF)
-                        | Element::Utf8(CHAR_FF)
-                        | Element::Utf8(CHAR_SPACE) => {
+                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
                             self.state = State::BeforeAttributeName;
                         }
-                        Element::Utf8('&') => {
-                            self.consume_character_reference(Some(Element::Utf8('>')), true);
+                        Ch('&') => {
+                            self.consume_character_reference(Some(Ch('>')), true);
                         }
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             self.store_and_clear_current_attribute();
                             self.add_stored_attributes_to_current_token();
                             self.emit_current_token();
                             self.state = State::Data;
                         }
-                        Element::Utf8(CHAR_NUL) => {
+                        Ch(CHAR_NUL) => {
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                             self.current_attr_value.push(CHAR_REPLACEMENT);
                         }
-                        Element::Utf8('"')
-                        | Element::Utf8('\'')
-                        | Element::Utf8('<')
-                        | Element::Utf8('=')
-                        | Element::Utf8('`') => {
+                        Ch('"' | '\'' | '<' | '=' | '`') => {
                             self.parse_error(
                                 ParserError::UnexpectedCharacterInUnquotedAttributeValue,
                             );
-                            self.current_attr_value.push(c.utf8());
+                            self.current_attr_value.push(c.into());
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInTag);
                             self.state = State::Data;
                         }
                         _ => {
-                            self.current_attr_value.push(c.utf8());
+                            self.current_attr_value.push(c.into());
                         }
                     }
                 }
@@ -1159,18 +1114,17 @@ impl<'stream> Tokenizer<'stream> {
                 State::AfterAttributeValueQuoted => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(CHAR_TAB)
-                        | Element::Utf8(CHAR_LF)
-                        | Element::Utf8(CHAR_FF)
-                        | Element::Utf8(CHAR_SPACE) => self.state = State::BeforeAttributeName,
-                        Element::Utf8('/') => self.state = State::SelfClosingStart,
-                        Element::Utf8('>') => {
+                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
+                            self.state = State::BeforeAttributeName
+                        }
+                        Ch('/') => self.state = State::SelfClosingStart,
+                        Ch('>') => {
                             self.store_and_clear_current_attribute();
                             self.add_stored_attributes_to_current_token();
                             self.emit_current_token();
                             self.state = State::Data;
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInTag);
                             self.state = State::Data;
                         }
@@ -1184,14 +1138,14 @@ impl<'stream> Tokenizer<'stream> {
                 State::SelfClosingStart => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             self.set_is_closing_in_current_token(true);
                             self.store_and_clear_current_attribute();
                             self.add_stored_attributes_to_current_token();
                             self.emit_current_token();
                             self.state = State::Data;
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInTag);
                             self.state = State::Data;
                         }
@@ -1205,20 +1159,20 @@ impl<'stream> Tokenizer<'stream> {
                 State::BogusComment => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             self.emit_current_token();
                             self.state = State::Data;
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.emit_current_token();
                             self.state = State::Data;
                         }
-                        Element::Utf8(CHAR_NUL) => {
+                        Ch(CHAR_NUL) => {
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                             self.add_to_token_value(CHAR_REPLACEMENT);
                         }
                         _ => {
-                            self.add_to_token_value(c.utf8());
+                            self.add_to_token_value(c.into());
                         }
                     }
                 }
@@ -1262,10 +1216,10 @@ impl<'stream> Tokenizer<'stream> {
                 State::CommentStart => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('-') => {
+                        Ch('-') => {
                             self.state = State::CommentStartDash;
                         }
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             self.parse_error(ParserError::AbruptClosingOfEmptyComment);
                             self.emit_current_token();
                             self.state = State::Data;
@@ -1279,15 +1233,15 @@ impl<'stream> Tokenizer<'stream> {
                 State::CommentStartDash => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('-') => {
+                        Ch('-') => {
                             self.state = State::CommentEnd;
                         }
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             self.parse_error(ParserError::AbruptClosingOfEmptyComment);
                             self.emit_current_token();
                             self.state = State::Data;
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInComment);
                             self.emit_current_token();
                             self.state = State::Data;
@@ -1302,34 +1256,34 @@ impl<'stream> Tokenizer<'stream> {
                 State::Comment => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('<') => {
-                            self.add_to_token_value(c.utf8());
+                        Ch('<') => {
+                            self.add_to_token_value(c.into());
                             self.state = State::CommentLessThanSign;
                         }
-                        Element::Utf8('-') => self.state = State::CommentEndDash,
-                        Element::Utf8(CHAR_NUL) => {
+                        Ch('-') => self.state = State::CommentEndDash,
+                        Ch(CHAR_NUL) => {
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                             self.add_to_token_value(CHAR_REPLACEMENT);
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInComment);
                             self.emit_current_token();
                             self.state = State::Data;
                         }
                         _ => {
-                            self.add_to_token_value(c.utf8());
+                            self.add_to_token_value(c.into());
                         }
                     }
                 }
                 State::CommentLessThanSign => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('!') => {
-                            self.add_to_token_value(c.utf8());
+                        Ch('!') => {
+                            self.add_to_token_value(c.into());
                             self.state = State::CommentLessThanSignBang;
                         }
-                        Element::Utf8('<') => {
-                            self.add_to_token_value(c.utf8());
+                        Ch('<') => {
+                            self.add_to_token_value(c.into());
                         }
                         _ => {
                             self.stream.unread();
@@ -1340,7 +1294,7 @@ impl<'stream> Tokenizer<'stream> {
                 State::CommentLessThanSignBang => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('-') => {
+                        Ch('-') => {
                             self.state = State::CommentLessThanSignBangDash;
                         }
                         _ => {
@@ -1352,7 +1306,7 @@ impl<'stream> Tokenizer<'stream> {
                 State::CommentLessThanSignBangDash => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('-') => {
+                        Ch('-') => {
                             self.state = State::CommentLessThanSignBangDashDash;
                         }
                         _ => {
@@ -1364,7 +1318,7 @@ impl<'stream> Tokenizer<'stream> {
                 State::CommentLessThanSignBangDashDash => {
                     let c = self.read_char();
                     match c {
-                        Element::Eof | Element::Utf8('>') => {
+                        Eof | Ch('>') => {
                             self.stream.unread();
                             self.state = State::CommentEnd;
                         }
@@ -1378,10 +1332,10 @@ impl<'stream> Tokenizer<'stream> {
                 State::CommentEndDash => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('-') => {
+                        Ch('-') => {
                             self.state = State::CommentEnd;
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInComment);
                             self.emit_current_token();
                             self.state = State::Data;
@@ -1396,13 +1350,13 @@ impl<'stream> Tokenizer<'stream> {
                 State::CommentEnd => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             self.emit_current_token();
                             self.state = State::Data;
                         }
-                        Element::Utf8('!') => self.state = State::CommentEndBang,
-                        Element::Utf8('-') => self.add_to_token_value('-'),
-                        Element::Eof => {
+                        Ch('!') => self.state = State::CommentEndBang,
+                        Ch('-') => self.add_to_token_value('-'),
+                        Eof => {
                             self.parse_error(ParserError::EofInComment);
                             self.emit_current_token();
                             self.state = State::Data;
@@ -1418,19 +1372,19 @@ impl<'stream> Tokenizer<'stream> {
                 State::CommentEndBang => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('-') => {
+                        Ch('-') => {
                             self.add_to_token_value('-');
                             self.add_to_token_value('-');
                             self.add_to_token_value('!');
 
                             self.state = State::CommentEndDash;
                         }
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             self.parse_error(ParserError::IncorrectlyClosedComment);
                             self.emit_current_token();
                             self.state = State::Data;
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInComment);
                             self.emit_current_token();
                             self.state = State::Data;
@@ -1447,15 +1401,14 @@ impl<'stream> Tokenizer<'stream> {
                 State::DocType => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(CHAR_TAB)
-                        | Element::Utf8(CHAR_LF)
-                        | Element::Utf8(CHAR_FF)
-                        | Element::Utf8(CHAR_SPACE) => self.state = State::BeforeDocTypeName,
-                        Element::Utf8('>') => {
+                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
+                            self.state = State::BeforeDocTypeName
+                        }
+                        Ch('>') => {
                             self.stream.unread();
                             self.state = State::BeforeDocTypeName;
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInDoctype);
 
                             self.emit_token(Token::DocType {
@@ -1477,13 +1430,10 @@ impl<'stream> Tokenizer<'stream> {
                 State::BeforeDocTypeName => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(CHAR_TAB)
-                        | Element::Utf8(CHAR_LF)
-                        | Element::Utf8(CHAR_FF)
-                        | Element::Utf8(CHAR_SPACE) => {
+                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
                             // ignore
                         }
-                        Element::Utf8(ch @ 'A'..='Z') => {
+                        Ch(ch @ 'A'..='Z') => {
                             self.current_token = Some(Token::DocType {
                                 name: None,
                                 force_quirks: false,
@@ -1494,7 +1444,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.add_to_token_name(to_lowercase!(ch));
                             self.state = State::DocTypeName;
                         }
-                        Element::Utf8(CHAR_NUL) => {
+                        Ch(CHAR_NUL) => {
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                             self.current_token = Some(Token::DocType {
                                 name: None,
@@ -1506,7 +1456,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.add_to_token_name(CHAR_REPLACEMENT);
                             self.state = State::DocTypeName;
                         }
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             self.parse_error(ParserError::MissingDoctypeName);
                             self.emit_token(Token::DocType {
                                 name: None,
@@ -1518,7 +1468,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.state = State::Data;
                         }
 
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInDoctype);
 
                             self.emit_token(Token::DocType {
@@ -1538,7 +1488,7 @@ impl<'stream> Tokenizer<'stream> {
                                 sys_identifier: None,
                             });
 
-                            self.add_to_token_name(c.utf8());
+                            self.add_to_token_name(c.into());
                             self.state = State::DocTypeName;
                         }
                     }
@@ -1546,42 +1496,38 @@ impl<'stream> Tokenizer<'stream> {
                 State::DocTypeName => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(CHAR_TAB)
-                        | Element::Utf8(CHAR_LF)
-                        | Element::Utf8(CHAR_FF)
-                        | Element::Utf8(CHAR_SPACE) => self.state = State::AfterDocTypeName,
-                        Element::Utf8('>') => {
+                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
+                            self.state = State::AfterDocTypeName
+                        }
+                        Ch('>') => {
                             self.emit_current_token();
                             self.state = State::Data;
                         }
-                        Element::Utf8(ch @ 'A'..='Z') => self.add_to_token_name(to_lowercase!(ch)),
-                        Element::Utf8(CHAR_NUL) => {
+                        Ch(ch @ 'A'..='Z') => self.add_to_token_name(to_lowercase!(ch)),
+                        Ch(CHAR_NUL) => {
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                             self.add_to_token_name(CHAR_REPLACEMENT);
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInDoctype);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
                             self.state = State::Data;
                         }
-                        _ => self.add_to_token_name(c.utf8()),
+                        _ => self.add_to_token_name(c.into()),
                     }
                 }
                 State::AfterDocTypeName => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(CHAR_TAB)
-                        | Element::Utf8(CHAR_LF)
-                        | Element::Utf8(CHAR_FF)
-                        | Element::Utf8(CHAR_SPACE) => {
+                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
                             // ignore
                         }
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             self.emit_current_token();
                             self.state = State::Data;
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInDoctype);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
@@ -1613,33 +1559,30 @@ impl<'stream> Tokenizer<'stream> {
                 State::AfterDocTypePublicKeyword => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(CHAR_TAB)
-                        | Element::Utf8(CHAR_LF)
-                        | Element::Utf8(CHAR_FF)
-                        | Element::Utf8(CHAR_SPACE) => {
+                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
                             self.state = State::BeforeDocTypePublicIdentifier
                         }
-                        Element::Utf8('"') => {
+                        Ch('"') => {
                             self.parse_error(
                                 ParserError::MissingWhitespaceAfterDoctypePublicKeyword,
                             );
                             self.set_public_identifier(String::new());
                             self.state = State::DocTypePublicIdentifierDoubleQuoted;
                         }
-                        Element::Utf8('\'') => {
+                        Ch('\'') => {
                             self.parse_error(
                                 ParserError::MissingWhitespaceAfterDoctypePublicKeyword,
                             );
                             self.set_public_identifier(String::new());
                             self.state = State::DocTypePublicIdentifierSingleQuoted;
                         }
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             self.parse_error(ParserError::MissingDoctypePublicIdentifier);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
                             self.state = State::Data;
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInDoctype);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
@@ -1658,27 +1601,24 @@ impl<'stream> Tokenizer<'stream> {
                 State::BeforeDocTypePublicIdentifier => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(CHAR_TAB)
-                        | Element::Utf8(CHAR_LF)
-                        | Element::Utf8(CHAR_FF)
-                        | Element::Utf8(CHAR_SPACE) => {
+                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
                             // ignore
                         }
-                        Element::Utf8('"') => {
+                        Ch('"') => {
                             self.set_public_identifier(String::new());
                             self.state = State::DocTypePublicIdentifierDoubleQuoted;
                         }
-                        Element::Utf8('\'') => {
+                        Ch('\'') => {
                             self.set_public_identifier(String::new());
                             self.state = State::DocTypePublicIdentifierSingleQuoted;
                         }
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             self.parse_error(ParserError::MissingDoctypePublicIdentifier);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
                             self.state = State::Data;
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInDoctype);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
@@ -1697,73 +1637,70 @@ impl<'stream> Tokenizer<'stream> {
                 State::DocTypePublicIdentifierDoubleQuoted => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('"') => self.state = State::AfterDoctypePublicIdentifier,
-                        Element::Utf8(CHAR_NUL) => {
+                        Ch('"') => self.state = State::AfterDoctypePublicIdentifier,
+                        Ch(CHAR_NUL) => {
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                             self.add_public_identifier(CHAR_REPLACEMENT);
                         }
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             self.parse_error(ParserError::AbruptDoctypePublicIdentifier);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
                             self.state = State::Data;
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInDoctype);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
                             self.state = State::Data;
                         }
-                        _ => self.add_public_identifier(c.utf8()),
+                        _ => self.add_public_identifier(c.into()),
                     }
                 }
                 State::DocTypePublicIdentifierSingleQuoted => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('\'') => self.state = State::AfterDoctypePublicIdentifier,
-                        Element::Utf8(CHAR_NUL) => {
+                        Ch('\'') => self.state = State::AfterDoctypePublicIdentifier,
+                        Ch(CHAR_NUL) => {
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                             self.add_public_identifier(CHAR_REPLACEMENT);
                         }
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             self.parse_error(ParserError::AbruptDoctypePublicIdentifier);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
                             self.state = State::Data;
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInDoctype);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
                             self.state = State::Data;
                         }
-                        _ => self.add_public_identifier(c.utf8()),
+                        _ => self.add_public_identifier(c.into()),
                     }
                 }
                 State::AfterDoctypePublicIdentifier => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(CHAR_TAB)
-                        | Element::Utf8(CHAR_LF)
-                        | Element::Utf8(CHAR_FF)
-                        | Element::Utf8(CHAR_SPACE) => {
+                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
                             self.state = State::BetweenDocTypePublicAndSystemIdentifiers
                         }
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             self.emit_current_token();
                             self.state = State::Data;
                         }
-                        Element::Utf8('"') => {
+                        Ch('"') => {
                             self.parse_error(ParserError::MissingWhitespaceBetweenDoctypePublicAndSystemIdentifiers);
                             self.set_system_identifier(String::new());
                             self.state = State::DocTypeSystemIdentifierDoubleQuoted;
                         }
-                        Element::Utf8('\'') => {
+                        Ch('\'') => {
                             self.parse_error(ParserError::MissingWhitespaceBetweenDoctypePublicAndSystemIdentifiers);
                             self.set_system_identifier(String::new());
                             self.state = State::DocTypeSystemIdentifierSingleQuoted;
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInDoctype);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
@@ -1782,25 +1719,22 @@ impl<'stream> Tokenizer<'stream> {
                 State::BetweenDocTypePublicAndSystemIdentifiers => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(CHAR_TAB)
-                        | Element::Utf8(CHAR_LF)
-                        | Element::Utf8(CHAR_FF)
-                        | Element::Utf8(CHAR_SPACE) => {
+                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
                             // ignore
                         }
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             self.emit_current_token();
                             self.state = State::Data;
                         }
-                        Element::Utf8('"') => {
+                        Ch('"') => {
                             self.set_system_identifier(String::new());
                             self.state = State::DocTypeSystemIdentifierDoubleQuoted;
                         }
-                        Element::Utf8('\'') => {
+                        Ch('\'') => {
                             self.set_system_identifier(String::new());
                             self.state = State::DocTypeSystemIdentifierSingleQuoted;
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInDoctype);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
@@ -1819,33 +1753,30 @@ impl<'stream> Tokenizer<'stream> {
                 State::AfterDocTypeSystemKeyword => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(CHAR_TAB)
-                        | Element::Utf8(CHAR_LF)
-                        | Element::Utf8(CHAR_FF)
-                        | Element::Utf8(CHAR_SPACE) => {
+                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
                             self.state = State::BeforeDocTypeSystemIdentifier
                         }
-                        Element::Utf8('"') => {
+                        Ch('"') => {
                             self.parse_error(
                                 ParserError::MissingWhitespaceAfterDoctypeSystemKeyword,
                             );
                             self.set_system_identifier(String::new());
                             self.state = State::DocTypeSystemIdentifierDoubleQuoted;
                         }
-                        Element::Utf8('\'') => {
+                        Ch('\'') => {
                             self.parse_error(
                                 ParserError::MissingWhitespaceAfterDoctypeSystemKeyword,
                             );
                             self.set_system_identifier(String::new());
                             self.state = State::DocTypeSystemIdentifierSingleQuoted;
                         }
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             self.parse_error(ParserError::MissingDoctypeSystemIdentifier);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
                             self.state = State::Data;
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInDoctype);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
@@ -1864,27 +1795,24 @@ impl<'stream> Tokenizer<'stream> {
                 State::BeforeDocTypeSystemIdentifier => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(CHAR_TAB)
-                        | Element::Utf8(CHAR_LF)
-                        | Element::Utf8(CHAR_FF)
-                        | Element::Utf8(CHAR_SPACE) => {
+                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
                             // ignore
                         }
-                        Element::Utf8('"') => {
+                        Ch('"') => {
                             self.set_system_identifier(String::new());
                             self.state = State::DocTypeSystemIdentifierDoubleQuoted;
                         }
-                        Element::Utf8('\'') => {
+                        Ch('\'') => {
                             self.set_system_identifier(String::new());
                             self.state = State::DocTypeSystemIdentifierSingleQuoted;
                         }
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             self.parse_error(ParserError::MissingDoctypeSystemIdentifier);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
                             self.state = State::Data;
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInDoctype);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
@@ -1903,63 +1831,60 @@ impl<'stream> Tokenizer<'stream> {
                 State::DocTypeSystemIdentifierDoubleQuoted => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('"') => self.state = State::AfterDocTypeSystemIdentifier,
-                        Element::Utf8(CHAR_NUL) => {
+                        Ch('"') => self.state = State::AfterDocTypeSystemIdentifier,
+                        Ch(CHAR_NUL) => {
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                             self.add_system_identifier(CHAR_REPLACEMENT);
                         }
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             self.parse_error(ParserError::AbruptDoctypeSystemIdentifier);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
                             self.state = State::Data;
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInDoctype);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
                             self.state = State::Data;
                         }
-                        _ => self.add_system_identifier(c.utf8()),
+                        _ => self.add_system_identifier(c.into()),
                     }
                 }
                 State::DocTypeSystemIdentifierSingleQuoted => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('\'') => self.state = State::AfterDocTypeSystemIdentifier,
-                        Element::Utf8(CHAR_NUL) => {
+                        Ch('\'') => self.state = State::AfterDocTypeSystemIdentifier,
+                        Ch(CHAR_NUL) => {
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                             self.add_system_identifier(CHAR_REPLACEMENT);
                         }
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             self.parse_error(ParserError::AbruptDoctypeSystemIdentifier);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
                             self.state = State::Data;
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInDoctype);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
                             self.state = State::Data;
                         }
-                        _ => self.add_system_identifier(c.utf8()),
+                        _ => self.add_system_identifier(c.into()),
                     }
                 }
                 State::AfterDocTypeSystemIdentifier => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(CHAR_TAB)
-                        | Element::Utf8(CHAR_LF)
-                        | Element::Utf8(CHAR_FF)
-                        | Element::Utf8(CHAR_SPACE) => {
+                        Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
                             // ignore
                         }
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             self.emit_current_token();
                             self.state = State::Data;
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInDoctype);
                             self.set_quirks_mode(true);
                             self.emit_current_token();
@@ -1977,14 +1902,12 @@ impl<'stream> Tokenizer<'stream> {
                 State::BogusDocType => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8('>') => {
+                        Ch('>') => {
                             self.emit_current_token();
                             self.state = State::Data;
                         }
-                        Element::Utf8(CHAR_NUL) => {
-                            self.parse_error(ParserError::UnexpectedNullCharacter)
-                        }
-                        Element::Eof => {
+                        Ch(CHAR_NUL) => self.parse_error(ParserError::UnexpectedNullCharacter),
+                        Eof => {
                             self.emit_current_token();
                             self.state = State::Data;
                         }
@@ -1996,20 +1919,20 @@ impl<'stream> Tokenizer<'stream> {
                 State::CDATASection => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(']') => {
+                        Ch(']') => {
                             self.state = State::CDATASectionBracket;
                         }
-                        Element::Eof => {
+                        Eof => {
                             self.parse_error(ParserError::EofInCdata);
                             self.state = State::Data;
                         }
-                        _ => self.consume(c.utf8()),
+                        _ => self.consume(c.into()),
                     }
                 }
                 State::CDATASectionBracket => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(']') => self.state = State::CDATASectionEnd,
+                        Ch(']') => self.state = State::CDATASectionEnd,
                         _ => {
                             self.consume(']');
                             self.stream.unread();
@@ -2020,8 +1943,8 @@ impl<'stream> Tokenizer<'stream> {
                 State::CDATASectionEnd => {
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(']') => self.consume(']'),
-                        Element::Utf8('>') => self.state = State::Data,
+                        Ch(']') => self.consume(']'),
+                        Ch('>') => self.state = State::Data,
                         _ => {
                             self.consume(']');
                             self.consume(']');
@@ -2039,17 +1962,17 @@ impl<'stream> Tokenizer<'stream> {
 
     /// This macro reads a character from the input stream and optionally generates (tokenization)
     /// errors if the character is not valid.
-    fn read_char(&mut self) -> Element {
+    fn read_char(&mut self) -> Bytes {
         let mut c = self.stream.read_char();
         match c {
-            Element::Surrogate(..) => {
+            Bytes::Surrogate(..) => {
                 self.parse_error(ParserError::SurrogateInInputStream);
-                c = Element::Utf8(CHAR_REPLACEMENT);
+                c = Ch(CHAR_REPLACEMENT);
             }
-            Element::Utf8(c) if self.is_control_char(c as u32) => {
+            Ch(c) if self.is_control_char(c as u32) => {
                 self.parse_error(ParserError::ControlCharacterInInputStream);
             }
-            Element::Utf8(c) if self.is_noncharacter(c as u32) => {
+            Ch(c) if self.is_noncharacter(c as u32) => {
                 self.parse_error(ParserError::NoncharacterInInputStream);
             }
             _ => {}

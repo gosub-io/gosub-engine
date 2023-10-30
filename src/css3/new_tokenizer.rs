@@ -1,7 +1,9 @@
 // note: input_stream should come from a shared lib.
-use crate::html5::input_stream::InputStream;
-
 use crate::css3::unicode::{get_unicode_char, UnicodeChar};
+use crate::html5::input_stream::{
+    Bytes::{self, *},
+    InputStream,
+};
 use std::usize;
 
 #[derive(Debug, PartialEq)]
@@ -131,17 +133,17 @@ impl<'stream> Tokenizer<'stream> {
         self.consume_comment();
 
         // todo: reframe the concept of "tokenizer::current" and "is::current" and "is::next"
-        let current = self.stream.current_char().utf8();
+        let current = self.stream.current_char();
 
         match current {
-            c if c.is_whitespace() => self.consume_whitespace(),
+            Ch(c) if c.is_whitespace() => self.consume_whitespace(),
             // note: consume_string_token doesn't work as expected
-            '"' | '\'' => self.consume_string_token(),
-            '#' => {
+            Ch('"' | '\'') => self.consume_string_token(),
+            Ch(c @ '#') => {
                 // consume '#'
                 self.stream.read_char();
 
-                if self.is_ident_char(self.stream.current_char().utf8())
+                if self.is_ident_char(self.stream.current_char().into())
                     || self.is_start_of_escape(0)
                 {
                     if self.is_next_3_points_starts_ident_seq(0) {
@@ -151,28 +153,28 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
 
-                Token::Delim(current)
+                Token::Delim(c)
             }
-            ')' => consume!(self, Token::RParen),
-            '(' => consume!(self, Token::LParen),
-            '[' => consume!(self, Token::LBracket),
-            ']' => consume!(self, Token::RBracket),
-            '{' => consume!(self, Token::LCurly),
-            '}' => consume!(self, Token::RCurly),
-            ',' => consume!(self, Token::Comma),
-            ':' => consume!(self, Token::Colon),
-            ';' => consume!(self, Token::Semicolon),
-            '+' => {
+            Ch(')') => consume!(self, Token::RParen),
+            Ch('(') => consume!(self, Token::LParen),
+            Ch('[') => consume!(self, Token::LBracket),
+            Ch(']') => consume!(self, Token::RBracket),
+            Ch('{') => consume!(self, Token::LCurly),
+            Ch('}') => consume!(self, Token::RCurly),
+            Ch(',') => consume!(self, Token::Comma),
+            Ch(':') => consume!(self, Token::Colon),
+            Ch(';') => consume!(self, Token::Semicolon),
+            Ch(c @ '+') => {
                 if self.is_signed_decimal(0) {
                     return self.consume_numeric_token();
                 }
 
                 // consume '+'
                 self.stream.read_char();
-                Token::Delim(current)
+                Token::Delim(c)
             }
-            '.' => {
-                if self.stream.next_char().utf8().is_numeric() {
+            Ch('.') => {
+                if matches!(self.stream.next_char(), Ch(c) if c.is_numeric()) {
                     return self.consume_numeric_token();
                 }
 
@@ -180,7 +182,7 @@ impl<'stream> Tokenizer<'stream> {
                 self.stream.read_char();
                 Token::Delim('.')
             }
-            '-' => {
+            Ch(c @ '-') => {
                 if self.is_signed_decimal(0) {
                     return self.consume_numeric_token();
                 }
@@ -198,9 +200,9 @@ impl<'stream> Tokenizer<'stream> {
 
                 // consume '-'
                 self.stream.read_char();
-                Token::Delim(current)
+                Token::Delim(c)
             }
-            '<' => {
+            Ch(c @ '<') => {
                 let cdo_token = "<!--";
                 if self.stream.look_ahead_slice(cdo_token.len()) == cdo_token {
                     // consume "<!--"
@@ -210,9 +212,9 @@ impl<'stream> Tokenizer<'stream> {
 
                 // consume '<'
                 self.stream.read_char();
-                Token::Delim(current)
+                Token::Delim(c)
             }
-            '@' => {
+            Ch(c @ '@') => {
                 // consume '@'
                 self.stream.read_char();
 
@@ -220,9 +222,9 @@ impl<'stream> Tokenizer<'stream> {
                     return Token::AtKeyword(self.consume_ident());
                 }
 
-                Token::Delim(current)
+                Token::Delim(c)
             }
-            '\\' => {
+            Ch(c @ '\\') => {
                 if self.is_start_of_escape(0) {
                     return self.consume_ident_like_seq();
                 }
@@ -230,16 +232,16 @@ impl<'stream> Tokenizer<'stream> {
                 // parser error
                 // consume '\'
                 self.stream.read_char();
-                Token::Delim(current)
+                Token::Delim(c)
             }
-            c if c.is_numeric() => self.consume_numeric_token(),
-            c if self.is_ident_start(c) => self.consume_ident_like_seq(),
+            Ch(c) if c.is_numeric() => self.consume_numeric_token(),
+            Ch(c) if self.is_ident_start(c) => self.consume_ident_like_seq(),
             _ => {
-                let el = self.stream.read_char();
-                if el.is_eof() {
+                let c = self.stream.read_char();
+                if matches!(c, Bytes::Eof) {
                     return Token::EOF;
                 }
-                Token::Delim(el.utf8())
+                Token::Delim(c.into())
             }
         }
     }
@@ -252,7 +254,7 @@ impl<'stream> Tokenizer<'stream> {
             comment.push_str(&self.consume_chars(2));
 
             while self.stream.look_ahead_slice(2) != "*/" && !self.stream.eof() {
-                comment.push(self.stream.read_char().utf8());
+                comment.push(self.stream.read_char().into());
             }
 
             // consume '*/'
@@ -274,7 +276,7 @@ impl<'stream> Tokenizer<'stream> {
                 unit,
                 value: number,
             };
-        } else if self.stream.current_char().utf8() == '%' {
+        } else if self.stream.current_char() == Ch('%') {
             // consume '%'
             self.stream.read_char();
             return Token::Percentage(number);
@@ -288,24 +290,24 @@ impl<'stream> Tokenizer<'stream> {
     /// Returns either a `<string-token>` or `<bad-string-token>`.
     pub fn consume_string_token(&mut self) -> Token {
         // consume string staring: (') or (") ...
-        let ending = self.stream.read_char().utf8();
+        let ending = self.stream.read_char();
         let mut value = String::new();
 
         loop {
             // if eof => parser error => return the current string
-            if self.stream.current_char().utf8() == ending || self.stream.eof() {
+            if self.stream.current_char() == ending || self.stream.eof() {
                 // consume string ending
                 self.stream.read_char();
                 return Token::QuotedString(value);
             }
 
             // newline: parser error
-            if self.stream.current_char().utf8() == '\n' {
+            if self.stream.current_char() == Ch('\n') {
                 // note: don't consume '\n'
                 return Token::BadString(value);
             }
 
-            if self.stream.current_char().utf8() == '\\' && self.stream.next_char().utf8() == '\n' {
+            if self.stream.current_char() == Ch('\\') && self.stream.next_char() == Ch('\n') {
                 // consume '\\n'
                 self.consume_chars(2);
                 continue;
@@ -314,15 +316,15 @@ impl<'stream> Tokenizer<'stream> {
             // todo: move to its own util function (used for string & ident tokens)
             // TIMP: confirmation needed
             // according to css tests `-\\-` should parsed to `--`
-            if self.stream.current_char().utf8() == '\\'
-                && !self.stream.next_char().utf8().is_ascii_hexdigit()
-                && !self.stream.next_char().is_eof()
+            if self.stream.current_char() == Ch('\\')
+                && !matches!(self.stream.next_char(), Ch(c) if c.is_ascii_hexdigit())
+                && !matches!(self.stream.next_char(), Bytes::Eof)
             {
                 // consume '\'
                 self.stream.read_char();
 
                 // consume char next to `\`
-                value.push(self.stream.read_char().utf8());
+                value.push(self.stream.read_char().into());
                 continue;
             }
 
@@ -331,7 +333,7 @@ impl<'stream> Tokenizer<'stream> {
                 continue;
             }
 
-            value.push(self.stream.read_char().utf8())
+            value.push(self.stream.read_char().into())
         }
     }
 
@@ -340,15 +342,17 @@ impl<'stream> Tokenizer<'stream> {
     /// Note: for the sake of simplicity, we exclude the number type mentioned in the algorithm.
     pub fn consume_number(&mut self) -> Number {
         let mut value = String::new();
-        let lookahead = self.stream.current_char().utf8();
+        let lookahead = self.stream.current_char();
 
-        if lookahead == '+' || lookahead == '-' {
-            value.push(self.stream.read_char().utf8());
+        if matches!(lookahead, Ch('+' | '-')) {
+            value.push(self.stream.read_char().into());
         }
 
         value.push_str(&self.consume_digits());
 
-        if self.stream.current_char().utf8() == '.' && self.stream.next_char().utf8().is_numeric() {
+        if self.stream.current_char() == Ch('.')
+            && matches!(self.stream.next_char(), Ch(c) if c.is_numeric())
+        {
             value.push_str(&self.consume_chars(2));
         }
 
@@ -358,14 +362,11 @@ impl<'stream> Tokenizer<'stream> {
         // todo: move them to gobal constants
         // U+0045: LATIN CAPITAL LETTER E (E)
         // U+0065: LATIN SMALL LETTER E (e)
-        if self.stream.current_char().utf8() == '\u{0045}'
-            || self.stream.current_char().utf8() == '\u{0065}'
-        {
-            value.push(self.stream.read_char().utf8());
+        if matches!(self.stream.current_char(), Ch('\u{0045}' | '\u{0065}')) {
+            value.push(self.stream.read_char().into());
 
-            if self.stream.current_char().utf8() == '-' || self.stream.current_char().utf8() == '+'
-            {
-                value.push(self.stream.read_char().utf8());
+            if matches!(self.stream.current_char(), Ch('-' | '+')) {
+                value.push(self.stream.read_char().into());
             }
         }
 
@@ -380,7 +381,7 @@ impl<'stream> Tokenizer<'stream> {
     pub fn consume_ident_like_seq(&mut self) -> Token {
         let value = self.consume_ident();
 
-        if value == "url" && self.stream.current_char().utf8() == '(' {
+        if value == "url" && self.stream.current_char() == Ch('(') {
             // consume '('
             self.stream.read_char();
             self.consume_whitespace();
@@ -390,7 +391,7 @@ impl<'stream> Tokenizer<'stream> {
             }
 
             return self.consume_url();
-        } else if self.stream.current_char().utf8() == '(' {
+        } else if self.stream.current_char() == Ch('(') {
             // consume '('
             self.stream.read_char();
             return Token::Function(value);
@@ -408,7 +409,7 @@ impl<'stream> Tokenizer<'stream> {
         self.consume_whitespace();
 
         loop {
-            if self.stream.current_char().utf8() == ')' {
+            if self.stream.current_char() == Ch(')') {
                 // consume ')'
                 self.stream.read_char();
                 break;
@@ -419,7 +420,7 @@ impl<'stream> Tokenizer<'stream> {
                 break;
             }
 
-            if self.stream.current_char().utf8().is_whitespace() {
+            if self.stream.current_char().is_whitespace() {
                 self.consume_whitespace();
                 continue;
             }
@@ -435,7 +436,7 @@ impl<'stream> Tokenizer<'stream> {
                 continue;
             }
 
-            url.push(self.stream.read_char().utf8());
+            url.push(self.stream.read_char().into());
         }
 
         Token::Url(url)
@@ -447,7 +448,7 @@ impl<'stream> Tokenizer<'stream> {
     fn consume_remnants_of_bad_url(&mut self) {
         loop {
             // recovery point
-            if self.stream.current_char().utf8() == ')' || self.stream.eof() {
+            if self.stream.current_char() == Ch(')') || self.stream.eof() {
                 break;
             }
 
@@ -473,11 +474,13 @@ impl<'stream> Tokenizer<'stream> {
             return default_char;
         }
 
-        while self.stream.current_char().utf8().is_ascii_hexdigit() && value.len() <= 5 {
-            value.push(self.stream.read_char().utf8());
+        while matches!(self.stream.current_char(), Ch(c) if c.is_ascii_hexdigit())
+            && value.len() <= 5
+        {
+            value.push(self.stream.read_char().into());
         }
 
-        if self.stream.current_char().utf8().is_whitespace() {
+        if self.stream.current_char().is_whitespace() {
             self.stream.read_char();
         }
 
@@ -514,15 +517,15 @@ impl<'stream> Tokenizer<'stream> {
         loop {
             // TIMP: confirmation needed
             // according to css tests `-\\-` should parsed to `--`
-            if self.stream.current_char().utf8() == '\\'
-                && !self.stream.next_char().utf8().is_ascii_hexdigit()
-                && !self.stream.next_char().is_eof()
+            if self.stream.current_char() == Ch('\\')
+                && !matches!(self.stream.next_char(), Ch(c) if c.is_ascii_hexdigit())
+                && !matches!(self.stream.next_char(), Bytes::Eof)
             {
                 // consume '\'
                 self.stream.read_char();
 
                 // consume char next to `\`
-                value.push(self.stream.read_char().utf8());
+                value.push(self.stream.read_char().into());
                 continue;
             }
 
@@ -531,11 +534,11 @@ impl<'stream> Tokenizer<'stream> {
                 continue;
             }
 
-            if !self.is_ident_char(self.stream.current_char().utf8()) {
+            if !self.is_ident_char(self.stream.current_char().into()) {
                 break;
             }
 
-            value.push(self.stream.read_char().utf8());
+            value.push(self.stream.read_char().into());
         }
 
         value
@@ -544,8 +547,8 @@ impl<'stream> Tokenizer<'stream> {
     pub fn consume_digits(&mut self) -> String {
         let mut value = String::new();
 
-        while self.stream.current_char().utf8().is_numeric() {
-            value.push(self.stream.read_char().utf8())
+        while matches!(self.stream.current_char(), Ch(c) if c.is_numeric()) {
+            value.push(self.stream.read_char().into())
         }
 
         value
@@ -555,7 +558,7 @@ impl<'stream> Tokenizer<'stream> {
         let mut value = String::new();
 
         while len > 0 {
-            value.push(self.stream.read_char().utf8());
+            value.push(self.stream.read_char().into());
             len -= 1
         }
 
@@ -563,7 +566,7 @@ impl<'stream> Tokenizer<'stream> {
     }
 
     fn consume_whitespace(&mut self) -> Token {
-        while self.stream.current_char().utf8().is_whitespace() {
+        while self.stream.current_char().is_whitespace() {
             self.stream.read_char();
         }
 
@@ -582,14 +585,16 @@ impl<'stream> Tokenizer<'stream> {
 
     /// def: [non-printable code point](https://www.w3.org/TR/css-syntax-3/#non-printable-code-point)
     fn is_non_printable_char(&self) -> bool {
-        let char = self.stream.current_char().utf8();
-
-        (char >= get_unicode_char(UnicodeChar::Null)
-            && char <= get_unicode_char(UnicodeChar::Backspace))
-            || (char >= get_unicode_char(UnicodeChar::ShiftOut)
-                && char <= get_unicode_char(UnicodeChar::InformationSeparatorOne))
-            || char == get_unicode_char(UnicodeChar::Tab)
-            || char == get_unicode_char(UnicodeChar::Delete)
+        if let Ch(char) = self.stream.current_char() {
+            (char >= get_unicode_char(UnicodeChar::Null)
+                && char <= get_unicode_char(UnicodeChar::Backspace))
+                || (char >= get_unicode_char(UnicodeChar::ShiftOut)
+                    && char <= get_unicode_char(UnicodeChar::InformationSeparatorOne))
+                || char == get_unicode_char(UnicodeChar::Tab)
+                || char == get_unicode_char(UnicodeChar::Delete)
+        } else {
+            false
+        }
     }
 
     /// 4.3.8. [Check if two code points are a valid escape](https://www.w3.org/TR/css-syntax-3/#starts-with-a-valid-escape)
@@ -597,41 +602,41 @@ impl<'stream> Tokenizer<'stream> {
         let current_char = self.stream.look_ahead(start);
         let next_char = self.stream.look_ahead(start + 1);
 
-        current_char.utf8() == '\\' && next_char.utf8() != '\n'
+        current_char == Ch('\\') && next_char != Ch('\n')
     }
 
     /// [4.3.9. Check if three code points would start an ident sequence](https://www.w3.org/TR/css-syntax-3/#check-if-three-code-points-would-start-an-ident-sequence)
     fn is_next_3_points_starts_ident_seq(&self, start: usize) -> bool {
-        let first = self.stream.look_ahead(start).utf8();
-        let second = self.stream.look_ahead(start + 1).utf8();
+        let first = self.stream.look_ahead(start);
+        let second = self.stream.look_ahead(start + 1);
 
-        if first == '-' {
-            return self.is_ident_start(second)
-                || second == '-'
+        if first == Ch('-') {
+            return self.is_ident_start(second.into())
+                || second == Ch('-')
                 || self.is_start_of_escape(start + 1);
         }
 
-        if first == '\\' {
+        if first == Ch('\\') {
             return self.is_start_of_escape(start);
         }
 
-        self.is_ident_start(first)
+        self.is_ident_start(first.into())
     }
 
     fn is_signed_decimal(&self, start: usize) -> bool {
-        let current = self.stream.look_ahead(start).utf8();
-        let next = self.stream.look_ahead(start + 1).utf8();
-        let last = self.stream.look_ahead(start + 2).utf8();
+        let current = self.stream.look_ahead(start);
+        let next = self.stream.look_ahead(start + 1);
+        let last = self.stream.look_ahead(start + 2);
 
         // e.g. +1, -1, +.1, -0.01
-        (current == '+' || current == '-')
-            && ((next == '.' && last.is_numeric()) || next.is_numeric())
+        matches!(current, Ch('+' | '-'))
+            && ((next == Ch('.') && last.is_numeric()) || next.is_numeric())
     }
 
     fn is_any_of(&self, chars: Vec<char>) -> bool {
-        let current_char = self.stream.current_char().utf8();
+        let current_char = self.stream.current_char();
         for char in chars {
-            if current_char == char {
+            if current_char == Ch(char) {
                 return true;
             }
         }
