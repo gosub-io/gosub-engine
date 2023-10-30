@@ -39,6 +39,13 @@ const DISABLED_CASES: &[&str] = &[
     "<body>X</body></body>",
     // tests18.dat
     "<!doctype html><template><plaintext>a</template>b",
+    // adoption01.dat
+    "<b><em><foo><foob><fooc><aside></b></em>",
+    // webkit02.dat
+    "<b><em><dcell><postfield><postfield><postfield><postfield><missing_glyph><missing_glyph><missing_glyph><missing_glyph><hkern><aside></b></em>",
+    "<b><em><foo><foo><foo><foo><foo><foo><foo><foo><foo><foo><aside></b></em>",
+    "<b><em><foo><foob><foob><foob><foob><fooc><fooc><fooc><fooc><food><aside></b></em>",
+    "<option><XH<optgroup></optgroup>",
 ];
 
 lazy_static! {
@@ -74,7 +81,7 @@ lazy_static! {
 #[test_case("tests24.dat")]
 #[test_case("tests25.dat")]
 #[test_case("tests26.dat")]
-// #[test_case("adoption01.dat")]
+#[test_case("adoption01.dat")]
 #[test_case("adoption02.dat")]
 #[test_case("blocks.dat")]
 #[test_case("comments01.dat")]
@@ -96,15 +103,15 @@ lazy_static! {
 // #[test_case("plain-text-unsafe.dat")]
 // #[test_case("quirks01.dat")]
 #[test_case("ruby.dat")]
-// #[test_case("scriptdata01.dat")]
+#[test_case("scriptdata01.dat")]
 #[test_case("search-element.dat")]
 // #[test_case("svg.dat")]
 #[test_case("tables01.dat")]
 // #[test_case("template.dat")]
-// #[test_case("test_innerHTML_1.dat")]
+// #[test_case("tests_innerHTML_1.dat")]
 #[test_case("tricky01.dat")]
 #[test_case("webkit01.dat")]
-// #[test_case("webkit02.dat")]
+#[test_case("webkit02.dat")]
 fn tree_construction(filename: &str) {
     let fixture_file = fixture_from_filename(filename).expect("fixture");
 
