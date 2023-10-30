@@ -1,5 +1,5 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use gosub_engine::testing::tokenizer;
+use gosub_engine::testing::tokenizer::{self, FixtureFile};
 
 fn criterion_benchmark(c: &mut Criterion) {
     // Criterion can report inconsistent results from run to run in some cases.  We attempt to
@@ -14,7 +14,12 @@ fn criterion_benchmark(c: &mut Criterion) {
     group.bench_function("fixtures", |b| {
         b.iter(|| {
             for root in &fixtures {
-                for test in &root.tests {
+                let tests = match root {
+                    FixtureFile::Tests { tests } => tests,
+                    FixtureFile::XmlTests { tests } => tests,
+                };
+
+                for test in tests {
                     test.tokenize();
                 }
             }

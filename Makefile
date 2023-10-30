@@ -4,24 +4,24 @@ SHELL=/usr/bin/env bash -O globstar
 
 all: help
 
-test: test_unit test_clippy test_fmt ## Runs tests
+test: test_commands test_unit test_clippy test_fmt ## Runs tests
 
-bench:
+bench: ## Benchmark the project
 	cargo bench
 
-build: ## Build	the project
+build: ## Build the project
 	source test-utils.sh ;\
 	section "Cargo build" ;\
 	cargo build
 
-fix:
+fix:  ## Fix formatting and clippy errors
 	cargo fmt
 	cargo clippy --fix --allow-dirty --allow-staged
 
 test_unit:
 	source test-utils.sh ;\
 	section "Cargo test" ;\
-	cargo test
+	cargo test --features debug_parser
 
 test_clippy:
 	source test-utils.sh ;\
@@ -32,6 +32,10 @@ test_fmt:
 	source test-utils.sh ;\
 	section "Cargo fmt" ;\
 	cargo fmt -- --check
+
+test_commands:
+	cargo run --bin html5-parser-test >/dev/null
+	cargo run --bin parser-test >/dev/null
 
 help: ## Display available commands
 	echo "Available make commands:"

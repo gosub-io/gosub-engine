@@ -52,16 +52,20 @@ $ cargo build
 
 Doing this will create the following binaries:
 
-| File                          | Type | Description                       |
-|-------------------------------|------|-----------------------------------|
-| `target/debug/gosub-parser`   | bin  | The actual html5 parser/tokenizer |
-| `target/debug/parser_test`    | bin  | A test suite for the parser       |
+| File                              | Type | Description                                                      |
+|-----------------------------------|------|------------------------------------------------------------------|
+| `target/debug/gosub-parser`       | bin  | The actual html5 parser/tokenizer                                |
+| `target/debug/parser-test`        | bin  | A test suite for the parser that tests specific tests            |
+| `target/debug/html5-parser-tests` | bin  | A test suite that tests all html5lib tests for the treebuilding |
+| `target/debug/test-user-agent`    | bin  | A simple placeholder user agent for testing purposes |
+
+
 
 You can then run the binaries like so:
 
 ```bash
 $ ./target/debug/gosub-parser https://news.ycombinator.com/
-$ ./target/debug/parser_test
+$ ./target/debug/parser-test
 ```
 
 To build the release build, run:
@@ -78,18 +82,4 @@ $ make test
 $ cargo bench
 $ ls target/criterion/report 
 index.html
-```
-
-### gosub-parser
-
-This is the actual html5 parser/tokenizer. It is a library that can be used for other projects. It is not a standalone
-project but can be incorporated into other projects. 
-
-### parser_test
-
-This is a test suite for the parser. It is not a standalone project. It is used by the gosub-engine project. You need 
-to specify the directory to the html5lib-test to run, or it will use the default one (./html5lib-tests).
-
-```bash
-$ ./target/debug/parser_test 
 ```

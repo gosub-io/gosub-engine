@@ -126,6 +126,44 @@ pub struct Node {
     pub is_registered: bool,
 }
 
+impl Node {
+    /// Returns true when the given node is of the given namespace
+    pub(crate) fn is_namespace(&self, namespace: &str) -> bool {
+        self.namespace == Some(namespace.into())
+    }
+
+    /// Returns true if the given node is a html integration point
+    /// See: https://html.spec.whatwg.org/multipage/parsing.html#html-integration-point
+    pub(crate) fn is_html_integration_point(&self) -> bool {
+        let namespace = self.namespace.clone().unwrap_or_default();
+
+        if namespace == MATHML_NAMESPACE && self.name == "annotation-xml" {
+            if let NodeData::Element(element) = &self.data {
+                if let Some(value) = element.attributes.get("encoding") {
+                    if value.eq_ignore_ascii_case("text/html") {
+                        return true;
+                    }
+                    if value.eq_ignore_ascii_case("application/xhtml+xml") {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        namespace == SVG_NAMESPACE
+            && ["foreignObject", "desc", "title"].contains(&self.name.as_str())
+    }
+
+    /// Returns true if the given node is a mathml integration point
+    /// See: https://html.spec.whatwg.org/multipage/parsing.html#mathml-text-integration-point
+    pub(crate) fn is_mathml_integration_point(&self) -> bool {
+        let namespace = self.namespace.clone().unwrap_or_default();
+
+        namespace == MATHML_NAMESPACE
+            && ["mi", "mo", "mn", "ms", "mtext"].contains(&self.name.as_str())
+    }
+}
+
 impl Debug for Node {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut debug = f.debug_struct("Node");
@@ -150,10 +188,32 @@ impl Debug for Node {
 }
 
 impl Node {
-    /// This will only compare against the tag, namespace and attributes. Both nodes could still have
-    /// other parents and children.
-    pub fn matches_tag_and_attrs(&self, other: &Self) -> bool {
-        self.name == other.name && self.namespace == other.namespace && self.data == other.data
+    /// This will only compare against the tag, namespace and data same except element data.
+    /// for element data compaare against the tag, namespace and attributes without order.
+    /// Both nodes could still have other parents and children.
+    pub fn matches_tag_and_attrs_without_order(&self, other: &Self) -> bool {
+        if self.name != other.name || self.namespace != other.namespace {
+            return false;
+        }
+
+        if self.type_of() != other.type_of() {
+            return false;
+        }
+
+        match self.type_of() {
+            NodeType::Element => {
+                let mut self_attributes = None;
+                let mut other_attributes = None;
+                if let NodeData::Element(element) = &self.data {
+                    self_attributes = Some(element.attributes.clone_map());
+                }
+                if let NodeData::Element(element) = &other.data {
+                    other_attributes = Some(element.attributes.clone_map());
+                }
+                self_attributes.eq(&other_attributes)
+            }
+            _ => self.data == other.data,
+        }
     }
 }
 

@@ -1,8 +1,7 @@
+use gosub_engine::testing::tokenizer::{self, FixtureFile};
 use lazy_static::lazy_static;
 use std::collections::HashSet;
 use test_case::test_case;
-
-use gosub_engine::testing::tokenizer;
 
 const DISABLED_CASES: &[&str] = &[
     // TODO: Handle UTF-16 high and low private surrogate characters
@@ -53,7 +52,12 @@ lazy_static! {
 fn tokenization(filename: &str) {
     let root = tokenizer::fixture_from_filename(filename).unwrap();
 
-    for test in root.tests {
+    let tests = match root {
+        FixtureFile::Tests { tests } => tests,
+        FixtureFile::XmlTests { tests } => tests,
+    };
+
+    for test in tests {
         if DISABLED.contains(&test.description) {
             // Check that we don't panic
             test.tokenize();

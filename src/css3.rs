@@ -1,4 +1,4 @@
-//! This module contains the CSS3 parser
+//! CSS3 tokenizer and parser
 //!
 //! # Token Reference
 //!

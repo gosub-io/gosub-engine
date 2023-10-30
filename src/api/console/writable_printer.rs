@@ -10,12 +10,14 @@ pub struct Group {
 
 type Writer<W> = Rc<RefCell<W>>;
 
+/// A writable printer that can be used to write to a buffer
 pub(crate) struct WritablePrinter<W: Write> {
     writer: Writer<W>,
     groups: Vec<Group>,
 }
 
 impl<W: Write> WritablePrinter<W> {
+    /// Creates a new writable printer
     pub fn new(writer: Rc<RefCell<W>>) -> WritablePrinter<W> {
         WritablePrinter {
             writer,
@@ -23,16 +25,19 @@ impl<W: Write> WritablePrinter<W> {
         }
     }
 
+    /// Returns a reference to the writer
     pub fn get_writer(&self) -> &Writer<W> {
         &self.writer
     }
 
+    /// Returns the writer
     pub fn into_writer(self) -> Writer<W> {
         self.writer
     }
 }
 
 impl<W: Write> Printer for WritablePrinter<W> {
+    /// Print the given string (as defined in args) to the console at the given loglevel. Additional options can be provided
     fn print(&mut self, log_level: LogLevel, args: &[&dyn fmt::Display], _options: &[&str]) {
         if args.is_empty() {
             return;
@@ -77,11 +82,13 @@ impl<W: Write> Printer for WritablePrinter<W> {
         };
     }
 
+    /// Clears the current group
     fn clear(&mut self) {
         // nothing to clear
         _ = writeln!(self.writer.borrow_mut(), "--- Clear ---");
     }
 
+    /// Ends the current group
     fn end_group(&mut self) {
         self.groups.pop();
     }
