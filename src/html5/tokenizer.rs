@@ -812,7 +812,7 @@ impl<'stream> Tokenizer<'stream> {
                         | Element::Utf8(CHAR_SPACE)
                         | Element::Utf8('/')
                         | Element::Utf8('>') => {
-                            if self.temporary_buffer.to_lowercase() == "script" {
+                            if self.temporary_buffer == "script" {
                                 self.state = State::ScriptDataDoubleEscapedState;
                             } else {
                                 self.state = State::ScriptDataEscapedState;
@@ -820,7 +820,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.consume(c.utf8());
                         }
                         Element::Utf8(ch @ 'A'..='Z') => {
-                            self.temporary_buffer.push(ch);
+                            self.temporary_buffer.push(to_lowercase!(ch));
                             self.consume(ch);
                         }
                         Element::Utf8(ch @ 'a'..='z') => {
@@ -939,7 +939,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.consume(c.utf8());
                         }
                         Element::Utf8(ch @ 'A'..='Z') => {
-                            self.temporary_buffer.push(ch);
+                            self.temporary_buffer.push(to_lowercase!(ch));
                             self.consume(ch);
                         }
                         Element::Utf8(ch @ 'a'..='z') => {
