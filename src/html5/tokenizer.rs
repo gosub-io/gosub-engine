@@ -169,7 +169,7 @@ impl<'stream> Tokenizer<'stream> {
                 State::RAWTEXT => {
                     let c = self.read_char();
                     match c {
-                        Ch('<') => self.state = State::RawTextLessThanSign,
+                        Ch('<') => self.state = State::RAWTEXTLessThanSign,
                         Ch(CHAR_NUL) => {
                             self.consume(CHAR_REPLACEMENT);
                             self.parse_error(ParserError::UnexpectedNullCharacter);
@@ -398,12 +398,12 @@ impl<'stream> Tokenizer<'stream> {
                         self.transition_to(State::RCDATA);
                     }
                 }
-                State::RawTextLessThanSign => {
+                State::RAWTEXTLessThanSign => {
                     let c = self.read_char();
                     match c {
                         Ch('/') => {
                             self.temporary_buffer.clear();
-                            self.state = State::RawTextEndTagOpen;
+                            self.state = State::RAWTEXTEndTagOpen;
                         }
                         _ => {
                             self.consume('<');
@@ -412,7 +412,7 @@ impl<'stream> Tokenizer<'stream> {
                         }
                     }
                 }
-                State::RawTextEndTagOpen => {
+                State::RAWTEXTEndTagOpen => {
                     let c = self.read_char();
                     match c {
                         Ch(ch) if ch.is_ascii_alphabetic() => {
@@ -421,7 +421,7 @@ impl<'stream> Tokenizer<'stream> {
                                 is_self_closing: false,
                             });
                             self.stream.unread();
-                            self.state = State::RawTextEndTagName;
+                            self.state = State::RAWTEXTEndTagName;
                         }
                         _ => {
                             self.consume('<');
@@ -431,7 +431,7 @@ impl<'stream> Tokenizer<'stream> {
                         }
                     }
                 }
-                State::RawTextEndTagName => {
+                State::RAWTEXTEndTagName => {
                     let c = self.read_char();
 
                     // we use this flag because a lot of matches will actually do the same thing
@@ -1189,7 +1189,7 @@ impl<'stream> Tokenizer<'stream> {
 
                     if self.stream.look_ahead_slice(7).to_uppercase() == "DOCTYPE" {
                         self.stream.seek(SeekCur, 7);
-                        self.state = State::DocType;
+                        self.state = State::DOCTYPE;
                         continue;
                     }
 
@@ -1398,15 +1398,15 @@ impl<'stream> Tokenizer<'stream> {
                         }
                     }
                 }
-                State::DocType => {
+                State::DOCTYPE => {
                     let c = self.read_char();
                     match c {
                         Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
-                            self.state = State::BeforeDocTypeName
+                            self.state = State::BeforeDOCTYPEName
                         }
                         Ch('>') => {
                             self.stream.unread();
-                            self.state = State::BeforeDocTypeName;
+                            self.state = State::BeforeDOCTYPEName;
                         }
                         Eof => {
                             self.parse_error(ParserError::EofInDoctype);
@@ -1423,11 +1423,11 @@ impl<'stream> Tokenizer<'stream> {
                         _ => {
                             self.parse_error(ParserError::MissingWhitespaceBeforeDoctypeName);
                             self.stream.unread();
-                            self.state = State::BeforeDocTypeName;
+                            self.state = State::BeforeDOCTYPEName;
                         }
                     }
                 }
-                State::BeforeDocTypeName => {
+                State::BeforeDOCTYPEName => {
                     let c = self.read_char();
                     match c {
                         Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
@@ -1442,7 +1442,7 @@ impl<'stream> Tokenizer<'stream> {
                             });
 
                             self.add_to_token_name(to_lowercase!(ch));
-                            self.state = State::DocTypeName;
+                            self.state = State::DOCTYPEName;
                         }
                         Ch(CHAR_NUL) => {
                             self.parse_error(ParserError::UnexpectedNullCharacter);
@@ -1454,7 +1454,7 @@ impl<'stream> Tokenizer<'stream> {
                             });
 
                             self.add_to_token_name(CHAR_REPLACEMENT);
-                            self.state = State::DocTypeName;
+                            self.state = State::DOCTYPEName;
                         }
                         Ch('>') => {
                             self.parse_error(ParserError::MissingDoctypeName);
@@ -1489,15 +1489,15 @@ impl<'stream> Tokenizer<'stream> {
                             });
 
                             self.add_to_token_name(c.into());
-                            self.state = State::DocTypeName;
+                            self.state = State::DOCTYPEName;
                         }
                     }
                 }
-                State::DocTypeName => {
+                State::DOCTYPEName => {
                     let c = self.read_char();
                     match c {
                         Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
-                            self.state = State::AfterDocTypeName
+                            self.state = State::AfterDOCTYPEName
                         }
                         Ch('>') => {
                             self.emit_current_token();
@@ -1517,7 +1517,7 @@ impl<'stream> Tokenizer<'stream> {
                         _ => self.add_to_token_name(c.into()),
                     }
                 }
-                State::AfterDocTypeName => {
+                State::AfterDOCTYPEName => {
                     let c = self.read_char();
                     match c {
                         Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
@@ -1537,12 +1537,12 @@ impl<'stream> Tokenizer<'stream> {
                             self.stream.unread();
                             if self.stream.look_ahead_slice(6).to_uppercase() == "PUBLIC" {
                                 self.stream.seek(SeekCur, 6);
-                                self.state = State::AfterDocTypePublicKeyword;
+                                self.state = State::AfterDOCTYPEPublicKeyword;
                                 continue;
                             }
                             if self.stream.look_ahead_slice(6).to_uppercase() == "SYSTEM" {
                                 self.stream.seek(SeekCur, 6);
-                                self.state = State::AfterDocTypeSystemKeyword;
+                                self.state = State::AfterDOCTYPESystemKeyword;
                                 continue;
                             }
                             // Make sure the parser is on the correct position again since we just
@@ -1552,29 +1552,29 @@ impl<'stream> Tokenizer<'stream> {
                             self.stream.seek(SeekCur, -1);
                             self.set_quirks_mode(true);
                             self.stream.unread();
-                            self.state = State::BogusDocType;
+                            self.state = State::BogusDOCTYPE;
                         }
                     }
                 }
-                State::AfterDocTypePublicKeyword => {
+                State::AfterDOCTYPEPublicKeyword => {
                     let c = self.read_char();
                     match c {
                         Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
-                            self.state = State::BeforeDocTypePublicIdentifier
+                            self.state = State::BeforeDOCTYPEPublicIdentifier
                         }
                         Ch('"') => {
                             self.parse_error(
                                 ParserError::MissingWhitespaceAfterDoctypePublicKeyword,
                             );
                             self.set_public_identifier(String::new());
-                            self.state = State::DocTypePublicIdentifierDoubleQuoted;
+                            self.state = State::DOCTYPEPublicIdentifierDoubleQuoted;
                         }
                         Ch('\'') => {
                             self.parse_error(
                                 ParserError::MissingWhitespaceAfterDoctypePublicKeyword,
                             );
                             self.set_public_identifier(String::new());
-                            self.state = State::DocTypePublicIdentifierSingleQuoted;
+                            self.state = State::DOCTYPEPublicIdentifierSingleQuoted;
                         }
                         Ch('>') => {
                             self.parse_error(ParserError::MissingDoctypePublicIdentifier);
@@ -1594,11 +1594,11 @@ impl<'stream> Tokenizer<'stream> {
                             );
                             self.stream.unread();
                             self.set_quirks_mode(true);
-                            self.state = State::BogusDocType;
+                            self.state = State::BogusDOCTYPE;
                         }
                     }
                 }
-                State::BeforeDocTypePublicIdentifier => {
+                State::BeforeDOCTYPEPublicIdentifier => {
                     let c = self.read_char();
                     match c {
                         Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
@@ -1606,11 +1606,11 @@ impl<'stream> Tokenizer<'stream> {
                         }
                         Ch('"') => {
                             self.set_public_identifier(String::new());
-                            self.state = State::DocTypePublicIdentifierDoubleQuoted;
+                            self.state = State::DOCTYPEPublicIdentifierDoubleQuoted;
                         }
                         Ch('\'') => {
                             self.set_public_identifier(String::new());
-                            self.state = State::DocTypePublicIdentifierSingleQuoted;
+                            self.state = State::DOCTYPEPublicIdentifierSingleQuoted;
                         }
                         Ch('>') => {
                             self.parse_error(ParserError::MissingDoctypePublicIdentifier);
@@ -1630,14 +1630,14 @@ impl<'stream> Tokenizer<'stream> {
                                 ParserError::MissingQuoteBeforeDoctypePublicIdentifier,
                             );
                             self.set_quirks_mode(true);
-                            self.state = State::BogusDocType;
+                            self.state = State::BogusDOCTYPE;
                         }
                     }
                 }
-                State::DocTypePublicIdentifierDoubleQuoted => {
+                State::DOCTYPEPublicIdentifierDoubleQuoted => {
                     let c = self.read_char();
                     match c {
-                        Ch('"') => self.state = State::AfterDoctypePublicIdentifier,
+                        Ch('"') => self.state = State::AfterDOCTYPEPublicIdentifier,
                         Ch(CHAR_NUL) => {
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                             self.add_public_identifier(CHAR_REPLACEMENT);
@@ -1657,10 +1657,10 @@ impl<'stream> Tokenizer<'stream> {
                         _ => self.add_public_identifier(c.into()),
                     }
                 }
-                State::DocTypePublicIdentifierSingleQuoted => {
+                State::DOCTYPEPublicIdentifierSingleQuoted => {
                     let c = self.read_char();
                     match c {
-                        Ch('\'') => self.state = State::AfterDoctypePublicIdentifier,
+                        Ch('\'') => self.state = State::AfterDOCTYPEPublicIdentifier,
                         Ch(CHAR_NUL) => {
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                             self.add_public_identifier(CHAR_REPLACEMENT);
@@ -1680,11 +1680,11 @@ impl<'stream> Tokenizer<'stream> {
                         _ => self.add_public_identifier(c.into()),
                     }
                 }
-                State::AfterDoctypePublicIdentifier => {
+                State::AfterDOCTYPEPublicIdentifier => {
                     let c = self.read_char();
                     match c {
                         Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
-                            self.state = State::BetweenDocTypePublicAndSystemIdentifiers
+                            self.state = State::BetweenDOCTYPEPublicAndSystemIdentifiers
                         }
                         Ch('>') => {
                             self.emit_current_token();
@@ -1693,12 +1693,12 @@ impl<'stream> Tokenizer<'stream> {
                         Ch('"') => {
                             self.parse_error(ParserError::MissingWhitespaceBetweenDoctypePublicAndSystemIdentifiers);
                             self.set_system_identifier(String::new());
-                            self.state = State::DocTypeSystemIdentifierDoubleQuoted;
+                            self.state = State::DOCTYPESystemIdentifierDoubleQuoted;
                         }
                         Ch('\'') => {
                             self.parse_error(ParserError::MissingWhitespaceBetweenDoctypePublicAndSystemIdentifiers);
                             self.set_system_identifier(String::new());
-                            self.state = State::DocTypeSystemIdentifierSingleQuoted;
+                            self.state = State::DOCTYPESystemIdentifierSingleQuoted;
                         }
                         Eof => {
                             self.parse_error(ParserError::EofInDoctype);
@@ -1712,11 +1712,11 @@ impl<'stream> Tokenizer<'stream> {
                             );
                             self.stream.unread();
                             self.set_quirks_mode(true);
-                            self.state = State::BogusDocType;
+                            self.state = State::BogusDOCTYPE;
                         }
                     }
                 }
-                State::BetweenDocTypePublicAndSystemIdentifiers => {
+                State::BetweenDOCTYPEPublicAndSystemIdentifiers => {
                     let c = self.read_char();
                     match c {
                         Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
@@ -1728,11 +1728,11 @@ impl<'stream> Tokenizer<'stream> {
                         }
                         Ch('"') => {
                             self.set_system_identifier(String::new());
-                            self.state = State::DocTypeSystemIdentifierDoubleQuoted;
+                            self.state = State::DOCTYPESystemIdentifierDoubleQuoted;
                         }
                         Ch('\'') => {
                             self.set_system_identifier(String::new());
-                            self.state = State::DocTypeSystemIdentifierSingleQuoted;
+                            self.state = State::DOCTYPESystemIdentifierSingleQuoted;
                         }
                         Eof => {
                             self.parse_error(ParserError::EofInDoctype);
@@ -1746,29 +1746,29 @@ impl<'stream> Tokenizer<'stream> {
                             );
                             self.stream.unread();
                             self.set_quirks_mode(true);
-                            self.state = State::BogusDocType;
+                            self.state = State::BogusDOCTYPE;
                         }
                     }
                 }
-                State::AfterDocTypeSystemKeyword => {
+                State::AfterDOCTYPESystemKeyword => {
                     let c = self.read_char();
                     match c {
                         Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
-                            self.state = State::BeforeDocTypeSystemIdentifier
+                            self.state = State::BeforeDOCTYPESystemIdentifier
                         }
                         Ch('"') => {
                             self.parse_error(
                                 ParserError::MissingWhitespaceAfterDoctypeSystemKeyword,
                             );
                             self.set_system_identifier(String::new());
-                            self.state = State::DocTypeSystemIdentifierDoubleQuoted;
+                            self.state = State::DOCTYPESystemIdentifierDoubleQuoted;
                         }
                         Ch('\'') => {
                             self.parse_error(
                                 ParserError::MissingWhitespaceAfterDoctypeSystemKeyword,
                             );
                             self.set_system_identifier(String::new());
-                            self.state = State::DocTypeSystemIdentifierSingleQuoted;
+                            self.state = State::DOCTYPESystemIdentifierSingleQuoted;
                         }
                         Ch('>') => {
                             self.parse_error(ParserError::MissingDoctypeSystemIdentifier);
@@ -1788,11 +1788,11 @@ impl<'stream> Tokenizer<'stream> {
                             );
                             self.stream.unread();
                             self.set_quirks_mode(true);
-                            self.state = State::BogusDocType;
+                            self.state = State::BogusDOCTYPE;
                         }
                     }
                 }
-                State::BeforeDocTypeSystemIdentifier => {
+                State::BeforeDOCTYPESystemIdentifier => {
                     let c = self.read_char();
                     match c {
                         Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
@@ -1800,11 +1800,11 @@ impl<'stream> Tokenizer<'stream> {
                         }
                         Ch('"') => {
                             self.set_system_identifier(String::new());
-                            self.state = State::DocTypeSystemIdentifierDoubleQuoted;
+                            self.state = State::DOCTYPESystemIdentifierDoubleQuoted;
                         }
                         Ch('\'') => {
                             self.set_system_identifier(String::new());
-                            self.state = State::DocTypeSystemIdentifierSingleQuoted;
+                            self.state = State::DOCTYPESystemIdentifierSingleQuoted;
                         }
                         Ch('>') => {
                             self.parse_error(ParserError::MissingDoctypeSystemIdentifier);
@@ -1824,14 +1824,14 @@ impl<'stream> Tokenizer<'stream> {
                             );
                             self.stream.unread();
                             self.set_quirks_mode(true);
-                            self.state = State::BogusDocType;
+                            self.state = State::BogusDOCTYPE;
                         }
                     }
                 }
-                State::DocTypeSystemIdentifierDoubleQuoted => {
+                State::DOCTYPESystemIdentifierDoubleQuoted => {
                     let c = self.read_char();
                     match c {
-                        Ch('"') => self.state = State::AfterDocTypeSystemIdentifier,
+                        Ch('"') => self.state = State::AfterDOCTYPESystemIdentifier,
                         Ch(CHAR_NUL) => {
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                             self.add_system_identifier(CHAR_REPLACEMENT);
@@ -1851,10 +1851,10 @@ impl<'stream> Tokenizer<'stream> {
                         _ => self.add_system_identifier(c.into()),
                     }
                 }
-                State::DocTypeSystemIdentifierSingleQuoted => {
+                State::DOCTYPESystemIdentifierSingleQuoted => {
                     let c = self.read_char();
                     match c {
-                        Ch('\'') => self.state = State::AfterDocTypeSystemIdentifier,
+                        Ch('\'') => self.state = State::AfterDOCTYPESystemIdentifier,
                         Ch(CHAR_NUL) => {
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                             self.add_system_identifier(CHAR_REPLACEMENT);
@@ -1874,7 +1874,7 @@ impl<'stream> Tokenizer<'stream> {
                         _ => self.add_system_identifier(c.into()),
                     }
                 }
-                State::AfterDocTypeSystemIdentifier => {
+                State::AfterDOCTYPESystemIdentifier => {
                     let c = self.read_char();
                     match c {
                         Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
@@ -1895,11 +1895,11 @@ impl<'stream> Tokenizer<'stream> {
                                 ParserError::UnexpectedCharacterAfterDoctypeSystemIdentifier,
                             );
                             self.stream.unread();
-                            self.state = State::BogusDocType;
+                            self.state = State::BogusDOCTYPE;
                         }
                     }
                 }
-                State::BogusDocType => {
+                State::BogusDOCTYPE => {
                     let c = self.read_char();
                     match c {
                         Ch('>') => {
@@ -2034,7 +2034,7 @@ impl<'stream> Tokenizer<'stream> {
                 name.push(c);
             }
             Some(Token::DocType { name, .. }) => {
-                // Doctype can have an optional name
+                // DOCTYPE can have an optional name
                 match name {
                     Some(ref mut string) => string.push(c),
                     None => *name = Some(c.to_string()),
