@@ -2008,8 +2008,8 @@ impl<'stream> Html5Parser<'stream> {
                     .expect("node not found");
                 if let NodeData::Element(element) = &mut first_node.data {
                     for (key, value) in attributes {
-                        if !element.attributes.contains(key) {
-                            element.attributes.insert(key, value);
+                        if !element.attributes.contains_key(key) {
+                            element.attributes.insert(key.to_owned(), value.to_owned());
                         }
                     }
                 };
@@ -4067,16 +4067,9 @@ mod test {
         let mut parser = Html5Parser::new(&mut stream, Document::clone(&document));
         parser.parse().expect("");
 
-        let binding = document.get();
-
-        let div1 = binding.get_node_by_id(NodeId(4)).unwrap();
-        assert!(!div1.has_named_id());
-
-        let div2 = binding.get_node_by_id(NodeId(5)).unwrap();
-        assert!(!div2.has_named_id());
-
-        let div3 = binding.get_node_by_id(NodeId(6)).unwrap();
-        assert!(!div3.has_named_id());
+        assert!(document.get().get_node_by_named_id("my id").is_none());
+        assert!(document.get().get_node_by_named_id("123").is_none());
+        assert!(document.get().get_node_by_named_id("").is_none());
     }
 
     #[test]
@@ -4084,7 +4077,7 @@ mod test {
         let mut stream = InputStream::new();
         stream.read_from_str(
             "<div id=\"myid\"></div> \
-             <div id=\"myid\"></div>",
+             <p id=\"myid\"></p>",
             Some(Encoding::UTF8),
         );
 
@@ -4092,18 +4085,10 @@ mod test {
         let mut parser = Html5Parser::new(&mut stream, Document::clone(&document));
         parser.parse().expect("doc");
 
-        {
-            let binding = Document::clone(&document);
-            let handle = binding.get();
-            let div = handle.get_node_by_named_id("myid").unwrap();
-            assert_eq!(div.id, NodeId(4));
-        }
-
-        {
-            let mut binding = Document::clone(&document);
-            let mut handle = binding.get_mut();
-            handle.set_node_named_id(NodeId(4), "otherid");
-            assert!(handle.get_node_by_named_id("myid").is_none());
-        }
+        // we are expecting the div (ID: 4) and p would be ignored
+        let doc_read = document.get();
+        let div = doc_read.get_node_by_named_id("myid").unwrap();
+        assert_eq!(div.id, NodeId::from(4));
+        assert_eq!(div.name, "div");
     }
 }

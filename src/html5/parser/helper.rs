@@ -168,7 +168,7 @@ impl<'stream> Html5Parser<'stream> {
         // named_id_list. Although this will require some shared pointers
 
         if let NodeData::Element(ref mut element) = node.data {
-            if element.attributes.contains("class") {
+            if element.attributes.contains_key("class") {
                 if let Some(class_string) = element.attributes.get("class") {
                     element.classes = ElementClass::from_string(class_string);
                 }
@@ -189,7 +189,7 @@ impl<'stream> Html5Parser<'stream> {
         new_node.is_registered = false;
 
         if let NodeData::Element(ref mut element) = new_node.data {
-            if element.attributes.contains("class") {
+            if element.attributes.contains_key("class") {
                 if let Some(class_string) = element.attributes.get("class") {
                     element.classes = ElementClass::from_string(class_string);
                 }
@@ -430,7 +430,7 @@ impl<'stream> Html5Parser<'stream> {
                 // step 4.13.6
                 let element = get_node_by_id!(self.document, node_id);
                 let node_attributes = match element.data {
-                    NodeData::Element(element) => element.attributes.clone_map(),
+                    NodeData::Element(element) => element.attributes.clone(),
                     _ => HashMap::new(),
                 };
                 let replacement_node = Node::new_element(
@@ -469,7 +469,7 @@ impl<'stream> Html5Parser<'stream> {
 
             // step 4.15
             let format_elem_attributes = match format_elem_node.data {
-                NodeData::Element(element) => element.attributes.clone_map(),
+                NodeData::Element(element) => element.attributes.clone(),
                 _ => HashMap::new(),
             };
             let new_format_node: Node = Node::new_element(
