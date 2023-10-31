@@ -240,7 +240,7 @@ mod tests {
             attributes: HashMap::new(),
         };
         assert!(token.is_start_tag("div"));
-        assret!(!token.is_start_tag("span"));
+        assert!(!token.is_start_tag("span"));
     }
     #[test]
     fn test_is_any_start_tag() {
