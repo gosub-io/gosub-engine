@@ -1,5 +1,6 @@
 use crate::html5::node::arena::NodeArena;
 use crate::html5::node::data::{comment::CommentData, text::TextData};
+use crate::html5::node::HTML_NAMESPACE;
 use crate::html5::node::{Node, NodeData, NodeId};
 use crate::html5::parser::quirks::QuirksMode;
 use crate::html5::parser::tree_builder::TreeBuilder;
@@ -695,9 +696,23 @@ impl DocumentBuilder {
     }
 
     /// Creates a new document fragment with the context as the root node
-    pub fn new_document_fragment(_doc: DocumentHandle, _context: NodeId) -> DocumentHandle {
-        // @TODO: Create a document fragment and set doc/context as the root node
-        todo!();
+    pub fn new_document_fragment(context: Node) -> DocumentHandle {
+        let mut doc = Document::shared();
+        doc.get_mut().doctype = DocumentType::HTML;
+
+        if context.document.get().quirks_mode == QuirksMode::Quirks {
+            doc.get_mut().quirks_mode = QuirksMode::Quirks;
+        } else if context.document.get().quirks_mode == QuirksMode::LimitedQuirks {
+            doc.get_mut().quirks_mode = QuirksMode::LimitedQuirks;
+        }
+
+        // @TODO: Set tokenizer state based on context element
+
+        let html_node = Node::new_element(&doc, "html", HashMap::new(), HTML_NAMESPACE);
+        // doc.get_mut().arena.register_node(html_node);
+        doc.add_node(html_node, NodeId::root(), None);
+
+        doc
     }
 }
 

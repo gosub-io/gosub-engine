@@ -58,6 +58,15 @@ pub struct Options {
     pub last_start_tag: String,
 }
 
+impl Default for Options {
+    fn default() -> Self {
+        Options {
+            initial_state: State::Data,
+            last_start_tag: "".to_string(),
+        }
+    }
+}
+
 /// Convert a character to lower case value (assumes character is in A-Z range)
 macro_rules! to_lowercase {
     ($c:expr) => {
@@ -107,6 +116,11 @@ impl<'stream> Tokenizer<'stream> {
     /// Returns the error logger
     pub fn get_error_logger(&self) -> Ref<ErrorLogger> {
         self.error_logger.borrow()
+    }
+
+    /// Sets the tokenizer state to a new state
+    pub(crate) fn set_state(&mut self, state: State) {
+        self.state = state;
     }
 
     /// Consumes the input stream. Continues until the stream is completed or a token has been generated.
@@ -1110,7 +1124,7 @@ impl<'stream> Tokenizer<'stream> {
                         }
                     }
                 }
-                // State::CharacterReferenceInAttributeValueState => {}
+                // State::CharacterReferenceInAttributeValue => {}
                 State::AfterAttributeValueQuoted => {
                     let c = self.read_char();
                     match c {

@@ -20,7 +20,6 @@ fn main() -> Result<()> {
         // Run tests
         for test in fixture.tests {
             let results = test.run().expect("problem running tree construction test");
-
             for result in results {
                 total += 1;
                 if result.success() {

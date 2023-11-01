@@ -262,7 +262,7 @@ fn document(i: Span) -> IResult<Span, Span> {
 }
 
 fn document_fragment(i: Span) -> IResult<Span, Span> {
-    preceded(tag("#document-fragment\n"), take_until1("#"))(i)
+    preceded(tag("#document-fragment\n"), take_until1("\n"))(i)
 }
 
 fn test(i: Span) -> IResult<Span, TestSpec> {
@@ -635,7 +635,7 @@ template
 "#,
         );
 
-        assert_eq!(test.document_fragment, Some("template\n".into()));
+        assert_eq!(test.document_fragment, Some("template".into()));
     }
 
     #[test]
