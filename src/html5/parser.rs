@@ -1,7 +1,7 @@
 mod attr_replacements;
 pub mod document;
 mod quirks;
-mod tree_builder;
+pub mod tree_builder;
 
 // ------------------------------------------------------------
 
@@ -13,7 +13,7 @@ use crate::html5::node::{Node, NodeData, HTML_NAMESPACE, MATHML_NAMESPACE, SVG_N
 use crate::html5::parser::attr_replacements::{
     MATHML_ADJUSTMENTS, SVG_ADJUSTMENTS_ATTRIBUTES, SVG_ADJUSTMENTS_TAGS, XML_ADJUSTMENTS,
 };
-use crate::html5::parser::document::{Document, DocumentFragment, DocumentType};
+use crate::html5::parser::document::{Document, DocumentBuilder, DocumentFragment, DocumentType};
 use crate::html5::parser::quirks::QuirksMode;
 use crate::html5::tokenizer::state::State;
 use crate::html5::tokenizer::token::Token;
@@ -140,6 +140,18 @@ impl ActiveElement {
     }
 }
 
+pub struct Html5ParserOptions {
+    pub scripting_enabled: bool,
+}
+
+impl Default for Html5ParserOptions {
+    fn default() -> Self {
+        Html5ParserOptions {
+            scripting_enabled: true,
+        }
+    }
+}
+
 /// The main parser object
 pub struct Html5Parser<'stream> {
     /// tokenizer object
@@ -176,7 +188,7 @@ pub struct Html5Parser<'stream> {
     ack_self_closing: bool,
     /// List of active formatting elements or markers
     active_formatting_elements: Vec<ActiveElement>,
-    /// Is the current parsing a fragment case
+    /// Is the current parsing a fragment case. If so, the context_node_id and context_doc should be set as well.
     is_fragment_case: bool,
     /// A reference to the document we are parsing
     document: DocumentHandle,
@@ -194,8 +206,10 @@ pub struct Html5Parser<'stream> {
     token_queue: Vec<Token>,
     /// When true, the parser is finished and should not consume more tokens (there aren't any)
     parser_finished: bool,
-    /// Context node for fragment parsing
-    context: Option<NodeId>,
+    /// Context node id for fragment parsing
+    context_node_id: Option<NodeId>,
+    /// Context node document for fragment parsing (we don't want to keep Option<Node> as this clones a whole node
+    context_doc: Option<DocumentHandle>,
 }
 
 /// Defines the scopes for in_scope()
@@ -215,10 +229,49 @@ enum DispatcherMode {
 
 impl<'stream> Html5Parser<'stream> {
     // Initializes the parser for whole document parsing
-    pub fn new(stream: &'stream mut InputStream, document: DocumentHandle) -> Self {
-        // Create a new error logger that will be used in both the tokenizer and the parser
-        let error_logger = Rc::new(RefCell::new(ErrorLogger::new()));
+    fn init(
+        tokenizer: Tokenizer<'stream>,
+        document: DocumentHandle,
+        error_logger: Rc<RefCell<ErrorLogger>>,
+        options: Option<Html5ParserOptions>,
+    ) -> Self {
+        Html5Parser {
+            tokenizer,
+            insertion_mode: InsertionMode::Initial,
+            original_insertion_mode: InsertionMode::Initial,
+            template_insertion_mode: vec![],
+            parser_cannot_change_mode: false,
+            current_token: Token::Eof,
+            reprocess_token: false,
+            open_elements: Vec::new(),
+            head_element: None,
+            form_element: None,
+            scripting_enabled: options.unwrap_or_default().scripting_enabled,
+            frameset_ok: true,
+            foster_parenting: false,
+            script_already_started: false,
+            pending_table_character_tokens: String::new(),
+            ack_self_closing: false,
+            active_formatting_elements: vec![],
+            is_fragment_case: false,
+            document,
+            error_logger,
+            script_nesting_level: 0,
+            parser_pause_flag: false,
+            insertion_point: None,
+            ignore_lf: false,
+            token_queue: vec![],
+            parser_finished: false,
+            context_node_id: None,
+            context_doc: None,
+        }
+    }
 
+    /// Creates a new parser with a dummy document and dummy tokenizer. This is ONLY used for testing purposes.
+    /// Regular users should use the parse_document() and parse_fragment() functions instead.
+    pub fn new_parser(stream: &'stream mut InputStream) -> Self {
+        let doc = DocumentBuilder::new_document();
+        let error_logger = Rc::new(RefCell::new(ErrorLogger::new()));
         let tokenizer = Tokenizer::new(stream, None, error_logger.clone());
 
         Html5Parser {
@@ -240,7 +293,7 @@ impl<'stream> Html5Parser<'stream> {
             ack_self_closing: false,
             active_formatting_elements: vec![],
             is_fragment_case: false,
-            document,
+            document: Document::clone(&doc),
             error_logger,
             script_nesting_level: 0,
             parser_pause_flag: false,
@@ -248,67 +301,108 @@ impl<'stream> Html5Parser<'stream> {
             ignore_lf: false,
             token_queue: vec![],
             parser_finished: false,
-            context: None,
+            context_node_id: None,
+            context_doc: None,
         }
     }
 
-    // Initializes the parser for document fragment parsing
-    pub fn new_fragment(
+    /// Parses a fragment of HTML instead of a whole document. It will run the parser in a slightly different mode.
+    /// This is used for parsing innerHTML and document fragments.
+    pub fn parse_fragment(
+        stream: &'stream mut InputStream,
+        mut document: DocumentHandle,
+        context_node: &Node,
+        options: Option<Html5ParserOptions>,
+    ) -> Result<Vec<ParseError>> {
+        // https://html.spec.whatwg.org/multipage/parsing.html#parsing-html-fragments
+
+        // 1.
+        document.get_mut().doctype = DocumentType::HTML;
+
+        // 2.
+        document.get_mut().quirks_mode = context_node.document.get().quirks_mode;
+
+        // 3.
+        let error_logger = Rc::new(RefCell::new(ErrorLogger::new()));
+
+        let tokenizer = Tokenizer::new(stream, None, error_logger.clone());
+        let mut parser =
+            Html5Parser::init(tokenizer, Document::clone(&document), error_logger, options);
+
+        // 4. / 12.
+        parser.initialize_fragment_case(context_node);
+
+        // 5. / 6.
+        // Not needed, as the document should have been created with DocumentBuilder::document_fragment(), and already got a HTML root node.
+
+        // 7.
+        parser.open_elements.push(NodeId::root());
+
+        // 8.
+        if context_node.name == "template" {
+            parser
+                .template_insertion_mode
+                .push(InsertionMode::InTemplate);
+        }
+
+        // 9.
+        // @Todo: this does not do anything yet
+        let _token = match &context_node.data {
+            NodeData::Element(element) => {
+                let node_attributes = element.attributes.clone();
+
+                Token::StartTag {
+                    name: context_node.name.clone(),
+                    is_self_closing: false,
+                    attributes: node_attributes,
+                }
+            }
+            _ => panic!("not an element"),
+        };
+
+        // 10.
+        parser.reset_insertion_mode();
+
+        // 11. Set the parser's form element pointer to the nearest node to the context element that is a form element (going straight up the ancestor chain, and including the element itself, if it is a form element), if any. (If there is no such form element, the form element pointer keeps its initial value, null.)
+        let mut node = context_node.clone();
+        loop {
+            if node.name == "form" {
+                parser.form_element = Some(node.id);
+                break;
+            }
+
+            if node.parent.is_none() {
+                break;
+            }
+
+            node = get_node_by_id!(document, node.parent.unwrap());
+        }
+
+        // 13. / 14.
+        parser.do_parse()
+    }
+
+    /// Parses the input stream into a full document (including html, body, head, etc.). Note that
+    /// the document returned is not a full document, but a document fragment and has a "html" root
+    /// node that should not be used. The children of the root-node should be used on the context
+    /// node where this document fragment needs to be inserted into.
+    pub fn parse_document(
         stream: &'stream mut InputStream,
         document: DocumentHandle,
-        context: NodeId,
-        form_element: Option<NodeId>,
-    ) -> Self {
-        // @todo: maybe bound the error logger into the documentHandle, as errors are always bound to the document
+        options: Option<Html5ParserOptions>,
+    ) -> Result<Vec<ParseError>> {
         // Create a new error logger that will be used in both the tokenizer and the parser
         let error_logger = Rc::new(RefCell::new(ErrorLogger::new()));
 
         let tokenizer = Tokenizer::new(stream, None, error_logger.clone());
+        let mut parser = Html5Parser::init(tokenizer, document, error_logger, options);
 
-        // Check if we are a fragment in/on a template tag
-        let node = document.get().get_node_by_id(context).unwrap().clone();
-        let is_template_context = node.name == "template" && node.is_namespace(HTML_NAMESPACE);
-
-        Html5Parser {
-            tokenizer,
-            insertion_mode: InsertionMode::Initial,
-            original_insertion_mode: InsertionMode::Initial,
-            template_insertion_mode: if is_template_context {
-                vec![InsertionMode::InTemplate]
-            } else {
-                vec![]
-            },
-            parser_cannot_change_mode: false,
-            current_token: Token::Eof,
-            reprocess_token: false,
-            open_elements: Vec::new(),
-            head_element: None,
-            form_element,
-            scripting_enabled: true,
-            frameset_ok: true,
-            foster_parenting: false,
-            script_already_started: false,
-            pending_table_character_tokens: String::new(),
-            ack_self_closing: false,
-            active_formatting_elements: vec![],
-            is_fragment_case: true,
-            document,
-            error_logger,
-            script_nesting_level: 0,
-            parser_pause_flag: false,
-            insertion_point: None,
-            ignore_lf: false,
-            token_queue: vec![],
-            parser_finished: false,
-            context: Some(context),
-        }
+        parser.do_parse()
     }
 
-    /// Parses the input stream into a Node tree
-    pub fn parse(&mut self) -> Result<Vec<ParseError>> {
-        // // Revisit approach
-        // let root = Document::clone(&self.document);
-        // self.document.get_mut().create_root(&root);
+    /// Internal parser function that does the actual parsing
+    pub fn do_parse(&mut self) -> Result<Vec<ParseError>> {
+        let mut dispatcher_mode = DispatcherMode::Html;
 
         loop {
             // When the parser is signalled to finish, we break our main parser loop
@@ -319,11 +413,16 @@ impl<'stream> Html5Parser<'stream> {
             // If reprocess_token is true, we should process the same token again
             if !self.reprocess_token {
                 self.current_token = self.fetch_next_token();
+
+                // If we reprocess a given token, the dispatcher mode should stay the same and
+                // should not be re-evaluated
+                dispatcher_mode = self.select_dispatch_mode();
             }
+
             self.reprocess_token = false;
 
             // Check how we should dispatch the token, and dispatch to the correct function
-            match self.select_dispatch_mode() {
+            match dispatcher_mode {
                 DispatcherMode::Foreign => {
                     self.process_foreign_content();
                 }
@@ -482,6 +581,7 @@ impl<'stream> Html5Parser<'stream> {
                 loop {
                     // Fragment case is when the first element in the stack is this node
                     match self.open_elements.get(0) {
+                        // fragment case
                         Some(node_id) if *node_id == node.id => return,
                         _ => {}
                     }
@@ -998,14 +1098,13 @@ impl<'stream> Html5Parser<'stream> {
 
                 if process_incaption_body {
                     if !self.open_elements_has("caption") {
+                        // fragment case
                         self.parse_error(
                             "caption end tag not allowed in in caption insertion mode",
                         );
                         // ignore token
-                        // self.reprocess_token = false;
+                        self.reprocess_token = false;
                         return;
-
-                        // @TODO: check what fragment case means
                     }
 
                     self.generate_implied_end_tags(None, false);
@@ -1080,48 +1179,6 @@ impl<'stream> Html5Parser<'stream> {
                         self.reprocess_token = true;
                     }
                 }
-
-                //     Token::StartTagToken { name, .. } if name == "frameset" => {
-                //         self.insert_html_element(&self.current_token);
-                //
-                //         self.insertion_mode = InsertionMode::InFrameset;
-                //     },
-                //
-                //     Token::StartTagToken { name, .. } if ["base", "basefront", "bgsound", "link", "meta", "noframes", "script", "style", "template", "title"].contains(&name.as_str()) => {
-                //         self.parse_error("invalid start tag in after head insertion mode");
-                //
-                //         if let Some(ref value) = self.head_element {
-                //             self.open_elements.push(value.clone());
-                //         }
-                //
-                //         self.handle_in_head();
-                //
-                //         // remove the node pointed to by the head element pointer from the stack of open elements (might not be current node at this point)
-                //     }
-                //     Token::EndTagToken { name, .. } if name == "template" => {
-                //         self.handle_in_head();
-                //     }
-                //     Token::EndTagToken { name, .. } if name == "body" || name == "html" || name == "br"=> {
-                //         anything_else = true;
-                //     }
-                //     Token::StartTagToken { name, .. } if name == "head" => {
-                //         self.parse_error("head tag not allowed in after head insertion mode");
-                //     }
-                //     Token::EndTagToken { .. }  => {
-                //         self.parse_error("end tag not allowed in after head insertion mode");
-                //     }
-                //     _ => {
-                //         anything_else = true;
-                //     }
-                // }
-                //
-                // if anything_else {
-                //     let token = Token::StartTagToken { name: "body".to_string(), is_self_closing: false, attributes: HashMap::new() };
-                //     self.insert_html_element(&token);
-                //
-                //     self.insertion_mode = InsertionMode::InBody;
-                //     self.reprocess_token = true;
-                // }
             }
             InsertionMode::InTableBody => {
                 match &self.current_token {
@@ -1333,8 +1390,9 @@ impl<'stream> Html5Parser<'stream> {
                         if !self.is_in_scope("td", Scope::Table)
                             && !self.is_in_scope("th", Scope::Table)
                         {
+                            // fragment case
                             self.parse_error("caption, col, colgroup, tbody, tfoot or thead tag not allowed in in cell insertion mode");
-                            // ignore token (fragment case?)
+                            // ignore token
                             return;
                         }
 
@@ -1434,7 +1492,14 @@ impl<'stream> Html5Parser<'stream> {
                         self.handle_in_body();
                     }
                     Token::EndTag { name, .. } if name == "html" => {
-                        // @TODO: something with fragment case
+                        if self.is_fragment_case {
+                            // fragment case
+                            self.parse_error(
+                                "html end tag not allowed in after body insertion mode",
+                            );
+                            // ignore token
+                            return;
+                        }
                         self.insertion_mode = InsertionMode::AfterAfterBody;
                     }
                     Token::Eof => {
@@ -1467,6 +1532,7 @@ impl<'stream> Html5Parser<'stream> {
                     }
                     Token::EndTag { name, .. } if name == "frameset" => {
                         if current_node!(self).name == "html" {
+                            // fragment case
                             self.parse_error("frameset tag not allowed in frameset insertion mode");
                             // ignore token
                             return;
@@ -1475,6 +1541,7 @@ impl<'stream> Html5Parser<'stream> {
                         self.open_elements.pop();
 
                         if !self.is_fragment_case && current_node!(self).name != "frameset" {
+                            // fragment case
                             self.insertion_mode = InsertionMode::AfterFrameset;
                         }
                     }
@@ -1745,13 +1812,18 @@ impl<'stream> Html5Parser<'stream> {
         let mut idx = self.open_elements.len() - 1;
 
         loop {
-            let node = open_elements_get!(self, idx);
+            let mut node = open_elements_get!(self, idx);
             if idx == 0 {
                 last = true;
-                // @TODO:
-                // if fragment_case {
-                //   node = context element !???
-                // }
+
+                // fragment case
+                if self.is_fragment_case {
+                    node = get_node_by_id!(
+                        self.context_doc.clone().expect("context_doc not found"),
+                        self.context_node_id.expect("context_node_id not found")
+                    )
+                    .clone();
+                }
             }
             match node.name.as_str() {
                 "select" => {
@@ -1782,11 +1854,9 @@ impl<'stream> Html5Parser<'stream> {
                         }
                     }
                 }
-                "td" | "th" => {
-                    if !last {
-                        self.insertion_mode = InsertionMode::InCell;
-                        return;
-                    }
+                "td" | "th" if !last => {
+                    self.insertion_mode = InsertionMode::InCell;
+                    return;
                 }
                 "tr" => {
                     self.insertion_mode = InsertionMode::InRow;
@@ -1812,22 +1882,22 @@ impl<'stream> Html5Parser<'stream> {
                     self.insertion_mode = *self.template_insertion_mode.last().unwrap();
                     return;
                 }
-                "head" => {
-                    if !last {
-                        self.insertion_mode = InsertionMode::InHead;
-                        return;
-                    }
+                "head" if !last => {
+                    self.insertion_mode = InsertionMode::InHead;
+                    return;
                 }
                 "body" => {
                     self.insertion_mode = InsertionMode::InBody;
                     return;
                 }
                 "frameset" => {
+                    // fragment case
                     self.insertion_mode = InsertionMode::InFrameset;
                     return;
                 }
                 "html" => {
                     if self.head_element.is_none() {
+                        // fragment case
                         self.insertion_mode = InsertionMode::BeforeHead;
                         return;
                     }
@@ -1838,6 +1908,7 @@ impl<'stream> Html5Parser<'stream> {
             }
 
             if last {
+                // fragment case
                 self.insertion_mode = InsertionMode::InBody;
                 return;
             }
@@ -2008,8 +2079,8 @@ impl<'stream> Html5Parser<'stream> {
                     .expect("node not found");
                 if let NodeData::Element(element) = &mut first_node.data {
                     for (key, value) in attributes {
-                        if !element.attributes.contains(key) {
-                            element.attributes.insert(key, value);
+                        if !element.attributes.contains_key(key) {
+                            element.attributes.insert(key.to_owned(), value.to_owned());
                         }
                     }
                 };
@@ -2034,17 +2105,11 @@ impl<'stream> Html5Parser<'stream> {
             Token::StartTag { name, .. } if name == "body" => {
                 self.parse_error("body tag not allowed in in body insertion mode");
 
-                if self.open_elements.len() == 1 {
-                    // ignore token
-                    return;
-                }
-
-                if open_elements_get!(self, NodeId::root().next().as_usize()).name != "body" {
-                    // ignore token
-                    return;
-                }
-
-                if self.open_elements_has("template") {
+                if self.open_elements.len() == 1
+                    || open_elements_get!(self, 1).name != "body"
+                    || self.open_elements_has("template")
+                {
+                    // fragment case
                     // ignore token
                     return;
                 }
@@ -2057,9 +2122,7 @@ impl<'stream> Html5Parser<'stream> {
             Token::StartTag { name, .. } if name == "frameset" => {
                 self.parse_error("frameset tag not allowed in in body insertion mode");
 
-                if self.open_elements.len() == 1
-                    || open_elements_get!(self, NodeId::root().next().as_usize()).name != "body"
-                {
+                if self.open_elements.len() == 1 || open_elements_get!(self, 1).name != "body" {
                     // ignore token
                     return;
                 }
@@ -2853,8 +2916,13 @@ impl<'stream> Html5Parser<'stream> {
                 self.insert_element_helper(node_id, insert_position);
 
                 // TODO Set the element's parser document to the Document, and set the element's force async to false.
-                // TODO If parser is created as part of HTML fragment parsing algorithm, set the element's "already started" flag to true
-                // TODO if the parser was invoked by document.write/writln, set script's element already started flag to true
+
+                if self.is_fragment_case {
+                    // fragment case
+                    self.script_already_started = true;
+                }
+
+                // TODO if the parser was invoked by document.write/writeln, set script's element already started flag to true
 
                 self.open_elements.push(node_id);
 
@@ -3001,6 +3069,7 @@ impl<'stream> Html5Parser<'stream> {
             }
             Token::Eof => {
                 if !self.open_elements_has("template") {
+                    // fragment case
                     self.stop_parsing();
                     return;
                 }
@@ -3258,6 +3327,7 @@ impl<'stream> Html5Parser<'stream> {
             }
             Token::EndTag { name, .. } if name == "select" => {
                 if !self.is_in_scope("select", Scope::Select) {
+                    // fragment case
                     self.parse_error("select end tag not allowed in in select insertion mode");
                     // ignore token
                     return;
@@ -3270,7 +3340,8 @@ impl<'stream> Html5Parser<'stream> {
                 self.parse_error("select tag not allowed in in select insertion mode");
 
                 if !self.is_in_scope("select", Scope::Select) {
-                    // ignore token (fragment case?)
+                    // fragment case
+                    // ignore token
                     return;
                 }
 
@@ -3285,7 +3356,8 @@ impl<'stream> Html5Parser<'stream> {
                 );
 
                 if !self.is_in_scope("select", Scope::Select) {
-                    // ignore token (fragment case)
+                    // fragment case
+                    // ignore token
                     return;
                 }
 
@@ -3653,11 +3725,14 @@ impl<'stream> Html5Parser<'stream> {
     }
 
     fn get_adjusted_current_node(&self) -> Node {
-        if self.is_fragment_case {
-            return get_node_by_id!(self.document, self.context.expect("node id not found"));
+        if self.is_fragment_case && self.open_elements.len() == 1 {
+            // fragment case
+            return get_node_by_id!(
+                self.context_doc.clone().expect("context doc not found"),
+                self.context_node_id.expect("context node not found")
+            )
+            .clone();
         }
-        // @todo: if the parser was created as part of the HTML fragment parsing algorithm, and the stack of open elements has only
-        // one element in it the adjusted current node is the context element
 
         current_node!(self)
     }
@@ -3730,6 +3805,33 @@ impl<'stream> Html5Parser<'stream> {
         // Process as HTML content
         self.process_html_content();
     }
+
+    /// Find the correct tokenizer state when we are about to parse a fragment case
+    fn find_initial_state_for_context(&self, context_node: &Node) -> State {
+        match context_node.name.as_str() {
+            "title" | "textarea" => State::RCDATA,
+            "style" | "xmp" | "iframe" | "noembed" | "noframes" => State::RAWTEXT,
+            "script" => State::ScriptData,
+            "noscript" => {
+                if self.scripting_enabled {
+                    State::RAWTEXT
+                } else {
+                    State::Data
+                }
+            }
+            "plaintext" => State::PLAINTEXT,
+            _ => State::Data,
+        }
+    }
+
+    // Initialize all parser settings for parsing a fragment case
+    fn initialize_fragment_case(&mut self, context_node: &Node) {
+        self.is_fragment_case = true;
+        self.context_doc = Some(Document::clone(&context_node.document));
+        self.context_node_id = Some(context_node.id);
+        self.tokenizer
+            .set_state(self.find_initial_state_for_context(context_node));
+    }
 }
 
 #[cfg(test)]
@@ -3751,9 +3853,8 @@ mod test {
 
     #[test]
     fn is_in_scope() {
-        let document = DocumentBuilder::new_document();
-        let mut stream = InputStream::new();
-        let mut parser = Html5Parser::new(&mut stream, Document::clone(&document));
+        let stream = &mut InputStream::new();
+        let mut parser = Html5Parser::new_parser(stream);
 
         node_create!(parser, "html");
         node_create!(parser, "div");
@@ -3767,9 +3868,8 @@ mod test {
 
     #[test]
     fn is_in_scope_empty_stack() {
-        let document = DocumentBuilder::new_document();
-        let mut stream = InputStream::new();
-        let mut parser = Html5Parser::new(&mut stream, Document::clone(&document));
+        let stream = &mut InputStream::new();
+        let mut parser = Html5Parser::new_parser(stream);
 
         parser.open_elements.clear();
         assert!(!parser.is_in_scope("p", Scope::Regular));
@@ -3780,9 +3880,8 @@ mod test {
 
     #[test]
     fn is_in_scope_non_existing_node() {
-        let document = Document::shared();
-        let mut stream = InputStream::new();
-        let mut parser = Html5Parser::new(&mut stream, Document::clone(&document));
+        let stream = &mut InputStream::new();
+        let mut parser = Html5Parser::new_parser(stream);
 
         node_create!(parser, "html");
         node_create!(parser, "div");
@@ -3797,9 +3896,8 @@ mod test {
 
     #[test]
     fn is_in_scope_1() {
-        let document = Document::shared();
-        let mut stream = InputStream::new();
-        let mut parser = Html5Parser::new(&mut stream, Document::clone(&document));
+        let stream = &mut InputStream::new();
+        let mut parser = Html5Parser::new_parser(stream);
 
         node_create!(parser, "html");
         node_create!(parser, "div");
@@ -3836,9 +3934,8 @@ mod test {
 
     #[test]
     fn is_in_scope_2() {
-        let document = Document::shared();
-        let mut stream = InputStream::new();
-        let mut parser = Html5Parser::new(&mut stream, Document::clone(&document));
+        let stream = &mut InputStream::new();
+        let mut parser = Html5Parser::new_parser(stream);
 
         node_create!(parser, "html");
         node_create!(parser, "body");
@@ -3856,9 +3953,8 @@ mod test {
 
     #[test]
     fn is_in_scope_3() {
-        let document = Document::shared();
-        let mut stream = InputStream::new();
-        let mut parser = Html5Parser::new(&mut stream, Document::clone(&document));
+        let stream = &mut InputStream::new();
+        let mut parser = Html5Parser::new_parser(stream);
 
         node_create!(parser, "html");
         node_create!(parser, "body");
@@ -3876,9 +3972,8 @@ mod test {
 
     #[test]
     fn is_in_scope_4() {
-        let document = Document::shared();
-        let mut stream = InputStream::new();
-        let mut parser = Html5Parser::new(&mut stream, Document::clone(&document));
+        let stream = &mut InputStream::new();
+        let mut parser = Html5Parser::new_parser(stream);
 
         node_create!(parser, "html");
         node_create!(parser, "body");
@@ -3898,9 +3993,8 @@ mod test {
 
     #[test]
     fn is_in_scope_5() {
-        let document = Document::shared();
-        let mut stream = InputStream::new();
-        let mut parser = Html5Parser::new(&mut stream, Document::clone(&document));
+        let stream = &mut InputStream::new();
+        let mut parser = Html5Parser::new_parser(stream);
 
         node_create!(parser, "html");
         node_create!(parser, "body");
@@ -3919,9 +4013,8 @@ mod test {
 
     #[test]
     fn is_in_scope_6() {
-        let document = Document::shared();
-        let mut stream = InputStream::new();
-        let mut parser = Html5Parser::new(&mut stream, Document::clone(&document));
+        let stream = &mut InputStream::new();
+        let mut parser = Html5Parser::new_parser(stream);
 
         node_create!(parser, "html");
         node_create!(parser, "body");
@@ -3940,9 +4033,8 @@ mod test {
 
     #[test]
     fn is_in_scope_7() {
-        let document = Document::shared();
-        let mut stream = InputStream::new();
-        let mut parser = Html5Parser::new(&mut stream, Document::clone(&document));
+        let stream = &mut InputStream::new();
+        let mut parser = Html5Parser::new_parser(stream);
 
         node_create!(parser, "html");
         node_create!(parser, "body");
@@ -3960,9 +4052,8 @@ mod test {
 
     #[test]
     fn is_in_scope_8() {
-        let document = Document::shared();
-        let mut stream = InputStream::new();
-        let mut parser = Html5Parser::new(&mut stream, Document::clone(&document));
+        let stream = &mut InputStream::new();
+        let mut parser = Html5Parser::new_parser(stream);
 
         node_create!(parser, "html");
         node_create!(parser, "body");
@@ -3986,8 +4077,7 @@ mod test {
         );
 
         let document = DocumentBuilder::new_document();
-        let mut parser = Html5Parser::new(&mut stream, Document::clone(&document));
-        parser.parse().expect("");
+        let _ = Html5Parser::parse_document(&mut stream, Document::clone(&document), None);
 
         println!("{}", document);
     }
@@ -3998,8 +4088,7 @@ mod test {
         stream.read_from_str("<div class=\"one two three\"></div>", Some(Encoding::UTF8));
 
         let document = DocumentBuilder::new_document();
-        let mut parser = Html5Parser::new(&mut stream, Document::clone(&document));
-        parser.parse().expect("");
+        let _ = Html5Parser::parse_document(&mut stream, Document::clone(&document), None);
 
         let binding = document.get();
 
@@ -4030,8 +4119,7 @@ mod test {
         );
 
         let document = DocumentBuilder::new_document();
-        let mut parser = Html5Parser::new(&mut stream, Document::clone(&document));
-        parser.parse().expect("");
+        let _ = Html5Parser::parse_document(&mut stream, Document::clone(&document), None);
 
         let binding = document.get();
 
@@ -4064,19 +4152,11 @@ mod test {
         );
 
         let document = DocumentBuilder::new_document();
-        let mut parser = Html5Parser::new(&mut stream, Document::clone(&document));
-        parser.parse().expect("");
+        let _ = Html5Parser::parse_document(&mut stream, Document::clone(&document), None);
 
-        let binding = document.get();
-
-        let div1 = binding.get_node_by_id(NodeId(4)).unwrap();
-        assert!(!div1.has_named_id());
-
-        let div2 = binding.get_node_by_id(NodeId(5)).unwrap();
-        assert!(!div2.has_named_id());
-
-        let div3 = binding.get_node_by_id(NodeId(6)).unwrap();
-        assert!(!div3.has_named_id());
+        assert!(document.get().get_node_by_named_id("my id").is_none());
+        assert!(document.get().get_node_by_named_id("123").is_none());
+        assert!(document.get().get_node_by_named_id("").is_none());
     }
 
     #[test]
@@ -4084,26 +4164,17 @@ mod test {
         let mut stream = InputStream::new();
         stream.read_from_str(
             "<div id=\"myid\"></div> \
-             <div id=\"myid\"></div>",
+             <p id=\"myid\"></p>",
             Some(Encoding::UTF8),
         );
 
         let document = DocumentBuilder::new_document();
-        let mut parser = Html5Parser::new(&mut stream, Document::clone(&document));
-        parser.parse().expect("doc");
+        let _ = Html5Parser::parse_document(&mut stream, Document::clone(&document), None);
 
-        {
-            let binding = Document::clone(&document);
-            let handle = binding.get();
-            let div = handle.get_node_by_named_id("myid").unwrap();
-            assert_eq!(div.id, NodeId(4));
-        }
-
-        {
-            let mut binding = Document::clone(&document);
-            let mut handle = binding.get_mut();
-            handle.set_node_named_id(NodeId(4), "otherid");
-            assert!(handle.get_node_by_named_id("myid").is_none());
-        }
+        // we are expecting the div (ID: 4) and p would be ignored
+        let doc_read = document.get();
+        let div = doc_read.get_node_by_named_id("myid").unwrap();
+        assert_eq!(div.id, NodeId::from(4));
+        assert_eq!(div.name, "div");
     }
 }

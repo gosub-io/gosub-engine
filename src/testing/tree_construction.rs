@@ -4,6 +4,8 @@ use self::parser::{ErrorSpec, ScriptMode, TestSpec, QUOTED_DOUBLE_NEWLINE};
 use super::FIXTURE_ROOT;
 use crate::html5::node::{HTML_NAMESPACE, MATHML_NAMESPACE, SVG_NAMESPACE};
 use crate::html5::parser::document::DocumentBuilder;
+use crate::html5::parser::tree_builder::TreeBuilder;
+use crate::html5::parser::Html5ParserOptions;
 use crate::{
     html5::{
         input_stream::InputStream,
@@ -206,22 +208,66 @@ impl Test {
 
     /// Run the parser and return the document and errors
     pub fn parse(&self, scripting_enabled: bool) -> Result<(DocumentHandle, Vec<ParseError>)> {
-        let document = DocumentBuilder::new_document();
+        // let mut is_fragment = false;
+        let mut context_node = None;
+        let document;
+
+        let is_fragment;
+
+        if let Some(fragment) = self.spec.document_fragment.clone() {
+            // First, create a (fake) main document that contains only the fragment as node
+            let main_document = DocumentBuilder::new_document();
+            let mut main_document = Document::clone(&main_document);
+
+            // Add context node
+            let context_node_id = main_document.create_element(
+                fragment.as_str(),
+                NodeId::root(),
+                None,
+                HTML_NAMESPACE,
+            );
+            context_node = Some(
+                main_document
+                    .get()
+                    .get_node_by_id(context_node_id)
+                    .unwrap()
+                    .clone(),
+            );
+
+            is_fragment = true;
+            document = DocumentBuilder::new_document_fragment(context_node.clone().expect(""));
+        } else {
+            is_fragment = false;
+            document = DocumentBuilder::new_document();
+        };
+
+        // Create a new parser
+        let options = Html5ParserOptions { scripting_enabled };
 
         let mut is = InputStream::new();
         is.read_from_str(self.data(), None);
 
-        let mut parser = Html5Parser::new(&mut is, Document::clone(&document));
-        parser.enabled_scripting(scripting_enabled);
-
-        let parse_errors = parser.parse()?;
+        let parse_errors = if is_fragment {
+            Html5Parser::parse_fragment(
+                &mut is,
+                Document::clone(&document),
+                &context_node.expect(""),
+                Some(options),
+            )?
+        } else {
+            Html5Parser::parse_document(&mut is, Document::clone(&document), Some(options))?
+        };
 
         Ok((document, parse_errors))
     }
 
     /// Returns true if the whole document tree matches the expected result
     pub fn match_document_tree(&self, document: &Document) -> SubtreeResult {
-        self.match_node(NodeId::root(), 0, -1, document)
+        if self.spec.document_fragment.is_some() {
+            self.match_node(NodeId::from(1), 0, 0, document)
+        } else {
+            self.match_node(NodeId::root(), 0, -1, document)
+        }
     }
 
     /// Match a single node and its children

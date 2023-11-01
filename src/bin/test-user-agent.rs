@@ -36,8 +36,7 @@ fn main() -> Result<()> {
     }
 
     let document = DocumentBuilder::new_document();
-    let mut parser = Html5Parser::new(&mut stream, document.clone());
-    let parse_errors = parser.parse()?;
+    let parse_errors = Html5Parser::parse_document(&mut stream, Document::clone(&document), None)?;
 
     match get_node_by_path(&document.get(), vec!["html", "body"]) {
         None => {
