@@ -1,5 +1,6 @@
 use super::parser::document::{Document, DocumentHandle};
 use crate::html5::node::data::comment::CommentData;
+use crate::html5::node::data::doctype::DocTypeData;
 use crate::html5::node::data::document::DocumentData;
 use crate::html5::node::data::element::ElementData;
 use crate::html5::node::data::text::TextData;
@@ -21,6 +22,7 @@ pub mod data;
 #[derive(Debug, PartialEq)]
 pub enum NodeType {
     Document,
+    DocType,
     Text,
     Comment,
     Element,
@@ -31,6 +33,8 @@ pub enum NodeType {
 pub enum NodeData {
     /// Represents a document
     Document(DocumentData),
+    // Represents a doctype
+    DocType(DocTypeData),
     /// Represents a text
     Text(TextData),
     /// Represents a comment
@@ -244,6 +248,24 @@ impl Node {
         }
     }
 
+    pub fn new_doctype(
+        document: &DocumentHandle,
+        name: &str,
+        pub_identifier: &str,
+        sys_identifier: &str,
+    ) -> Self {
+        Node {
+            id: Default::default(),
+            parent: None,
+            children: vec![],
+            data: NodeData::DocType(DocTypeData::new(name, pub_identifier, sys_identifier)),
+            name: "".to_string(),
+            namespace: None,
+            document: Document::clone(document),
+            is_registered: false,
+        }
+    }
+
     /// Create a new element node with the given name and attributes and namespace
     pub fn new_element(
         document: &DocumentHandle,
@@ -340,6 +362,7 @@ impl NodeTrait for Node {
     fn type_of(&self) -> NodeType {
         match self.data {
             NodeData::Document { .. } => NodeType::Document,
+            NodeData::DocType { .. } => NodeType::DocType,
             NodeData::Text { .. } => NodeType::Text,
             NodeData::Comment { .. } => NodeType::Comment,
             NodeData::Element { .. } => NodeType::Element,

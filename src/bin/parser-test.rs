@@ -31,7 +31,7 @@ fn main() -> Result<()> {
         tests_failed: Vec::new(),
     };
 
-    let filenames = Some(&["tests19.dat"][..]);
+    let filenames = Some(&["doctype01.dat"][..]);
     let fixtures = testing::tree_construction::fixtures(filenames).expect("fixtures");
 
     for fixture_file in fixtures {
@@ -207,8 +207,10 @@ fn print_node_result(result: &SubtreeResult) {
             println!("❌ {expected}, Found unexpected attribute: {name}");
         }
 
-        Some(NodeResult::ElementMatchFailure { name, expected, .. }) => {
-            println!("❌ {expected}, Found unexpected element node: {name}");
+        Some(NodeResult::ElementMatchFailure {
+            actual, expected, ..
+        }) => {
+            println!("❌ {expected}, Found unexpected element node: {actual}");
         }
 
         Some(NodeResult::TextMatchSuccess { expected }) => {
@@ -217,6 +219,12 @@ fn print_node_result(result: &SubtreeResult) {
 
         Some(NodeResult::TextMatchFailure { expected, text, .. }) => {
             println!("❌ {expected}, Found unexpected text node: {text}");
+        }
+
+        Some(NodeResult::DocTypeMatchFailure {
+            actual, expected, ..
+        }) => {
+            println!("❌ {actual}, Found unexpected doctype node: {expected}");
         }
 
         Some(NodeResult::CommentMatchFailure {

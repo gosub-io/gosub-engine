@@ -1751,11 +1751,17 @@ impl<'stream> Html5Parser<'stream> {
     /// Create a new node that is not connected or attached to the document arena
     fn create_node(&self, token: &Token, namespace: &str) -> Node {
         match token {
-            Token::DocType { name, .. } => {
-                let val = format!("!DOCTYPE {}", name.as_deref().unwrap_or(""),);
-
-                return Node::new_element(&self.document, val.as_str(), HashMap::new(), namespace);
-            }
+            Token::DocType {
+                name,
+                pub_identifier,
+                sys_identifier,
+                ..
+            } => Node::new_doctype(
+                &self.document,
+                &name.clone().unwrap_or_default(),
+                &pub_identifier.clone().unwrap_or_default(),
+                &sys_identifier.clone().unwrap_or_default(),
+            ),
             Token::StartTag {
                 name, attributes, ..
             } => Node::new_element(&self.document, name, attributes.clone(), namespace),

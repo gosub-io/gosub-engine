@@ -1,4 +1,5 @@
 use crate::html5::node::arena::NodeArena;
+use crate::html5::node::data::doctype::DocTypeData;
 use crate::html5::node::data::{comment::CommentData, text::TextData};
 use crate::html5::node::HTML_NAMESPACE;
 use crate::html5::node::{Node, NodeData, NodeId};
@@ -493,6 +494,16 @@ impl Document {
         match &node.data {
             NodeData::Document(_) => {
                 _ = writeln!(f, "{}Document", buffer);
+            }
+            NodeData::DocType(DocTypeData {
+                name,
+                pub_identifier,
+                sys_identifier,
+            }) => {
+                _ = writeln!(
+                    f,
+                    r#"{buffer}<!DOCTYPE {name} "{pub_identifier}" "{sys_identifier}">"#,
+                );
             }
             NodeData::Text(TextData { value, .. }) => {
                 _ = writeln!(f, "{}\"{}\"", buffer, value);
