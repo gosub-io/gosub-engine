@@ -1,0 +1,7 @@
+[tool.vendoring]
+destination = "lint_lib/_vendor/"
+requirements = "lint_lib/_vendor/vendor.txt"
+namespace = "lint_lib._vendor"
+
+protected-files = ["__init__.py", "vendor.txt"]
+patches-dir = "lint_lib/_vendor-patches"
