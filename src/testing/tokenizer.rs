@@ -1,7 +1,7 @@
 use super::FIXTURE_ROOT;
+use crate::bytes::CharIterator;
 use crate::html5::{
     error_logger::ErrorLogger,
-    input_stream::InputStream,
     tokenizer::{
         state::State as TokenState,
         token::Token,
@@ -23,7 +23,7 @@ use std::{
 };
 
 pub struct TokenizerBuilder {
-    input_stream: InputStream,
+    chars: CharIterator,
     state: TokenState,
     last_start_tag: Option<String>,
 }
@@ -32,7 +32,7 @@ impl TokenizerBuilder {
     pub fn build(&mut self) -> Tokenizer<'_> {
         let error_logger = Rc::new(RefCell::new(ErrorLogger::new()));
         Tokenizer::new(
-            &mut self.input_stream,
+            &mut self.chars,
             Some(Options {
                 initial_state: self.state,
                 last_start_tag: self.last_start_tag.to_owned().unwrap_or(String::from("")),
@@ -184,16 +184,16 @@ impl TestSpec {
         }
 
         for state in states.into_iter() {
-            let mut is = InputStream::new();
+            let mut chars = CharIterator::new();
             let input = if self.double_escaped {
                 from_utf16_lossy(&self.input)
             } else {
                 self.input.to_string()
             };
-            is.read_from_str(input.as_str(), None);
+            chars.read_from_str(input.as_str(), None);
 
             let builder = TokenizerBuilder {
-                input_stream: is,
+                chars,
                 last_start_tag: self.last_start_tag.clone(),
                 state,
             };

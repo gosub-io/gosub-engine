@@ -1,9 +1,9 @@
 // note: input_stream should come from a shared lib.
-use crate::css3::unicode::{get_unicode_char, UnicodeChar};
-use crate::html5::input_stream::{
+use crate::bytes::{
     Bytes::{self, *},
-    InputStream,
+    CharIterator,
 };
+use crate::css3::unicode::{get_unicode_char, UnicodeChar};
 use std::usize;
 
 pub type Number = f32;
@@ -171,7 +171,7 @@ macro_rules! consume {
 
 /// CSS Tokenizer according to the [w3 specification](https://www.w3.org/TR/css-syntax-3/#tokenization)
 pub struct Tokenizer<'stream> {
-    pub stream: &'stream mut InputStream,
+    pub stream: &'stream mut CharIterator,
     /// Current position
     position: usize,
     /// Full list of all tokens produced by the tokenizer
@@ -179,7 +179,7 @@ pub struct Tokenizer<'stream> {
 }
 
 impl<'stream> Tokenizer<'stream> {
-    pub fn new(stream: &'stream mut InputStream) -> Tokenizer {
+    pub fn new(stream: &'stream mut CharIterator) -> Tokenizer {
         Tokenizer {
             stream,
             position: 0,
@@ -730,22 +730,22 @@ impl<'stream> Tokenizer<'stream> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::html5::input_stream::Encoding;
+    use crate::bytes::Encoding;
 
     #[test]
     fn parse_comment() {
-        let mut is = InputStream::new();
-        is.read_from_str("/* css comment */", Some(Encoding::UTF8));
+        let mut chars = CharIterator::new();
+        chars.read_from_str("/* css comment */", Some(Encoding::UTF8));
 
-        let mut tokenizer = Tokenizer::new(&mut is);
+        let mut tokenizer = Tokenizer::new(&mut chars);
         tokenizer.consume_comment();
 
-        assert!(is.eof())
+        assert!(chars.eof())
     }
 
     #[test]
     fn parse_numbers() {
-        let mut is = InputStream::new();
+        let mut chars = CharIterator::new();
 
         let num_tokens = vec![
             ("12", 12.0),
@@ -759,7 +759,7 @@ mod test {
             ("1e-1", 1e-1),
         ];
 
-        let mut tokenizer = Tokenizer::new(&mut is);
+        let mut tokenizer = Tokenizer::new(&mut chars);
 
         for (raw_num, num_token) in num_tokens {
             tokenizer
@@ -772,7 +772,7 @@ mod test {
     // todo: add more tests for the `<ident-token>`
     #[test]
     fn parse_ident_tokens() {
-        let mut is = InputStream::new();
+        let mut chars = CharIterator::new();
 
         let ident_tokens = vec![
             ("-ident", "-ident"),
@@ -781,7 +781,7 @@ mod test {
             ("_123\\ident", "_123ident"),
         ];
 
-        let mut tokenizer = Tokenizer::new(&mut is);
+        let mut tokenizer = Tokenizer::new(&mut chars);
 
         for (raw_ident, ident_tokens) in ident_tokens {
             tokenizer
@@ -795,7 +795,7 @@ mod test {
     #[test]
     fn parse_escaped_tokens() {
         {
-            let mut is = InputStream::new();
+            let mut chars = CharIterator::new();
 
             let escaped_chars = vec![
                 ("\\005F ", get_unicode_char(UnicodeChar::LowLine)),
@@ -814,7 +814,7 @@ mod test {
                 ),
             ];
 
-            let mut tokenizer = Tokenizer::new(&mut is);
+            let mut tokenizer = Tokenizer::new(&mut chars);
 
             for (raw_escaped, escaped_char) in escaped_chars {
                 tokenizer
@@ -827,7 +827,7 @@ mod test {
 
     #[test]
     fn parse_urls() {
-        let mut is = InputStream::new();
+        let mut chars = CharIterator::new();
 
         let urls = vec![
             (
@@ -840,7 +840,7 @@ mod test {
             ("url(gosub\u{0000}io)", Token::BadUrl("gosub".into())),
         ];
 
-        let mut tokenizer = Tokenizer::new(&mut is);
+        let mut tokenizer = Tokenizer::new(&mut chars);
 
         for (raw_url, url_token) in urls {
             tokenizer
@@ -852,7 +852,7 @@ mod test {
 
     #[test]
     fn parse_function_tokens() {
-        let mut is = InputStream::new();
+        let mut chars = CharIterator::new();
 
         let functions = vec![
             ("url(\"", Token::Function("url".into())),
@@ -875,7 +875,7 @@ mod test {
             ("-\\-rgba(", Token::Function("--rgba".into())),
         ];
 
-        let mut tokenizer = Tokenizer::new(&mut is);
+        let mut tokenizer = Tokenizer::new(&mut chars);
 
         for (raw_function, function_token) in functions {
             tokenizer
@@ -887,7 +887,7 @@ mod test {
 
     #[test]
     fn parser_numeric_token() {
-        let mut is = InputStream::new();
+        let mut chars = CharIterator::new();
 
         let numeric_tokens = vec![
             (
@@ -909,7 +909,7 @@ mod test {
             ("18 px", Token::Number(18.0)),
         ];
 
-        let mut tokenizer = Tokenizer::new(&mut is);
+        let mut tokenizer = Tokenizer::new(&mut chars);
 
         for (raw_token, token) in numeric_tokens {
             tokenizer
@@ -921,7 +921,7 @@ mod test {
 
     #[test]
     fn parse_string_tokens() {
-        let mut is = InputStream::new();
+        let mut chars = CharIterator::new();
 
         let string_tokens = vec![
             ("'line\nnewline'", Token::BadString("line".into())),
@@ -938,7 +938,7 @@ mod test {
             ("\"\"", Token::QuotedString("".into())),
         ];
 
-        let mut tokenizer = Tokenizer::new(&mut is);
+        let mut tokenizer = Tokenizer::new(&mut chars);
 
         for (raw_string, string_token) in string_tokens {
             tokenizer
@@ -950,9 +950,9 @@ mod test {
 
     #[test]
     fn produce_stream_of_double_quoted_strings() {
-        let mut is = InputStream::new();
+        let mut chars = CharIterator::new();
 
-        is.read_from_str(
+        chars.read_from_str(
             "\"\" \"Lorem 'îpsum'\" \"a\\\nb\" \"a\nb \"eof",
             Some(Encoding::UTF8),
         );
@@ -973,7 +973,7 @@ mod test {
             Token::Whitespace,
             Token::QuotedString("eof".into()),
         ];
-        let mut tokenizer = Tokenizer::new(&mut is);
+        let mut tokenizer = Tokenizer::new(&mut chars);
 
         for token in tokens {
             assert_eq!(tokenizer.consume_token(), token);
@@ -984,9 +984,9 @@ mod test {
 
     #[test]
     fn procude_stream_of_single_quoted_strings() {
-        let mut is = InputStream::new();
+        let mut chars = CharIterator::new();
 
-        is.read_from_str(
+        chars.read_from_str(
             "'' 'Lorem \"îpsum\"' 'a\\\nb' 'a\nb 'eof",
             Some(Encoding::UTF8),
         );
@@ -1007,7 +1007,7 @@ mod test {
             Token::Whitespace,
             Token::QuotedString("eof".into()),
         ];
-        let mut tokenizer = Tokenizer::new(&mut is);
+        let mut tokenizer = Tokenizer::new(&mut chars);
 
         for token in tokens {
             assert_eq!(tokenizer.consume_token(), token);
@@ -1018,9 +1018,9 @@ mod test {
 
     #[test]
     fn parse_urls_with_strings() {
-        let mut is = InputStream::new();
+        let mut chars = CharIterator::new();
 
-        is.read_from_str(
+        chars.read_from_str(
             "url( '') url('Lorem \"îpsum\"'\n) url('a\\\nb' ) url('a\nb) url('eof",
             Some(Encoding::UTF8),
         );
@@ -1054,7 +1054,7 @@ mod test {
             Token::Function("url".into()),
             Token::QuotedString("eof".into()),
         ];
-        let mut tokenizer = Tokenizer::new(&mut is);
+        let mut tokenizer = Tokenizer::new(&mut chars);
 
         for token in tokens {
             assert_eq!(tokenizer.consume_token(), token);
@@ -1065,9 +1065,9 @@ mod test {
 
     #[test]
     fn produce_valid_stream_of_css_tokens() {
-        let mut is = InputStream::new();
+        let mut chars = CharIterator::new();
 
-        is.read_from_str(
+        chars.read_from_str(
             "
         /* Navbar */
         #header .nav {
@@ -1135,7 +1135,7 @@ mod test {
             Token::Whitespace,
             Token::Url("https://gosub.io".into()),
         ];
-        let mut tokenizer = Tokenizer::new(&mut is);
+        let mut tokenizer = Tokenizer::new(&mut chars);
 
         tokenizer.consume_whitespace();
         for token in tokens {
@@ -1145,9 +1145,9 @@ mod test {
 
     #[test]
     fn parse_rgba_expr() {
-        let mut is = InputStream::new();
+        let mut chars = CharIterator::new();
 
-        is.read_from_str(
+        chars.read_from_str(
             "
             rgba(255, 50%, 0%, 1)
         ",
@@ -1170,7 +1170,7 @@ mod test {
             Token::RParen,
             Token::Whitespace,
         ];
-        let mut tokenizer = Tokenizer::new(&mut is);
+        let mut tokenizer = Tokenizer::new(&mut chars);
 
         for token in tokens {
             assert_eq!(tokenizer.consume_token(), token);
@@ -1179,9 +1179,9 @@ mod test {
 
     #[test]
     fn parse_cdo_and_cdc() {
-        let mut is = InputStream::new();
+        let mut chars = CharIterator::new();
 
-        is.read_from_str(
+        chars.read_from_str(
             "/* CDO/CDC are not special */ <!-- --> {}",
             Some(Encoding::UTF8),
         );
@@ -1195,7 +1195,7 @@ mod test {
             Token::LCurly,
             Token::RCurly,
         ];
-        let mut tokenizer = Tokenizer::new(&mut is);
+        let mut tokenizer = Tokenizer::new(&mut chars);
 
         for token in tokens {
             assert_eq!(tokenizer.consume_token(), token);
@@ -1204,9 +1204,9 @@ mod test {
 
     #[test]
     fn parse_spaced_comments() {
-        let mut is = InputStream::new();
+        let mut chars = CharIterator::new();
 
-        is.read_from_str("/*/*///** /* **/*//* ", Some(Encoding::UTF8));
+        chars.read_from_str("/*/*///** /* **/*//* ", Some(Encoding::UTF8));
 
         let tokens = vec![
             Token::Delim('/'),
@@ -1214,7 +1214,7 @@ mod test {
             Token::Delim('/'),
             Token::EOF,
         ];
-        let mut tokenizer = Tokenizer::new(&mut is);
+        let mut tokenizer = Tokenizer::new(&mut chars);
 
         for token in tokens {
             assert_eq!(tokenizer.consume_token(), token);
@@ -1225,9 +1225,9 @@ mod test {
 
     #[test]
     fn parse_all_whitespaces() {
-        let mut is = InputStream::new();
+        let mut chars = CharIterator::new();
 
-        is.read_from_str("  \t\t\r\n\nRed ", Some(Encoding::UTF8));
+        chars.read_from_str("  \t\t\r\n\nRed ", Some(Encoding::UTF8));
 
         let tokens = vec![
             Token::Whitespace,
@@ -1235,7 +1235,7 @@ mod test {
             Token::Whitespace,
             Token::EOF,
         ];
-        let mut tokenizer = Tokenizer::new(&mut is);
+        let mut tokenizer = Tokenizer::new(&mut chars);
 
         for token in tokens {
             assert_eq!(tokenizer.consume_token(), token);
@@ -1246,9 +1246,9 @@ mod test {
 
     #[test]
     fn parse_at_keywords() {
-        let mut is = InputStream::new();
+        let mut chars = CharIterator::new();
 
-        is.read_from_str(
+        chars.read_from_str(
             "@media0 @-Media @--media @0media @-0media @_media @.media @medİa @\\30 media\\",
             Some(Encoding::UTF8),
         );
@@ -1289,7 +1289,7 @@ mod test {
             Token::AtKeyword("0media\u{FFFD}".into()),
             Token::EOF,
         ];
-        let mut tokenizer = Tokenizer::new(&mut is);
+        let mut tokenizer = Tokenizer::new(&mut chars);
 
         for token in tokens {
             assert_eq!(tokenizer.consume_token(), token);
@@ -1300,9 +1300,9 @@ mod test {
 
     #[test]
     fn parse_id_selectors() {
-        let mut is = InputStream::new();
+        let mut chars = CharIterator::new();
 
-        is.read_from_str(
+        chars.read_from_str(
             "#red0 #-Red #--red #-\\-red #0red #-0red #_Red #.red #rêd #êrd #\\.red\\",
             Some(Encoding::UTF8),
         );
@@ -1341,7 +1341,7 @@ mod test {
             Token::IDHash(".red\u{FFFD}".into()),
             Token::EOF,
         ];
-        let mut tokenizer = Tokenizer::new(&mut is);
+        let mut tokenizer = Tokenizer::new(&mut chars);
 
         for token in tokens {
             assert_eq!(tokenizer.consume_token(), token);
@@ -1352,9 +1352,9 @@ mod test {
 
     #[test]
     fn parse_dimension_tokens() {
-        let mut is = InputStream::new();
+        let mut chars = CharIterator::new();
 
-        is.read_from_str(
+        chars.read_from_str(
             "12red0 12.0-red 12--red 12-\\-red 120red 12-0red 12\\0000red 12_Red 12.red 12rêd",
             Some(Encoding::UTF8),
         );
@@ -1420,7 +1420,7 @@ mod test {
                 value: 12.0,
             },
         ];
-        let mut tokenizer = Tokenizer::new(&mut is);
+        let mut tokenizer = Tokenizer::new(&mut chars);
 
         for token in tokens {
             assert_eq!(tokenizer.consume_token(), token);
@@ -1431,9 +1431,9 @@ mod test {
 
     #[test]
     fn parse_dimension_tokens_2() {
-        let mut is = InputStream::new();
+        let mut chars = CharIterator::new();
 
-        is.read_from_str(
+        chars.read_from_str(
             "12e2px +34e+1px -45E-0px .68e+3px +.79e-1px -.01E2px 2.3E+1px +45.0e6px -0.67e0px",
             Some(Encoding::UTF8),
         );
@@ -1494,7 +1494,7 @@ mod test {
             },
             Token::EOF,
         ];
-        let mut tokenizer = Tokenizer::new(&mut is);
+        let mut tokenizer = Tokenizer::new(&mut chars);
 
         for token in tokens {
             assert_eq!(tokenizer.consume_token(), token);
@@ -1505,9 +1505,9 @@ mod test {
 
     #[test]
     fn parse_percentage() {
-        let mut is = InputStream::new();
+        let mut chars = CharIterator::new();
 
-        is.read_from_str(
+        chars.read_from_str(
             "12e2% +34e+1% -45E-0% .68e+3% +.79e-1% -.01E2% 2.3E+1% +45.0e6% -0.67e0%",
             Some(Encoding::UTF8),
         );
@@ -1541,7 +1541,7 @@ mod test {
             Token::Percentage(-0.67),
             Token::EOF,
         ];
-        let mut tokenizer = Tokenizer::new(&mut is);
+        let mut tokenizer = Tokenizer::new(&mut chars);
 
         for token in tokens {
             assert_eq!(tokenizer.consume_token(), token);
@@ -1552,9 +1552,9 @@ mod test {
 
     #[test]
     fn parse_css_seq_1() {
-        let mut is = InputStream::new();
+        let mut chars = CharIterator::new();
 
-        is.read_from_str(
+        chars.read_from_str(
             "a:not([href^=http\\:],  [href ^=\t'https\\:'\n]) { color: rgba(0%, 100%, 50%); }",
             Some(Encoding::UTF8),
         );
@@ -1600,7 +1600,7 @@ mod test {
             Token::Whitespace,
             Token::RCurly,
         ];
-        let mut tokenizer = Tokenizer::new(&mut is);
+        let mut tokenizer = Tokenizer::new(&mut chars);
 
         for token in tokens {
             assert_eq!(tokenizer.consume_token(), token);
@@ -1611,12 +1611,12 @@ mod test {
 
     #[test]
     fn parse_css_seq_2() {
-        let mut is = InputStream::new();
+        let mut chars = CharIterator::new();
 
-        is.read_from_str("red-->/* Not CDC */", Some(Encoding::UTF8));
+        chars.read_from_str("red-->/* Not CDC */", Some(Encoding::UTF8));
 
         let tokens = vec![Token::Ident("red--".into()), Token::Delim('>'), Token::EOF];
-        let mut tokenizer = Tokenizer::new(&mut is);
+        let mut tokenizer = Tokenizer::new(&mut chars);
 
         for token in tokens {
             assert_eq!(tokenizer.consume_token(), token);
@@ -1627,9 +1627,9 @@ mod test {
 
     #[test]
     fn parse_css_seq_3() {
-        let mut is = InputStream::new();
+        let mut chars = CharIterator::new();
 
-        is.read_from_str("\\- red0 -red --red -\\-red\\ blue 0red -0red \\0000red _Red .red rêd r\\êd \\007F\\0080\\0081", Some(Encoding::UTF8));
+        chars.read_from_str("\\- red0 -red --red -\\-red\\ blue 0red -0red \\0000red _Red .red rêd r\\êd \\007F\\0080\\0081", Some(Encoding::UTF8));
 
         let tokens = vec![
             // `\\-`
@@ -1678,7 +1678,7 @@ mod test {
             // `\\007F\\0080\\0081`
             Token::Ident("\u{7f}\u{80}\u{81}".into()),
         ];
-        let mut tokenizer = Tokenizer::new(&mut is);
+        let mut tokenizer = Tokenizer::new(&mut chars);
 
         for token in tokens {
             assert_eq!(tokenizer.consume_token(), token);
@@ -1689,9 +1689,9 @@ mod test {
 
     #[test]
     fn parse_css_seq_4() {
-        let mut is = InputStream::new();
+        let mut chars = CharIterator::new();
 
-        is.read_from_str(
+        chars.read_from_str(
             "p[example=\"\\\nfoo(int x) {\\\n   this.x = x;\\\n}\\\n\"]",
             Some(Encoding::UTF8),
         );
@@ -1704,7 +1704,7 @@ mod test {
             Token::QuotedString("foo(int x) {   this.x = x;}".into()),
             Token::RBracket,
         ];
-        let mut tokenizer = Tokenizer::new(&mut is);
+        let mut tokenizer = Tokenizer::new(&mut chars);
 
         for token in tokens {
             assert_eq!(tokenizer.consume_token(), token);
@@ -1715,10 +1715,10 @@ mod test {
 
     #[test]
     fn consume_tokenizer_as_stream_of_tokens() {
-        let mut is = InputStream::new();
-        is.read_from_str("[][]", Some(Encoding::UTF8));
+        let mut chars = CharIterator::new();
+        chars.read_from_str("[][]", Some(Encoding::UTF8));
 
-        let mut tokenizer = Tokenizer::new(&mut is);
+        let mut tokenizer = Tokenizer::new(&mut chars);
         tokenizer.consume_all();
 
         assert_eq!(tokenizer.lookahead(0), Token::LBracket);
