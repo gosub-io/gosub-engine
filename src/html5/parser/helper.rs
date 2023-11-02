@@ -317,6 +317,7 @@ impl<'stream> Html5Parser<'stream> {
 
         // step 2
         if current_node.name == *subject
+            && current_node.is_namespace(HTML_NAMESPACE)
             && self
                 .find_position_in_active_format(&current_node_id)
                 .is_none()
@@ -342,7 +343,7 @@ impl<'stream> Html5Parser<'stream> {
             let (format_elem_idx, format_elem_node_id) =
                 match self.find_format_element_index(subject) {
                     None => {
-                        return self.handle_in_body_any_other_end_tag();
+                        return self.handle_in_body_any_other_end_tag(subject);
                     }
                     Some((idx, node_id)) => (idx, node_id),
                 };
