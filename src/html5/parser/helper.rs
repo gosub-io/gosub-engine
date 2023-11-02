@@ -316,7 +316,8 @@ impl<'stream> Html5Parser<'stream> {
         let current_node_id = current_node.id;
 
         // step 2
-        if current_node.name == *subject && current_node.is_namespace(HTML_NAMESPACE)
+        if current_node.name == *subject
+            && current_node.is_namespace(HTML_NAMESPACE)
             && self
                 .find_position_in_active_format(&current_node_id)
                 .is_none()
