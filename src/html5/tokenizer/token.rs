@@ -1,17 +1,6 @@
 use crate::html5::tokenizer::CHAR_NUL;
 use std::collections::HashMap;
 
-/// The different tokens types that can be emitted by the tokenizer
-#[derive(Debug, PartialEq)]
-pub enum TokenType {
-    DocTypeToken,
-    StartTagToken,
-    EndTagToken,
-    CommentToken,
-    TextToken,
-    EofToken,
-}
-
 #[derive(Debug, PartialEq, Clone, Hash, Eq)]
 pub struct Attribute {
     pub name: String,

@@ -93,8 +93,9 @@ impl Bytes {
     }
 }
 
-/// HTML(5) input stream structure
-pub struct InputStream {
+/// Buffered UTF-8 iterator
+/// TODO: Implement `Peekable` and `Iterator<Item = char>`
+pub struct CharIterator {
     /// Current encoding
     pub encoding: Encoding,
     /// How confident are we that this is the correct encoding?
@@ -122,16 +123,16 @@ pub enum SeekMode {
     SeekEnd,
 }
 
-impl Default for InputStream {
+impl Default for CharIterator {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl InputStream {
+impl CharIterator {
     /// Create a new default empty input stream
     pub fn new() -> Self {
-        InputStream {
+        Self {
             encoding: Encoding::UTF8,
             confidence: Confidence::Tentative,
             position: Position {
@@ -345,7 +346,8 @@ impl InputStream {
     }
 
     /// Returns the number of characters left in the buffer
-    pub(crate) fn chars_left(&self) -> usize {
+    #[cfg(test)]
+    fn chars_left(&self) -> usize {
         self.length - self.position.offset
     }
 
@@ -440,130 +442,130 @@ mod test {
 
     #[test]
     fn test_stream() {
-        let mut is = InputStream::new();
-        assert!(is.eof());
+        let mut chars = CharIterator::new();
+        assert!(chars.eof());
 
-        is.read_from_str("foo", Some(Encoding::ASCII));
-        assert_eq!(is.length, 3);
-        assert!(!is.eof());
-        assert_eq!(is.chars_left(), 3);
+        chars.read_from_str("foo", Some(Encoding::ASCII));
+        assert_eq!(chars.length, 3);
+        assert!(!chars.eof());
+        assert_eq!(chars.chars_left(), 3);
 
-        is.read_from_str("f👽f", Some(Encoding::UTF8));
-        assert_eq!(is.length, 3);
-        assert!(!is.eof());
-        assert_eq!(is.chars_left(), 3);
-        assert_eq!(is.read_char(), Ch('f'));
-        assert_eq!(is.chars_left(), 2);
-        assert!(!is.eof());
-        assert_eq!(is.read_char(), Ch('👽'));
-        assert!(!is.eof());
-        assert_eq!(is.chars_left(), 1);
-        assert_eq!(is.read_char(), Ch('f'));
-        assert!(is.eof());
-        assert_eq!(is.chars_left(), 0);
+        chars.read_from_str("f👽f", Some(Encoding::UTF8));
+        assert_eq!(chars.length, 3);
+        assert!(!chars.eof());
+        assert_eq!(chars.chars_left(), 3);
+        assert_eq!(chars.read_char(), Ch('f'));
+        assert_eq!(chars.chars_left(), 2);
+        assert!(!chars.eof());
+        assert_eq!(chars.read_char(), Ch('👽'));
+        assert!(!chars.eof());
+        assert_eq!(chars.chars_left(), 1);
+        assert_eq!(chars.read_char(), Ch('f'));
+        assert!(chars.eof());
+        assert_eq!(chars.chars_left(), 0);
 
-        is.reset();
-        is.set_encoding(Encoding::ASCII);
-        assert_eq!(is.length, 6);
-        assert_eq!(is.read_char(), Ch('f'));
-        assert_eq!(is.read_char(), Ch('?'));
-        assert_eq!(is.read_char(), Ch('?'));
-        assert_eq!(is.read_char(), Ch('?'));
-        assert_eq!(is.read_char(), Ch('?'));
-        assert_eq!(is.read_char(), Ch('f'));
-        assert!(matches!(is.read_char(), Eof));
+        chars.reset();
+        chars.set_encoding(Encoding::ASCII);
+        assert_eq!(chars.length, 6);
+        assert_eq!(chars.read_char(), Ch('f'));
+        assert_eq!(chars.read_char(), Ch('?'));
+        assert_eq!(chars.read_char(), Ch('?'));
+        assert_eq!(chars.read_char(), Ch('?'));
+        assert_eq!(chars.read_char(), Ch('?'));
+        assert_eq!(chars.read_char(), Ch('f'));
+        assert!(matches!(chars.read_char(), Eof));
 
-        is.unread(); // unread eof
-        is.unread(); // unread 'f'
-        is.unread(); // Unread '?'
-        assert_eq!(is.chars_left(), 2);
-        is.unread();
-        assert_eq!(is.chars_left(), 3);
+        chars.unread(); // unread eof
+        chars.unread(); // unread 'f'
+        chars.unread(); // Unread '?'
+        assert_eq!(chars.chars_left(), 2);
+        chars.unread();
+        assert_eq!(chars.chars_left(), 3);
 
-        is.reset();
-        assert_eq!(is.chars_left(), 6);
-        is.unread();
-        assert_eq!(is.chars_left(), 6);
+        chars.reset();
+        assert_eq!(chars.chars_left(), 6);
+        chars.unread();
+        assert_eq!(chars.chars_left(), 6);
 
-        is.read_from_str("abc", Some(Encoding::UTF8));
-        is.reset();
-        assert_eq!(is.read_char(), Ch('a'));
-        is.unread();
-        assert_eq!(is.read_char(), Ch('a'));
-        assert_eq!(is.read_char(), Ch('b'));
-        is.unread();
-        assert_eq!(is.read_char(), Ch('b'));
-        assert_eq!(is.read_char(), Ch('c'));
-        is.unread();
-        assert_eq!(is.read_char(), Ch('c'));
-        assert!(matches!(is.read_char(), Eof));
-        is.unread();
-        assert!(matches!(is.read_char(), Eof));
+        chars.read_from_str("abc", Some(Encoding::UTF8));
+        chars.reset();
+        assert_eq!(chars.read_char(), Ch('a'));
+        chars.unread();
+        assert_eq!(chars.read_char(), Ch('a'));
+        assert_eq!(chars.read_char(), Ch('b'));
+        chars.unread();
+        assert_eq!(chars.read_char(), Ch('b'));
+        assert_eq!(chars.read_char(), Ch('c'));
+        chars.unread();
+        assert_eq!(chars.read_char(), Ch('c'));
+        assert!(matches!(chars.read_char(), Eof));
+        chars.unread();
+        assert!(matches!(chars.read_char(), Eof));
     }
 
     #[test]
     fn test_certainty() {
-        let mut is = InputStream::new();
-        assert!(!is.is_certain_encoding());
+        let mut chars = CharIterator::new();
+        assert!(!chars.is_certain_encoding());
 
-        is.set_confidence(Confidence::Certain);
-        assert!(is.is_certain_encoding());
+        chars.set_confidence(Confidence::Certain);
+        assert!(chars.is_certain_encoding());
 
-        is.set_confidence(Confidence::Tentative);
-        assert!(!is.is_certain_encoding());
+        chars.set_confidence(Confidence::Tentative);
+        assert!(!chars.is_certain_encoding());
     }
 
     #[test]
     fn test_offsets() {
-        let mut is = InputStream::new();
-        is.read_from_str("abc", Some(Encoding::UTF8));
+        let mut chars = CharIterator::new();
+        chars.read_from_str("abc", Some(Encoding::UTF8));
         assert_eq!(
-            is.position,
+            chars.position,
             Position {
                 offset: 0,
                 line: 1,
                 col: 1
             }
         );
-        assert_eq!('a', is.read_char().into());
+        assert_eq!('a', chars.read_char().into());
         assert_eq!(
-            is.position,
+            chars.position,
             Position {
                 offset: 1,
                 line: 1,
                 col: 2
             }
         );
-        assert_eq!('b', is.read_char().into());
+        assert_eq!('b', chars.read_char().into());
         assert_eq!(
-            is.position,
+            chars.position,
             Position {
                 offset: 2,
                 line: 1,
                 col: 3
             }
         );
-        assert_eq!('c', is.read_char().into());
+        assert_eq!('c', chars.read_char().into());
         assert_eq!(
-            is.position,
+            chars.position,
             Position {
                 offset: 3,
                 line: 1,
                 col: 4
             }
         );
-        assert!(matches!(is.read_char(), Eof));
+        assert!(matches!(chars.read_char(), Eof));
         assert_eq!(
-            is.position,
+            chars.position,
             Position {
                 offset: 3,
                 line: 1,
                 col: 4
             }
         );
-        assert!(matches!(is.read_char(), Eof));
+        assert!(matches!(chars.read_char(), Eof));
         assert_eq!(
-            is.position,
+            chars.position,
             Position {
                 offset: 3,
                 line: 1,
@@ -571,26 +573,26 @@ mod test {
             }
         );
 
-        let mut is = InputStream::new();
-        is.read_from_str(
+        let mut chars = CharIterator::new();
+        chars.read_from_str(
             "abc\ndefg\n\nhi\njk\nlmno\n\n\npqrst\nu\nv\nw\n\nxy\nz",
             Some(Encoding::UTF8),
         );
-        assert_eq!(is.length, 40);
+        assert_eq!(chars.length, 40);
 
-        is.seek(SeekMode::SeekSet, 0);
+        chars.seek(SeekMode::SeekSet, 0);
         assert_eq!(
-            is.position,
+            chars.position,
             Position {
                 offset: 0,
                 line: 1,
                 col: 1
             }
         );
-        let c = is.read_char();
+        let c = chars.read_char();
         assert_eq!(c, Ch('a'));
         assert_eq!(
-            is.position,
+            chars.position,
             Position {
                 offset: 1,
                 line: 1,
@@ -598,21 +600,21 @@ mod test {
             }
         );
 
-        is.seek(SeekMode::SeekSet, 7);
+        chars.seek(SeekMode::SeekSet, 7);
         assert_eq!(
-            is.position,
+            chars.position,
             Position {
                 offset: 7,
                 line: 2,
                 col: 4
             }
         );
-        assert_eq!(is.chars_left(), 33);
+        assert_eq!(chars.chars_left(), 33);
 
-        let c = is.read_char();
+        let c = chars.read_char();
         assert_eq!(c, Ch('g'));
         assert_eq!(
-            is.position,
+            chars.position,
             Position {
                 offset: 8,
                 line: 2,
@@ -620,10 +622,10 @@ mod test {
             }
         );
 
-        let c = is.read_char();
+        let c = chars.read_char();
         assert_eq!(c, Ch('\n'));
         assert_eq!(
-            is.position,
+            chars.position,
             Position {
                 offset: 9,
                 line: 3,
@@ -631,10 +633,10 @@ mod test {
             }
         );
 
-        let c = is.read_char();
+        let c = chars.read_char();
         assert_eq!(c, Ch('\n'));
         assert_eq!(
-            is.position,
+            chars.position,
             Position {
                 offset: 10,
                 line: 4,
@@ -642,155 +644,155 @@ mod test {
             }
         );
 
-        let c = is.read_char();
+        let c = chars.read_char();
         assert_eq!(c, Ch('h'));
         assert_eq!(
-            is.position,
+            chars.position,
             Position {
                 offset: 11,
                 line: 4,
                 col: 2
             }
         );
-        assert_eq!(is.chars_left(), 29);
+        assert_eq!(chars.chars_left(), 29);
 
-        is.reset();
+        chars.reset();
         assert_eq!(
-            is.position,
+            chars.position,
             Position {
                 offset: 0,
                 line: 1,
                 col: 1
             }
         );
-        assert_eq!(is.chars_left(), 40);
+        assert_eq!(chars.chars_left(), 40);
 
-        is.seek(SeekMode::SeekSet, 100);
+        chars.seek(SeekMode::SeekSet, 100);
         assert_eq!(
-            is.position,
+            chars.position,
             Position {
                 offset: 40,
                 line: 15,
                 col: 2
             }
         );
-        assert_eq!(is.chars_left(), 0);
+        assert_eq!(chars.chars_left(), 0);
     }
 
     #[test]
     fn test_seek() {
-        let mut is = InputStream::new();
-        is.read_from_str("ab👽cd", Some(Encoding::UTF8));
-        assert_eq!(is.length, 5);
-        assert_eq!(is.chars_left(), 5);
-        assert_eq!(is.read_char(), Ch('a'));
-        assert_eq!(is.read_char(), Ch('b'));
-        assert_eq!(is.chars_left(), 3);
-        is.seek(SeekMode::SeekSet, 0);
-        assert_eq!(is.chars_left(), 5);
-        assert_eq!(is.read_char(), Ch('a'));
-        assert_eq!(is.read_char(), Ch('b'));
-        assert_eq!(is.chars_left(), 3);
-        is.seek(SeekMode::SeekSet, 3);
-        assert_eq!(is.chars_left(), 2);
-        assert_eq!(is.read_char(), Ch('c'));
-        assert_eq!(is.read_char(), Ch('d'));
-        assert_eq!(is.chars_left(), 0);
-        assert!(is.eof());
+        let mut chars = CharIterator::new();
+        chars.read_from_str("ab👽cd", Some(Encoding::UTF8));
+        assert_eq!(chars.length, 5);
+        assert_eq!(chars.chars_left(), 5);
+        assert_eq!(chars.read_char(), Ch('a'));
+        assert_eq!(chars.read_char(), Ch('b'));
+        assert_eq!(chars.chars_left(), 3);
+        chars.seek(SeekMode::SeekSet, 0);
+        assert_eq!(chars.chars_left(), 5);
+        assert_eq!(chars.read_char(), Ch('a'));
+        assert_eq!(chars.read_char(), Ch('b'));
+        assert_eq!(chars.chars_left(), 3);
+        chars.seek(SeekMode::SeekSet, 3);
+        assert_eq!(chars.chars_left(), 2);
+        assert_eq!(chars.read_char(), Ch('c'));
+        assert_eq!(chars.read_char(), Ch('d'));
+        assert_eq!(chars.chars_left(), 0);
+        assert!(chars.eof());
 
-        is.reset();
-        assert_eq!(is.look_ahead(0), Ch('a'));
-        assert_eq!(is.look_ahead(3), Ch('c'));
-        assert_eq!(is.look_ahead(1), Ch('b'));
-        assert!(matches!(is.look_ahead(100), Eof));
+        chars.reset();
+        assert_eq!(chars.look_ahead(0), Ch('a'));
+        assert_eq!(chars.look_ahead(3), Ch('c'));
+        assert_eq!(chars.look_ahead(1), Ch('b'));
+        assert!(matches!(chars.look_ahead(100), Eof));
 
-        is.seek(SeekMode::SeekSet, 0);
-        assert_eq!(is.look_ahead_slice(1), "a");
-        assert_eq!(is.look_ahead_slice(2), "ab");
-        assert_eq!(is.look_ahead_slice(3), "ab👽");
-        assert_eq!(is.look_ahead_slice(4), "ab👽c");
-        assert_eq!(is.look_ahead_slice(5), "ab👽cd");
-        assert_eq!(is.look_ahead_slice(6), "ab👽cd");
-        assert_eq!(is.look_ahead_slice(100), "ab👽cd");
+        chars.seek(SeekMode::SeekSet, 0);
+        assert_eq!(chars.look_ahead_slice(1), "a");
+        assert_eq!(chars.look_ahead_slice(2), "ab");
+        assert_eq!(chars.look_ahead_slice(3), "ab👽");
+        assert_eq!(chars.look_ahead_slice(4), "ab👽c");
+        assert_eq!(chars.look_ahead_slice(5), "ab👽cd");
+        assert_eq!(chars.look_ahead_slice(6), "ab👽cd");
+        assert_eq!(chars.look_ahead_slice(100), "ab👽cd");
 
-        is.seek(SeekMode::SeekSet, 3);
-        assert_eq!(is.look_ahead_slice(1), "c");
-        assert_eq!(is.look_ahead_slice(2), "cd");
+        chars.seek(SeekMode::SeekSet, 3);
+        assert_eq!(chars.look_ahead_slice(1), "c");
+        assert_eq!(chars.look_ahead_slice(2), "cd");
 
-        is.seek(SeekMode::SeekSet, 0);
-        assert_eq!(is.position.offset, 0);
+        chars.seek(SeekMode::SeekSet, 0);
+        assert_eq!(chars.position.offset, 0);
 
-        is.seek(SeekMode::SeekSet, 3);
-        assert_eq!(is.position.offset, 3);
+        chars.seek(SeekMode::SeekSet, 3);
+        assert_eq!(chars.position.offset, 3);
 
-        is.seek(SeekMode::SeekCur, 0);
-        assert_eq!(is.position.offset, 3);
+        chars.seek(SeekMode::SeekCur, 0);
+        assert_eq!(chars.position.offset, 3);
 
-        is.seek(SeekMode::SeekCur, 1);
-        assert_eq!(is.position.offset, 4);
+        chars.seek(SeekMode::SeekCur, 1);
+        assert_eq!(chars.position.offset, 4);
 
-        is.seek(SeekMode::SeekCur, -2);
-        assert_eq!(is.position.offset, 2);
+        chars.seek(SeekMode::SeekCur, -2);
+        assert_eq!(chars.position.offset, 2);
 
-        is.seek(SeekMode::SeekCur, 10);
-        assert_eq!(is.position.offset, 5);
+        chars.seek(SeekMode::SeekCur, 10);
+        assert_eq!(chars.position.offset, 5);
 
-        is.seek(SeekMode::SeekSet, 100);
-        assert_eq!(is.position.offset, 5);
+        chars.seek(SeekMode::SeekSet, 100);
+        assert_eq!(chars.position.offset, 5);
 
-        is.seek(SeekMode::SeekSet, -100);
-        assert_eq!(is.position.offset, 0);
+        chars.seek(SeekMode::SeekSet, -100);
+        assert_eq!(chars.position.offset, 0);
 
-        is.seek(SeekMode::SeekEnd, -100);
-        assert_eq!(is.position.offset, 0);
+        chars.seek(SeekMode::SeekEnd, -100);
+        assert_eq!(chars.position.offset, 0);
     }
 
     #[test]
     fn test_eof() {
-        let mut is = InputStream::new();
-        is.read_from_str("abc", Some(Encoding::UTF8));
-        assert_eq!(is.length, 3);
-        assert_eq!(is.chars_left(), 3);
-        assert_eq!(is.read_char(), Ch('a'));
-        assert_eq!(is.read_char(), Ch('b'));
-        assert_eq!(is.read_char(), Ch('c'));
-        assert!(matches!(is.read_char(), Eof));
-        assert!(matches!(is.read_char(), Eof));
-        assert!(matches!(is.read_char(), Eof));
-        assert!(matches!(is.read_char(), Eof));
-        is.unread();
-        assert!(matches!(is.read_char(), Eof));
-        is.unread();
-        is.unread();
-        assert!(!matches!(is.read_char(), Eof));
-        assert!(matches!(is.read_char(), Eof));
-        is.unread();
-        is.unread();
-        assert!(!matches!(is.read_char(), Eof));
-        is.unread();
-        is.unread();
-        is.unread();
-        assert_eq!(is.read_char(), Ch('a'));
-        is.unread();
-        assert_eq!(is.read_char(), Ch('a'));
-        is.unread();
-        is.unread();
-        assert_eq!(is.read_char(), Ch('a'));
-        is.unread();
-        is.unread();
-        is.unread();
-        is.unread();
-        is.unread();
-        is.unread();
-        assert_eq!(is.read_char(), Ch('a'));
-        assert_eq!(is.read_char(), Ch('b'));
-        assert_eq!(is.read_char(), Ch('c'));
-        assert!(matches!(is.read_char(), Eof));
-        is.unread();
-        is.unread();
-        assert_eq!(is.read_char(), Ch('c'));
-        assert!(matches!(is.read_char(), Eof));
-        is.unread();
-        assert!(matches!(is.read_char(), Eof));
+        let mut chars = CharIterator::new();
+        chars.read_from_str("abc", Some(Encoding::UTF8));
+        assert_eq!(chars.length, 3);
+        assert_eq!(chars.chars_left(), 3);
+        assert_eq!(chars.read_char(), Ch('a'));
+        assert_eq!(chars.read_char(), Ch('b'));
+        assert_eq!(chars.read_char(), Ch('c'));
+        assert!(matches!(chars.read_char(), Eof));
+        assert!(matches!(chars.read_char(), Eof));
+        assert!(matches!(chars.read_char(), Eof));
+        assert!(matches!(chars.read_char(), Eof));
+        chars.unread();
+        assert!(matches!(chars.read_char(), Eof));
+        chars.unread();
+        chars.unread();
+        assert!(!matches!(chars.read_char(), Eof));
+        assert!(matches!(chars.read_char(), Eof));
+        chars.unread();
+        chars.unread();
+        assert!(!matches!(chars.read_char(), Eof));
+        chars.unread();
+        chars.unread();
+        chars.unread();
+        assert_eq!(chars.read_char(), Ch('a'));
+        chars.unread();
+        assert_eq!(chars.read_char(), Ch('a'));
+        chars.unread();
+        chars.unread();
+        assert_eq!(chars.read_char(), Ch('a'));
+        chars.unread();
+        chars.unread();
+        chars.unread();
+        chars.unread();
+        chars.unread();
+        chars.unread();
+        assert_eq!(chars.read_char(), Ch('a'));
+        assert_eq!(chars.read_char(), Ch('b'));
+        assert_eq!(chars.read_char(), Ch('c'));
+        assert!(matches!(chars.read_char(), Eof));
+        chars.unread();
+        chars.unread();
+        assert_eq!(chars.read_char(), Ch('c'));
+        assert!(matches!(chars.read_char(), Eof));
+        chars.unread();
+        assert!(matches!(chars.read_char(), Eof));
     }
 }

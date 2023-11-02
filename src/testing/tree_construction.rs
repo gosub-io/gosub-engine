@@ -7,8 +7,8 @@ use crate::html5::parser::document::DocumentBuilder;
 use crate::html5::parser::tree_builder::TreeBuilder;
 use crate::html5::parser::Html5ParserOptions;
 use crate::{
+    bytes::CharIterator,
     html5::{
-        input_stream::InputStream,
         node::{NodeData, NodeId},
         parser::{
             document::{Document, DocumentHandle},
@@ -244,18 +244,18 @@ impl Test {
         // Create a new parser
         let options = Html5ParserOptions { scripting_enabled };
 
-        let mut is = InputStream::new();
-        is.read_from_str(self.data(), None);
+        let mut chars = CharIterator::new();
+        chars.read_from_str(self.data(), None);
 
         let parse_errors = if is_fragment {
             Html5Parser::parse_fragment(
-                &mut is,
+                &mut chars,
                 Document::clone(&document),
                 &context_node.expect(""),
                 Some(options),
             )?
         } else {
-            Html5Parser::parse_document(&mut is, Document::clone(&document), Some(options))?
+            Html5Parser::parse_document(&mut chars, Document::clone(&document), Some(options))?
         };
 
         Ok((document, parse_errors))

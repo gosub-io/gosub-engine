@@ -4,10 +4,10 @@ pub mod token;
 mod character_reference;
 mod replacement_tables;
 
+use crate::bytes::Bytes::{self, *};
+use crate::bytes::SeekMode::SeekCur;
+use crate::bytes::{CharIterator, Position};
 use crate::html5::error_logger::{ErrorLogger, ParserError};
-use crate::html5::input_stream::Bytes::{self, *};
-use crate::html5::input_stream::SeekMode::SeekCur;
-use crate::html5::input_stream::{InputStream, Position};
 use crate::html5::tokenizer::state::State;
 use crate::html5::tokenizer::token::Token;
 use crate::types::{Error, Result};
@@ -27,7 +27,7 @@ pub const CHAR_REPLACEMENT: char = '\u{FFFD}';
 /// The tokenizer will read the input stream and emit tokens that can be used by the parser.
 pub struct Tokenizer<'stream> {
     /// HTML character input stream
-    pub stream: &'stream mut InputStream,
+    pub chars: &'stream mut CharIterator,
     /// Current state of the tokenizer
     pub state: State,
     /// Current consumed characters for current token
@@ -78,12 +78,12 @@ macro_rules! to_lowercase {
 impl<'stream> Tokenizer<'stream> {
     /// Creates a new tokenizer with the given inputstream and additional options if any
     pub fn new(
-        input: &'stream mut InputStream,
+        chars: &'stream mut CharIterator,
         opts: Option<Options>,
         error_logger: Rc<RefCell<ErrorLogger>>,
     ) -> Self {
         return Tokenizer {
-            stream: input,
+            chars,
             state: opts.as_ref().map_or(State::Data, |o| o.initial_state),
             last_start_token: opts.map_or(String::new(), |o| o.last_start_tag),
             consumed: String::new(),
@@ -99,7 +99,7 @@ impl<'stream> Tokenizer<'stream> {
 
     /// Returns the current position in the stream (with line/col number and position)
     pub(crate) fn get_position(&self) -> Position {
-        self.stream.position
+        self.chars.position
     }
 
     /// Retrieves the next token from the input stream or Token::EOF when the end is reached
@@ -245,13 +245,13 @@ impl<'stream> Tokenizer<'stream> {
                                 is_self_closing: false,
                                 attributes: HashMap::new(),
                             });
-                            self.stream.unread();
+                            self.chars.unread();
                             self.state = State::TagName;
                         }
                         Ch('?') => {
                             self.current_token = Some(Token::Comment("".into()));
                             self.parse_error(ParserError::UnexpectedQuestionMarkInsteadOfTagName);
-                            self.stream.unread();
+                            self.chars.unread();
                             self.state = State::BogusComment;
                         }
                         Eof => {
@@ -262,7 +262,7 @@ impl<'stream> Tokenizer<'stream> {
                         _ => {
                             self.parse_error(ParserError::InvalidFirstCharacterOfTagName);
                             self.consume('<');
-                            self.stream.unread();
+                            self.chars.unread();
                             self.state = State::Data;
                         }
                     }
@@ -275,7 +275,7 @@ impl<'stream> Tokenizer<'stream> {
                                 name: "".into(),
                                 is_self_closing: false,
                             });
-                            self.stream.unread();
+                            self.chars.unread();
                             self.state = State::TagName;
                         }
                         Ch('>') => {
@@ -292,7 +292,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.parse_error(ParserError::InvalidFirstCharacterOfTagName);
 
                             self.current_token = Some(Token::Comment("".into()));
-                            self.stream.unread();
+                            self.chars.unread();
                             self.state = State::BogusComment;
                         }
                     }
@@ -329,7 +329,7 @@ impl<'stream> Tokenizer<'stream> {
                         }
                         _ => {
                             self.consume('<');
-                            self.stream.unread();
+                            self.chars.unread();
                             self.state = State::RCDATA;
                         }
                     }
@@ -342,13 +342,13 @@ impl<'stream> Tokenizer<'stream> {
                                 name: "".into(),
                                 is_self_closing: false,
                             });
-                            self.stream.unread();
+                            self.chars.unread();
                             self.state = State::RCDATAEndTagName;
                         }
                         _ => {
                             self.consume('<');
                             self.consume('/');
-                            self.stream.unread();
+                            self.chars.unread();
                             self.state = State::RCDATA;
                         }
                     }
@@ -421,7 +421,7 @@ impl<'stream> Tokenizer<'stream> {
                         }
                         _ => {
                             self.consume('<');
-                            self.stream.unread();
+                            self.chars.unread();
                             self.state = State::RAWTEXT;
                         }
                     }
@@ -434,13 +434,13 @@ impl<'stream> Tokenizer<'stream> {
                                 name: "".into(),
                                 is_self_closing: false,
                             });
-                            self.stream.unread();
+                            self.chars.unread();
                             self.state = State::RAWTEXTEndTagName;
                         }
                         _ => {
                             self.consume('<');
                             self.consume('/');
-                            self.stream.unread();
+                            self.chars.unread();
                             self.state = State::RAWTEXT;
                         }
                     }
@@ -518,7 +518,7 @@ impl<'stream> Tokenizer<'stream> {
                         }
                         _ => {
                             self.consume('<');
-                            self.stream.unread();
+                            self.chars.unread();
                             self.state = State::ScriptData;
                         }
                     }
@@ -531,13 +531,13 @@ impl<'stream> Tokenizer<'stream> {
                                 name: "".into(),
                                 is_self_closing: false,
                             });
-                            self.stream.unread();
+                            self.chars.unread();
                             self.state = State::ScriptDataEndTagName;
                         }
                         _ => {
                             self.consume('<');
                             self.consume('/');
-                            self.stream.unread();
+                            self.chars.unread();
                             self.state = State::ScriptData;
                         }
                     }
@@ -609,7 +609,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.state = State::ScriptDataEscapeStartDash;
                         }
                         _ => {
-                            self.stream.unread();
+                            self.chars.unread();
                             self.state = State::ScriptData;
                         }
                     }
@@ -622,7 +622,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.state = State::ScriptDataEscapedDashDash;
                         }
                         _ => {
-                            self.stream.unread();
+                            self.chars.unread();
                             self.state = State::ScriptData;
                         }
                     }
@@ -713,13 +713,13 @@ impl<'stream> Tokenizer<'stream> {
                         Ch(ch) if ch.is_ascii_alphabetic() => {
                             self.temporary_buffer.clear();
                             self.consume('<');
-                            self.stream.unread();
+                            self.chars.unread();
                             self.state = State::ScriptDataDoubleEscapeStart;
                         }
                         _ => {
                             // anything else
                             self.consume('<');
-                            self.stream.unread();
+                            self.chars.unread();
                             self.state = State::ScriptDataEscaped;
                         }
                     }
@@ -734,13 +734,13 @@ impl<'stream> Tokenizer<'stream> {
                                 is_self_closing: false,
                             });
 
-                            self.stream.unread();
+                            self.chars.unread();
                             self.state = State::ScriptDataEscapedEndTagName;
                         }
                         _ => {
                             self.consume('<');
                             self.consume('/');
-                            self.stream.unread();
+                            self.chars.unread();
                             self.state = State::ScriptDataEscaped;
                         }
                     }
@@ -824,7 +824,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.consume(ch);
                         }
                         _ => {
-                            self.stream.unread();
+                            self.chars.unread();
                             self.state = State::ScriptDataEscaped;
                         }
                     }
@@ -913,7 +913,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.state = State::ScriptDataDoubleEscapeEnd;
                         }
                         _ => {
-                            self.stream.unread();
+                            self.chars.unread();
                             self.state = State::ScriptDataDoubleEscaped;
                         }
                     }
@@ -938,7 +938,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.consume(ch);
                         }
                         _ => {
-                            self.stream.unread();
+                            self.chars.unread();
                             self.state = State::ScriptDataDoubleEscaped;
                         }
                     }
@@ -950,7 +950,7 @@ impl<'stream> Tokenizer<'stream> {
                             // Ignore character
                         }
                         Ch('/' | '>') | Eof => {
-                            self.stream.unread();
+                            self.chars.unread();
                             self.state = State::AfterAttributeName;
                         }
                         Ch('=') => {
@@ -965,7 +965,7 @@ impl<'stream> Tokenizer<'stream> {
                             // Store an existing attribute if any and clear
                             self.store_and_clear_current_attribute();
 
-                            self.stream.unread();
+                            self.chars.unread();
                             self.state = State::AttributeName;
                         }
                     }
@@ -977,7 +977,7 @@ impl<'stream> Tokenizer<'stream> {
                             if self.attr_already_exists() {
                                 self.parse_error(ParserError::DuplicateAttribute);
                             }
-                            self.stream.unread();
+                            self.chars.unread();
 
                             self.state = State::AfterAttributeName
                         }
@@ -1021,7 +1021,7 @@ impl<'stream> Tokenizer<'stream> {
                         }
                         _ => {
                             self.store_and_clear_current_attribute();
-                            self.stream.unread();
+                            self.chars.unread();
                             self.state = State::AttributeName;
                         }
                     }
@@ -1045,7 +1045,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.state = State::Data;
                         }
                         _ => {
-                            self.stream.unread();
+                            self.chars.unread();
                             self.state = State::AttributeValueUnquoted;
                         }
                     }
@@ -1144,7 +1144,7 @@ impl<'stream> Tokenizer<'stream> {
                         }
                         _ => {
                             self.parse_error(ParserError::MissingWhitespaceBetweenAttributes);
-                            self.stream.unread();
+                            self.chars.unread();
                             self.state = State::BeforeAttributeName;
                         }
                     }
@@ -1165,7 +1165,7 @@ impl<'stream> Tokenizer<'stream> {
                         }
                         _ => {
                             self.parse_error(ParserError::UnexpectedSolidusInTag);
-                            self.stream.unread();
+                            self.chars.unread();
                             self.state = State::BeforeAttributeName;
                         }
                     }
@@ -1191,24 +1191,24 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::MarkupDeclarationOpen => {
-                    if self.stream.look_ahead_slice(2) == "--" {
+                    if self.chars.look_ahead_slice(2) == "--" {
                         self.current_token = Some(Token::Comment("".into()));
 
                         // Skip the two -- signs
-                        self.stream.seek(SeekCur, 2);
+                        self.chars.seek(SeekCur, 2);
 
                         self.state = State::CommentStart;
                         continue;
                     }
 
-                    if self.stream.look_ahead_slice(7).to_uppercase() == "DOCTYPE" {
-                        self.stream.seek(SeekCur, 7);
+                    if self.chars.look_ahead_slice(7).to_uppercase() == "DOCTYPE" {
+                        self.chars.seek(SeekCur, 7);
                         self.state = State::DOCTYPE;
                         continue;
                     }
 
-                    if self.stream.look_ahead_slice(7) == "[CDATA[" {
-                        self.stream.seek(SeekCur, 7);
+                    if self.chars.look_ahead_slice(7) == "[CDATA[" {
+                        self.chars.seek(SeekCur, 7);
 
                         // @TODO: If there is an adjusted current node and it is not an element in the HTML namespace,
                         // then switch to the CDATA section state. Otherwise, this is a cdata-in-html-content parse error.
@@ -1220,9 +1220,9 @@ impl<'stream> Tokenizer<'stream> {
                         continue;
                     }
 
-                    self.stream.seek(SeekCur, 1);
+                    self.chars.seek(SeekCur, 1);
                     self.parse_error(ParserError::IncorrectlyOpenedComment);
-                    self.stream.unread();
+                    self.chars.unread();
                     self.current_token = Some(Token::Comment("".into()));
 
                     self.state = State::BogusComment;
@@ -1239,7 +1239,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.state = State::Data;
                         }
                         _ => {
-                            self.stream.unread();
+                            self.chars.unread();
                             self.state = State::Comment;
                         }
                     }
@@ -1262,7 +1262,7 @@ impl<'stream> Tokenizer<'stream> {
                         }
                         _ => {
                             self.add_to_token_value('-');
-                            self.stream.unread();
+                            self.chars.unread();
                             self.state = State::Comment;
                         }
                     }
@@ -1300,7 +1300,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.add_to_token_value(c.into());
                         }
                         _ => {
-                            self.stream.unread();
+                            self.chars.unread();
                             self.state = State::Comment;
                         }
                     }
@@ -1312,7 +1312,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.state = State::CommentLessThanSignBangDash;
                         }
                         _ => {
-                            self.stream.unread();
+                            self.chars.unread();
                             self.state = State::Comment;
                         }
                     }
@@ -1324,7 +1324,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.state = State::CommentLessThanSignBangDashDash;
                         }
                         _ => {
-                            self.stream.unread();
+                            self.chars.unread();
                             self.state = State::CommentEndDash;
                         }
                     }
@@ -1333,12 +1333,12 @@ impl<'stream> Tokenizer<'stream> {
                     let c = self.read_char();
                     match c {
                         Eof | Ch('>') => {
-                            self.stream.unread();
+                            self.chars.unread();
                             self.state = State::CommentEnd;
                         }
                         _ => {
                             self.parse_error(ParserError::NestedComment);
-                            self.stream.unread();
+                            self.chars.unread();
                             self.state = State::CommentEnd;
                         }
                     }
@@ -1356,7 +1356,7 @@ impl<'stream> Tokenizer<'stream> {
                         }
                         _ => {
                             self.add_to_token_value('-');
-                            self.stream.unread();
+                            self.chars.unread();
                             self.state = State::Comment;
                         }
                     }
@@ -1378,7 +1378,7 @@ impl<'stream> Tokenizer<'stream> {
                         _ => {
                             self.add_to_token_value('-');
                             self.add_to_token_value('-');
-                            self.stream.unread();
+                            self.chars.unread();
                             self.state = State::Comment;
                         }
                     }
@@ -1407,7 +1407,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.add_to_token_value('-');
                             self.add_to_token_value('-');
                             self.add_to_token_value('!');
-                            self.stream.unread();
+                            self.chars.unread();
                             self.state = State::Comment;
                         }
                     }
@@ -1419,7 +1419,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.state = State::BeforeDOCTYPEName
                         }
                         Ch('>') => {
-                            self.stream.unread();
+                            self.chars.unread();
                             self.state = State::BeforeDOCTYPEName;
                         }
                         Eof => {
@@ -1436,7 +1436,7 @@ impl<'stream> Tokenizer<'stream> {
                         }
                         _ => {
                             self.parse_error(ParserError::MissingWhitespaceBeforeDoctypeName);
-                            self.stream.unread();
+                            self.chars.unread();
                             self.state = State::BeforeDOCTYPEName;
                         }
                     }
@@ -1548,24 +1548,24 @@ impl<'stream> Tokenizer<'stream> {
                             self.state = State::Data;
                         }
                         _ => {
-                            self.stream.unread();
-                            if self.stream.look_ahead_slice(6).to_uppercase() == "PUBLIC" {
-                                self.stream.seek(SeekCur, 6);
+                            self.chars.unread();
+                            if self.chars.look_ahead_slice(6).to_uppercase() == "PUBLIC" {
+                                self.chars.seek(SeekCur, 6);
                                 self.state = State::AfterDOCTYPEPublicKeyword;
                                 continue;
                             }
-                            if self.stream.look_ahead_slice(6).to_uppercase() == "SYSTEM" {
-                                self.stream.seek(SeekCur, 6);
+                            if self.chars.look_ahead_slice(6).to_uppercase() == "SYSTEM" {
+                                self.chars.seek(SeekCur, 6);
                                 self.state = State::AfterDOCTYPESystemKeyword;
                                 continue;
                             }
                             // Make sure the parser is on the correct position again since we just
                             // unread the character
-                            self.stream.seek(SeekCur, 1);
+                            self.chars.seek(SeekCur, 1);
                             self.parse_error(ParserError::InvalidCharacterSequenceAfterDoctypeName);
-                            self.stream.seek(SeekCur, -1);
+                            self.chars.seek(SeekCur, -1);
                             self.set_quirks_mode(true);
-                            self.stream.unread();
+                            self.chars.unread();
                             self.state = State::BogusDOCTYPE;
                         }
                     }
@@ -1606,7 +1606,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.parse_error(
                                 ParserError::MissingQuoteBeforeDoctypePublicIdentifier,
                             );
-                            self.stream.unread();
+                            self.chars.unread();
                             self.set_quirks_mode(true);
                             self.state = State::BogusDOCTYPE;
                         }
@@ -1639,7 +1639,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.state = State::Data;
                         }
                         _ => {
-                            self.stream.unread();
+                            self.chars.unread();
                             self.parse_error(
                                 ParserError::MissingQuoteBeforeDoctypePublicIdentifier,
                             );
@@ -1724,7 +1724,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.parse_error(
                                 ParserError::MissingQuoteBeforeDoctypeSystemIdentifier,
                             );
-                            self.stream.unread();
+                            self.chars.unread();
                             self.set_quirks_mode(true);
                             self.state = State::BogusDOCTYPE;
                         }
@@ -1758,7 +1758,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.parse_error(
                                 ParserError::MissingQuoteBeforeDoctypeSystemIdentifier,
                             );
-                            self.stream.unread();
+                            self.chars.unread();
                             self.set_quirks_mode(true);
                             self.state = State::BogusDOCTYPE;
                         }
@@ -1800,7 +1800,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.parse_error(
                                 ParserError::MissingQuoteBeforeDoctypeSystemIdentifier,
                             );
-                            self.stream.unread();
+                            self.chars.unread();
                             self.set_quirks_mode(true);
                             self.state = State::BogusDOCTYPE;
                         }
@@ -1836,7 +1836,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.parse_error(
                                 ParserError::MissingQuoteBeforeDoctypeSystemIdentifier,
                             );
-                            self.stream.unread();
+                            self.chars.unread();
                             self.set_quirks_mode(true);
                             self.state = State::BogusDOCTYPE;
                         }
@@ -1908,7 +1908,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.parse_error(
                                 ParserError::UnexpectedCharacterAfterDoctypeSystemIdentifier,
                             );
-                            self.stream.unread();
+                            self.chars.unread();
                             self.state = State::BogusDOCTYPE;
                         }
                     }
@@ -1949,7 +1949,7 @@ impl<'stream> Tokenizer<'stream> {
                         Ch(']') => self.state = State::CDATASectionEnd,
                         _ => {
                             self.consume(']');
-                            self.stream.unread();
+                            self.chars.unread();
                             self.state = State::CDATASection;
                         }
                     }
@@ -1962,7 +1962,7 @@ impl<'stream> Tokenizer<'stream> {
                         _ => {
                             self.consume(']');
                             self.consume(']');
-                            self.stream.unread();
+                            self.chars.unread();
                             self.state = State::CDATASection;
                         }
                     }
@@ -1977,7 +1977,7 @@ impl<'stream> Tokenizer<'stream> {
     /// This macro reads a character from the input stream and optionally generates (tokenization)
     /// errors if the character is not valid.
     fn read_char(&mut self) -> Bytes {
-        let mut c = self.stream.read_char();
+        let mut c = self.chars.read_char();
         match c {
             Bytes::Surrogate(..) => {
                 self.parse_error(ParserError::SurrogateInInputStream);
@@ -2095,7 +2095,7 @@ impl<'stream> Tokenizer<'stream> {
         self.consumed.push_str("</");
         self.consumed.push_str(&self.temporary_buffer);
         self.temporary_buffer.clear();
-        self.stream.unread();
+        self.chars.unread();
         self.state = state;
     }
 
@@ -2129,7 +2129,7 @@ impl<'stream> Tokenizer<'stream> {
     /// Creates a parser log error message
     pub(crate) fn parse_error(&mut self, message: ParserError) {
         // The previous position is where the error occurred
-        let pos = self.stream.get_previous_position();
+        let pos = self.chars.get_previous_position();
 
         self.error_logger
             .borrow_mut()

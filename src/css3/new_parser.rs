@@ -1,5 +1,5 @@
 use super::new_tokenizer::{Token, TokenKind};
-use crate::{css3::new_tokenizer::Tokenizer, html5::input_stream::InputStream};
+use crate::{bytes::CharIterator, css3::new_tokenizer::Tokenizer};
 
 struct Function {
     name: String,
@@ -26,7 +26,7 @@ impl<'stream> CSS3Parser<'stream> {
         CSS3Parser { tokenizer }
     }
 
-    pub fn from_input_stream(is: &mut InputStream) -> CSS3Parser {
+    pub fn from_input_stream(is: &mut CharIterator) -> CSS3Parser {
         CSS3Parser::new(Tokenizer::new(is))
     }
 
