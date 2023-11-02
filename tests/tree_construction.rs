@@ -4,48 +4,8 @@ use std::collections::HashSet;
 use test_case::test_case;
 
 const DISABLED_CASES: &[&str] = &[
-    // tests4.dat
-    "</plaintext>",
-    "direct div content",
-    "direct textarea content",
-    "textarea content with <em>pseudo</em> <foo>markup",
-    "this is &#x0043;DATA inside a <style> element",
-    "setting html's innerHTML",
-    "<title>setting head's innerHTML</title>",
-    "direct <title> content",
-    "<!-- inside </script> -->",
-    // tests6.dat
-    "<body>\n<div>",
-    "<frameset></frameset><noframes>",
-    "</caption><div>",
-    "</table><div>",
-    "</table></tbody></tfoot></thead></tr><div>",
-    "<table><colgroup>foo",
-    "foo<col>",
-    "</frameset><frame>",
-    "</body><div>",
-    "</tr><td>",
-    "</tbody></tfoot></thead><td>",
-    "<caption><col><colgroup><tbody><tfoot><thead><tr>",
-    "</table><tr>",
-    "<body></body></html>",
-    r#"<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN"><html></html>"#,
-    "<param><frameset></frameset>",
-    "<source><frameset></frameset>",
-    "<track><frameset></frameset>",
-    "</html><frameset></frameset>",
-    "</body><frameset></frameset>",
-    // tests7.dat
-    "<body>X</body></body>",
     // tests18.dat
     "<!doctype html><template><plaintext>a</template>b",
-    // adoption01.dat
-    "<b><em><foo><foob><fooc><aside></b></em>",
-    // webkit02.dat
-    "<b><em><dcell><postfield><postfield><postfield><postfield><missing_glyph><missing_glyph><missing_glyph><missing_glyph><hkern><aside></b></em>",
-    "<b><em><foo><foo><foo><foo><foo><foo><foo><foo><foo><foo><aside></b></em>",
-    "<b><em><foo><foob><foob><foob><foob><fooc><fooc><fooc><fooc><food><aside></b></em>",
-    "<option><XH<optgroup></optgroup>",
 ];
 
 lazy_static! {
@@ -85,7 +45,7 @@ lazy_static! {
 #[test_case("adoption02.dat")]
 #[test_case("blocks.dat")]
 #[test_case("comments01.dat")]
-// #[test_case("doctype01.dat")]
+#[test_case("doctype01.dat")]
 // #[test_case("domjs-unsafe.dat")]
 #[test_case("entities01.dat")]
 #[test_case("entities02.dat")]
@@ -94,21 +54,21 @@ lazy_static! {
 #[test_case("inbody01.dat")]
 #[test_case("isindex.dat")]
 #[test_case("main-element.dat")]
-// #[test_case("math.dat")]
+#[test_case("math.dat")]
 #[test_case("menuitem-element.dat")]
-// #[test_case("namespace-sensitivity.dat")]
+#[test_case("namespace-sensitivity.dat")]
 #[test_case("noscript01.dat")]
 #[test_case("pending-spec-changes.dat")]
 #[test_case("pending-spec-changes-plain-text-unsafe.dat")]
 // #[test_case("plain-text-unsafe.dat")]
-// #[test_case("quirks01.dat")]
+#[test_case("quirks01.dat")]
 #[test_case("ruby.dat")]
 #[test_case("scriptdata01.dat")]
 #[test_case("search-element.dat")]
-// #[test_case("svg.dat")]
+#[test_case("svg.dat")]
 #[test_case("tables01.dat")]
 // #[test_case("template.dat")]
-// #[test_case("tests_innerHTML_1.dat")]
+#[test_case("tests_innerHTML_1.dat")]
 #[test_case("tricky01.dat")]
 #[test_case("webkit01.dat")]
 #[test_case("webkit02.dat")]
