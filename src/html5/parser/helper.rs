@@ -90,12 +90,7 @@ impl Html5Parser<'_> {
         }
     }
 
-    pub fn insert_text_helper(
-        &mut self,
-        node: NodeId,
-        position: InsertionPositionMode<NodeId>,
-        token: &Token,
-    ) {
+    pub fn insert_text_helper(&mut self, position: InsertionPositionMode<NodeId>, token: &Token) {
         match position {
             InsertionPositionMode::Sibling {
                 handle,
@@ -107,7 +102,8 @@ impl Html5Parser<'_> {
                 let position = parent_node.children.iter().position(|&x| x == before);
                 match position {
                     None | Some(0) => {
-                        doc.attach_node_to_parent(node, parent, position);
+                        let node = self.create_node(token, HTML_NAMESPACE);
+                        doc.add_node(node, parent, position);
                     }
                     Some(index) => {
                         let last_node_id = parent_node.children[index - 1];
@@ -120,7 +116,9 @@ impl Html5Parser<'_> {
                             value.push_str(&token.to_string());
                             return;
                         };
-                        doc.attach_node_to_parent(node, parent, Some(index));
+
+                        let node = self.create_node(token, HTML_NAMESPACE);
+                        doc.add_node(node, parent, Some(index));
                     }
                 }
             }
@@ -138,10 +136,13 @@ impl Html5Parser<'_> {
                         value.push_str(&token.to_string());
                         return;
                     };
-                    doc.attach_node_to_parent(node, parent, None);
+                    let node = self.create_node(token, HTML_NAMESPACE);
+                    doc.add_node(node, parent, None);
                     return;
                 }
-                doc.attach_node_to_parent(node, parent, None);
+
+                let node = self.create_node(token, HTML_NAMESPACE);
+                doc.add_node(node, parent, None);
             }
         }
     }
@@ -239,11 +240,9 @@ impl Html5Parser<'_> {
     }
 
     pub fn insert_text_element(&mut self, token: &Token) {
-        let node = self.create_node(token, HTML_NAMESPACE);
-        let node_id = self.document.get_mut().add_new_node(node);
         let insertion_position = self.appropriate_place_insert(None);
-        // TODO, for text element, if the insertion_position is Docuement, should not do next step.
-        self.insert_text_helper(node_id, insertion_position, token);
+        // TODO, for text element, if the insertion_position is Document, should not do next step.
+        self.insert_text_helper(insertion_position, token);
     }
 
     // @todo: where is the fragment case handled? (substep 4: https://html.spec.whatwg.org/multipage/parsing.html#appropriate-place-for-inserting-a-node)
@@ -363,7 +362,7 @@ impl Html5Parser<'_> {
             };
 
             // step 4.5
-            if !self.is_in_scope(&format_elem_node.name, Scope::Regular) {
+            if !self.is_in_scope(&format_elem_node.name, HTML_NAMESPACE, Scope::Regular) {
                 self.parse_error("format_element_node not in regular scope");
                 return;
             }

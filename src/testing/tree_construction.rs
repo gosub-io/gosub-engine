@@ -1,16 +1,19 @@
-mod parser;
+pub mod fixture;
+mod generator;
+pub(crate) mod parser;
+pub mod result;
 
-use self::parser::{ErrorSpec, ScriptMode, TestSpec, QUOTED_DOUBLE_NEWLINE};
-use super::FIXTURE_ROOT;
-use crate::html5::node::data::doctype::DocTypeData;
 use crate::html5::node::{HTML_NAMESPACE, MATHML_NAMESPACE, SVG_NAMESPACE};
 use crate::html5::parser::document::DocumentBuilder;
 use crate::html5::parser::tree_builder::TreeBuilder;
 use crate::html5::parser::Html5ParserOptions;
+use crate::testing::tree_construction::generator::TreeOutputGenerator;
+use crate::testing::tree_construction::parser::{ScriptMode, TestSpec};
+use crate::testing::tree_construction::result::{ResultStatus, TreeLineResult};
 use crate::{
     bytes::CharIterator,
     html5::{
-        node::{NodeData, NodeId},
+        node::NodeId,
         parser::{
             document::{Document, DocumentHandle},
             Html5Parser,
@@ -18,28 +21,7 @@ use crate::{
     },
     types::{ParseError, Result},
 };
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
-
-/// Holds all tests as found in the given fixture file
-#[derive(Debug, PartialEq)]
-pub struct FixtureFile {
-    pub tests: Vec<Test>,
-    pub path: String,
-}
-
-/// Holds information about an error
-#[derive(Clone, Debug, PartialEq)]
-pub struct TestError {
-    /// The code or message of the error
-    pub code: String,
-    /// The line number (1-based) where the error occurred
-    pub line: i64,
-    /// The column number (1-based) where the error occurred
-    pub col: i64,
-}
+use result::TestResult;
 
 /// Holds a single parser test
 #[derive(Debug, PartialEq)]
@@ -50,188 +32,80 @@ pub struct Test {
     pub line: usize,
     /// The specification of the test provided in the test file
     pub spec: TestSpec,
-    /// The document tree that is expected to be parsed
+    /// The document tree as found in the spec converted to an array
     pub document: Vec<String>,
 }
 
-/// Holds the result of a single "node" (which is either an element, text or comment)
-pub enum NodeResult {
-    /// An attribute of an element node did not match
-    AttributeMatchFailure {
-        name: String,
-        actual: String,
-        expected: String,
-    },
-
-    /// The actual element does not match the expected element
-    ElementMatchFailure {
-        name: String,
-        actual: String,
-        expected: String,
-    },
-
-    /// The element matches the expected element
-    ElementMatchSuccess {
-        actual: String,
-    },
-
-    /// A text node did not match
-    TextMatchFailure {
-        actual: String,
-        expected: String,
-        text: String,
-    },
-
-    // A doctype node did not match
-    DocTypeMatchFailure {
-        actual: String,
-        expected: String,
-    },
-
-    /// A comment node did not match
-    CommentMatchFailure {
-        actual: String,
-        expected: String,
-        comment: String,
-    },
-
-    /// A text node matches
-    TextMatchSuccess {
-        expected: String,
-    },
-}
-
-pub struct SubtreeResult {
-    pub node: Option<NodeResult>,
-    pub children: Vec<SubtreeResult>,
-    next_expected_idx: Option<usize>,
-}
-
-impl SubtreeResult {
-    pub fn valid(&self) -> bool {
-        self.next_expected_idx.is_some()
-    }
-}
-
-#[derive(PartialEq)]
-pub enum ErrorResult {
-    /// Found the correct error
-    Success { actual: TestError },
-    /// Didn't find the error (not even with incorrect position)
-    Failure {
-        actual: TestError,
-        expected: TestError,
-    },
-    /// Found the error, but on an incorrect position
-    PositionFailure {
-        actual: TestError,
-        expected: TestError,
-    },
-}
-
-pub struct TestResult {
-    pub root: SubtreeResult,
-    pub actual_document: DocumentHandle,
-    pub actual_errors: Vec<ParseError>,
-}
-
-impl TestResult {
-    pub fn success(&self) -> bool {
-        self.root.valid()
+impl Clone for Test {
+    fn clone(&self) -> Self {
+        Self {
+            file_path: self.file_path.clone(),
+            line: self.line,
+            spec: self.spec.clone(),
+            document: self.document.clone(),
+        }
     }
 }
 
 impl Test {
-    pub fn data(&self) -> &str {
-        self.spec.data.strip_suffix('\n').unwrap_or_default()
-    }
-
-    pub fn errors(&self) -> &Vec<ErrorSpec> {
-        &self.spec.errors
-    }
-
-    /// Runs the test and returns the result
-    pub fn run(&self) -> Result<Vec<TestResult>> {
-        let mut results = vec![];
-
-        for &scripting_enabled in self.script_modes() {
-            let (actual_document, actual_errors) = self.parse(scripting_enabled)?;
-            let root = self.match_document_tree(&actual_document.get());
-            results.push(TestResult {
-                root,
-                actual_document,
-                actual_errors,
-            });
-        }
-
-        Ok(results)
-    }
-
-    /// Verifies that the tree construction code obtains the right result
-    pub fn assert_valid(&self) {
-        let results = self.run().expect("failed to parse");
-
-        fn assert_tree(tree: &SubtreeResult) {
-            match &tree.node {
-                Some(NodeResult::ElementMatchSuccess { .. })
-                | Some(NodeResult::TextMatchSuccess { .. })
-                | None => {}
-
-                Some(NodeResult::TextMatchFailure {
-                    actual, expected, ..
-                }) => {
-                    panic!("text match failed, wanted: [{expected}], got: [{actual}]");
-                }
-
-                Some(NodeResult::DocTypeMatchFailure {
-                    actual, expected, ..
-                }) => {
-                    panic!("doctype match failed, wanted: [{expected}], got: [{actual}]");
-                }
-
-                Some(NodeResult::ElementMatchFailure {
-                    actual,
-                    expected,
-                    name,
-                }) => {
-                    panic!("element [{name}] match failed, wanted: [{expected}], got: [{actual}]");
-                }
-
-                Some(NodeResult::AttributeMatchFailure {
-                    name,
-                    actual,
-                    expected,
-                }) => {
-                    panic!(
-                        "attribute [{name}] match failed, wanted: [{expected}], got: [{actual}]"
-                    );
-                }
-
-                Some(NodeResult::CommentMatchFailure {
-                    actual, expected, ..
-                }) => {
-                    panic!("comment match failed, wanted: [{expected}], got: [{actual}]");
-                }
-            }
-
-            tree.children.iter().for_each(assert_tree);
-        }
-
-        for result in results {
-            assert_tree(&result.root);
-            assert!(result.success(), "invalid tree-construction result");
+    /// Returns the script modes that should be tested as an array
+    pub fn script_modes(&self) -> &[bool] {
+        match self.spec.script_mode {
+            ScriptMode::ScriptOff => &[false],
+            ScriptMode::ScriptOn => &[true],
+            ScriptMode::Both => &[false, true],
         }
     }
 
-    /// Run the parser and return the document and errors
-    pub fn parse(&self, scripting_enabled: bool) -> Result<(DocumentHandle, Vec<ParseError>)> {
-        // let mut is_fragment = false;
+    pub fn get_document_as_str(&self) -> &str {
+        return self.spec.document.as_str();
+    }
+}
+
+impl Default for Test {
+    fn default() -> Self {
+        Self {
+            file_path: "".to_string(),
+            line: 0,
+            spec: TestSpec::default(),
+            document: vec![],
+        }
+    }
+}
+
+/// Harness is a wrapper to run tree-construction tests
+#[derive(Default)]
+pub struct Harness {
+    // Test that is currently being run
+    test: Test,
+    /// Next line in the document array
+    next_document_line: usize,
+}
+
+impl Harness {
+    /// Generated a new harness instance. It uses a dummy test that is replaced when run_test is called
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Runs a single test and returns the test result of that run
+    pub fn run_test(&mut self, test: Test, scripting_enabled: bool) -> Result<TestResult> {
+        self.test = test;
+        self.next_document_line = 0;
+
+        let (actual_document, actual_errors) = self.do_parse(scripting_enabled)?;
+        let result = self.generate_test_result(Document::clone(&actual_document), &actual_errors);
+
+        Ok(result)
+    }
+
+    /// Run the html5 parser and return the document tree and errors
+    fn do_parse(&mut self, scripting_enabled: bool) -> Result<(DocumentHandle, Vec<ParseError>)> {
         let mut context_node = None;
         let document;
-
         let is_fragment;
 
-        if let Some(fragment) = self.spec.document_fragment.clone() {
+        if let Some(fragment) = self.test.spec.document_fragment.clone() {
             // First, create a (fake) main document that contains only the fragment as node
             let main_document = DocumentBuilder::new_document();
             let mut main_document = Document::clone(&main_document);
@@ -267,11 +141,10 @@ impl Test {
             document = DocumentBuilder::new_document();
         };
 
-        // Create a new parser
         let options = Html5ParserOptions { scripting_enabled };
 
         let mut chars = CharIterator::new();
-        chars.read_from_str(self.data(), None);
+        chars.read_from_str(self.test.spec.data.as_str(), None);
 
         let parse_errors = if is_fragment {
             Html5Parser::parse_fragment(
@@ -287,8 +160,171 @@ impl Test {
         Ok((document, parse_errors))
     }
 
+    /// Retrieves the next line from the spec document
+    fn get_next_line(&mut self) -> Option<String> {
+        let mut line = String::new();
+        let mut is_multi_line_text = false;
+
+        loop {
+            // If we are at the end of the document, we return None
+            if self.next_document_line >= self.test.document.len() {
+                return None;
+            }
+
+            // Get the next line
+            let tmp = self.test.document[self.next_document_line].to_owned();
+            self.next_document_line += 1;
+
+            // If we have a starting quote, but not an ending quote, we are a multi-line text
+            if tmp.starts_with('\"') && !tmp.ends_with('\"') {
+                is_multi_line_text = true;
+            }
+
+            // Add the line to the current line if we are a multiline
+            if is_multi_line_text {
+                line.push_str(&tmp);
+            } else {
+                line = tmp;
+            }
+
+            // Only break if we're in a multi-line text and we found the ending double-quote
+            if is_multi_line_text && line.ends_with('\"') {
+                break;
+            }
+
+            // if we are not a multi-line, we can just break
+            if !is_multi_line_text {
+                break;
+            }
+
+            // Otherwise we continue with the next line (multi-line text)
+        }
+
+        Some(line.to_string())
+    }
+
+    fn generate_test_result(
+        &mut self,
+        document: DocumentHandle,
+        _parse_errors: &[ParseError],
+    ) -> TestResult {
+        let mut result = TestResult::default();
+
+        let generator = TreeOutputGenerator::new(document);
+        let actual = generator.generate();
+
+        let mut line_idx = 1;
+        for actual_line in actual {
+            let mut status = ResultStatus::Success;
+
+            let expected_line = self.get_next_line();
+            match expected_line.clone() {
+                Some(expected_line) => {
+                    if actual_line != expected_line {
+                        status = ResultStatus::Mismatch;
+                    }
+                }
+                None => {
+                    status = ResultStatus::Missing;
+                }
+            }
+
+            result.tree_results.push(TreeLineResult {
+                index: line_idx,
+                result: status,
+                expected: expected_line.unwrap_or_default().to_string(),
+                actual: actual_line.to_string(),
+            });
+            line_idx += 1;
+        }
+
+        // Check if we have additional lines and if so, add as errors
+        loop {
+            let expected_line = self.get_next_line();
+            if expected_line.is_none() {
+                break;
+            }
+
+            result.tree_results.push(TreeLineResult {
+                index: line_idx,
+                result: ResultStatus::Additional,
+                expected: expected_line.expect("").to_string(),
+                actual: "".into(),
+            });
+            line_idx += 1;
+        }
+
+        // if ! result.is_success() {
+        //     let actual = generator.generate();
+        //     let expected = self.test.document.clone();
+        //     println!("\n\nactual   : {:?}", actual);
+        //     println!("expected : {:?}\n\n", expected);
+        // }
+
+        result
+    }
+}
+
+/*
+    /// Verifies that the tree construction code obtains the right result
+    pub fn assert_valid(&self) {
+        let results = self.run().expect("failed to parse");
+
+        fn assert_tree(tree: &SubtreeResult) {
+            match &tree.node {
+                Some(NodeResult::ElementMatchSuccess { .. })
+                | Some(NodeResult::TextMatchSuccess { .. })
+                | None => {}
+
+                Some(NodeResult::TextMatchFailure {
+                         actual, expected, ..
+                     }) => {
+                    panic!("text match failed, wanted: [{expected}], got: [{actual}]");
+                }
+
+                Some(NodeResult::DocTypeMatchFailure {
+                         actual, expected, ..
+                     }) => {
+                    panic!("doctype match failed, wanted: [{expected}], got: [{actual}]");
+                }
+
+                Some(NodeResult::ElementMatchFailure {
+                         actual,
+                         expected,
+                         name,
+                     }) => {
+                    panic!("element [{name}] match failed, wanted: [{expected}], got: [{actual}]");
+                }
+
+                Some(NodeResult::AttributeMatchFailure {
+                         name,
+                         actual,
+                         expected,
+                     }) => {
+                    panic!(
+                        "attribute [{name}] match failed, wanted: [{expected}], got: [{actual}]"
+                    );
+                }
+
+                Some(NodeResult::CommentMatchFailure {
+                         actual, expected, ..
+                     }) => {
+                    panic!("comment match failed, wanted: [{expected}], got: [{actual}]");
+                }
+            }
+
+            tree.children.iter().for_each(assert_tree);
+        }
+
+        for result in results {
+            assert_tree(&result.result);
+            assert!(result.success(), "invalid tree-construction result");
+        }
+    }
+
+
     /// Returns true if the whole document tree matches the expected result
-    pub fn match_document_tree(&self, document: &Document) -> SubtreeResult {
+    fn match_document_tree(&self, document: &Document) -> SubtreeResult {
         if self.spec.document_fragment.is_some() {
             self.match_node(NodeId::from(1), 0, 0, document)
         } else {
@@ -310,10 +346,10 @@ impl Test {
 
         let node_result = match &node.data {
             NodeData::DocType(DocTypeData {
-                name,
-                pub_identifier,
-                sys_identifier,
-            }) => {
+                                  name,
+                                  pub_identifier,
+                                  sys_identifier,
+                              }) => {
                 let doctype_text = if pub_identifier.is_empty() && sys_identifier.is_empty() {
                     // <!DOCTYPE html>
                     name.to_string()
@@ -328,9 +364,7 @@ impl Test {
                     doctype_text.trim(),
                 );
 
-                let expected = self.document[next_expected_idx as usize].to_owned();
-                next_expected_idx += 1;
-
+                let expected = self.get_next_line().expect("line");
                 if actual != expected {
                     let node = Some(NodeResult::DocTypeMatchFailure {
                         actual,
@@ -366,8 +400,7 @@ impl Test {
                     element.name()
                 );
 
-                let expected = self.document[next_expected_idx as usize].to_owned();
-                next_expected_idx += 1;
+                let expected = self.get_next_line().expect("line");
 
                 if actual != expected {
                     let node = Some(NodeResult::ElementMatchFailure {
@@ -393,8 +426,7 @@ impl Test {
                 sorted_attrs.sort_by(|a, b| a.0.cmp(b.0));
 
                 for attr in sorted_attrs {
-                    let expected = self.document[next_expected_idx as usize].to_owned();
-                    next_expected_idx += 1;
+                    let expected = self.get_next_line().expect("line");
 
                     let actual = format!(
                         "|{}{}=\"{}\"",
@@ -427,23 +459,7 @@ impl Test {
                     text.value()
                 );
 
-                // Text might be split over multiple lines, read all lines until we find the closing
-                // quote.
-                let mut expected = String::new();
-                loop {
-                    let tmp = self.document[next_expected_idx as usize].to_owned();
-                    next_expected_idx += 1;
-
-                    expected.push_str(&tmp);
-
-                    if tmp.ends_with('\"') {
-                        break;
-                    } else {
-                        // each line is terminated with a newline
-                        expected.push('\n');
-                    }
-                }
-
+                let expected = self.get_next_line().expect("line");
                 if actual != expected {
                     let node = Some(NodeResult::TextMatchFailure {
                         actual,
@@ -466,8 +482,7 @@ impl Test {
                     " ".repeat(indent as usize * 2 + 1),
                     comment.value()
                 );
-                let expected = self.document[next_expected_idx as usize].to_owned();
-                next_expected_idx += 1;
+                let expected = self.get_next_line().expect("line");
 
                 if actual != expected {
                     let node = Some(NodeResult::CommentMatchFailure {
@@ -535,103 +550,5 @@ impl Test {
             actual: actual.to_owned(),
         }
     }
-
-    pub fn script_modes(&self) -> &[bool] {
-        match self.spec.script_mode {
-            ScriptMode::ScriptOff => &[false],
-            ScriptMode::ScriptOn => &[true],
-            ScriptMode::Both => &[false, true],
-        }
-    }
 }
-
-pub fn fixture_from_filename(filename: &str) -> Result<FixtureFile> {
-    let path = PathBuf::from(FIXTURE_ROOT)
-        .join("tree-construction")
-        .join(filename);
-    fixture_from_path(&path)
-}
-
-// Split into an array of lines.  Combine lines in cases where a subsequent line does not
-// have a "|" prefix using an "\n" delimiter.  Otherwise strip "\n" from lines.
-fn document(s: &str) -> Vec<String> {
-    let mut document = s
-        .replace(QUOTED_DOUBLE_NEWLINE, "\"\n\n\"")
-        .split('|')
-        .skip(1)
-        .filter_map(|l| {
-            if l.is_empty() {
-                None
-            } else {
-                Some(format!("|{}", l.trim_end()))
-            }
-        })
-        .collect::<Vec<_>>();
-
-    // TODO: drop the following line
-    document.push("".into());
-    document
-}
-
-/// Read a given test file and extract all test data
-pub fn fixture_from_path(path: &PathBuf) -> Result<FixtureFile> {
-    let input = fs::read_to_string(path)?;
-    let path = path.to_string_lossy().into_owned();
-
-    let tests = parser::parse_str(&input)?
-        .into_iter()
-        .map(|spec| Test {
-            file_path: path.to_string(),
-            line: spec.position.line,
-            document: document(&spec.document),
-            spec,
-        })
-        .collect::<Vec<_>>();
-
-    Ok(FixtureFile {
-        tests,
-        path: path.to_string(),
-    })
-}
-
-fn use_fixture(filenames: &[&str], path: &Path) -> bool {
-    if !path.is_file() || path.extension().expect("file ending") != "dat" {
-        return false;
-    }
-
-    if filenames.is_empty() {
-        return true;
-    }
-
-    filenames.iter().any(|filename| path.ends_with(filename))
-}
-
-pub fn fixtures(filenames: Option<&[&str]>) -> Result<Vec<FixtureFile>> {
-    let root = PathBuf::from(FIXTURE_ROOT).join("tree-construction");
-    let filenames = filenames.unwrap_or_default();
-    let mut files = vec![];
-
-    for entry in fs::read_dir(root)? {
-        let path = entry?.path();
-
-        if path.is_file() {
-            if !use_fixture(filenames, &path) {
-                continue;
-            }
-
-            let file = fixture_from_path(&path)?;
-            files.push(file);
-        } else {
-            for subentry in fs::read_dir(path)? {
-                let path = subentry?.path();
-                if !use_fixture(filenames, &path) {
-                    continue;
-                }
-                let file = fixture_from_path(&path)?;
-                files.push(file);
-            }
-        }
-    }
-
-    Ok(files)
-}
+ */

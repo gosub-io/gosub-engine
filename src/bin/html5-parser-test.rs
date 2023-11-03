@@ -1,28 +1,40 @@
-use gosub_engine::testing::tree_construction::fixture_from_filename;
-use gosub_engine::testing::FIXTURE_ROOT;
+use gosub_engine::testing::tree_construction::fixture::{
+    get_fixture_root_path, read_fixture_from_path,
+};
+use gosub_engine::testing::tree_construction::Harness;
 use gosub_engine::types::Result;
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
 fn main() -> Result<()> {
-    let mut files = get_files_from_path(format!("{}/tree-construction", FIXTURE_ROOT).as_str());
+    let mut files = get_files_from_path(get_fixture_root_path());
     files.sort();
 
     let mut total = 0;
     let mut failed = 0;
 
     for file in files.iter() {
-        let fixture = fixture_from_filename(file)?;
+        // if file != "math.dat" {
+        //     continue;
+        // }
+        let fixture = read_fixture_from_path(&get_fixture_root_path().join(file))?;
+
         print!("Test: ({:3}) {} [", fixture.tests.len(), file);
         let _ = std::io::stdout().flush();
 
+        let mut harness = Harness::new();
+
         // Run tests
-        for test in fixture.tests {
-            let results = test.run().expect("problem running tree construction test");
-            for result in results {
+        for test in fixture.tests.iter() {
+            for &scripting_enabled in test.script_modes() {
+                let result = harness
+                    .run_test(test.clone(), scripting_enabled)
+                    .expect("problem parsing");
+
                 total += 1;
-                if result.success() {
+
+                if result.is_success() {
                     print!(".");
                 } else {
                     print!("X");
@@ -45,10 +57,10 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn get_files_from_path(root_dir: &str) -> Vec<String> {
+fn get_files_from_path(dir: PathBuf) -> Vec<String> {
     let mut files = Vec::new();
 
-    for entry in WalkDir::new(root_dir)
+    for entry in WalkDir::new(dir.clone())
         .follow_links(true)
         .into_iter()
         .flatten()
@@ -58,7 +70,7 @@ fn get_files_from_path(root_dir: &str) -> Vec<String> {
                 if extension == "dat" {
                     if let Ok(relative_path) = entry
                         .path()
-                        .strip_prefix(root_dir)
+                        .strip_prefix(dir.clone())
                         .map(Path::to_str)
                         .map(|s| s.unwrap().to_string())
                     {

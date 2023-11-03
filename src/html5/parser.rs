@@ -401,7 +401,7 @@ impl<'chars> Html5Parser<'chars> {
     }
 
     /// Internal parser function that does the actual parsing
-    pub fn do_parse(&mut self) -> Result<Vec<ParseError>> {
+    fn do_parse(&mut self) -> Result<Vec<ParseError>> {
         let mut dispatcher_mode = DispatcherMode::Html;
 
         loop {
@@ -1203,7 +1203,7 @@ impl<'chars> Html5Parser<'chars> {
                     Token::EndTag { name, .. }
                         if name == "tbody" || name == "tfoot" || name == "thead" =>
                     {
-                        if !self.is_in_scope(name, Scope::Table) {
+                        if !self.is_in_scope(name, HTML_NAMESPACE, Scope::Table) {
                             self.parse_error("tbody, tfoot or thead tag not allowed in in table body insertion mode");
                             // ignore token
                             return;
@@ -1218,9 +1218,9 @@ impl<'chars> Html5Parser<'chars> {
                         if ["caption", "col", "colgroup", "tbody", "tfoot", "thead"]
                             .contains(&name.as_str()) =>
                     {
-                        if !self.is_in_scope("tbody", Scope::Table)
-                            && !self.is_in_scope("tfoot", Scope::Table)
-                            && !self.is_in_scope("thead", Scope::Table)
+                        if !self.is_in_scope("tbody", HTML_NAMESPACE, Scope::Table)
+                            && !self.is_in_scope("tfoot", HTML_NAMESPACE, Scope::Table)
+                            && !self.is_in_scope("thead", HTML_NAMESPACE, Scope::Table)
                         {
                             self.parse_error("caption, col, colgroup, tbody, tfoot or thead tag not allowed in in table body insertion mode");
                             // ignore token
@@ -1234,9 +1234,9 @@ impl<'chars> Html5Parser<'chars> {
                         self.reprocess_token = true;
                     }
                     Token::EndTag { name, .. } if name == "table" => {
-                        if !self.is_in_scope("tbody", Scope::Table)
-                            && !self.is_in_scope("tfoot", Scope::Table)
-                            && !self.is_in_scope("thead", Scope::Table)
+                        if !self.is_in_scope("tbody", HTML_NAMESPACE, Scope::Table)
+                            && !self.is_in_scope("tfoot", HTML_NAMESPACE, Scope::Table)
+                            && !self.is_in_scope("thead", HTML_NAMESPACE, Scope::Table)
                         {
                             self.parse_error(
                                 "table end tag not allowed in in table body insertion mode",
@@ -1275,7 +1275,7 @@ impl<'chars> Html5Parser<'chars> {
                         self.active_formatting_elements_push_marker();
                     }
                     Token::EndTag { name, .. } if name == "tr" => {
-                        if !self.is_in_scope("tr", Scope::Table) {
+                        if !self.is_in_scope("tr", HTML_NAMESPACE, Scope::Table) {
                             self.parse_error("tr tag not allowed in in row insertion mode");
                             // ignore token
                             return;
@@ -1292,7 +1292,7 @@ impl<'chars> Html5Parser<'chars> {
                         ]
                         .contains(&name.as_str()) =>
                     {
-                        if !self.is_in_scope("tr", Scope::Table) {
+                        if !self.is_in_scope("tr", HTML_NAMESPACE, Scope::Table) {
                             self.parse_error("caption, col, colgroup, tbody, tfoot or thead tag not allowed in in row insertion mode");
                             // ignore token
                             return;
@@ -1305,7 +1305,7 @@ impl<'chars> Html5Parser<'chars> {
                         self.reprocess_token = true;
                     }
                     Token::EndTag { name, .. } if name == "table" => {
-                        if !self.is_in_scope("tr", Scope::Table) {
+                        if !self.is_in_scope("tr", HTML_NAMESPACE, Scope::Table) {
                             self.parse_error("table tag not allowed in in row insertion mode");
                             // ignore token
                             return;
@@ -1320,13 +1320,13 @@ impl<'chars> Html5Parser<'chars> {
                     Token::EndTag { name, .. }
                         if name == "tbody" || name == "tfoot" || name == "thead" =>
                     {
-                        if !self.is_in_scope(name, Scope::Table) {
+                        if !self.is_in_scope(name, HTML_NAMESPACE, Scope::Table) {
                             self.parse_error("tbody, tfoot or thead tag not allowed in in table body insertion mode");
                             // ignore token
                             return;
                         }
 
-                        if !self.is_in_scope("tr", Scope::Table) {
+                        if !self.is_in_scope("tr", HTML_NAMESPACE, Scope::Table) {
                             // ignore token
                             return;
                         }
@@ -1357,7 +1357,7 @@ impl<'chars> Html5Parser<'chars> {
                     Token::EndTag { name, .. } if name == "th" || name == "td" => {
                         let token_name = name.clone();
 
-                        if !self.is_in_scope(name.as_str(), Scope::Table) {
+                        if !self.is_in_scope(name.as_str(), HTML_NAMESPACE, Scope::Table) {
                             self.parse_error("th or td tag not allowed in in cell insertion mode");
                             // ignore token
                             return;
@@ -1381,8 +1381,8 @@ impl<'chars> Html5Parser<'chars> {
                         ]
                         .contains(&name.as_str()) =>
                     {
-                        if !self.is_in_scope("td", Scope::Table)
-                            && !self.is_in_scope("th", Scope::Table)
+                        if !self.is_in_scope("td", HTML_NAMESPACE, Scope::Table)
+                            && !self.is_in_scope("th", HTML_NAMESPACE, Scope::Table)
                         {
                             // fragment case
                             self.parse_error("caption, col, colgroup, tbody, tfoot or thead tag not allowed in in cell insertion mode");
@@ -1410,7 +1410,7 @@ impl<'chars> Html5Parser<'chars> {
                             || name == "thead"
                             || name == "tr" =>
                     {
-                        if !self.is_in_scope(name.as_str(), Scope::Table) {
+                        if !self.is_in_scope(name.as_str(), HTML_NAMESPACE, Scope::Table) {
                             self.parse_error("tbody, tfoot or thead tag not allowed in in table body insertion mode");
                             // ignore token
                             return;
@@ -1453,7 +1453,7 @@ impl<'chars> Html5Parser<'chars> {
                     {
                         self.parse_error("caption, table, tbody, tfoot, thead, tr, td or th tag not allowed in in select in table insertion mode");
 
-                        if !self.is_in_scope(name, Scope::Table) {
+                        if !self.is_in_scope(name, HTML_NAMESPACE, Scope::Table) {
                             // ignore token
                             return;
                         }
@@ -1982,10 +1982,10 @@ impl<'chars> Html5Parser<'chars> {
     }
 
     /// Checks if the given element is in given scope
-    fn is_in_scope(&self, tag: &str, scope: Scope) -> bool {
+    fn is_in_scope(&self, tag: &str, namespace: &str, scope: Scope) -> bool {
         for &node_id in self.open_elements.iter().rev() {
             let node = get_node_by_id!(self.document, node_id).clone();
-            if node.name == tag {
+            if node.name == tag && node.is_namespace(namespace) {
                 return true;
             }
             let default_html_scope = [
@@ -2188,7 +2188,7 @@ impl<'chars> Html5Parser<'chars> {
                 }
             }
             Token::EndTag { name, .. } if name == "body" => {
-                if !self.is_in_scope("body", Scope::Regular) {
+                if !self.is_in_scope("body", HTML_NAMESPACE, Scope::Regular) {
                     self.parse_error("body end tag not in scope");
                     // ignore token
                     return;
@@ -2199,7 +2199,7 @@ impl<'chars> Html5Parser<'chars> {
                 self.insertion_mode = InsertionMode::AfterBody;
             }
             Token::EndTag { name, .. } if name == "html" => {
-                if !self.is_in_scope("body", Scope::Regular) {
+                if !self.is_in_scope("body", HTML_NAMESPACE, Scope::Regular) {
                     self.parse_error("body end tag not in scope");
                     // ignore token
                     return;
@@ -2237,7 +2237,7 @@ impl<'chars> Html5Parser<'chars> {
                     || name == "summary"
                     || name == "ul" =>
             {
-                if self.is_in_scope("p", Scope::Button) {
+                if self.is_in_scope("p", HTML_NAMESPACE, Scope::Button) {
                     self.close_p_element();
                 }
 
@@ -2251,7 +2251,7 @@ impl<'chars> Html5Parser<'chars> {
                     || name == "h5"
                     || name == "h6" =>
             {
-                if self.is_in_scope("p", Scope::Button) {
+                if self.is_in_scope("p", HTML_NAMESPACE, Scope::Button) {
                     self.close_p_element();
                 }
 
@@ -2264,7 +2264,7 @@ impl<'chars> Html5Parser<'chars> {
                 self.insert_html_element(&self.current_token.clone());
             }
             Token::StartTag { name, .. } if name == "pre" || name == "listing" => {
-                if self.is_in_scope("p", Scope::Button) {
+                if self.is_in_scope("p", HTML_NAMESPACE, Scope::Button) {
                     self.close_p_element();
                 }
 
@@ -2281,7 +2281,7 @@ impl<'chars> Html5Parser<'chars> {
                     return;
                 }
 
-                if self.is_in_scope("p", Scope::Button) {
+                if self.is_in_scope("p", HTML_NAMESPACE, Scope::Button) {
                     self.close_p_element();
                 }
 
@@ -2316,7 +2316,7 @@ impl<'chars> Html5Parser<'chars> {
                     idx -= 1;
                 }
 
-                if self.is_in_scope("p", Scope::Button) {
+                if self.is_in_scope("p", HTML_NAMESPACE, Scope::Button) {
                     self.close_p_element();
                 }
 
@@ -2348,14 +2348,14 @@ impl<'chars> Html5Parser<'chars> {
                     idx -= 1;
                 }
 
-                if self.is_in_scope("p", Scope::Button) {
+                if self.is_in_scope("p", HTML_NAMESPACE, Scope::Button) {
                     self.close_p_element();
                 }
 
                 self.insert_html_element(&self.current_token.clone());
             }
             Token::StartTag { name, .. } if name == "plaintext" => {
-                if self.is_in_scope("p", Scope::Button) {
+                if self.is_in_scope("p", HTML_NAMESPACE, Scope::Button) {
                     self.close_p_element();
                 }
 
@@ -2364,7 +2364,7 @@ impl<'chars> Html5Parser<'chars> {
                 self.tokenizer.state = State::PLAINTEXT;
             }
             Token::StartTag { name, .. } if name == "button" => {
-                if self.is_in_scope("button", Scope::Regular) {
+                if self.is_in_scope("button", HTML_NAMESPACE, Scope::Regular) {
                     self.parse_error("button tag not allowed in in body insertion mode");
                     self.generate_implied_end_tags(None, false);
                     self.pop_until_named("button");
@@ -2403,7 +2403,7 @@ impl<'chars> Html5Parser<'chars> {
                     || name == "summary"
                     || name == "ul" =>
             {
-                if !self.is_in_scope(name, Scope::Regular) {
+                if !self.is_in_scope(name, HTML_NAMESPACE, Scope::Regular) {
                     self.parse_error("end tag not in scope");
                     // ignore token
                     return;
@@ -2423,7 +2423,8 @@ impl<'chars> Html5Parser<'chars> {
                     let node_id = self.form_element;
                     self.form_element = None;
 
-                    if node_id.is_none() || !self.is_in_scope(name, Scope::Regular) {
+                    if node_id.is_none() || !self.is_in_scope(name, HTML_NAMESPACE, Scope::Regular)
+                    {
                         self.parse_error("end tag not in scope");
                         // ignore token
                         return;
@@ -2442,7 +2443,7 @@ impl<'chars> Html5Parser<'chars> {
                     }
                     self.open_elements_remove(node_id);
                 } else {
-                    if !self.is_in_scope(name, Scope::Regular) {
+                    if !self.is_in_scope(name, HTML_NAMESPACE, Scope::Regular) {
                         self.parse_error("end tag not in scope");
                         // ignore token
                         return;
@@ -2459,7 +2460,7 @@ impl<'chars> Html5Parser<'chars> {
                 }
             }
             Token::EndTag { name, .. } if name == "p" => {
-                if !self.is_in_scope(name, Scope::Button) {
+                if !self.is_in_scope(name, HTML_NAMESPACE, Scope::Button) {
                     self.parse_error("end tag not in scope");
 
                     let token = Token::StartTag {
@@ -2473,7 +2474,7 @@ impl<'chars> Html5Parser<'chars> {
                 self.close_p_element();
             }
             Token::EndTag { name, .. } if name == "li" => {
-                if !self.is_in_scope(name, Scope::ListItem) {
+                if !self.is_in_scope(name, HTML_NAMESPACE, Scope::ListItem) {
                     self.parse_error("end tag not in scope");
                     // ignore token
                     return;
@@ -2488,7 +2489,7 @@ impl<'chars> Html5Parser<'chars> {
                 self.pop_until_named(name);
             }
             Token::EndTag { name, .. } if name == "dd" || name == "dt" => {
-                if !self.is_in_scope(name, Scope::Regular) {
+                if !self.is_in_scope(name, HTML_NAMESPACE, Scope::Regular) {
                     self.parse_error("end tag not in scope");
                     // ignore token
                     return;
@@ -2512,7 +2513,7 @@ impl<'chars> Html5Parser<'chars> {
             {
                 if ["h1", "h2", "h3", "h4", "h5", "h6"]
                     .iter()
-                    .map(|tag| self.is_in_scope(tag, Scope::Regular))
+                    .map(|tag| self.is_in_scope(tag, HTML_NAMESPACE, Scope::Regular))
                     .any(|res| res)
                 {
                     self.generate_implied_end_tags(Some(name), false);
@@ -2568,7 +2569,7 @@ impl<'chars> Html5Parser<'chars> {
             Token::StartTag { name, .. } if name == "nobr" => {
                 self.reconstruct_formatting();
 
-                if self.is_in_scope("nobr", Scope::Regular) {
+                if self.is_in_scope("nobr", HTML_NAMESPACE, Scope::Regular) {
                     self.parse_error("nobr tag in scope");
                     self.adoption_agency_algorithm(&self.current_token.clone());
                     self.reconstruct_formatting();
@@ -2611,7 +2612,7 @@ impl<'chars> Html5Parser<'chars> {
             Token::EndTag { name, .. }
                 if name == "applet" || name == "marquee" || name == "object" =>
             {
-                if !self.is_in_scope(name, Scope::Regular) {
+                if !self.is_in_scope(name, HTML_NAMESPACE, Scope::Regular) {
                     self.parse_error("end tag not in scope");
                     // ignore token
                     return;
@@ -2628,7 +2629,7 @@ impl<'chars> Html5Parser<'chars> {
             }
             Token::StartTag { name, .. } if name == "table" => {
                 if self.document.get_mut().quirks_mode != QuirksMode::Quirks
-                    && self.is_in_scope("p", Scope::Button)
+                    && self.is_in_scope("p", HTML_NAMESPACE, Scope::Button)
                 {
                     self.close_p_element();
                 }
@@ -2710,7 +2711,7 @@ impl<'chars> Html5Parser<'chars> {
                 is_self_closing,
                 ..
             } if name == "hr" => {
-                if self.is_in_scope("p", Scope::Button) {
+                if self.is_in_scope("p", HTML_NAMESPACE, Scope::Button) {
                     self.close_p_element();
                 }
 
@@ -2744,7 +2745,7 @@ impl<'chars> Html5Parser<'chars> {
                 self.insertion_mode = InsertionMode::Text;
             }
             Token::StartTag { name, .. } if name == "xmp" => {
-                if self.is_in_scope("p", Scope::Button) {
+                if self.is_in_scope("p", HTML_NAMESPACE, Scope::Button) {
                     self.close_p_element();
                 }
 
@@ -2790,7 +2791,7 @@ impl<'chars> Html5Parser<'chars> {
                 self.insert_html_element(&self.current_token.clone());
             }
             Token::StartTag { name, .. } if name == "rb" || name == "rtc" => {
-                if self.is_in_scope("ruby", Scope::Regular) {
+                if self.is_in_scope("ruby", HTML_NAMESPACE, Scope::Regular) {
                     self.generate_implied_end_tags(None, false);
                 }
 
@@ -2801,7 +2802,7 @@ impl<'chars> Html5Parser<'chars> {
                 self.insert_html_element(&self.current_token.clone());
             }
             Token::StartTag { name, .. } if name == "rp" || name == "rt" => {
-                if self.is_in_scope("ruby", Scope::Regular) {
+                if self.is_in_scope("ruby", HTML_NAMESPACE, Scope::Regular) {
                     self.generate_implied_end_tags(Some("rtc"), false);
                 }
 
@@ -2966,6 +2967,22 @@ impl<'chars> Html5Parser<'chars> {
             Token::StartTag { name, .. } if name == "template" => {
                 let node_id = self.insert_html_element(&self.current_token.clone());
 
+                self.active_formatting_elements_push_marker();
+                self.frameset_ok = false;
+                self.insertion_mode = InsertionMode::InTemplate;
+                self.template_insertion_mode.push(InsertionMode::InTemplate);
+
+                // Let adjusted insert location
+                // intended parent
+                // document = indented parent's node document
+
+                // check shadow root != none
+                // or allow declarative shadow roots == true
+                // or adjusted current node is not topmost element in stack open elements
+                // then insert html element for token
+                // else:
+                //
+
                 {
                     let current_node_id = current_node!(self).id;
 
@@ -2976,11 +2993,6 @@ impl<'chars> Html5Parser<'chars> {
                         data.template_contents = Some(DocumentFragment::new(doc, current_node_id));
                     }
                 }
-
-                self.active_formatting_elements_push_marker();
-                self.frameset_ok = false;
-                self.insertion_mode = InsertionMode::InTemplate;
-                self.template_insertion_mode.push(InsertionMode::InTemplate);
             }
             Token::EndTag { name, .. } if name == "template" => {
                 if !self.open_elements_has("template") {
@@ -3352,7 +3364,7 @@ impl<'chars> Html5Parser<'chars> {
                 }
             }
             Token::EndTag { name, .. } if name == "select" => {
-                if !self.is_in_scope("select", Scope::Select) {
+                if !self.is_in_scope("select", HTML_NAMESPACE, Scope::Select) {
                     // fragment case
                     self.parse_error("select end tag not allowed in in select insertion mode");
                     // ignore token
@@ -3365,7 +3377,7 @@ impl<'chars> Html5Parser<'chars> {
             Token::StartTag { name, .. } if name == "select" => {
                 self.parse_error("select tag not allowed in in select insertion mode");
 
-                if !self.is_in_scope("select", Scope::Select) {
+                if !self.is_in_scope("select", HTML_NAMESPACE, Scope::Select) {
                     // fragment case
                     // ignore token
                     return;
@@ -3381,7 +3393,7 @@ impl<'chars> Html5Parser<'chars> {
                     "input, keygen or textarea tag not allowed in in select insertion mode",
                 );
 
-                if !self.is_in_scope("select", Scope::Select) {
+                if !self.is_in_scope("select", HTML_NAMESPACE, Scope::Select) {
                     // fragment case
                     // ignore token
                     return;
@@ -3884,10 +3896,10 @@ mod test {
         node_create!(parser, "div");
         node_create!(parser, "p");
         node_create!(parser, "button");
-        assert!(parser.is_in_scope("p", Scope::Regular));
-        assert!(!parser.is_in_scope("p", Scope::Button));
-        assert!(parser.is_in_scope("p", Scope::ListItem));
-        assert!(!parser.is_in_scope("p", Scope::Select));
+        assert!(parser.is_in_scope("p", HTML_NAMESPACE, Scope::Regular));
+        assert!(!parser.is_in_scope("p", HTML_NAMESPACE, Scope::Button));
+        assert!(parser.is_in_scope("p", HTML_NAMESPACE, Scope::ListItem));
+        assert!(!parser.is_in_scope("p", HTML_NAMESPACE, Scope::Select));
     }
 
     #[test]
@@ -3896,10 +3908,10 @@ mod test {
         let mut parser = Html5Parser::new_parser(chars);
 
         parser.open_elements.clear();
-        assert!(!parser.is_in_scope("p", Scope::Regular));
-        assert!(!parser.is_in_scope("p", Scope::Button));
-        assert!(!parser.is_in_scope("p", Scope::ListItem));
-        assert!(!parser.is_in_scope("p", Scope::Select));
+        assert!(!parser.is_in_scope("p", HTML_NAMESPACE, Scope::Regular));
+        assert!(!parser.is_in_scope("p", HTML_NAMESPACE, Scope::Button));
+        assert!(!parser.is_in_scope("p", HTML_NAMESPACE, Scope::ListItem));
+        assert!(!parser.is_in_scope("p", HTML_NAMESPACE, Scope::Select));
     }
 
     #[test]
@@ -3912,10 +3924,10 @@ mod test {
         node_create!(parser, "p");
         node_create!(parser, "button");
 
-        assert!(!parser.is_in_scope("foo", Scope::Regular));
-        assert!(!parser.is_in_scope("foo", Scope::Button));
-        assert!(!parser.is_in_scope("foo", Scope::ListItem));
-        assert!(!parser.is_in_scope("foo", Scope::Select));
+        assert!(!parser.is_in_scope("foo", HTML_NAMESPACE, Scope::Regular));
+        assert!(!parser.is_in_scope("foo", HTML_NAMESPACE, Scope::Button));
+        assert!(!parser.is_in_scope("foo", HTML_NAMESPACE, Scope::ListItem));
+        assert!(!parser.is_in_scope("foo", HTML_NAMESPACE, Scope::Select));
     }
 
     #[test]
@@ -3931,29 +3943,29 @@ mod test {
         node_create!(parser, "p");
         node_create!(parser, "span");
 
-        assert!(parser.is_in_scope("p", Scope::Regular));
-        assert!(parser.is_in_scope("p", Scope::ListItem));
-        assert!(parser.is_in_scope("p", Scope::Button));
-        assert!(parser.is_in_scope("p", Scope::Table));
-        assert!(!parser.is_in_scope("p", Scope::Select));
+        assert!(parser.is_in_scope("p", HTML_NAMESPACE, Scope::Regular));
+        assert!(parser.is_in_scope("p", HTML_NAMESPACE, Scope::ListItem));
+        assert!(parser.is_in_scope("p", HTML_NAMESPACE, Scope::Button));
+        assert!(parser.is_in_scope("p", HTML_NAMESPACE, Scope::Table));
+        assert!(!parser.is_in_scope("p", HTML_NAMESPACE, Scope::Select));
 
-        assert!(!parser.is_in_scope("div", Scope::Regular));
-        assert!(!parser.is_in_scope("div", Scope::ListItem));
-        assert!(!parser.is_in_scope("div", Scope::Button));
-        assert!(!parser.is_in_scope("div", Scope::Table));
-        assert!(!parser.is_in_scope("div", Scope::Select));
+        assert!(!parser.is_in_scope("div", HTML_NAMESPACE, Scope::Regular));
+        assert!(!parser.is_in_scope("div", HTML_NAMESPACE, Scope::ListItem));
+        assert!(!parser.is_in_scope("div", HTML_NAMESPACE, Scope::Button));
+        assert!(!parser.is_in_scope("div", HTML_NAMESPACE, Scope::Table));
+        assert!(!parser.is_in_scope("div", HTML_NAMESPACE, Scope::Select));
 
-        assert!(!parser.is_in_scope("tr", Scope::Regular));
-        assert!(!parser.is_in_scope("tr", Scope::ListItem));
-        assert!(!parser.is_in_scope("tr", Scope::Button));
-        assert!(parser.is_in_scope("tr", Scope::Table));
-        assert!(!parser.is_in_scope("tr", Scope::Select));
+        assert!(!parser.is_in_scope("tr", HTML_NAMESPACE, Scope::Regular));
+        assert!(!parser.is_in_scope("tr", HTML_NAMESPACE, Scope::ListItem));
+        assert!(!parser.is_in_scope("tr", HTML_NAMESPACE, Scope::Button));
+        assert!(parser.is_in_scope("tr", HTML_NAMESPACE, Scope::Table));
+        assert!(!parser.is_in_scope("tr", HTML_NAMESPACE, Scope::Select));
 
-        assert!(!parser.is_in_scope("xmp", Scope::Regular));
-        assert!(!parser.is_in_scope("xmp", Scope::ListItem));
-        assert!(!parser.is_in_scope("xmp", Scope::Button));
-        assert!(!parser.is_in_scope("xmp", Scope::Table));
-        assert!(!parser.is_in_scope("xmp", Scope::Select));
+        assert!(!parser.is_in_scope("xmp", HTML_NAMESPACE, Scope::Regular));
+        assert!(!parser.is_in_scope("xmp", HTML_NAMESPACE, Scope::ListItem));
+        assert!(!parser.is_in_scope("xmp", HTML_NAMESPACE, Scope::Button));
+        assert!(!parser.is_in_scope("xmp", HTML_NAMESPACE, Scope::Table));
+        assert!(!parser.is_in_scope("xmp", HTML_NAMESPACE, Scope::Select));
     }
 
     #[test]
@@ -3968,11 +3980,11 @@ mod test {
         node_create!(parser, "div");
         node_create!(parser, "button");
 
-        assert!(parser.is_in_scope("li", Scope::Regular));
-        assert!(parser.is_in_scope("li", Scope::ListItem));
-        assert!(!parser.is_in_scope("li", Scope::Button));
-        assert!(parser.is_in_scope("li", Scope::Table));
-        assert!(!parser.is_in_scope("li", Scope::Select));
+        assert!(parser.is_in_scope("li", HTML_NAMESPACE, Scope::Regular));
+        assert!(parser.is_in_scope("li", HTML_NAMESPACE, Scope::ListItem));
+        assert!(!parser.is_in_scope("li", HTML_NAMESPACE, Scope::Button));
+        assert!(parser.is_in_scope("li", HTML_NAMESPACE, Scope::Table));
+        assert!(!parser.is_in_scope("li", HTML_NAMESPACE, Scope::Select));
     }
 
     #[test]
@@ -3987,11 +3999,11 @@ mod test {
         node_create!(parser, "li");
         node_create!(parser, "p");
 
-        assert!(parser.is_in_scope("li", Scope::Regular));
-        assert!(parser.is_in_scope("li", Scope::ListItem));
-        assert!(parser.is_in_scope("li", Scope::Button));
-        assert!(parser.is_in_scope("li", Scope::Table));
-        assert!(!parser.is_in_scope("li", Scope::Select));
+        assert!(parser.is_in_scope("li", HTML_NAMESPACE, Scope::Regular));
+        assert!(parser.is_in_scope("li", HTML_NAMESPACE, Scope::ListItem));
+        assert!(parser.is_in_scope("li", HTML_NAMESPACE, Scope::Button));
+        assert!(parser.is_in_scope("li", HTML_NAMESPACE, Scope::Table));
+        assert!(!parser.is_in_scope("li", HTML_NAMESPACE, Scope::Select));
     }
 
     #[test]
@@ -4008,11 +4020,11 @@ mod test {
         node_create!(parser, "button");
         node_create!(parser, "span");
 
-        assert!(parser.is_in_scope("td", Scope::Regular));
-        assert!(parser.is_in_scope("td", Scope::ListItem));
-        assert!(!parser.is_in_scope("td", Scope::Button));
-        assert!(parser.is_in_scope("td", Scope::Table));
-        assert!(!parser.is_in_scope("td", Scope::Select));
+        assert!(parser.is_in_scope("td", HTML_NAMESPACE, Scope::Regular));
+        assert!(parser.is_in_scope("td", HTML_NAMESPACE, Scope::ListItem));
+        assert!(!parser.is_in_scope("td", HTML_NAMESPACE, Scope::Button));
+        assert!(parser.is_in_scope("td", HTML_NAMESPACE, Scope::Table));
+        assert!(!parser.is_in_scope("td", HTML_NAMESPACE, Scope::Select));
     }
 
     #[test]
@@ -4028,11 +4040,11 @@ mod test {
         node_create!(parser, "a");
         node_create!(parser, "span");
 
-        assert!(!parser.is_in_scope("div", Scope::Regular));
-        assert!(!parser.is_in_scope("div", Scope::ListItem));
-        assert!(!parser.is_in_scope("div", Scope::Button));
-        assert!(parser.is_in_scope("div", Scope::Table));
-        assert!(!parser.is_in_scope("div", Scope::Select));
+        assert!(!parser.is_in_scope("div", HTML_NAMESPACE, Scope::Regular));
+        assert!(!parser.is_in_scope("div", HTML_NAMESPACE, Scope::ListItem));
+        assert!(!parser.is_in_scope("div", HTML_NAMESPACE, Scope::Button));
+        assert!(parser.is_in_scope("div", HTML_NAMESPACE, Scope::Table));
+        assert!(!parser.is_in_scope("div", HTML_NAMESPACE, Scope::Select));
     }
 
     #[test]
@@ -4048,11 +4060,11 @@ mod test {
         node_create!(parser, "marquee");
         node_create!(parser, "p");
 
-        assert!(!parser.is_in_scope("ul", Scope::Regular));
-        assert!(!parser.is_in_scope("ul", Scope::ListItem));
-        assert!(!parser.is_in_scope("ul", Scope::Button));
-        assert!(parser.is_in_scope("ul", Scope::Table));
-        assert!(!parser.is_in_scope("ul", Scope::Select));
+        assert!(!parser.is_in_scope("ul", HTML_NAMESPACE, Scope::Regular));
+        assert!(!parser.is_in_scope("ul", HTML_NAMESPACE, Scope::ListItem));
+        assert!(!parser.is_in_scope("ul", HTML_NAMESPACE, Scope::Button));
+        assert!(parser.is_in_scope("ul", HTML_NAMESPACE, Scope::Table));
+        assert!(!parser.is_in_scope("ul", HTML_NAMESPACE, Scope::Select));
     }
 
     #[test]
@@ -4067,11 +4079,11 @@ mod test {
         node_create!(parser, "caption");
         node_create!(parser, "p");
 
-        assert!(!parser.is_in_scope("table", Scope::Regular));
-        assert!(!parser.is_in_scope("table", Scope::ListItem));
-        assert!(!parser.is_in_scope("table", Scope::Button));
-        assert!(parser.is_in_scope("table", Scope::Table));
-        assert!(!parser.is_in_scope("table", Scope::Select));
+        assert!(!parser.is_in_scope("table", HTML_NAMESPACE, Scope::Regular));
+        assert!(!parser.is_in_scope("table", HTML_NAMESPACE, Scope::ListItem));
+        assert!(!parser.is_in_scope("table", HTML_NAMESPACE, Scope::Button));
+        assert!(parser.is_in_scope("table", HTML_NAMESPACE, Scope::Table));
+        assert!(!parser.is_in_scope("table", HTML_NAMESPACE, Scope::Select));
     }
 
     #[test]
@@ -4085,11 +4097,11 @@ mod test {
         node_create!(parser, "optgroup");
         node_create!(parser, "option");
 
-        assert!(parser.is_in_scope("select", Scope::Regular));
-        assert!(parser.is_in_scope("select", Scope::ListItem));
-        assert!(parser.is_in_scope("select", Scope::Button));
-        assert!(parser.is_in_scope("select", Scope::Table));
-        assert!(parser.is_in_scope("select", Scope::Select));
+        assert!(parser.is_in_scope("select", HTML_NAMESPACE, Scope::Regular));
+        assert!(parser.is_in_scope("select", HTML_NAMESPACE, Scope::ListItem));
+        assert!(parser.is_in_scope("select", HTML_NAMESPACE, Scope::Button));
+        assert!(parser.is_in_scope("select", HTML_NAMESPACE, Scope::Table));
+        assert!(parser.is_in_scope("select", HTML_NAMESPACE, Scope::Select));
     }
 
     #[test]
