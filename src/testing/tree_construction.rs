@@ -614,12 +614,23 @@ pub fn fixtures(filenames: Option<&[&str]>) -> Result<Vec<FixtureFile>> {
     for entry in fs::read_dir(root)? {
         let path = entry?.path();
 
-        if !use_fixture(filenames, &path) {
-            continue;
-        }
+        if path.is_file() {
+            if !use_fixture(filenames, &path) {
+                continue;
+            }
 
-        let file = fixture_from_path(&path)?;
-        files.push(file);
+            let file = fixture_from_path(&path)?;
+            files.push(file);
+        } else {
+            for subentry in fs::read_dir(path)? {
+                let path = subentry?.path();
+                if !use_fixture(filenames, &path) {
+                    continue;
+                }
+                let file = fixture_from_path(&path)?;
+                files.push(file);
+            }
+        }
     }
 
     Ok(files)
