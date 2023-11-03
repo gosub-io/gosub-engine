@@ -235,14 +235,23 @@ impl Test {
             // First, create a (fake) main document that contains only the fragment as node
             let main_document = DocumentBuilder::new_document();
             let mut main_document = Document::clone(&main_document);
+            let (element, namespace) = if fragment.starts_with("svg ") {
+                (
+                    fragment.strip_prefix("svg ").unwrap().to_string(),
+                    SVG_NAMESPACE,
+                )
+            } else if fragment.starts_with("math ") {
+                (
+                    fragment.strip_prefix("math ").unwrap().to_string(),
+                    MATHML_NAMESPACE,
+                )
+            } else {
+                (fragment, HTML_NAMESPACE)
+            };
 
             // Add context node
-            let context_node_id = main_document.create_element(
-                fragment.as_str(),
-                NodeId::root(),
-                None,
-                HTML_NAMESPACE,
-            );
+            let context_node_id =
+                main_document.create_element(element.as_str(), NodeId::root(), None, namespace);
             context_node = Some(
                 main_document
                     .get()

@@ -513,13 +513,12 @@ impl<'chars> Html5Parser<'chars> {
             }
             Token::StartTag {
                 name, attributes, ..
-            } if name == "font" => {
-                if attributes.contains_key("color")
+            } if name == "font"
+                && (attributes.contains_key("color")
                     || attributes.contains_key("face")
-                    || attributes.contains_key("size")
-                {
-                    self.process_unexpected_html_tag();
-                }
+                    || attributes.contains_key("size")) =>
+            {
+                self.process_unexpected_html_tag();
             }
             Token::EndTag { name, .. } if name == "br" || name == "p" => {
                 self.process_unexpected_html_tag();
