@@ -5,6 +5,7 @@ use crate::html5::node::HTML_NAMESPACE;
 use crate::html5::node::{Node, NodeData, NodeId};
 use crate::html5::parser::quirks::QuirksMode;
 use crate::html5::parser::tree_builder::TreeBuilder;
+use crate::html5::util::is_valid_id_attribute_value;
 use crate::types::{Error, Result};
 use alloc::rc::Rc;
 use core::fmt;
@@ -294,22 +295,6 @@ impl Document {
         self.arena.get_node_mut(*node_id)
     }
 
-    /// according to HTML5 spec: 3.2.3.1
-    /// https://www.w3.org/TR/2011/WD-html5-20110405/elements.html#the-id-attribute
-    fn validate_id_attribute_value(&self, value: &str) -> bool {
-        if value.contains(char::is_whitespace) {
-            return false;
-        }
-
-        if value.is_empty() {
-            return false;
-        }
-
-        // must contain at least one character,
-        // but doesn't specify it should *start* with a character
-        value.contains(char::is_alphabetic)
-    }
-
     pub fn add_new_node(&mut self, node: Node) -> NodeId {
         // if a node contains attributes when adding to the tree,
         // be sure to handle the special attributes "id" and "class"
@@ -338,7 +323,7 @@ impl Document {
         // make named_id (if present) queryable in DOM if it's not mapped already
         if let Some(node_named_id) = node_named_id {
             if !self.named_id_elements.contains_key(&node_named_id)
-                && self.validate_id_attribute_value(&node_named_id)
+                && is_valid_id_attribute_value(&node_named_id)
             {
                 self.named_id_elements
                     .insert(node_named_id.to_owned(), node_id);
@@ -575,7 +560,7 @@ impl Clone for DocumentHandle {
 impl Eq for DocumentHandle {}
 
 impl DocumentHandle {
-    /// Retrieves a immutable reference to the document
+    /// Retrieves an immutable reference to the document
     pub fn get(&self) -> impl Deref<Target = Document> + '_ {
         self.0.borrow()
     }
@@ -618,6 +603,54 @@ impl DocumentHandle {
     pub fn has_cyclic_reference(&self, node_id: NodeId, parent_id: NodeId) -> bool {
         self.get().has_cyclic_reference(node_id, parent_id)
     }
+
+    fn insert_id_attribute(&mut self, value: &str, element_id: NodeId) -> Result<()> {
+        if !is_valid_id_attribute_value(value) {
+            return Err(Error::DocumentTask(format!(
+                "Attribute value '{}' did not pass validation",
+                value
+            )));
+        }
+
+        // an ID must be tied to only one element
+        if self.get().named_id_elements.contains_key(value) {
+            return Err(Error::DocumentTask(format!(
+                "ID '{}' already exists in DOM",
+                value
+            )));
+        }
+
+        let mut doc = self.get_mut();
+        let data = &mut doc
+            .get_node_by_id_mut(element_id)
+            .ok_or(Error::DocumentTask(format!(
+                "Node ID {} not found",
+                element_id
+            )))?
+            .data;
+
+        if let NodeData::Element(_) = data {
+        } else {
+            return Err(Error::DocumentTask(format!(
+                "Node ID {} is not an element",
+                element_id
+            )));
+        }
+
+        let old_id = if let NodeData::Element(element) = data {
+            let attributes = &mut element.attributes;
+            let old_id = attributes.get("id").map(|v| v.to_owned());
+            attributes.insert("id".into(), value.into());
+            old_id
+        } else {
+            None
+        };
+
+        old_id.map(|id| doc.named_id_elements.remove(&id));
+        doc.named_id_elements.insert(value.to_owned(), element_id);
+
+        Ok(())
+    }
 }
 
 impl TreeBuilder for DocumentHandle {
@@ -648,46 +681,14 @@ impl TreeBuilder for DocumentHandle {
     /// Inserts an attribute to an element node.
     /// If node is not an element or if passing an invalid attribute value, returns an Err()
     fn insert_attribute(&mut self, key: &str, value: &str, element_id: NodeId) -> Result<()> {
-        if !self.get().validate_id_attribute_value(value) {
-            return Err(Error::DocumentTask(format!(
-                "Attribute value '{}' did not pass validation",
-                value
-            )));
-        }
-
-        if let Some(node) = self.get_mut().get_node_by_id_mut(element_id) {
-            if let NodeData::Element(element) = &mut node.data {
-                element.attributes.insert(key.to_owned(), value.to_owned());
-            } else {
-                return Err(Error::DocumentTask(format!(
-                    "Node ID {} is not an element",
-                    element_id
-                )));
-            }
-        } else {
-            return Err(Error::DocumentTask(format!(
-                "Node ID {} not found",
-                element_id
-            )));
-        }
-
-        // special cases that need to sync with DOM
         match key {
-            "id" => {
-                // if ID is already in use, ignore
-                if !self.get().named_id_elements.contains_key(value) {
-                    self.get_mut()
-                        .named_id_elements
-                        .insert(value.to_owned(), element_id);
-                }
+            "id" => self.insert_id_attribute(value, element_id),
+            "class" => todo!(),
+            _ => {
+                // TODO: generic element insert here
+                Ok(())
             }
-            "class" => {
-                // this will be upcoming in a later PR
-                todo!()
-            }
-            _ => {}
         }
-        Ok(())
     }
 }
 
@@ -794,14 +795,30 @@ mod tests {
         let div_1 = document.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
         let div_2 = document.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
 
-        // when adding duplicate IDs, our current implementation will ignore duplicates.
+        // when adding duplicate IDs, our current implementation will prevent duplicates.
         let mut res = document.insert_attribute("id", "myid", div_1);
         assert!(res.is_ok());
+
         res = document.insert_attribute("id", "myid", div_2);
-        assert!(res.is_ok());
+        assert!(res.is_err());
+        if let Err(err) = res {
+            assert_eq!(
+                err.to_string(),
+                "document task error: ID 'myid' already exists in DOM"
+            );
+        }
 
         assert_eq!(
             document.get().get_node_by_named_id("myid").unwrap().id,
+            div_1
+        );
+
+        // when div_1's ID changes, "myid" should be removed from the DOM
+        res = document.insert_attribute("id", "newid", div_1);
+        assert!(res.is_ok());
+        assert!(document.get().get_node_by_named_id("myid").is_none());
+        assert_eq!(
+            document.get().get_node_by_named_id("newid").unwrap().id,
             div_1
         );
     }
@@ -953,34 +970,42 @@ mod tests {
 
         // NOTE: inserting attribute in task queue always succeeds
         // since it doesn't touch DOM until flush
-        let _ = task_queue.insert_attribute("id", "myid", NodeId::from(2));
-        let _ = task_queue.insert_attribute("id", "myid", NodeId::from(42));
+        let _ = task_queue.insert_attribute("id", "myid", NodeId::from(1));
+        let _ = task_queue.insert_attribute("id", "myid", NodeId::from(1));
+        let _ = task_queue.insert_attribute("id", "otherid", NodeId::from(2));
+        let _ = task_queue.insert_attribute("id", "dummyid", NodeId::from(42));
         let _ = task_queue.insert_attribute("id", "my id", NodeId::from(1));
         let _ = task_queue.insert_attribute("id", "123", NodeId::from(1));
         let _ = task_queue.insert_attribute("id", "", NodeId::from(1));
         let errors = task_queue.flush();
-        assert_eq!(errors.len(), 5);
+        for error in &errors {
+            println!("{}", error);
+        }
+        assert_eq!(errors.len(), 6);
         assert_eq!(
             errors[0],
+            "document task error: ID 'myid' already exists in DOM",
+        );
+        assert_eq!(
+            errors[1],
             "document task error: Node ID 2 is not an element",
         );
-        assert_eq!(errors[1], "document task error: Node ID 42 not found");
+        assert_eq!(errors[2], "document task error: Node ID 42 not found");
         assert_eq!(
-            errors[2],
+            errors[3],
             "document task error: Attribute value 'my id' did not pass validation",
         );
         assert_eq!(
-            errors[3],
+            errors[4],
             "document task error: Attribute value '123' did not pass validation",
         );
         assert_eq!(
-            errors[4],
+            errors[5],
             "document task error: Attribute value '' did not pass validation",
         );
 
-        // validate that changes did not apply to DOM
+        // validate that invalid changes did not apply to DOM
         let doc_read = document.get();
-        assert!(doc_read.named_id_elements.get("myid").is_none());
         assert!(doc_read.named_id_elements.get("my id").is_none());
         assert!(doc_read.named_id_elements.get("123").is_none());
         assert!(doc_read.named_id_elements.get("").is_none());
