@@ -3829,6 +3829,9 @@ impl<'chars> Html5Parser<'chars> {
 
     /// Find the correct tokenizer state when we are about to parse a fragment case
     fn find_initial_state_for_context(&self, context_node: &Node) -> State {
+        if !context_node.is_namespace(HTML_NAMESPACE) {
+            return State::Data;
+        }
         match context_node.name.as_str() {
             "title" | "textarea" => State::RCDATA,
             "style" | "xmp" | "iframe" | "noembed" | "noframes" => State::RAWTEXT,
