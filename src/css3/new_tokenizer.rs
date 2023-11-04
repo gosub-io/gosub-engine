@@ -141,6 +141,10 @@ impl Token {
         self.kind() == TokenKind::EOF
     }
 
+    pub fn is_whitespace(&self) -> bool {
+        self.kind() == TokenKind::Whitespace
+    }
+
     pub fn value(&self) -> String {
         match self {
             Token::Function(val) => val.clone(),
