@@ -3,7 +3,7 @@ use crate::{bytes::CharIterator, css3::new_tokenizer::Tokenizer};
 
 struct Function {
     name: String,
-    value: Vec<Token>,
+    value: Vec<ComponentValue>,
 }
 
 enum SimpleBlockTokenKind {
@@ -14,9 +14,36 @@ enum SimpleBlockTokenKind {
 
 struct SimpleBlock {
     kind: SimpleBlockTokenKind,
-    value: Vec<Token>,
+    value: Vec<ComponentValue>,
 }
 
+struct AtRule {
+    name: String,
+    prelude: Vec<ComponentValue>,
+    block: Option<SimpleBlock>,
+}
+
+struct QualifiedRule {
+    prelude: Vec<ComponentValue>,
+    block: SimpleBlock,
+}
+
+struct Declaration {
+    name: String,
+    value: Vec<ComponentValue>,
+    important: bool,
+}
+
+enum ComponentValue {
+    /// Any token expect for `<function-token>`, `<{-token>`, `<(-token>`, and `<[-token>` (which are consumed in other higher-level objects)
+    ///
+    /// Note: `<}-token>`, `<)-token>`, `<]-token>`, `<bad-string-token>`, and `<bad-url-token>` are always parse errors.
+    Token(Token),
+    Function(Function),
+    SimpleBlock(SimpleBlock),
+}
+
+// Parser output: at-rules, qualified rules, and/or declarations
 pub struct CSS3Parser<'stream> {
     tokenizer: Tokenizer<'stream>,
 }
@@ -26,8 +53,8 @@ impl<'stream> CSS3Parser<'stream> {
         CSS3Parser { tokenizer }
     }
 
-    pub fn from_input_stream(is: &mut CharIterator) -> CSS3Parser {
-        CSS3Parser::new(Tokenizer::new(is))
+    pub fn from_input_stream(ci: &mut CharIterator) -> CSS3Parser {
+        CSS3Parser::new(Tokenizer::new(ci))
     }
 
     /// [5.3.1. Parse something according to a CSS grammar](https://www.w3.org/TR/css-syntax-3/#parse-grammar)
@@ -41,8 +68,8 @@ impl<'stream> CSS3Parser<'stream> {
     }
 
     /// [5.4.9. Consume a function](https://www.w3.org/TR/css-syntax-3/#consume-function)
-    fn consume_function(&mut self) -> Function {
-        let name = self.consume_token(TokenKind::Function).value();
+    fn consume_function(&mut self) {
+        let _name = self.consume_token(TokenKind::Function).value();
         let mut value = Vec::new();
 
         loop {
@@ -54,15 +81,13 @@ impl<'stream> CSS3Parser<'stream> {
 
             value.push(token);
         }
-
-        Function { name, value }
     }
 
     /// [5.4.7. Consume a component value](https://www.w3.org/TR/css-syntax-3/#consume-a-component-value)
     fn consume_component_value(&mut self) {}
 
     /// [5.4.8. Consume a simple block](https://www.w3.org/TR/css-syntax-3/#consume-a-simple-block)
-    fn consume_simple_block(&mut self) -> SimpleBlock {
+    fn consume_simple_block(&mut self) {
         let start = self.current_token().kind();
         // consume block start  <{-token>, <[-token>, or <(-token>.
         self.consume_token(start);
@@ -80,14 +105,12 @@ impl<'stream> CSS3Parser<'stream> {
             value.push(self.consume_token(TokenKind::Any))
         }
 
-        let kind = match start {
+        let _kind = match start {
             TokenKind::LParen => SimpleBlockTokenKind::Paren,
             TokenKind::LCurly => SimpleBlockTokenKind::Curly,
             TokenKind::LBracket => SimpleBlockTokenKind::Bracket,
             _ => todo!(),
         };
-
-        SimpleBlock { kind, value }
     }
 
     fn current_token(&self) -> Token {
