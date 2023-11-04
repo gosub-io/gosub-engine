@@ -513,13 +513,12 @@ impl<'chars> Html5Parser<'chars> {
             }
             Token::StartTag {
                 name, attributes, ..
-            } if name == "font" => {
-                if attributes.contains_key("color")
+            } if name == "font"
+                && (attributes.contains_key("color")
                     || attributes.contains_key("face")
-                    || attributes.contains_key("size")
-                {
-                    self.process_unexpected_html_tag();
-                }
+                    || attributes.contains_key("size")) =>
+            {
+                self.process_unexpected_html_tag();
             }
             Token::EndTag { name, .. } if name == "br" || name == "p" => {
                 self.process_unexpected_html_tag();
@@ -3830,6 +3829,9 @@ impl<'chars> Html5Parser<'chars> {
 
     /// Find the correct tokenizer state when we are about to parse a fragment case
     fn find_initial_state_for_context(&self, context_node: &Node) -> State {
+        if !context_node.is_namespace(HTML_NAMESPACE) {
+            return State::Data;
+        }
         match context_node.name.as_str() {
             "title" | "textarea" => State::RCDATA,
             "style" | "xmp" | "iframe" | "noembed" | "noframes" => State::RAWTEXT,

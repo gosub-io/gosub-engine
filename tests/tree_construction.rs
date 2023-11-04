@@ -49,7 +49,7 @@ lazy_static! {
 // #[test_case("domjs-unsafe.dat")]
 #[test_case("entities01.dat")]
 #[test_case("entities02.dat")]
-// #[test_case("foreign-fragment.dat")]
+#[test_case("foreign-fragment.dat")]
 #[test_case("html5test-com.dat")]
 #[test_case("inbody01.dat")]
 #[test_case("isindex.dat")]
