@@ -297,7 +297,7 @@ fn test(i: Span) -> IResult<Span, TestSpec> {
 
             TestSpec {
                 position,
-                data: data.to_string().trim_end().to_string(),
+                data: data.to_string().trim_matches(|c| c == '\n').to_string(),
                 errors,
                 new_errors: new_errors.unwrap_or_default(),
                 script_mode,

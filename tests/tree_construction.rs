@@ -11,7 +11,7 @@ const DISABLED_CASES: &[&str] = &[
 
 // See tests/data/html5lib-tests/tree-construction/ for other test files.
 #[test_case("tests1.dat")]
-// #[test_case("tests2.dat")]
+#[test_case("tests2.dat")]
 #[test_case("tests3.dat")]
 #[test_case("tests4.dat")]
 #[test_case("tests5.dat")]

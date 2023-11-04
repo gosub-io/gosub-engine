@@ -2131,7 +2131,9 @@ impl<'chars> Html5Parser<'chars> {
             Token::EndTag { name, .. } if name == "template" => {
                 self.handle_in_head();
             }
-            Token::StartTag { name, .. } if name == "body" => {
+            Token::StartTag {
+                name, attributes, ..
+            } if name == "body" => {
                 self.parse_error("body tag not allowed in in body insertion mode");
 
                 if self.open_elements.len() == 1
@@ -2145,8 +2147,25 @@ impl<'chars> Html5Parser<'chars> {
 
                 self.frameset_ok = false;
 
-                // Add attributes to body element
-                // @TODO add body attributes
+                let body_node_id = self.open_elements.iter().find(|node_id| {
+                    let node = get_node_by_id!(self.document, **node_id);
+                    node.name == "body" && node.is_namespace(HTML_NAMESPACE)
+                });
+
+                if let Some(body_node_id) = body_node_id {
+                    let mut doc = self.document.get_mut();
+                    let body_node = doc
+                        .get_node_by_id_mut(*body_node_id)
+                        .expect("node not found");
+
+                    if let NodeData::Element(element) = &mut body_node.data {
+                        for (key, value) in attributes {
+                            if !element.attributes.contains_key(key) {
+                                element.attributes.insert(key.to_owned(), value.to_owned());
+                            }
+                        }
+                    }
+                }
             }
             Token::StartTag { name, .. } if name == "frameset" => {
                 self.parse_error("frameset tag not allowed in in body insertion mode");

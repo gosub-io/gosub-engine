@@ -29,7 +29,7 @@ fn main() {
         tests_failed: Vec::new(),
     };
 
-    let filenames = Some(&["template.dat"][..]);
+    let filenames = Some(&["tests2.dat"][..]);
     let fixtures = read_fixtures(filenames).expect("fixtures");
 
     for fixture_file in fixtures {
@@ -41,9 +41,9 @@ fn main() {
 
         let mut test_idx = 1;
         for test in fixture_file.tests {
-            if test_idx == 1 {
-                run_test(test_idx, test, &mut results);
-            }
+            // if test_idx == 57 {
+            run_test(test_idx, test, &mut results);
+            // }
             test_idx += 1;
         }
 
@@ -67,7 +67,7 @@ fn main() {
     }
 }
 
-fn run_test(_test_idx: usize, test: Test, all_results: &mut GlobalTestResults) {
+fn run_test(test_idx: usize, test: Test, all_results: &mut GlobalTestResults) {
     #[cfg(feature = "debug_parser_verbose")]
     println!(
         "🧪 Running test #{test_idx}: {}:{}",
@@ -177,26 +177,11 @@ fn run_test(_test_idx: usize, test: Test, all_results: &mut GlobalTestResults) {
     }
 
     // // Display additional data if there a failure is found
-    // if !result.success() {
-    //     all_results
-    //         .tests_failed
-    //         .push((test_idx, test.line, test.data().to_string()));
-    //
-    //     if cfg!(feature = "debug_parser") {
-    //         println!("----------------------------------------");
-    //         println!("📄 Input stream: ");
-    //         println!("{}", test.data());
-    //         println!("----------------------------------------");
-    //         println!("🌳 Generated tree: ");
-    //         println!("{}", result.actual_document);
-    //         println!("----------------------------------------");
-    //         println!("🌳 Expected tree: ");
-    //         for line in &test.document {
-    //             println!("{line}");
-    //         }
-    //     }
-    // }
-    //
-    // #[cfg(feature = "debug_parser")]
-    // println!("----------------------------------------");
+    if !result.is_success() {
+        all_results.tests_failed.push((
+            test_idx,
+            test.line,
+            test.get_document_as_str().to_string(),
+        ));
+    }
 }
