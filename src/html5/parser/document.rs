@@ -1,3 +1,4 @@
+use crate::html5::element_class::ElementClass;
 use crate::html5::node::arena::NodeArena;
 use crate::html5::node::data::doctype::DocTypeData;
 use crate::html5::node::data::{comment::CommentData, text::TextData};
@@ -629,7 +630,34 @@ impl DocumentHandle {
             )))?
             .data;
 
-        if let NodeData::Element(_) = data {
+        let old_id = if let NodeData::Element(element) = data {
+            let attributes = &mut element.attributes;
+            let old_id = attributes.get("id").map(|v| v.to_owned());
+            attributes.insert("id".into(), value.into());
+            old_id
+        } else {
+            return Err(Error::DocumentTask(format!(
+                "Node ID {} is not an element",
+                element_id
+            )));
+        };
+
+        old_id.map(|id| doc.named_id_elements.remove(&id));
+        doc.named_id_elements.insert(value.to_owned(), element_id);
+
+        Ok(())
+    }
+
+    fn insert_class_attribute(&mut self, value: &str, element_id: NodeId) -> Result<()> {
+        let mut doc = self.get_mut();
+        let node = doc
+            .get_node_by_id_mut(element_id)
+            .ok_or(Error::DocumentTask(format!(
+                "Node ID {} not found",
+                element_id
+            )))?;
+        if let NodeData::Element(element) = &mut node.data {
+            element.classes = ElementClass::from_string(value);
         } else {
             return Err(Error::DocumentTask(format!(
                 "Node ID {} is not an element",
@@ -637,17 +665,30 @@ impl DocumentHandle {
             )));
         }
 
-        let old_id = if let NodeData::Element(element) = data {
-            let attributes = &mut element.attributes;
-            let old_id = attributes.get("id").map(|v| v.to_owned());
-            attributes.insert("id".into(), value.into());
-            old_id
-        } else {
-            None
-        };
+        Ok(())
+    }
 
-        old_id.map(|id| doc.named_id_elements.remove(&id));
-        doc.named_id_elements.insert(value.to_owned(), element_id);
+    fn insert_generic_attribute(
+        &mut self,
+        key: &str,
+        value: &str,
+        element_id: NodeId,
+    ) -> Result<()> {
+        let mut doc = self.get_mut();
+        let node = doc
+            .get_node_by_id_mut(element_id)
+            .ok_or(Error::DocumentTask(format!(
+                "Node ID {} not found",
+                element_id
+            )))?;
+        if let NodeData::Element(element) = &mut node.data {
+            element.attributes.insert(key.to_owned(), value.to_owned());
+        } else {
+            return Err(Error::DocumentTask(format!(
+                "Node ID {} is not an element",
+                element_id
+            )));
+        }
 
         Ok(())
     }
@@ -683,11 +724,8 @@ impl TreeBuilder for DocumentHandle {
     fn insert_attribute(&mut self, key: &str, value: &str, element_id: NodeId) -> Result<()> {
         match key {
             "id" => self.insert_id_attribute(value, element_id),
-            "class" => todo!(),
-            _ => {
-                // TODO: generic element insert here
-                Ok(())
-            }
+            "class" => self.insert_class_attribute(value, element_id),
+            _ => self.insert_generic_attribute(key, value, element_id),
         }
     }
 }
@@ -1093,5 +1131,65 @@ mod tests {
             panic!()
         };
         assert_eq!(p_element.attributes.get("id").unwrap(), "myid");
+    }
+
+    #[test]
+    fn insert_generic_attribute() {
+        let mut doc = DocumentBuilder::new_document();
+        let div_id = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
+        let res = doc.insert_attribute("key", "value", div_id);
+        assert!(res.is_ok());
+        let doc_read = doc.get();
+        let NodeData::Element(element) = &doc_read.get_node_by_id(div_id).unwrap().data else {
+            panic!()
+        };
+        assert_eq!(element.attributes.get("key").unwrap(), "value");
+    }
+
+    #[test]
+    fn task_queue_insert_generic_attribute() {
+        let doc = DocumentBuilder::new_document();
+        let mut task_queue = DocumentTaskQueue::new(&doc);
+        let div_id = task_queue.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
+        let _ = task_queue.insert_attribute("key", "value", div_id);
+        let errors = task_queue.flush();
+        assert!(errors.is_empty());
+        let doc_read = doc.get();
+        let NodeData::Element(element) = &doc_read.get_node_by_id(div_id).unwrap().data else {
+            panic!()
+        };
+        assert_eq!(element.attributes.get("key").unwrap(), "value");
+    }
+
+    #[test]
+    fn insert_class_attribute() {
+        let mut doc = DocumentBuilder::new_document();
+        let div_id = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
+        let res = doc.insert_attribute("class", "one two three", div_id);
+        assert!(res.is_ok());
+        let doc_read = doc.get();
+        let NodeData::Element(element) = &doc_read.get_node_by_id(div_id).unwrap().data else {
+            panic!()
+        };
+        assert!(element.classes.contains("one"));
+        assert!(element.classes.contains("two"));
+        assert!(element.classes.contains("three"));
+    }
+
+    #[test]
+    fn task_queue_insert_class_attribute() {
+        let doc = DocumentBuilder::new_document();
+        let mut task_queue = DocumentTaskQueue::new(&doc);
+        let div_id = task_queue.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
+        let _ = task_queue.insert_attribute("class", "one two three", div_id);
+        let errors = task_queue.flush();
+        assert!(errors.is_empty());
+        let doc_read = doc.get();
+        let NodeData::Element(element) = &doc_read.get_node_by_id(div_id).unwrap().data else {
+            panic!()
+        };
+        assert!(element.classes.contains("one"));
+        assert!(element.classes.contains("two"));
+        assert!(element.classes.contains("three"));
     }
 }
