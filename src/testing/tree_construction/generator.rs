@@ -1,4 +1,4 @@
-use crate::html5::node::{Node, NodeData, NodeTrait, NodeType};
+use crate::html5::node::{Node, NodeData, NodeTrait, NodeType, HTML_NAMESPACE};
 use crate::html5::node::{MATHML_NAMESPACE, SVG_NAMESPACE, XLINK_NAMESPACE, XMLNS_NAMESPACE};
 use crate::html5::parser::document::DocumentHandle;
 
@@ -52,7 +52,7 @@ impl TreeOutputGenerator {
             }
 
             // Template tags have an extra "content" node in the test tree ouput
-            if node.name == "template" {
+            if node.name == "template" && node.is_namespace(HTML_NAMESPACE) {
                 output.push(format!("| {}content", "  ".repeat(indent_level)));
                 indent_level += 1;
             }

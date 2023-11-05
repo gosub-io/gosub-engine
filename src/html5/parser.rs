@@ -3028,8 +3028,8 @@ impl<'chars> Html5Parser<'chars> {
 
                 self.pop_until_named("template");
                 self.active_formatting_elements_clear_until_marker();
-                self.reset_insertion_mode();
                 self.template_insertion_mode.pop();
+                self.reset_insertion_mode();
             }
             Token::StartTag { name, .. } if name == "head" => {
                 self.parse_error("head tag not allowed in in head insertion mode");
@@ -3753,10 +3753,16 @@ impl<'chars> Html5Parser<'chars> {
     }
 
     fn parser_data(&self) -> ParserData {
+        if self.open_elements.is_empty() {
+            return ParserData {
+                adjusted_node_namespace: HTML_NAMESPACE.to_string(),
+            };
+        }
+
         let namespace = self
             .get_adjusted_current_node()
             .namespace
-            .unwrap_or_default();
+            .expect("namespace not found");
 
         ParserData {
             adjusted_node_namespace: namespace,

@@ -29,7 +29,7 @@ fn main() {
         tests_failed: Vec::new(),
     };
 
-    let filenames = Some(&["plain-text-unsafe.dat"][..]);
+    let filenames = Some(&["html5test-com.dat"][..]);
     let fixtures = read_fixtures(filenames).expect("fixtures");
 
     for fixture_file in fixtures {
@@ -41,7 +41,7 @@ fn main() {
 
         let mut test_idx = 1;
         for test in fixture_file.tests {
-            if test_idx == 11 {
+            if test_idx == 14 {
                 run_test(test_idx, test, &mut results);
             }
             test_idx += 1;

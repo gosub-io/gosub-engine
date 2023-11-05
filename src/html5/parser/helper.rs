@@ -256,7 +256,7 @@ impl Html5Parser<'_> {
         if !(self.foster_parenting
             && ["table", "tbody", "thead", "tfoot", "tr"].contains(&target_node.name.as_str()))
         {
-            if target_node.name == "template" {
+            if target_node.name == "template" && target_node.is_namespace(HTML_NAMESPACE) {
                 if let NodeData::Element(element) = target_node.data {
                     if let Some(template_contents) = element.template_contents {
                         return InsertionPositionMode::LastChild {
