@@ -1,5 +1,6 @@
 use super::FIXTURE_ROOT;
 use crate::bytes::CharIterator;
+use crate::html5::tokenizer::ParserData;
 use crate::html5::{
     error_logger::ErrorLogger,
     tokenizer::{
@@ -211,12 +212,12 @@ impl TestSpec {
             // If there is no output, still do an (initial) next token so the parser can generate
             // errors.
             if self.output.is_empty() {
-                tokenizer.next_token().unwrap();
+                tokenizer.next_token(ParserData::default()).unwrap();
             }
 
             // There can be multiple tokens to match. Make sure we match all of them
             for expected in self.output.iter() {
-                let actual = tokenizer.next_token().unwrap();
+                let actual = tokenizer.next_token(ParserData::default()).unwrap();
                 assert_eq!(self.escape(&actual), self.escape(expected));
             }
 
@@ -237,7 +238,7 @@ impl TestSpec {
             let mut tokenizer = builder.build();
 
             for _ in self.output.iter() {
-                tokenizer.next_token().unwrap();
+                tokenizer.next_token(ParserData::default()).unwrap();
             }
         }
     }

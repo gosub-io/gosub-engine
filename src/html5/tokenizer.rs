@@ -8,6 +8,7 @@ use crate::bytes::Bytes::{self, *};
 use crate::bytes::SeekMode::SeekCur;
 use crate::bytes::{CharIterator, Position};
 use crate::html5::error_logger::{ErrorLogger, ParserError};
+use crate::html5::node::HTML_NAMESPACE;
 use crate::html5::tokenizer::state::State;
 use crate::html5::tokenizer::token::Token;
 use crate::types::{Error, Result};
@@ -48,6 +49,21 @@ pub struct Tokenizer<'stream> {
     pub last_start_token: String,
     /// Error logger to log errors to
     pub error_logger: Rc<RefCell<ErrorLogger>>,
+}
+
+/// This struct is a gateway between the parser and the tokenizer. It holds data that can be needed
+/// by the tokenizer in certain cases. See https://github.com/gosub-browser/gosub-engine/issues/230 for
+/// more information and how we should refactor this properly.
+pub struct ParserData {
+    pub adjusted_node_namespace: String,
+}
+
+impl Default for ParserData {
+    fn default() -> Self {
+        ParserData {
+            adjusted_node_namespace: HTML_NAMESPACE.to_string(),
+        }
+    }
 }
 
 /// Options that can be passed to the tokenizer. Mostly needed when dealing with tests.
@@ -103,8 +119,8 @@ impl<'stream> Tokenizer<'stream> {
     }
 
     /// Retrieves the next token from the input stream or Token::EOF when the end is reached
-    pub fn next_token(&mut self) -> Result<Token> {
-        self.consume_stream()?;
+    pub fn next_token(&mut self, parser_data: ParserData) -> Result<Token> {
+        self.consume_stream(parser_data)?;
 
         if self.token_queue.is_empty() {
             return Ok(Token::Eof);
@@ -124,7 +140,7 @@ impl<'stream> Tokenizer<'stream> {
     }
 
     /// Consumes the input stream. Continues until the stream is completed or a token has been generated.
-    fn consume_stream(&mut self) -> Result<()> {
+    fn consume_stream(&mut self, parser_data: ParserData) -> Result<()> {
         loop {
             // Something is already in the token buffer, so we can return it.
             if !self.token_queue.is_empty() {
@@ -1210,9 +1226,11 @@ impl<'stream> Tokenizer<'stream> {
                     if self.chars.look_ahead_slice(7) == "[CDATA[" {
                         self.chars.seek(SeekCur, 7);
 
-                        // @TODO: If there is an adjusted current node and it is not an element in the HTML namespace,
-                        // then switch to the CDATA section state. Otherwise, this is a cdata-in-html-content parse error.
-                        // Create a comment token whose data is the "[CDATA[" string. Switch to the bogus comment state.
+                        if parser_data.adjusted_node_namespace != HTML_NAMESPACE {
+                            self.state = State::CDATASection;
+                            continue;
+                        }
+
                         self.parse_error(ParserError::CdataInHtmlContent);
                         self.current_token = Some(Token::Comment("[CDATA[".into()));
 

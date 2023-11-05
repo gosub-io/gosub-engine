@@ -17,7 +17,7 @@ use crate::html5::parser::document::{Document, DocumentBuilder, DocumentFragment
 use crate::html5::parser::quirks::QuirksMode;
 use crate::html5::tokenizer::state::State;
 use crate::html5::tokenizer::token::Token;
-use crate::html5::tokenizer::{Tokenizer, CHAR_NUL, CHAR_REPLACEMENT};
+use crate::html5::tokenizer::{ParserData, Tokenizer, CHAR_NUL, CHAR_REPLACEMENT};
 use crate::types::{ParseError, Result};
 use alloc::rc::Rc;
 use core::cell::RefCell;
@@ -3752,13 +3752,27 @@ impl<'chars> Html5Parser<'chars> {
         }
     }
 
+    fn parser_data(&self) -> ParserData {
+        let namespace = self
+            .get_adjusted_current_node()
+            .namespace
+            .unwrap_or_default();
+
+        ParserData {
+            adjusted_node_namespace: namespace,
+        }
+    }
+
     /// Fetches the next token from the tokenizer. However, if the token is a text token AND
     /// it starts with one or more whitespaces, the token is split into 2 tokens: the whitespace part
     /// and the remainder.
     fn fetch_next_token(&mut self) -> Token {
         // If there are no tokens to fetch, fetch the next token from the tokenizer
         if self.token_queue.is_empty() {
-            let token = self.tokenizer.next_token().expect("tokenizer error");
+            let token = self
+                .tokenizer
+                .next_token(self.parser_data())
+                .expect("tokenizer error");
 
             if let Token::Text(value) = token {
                 for c in value.chars() {

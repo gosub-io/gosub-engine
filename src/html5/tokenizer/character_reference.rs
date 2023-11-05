@@ -6,6 +6,7 @@ use crate::bytes::{
 };
 use crate::html5::error_logger::ParserError;
 use crate::html5::tokenizer::replacement_tables::{TOKEN_NAMED_CHARS, TOKEN_REPLACEMENTS};
+
 use crate::html5::tokenizer::{Tokenizer, CHAR_REPLACEMENT};
 use lazy_static::lazy_static;
 
@@ -350,6 +351,7 @@ lazy_static! {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::html5::tokenizer::ParserData;
     use crate::{bytes::CharIterator, html5::error_logger::ErrorLogger};
     use std::cell::RefCell;
     use std::rc::Rc;
@@ -367,7 +369,7 @@ mod tests {
                     let error_logger = Rc::new(RefCell::new(ErrorLogger::new()));
                     let mut tokenizer = Tokenizer::new(&mut chars, None, error_logger.clone());
 
-                    let token = tokenizer.next_token().unwrap();
+                    let token = tokenizer.next_token(ParserData::default()).unwrap();
                     assert_eq!(expected, token.to_string());
                 }
             )*
