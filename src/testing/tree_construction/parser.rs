@@ -15,13 +15,13 @@ pub const QUOTED_DOUBLE_NEWLINE: &str = ":quoted-double-newline:";
 
 type Span<'a> = LocatedSpan<&'a str>;
 
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Default)]
 pub struct Position {
     pub line: usize,
     pub col: usize,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum ErrorSpec {
     Message(String),
 
@@ -42,14 +42,15 @@ pub enum ErrorSpec {
     },
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Default)]
 pub enum ScriptMode {
     ScriptOn,
     ScriptOff,
+    #[default]
     Both,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Default, Clone)]
 pub struct TestSpec {
     /// #data section
     pub data: String,
@@ -296,7 +297,7 @@ fn test(i: Span) -> IResult<Span, TestSpec> {
 
             TestSpec {
                 position,
-                data: data.to_string(),
+                data: data.to_string().trim_matches(|c| c == '\n').to_string(),
                 errors,
                 new_errors: new_errors.unwrap_or_default(),
                 script_mode,
@@ -307,7 +308,7 @@ fn test(i: Span) -> IResult<Span, TestSpec> {
     )(i)
 }
 
-pub fn parse_str(i: &str) -> Result<Vec<TestSpec>> {
+pub fn parse_fixture(i: &str) -> Result<Vec<TestSpec>> {
     // Deal with a corner case that makes it hard to parse tricky01.dat.
     let input = i.replace("\"\n\n\"", QUOTED_DOUBLE_NEWLINE).to_owned() + "\n";
 
@@ -333,6 +334,9 @@ mod tests {
 
     #[test]
     fn parse_data() {
+        let (_, s) = data("#data\n         Test \n#errors\n".into()).unwrap();
+        assert_eq!(*s.fragment(), "Test \n");
+
         let (_, s) = data("#data\n         Test \n#errors".into()).unwrap();
         assert_eq!(*s.fragment(), "Test \n");
 
@@ -387,7 +391,7 @@ Test
 "#,
         );
 
-        assert_eq!(test.data, "Test\n");
+        assert_eq!(test.data, "Test");
         assert_eq!(
             test.errors,
             &[ErrorSpec::Location {

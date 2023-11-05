@@ -1,12 +1,10 @@
-use gosub_engine::{
-    testing::{
-        self,
-        tree_construction::{ErrorResult, NodeResult, SubtreeResult, Test, TestResult},
-    },
-    types::Result,
-};
+use gosub_engine::testing::tree_construction::fixture::read_fixtures;
+use gosub_engine::testing::tree_construction::result::ResultStatus;
+use gosub_engine::testing::tree_construction::Harness;
+use gosub_engine::testing::tree_construction::Test;
 
-pub struct TestResults {
+/// Holds the results from all tests that are executed
+pub struct TotalTestResults {
     /// Number of tests (as defined in the suite)
     tests: usize,
     /// Number of assertions (different combinations of input/output per test)
@@ -21,8 +19,8 @@ pub struct TestResults {
     tests_failed: Vec<(usize, usize, String)>,
 }
 
-fn main() -> Result<()> {
-    let mut results = TestResults {
+fn main() {
+    let mut results = TotalTestResults {
         tests: 0,
         assertions: 0,
         succeeded: 0,
@@ -31,8 +29,8 @@ fn main() -> Result<()> {
         tests_failed: Vec::new(),
     };
 
-    let filenames = Some(&["doctype01.dat"][..]);
-    let fixtures = testing::tree_construction::fixtures(filenames).expect("fixtures");
+    let filenames = Some(&["tests2.dat"][..]);
+    let fixtures = read_fixtures(filenames).expect("fixtures");
 
     for fixture_file in fixtures {
         println!(
@@ -43,8 +41,8 @@ fn main() -> Result<()> {
 
         let mut test_idx = 1;
         for test in fixture_file.tests {
-            // if test_idx == 81 {
-            run_tree_test(test_idx, &test, &mut results);
+            // if test_idx == 57 {
+            run_test(test_idx, test, &mut results);
             // }
             test_idx += 1;
         }
@@ -67,10 +65,9 @@ fn main() -> Result<()> {
             println!("    {}", data);
         }
     }
-    Ok(())
 }
 
-fn run_tree_test(test_idx: usize, test: &Test, all_results: &mut TestResults) {
+fn run_test(test_idx: usize, test: Test, all_results: &mut TotalTestResults) {
     #[cfg(feature = "debug_parser_verbose")]
     println!(
         "🧪 Running test #{test_idx}: {}:{}",
@@ -79,189 +76,110 @@ fn run_tree_test(test_idx: usize, test: &Test, all_results: &mut TestResults) {
 
     all_results.tests += 1;
 
-    let results = test.run().expect("problem running tree construction test");
+    let mut harness = Harness::new();
+    let result = harness
+        .run_test(test.clone(), false)
+        .expect("problem parsing");
 
-    for result in results {
-        #[cfg(feature = "debug_parser")]
-        print_test_result(&result);
+    // #[cfg(feature = "debug_parser")]
+    // print_test_result(&result);
 
-        // Check the document tree, which counts as a single assertion
+    for entry in &result.tree_results {
         all_results.assertions += 1;
-        if result.success() {
-            all_results.succeeded += 1;
-        } else {
-            all_results.failed += 1;
+
+        match entry.result {
+            ResultStatus::Success => {
+                all_results.succeeded += 1;
+
+                #[cfg(feature = "debug_parser")]
+                println!("✅  {}", entry.actual);
+            }
+            ResultStatus::Missing => {
+                all_results.failed += 1;
+
+                #[cfg(feature = "debug_parser")]
+                println!("❌ {} (missing)", entry.expected);
+            }
+            ResultStatus::Additional => {
+                all_results.failed += 1;
+
+                #[cfg(feature = "debug_parser")]
+                println!("❌ {} (unexpected)", entry.actual);
+            }
+            ResultStatus::Mismatch => {
+                all_results.failed += 1;
+
+                #[cfg(feature = "debug_parser")]
+                println!("❌ {} (wanted: {})", entry.actual, entry.expected);
+            }
+            _ => {}
         }
+    }
 
-        let errors = test.errors();
+    for entry in &result.error_results {
+        all_results.assertions += 1;
 
-        if result.actual_errors.len() != errors.len() {
-            #[cfg(feature = "debug_parser")]
-            println!(
-                "⚠️ Unexpected errors found (wanted {}, got {}): ",
-                errors.len(),
-                result.actual_errors.len()
-            );
+        match entry.result {
+            ResultStatus::Success => {
+                all_results.succeeded += 1;
 
-            // for want_err in &test.errors {
-            //     println!(
-            //         "     * Want: '{}' at {}:{}",
-            //         want_err.code, want_err.line, want_err.col
-            //     );
-            // }
-            // for got_err in &parse_errors {
-            //     println!(
-            //         "     * Got: '{}' at {}:{}",
-            //         got_err.message, got_err.line, got_err.col
-            //     );
-            // }
-            // results.assertions += 1;
-            // results.failed += 1;
-        } else {
-            #[cfg(feature = "debug_parser")]
-            println!("✅  Found {} errors", result.actual_errors.len());
-        }
+                #[cfg(feature = "debug_parser")]
+                println!(
+                    "✅  ({}:{}) {}",
+                    entry.actual.line, entry.actual.col, entry.actual.message
+                );
+            }
+            ResultStatus::Missing => {
+                all_results.failed += 1;
 
-        // For now, we skip the tests that checks for errors as most of the errors do not match
-        // with the actual tests, as these errors as specific from html5lib. Either we reuse them
-        // or have some kind of mapping to our own errors if we decide to use our custom errors.
+                #[cfg(feature = "debug_parser")]
+                println!(
+                    "❌ ({}:{}) {} (missing)",
+                    entry.expected.line, entry.expected.col, entry.expected.message
+                );
+            }
+            ResultStatus::Additional => {
+                all_results.failed += 1;
 
-        // // Check each error messages
-        // let mut idx = 0;
-        // for error in &test.errors {
-        //     if parse_errors.get(idx).is_none() {
-        //         println!("❌ Expected error '{}' at {}:{}", error.code, error.line, error.col);
-        //         results.assertions += 1;
-        //         results.failed += 1;
-        //         continue;
-        //     }
-        //
-        //     let err = parse_errors.get(idx).unwrap();
-        //     let got_error = Error{
-        //         code: err.message.to_string(),
-        //         line: err.line as i64,
-        //         col: err.col as i64,
-        //     };
-        //
-        //     match match_error(&got_error, &error) {
-        //         ErrorResult::Failure => {
-        //             results.assertions += 1;
-        //             results.failed += 1;
-        //         },
-        //         ErrorResult::PositionFailure => {
-        //             results.assertions += 1;
-        //             results.failed += 1;
-        //             results.failed_position += 1;
-        //         },
-        //         ErrorResult::Success => {
-        //             results.assertions += 1;
-        //             results.succeeded += 1;
-        //         }
-        //     }
-        //
-        //     idx += 1;
-        // }
+                #[cfg(feature = "debug_parser")]
+                println!(
+                    "❌ ({}:{}) {} (unexpected)",
+                    entry.actual.line, entry.actual.col, entry.actual.message
+                );
+            }
+            ResultStatus::Mismatch => {
+                all_results.failed += 1;
 
-        // Display additional data if there a failure is found
-        if !result.success() {
-            all_results
-                .tests_failed
-                .push((test_idx, test.line, test.data().to_string()));
+                #[cfg(feature = "debug_parser")]
+                println!(
+                    "❌ ({}:{}) {} (wanted: {})",
+                    entry.actual.line,
+                    entry.actual.col,
+                    entry.actual.message,
+                    entry.expected.message
+                );
+            }
+            ResultStatus::IncorrectPosition => {
+                all_results.failed += 1;
+                all_results.failed_position += 1;
 
-            if cfg!(feature = "debug_parser") {
-                println!("----------------------------------------");
-                println!("📄 Input stream: ");
-                println!("{}", test.data());
-                println!("----------------------------------------");
-                println!("🌳 Generated tree: ");
-                println!("{}", result.actual_document);
-                println!("----------------------------------------");
-                println!("🌳 Expected tree: ");
-                for line in &test.document {
-                    println!("{line}");
-                }
+                #[cfg(feature = "debug_parser")]
+                println!(
+                    "❌ ({}:{}) (wanted: ({}::{})) {}",
+                    entry.actual.line,
+                    entry.actual.col,
+                    entry.expected.line,
+                    entry.expected.col,
+                    entry.expected.message
+                );
             }
         }
-
-        #[cfg(feature = "debug_parser")]
-        println!("----------------------------------------");
-    }
-}
-
-#[allow(dead_code)]
-fn print_test_result(result: &TestResult) {
-    // We need a better tree match system. Right now we match the tree based on the (debug) output
-    // of the tree. Instead, we should generate a document-tree from the expected output and compare
-    // it against the current generated tree.
-    print_node_result(&result.root)
-}
-
-#[allow(dead_code)]
-fn print_node_result(result: &SubtreeResult) {
-    match &result.node {
-        Some(NodeResult::ElementMatchSuccess { actual }) => {
-            println!("✅  {actual}");
-        }
-
-        Some(NodeResult::AttributeMatchFailure { name, expected, .. }) => {
-            println!("❌ {expected}, Found unexpected attribute: {name}");
-        }
-
-        Some(NodeResult::ElementMatchFailure {
-            actual, expected, ..
-        }) => {
-            println!("❌ {expected}, Found unexpected element node: {actual}");
-        }
-
-        Some(NodeResult::TextMatchSuccess { expected }) => {
-            println!("✅  {expected}");
-        }
-
-        Some(NodeResult::TextMatchFailure { expected, text, .. }) => {
-            println!("❌ {expected}, Found unexpected text node: {text}");
-        }
-
-        Some(NodeResult::DocTypeMatchFailure {
-            actual, expected, ..
-        }) => {
-            println!("❌ {actual}, Found unexpected doctype node: {expected}");
-        }
-
-        Some(NodeResult::CommentMatchFailure {
-            expected, comment, ..
-        }) => {
-            println!("❌ {expected}, Found unexpected comment node: {comment}");
-        }
-
-        None => {}
     }
 
-    result.children.iter().for_each(print_node_result);
-}
-
-#[allow(dead_code)]
-fn match_error(result: ErrorResult) {
-    match result {
-        ErrorResult::Success { actual } => {
-            println!(
-                "✅  Found parse error '{}' at {}:{}",
-                actual.code, actual.line, actual.col
-            );
-        }
-
-        ErrorResult::Failure { expected, .. } => {
-            println!(
-                "❌ Expected error '{}' at {}:{}",
-                expected.code, expected.line, expected.col
-            );
-        }
-
-        ErrorResult::PositionFailure { actual, expected } => {
-            // Found an error with the same code, but different line/pos
-            println!(
-                "⚠️ Unexpected error position '{}' at {}:{} (got: {}:{})",
-                expected.code, expected.line, expected.col, actual.line, actual.col
-            );
-        }
+    // // Display additional data if there a failure is found
+    if !result.is_success() {
+        all_results
+            .tests_failed
+            .push((test_idx, test.line, test.document_as_str().to_string()));
     }
 }
