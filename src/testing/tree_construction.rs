@@ -24,7 +24,7 @@ use crate::{
 use result::TestResult;
 
 /// Holds a single parser test
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Test {
     /// Filename of the test
     pub file_path: String,
@@ -34,17 +34,6 @@ pub struct Test {
     pub spec: TestSpec,
     /// The document tree as found in the spec converted to an array
     pub document: Vec<String>,
-}
-
-impl Clone for Test {
-    fn clone(&self) -> Self {
-        Self {
-            file_path: self.file_path.clone(),
-            line: self.line,
-            spec: self.spec.clone(),
-            document: self.document.clone(),
-        }
-    }
 }
 
 impl Test {
