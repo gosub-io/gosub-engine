@@ -14,7 +14,6 @@ use crate::types::{Error, Result};
 use std::cell::{Ref, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
-use crate::html5::node::HTML_NAMESPACE;
 
 /// Constants that are not directly captured as visible chars
 pub const CHAR_NUL: char = '\u{0000}';

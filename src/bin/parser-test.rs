@@ -178,10 +178,8 @@ fn run_test(test_idx: usize, test: Test, all_results: &mut TotalTestResults) {
 
     // // Display additional data if there a failure is found
     if !result.is_success() {
-        all_results.tests_failed.push((
-            test_idx,
-            test.line,
-            test.document_as_str().to_string(),
-        ));
+        all_results
+            .tests_failed
+            .push((test_idx, test.line, test.document_as_str().to_string()));
     }
 }

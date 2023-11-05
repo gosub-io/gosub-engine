@@ -1,5 +1,5 @@
 use gosub_engine::testing::tree_construction::fixture::{
-    get_fixture_root_path, read_fixture_from_path,
+    fixture_root_path, read_fixture_from_path,
 };
 use gosub_engine::testing::tree_construction::Harness;
 use test_case::test_case;
@@ -68,7 +68,7 @@ const DISABLED_CASES: &[&str] = &[
 #[test_case("webkit02.dat")]
 fn tree_construction(filename: &str) {
     let fixture_file =
-        read_fixture_from_path(&get_fixture_root_path().join(filename)).expect("fixture");
+        read_fixture_from_path(&fixture_root_path().join(filename)).expect("fixture");
     let mut harness = Harness::new();
 
     for test in fixture_file.tests {
