@@ -33,6 +33,33 @@ struct QualifiedRule {
     block: SimpleBlock,
 }
 
+impl Default for QualifiedRule {
+    fn default() -> Self {
+        QualifiedRule {
+            prelude: Vec::new(),
+            block: SimpleBlock {
+                kind: SimpleBlockTokenKind::Curly,
+                value: Vec::new(),
+            },
+        }
+    }
+}
+
+impl QualifiedRule {
+    pub fn set_block(&mut self, block: SimpleBlock) {
+        self.block = block;
+    }
+
+    pub fn add_prelude(&mut self, value: ComponentValue) {
+        self.prelude.push(value)
+    }
+}
+
+enum Rule {
+    QualifiedRule(QualifiedRule),
+    AtRule(AtRule),
+}
+
 #[derive(Debug, PartialEq)]
 struct Declaration {
     name: String,
@@ -72,6 +99,170 @@ impl<'stream> CSS3Parser<'stream> {
     /// [5.3.2. Parse A Comma-Separated List According To A CSS Grammar](https://www.w3.org/TR/css-syntax-3/#parse-comma-list)
     fn parse_comma_separated_list() {
         todo!()
+    }
+
+    /// [5.4.1. Consume a list of rules](https://www.w3.org/TR/css-syntax-3/#consume-list-of-rules)
+    fn consume_rules_list(&mut self, is_top_level: bool) -> Vec<Rule> {
+        let mut rules = Vec::new();
+
+        loop {
+            if self.current_token().is_whitespace() {
+                self.consume_token(TokenKind::Whitespace);
+                continue;
+            }
+
+            if self.current_token().is_eof() {
+                break; // return rules list
+            }
+
+            if self.current_token().kind() == TokenKind::CDO
+                || self.current_token().kind() == TokenKind::CDC
+            {
+                self.consume_token(TokenKind::Any);
+
+                if is_top_level {
+                    continue; // do nothing
+                }
+
+                if let Some(rule) = self.consuem_qualified_rules() {
+                    rules.push(Rule::QualifiedRule(rule));
+                    continue;
+                }
+            }
+
+            if self.current_token().kind() == TokenKind::AtKeyword {
+                rules.push(Rule::AtRule(self.consume_at_rule()));
+                continue;
+            }
+
+            if let Some(rule) = self.consuem_qualified_rules() {
+                rules.push(Rule::QualifiedRule(rule));
+                continue;
+            }
+        }
+
+        rules
+    }
+
+    /// [5.4.2. Consume an at-rule](https://www.w3.org/TR/css-syntax-3/#consume-at-rule)
+    fn consume_at_rule(&mut self) -> AtRule {
+        let name = self.consume_token(TokenKind::AtKeyword).value();
+        let mut prelude = Vec::new();
+        let mut block = None;
+
+        loop {
+            // eof: parser error
+            if self.current_token().kind() == TokenKind::Semicolon || self.current_token().is_eof()
+            {
+                break; // return the block
+            }
+
+            if self.current_token().kind() == TokenKind::LCurly {
+                let token = self.consume_token(TokenKind::LCurly);
+                block = Some(self.consume_simple_block(token.kind()));
+                break; // return the block
+            }
+
+            prelude.push(self.consume_component_value());
+        }
+
+        AtRule {
+            name,
+            prelude,
+            block,
+        }
+    }
+
+    /// [5.4.3. Consume a qualified rule](https://www.w3.org/TR/css-syntax-3/#consume-qualified-rule)
+    fn consuem_qualified_rules(&mut self) -> Option<QualifiedRule> {
+        let mut rule = QualifiedRule::default();
+
+        loop {
+            // eof: parser error
+            if self.current_token().is_eof() {
+                return None;
+            }
+
+            if self.current_token().kind() == TokenKind::LCurly {
+                let token = self.consume_token(TokenKind::LCurly);
+                rule.set_block(self.consume_simple_block(token.kind()));
+                return Some(rule);
+            }
+
+            rule.add_prelude(self.consume_component_value());
+        }
+    }
+
+    /// [5.4.4. Consume a style block’s contents](https://www.w3.org/TR/css-syntax-3/#consume-style-block)
+    fn consume_style_block_content(&mut self) {
+        // let declarations = Vec::new();
+        // let rules = Vec::new();
+
+        loop {
+            let token = self.current_token();
+
+            if token.is_whitespace() || token.kind() == TokenKind::Semicolon {
+                self.consume_token(TokenKind::Any);
+                continue;
+            }
+
+            if token.is_eof() {
+                // Extend decls with rules, then return decls.
+            }
+
+            if token.kind() == TokenKind::AtKeyword {
+                // todo: consume at-rule
+            }
+
+            if token.kind() == TokenKind::Ident {
+                // todo
+            }
+
+            if token == Token::Delim('&') {
+                // todo: consume qualified rules
+            }
+
+            // anything else is a parser error
+            // clean up: consume a component value and do nothing
+            while !self.current_token().is_eof()
+                && self.current_token().kind() == TokenKind::Semicolon
+            {
+                self.consume_component_value();
+            }
+        }
+    }
+
+    /// [5.4.5. Consume a list of declarations](https://www.w3.org/TR/css-syntax-3/#consume-list-of-declarations)
+    fn consume_declaration_list(&mut self) -> Vec<Declaration> {
+        let declarations = Vec::new();
+        loop {
+            let token = self.current_token();
+
+            if token.is_whitespace() || token.kind() == TokenKind::Semicolon {
+                self.consume_token(TokenKind::Any);
+                continue;
+            }
+
+            if token.is_eof() {
+                break;
+            };
+
+            if token.kind() == TokenKind::AtKeyword {
+                //todo: consume an at-rule
+            }
+
+            if token.kind() == TokenKind::Ident {
+                let _list = vec![self.consume_token(TokenKind::Any)];
+
+                while self.current_token().kind() != TokenKind::Semicolon
+                    && !self.current_token().is_eof()
+                {
+                    // todo: consume a component value
+                }
+            }
+        }
+
+        declarations
     }
 
     /// [5.4.6. Consume a declaration](https://www.w3.org/TR/css-syntax-3/#consume-declaration)
