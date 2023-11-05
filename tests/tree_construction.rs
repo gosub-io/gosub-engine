@@ -73,7 +73,7 @@ fn tree_construction(filename: &str) {
 
     for test in fixture_file.tests {
         // skip disabled tests
-        if DISABLED_CASES.contains(&test.get_document_as_str()) {
+        if DISABLED_CASES.contains(&test.document_as_str()) {
             continue;
         }
 
@@ -87,7 +87,7 @@ fn tree_construction(filename: &str) {
                 "tree construction: {}:{} {}",
                 test.file_path,
                 test.line,
-                test.get_document_as_str()
+                test.document_as_str()
             );
             assert!(result.is_success());
         }

@@ -57,7 +57,7 @@ impl Test {
         }
     }
 
-    pub fn get_document_as_str(&self) -> &str {
+    pub fn document_as_str(&self) -> &str {
         return self.spec.document.as_str();
     }
 }
@@ -161,7 +161,7 @@ impl Harness {
     }
 
     /// Retrieves the next line from the spec document
-    fn get_next_line(&mut self) -> Option<String> {
+    fn next_line(&mut self) -> Option<String> {
         let mut line = String::new();
         let mut is_multi_line_text = false;
 
@@ -217,7 +217,7 @@ impl Harness {
         for actual_line in actual {
             let mut status = ResultStatus::Success;
 
-            let expected_line = self.get_next_line();
+            let expected_line = self.next_line();
             match expected_line.clone() {
                 Some(expected_line) => {
                     if actual_line != expected_line {
@@ -240,7 +240,7 @@ impl Harness {
 
         // Check if we have additional lines and if so, add as errors
         loop {
-            let expected_line = self.get_next_line();
+            let expected_line = self.next_line();
             if expected_line.is_none() {
                 break;
             }

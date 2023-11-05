@@ -21,6 +21,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
 };
+use crate::html5::parser::Html5Parser;
 
 pub struct TokenizerBuilder {
     chars: CharIterator,
@@ -205,18 +206,22 @@ impl TestSpec {
     }
 
     pub fn assert_valid(&self) {
+        // Dummy parser, as a tokenizer needs a parser to function correctly (for callbacks)
+        let mut ci = CharIterator::new();
+        let dummy_parser = Html5Parser::new_parser(&mut ci);
+
         for mut builder in self.builders() {
             let mut tokenizer = builder.build();
 
             // If there is no output, still do an (initial) next token so the parser can generate
             // errors.
             if self.output.is_empty() {
-                tokenizer.next_token().unwrap();
+                tokenizer.next_token(&dummy_parser).unwrap();
             }
 
             // There can be multiple tokens to match. Make sure we match all of them
             for expected in self.output.iter() {
-                let actual = tokenizer.next_token().unwrap();
+                let actual = tokenizer.next_token(&dummy_parser).unwrap();
                 assert_eq!(self.escape(&actual), self.escape(expected));
             }
 

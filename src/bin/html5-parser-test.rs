@@ -1,5 +1,5 @@
 use gosub_engine::testing::tree_construction::fixture::{
-    get_fixture_root_path, read_fixture_from_path,
+    fixture_root_path, read_fixture_from_path,
 };
 use gosub_engine::testing::tree_construction::Harness;
 use gosub_engine::types::Result;
@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
 fn main() -> Result<()> {
-    let mut files = get_files_from_path(get_fixture_root_path());
+    let mut files = get_files_from_path(fixture_root_path());
     files.sort();
 
     let mut total = 0;
@@ -18,7 +18,7 @@ fn main() -> Result<()> {
         // if file != "math.dat" {
         //     continue;
         // }
-        let fixture = read_fixture_from_path(&get_fixture_root_path().join(file))?;
+        let fixture = read_fixture_from_path(&fixture_root_path().join(file))?;
 
         print!("Test: ({:3}) {} [", fixture.tests.len(), file);
         let _ = std::io::stdout().flush();

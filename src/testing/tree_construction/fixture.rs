@@ -50,7 +50,7 @@ fn use_fixture(filenames: &[&str], path: &Path) -> bool {
 }
 
 /// Returns the root path for the fixtures
-pub fn get_fixture_root_path() -> PathBuf {
+pub fn fixture_root_path() -> PathBuf {
     PathBuf::from(FIXTURE_ROOT).join(TREE_CONSTRUCTION_PATH)
 }
 
@@ -60,7 +60,7 @@ pub fn read_fixtures(filenames: Option<&[&str]>) -> Result<Vec<FixtureFile>, Err
     let filenames = filenames.unwrap_or_default();
     let mut files = vec![];
 
-    for entry in fs::read_dir(get_fixture_root_path())? {
+    for entry in fs::read_dir(fixture_root_path())? {
         let path = entry?.path();
 
         // Check if the fixture is a correct fixture file and if it's allowed to be used

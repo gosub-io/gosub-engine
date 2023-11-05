@@ -181,7 +181,7 @@ fn run_test(test_idx: usize, test: Test, all_results: &mut GlobalTestResults) {
         all_results.tests_failed.push((
             test_idx,
             test.line,
-            test.get_document_as_str().to_string(),
+            test.document_as_str().to_string(),
         ));
     }
 }
