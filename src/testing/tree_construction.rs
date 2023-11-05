@@ -49,6 +49,10 @@ impl Test {
     pub fn document_as_str(&self) -> &str {
         return self.spec.document.as_str();
     }
+
+    pub fn spec_data(&self) -> &str {
+        return self.spec.data.as_str();
+    }
 }
 
 impl Default for Test {
@@ -133,7 +137,7 @@ impl Harness {
         let options = Html5ParserOptions { scripting_enabled };
 
         let mut chars = CharIterator::new();
-        chars.read_from_str(self.test.spec.data.as_str(), None);
+        chars.read_from_str(self.test.spec_data(), None);
 
         let parse_errors = if is_fragment {
             Html5Parser::parse_fragment(
@@ -228,316 +232,16 @@ impl Harness {
         }
 
         // Check if we have additional lines and if so, add as errors
-        loop {
-            let expected_line = self.next_line();
-            if expected_line.is_none() {
-                break;
-            }
-
+        while let Some(expected_line) = self.next_line() {
             result.tree_results.push(TreeLineResult {
                 index: line_idx,
                 result: ResultStatus::Additional,
-                expected: expected_line.expect("").to_string(),
+                expected: expected_line,
                 actual: "".into(),
             });
             line_idx += 1;
         }
 
-        // if ! result.is_success() {
-        //     let actual = generator.generate();
-        //     let expected = self.test.document.clone();
-        //     println!("\n\nactual   : {:?}", actual);
-        //     println!("expected : {:?}\n\n", expected);
-        // }
-
         result
     }
 }
-
-/*
-    /// Verifies that the tree construction code obtains the right result
-    pub fn assert_valid(&self) {
-        let results = self.run().expect("failed to parse");
-
-        fn assert_tree(tree: &SubtreeResult) {
-            match &tree.node {
-                Some(NodeResult::ElementMatchSuccess { .. })
-                | Some(NodeResult::TextMatchSuccess { .. })
-                | None => {}
-
-                Some(NodeResult::TextMatchFailure {
-                         actual, expected, ..
-                     }) => {
-                    panic!("text match failed, wanted: [{expected}], got: [{actual}]");
-                }
-
-                Some(NodeResult::DocTypeMatchFailure {
-                         actual, expected, ..
-                     }) => {
-                    panic!("doctype match failed, wanted: [{expected}], got: [{actual}]");
-                }
-
-                Some(NodeResult::ElementMatchFailure {
-                         actual,
-                         expected,
-                         name,
-                     }) => {
-                    panic!("element [{name}] match failed, wanted: [{expected}], got: [{actual}]");
-                }
-
-                Some(NodeResult::AttributeMatchFailure {
-                         name,
-                         actual,
-                         expected,
-                     }) => {
-                    panic!(
-                        "attribute [{name}] match failed, wanted: [{expected}], got: [{actual}]"
-                    );
-                }
-
-                Some(NodeResult::CommentMatchFailure {
-                         actual, expected, ..
-                     }) => {
-                    panic!("comment match failed, wanted: [{expected}], got: [{actual}]");
-                }
-            }
-
-            tree.children.iter().for_each(assert_tree);
-        }
-
-        for result in results {
-            assert_tree(&result.result);
-            assert!(result.success(), "invalid tree-construction result");
-        }
-    }
-
-
-    /// Returns true if the whole document tree matches the expected result
-    fn match_document_tree(&self, document: &Document) -> SubtreeResult {
-        if self.spec.document_fragment.is_some() {
-            self.match_node(NodeId::from(1), 0, 0, document)
-        } else {
-            self.match_node(NodeId::root(), 0, -1, document)
-        }
-    }
-
-    /// Match a single node and its children
-    fn match_node(
-        &self,
-        node_idx: NodeId,
-        document_offset_id: isize,
-        indent: isize,
-        document: &Document,
-    ) -> SubtreeResult {
-        let mut next_expected_idx = document_offset_id;
-
-        let node = document.get_node_by_id(node_idx).unwrap();
-
-        let node_result = match &node.data {
-            NodeData::DocType(DocTypeData {
-                                  name,
-                                  pub_identifier,
-                                  sys_identifier,
-                              }) => {
-                let doctype_text = if pub_identifier.is_empty() && sys_identifier.is_empty() {
-                    // <!DOCTYPE html>
-                    name.to_string()
-                } else {
-                    // <!DOCTYPE html "pubid" "sysid">
-                    format!(r#"{name} "{pub_identifier}" "{sys_identifier}""#,)
-                };
-
-                let actual = format!(
-                    "|{}<!DOCTYPE {}>",
-                    " ".repeat(indent as usize * 2 + 1),
-                    doctype_text.trim(),
-                );
-
-                let expected = self.get_next_line().expect("line");
-                if actual != expected {
-                    let node = Some(NodeResult::DocTypeMatchFailure {
-                        actual,
-                        expected: "".to_string(),
-                    });
-
-                    return SubtreeResult {
-                        node,
-                        children: vec![],
-                        next_expected_idx: None,
-                    };
-                }
-
-                Some(NodeResult::TextMatchSuccess { expected })
-            }
-            NodeData::Element(element) => {
-                let prefix: String = match &node.namespace {
-                    Some(namespace) => match namespace.as_str() {
-                        HTML_NAMESPACE => "".into(), // HTML elements don't have a prefix
-                        SVG_NAMESPACE => "svg ".into(),
-                        MATHML_NAMESPACE => "math ".into(),
-                        _ => {
-                            panic!("unknown namespace: {}", namespace);
-                        }
-                    },
-                    None => "".into(),
-                };
-
-                let actual = format!(
-                    "|{}<{}{}>",
-                    " ".repeat((indent as usize * 2) + 1),
-                    prefix,
-                    element.name()
-                );
-
-                let expected = self.get_next_line().expect("line");
-
-                if actual != expected {
-                    let node = Some(NodeResult::ElementMatchFailure {
-                        name: element.name().to_owned(),
-                        actual,
-                        expected,
-                    });
-
-                    return SubtreeResult {
-                        node,
-                        children: vec![],
-                        next_expected_idx: None,
-                    };
-                }
-
-                // Check attributes if any
-
-                // Make sure the attributes are sorted
-                let mut sorted_attrs = vec![];
-                for attr in element.attributes.iter() {
-                    sorted_attrs.push(attr);
-                }
-                sorted_attrs.sort_by(|a, b| a.0.cmp(b.0));
-
-                for attr in sorted_attrs {
-                    let expected = self.get_next_line().expect("line");
-
-                    let actual = format!(
-                        "|{}{}=\"{}\"",
-                        " ".repeat((indent as usize * 2) + 3),
-                        attr.0,
-                        attr.1
-                    );
-
-                    if actual != expected {
-                        let node = Some(NodeResult::AttributeMatchFailure {
-                            name: element.name().to_owned(),
-                            actual,
-                            expected,
-                        });
-
-                        return SubtreeResult {
-                            node,
-                            children: vec![],
-                            next_expected_idx: None,
-                        };
-                    }
-                }
-
-                Some(NodeResult::ElementMatchSuccess { actual })
-            }
-            NodeData::Text(text) => {
-                let actual = format!(
-                    "|{}\"{}\"",
-                    " ".repeat(indent as usize * 2 + 1),
-                    text.value()
-                );
-
-                let expected = self.get_next_line().expect("line");
-                if actual != expected {
-                    let node = Some(NodeResult::TextMatchFailure {
-                        actual,
-                        expected,
-                        text: text.value().to_owned(),
-                    });
-
-                    return SubtreeResult {
-                        node,
-                        children: vec![],
-                        next_expected_idx: None,
-                    };
-                }
-
-                Some(NodeResult::TextMatchSuccess { expected })
-            }
-            NodeData::Comment(comment) => {
-                let actual = format!(
-                    "|{}<!-- {} -->",
-                    " ".repeat(indent as usize * 2 + 1),
-                    comment.value()
-                );
-                let expected = self.get_next_line().expect("line");
-
-                if actual != expected {
-                    let node = Some(NodeResult::CommentMatchFailure {
-                        actual,
-                        expected,
-                        comment: comment.value().to_owned(),
-                    });
-
-                    return SubtreeResult {
-                        node,
-                        children: vec![],
-                        next_expected_idx: None,
-                    };
-                }
-
-                Some(NodeResult::TextMatchSuccess { expected })
-            }
-            _ => None,
-        };
-
-        let mut children = vec![];
-
-        for &child_idx in &node.children {
-            let child_result = self.match_node(child_idx, next_expected_idx, indent + 1, document);
-            let next_id = child_result.next_expected_idx;
-            children.push(child_result);
-
-            if let Some(next_id) = next_id {
-                next_expected_idx = next_id as isize;
-                continue;
-            }
-
-            // Child node didn't match, exit early with what we have
-            return SubtreeResult {
-                node: node_result,
-                next_expected_idx: None,
-                children,
-            };
-        }
-
-        SubtreeResult {
-            node: node_result,
-            children,
-            next_expected_idx: Some(next_expected_idx as usize),
-        }
-    }
-
-    #[allow(dead_code)]
-    fn match_error(actual: &TestError, expected: &TestError) -> ErrorResult {
-        if actual == expected {
-            return ErrorResult::Success {
-                actual: actual.to_owned(),
-            };
-        }
-
-        if actual.code != expected.code {
-            return ErrorResult::Failure {
-                actual: actual.to_owned(),
-                expected: expected.to_owned(),
-            };
-        }
-
-        ErrorResult::PositionFailure {
-            expected: expected.to_owned(),
-            actual: actual.to_owned(),
-        }
-    }
-}
- */
