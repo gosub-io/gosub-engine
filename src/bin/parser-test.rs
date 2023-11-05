@@ -4,7 +4,7 @@ use gosub_engine::testing::tree_construction::Harness;
 use gosub_engine::testing::tree_construction::Test;
 
 /// Holds the results from all tests that are executed
-pub struct GlobalTestResults {
+pub struct TotalTestResults {
     /// Number of tests (as defined in the suite)
     tests: usize,
     /// Number of assertions (different combinations of input/output per test)
@@ -20,7 +20,7 @@ pub struct GlobalTestResults {
 }
 
 fn main() {
-    let mut results = GlobalTestResults {
+    let mut results = TotalTestResults {
         tests: 0,
         assertions: 0,
         succeeded: 0,
@@ -67,7 +67,7 @@ fn main() {
     }
 }
 
-fn run_test(test_idx: usize, test: Test, all_results: &mut GlobalTestResults) {
+fn run_test(test_idx: usize, test: Test, all_results: &mut TotalTestResults) {
     #[cfg(feature = "debug_parser_verbose")]
     println!(
         "🧪 Running test #{test_idx}: {}:{}",
