@@ -4,42 +4,10 @@ use crate::bytes::{
     CharIterator,
 };
 use crate::css3::unicode::{get_unicode_char, UnicodeChar};
+use std::fmt;
 use std::usize;
 
 pub type Number = f32;
-
-// todo: replace `TokenKind` with helper functions on the `Token` enum (e.g., is_url(), is_number())
-#[derive(Debug, PartialEq, Copy, Clone)]
-pub enum TokenKind {
-    AtKeyword,
-    Ident,
-    Function,
-    Url,
-    BadUrl,
-    Dimension,
-    Percentage,
-    Number,
-    QuotedString,
-    BadString,
-    Whitespace,
-    Hash,
-    IDHash,
-    Delim,
-    LCurly,
-    RCurly,
-    LParen,
-    RParen,
-    LBracket,
-    RBracket,
-    Colon,
-    Semicolon,
-    Comma,
-    CDO,
-    CDC,
-    EOF,
-    // Match any token
-    Any,
-}
 
 // todo: add def for each token
 #[derive(Debug, PartialEq, Clone)]
@@ -106,63 +74,148 @@ pub enum Token {
     EOF,
 }
 
+impl fmt::Display for Token {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let string = match self {
+            Token::AtKeyword(val) => val.into(),
+            Token::Url(val) => val.into(),
+            Token::BadUrl(val) => val.into(),
+            Token::Delim(val) => val.to_string(),
+            Token::Function(val) => val.into(),
+            Token::Hash(val) => val.into(),
+            Token::IDHash(val) => val.into(),
+            Token::Ident(val) => val.into(),
+            Token::Number(val) => val.to_string(),
+            Token::Percentage(val) => format!("{}%", val),
+            Token::QuotedString(val) => val.into(),
+            Token::BadString(val) => val.into(),
+            Token::Dimension { unit, value } => format!("{}{}", value, unit),
+            Token::CDC => "-->".into(),
+            Token::CDO => "<!--".into(),
+            Token::Colon => ":".into(),
+            Token::Semicolon => ";".into(),
+            Token::Comma => ",".into(),
+            Token::LBracket => "[".into(),
+            Token::RBracket => "]".into(),
+            Token::LCurly => "{".into(),
+            Token::RCurly => "}".into(),
+            Token::LParen => "(".into(),
+            Token::RParen => ")".into(),
+            Token::Whitespace => " ".into(),
+            Token::EOF => "".into(),
+        };
+
+        write!(f, "{}", string)
+    }
+}
+
 impl Token {
-    pub fn kind(&self) -> TokenKind {
-        match self {
-            Token::AtKeyword(_) => TokenKind::AtKeyword,
-            Token::QuotedString(_) => TokenKind::QuotedString,
-            Token::BadString(_) => TokenKind::BadString,
-            Token::BadUrl(_) => TokenKind::BadUrl,
-            Token::Url(_) => TokenKind::Url,
-            Token::Delim(_) => TokenKind::Delim,
-            Token::Ident(_) => TokenKind::Ident,
-            Token::Function(_) => TokenKind::Function,
-            Token::Dimension { .. } => TokenKind::Dimension,
-            Token::Percentage(_) => TokenKind::Percentage,
-            Token::Number(_) => TokenKind::Number,
-            Token::Hash(_) => TokenKind::Hash,
-            Token::IDHash(_) => TokenKind::IDHash,
-            Token::Whitespace => TokenKind::Whitespace,
-            Token::LCurly => TokenKind::LCurly,
-            Token::RCurly => TokenKind::RCurly,
-            Token::LBracket => TokenKind::LBracket,
-            Token::RBracket => TokenKind::RBracket,
-            Token::LParen => TokenKind::LParen,
-            Token::RParen => TokenKind::RParen,
-            Token::Colon => TokenKind::Colon,
-            Token::Semicolon => TokenKind::Semicolon,
-            Token::Comma => TokenKind::Comma,
-            Token::CDO => TokenKind::CDO,
-            Token::CDC => TokenKind::CDC,
-            Token::EOF => TokenKind::EOF,
-        }
+    pub fn is_at_keyword(&self) -> bool {
+        matches!(self, Token::AtKeyword(..))
+    }
+
+    pub fn is_quoted_str(&self) -> bool {
+        matches!(self, Token::QuotedString(..))
+    }
+
+    pub fn is_bad_str(&self) -> bool {
+        matches!(self, Token::BadString(..))
+    }
+
+    pub fn is_bad_url(&self) -> bool {
+        matches!(self, Token::BadUrl(..))
+    }
+
+    pub fn is_url(&self) -> bool {
+        matches!(self, Token::Url(..))
+    }
+
+    pub fn is_delim(&self) -> bool {
+        matches!(self, Token::Delim(..))
+    }
+
+    pub fn is_ident(&self) -> bool {
+        matches!(self, Token::Ident(..))
+    }
+
+    pub fn is_function(&self) -> bool {
+        matches!(self, Token::Function(..))
+    }
+
+    pub fn is_dimension(&self) -> bool {
+        matches!(self, Token::Dimension { .. })
+    }
+
+    pub fn is_percentage(&self) -> bool {
+        matches!(self, Token::Percentage(..))
+    }
+
+    pub fn is_number(&self) -> bool {
+        matches!(self, Token::Number(..))
+    }
+
+    pub fn is_hash(&self) -> bool {
+        matches!(self, Token::Hash(..))
+    }
+
+    pub fn is_id_hash(&self) -> bool {
+        matches!(self, Token::IDHash(..))
+    }
+
+    pub fn is_left_curl(&self) -> bool {
+        matches!(self, Token::LCurly)
+    }
+
+    pub fn is_right_curl(&self) -> bool {
+        matches!(self, Token::RCurly)
+    }
+
+    pub fn is_left_bracket(&self) -> bool {
+        matches!(self, Token::LBracket)
+    }
+
+    pub fn is_right_bracket(&self) -> bool {
+        matches!(self, Token::RBracket)
+    }
+
+    pub fn is_left_paren(&self) -> bool {
+        matches!(self, Token::LParen)
+    }
+
+    pub fn is_right_paren(&self) -> bool {
+        matches!(self, Token::RParen)
+    }
+
+    pub fn is_colon(&self) -> bool {
+        matches!(self, Token::Colon)
+    }
+
+    pub fn is_semicolon(&self) -> bool {
+        matches!(self, Token::Semicolon)
+    }
+
+    pub fn is_comma(&self) -> bool {
+        matches!(self, Token::Comma)
+    }
+
+    pub fn is_cdo(&self) -> bool {
+        matches!(self, Token::CDO)
+    }
+
+    pub fn is_cdc(&self) -> bool {
+        matches!(self, Token::CDC)
     }
 
     pub fn is_eof(&self) -> bool {
-        self.kind() == TokenKind::EOF
+        matches!(self, Token::EOF)
     }
 
     pub fn is_whitespace(&self) -> bool {
-        self.kind() == TokenKind::Whitespace
+        matches!(self, Token::Whitespace)
     }
 
-    pub fn value(&self) -> String {
-        match self {
-            Token::Function(val) => val.clone(),
-            Token::AtKeyword(val) => val.clone(),
-            Token::QuotedString(val) => val.clone(),
-            Token::BadString(val) => val.clone(),
-            Token::BadUrl(val) => val.clone(),
-            Token::Url(val) => val.clone(),
-            Token::Delim(val) => val.to_string(),
-            Token::Ident(val) => val.clone(),
-            Token::Dimension { unit, .. } => unit.clone(),
-            Token::Percentage(val) => val.to_string(),
-            Token::Number(val) => val.to_string(),
-            Token::Hash(val) => val.clone(),
-            Token::IDHash(val) => val.clone(),
-            _ => String::new(),
-        }
+    pub fn is(&self, token: &Token) -> bool {
+        self == token
     }
 }
 
