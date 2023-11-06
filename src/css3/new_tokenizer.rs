@@ -8,6 +8,7 @@ use std::usize;
 
 pub type Number = f32;
 
+// todo: replace `TokenKind` with helper functions on the `Token` enum (e.g., is_url(), is_number())
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum TokenKind {
     AtKeyword,
