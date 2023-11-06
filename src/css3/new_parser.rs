@@ -1,5 +1,6 @@
-use super::new_tokenizer::{Token, TokenKind};
+use super::new_tokenizer::Token;
 use crate::{bytes::CharIterator, css3::new_tokenizer::Tokenizer};
+use std::convert::From;
 
 #[derive(Debug, PartialEq)]
 struct Function {
@@ -12,6 +13,17 @@ enum SimpleBlockTokenKind {
     Curly,
     Bracket,
     Paren,
+}
+
+impl From<Token> for SimpleBlockTokenKind {
+    fn from(token: Token) -> SimpleBlockTokenKind {
+        match token {
+            _ if token.is_left_paren() => SimpleBlockTokenKind::Paren,
+            _ if token.is_left_curl() => SimpleBlockTokenKind::Curly,
+            _ if token.is_left_bracket() => SimpleBlockTokenKind::Bracket,
+            _ => todo!(),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -107,7 +119,7 @@ impl<'stream> CSS3Parser<'stream> {
 
         loop {
             if self.current_token().is_whitespace() {
-                self.consume_token(TokenKind::Whitespace);
+                self.tokenizer.consume();
                 continue;
             }
 
@@ -115,10 +127,8 @@ impl<'stream> CSS3Parser<'stream> {
                 break; // return rules list
             }
 
-            if self.current_token().kind() == TokenKind::CDO
-                || self.current_token().kind() == TokenKind::CDC
-            {
-                self.consume_token(TokenKind::Any);
+            if self.current_token().is_cdo() || self.current_token().is_cdc() {
+                self.tokenizer.consume();
 
                 if is_top_level {
                     continue; // do nothing
@@ -130,7 +140,7 @@ impl<'stream> CSS3Parser<'stream> {
                 }
             }
 
-            if self.current_token().kind() == TokenKind::AtKeyword {
+            if self.current_token().is_at_keyword() {
                 rules.push(Rule::AtRule(self.consume_at_rule()));
                 continue;
             }
@@ -146,20 +156,19 @@ impl<'stream> CSS3Parser<'stream> {
 
     /// [5.4.2. Consume an at-rule](https://www.w3.org/TR/css-syntax-3/#consume-at-rule)
     fn consume_at_rule(&mut self) -> AtRule {
-        let name = self.consume_token(TokenKind::AtKeyword).value();
+        let name = self.tokenizer.consume().to_string();
         let mut prelude = Vec::new();
         let mut block = None;
 
         loop {
             // eof: parser error
-            if self.current_token().kind() == TokenKind::Semicolon || self.current_token().is_eof()
-            {
+            if self.current_token().is_semicolon() || self.current_token().is_eof() {
                 break; // return the block
             }
 
-            if self.current_token().kind() == TokenKind::LCurly {
-                let token = self.consume_token(TokenKind::LCurly);
-                block = Some(self.consume_simple_block(token.kind()));
+            if self.current_token().is_left_curl() {
+                let token = self.tokenizer.consume();
+                block = Some(self.consume_simple_block(&token));
                 break; // return the block
             }
 
@@ -183,9 +192,9 @@ impl<'stream> CSS3Parser<'stream> {
                 return None;
             }
 
-            if self.current_token().kind() == TokenKind::LCurly {
-                let token = self.consume_token(TokenKind::LCurly);
-                rule.set_block(self.consume_simple_block(token.kind()));
+            if self.current_token().is_left_curl() {
+                let token = self.tokenizer.consume();
+                rule.set_block(self.consume_simple_block(&token));
                 return Some(rule);
             }
 
@@ -201,8 +210,8 @@ impl<'stream> CSS3Parser<'stream> {
         loop {
             let token = self.current_token();
 
-            if token.is_whitespace() || token.kind() == TokenKind::Semicolon {
-                self.consume_token(TokenKind::Any);
+            if token.is_whitespace() || token.is_semicolon() {
+                self.tokenizer.consume();
                 continue;
             }
 
@@ -210,11 +219,11 @@ impl<'stream> CSS3Parser<'stream> {
                 // Extend decls with rules, then return decls.
             }
 
-            if token.kind() == TokenKind::AtKeyword {
+            if token.is_at_keyword() {
                 // todo: consume at-rule
             }
 
-            if token.kind() == TokenKind::Ident {
+            if token.is_ident() {
                 // todo
             }
 
@@ -224,9 +233,7 @@ impl<'stream> CSS3Parser<'stream> {
 
             // anything else is a parser error
             // clean up: consume a component value and do nothing
-            while !self.current_token().is_eof()
-                && self.current_token().kind() == TokenKind::Semicolon
-            {
+            while !self.current_token().is_eof() && self.current_token().is_semicolon() {
                 self.consume_component_value();
             }
         }
@@ -238,8 +245,8 @@ impl<'stream> CSS3Parser<'stream> {
         loop {
             let token = self.current_token();
 
-            if token.is_whitespace() || token.kind() == TokenKind::Semicolon {
-                self.consume_token(TokenKind::Any);
+            if token.is_whitespace() || token.is_semicolon() {
+                self.tokenizer.consume();
                 continue;
             }
 
@@ -247,16 +254,14 @@ impl<'stream> CSS3Parser<'stream> {
                 break;
             };
 
-            if token.kind() == TokenKind::AtKeyword {
+            if token.is_at_keyword() {
                 //todo: consume an at-rule
             }
 
-            if token.kind() == TokenKind::Ident {
-                let _list = vec![self.consume_token(TokenKind::Any)];
+            if token.is_ident() {
+                let _list = vec![self.tokenizer.consume()];
 
-                while self.current_token().kind() != TokenKind::Semicolon
-                    && !self.current_token().is_eof()
-                {
+                while !self.current_token().is_semicolon() && !self.current_token().is_eof() {
                     // todo: consume a component value
                 }
             }
@@ -267,22 +272,22 @@ impl<'stream> CSS3Parser<'stream> {
 
     /// [5.4.6. Consume a declaration](https://www.w3.org/TR/css-syntax-3/#consume-declaration)
     fn consume_declaration(&mut self) -> Option<Declaration> {
-        let name = self.consume_token(TokenKind::Any).value();
+        let name = self.tokenizer.consume().to_string();
         let mut value = Vec::new();
 
         while self.current_token().is_whitespace() {
-            self.consume_token(TokenKind::Any);
+            self.tokenizer.consume();
         }
 
         // parser error
-        if self.current_token().kind() != TokenKind::Semicolon {
+        if !self.current_token().is_semicolon() {
             return None;
         }
 
-        self.consume_token(TokenKind::Semicolon);
+        self.tokenizer.consume();
 
         while self.current_token().is_whitespace() {
-            self.consume_token(TokenKind::Any);
+            self.tokenizer.consume();
         }
 
         while !self.current_token().is_eof() {
@@ -307,51 +312,47 @@ impl<'stream> CSS3Parser<'stream> {
 
     /// [5.4.7. Consume a component value](https://www.w3.org/TR/css-syntax-3/#consume-a-component-value)
     fn consume_component_value(&mut self) -> ComponentValue {
-        let token = self.consume_token(TokenKind::Any);
+        let token = self.tokenizer.consume();
 
-        match token.kind() {
-            TokenKind::LCurly | TokenKind::LBracket | TokenKind::LParen => {
-                ComponentValue::SimpleBlock(self.consume_simple_block(token.kind()))
+        match token {
+            t if t.is_left_curl() || t.is_left_bracket() || t.is_left_paren() => {
+                ComponentValue::SimpleBlock(self.consume_simple_block(&t))
             }
-            TokenKind::Function => ComponentValue::Function(self.consume_function()),
-            _ => ComponentValue::Token(token),
+            t if t.is_function() => ComponentValue::Function(self.consume_function()),
+            t => ComponentValue::Token(t),
         }
     }
 
     /// [5.4.8. Consume a simple block](https://www.w3.org/TR/css-syntax-3/#consume-a-simple-block)
-    fn consume_simple_block(&mut self, ending: TokenKind) -> SimpleBlock {
+    fn consume_simple_block(&mut self, ending: &Token) -> SimpleBlock {
         let mut value = Vec::new();
 
         loop {
             // eof: parser error
-            if self.current_token().kind() == ending || self.current_token().is_eof() {
+            if self.current_token().is(ending) || self.current_token().is_eof() {
                 break;
             }
 
             value.push(self.consume_component_value())
         }
 
-        let kind = match ending {
-            TokenKind::LParen => SimpleBlockTokenKind::Paren,
-            TokenKind::LCurly => SimpleBlockTokenKind::Curly,
-            TokenKind::LBracket => SimpleBlockTokenKind::Bracket,
-            _ => todo!(),
-        };
-
-        SimpleBlock { kind, value }
+        SimpleBlock {
+            kind: SimpleBlockTokenKind::from(ending.clone()),
+            value,
+        }
     }
 
     /// [5.4.9. Consume a function](https://www.w3.org/TR/css-syntax-3/#consume-function)
     fn consume_function(&mut self) -> Function {
-        let name = self.consume_token(TokenKind::Function).value();
+        let name = self.tokenizer.consume().to_string();
         let mut value = Vec::new();
 
         loop {
             let token = self.current_token();
 
-            if token.kind() == TokenKind::LParen || token.is_eof() {
+            if token.is_left_paren() || token.is_eof() {
                 // consume `(` or `EOF`
-                self.consume_token(TokenKind::Any);
+                self.tokenizer.consume();
                 break;
             }
 
@@ -367,16 +368,5 @@ impl<'stream> CSS3Parser<'stream> {
 
     fn next_token(&self) -> Token {
         self.tokenizer.lookahead(1)
-    }
-
-    fn consume_token(&mut self, kind: TokenKind) -> Token {
-        let token = self.tokenizer.consume();
-
-        if kind != TokenKind::Any {
-            // safeguard, not to consume unexpected token
-            assert_eq!(token.kind(), kind);
-        }
-
-        token
     }
 }
