@@ -221,10 +221,17 @@ mod tests {
         let token = Token::Eof;
         assert_eq!(format!("{}", token), "EOF");
     }
+<<<<<<< HEAD
 
     #[test]
     fn test_is_start_tag() {
         let token = Token::StartTag {
+=======
+    
+    #[test]
+    fn test_is_start_tag() {
+        let token = Token::StartTag{
+>>>>>>> fec1688a7f0e533bae30d1111ec4338a17b1ee61
             name: "div".to_string(),
             is_self_closing: false,
             attributes: HashMap::new(),
@@ -232,10 +239,17 @@ mod tests {
         assert!(token.is_start_tag("div"));
         assert!(!token.is_start_tag("span"));
     }
+<<<<<<< HEAD
 
     #[test]
     fn test_is_any_start_tag() {
         let start_tag = Token::StartTag {
+=======
+    
+    #[test]
+    fn test_is_any_start_tag() {
+        let start_tag = Token::StartTag{
+>>>>>>> fec1688a7f0e533bae30d1111ec4338a17b1ee61
             name: "div".to_string(),
             is_self_closing: false,
             attributes: HashMap::new(),
@@ -244,11 +258,19 @@ mod tests {
         assert!(start_tag.is_any_start_tag());
         assert!(!other_tag.is_any_start_tag());
     }
+<<<<<<< HEAD
 
     #[test]
     fn test_is_text_token() {
         let text_token = Token::Text("TestingText".to_string());
         let other_token = Token::StartTag {
+=======
+    
+    #[test]
+    fn test_is_text_token() {
+        let text_token = Token::Text("TestingText".to_string());
+        let other_token = Token::StartTag{
+>>>>>>> fec1688a7f0e533bae30d1111ec4338a17b1ee61
             name: "div".to_string(),
             is_self_closing: false,
             attributes: HashMap::new(),
