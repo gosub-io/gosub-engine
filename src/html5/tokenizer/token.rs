@@ -31,6 +31,31 @@ pub enum Token {
 }
 
 impl Token {
+    pub(crate) fn is_mixed(&self) -> bool {
+        // Check if there are white characters AND non-white characters in the token
+        if let Token::Text(value) = self {
+            let mut found = 0;
+
+            if value.chars().any(|ch| ch.is_ascii_whitespace()) {
+                found += 1;
+            }
+            if value.chars().any(|ch| ch == '\0') {
+                found += 1;
+            }
+            if value
+                .chars()
+                .any(|ch| !ch.is_ascii_whitespace() && ch != '\0')
+            {
+                found += 1;
+            }
+            found > 1
+        } else {
+            false
+        }
+    }
+}
+
+impl Token {
     /// Returns true when any of the characters in the token are null
     pub fn is_null(&self) -> bool {
         if let Token::Text(value) = self {
@@ -48,7 +73,11 @@ impl Token {
     /// Returns true if the text token is empty or only contains whitespace
     pub fn is_empty_or_white(&self) -> bool {
         if let Token::Text(value) = self {
-            ["\u{0009}", "\u{000a}", "\u{000c}", "\u{000d}", "\u{0020}"].contains(&value.as_str())
+            if value.is_empty() {
+                return true;
+            }
+
+            value.chars().all(|ch| ch.is_ascii_whitespace())
         } else {
             false
         }

@@ -1,12 +1,8 @@
 extern crate lazy_static;
 
-use crate::bytes::{
-    Bytes::{self, *},
-    SeekMode::SeekCur,
-};
+use crate::bytes::Bytes::{self, *};
 use crate::html5::error_logger::ParserError;
 use crate::html5::tokenizer::replacement_tables::{TOKEN_NAMED_CHARS, TOKEN_REPLACEMENTS};
-
 use crate::html5::tokenizer::{Tokenizer, CHAR_REPLACEMENT};
 use lazy_static::lazy_static;
 
@@ -62,7 +58,7 @@ impl Tokenizer<'_> {
                 }
                 CcrState::NamedCharacterReference => {
                     if let Some(entity) = self.find_entity() {
-                        self.chars.seek(SeekCur, entity.len() as isize);
+                        self.chars.skip(entity.len());
                         let c = self.chars.look_ahead(0);
 
                         if as_attribute

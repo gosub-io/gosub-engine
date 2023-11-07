@@ -5,7 +5,6 @@ mod character_reference;
 mod replacement_tables;
 
 use crate::bytes::Bytes::{self, *};
-use crate::bytes::SeekMode::SeekCur;
 use crate::bytes::{CharIterator, Position};
 use crate::html5::error_logger::{ErrorLogger, ParserError};
 use crate::html5::node::HTML_NAMESPACE;
@@ -49,6 +48,15 @@ pub struct Tokenizer<'stream> {
     pub last_start_token: String,
     /// Error logger to log errors to
     pub error_logger: Rc<RefCell<ErrorLogger>>,
+}
+
+impl<'stream> Tokenizer<'stream> {
+    pub(crate) fn insert_tokens_at_queue_start(&mut self, first_tokens: Vec<Token>) {
+        let mut new_queue = first_tokens.clone();
+        new_queue.extend(self.token_queue.iter().cloned());
+
+        self.token_queue = new_queue;
+    }
 }
 
 /// This struct is a gateway between the parser and the tokenizer. It holds data that can be needed
@@ -158,7 +166,6 @@ impl<'stream> Tokenizer<'stream> {
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                         }
                         Eof => {
-                            // EOF
                             // if self.has_consumed_data() {
                             //     self.emit_token(Token::TextToken { value: self.get_consumed_str() });
                             //     self.clear_consume_buffer();
@@ -1211,20 +1218,20 @@ impl<'stream> Tokenizer<'stream> {
                         self.current_token = Some(Token::Comment("".into()));
 
                         // Skip the two -- signs
-                        self.chars.seek(SeekCur, 2);
+                        self.chars.skip(2);
 
                         self.state = State::CommentStart;
                         continue;
                     }
 
                     if self.chars.look_ahead_slice(7).to_uppercase() == "DOCTYPE" {
-                        self.chars.seek(SeekCur, 7);
+                        self.chars.skip(7);
                         self.state = State::DOCTYPE;
                         continue;
                     }
 
                     if self.chars.look_ahead_slice(7) == "[CDATA[" {
-                        self.chars.seek(SeekCur, 7);
+                        self.chars.skip(7);
 
                         if parser_data.adjusted_node_namespace != HTML_NAMESPACE {
                             self.state = State::CDATASection;
@@ -1238,9 +1245,9 @@ impl<'stream> Tokenizer<'stream> {
                         continue;
                     }
 
-                    self.chars.seek(SeekCur, 1);
+                    // self.chars.skip(1);
                     self.parse_error(ParserError::IncorrectlyOpenedComment);
-                    self.chars.unread();
+                    // self.chars.unread();
                     self.current_token = Some(Token::Comment("".into()));
 
                     self.state = State::BogusComment;
@@ -1568,20 +1575,20 @@ impl<'stream> Tokenizer<'stream> {
                         _ => {
                             self.chars.unread();
                             if self.chars.look_ahead_slice(6).to_uppercase() == "PUBLIC" {
-                                self.chars.seek(SeekCur, 6);
+                                self.chars.skip(6);
                                 self.state = State::AfterDOCTYPEPublicKeyword;
                                 continue;
                             }
                             if self.chars.look_ahead_slice(6).to_uppercase() == "SYSTEM" {
-                                self.chars.seek(SeekCur, 6);
+                                self.chars.skip(6);
                                 self.state = State::AfterDOCTYPESystemKeyword;
                                 continue;
                             }
                             // Make sure the parser is on the correct position again since we just
                             // unread the character
-                            self.chars.seek(SeekCur, 1);
+                            self.chars.skip(1);
                             self.parse_error(ParserError::InvalidCharacterSequenceAfterDoctypeName);
-                            self.chars.seek(SeekCur, -1);
+                            self.chars.unread();
                             self.set_quirks_mode(true);
                             self.chars.unread();
                             self.state = State::BogusDOCTYPE;

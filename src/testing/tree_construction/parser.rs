@@ -310,8 +310,8 @@ fn test(i: Span) -> IResult<Span, TestSpec> {
 
 /// Trims only a single newline from the string, even if there are multiple newlines present.
 fn trim_last_newline(s: String) -> String {
-    if s.ends_with('\n') {
-        s[..s.len() - 1].to_owned()
+    if let Some(s) = s.strip_suffix('\n') {
+        s.to_owned()
     } else {
         s
     }
