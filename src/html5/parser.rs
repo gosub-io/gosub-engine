@@ -3995,7 +3995,7 @@ impl<'chars> Html5Parser<'chars> {
     /// The idea is that large blobs of javascript for instance will not be split into separate
     /// tokens, but still be seen and parsed as a single TextToken.
     ///
-    fn split_mixed_token(&self, text: &String) -> Vec<Token> {
+    fn split_mixed_token(&self, text: &str) -> Vec<Token> {
         let mut tokens = vec![];
         let mut last_group = 'x';
 
