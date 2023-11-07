@@ -313,7 +313,6 @@ impl<'stream> Tokenizer<'stream> {
                         }
                         _ => {
                             self.parse_error(ParserError::InvalidFirstCharacterOfTagName);
-
                             self.current_token = Some(Token::Comment("".into()));
                             self.chars.unread();
                             self.state = State::BogusComment;
@@ -1245,9 +1244,9 @@ impl<'stream> Tokenizer<'stream> {
                         continue;
                     }
 
-                    // self.chars.skip(1);
+                    self.chars.read_char();
                     self.parse_error(ParserError::IncorrectlyOpenedComment);
-                    // self.chars.unread();
+                    self.chars.unread();
                     self.current_token = Some(Token::Comment("".into()));
 
                     self.state = State::BogusComment;

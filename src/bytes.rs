@@ -1,4 +1,5 @@
 use crate::html5::tokenizer::{CHAR_CR, CHAR_LF};
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
 use std::{fmt, io};
@@ -105,7 +106,7 @@ pub struct CharIterator {
     /// Length (in chars) of the buffer
     pub length: usize,
     /// Offsets of the given lines
-    line_offsets: Vec<usize>,
+    line_columns: HashMap<usize, usize>,
     /// Reference to the actual buffer stream in characters
     buffer: Vec<Bytes>,
     /// Reference to the actual buffer stream in u8 bytes
@@ -132,7 +133,7 @@ impl CharIterator {
                 col: 1,
             },
             length: 0,
-            line_offsets: vec![0], // first line always starts at 0
+            line_columns: HashMap::new(),
             buffer: Vec::new(),
             u8_buffer: Vec::new(),
             has_read_eof: false,
@@ -164,7 +165,7 @@ impl CharIterator {
     /// Skip offset characters in the stream (based on chars)
     pub fn skip(&mut self, offset: usize) {
         let mut skip_len = offset;
-        if self.position.offset + offset > self.length {
+        if self.position.offset + offset >= self.length {
             skip_len = self.length - self.position.offset;
         }
 
@@ -308,11 +309,8 @@ impl CharIterator {
             let c = self.buffer[self.position.offset];
             if c == Ch('\n') {
                 // Store line offset for the given line
-                if self.line_offsets.len() > self.position.line {
-                    self.line_offsets[self.position.line] = self.position.offset;
-                } else {
-                    self.line_offsets.push(self.position.offset);
-                }
+                self.line_columns
+                    .insert(self.position.line, self.position.col);
                 // And continue position on the next line
                 self.position.line += 1;
                 self.position.col = 1;
@@ -352,7 +350,8 @@ impl CharIterator {
 
             if self.position.col == 1 {
                 self.position.line -= 1;
-                self.position.col = self.line_offsets[self.position.line];
+                let key = self.position.line;
+                self.position.col = *self.line_columns.get(&key).unwrap_or(&1);
             } else {
                 self.position.col -= 1;
             }
