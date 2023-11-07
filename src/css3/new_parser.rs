@@ -2,13 +2,13 @@ use super::new_tokenizer::Token;
 use crate::{bytes::CharIterator, css3::new_tokenizer::Tokenizer};
 use std::convert::From;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 struct Function {
     name: String,
     value: Vec<ComponentValue>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 enum SimpleBlockTokenKind {
     Curly,
     Bracket,
@@ -26,7 +26,7 @@ impl From<Token> for SimpleBlockTokenKind {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 struct SimpleBlock {
     kind: SimpleBlockTokenKind,
     value: Vec<ComponentValue>,
@@ -72,6 +72,11 @@ enum Rule {
     AtRule(AtRule),
 }
 
+struct StyleBlockContent {
+    declarations: Vec<Declaration>,
+    rules: Vec<Rule>,
+}
+
 #[derive(Debug, PartialEq)]
 struct Declaration {
     name: String,
@@ -79,7 +84,12 @@ struct Declaration {
     important: bool,
 }
 
-#[derive(Debug, PartialEq)]
+enum DeclarationListValue {
+    Declaration(Declaration),
+    AtRule(AtRule),
+}
+
+#[derive(Debug, PartialEq, Clone)]
 enum ComponentValue {
     /// Any token expect for `<function-token>`, `<{-token>`, `<(-token>`, and `<[-token>` (which are consumed in other higher-level objects)
     ///
@@ -87,6 +97,56 @@ enum ComponentValue {
     Token(Token),
     Function(Function),
     SimpleBlock(SimpleBlock),
+}
+
+impl ComponentValue {
+    fn token(&self) -> Token {
+        match self {
+            ComponentValue::Token(t) => t.clone(),
+            ComponentValue::Function(..) | ComponentValue::SimpleBlock(..) => Token::EOF,
+        }
+    }
+}
+
+#[derive(Debug)]
+struct ValueBuffer {
+    pub values: Vec<ComponentValue>,
+    pub position: usize,
+}
+
+impl ValueBuffer {
+    pub fn new(values: Vec<ComponentValue>) -> Self {
+        Self {
+            values,
+            position: 0,
+        }
+    }
+
+    pub fn lookahead(&self, offset: usize) -> ComponentValue {
+        if self.position + offset >= self.values.len() {
+            return ComponentValue::Token(Token::EOF);
+        }
+
+        self.values[self.position + offset].clone()
+    }
+
+    pub fn current(&self) -> ComponentValue {
+        self.lookahead(0)
+    }
+
+    pub fn next(&self) -> ComponentValue {
+        self.lookahead(1)
+    }
+
+    pub fn consume(&mut self) -> ComponentValue {
+        if self.position >= self.values.len() {
+            return ComponentValue::Token(Token::EOF);
+        }
+
+        let value = &self.values[self.position];
+        self.position += 1;
+        value.clone()
+    }
 }
 
 // Parser output: at-rules, qualified rules, and/or declarations
@@ -114,38 +174,39 @@ impl<'stream> CSS3Parser<'stream> {
     }
 
     /// [5.4.1. Consume a list of rules](https://www.w3.org/TR/css-syntax-3/#consume-list-of-rules)
-    fn consume_rules_list(&mut self, is_top_level: bool) -> Vec<Rule> {
+    fn consume_rules_list(&mut self, vb: &mut ValueBuffer, is_top_level: bool) -> Vec<Rule> {
         let mut rules = Vec::new();
 
         loop {
-            if self.current_token().is_whitespace() {
-                self.tokenizer.consume();
-                continue;
+            if vb.current().token().is_whitespace() {
+                vb.consume();
+                continue; // do nothing
             }
 
-            if self.current_token().is_eof() {
+            if vb.current().token().is_eof() {
                 break; // return rules list
             }
 
-            if self.current_token().is_cdo() || self.current_token().is_cdc() {
-                self.tokenizer.consume();
+            if vb.current().token().is_cdo() || vb.current().token().is_cdc() {
+                // consume `cdo` or `cdc` tokens
+                vb.consume();
 
                 if is_top_level {
                     continue; // do nothing
                 }
 
-                if let Some(rule) = self.consuem_qualified_rules() {
+                if let Some(rule) = self.consume_qualified_rule(vb) {
                     rules.push(Rule::QualifiedRule(rule));
                     continue;
                 }
             }
 
-            if self.current_token().is_at_keyword() {
-                rules.push(Rule::AtRule(self.consume_at_rule()));
+            if vb.current().token().is_at_keyword() {
+                rules.push(Rule::AtRule(self.consume_at_rule(vb)));
                 continue;
             }
 
-            if let Some(rule) = self.consuem_qualified_rules() {
+            if let Some(rule) = self.consume_qualified_rule(vb) {
                 rules.push(Rule::QualifiedRule(rule));
                 continue;
             }
@@ -155,24 +216,26 @@ impl<'stream> CSS3Parser<'stream> {
     }
 
     /// [5.4.2. Consume an at-rule](https://www.w3.org/TR/css-syntax-3/#consume-at-rule)
-    fn consume_at_rule(&mut self) -> AtRule {
-        let name = self.tokenizer.consume().to_string();
+    fn consume_at_rule(&mut self, vb: &mut ValueBuffer) -> AtRule {
+        // consume `<at-keyword-token>`
+        let name = vb.consume().token().to_string();
         let mut prelude = Vec::new();
         let mut block = None;
 
         loop {
             // eof: parser error
-            if self.current_token().is_semicolon() || self.current_token().is_eof() {
+            if vb.current().token().is_semicolon() || vb.current().token().is_eof() {
+                vb.consume();
                 break; // return the block
             }
 
-            if self.current_token().is_left_curl() {
-                let token = self.tokenizer.consume();
-                block = Some(self.consume_simple_block(&token));
+            if vb.current().token().is_left_curl() {
+                let token = vb.consume().token();
+                block = Some(self.consume_simple_block(vb, &token));
                 break; // return the block
             }
 
-            prelude.push(self.consume_component_value());
+            prelude.push(self.consume_component_value(vb));
         }
 
         AtRule {
@@ -183,70 +246,88 @@ impl<'stream> CSS3Parser<'stream> {
     }
 
     /// [5.4.3. Consume a qualified rule](https://www.w3.org/TR/css-syntax-3/#consume-qualified-rule)
-    fn consuem_qualified_rules(&mut self) -> Option<QualifiedRule> {
+    fn consume_qualified_rule(&mut self, vb: &mut ValueBuffer) -> Option<QualifiedRule> {
         let mut rule = QualifiedRule::default();
 
         loop {
             // eof: parser error
-            if self.current_token().is_eof() {
+            if vb.current().token().is_eof() {
                 return None;
             }
 
-            if self.current_token().is_left_curl() {
-                let token = self.tokenizer.consume();
-                rule.set_block(self.consume_simple_block(&token));
+            if vb.current().token().is_left_curl() {
+                let token = vb.consume().token();
+                rule.set_block(self.consume_simple_block(vb, &token));
                 return Some(rule);
             }
 
-            rule.add_prelude(self.consume_component_value());
+            rule.add_prelude(self.consume_component_value(vb));
         }
     }
 
     /// [5.4.4. Consume a style block’s contents](https://www.w3.org/TR/css-syntax-3/#consume-style-block)
-    fn consume_style_block_content(&mut self) {
-        // let declarations = Vec::new();
-        // let rules = Vec::new();
+    fn consume_style_block_content(&mut self, vb: &mut ValueBuffer) -> StyleBlockContent {
+        let mut declarations = Vec::new();
+        let mut rules = Vec::new();
 
         loop {
-            let token = self.current_token();
+            let token = vb.current().token();
 
             if token.is_whitespace() || token.is_semicolon() {
-                self.tokenizer.consume();
-                continue;
+                vb.consume();
+                continue; // do nothing
             }
 
             if token.is_eof() {
-                // Extend decls with rules, then return decls.
+                // specs: Extend decls with rules, then return decls.
+                break;
             }
 
             if token.is_at_keyword() {
                 // todo: consume at-rule
+                rules.push(Rule::AtRule(self.consume_at_rule(vb)))
             }
 
             if token.is_ident() {
-                // todo
+                let mut components = vec![vb.consume()];
+
+                while !vb.current().token().is_whitespace() || !vb.current().token().is_eof() {
+                    components.push(self.consume_component_value(vb))
+                }
+
+                let mut components_vb = ValueBuffer::new(components);
+                if let Some(decl) = self.consume_declaration(&mut components_vb) {
+                    declarations.push(decl)
+                }
             }
 
             if token == Token::Delim('&') {
-                // todo: consume qualified rules
+                if let Some(rule) = self.consume_qualified_rule(vb) {
+                    rules.push(Rule::QualifiedRule(rule))
+                }
             }
 
             // anything else is a parser error
             // clean up: consume a component value and do nothing
-            while !self.current_token().is_eof() && self.current_token().is_semicolon() {
-                self.consume_component_value();
+            while !vb.current().token().is_eof() && !vb.current().token().is_semicolon() {
+                self.consume_component_value(vb);
             }
+        }
+
+        StyleBlockContent {
+            declarations,
+            rules,
         }
     }
 
     /// [5.4.5. Consume a list of declarations](https://www.w3.org/TR/css-syntax-3/#consume-list-of-declarations)
-    fn consume_declaration_list(&mut self) -> Vec<Declaration> {
-        let declarations = Vec::new();
+    fn consume_declaration_list(&mut self, vb: &mut ValueBuffer) -> Vec<DeclarationListValue> {
+        let mut declarations = Vec::new();
         loop {
-            let token = self.current_token();
+            let token = vb.current().token();
 
             if token.is_whitespace() || token.is_semicolon() {
-                self.tokenizer.consume();
+                vb.consume();
                 continue;
             }
 
@@ -255,14 +336,19 @@ impl<'stream> CSS3Parser<'stream> {
             };
 
             if token.is_at_keyword() {
-                //todo: consume an at-rule
+                declarations.push(DeclarationListValue::AtRule(self.consume_at_rule(vb)))
             }
 
             if token.is_ident() {
-                let _list = vec![self.tokenizer.consume()];
+                let mut values = vec![vb.consume()];
 
-                while !self.current_token().is_semicolon() && !self.current_token().is_eof() {
-                    // todo: consume a component value
+                while !vb.current().token().is_semicolon() && !vb.current().token().is_eof() {
+                    values.push(self.consume_component_value(vb))
+                }
+
+                let mut vb = ValueBuffer::new(values);
+                if let Some(declaration) = self.consume_declaration(&mut vb) {
+                    declarations.push(DeclarationListValue::Declaration(declaration))
                 }
             }
         }
@@ -271,27 +357,27 @@ impl<'stream> CSS3Parser<'stream> {
     }
 
     /// [5.4.6. Consume a declaration](https://www.w3.org/TR/css-syntax-3/#consume-declaration)
-    fn consume_declaration(&mut self) -> Option<Declaration> {
-        let name = self.tokenizer.consume().to_string();
+    fn consume_declaration(&mut self, vb: &mut ValueBuffer) -> Option<Declaration> {
+        let name = vb.consume().token().to_string();
         let mut value = Vec::new();
 
-        while self.current_token().is_whitespace() {
-            self.tokenizer.consume();
+        while vb.current().token().is_whitespace() {
+            vb.consume();
         }
 
         // parser error
-        if !self.current_token().is_semicolon() {
+        if !vb.current().token().is_semicolon() {
             return None;
         }
 
-        self.tokenizer.consume();
+        vb.consume();
 
-        while self.current_token().is_whitespace() {
-            self.tokenizer.consume();
+        while vb.current().token().is_whitespace() {
+            vb.consume();
         }
 
-        while !self.current_token().is_eof() {
-            value.push(self.consume_component_value())
+        while !vb.current().token().is_eof() {
+            value.push(self.consume_component_value(vb))
         }
 
         let len = value.len();
@@ -311,29 +397,29 @@ impl<'stream> CSS3Parser<'stream> {
     }
 
     /// [5.4.7. Consume a component value](https://www.w3.org/TR/css-syntax-3/#consume-a-component-value)
-    fn consume_component_value(&mut self) -> ComponentValue {
-        let token = self.tokenizer.consume();
+    fn consume_component_value(&mut self, vb: &mut ValueBuffer) -> ComponentValue {
+        let token = vb.consume().token();
 
         match token {
             t if t.is_left_curl() || t.is_left_bracket() || t.is_left_paren() => {
-                ComponentValue::SimpleBlock(self.consume_simple_block(&t))
+                ComponentValue::SimpleBlock(self.consume_simple_block(vb, &t))
             }
-            t if t.is_function() => ComponentValue::Function(self.consume_function()),
+            t if t.is_function() => ComponentValue::Function(self.consume_function(vb)),
             t => ComponentValue::Token(t),
         }
     }
 
     /// [5.4.8. Consume a simple block](https://www.w3.org/TR/css-syntax-3/#consume-a-simple-block)
-    fn consume_simple_block(&mut self, ending: &Token) -> SimpleBlock {
+    fn consume_simple_block(&mut self, vb: &mut ValueBuffer, ending: &Token) -> SimpleBlock {
         let mut value = Vec::new();
 
         loop {
             // eof: parser error
-            if self.current_token().is(ending) || self.current_token().is_eof() {
+            if vb.current().token().is(ending) || vb.current().token().is_eof() {
                 break;
             }
 
-            value.push(self.consume_component_value())
+            value.push(self.consume_component_value(vb))
         }
 
         SimpleBlock {
@@ -343,30 +429,22 @@ impl<'stream> CSS3Parser<'stream> {
     }
 
     /// [5.4.9. Consume a function](https://www.w3.org/TR/css-syntax-3/#consume-function)
-    fn consume_function(&mut self) -> Function {
-        let name = self.tokenizer.consume().to_string();
+    fn consume_function(&mut self, vb: &mut ValueBuffer) -> Function {
+        let name = vb.consume().token().to_string();
         let mut value = Vec::new();
 
         loop {
-            let token = self.current_token();
+            let token = vb.current().token();
 
             if token.is_left_paren() || token.is_eof() {
                 // consume `(` or `EOF`
-                self.tokenizer.consume();
+                vb.consume();
                 break;
             }
 
-            value.push(self.consume_component_value());
+            value.push(self.consume_component_value(vb));
         }
 
         Function { name, value }
-    }
-
-    fn current_token(&self) -> Token {
-        self.tokenizer.lookahead(0)
-    }
-
-    fn next_token(&self) -> Token {
-        self.tokenizer.lookahead(1)
     }
 }
