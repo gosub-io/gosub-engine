@@ -2116,6 +2116,10 @@ impl<'chars> Html5Parser<'chars> {
     /// Handle insertion mode "in_body"
     fn handle_in_body(&mut self) {
         match &self.current_token.clone() {
+            Token::Text(value) if self.current_token.is_mixed_null() => {
+                let tokens = self.split_mixed_token_null(value);
+                self.tokenizer.insert_tokens_at_queue_start(tokens);
+            }
             Token::Text(..) if self.current_token.is_null() => {
                 self.parse_error("null character not allowed in in body insertion mode");
                 // ignore token
@@ -4005,6 +4009,33 @@ impl<'chars> Html5Parser<'chars> {
             } else {
                 'r'
             };
+
+            if last_group != group && !found.is_empty() {
+                tokens.push(Token::Text(found.clone()));
+                found.clear();
+            }
+
+            found.push(ch);
+            last_group = group;
+        }
+
+        if !found.is_empty() {
+            tokens.push(Token::Text(found.clone()));
+        }
+
+        tokens
+    }
+
+    /// This will split tokens into \0 groups and non-\0 groups.
+    /// @todo: refactor this into split_mixed_token as well, but add a collection of groups callables
+    fn split_mixed_token_null(&self, text: &str) -> Vec<Token> {
+        let mut tokens = vec![];
+        let mut last_group = 'x';
+
+        let mut found = String::new();
+
+        for ch in text.chars() {
+            let group = if ch == '\0' { '0' } else { 'r' };
 
             if last_group != group && !found.is_empty() {
                 tokens.push(Token::Text(found.clone()));
