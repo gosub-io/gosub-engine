@@ -5,9 +5,9 @@ mod character_reference;
 mod replacement_tables;
 
 use crate::bytes::Bytes::{self, *};
-use crate::bytes::SeekMode::SeekCur;
 use crate::bytes::{CharIterator, Position};
 use crate::html5::error_logger::{ErrorLogger, ParserError};
+use crate::html5::node::HTML_NAMESPACE;
 use crate::html5::tokenizer::state::State;
 use crate::html5::tokenizer::token::Token;
 use crate::types::{Error, Result};
@@ -48,6 +48,30 @@ pub struct Tokenizer<'stream> {
     pub last_start_token: String,
     /// Error logger to log errors to
     pub error_logger: Rc<RefCell<ErrorLogger>>,
+}
+
+impl<'stream> Tokenizer<'stream> {
+    pub(crate) fn insert_tokens_at_queue_start(&mut self, first_tokens: Vec<Token>) {
+        let mut new_queue = first_tokens.clone();
+        new_queue.extend(self.token_queue.iter().cloned());
+
+        self.token_queue = new_queue;
+    }
+}
+
+/// This struct is a gateway between the parser and the tokenizer. It holds data that can be needed
+/// by the tokenizer in certain cases. See https://github.com/gosub-browser/gosub-engine/issues/230 for
+/// more information and how we should refactor this properly.
+pub struct ParserData {
+    pub adjusted_node_namespace: String,
+}
+
+impl Default for ParserData {
+    fn default() -> Self {
+        ParserData {
+            adjusted_node_namespace: HTML_NAMESPACE.to_string(),
+        }
+    }
 }
 
 /// Options that can be passed to the tokenizer. Mostly needed when dealing with tests.
@@ -103,8 +127,8 @@ impl<'stream> Tokenizer<'stream> {
     }
 
     /// Retrieves the next token from the input stream or Token::EOF when the end is reached
-    pub fn next_token(&mut self) -> Result<Token> {
-        self.consume_stream()?;
+    pub fn next_token(&mut self, parser_data: ParserData) -> Result<Token> {
+        self.consume_stream(parser_data)?;
 
         if self.token_queue.is_empty() {
             return Ok(Token::Eof);
@@ -124,7 +148,7 @@ impl<'stream> Tokenizer<'stream> {
     }
 
     /// Consumes the input stream. Continues until the stream is completed or a token has been generated.
-    fn consume_stream(&mut self) -> Result<()> {
+    fn consume_stream(&mut self, parser_data: ParserData) -> Result<()> {
         loop {
             // Something is already in the token buffer, so we can return it.
             if !self.token_queue.is_empty() {
@@ -142,7 +166,6 @@ impl<'stream> Tokenizer<'stream> {
                             self.parse_error(ParserError::UnexpectedNullCharacter);
                         }
                         Eof => {
-                            // EOF
                             // if self.has_consumed_data() {
                             //     self.emit_token(Token::TextToken { value: self.get_consumed_str() });
                             //     self.clear_consume_buffer();
@@ -290,7 +313,6 @@ impl<'stream> Tokenizer<'stream> {
                         }
                         _ => {
                             self.parse_error(ParserError::InvalidFirstCharacterOfTagName);
-
                             self.current_token = Some(Token::Comment("".into()));
                             self.chars.unread();
                             self.state = State::BogusComment;
@@ -1195,24 +1217,26 @@ impl<'stream> Tokenizer<'stream> {
                         self.current_token = Some(Token::Comment("".into()));
 
                         // Skip the two -- signs
-                        self.chars.seek(SeekCur, 2);
+                        self.chars.skip(2);
 
                         self.state = State::CommentStart;
                         continue;
                     }
 
                     if self.chars.look_ahead_slice(7).to_uppercase() == "DOCTYPE" {
-                        self.chars.seek(SeekCur, 7);
+                        self.chars.skip(7);
                         self.state = State::DOCTYPE;
                         continue;
                     }
 
                     if self.chars.look_ahead_slice(7) == "[CDATA[" {
-                        self.chars.seek(SeekCur, 7);
+                        self.chars.skip(7);
 
-                        // @TODO: If there is an adjusted current node and it is not an element in the HTML namespace,
-                        // then switch to the CDATA section state. Otherwise, this is a cdata-in-html-content parse error.
-                        // Create a comment token whose data is the "[CDATA[" string. Switch to the bogus comment state.
+                        if parser_data.adjusted_node_namespace != HTML_NAMESPACE {
+                            self.state = State::CDATASection;
+                            continue;
+                        }
+
                         self.parse_error(ParserError::CdataInHtmlContent);
                         self.current_token = Some(Token::Comment("[CDATA[".into()));
 
@@ -1220,7 +1244,7 @@ impl<'stream> Tokenizer<'stream> {
                         continue;
                     }
 
-                    self.chars.seek(SeekCur, 1);
+                    self.chars.read_char();
                     self.parse_error(ParserError::IncorrectlyOpenedComment);
                     self.chars.unread();
                     self.current_token = Some(Token::Comment("".into()));
@@ -1550,20 +1574,20 @@ impl<'stream> Tokenizer<'stream> {
                         _ => {
                             self.chars.unread();
                             if self.chars.look_ahead_slice(6).to_uppercase() == "PUBLIC" {
-                                self.chars.seek(SeekCur, 6);
+                                self.chars.skip(6);
                                 self.state = State::AfterDOCTYPEPublicKeyword;
                                 continue;
                             }
                             if self.chars.look_ahead_slice(6).to_uppercase() == "SYSTEM" {
-                                self.chars.seek(SeekCur, 6);
+                                self.chars.skip(6);
                                 self.state = State::AfterDOCTYPESystemKeyword;
                                 continue;
                             }
                             // Make sure the parser is on the correct position again since we just
                             // unread the character
-                            self.chars.seek(SeekCur, 1);
+                            self.chars.skip(1);
                             self.parse_error(ParserError::InvalidCharacterSequenceAfterDoctypeName);
-                            self.chars.seek(SeekCur, -1);
+                            self.chars.unread();
                             self.set_quirks_mode(true);
                             self.chars.unread();
                             self.state = State::BogusDOCTYPE;

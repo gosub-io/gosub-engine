@@ -17,7 +17,7 @@ use crate::html5::parser::document::{Document, DocumentBuilder, DocumentFragment
 use crate::html5::parser::quirks::QuirksMode;
 use crate::html5::tokenizer::state::State;
 use crate::html5::tokenizer::token::Token;
-use crate::html5::tokenizer::{Tokenizer, CHAR_NUL, CHAR_REPLACEMENT};
+use crate::html5::tokenizer::{ParserData, Tokenizer, CHAR_REPLACEMENT};
 use crate::types::{ParseError, Result};
 use alloc::rc::Rc;
 use core::cell::RefCell;
@@ -444,6 +444,11 @@ impl<'chars> Html5Parser<'chars> {
         let mut handle_as_script_endtag = false;
 
         match &self.current_token.clone() {
+            Token::Text(value) if self.current_token.is_mixed() => {
+                let tokens = self.split_mixed_token(value);
+                self.tokenizer.insert_tokens_at_queue_start(tokens);
+                return;
+            }
             Token::Text(..) if self.current_token.is_null() => {
                 self.parse_error("null character not allowed in foreign content");
                 self.insert_text_element(&Token::Text(CHAR_REPLACEMENT.to_string()));
@@ -630,23 +635,24 @@ impl<'chars> Html5Parser<'chars> {
     fn process_html_content(&mut self) {
         if self.ignore_lf {
             if let Token::Text(value) = &self.current_token {
-                if value.eq(&"\n".to_string()) {
-                    self.current_token = self.fetch_next_token();
+                if value.starts_with('\n') {
+                    // We don't need to skip 1 char, but we can skip 1 byte, as we just checked for \n
+                    self.current_token = Token::Text(value.chars().skip(1).collect::<String>());
                 }
             }
             self.ignore_lf = false;
         }
-
-        // // Break when we reach the end of the token chars
-        // if self.current_token.is_eof() {
-        //     self.parser_finished = true;
-        // }
 
         match self.insertion_mode {
             InsertionMode::Initial => {
                 let mut anything_else = false;
 
                 match &self.current_token.clone() {
+                    Token::Text(value) if self.current_token.is_mixed() => {
+                        let tokens = self.split_mixed_token(value);
+                        self.tokenizer.insert_tokens_at_queue_start(tokens);
+                        return;
+                    }
                     Token::Text(..) if self.current_token.is_empty_or_white() => {
                         // ignore token
                     }
@@ -726,6 +732,11 @@ impl<'chars> Html5Parser<'chars> {
                             Some(NodeId::root()),
                         );
                     }
+                    Token::Text(value) if self.current_token.is_mixed() => {
+                        let tokens = self.split_mixed_token(value);
+                        self.tokenizer.insert_tokens_at_queue_start(tokens);
+                        return;
+                    }
                     Token::Text(..) if self.current_token.is_empty_or_white() => {
                         // ignore token
                     }
@@ -763,6 +774,11 @@ impl<'chars> Html5Parser<'chars> {
                 let mut anything_else = false;
 
                 match &self.current_token {
+                    Token::Text(value) if self.current_token.is_mixed() => {
+                        let tokens = self.split_mixed_token(value);
+                        self.tokenizer.insert_tokens_at_queue_start(tokens);
+                        return;
+                    }
                     Token::Text(..) if self.current_token.is_empty_or_white() => {
                         // ignore token
                     }
@@ -824,6 +840,11 @@ impl<'chars> Html5Parser<'chars> {
                         self.check_last_element("head");
                         self.insertion_mode = InsertionMode::InHead;
                     }
+                    Token::Text(value) if self.current_token.is_mixed() => {
+                        let tokens = self.split_mixed_token(value);
+                        self.tokenizer.insert_tokens_at_queue_start(tokens);
+                        return;
+                    }
                     Token::Text(..) if self.current_token.is_empty_or_white() => {
                         self.handle_in_head();
                     }
@@ -871,6 +892,11 @@ impl<'chars> Html5Parser<'chars> {
                 let mut anything_else = false;
 
                 match &self.current_token {
+                    Token::Text(value) if self.current_token.is_mixed() => {
+                        let tokens = self.split_mixed_token(value);
+                        self.tokenizer.insert_tokens_at_queue_start(tokens);
+                        return;
+                    }
                     Token::Text(..) if self.current_token.is_empty_or_white() => {
                         self.insert_text_element(&self.current_token.clone());
                     }
@@ -999,6 +1025,10 @@ impl<'chars> Html5Parser<'chars> {
             InsertionMode::InTable => self.handle_in_table(),
             InsertionMode::InTableText => {
                 match &self.current_token {
+                    Token::Text(value) if self.current_token.is_mixed() => {
+                        let tokens = self.split_mixed_token(value);
+                        self.tokenizer.insert_tokens_at_queue_start(tokens);
+                    }
                     Token::Text(..) if self.current_token.is_null() => {
                         self.parse_error(
                             "null character not allowed in in table text insertion mode",
@@ -1006,18 +1036,10 @@ impl<'chars> Html5Parser<'chars> {
                         // ignore token
                     }
                     Token::Text(value) => {
-                        for c in value.chars() {
-                            if c == CHAR_NUL {
-                                self.parse_error(
-                                    "null character not allowed in in table insertion mode",
-                                );
-                            } else {
-                                self.pending_table_character_tokens.push(c);
-                            }
-                        }
+                        self.pending_table_character_tokens.push_str(value);
                     }
                     _ => {
-                        let tokens = self.pending_table_character_tokens.clone();
+                        let pending_chars = self.pending_table_character_tokens.clone();
 
                         let mut process_as_intable_anything_else = false;
 
@@ -1033,15 +1055,18 @@ impl<'chars> Html5Parser<'chars> {
 
                         if process_as_intable_anything_else {
                             let tmp = self.current_token.clone();
-                            self.current_token = Token::Text(tokens);
-
                             self.foster_parenting = true;
-                            self.handle_in_body();
-                            self.foster_parenting = false;
 
+                            let tokens = self.split_mixed_token(&pending_chars);
+                            for token in tokens {
+                                self.current_token = token;
+                                self.handle_in_body();
+                            }
+
+                            self.foster_parenting = false;
                             self.current_token = tmp;
                         } else {
-                            self.insert_text_element(&Token::Text(tokens));
+                            self.insert_text_element(&Token::Text(pending_chars));
                         }
 
                         self.pending_table_character_tokens.clear();
@@ -1115,6 +1140,10 @@ impl<'chars> Html5Parser<'chars> {
             }
             InsertionMode::InColumnGroup => {
                 match &self.current_token {
+                    Token::Text(value) if self.current_token.is_mixed() => {
+                        let tokens = self.split_mixed_token(value);
+                        self.tokenizer.insert_tokens_at_queue_start(tokens);
+                    }
                     Token::Text(..) if self.current_token.is_empty_or_white() => {
                         self.insert_text_element(&self.current_token.clone());
                     }
@@ -1468,6 +1497,10 @@ impl<'chars> Html5Parser<'chars> {
             InsertionMode::InTemplate => self.handle_in_template(),
             InsertionMode::AfterBody => {
                 match &self.current_token {
+                    Token::Text(value) if self.current_token.is_mixed() => {
+                        let tokens = self.split_mixed_token(value);
+                        self.tokenizer.insert_tokens_at_queue_start(tokens);
+                    }
                     Token::Text(..) if self.current_token.is_empty_or_white() => {
                         self.handle_in_body();
                     }
@@ -1508,6 +1541,10 @@ impl<'chars> Html5Parser<'chars> {
             }
             InsertionMode::InFrameset => {
                 match &self.current_token {
+                    Token::Text(value) if self.current_token.is_mixed() => {
+                        let tokens = self.split_mixed_token(value);
+                        self.tokenizer.insert_tokens_at_queue_start(tokens);
+                    }
                     Token::Text(..) if self.current_token.is_empty_or_white() => {
                         self.insert_text_element(&self.current_token.clone());
                     }
@@ -1566,6 +1603,10 @@ impl<'chars> Html5Parser<'chars> {
             }
             InsertionMode::AfterFrameset => {
                 match &self.current_token {
+                    Token::Text(value) if self.current_token.is_mixed() => {
+                        let tokens = self.split_mixed_token(value);
+                        self.tokenizer.insert_tokens_at_queue_start(tokens);
+                    }
                     Token::Text(..) if self.current_token.is_empty_or_white() => {
                         self.insert_text_element(&self.current_token.clone());
                     }
@@ -1603,6 +1644,10 @@ impl<'chars> Html5Parser<'chars> {
                 Token::DocType { .. } => {
                     self.handle_in_body();
                 }
+                Token::Text(value) if self.current_token.is_mixed() => {
+                    let tokens = self.split_mixed_token(value);
+                    self.tokenizer.insert_tokens_at_queue_start(tokens);
+                }
                 Token::Text(..) if self.current_token.is_empty_or_white() => {
                     self.handle_in_body();
                 }
@@ -1630,6 +1675,10 @@ impl<'chars> Html5Parser<'chars> {
                     }
                     Token::DocType { .. } => {
                         self.handle_in_body();
+                    }
+                    Token::Text(value) if self.current_token.is_mixed() => {
+                        let tokens = self.split_mixed_token(value);
+                        self.tokenizer.insert_tokens_at_queue_start(tokens);
                     }
                     Token::Text(..) if self.current_token.is_empty_or_white() => {
                         self.handle_in_body();
@@ -2067,21 +2116,23 @@ impl<'chars> Html5Parser<'chars> {
     /// Handle insertion mode "in_body"
     fn handle_in_body(&mut self) {
         match &self.current_token.clone() {
+            Token::Text(value) if self.current_token.is_mixed_null() => {
+                let tokens = self.split_mixed_token_null(value);
+                self.tokenizer.insert_tokens_at_queue_start(tokens);
+            }
             Token::Text(..) if self.current_token.is_null() => {
                 self.parse_error("null character not allowed in in body insertion mode");
                 // ignore token
-            }
-            Token::Text(..) if self.current_token.is_empty_or_white() => {
-                self.reconstruct_formatting();
-
-                self.insert_text_element(&self.current_token.clone());
             }
             Token::Text(..) => {
                 self.reconstruct_formatting();
 
                 self.insert_text_element(&self.current_token.clone());
 
-                self.frameset_ok = false;
+                // If this mixed token does not have whitespace chars, set frameset_ok to false
+                if !self.current_token.is_empty_or_white() {
+                    self.frameset_ok = false;
+                }
             }
             Token::Comment(..) => {
                 self.insert_comment_element(&self.current_token.clone(), None);
@@ -2906,6 +2957,11 @@ impl<'chars> Html5Parser<'chars> {
         let mut anything_else = false;
 
         match &self.current_token {
+            Token::Text(value) if self.current_token.is_mixed() => {
+                let tokens = self.split_mixed_token(value);
+                self.tokenizer.insert_tokens_at_queue_start(tokens);
+                return;
+            }
             Token::Text(..) if self.current_token.is_empty_or_white() => {
                 self.insert_text_element(&self.current_token.clone());
             }
@@ -3028,8 +3084,8 @@ impl<'chars> Html5Parser<'chars> {
 
                 self.pop_until_named("template");
                 self.active_formatting_elements_clear_until_marker();
-                self.reset_insertion_mode();
                 self.template_insertion_mode.pop();
+                self.reset_insertion_mode();
             }
             Token::StartTag { name, .. } if name == "head" => {
                 self.parse_error("head tag not allowed in in head insertion mode");
@@ -3306,6 +3362,10 @@ impl<'chars> Html5Parser<'chars> {
     /// Handle insertion mode "in_select"
     fn handle_in_select(&mut self) {
         match &self.current_token {
+            Token::Text(value) if self.current_token.is_mixed() => {
+                let tokens = self.split_mixed_token(value);
+                self.tokenizer.insert_tokens_at_queue_start(tokens);
+            }
             Token::Text(..) if self.current_token.is_null() => {
                 self.parse_error("null character not allowed in in select insertion mode");
                 // ignore token
@@ -3752,18 +3812,39 @@ impl<'chars> Html5Parser<'chars> {
         }
     }
 
+    fn parser_data(&self) -> ParserData {
+        if self.open_elements.is_empty() {
+            return ParserData {
+                adjusted_node_namespace: HTML_NAMESPACE.to_string(),
+            };
+        }
+
+        let namespace = self
+            .get_adjusted_current_node()
+            .namespace
+            .expect("namespace not found");
+
+        ParserData {
+            adjusted_node_namespace: namespace,
+        }
+    }
+
     /// Fetches the next token from the tokenizer. However, if the token is a text token AND
     /// it starts with one or more whitespaces, the token is split into 2 tokens: the whitespace part
     /// and the remainder.
     fn fetch_next_token(&mut self) -> Token {
         // If there are no tokens to fetch, fetch the next token from the tokenizer
         if self.token_queue.is_empty() {
-            let token = self.tokenizer.next_token().expect("tokenizer error");
+            let token = self
+                .tokenizer
+                .next_token(self.parser_data())
+                .expect("tokenizer error");
 
             if let Token::Text(value) = token {
-                for c in value.chars() {
-                    self.token_queue.push(Token::Text(c.to_string()));
-                }
+                self.token_queue.push(Token::Text(value));
+                // for c in value.chars() {
+                //     self.token_queue.push(Token::Text(c.to_string()));
+                // }
             } else {
                 // Simply return the token
                 return token;
@@ -3886,6 +3967,90 @@ impl<'chars> Html5Parser<'chars> {
         self.context_node_id = Some(context_node.id);
         self.tokenizer
             .set_state(self.find_initial_state_for_context(context_node));
+    }
+
+    /// Splits a regular text token with mixed characters into tokens of 3 groups:
+    /// null-characters, (ascii) whitespaces, and regular (rest) characters.
+    /// These tokens are then inserted into the token buffer queue so they can get parsed
+    /// correctly.
+    ///
+    /// example:
+    ///
+    ///   Token::Text("  foo bar\0  ")
+    ///
+    /// is split into 6 tokens:
+    ///
+    ///   Token::Text("  ")  // whitespace
+    ///   Token::Text("foo") // regular
+    ///   Token::Text(" ")   // whitespace
+    ///   Token::Text("bar") // regular
+    ///   Token::Text("\0")  // null
+    ///   Token::Text("  ")  // whitespace
+    ///
+    /// This is needed because the tokenizer does not know about the context of the text it is
+    /// so it will always try to tokenize as greedy as possible. But sometimes we need this split
+    /// to happen where a differentation between whitespaces, null and regular characters are needed.
+    /// Only in those cases, this function is called, and the token will be split into multiple
+    /// tokens.
+    /// The idea is that large blobs of javascript for instance will not be split into separate
+    /// tokens, but still be seen and parsed as a single TextToken.
+    ///
+    fn split_mixed_token(&self, text: &str) -> Vec<Token> {
+        let mut tokens = vec![];
+        let mut last_group = 'x';
+
+        let mut found = String::new();
+
+        for ch in text.chars() {
+            let group = if ch == '\0' {
+                '0'
+            } else if ch.is_ascii_whitespace() {
+                'w'
+            } else {
+                'r'
+            };
+
+            if last_group != group && !found.is_empty() {
+                tokens.push(Token::Text(found.clone()));
+                found.clear();
+            }
+
+            found.push(ch);
+            last_group = group;
+        }
+
+        if !found.is_empty() {
+            tokens.push(Token::Text(found.clone()));
+        }
+
+        tokens
+    }
+
+    /// This will split tokens into \0 groups and non-\0 groups.
+    /// @todo: refactor this into split_mixed_token as well, but add a collection of groups callables
+    fn split_mixed_token_null(&self, text: &str) -> Vec<Token> {
+        let mut tokens = vec![];
+        let mut last_group = 'x';
+
+        let mut found = String::new();
+
+        for ch in text.chars() {
+            let group = if ch == '\0' { '0' } else { 'r' };
+
+            if last_group != group && !found.is_empty() {
+                tokens.push(Token::Text(found.clone()));
+                found.clear();
+            }
+
+            found.push(ch);
+            last_group = group;
+        }
+
+        if !found.is_empty() {
+            tokens.push(Token::Text(found.clone()));
+        }
+
+        tokens
     }
 }
 

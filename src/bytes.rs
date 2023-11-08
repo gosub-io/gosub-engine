@@ -1,4 +1,5 @@
 use crate::html5::tokenizer::{CHAR_CR, CHAR_LF};
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
 use std::{fmt, io};
@@ -105,22 +106,13 @@ pub struct CharIterator {
     /// Length (in chars) of the buffer
     pub length: usize,
     /// Offsets of the given lines
-    line_offsets: Vec<usize>,
+    line_columns: HashMap<usize, usize>,
     /// Reference to the actual buffer stream in characters
     buffer: Vec<Bytes>,
     /// Reference to the actual buffer stream in u8 bytes
     u8_buffer: Vec<u8>,
     /// If all things are ok, both buffer and u8_buffer should refer to the same memory location (?)
     pub has_read_eof: bool, // True when we just read an EOF
-}
-
-pub enum SeekMode {
-    /// Seek from the start of the stream
-    SeekSet,
-    /// Seek from the current stream position
-    SeekCur,
-    /// Seek (backwards) from the end of the stream
-    SeekEnd,
 }
 
 impl Default for CharIterator {
@@ -141,7 +133,7 @@ impl CharIterator {
                 col: 1,
             },
             length: 0,
-            line_offsets: vec![0], // first line always starts at 0
+            line_columns: HashMap::new(),
             buffer: Vec::new(),
             u8_buffer: Vec::new(),
             has_read_eof: false,
@@ -170,76 +162,30 @@ impl CharIterator {
         self.position.col = 1;
     }
 
-    /// Seek explicit offset in the stream (based on chars)
-    pub fn seek(&mut self, mode: SeekMode, offset: isize) {
-        let abs_offset = match mode {
-            SeekMode::SeekSet => {
-                if offset.is_negative() {
-                    0
-                } else {
-                    offset as usize
-                }
-            }
-            SeekMode::SeekCur => {
-                if offset.is_negative() {
-                    self.position.offset - offset.unsigned_abs()
-                } else {
-                    self.position.offset + offset as usize
-                }
-            }
-            SeekMode::SeekEnd => {
-                // Both -5 and 5 on seek-end do the same thing
-                if offset.abs() > self.length as isize {
-                    0
-                } else {
-                    self.length - offset.unsigned_abs()
-                }
-            }
-        };
+    /// Skip offset characters in the stream (based on chars)
+    pub fn skip(&mut self, offset: usize) {
+        let mut skip_len = offset;
+        if self.position.offset + offset >= self.length {
+            skip_len = self.length - self.position.offset;
+        }
 
-        self.position = self.generate_position(abs_offset);
+        for _ in 0..skip_len {
+            self.read_char();
+        }
     }
 
     /// Returns the previous position based on the current position
     pub fn get_previous_position(&mut self) -> Position {
-        // if we are at the begining or the end of the stream, we just return the current position
+        // if we are at the beginning or the end of the stream, we just return the current position
         if self.position.offset == 0 || self.has_read_eof {
             return self.position;
         }
 
-        self.generate_position(self.position.offset - 1)
-    }
+        self.unread();
+        let pos = self.position;
+        self.skip(1);
 
-    /// Generate a new position structure for given offset
-    fn generate_position(&mut self, abs_offset: usize) -> Position {
-        let mut abs_offset = abs_offset;
-
-        // Cap to length if we read past the end of the stream
-        if abs_offset > self.length + 1 {
-            abs_offset = self.length;
-            self.has_read_eof = true;
-        }
-
-        // Detect lines (if needed)
-        self.read_line_endings_until(abs_offset);
-
-        let mut last_line: usize = 0;
-        let mut last_offset = self.line_offsets[last_line];
-        for i in 0..self.line_offsets.len() {
-            if self.line_offsets[i] > abs_offset {
-                break;
-            }
-
-            last_line = i;
-            last_offset = self.line_offsets[last_line];
-        }
-
-        // Set position values
-        Position {
-            offset: abs_offset,
-            line: last_line + 1,
-            col: abs_offset - last_offset + 1,
-        }
+        pos
     }
 
     /// Returns the current offset in the stream
@@ -361,14 +307,22 @@ impl CharIterator {
         // If we still can move forward in the stream, move forwards
         if self.position.offset < self.length {
             let c = self.buffer[self.position.offset];
-            self.seek(SeekMode::SeekCur, 1);
+            if c == Ch('\n') {
+                // Store line offset for the given line
+                self.line_columns
+                    .insert(self.position.line, self.position.col);
+                // And continue position on the next line
+                self.position.line += 1;
+                self.position.col = 1;
+            } else {
+                self.position.col += 1;
+            }
+            self.position.offset += 1;
             return c;
         }
 
         // otherwise, we have reached the end of the stream
         self.has_read_eof = true;
-
-        self.seek(SeekMode::SeekEnd, 0);
 
         Eof
     }
@@ -392,7 +346,15 @@ impl CharIterator {
 
         // If we can track back from the offset, we can do so
         if self.position.offset > 0 {
-            self.seek(SeekMode::SeekCur, -1);
+            self.position.offset -= 1;
+
+            if self.position.col == 1 {
+                self.position.line -= 1;
+                let key = self.position.line;
+                self.position.col = *self.line_columns.get(&key).unwrap_or(&1);
+            } else {
+                self.position.col -= 1;
+            }
         }
     }
 
@@ -413,26 +375,6 @@ impl CharIterator {
         }
 
         self.buffer[self.position.offset + offset]
-    }
-
-    /// Populates the line endings by reading the stream until the given length.
-    fn read_line_endings_until(&mut self, abs_offset: usize) {
-        let mut last_offset = *self.line_offsets.last().unwrap();
-
-        while last_offset <= abs_offset {
-            if last_offset >= self.length {
-                self.line_offsets.push(last_offset + 1);
-                break;
-            }
-
-            // Check the next char to see if it's a '\n'
-            let c = self.buffer[last_offset];
-            if c == Ch('\n') {
-                self.line_offsets.push(last_offset + 1);
-            }
-
-            last_offset += 1;
-        }
     }
 }
 
@@ -513,238 +455,6 @@ mod test {
 
         chars.set_confidence(Confidence::Tentative);
         assert!(!chars.is_certain_encoding());
-    }
-
-    #[test]
-    fn test_offsets() {
-        let mut chars = CharIterator::new();
-        chars.read_from_str("abc", Some(Encoding::UTF8));
-        assert_eq!(
-            chars.position,
-            Position {
-                offset: 0,
-                line: 1,
-                col: 1
-            }
-        );
-        assert_eq!('a', chars.read_char().into());
-        assert_eq!(
-            chars.position,
-            Position {
-                offset: 1,
-                line: 1,
-                col: 2
-            }
-        );
-        assert_eq!('b', chars.read_char().into());
-        assert_eq!(
-            chars.position,
-            Position {
-                offset: 2,
-                line: 1,
-                col: 3
-            }
-        );
-        assert_eq!('c', chars.read_char().into());
-        assert_eq!(
-            chars.position,
-            Position {
-                offset: 3,
-                line: 1,
-                col: 4
-            }
-        );
-        assert!(matches!(chars.read_char(), Eof));
-        assert_eq!(
-            chars.position,
-            Position {
-                offset: 3,
-                line: 1,
-                col: 4
-            }
-        );
-        assert!(matches!(chars.read_char(), Eof));
-        assert_eq!(
-            chars.position,
-            Position {
-                offset: 3,
-                line: 1,
-                col: 4
-            }
-        );
-
-        let mut chars = CharIterator::new();
-        chars.read_from_str(
-            "abc\ndefg\n\nhi\njk\nlmno\n\n\npqrst\nu\nv\nw\n\nxy\nz",
-            Some(Encoding::UTF8),
-        );
-        assert_eq!(chars.length, 40);
-
-        chars.seek(SeekMode::SeekSet, 0);
-        assert_eq!(
-            chars.position,
-            Position {
-                offset: 0,
-                line: 1,
-                col: 1
-            }
-        );
-        let c = chars.read_char();
-        assert_eq!(c, Ch('a'));
-        assert_eq!(
-            chars.position,
-            Position {
-                offset: 1,
-                line: 1,
-                col: 2
-            }
-        );
-
-        chars.seek(SeekMode::SeekSet, 7);
-        assert_eq!(
-            chars.position,
-            Position {
-                offset: 7,
-                line: 2,
-                col: 4
-            }
-        );
-        assert_eq!(chars.chars_left(), 33);
-
-        let c = chars.read_char();
-        assert_eq!(c, Ch('g'));
-        assert_eq!(
-            chars.position,
-            Position {
-                offset: 8,
-                line: 2,
-                col: 5
-            }
-        );
-
-        let c = chars.read_char();
-        assert_eq!(c, Ch('\n'));
-        assert_eq!(
-            chars.position,
-            Position {
-                offset: 9,
-                line: 3,
-                col: 1
-            }
-        );
-
-        let c = chars.read_char();
-        assert_eq!(c, Ch('\n'));
-        assert_eq!(
-            chars.position,
-            Position {
-                offset: 10,
-                line: 4,
-                col: 1
-            }
-        );
-
-        let c = chars.read_char();
-        assert_eq!(c, Ch('h'));
-        assert_eq!(
-            chars.position,
-            Position {
-                offset: 11,
-                line: 4,
-                col: 2
-            }
-        );
-        assert_eq!(chars.chars_left(), 29);
-
-        chars.reset();
-        assert_eq!(
-            chars.position,
-            Position {
-                offset: 0,
-                line: 1,
-                col: 1
-            }
-        );
-        assert_eq!(chars.chars_left(), 40);
-
-        chars.seek(SeekMode::SeekSet, 100);
-        assert_eq!(
-            chars.position,
-            Position {
-                offset: 40,
-                line: 15,
-                col: 2
-            }
-        );
-        assert_eq!(chars.chars_left(), 0);
-    }
-
-    #[test]
-    fn test_seek() {
-        let mut chars = CharIterator::new();
-        chars.read_from_str("ab👽cd", Some(Encoding::UTF8));
-        assert_eq!(chars.length, 5);
-        assert_eq!(chars.chars_left(), 5);
-        assert_eq!(chars.read_char(), Ch('a'));
-        assert_eq!(chars.read_char(), Ch('b'));
-        assert_eq!(chars.chars_left(), 3);
-        chars.seek(SeekMode::SeekSet, 0);
-        assert_eq!(chars.chars_left(), 5);
-        assert_eq!(chars.read_char(), Ch('a'));
-        assert_eq!(chars.read_char(), Ch('b'));
-        assert_eq!(chars.chars_left(), 3);
-        chars.seek(SeekMode::SeekSet, 3);
-        assert_eq!(chars.chars_left(), 2);
-        assert_eq!(chars.read_char(), Ch('c'));
-        assert_eq!(chars.read_char(), Ch('d'));
-        assert_eq!(chars.chars_left(), 0);
-        assert!(chars.eof());
-
-        chars.reset();
-        assert_eq!(chars.look_ahead(0), Ch('a'));
-        assert_eq!(chars.look_ahead(3), Ch('c'));
-        assert_eq!(chars.look_ahead(1), Ch('b'));
-        assert!(matches!(chars.look_ahead(100), Eof));
-
-        chars.seek(SeekMode::SeekSet, 0);
-        assert_eq!(chars.look_ahead_slice(1), "a");
-        assert_eq!(chars.look_ahead_slice(2), "ab");
-        assert_eq!(chars.look_ahead_slice(3), "ab👽");
-        assert_eq!(chars.look_ahead_slice(4), "ab👽c");
-        assert_eq!(chars.look_ahead_slice(5), "ab👽cd");
-        assert_eq!(chars.look_ahead_slice(6), "ab👽cd");
-        assert_eq!(chars.look_ahead_slice(100), "ab👽cd");
-
-        chars.seek(SeekMode::SeekSet, 3);
-        assert_eq!(chars.look_ahead_slice(1), "c");
-        assert_eq!(chars.look_ahead_slice(2), "cd");
-
-        chars.seek(SeekMode::SeekSet, 0);
-        assert_eq!(chars.position.offset, 0);
-
-        chars.seek(SeekMode::SeekSet, 3);
-        assert_eq!(chars.position.offset, 3);
-
-        chars.seek(SeekMode::SeekCur, 0);
-        assert_eq!(chars.position.offset, 3);
-
-        chars.seek(SeekMode::SeekCur, 1);
-        assert_eq!(chars.position.offset, 4);
-
-        chars.seek(SeekMode::SeekCur, -2);
-        assert_eq!(chars.position.offset, 2);
-
-        chars.seek(SeekMode::SeekCur, 10);
-        assert_eq!(chars.position.offset, 5);
-
-        chars.seek(SeekMode::SeekSet, 100);
-        assert_eq!(chars.position.offset, 5);
-
-        chars.seek(SeekMode::SeekSet, -100);
-        assert_eq!(chars.position.offset, 0);
-
-        chars.seek(SeekMode::SeekEnd, -100);
-        assert_eq!(chars.position.offset, 0);
     }
 
     #[test]

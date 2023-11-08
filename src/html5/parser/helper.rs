@@ -240,6 +240,13 @@ impl Html5Parser<'_> {
     }
 
     pub fn insert_text_element(&mut self, token: &Token) {
+        // Skip empty text nodes
+        if let Token::Text(text) = token {
+            if text.is_empty() {
+                return;
+            }
+        }
+
         let insertion_position = self.appropriate_place_insert(None);
         // TODO, for text element, if the insertion_position is Document, should not do next step.
         self.insert_text_helper(insertion_position, token);
@@ -256,7 +263,7 @@ impl Html5Parser<'_> {
         if !(self.foster_parenting
             && ["table", "tbody", "thead", "tfoot", "tr"].contains(&target_node.name.as_str()))
         {
-            if target_node.name == "template" {
+            if target_node.name == "template" && target_node.is_namespace(HTML_NAMESPACE) {
                 if let NodeData::Element(element) = target_node.data {
                     if let Some(template_contents) = element.template_contents {
                         return InsertionPositionMode::LastChild {

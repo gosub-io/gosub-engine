@@ -297,7 +297,7 @@ fn test(i: Span) -> IResult<Span, TestSpec> {
 
             TestSpec {
                 position,
-                data: data.to_string().trim_matches(|c| c == '\n').to_string(),
+                data: trim_last_newline(data.to_string()),
                 errors,
                 new_errors: new_errors.unwrap_or_default(),
                 script_mode,
@@ -306,6 +306,15 @@ fn test(i: Span) -> IResult<Span, TestSpec> {
             }
         },
     )(i)
+}
+
+/// Trims only a single newline from the string, even if there are multiple newlines present.
+fn trim_last_newline(s: String) -> String {
+    if let Some(s) = s.strip_suffix('\n') {
+        s.to_owned()
+    } else {
+        s
+    }
 }
 
 pub fn parse_fixture(i: &str) -> Result<Vec<TestSpec>> {
