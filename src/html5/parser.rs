@@ -2116,10 +2116,6 @@ impl<'chars> Html5Parser<'chars> {
     /// Handle insertion mode "in_body"
     fn handle_in_body(&mut self) {
         match &self.current_token.clone() {
-            Token::Text(value) if self.current_token.is_mixed() => {
-                let tokens = self.split_mixed_token(value);
-                self.tokenizer.insert_tokens_at_queue_start(tokens);
-            }
             Token::Text(..) if self.current_token.is_null() => {
                 self.parse_error("null character not allowed in in body insertion mode");
                 // ignore token
