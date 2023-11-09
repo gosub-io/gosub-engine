@@ -120,6 +120,10 @@ impl ComponentValue {
     }
 }
 
+struct StyleSheet {
+    rules: Vec<Rule>,
+}
+
 #[derive(Debug)]
 struct ValueBuffer {
     pub values: Vec<ComponentValue>,
@@ -177,6 +181,49 @@ impl<'stream> CSS3Parser<'stream> {
 
     /// [5.3.1. Parse something according to a CSS grammar](https://www.w3.org/TR/css-syntax-3/#parse-grammar)
     fn parse() {
+        todo!()
+    }
+
+    /// [5.3.2. Parse A Comma-Separated List According To A CSS Grammar](https://www.w3.org/TR/css-syntax-3/#parse-comma-list)
+    fn parse_comma_separated_list(&self, vb: &mut ValueBuffer) -> Vec<ComponentValue> {
+        self.parse_component_value_list(vb)
+    }
+
+    /// [5.3.3. Parse a stylesheet](https://www.w3.org/TR/css-syntax-3/#parse-stylesheet)
+    fn parse_stylesheet(&self, vb: &mut ValueBuffer) -> StyleSheet {
+        let rules = self.consume_rules_list(vb, true);
+
+        StyleSheet { rules }
+    }
+
+    /// [5.3.4. Parse a list of rules](https://www.w3.org/TR/css-syntax-3/#parse-list-of-rules)
+    fn parse_rules_list(&self, vb: &mut ValueBuffer) -> Vec<Rule> {
+        self.consume_rules_list(vb, true)
+    }
+
+    /// [5.3.5. Parse a rule](https://www.w3.org/TR/css-syntax-3/#parse-rule)
+    fn parse_rule(&self, vb: &mut ValueBuffer) -> Rule {
+        self.consume_whitespace(vb);
+
+        if vb.current().token().is_eof() {
+            // eof: syntax error
+            todo!()
+        }
+
+        let rule = if vb.current().token().is_at_keyword() {
+            Rule::AtRule(self.consume_at_rule(vb))
+        } else {
+            // None: is a syntax error
+            Rule::QualifiedRule(self.consume_qualified_rule(vb).expect("todo!"))
+        };
+
+        self.consume_whitespace(vb);
+
+        if vb.current().token().is_eof() {
+            return rule;
+        }
+
+        // syntax error
         todo!()
     }
 
@@ -239,8 +286,11 @@ impl<'stream> CSS3Parser<'stream> {
         values
     }
 
-    /// [5.3.11. Parse a comma-separated list of component values](https://www.w3.org/TR/css-syntax-3/#parse-comma-list)
-    fn parse_comma_separated_list(&self, vb: &mut ValueBuffer) -> Vec<Vec<ComponentValue>> {
+    /// [5.3.11. Parse a comma-separated list of component values](https://www.w3.org/TR/css-syntax-3/#parse-comma-separated-list-of-component-values)
+    fn parse_comma_separated_list_of_component_values(
+        &self,
+        vb: &mut ValueBuffer,
+    ) -> Vec<Vec<ComponentValue>> {
         let mut list = Vec::new();
 
         loop {
@@ -271,7 +321,7 @@ impl<'stream> CSS3Parser<'stream> {
     }
 
     /// [5.4.1. Consume a list of rules](https://www.w3.org/TR/css-syntax-3/#consume-list-of-rules)
-    fn consume_rules_list(&mut self, vb: &mut ValueBuffer, is_top_level: bool) -> Vec<Rule> {
+    fn consume_rules_list(&self, vb: &mut ValueBuffer, is_top_level: bool) -> Vec<Rule> {
         let mut rules = Vec::new();
 
         loop {
