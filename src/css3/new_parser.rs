@@ -103,8 +103,20 @@ impl ComponentValue {
     fn token(&self) -> Token {
         match self {
             ComponentValue::Token(t) => t.clone(),
-            ComponentValue::Function(..) | ComponentValue::SimpleBlock(..) => Token::EOF,
+            ComponentValue::Function(..) | ComponentValue::SimpleBlock(..) => todo!(),
         }
+    }
+
+    fn is_token(&self) -> bool {
+        matches!(self, ComponentValue::Token(..))
+    }
+
+    fn is_function(&self) -> bool {
+        matches!(self, ComponentValue::Function(..))
+    }
+
+    fn is_block(&self) -> bool {
+        matches!(self, ComponentValue::SimpleBlock(..))
     }
 }
 
@@ -168,9 +180,94 @@ impl<'stream> CSS3Parser<'stream> {
         todo!()
     }
 
-    /// [5.3.2. Parse A Comma-Separated List According To A CSS Grammar](https://www.w3.org/TR/css-syntax-3/#parse-comma-list)
-    fn parse_comma_separated_list() {
-        todo!()
+    /// [5.3.6. Parse a declaration](https://www.w3.org/TR/css-syntax-3/#parse-declaration)
+    fn parse_declaration(&self, vb: &mut ValueBuffer) -> Option<Declaration> {
+        self.consume_whitespace(vb);
+
+        // syntax error
+        if !vb.current().token().is_ident() {
+            return None;
+        }
+
+        // if nothing was returned from `consume_declaration`, it will be a syntax error.
+        self.consume_declaration(vb)
+    }
+
+    /// [5.3.7. Parse a style block’s contents](https://www.w3.org/TR/css-syntax-3/#parse-style-blocks-contents)
+    fn parse_style_block_content(&self, vb: &mut ValueBuffer) -> StyleBlockContent {
+        self.consume_style_block_content(vb)
+    }
+
+    /// [5.3.8. Parse a list of declarations](https://www.w3.org/TR/css-syntax-3/#parse-list-of-declarations)
+    fn parse_declaration_list(&self, vb: &mut ValueBuffer) -> Vec<DeclarationListValue> {
+        self.consume_declaration_list(vb)
+    }
+
+    /// [5.3.9. Parse a component value](https://www.w3.org/TR/css-syntax-3/#parse-component-value)
+    fn parse_component_value(&self, vb: &mut ValueBuffer) -> Option<ComponentValue> {
+        self.consume_whitespace(vb);
+
+        // eof: syntax error
+        if vb.current().token().is_eof() {
+            return None;
+        }
+
+        let value = self.consume_component_value(vb);
+        self.consume_whitespace(vb);
+
+        if vb.current().token().is_eof() {
+            return Some(value);
+        }
+
+        // syntax error
+        None
+    }
+
+    /// [5.3.10. Parse a list of component values](https://www.w3.org/TR/css-syntax-3/#parse-list-of-component-values)
+    fn parse_component_value_list(&self, vb: &mut ValueBuffer) -> Vec<ComponentValue> {
+        let mut values = Vec::new();
+        loop {
+            let value = self.consume_component_value(vb);
+
+            if value.is_token() && value.token().is_eof() {
+                break;
+            }
+
+            values.push(value)
+        }
+
+        values
+    }
+
+    /// [5.3.11. Parse a comma-separated list of component values](https://www.w3.org/TR/css-syntax-3/#parse-comma-list)
+    fn parse_comma_separated_list(&self, vb: &mut ValueBuffer) -> Vec<Vec<ComponentValue>> {
+        let mut list = Vec::new();
+
+        loop {
+            let mut values = Vec::new();
+            let mut stop = true;
+
+            loop {
+                let value = self.consume_component_value(vb);
+                if value.is_token() && (value.token().is_eof() || value.token().is_semicolon()) {
+                    break; // final <EOF-token> or <comma-token> should not be added.
+                }
+
+                if value.token().is_comma() {
+                    stop = false;
+                }
+
+                values.push(value);
+            }
+
+            list.push(values);
+
+            if stop {
+                break;
+            }
+        }
+
+        list
     }
 
     /// [5.4.1. Consume a list of rules](https://www.w3.org/TR/css-syntax-3/#consume-list-of-rules)
@@ -216,7 +313,7 @@ impl<'stream> CSS3Parser<'stream> {
     }
 
     /// [5.4.2. Consume an at-rule](https://www.w3.org/TR/css-syntax-3/#consume-at-rule)
-    fn consume_at_rule(&mut self, vb: &mut ValueBuffer) -> AtRule {
+    fn consume_at_rule(&self, vb: &mut ValueBuffer) -> AtRule {
         // consume `<at-keyword-token>`
         let name = vb.consume().token().to_string();
         let mut prelude = Vec::new();
@@ -246,7 +343,7 @@ impl<'stream> CSS3Parser<'stream> {
     }
 
     /// [5.4.3. Consume a qualified rule](https://www.w3.org/TR/css-syntax-3/#consume-qualified-rule)
-    fn consume_qualified_rule(&mut self, vb: &mut ValueBuffer) -> Option<QualifiedRule> {
+    fn consume_qualified_rule(&self, vb: &mut ValueBuffer) -> Option<QualifiedRule> {
         let mut rule = QualifiedRule::default();
 
         loop {
@@ -266,7 +363,7 @@ impl<'stream> CSS3Parser<'stream> {
     }
 
     /// [5.4.4. Consume a style block’s contents](https://www.w3.org/TR/css-syntax-3/#consume-style-block)
-    fn consume_style_block_content(&mut self, vb: &mut ValueBuffer) -> StyleBlockContent {
+    fn consume_style_block_content(&self, vb: &mut ValueBuffer) -> StyleBlockContent {
         let mut declarations = Vec::new();
         let mut rules = Vec::new();
 
@@ -284,7 +381,6 @@ impl<'stream> CSS3Parser<'stream> {
             }
 
             if token.is_at_keyword() {
-                // todo: consume at-rule
                 rules.push(Rule::AtRule(self.consume_at_rule(vb)))
             }
 
@@ -321,7 +417,7 @@ impl<'stream> CSS3Parser<'stream> {
     }
 
     /// [5.4.5. Consume a list of declarations](https://www.w3.org/TR/css-syntax-3/#consume-list-of-declarations)
-    fn consume_declaration_list(&mut self, vb: &mut ValueBuffer) -> Vec<DeclarationListValue> {
+    fn consume_declaration_list(&self, vb: &mut ValueBuffer) -> Vec<DeclarationListValue> {
         let mut declarations = Vec::new();
         loop {
             let token = vb.current().token();
@@ -357,7 +453,7 @@ impl<'stream> CSS3Parser<'stream> {
     }
 
     /// [5.4.6. Consume a declaration](https://www.w3.org/TR/css-syntax-3/#consume-declaration)
-    fn consume_declaration(&mut self, vb: &mut ValueBuffer) -> Option<Declaration> {
+    fn consume_declaration(&self, vb: &mut ValueBuffer) -> Option<Declaration> {
         let name = vb.consume().token().to_string();
         let mut value = Vec::new();
 
@@ -397,7 +493,7 @@ impl<'stream> CSS3Parser<'stream> {
     }
 
     /// [5.4.7. Consume a component value](https://www.w3.org/TR/css-syntax-3/#consume-a-component-value)
-    fn consume_component_value(&mut self, vb: &mut ValueBuffer) -> ComponentValue {
+    fn consume_component_value(&self, vb: &mut ValueBuffer) -> ComponentValue {
         let token = vb.consume().token();
 
         match token {
@@ -410,7 +506,7 @@ impl<'stream> CSS3Parser<'stream> {
     }
 
     /// [5.4.8. Consume a simple block](https://www.w3.org/TR/css-syntax-3/#consume-a-simple-block)
-    fn consume_simple_block(&mut self, vb: &mut ValueBuffer, ending: &Token) -> SimpleBlock {
+    fn consume_simple_block(&self, vb: &mut ValueBuffer, ending: &Token) -> SimpleBlock {
         let mut value = Vec::new();
 
         loop {
@@ -429,7 +525,7 @@ impl<'stream> CSS3Parser<'stream> {
     }
 
     /// [5.4.9. Consume a function](https://www.w3.org/TR/css-syntax-3/#consume-function)
-    fn consume_function(&mut self, vb: &mut ValueBuffer) -> Function {
+    fn consume_function(&self, vb: &mut ValueBuffer) -> Function {
         let name = vb.consume().token().to_string();
         let mut value = Vec::new();
 
@@ -446,5 +542,11 @@ impl<'stream> CSS3Parser<'stream> {
         }
 
         Function { name, value }
+    }
+
+    fn consume_whitespace(&self, vb: &mut ValueBuffer) {
+        while vb.current().token().is_whitespace() {
+            vb.consume();
+        }
     }
 }
