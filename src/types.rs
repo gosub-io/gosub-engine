@@ -37,6 +37,9 @@ pub enum Error {
 
     #[error("document task error: {0}")]
     DocumentTask(String),
+
+    #[error("query error: {0}")]
+    Query(String),
 }
 
 /// Result that can be returned which holds either T or an Error

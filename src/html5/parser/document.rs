@@ -4,6 +4,8 @@ use crate::html5::node::data::doctype::DocTypeData;
 use crate::html5::node::data::{comment::CommentData, text::TextData};
 use crate::html5::node::HTML_NAMESPACE;
 use crate::html5::node::{Node, NodeData, NodeId};
+use crate::html5::parser::query::SearchType;
+use crate::html5::parser::query::{Condition, Query};
 use crate::html5::parser::quirks::QuirksMode;
 use crate::html5::parser::tree_builder::TreeBuilder;
 use crate::html5::util::is_valid_id_attribute_value;
@@ -296,6 +298,25 @@ impl Document {
         self.arena.get_node_mut(*node_id)
     }
 
+    /// Retrieves the next sibling NodeId (to the right) of the reference_node or None.
+    pub fn get_next_sibling(&self, reference_node: NodeId) -> Option<NodeId> {
+        let node = self.get_node_by_id(reference_node)?;
+        let parent = self.get_node_by_id(node.parent?)?;
+
+        let idx = parent
+            .children
+            .iter()
+            .position(|&child_id| child_id == reference_node)
+            .unwrap();
+
+        let next_idx = idx + 1;
+        if parent.children.len() > next_idx {
+            return Some(parent.children[next_idx]);
+        }
+
+        None
+    }
+
     pub fn add_new_node(&mut self, node: Node) -> NodeId {
         // if a node contains attributes when adding to the tree,
         // be sure to handle the special attributes "id" and "class"
@@ -417,6 +438,21 @@ impl Document {
     /// Returns true when the given parent_id is a child of the node_id
     pub fn has_cyclic_reference(&self, node_id: NodeId, parent_id: NodeId) -> bool {
         has_child_recursive(&self.arena, node_id, parent_id)
+    }
+
+    /// Check if a given node's children contain a certain tag name
+    pub fn contains_child_tag(&self, node_id: NodeId, tag: &str) -> bool {
+        if let Some(node) = self.get_node_by_id(node_id) {
+            for child_id in &node.children {
+                if let Some(child) = self.get_node_by_id(*child_id) {
+                    if child.name == tag {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        false
     }
 }
 
@@ -692,6 +728,102 @@ impl DocumentHandle {
 
         Ok(())
     }
+
+    fn matches_query_condition(
+        &self,
+        doc_read: &Document,
+        current_node: &Node,
+        condition: &Condition,
+    ) -> bool {
+        match condition {
+            Condition::EqualsTag(tag) => current_node.name == *tag,
+            Condition::EqualsId(id) => {
+                let node_data = &current_node.data;
+                if let NodeData::Element(element) = node_data {
+                    if let Some(id_attr) = element.attributes.get("id") {
+                        return *id_attr == *id;
+                    }
+                }
+
+                false
+            }
+            Condition::ContainsClass(class) => {
+                let node_data = &current_node.data;
+                if let NodeData::Element(element) = node_data {
+                    return element.classes.contains(class.as_str());
+                }
+
+                false
+            }
+            Condition::ContainsAttribute(attribute) => {
+                let node_data = &current_node.data;
+                if let NodeData::Element(element) = node_data {
+                    return element.attributes.contains_key(attribute);
+                }
+
+                false
+            }
+            Condition::ContainsChildTag(child_tag) => {
+                doc_read.contains_child_tag(current_node.id, child_tag)
+            }
+            Condition::HasParentTag(parent_tag) => {
+                if let Some(parent_id) = current_node.parent {
+                    // making an assumption here that the parent node is actually valid
+                    let parent = doc_read.get_node_by_id(parent_id).unwrap();
+                    return parent.name == *parent_tag;
+                }
+
+                false
+            }
+        }
+    }
+
+    /// Perform a single query against the document.
+    /// If query search type is uninitialized, returns an error.
+    /// Otherwise, returns a vector of NodeIds that match the predicate in tree order (preorder depth-first.)
+    pub fn query(&self, query: &Query) -> Result<Vec<NodeId>> {
+        if query.search_type == SearchType::Uninitialized {
+            return Err(Error::Query("Query predicate is uninitialized".to_owned()));
+        }
+
+        let mut found_ids = Vec::new();
+
+        let mut node_stack: Vec<NodeId> = Vec::new();
+        let root_id = self.get().get_root().id;
+        node_stack.push(root_id);
+
+        let doc_read = self.get();
+
+        while let Some(current_node_id) = node_stack.pop() {
+            let current_node = doc_read.get_node_by_id(current_node_id).unwrap();
+
+            if let Some(sibling_id) = doc_read.get_next_sibling(current_node_id) {
+                node_stack.push(sibling_id);
+            }
+
+            if !current_node.children.is_empty() {
+                node_stack.push(current_node.children[0]);
+            }
+
+            let mut predicate_result: bool = true;
+
+            for condition in &query.conditions {
+                if !self.matches_query_condition(&doc_read, current_node, condition) {
+                    predicate_result = false;
+                    break;
+                }
+            }
+
+            if predicate_result {
+                found_ids.push(current_node_id);
+                if query.search_type == SearchType::FindFirst {
+                    return Ok(found_ids);
+                }
+            }
+        }
+
+        Ok(found_ids)
+    }
 }
 
 impl TreeBuilder for DocumentHandle {
@@ -770,6 +902,7 @@ impl DocumentBuilder {
 mod tests {
     use crate::html5::node::{NodeTrait, NodeType, HTML_NAMESPACE};
     use crate::html5::parser::document::{DocumentBuilder, DocumentTaskQueue};
+    use crate::html5::parser::query::Query;
     use crate::html5::parser::tree_builder::TreeBuilder;
     use crate::html5::parser::{Node, NodeData, NodeId};
     use std::collections::HashMap;
@@ -1191,5 +1324,368 @@ mod tests {
         assert!(element.classes.contains("one"));
         assert!(element.classes.contains("two"));
         assert!(element.classes.contains("three"));
+    }
+
+    #[test]
+    fn uninitialized_query() {
+        let doc = DocumentBuilder::new_document();
+
+        let query = Query::new();
+        let found_ids = doc.query(&query);
+        if let Err(err) = found_ids {
+            assert_eq!(
+                err.to_string(),
+                "query error: Query predicate is uninitialized"
+            );
+        } else {
+            panic!()
+        }
+    }
+
+    #[test]
+    fn single_query_equals_tag_find_first() {
+        // <div>
+        //     <div>
+        //         <p>
+        //     <p>
+        // <div>
+        //     <p>
+        // <p>
+        let mut doc = DocumentBuilder::new_document();
+
+        let div_id = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
+        let div_id_2 = doc.create_element("div", div_id, None, HTML_NAMESPACE);
+        let p_id = doc.create_element("p", div_id_2, None, HTML_NAMESPACE);
+        let _ = doc.create_element("p", div_id, None, HTML_NAMESPACE);
+
+        let div_id_3 = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
+        let _ = doc.create_element("p", div_id_3, None, HTML_NAMESPACE);
+
+        let _ = doc.create_element("p", NodeId::root(), None, HTML_NAMESPACE);
+
+        let query = Query::new().equals_tag("p").find_first();
+        let found_ids = doc.query(&query).unwrap();
+        assert_eq!(found_ids.len(), 1);
+        assert_eq!(found_ids, [p_id]);
+    }
+
+    #[test]
+    fn single_query_equals_tag_find_all() {
+        // <div>
+        //     <div>
+        //         <p>
+        //     <p>
+        // <div>
+        //     <p>
+        // <p>
+        let mut doc = DocumentBuilder::new_document();
+
+        let div_id = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
+        let div_id_2 = doc.create_element("div", div_id, None, HTML_NAMESPACE);
+        let p_id = doc.create_element("p", div_id_2, None, HTML_NAMESPACE);
+        let p_id_2 = doc.create_element("p", div_id, None, HTML_NAMESPACE);
+
+        let div_id_3 = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
+        let p_id_3 = doc.create_element("p", div_id_3, None, HTML_NAMESPACE);
+
+        let p_id_4 = doc.create_element("p", NodeId::root(), None, HTML_NAMESPACE);
+
+        let query = Query::new().equals_tag("p").find_all();
+        let found_ids = doc.query(&query).unwrap();
+        assert_eq!(found_ids.len(), 4);
+        assert_eq!(found_ids, [p_id, p_id_2, p_id_3, p_id_4]);
+    }
+
+    #[test]
+    fn single_query_equals_id() {
+        // <div>
+        //     <div>
+        //         <p>
+        //     <p id="myid">
+        // <div>
+        //     <p>
+        // <p>
+        let mut doc = DocumentBuilder::new_document();
+
+        let div_id = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
+        let div_id_2 = doc.create_element("div", div_id, None, HTML_NAMESPACE);
+        let _ = doc.create_element("p", div_id_2, None, HTML_NAMESPACE);
+        let p_id_2 = doc.create_element("p", div_id, None, HTML_NAMESPACE);
+        let res = doc.insert_attribute("id", "myid", p_id_2);
+        assert!(res.is_ok());
+
+        let div_id_3 = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
+        let _ = doc.create_element("p", div_id_3, None, HTML_NAMESPACE);
+
+        let _ = doc.create_element("p", NodeId::root(), None, HTML_NAMESPACE);
+
+        let query = Query::new().equals_id("myid").find_first();
+        let found_ids = doc.query(&query).unwrap();
+        assert_eq!(found_ids.len(), 1);
+        assert_eq!(found_ids, [p_id_2]);
+    }
+
+    #[test]
+    fn single_query_contains_class_find_first() {
+        // <div>
+        //     <div>
+        //         <p class="one two">
+        //     <p class="one">
+        // <div>
+        //     <p class="two three">
+        // <p class="three">
+        let mut doc = DocumentBuilder::new_document();
+
+        let div_id = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
+        let div_id_2 = doc.create_element("div", div_id, None, HTML_NAMESPACE);
+        let p_id = doc.create_element("p", div_id_2, None, HTML_NAMESPACE);
+        let mut res = doc.insert_attribute("class", "one two", p_id);
+        assert!(res.is_ok());
+        let p_id_2 = doc.create_element("p", div_id, None, HTML_NAMESPACE);
+        res = doc.insert_attribute("class", "one", p_id_2);
+        assert!(res.is_ok());
+        res = doc.insert_attribute("id", "myid", p_id_2);
+        assert!(res.is_ok());
+
+        let div_id_3 = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
+        let p_id_3 = doc.create_element("p", div_id_3, None, HTML_NAMESPACE);
+        res = doc.insert_attribute("class", "two three", p_id_3);
+        assert!(res.is_ok());
+
+        let p_id_4 = doc.create_element("p", NodeId::root(), None, HTML_NAMESPACE);
+        res = doc.insert_attribute("class", "three", p_id_4);
+        assert!(res.is_ok());
+
+        let query = Query::new().contains_class("two").find_first();
+        let found_ids = doc.query(&query).unwrap();
+        assert_eq!(found_ids.len(), 1);
+        assert_eq!(found_ids, [p_id]);
+    }
+
+    #[test]
+    fn single_query_contains_class_find_all() {
+        // <div>
+        //     <div>
+        //         <p class="one two">
+        //     <p class="one">
+        // <div>
+        //     <p class="two three">
+        // <p class="three">
+        let mut doc = DocumentBuilder::new_document();
+
+        let div_id = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
+        let div_id_2 = doc.create_element("div", div_id, None, HTML_NAMESPACE);
+        let p_id = doc.create_element("p", div_id_2, None, HTML_NAMESPACE);
+        let mut res = doc.insert_attribute("class", "one two", p_id);
+        assert!(res.is_ok());
+        let p_id_2 = doc.create_element("p", div_id, None, HTML_NAMESPACE);
+        res = doc.insert_attribute("class", "one", p_id_2);
+        assert!(res.is_ok());
+        res = doc.insert_attribute("id", "myid", p_id_2);
+        assert!(res.is_ok());
+
+        let div_id_3 = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
+        let p_id_3 = doc.create_element("p", div_id_3, None, HTML_NAMESPACE);
+        res = doc.insert_attribute("class", "two three", p_id_3);
+        assert!(res.is_ok());
+
+        let p_id_4 = doc.create_element("p", NodeId::root(), None, HTML_NAMESPACE);
+        res = doc.insert_attribute("class", "three", p_id_4);
+        assert!(res.is_ok());
+
+        let query = Query::new().contains_class("two").find_all();
+        let found_ids = doc.query(&query).unwrap();
+        assert_eq!(found_ids.len(), 2);
+        assert_eq!(found_ids, [p_id, p_id_3]);
+    }
+
+    #[test]
+    fn single_query_contains_attribute_find_first() {
+        // <div>
+        //     <div id="myid" style="somestyle">
+        //         <p title="hey">
+        //     <p>
+        // <div style="otherstyle" id="otherid">
+        //     <p>
+        // <p title="yo" style="cat">
+        let mut doc = DocumentBuilder::new_document();
+
+        let div_id = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
+        let div_id_2 = doc.create_element("div", div_id, None, HTML_NAMESPACE);
+        let mut res = doc.insert_attribute("id", "myid", div_id_2);
+        assert!(res.is_ok());
+        res = doc.insert_attribute("style", "somestyle", div_id_2);
+        assert!(res.is_ok());
+        let p_id = doc.create_element("p", div_id_2, None, HTML_NAMESPACE);
+        res = doc.insert_attribute("title", "key", p_id);
+        assert!(res.is_ok());
+        let _ = doc.create_element("p", div_id, None, HTML_NAMESPACE);
+
+        let div_id_3 = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
+        res = doc.insert_attribute("style", "otherstyle", div_id_3);
+        assert!(res.is_ok());
+        res = doc.insert_attribute("id", "otherid", div_id_3);
+        assert!(res.is_ok());
+        let _ = doc.create_element("p", div_id_3, None, HTML_NAMESPACE);
+
+        let p_id_4 = doc.create_element("p", NodeId::root(), None, HTML_NAMESPACE);
+        res = doc.insert_attribute("title", "yo", p_id_4);
+        assert!(res.is_ok());
+        res = doc.insert_attribute("style", "cat", p_id_4);
+        assert!(res.is_ok());
+
+        let query = Query::new().contains_attribute("style").find_first();
+        let found_ids = doc.query(&query).unwrap();
+        assert_eq!(found_ids.len(), 1);
+        assert_eq!(found_ids, [div_id_2]);
+    }
+
+    #[test]
+    fn single_query_contains_attribute_find_all() {
+        // <div>
+        //     <div id="myid" style="somestyle">
+        //         <p title="hey">
+        //     <p>
+        // <div style="otherstyle" id="otherid">
+        //     <p>
+        // <p title="yo" style="cat">
+        let mut doc = DocumentBuilder::new_document();
+
+        let div_id = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
+        let div_id_2 = doc.create_element("div", div_id, None, HTML_NAMESPACE);
+        let mut res = doc.insert_attribute("id", "myid", div_id_2);
+        assert!(res.is_ok());
+        res = doc.insert_attribute("style", "somestyle", div_id_2);
+        assert!(res.is_ok());
+        let p_id = doc.create_element("p", div_id_2, None, HTML_NAMESPACE);
+        res = doc.insert_attribute("title", "key", p_id);
+        assert!(res.is_ok());
+        let _ = doc.create_element("p", div_id, None, HTML_NAMESPACE);
+
+        let div_id_3 = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
+        res = doc.insert_attribute("style", "otherstyle", div_id_3);
+        assert!(res.is_ok());
+        res = doc.insert_attribute("id", "otherid", div_id_3);
+        assert!(res.is_ok());
+        let _ = doc.create_element("p", div_id_3, None, HTML_NAMESPACE);
+
+        let p_id_4 = doc.create_element("p", NodeId::root(), None, HTML_NAMESPACE);
+        res = doc.insert_attribute("title", "yo", p_id_4);
+        assert!(res.is_ok());
+        res = doc.insert_attribute("style", "cat", p_id_4);
+        assert!(res.is_ok());
+
+        let query = Query::new().contains_attribute("style").find_all();
+        let found_ids = doc.query(&query).unwrap();
+        assert_eq!(found_ids.len(), 3);
+        assert_eq!(found_ids, [div_id_2, div_id_3, p_id_4]);
+    }
+
+    #[test]
+    fn single_query_contains_child_find_first() {
+        // <div>
+        //     <div>
+        //         <p>
+        //     <p>
+        // <div>
+        //     <p>
+        // <p>
+        let mut doc = DocumentBuilder::new_document();
+
+        let div_id = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
+        let div_id_2 = doc.create_element("div", div_id, None, HTML_NAMESPACE);
+        let _ = doc.create_element("p", div_id_2, None, HTML_NAMESPACE);
+        let _ = doc.create_element("p", div_id, None, HTML_NAMESPACE);
+
+        let div_id_3 = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
+        let _ = doc.create_element("p", div_id_3, None, HTML_NAMESPACE);
+
+        let _ = doc.create_element("p", NodeId::root(), None, HTML_NAMESPACE);
+
+        let query = Query::new().contains_child_tag("p").find_first();
+        let found_ids = doc.query(&query).unwrap();
+        assert_eq!(found_ids.len(), 1);
+        assert_eq!(found_ids, [NodeId::root()]);
+    }
+
+    #[test]
+    fn single_query_contains_child_find_all() {
+        // <div>
+        //     <div>
+        //         <p>
+        //     <p>
+        // <div>
+        //     <p>
+        // <p>
+        let mut doc = DocumentBuilder::new_document();
+
+        let div_id = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
+        let div_id_2 = doc.create_element("div", div_id, None, HTML_NAMESPACE);
+        let _ = doc.create_element("p", div_id_2, None, HTML_NAMESPACE);
+        let _ = doc.create_element("p", div_id, None, HTML_NAMESPACE);
+
+        let div_id_3 = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
+        let _ = doc.create_element("p", div_id_3, None, HTML_NAMESPACE);
+
+        let _ = doc.create_element("p", NodeId::root(), None, HTML_NAMESPACE);
+
+        let query = Query::new().contains_child_tag("p").find_all();
+        let found_ids = doc.query(&query).unwrap();
+        assert_eq!(found_ids.len(), 4);
+        assert_eq!(found_ids, [NodeId::root(), div_id, div_id_2, div_id_3]);
+    }
+
+    #[test]
+    fn single_query_has_parent_find_first() {
+        // <div>
+        //     <div>
+        //         <p>
+        //     <p>
+        // <div>
+        //     <p>
+        // <p>
+        let mut doc = DocumentBuilder::new_document();
+
+        let div_id = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
+        let div_id_2 = doc.create_element("div", div_id, None, HTML_NAMESPACE);
+        let _ = doc.create_element("p", div_id_2, None, HTML_NAMESPACE);
+        let _ = doc.create_element("p", div_id, None, HTML_NAMESPACE);
+
+        let div_id_3 = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
+        let _ = doc.create_element("p", div_id_3, None, HTML_NAMESPACE);
+
+        let _ = doc.create_element("p", NodeId::root(), None, HTML_NAMESPACE);
+
+        let query = Query::new().has_parent_tag("div").find_first();
+        let found_ids = doc.query(&query).unwrap();
+        assert_eq!(found_ids.len(), 1);
+        assert_eq!(found_ids, [div_id_2]);
+    }
+
+    #[test]
+    fn single_query_has_parent_find_all() {
+        // <div>
+        //     <div>
+        //         <p>
+        //     <p>
+        // <div>
+        //     <p>
+        // <p>
+        let mut doc = DocumentBuilder::new_document();
+
+        let div_id = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
+        let div_id_2 = doc.create_element("div", div_id, None, HTML_NAMESPACE);
+        let p_id = doc.create_element("p", div_id_2, None, HTML_NAMESPACE);
+        let p_id_2 = doc.create_element("p", div_id, None, HTML_NAMESPACE);
+
+        let div_id_3 = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
+        let p_id_3 = doc.create_element("p", div_id_3, None, HTML_NAMESPACE);
+
+        let _ = doc.create_element("p", NodeId::root(), None, HTML_NAMESPACE);
+
+        let query = Query::new().has_parent_tag("div").find_all();
+        let found_ids = doc.query(&query).unwrap();
+        assert_eq!(found_ids.len(), 4);
+        assert_eq!(found_ids, [div_id_2, p_id, p_id_2, p_id_3]);
     }
 }
