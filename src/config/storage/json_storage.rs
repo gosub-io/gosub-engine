@@ -1,15 +1,15 @@
-use std::collections::HashMap;
 use crate::config::settings::Setting;
 use crate::config::StorageAdapter;
+use std::collections::HashMap;
 
 pub struct JsonStorageAdapter {
-    path: String
+    path: String,
 }
 
 impl JsonStorageAdapter {
     pub fn new(path: &str) -> Self {
         JsonStorageAdapter {
-            path: path.to_string()
+            path: path.to_string(),
         }
     }
 }

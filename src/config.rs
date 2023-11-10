@@ -1,11 +1,11 @@
-pub mod storage;
 pub mod settings;
+pub mod storage;
 
-use std::collections::HashMap;
+use crate::config::settings::{Setting, SettingInfo};
 use serde_derive::Deserialize;
 use serde_json::Value;
+use std::collections::HashMap;
 use wildmatch::WildMatch;
-use crate::config::settings::{Setting, SettingInfo};
 
 const SETTINGS_JSON: &str = include_str!("./config/settings.json");
 
@@ -36,7 +36,7 @@ pub struct ConfigStore {
     /// Keys of all settings so we can iterate keys easily
     setting_keys: Vec<String>,
     /// The storage adapter used for persisting and loading keys
-    storage: Box<dyn StorageAdapter>
+    storage: Box<dyn StorageAdapter>,
 }
 
 impl ConfigStore {
@@ -46,9 +46,9 @@ impl ConfigStore {
             settings: HashMap::new(),
             settings_info: HashMap::new(),
             setting_keys: Vec::new(),
-            storage
+            storage,
         };
-        
+
         // Populate the settings from the json file
         store.populate_settings();
 
@@ -83,10 +83,7 @@ impl ConfigStore {
     }
 
     pub fn get_info(&self, key: &str) -> Option<SettingInfo> {
-        match self.settings_info.get(key) {
-            Some(info) => Some(info.clone()),
-            None => None
-        }
+        self.settings_info.get(key).cloned()
     }
 
     /// Returns the setting with the given key
@@ -125,15 +122,18 @@ impl ConfigStore {
         let json_data = json_data.unwrap();
         if let Value::Object(data) = json_data {
             for (section_prefix, section_entries) in data.iter() {
-                let section_entries: Vec<JsonEntry> = serde_json::from_value(section_entries.clone()).expect("Failed to parse settings.json");
+                let section_entries: Vec<JsonEntry> =
+                    serde_json::from_value(section_entries.clone())
+                        .expect("Failed to parse settings.json");
 
                 for entry in section_entries {
                     let key = format!("{}.{}", section_prefix, entry.key);
 
-                    let info = SettingInfo{
+                    let info = SettingInfo {
                         key: key.clone(),
                         description: entry.description,
-                        default: Setting::from_string(entry.default.as_str()).expect("cannot parse default setting"),
+                        default: Setting::from_string(entry.default.as_str())
+                            .expect("cannot parse default setting"),
                         last_accessed: 0,
                     };
 
@@ -148,12 +148,12 @@ impl ConfigStore {
 
 #[cfg(test)]
 mod test {
-    use crate::config::storage::sqlite_storage::SqliteStorageAdapter;
     use super::*;
+    use crate::config::storage::memory_storage::MemoryStorageAdapter;
 
     #[test]
     fn test_config_store() {
-        let mut store = ConfigStore::new(Box::new(SqliteStorageAdapter::new("settings.db")), true);
+        let mut store = ConfigStore::new(Box::new(MemoryStorageAdapter::new()), true);
         let setting = store.get("dns.local_resolver.enabled", None);
         assert_eq!(setting, Setting::Bool(false));
 

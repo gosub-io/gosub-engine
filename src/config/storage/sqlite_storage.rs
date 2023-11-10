@@ -1,9 +1,9 @@
-use std::collections::HashMap;
 use crate::config::settings::Setting;
 use crate::config::StorageAdapter;
+use std::collections::HashMap;
 
 pub struct SqliteStorageAdapter {
-    connection: sqlite::Connection
+    connection: sqlite::Connection,
 }
 
 impl SqliteStorageAdapter {
@@ -17,14 +17,11 @@ impl SqliteStorageAdapter {
         )";
         conn.execute(query).unwrap();
 
-        SqliteStorageAdapter {
-            connection: conn
-        }
+        SqliteStorageAdapter { connection: conn }
     }
 }
 
-impl StorageAdapter for SqliteStorageAdapter
-{
+impl StorageAdapter for SqliteStorageAdapter {
     fn get_setting(&self, key: &str) -> Option<Setting> {
         let query = "SELECT * FROM settings WHERE key = :key";
         let mut statement = self.connection.prepare(query).unwrap();
@@ -37,7 +34,9 @@ impl StorageAdapter for SqliteStorageAdapter
         let query = "INSERT OR REPLACE INTO settings (key, value) VALUES (:key, :value)";
         let mut statement = self.connection.prepare(query).unwrap();
         statement.bind((":key", key)).unwrap();
-        statement.bind((":value", value.to_string().as_str())).unwrap();
+        statement
+            .bind((":value", value.to_string().as_str()))
+            .unwrap();
 
         statement.next().unwrap();
     }

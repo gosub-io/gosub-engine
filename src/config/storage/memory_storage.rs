@@ -1,15 +1,16 @@
-use std::collections::HashMap;
 use crate::config::settings::Setting;
 use crate::config::StorageAdapter;
+use std::collections::HashMap;
 
+#[derive(Default)]
 pub struct MemoryStorageAdapter {
-    store: HashMap<String, Setting>
+    store: HashMap<String, Setting>,
 }
 
 impl MemoryStorageAdapter {
     pub fn new() -> Self {
         MemoryStorageAdapter {
-            store: HashMap::new()
+            store: HashMap::new(),
         }
     }
 }
@@ -17,10 +18,7 @@ impl MemoryStorageAdapter {
 impl StorageAdapter for MemoryStorageAdapter {
     fn get_setting(&self, key: &str) -> Option<Setting> {
         let v = self.store.get(key);
-        match v {
-            Some(v) => Some(v.clone()),
-            None => None
-        }
+        v.cloned()
     }
 
     fn set_setting(&mut self, key: &str, value: Setting) {
