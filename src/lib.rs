@@ -9,3 +9,6 @@ pub mod css3;
 pub mod html5;
 pub mod testing;
 pub mod types;
+
+#[allow(dead_code)]
+pub mod config;

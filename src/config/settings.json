@@ -1,0 +1,46 @@
+{
+  "dns": [
+    {
+      "key": "local_resolver.enabled",
+      "type": "b",
+      "default": "b:false",
+      "description": "This setting enables the local DNS resolver. When enabled, GosuB will use the local DNS resolver to resolve DNS queries. When disabled, GosuB will use the DNS resolver configured in the operating system."
+    },
+    {
+      "key": "doh.enabled",
+      "type": "b",
+      "default": "b:false",
+      "description": "This setting enabled DNS over HTTPS. A secure way of communicating with DNS servers."
+    }
+  ],
+  "useragent": [
+    {
+      "key": "default_page",
+      "type": "s",
+      "default": "s:about:blank",
+      "description": "This setting sets the default page to load when GosuB starts or when a new tab is opened."
+    },
+    {
+      "key": "tab.close_button",
+      "type": "m",
+      "values": "left,right",
+      "default": "m:left",
+      "description": "Defines where the close button on tabs located"
+    },
+    {
+      "key": "tab.max_opened",
+      "type": "i",
+      "values": "-1,0-9999",
+      "default": "i:-1",
+      "description": "Defines how many tabs may be opened inside a window. -1 means unlimited."
+    }
+  ],
+  "renderer": [
+    {
+      "key": "opengl.enabled",
+      "type": "b",
+      "default": "b:true",
+      "description": "When set to true, the OpenGL renderer will be used. When set to false, the software renderer will be used."
+    }
+  ]
+}
