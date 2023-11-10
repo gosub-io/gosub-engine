@@ -18,7 +18,7 @@ impl Setting {
     //   m:foo,bar,baz
 
     /// Converts a string to a setting or None when the string is invalid
-    pub(crate) fn from_string(p0: &str) -> Option<Setting> {
+    pub fn from_string(p0: &str) -> Option<Setting> {
         let mut parts = p0.splitn(2, ':');
         let p1 = parts.next().unwrap();
         let p2 = parts.next().unwrap();
@@ -55,7 +55,7 @@ impl Setting {
     }
 
     /// Converts a setting to a string representation
-    pub(crate) fn to_string(&self) -> String {
+    pub fn to_string(&self) -> String {
         match self {
             Setting::SInt(value) => format!("i:{}", value),
             Setting::UInt(value) => format!("u:{}", value),

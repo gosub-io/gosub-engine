@@ -18,7 +18,7 @@ struct JsonEntry {
     description: String,
 }
 
-trait StorageAdapter {
+pub trait StorageAdapter {
     /// Retrieves a setting from the storage
     fn get_setting(&self, key: &str) -> Option<Setting>;
     /// Stores a given setting to the storage
@@ -41,7 +41,7 @@ pub struct ConfigStore {
 
 impl ConfigStore {
     /// Creates a new store with the given storage adapter and preloads the store if needed
-    fn new(storage: Box<dyn StorageAdapter>, preload: bool) -> Self {
+    pub fn new(storage: Box<dyn StorageAdapter>, preload: bool) -> Self {
         let mut store = ConfigStore {
             settings: HashMap::new(),
             settings_info: HashMap::new(),
@@ -63,8 +63,12 @@ impl ConfigStore {
         store
     }
 
+    pub fn has(&self, key: &str) -> bool {
+        self.settings.contains_key(key)
+    }
+
     /// Returns a list of keys that mathces the given search string (can use *)
-    fn find_setting_keys(&self, search: &str) -> Vec<String> {
+    pub fn find(&self, search: &str) -> Vec<String> {
         let search = WildMatch::new(search);
 
         let mut keys = Vec::new();
@@ -78,9 +82,16 @@ impl ConfigStore {
         keys
     }
 
+    pub fn get_info(&self, key: &str) -> Option<SettingInfo> {
+        match self.settings_info.get(key) {
+            Some(info) => Some(info.clone()),
+            None => None
+        }
+    }
+
     /// Returns the setting with the given key
     /// If the setting does not exist, it will try and load it from the storage adapter
-    fn get(&mut self, key: &str, default: Option<Setting>) -> Setting {
+    pub fn get(&mut self, key: &str, default: Option<Setting>) -> Setting {
         if let Some(setting) = self.settings.get(key) {
             return setting.clone();
         }
@@ -99,7 +110,7 @@ impl ConfigStore {
         default.unwrap()
     }
 
-    fn set(&mut self, key: &str, value: Setting) {
+    pub fn set(&mut self, key: &str, value: Setting) {
         self.settings.insert(key.to_string(), value.clone());
         self.storage.set_setting(key, value);
     }
@@ -137,12 +148,12 @@ impl ConfigStore {
 
 #[cfg(test)]
 mod test {
-    use crate::config::storage::memory_storage::MemoryStorageAdapter;
+    use crate::config::storage::sqlite_storage::SqliteStorageAdapter;
     use super::*;
 
     #[test]
     fn test_config_store() {
-        let mut store = ConfigStore::new(Box::new(MemoryStorageAdapter::new()), true);
+        let mut store = ConfigStore::new(Box::new(SqliteStorageAdapter::new("settings.db")), true);
         let setting = store.get("dns.local_resolver.enabled", None);
         assert_eq!(setting, Setting::Bool(false));
 

@@ -7,9 +7,9 @@ pub struct JsonStorageAdapter {
 }
 
 impl JsonStorageAdapter {
-    fn new(path: String) -> Self {
+    pub fn new(path: &str) -> Self {
         JsonStorageAdapter {
-            path
+            path: path.to_string()
         }
     }
 }

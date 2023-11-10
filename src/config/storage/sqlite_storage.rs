@@ -2,29 +2,28 @@ use std::collections::HashMap;
 use crate::config::settings::Setting;
 use crate::config::StorageAdapter;
 
-struct SqlStorageAdapter {
+pub struct SqliteStorageAdapter {
     connection: sqlite::Connection
 }
 
-impl SqlStorageAdapter {
-    fn new(path: String) -> Self {
+impl SqliteStorageAdapter {
+    pub fn new(path: &str) -> Self {
         let conn = sqlite::open(path).expect("cannot open db file");
 
         let query = "CREATE TABLE IF NOT EXISTS settings (
             id INTEGER PRIMARY KEY,
             key TEXT NOT NULL,
-            value TEXT NOT NULL,
+            value TEXT NOT NULL
         )";
         conn.execute(query).unwrap();
 
-        SqlStorageAdapter {
+        SqliteStorageAdapter {
             connection: conn
         }
-
     }
 }
 
-impl StorageAdapter for SqlStorageAdapter
+impl StorageAdapter for SqliteStorageAdapter
 {
     fn get_setting(&self, key: &str) -> Option<Setting> {
         let query = "SELECT * FROM settings WHERE key = :key";
@@ -44,6 +43,16 @@ impl StorageAdapter for SqlStorageAdapter
     }
 
     fn get_all_settings(&self) -> HashMap<String, Setting> {
-        todo!()
+        let query = "SELECT * FROM settings";
+        let mut statement = self.connection.prepare(query).unwrap();
+
+        let mut settings = HashMap::new();
+        while let sqlite::State::Row = statement.next().unwrap() {
+            let key = statement.read::<String, _>(1).unwrap();
+            let value = statement.read::<String, _>(2).unwrap();
+            settings.insert(key, Setting::from_string(value.as_str()).unwrap());
+        }
+
+        settings
     }
 }
