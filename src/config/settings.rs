@@ -1,4 +1,5 @@
 use core::fmt::Display;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// A setting can be either a signed integer, unsigned integer, string, map or boolean.
 /// Maps could be created by using comma separated strings maybe
@@ -11,13 +12,31 @@ pub enum Setting {
     Map(Vec<String>),
 }
 
+impl Serialize for Setting {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
+        let s= self.to_string();
+        serializer.collect_str(&s)
+    }
+}
+
+impl<'de> Deserialize<'de> for Setting {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error> where D: Deserializer<'de> {
+        let value = String::deserialize(deserializer)?;
+
+        match Setting::from_string(value.as_str()) {
+            None => Err(serde::de::Error::custom("Cannot deserialize")),
+            Some(setting) => Ok(setting)
+        }
+    }
+}
+
 impl Display for Setting {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Setting::SInt(value) => write!(f, "{}", value),
-            Setting::UInt(value) => write!(f, "{}", value),
-            Setting::String(value) => write!(f, "{}", value),
-            Setting::Bool(value) => write!(f, "{}", value),
+            Setting::SInt(value) => write!(f, "i:{}", value),
+            Setting::UInt(value) => write!(f, "u:{}", value),
+            Setting::String(value) => write!(f, "s:{}", value),
+            Setting::Bool(value) => write!(f, "b:{}", value),
             Setting::Map(values) => {
                 let mut result = String::new();
                 for value in values {
@@ -25,7 +44,7 @@ impl Display for Setting {
                     result.push(',');
                 }
                 result.pop();
-                write!(f, "{}", result)
+                write!(f, "m: {}", result)
             }
         }
     }
@@ -40,26 +59,26 @@ impl Setting {
     //   m:foo,bar,baz
 
     /// Converts a string to a setting or None when the string is invalid
-    pub fn from_string(p0: &str) -> Option<Setting> {
-        let (p1, p2) = p0.split_once(':').unwrap();
+    pub fn from_string(key: &str) -> Option<Setting> {
+        let (key_type, key_value) = key.split_once(':').unwrap();
 
-        match p1 {
-            "b" => match p2.parse::<bool>() {
+        match key_type {
+            "b" => match key_value.parse::<bool>() {
                 Ok(value) => Some(Setting::Bool(value)),
                 Err(_) => None,
             },
-            "i" => match p2.parse::<isize>() {
+            "i" => match key_value.parse::<isize>() {
                 Ok(value) => Some(Setting::SInt(value)),
                 Err(_) => None,
             },
-            "u" => match p2.parse::<usize>() {
+            "u" => match key_value.parse::<usize>() {
                 Ok(value) => Some(Setting::UInt(value)),
                 Err(_) => None,
             },
-            "s" => Some(Setting::String(p2.to_string())),
+            "s" => Some(Setting::String(key_value.to_string())),
             "m" => {
                 let mut values = Vec::new();
-                for value in p2.split(',') {
+                for value in key_value.split(',') {
                     values.push(value.to_string());
                 }
                 Some(Setting::Map(values))

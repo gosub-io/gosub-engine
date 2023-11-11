@@ -1,6 +1,7 @@
 pub mod settings;
 pub mod storage;
 
+use std::mem;
 use crate::config::settings::{Setting, SettingInfo};
 use serde_derive::Deserialize;
 use serde_json::Value;
@@ -18,12 +19,16 @@ struct JsonEntry {
     description: String,
 }
 
+/// StorageAdapter is the interface for storing and retrieving settings
+/// This can be used to store settings in a database, json file, etc
 pub trait StorageAdapter {
     /// Retrieves a setting from the storage
     fn get_setting(&self, key: &str) -> Option<Setting>;
     /// Stores a given setting to the storage
     fn set_setting(&mut self, key: &str, value: Setting);
-    /// Retrieves all the settings in the storage
+    /// Retrieves all the settings in the storage in one go. This is used for preloading the settings
+    /// into the ConfigStore and is more performant normally than calling get_setting manually for each
+    /// setting.
     fn get_all_settings(&self) -> HashMap<String, Setting>;
 }
 
@@ -31,7 +36,7 @@ pub trait StorageAdapter {
 pub struct ConfigStore {
     /// A hashmap of all settings so we can search o(1) time
     settings: HashMap<String, Setting>,
-    /// A hashmap of all setting descriptions
+    /// A hashmap of all setting descriptions, default values and type information
     settings_info: HashMap<String, SettingInfo>,
     /// Keys of all settings so we can iterate keys easily
     setting_keys: Vec<String>,
@@ -63,11 +68,13 @@ impl ConfigStore {
         store
     }
 
+    /// Returns true when the store knows about the given key
     pub fn has(&self, key: &str) -> bool {
         self.settings.contains_key(key)
     }
 
-    /// Returns a list of keys that mathces the given search string (can use *)
+    /// Returns a list of keys that matches the given search string (can use ? and *) for search
+    /// wildcards.
     pub fn find(&self, search: &str) -> Vec<String> {
         let search = WildMatch::new(search);
 
@@ -82,13 +89,20 @@ impl ConfigStore {
         keys
     }
 
+    /// Retrieves information about the given key, or returns None when key is unknown
     pub fn get_info(&self, key: &str) -> Option<SettingInfo> {
         self.settings_info.get(key).cloned()
     }
 
-    /// Returns the setting with the given key
-    /// If the setting does not exist, it will try and load it from the storage adapter
-    pub fn get(&mut self, key: &str, default: Option<Setting>) -> Setting {
+    /// Returns the setting with the given key. If the setting is not found in the current
+    /// store, it will load the key from the storage. If the key is still not found, it will
+    /// return the default value for the given key. Note that if the key is not found and no
+    /// default value is specified, this function will panic.
+    pub fn get(&mut self, key: &str) -> Setting {
+        if ! self.has(key) {
+            panic!("Setting {} not found", key);
+        }
+
         if let Some(setting) = self.settings.get(key) {
             return setting.clone();
         }
@@ -99,15 +113,22 @@ impl ConfigStore {
             return setting.clone();
         }
 
-        // Panic if we can't find the setting, and we don't have a default
-        if default.is_none() {
-            panic!("Setting {} not found", key);
-        }
-
-        default.unwrap()
+        // Return the default value for the setting when nothing is found
+        let info = self.settings_info.get(key).unwrap();
+        info.default.clone()
     }
 
+    /// Sets the given setting to the given value. Will persist the setting to the
+    /// storage.
     pub fn set(&mut self, key: &str, value: Setting) {
+        if ! self.has(key) {
+            panic!("key not found");
+        }
+        let info = self.settings_info.get(key).unwrap();
+        if mem::discriminant(&info.default) != mem::discriminant(&value) {
+            panic!("value is of different type than setting expects")
+        }
+
         self.settings.insert(key.to_string(), value.clone());
         self.storage.set_setting(key, value);
     }
@@ -152,13 +173,20 @@ mod test {
     use crate::config::storage::memory_storage::MemoryStorageAdapter;
 
     #[test]
-    fn test_config_store() {
+    fn config_store() {
         let mut store = ConfigStore::new(Box::new(MemoryStorageAdapter::new()), true);
-        let setting = store.get("dns.local_resolver.enabled", None);
+        let setting = store.get("dns.local_resolver.enabled");
         assert_eq!(setting, Setting::Bool(false));
 
         store.set("dns.local_resolver.enabled", Setting::Bool(true));
-        let setting = store.get("dns.local_resolver.enabled", None);
+        let setting = store.get("dns.local_resolver.enabled");
         assert_eq!(setting, Setting::Bool(true));
+    }
+
+    #[test]
+    #[should_panic]
+    fn invalid_setting() {
+        let mut store = ConfigStore::new(Box::new(MemoryStorageAdapter::new()), true);
+        store.set("dns.local_resolver.enabled", Setting::String("wont accept strings".into()));
     }
 }

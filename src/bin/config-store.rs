@@ -87,7 +87,7 @@ fn main() {
             }
 
             let info = store.get_info(key.as_str()).unwrap();
-            let value = store.get(key.as_str(), None);
+            let value = store.get(key.as_str());
 
             println!("Key            : {}", key);
             println!("Current Value  : {}", value);
@@ -96,7 +96,7 @@ fn main() {
         }
         Commands::List => {
             for key in store.find("*") {
-                let value = store.get(key.as_str(), None);
+                let value = store.get(key.as_str());
                 println!("{:40}: {}", key, value);
             }
         }
@@ -108,7 +108,7 @@ fn main() {
         }
         Commands::Search { key } => {
             for key in store.find(key.as_str()) {
-                let value = store.get(key.as_str(), None);
+                let value = store.get(key.as_str());
                 println!("{:40}: {}", key, value);
             }
         }
