@@ -4,5 +4,8 @@ target/
 *.swo*
 *.swp*
 
-# Local testing 
+# Local testing
 local/
+
+# mac
+.DS_Store

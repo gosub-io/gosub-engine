@@ -185,20 +185,28 @@ impl TreeBuilder for DocumentTaskQueue {
         new_id
     }
 
-    fn create_text(&mut self, content: &str, parent_id: NodeId) {
+    fn create_text(&mut self, content: &str, parent_id: NodeId) -> NodeId {
         let text = DocumentTask::CreateText {
             content: content.to_owned(),
             parent_id,
         };
+        let new_id = self.next_node_id;
+        self.next_node_id = self.next_node_id.next();
         self.tasks.push(text);
+
+        new_id
     }
 
-    fn create_comment(&mut self, content: &str, parent_id: NodeId) {
+    fn create_comment(&mut self, content: &str, parent_id: NodeId) -> NodeId {
         let comment = DocumentTask::CreateComment {
             content: content.to_owned(),
             parent_id,
         };
+        let new_id = self.next_node_id;
+        self.next_node_id = self.next_node_id.next();
         self.tasks.push(comment);
+
+        new_id
     }
 
     fn insert_attribute(&mut self, key: &str, value: &str, element_id: NodeId) -> Result<()> {
@@ -786,24 +794,12 @@ impl DocumentHandle {
             return Err(Error::Query("Query predicate is uninitialized".to_owned()));
         }
 
-        let mut found_ids = Vec::new();
-
-        let mut node_stack: Vec<NodeId> = Vec::new();
-        let root_id = self.get().get_root().id;
-        node_stack.push(root_id);
-
         let doc_read = self.get();
+        let mut found_ids = Vec::new();
+        let tree_iterator = TreeIterator::new(self);
 
-        while let Some(current_node_id) = node_stack.pop() {
+        for current_node_id in tree_iterator {
             let current_node = doc_read.get_node_by_id(current_node_id).unwrap();
-
-            if let Some(sibling_id) = doc_read.get_next_sibling(current_node_id) {
-                node_stack.push(sibling_id);
-            }
-
-            if !current_node.children.is_empty() {
-                node_stack.push(current_node.children[0]);
-            }
 
             let mut predicate_result: bool = true;
 
@@ -840,15 +836,15 @@ impl TreeBuilder for DocumentHandle {
     }
 
     /// Creates and attaches a new text node to the document
-    fn create_text(&mut self, content: &str, parent_id: NodeId) {
+    fn create_text(&mut self, content: &str, parent_id: NodeId) -> NodeId {
         let new_text = Node::new_text(self, content);
-        self.add_node(new_text, parent_id, None);
+        self.add_node(new_text, parent_id, None)
     }
 
     /// Creates and attaches a new comment node to the document
-    fn create_comment(&mut self, content: &str, parent_id: NodeId) {
+    fn create_comment(&mut self, content: &str, parent_id: NodeId) -> NodeId {
         let new_comment = Node::new_comment(self, content);
-        self.add_node(new_comment, parent_id, None);
+        self.add_node(new_comment, parent_id, None)
     }
 
     /// Inserts an attribute to an element node.
@@ -898,10 +894,54 @@ impl DocumentBuilder {
     }
 }
 
+/// Constructs an iterator from a given DocumentHandle.
+/// WARNING: mutations in the document would be reflected
+/// in the iterator. It's advised to consume the entire iterator
+/// before mutating the document again.
+pub struct TreeIterator {
+    current_node_id: Option<NodeId>,
+    node_stack: Vec<NodeId>,
+    document: DocumentHandle,
+}
+
+impl TreeIterator {
+    fn new(document: &DocumentHandle) -> Self {
+        Self {
+            current_node_id: None,
+            document: Document::clone(document),
+            node_stack: vec![document.get().get_root().id],
+        }
+    }
+}
+
+impl Iterator for TreeIterator {
+    type Item = NodeId;
+
+    fn next(&mut self) -> Option<NodeId> {
+        self.current_node_id = self.node_stack.pop();
+
+        if let Some(current_node_id) = self.current_node_id {
+            let doc_read = self.document.get();
+
+            if let Some(sibling_id) = self.document.get().get_next_sibling(current_node_id) {
+                self.node_stack.push(sibling_id);
+            }
+
+            if let Some(current_node) = doc_read.get_node_by_id(current_node_id) {
+                if let Some(&child_id) = current_node.children.first() {
+                    self.node_stack.push(child_id);
+                }
+            }
+        }
+
+        self.current_node_id
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::html5::node::{NodeTrait, NodeType, HTML_NAMESPACE};
-    use crate::html5::parser::document::{DocumentBuilder, DocumentTaskQueue};
+    use crate::html5::parser::document::{DocumentBuilder, DocumentTaskQueue, TreeIterator};
     use crate::html5::parser::query::Query;
     use crate::html5::parser::tree_builder::TreeBuilder;
     use crate::html5::parser::{Node, NodeData, NodeId};
@@ -1687,5 +1727,66 @@ mod tests {
         let found_ids = doc.query(&query).unwrap();
         assert_eq!(found_ids.len(), 4);
         assert_eq!(found_ids, [div_id_2, p_id, p_id_2, p_id_3]);
+    }
+
+    #[test]
+    fn tree_iterator() {
+        let mut doc = DocumentBuilder::new_document();
+
+        // <div>
+        //     <div>
+        //         <p>first p tag
+        //         <p>second p tag
+        //     <p>third p tag
+        let div_id = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
+        let div_id_2 = doc.create_element("div", div_id, None, HTML_NAMESPACE);
+        let p_id = doc.create_element("p", div_id_2, None, HTML_NAMESPACE);
+        let text_id = doc.create_text("first p tag", p_id);
+        let p_id_2 = doc.create_element("p", div_id_2, None, HTML_NAMESPACE);
+        let text_id_2 = doc.create_text("second p tag", p_id_2);
+        let p_id_3 = doc.create_element("p", div_id, None, HTML_NAMESPACE);
+        let text_id_3 = doc.create_text("third p tag", p_id_3);
+
+        let tree_iterator = TreeIterator::new(&doc);
+
+        let expected_order = vec![
+            NodeId::root(),
+            div_id,
+            div_id_2,
+            p_id,
+            text_id,
+            p_id_2,
+            text_id_2,
+            p_id_3,
+            text_id_3,
+        ];
+
+        let mut traversed_nodes = Vec::new();
+        for current_node_id in tree_iterator {
+            traversed_nodes.push(current_node_id);
+        }
+
+        assert_eq!(expected_order, traversed_nodes);
+    }
+
+    #[test]
+    fn tree_iterator_mutation() {
+        let mut doc = DocumentBuilder::new_document();
+        let div_id = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
+
+        let mut tree_iterator = TreeIterator::new(&doc);
+        let mut current_node_id;
+
+        current_node_id = tree_iterator.next();
+        assert_eq!(current_node_id.unwrap(), NodeId::root());
+
+        // we mutate the tree while the iterator is still "open"
+        let div_id_2 = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
+        current_node_id = tree_iterator.next();
+        assert_eq!(current_node_id.unwrap(), div_id);
+
+        // and find this node on next iteration
+        current_node_id = tree_iterator.next();
+        assert_eq!(current_node_id.unwrap(), div_id_2);
     }
 }
