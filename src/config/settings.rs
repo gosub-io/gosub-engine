@@ -39,10 +39,10 @@ impl<'de> Deserialize<'de> for Setting {
 impl Display for Setting {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Setting::SInt(value) => write!(f, "i:{}", value),
-            Setting::UInt(value) => write!(f, "u:{}", value),
-            Setting::String(value) => write!(f, "s:{}", value),
-            Setting::Bool(value) => write!(f, "b:{}", value),
+            Setting::SInt(value) => write!(f, "i:{value}"),
+            Setting::UInt(value) => write!(f, "u:{value}"),
+            Setting::String(value) => write!(f, "s:{value}"),
+            Setting::Bool(value) => write!(f, "b:{value}"),
             Setting::Map(values) => {
                 let mut result = String::new();
                 for value in values {
@@ -65,7 +65,7 @@ impl Setting {
     //   m:foo,bar,baz
 
     /// Converts a string to a setting or None when the string is invalid
-    pub fn from_string(key: &str) -> Option<Setting> {
+    pub fn from_str(key: &str) -> Option<Setting> {
         let (key_type, key_value) = key.split_once(':').unwrap();
 
         match key_type {

@@ -21,7 +21,7 @@ struct JsonEntry {
 
 /// StorageAdapter is the interface for storing and retrieving settings
 /// This can be used to store settings in a database, json file, etc
-pub trait StorageAdapter {
+pub trait Store {
     /// Retrieves a setting from the storage
     fn get_setting(&self, key: &str) -> Option<Setting>;
     /// Stores a given setting to the storage
@@ -82,7 +82,7 @@ impl<S: StorageAdapter> ConfigStore<S> {
 
         let mut keys = Vec::new();
         for key in &self.setting_keys {
-            if search.matches(key.as_str()) {
+            if search.matches(key) {
                 let key = key.clone();
                 keys.push(key);
             }
@@ -137,12 +137,9 @@ impl<S: StorageAdapter> ConfigStore<S> {
 
     /// Populates the settings in the store from the settings.json file
     fn populate_settings(&mut self) {
-        let json_data = serde_json::from_str(SETTINGS_JSON);
-        if json_data.is_err() {
-            panic!("Failed to parse settings.json");
-        }
+        let json_data: Value =
+            serde_json::from_str(SETTINGS_JSON).expect("Failed to parse settings.json");
 
-        let json_data = json_data.unwrap();
         if let Value::Object(data) = json_data {
             for (section_prefix, section_entries) in data.iter() {
                 let section_entries: Vec<JsonEntry> =

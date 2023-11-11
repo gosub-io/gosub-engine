@@ -127,7 +127,7 @@ fn main() {
 
     match args.command {
         Commands::View { key } => {
-            if !store.has(key.as_str()) {
+            if !store.has(&key) {
                 println!("Key not found");
                 return;
             }
@@ -148,13 +148,12 @@ fn main() {
         }
         Commands::Set { key, value } => {
             store.set(
-                key.as_str(),
-                Setting::from_string(value.as_str()).expect("incorrect value"),
+                &key, Setting::from_string(&value).expect("incorrect value"),
             );
         }
         Commands::Search { key } => {
             for key in store.find(key.as_str()) {
-                let value = store.get(key.as_str());
+                let value = store.get(key);
                 println!("{:40}: {}", key, value);
             }
         }
