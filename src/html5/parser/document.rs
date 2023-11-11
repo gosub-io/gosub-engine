@@ -905,7 +905,7 @@ pub struct TreeIterator {
 }
 
 impl TreeIterator {
-    fn new(document: &DocumentHandle) -> Self {
+    pub fn new(document: &DocumentHandle) -> Self {
         Self {
             current_node_id: None,
             document: Document::clone(document),
