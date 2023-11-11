@@ -1,11 +1,11 @@
 pub mod settings;
 pub mod storage;
 
-use std::mem;
 use crate::config::settings::{Setting, SettingInfo};
 use serde_derive::Deserialize;
 use serde_json::Value;
 use std::collections::HashMap;
+use std::mem;
 use wildmatch::WildMatch;
 
 const SETTINGS_JSON: &str = include_str!("./config/settings.json");
@@ -99,7 +99,7 @@ impl ConfigStore {
     /// return the default value for the given key. Note that if the key is not found and no
     /// default value is specified, this function will panic.
     pub fn get(&mut self, key: &str) -> Setting {
-        if ! self.has(key) {
+        if !self.has(key) {
             panic!("Setting {} not found", key);
         }
 
@@ -121,7 +121,7 @@ impl ConfigStore {
     /// Sets the given setting to the given value. Will persist the setting to the
     /// storage.
     pub fn set(&mut self, key: &str, value: Setting) {
-        if ! self.has(key) {
+        if !self.has(key) {
             panic!("key not found");
         }
         let info = self.settings_info.get(key).unwrap();
@@ -187,6 +187,9 @@ mod test {
     #[should_panic]
     fn invalid_setting() {
         let mut store = ConfigStore::new(Box::new(MemoryStorageAdapter::new()), true);
-        store.set("dns.local_resolver.enabled", Setting::String("wont accept strings".into()));
+        store.set(
+            "dns.local_resolver.enabled",
+            Setting::String("wont accept strings".into()),
+        );
     }
 }

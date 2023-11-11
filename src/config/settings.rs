@@ -13,19 +13,25 @@ pub enum Setting {
 }
 
 impl Serialize for Setting {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
-        let s= self.to_string();
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let s = self.to_string();
         serializer.collect_str(&s)
     }
 }
 
 impl<'de> Deserialize<'de> for Setting {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error> where D: Deserializer<'de> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
         let value = String::deserialize(deserializer)?;
 
         match Setting::from_string(value.as_str()) {
             None => Err(serde::de::Error::custom("Cannot deserialize")),
-            Some(setting) => Ok(setting)
+            Some(setting) => Ok(setting),
         }
     }
 }

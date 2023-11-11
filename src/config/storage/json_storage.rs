@@ -1,23 +1,23 @@
 use crate::config::settings::Setting;
 use crate::config::StorageAdapter;
+use serde_json::Value;
 use std::collections::HashMap;
 use std::fs;
 use std::fs::File;
 use std::io::{Read, Seek, Write};
 use std::sync::{Arc, Mutex};
-use serde_json::Value;
 
 pub struct JsonStorageAdapter {
     path: String,
     file_mutex: Arc<Mutex<File>>,
-    elements: HashMap<String, Setting>
+    elements: HashMap<String, Setting>,
 }
 
 impl JsonStorageAdapter {
     pub fn new(path: &str) -> Self {
         let file = match fs::metadata(path) {
             Ok(metadata) => {
-                if ! metadata.is_file() {
+                if !metadata.is_file() {
                     panic!("json file is not a regular file")
                 }
 
@@ -31,7 +31,8 @@ impl JsonStorageAdapter {
                 let json = "{}";
 
                 let mut file = File::create(path).expect("cannot create json file");
-                file.write_all(json.as_bytes()).expect("failed to write to file");
+                file.write_all(json.as_bytes())
+                    .expect("failed to write to file");
 
                 file
             }
@@ -51,10 +52,7 @@ impl JsonStorageAdapter {
 
 impl StorageAdapter for JsonStorageAdapter {
     fn get_setting(&self, key: &str) -> Option<Setting> {
-        match self.elements.get(key) {
-            None => None,
-            Some(setting) => Some(setting.clone()),
-        }
+        self.elements.get(key).cloned()
     }
 
     fn set_setting(&mut self, key: &str, value: Setting) {
@@ -73,12 +71,12 @@ impl JsonStorageAdapter {
     fn read_file(&mut self) {
         let mut file = self.file_mutex.lock().expect("Mutex lock failed");
 
-        let mut buf= String::new();
+        let mut buf = String::new();
         _ = file.read_to_string(&mut buf);
 
         let parsed_json: Value = serde_json::from_str(&buf).expect("Failed to parse json");
 
-        if let Value::Object(settings ) = parsed_json {
+        if let Value::Object(settings) = parsed_json {
             self.elements = HashMap::new();
             for (key, value) in settings.iter() {
                 if let Ok(setting) = serde_json::from_value(value.clone()) {
@@ -96,7 +94,9 @@ impl JsonStorageAdapter {
         let json = serde_json::to_string_pretty(&self.elements).expect("failed to serialize");
 
         file.set_len(0).expect("failed to truncate file");
-        file.seek(std::io::SeekFrom::Start(0)).expect("failed to seek");
-        file.write_all(json.as_bytes()).expect("failed to write file");
+        file.seek(std::io::SeekFrom::Start(0))
+            .expect("failed to seek");
+        file.write_all(json.as_bytes())
+            .expect("failed to write file");
     }
 }
