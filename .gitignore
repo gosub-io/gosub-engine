@@ -6,3 +6,4 @@ target/
 
 # Local testing 
 local/
+settings.db
