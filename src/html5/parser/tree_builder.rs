@@ -17,10 +17,10 @@ pub trait TreeBuilder {
     ) -> NodeId;
 
     /// Create a new text node with the given content and append it to a parent.
-    fn create_text(&mut self, content: &str, parent_id: NodeId);
+    fn create_text(&mut self, content: &str, parent_id: NodeId) -> NodeId;
 
     /// Create a new comment node with the given content and append it to a parent.
-    fn create_comment(&mut self, content: &str, parent_id: NodeId);
+    fn create_comment(&mut self, content: &str, parent_id: NodeId) -> NodeId;
 
     /// Insert/update an attribute for an element node.
     fn insert_attribute(&mut self, key: &str, value: &str, element_id: NodeId) -> Result<()>;
