@@ -41,12 +41,12 @@ pub struct ConfigStore {
     /// Keys of all settings so we can iterate keys easily
     setting_keys: Vec<String>,
     /// The storage adapter used for persisting and loading keys
-    storage: Box<dyn StorageAdapter>,
+    storage: Box<dyn Store>,
 }
 
 impl ConfigStore {
     /// Creates a new store with the given storage adapter and preloads the store if needed
-    pub fn new(storage: Box<dyn StorageAdapter>, preload: bool) -> Self {
+    pub fn new(storage: Box<dyn Store>, preload: bool) -> Self {
         let mut store = ConfigStore {
             settings: HashMap::new(),
             settings_info: HashMap::new(),
@@ -150,7 +150,7 @@ impl ConfigStore {
                     let info = SettingInfo {
                         key: key.clone(),
                         description: entry.description,
-                        default: Setting::from_string(entry.default.as_str())
+                        default: Setting::from_str(entry.default.as_str())
                             .expect("cannot parse default setting"),
                         last_accessed: 0,
                     };

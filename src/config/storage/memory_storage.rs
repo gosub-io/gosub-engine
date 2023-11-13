@@ -1,5 +1,5 @@
 use crate::config::settings::Setting;
-use crate::config::StorageAdapter;
+use crate::config::Store;
 use std::collections::HashMap;
 
 #[derive(Default)]
@@ -15,7 +15,7 @@ impl MemoryStorageAdapter {
     }
 }
 
-impl StorageAdapter for MemoryStorageAdapter {
+impl Store for MemoryStorageAdapter {
     fn get_setting(&self, key: &str) -> Option<Setting> {
         let v = self.store.get(key);
         v.cloned()

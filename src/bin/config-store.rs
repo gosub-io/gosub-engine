@@ -101,9 +101,7 @@ fn main() {
             }
         }
         Commands::Set { key, value } => {
-            store.set(
-                &key, Setting::from_string(&value).expect("incorrect value"),
-            );
+            store.set(&key, Setting::from_str(&value).expect("incorrect value"));
         }
         Commands::Search { key } => {
             for key in store.find(key.as_str()) {

@@ -1,5 +1,5 @@
 use crate::config::settings::Setting;
-use crate::config::StorageAdapter;
+use crate::config::Store;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fs;
@@ -50,7 +50,7 @@ impl JsonStorageAdapter {
     }
 }
 
-impl StorageAdapter for JsonStorageAdapter {
+impl Store for JsonStorageAdapter {
     fn get_setting(&self, key: &str) -> Option<Setting> {
         self.elements.get(key).cloned()
     }
