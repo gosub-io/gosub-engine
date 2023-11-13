@@ -33,7 +33,7 @@ pub trait Store {
 }
 
 /// Configuration store is the place where the gosub engine can find all configurable options
-pub struct ConfigStore<S> {
+pub struct ConfigStore {
     /// A hashmap of all settings so we can search o(1) time
     settings: HashMap<String, Setting>,
     /// A hashmap of all setting descriptions, default values and type information
@@ -41,24 +41,14 @@ pub struct ConfigStore<S> {
     /// Keys of all settings so we can iterate keys easily
     setting_keys: Vec<String>,
     /// The storage adapter used for persisting and loading keys
-    storage: S,
+    storage: Box<dyn StorageAdapter>,
 }
 
-impl<S: StorageAdapter> ConfigStore<S> {
+impl ConfigStore {
     /// Creates a new store with the given storage adapter and preloads the store if needed
-    pub fn new(storage: S, preload: bool) -> Self {
-        // preload the settings if requested
-        let mut settings = HashMap::new();
-
-        if preload {
-            let all_settings = storage.get_all_settings();
-            for (key, value) in all_settings {
-                settings.insert(key, value);
-            }
-        }
-
+    pub fn new(storage: Box<dyn StorageAdapter>, preload: bool) -> Self {
         let mut store = ConfigStore {
-            settings,
+            settings: HashMap::new(),
             settings_info: HashMap::new(),
             setting_keys: Vec::new(),
             storage,
@@ -66,6 +56,14 @@ impl<S: StorageAdapter> ConfigStore<S> {
 
         // Populate the settings from the json file
         store.populate_settings();
+
+        // preload the settings if requested
+        if preload {
+            let all_settings = store.storage.get_all_settings();
+            for (key, value) in all_settings {
+                store.settings.insert(key, value);
+            }
+        }
 
         store
     }
@@ -173,7 +171,7 @@ mod test {
 
     #[test]
     fn config_store() {
-        let mut store = ConfigStore::new(MemoryStorageAdapter::new(), true);
+        let mut store = ConfigStore::new(Box::new(MemoryStorageAdapter::new()), true);
         let setting = store.get("dns.local_resolver.enabled");
         assert_eq!(setting, Setting::Bool(false));
 
@@ -185,7 +183,7 @@ mod test {
     #[test]
     #[should_panic]
     fn invalid_setting() {
-        let mut store = ConfigStore::new(MemoryStorageAdapter::new(), true);
+        let mut store = ConfigStore::new(Box::new(MemoryStorageAdapter::new()), true);
         store.set(
             "dns.local_resolver.enabled",
             Setting::String("wont accept strings".into()),

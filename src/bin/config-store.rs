@@ -1,9 +1,9 @@
 use clap::{Parser, Subcommand};
 use derive_more::Display;
-use gosub_engine::config::settings::{Setting, SettingInfo};
+use gosub_engine::config::settings::Setting;
 use gosub_engine::config::storage::json_storage::JsonStorageAdapter;
 use gosub_engine::config::storage::sqlite_storage::SqliteStorageAdapter;
-use gosub_engine::config::ConfigStore;
+use gosub_engine::config::{ConfigStore, StorageAdapter};
 
 #[derive(Debug, Parser)]
 #[clap(name = "Config-Store", version = "0.1.0", author = "Gosub")]
@@ -69,61 +69,15 @@ struct GlobalOpts {
     path: String,
 }
 
-enum Config {
-    Sqlite(ConfigStore<SqliteStorageAdapter>),
-    Json(ConfigStore<JsonStorageAdapter>),
-}
-
-impl Config {
-    fn find(&self, search: &str) -> Vec<String> {
-        match self {
-            Self::Sqlite(store) => store.find(search),
-            Self::Json(store) => store.find(search),
-        }
-    }
-
-    fn has(&self, key: &str) -> bool {
-        match self {
-            Self::Sqlite(store) => store.has(key),
-            Self::Json(store) => store.has(key),
-        }
-    }
-
-    fn get(&mut self, key: &str) -> Setting {
-        match self {
-            Self::Sqlite(store) => store.get(key),
-            Self::Json(store) => store.get(key),
-        }
-    }
-
-    fn get_info(&self, key: &str) -> Option<SettingInfo> {
-        match self {
-            Self::Sqlite(store) => store.get_info(key),
-            Self::Json(store) => store.get_info(key),
-        }
-    }
-
-    fn set(&mut self, key: &str, value: Setting) {
-        match self {
-            Self::Sqlite(store) => store.set(key, value),
-            Self::Json(store) => store.set(key, value),
-        }
-    }
-}
-
 fn main() {
     let args = Cli::parse();
 
-    let mut store: Config = match args.global_opts.engine {
-        Engine::Sqlite => {
-            let store = SqliteStorageAdapter::new(args.global_opts.path.as_str());
-            Config::Sqlite(ConfigStore::new(store, true))
-        }
-        Engine::Json => {
-            let store = JsonStorageAdapter::new(args.global_opts.path.as_str());
-            Config::Json(ConfigStore::new(store, true))
-        }
+    let storage_box: Box<dyn StorageAdapter> = match args.global_opts.engine {
+        Engine::Sqlite => Box::new(SqliteStorageAdapter::new(args.global_opts.path.as_str())),
+        Engine::Json => Box::new(JsonStorageAdapter::new(args.global_opts.path.as_str())),
     };
+
+    let mut store = ConfigStore::new(storage_box, true);
 
     match args.command {
         Commands::View { key } => {
