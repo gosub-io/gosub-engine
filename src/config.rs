@@ -150,7 +150,7 @@ impl ConfigStore {
                     let info = SettingInfo {
                         key: key.clone(),
                         description: entry.description,
-                        default: Setting::from_str(entry.default.as_str())
+                        default: Setting::from_string(entry.default.as_str())
                             .expect("cannot parse default setting"),
                         last_accessed: 0,
                     };

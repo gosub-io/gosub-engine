@@ -3,7 +3,7 @@ use derive_more::Display;
 use gosub_engine::config::settings::Setting;
 use gosub_engine::config::storage::json_storage::JsonStorageAdapter;
 use gosub_engine::config::storage::sqlite_storage::SqliteStorageAdapter;
-use gosub_engine::config::{ConfigStore, StorageAdapter};
+use gosub_engine::config::{ConfigStore, Store};
 
 #[derive(Debug, Parser)]
 #[clap(name = "Config-Store", version = "0.1.0", author = "Gosub")]
@@ -72,7 +72,7 @@ struct GlobalOpts {
 fn main() {
     let args = Cli::parse();
 
-    let storage_box: Box<dyn StorageAdapter> = match args.global_opts.engine {
+    let storage_box: Box<dyn Store> = match args.global_opts.engine {
         Engine::Sqlite => Box::new(SqliteStorageAdapter::new(args.global_opts.path.as_str())),
         Engine::Json => Box::new(JsonStorageAdapter::new(args.global_opts.path.as_str())),
     };
@@ -101,11 +101,11 @@ fn main() {
             }
         }
         Commands::Set { key, value } => {
-            store.set(&key, Setting::from_str(&value).expect("incorrect value"));
+            store.set(&key, Setting::from_string(&value).expect("incorrect value"));
         }
         Commands::Search { key } => {
             for key in store.find(key.as_str()) {
-                let value = store.get(key);
+                let value = store.get(&key);
                 println!("{:40}: {}", key, value);
             }
         }

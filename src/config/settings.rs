@@ -29,7 +29,7 @@ impl<'de> Deserialize<'de> for Setting {
     {
         let value = String::deserialize(deserializer)?;
 
-        match Setting::from_str(value.as_str()) {
+        match Setting::from_string(value.as_str()) {
             None => Err(serde::de::Error::custom("Cannot deserialize")),
             Some(setting) => Ok(setting),
         }
@@ -65,7 +65,7 @@ impl Setting {
     //   m:foo,bar,baz
 
     /// Converts a string to a setting or None when the string is invalid
-    pub fn from_str(key: &str) -> Option<Setting> {
+    pub fn from_string(key: &str) -> Option<Setting> {
         let (key_type, key_value) = key.split_once(':').unwrap();
 
         match key_type {
@@ -113,34 +113,34 @@ mod test {
 
     #[test]
     fn setting() {
-        let s = Setting::from_str("b:true");
+        let s = Setting::from_string("b:true");
         assert_eq!(s, Some(Setting::Bool(true)));
 
-        let s = Setting::from_str("i:-1");
+        let s = Setting::from_string("i:-1");
         assert_eq!(s, Some(Setting::SInt(-1)));
 
-        let s = Setting::from_str("i:1");
+        let s = Setting::from_string("i:1");
         assert_eq!(s, Some(Setting::SInt(1)));
 
-        let s = Setting::from_str("s:hello world");
+        let s = Setting::from_string("s:hello world");
         assert_eq!(s, Some(Setting::String("hello world".into())));
 
-        let s = Setting::from_str("m:foo,bar,baz");
+        let s = Setting::from_string("m:foo,bar,baz");
         assert_eq!(
             s,
             Some(Setting::Map(vec!["foo".into(), "bar".into(), "baz".into()]))
         );
 
-        let s = Setting::from_str("notexist:true");
+        let s = Setting::from_string("notexist:true");
         assert_eq!(s, None);
 
-        let s = Setting::from_str("b:foobar");
+        let s = Setting::from_string("b:foobar");
         assert_eq!(s, None);
 
-        let s = Setting::from_str("i:foobar");
+        let s = Setting::from_string("i:foobar");
         assert_eq!(s, None);
 
-        let s = Setting::from_str("u:-1");
+        let s = Setting::from_string("u:-1");
         assert_eq!(s, None);
     }
 }
