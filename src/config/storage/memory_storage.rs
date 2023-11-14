@@ -1,5 +1,6 @@
 use crate::config::settings::Setting;
 use crate::config::Store;
+use crate::types::Result;
 use std::collections::HashMap;
 
 #[derive(Default)]
@@ -25,7 +26,7 @@ impl Store for MemoryStorageAdapter {
         self.store.insert(key.to_string(), value);
     }
 
-    fn get_all_settings(&self) -> HashMap<String, Setting> {
-        self.store.clone()
+    fn get_all_settings(&self) -> Result<HashMap<String, Setting>> {
+        Ok(self.store.clone())
     }
 }

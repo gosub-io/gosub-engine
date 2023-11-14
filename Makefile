@@ -36,6 +36,7 @@ test_fmt:
 test_commands:
 	cargo run --bin html5-parser-test >/dev/null
 	cargo run --bin parser-test >/dev/null
+	cargo run --bin config-store list >/dev/null
 
 help: ## Display available commands
 	echo "Available make commands:"

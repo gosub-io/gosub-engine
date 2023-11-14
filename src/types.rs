@@ -17,6 +17,9 @@ pub struct ParseError {
 /// Serious errors and errors from third-party libraries
 #[derive(Error, Debug)]
 pub enum Error {
+    #[error("config error: {0}")]
+    Config(String),
+
     #[error("ureq error")]
     Request(#[from] Box<ureq::Error>),
 
@@ -31,6 +34,9 @@ pub enum Error {
 
     #[error("json parsing error: {0}")]
     JsonSerde(#[from] serde_json::Error),
+
+    #[error("sqlite error: {0}")]
+    Sqlite(#[from] sqlite::Error),
 
     #[error("test error: {0}")]
     Test(String),

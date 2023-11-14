@@ -1,13 +1,18 @@
 use crate::config::settings::Setting;
 use crate::config::Store;
+use crate::types::{Error, Result};
+use log::warn;
 use std::collections::HashMap;
+use std::str::FromStr;
 
 pub struct SqliteStorageAdapter {
     connection: sqlite::Connection,
 }
 
-impl SqliteStorageAdapter {
-    pub fn new(path: &str) -> Self {
+impl TryFrom<&String> for SqliteStorageAdapter {
+    type Error = Error;
+
+    fn try_from(path: &String) -> Result<Self> {
         let conn = sqlite::open(path).expect("cannot open db file");
 
         let query = "CREATE TABLE IF NOT EXISTS settings (
@@ -15,9 +20,9 @@ impl SqliteStorageAdapter {
             key TEXT NOT NULL,
             value TEXT NOT NULL
         )";
-        conn.execute(query).unwrap();
+        conn.execute(query)?;
 
-        SqliteStorageAdapter { connection: conn }
+        Ok(SqliteStorageAdapter { connection: conn })
     }
 }
 
@@ -27,7 +32,13 @@ impl Store for SqliteStorageAdapter {
         let mut statement = self.connection.prepare(query).unwrap();
         statement.bind((":key", key)).unwrap();
 
-        Setting::from_string(key)
+        match Setting::from_str(key) {
+            Ok(setting) => Some(setting),
+            Err(err) => {
+                warn!("problem reading from sqlite: {err}");
+                None
+            }
+        }
     }
 
     fn set_setting(&mut self, key: &str, value: Setting) {
@@ -41,7 +52,7 @@ impl Store for SqliteStorageAdapter {
         statement.next().unwrap();
     }
 
-    fn get_all_settings(&self) -> HashMap<String, Setting> {
+    fn get_all_settings(&self) -> Result<HashMap<String, Setting>> {
         let query = "SELECT * FROM settings";
         let mut statement = self.connection.prepare(query).unwrap();
 
@@ -49,9 +60,9 @@ impl Store for SqliteStorageAdapter {
         while let sqlite::State::Row = statement.next().unwrap() {
             let key = statement.read::<String, _>(1).unwrap();
             let value = statement.read::<String, _>(2).unwrap();
-            settings.insert(key, Setting::from_string(value.as_str()).unwrap());
+            settings.insert(key, Setting::from_str(&value)?);
         }
 
-        settings
+        Ok(settings)
     }
 }
