@@ -14,7 +14,10 @@ build: ## Build the project
 	section "Cargo build" ;\
 	cargo build
 
-fix:  ## Fix formatting and clippy errors
+fix: ## Fix formatting and clippy errors (deprecated)
+	echo "Use 'make format' instead"
+
+format:  ## Fix formatting and clippy errors
 	cargo fmt
 	cargo clippy --fix --allow-dirty --allow-staged
 
