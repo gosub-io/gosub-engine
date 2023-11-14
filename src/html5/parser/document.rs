@@ -1375,7 +1375,7 @@ mod tests {
         if let Err(err) = found_ids {
             assert_eq!(
                 err.to_string(),
-                "query error: Query predicate is uninitialized"
+                "query: generic error: Query predicate is uninitialized"
             );
         } else {
             panic!()
