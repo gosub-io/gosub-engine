@@ -2,10 +2,12 @@ pub mod settings;
 pub mod storage;
 
 use crate::config::settings::{Setting, SettingInfo};
+use crate::types::Result;
 use serde_derive::Deserialize;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::mem;
+use std::str::FromStr;
 use wildmatch::WildMatch;
 
 const SETTINGS_JSON: &str = include_str!("./config/settings.json");
@@ -29,7 +31,7 @@ pub trait Store {
     /// Retrieves all the settings in the storage in one go. This is used for preloading the settings
     /// into the ConfigStore and is more performant normally than calling get_setting manually for each
     /// setting.
-    fn get_all_settings(&self) -> HashMap<String, Setting>;
+    fn get_all_settings(&self) -> Result<HashMap<String, Setting>>;
 }
 
 /// Configuration store is the place where the gosub engine can find all configurable options
@@ -46,7 +48,7 @@ pub struct ConfigStore {
 
 impl ConfigStore {
     /// Creates a new store with the given storage adapter and preloads the store if needed
-    pub fn new(storage: Box<dyn Store>, preload: bool) -> Self {
+    pub fn from_storage(storage: Box<dyn Store>, preload: bool) -> Result<Self> {
         let mut store = ConfigStore {
             settings: HashMap::new(),
             settings_info: HashMap::new(),
@@ -55,17 +57,17 @@ impl ConfigStore {
         };
 
         // Populate the settings from the json file
-        store.populate_settings();
+        store.populate_settings()?;
 
         // preload the settings if requested
         if preload {
-            let all_settings = store.storage.get_all_settings();
+            let all_settings = store.storage.get_all_settings()?;
             for (key, value) in all_settings {
                 store.settings.insert(key, value);
             }
         }
 
-        store
+        Ok(store)
     }
 
     /// Returns true when the store knows about the given key
@@ -134,7 +136,7 @@ impl ConfigStore {
     }
 
     /// Populates the settings in the store from the settings.json file
-    fn populate_settings(&mut self) {
+    fn populate_settings(&mut self) -> Result<()> {
         let json_data: Value =
             serde_json::from_str(SETTINGS_JSON).expect("Failed to parse settings.json");
 
@@ -150,8 +152,7 @@ impl ConfigStore {
                     let info = SettingInfo {
                         key: key.clone(),
                         description: entry.description,
-                        default: Setting::from_string(entry.default.as_str())
-                            .expect("cannot parse default setting"),
+                        default: Setting::from_str(&entry.default)?,
                         last_accessed: 0,
                     };
 
@@ -161,6 +162,8 @@ impl ConfigStore {
                 }
             }
         }
+
+        Ok(())
     }
 }
 
@@ -171,7 +174,8 @@ mod test {
 
     #[test]
     fn config_store() {
-        let mut store = ConfigStore::new(Box::new(MemoryStorageAdapter::new()), true);
+        let mut store =
+            ConfigStore::from_storage(Box::new(MemoryStorageAdapter::new()), true).unwrap();
         let setting = store.get("dns.local_resolver.enabled");
         assert_eq!(setting, Setting::Bool(false));
 
@@ -183,7 +187,8 @@ mod test {
     #[test]
     #[should_panic]
     fn invalid_setting() {
-        let mut store = ConfigStore::new(Box::new(MemoryStorageAdapter::new()), true);
+        let mut store =
+            ConfigStore::from_storage(Box::new(MemoryStorageAdapter::new()), true).unwrap();
         store.set(
             "dns.local_resolver.enabled",
             Setting::String("wont accept strings".into()),

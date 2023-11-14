@@ -1,9 +1,11 @@
+use anyhow::anyhow;
 use clap::{Parser, Subcommand};
 use derive_more::Display;
 use gosub_engine::config::settings::Setting;
 use gosub_engine::config::storage::json_storage::JsonStorageAdapter;
 use gosub_engine::config::storage::sqlite_storage::SqliteStorageAdapter;
 use gosub_engine::config::{ConfigStore, Store};
+use std::str::FromStr;
 
 #[derive(Debug, Parser)]
 #[clap(name = "Config-Store", version = "0.1.0", author = "Gosub")]
@@ -45,13 +47,13 @@ enum Engine {
 }
 
 impl std::str::FromStr for Engine {
-    type Err = ();
+    type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "sqlite" => Ok(Engine::Sqlite),
             "json" => Ok(Engine::Json),
-            _ => Err(()),
+            _ => Err(anyhow!("problem reading config")),
         }
     }
 }
@@ -69,25 +71,25 @@ struct GlobalOpts {
     path: String,
 }
 
-fn main() {
+fn main() -> anyhow::Result<()> {
     let args = Cli::parse();
 
     let storage_box: Box<dyn Store> = match args.global_opts.engine {
-        Engine::Sqlite => Box::new(SqliteStorageAdapter::new(args.global_opts.path.as_str())),
-        Engine::Json => Box::new(JsonStorageAdapter::new(args.global_opts.path.as_str())),
+        Engine::Sqlite => Box::new(SqliteStorageAdapter::try_from(&args.global_opts.path)?),
+        Engine::Json => Box::new(JsonStorageAdapter::try_from(&args.global_opts.path)?),
     };
 
-    let mut store = ConfigStore::new(storage_box, true);
+    let mut store = ConfigStore::from_storage(storage_box, true)?;
 
     match args.command {
         Commands::View { key } => {
             if !store.has(&key) {
                 println!("Key not found");
-                return;
+                return Ok(());
             }
 
-            let info = store.get_info(key.as_str()).unwrap();
-            let value = store.get(key.as_str());
+            let info = store.get_info(&key).unwrap();
+            let value = store.get(&key);
 
             println!("Key            : {}", key);
             println!("Current Value  : {}", value);
@@ -96,18 +98,20 @@ fn main() {
         }
         Commands::List => {
             for key in store.find("*") {
-                let value = store.get(key.as_str());
+                let value = store.get(&key);
                 println!("{:40}: {}", key, value);
             }
         }
         Commands::Set { key, value } => {
-            store.set(&key, Setting::from_string(&value).expect("incorrect value"));
+            store.set(&key, Setting::from_str(&value).expect("incorrect value"));
         }
         Commands::Search { key } => {
-            for key in store.find(key.as_str()) {
+            for key in store.find(&key) {
                 let value = store.get(&key);
                 println!("{:40}: {}", key, value);
             }
         }
     }
+
+    Ok(())
 }

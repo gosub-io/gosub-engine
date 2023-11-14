@@ -421,6 +421,7 @@ dependencies = [
  "criterion",
  "derive_more",
  "lazy_static",
+ "log",
  "nom",
  "nom_locate",
  "phf",

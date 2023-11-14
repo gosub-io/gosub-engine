@@ -1,5 +1,7 @@
+use crate::types::{Error, Result};
 use core::fmt::Display;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::str::FromStr;
 
 /// A setting can be either a signed integer, unsigned integer, string, map or boolean.
 /// Maps could be created by using comma separated strings maybe
@@ -13,7 +15,7 @@ pub enum Setting {
 }
 
 impl Serialize for Setting {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
@@ -23,16 +25,13 @@ impl Serialize for Setting {
 }
 
 impl<'de> Deserialize<'de> for Setting {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
         let value = String::deserialize(deserializer)?;
-
-        match Setting::from_string(value.as_str()) {
-            None => Err(serde::de::Error::custom("Cannot deserialize")),
-            Some(setting) => Ok(setting),
-        }
+        Setting::from_str(&value)
+            .map_err(|err| serde::de::Error::custom(format!("cannot deserialize: {err}")))
     }
 }
 
@@ -56,7 +55,9 @@ impl Display for Setting {
     }
 }
 
-impl Setting {
+impl FromStr for Setting {
+    type Err = Error;
+
     // first element is the type:
     //   b:true
     //   i:-123
@@ -65,32 +66,38 @@ impl Setting {
     //   m:foo,bar,baz
 
     /// Converts a string to a setting or None when the string is invalid
-    pub fn from_string(key: &str) -> Option<Setting> {
+    fn from_str(key: &str) -> Result<Setting> {
         let (key_type, key_value) = key.split_once(':').unwrap();
 
-        match key_type {
-            "b" => match key_value.parse::<bool>() {
-                Ok(value) => Some(Setting::Bool(value)),
-                Err(_) => None,
-            },
-            "i" => match key_value.parse::<isize>() {
-                Ok(value) => Some(Setting::SInt(value)),
-                Err(_) => None,
-            },
-            "u" => match key_value.parse::<usize>() {
-                Ok(value) => Some(Setting::UInt(value)),
-                Err(_) => None,
-            },
-            "s" => Some(Setting::String(key_value.to_string())),
+        let setting = match key_type {
+            "b" => Setting::Bool(
+                key_value
+                    .parse::<bool>()
+                    .map_err(|err| Error::Config(format!("error parsing {key_value}: {err}")))?,
+            ),
+            "i" => Setting::SInt(
+                key_value
+                    .parse::<isize>()
+                    .map_err(|err| Error::Config(format!("error parsing {key_value}: {err}")))?,
+            ),
+            "u" => Setting::UInt(
+                key_value
+                    .parse::<usize>()
+                    .map_err(|err| Error::Config(format!("error parsing {key_value}: {err}")))?,
+            ),
+            "s" => Setting::String(key_value.to_string()),
+
             "m" => {
                 let mut values = Vec::new();
                 for value in key_value.split(',') {
                     values.push(value.to_string());
                 }
-                Some(Setting::Map(values))
+                Setting::Map(values)
             }
-            _ => None,
-        }
+            _ => return Err(Error::Config(format!("unknown setting: {key_value}"))),
+        };
+
+        Ok(setting)
     }
 }
 
@@ -113,34 +120,34 @@ mod test {
 
     #[test]
     fn setting() {
-        let s = Setting::from_string("b:true");
-        assert_eq!(s, Some(Setting::Bool(true)));
+        let s = Setting::from_str("b:true").unwrap();
+        assert_eq!(s, Setting::Bool(true));
 
-        let s = Setting::from_string("i:-1");
-        assert_eq!(s, Some(Setting::SInt(-1)));
+        let s = Setting::from_str("i:-1").unwrap();
+        assert_eq!(s, Setting::SInt(-1));
 
-        let s = Setting::from_string("i:1");
-        assert_eq!(s, Some(Setting::SInt(1)));
+        let s = Setting::from_str("i:1").unwrap();
+        assert_eq!(s, Setting::SInt(1));
 
-        let s = Setting::from_string("s:hello world");
-        assert_eq!(s, Some(Setting::String("hello world".into())));
+        let s = Setting::from_str("s:hello world").unwrap();
+        assert_eq!(s, Setting::String("hello world".into()));
 
-        let s = Setting::from_string("m:foo,bar,baz");
+        let s = Setting::from_str("m:foo,bar,baz").unwrap();
         assert_eq!(
             s,
-            Some(Setting::Map(vec!["foo".into(), "bar".into(), "baz".into()]))
+            Setting::Map(vec!["foo".into(), "bar".into(), "baz".into()])
         );
 
-        let s = Setting::from_string("notexist:true");
-        assert_eq!(s, None);
+        let s = Setting::from_str("notexist:true");
+        assert!(matches!(s, Err(Error::Config(_))));
 
-        let s = Setting::from_string("b:foobar");
-        assert_eq!(s, None);
+        let s = Setting::from_str("b:foobar");
+        assert!(matches!(s, Err(Error::Config(_))));
 
-        let s = Setting::from_string("i:foobar");
-        assert_eq!(s, None);
+        let s = Setting::from_str("i:foobar");
+        assert!(matches!(s, Err(Error::Config(_))));
 
-        let s = Setting::from_string("u:-1");
-        assert_eq!(s, None);
+        let s = Setting::from_str("u:-1");
+        assert!(matches!(s, Err(Error::Config(_))));
     }
 }

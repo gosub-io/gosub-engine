@@ -1,5 +1,7 @@
 use crate::config::settings::Setting;
 use crate::config::Store;
+use crate::types::{Error, Result};
+use log::warn;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fs;
@@ -13,8 +15,10 @@ pub struct JsonStorageAdapter {
     elements: HashMap<String, Setting>,
 }
 
-impl JsonStorageAdapter {
-    pub fn new(path: &str) -> Self {
+impl TryFrom<&String> for JsonStorageAdapter {
+    type Error = Error;
+
+    fn try_from(path: &String) -> Result<Self> {
         let file = match fs::metadata(path) {
             Ok(metadata) => {
                 if !metadata.is_file() {
@@ -31,8 +35,7 @@ impl JsonStorageAdapter {
                 let json = "{}";
 
                 let mut file = File::create(path).expect("cannot create json file");
-                file.write_all(json.as_bytes())
-                    .expect("failed to write to file");
+                file.write_all(json.as_bytes())?;
 
                 file
             }
@@ -46,7 +49,7 @@ impl JsonStorageAdapter {
 
         adapter.read_file();
 
-        adapter
+        Ok(adapter)
     }
 }
 
@@ -61,8 +64,8 @@ impl Store for JsonStorageAdapter {
         self.write_file()
     }
 
-    fn get_all_settings(&self) -> HashMap<String, Setting> {
-        self.elements.clone()
+    fn get_all_settings(&self) -> Result<HashMap<String, Setting>> {
+        Ok(self.elements.clone())
     }
 }
 
@@ -79,8 +82,13 @@ impl JsonStorageAdapter {
         if let Value::Object(settings) = parsed_json {
             self.elements = HashMap::new();
             for (key, value) in settings.iter() {
-                if let Ok(setting) = serde_json::from_value(value.clone()) {
-                    self.elements.insert(key.clone(), setting);
+                match serde_json::from_value(value.clone()) {
+                    Ok(setting) => {
+                        self.elements.insert(key.clone(), setting);
+                    }
+                    Err(err) => {
+                        warn!("problem reading setting from json: {err}");
+                    }
                 }
             }
         }

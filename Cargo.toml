@@ -52,6 +52,7 @@ wildmatch = "2.1.1"
 clap = { version = "4.4.7", features = ["derive"] }
 cli-table = "0.4.7"
 textwrap = "0.16.0"
+log = "0.4.20"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

@@ -9,3 +9,5 @@ local/
 
 # mac
 .DS_Store
+
+settings.db
