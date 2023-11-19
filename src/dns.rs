@@ -70,24 +70,9 @@ impl DnsEntry {
     fn ipv6(&self) -> Vec<IpAddr> {
         self.ips.iter().filter(|x| x.is_ipv6()).copied().collect()
     }
-}
 
-impl Iterator for DnsEntry {
-    type Item = IpAddr;
-
-    /// With next() you can simply iterate over all the ips in the list
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.iter >= self.ips.len() {
-            // reset iterator at the end
-            self.iter = 0;
-
-            return None;
-        }
-
-        let ip = self.ips[self.iter];
-        self.iter += 1;
-
-        Some(ip)
+    fn iter(&self) -> impl Iterator<Item = &IpAddr> {
+        self.ips.iter()
     }
 }
 
@@ -106,17 +91,10 @@ trait DnsResolver {
     /// Resolves a domain name for a given resolver_type
     fn resolve(&mut self, domain: &str, resolve_type: ResolveType) -> Result<DnsEntry>;
     /// Announces the resolved dns entry for the domain to a resolver
-    fn announce(&mut self, domain: &str, entry: &DnsEntry);
-
+    fn announce(&mut self, _domain: &str, _entry: &DnsEntry) {}
     // name for debugging purposes
     fn name(&self) -> &'static str;
 }
-
-// impl fmt::Debug for dyn DnsResolver {
-//     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-//         write!(f, "dns resolver")
-//     }
-// }
 
 trait DnsCache {
     /// Flush all domains

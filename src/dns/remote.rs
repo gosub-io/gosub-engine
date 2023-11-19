@@ -21,14 +21,14 @@ impl DnsResolver for RemoteResolver {
         let mut ip_types = Vec::new();
         match resolve_type {
             ResolveType::Ipv4 => {
-                ip_types.push("ipv4");
+                ip_types.push(ResolveType::Ipv4);
             }
             ResolveType::Ipv6 => {
-                ip_types.push("ipv6");
+                ip_types.push(ResolveType::Ipv6);
             }
             ResolveType::Both => {
-                ip_types.push("ipv6");
-                ip_types.push("ipv4");
+                ip_types.push(ResolveType::Ipv6);
+                ip_types.push(ResolveType::Ipv4);
             }
         }
 
@@ -36,7 +36,7 @@ impl DnsResolver for RemoteResolver {
 
         for ip_type in ip_types.iter() {
             match *ip_type {
-                "ipv4" => {
+                ResolveType::Ipv4 => {
                     let e = self.hickory.ipv4_lookup(domain);
                     if e.is_err() {
                         continue;
@@ -49,7 +49,7 @@ impl DnsResolver for RemoteResolver {
                         entry.has_ipv4 = true;
                     });
                 }
-                "ipv6" => {
+                ResolveType::Ipv6 => {
                     let e = self.hickory.ipv6_lookup(domain);
                     if e.is_err() {
                         continue;
@@ -71,10 +71,6 @@ impl DnsResolver for RemoteResolver {
         }
 
         Ok(entry)
-    }
-
-    fn announce(&mut self, _domain: &str, _entry: &DnsEntry) {
-        // Do nothing.
     }
 
     fn name(&self) -> &'static str {

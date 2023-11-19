@@ -48,10 +48,6 @@ impl DnsResolver for LocalTableResolver {
         Err(types::Error::DnsDomainNotFound)
     }
 
-    fn announce(&mut self, _domain: &str, _entry: &DnsEntry) {
-        // Do nothing.
-    }
-
     fn name(&self) -> &'static str {
         "local table resolver"
     }
