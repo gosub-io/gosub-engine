@@ -1,6 +1,5 @@
 use crate::html5::tokenizer::{CHAR_CR, CHAR_LF};
 use std::collections::HashMap;
-use std::fs::File;
 use std::io::Read;
 use std::{fmt, io};
 
@@ -24,7 +23,7 @@ pub enum Confidence {
 
 /// This struct defines a position in the stream. POsition itself is 0-based, but line and col are
 /// 1-based and are calculated from the line_offsets vector.
-#[derive(PartialEq, Debug, Copy, Clone)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Position {
     /// Offset in the stream
     pub offset: usize,
@@ -36,8 +35,9 @@ pub struct Position {
 
 impl Position {
     /// Create a new position
+    #[must_use]
     pub fn new(offset: usize, line: usize, col: usize) -> Self {
-        Position { offset, line, col }
+        Self { offset, line, col }
     }
 }
 
@@ -50,7 +50,7 @@ impl fmt::Display for Position {
 /// Defines a single character/element in the stream. This is either a UTF8 character, or
 /// a surrogate characters since these cannot be stored in a single char.
 /// Eof is denoted as a separate element.
-#[derive(PartialEq, Debug, Copy, Clone)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Bytes {
     /// Standard UTF character
     Ch(char),
@@ -68,8 +68,7 @@ impl From<Bytes> for char {
     fn from(c: Bytes) -> Self {
         match c {
             Ch(c) => c,
-            Bytes::Surrogate(..) => 0x0000 as char,
-            Eof => 0x0000 as char,
+            Bytes::Surrogate(..) | Eof => 0x0000 as char,
         }
     }
 }
@@ -77,8 +76,8 @@ impl From<Bytes> for char {
 impl fmt::Display for Bytes {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Ch(ch) => write!(f, "{}", ch),
-            Bytes::Surrogate(surrogate) => write!(f, "U+{:04X}", surrogate),
+            Ch(ch) => write!(f, "{ch}"),
+            Bytes::Surrogate(surrogate) => write!(f, "U+{surrogate:04X}"),
             Eof => write!(f, "EOF"),
         }
     }
@@ -123,6 +122,7 @@ impl Default for CharIterator {
 
 impl CharIterator {
     /// Create a new default empty input stream
+    #[must_use]
     pub fn new() -> Self {
         Self {
             encoding: Encoding::UTF8,
@@ -139,7 +139,6 @@ impl CharIterator {
             has_read_eof: false,
         }
     }
-
     /// Returns true when the encoding encountered is defined as certain
     pub fn is_certain_encoding(&self) -> bool {
         self.confidence == Confidence::Certain
@@ -205,7 +204,7 @@ impl CharIterator {
             return;
         }
 
-        self.force_set_encoding(e)
+        self.force_set_encoding(e);
     }
 
     /// Sets the encoding for this stream, and decodes the u8_buffer into the buffer with the
@@ -213,33 +212,34 @@ impl CharIterator {
     pub fn force_set_encoding(&mut self, e: Encoding) {
         match e {
             Encoding::UTF8 => {
-                let str_buf;
-                unsafe {
-                    str_buf = std::str::from_utf8_unchecked(&self.u8_buffer)
+                let str_buf = unsafe {
+                    std::str::from_utf8_unchecked(&self.u8_buffer)
                         .replace("\u{000D}\u{000A}", "\u{000A}")
-                        .replace('\u{000D}', "\u{000A}");
-                }
+                        .replace('\u{000D}', "\u{000A}")
+                };
 
                 // Convert the utf8 string into characters so we can use easy indexing
-                self.buffer = vec![];
-                for c in str_buf.chars() {
-                    // // Check if we have a non-bmp character. This means it's above 0x10000
-                    // let cp = c as u32;
-                    // if cp > 0x10000 && cp <= 0x10FFFF {
-                    //     let adjusted = cp - 0x10000;
-                    //     let lead = ((adjusted >> 10) & 0x3FF) as u16 + 0xD800;
-                    //     let trail = (adjusted & 0x3FF) as u16 + 0xDC00;
-                    //     self.buffer.push(Element::Surrogate(lead));
-                    //     self.buffer.push(Element::Surrogate(trail));
-                    //     continue;
-                    // }
+                self.buffer = str_buf
+                    .chars()
+                    .map(|c| {
+                        // // Check if we have a non-bmp character. This means it's above 0x10000
+                        // let cp = c as u32;
+                        // if cp > 0x10000 && cp <= 0x10FFFF {
+                        //     let adjusted = cp - 0x10000;
+                        //     let lead = ((adjusted >> 10) & 0x3FF) as u16 + 0xD800;
+                        //     let trail = (adjusted & 0x3FF) as u16 + 0xDC00;
+                        //     self.buffer.push(Element::Surrogate(lead));
+                        //     self.buffer.push(Element::Surrogate(trail));
+                        //     continue;
+                        // }
 
-                    if (0xD800..=0xDFFF).contains(&(c as u32)) {
-                        self.buffer.push(Bytes::Surrogate(c as u16));
-                    } else {
-                        self.buffer.push(Ch(c));
-                    }
-                }
+                        if (0xD800..=0xDFFF).contains(&(c as u32)) {
+                            Bytes::Surrogate(c as u16)
+                        } else {
+                            Ch(c)
+                        }
+                    })
+                    .collect::<Vec<_>>();
                 self.length = self.buffer.len();
             }
             Encoding::ASCII => {
@@ -253,7 +253,7 @@ impl CharIterator {
     }
 
     /// Normalizes newlines (CRLF/CR => LF) and converts high ascii to '?'
-    fn normalize_newlines_and_ascii(&self, buffer: &Vec<u8>) -> Vec<Bytes> {
+    fn normalize_newlines_and_ascii(&self, buffer: &[u8]) -> Vec<Bytes> {
         let mut result = Vec::with_capacity(buffer.len());
 
         for i in 0..buffer.len() {
@@ -268,7 +268,7 @@ impl CharIterator {
                 result.push(Ch('?'));
             } else {
                 // everything else is ok
-                result.push(Ch(buffer[i] as char))
+                result.push(Ch(buffer[i] as char));
             }
         }
 
@@ -284,7 +284,7 @@ impl CharIterator {
     }
 
     /// Populates the current buffer with the contents of given file f
-    pub fn read_from_file(&mut self, mut f: File, e: Option<Encoding>) -> io::Result<()> {
+    pub fn read_from_file(&mut self, mut f: impl Read, e: Option<Encoding>) -> io::Result<()> {
         // First we read the u8 bytes into a buffer
         f.read_to_end(&mut self.u8_buffer).expect("uh oh");
         self.force_set_encoding(e.unwrap_or(Encoding::UTF8));
@@ -371,7 +371,7 @@ impl CharIterator {
         let end_pos = std::cmp::min(self.length, self.position.offset + len);
 
         let slice = &self.buffer[self.position.offset..end_pos];
-        slice.iter().map(|e| e.to_string()).collect()
+        slice.iter().map(ToString::to_string).collect()
     }
 
     /// Looks ahead in the stream, can use an optional index if we want to seek further

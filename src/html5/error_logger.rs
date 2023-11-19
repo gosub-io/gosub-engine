@@ -159,13 +159,6 @@ pub struct ErrorLogger {
     errors: Vec<ParseError>,
 }
 
-impl ErrorLogger {
-    /// Creates a new error logger
-    pub fn new() -> Self {
-        ErrorLogger { errors: Vec::new() }
-    }
-}
-
 impl Default for ErrorLogger {
     fn default() -> Self {
         Self::new()
@@ -173,6 +166,12 @@ impl Default for ErrorLogger {
 }
 
 impl ErrorLogger {
+    /// Creates a new error logger
+    #[must_use]
+    pub fn new() -> Self {
+        Self { errors: Vec::new() }
+    }
+
     /// Returns a cloned instance of the errors
     pub fn get_errors(&self) -> Vec<ParseError> {
         self.errors.clone()

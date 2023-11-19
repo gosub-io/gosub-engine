@@ -8,7 +8,7 @@ use std::fs;
 use std::process::exit;
 
 fn bail(message: &str) -> ! {
-    println!("{}", message);
+    println!("{message}");
     exit(1);
 }
 
@@ -38,16 +38,16 @@ fn main() -> Result<()> {
 
     // If the encoding confidence is not Confidence::Certain, we should detect the encoding.
     if !chars.is_certain_encoding() {
-        chars.detect_encoding()
+        chars.detect_encoding();
     }
 
     let document = DocumentBuilder::new_document();
     let parse_errors = Html5Parser::parse_document(&mut chars, Document::clone(&document), None)?;
 
-    println!("Generated tree: \n\n {}", document);
+    println!("Generated tree: \n\n {document}");
 
     for e in parse_errors {
-        println!("Parse Error: {}", e.message)
+        println!("Parse Error: {}", e.message);
     }
 
     Ok(())

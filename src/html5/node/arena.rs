@@ -17,18 +17,13 @@ pub struct NodeArena {
     next_id: NodeId,
 }
 
-impl Clone for NodeId {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-
 impl NodeArena {
     /// Creates a new NodeArena
+    #[must_use]
     pub fn new() -> Self {
         Self {
             nodes: HashMap::new(),
-            next_id: Default::default(),
+            next_id: NodeId::default(),
             order: Vec::new(),
         }
     }
@@ -56,9 +51,7 @@ impl NodeArena {
 
     /// Registered an unregistered node into the arena
     pub fn register_node(&mut self, mut node: Node) -> NodeId {
-        if node.is_registered {
-            panic!("Node is already attached to an arena");
-        }
+        assert!(!node.is_registered, "Node is already attached to an arena");
 
         let id = self.next_id;
         self.next_id = id.next();
@@ -74,7 +67,7 @@ impl NodeArena {
     /// Prints the list of nodes in sequential order. This makes debugging a bit easier, but should
     /// be removed.
     pub(crate) fn print_nodes(&self) {
-        for id in self.order.iter() {
+        for id in &self.order {
             println!("({}): {:?}", id, self.nodes.get(id).expect("node"));
         }
     }

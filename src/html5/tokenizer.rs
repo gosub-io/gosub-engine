@@ -51,8 +51,8 @@ pub struct Tokenizer<'stream> {
 }
 
 impl<'stream> Tokenizer<'stream> {
-    pub(crate) fn insert_tokens_at_queue_start(&mut self, first_tokens: Vec<Token>) {
-        let mut new_queue = first_tokens.clone();
+    pub(crate) fn insert_tokens_at_queue_start(&mut self, first_tokens: &[Token]) {
+        let mut new_queue = first_tokens.to_owned();
         new_queue.extend(self.token_queue.iter().cloned());
 
         self.token_queue = new_queue;
@@ -68,7 +68,7 @@ pub struct ParserData {
 
 impl Default for ParserData {
     fn default() -> Self {
-        ParserData {
+        Self {
             adjusted_node_namespace: HTML_NAMESPACE.to_string(),
         }
     }
@@ -84,9 +84,9 @@ pub struct Options {
 
 impl Default for Options {
     fn default() -> Self {
-        Options {
+        Self {
             initial_state: State::Data,
-            last_start_tag: "".to_string(),
+            last_start_tag: String::new(),
         }
     }
 }
@@ -101,12 +101,13 @@ macro_rules! to_lowercase {
 
 impl<'stream> Tokenizer<'stream> {
     /// Creates a new tokenizer with the given inputstream and additional options if any
+    #[must_use]
     pub fn new(
         chars: &'stream mut CharIterator,
         opts: Option<Options>,
         error_logger: Rc<RefCell<ErrorLogger>>,
     ) -> Self {
-        return Tokenizer {
+        return Self {
             chars,
             state: opts.as_ref().map_or(State::Data, |o| o.initial_state),
             last_start_token: opts.map_or(String::new(), |o| o.last_start_tag),
@@ -264,7 +265,7 @@ impl<'stream> Tokenizer<'stream> {
                         Ch('/') => self.state = State::EndTagOpen,
                         Ch(ch) if ch.is_ascii_alphabetic() => {
                             self.current_token = Some(Token::StartTag {
-                                name: "".into(),
+                                name: String::new(),
                                 is_self_closing: false,
                                 attributes: HashMap::new(),
                             });
@@ -272,7 +273,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.state = State::TagName;
                         }
                         Ch('?') => {
-                            self.current_token = Some(Token::Comment("".into()));
+                            self.current_token = Some(Token::Comment(String::new()));
                             self.parse_error(ParserError::UnexpectedQuestionMarkInsteadOfTagName);
                             self.chars.unread();
                             self.state = State::BogusComment;
@@ -295,7 +296,7 @@ impl<'stream> Tokenizer<'stream> {
                     match c {
                         Ch(ch) if ch.is_ascii_alphabetic() => {
                             self.current_token = Some(Token::EndTag {
-                                name: "".into(),
+                                name: String::new(),
                                 is_self_closing: false,
                             });
                             self.chars.unread();
@@ -313,7 +314,7 @@ impl<'stream> Tokenizer<'stream> {
                         }
                         _ => {
                             self.parse_error(ParserError::InvalidFirstCharacterOfTagName);
-                            self.current_token = Some(Token::Comment("".into()));
+                            self.current_token = Some(Token::Comment(String::new()));
                             self.chars.unread();
                             self.state = State::BogusComment;
                         }
@@ -323,7 +324,7 @@ impl<'stream> Tokenizer<'stream> {
                     let c = self.read_char();
                     match c {
                         Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
-                            self.state = State::BeforeAttributeName
+                            self.state = State::BeforeAttributeName;
                         }
                         Ch('/') => self.state = State::SelfClosingStart,
                         Ch('>') => {
@@ -344,16 +345,13 @@ impl<'stream> Tokenizer<'stream> {
                 }
                 State::RCDATALessThanSign => {
                     let c = self.read_char();
-                    match c {
-                        Ch('/') => {
-                            self.temporary_buffer.clear();
-                            self.state = State::RCDATAEndTagOpen;
-                        }
-                        _ => {
-                            self.consume('<');
-                            self.chars.unread();
-                            self.state = State::RCDATA;
-                        }
+                    if let Ch('/') = c {
+                        self.temporary_buffer.clear();
+                        self.state = State::RCDATAEndTagOpen;
+                    } else {
+                        self.consume('<');
+                        self.chars.unread();
+                        self.state = State::RCDATA;
                     }
                 }
                 State::RCDATAEndTagOpen => {
@@ -361,7 +359,7 @@ impl<'stream> Tokenizer<'stream> {
                     match c {
                         Ch(ch) if ch.is_ascii_alphabetic() => {
                             self.current_token = Some(Token::EndTag {
-                                name: "".into(),
+                                name: String::new(),
                                 is_self_closing: false,
                             });
                             self.chars.unread();
@@ -436,16 +434,13 @@ impl<'stream> Tokenizer<'stream> {
                 }
                 State::RAWTEXTLessThanSign => {
                     let c = self.read_char();
-                    match c {
-                        Ch('/') => {
-                            self.temporary_buffer.clear();
-                            self.state = State::RAWTEXTEndTagOpen;
-                        }
-                        _ => {
-                            self.consume('<');
-                            self.chars.unread();
-                            self.state = State::RAWTEXT;
-                        }
+                    if let Ch('/') = c {
+                        self.temporary_buffer.clear();
+                        self.state = State::RAWTEXTEndTagOpen;
+                    } else {
+                        self.consume('<');
+                        self.chars.unread();
+                        self.state = State::RAWTEXT;
                     }
                 }
                 State::RAWTEXTEndTagOpen => {
@@ -453,7 +448,7 @@ impl<'stream> Tokenizer<'stream> {
                     match c {
                         Ch(ch) if ch.is_ascii_alphabetic() => {
                             self.current_token = Some(Token::EndTag {
-                                name: "".into(),
+                                name: String::new(),
                                 is_self_closing: false,
                             });
                             self.chars.unread();
@@ -550,7 +545,7 @@ impl<'stream> Tokenizer<'stream> {
                     match c {
                         Ch(ch) if ch.is_ascii_alphabetic() => {
                             self.current_token = Some(Token::EndTag {
-                                name: "".into(),
+                                name: String::new(),
                                 is_self_closing: false,
                             });
                             self.chars.unread();
@@ -625,28 +620,22 @@ impl<'stream> Tokenizer<'stream> {
                 }
                 State::ScriptDataEscapeStart => {
                     let c = self.read_char();
-                    match c {
-                        Ch('-') => {
-                            self.consume('-');
-                            self.state = State::ScriptDataEscapeStartDash;
-                        }
-                        _ => {
-                            self.chars.unread();
-                            self.state = State::ScriptData;
-                        }
+                    if let Ch('-') = c {
+                        self.consume('-');
+                        self.state = State::ScriptDataEscapeStartDash;
+                    } else {
+                        self.chars.unread();
+                        self.state = State::ScriptData;
                     }
                 }
                 State::ScriptDataEscapeStartDash => {
                     let c = self.read_char();
-                    match c {
-                        Ch('-') => {
-                            self.consume('-');
-                            self.state = State::ScriptDataEscapedDashDash;
-                        }
-                        _ => {
-                            self.chars.unread();
-                            self.state = State::ScriptData;
-                        }
+                    if let Ch('-') = c {
+                        self.consume('-');
+                        self.state = State::ScriptDataEscapedDashDash;
+                    } else {
+                        self.chars.unread();
+                        self.state = State::ScriptData;
                     }
                 }
                 State::ScriptDataEscaped => {
@@ -752,7 +741,7 @@ impl<'stream> Tokenizer<'stream> {
                     match c {
                         Ch(ch) if ch.is_ascii_alphabetic() => {
                             self.current_token = Some(Token::EndTag {
-                                name: "".into(),
+                                name: String::new(),
                                 is_self_closing: false,
                             });
 
@@ -928,16 +917,13 @@ impl<'stream> Tokenizer<'stream> {
                 }
                 State::ScriptDataDoubleEscapedLessThanSign => {
                     let c = self.read_char();
-                    match c {
-                        Ch('/') => {
-                            self.temporary_buffer.clear();
-                            self.consume('/');
-                            self.state = State::ScriptDataDoubleEscapeEnd;
-                        }
-                        _ => {
-                            self.chars.unread();
-                            self.state = State::ScriptDataDoubleEscaped;
-                        }
+                    if let Ch('/') = c {
+                        self.temporary_buffer.clear();
+                        self.consume('/');
+                        self.state = State::ScriptDataDoubleEscapeEnd;
+                    } else {
+                        self.chars.unread();
+                        self.state = State::ScriptDataDoubleEscaped;
                     }
                 }
                 State::ScriptDataDoubleEscapeEnd => {
@@ -1001,13 +987,13 @@ impl<'stream> Tokenizer<'stream> {
                             }
                             self.chars.unread();
 
-                            self.state = State::AfterAttributeName
+                            self.state = State::AfterAttributeName;
                         }
                         Ch('=') => {
                             if self.attr_already_exists() {
                                 self.parse_error(ParserError::DuplicateAttribute);
                             }
-                            self.state = State::BeforeAttributeValue
+                            self.state = State::BeforeAttributeValue;
                         }
                         Ch(ch @ 'A'..='Z') => {
                             self.current_attr_name.push(to_lowercase!(ch));
@@ -1151,7 +1137,7 @@ impl<'stream> Tokenizer<'stream> {
                     let c = self.read_char();
                     match c {
                         Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
-                            self.state = State::BeforeAttributeName
+                            self.state = State::BeforeAttributeName;
                         }
                         Ch('/') => self.state = State::SelfClosingStart,
                         Ch('>') => {
@@ -1195,11 +1181,7 @@ impl<'stream> Tokenizer<'stream> {
                 State::BogusComment => {
                     let c = self.read_char();
                     match c {
-                        Ch('>') => {
-                            self.emit_current_token();
-                            self.state = State::Data;
-                        }
-                        Eof => {
+                        Ch('>') | Eof => {
                             self.emit_current_token();
                             self.state = State::Data;
                         }
@@ -1214,7 +1196,7 @@ impl<'stream> Tokenizer<'stream> {
                 }
                 State::MarkupDeclarationOpen => {
                     if self.chars.look_ahead_slice(2) == "--" {
-                        self.current_token = Some(Token::Comment("".into()));
+                        self.current_token = Some(Token::Comment(String::new()));
 
                         // Skip the two -- signs
                         self.chars.skip(2);
@@ -1247,7 +1229,7 @@ impl<'stream> Tokenizer<'stream> {
                     self.chars.read_char();
                     self.parse_error(ParserError::IncorrectlyOpenedComment);
                     self.chars.unread();
-                    self.current_token = Some(Token::Comment("".into()));
+                    self.current_token = Some(Token::Comment(String::new()));
 
                     self.state = State::BogusComment;
                 }
@@ -1331,40 +1313,31 @@ impl<'stream> Tokenizer<'stream> {
                 }
                 State::CommentLessThanSignBang => {
                     let c = self.read_char();
-                    match c {
-                        Ch('-') => {
-                            self.state = State::CommentLessThanSignBangDash;
-                        }
-                        _ => {
-                            self.chars.unread();
-                            self.state = State::Comment;
-                        }
+                    if let Ch('-') = c {
+                        self.state = State::CommentLessThanSignBangDash;
+                    } else {
+                        self.chars.unread();
+                        self.state = State::Comment;
                     }
                 }
                 State::CommentLessThanSignBangDash => {
                     let c = self.read_char();
-                    match c {
-                        Ch('-') => {
-                            self.state = State::CommentLessThanSignBangDashDash;
-                        }
-                        _ => {
-                            self.chars.unread();
-                            self.state = State::CommentEndDash;
-                        }
+                    if let Ch('-') = c {
+                        self.state = State::CommentLessThanSignBangDashDash;
+                    } else {
+                        self.chars.unread();
+                        self.state = State::CommentEndDash;
                     }
                 }
                 State::CommentLessThanSignBangDashDash => {
                     let c = self.read_char();
-                    match c {
-                        Eof | Ch('>') => {
-                            self.chars.unread();
-                            self.state = State::CommentEnd;
-                        }
-                        _ => {
-                            self.parse_error(ParserError::NestedComment);
-                            self.chars.unread();
-                            self.state = State::CommentEnd;
-                        }
+                    if let Eof | Ch('>') = c {
+                        self.chars.unread();
+                        self.state = State::CommentEnd;
+                    } else {
+                        self.parse_error(ParserError::NestedComment);
+                        self.chars.unread();
+                        self.state = State::CommentEnd;
                     }
                 }
                 State::CommentEndDash => {
@@ -1440,7 +1413,7 @@ impl<'stream> Tokenizer<'stream> {
                     let c = self.read_char();
                     match c {
                         Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
-                            self.state = State::BeforeDOCTYPEName
+                            self.state = State::BeforeDOCTYPEName;
                         }
                         Ch('>') => {
                             self.chars.unread();
@@ -1535,7 +1508,7 @@ impl<'stream> Tokenizer<'stream> {
                     let c = self.read_char();
                     match c {
                         Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
-                            self.state = State::AfterDOCTYPEName
+                            self.state = State::AfterDOCTYPEName;
                         }
                         Ch('>') => {
                             self.emit_current_token();
@@ -1598,7 +1571,7 @@ impl<'stream> Tokenizer<'stream> {
                     let c = self.read_char();
                     match c {
                         Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
-                            self.state = State::BeforeDOCTYPEPublicIdentifier
+                            self.state = State::BeforeDOCTYPEPublicIdentifier;
                         }
                         Ch('"') => {
                             self.parse_error(
@@ -1722,7 +1695,7 @@ impl<'stream> Tokenizer<'stream> {
                     let c = self.read_char();
                     match c {
                         Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
-                            self.state = State::BetweenDOCTYPEPublicAndSystemIdentifiers
+                            self.state = State::BetweenDOCTYPEPublicAndSystemIdentifiers;
                         }
                         Ch('>') => {
                             self.emit_current_token();
@@ -1792,7 +1765,7 @@ impl<'stream> Tokenizer<'stream> {
                     let c = self.read_char();
                     match c {
                         Ch(CHAR_TAB | CHAR_LF | CHAR_FF | CHAR_SPACE) => {
-                            self.state = State::BeforeDOCTYPESystemIdentifier
+                            self.state = State::BeforeDOCTYPESystemIdentifier;
                         }
                         Ch('"') => {
                             self.parse_error(
@@ -1940,15 +1913,11 @@ impl<'stream> Tokenizer<'stream> {
                 State::BogusDOCTYPE => {
                     let c = self.read_char();
                     match c {
-                        Ch('>') => {
+                        Ch('>') | Eof => {
                             self.emit_current_token();
                             self.state = State::Data;
                         }
                         Ch(CHAR_NUL) => self.parse_error(ParserError::UnexpectedNullCharacter),
-                        Eof => {
-                            self.emit_current_token();
-                            self.state = State::Data;
-                        }
                         _ => {
                             // ignore
                         }
@@ -1969,13 +1938,12 @@ impl<'stream> Tokenizer<'stream> {
                 }
                 State::CDATASectionBracket => {
                     let c = self.read_char();
-                    match c {
-                        Ch(']') => self.state = State::CDATASectionEnd,
-                        _ => {
-                            self.consume(']');
-                            self.chars.unread();
-                            self.state = State::CDATASection;
-                        }
+                    if let Ch(']') = c {
+                        self.state = State::CDATASectionEnd;
+                    } else {
+                        self.consume(']');
+                        self.chars.unread();
+                        self.state = State::CDATASection;
                     }
                 }
                 State::CDATASectionEnd => {
@@ -1991,7 +1959,7 @@ impl<'stream> Tokenizer<'stream> {
                         }
                     }
                 }
-                _ => {
+                State::CharacterReferenceInAttributeValue => {
                     panic!("state {:?} not implemented", self.state);
                 }
             }
@@ -2065,10 +2033,7 @@ impl<'stream> Tokenizer<'stream> {
     /// Adds the given character to the current token's name (if applicable)
     fn add_to_token_name(&mut self, c: char) {
         match &mut self.current_token {
-            Some(Token::StartTag { name, .. }) => {
-                name.push(c);
-            }
-            Some(Token::EndTag { name, .. }) => {
+            Some(Token::StartTag { name, .. } | Token::EndTag { name, .. }) => {
                 name.push(c);
             }
             Some(Token::DocType { name, .. }) => {
@@ -2111,7 +2076,7 @@ impl<'stream> Tokenizer<'stream> {
     // Consumes the given character
     pub(crate) fn consume(&mut self, c: char) {
         // Add c to the current token data
-        self.consumed.push(c)
+        self.consumed.push(c);
     }
 
     /// Pushes a end-tag and changes to the given state
@@ -2147,7 +2112,7 @@ impl<'stream> Tokenizer<'stream> {
 
     /// Clears the current consume buffer
     pub(crate) fn clear_consume_buffer(&mut self) {
-        self.consumed.clear()
+        self.consumed.clear();
     }
 
     /// Creates a parser log error message
@@ -2188,16 +2153,13 @@ impl<'stream> Tokenizer<'stream> {
             attributes.insert(name.into(), value.into());
         }
 
-        self.current_attr_name.clear()
+        self.current_attr_name.clear();
     }
 
     /// Sets the given name into the current token
     fn set_name_in_current_token(&mut self, new_name: String) -> Result<()> {
         match &mut self.current_token.as_mut().expect("current token") {
-            Token::StartTag { name, .. } => {
-                *name = new_name;
-            }
-            Token::EndTag { name, .. } => {
+            Token::StartTag { name, .. } | Token::EndTag { name, .. } => {
                 *name = new_name;
             }
             _ => {

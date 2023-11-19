@@ -2,13 +2,13 @@ use super::new_tokenizer::Token;
 use crate::{bytes::CharIterator, css3::new_tokenizer::Tokenizer};
 use std::convert::From;
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone, Debug, PartialEq)]
 struct Function {
     name: String,
     value: Vec<ComponentValue>,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone, Debug, PartialEq)]
 enum SimpleBlockTokenKind {
     Curly,
     Bracket,
@@ -26,7 +26,7 @@ impl From<Token> for SimpleBlockTokenKind {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone, Debug, PartialEq)]
 struct SimpleBlock {
     kind: SimpleBlockTokenKind,
     value: Vec<ComponentValue>,
@@ -47,7 +47,14 @@ struct QualifiedRule {
 
 impl Default for QualifiedRule {
     fn default() -> Self {
-        QualifiedRule {
+        Self::new()
+    }
+}
+
+impl QualifiedRule {
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
             prelude: Vec::new(),
             block: SimpleBlock {
                 kind: SimpleBlockTokenKind::Curly,
@@ -55,15 +62,13 @@ impl Default for QualifiedRule {
             },
         }
     }
-}
 
-impl QualifiedRule {
     pub fn set_block(&mut self, block: SimpleBlock) {
         self.block = block;
     }
 
     pub fn add_prelude(&mut self, value: ComponentValue) {
-        self.prelude.push(value)
+        self.prelude.push(value);
     }
 }
 
@@ -127,6 +132,7 @@ struct ValueBuffer {
 }
 
 impl ValueBuffer {
+    #[must_use]
     pub fn new(values: Vec<ComponentValue>) -> Self {
         Self {
             values,
@@ -167,6 +173,7 @@ pub struct CSS3Parser<'stream> {
 }
 
 impl<'stream> CSS3Parser<'stream> {
+    #[must_use]
     pub fn new(tokenizer: Tokenizer) -> CSS3Parser {
         CSS3Parser { tokenizer }
     }
@@ -233,7 +240,7 @@ impl<'stream> CSS3Parser<'stream> {
                 break;
             }
 
-            values.push(value)
+            values.push(value);
         }
 
         values
@@ -381,25 +388,25 @@ impl<'stream> CSS3Parser<'stream> {
             }
 
             if token.is_at_keyword() {
-                rules.push(Rule::AtRule(self.consume_at_rule(vb)))
+                rules.push(Rule::AtRule(self.consume_at_rule(vb)));
             }
 
             if token.is_ident() {
                 let mut components = vec![vb.consume()];
 
                 while !vb.current().token().is_whitespace() || !vb.current().token().is_eof() {
-                    components.push(self.consume_component_value(vb))
+                    components.push(self.consume_component_value(vb));
                 }
 
                 let mut components_vb = ValueBuffer::new(components);
                 if let Some(decl) = self.consume_declaration(&mut components_vb) {
-                    declarations.push(decl)
+                    declarations.push(decl);
                 }
             }
 
             if token == Token::Delim('&') {
                 if let Some(rule) = self.consume_qualified_rule(vb) {
-                    rules.push(Rule::QualifiedRule(rule))
+                    rules.push(Rule::QualifiedRule(rule));
                 }
             }
 
@@ -432,19 +439,19 @@ impl<'stream> CSS3Parser<'stream> {
             };
 
             if token.is_at_keyword() {
-                declarations.push(DeclarationListValue::AtRule(self.consume_at_rule(vb)))
+                declarations.push(DeclarationListValue::AtRule(self.consume_at_rule(vb)));
             }
 
             if token.is_ident() {
                 let mut values = vec![vb.consume()];
 
                 while !vb.current().token().is_semicolon() && !vb.current().token().is_eof() {
-                    values.push(self.consume_component_value(vb))
+                    values.push(self.consume_component_value(vb));
                 }
 
                 let mut vb = ValueBuffer::new(values);
                 if let Some(declaration) = self.consume_declaration(&mut vb) {
-                    declarations.push(DeclarationListValue::Declaration(declaration))
+                    declarations.push(DeclarationListValue::Declaration(declaration));
                 }
             }
         }
@@ -473,7 +480,7 @@ impl<'stream> CSS3Parser<'stream> {
         }
 
         while !vb.current().token().is_eof() {
-            value.push(self.consume_component_value(vb))
+            value.push(self.consume_component_value(vb));
         }
 
         let len = value.len();
@@ -515,7 +522,7 @@ impl<'stream> CSS3Parser<'stream> {
                 break;
             }
 
-            value.push(self.consume_component_value(vb))
+            value.push(self.consume_component_value(vb));
         }
 
         SimpleBlock {

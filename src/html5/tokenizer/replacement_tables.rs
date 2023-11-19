@@ -77,11 +77,11 @@ pub static TOKEN_REPLACEMENTS: phf::Map<u32, char> = phf::phf_map! {
 /// Converted from golang.org/x/net/html/entity.go
 /// Taken from https://dev.w3.org/html5/spec-LC/named-character-references.html#named-character-references
 pub static TOKEN_NAMED_CHARS: phf::Map<&'static str, &'static str> = phf_map! {
-    "AElig;" 		                    => "\u{00C6}",
-    "AMP;" 			                    => "\u{0026}",
-    "Aacute;" 		                    => "\u{00C1}",
-    "Abreve;" 		                    => "\u{0102}",
-    "Acirc;"		                    => "\u{00C2}",
+    "AElig;"                            => "\u{00C6}",
+    "AMP;"                              => "\u{0026}",
+    "Aacute;"                           => "\u{00C1}",
+    "Abreve;"                           => "\u{0102}",
+    "Acirc;"                            => "\u{00C2}",
     "Acy;"                              => "\u{0410}",
     "Afr;"                              => "\u{1D504}",
     "Agrave;"                           => "\u{00C0}",

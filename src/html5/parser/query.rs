@@ -21,6 +21,7 @@ pub struct Query {
 }
 
 impl Query {
+    #[must_use]
     pub(crate) fn new() -> Self {
         Self {
             conditions: Vec::new(),

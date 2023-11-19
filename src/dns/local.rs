@@ -15,7 +15,7 @@ pub struct LocalTableResolver {
 
 impl Default for LocalTableResolver {
     fn default() -> Self {
-        LocalTableResolver {
+        Self {
             entries: HashMap::new(),
             tree: DomainLookupTree::new(),
         }
@@ -28,15 +28,12 @@ impl DnsResolver for LocalTableResolver {
         domain: &str,
         _resolve_type: ResolveType,
     ) -> Result<DnsEntry, types::Error> {
-        let domain_entry = match self.tree.lookup(domain) {
-            Some(domain_entry) => domain_entry,
-            None => {
-                trace!("{}: not found in local table", domain);
-                return Err(types::Error::DnsDomainNotFound);
-            }
+        let Some(domain_entry) = self.tree.lookup(domain) else {
+            trace!("{domain}: not found in local table");
+            return Err(types::Error::DnsDomainNotFound);
         };
 
-        trace!("{}: found in local tree", domain_entry);
+        trace!("{domain_entry}: found in local tree");
 
         // domain_entry could be "com" if you ask for just "com" and it's part of the tree (it normally is). So in
         // that case we still have to check if the domain is actually in the entries list.
@@ -44,7 +41,7 @@ impl DnsResolver for LocalTableResolver {
             return Ok(entry.clone());
         }
 
-        trace!("{}: not found in local table", domain);
+        trace!("{domain}: not found in local table");
         Err(types::Error::DnsDomainNotFound)
     }
 
@@ -66,8 +63,9 @@ impl DnsCache for LocalTableResolver {
 
 impl LocalTableResolver {
     /// Instantiates a new local override table
-    pub fn new() -> LocalTableResolver {
-        let mut table = LocalTableResolver {
+    #[must_use]
+    pub fn new() -> Self {
+        let mut table = Self {
             entries: HashMap::new(),
             tree: DomainLookupTree::new(),
         };

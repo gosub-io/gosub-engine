@@ -20,6 +20,7 @@ pub struct Position {
 }
 
 impl Position {
+    #[must_use]
     pub fn new() -> Self {
         Self { x: 0., y: 0. }
     }
@@ -84,6 +85,7 @@ pub struct RenderTree {
 }
 
 impl RenderTree {
+    #[must_use]
     pub fn new(document: &DocumentHandle) -> Self {
         Self {
             document: Document::clone(document),
@@ -152,6 +154,7 @@ pub struct Node {
 }
 
 impl Node {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             node_type: NodeType::Root(true),
@@ -167,7 +170,7 @@ impl Node {
     fn new_text(node: TextNode, margin: f64, position: &mut Position) -> Self {
         position.offset_y(margin);
         let fs = node.font_size;
-        let new_node = Node {
+        let new_node = Self {
             node_type: NodeType::Text(node),
             margin: Rectangle::with_values(margin, 0., 0., margin),
             padding: Rectangle::new(),
@@ -268,6 +271,7 @@ pub struct TreeIterator {
 }
 
 impl TreeIterator {
+    #[must_use]
     pub fn new(render_tree: &RenderTree) -> Self {
         Self {
             current_node: None,

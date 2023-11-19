@@ -63,7 +63,7 @@ impl Debug for AttributeMatcher {
             AttributeMatcher::EqualityMatch => "=",
         };
 
-        write!(f, "{}", matcher)
+        write!(f, "{matcher}")
     }
 }
 
@@ -89,8 +89,9 @@ impl Debug for IdSelector {
 }
 
 impl IdSelector {
-    pub fn new<S: Into<String>>(name: S) -> IdSelector {
-        IdSelector { name: name.into() }
+    #[must_use]
+    pub fn new(name: impl Into<String>) -> Self {
+        Self { name: name.into() }
     }
 }
 
@@ -101,8 +102,9 @@ pub struct ClassSelector {
 }
 
 impl ClassSelector {
-    pub fn new(name: String) -> ClassSelector {
-        ClassSelector { name }
+    #[must_use]
+    pub fn new(name: String) -> Self {
+        Self { name }
     }
 }
 
@@ -119,8 +121,9 @@ impl Debug for TypeSelector {
 }
 
 impl TypeSelector {
-    pub fn new<S: Into<String>>(name: S) -> TypeSelector {
-        TypeSelector { name: name.into() }
+    #[must_use]
+    pub fn new(name: impl Into<String>) -> Self {
+        Self { name: name.into() }
     }
 }
 
@@ -141,12 +144,13 @@ pub struct Block {
 }
 
 impl Block {
-    pub fn new(children: Vec<BlockChild>) -> Block {
-        Block { children }
+    #[must_use]
+    pub fn new(children: Vec<BlockChild>) -> Self {
+        Self { children }
     }
 
     pub fn add_child(&mut self, child: BlockChild) {
-        self.children.push(child)
+        self.children.push(child);
     }
 }
 
@@ -162,8 +166,9 @@ impl Debug for Identifier {
 }
 
 impl Identifier {
-    pub fn new<S: Into<String>>(name: S) -> Identifier {
-        Identifier { name: name.into() }
+    #[must_use]
+    pub fn new(name: impl Into<String>) -> Self {
+        Self { name: name.into() }
     }
 }
 
@@ -195,7 +200,7 @@ impl Debug for Combinator {
             Combinator::SubsequentSiblingCombinator => "~",
         };
 
-        write!(f, "{}", combinator)
+        write!(f, "{combinator}")
     }
 }
 
@@ -207,8 +212,9 @@ pub struct Declaration {
 }
 
 impl Declaration {
-    pub fn new<S: Into<String>>(property: S, value: ValueList) -> Declaration {
-        Declaration {
+    #[must_use]
+    pub fn new(property: impl Into<String>, value: ValueList) -> Self {
+        Self {
             important: false,
             property: property.into(),
             value,
@@ -219,7 +225,7 @@ impl Declaration {
         self.important = important;
     }
 
-    pub fn set_property<S: Into<String>>(&mut self, property: S) {
+    pub fn set_property(&mut self, property: impl Into<String>) {
         self.property = property.into();
     }
 
@@ -234,12 +240,13 @@ pub struct DeclarationList {
 }
 
 impl DeclarationList {
-    pub fn new(children: Vec<Declaration>) -> DeclarationList {
-        DeclarationList { children }
+    #[must_use]
+    pub fn new(children: Vec<Declaration>) -> Self {
+        Self { children }
     }
 
     pub fn add_child(&mut self, child: Declaration) {
-        self.children.push(child)
+        self.children.push(child);
     }
 }
 
@@ -256,10 +263,11 @@ impl Debug for Dimension {
 }
 
 impl Dimension {
-    pub fn new<S: Into<String>, U: Into<String>>(value: S, unit: Option<U>) -> Dimension {
-        Dimension {
+    #[must_use]
+    pub fn new(value: impl Into<String>, unit: Option<impl Into<String>>) -> Self {
+        Self {
             value: value.into(),
-            unit: unit.map(|u| u.into()),
+            unit: unit.map(Into::into),
         }
     }
 }
@@ -345,8 +353,9 @@ pub struct CssString {
 }
 
 impl CssString {
-    pub fn new<S: Into<String>>(value: S) -> CssString {
-        CssString {
+    #[must_use]
+    pub fn new<S: Into<String>>(value: S) -> Self {
+        Self {
             value: value.into(),
         }
     }
@@ -395,8 +404,9 @@ pub struct Rule {
 }
 
 impl Rule {
-    pub fn new(selectors: SelectorList, block: Block) -> Rule {
-        Rule { selectors, block }
+    #[must_use]
+    pub fn new(selectors: SelectorList, block: Block) -> Self {
+        Self { selectors, block }
     }
 }
 
@@ -426,17 +436,18 @@ pub struct SelectorList {
 }
 
 impl SelectorList {
-    pub fn new(children: Vec<Selector>) -> SelectorList {
-        SelectorList { children }
+    #[must_use]
+    pub fn new(children: Vec<Selector>) -> Self {
+        Self { children }
     }
 
-    pub fn push(&mut self, selector: Selector) -> &mut SelectorList {
+    pub fn push(&mut self, selector: Selector) -> &mut Self {
         self.children.push(selector);
 
         self
     }
 
-    pub fn pop(&mut self) -> &mut SelectorList {
+    pub fn pop(&mut self) -> &mut Self {
         self.children.pop();
 
         self
@@ -486,7 +497,7 @@ impl ValueList {
     }
 
     pub fn add_child(&mut self, child: Value) {
-        self.children.push(child)
+        self.children.push(child);
     }
 }
 
@@ -502,7 +513,8 @@ pub struct StyleSheet {
 }
 
 impl StyleSheet {
-    pub fn new(children: Vec<StyleSheetRule>) -> StyleSheet {
-        StyleSheet { children }
+    #[must_use]
+    pub fn new(children: Vec<StyleSheetRule>) -> Self {
+        Self { children }
     }
 }

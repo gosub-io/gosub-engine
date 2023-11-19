@@ -44,7 +44,7 @@ pub enum NodeData {
 }
 
 /// Id used to identify a node
-#[derive(Copy, Debug, Default, Eq, Hash, PartialEq, Display, PartialOrd)]
+#[derive(Clone, Copy, Debug, Default, Display, Eq, Hash, PartialEq, PartialOrd)]
 pub struct NodeId(pub(crate) usize);
 
 impl From<NodeId> for usize {
@@ -83,6 +83,7 @@ impl NodeId {
     }
 
     /// Returns the next node ID
+    #[must_use]
     pub fn next(&self) -> Self {
         if self.0 == usize::MAX {
             return Self(usize::MAX);
@@ -97,6 +98,7 @@ impl NodeId {
     }
 
     /// Returns the previous node ID
+    #[must_use]
     pub fn prev(&self) -> Self {
         if self.0 == 0 {
             return Self::root();
@@ -184,7 +186,7 @@ impl Debug for Node {
             _ => debug.field("namespace", &"unknown"),
         };
         debug.field("data", &self.data);
-        debug.finish()
+        debug.finish_non_exhaustive()
     }
 }
 
@@ -235,86 +237,96 @@ impl Clone for Node {
 
 impl Node {
     /// Create a new document node
+    #[must_use]
     pub fn new_document(document: &DocumentHandle) -> Self {
+        let (id, parent, children, name, namespace, is_registered) = <_>::default();
         Node {
-            id: Default::default(),
-            parent: None,
-            children: vec![],
+            id,
+            parent,
+            children,
             data: NodeData::Document(DocumentData::new()),
-            name: "".to_string(),
-            namespace: None,
+            name,
+            namespace,
             document: Document::clone(document),
-            is_registered: false,
+            is_registered,
         }
     }
 
+    #[must_use]
     pub fn new_doctype(
         document: &DocumentHandle,
         name: &str,
         pub_identifier: &str,
         sys_identifier: &str,
     ) -> Self {
+        let (id, parent, children, namespace, is_registered) = <_>::default();
         Node {
-            id: Default::default(),
-            parent: None,
-            children: vec![],
+            id,
+            parent,
+            children,
             data: NodeData::DocType(DocTypeData::new(name, pub_identifier, sys_identifier)),
-            name: "".to_string(),
-            namespace: None,
+            name: name.to_owned(),
+            namespace,
             document: Document::clone(document),
-            is_registered: false,
+            is_registered,
         }
     }
 
     /// Create a new element node with the given name and attributes and namespace
+    #[must_use]
     pub fn new_element(
         document: &DocumentHandle,
         name: &str,
         attributes: HashMap<String, String>,
         namespace: &str,
     ) -> Self {
+        let (id, parent, children, is_registered) = <_>::default();
         Node {
-            id: Default::default(),
-            parent: None,
-            children: vec![],
+            id,
+            parent,
+            children,
             data: NodeData::Element(Box::new(ElementData::with_name_and_attributes(
-                Default::default(),
+                NodeId::default(),
                 Document::clone(document),
                 name,
                 attributes,
             ))),
-            name: name.to_string(),
+            name: name.to_owned(),
             namespace: Some(namespace.into()),
             document: Document::clone(document),
-            is_registered: false,
+            is_registered,
         }
     }
 
     /// Creates a new comment node
+    #[must_use]
     pub fn new_comment(document: &DocumentHandle, value: &str) -> Self {
+        let (id, parent, children, name, namespace, is_registered) = <_>::default();
         Node {
-            id: Default::default(),
-            parent: None,
-            children: vec![],
+            id,
+            parent,
+            children,
             data: NodeData::Comment(CommentData::with_value(value)),
-            name: "".to_string(),
-            namespace: None,
+            name,
+            namespace,
             document: Document::clone(document),
-            is_registered: false,
+            is_registered,
         }
     }
 
     /// Creates a new text node
+    #[must_use]
     pub fn new_text(document: &DocumentHandle, value: &str) -> Self {
+        let (id, parent, children, name, namespace, is_registered) = <_>::default();
         Node {
-            id: Default::default(),
-            parent: None,
-            children: vec![],
+            id,
+            parent,
+            children,
             data: NodeData::Text(TextData::with_value(value)),
-            name: "".to_string(),
-            namespace: None,
+            name,
+            namespace,
             document: Document::clone(document),
-            is_registered: false,
+            is_registered,
         }
     }
 

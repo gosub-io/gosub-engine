@@ -33,9 +33,9 @@ impl DnsResolver for RemoteResolver {
             }
         }
 
-        trace!("{}: resolving with {:?}", domain, ip_types);
+        trace!("{domain}: resolving with {ip_types:?}");
 
-        for ip_type in ip_types.iter() {
+        for ip_type in &ip_types {
             match *ip_type {
                 ResolveType::Ipv4 => {
                     let e = self.hickory.ipv4_lookup(domain);
@@ -43,7 +43,7 @@ impl DnsResolver for RemoteResolver {
                         continue;
                     }
                     e.unwrap().iter().for_each(|ip| {
-                        trace!("{}: found ipv4 address {}", domain, ip);
+                        trace!("{domain}: found ipv4 address {ip}");
                         entry
                             .ips
                             .push(IpAddr::from_str(ip.to_string().as_str()).unwrap());
@@ -56,14 +56,14 @@ impl DnsResolver for RemoteResolver {
                         continue;
                     }
                     e.unwrap().iter().for_each(|ip| {
-                        trace!("{}: found ipv6 address {}", domain, ip);
+                        trace!("{domain}: found ipv6 address {ip}");
                         entry
                             .ips
                             .push(IpAddr::from_str(ip.to_string().as_str()).unwrap());
                         entry.has_ipv6 = true;
                     });
                 }
-                _ => {}
+                ResolveType::Both => {}
             }
         }
 
@@ -81,12 +81,12 @@ impl DnsResolver for RemoteResolver {
 
 impl RemoteResolver {
     /// Instantiates a new local override table
-    pub fn new(dns_opts: RemoteResolverOptions) -> RemoteResolver {
+    pub fn new(dns_opts: RemoteResolverOptions) -> Self {
         // @todo: do something with the options
         let mut config = ResolverConfig::default();
         let mut opts = ResolverOpts::default();
 
-        for nameserver in dns_opts.nameservers.iter() {
+        for nameserver in &dns_opts.nameservers {
             if let Ok(ip) = IpAddr::from_str(nameserver.as_str()) {
                 config.add_name_server(NameServerConfig::new(SocketAddr::new(ip, 53), Udp));
                 continue;
@@ -96,7 +96,7 @@ impl RemoteResolver {
         opts.timeout = std::time::Duration::from_secs(dns_opts.timeout as u64);
         opts.attempts = dns_opts.retries;
 
-        RemoteResolver {
+        Self {
             hickory: Resolver::new(config, opts).unwrap(),
         }
     }
@@ -112,7 +112,7 @@ pub struct RemoteResolverOptions {
 
 impl Default for RemoteResolverOptions {
     fn default() -> Self {
-        RemoteResolverOptions {
+        Self {
             timeout: 5,
             retries: 3,
             use_hosts_file: true,

@@ -137,7 +137,7 @@ impl Display for Setting {
                     result.push(',');
                 }
                 result.pop();
-                write!(f, "m: {}", result)
+                write!(f, "m: {result}")
             }
         }
     }
