@@ -7,6 +7,7 @@ pub mod bytes;
 pub mod css3;
 #[allow(dead_code)]
 pub mod html5;
+pub mod render_tree;
 pub mod testing;
 pub mod types;
 
