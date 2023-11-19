@@ -163,7 +163,11 @@ mod test {
 
     #[test]
     fn resolver() {
-        SimpleLogger::new().init().unwrap();
+        // Add simple logger, if not possible, that's fine too
+        match SimpleLogger::new().init() {
+            Ok(_) => {}
+            Err(_) => {}
+        }
 
         let mut dns = Dns::new();
 

@@ -56,6 +56,8 @@ log = "0.4.20"
 domain-lookup-tree = "0.1"
 hickory-resolver = "0.24.0"
 simple_logger = "4.2.0"
+shared_singleton = "0.1.0"
+testing_logger = "0.1.1"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
