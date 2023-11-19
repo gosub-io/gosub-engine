@@ -2,6 +2,8 @@
 
 This repository holds the GoSub browser engine. It will become a standalone library that can be used by other projects but will ultimately be used by the Gosub browser user-agent. See the [About](#about) section for more information.
 
+Join us at our development [Zulip chat](https://chat.developer.gosub.io)!
+
 ```
                        _     
                       | |    
@@ -54,8 +56,8 @@ Doing this will create the following binaries:
 
 | File                              | Type | Description                                                                                                                                                     |
 |-----------------------------------|------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `target/debug/gosub-parser`       | bin  | The actual html5 parser/tokenizer that allows you to convert html5 into a document tree.                                                                        
-| `target/debug/parser-test`        | bin  | A test suite for the parser that tests specific tests. This will be removed as soon as the parser is completely finished as this tool is for developement only. 
+| `target/debug/gosub-parser`       | bin  | The actual html5 parser/tokenizer that allows you to convert html5 into a document tree.               <br/>                                                         |
+| `target/debug/parser-test`        | bin  | A test suite for the parser that tests specific tests. This will be removed as soon as the parser is completely finished as this tool is for developement only. |
 | `target/debug/html5-parser-tests` | bin  | A test suite that tests all html5lib tests for the treebuilding                                                                                                 |
 | `target/debug/test-user-agent`    | bin  | A simple placeholder user agent for testing purposes                                                                                                            |
 | `target/debug/config-store`       | bin  | A simple test application of the config store for testing purposes                                                                                              |
@@ -86,4 +88,4 @@ index.html
 ## Contributing to the project
 We welcome contributions to this project but the current status makes that we are spending a lot of time researching, building small proof-of-concepts and figuring out what needs to be done next. Much time of a contributor at this stage of the project will be non-coding.
 
-We do like to hear from you if you are interested in contributing to the project and you can join us currently at our slack channel: [https://join.slack.com/t/gosubgroup/shared_invite/zt-2766v78v4-8NAtD1UU~jQzEQfzfP1sFg](https://join.slack.com/t/gosubgroup/shared_invite/zt-2766v78v4-8NAtD1UU~jQzEQfzfP1sFg)
+We do like to hear from you if you are interested in contributing to the project and you can join us currently at our [Zulip chat](https://chat.developer.gosub.io)!
