@@ -53,6 +53,9 @@ clap = { version = "4.4.7", features = ["derive"] }
 cli-table = "0.4.7"
 textwrap = "0.16.0"
 log = "0.4.20"
+domain-lookup-tree = "0.1"
+hickory-resolver = "0.24.0"
+simple_logger = "4.2.0"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

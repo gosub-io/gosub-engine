@@ -1,16 +1,52 @@
 {
   "dns": [
     {
+      "key": "cache.max_entries",
+      "type": "u",
+      "default": "u:1000",
+      "description": "This setting defines the maximum number of entries that may be stored in the DNS cache before the oldest entry is evicted."
+    },
+    {
       "key": "local_resolver.enabled",
       "type": "b",
+      "default": "b:true",
+      "description": "This setting enables the local DNS override table. When enabled, Gosub will return any IP address that is defined in the local DNS override table."
+    },
+    {
+      "key": "local_resolver.table",
+      "type": "m",
+      "default": "m:''",
+      "description": "This setting defines the local DNS override table."
+    },
+    {
+      "key": "resolve.ttl.override.enabled",
+      "type": "b",
       "default": "b:false",
-      "description": "This setting enables the local DNS resolver. When enabled, GosuB will use the local DNS resolver to resolve DNS queries. When disabled, GosuB will use the DNS resolver configured in the operating system."
+      "description": "When enabled, the TTL of each entry will be overridden with the value defined in resolve.ttl.override."
+    },
+    {
+      "key": "resolve.ttl.override.seconds",
+      "type": "u",
+      "default": "u:0",
+      "description": "Number of seconds to override the TTL with. When set to 0, the TTL will expire directly"
     },
     {
       "key": "doh.enabled",
       "type": "b",
       "default": "b:false",
       "description": "This setting enabled DNS over HTTPS. A secure way of communicating with DNS servers."
+    },
+    {
+      "key": "dot.enabled",
+      "type": "b",
+      "default": "b:false",
+      "description": "This setting enabled DNS over TLS. A secure way of communicating with DNS servers."
+    },
+    {
+      "key": "resolver.ips",
+      "type": "m",
+      "default": "m:''",
+      "description": "Any resolvers defined here will be used for DNS lookups. If no resolvers are defined, the system resolvers will be used."
     }
   ],
   "useragent": [

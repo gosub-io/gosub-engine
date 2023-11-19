@@ -177,11 +177,11 @@ mod test {
         let mut store =
             ConfigStore::from_storage(Box::new(MemoryStorageAdapter::new()), true).unwrap();
         let setting = store.get("dns.local_resolver.enabled");
-        assert_eq!(setting, Setting::Bool(false));
-
-        store.set("dns.local_resolver.enabled", Setting::Bool(true));
-        let setting = store.get("dns.local_resolver.enabled");
         assert_eq!(setting, Setting::Bool(true));
+
+        store.set("dns.local_resolver.enabled", Setting::Bool(false));
+        let setting = store.get("dns.local_resolver.enabled");
+        assert_eq!(setting, Setting::Bool(false));
     }
 
     #[test]
