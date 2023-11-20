@@ -42,7 +42,7 @@ typed-arena = "2.0.2"
 thiserror = "1.0.50"
 ureq = "2.8.0"
 anyhow = "1.0.75"
-uuid = { version = "1.5.0", features = ["v4"] }
+uuid = { version = "1.6.0", features = ["v4"] }
 colored = "2.0.4"
 walkdir = "2.3"
 nom = "7.1.3"
