@@ -164,168 +164,74 @@ impl Node {
         }
     }
 
+    fn new_text(node: TextNode, margin: f64, position: &mut Position) -> Self {
+        position.offset_y(margin);
+        let fs = node.font_size;
+        let new_node = Node {
+            node_type: NodeType::Text(node),
+            margin: Rectangle::with_values(margin, 0., 0., margin),
+            padding: Rectangle::new(),
+            parent: None,
+            next_sibling: None,
+            children: Vec::new(),
+            position: Position::new_from_existing(position),
+        };
+
+        position.offset_y(fs + margin);
+
+        new_node
+    }
+
     // I took the margins/font sizes from Chrome dev tools.
     // There are still some slight differences but it's very close
 
     pub fn new_heading1(position: &mut Position) -> Self {
         let margin = 10.72;
-        position.offset_y(margin);
+        let heading = TextNode::new_heading1();
 
-        let new_heading = TextNode::new_heading1();
-        let font_size = new_heading.font_size;
-
-        let new_node = Node {
-            node_type: NodeType::Text(new_heading),
-            margin: Rectangle::with_values(margin, 0., 0., margin),
-            padding: Rectangle::new(),
-            parent: None,
-            next_sibling: None,
-            children: Vec::new(),
-            position: Position::new_from_existing(position),
-        };
-
-        position.offset_y(font_size);
-        position.offset_y(margin);
-
-        new_node
+        Node::new_text(heading, margin, position)
     }
 
     pub fn new_heading2(position: &mut Position) -> Self {
         let margin = 9.96;
-        position.offset_y(margin);
+        let heading = TextNode::new_heading2();
 
-        let new_heading = TextNode::new_heading2();
-        let font_size = new_heading.font_size;
-
-        let new_node = Node {
-            node_type: NodeType::Text(new_heading),
-            margin: Rectangle::with_values(margin, 0., 0., margin),
-            padding: Rectangle::new(),
-            parent: None,
-            next_sibling: None,
-            children: Vec::new(),
-            position: Position::new_from_existing(position),
-        };
-
-        position.offset_y(font_size);
-        position.offset_y(margin);
-
-        new_node
+        Node::new_text(heading, margin, position)
     }
 
     pub fn new_heading3(position: &mut Position) -> Self {
         let margin = 9.36;
-        position.offset_y(margin);
+        let heading = TextNode::new_heading3();
 
-        let new_heading = TextNode::new_heading3();
-        let font_size = new_heading.font_size;
-
-        let new_node = Node {
-            node_type: NodeType::Text(new_heading),
-            margin: Rectangle::with_values(margin, 0., 0., margin),
-            padding: Rectangle::new(),
-            parent: None,
-            next_sibling: None,
-            children: Vec::new(),
-            position: Position::new_from_existing(position),
-        };
-
-        position.offset_y(font_size);
-        position.offset_y(margin);
-
-        new_node
+        Node::new_text(heading, margin, position)
     }
 
     pub fn new_heading4(position: &mut Position) -> Self {
         let margin = 10.64;
-        position.offset_y(margin);
+        let heading = TextNode::new_heading4();
 
-        let new_heading = TextNode::new_heading4();
-        let font_size = new_heading.font_size;
-
-        let new_node = Node {
-            node_type: NodeType::Text(new_heading),
-            margin: Rectangle::with_values(margin, 0., 0., margin),
-            padding: Rectangle::new(),
-            parent: None,
-            next_sibling: None,
-            children: Vec::new(),
-            position: Position::new_from_existing(position),
-        };
-
-        position.offset_y(font_size);
-        position.offset_y(margin);
-
-        new_node
+        Node::new_text(heading, margin, position)
     }
 
     pub fn new_heading5(position: &mut Position) -> Self {
         let margin = 11.089;
-        position.offset_y(margin);
+        let heading = TextNode::new_heading5();
 
-        let new_heading = TextNode::new_heading5();
-        let font_size = new_heading.font_size;
-
-        let new_node = Node {
-            node_type: NodeType::Text(new_heading),
-            margin: Rectangle::with_values(margin, 0., 0., margin),
-            padding: Rectangle::new(),
-            parent: None,
-            next_sibling: None,
-            children: Vec::new(),
-            position: Position::new_from_existing(position),
-        };
-
-        position.offset_y(font_size);
-        position.offset_y(margin);
-
-        new_node
+        Node::new_text(heading, margin, position)
     }
 
     pub fn new_heading6(position: &mut Position) -> Self {
         let margin = 12.489;
-        position.offset_y(margin);
+        let heading = TextNode::new_heading6();
 
-        let new_heading = TextNode::new_heading6();
-        let font_size = new_heading.font_size;
-
-        let new_node = Node {
-            node_type: NodeType::Text(new_heading),
-            margin: Rectangle::with_values(margin, 0., 0., margin),
-            padding: Rectangle::new(),
-            parent: None,
-            next_sibling: None,
-            children: Vec::new(),
-            position: Position::new_from_existing(position),
-        };
-
-        position.offset_y(font_size);
-        position.offset_y(margin);
-
-        new_node
+        Node::new_text(heading, margin, position)
     }
 
     pub fn new_paragraph(position: &mut Position) -> Self {
         let margin = 8.;
-        position.offset_y(margin);
+        let paragraph = TextNode::new_paragraph();
 
-        let new_paragraph = TextNode::new_paragraph();
-        let font_size = new_paragraph.font_size;
-
-        let new_node = Node {
-            node_type: NodeType::Text(new_paragraph),
-            margin: Rectangle::with_values(margin, 0., 0., margin),
-            padding: Rectangle::new(),
-            parent: None,
-            next_sibling: None,
-            children: Vec::new(),
-            position: Position::new_from_existing(position),
-        };
-
-        position.offset_y(font_size);
-        position.offset_y(margin);
-
-        new_node
+        Node::new_text(paragraph, margin, position)
     }
 
     pub fn add_child(&mut self, child: &Rc<RefCell<Node>>) {
