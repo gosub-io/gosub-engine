@@ -1,15 +1,14 @@
-pub mod properties;
-pub mod text;
-pub mod util;
-
 use std::borrow::BorrowMut;
 use std::{cell::RefCell, rc::Rc};
 
+use crate::html5::node::NodeData;
 use crate::html5::parser::document;
 use crate::html5::parser::document::{Document, DocumentHandle};
-
-use crate::html5::node::NodeData;
 use crate::render_tree::{properties::Rectangle, text::TextNode};
+
+pub mod properties;
+pub mod text;
+pub mod util;
 
 /// The position of the render cursor used to determine where
 /// to draw an object
@@ -103,51 +102,21 @@ impl RenderTree {
             if let Some(current_node) = doc_read.get_node_by_id(current_node_id) {
                 match &current_node.data {
                     NodeData::Element(element) => {
-                        match element.name.as_str() {
-                            "h1" => {
-                                let new_node =
-                                    Rc::new(RefCell::new(Node::new_heading1(&mut self.position)));
-                                util::add_text_node(&reference_element, &new_node);
-                                reference_element = Rc::clone(&new_node);
-                            }
-                            "h2" => {
-                                let new_node =
-                                    Rc::new(RefCell::new(Node::new_heading2(&mut self.position)));
-                                util::add_text_node(&reference_element, &new_node);
-                                reference_element = Rc::clone(&new_node);
-                            }
-                            "h3" => {
-                                let new_node =
-                                    Rc::new(RefCell::new(Node::new_heading3(&mut self.position)));
-                                util::add_text_node(&reference_element, &new_node);
-                                reference_element = Rc::clone(&new_node);
-                            }
-                            "h4" => {
-                                let new_node =
-                                    Rc::new(RefCell::new(Node::new_heading4(&mut self.position)));
-                                util::add_text_node(&reference_element, &new_node);
-                                reference_element = Rc::clone(&new_node);
-                            }
-                            "h5" => {
-                                let new_node =
-                                    Rc::new(RefCell::new(Node::new_heading5(&mut self.position)));
-                                util::add_text_node(&reference_element, &new_node);
-                                reference_element = Rc::clone(&new_node);
-                            }
-                            "h6" => {
-                                let new_node =
-                                    Rc::new(RefCell::new(Node::new_heading6(&mut self.position)));
-                                util::add_text_node(&reference_element, &new_node);
-                                reference_element = Rc::clone(&new_node);
-                            }
-                            "p" => {
-                                let new_node =
-                                    Rc::new(RefCell::new(Node::new_paragraph(&mut self.position)));
-                                util::add_text_node(&reference_element, &new_node);
-                                reference_element = Rc::clone(&new_node);
-                            }
-                            _ => { /* add more here, for now ignore */ }
-                        }
+                        let new_node = match element.name.as_str() {
+                            "h1" => Node::new_heading1,
+                            "h2" => Node::new_heading2,
+                            "h3" => Node::new_heading3,
+                            "h4" => Node::new_heading4,
+                            "h5" => Node::new_heading5,
+                            "h6" => Node::new_heading6,
+                            "p" => Node::new_paragraph,
+                            _ => todo!(), /* add more here, for now ignore */
+                        }(&mut self.position);
+
+                        let new_node = Rc::new(RefCell::new(new_node));
+
+                        util::add_text_node(&reference_element, &new_node);
+                        reference_element = Rc::clone(&new_node);
                     }
                     NodeData::Text(text) => {
                         let mut mut_element_ref = reference_element.as_ref().borrow_mut();
