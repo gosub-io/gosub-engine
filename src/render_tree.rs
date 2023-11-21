@@ -110,7 +110,7 @@ impl RenderTree {
                             "h5" => Node::new_heading5,
                             "h6" => Node::new_heading6,
                             "p" => Node::new_paragraph,
-                            _ => todo!(), /* add more here, for now ignore */
+                            _ => continue, /* add more here, for now ignore */
                         }(&mut self.position);
 
                         let new_node = Rc::new(RefCell::new(new_node));
