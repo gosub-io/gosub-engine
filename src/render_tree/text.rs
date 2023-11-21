@@ -34,22 +34,22 @@ impl TextNode {
     }
 
     pub fn new_heading3() -> Self {
-        TextNode::new(21.5,true)
+        TextNode::new(21.5, true)
     }
 
     pub fn new_heading4() -> Self {
-        TextNode::new(18.5,true)
+        TextNode::new(18.5, true)
     }
 
     pub fn new_heading5() -> Self {
-        TextNode::new(15.5,true)
+        TextNode::new(15.5, true)
     }
 
     pub fn new_heading6() -> Self {
-        TextNode::new(12.,true)
+        TextNode::new(12., true)
     }
 
     pub fn new_paragraph() -> Self {
-        TextNode::new(18.5,false)
+        TextNode::new(18.5, false)
     }
 }
