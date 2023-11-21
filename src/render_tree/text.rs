@@ -15,66 +15,41 @@ impl TextNode {
     /*
         NOTE: I got the default font sizes from https://stackoverflow.com/a/70720104
     */
-    pub fn new_heading1() -> Self {
+
+    fn new(fs: f64) -> Self {
         Self {
             value: "".to_owned(),
             font: DEFAULT_FONT.to_owned(),
-            font_size: 37.,
-            is_bold: true,
+            font_size: fs,
+            is_bold: false,
         }
+    }
+
+    pub fn new_heading1() -> Self {
+        TextNode::new(37.)
     }
 
     pub fn new_heading2() -> Self {
-        Self {
-            value: "".to_owned(),
-            font: DEFAULT_FONT.to_owned(),
-            font_size: 27.5,
-            is_bold: true,
-        }
+        TextNode::new(27.5)
     }
 
     pub fn new_heading3() -> Self {
-        Self {
-            value: "".to_owned(),
-            font: DEFAULT_FONT.to_owned(),
-            font_size: 21.5,
-            is_bold: true,
-        }
+        TextNode::new(21.5)
     }
 
     pub fn new_heading4() -> Self {
-        Self {
-            value: "".to_owned(),
-            font: DEFAULT_FONT.to_owned(),
-            font_size: 18.5,
-            is_bold: true,
-        }
+        TextNode::new(18.5)
     }
 
     pub fn new_heading5() -> Self {
-        Self {
-            value: "".to_owned(),
-            font: DEFAULT_FONT.to_owned(),
-            font_size: 15.5,
-            is_bold: true,
-        }
+        TextNode::new(15.5)
     }
 
     pub fn new_heading6() -> Self {
-        Self {
-            value: "".to_owned(),
-            font: DEFAULT_FONT.to_owned(),
-            font_size: 12.,
-            is_bold: true,
-        }
+        TextNode::new(12.)
     }
 
     pub fn new_paragraph() -> Self {
-        Self {
-            value: "".to_owned(),
-            font: DEFAULT_FONT.to_owned(),
-            font_size: 18.5,
-            is_bold: false,
-        }
+        TextNode::new(18.5)
     }
 }
