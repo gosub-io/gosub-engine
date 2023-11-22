@@ -88,7 +88,7 @@ impl Setting {
 
         match self {
             Setting::Map(values) => values.clone(),
-            _ => Vec::new(),
+            other => vec![other.to_string()],
         }
     }
 }
@@ -155,7 +155,7 @@ impl FromStr for Setting {
 
     /// Converts a string to a setting or None when the string is invalid
     fn from_str(key: &str) -> Result<Setting> {
-        let (key_type, key_value) = key.split_once(':').unwrap();
+        let (key_type, key_value) = key.split_once(':').expect("");
 
         let setting = match key_type {
             "b" => Setting::Bool(

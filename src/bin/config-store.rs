@@ -3,8 +3,7 @@ use clap::{Parser, Subcommand};
 use derive_more::Display;
 use gosub_engine::config;
 use gosub_engine::config::settings::Setting;
-use gosub_engine::config::storage::json::JsonStorageAdapter;
-use gosub_engine::config::storage::sqlite::SqliteStorageAdapter;
+use gosub_engine::config::storage::*;
 use gosub_engine::config::StorageAdapter;
 use std::str::FromStr;
 

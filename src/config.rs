@@ -2,7 +2,7 @@ pub mod settings;
 pub mod storage;
 
 use crate::config::settings::{Setting, SettingInfo};
-use crate::config::storage::memory::MemoryStorageAdapter;
+use crate::config::storage::MemoryStorageAdapter;
 use lazy_static::lazy_static;
 use log::warn;
 use serde_derive::Deserialize;
@@ -204,10 +204,6 @@ impl ConfigStore {
     /// return the default value for the given key. Note that if the key is not found and no
     /// default value is specified, this function will panic.
     pub fn get(&self, key: &str) -> Option<Setting> {
-        if !self.has(key) {
-            return None;
-        }
-
         if let Some(setting) = self.settings.lock().unwrap().borrow().get(key) {
             return Some(setting.clone());
         }
@@ -223,19 +219,27 @@ impl ConfigStore {
         }
 
         // Return the default value for the setting when nothing is found
-        let info = self.settings_info.get(key).unwrap();
-        Some(info.default.clone())
+        if let Some(info) = self.settings_info.get(key) {
+            return Some(info.default.clone());
+        }
+
+        // At this point we haven't found the key in the store, we haven't found it in storage, and we
+        // don't have a default value. This is a programming error, so we panic.
+        panic!("config: Setting {} is not known", key);
     }
 
     /// Sets the given setting to the given value. Will persist the setting to the
-    /// storage.
+    /// storage. Note that the setting MUST have a settings-info entry, otherwise
+    /// this function will not store the setting.
     pub fn set(&self, key: &str, value: Setting) {
-        if !self.has(key) {
-            warn!("config: Setting {} is not known", key);
-            return;
-        }
+        let info = match self.settings_info.get(key) {
+            Some(info) => info,
+            None => {
+                warn!("config: Setting {} is not known", key);
+                return;
+            }
+        };
 
-        let info = self.settings_info.get(key).unwrap();
         if mem::discriminant(&info.default) != mem::discriminant(&value) {
             warn!(
                 "config: Setting {} is of different type than setting expects",
@@ -249,6 +253,7 @@ impl ConfigStore {
             .unwrap()
             .borrow_mut()
             .insert(key.to_string(), value.clone());
+
         self.storage.set(key, value);
     }
 
@@ -291,7 +296,7 @@ impl ConfigStore {
 #[cfg(test)]
 mod test {
     use super::*;
-    use storage::memory::MemoryStorageAdapter;
+    use storage::MemoryStorageAdapter;
 
     #[test]
     fn config_store() {
