@@ -4,6 +4,9 @@ This repository holds the GoSub browser engine. It will become a standalone libr
 
 Join us at our development [Zulip chat](https://chat.developer.gosub.io)!
 
+For more general information you can also join our [Discord server](https://chat.gosub.io).
+
+
 ```
                        _     
                       | |    
