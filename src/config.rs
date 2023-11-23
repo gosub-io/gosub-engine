@@ -340,7 +340,11 @@ mod test {
         config_set!(uint "dns.cache.max_entries", 9432);
         let max_entries = config!(uint "dns.cache.max_entries");
         assert_eq!(max_entries, 9432);
+    }
 
+    #[test]
+    #[should_panic]
+    fn macro_usage_with_panic() {
         config_set!(string "this.key.doesnt.exist", "yesitdoes".into());
         let s = config!(string "this.key.doesnt.exist");
         assert_eq!(s, "");

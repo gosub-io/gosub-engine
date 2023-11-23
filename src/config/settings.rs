@@ -214,7 +214,7 @@ mod test {
         assert_eq!(1, s.to_sint());
         assert_eq!(1, s.to_uint());
         assert_eq!("true", s.to_string());
-        assert_eq!(Vec::<String>::new(), s.to_map());
+        assert_eq!(vec!("true"), s.to_map());
 
         let s = Setting::from_str("i:-1").unwrap();
         assert_eq!(s, Setting::SInt(-1));
@@ -222,7 +222,7 @@ mod test {
         assert_eq!(-1, s.to_sint());
         assert_eq!(18446744073709551615, s.to_uint());
         assert_eq!("-1", s.to_string());
-        assert_eq!(Vec::<String>::new(), s.to_map());
+        assert_eq!(vec!("-1"), s.to_map());
 
         let s = Setting::from_str("i:1").unwrap();
         assert_eq!(s, Setting::SInt(1));
@@ -230,7 +230,7 @@ mod test {
         assert_eq!(1, s.to_sint());
         assert_eq!(1, s.to_uint());
         assert_eq!("1", s.to_string());
-        assert_eq!(Vec::<String>::new(), s.to_map());
+        assert_eq!(vec!("1"), s.to_map());
 
         let s = Setting::from_str("s:hello world").unwrap();
         assert_eq!(s, Setting::String("hello world".into()));
@@ -238,7 +238,7 @@ mod test {
         assert_eq!(0, s.to_sint());
         assert_eq!(0, s.to_uint());
         assert_eq!("hello world", s.to_string());
-        assert_eq!(Vec::<String>::new(), s.to_map());
+        assert_eq!(vec!("hello world"), s.to_map());
 
         let s = Setting::from_str("m:foo,bar,baz").unwrap();
         assert_eq!(
