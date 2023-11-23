@@ -12,7 +12,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 /// A DNS entry is a mapping of a domain to zero or more IP address mapping
 #[derive(Default, Clone, Debug, PartialEq)]
-struct DnsEntry {
+pub struct DnsEntry {
     // domain name
     domain: String,
     // // Ip type that is stored in this entry (could be Ipv4, IPv6 or Both)
@@ -103,7 +103,7 @@ trait DnsCache {
     fn flush_entry(&mut self, domain: &str);
 }
 
-struct Dns {
+pub struct Dns {
     resolvers: Vec<Box<dyn DnsResolver>>,
 }
 
