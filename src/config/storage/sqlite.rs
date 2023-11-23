@@ -1,12 +1,13 @@
 use crate::config::settings::Setting;
-use crate::config::Store;
+use crate::config::StorageAdapter;
 use crate::types::{Error, Result};
 use log::warn;
 use std::collections::HashMap;
 use std::str::FromStr;
+use std::sync::Mutex;
 
 pub struct SqliteStorageAdapter {
-    connection: sqlite::Connection,
+    connection: Mutex<sqlite::Connection>,
 }
 
 impl TryFrom<&String> for SqliteStorageAdapter {
@@ -22,14 +23,18 @@ impl TryFrom<&String> for SqliteStorageAdapter {
         )";
         conn.execute(query)?;
 
-        Ok(SqliteStorageAdapter { connection: conn })
+        Ok(SqliteStorageAdapter {
+            connection: Mutex::new(conn),
+        })
     }
 }
 
-impl Store for SqliteStorageAdapter {
-    fn get_setting(&self, key: &str) -> Option<Setting> {
+impl StorageAdapter for SqliteStorageAdapter {
+    fn get(&self, key: &str) -> Option<Setting> {
+        let db_lock = self.connection.lock().unwrap();
+
         let query = "SELECT * FROM settings WHERE key = :key";
-        let mut statement = self.connection.prepare(query).unwrap();
+        let mut statement = db_lock.prepare(query).unwrap();
         statement.bind((":key", key)).unwrap();
 
         match Setting::from_str(key) {
@@ -41,9 +46,11 @@ impl Store for SqliteStorageAdapter {
         }
     }
 
-    fn set_setting(&mut self, key: &str, value: Setting) {
+    fn set(&self, key: &str, value: Setting) {
+        let db_lock = self.connection.lock().unwrap();
+
         let query = "INSERT OR REPLACE INTO settings (key, value) VALUES (:key, :value)";
-        let mut statement = self.connection.prepare(query).unwrap();
+        let mut statement = db_lock.prepare(query).unwrap();
         statement.bind((":key", key)).unwrap();
         statement
             .bind((":value", value.to_string().as_str()))
@@ -52,9 +59,11 @@ impl Store for SqliteStorageAdapter {
         statement.next().unwrap();
     }
 
-    fn get_all_settings(&self) -> Result<HashMap<String, Setting>> {
+    fn all(&self) -> Result<HashMap<String, Setting>> {
+        let db_lock = self.connection.lock().unwrap();
+
         let query = "SELECT * FROM settings";
-        let mut statement = self.connection.prepare(query).unwrap();
+        let mut statement = db_lock.prepare(query).unwrap();
 
         let mut settings = HashMap::new();
         while let sqlite::State::Row = statement.next().unwrap() {

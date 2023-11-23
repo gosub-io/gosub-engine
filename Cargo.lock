@@ -557,9 +557,11 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
+ "shared_singleton",
  "simple_logger",
  "sqlite",
  "test-case",
+ "testing_logger",
  "textwrap",
  "thiserror",
  "typed-arena",
@@ -1281,6 +1283,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "shared_singleton"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8e4949e4d0e0c2336f9587c5a30bf005f3b29f3a29b8bec72ca28866c3cfcf9e"
+
+[[package]]
 name = "simple_logger"
 version = "4.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1435,6 +1443,15 @@ dependencies = [
  "quote",
  "syn 2.0.38",
  "test-case-core",
+]
+
+[[package]]
+name = "testing_logger"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6d92b727cb45d33ae956f7f46b966b25f1bc712092aeef9dba5ac798fc89f720"
+dependencies = [
+ "log",
 ]
 
 [[package]]

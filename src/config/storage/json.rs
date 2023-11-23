@@ -1,5 +1,5 @@
 use crate::config::settings::Setting;
-use crate::config::Store;
+use crate::config::StorageAdapter;
 use crate::types::{Error, Result};
 use log::warn;
 use serde_json::Value;
@@ -7,19 +7,18 @@ use std::collections::HashMap;
 use std::fs;
 use std::fs::File;
 use std::io::{Read, Seek, Write};
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 pub struct JsonStorageAdapter {
     path: String,
-    file_mutex: Arc<Mutex<File>>,
-    elements: HashMap<String, Setting>,
+    elements: Mutex<HashMap<String, Setting>>,
 }
 
 impl TryFrom<&String> for JsonStorageAdapter {
     type Error = Error;
 
     fn try_from(path: &String) -> Result<Self> {
-        let file = match fs::metadata(path) {
+        let _ = match fs::metadata(path) {
             Ok(metadata) => {
                 if !metadata.is_file() {
                     panic!("json file is not a regular file")
@@ -43,8 +42,7 @@ impl TryFrom<&String> for JsonStorageAdapter {
 
         let mut adapter = JsonStorageAdapter {
             path: path.to_string(),
-            file_mutex: Arc::new(Mutex::new(file)),
-            elements: HashMap::new(),
+            elements: Mutex::new(HashMap::new()),
         };
 
         adapter.read_file();
@@ -53,26 +51,31 @@ impl TryFrom<&String> for JsonStorageAdapter {
     }
 }
 
-impl Store for JsonStorageAdapter {
-    fn get_setting(&self, key: &str) -> Option<Setting> {
-        self.elements.get(key).cloned()
+impl StorageAdapter for JsonStorageAdapter {
+    fn get(&self, key: &str) -> Option<Setting> {
+        let lock = self.elements.lock().unwrap();
+        lock.get(key).cloned()
     }
 
-    fn set_setting(&mut self, key: &str, value: Setting) {
-        self.elements.insert(key.to_string(), value);
+    fn set(&self, key: &str, value: Setting) {
+        let mut lock = self.elements.lock().unwrap();
+        lock.insert(key.to_string(), value);
 
-        self.write_file()
+        // self.write_file()
     }
 
-    fn get_all_settings(&self) -> Result<HashMap<String, Setting>> {
-        Ok(self.elements.clone())
+    fn all(&self) -> Result<HashMap<String, Setting>> {
+        let lock = self.elements.lock().unwrap();
+
+        Ok(lock.clone())
     }
 }
 
 impl JsonStorageAdapter {
     /// Read whole json file and stores the data into self.elements
     fn read_file(&mut self) {
-        let mut file = self.file_mutex.lock().expect("Mutex lock failed");
+        // @TODO: We should have some kind of OS file lock here
+        let mut file = File::open(&self.path).expect("failed to open json file");
 
         let mut buf = String::new();
         _ = file.read_to_string(&mut buf);
@@ -80,11 +83,13 @@ impl JsonStorageAdapter {
         let parsed_json: Value = serde_json::from_str(&buf).expect("Failed to parse json");
 
         if let Value::Object(settings) = parsed_json {
-            self.elements = HashMap::new();
+            self.elements = Mutex::new(HashMap::new());
+
+            let mut lock = self.elements.lock().unwrap();
             for (key, value) in settings.iter() {
                 match serde_json::from_value(value.clone()) {
                     Ok(setting) => {
-                        self.elements.insert(key.clone(), setting);
+                        lock.insert(key.clone(), setting);
                     }
                     Err(err) => {
                         warn!("problem reading setting from json: {err}");
@@ -97,7 +102,9 @@ impl JsonStorageAdapter {
     /// Write the self.elements hashmap back to the file by truncating the file and writing the
     /// data again.
     fn write_file(&mut self) {
-        let mut file = self.file_mutex.lock().expect("Mutex lock failed");
+        // @TODO: We need some kind of OS lock file here. We should protect against concurrent threads but also
+        // against concurrent processes.
+        let mut file = File::open(&self.path).expect("failed to open json file");
 
         let json = serde_json::to_string_pretty(&self.elements).expect("failed to serialize");
 

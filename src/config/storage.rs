@@ -1,3 +1,7 @@
-pub mod json_storage;
-pub mod memory_storage;
-pub mod sqlite_storage;
+mod json;
+mod memory;
+mod sqlite;
+
+pub use json::*;
+pub use memory::*;
+pub use sqlite::*;
