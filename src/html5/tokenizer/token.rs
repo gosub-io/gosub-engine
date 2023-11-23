@@ -261,4 +261,39 @@ mod tests {
         let token = Token::Eof;
         assert_eq!(format!("{}", token), "EOF");
     }
+
+    #[test]
+    fn test_is_start_tag() {
+        let token = Token::StartTag {
+            name: "div".to_string(),
+            is_self_closing: false,
+            attributes: HashMap::new(),
+        };
+        assert!(token.is_start_tag("div"));
+        assert!(!token.is_start_tag("span"));
+    }
+
+    #[test]
+    fn test_is_any_start_tag() {
+        let start_tag = Token::StartTag {
+            name: "div".to_string(),
+            is_self_closing: false,
+            attributes: HashMap::new(),
+        };
+        let other_tag = Token::Text("TestingText".to_string());
+        assert!(start_tag.is_any_start_tag());
+        assert!(!other_tag.is_any_start_tag());
+    }
+
+    #[test]
+    fn test_is_text_token() {
+        let text_token = Token::Text("TestingText".to_string());
+        let other_token = Token::StartTag {
+            name: "div".to_string(),
+            is_self_closing: false,
+            attributes: HashMap::new(),
+        };
+        assert!(text_token.is_text_token());
+        assert!(!other_token.is_text_token());
+    }
 }
