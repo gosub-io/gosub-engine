@@ -42,7 +42,7 @@ lazy_static! {
 }
 
 /// Returns a reference to the config store, which is locked by a mutex.
-/// Any callers of the config store can just do  config::config_store().get("dns.local_resolver.enabled")
+/// Any callers of the config store can just do  config::config_store().get("dns.local.enabled")
 pub fn config_store() -> std::sync::RwLockReadGuard<'static, ConfigStore> {
     CONFIG_STORE.read().unwrap()
 }
@@ -53,8 +53,8 @@ pub fn config_store_write() -> std::sync::RwLockWriteGuard<'static, ConfigStore>
 
 /// These macro's can be used to simplify the calls to the config store. You can simply do:
 ///
-/// let enabled = config!(bool "dns.local_resolver.enabled").unwrap();
-/// config_set!(bool "dns.local_resolver.enabled", false);
+/// let enabled = config!(bool "dns.local.enabled").unwrap();
+/// config_set!(bool "dns.local.enabled", false);
 ///
 /// Note that when you cannot find the key, it will return a default value. This is not always
 /// what you want, but you can test for existence of the key with config_store().has("key")
@@ -88,7 +88,7 @@ macro_rules! config {
     (map $key:expr) => {
         match crate::config::config_store().get($key) {
             Some(setting) => setting.to_map(),
-            None => std::collections::HashMap::new(),
+            None => Vec::new(),
         }
     };
 }
@@ -303,13 +303,13 @@ mod test {
         config_store_write().set_storage(Box::new(MemoryStorageAdapter::new()));
 
         let setting = crate::config::config_store()
-            .get("dns.local_resolver.enabled")
+            .get("dns.local.enabled")
             .unwrap();
         assert_eq!(setting, Setting::Bool(true));
 
-        config_store_write().set("dns.local_resolver.enabled", Setting::Bool(false));
+        config_store_write().set("dns.local.enabled", Setting::Bool(false));
         let setting = crate::config::config_store()
-            .get("dns.local_resolver.enabled")
+            .get("dns.local.enabled")
             .unwrap();
         assert_eq!(setting, Setting::Bool(false));
     }
@@ -323,7 +323,7 @@ mod test {
         });
 
         config_store_write().set(
-            "dns.local_resolver.enabled",
+            "dns.local.enabled",
             Setting::String("wont accept strings".into()),
         );
 

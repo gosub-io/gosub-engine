@@ -7,46 +7,64 @@
       "description": "This setting defines the maximum number of entries that may be stored in the DNS cache before the oldest entry is evicted."
     },
     {
-      "key": "local_resolver.enabled",
-      "type": "b",
-      "default": "b:true",
-      "description": "This setting enables the local DNS override table. When enabled, Gosub will return any IP address that is defined in the local DNS override table."
-    },
-    {
-      "key": "local_resolver.table",
-      "type": "m",
-      "default": "m:''",
-      "description": "This setting defines the local DNS override table."
-    },
-    {
-      "key": "resolve.ttl.override.enabled",
+      "key": "cache.ttl.override.enabled",
       "type": "b",
       "default": "b:false",
       "description": "When enabled, the TTL of each entry will be overridden with the value defined in resolve.ttl.override."
     },
     {
-      "key": "resolve.ttl.override.seconds",
+      "key": "cache.ttl.override.seconds",
       "type": "u",
       "default": "u:0",
       "description": "Number of seconds to override the TTL with. When set to 0, the TTL will expire directly"
     },
     {
-      "key": "doh.enabled",
+      "key": "local.enabled",
+      "type": "b",
+      "default": "b:true",
+      "description": "This setting enables the local DNS override table. When enabled, Gosub will return any IP address that is defined in the local DNS override table."
+    },
+    {
+      "key": "local.table",
+      "type": "m",
+      "default": "m:''",
+      "description": "This setting defines the local DNS override table."
+    },
+    {
+      "key": "remote.doh.enabled",
       "type": "b",
       "default": "b:false",
       "description": "This setting enabled DNS over HTTPS. A secure way of communicating with DNS servers."
     },
     {
-      "key": "dot.enabled",
+      "key": "remote.dot.enabled",
       "type": "b",
       "default": "b:false",
       "description": "This setting enabled DNS over TLS. A secure way of communicating with DNS servers."
     },
     {
-      "key": "resolver.ips",
+      "key": "remote.nameservers",
       "type": "m",
       "default": "m:''",
       "description": "Any resolvers defined here will be used for DNS lookups. If no resolvers are defined, the system resolvers will be used."
+    },
+    {
+      "key": "remote.retries",
+      "type": "u",
+      "default": "u:3",
+      "description": "How many times to retry a DNS lookup before giving up."
+    },
+    {
+      "key": "remote.timeout",
+      "type": "u",
+      "default": "u:5",
+      "description": "How many seconds to wait for a DNS lookup to complete before giving up."
+    },
+    {
+      "key": "remote.use_hosts_file",
+      "type": "b",
+      "default": "b:true",
+      "description": "When enabled, Gosub will use the hosts file to resolve hostnames as well."
     }
   ],
   "useragent": [
