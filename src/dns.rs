@@ -2,8 +2,8 @@ mod cache;
 mod local;
 mod remote;
 
-use crate::types;
 use crate::types::Result;
+use crate::{config, types};
 use core::str::FromStr;
 use derive_more::Display;
 use log::{debug, info};
@@ -109,11 +109,26 @@ struct Dns {
 
 impl Dns {
     pub fn new() -> Self {
+        // Cache resolver
+        let max_entries = config!(uint "dns.cache.max_entries");
         let mut resolvers: Vec<Box<dyn DnsResolver>> = vec![];
-        resolvers.push(Box::new(cache::CacheResolver::new(1000)));
-        resolvers.push(Box::new(local::LocalTableResolver::new()));
+        resolvers.push(Box::new(cache::CacheResolver::new(max_entries)));
 
-        let opts = remote::RemoteResolverOptions::default();
+        // Local table resolver
+        if config!(bool "dns.local.enabled") {
+            resolvers.push(Box::new(local::LocalTableResolver::new()));
+        }
+
+        // Remove resolver
+        let mut opts = remote::RemoteResolverOptions::default();
+        let configured_nameservers = config!(map "dns.remote.nameservers");
+        if !configured_nameservers.is_empty() {
+            opts.nameservers = configured_nameservers;
+        }
+        opts.timeout = config!(uint "dns.remote.timeout");
+        opts.retries = config!(uint "dns.remote.retries");
+        opts.use_hosts_file = config!(bool "dns.remote.use_hosts_file");
+
         resolvers.push(Box::new(remote::RemoteResolver::new(opts)));
 
         Dns { resolvers }

@@ -1,10 +1,11 @@
 use crate::dns::{DnsEntry, DnsResolver, ResolveType};
 use crate::types;
 use core::str::FromStr;
-use hickory_resolver::config::{ResolverConfig, ResolverOpts};
+use hickory_resolver::config::Protocol::Udp;
+use hickory_resolver::config::{NameServerConfig, ResolverConfig, ResolverOpts};
 use hickory_resolver::Resolver;
 use log::trace;
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 
 pub struct RemoteResolver {
     hickory: Resolver,
@@ -80,10 +81,20 @@ impl DnsResolver for RemoteResolver {
 
 impl RemoteResolver {
     /// Instantiates a new local override table
-    pub fn new(_opts: RemoteResolverOptions) -> RemoteResolver {
+    pub fn new(dns_opts: RemoteResolverOptions) -> RemoteResolver {
         // @todo: do something with the options
-        let config = ResolverConfig::default();
-        let opts = ResolverOpts::default();
+        let mut config = ResolverConfig::default();
+        let mut opts = ResolverOpts::default();
+
+        for nameserver in dns_opts.nameservers.iter() {
+            if let Ok(ip) = IpAddr::from_str(nameserver.as_str()) {
+                config.add_name_server(NameServerConfig::new(SocketAddr::new(ip, 53), Udp));
+                continue;
+            }
+        }
+        opts.use_hosts_file = dns_opts.use_hosts_file;
+        opts.timeout = std::time::Duration::from_secs(dns_opts.timeout as u64);
+        opts.attempts = dns_opts.retries;
 
         RemoteResolver {
             hickory: Resolver::new(config, opts).unwrap(),
@@ -93,8 +104,9 @@ impl RemoteResolver {
 
 /// Options for the remote resolver
 pub struct RemoteResolverOptions {
-    pub timeout: u32,
-    pub retries: u32,
+    pub timeout: usize,
+    pub retries: usize,
+    pub use_hosts_file: bool,
     pub nameservers: Vec<String>,
 }
 
@@ -103,6 +115,7 @@ impl Default for RemoteResolverOptions {
         RemoteResolverOptions {
             timeout: 5,
             retries: 3,
+            use_hosts_file: true,
             nameservers: vec![],
         }
     }
