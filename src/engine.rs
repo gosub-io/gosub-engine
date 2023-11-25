@@ -12,6 +12,8 @@ use core::fmt::Debug;
 use std::io::Read;
 use url::Url;
 
+const USER_AGENT: &str = "Mozilla/5.0 (compatible; gosub/0.1; +https://gosub.io)";
+
 const MAX_BYTES: u64 = 10_000_000;
 
 /// Response that is returned from the fetch function
@@ -77,7 +79,9 @@ fn fetch_url(
     fetch_response.timings.start(Timing::DnsLookup);
 
     let mut resolver = crate::dns::Dns::new();
-    let hostname = parts.host_str().expect("no hostname");
+    let Some(hostname) = parts.host_str() else {
+        return Err(Error::Generic(format!("invalid hostname: {}", url)));
+    };
     let _ = resolver.resolve(hostname, ResolveType::Ipv4)?;
 
     fetch_response.timings.end(Timing::DnsLookup);
@@ -85,12 +89,8 @@ fn fetch_url(
     // Fetch the HTML document from the site
     fetch_response.timings.start(Timing::ContentTransfer);
 
-    let mut req = match method.to_ascii_lowercase().as_str() {
-        "get" => ureq::get(url),
-        "post" => ureq::post(url),
-        _ => return Err(Error::Generic(format!("unknown method: {method}"))),
-    };
-
+    let agent = ureq::agent();
+    let mut req = agent.request(method, url).set("User-Agent", USER_AGENT);
     for (key, value) in headers.sorted() {
         req = req.set(key, value);
     }
@@ -105,6 +105,7 @@ fn fetch_url(
                     fetch_response.response.headers.set(key.as_str(), value);
                 }
             }
+            // TODO: cookies
             // for cookie in resp.cookies() {
             //     fetch_response.response.cookies.insert(cookie.name().to_string(), cookie.value().to_string());
             // }
@@ -150,8 +151,6 @@ fn fetch_url(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    const USER_AGENT: &str = "Mozilla/5.0 (compatible; gosub/0.1; +https://gosub.io)";
 
     #[test]
     fn test_fetch_url() {
