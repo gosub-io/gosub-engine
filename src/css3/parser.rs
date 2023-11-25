@@ -1,13 +1,13 @@
+use super::node::{
+    AttributeMatcher, AttributeSelector, ClassSelector, Combinator, CssString, TypeSelector,
+};
 use crate::css3::node::{
     Block, BlockChild, Declaration, DeclarationList, Dimension, IdSelector, Identifier, Rule,
     Selector, SelectorList, StyleSheet, StyleSheetRule, Value, ValueList,
 };
 use crate::css3::tokenizer::Tokenizer;
 use crate::css3::tokens::{Token, TokenType};
-
-use super::node::{
-    AttributeMatcher, AttributeSelector, ClassSelector, Combinator, CssString, TypeSelector,
-};
+use crate::types::Result;
 
 macro_rules! unexpected_token {
     ($expecting:expr, $received:expr) => {
@@ -47,12 +47,12 @@ impl CSS3Parser {
         }
     }
 
-    pub fn parse(&mut self, raw: &str) -> StyleSheet {
+    pub fn parse(&mut self, raw: &str) -> Result<StyleSheet> {
         self.raw = raw.to_string();
         self.tokenizer.init(raw);
         self.lookahead = self.tokenizer.get_next_token();
         self.skip_whitespace();
-        self.style_sheet()
+        Ok(self.style_sheet())
     }
 
     /// ```txt
@@ -168,7 +168,7 @@ impl CSS3Parser {
     /// ```bnf
     ///  TypeSelector
     ///     : IDENT
-    ///     ;   
+    ///     ;
     /// ```
     fn type_selector(&mut self) -> TypeSelector {
         TypeSelector::new(self.consume_token(TokenType::Ident).value)
@@ -177,7 +177,7 @@ impl CSS3Parser {
     /// ```bnf
     ///  IdSelector
     ///     : HASH IDENT
-    ///     ;   
+    ///     ;
     /// ```
     fn id_selector(&mut self) -> IdSelector {
         self.consume_token(TokenType::Hash);
@@ -188,7 +188,7 @@ impl CSS3Parser {
     /// ```bnf
     ///  ClassSelector
     ///     : DOT IDENT
-    ///     ;   
+    ///     ;
     /// ```
     fn class_selector(&mut self) -> ClassSelector {
         self.consume_token(TokenType::Dot);
@@ -199,7 +199,7 @@ impl CSS3Parser {
     /// ```bnf
     ///  AttributeSelector
     ///     : LBRACKET IDENT [AttributeMatcher String]? [IDENT]? RBRACKET
-    ///     ;   
+    ///     ;
     /// ```
     fn attribute_selector(&mut self) -> AttributeSelector {
         self.consume_token(TokenType::LBracket);
@@ -245,7 +245,7 @@ impl CSS3Parser {
     ///     |  SUFFIX_MATCH
     ///     |  SUBSTRING_MATCH
     ///     |  EQUAL
-    ///     ;   
+    ///     ;
     /// ```
     fn attribute_matcher(&mut self) -> AttributeMatcher {
         if let Some(next_token_type) = self.get_next_token_type() {
@@ -318,7 +318,7 @@ impl CSS3Parser {
     /// ```bnf
     ///  Block
     ///     : LCURLY [Rule | AtRule | DeclarationList]* RCURLY
-    ///     ;   
+    ///     ;
     /// ```
     fn block(&mut self) -> Block {
         // note: add support for 'DeclarationList' for now
@@ -338,7 +338,7 @@ impl CSS3Parser {
     /// ```bnf
     ///  DeclarationList
     ///     : [Declaration]*
-    ///     ;   
+    ///     ;
     /// ```
     fn declaration_list(&mut self) -> DeclarationList {
         let mut declaration_list = DeclarationList::default();
@@ -353,7 +353,7 @@ impl CSS3Parser {
     /// ```bnf
     ///  Declaration
     ///     : IDENT COLON ValueList IMPORTANT SEMICOLON
-    ///     ;   
+    ///     ;
     /// ```
     fn declaration(&mut self) -> Declaration {
         let mut declaration = Declaration::default();
@@ -377,7 +377,7 @@ impl CSS3Parser {
     /// ```bnf
     ///  ValueList
     ///     : [Value]*
-    ///     ;   
+    ///     ;
     /// ```
     fn value_list(&mut self) -> ValueList {
         let mut value_list = ValueList::default();
@@ -394,7 +394,7 @@ impl CSS3Parser {
     /// ```bnf
     ///  Value
     ///     : [Dimension | Identifier | Function]
-    ///     ;   
+    ///     ;
     /// ```
     fn value(&mut self) -> Value {
         // note: support only "Identifier" and "Dimension" for now
@@ -410,7 +410,7 @@ impl CSS3Parser {
     /// ```bnf
     ///  Identifier
     ///     : IDENT
-    ///     ;   
+    ///     ;
     /// ```
     fn identifier(&mut self) -> Identifier {
         Identifier::new(self.consume_token(TokenType::Ident).value)
@@ -419,7 +419,7 @@ impl CSS3Parser {
     /// ```bnf
     ///  Dimension
     ///     : NUMBER IDENT
-    ///     ;   
+    ///     ;
     /// ```
     fn dimension(&mut self) -> Dimension {
         let value = self.consume_token(TokenType::Number).value;
@@ -512,16 +512,18 @@ mod test {
     #[test]
     fn parse_css() {
         let mut parser = CSS3Parser::new();
-        let style_sheet = parser.parse(
-            r#"
-            
+        let style_sheet = parser
+            .parse(
+                r#"
+
                 #header div > p {
                     display: flex;
                     width: 100px;
                     font-size: 1rem !important;
                 }
             "#,
-        );
+            )
+            .unwrap();
 
         assert_eq!(
             style_sheet,
@@ -563,15 +565,18 @@ mod test {
     #[test]
     fn parse_attribute_selectors() {
         let mut parser = CSS3Parser::new();
+        let stylesheet = parser
+            .parse(
+                r##"
+    a {
+        color: blue;
+    }
+"##,
+            )
+            .unwrap();
 
         assert_eq!(
-            parser.parse(
-                r##"
-            a {
-                color: blue;
-            }
-        "##
-            ),
+            stylesheet,
             StyleSheet::new(vec![StyleSheetRule::Rule(Rule::new(
                 SelectorList::new(vec![Selector::TypeSelector(TypeSelector::new("a"))]),
                 Block::new(vec![BlockChild::DeclarationList(DeclarationList::new(
@@ -583,15 +588,19 @@ mod test {
             )),])
         );
 
-        assert_eq!(
-            parser.parse(
+        let stylesheet = parser
+            .parse(
                 r##"
-            /* Internal links, beginning with "#" */
-            a[href^="#"] {
-                background-color: gold;
-            }
-        "##,
-            ),
+    /* Internal links, beginning with "#" */
+    a[href^="#"] {
+        background-color: gold;
+    }
+"##,
+            )
+            .unwrap();
+
+        assert_eq!(
+            stylesheet,
             StyleSheet::new(vec![StyleSheetRule::Rule(Rule::new(
                 SelectorList::new(vec![
                     Selector::TypeSelector(TypeSelector::new("a")),
@@ -611,15 +620,19 @@ mod test {
             )),])
         );
 
-        assert_eq!(
-            parser.parse(
+        let stylesheet = parser
+            .parse(
                 r#"
-            /* Links with "example" anywhere in the URL */
-            a[href*="example"] {
-                background-color: silver;
-            }
-        "#
-            ),
+        /* Links with "example" anywhere in the URL */
+        a[href*="example"] {
+            background-color: silver;
+        }
+    "#,
+            )
+            .unwrap();
+
+        assert_eq!(
+            stylesheet,
             StyleSheet::new(vec![StyleSheetRule::Rule(Rule::new(
                 SelectorList::new(vec![
                     Selector::TypeSelector(TypeSelector::new("a")),
@@ -639,16 +652,20 @@ mod test {
             )),])
         );
 
-        assert_eq!(
-            parser.parse(
+        let stylesheet = parser
+            .parse(
                 r#"
-            /* Links with "insensitive" anywhere in the URL,
-            regardless of capitalization */
-            a[href *= "insensitive" i] {
-                color: cyan;
-            }
-        "#
-            ),
+        /* Links with "insensitive" anywhere in the URL,
+        regardless of capitalization */
+        a[href *= "insensitive" i] {
+            color: cyan;
+        }
+    "#,
+            )
+            .unwrap();
+
+        assert_eq!(
+            stylesheet,
             StyleSheet::new(vec![StyleSheetRule::Rule(Rule::new(
                 SelectorList::new(vec![
                     Selector::TypeSelector(TypeSelector::new("a")),
@@ -668,16 +685,20 @@ mod test {
             )),])
         );
 
-        assert_eq!(
-            parser.parse(
+        let stylesheet = parser
+            .parse(
                 r#"
-                    /* Links with "cAsE" anywhere in the URL,
-                    with matching capitalization */
-                    a[href*="cAsE" s] {
-                        color: pink;
-                    }
-                "#,
-            ),
+                /* Links with "cAsE" anywhere in the URL,
+                with matching capitalization */
+                a[href*="cAsE" s] {
+                    color: pink;
+                }
+            "#,
+            )
+            .unwrap();
+
+        assert_eq!(
+            stylesheet,
             StyleSheet::new(vec![StyleSheetRule::Rule(Rule::new(
                 SelectorList::new(vec![
                     Selector::TypeSelector(TypeSelector::new("a")),
@@ -697,17 +718,21 @@ mod test {
             )),])
         );
 
-        assert_eq!(
-            parser.parse(
+        let stylesheet = parser
+            .parse(
                 r#"
-            
-            /* Links that end in ".org" */
-            a[href$=".org"] {
-                color: red;
-            }
 
-            "#
-            ),
+        /* Links that end in ".org" */
+        a[href$=".org"] {
+            color: red;
+        }
+
+        "#,
+            )
+            .unwrap();
+
+        assert_eq!(
+            stylesheet,
             StyleSheet::new(vec![StyleSheetRule::Rule(Rule::new(
                 SelectorList::new(vec![
                     Selector::TypeSelector(TypeSelector::new("a")),
@@ -727,15 +752,19 @@ mod test {
             )),])
         );
 
-        assert_eq!(
-            parser.parse(
+        let stylesheet = parser
+            .parse(
                 r#"
-            /* Links that start with "https://" and end in ".org" */
-            a[href^="https://"][href$=".org"] {
-                color: green;
-            } 
-            "#
-            ),
+        /* Links that start with "https://" and end in ".org" */
+        a[href^="https://"][href$=".org"] {
+            color: green;
+        }
+        "#,
+            )
+            .unwrap();
+
+        assert_eq!(
+            stylesheet,
             StyleSheet::new(vec![StyleSheetRule::Rule(Rule::new(
                 SelectorList::new(vec![
                     Selector::TypeSelector(TypeSelector::new("a")),
@@ -789,25 +818,26 @@ mod test {
             )))
         }
 
-        assert_eq!(
-            parser.parse(
+        let stylesheet = parser
+            .parse(
                 r##"
-            ul > li {}  
+    ul > li {}
 
-            ul || li {}
+    ul || li {}
 
-            ul, li {}
+    ul, li {}
 
-            ul|li {}
-            
-            ul + li {}
+    ul|li {}
 
-            ul ~ li {}
+    ul + li {}
 
-            ul li {}
-        "##
-            ),
-            StyleSheet::new(rules)
-        );
+    ul ~ li {}
+
+    ul li {}
+"##,
+            )
+            .unwrap();
+
+        assert_eq!(stylesheet, StyleSheet::new(rules));
     }
 }

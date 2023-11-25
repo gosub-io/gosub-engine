@@ -111,6 +111,9 @@
 //! ;
 //! ```
 //!
+use self::{node::StyleSheet, parser::CSS3Parser};
+use crate::types::Result;
+
 pub mod new_parser;
 pub mod new_tokenizer;
 pub mod node;
@@ -118,3 +121,7 @@ pub mod parser;
 pub mod tokenizer;
 pub mod tokens;
 pub mod unicode;
+
+pub fn parse(s: &str) -> Result<StyleSheet> {
+    CSS3Parser::new().parse(s)
+}
