@@ -15,3 +15,10 @@ pub mod types;
 pub mod config;
 #[allow(dead_code)]
 mod dns;
+
+#[allow(dead_code)]
+mod engine;
+#[allow(dead_code)]
+mod net;
+#[allow(dead_code)]
+mod timing;

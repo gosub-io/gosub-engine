@@ -275,6 +275,14 @@ impl CharIterator {
         result
     }
 
+    /// Read directly from bytes
+    pub fn read_from_bytes(&mut self, bytes: &[u8], e: Option<Encoding>) -> io::Result<()> {
+        self.u8_buffer = bytes.to_vec();
+        self.force_set_encoding(e.unwrap_or(Encoding::UTF8));
+        self.reset();
+        Ok(())
+    }
+
     /// Populates the current buffer with the contents of given file f
     pub fn read_from_file(&mut self, mut f: File, e: Option<Encoding>) -> io::Result<()> {
         // First we read the u8 bytes into a buffer

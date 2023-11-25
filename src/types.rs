@@ -61,6 +61,12 @@ pub enum Error {
 
     #[error("dns: domain not found")]
     DnsDomainNotFound,
+
+    #[error("there was a problem: {0}")]
+    Generic(String),
+
+    #[error("failed to parse url: {0}")]
+    Url(#[from] url::ParseError),
 }
 
 /// Result that can be returned which holds either T or an Error
