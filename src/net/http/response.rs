@@ -5,6 +5,7 @@ use std::collections::HashMap;
 #[derive(Debug)]
 pub struct Response {
     pub status: u16,
+    pub status_text: String,
     pub version: String,
     pub headers: Headers,
     pub cookies: HashMap<String, String>,
@@ -15,6 +16,7 @@ impl Response {
     pub(crate) fn new() -> Response {
         Self {
             status: 0,
+            status_text: "".to_string(),
             version: "HTTP/1.1".to_string(),
             headers: Default::default(),
             cookies: Default::default(),

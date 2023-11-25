@@ -2,18 +2,17 @@ use crate::bytes::{CharIterator, Confidence, Encoding};
 use crate::dns::ResolveType;
 use crate::html5::parser::document::{Document, DocumentBuilder, DocumentHandle};
 use crate::html5::parser::Html5Parser;
-use crate::net::errors::Error;
 use crate::net::http::headers::Headers;
 use crate::net::http::request::Request;
 use crate::net::http::response::Response;
 use crate::timing::{Timing, TimingTable};
-use crate::types::ParseError;
+use crate::types::{Error, ParseError, Result};
 use cookie::CookieJar;
 use core::fmt::Debug;
-use core::str::FromStr;
-use reqwest::header::HeaderName;
-use reqwest::Method;
+use std::io::Read;
 use url::Url;
+
+const MAX_BYTES: u64 = 10_000_000;
 
 /// Response that is returned from the fetch function
 pub struct FetchResponse {
@@ -57,15 +56,12 @@ fn fetch_url(
     url: &str,
     headers: Headers,
     cookies: CookieJar,
-) -> Result<FetchResponse, Error> {
+) -> Result<FetchResponse> {
     let mut http_req = Request::new(method, url, "HTTP/1.1");
     http_req.headers = headers.clone();
     http_req.cookies = cookies.clone();
 
-    let parts = Url::parse(url);
-    if parts.is_err() {
-        return Err(Error::Generic(format!("Failed to parse URL: {}", url)));
-    }
+    let parts = Url::parse(url)?;
 
     let mut fetch_response = FetchResponse {
         request: http_req,
@@ -81,39 +77,47 @@ fn fetch_url(
     fetch_response.timings.start(Timing::DnsLookup);
 
     let mut resolver = crate::dns::Dns::new();
-    let res = resolver.resolve(parts.unwrap().host_str().unwrap(), ResolveType::Ipv4);
-    if res.is_err() {
-        return Err(Error::Generic(format!("Failed to resolve domain: {}", url)));
-    }
+    let hostname = parts.host_str().expect("no hostname");
+    let _ = resolver.resolve(hostname, ResolveType::Ipv4)?;
 
     fetch_response.timings.end(Timing::DnsLookup);
 
     // Fetch the HTML document from the site
     fetch_response.timings.start(Timing::ContentTransfer);
 
-    let m = Method::from_str(method).unwrap();
-    let u = Url::parse(url).unwrap();
-    let mut req = reqwest::blocking::Request::new(m, u);
+    let mut req = match method.to_ascii_lowercase().as_str() {
+        "get" => ureq::get(url),
+        "post" => ureq::post(url),
+        _ => return Err(Error::Generic(format!("unknown method: {method}"))),
+    };
+
     for (key, value) in headers.sorted() {
-        req.headers_mut()
-            .insert(HeaderName::from_str(key).unwrap(), value.parse().unwrap());
+        req = req.set(key, value);
     }
 
-    match reqwest::blocking::Client::new().execute(req) {
+    match req.call() {
         Ok(resp) => {
             fetch_response.response = Response::new();
-            fetch_response.response.status = resp.status().as_u16();
-            fetch_response.response.version = format!("{:?}", resp.version());
-            for (key, value) in resp.headers().iter() {
-                fetch_response
-                    .response
-                    .headers
-                    .set(key.as_str(), value.to_str().unwrap());
+            fetch_response.response.status = resp.status();
+            fetch_response.response.version = format!("{:?}", resp.http_version());
+            for key in &resp.headers_names() {
+                for value in resp.all(key) {
+                    fetch_response.response.headers.set(key.as_str(), value);
+                }
             }
             // for cookie in resp.cookies() {
             //     fetch_response.response.cookies.insert(cookie.name().to_string(), cookie.value().to_string());
             // }
-            fetch_response.response.body = resp.bytes().unwrap().to_vec();
+
+            let len = if let Some(header) = resp.header("Content-Length") {
+                header.parse::<usize>().unwrap_or_default()
+            } else {
+                MAX_BYTES as usize
+            };
+
+            let mut bytes: Vec<u8> = Vec::with_capacity(len);
+            resp.into_reader().take(MAX_BYTES).read_to_end(&mut bytes)?;
+            fetch_response.response.body = bytes;
         }
         Err(e) => {
             return Err(Error::Generic(format!("Failed to fetch URL: {}", e)));
@@ -141,28 +145,6 @@ fn fetch_url(
     fetch_response.timings.end(Timing::HtmlParse);
 
     Ok(fetch_response)
-
-    // reqwest::ClientBuilder::new()
-    //     .execute()
-    //
-    //     .execute(resp.request)
-    //     .get(url)
-    //     .headers(headers.all())
-    //     .cookie(cookies)
-    //     .send()?
-
-    // resp = reqwest::blocking::Client::new()
-    //     .execute(resp.request)
-    //     .get(url)
-    //     .headers(headers.all())
-    //     .cookie(cookies)
-    //     .send()
-    //
-    // resp = reqwest::blocking::Client::new()
-    //     .get(url)
-    //     .headers(headers.all())
-    //     .cookie(cookies)
-    //     .send()?
 }
 
 #[cfg(test)]
