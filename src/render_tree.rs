@@ -2,7 +2,7 @@ use std::borrow::BorrowMut;
 use std::{cell::RefCell, rc::Rc};
 
 use crate::html5::node::NodeData;
-use crate::html5::parser::document::{self};
+use crate::html5::parser::document;
 use crate::html5::parser::document::{Document, DocumentHandle};
 
 use crate::render_tree::{properties::Rectangle, text::TextNode};

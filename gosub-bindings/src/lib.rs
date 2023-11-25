@@ -6,7 +6,6 @@ pub mod wrapper;
 
 use crate::wrapper::text::CTextNode;
 
-
 use gosub_engine::{
     bytes::{CharIterator, Confidence, Encoding},
     html5::parser::{
@@ -17,7 +16,8 @@ use gosub_engine::{
 };
 
 /// Initialize a render tree and return an owning pointer to it.
-/// If the HTML fails to parse, returns a NULL pointer.
+/// If the HTML fails to parse or the html string fails to be converted to Rust,
+/// returns a NULL pointer.
 ///
 /// # Safety
 /// Takes a read-only pointer owned from the C API representing the HTML source
@@ -28,10 +28,13 @@ use gosub_engine::{
 /// This pointer MUST be passed to gosub_render_tree_free() after usage for proper cleanup.
 #[no_mangle]
 pub unsafe extern "C" fn gosub_render_tree_init(html: *const c_char) -> *mut RenderTree {
-    let html_str: &str;
-    unsafe {
-        html_str = CStr::from_ptr(html).to_str().unwrap();
-    }
+    let html_str = unsafe {
+        if let Ok(html_str) = CStr::from_ptr(html).to_str() {
+            html_str
+        } else {
+            return ptr::null_mut();
+        }
+    };
     let mut chars = CharIterator::new();
     chars.read_from_str(html_str, Some(Encoding::UTF8));
     chars.set_confidence(Confidence::Certain);
@@ -74,10 +77,11 @@ pub unsafe extern "C" fn gosub_render_tree_next_node(
     tree_iterator: *mut TreeIterator,
 ) -> *const Node {
     let next = (*tree_iterator).next();
-    if next.is_none() {
-        return ptr::null();
+    if let Some(next) = next {
+        next.as_ptr() as *const Node
+    } else {
+        ptr::null()
     }
-    next.unwrap().as_ptr() as *const Node
 }
 
 /// Fetch the node data according to the NodeType of the current node.

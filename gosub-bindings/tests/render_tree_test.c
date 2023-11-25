@@ -14,17 +14,17 @@ int main() {
                      "<h6>this is heading 6</h6>"
                      "<p>this is a paragraph</p>"
                      "</html>";
-  struct render_tree_t *render_tree = render_tree_init(html);
-  assert(render_tree != NULL);
+  struct render_tree_t render_tree;
+  assert(render_tree_init(&render_tree, html) == 0);
 
   const struct node_t *node = NULL;
 
   // <html>
-  node = render_tree_next(render_tree);
+  node = render_tree_next(&render_tree);
   assert(node->type == NODE_TYPE_ROOT);
 
   // <h1>
-  node = render_tree_next(render_tree);
+  node = render_tree_next(&render_tree);
   assert(node->type == NODE_TYPE_TEXT);
   assert(strcmp(node->data.text.value, "this is heading 1") == 0);
   assert(strcmp(node->data.text.font, "Times New Roman") == 0);
@@ -32,7 +32,7 @@ int main() {
   assert(node->data.text.is_bold == true);
 
   // <h2>
-  node = render_tree_next(render_tree);
+  node = render_tree_next(&render_tree);
   assert(node->type == NODE_TYPE_TEXT);
   assert(strcmp(node->data.text.value, "this is heading 2") == 0);
   assert(strcmp(node->data.text.font, "Times New Roman") == 0);
@@ -40,7 +40,7 @@ int main() {
   assert(node->data.text.is_bold == true);
 
   // <h3>
-  node = render_tree_next(render_tree);
+  node = render_tree_next(&render_tree);
   assert(node->type == NODE_TYPE_TEXT);
   assert(strcmp(node->data.text.value, "this is heading 3") == 0);
   assert(strcmp(node->data.text.font, "Times New Roman") == 0);
@@ -48,7 +48,7 @@ int main() {
   assert(node->data.text.is_bold == true);
 
   // <h4>
-  node = render_tree_next(render_tree);
+  node = render_tree_next(&render_tree);
   assert(node->type == NODE_TYPE_TEXT);
   assert(strcmp(node->data.text.value, "this is heading 4") == 0);
   assert(strcmp(node->data.text.font, "Times New Roman") == 0);
@@ -56,7 +56,7 @@ int main() {
   assert(node->data.text.is_bold == true);
 
   // <h5>
-  node = render_tree_next(render_tree);
+  node = render_tree_next(&render_tree);
   assert(node->type == NODE_TYPE_TEXT);
   assert(strcmp(node->data.text.value, "this is heading 5") == 0);
   assert(strcmp(node->data.text.font, "Times New Roman") == 0);
@@ -64,7 +64,7 @@ int main() {
   assert(node->data.text.is_bold == true);
 
   // <h6>
-  node = render_tree_next(render_tree);
+  node = render_tree_next(&render_tree);
   assert(node->type == NODE_TYPE_TEXT);
   assert(strcmp(node->data.text.value, "this is heading 6") == 0);
   assert(strcmp(node->data.text.font, "Times New Roman") == 0);
@@ -72,7 +72,7 @@ int main() {
   assert(node->data.text.is_bold == true);
 
   // <p>
-  node = render_tree_next(render_tree);
+  node = render_tree_next(&render_tree);
   assert(node->type == NODE_TYPE_TEXT);
   assert(strcmp(node->data.text.value, "this is a paragraph") == 0);
   assert(strcmp(node->data.text.font, "Times New Roman") == 0);
@@ -80,7 +80,7 @@ int main() {
   assert(node->data.text.is_bold == false);
 
   // end of iterator, last node is free'd
-  node = render_tree_next(render_tree);
+  node = render_tree_next(&render_tree);
   assert(node == NULL);
 
   render_tree_free(&render_tree);

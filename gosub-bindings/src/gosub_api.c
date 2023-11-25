@@ -1,21 +1,16 @@
 #include "gosub_api.h"
 
-struct render_tree_t *render_tree_init(const char *html) {
-  struct render_tree_t *render_tree = malloc(sizeof(*render_tree));
-  if (!render_tree)
-    return NULL;
+int8_t render_tree_init(struct render_tree_t *render_tree, const char *html) {
 
   render_tree->tree = gosub_render_tree_init(html);
   if (!render_tree->tree) {
-    free(render_tree);
-    return NULL;
+    return -1;
   }
 
   render_tree->iterator = gosub_render_tree_iterator_init(render_tree->tree);
   if (!render_tree->iterator) {
     gosub_render_tree_free(render_tree->tree);
-    free(render_tree);
-    return NULL;
+    return -1;
   }
 
   render_tree->current_node = NULL;
@@ -24,11 +19,10 @@ struct render_tree_t *render_tree_init(const char *html) {
   if (!render_tree->data) {
     gosub_render_tree_iterator_free(render_tree->iterator);
     gosub_render_tree_free(render_tree->tree);
-    free(render_tree);
-    return NULL;
+    return -1;
   }
 
-  return render_tree;
+  return 0;
 }
 
 const struct node_t *render_tree_next(struct render_tree_t *render_tree) {
@@ -46,10 +40,11 @@ render_tree_get_current_node_type(const struct render_tree_t *render_tree) {
   return render_tree->data->type;
 }
 
-void render_tree_free(struct render_tree_t **render_tree) {
-  gosub_render_tree_iterator_free((*render_tree)->iterator);
-  gosub_render_tree_free((*render_tree)->tree);
-  render_tree_node_free(&(*render_tree)->data);
-  free(*render_tree);
-  *render_tree = NULL;
+void render_tree_free(struct render_tree_t *render_tree) {
+  gosub_render_tree_iterator_free(render_tree->iterator);
+  render_tree->iterator = NULL;
+  gosub_render_tree_free(render_tree->tree);
+  render_tree->tree = NULL;
+  render_tree_node_free(&render_tree->data);
+  render_tree->data = NULL;
 }

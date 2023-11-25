@@ -18,9 +18,10 @@ struct render_tree_t {
   struct node_t *data;
 };
 
-/// Construct a new render tree.
-/// Returns NULL if unsuccessful.
-struct render_tree_t *render_tree_init(const char *html);
+/// Initialize a render tree by passing a stack-allocated
+/// struct by address.
+/// Returns 0 on success or -1 if a failure occurred.
+int8_t render_tree_init(struct render_tree_t *render_tree, const char *html);
 
 /// Get the next node in the render tree as a read-only pointer.
 /// Returns NULL when reaching end of tree.
@@ -31,6 +32,6 @@ enum node_type_e
 render_tree_get_current_node_type(const struct render_tree_t *render_tree);
 
 /// Free all memory tied to the render tree
-void render_tree_free(struct render_tree_t **render_tree);
+void render_tree_free(struct render_tree_t *render_tree);
 
 #endif
