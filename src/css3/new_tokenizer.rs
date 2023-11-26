@@ -4,6 +4,8 @@ use crate::bytes::{
     CharIterator,
 };
 use crate::css3::unicode::{get_unicode_char, UnicodeChar};
+use log::trace;
+use nom::InputLength;
 use std::fmt;
 use std::usize;
 
@@ -67,11 +69,17 @@ pub enum Token {
     /// A `;` `<semicolon-token>`
     Semicolon,
     // A `<!--` `<CDO-token>`
-    CDO,
+    Cdo,
     // A `-->` `<CDC-token>`
-    CDC,
+    Cdc,
     // A `<EOF-token>`
-    EOF,
+    Eof,
+}
+
+impl InputLength for Token {
+    fn input_len(&self) -> usize {
+        1
+    }
 }
 
 impl fmt::Display for Token {
@@ -88,10 +96,10 @@ impl fmt::Display for Token {
             | Token::BadString(val) => val.into(),
             Token::Delim(val) => val.to_string(),
             Token::Number(val) => val.to_string(),
-            Token::Percentage(val) => format!("{val}%"),
-            Token::Dimension { unit, value } => format!("{value}{unit}"),
-            Token::CDC => "-->".into(),
-            Token::CDO => "<!--".into(),
+            Token::Percentage(val) => format!("{}%", val),
+            Token::Dimension { unit, value } => format!("{}{}", value, unit),
+            Token::Cdc => "-->".into(),
+            Token::Cdo => "<!--".into(),
             Token::Colon => ":".into(),
             Token::Semicolon => ";".into(),
             Token::Comma => ",".into(),
@@ -102,7 +110,7 @@ impl fmt::Display for Token {
             Token::LParen => "(".into(),
             Token::RParen => ")".into(),
             Token::Whitespace => " ".into(),
-            Token::EOF => String::new(),
+            Token::Eof => String::new(),
         };
 
         write!(f, "{string}")
@@ -199,15 +207,15 @@ impl Token {
     }
 
     pub fn is_cdo(&self) -> bool {
-        matches!(self, Token::CDO)
+        matches!(self, Token::Cdo)
     }
 
     pub fn is_cdc(&self) -> bool {
-        matches!(self, Token::CDC)
+        matches!(self, Token::Cdc)
     }
 
     pub fn is_eof(&self) -> bool {
-        matches!(self, Token::EOF)
+        matches!(self, Token::Eof)
     }
 
     pub fn is_whitespace(&self) -> bool {
@@ -227,13 +235,64 @@ macro_rules! consume {
     }};
 }
 
+/// The token streamer interface is used to abstract the tokenization process.
+pub trait TokenStreamer {
+    fn current(&self) -> Token;
+    fn lookahead(&self, offset: usize) -> Token;
+    fn consume(&mut self) -> Token;
+    fn reconsume(&mut self);
+}
+
 /// CSS Tokenizer according to the [w3 specification](https://www.w3.org/TR/css-syntax-3/#tokenization)
 pub struct Tokenizer<'stream> {
     pub stream: &'stream mut CharIterator,
-    /// Current position
+    /// Position on the NEXT read to consume. If it's outside the vec list, it will return EOF
     position: usize,
     /// Full list of all tokens produced by the tokenizer
-    tokens: Vec<Token>,
+    pub tokens: Vec<Token>,
+}
+
+impl TokenStreamer for Tokenizer<'_> {
+    fn current(&self) -> Token {
+        if self.position == 0 || self.position > self.tokens.len() {
+            // We havent read anything yet, or we are at the end of the stream
+            return Token::Eof;
+        }
+
+        trace!(
+            "token ({}) {:?}",
+            self.position - 1,
+            self.tokens[self.position - 1]
+        );
+        self.tokens[self.position - 1].clone()
+    }
+
+    fn lookahead(&self, offset: usize) -> Token {
+        let pos: isize = (self.position + offset - 1) as isize;
+        if pos < 0 || pos >= self.tokens.len() as isize {
+            return Token::Eof;
+        }
+
+        self.tokens[pos as usize].clone()
+    }
+
+    fn consume(&mut self) -> Token {
+        if self.tokens.is_empty() || self.tokens.len() == self.position {
+            let token = self.consume_token();
+            self.tokens.push(token);
+        }
+
+        let token = &self.tokens[self.position];
+        self.position += 1;
+
+        token.clone()
+    }
+
+    fn reconsume(&mut self) {
+        if self.position > 0 {
+            self.position -= 1;
+        }
+    }
 }
 
 impl<'stream> Tokenizer<'stream> {
@@ -253,20 +312,6 @@ impl<'stream> Tokenizer<'stream> {
         }
 
         self.position = 0;
-    }
-
-    pub fn lookahead(&self, offset: usize) -> Token {
-        if self.position + offset >= self.tokens.len() {
-            return Token::EOF;
-        }
-
-        self.tokens[self.position + offset].clone()
-    }
-
-    pub fn consume(&mut self) -> Token {
-        let token = &self.tokens[self.position];
-        self.position += 1;
-        token.clone()
     }
 
     /// 4.3.1. [Consume a token](https://www.w3.org/TR/css-syntax-3/#consume-token)
@@ -332,7 +377,7 @@ impl<'stream> Tokenizer<'stream> {
                 if self.stream.look_ahead_slice(cdc_token.len()) == cdc_token {
                     // consume '--'
                     self.consume_chars(cdc_token.len());
-                    return Token::CDC;
+                    return Token::Cdc;
                 }
 
                 if self.is_next_3_points_starts_ident_seq(0) {
@@ -348,7 +393,7 @@ impl<'stream> Tokenizer<'stream> {
                 if self.stream.look_ahead_slice(cdo_token.len()) == cdo_token {
                     // consume "<!--"
                     self.consume_chars(cdo_token.len());
-                    return Token::CDO;
+                    return Token::Cdo;
                 }
 
                 // consume '<'
@@ -380,7 +425,7 @@ impl<'stream> Tokenizer<'stream> {
             _ => {
                 let c = self.stream.read_char();
                 if matches!(c, Bytes::Eof) {
-                    return Token::EOF;
+                    return Token::Eof;
                 }
                 Token::Delim(c.into())
             }
@@ -1247,9 +1292,9 @@ mod test {
 
         let tokens = vec![
             Token::Whitespace,
-            Token::CDO,
+            Token::Cdo,
             Token::Whitespace,
-            Token::CDC,
+            Token::Cdc,
             Token::Whitespace,
             Token::LCurly,
             Token::RCurly,
@@ -1271,7 +1316,7 @@ mod test {
             Token::Delim('/'),
             Token::Delim('*'),
             Token::Delim('/'),
-            Token::EOF,
+            Token::Eof,
         ];
         let mut tokenizer = Tokenizer::new(&mut chars);
 
@@ -1292,7 +1337,7 @@ mod test {
             Token::Whitespace,
             Token::Ident("Red".into()),
             Token::Whitespace,
-            Token::EOF,
+            Token::Eof,
         ];
         let mut tokenizer = Tokenizer::new(&mut chars);
 
@@ -1346,7 +1391,7 @@ mod test {
             Token::Whitespace,
             // `@\\30 media`
             Token::AtKeyword("0media\u{FFFD}".into()),
-            Token::EOF,
+            Token::Eof,
         ];
         let mut tokenizer = Tokenizer::new(&mut chars);
 
@@ -1398,7 +1443,7 @@ mod test {
             Token::Whitespace,
             // `#\\.red\\`
             Token::IDHash(".red\u{FFFD}".into()),
-            Token::EOF,
+            Token::Eof,
         ];
         let mut tokenizer = Tokenizer::new(&mut chars);
 
@@ -1551,7 +1596,7 @@ mod test {
                 unit: "px".into(),
                 value: -0.67,
             },
-            Token::EOF,
+            Token::Eof,
         ];
         let mut tokenizer = Tokenizer::new(&mut chars);
 
@@ -1598,7 +1643,7 @@ mod test {
             Token::Whitespace,
             // `-0.67e0%`
             Token::Percentage(-0.67),
-            Token::EOF,
+            Token::Eof,
         ];
         let mut tokenizer = Tokenizer::new(&mut chars);
 
@@ -1674,7 +1719,7 @@ mod test {
 
         chars.read_from_str("red-->/* Not CDC */", Some(Encoding::UTF8));
 
-        let tokens = vec![Token::Ident("red--".into()), Token::Delim('>'), Token::EOF];
+        let tokens = vec![Token::Ident("red--".into()), Token::Delim('>'), Token::Eof];
         let mut tokenizer = Tokenizer::new(&mut chars);
 
         for token in tokens {
@@ -1782,9 +1827,45 @@ mod test {
 
         assert_eq!(tokenizer.lookahead(0), Token::LBracket);
         assert_eq!(tokenizer.lookahead(1), Token::RBracket);
-        assert_eq!(tokenizer.lookahead(4), Token::EOF);
+        assert_eq!(tokenizer.lookahead(4), Token::Eof);
 
         assert_eq!(tokenizer.consume(), Token::LBracket);
         assert_eq!(tokenizer.lookahead(0), Token::RBracket);
+    }
+
+    #[test]
+    fn parse_css_seq_5() {
+        let mut chars = CharIterator::new();
+
+        chars.read_from_str(
+            "test { color: #123; background-color: #11223344 }",
+            Some(Encoding::UTF8),
+        );
+
+        let tokens = vec![
+            Token::Ident("test".into()),
+            Token::Whitespace,
+            Token::LCurly,
+            Token::Whitespace,
+            Token::Ident("color".into()),
+            Token::Colon,
+            Token::Whitespace,
+            Token::Hash("123".into()),
+            Token::Semicolon,
+            Token::Whitespace,
+            Token::Ident("background-color".into()),
+            Token::Colon,
+            Token::Whitespace,
+            Token::Hash("11223344".into()),
+            Token::Whitespace,
+            Token::RCurly,
+        ];
+        let mut tokenizer = Tokenizer::new(&mut chars);
+
+        for token in tokens {
+            assert_eq!(tokenizer.consume_token(), token);
+        }
+
+        assert!(tokenizer.stream.eof());
     }
 }

@@ -183,8 +183,17 @@ impl<'stream> CSS3Parser<'stream> {
     }
 
     /// [5.3.1. Parse something according to a CSS grammar](https://www.w3.org/TR/css-syntax-3/#parse-grammar)
-    fn parse() {
-        todo!()
+    fn parse(&mut self) -> Vec<Rule> {
+        self.consume_rules_list(self.vb.current(), true);
+    }
+
+    fn parse_comma_separated_list() {
+        // normalize input
+        // set input to result
+        // if input contains whitespace, return empty list
+        // parse csl of component values from input and let result be the return value
+        // for each item, replace item with result if parsing item with grammar
+        // return list
     }
 
     /// [5.3.6. Parse a declaration](https://www.w3.org/TR/css-syntax-3/#parse-declaration)
@@ -247,7 +256,7 @@ impl<'stream> CSS3Parser<'stream> {
     }
 
     /// [5.3.11. Parse a comma-separated list of component values](https://www.w3.org/TR/css-syntax-3/#parse-comma-list)
-    fn parse_comma_separated_list(&self, vb: &mut ValueBuffer) -> Vec<Vec<ComponentValue>> {
+    fn parse_comma_separated_list_inner(&self, vb: &mut ValueBuffer) -> Vec<Vec<ComponentValue>> {
         let mut list = Vec::new();
 
         loop {
