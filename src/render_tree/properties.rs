@@ -1,5 +1,6 @@
 /// Rectangular dimensions commonly used for certain properties such as margin/padding
 #[derive(Debug, PartialEq)]
+#[repr(C)]
 pub struct Rectangle {
     pub top: f64,
     pub left: f64,

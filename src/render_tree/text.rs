@@ -1,6 +1,5 @@
-static DEFAULT_FONT: &str = "Times New Roman";
-
 #[derive(Debug, PartialEq)]
+#[repr(C)]
 pub struct TextNode {
     /// Body of the text node that will be drawn
     pub value: String,
@@ -14,7 +13,7 @@ impl TextNode {
     fn new(fs: f64, bold: bool) -> Self {
         Self {
             value: "".to_owned(),
-            font: DEFAULT_FONT.to_owned(),
+            font: "Times New Roman".to_owned(),
             font_size: fs,
             is_bold: bold,
         }
