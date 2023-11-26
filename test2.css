@@ -1,0 +1,3 @@
+.ctaButton.unselected, input[type=checkbox]:not(:checked) + .ctaButton {
+    color: red
+}
