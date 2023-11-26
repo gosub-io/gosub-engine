@@ -10,6 +10,14 @@ repository = "https://github.com/gosub-browser/gosub-engine"
 readme = "README.md"
 keywords = ["html5", "parser", "browser", "Rust", "DOM"]
 
+[workspace]
+members = [
+  "crates/*"
+]
+
+[[example]]
+name = "html5-parser"
+
 [[test]]
 name = "tokenizer"
 path = "tests/tokenizer.rs"
