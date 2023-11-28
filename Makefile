@@ -12,19 +12,19 @@ bench: ## Benchmark the project
 build: ## Build the project
 	source test-utils.sh ;\
 	section "Cargo build" ;\
-	cargo build
+	cargo build --all
 
 fix: ## Fix formatting and clippy errors (deprecated)
 	echo "Use 'make format' instead"
 
 format:  ## Fix formatting and clippy errors
-	cargo fmt
-	cargo clippy --fix --allow-dirty --allow-staged
+	cargo fmt --all
+	cargo clippy --all --fix --allow-dirty --allow-staged
 
 test_unit:
 	source test-utils.sh ;\
 	section "Cargo test" ;\
-	cargo test --features debug_parser
+	cargo test --all --all-features
 
 test_clippy:
 	source test-utils.sh ;\
@@ -34,12 +34,14 @@ test_clippy:
 test_fmt:
 	source test-utils.sh ;\
 	section "Cargo fmt" ;\
-	cargo fmt -- --check
+	cargo fmt --all -- --check
 
 test_commands:
 	cargo run --bin html5-parser-test >/dev/null
 	cargo run --bin parser-test >/dev/null
 	cargo run --bin config-store list >/dev/null
+	cargo run --bin gosub-parser ./tests/data/tree_iterator/stackoverflow.html >/dev/null
+	cargo run --example html5-parser >/dev/null
 
 help: ## Display available commands
 	echo "Available make commands:"

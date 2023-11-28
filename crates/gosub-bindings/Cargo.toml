@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-gosub-engine = { path = "../" }
+gosub-engine = { path = "../../" }
 
 [lib]
 crate-type = ["staticlib"]
