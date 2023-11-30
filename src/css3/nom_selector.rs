@@ -2,7 +2,7 @@ use crate::css3::ast::{Node, Span};
 use crate::css3::new_tokenizer::Token;
 use nom::branch::alt;
 use nom::combinator::{map, opt};
-use nom::multi::{many0, many1};
+use nom::multi::{many0, separated_list1};
 use nom::IResult;
 use nom::InputTake;
 
@@ -13,7 +13,7 @@ fn parse_selector_list(input: Span) -> IResult<Span, Node> {
 
 /// <complex-selector-list> = <complex-selector>#
 fn parse_complex_selector_list(input: Span) -> IResult<Span, Node> {
-    let (input, selectors) = many1(parse_complex_selector)(input)?;
+    let (input, selectors) = separated_list1(comma, parse_complex_selector)(input)?;
 
     let mut node = Node::new("ComplexSelectorList");
     node.children = selectors;
@@ -23,7 +23,7 @@ fn parse_complex_selector_list(input: Span) -> IResult<Span, Node> {
 
 /// <compound-selector-list> = <compound-selector>#
 fn parse_compound_selector_list(input: Span) -> IResult<Span, Node> {
-    let (input, selectors) = many1(parse_compound_selector)(input)?;
+    let (input, selectors) = separated_list1(comma, parse_compound_selector)(input)?;
 
     let mut node = Node::new("CompoundSelectorList");
     node.children = selectors;
@@ -33,7 +33,7 @@ fn parse_compound_selector_list(input: Span) -> IResult<Span, Node> {
 
 /// <simple-selector-list> = <simple-selector>#
 fn parse_simple_selector_list(input: Span) -> IResult<Span, Node> {
-    let (input, selectors) = many1(parse_simple_selector)(input)?;
+    let (input, selectors) = separated_list1(comma, parse_simple_selector)(input)?;
 
     let mut node = Node::new("SimpleSelectorList");
     node.children = selectors;
@@ -43,7 +43,7 @@ fn parse_simple_selector_list(input: Span) -> IResult<Span, Node> {
 
 /// <relative-selector-list> = <relative-selector>#
 fn parse_relative_selector_list(input: Span) -> IResult<Span, Node> {
-    let (input, selectors) = many1(parse_relative_selector)(input)?;
+    let (input, selectors) = separated_list1(comma, parse_relative_selector)(input)?;
 
     let mut node = Node::new("RelativeSelectorList");
     node.children = selectors;
@@ -98,22 +98,45 @@ fn parse_relative_selector(input: Span) -> IResult<Span, Node> {
 
 /// <compound-selector> = [ <type-selector>? <subclass-selector>* [ <pseudo-element-selector> <pseudo-class-selector>* ]* ]!
 fn parse_compound_selector(input: Span) -> IResult<Span, Node> {
-    let (i, selectors) = many1(|i| {
-        let (i, _type_selector) = opt(|i| parse_type_selector(i))(i)?;
-        let (i, _subclass_selectors) = many0(|i| parse_subclass_selector(i))(i)?;
-        let (i, _pseudo_element_and_class_selectors) = many0(|i| {
-            let (i, pseudo_element_selector) = parse_pseudo_element_selector(i)?;
-            let (i, pseudo_class_selector) = many0(|i| parse_pseudo_class_selector(i))(i)?;
+    let (i, type_selector) = opt(|i| parse_type_selector(i))(input)?;
+    let (i, subclass_selectors) = many0(|i| parse_subclass_selector(i))(i)?;
+    let (i, pseudo_element_and_class_selectors) = many0(|i| {
+        let (i, pseudo_element_selector) = parse_pseudo_element_selector(i)?;
+        let (i, pseudo_class_selector) = many0(|i| parse_pseudo_class_selector(i))(i)?;
+        Ok((i, (pseudo_element_selector, pseudo_class_selector)))
+    })(i)?;
 
-            Ok((i, (pseudo_element_selector, pseudo_class_selector)))
-        })(i)?;
-
-        let compound = Node::new("compoundSelector");
-        Ok((i, compound))
-    })(input)?;
+    if type_selector.is_none() && subclass_selectors.is_empty() && pseudo_element_and_class_selectors.is_empty() {
+        return Err(nom::Err::Error(nom::error::Error::new(
+            i,
+            nom::error::ErrorKind::IsNot,
+        )));
+    }
 
     let mut node = Node::new("CompoundSelector");
-    node.children = selectors;
+
+    if type_selector.is_some() {
+        node.children.push(type_selector.unwrap());
+    }
+    if !subclass_selectors.is_empty() {
+        let mut subclass_selectors_node = Node::new("SubclassSelectors");
+        subclass_selectors_node.children = subclass_selectors;
+        node.children.push(subclass_selectors_node);
+    }
+    if !pseudo_element_and_class_selectors.is_empty() {
+        let mut pseudo_element_and_class_selectors_node = Node::new("PseudoElementAndClassSelectors");
+        for (pseudo_element_selector, pseudo_class_selectors) in pseudo_element_and_class_selectors {
+            let mut pseudo_element_and_class_selector_node = Node::new("PseudoElementAndClassSelector");
+            pseudo_element_and_class_selector_node.children.push(pseudo_element_selector);
+            if !pseudo_class_selectors.is_empty() {
+                let mut pseudo_class_selectors_node = Node::new("PseudoClassSelectors");
+                pseudo_class_selectors_node.children = pseudo_class_selectors;
+                pseudo_element_and_class_selector_node.children.push(pseudo_class_selectors_node);
+            }
+            pseudo_element_and_class_selectors_node.children.push(pseudo_element_and_class_selector_node);
+        }
+        node.children.push(pseudo_element_and_class_selectors_node);
+    }
 
     Ok((i, node))
 }
@@ -265,7 +288,7 @@ fn parse_attr_matcher(input: Span) -> IResult<Span, Option<String>> {
             |i| delim(i, '^'),
             |i| delim(i, '$'),
             |i| delim(i, '*'),
-        ))(input)
+        ))(i)
     )(input)?;
 
     let (input, _ ) = delim(input, '=')?;
@@ -355,8 +378,7 @@ fn any(input: Span) -> IResult<Span, String> {
     )))
 }
 
-
-    /// Returns the name of a function token
+/// Returns the name of a function token
 fn any_function(input: Span) -> IResult<Span, String> {
     let (input, span) = input.take_split(1);
 
@@ -381,6 +403,20 @@ fn any_string(input: Span) -> IResult<Span, String> {
     Err(nom::Err::Error(nom::error::Error::new(
         input.clone(),
         nom::error::ErrorKind::Tag,
+    )))
+}
+
+/// Returns a comma
+fn comma(input: Span) -> IResult<Span, Span> {
+    let (input, span) = input.take_split(1);
+
+    if let Token::Comma = span.to_token() {
+        return Ok((input, span));
+    }
+
+    Err(nom::Err::Error(nom::error::Error::new(
+        input.clone(),
+        nom::error::ErrorKind::IsNot,
     )))
 }
 
@@ -414,29 +450,20 @@ fn any_delim(input: Span) -> IResult<Span, String> {
 
 /// Returns the given delimiter
 fn delim(input: Span, delim: char) -> IResult<Span, String> {
-    let (input, span) = input.take_split(1);
-
-    let t = span.to_token();
-    println!("{:?}", t);
+    let (i, span) = input.take_split(1);
 
     if let Token::Delim(c) = span.to_token() {
         if c == delim {
-            return Ok((input, format!("{}", c)));
+            return Ok((i, format!("{}", c)));
         }
     }
 
-    Err(nom::Err::Error(nom::error::Error::new(
-        input.clone(),
-        nom::error::ErrorKind::Tag,
-    )))
+    Err(nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::IsNot)))
 }
 
 /// Returns any identifier
 fn any_ident(input: Span) -> IResult<Span, String> {
     let (input, span) = input.take_split(1);
-
-    let t = span.to_token();
-    println!("{:?}", t);
 
     if let Token::Ident(s) = span.to_token() {
         return Ok((input, s));
@@ -444,16 +471,13 @@ fn any_ident(input: Span) -> IResult<Span, String> {
 
     Err(nom::Err::Error(nom::error::Error::new(
         input.clone(),
-        nom::error::ErrorKind::Tag,
+        nom::error::ErrorKind::IsNot,
     )))
 }
 
 /// Returns the identifier if it matches the given string.
 fn ident(input: Span, ident: String) -> IResult<Span, String> {
     let (input, span) = input.take_split(1);
-
-    let t = span.to_token();
-    println!("{:?}", t);
 
     if let Token::Ident(s) = span.to_token() {
         if s == ident {
@@ -463,7 +487,7 @@ fn ident(input: Span, ident: String) -> IResult<Span, String> {
 
     Err(nom::Err::Error(nom::error::Error::new(
         input.clone(),
-        nom::error::ErrorKind::Tag,
+        nom::error::ErrorKind::IsNot,
     )))
 }
 
@@ -476,10 +500,24 @@ mod tests {
     #[test]
     fn test_parse_selector_list() {
         let mut it = CharIterator::new();
-        // it.read_from_str("div > span + span ~ span || span", Some(Encoding::UTF8));
+        // it.read_from_str("div > span + span ~ span || span { color: red } ", Some(Encoding::UTF8));
+        it.read_from_str("\
+* {
+    box-sizing: border-box
+}
+
+.main-content h2 {
+    color: #3c4040;
+    font-weight: 400;
+    line-height: 1.5rem;
+    font-size: 1rem;
+    padding-right: 60px
+}
+", Some(Encoding::UTF8));
+/*
         it.read_from_str(
             "
-            hr .short, hr .long {
+            ahr .short, bhr .long {
             background-color: var(--border-base-color);
             border: 0;
             color: var(--border-base-color);
@@ -492,6 +530,7 @@ mod tests {
         }",
             Some(Encoding::UTF8),
         );
+*/
         let mut tokenizer = Tokenizer::new(&mut it);
         tokenizer.consume_all();
         let tokens = tokenizer.tokens;
