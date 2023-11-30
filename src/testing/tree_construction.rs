@@ -24,7 +24,7 @@ use crate::{
 use result::TestResult;
 
 /// Holds a single parser test
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Default, PartialEq, Clone)]
 pub struct Test {
     /// Filename of the test
     pub file_path: String,
@@ -55,19 +55,8 @@ impl Test {
     }
 }
 
-impl Default for Test {
-    fn default() -> Self {
-        Self {
-            file_path: "".to_string(),
-            line: 0,
-            spec: TestSpec::default(),
-            document: vec![],
-        }
-    }
-}
-
 /// Harness is a wrapper to run tree-construction tests
-#[derive(Default)]
+#[derive(Debug)]
 pub struct Harness {
     // Test that is currently being run
     test: Test,
@@ -75,10 +64,20 @@ pub struct Harness {
     next_document_line: usize,
 }
 
+impl Default for Harness {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Harness {
     /// Generated a new harness instance. It uses a dummy test that is replaced when run_test is called
+    #[must_use]
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            test: Test::default(),
+            next_document_line: 0,
+        }
     }
 
     /// Runs a single test and returns the test result of that run
@@ -144,7 +143,7 @@ impl Harness {
             .unwrap()
             .clone();
 
-        let document = DocumentBuilder::new_document_fragment(context_node.clone());
+        let document = DocumentBuilder::new_document_fragment(&context_node);
 
         let parser_errors = Html5Parser::parse_fragment(
             &mut chars,
@@ -168,7 +167,7 @@ impl Harness {
             }
 
             // Get the next line
-            let tmp = self.test.document[self.next_document_line].to_owned();
+            let tmp = self.test.document[self.next_document_line].clone();
             self.next_document_line += 1;
 
             // If we have a starting quote, but not an ending quote, we are a multi-line text
@@ -240,7 +239,7 @@ impl Harness {
                 index: line_idx,
                 result: ResultStatus::Additional,
                 expected: expected_line,
-                actual: "".into(),
+                actual: String::new(),
             });
             line_idx += 1;
         }

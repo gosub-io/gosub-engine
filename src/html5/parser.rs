@@ -136,7 +136,7 @@ impl ActiveElement {
     fn node_id(&self) -> Option<NodeId> {
         match self {
             ActiveElement::Node(id) => Some(*id),
-            _ => None,
+            ActiveElement::Marker => None,
         }
     }
 }
@@ -147,7 +147,7 @@ pub struct Html5ParserOptions {
 
 impl Default for Html5ParserOptions {
     fn default() -> Self {
-        Html5ParserOptions {
+        Self {
             scripting_enabled: true,
         }
     }
@@ -214,6 +214,7 @@ pub struct Html5Parser<'chars> {
 }
 
 /// Defines the scopes for in_scope()
+#[derive(Clone, Copy)]
 enum Scope {
     Regular,
     ListItem,
@@ -236,7 +237,7 @@ impl<'chars> Html5Parser<'chars> {
         error_logger: Rc<RefCell<ErrorLogger>>,
         options: Option<Html5ParserOptions>,
     ) -> Self {
-        Html5Parser {
+        Self {
             tokenizer,
             insertion_mode: InsertionMode::Initial,
             original_insertion_mode: InsertionMode::Initial,
@@ -275,7 +276,7 @@ impl<'chars> Html5Parser<'chars> {
         let error_logger = Rc::new(RefCell::new(ErrorLogger::new()));
         let tokenizer = Tokenizer::new(chars, None, error_logger.clone());
 
-        Html5Parser {
+        Self {
             tokenizer,
             insertion_mode: InsertionMode::Initial,
             original_insertion_mode: InsertionMode::Initial,
@@ -450,7 +451,7 @@ impl<'chars> Html5Parser<'chars> {
         match &self.current_token.clone() {
             Token::Text(value) if self.current_token.is_mixed() => {
                 let tokens = self.split_mixed_token(value);
-                self.tokenizer.insert_tokens_at_queue_start(tokens);
+                self.tokenizer.insert_tokens_at_queue_start(&tokens);
                 return;
             }
             Token::Text(..) if self.current_token.is_null() => {
@@ -654,7 +655,7 @@ impl<'chars> Html5Parser<'chars> {
                 match &self.current_token.clone() {
                     Token::Text(value) if self.current_token.is_mixed() => {
                         let tokens = self.split_mixed_token(value);
-                        self.tokenizer.insert_tokens_at_queue_start(tokens);
+                        self.tokenizer.insert_tokens_at_queue_start(&tokens);
                         return;
                     }
                     Token::Text(..) if self.current_token.is_empty_or_white() => {
@@ -711,7 +712,7 @@ impl<'chars> Html5Parser<'chars> {
                         }
                         anything_else = true;
                     }
-                    _ => anything_else = true,
+                    Token::Eof => anything_else = true,
                 }
 
                 if anything_else {
@@ -738,7 +739,7 @@ impl<'chars> Html5Parser<'chars> {
                     }
                     Token::Text(value) if self.current_token.is_mixed() => {
                         let tokens = self.split_mixed_token(value);
-                        self.tokenizer.insert_tokens_at_queue_start(tokens);
+                        self.tokenizer.insert_tokens_at_queue_start(&tokens);
                         return;
                     }
                     Token::Text(..) if self.current_token.is_empty_or_white() => {
@@ -780,7 +781,7 @@ impl<'chars> Html5Parser<'chars> {
                 match &self.current_token {
                     Token::Text(value) if self.current_token.is_mixed() => {
                         let tokens = self.split_mixed_token(value);
-                        self.tokenizer.insert_tokens_at_queue_start(tokens);
+                        self.tokenizer.insert_tokens_at_queue_start(&tokens);
                         return;
                     }
                     Token::Text(..) if self.current_token.is_empty_or_white() => {
@@ -846,7 +847,7 @@ impl<'chars> Html5Parser<'chars> {
                     }
                     Token::Text(value) if self.current_token.is_mixed() => {
                         let tokens = self.split_mixed_token(value);
-                        self.tokenizer.insert_tokens_at_queue_start(tokens);
+                        self.tokenizer.insert_tokens_at_queue_start(&tokens);
                         return;
                     }
                     Token::Text(..) if self.current_token.is_empty_or_white() => {
@@ -898,7 +899,7 @@ impl<'chars> Html5Parser<'chars> {
                 match &self.current_token {
                     Token::Text(value) if self.current_token.is_mixed() => {
                         let tokens = self.split_mixed_token(value);
-                        self.tokenizer.insert_tokens_at_queue_start(tokens);
+                        self.tokenizer.insert_tokens_at_queue_start(&tokens);
                         return;
                     }
                     Token::Text(..) if self.current_token.is_empty_or_white() => {
@@ -934,9 +935,10 @@ impl<'chars> Html5Parser<'chars> {
                     {
                         self.parse_error("invalid start tag in after head insertion mode");
 
-                        if self.head_element.is_none() {
-                            panic!("Head element should not be None");
-                        }
+                        assert!(
+                            self.head_element.is_some(),
+                            "Head element should not be None"
+                        );
 
                         if let Some(node_id) = self.head_element {
                             self.open_elements.push(node_id);
@@ -1031,7 +1033,7 @@ impl<'chars> Html5Parser<'chars> {
                 match &self.current_token {
                     Token::Text(value) if self.current_token.is_mixed() => {
                         let tokens = self.split_mixed_token(value);
-                        self.tokenizer.insert_tokens_at_queue_start(tokens);
+                        self.tokenizer.insert_tokens_at_queue_start(&tokens);
                     }
                     Token::Text(..) if self.current_token.is_null() => {
                         self.parse_error(
@@ -1146,7 +1148,7 @@ impl<'chars> Html5Parser<'chars> {
                 match &self.current_token {
                     Token::Text(value) if self.current_token.is_mixed() => {
                         let tokens = self.split_mixed_token(value);
-                        self.tokenizer.insert_tokens_at_queue_start(tokens);
+                        self.tokenizer.insert_tokens_at_queue_start(&tokens);
                     }
                     Token::Text(..) if self.current_token.is_empty_or_white() => {
                         self.insert_text_element(&self.current_token.clone());
@@ -1503,7 +1505,7 @@ impl<'chars> Html5Parser<'chars> {
                 match &self.current_token {
                     Token::Text(value) if self.current_token.is_mixed() => {
                         let tokens = self.split_mixed_token(value);
-                        self.tokenizer.insert_tokens_at_queue_start(tokens);
+                        self.tokenizer.insert_tokens_at_queue_start(&tokens);
                     }
                     Token::Text(..) if self.current_token.is_empty_or_white() => {
                         self.handle_in_body();
@@ -1547,7 +1549,7 @@ impl<'chars> Html5Parser<'chars> {
                 match &self.current_token {
                     Token::Text(value) if self.current_token.is_mixed() => {
                         let tokens = self.split_mixed_token(value);
-                        self.tokenizer.insert_tokens_at_queue_start(tokens);
+                        self.tokenizer.insert_tokens_at_queue_start(&tokens);
                     }
                     Token::Text(..) if self.current_token.is_empty_or_white() => {
                         self.insert_text_element(&self.current_token.clone());
@@ -1609,7 +1611,7 @@ impl<'chars> Html5Parser<'chars> {
                 match &self.current_token {
                     Token::Text(value) if self.current_token.is_mixed() => {
                         let tokens = self.split_mixed_token(value);
-                        self.tokenizer.insert_tokens_at_queue_start(tokens);
+                        self.tokenizer.insert_tokens_at_queue_start(&tokens);
                     }
                     Token::Text(..) if self.current_token.is_empty_or_white() => {
                         self.insert_text_element(&self.current_token.clone());
@@ -1650,7 +1652,7 @@ impl<'chars> Html5Parser<'chars> {
                 }
                 Token::Text(value) if self.current_token.is_mixed() => {
                     let tokens = self.split_mixed_token(value);
-                    self.tokenizer.insert_tokens_at_queue_start(tokens);
+                    self.tokenizer.insert_tokens_at_queue_start(&tokens);
                 }
                 Token::Text(..) if self.current_token.is_empty_or_white() => {
                     self.handle_in_body();
@@ -1682,7 +1684,7 @@ impl<'chars> Html5Parser<'chars> {
                     }
                     Token::Text(value) if self.current_token.is_mixed() => {
                         let tokens = self.split_mixed_token(value);
-                        self.tokenizer.insert_tokens_at_queue_start(tokens);
+                        self.tokenizer.insert_tokens_at_queue_start(&tokens);
                     }
                     Token::Text(..) if self.current_token.is_empty_or_white() => {
                         self.handle_in_body();
@@ -1783,17 +1785,21 @@ impl<'chars> Html5Parser<'chars> {
     /// Pops the last element from the open elements, and panics if it is not $name
     fn pop_check(&mut self, name: &str) {
         let node_id = self.open_elements.pop().expect("Open elements is empty");
-        if get_node_by_id!(self.document, node_id).name != name {
-            panic!("{} tag should be popped from open elements", name);
-        }
+        assert_eq!(
+            get_node_by_id!(self.document, node_id).name,
+            name,
+            "{name} tag should be popped from open elements",
+        );
     }
 
     /// Checks if the last element on the open elements is $name, and panics if not
     fn check_last_element(&self, name: &str) {
         let node_id = self.open_elements.last().unwrap_or_default();
-        if get_node_by_id!(self.document, *node_id).name != name {
-            panic!("{name} tag should be last element in open elements");
-        }
+        assert_eq!(
+            get_node_by_id!(self.document, *node_id).name,
+            name,
+            "{name} tag should be last element in open elements"
+        );
     }
 
     /// Returns true when the open elements has $name
@@ -2122,7 +2128,7 @@ impl<'chars> Html5Parser<'chars> {
         match &self.current_token.clone() {
             Token::Text(value) if self.current_token.is_mixed_null() => {
                 let tokens = self.split_mixed_token_null(value);
-                self.tokenizer.insert_tokens_at_queue_start(tokens);
+                self.tokenizer.insert_tokens_at_queue_start(&tokens);
             }
             Token::Text(..) if self.current_token.is_null() => {
                 self.parse_error("null character not allowed in in body insertion mode");
@@ -2254,11 +2260,11 @@ impl<'chars> Html5Parser<'chars> {
                 self.insertion_mode = InsertionMode::InFrameset;
             }
             Token::Eof => {
-                if !self.template_insertion_mode.is_empty() {
-                    self.handle_in_template();
-                } else {
+                if self.template_insertion_mode.is_empty() {
                     // @TODO: do stuff
                     self.stop_parsing();
+                } else {
+                    self.handle_in_template();
                 }
             }
             Token::EndTag { name, .. } if name == "body" => {
@@ -2493,7 +2499,22 @@ impl<'chars> Html5Parser<'chars> {
                 self.pop_until_named(name);
             }
             Token::EndTag { name, .. } if name == "form" => {
-                if !self.open_elements_has("template") {
+                if self.open_elements_has("template") {
+                    if !self.is_in_scope(name, HTML_NAMESPACE, Scope::Regular) {
+                        self.parse_error("end tag not in scope");
+                        // ignore token
+                        return;
+                    }
+
+                    self.generate_implied_end_tags(None, false);
+
+                    let cn = current_node!(self);
+                    if cn.name != *name {
+                        self.parse_error("end tag not at top of stack");
+                    }
+
+                    self.pop_until_named(name);
+                } else {
                     let node_id = self.form_element;
                     self.form_element = None;
 
@@ -2516,21 +2537,6 @@ impl<'chars> Html5Parser<'chars> {
                         self.parse_error("end tag not at top of stack");
                     }
                     self.open_elements_remove(node_id);
-                } else {
-                    if !self.is_in_scope(name, HTML_NAMESPACE, Scope::Regular) {
-                        self.parse_error("end tag not in scope");
-                        // ignore token
-                        return;
-                    }
-
-                    self.generate_implied_end_tags(None, false);
-
-                    let cn = current_node!(self);
-                    if cn.name != *name {
-                        self.parse_error("end tag not at top of stack");
-                    }
-
-                    self.pop_until_named(name);
                 }
             }
             Token::EndTag { name, .. } if name == "p" => {
@@ -2963,7 +2969,7 @@ impl<'chars> Html5Parser<'chars> {
         match &self.current_token {
             Token::Text(value) if self.current_token.is_mixed() => {
                 let tokens = self.split_mixed_token(value);
-                self.tokenizer.insert_tokens_at_queue_start(tokens);
+                self.tokenizer.insert_tokens_at_queue_start(&tokens);
                 return;
             }
             Token::Text(..) if self.current_token.is_empty_or_white() => {
@@ -3115,13 +3121,7 @@ impl<'chars> Html5Parser<'chars> {
     /// Handle insertion mode "in_template"
     fn handle_in_template(&mut self) {
         match &self.current_token {
-            Token::Text(..) => {
-                self.handle_in_body();
-            }
-            Token::Comment(..) => {
-                self.handle_in_body();
-            }
-            Token::DocType { .. } => {
+            Token::Text(..) | Token::Comment(..) | Token::DocType { .. } => {
                 self.handle_in_body();
             }
             Token::StartTag { name, .. }
@@ -3368,7 +3368,7 @@ impl<'chars> Html5Parser<'chars> {
         match &self.current_token {
             Token::Text(value) if self.current_token.is_mixed() => {
                 let tokens = self.split_mixed_token(value);
-                self.tokenizer.insert_tokens_at_queue_start(tokens);
+                self.tokenizer.insert_tokens_at_queue_start(&tokens);
             }
             Token::Text(..) if self.current_token.is_null() => {
                 self.parse_error("null character not allowed in in select insertion mode");
@@ -3549,7 +3549,7 @@ impl<'chars> Html5Parser<'chars> {
         self.active_formatting_elements
             .retain(|node_id| match node_id {
                 ActiveElement::Node(node_id) => *node_id != target_node_id,
-                _ => true,
+                ActiveElement::Marker => true,
             });
     }
 
@@ -3634,7 +3634,7 @@ impl<'chars> Html5Parser<'chars> {
             let node_id = entry.node_id().expect("node id not found");
 
             let entry_node = get_node_by_id!(self.document, node_id).clone();
-            let new_node_id = self.insert_element_from_node(entry_node, None);
+            let new_node_id = self.insert_element_from_node(&entry_node, None);
 
             self.active_formatting_elements[entry_index] = ActiveElement::Node(new_node_id);
 
@@ -3667,10 +3667,10 @@ impl<'chars> Html5Parser<'chars> {
             let mut new_attributes = HashMap::new();
             for (name, value) in attributes.iter() {
                 if SVG_ADJUSTMENTS_ATTRIBUTES.contains_key(name) {
-                    let new_name = SVG_ADJUSTMENTS_ATTRIBUTES
+                    let &new_name = SVG_ADJUSTMENTS_ATTRIBUTES
                         .get(name)
                         .expect("svg adjustments");
-                    new_attributes.insert(new_name.to_string(), value.clone());
+                    new_attributes.insert(new_name.to_owned(), value.clone());
                 } else {
                     new_attributes.insert(name.clone(), value.clone());
                 }
@@ -3683,10 +3683,7 @@ impl<'chars> Html5Parser<'chars> {
     fn adjust_svg_tag_names(&self, token: &mut Token) {
         if let Token::StartTag { name, .. } = token {
             if SVG_ADJUSTMENTS_TAGS.contains_key(name) {
-                *name = SVG_ADJUSTMENTS_TAGS
-                    .get(name)
-                    .expect("svg tagname")
-                    .to_string();
+                *name = (*SVG_ADJUSTMENTS_TAGS.get(name).expect("svg tagname")).to_owned();
             }
         }
     }
@@ -3697,8 +3694,8 @@ impl<'chars> Html5Parser<'chars> {
             let mut new_attributes = HashMap::new();
             for (name, value) in attributes.iter() {
                 if MATHML_ADJUSTMENTS.contains_key(name) {
-                    let new_name = MATHML_ADJUSTMENTS.get(name).expect("svg adjustments");
-                    new_attributes.insert(new_name.to_string(), value.clone());
+                    let &new_name = MATHML_ADJUSTMENTS.get(name).expect("svg adjustments");
+                    new_attributes.insert(new_name.to_owned(), value.clone());
                 } else {
                     new_attributes.insert(name.clone(), value.clone());
                 }
@@ -3714,7 +3711,7 @@ impl<'chars> Html5Parser<'chars> {
                 if XML_ADJUSTMENTS.contains_key(name) {
                     let (prefix, local_name, _namespace) =
                         XML_ADJUSTMENTS.get(name).expect("cml adjustments");
-                    new_attributes.insert(format!("{} {}", prefix, local_name), value.clone());
+                    new_attributes.insert(format!("{prefix} {local_name}"), value.clone());
                 } else {
                     new_attributes.insert(name.clone(), value.clone());
                 }

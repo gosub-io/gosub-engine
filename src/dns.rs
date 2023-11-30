@@ -11,7 +11,7 @@ use std::net::IpAddr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// A DNS entry is a mapping of a domain to zero or more IP address mapping
-#[derive(Default, Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct DnsEntry {
     // domain name
     domain: String,
@@ -33,9 +33,10 @@ pub struct DnsEntry {
 
 impl DnsEntry {
     /// Instantiate a new domain name entry with set of ips
-    pub(crate) fn new(domain: &str, ips: Vec<&str>) -> DnsEntry {
-        let mut entry = DnsEntry {
-            domain: domain.to_string(),
+    #[must_use]
+    pub(crate) fn new(domain: &str, ips: Vec<&str>) -> Self {
+        let mut entry = Self {
+            domain: domain.to_owned(),
             ..Default::default()
         };
 
@@ -77,7 +78,7 @@ impl DnsEntry {
 }
 
 /// Type of DNS resolution
-#[derive(Display, Debug, PartialEq, Clone)]
+#[derive(Clone, Debug, Display, PartialEq)]
 pub enum ResolveType {
     /// Only resolve IPV4 addresses (A)
     Ipv4,
@@ -107,7 +108,13 @@ pub struct Dns {
     resolvers: Vec<Box<dyn DnsResolver>>,
 }
 
+impl Default for Dns {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 impl Dns {
+    #[must_use]
     pub fn new() -> Self {
         // Cache resolver
         let max_entries = config!(uint "dns.cache.max_entries");
@@ -131,7 +138,7 @@ impl Dns {
 
         resolvers.push(Box::new(remote::RemoteResolver::new(opts)));
 
-        Dns { resolvers }
+        Self { resolvers }
     }
 
     /// Resolves a domain name to a set of IP addresses based on the resolve_type.
@@ -145,13 +152,13 @@ impl Dns {
     pub fn resolve(&mut self, domain: &str, resolve_type: ResolveType) -> Result<DnsEntry> {
         let mut entry = None;
 
-        info!("Resolving {} for {:?}", domain, resolve_type);
+        info!("Resolving {domain} for {resolve_type:?}");
 
-        for resolver in self.resolvers.iter_mut() {
+        for resolver in &mut self.resolvers {
             debug!("Trying resolver: {}", resolver.name());
 
             if let Ok(e) = resolver.resolve(domain, resolve_type.clone()) {
-                debug!("Found entry {:?}", e);
+                debug!("Found entry {e:?}");
                 entry = Some(e);
                 break;
             }
@@ -162,7 +169,7 @@ impl Dns {
         }
 
         // Iterate all resolvers and add to all cache systems (normally, this is only the first resolver)
-        for resolver in self.resolvers.iter_mut() {
+        for resolver in &mut self.resolvers {
             resolver.announce(domain, &entry.clone().unwrap().clone());
         }
 

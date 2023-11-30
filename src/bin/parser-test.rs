@@ -4,6 +4,7 @@ use gosub_engine::testing::tree_construction::Harness;
 use gosub_engine::testing::tree_construction::Test;
 
 /// Holds the results from all tests that are executed
+#[derive(Default)]
 pub struct TotalTestResults {
     /// Number of tests (as defined in the suite)
     tests: usize,
@@ -20,14 +21,7 @@ pub struct TotalTestResults {
 }
 
 fn main() {
-    let mut results = TotalTestResults {
-        tests: 0,
-        assertions: 0,
-        succeeded: 0,
-        failed: 0,
-        failed_position: 0,
-        tests_failed: Vec::new(),
-    };
+    let mut results = TotalTestResults::default();
 
     let filenames = Some(&["tests15.dat"][..]);
     let fixtures = read_fixtures(filenames).expect("fixtures");
@@ -61,8 +55,8 @@ fn main() {
     if results.failed > 0 {
         println!("❌ Failed tests:");
         for (test_idx, line, data) in results.tests_failed {
-            println!("  * Test #{} at line {}:", test_idx, line);
-            println!("    {}", data);
+            println!("  * Test #{test_idx} at line {line}:");
+            println!("    {data}");
         }
     }
 }
@@ -112,7 +106,7 @@ fn run_test(test_idx: usize, test: Test, all_results: &mut TotalTestResults) {
                 #[cfg(feature = "debug_parser")]
                 println!("❌ {} (wanted: {})", entry.actual, entry.expected);
             }
-            _ => {}
+            ResultStatus::IncorrectPosition => {}
         }
     }
 

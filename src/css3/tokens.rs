@@ -48,7 +48,7 @@ pub enum TokenType {
     // todo: add unicode & ascii
 }
 
-#[derive(PartialEq, Clone)]
+#[derive(Clone, PartialEq)]
 pub struct Token {
     pub token_type: TokenType,
     pub value: String,
@@ -61,8 +61,9 @@ impl Debug for Token {
 }
 
 impl Token {
-    pub fn new(token_type: TokenType, value: String) -> Token {
-        Token { token_type, value }
+    #[must_use]
+    pub fn new(token_type: TokenType, value: String) -> Self {
+        Self { token_type, value }
     }
 }
 

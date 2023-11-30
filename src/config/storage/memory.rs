@@ -10,8 +10,9 @@ pub struct MemoryStorageAdapter {
 }
 
 impl MemoryStorageAdapter {
+    #[must_use]
     pub fn new() -> Self {
-        MemoryStorageAdapter {
+        Self {
             settings: Mutex::new(HashMap::new()),
         }
     }
@@ -26,7 +27,7 @@ impl StorageAdapter for MemoryStorageAdapter {
 
     fn set(&self, key: &str, value: Setting) {
         let mut lock = self.settings.lock().unwrap();
-        lock.insert(key.to_string(), value);
+        lock.insert(key.to_owned(), value);
     }
 
     fn all(&self) -> Result<HashMap<String, Setting>> {

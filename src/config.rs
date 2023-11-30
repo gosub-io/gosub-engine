@@ -235,16 +235,13 @@ impl ConfigStore {
         let info = match self.settings_info.get(key) {
             Some(info) => info,
             None => {
-                warn!("config: Setting {} is not known", key);
+                warn!("config: Setting {key} is not known");
                 return;
             }
         };
 
         if mem::discriminant(&info.default) != mem::discriminant(&value) {
-            warn!(
-                "config: Setting {} is of different type than setting expects",
-                key
-            );
+            warn!("config: Setting {key} is of different type than setting expects");
             return;
         }
 
@@ -252,7 +249,7 @@ impl ConfigStore {
             .lock()
             .unwrap()
             .borrow_mut()
-            .insert(key.to_string(), value.clone());
+            .insert(key.to_owned(), value.clone());
 
         self.storage.set(key, value);
     }
@@ -263,7 +260,7 @@ impl ConfigStore {
             serde_json::from_str(SETTINGS_JSON).expect("Failed to parse settings.json");
 
         if let Value::Object(data) = json_data {
-            for (section_prefix, section_entries) in data.iter() {
+            for (section_prefix, section_entries) in &data {
                 let section_entries: Vec<JsonEntry> =
                     serde_json::from_value(section_entries.clone())
                         .expect("Failed to parse settings.json");

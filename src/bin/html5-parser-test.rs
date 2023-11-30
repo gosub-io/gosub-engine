@@ -14,7 +14,7 @@ fn main() -> Result<()> {
     let mut total = 0;
     let mut failed = 0;
 
-    for file in files.iter() {
+    for file in &files {
         // if file != "math.dat" {
         //     continue;
         // }
@@ -26,7 +26,7 @@ fn main() -> Result<()> {
         let mut harness = Harness::new();
 
         // Run tests
-        for test in fixture.tests.iter() {
+        for test in &fixture.tests {
             for &scripting_enabled in test.script_modes() {
                 let result = harness
                     .run_test(test.clone(), scripting_enabled)

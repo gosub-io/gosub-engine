@@ -126,53 +126,40 @@ impl Tokenizer<'_> {
                     char_ref_code = Some(0);
 
                     let c = self.read_char();
-                    match c {
+                    if let Ch('X' | 'x') = c {
                         // Element::Eof => ccr_state = CcrState::NumericalCharacterReferenceEnd,
-                        Ch('X') | Ch('x') => {
-                            self.temporary_buffer.push(c.into());
-                            ccr_state = CcrState::HexadecimalCharacterReferenceStart;
-                        }
-                        _ => {
-                            self.chars.unread();
-                            ccr_state = CcrState::DecimalCharacterReferenceStart;
-                        }
+                        self.temporary_buffer.push(c.into());
+                        ccr_state = CcrState::HexadecimalCharacterReferenceStart;
+                    } else {
+                        self.chars.unread();
+                        ccr_state = CcrState::DecimalCharacterReferenceStart;
                     }
                 }
                 CcrState::HexadecimalCharacterReferenceStart => {
                     let c = self.read_char();
-                    match c {
+                    if let Ch('0'..='9' | 'A'..='F' | 'a'..='f') = c {
                         // Element::Eof => ccr_state = CcrState::NumericalCharacterReferenceEnd,
-                        Ch('0'..='9') | Ch('A'..='F') | Ch('a'..='f') => {
-                            self.chars.unread();
-                            ccr_state = CcrState::HexadecimalCharacterReference
-                        }
-                        _ => {
-                            self.parse_error(
-                                ParserError::AbsenceOfDigitsInNumericCharacterReference,
-                            );
-                            self.consume_temp_buffer(as_attribute);
+                        self.chars.unread();
+                        ccr_state = CcrState::HexadecimalCharacterReference;
+                    } else {
+                        self.parse_error(ParserError::AbsenceOfDigitsInNumericCharacterReference);
+                        self.consume_temp_buffer(as_attribute);
 
-                            self.chars.unread();
-                            return;
-                        }
+                        self.chars.unread();
+                        return;
                     }
                 }
                 CcrState::DecimalCharacterReferenceStart => {
                     let c = self.read_char();
-                    match c {
-                        Ch('0'..='9') => {
-                            self.chars.unread();
-                            ccr_state = CcrState::DecimalCharacterReference;
-                        }
-                        _ => {
-                            self.parse_error(
-                                ParserError::AbsenceOfDigitsInNumericCharacterReference,
-                            );
-                            self.consume_temp_buffer(as_attribute);
+                    if let Ch('0'..='9') = c {
+                        self.chars.unread();
+                        ccr_state = CcrState::DecimalCharacterReference;
+                    } else {
+                        self.parse_error(ParserError::AbsenceOfDigitsInNumericCharacterReference);
+                        self.consume_temp_buffer(as_attribute);
 
-                            self.chars.unread();
-                            return;
-                        }
+                        self.chars.unread();
+                        return;
                     }
                 }
                 CcrState::HexadecimalCharacterReference => {

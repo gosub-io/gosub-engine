@@ -51,7 +51,7 @@ impl DnsResolver for CacheResolver {
             current_entry.has_ipv4 |= entry.has_ipv4;
             current_entry.has_ipv6 |= entry.has_ipv6;
 
-            for ip in entry.ips.iter() {
+            for ip in &entry.ips {
                 if current_entry.ips.iter().any(|x| x == ip) {
                     continue;
                 }

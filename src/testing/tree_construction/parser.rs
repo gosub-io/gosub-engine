@@ -15,13 +15,13 @@ pub const QUOTED_DOUBLE_NEWLINE: &str = ":quoted-double-newline:";
 
 type Span<'a> = LocatedSpan<&'a str>;
 
-#[derive(Copy, Clone, Debug, PartialEq, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Position {
     pub line: usize,
     pub col: usize,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ErrorSpec {
     Message(String),
 
@@ -42,7 +42,7 @@ pub enum ErrorSpec {
     },
 }
 
-#[derive(Debug, PartialEq, Clone, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub enum ScriptMode {
     ScriptOn,
     ScriptOff,
@@ -319,7 +319,7 @@ fn trim_last_newline(s: String) -> String {
 
 pub fn parse_fixture(i: &str) -> Result<Vec<TestSpec>> {
     // Deal with a corner case that makes it hard to parse tricky01.dat.
-    let input = i.replace("\"\n\n\"", QUOTED_DOUBLE_NEWLINE).to_owned() + "\n";
+    let input = i.replace("\"\n\n\"", QUOTED_DOUBLE_NEWLINE).clone() + "\n";
 
     let files = map(
         tuple((separated_list1(tag("\n\n"), test), multispace0)),
@@ -328,7 +328,7 @@ pub fn parse_fixture(i: &str) -> Result<Vec<TestSpec>> {
 
     let (_, tests) = all_consuming(files)(Span::new(&input))
         .finish()
-        .map_err(|err| Error::Test(format!("{}", err)))?;
+        .map_err(|err| Error::Test(format!("{err}")))?;
 
     Ok(tests)
 }

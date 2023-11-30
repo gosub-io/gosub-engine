@@ -36,7 +36,7 @@ impl TokenizerBuilder {
             &mut self.chars,
             Some(Options {
                 initial_state: self.state,
-                last_start_tag: self.last_start_tag.to_owned().unwrap_or(String::from("")),
+                last_start_tag: self.last_start_tag.clone().unwrap_or_default(),
             }),
             error_logger.clone(),
         )
@@ -184,7 +184,7 @@ impl TestSpec {
             states.push(TokenState::Data);
         }
 
-        for state in states.into_iter() {
+        for state in states {
             let mut chars = CharIterator::new();
             let input = if self.double_escaped {
                 from_utf16_lossy(&self.input)
@@ -216,7 +216,7 @@ impl TestSpec {
             }
 
             // There can be multiple tokens to match. Make sure we match all of them
-            for expected in self.output.iter() {
+            for expected in &self.output {
                 let actual = tokenizer.next_token(ParserData::default()).unwrap();
                 assert_eq!(self.escape(&actual), self.escape(expected));
             }
@@ -237,7 +237,7 @@ impl TestSpec {
         for mut builder in self.builders() {
             let mut tokenizer = builder.build();
 
-            for _ in self.output.iter() {
+            for _ in &self.output {
                 tokenizer.next_token(ParserData::default()).unwrap();
             }
         }
@@ -291,8 +291,8 @@ impl TestSpec {
             } => Token::DocType {
                 name: name.as_ref().map(|name| escape(name)),
                 force_quirks: *force_quirks,
-                pub_identifier: pub_identifier.as_ref().map(|s| s.into()),
-                sys_identifier: sys_identifier.as_ref().map(|s| s.into()),
+                pub_identifier: pub_identifier.as_ref().map(Into::into),
+                sys_identifier: sys_identifier.as_ref().map(Into::into),
             },
 
             Token::EndTag {
@@ -367,7 +367,7 @@ where
 
 pub fn fixtures() -> impl Iterator<Item = FixtureFile> {
     let root = PathBuf::from(FIXTURE_ROOT).join("tokenizer");
-    fs::read_dir(root).unwrap().flat_map(|entry| {
+    fs::read_dir(root).unwrap().filter_map(|entry| {
         let path = format!("{}", entry.unwrap().path().display());
         fixture_from_path(&path).ok()
     })
