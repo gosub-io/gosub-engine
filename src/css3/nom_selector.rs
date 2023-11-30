@@ -6,45 +6,42 @@ use nom::multi::{many0, many1};
 use nom::IResult;
 use nom::InputTake;
 
-/*
-
-[X] <selector-list> = <complex-selector-list>
-[X] <complex-selector-list> = <complex-selector>#
-[X] <compound-selector-list> = <compound-selector>#
-[X] <simple-selector-list> = <simple-selector>#
-[X] <relative-selector-list> = <relative-selector>#
-[ ] <complex-selector> = <compound-selector> [ <combinator>? <compound-selector> ]*
-[ ] <relative-selector> = <combinator>? <complex-selector>
-[ ] <compound-selector> = [ <type-selector>? <subclass-selector>* [ <pseudo-element-selector> <pseudo-class-selector>* ]* ]!
-[ ] <simple-selector> = <type-selector> | <subclass-selector>
-[-] <combinator> = '>' | '+' | '~' | [ '|' '|' ]
-[ ] <type-selector> = <wq-name> | <ns-prefix>? '*'
-[X] <ns-prefix> = [ <ident-token> | '*' ]? '|'
-[X] <wq-name> = <ns-prefix>? <ident-token>
-[ ] <subclass-selector> = <id-selector> | <class-selector> | <attribute-selector> | <pseudo-class-selector>
-[ ] <id-selector> = <hash-token>
-[ ] <class-selector> = '.' <ident-token>
-[ ] <attribute-selector> = '[' <wq-name> ']' | '[' <wq-name> <attr-matcher> [ <string-token> | <ident-token> ] <attr-modifier>? ']'
-[ ] <attr-matcher> = [ '~' | '|' | '^' | '$' | '*' ]? '='
-[ ] <attr-modifier> = i | s
-[ ] <pseudo-class-selector> = ':' <ident-token> | ':' <function-token> <any-value> ')'
-[ ] <pseudo-element-selector> = ':' <pseudo-class-selector>
-
- */
-
+/// <selector-list> = <complex-selector-list>
 fn parse_selector_list(input: Span) -> IResult<Span, Node> {
     parse_complex_selector_list(input)
 }
 
+/// <complex-selector-list> = <complex-selector>#
 fn parse_complex_selector_list(input: Span) -> IResult<Span, Node> {
     let (input, selectors) = many1(parse_complex_selector)(input)?;
 
-    let mut node = Node::new("SelectorList");
+    let mut node = Node::new("ComplexSelectorList");
     node.children = selectors;
 
     Ok((input, node))
 }
 
+/// <compound-selector-list> = <compound-selector>#
+fn parse_compound_selector_list(input: Span) -> IResult<Span, Node> {
+    let (input, selectors) = many1(parse_compound_selector)(input)?;
+
+    let mut node = Node::new("CompoundSelectorList");
+    node.children = selectors;
+
+    Ok((input, node))
+}
+
+/// <simple-selector-list> = <simple-selector>#
+fn parse_simple_selector_list(input: Span) -> IResult<Span, Node> {
+    let (input, selectors) = many1(parse_simple_selector)(input)?;
+
+    let mut node = Node::new("SimpleSelectorList");
+    node.children = selectors;
+
+    Ok((input, node))
+}
+
+/// <relative-selector-list> = <relative-selector>#
 fn parse_relative_selector_list(input: Span) -> IResult<Span, Node> {
     let (input, selectors) = many1(parse_relative_selector)(input)?;
 
@@ -54,11 +51,7 @@ fn parse_relative_selector_list(input: Span) -> IResult<Span, Node> {
     Ok((input, node))
 }
 
-fn parse_relative_selector(input: Span) -> IResult<Span, Node> {
-    let node = Node::new("RelativeSelector");
-    Ok((input, node))
-}
-
+/// <complex-selector> = <compound-selector> [ <combinator>? <compound-selector> ]*
 fn parse_complex_selector(input: Span) -> IResult<Span, Node> {
     let (input, first_selector) = parse_compound_selector(input)?;
 
@@ -89,6 +82,21 @@ fn parse_complex_selector(input: Span) -> IResult<Span, Node> {
     Ok((input, node))
 }
 
+/// <relative-selector> = <combinator>? <complex-selector>
+fn parse_relative_selector(input: Span) -> IResult<Span, Node> {
+    let (input, combinator) = opt(|i| parse_combinator(i))(input)?;
+    let (input, complex_selector) = parse_complex_selector(input)?;
+
+    let mut node = Node::new("RelativeSelector");
+    if combinator.is_some() {
+        node.children.push(combinator.unwrap());
+    }
+    node.children.push(complex_selector);
+
+    Ok((input, node))
+}
+
+/// <compound-selector> = [ <type-selector>? <subclass-selector>* [ <pseudo-element-selector> <pseudo-class-selector>* ]* ]!
 fn parse_compound_selector(input: Span) -> IResult<Span, Node> {
     let (i, selectors) = many1(|i| {
         let (i, _type_selector) = opt(|i| parse_type_selector(i))(i)?;
@@ -110,6 +118,58 @@ fn parse_compound_selector(input: Span) -> IResult<Span, Node> {
     Ok((i, node))
 }
 
+/// <simple-selector> = <type-selector> | <subclass-selector>
+fn parse_simple_selector(input: Span) -> IResult<Span, Node> {
+    alt((
+        parse_type_selector,
+        parse_subclass_selector,
+    ))(input)
+}
+
+/// <combinator> = '>' | '+' | '~' | [ '|' '|' ]
+fn parse_combinator(input: Span) -> IResult<Span, Node> {
+    alt((
+        map(|i| delim(i, '<'), |_| Node::new("ChildCombinator")),
+        map(
+            |i| delim(i, '+'),
+            |_| Node::new("AdjacentSiblingCombinator"),
+        ),
+        map(|i| delim(i, '~'), |_| Node::new("GeneralSiblingCombinator")),
+        map(|i| ident(i, "||".into()), |_| Node::new("ColumnCombinator")),
+    ))(input)
+}
+
+/// <type-selector> = <wq-name> | <ns-prefix>? '*'
+fn parse_type_selector(input: Span) -> IResult<Span, Node> {
+    let (i, type_selector) = alt((
+        wq_name,
+        ns_prefix_star
+    ))(input)?;
+
+    let mut node = Node::new("TypeSelector");
+    node.attributes.insert("name".into(), type_selector);
+
+    Ok((i, node))
+}
+
+/// <ns-prefix>? '*'
+fn ns_prefix_star(input: Span) -> IResult<Span, String> {
+    let (input, ns_prefix) = opt(|i| ns_prefix(i))(input)?;
+    let (input, _) = delim(input, '*')?;
+
+    Ok((input, format!("{}*", ns_prefix.unwrap_or("".into()))))
+}
+
+/// <ns-prefix> = [ <ident-token> | '*' ]? '|'
+fn ns_prefix(input: Span) -> IResult<Span, String> {
+    let (input, ns_prefix) = opt(|i| alt((|i| any_ident(i), |i| delim(i, '*')))(i))(input)?;
+
+    let (input, _) = delim(input, '|')?;
+
+    Ok((input, format!("{}|", ns_prefix.unwrap_or("".into()))))
+}
+
+/// <wq-name> = <ns-prefix>? <ident-token>
 fn wq_name(input: Span) -> IResult<Span, String> {
     let (input, ns_prefix) = opt(|i| ns_prefix(i))(input)?;
     let (input, name) = any_ident(input)?;
@@ -120,51 +180,29 @@ fn wq_name(input: Span) -> IResult<Span, String> {
     Ok((input, format!("{}{}", ns_prefix, name)))
 }
 
-fn parse_type_selector(input: Span) -> IResult<Span, Node> {
-    let (i, type_selector) = alt((wq_name, ns_prefix_star))(input)?;
-
-    let mut node = Node::new("TypeSelector");
-    node.attributes.insert("name".into(), type_selector);
-
-    Ok((i, node))
-}
-
-fn ns_prefix_star(input: Span) -> IResult<Span, String> {
-    let (input, ns_prefix) = opt(|i| ns_prefix(i))(input)?;
-    let (input, _) = delim(input, '*')?;
-
-    Ok((input, format!("{}*", ns_prefix.unwrap_or("".into()))))
-}
-
-fn ns_prefix(input: Span) -> IResult<Span, String> {
-    let (input, ns_prefix) = opt(|i| alt((|i| any_ident(i), |i| delim(i, '*')))(i))(input)?;
-
-    let (input, _) = delim(input, '|')?;
-
-    Ok((input, format!("{}|", ns_prefix.unwrap_or("".into()))))
-}
-
+/// <subclass-selector> = <id-selector> | <class-selector> | <attribute-selector> | <pseudo-class-selector>
 fn parse_subclass_selector(input: Span) -> IResult<Span, Node> {
     alt((
-        parse_class_selector,
         parse_id_selector,
+        parse_class_selector,
         parse_attribute_selector,
         parse_pseudo_class_selector,
-        parse_pseudo_element_selector,
     ))(input)
 }
 
-// fn parse_identifier(input: Span) -> IResult<Span, Node> {
-//     let (input, ident) = ident(input, Some("div".into()))?;
-//
-//     let mut node = Node::new("Identifier");
-//     node.attributes.insert("name".into(), ident.clone());
-//
-//     Ok((input, node))
-// }
+/// <id-selector> = <hash-token>
+fn parse_id_selector(input: Span) -> IResult<Span, Node> {
+    let (input, name) = any_hash(input)?;
 
+    let mut node = Node::new("IdSelector");
+    node.attributes.insert("name".into(), format!("#{}", name));
+
+    Ok((input, node))
+}
+
+/// <class-selector> = '.' <ident-token>
 fn parse_class_selector(input: Span) -> IResult<Span, Node> {
-    let (input, _) = delim(input, '.')?; // TODO: check if this is correct
+    let (input, _) = delim(input, '.')?;
     let (input, name) = any_ident(input)?;
 
     let mut node = Node::new("ClassSelector");
@@ -173,6 +211,194 @@ fn parse_class_selector(input: Span) -> IResult<Span, Node> {
     Ok((input, node))
 }
 
+/// <attribute-selector> = '[' <wq-name> ']' | '[' <wq-name> <attr-matcher> [ <string-token> | <ident-token> ] <attr-modifier>? ']'
+fn parse_attribute_selector(input: Span) -> IResult<Span, Node> {
+    alt((
+        parse_attribute_selector_no_value,
+        parse_attribute_selector_with_value,
+    ))(input)
+}
+
+/// '[' <wq-name> ']'
+fn parse_attribute_selector_no_value(input: Span) -> IResult<Span, Node> {
+    let (input, _) = delim(input, '[')?;
+    let (input, name) = wq_name(input)?;
+    let (input, _) = delim(input, ']')?;
+
+    let mut node = Node::new("AttributeSelector");
+    node.attributes.insert("name".into(), format!("[{}]", name));
+    Ok((input, node))
+}
+
+/// '[' <wq-name> <attr-matcher> [ <string-token> | <ident-token> ] <attr-modifier>? ']'
+fn parse_attribute_selector_with_value(input: Span) -> IResult<Span, Node> {
+    let (input, _) = delim(input, '[')?;
+    let (input, name) = wq_name(input)?;
+    let (input, matcher) = parse_attr_matcher(input)?;
+    let (input, value) = alt((
+        |i| any_string(i),
+        |i| any_ident(i),
+    ))(input)?;
+    let (input, modifier) = opt(|i| parse_attr_modifier(i))(input)?;
+    let (input, _) = delim(input, ']')?;
+
+
+    let mut node = Node::new("AttributeSelector");
+    node.attributes.insert("name".into(), format!("[{}]", name));
+    node.attributes.insert("value".into(), format!("{}", value));
+    if matcher.is_some() {
+        node.attributes.insert("matcher".into(), format!("{}", matcher.unwrap()));
+    }
+    if modifier.is_some() {
+        node.attributes.insert("modifier".into(), format!("{}", modifier.unwrap()));
+    }
+
+    Ok((input, node))
+}
+
+/// <attr-matcher> = [ '~' | '|' | '^' | '$' | '*' ]? '='
+fn parse_attr_matcher(input: Span) -> IResult<Span, Option<String>> {
+    let (input, matcher) = opt(|i|
+        alt((
+            |i| delim(i, '~'),
+            |i| delim(i, '|'),
+            |i| delim(i, '^'),
+            |i| delim(i, '$'),
+            |i| delim(i, '*'),
+        ))(input)
+    )(input)?;
+
+    let (input, _ ) = delim(input, '=')?;
+
+    return Ok((input, matcher));
+}
+
+/// <attr-modifier> = i | s
+fn parse_attr_modifier(input: Span) -> IResult<Span, String> {
+    let (input, modifier) = alt((
+        |i| ident(i, "i".into()),
+        |i| ident(i, "s".into()),
+    ))(input)?;
+
+    Ok((input, modifier))
+}
+
+/// <pseudo-class-selector> = ':' <ident-token> | ':' <function-token> <any-value> ')'
+fn parse_pseudo_class_selector(input: Span) -> IResult<Span, Node> {
+    alt((
+        parse_pseudo_class_selector_ident,
+        parse_pseudo_class_selector_function,
+    ))(input)
+}
+
+/// <pseudo-class-selector> = ':' <ident-token>
+fn parse_pseudo_class_selector_ident(input: Span) -> IResult<Span, Node> {
+    let (input, _) = delim(input, ':')?;
+    let (input, name) = any_ident(input)?;
+
+    let mut node = Node::new("PseudoClassSelector");
+    node.attributes.insert("name".into(), format!(":{}", name));
+
+    Ok((input, node))
+}
+
+/// ':' <function-token> <any-value> ')'
+fn parse_pseudo_class_selector_function(input: Span) -> IResult<Span, Node> {
+    let (input, _) = delim(input, ':')?;
+    let (input, name) = any_function(input)?;
+    let (input, value) = any(input)?;
+    let (input, _) = delim(input, ')')?;
+
+    let mut node = Node::new("PseudoClassSelector");
+    node.attributes.insert("name".into(), format!(":{}({})", name, value));
+
+    Ok((input, node))
+}
+
+/// <pseudo-element-selector> = ':' <pseudo-class-selector>
+fn parse_pseudo_element_selector(input: Span) -> IResult<Span, Node> {
+    let (input, _) = delim(input, ':')?;
+    let (input, name) = any_ident(input)?;
+
+    let mut node = Node::new("PseudoElementSelector");
+    node.attributes.insert("name".into(), format!("::{}", name));
+
+    Ok((input, node))
+}
+
+// =================================================================================================
+// These functions will return direct strings from the wanted tokens
+
+fn any(input: Span) -> IResult<Span, String> {
+    let (input, span) = input.take_split(1);
+
+    match span.to_token() {
+        Token::Ident(s) => return Ok((input, s)),
+        Token::Hash(s) => return Ok((input, s)),
+        Token::QuotedString(s) => return Ok((input, s)),
+        Token::Delim(c) => return Ok((input, format!("{}", c))),
+        Token::Function(s) => return Ok((input, s)),
+        Token::AtKeyword(s) => return Ok((input, s)),
+        Token::Url(s) => return Ok((input, s)),
+        Token::BadUrl(s) => return Ok((input, s)),
+        Token::Dimension { value, unit } => return Ok((input, format!("{}{}", value, unit))),
+        Token::Percentage(s) => return Ok((input, format!("{}", s))),
+        Token::Number(s) => return Ok((input, format!("{}", s))),
+        Token::BadString(s) => return Ok((input, s)),
+        Token::IDHash(s) => return Ok((input, s)),
+        _ => {}
+    }
+
+    Err(nom::Err::Error(nom::error::Error::new(
+        input.clone(),
+        nom::error::ErrorKind::Tag,
+    )))
+}
+
+
+    /// Returns the name of a function token
+fn any_function(input: Span) -> IResult<Span, String> {
+    let (input, span) = input.take_split(1);
+
+    if let Token::Function(name) = span.to_token() {
+        return Ok((input, name));
+    }
+
+    Err(nom::Err::Error(nom::error::Error::new(
+        input.clone(),
+        nom::error::ErrorKind::Tag,
+    )))
+}
+
+/// Returns any string
+fn any_string(input: Span) -> IResult<Span, String> {
+    let (input, span) = input.take_split(1);
+
+    if let Token::QuotedString(qs) = span.to_token() {
+        return Ok((input, qs));
+    }
+
+    Err(nom::Err::Error(nom::error::Error::new(
+        input.clone(),
+        nom::error::ErrorKind::Tag,
+    )))
+}
+
+/// Returns any hash
+fn any_hash(input: Span) -> IResult<Span, String> {
+    let (input, span) = input.take_split(1);
+
+    if let Token::Hash(h) = span.to_token() {
+        return Ok((input, h));
+    }
+
+    Err(nom::Err::Error(nom::error::Error::new(
+        input.clone(),
+        nom::error::ErrorKind::Tag,
+    )))
+}
+
+/// Returns any delimiter
 fn any_delim(input: Span) -> IResult<Span, String> {
     let (input, span) = input.take_split(1);
 
@@ -186,33 +412,7 @@ fn any_delim(input: Span) -> IResult<Span, String> {
     )))
 }
 
-/*
-fn ws<'a, F: 'a, O, E: ParseError<Span<'a>>>(inner: F) -> impl FnMut(Span) -> IResult<Span, O, E>
-    where
-        F: Fn(Span) -> IResult<Span, O, E>,
-{
-    delimited(
-        multispace0,
-        inner,
-        multispace0
-    )
-}
-*/
-/*
-fn multispace0(input: Span) -> IResult<Span, bool> {
-    while !input.is_empty() {
-        let (t, input) = input.take_split(1);
-        if let Token::Whitespace = t.to_token() {
-            continue;
-        }
-
-        break;
-    }
-
-    Ok((input, true))
-}
-*/
-
+/// Returns the given delimiter
 fn delim(input: Span, delim: char) -> IResult<Span, String> {
     let (input, span) = input.take_split(1);
 
@@ -265,54 +465,6 @@ fn ident(input: Span, ident: String) -> IResult<Span, String> {
         input.clone(),
         nom::error::ErrorKind::Tag,
     )))
-}
-
-fn parse_id_selector(input: Span) -> IResult<Span, Node> {
-    let (input, name) = any_ident(input)?;
-
-    let mut node = Node::new("IdSelector");
-    node.attributes.insert("name".into(), format!("#{}", name));
-
-    Ok((input, node))
-}
-
-fn parse_attribute_selector(input: Span) -> IResult<Span, Node> {
-    let (input, name) = any_ident(input)?;
-
-    let mut node = Node::new("AttributeSelector");
-    node.attributes.insert("name".into(), format!("[{}]", name));
-
-    Ok((input, node))
-}
-
-fn parse_pseudo_class_selector(input: Span) -> IResult<Span, Node> {
-    let (input, name) = any_ident(input)?;
-
-    let mut node = Node::new("PseudoClassSelector");
-    node.attributes.insert("name".into(), format!(":{}", name));
-
-    Ok((input, node))
-}
-
-fn parse_pseudo_element_selector(input: Span) -> IResult<Span, Node> {
-    let (input, name) = any_ident(input)?;
-
-    let mut node = Node::new("PseudoElementSelector");
-    node.attributes.insert("name".into(), format!("::{}", name));
-
-    Ok((input, node))
-}
-
-fn parse_combinator(input: Span) -> IResult<Span, Node> {
-    alt((
-        map(|i| delim(i, '<'), |_| Node::new("ChildCombinator")),
-        map(
-            |i| delim(i, '+'),
-            |_| Node::new("AdjacentSiblingCombinator"),
-        ),
-        map(|i| delim(i, '~'), |_| Node::new("GeneralSiblingCombinator")),
-        map(|i| ident(i, "||".into()), |_| Node::new("ColumnCombinator")),
-    ))(input)
 }
 
 #[cfg(test)]
