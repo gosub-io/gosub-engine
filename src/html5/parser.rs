@@ -321,7 +321,10 @@ impl<'chars> Html5Parser<'chars> {
         document.get_mut().doctype = DocumentType::HTML;
 
         // 2.
-        document.get_mut().quirks_mode = context_node.document.get().quirks_mode;
+        // if doc_weak is none for some reason, it will default to no quirks mode
+        if let Some(doc_weak) = context_node.document.upgrade() {
+            document.get_mut().quirks_mode = doc_weak.borrow().quirks_mode;
+        }
 
         // 3.
         let error_logger = Rc::new(RefCell::new(ErrorLogger::new()));
@@ -3964,7 +3967,9 @@ impl<'chars> Html5Parser<'chars> {
     // Initialize all parser settings for parsing a fragment case
     fn initialize_fragment_case(&mut self, context_node: &Node) {
         self.is_fragment_case = true;
-        self.context_doc = Some(Document::clone(&context_node.document));
+        if let Some(doc) = context_node.document.upgrade() {
+            self.context_doc = Some(DocumentHandle(doc));
+        }
         self.context_node_id = Some(context_node.id);
         self.tokenizer
             .set_state(self.find_initial_state_for_context(context_node));
