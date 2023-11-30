@@ -57,6 +57,7 @@ impl Debug for DocumentFragment {
 
 impl DocumentFragment {
     /// Creates a new document fragment and attaches it to "host" node inside "doc"
+    #[must_use]
     pub(crate) fn new(doc: DocumentHandle, host: NodeId) -> Self {
         Self {
             arena: NodeArena::new(),
@@ -248,21 +249,16 @@ pub struct Document {
 impl Default for Document {
     /// Returns a default document
     fn default() -> Self {
-        Self {
-            arena: NodeArena::new(),
-            named_id_elements: HashMap::new(),
-            doctype: DocumentType::HTML,
-            quirks_mode: QuirksMode::NoQuirks,
-        }
+        Self::new()
     }
 }
 
 impl Document {
     /// Creates a new document
+    #[must_use]
     pub fn new() -> Self {
-        let arena = NodeArena::new();
         Self {
-            arena,
+            arena: NodeArena::new(),
             named_id_elements: HashMap::new(),
             doctype: DocumentType::HTML,
             quirks_mode: QuirksMode::NoQuirks,
@@ -337,10 +333,10 @@ impl Document {
         }
 
         // Register the node if needed
-        let node_id = if !node.is_registered {
-            self.arena.register_node(node)
-        } else {
+        let node_id = if node.is_registered {
             node.id
+        } else {
+            self.arena.register_node(node)
         };
 
         // update the node's ID (it uses default ID when first created)
@@ -356,7 +352,7 @@ impl Document {
                 && is_valid_id_attribute_value(&node_named_id)
             {
                 self.named_id_elements
-                    .insert(node_named_id.to_owned(), node_id);
+                    .insert(node_named_id.clone(), node_id);
             }
         }
 
@@ -376,9 +372,7 @@ impl Document {
     /// Relocates a node to another parent node
     pub fn relocate(&mut self, node_id: NodeId, parent_id: NodeId) {
         let node = self.arena.get_node_mut(node_id).unwrap();
-        if !node.is_registered {
-            panic!("Node is not registered to the arena");
-        }
+        assert!(node.is_registered, "Node is not registered to the arena");
 
         if node.parent.is_some() && node.parent.unwrap() == parent_id {
             // Nothing to do when we want to relocate to its own parent
@@ -473,7 +467,7 @@ fn has_child_recursive(arena: &NodeArena, parent_id: NodeId, child_id: NodeId) -
     }
 
     let node = node.unwrap();
-    for id in node.children.iter() {
+    for id in &node.children {
         if *id == child_id {
             return true;
         }
@@ -486,9 +480,7 @@ fn has_child_recursive(arena: &NodeArena, parent_id: NodeId, child_id: NodeId) -
 }
 
 fn has_child(arena: &NodeArena, parent: Option<Node>, child_id: NodeId) -> bool {
-    let parent_node = if let Some(node) = parent {
-        node
-    } else {
+    let Some(parent_node) = parent else {
         return false;
     };
 
@@ -523,7 +515,7 @@ impl Document {
 
         match &node.data {
             NodeData::Document(_) => {
-                _ = writeln!(f, "{}Document", buffer);
+                _ = writeln!(f, "{buffer}Document");
             }
             NodeData::DocType(DocTypeData {
                 name,
@@ -536,15 +528,15 @@ impl Document {
                 );
             }
             NodeData::Text(TextData { value, .. }) => {
-                _ = writeln!(f, "{}\"{}\"", buffer, value);
+                _ = writeln!(f, r#"{buffer}"{value}""#);
             }
             NodeData::Comment(CommentData { value, .. }) => {
-                _ = writeln!(f, "{}<!-- {} -->", buffer, value);
+                _ = writeln!(f, "{buffer}<!-- {value} -->");
             }
             NodeData::Element(element) => {
                 _ = write!(f, "{}<{}", buffer, element.name);
-                for (key, value) in element.attributes.iter() {
-                    _ = write!(f, " {}={}", key, value);
+                for (key, value) in &element.attributes {
+                    _ = write!(f, " {key}={value}");
                 }
                 _ = writeln!(f, ">");
             }
@@ -572,7 +564,7 @@ impl Document {
 
 impl Display for Document {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self.print_tree(self.get_root(), "".to_string(), true, f);
+        self.print_tree(self.get_root(), String::new(), true, f);
         Ok(())
     }
 }
@@ -629,7 +621,7 @@ impl DocumentHandle {
 
     /// Separates the given node from its parent node (if any)
     pub fn detach_node_from_parent(&mut self, node_id: NodeId) {
-        self.get_mut().detach_node_from_parent(node_id)
+        self.get_mut().detach_node_from_parent(node_id);
     }
 
     /// Inserts a node to the parent node at the given position in the children (or none
@@ -641,7 +633,7 @@ impl DocumentHandle {
 
     /// Relocates a node to another parent node
     pub fn relocate(&mut self, node_id: NodeId, parent_id: NodeId) {
-        self.get_mut().relocate(node_id, parent_id)
+        self.get_mut().relocate(node_id, parent_id);
     }
 
     /// Returns true when there is a cyclic reference from the given node_id to the parent_id
@@ -652,16 +644,14 @@ impl DocumentHandle {
     fn insert_id_attribute(&mut self, value: &str, element_id: NodeId) -> Result<()> {
         if !is_valid_id_attribute_value(value) {
             return Err(Error::DocumentTask(format!(
-                "Attribute value '{}' did not pass validation",
-                value
+                "Attribute value '{value}' did not pass validation",
             )));
         }
 
         // an ID must be tied to only one element
         if self.get().named_id_elements.contains_key(value) {
             return Err(Error::DocumentTask(format!(
-                "ID '{}' already exists in DOM",
-                value
+                "ID '{value}' already exists in DOM",
             )));
         }
 
@@ -669,20 +659,18 @@ impl DocumentHandle {
         let data = &mut doc
             .get_node_by_id_mut(element_id)
             .ok_or(Error::DocumentTask(format!(
-                "Node ID {} not found",
-                element_id
+                "Node ID {element_id} not found",
             )))?
             .data;
 
         let old_id = if let NodeData::Element(element) = data {
             let attributes = &mut element.attributes;
-            let old_id = attributes.get("id").map(|v| v.to_owned());
+            let old_id = attributes.get("id").map(ToOwned::to_owned);
             attributes.insert("id".into(), value.into());
             old_id
         } else {
             return Err(Error::DocumentTask(format!(
-                "Node ID {} is not an element",
-                element_id
+                "Node ID {element_id} is not an element"
             )));
         };
 
@@ -697,15 +685,13 @@ impl DocumentHandle {
         let node = doc
             .get_node_by_id_mut(element_id)
             .ok_or(Error::DocumentTask(format!(
-                "Node ID {} not found",
-                element_id
+                "Node ID {element_id} not found",
             )))?;
         if let NodeData::Element(element) = &mut node.data {
-            element.classes = ElementClass::from_string(value);
+            element.classes = ElementClass::from(value);
         } else {
             return Err(Error::DocumentTask(format!(
-                "Node ID {} is not an element",
-                element_id
+                "Node ID {element_id} is not an element",
             )));
         }
 
@@ -722,15 +708,13 @@ impl DocumentHandle {
         let node = doc
             .get_node_by_id_mut(element_id)
             .ok_or(Error::DocumentTask(format!(
-                "Node ID {} not found",
-                element_id
+                "Node ID {element_id} not found"
             )))?;
         if let NodeData::Element(element) = &mut node.data {
             element.attributes.insert(key.to_owned(), value.to_owned());
         } else {
             return Err(Error::DocumentTask(format!(
-                "Node ID {} is not an element",
-                element_id
+                "Node ID {element_id} is not an element"
             )));
         }
 
@@ -874,7 +858,7 @@ impl DocumentBuilder {
     }
 
     /// Creates a new document fragment with the context as the root node
-    pub fn new_document_fragment(context: Node) -> DocumentHandle {
+    pub fn new_document_fragment(context: &Node) -> DocumentHandle {
         let mut doc = Document::shared();
         doc.get_mut().doctype = DocumentType::HTML;
 
@@ -905,6 +889,7 @@ pub struct TreeIterator {
 }
 
 impl TreeIterator {
+    #[must_use]
     pub fn new(document: &DocumentHandle) -> Self {
         Self {
             current_node_id: None,

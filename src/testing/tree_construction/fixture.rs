@@ -15,35 +15,33 @@ pub struct FixtureFile {
 }
 
 /// Reads a given test file and extract all test data
-pub fn read_fixture_from_path(path: &PathBuf) -> Result<FixtureFile, Error> {
-    let input = fs::read_to_string(path)?;
-    let path = path.to_string_lossy().into_owned();
+pub fn read_fixture_from_path(path: impl AsRef<Path>) -> Result<FixtureFile, Error> {
+    let input = fs::read_to_string(&path)?;
+    let path = path.as_ref().to_string_lossy().into_owned();
 
     let tests = parse_fixture(&input)?
         .into_iter()
         .map(|spec| Test {
-            file_path: path.to_string(),
+            file_path: path.clone(),
             line: spec.position.line,
             document: create_document_array(&spec.document),
             spec,
         })
         .collect::<Vec<_>>();
 
-    Ok(FixtureFile {
-        tests,
-        path: path.to_string(),
-    })
+    Ok(FixtureFile { tests, path })
 }
 
 /// Returns true when the fixture at 'path' is a correct fixture file and is allowed to be used
 /// according to the list of given filenames. If no filenames are given, all fixtures are used.
-fn use_fixture(filenames: &[&str], path: &Path) -> bool {
-    if !path.is_file() || path.extension().expect("file ending") != "dat" {
-        return false;
-    }
-
+fn use_fixture(filenames: &[&str], path: impl AsRef<Path>) -> bool {
     if filenames.is_empty() {
         return true;
+    }
+
+    let path = path.as_ref();
+    if !path.is_file() || path.extension().expect("file ending") != "dat" {
+        return false;
     }
 
     filenames.iter().any(|filename| path.ends_with(filename))
@@ -82,13 +80,7 @@ fn create_document_array(s: &str) -> Vec<String> {
         .replace(QUOTED_DOUBLE_NEWLINE, "\"\n\n\"")
         .split('|')
         .skip(1)
-        .filter_map(|l| {
-            if l.is_empty() {
-                None
-            } else {
-                Some(format!("|{}", l.trim_end()))
-            }
-        })
+        .flat_map(|l| (!l.is_empty()).then(|| format!("|{}", l.trim_end())))
         .collect::<Vec<_>>();
 
     document

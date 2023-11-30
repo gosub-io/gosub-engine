@@ -23,11 +23,12 @@ impl Debug for DocTypeData {
 }
 
 impl DocTypeData {
+    #[must_use]
     pub(crate) fn new(name: &str, pub_identifier: &str, sys_identifier: &str) -> Self {
-        DocTypeData {
-            name: name.to_string(),
-            pub_identifier: pub_identifier.to_string(),
-            sys_identifier: sys_identifier.to_string(),
+        Self {
+            name: name.to_owned(),
+            pub_identifier: pub_identifier.to_owned(),
+            sys_identifier: sys_identifier.to_owned(),
         }
     }
 }

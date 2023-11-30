@@ -1,7 +1,7 @@
 use crate::html5::tokenizer::CHAR_NUL;
 use std::collections::HashMap;
 
-#[derive(Debug, PartialEq, Clone, Hash, Eq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct Attribute {
     pub name: String,
     pub value: String,
@@ -121,32 +121,32 @@ impl std::fmt::Display for Token {
                 sys_identifier,
                 ..
             } => {
-                let mut result = format!("<!DOCTYPE {}", name.clone().unwrap_or("".to_string()));
+                let mut result = format!("<!DOCTYPE {}", name.clone().unwrap_or_default());
                 if let Some(pub_id) = pub_identifier {
-                    result.push_str(&format!(" PUBLIC \"{}\"", pub_id));
+                    result.push_str(&format!(r#" PUBLIC "{pub_id}""#));
                 }
                 if let Some(sys_id) = sys_identifier {
-                    result.push_str(&format!(" SYSTEM \"{}\"", sys_id));
+                    result.push_str(&format!(r#" SYSTEM "{sys_id}""#));
                 }
                 result.push_str(" />");
-                write!(f, "{}", result)
+                write!(f, "{result}")
             }
-            Token::Comment(value) => write!(f, "<!-- {} -->", value),
-            Token::Text(value) => write!(f, "{}", value),
+            Token::Comment(value) => write!(f, "<!-- {value} -->"),
+            Token::Text(value) => write!(f, "{value}"),
             Token::StartTag {
                 name,
                 is_self_closing,
                 attributes,
             } => {
-                let mut result = format!("<{}", name);
-                for (key, value) in attributes.iter() {
-                    result.push_str(&format!(" {}=\"{}\"", key, value));
+                let mut result = format!("<{name}");
+                for (key, value) in attributes {
+                    result.push_str(&format!(r#" {key}="{value}""#));
                 }
                 if *is_self_closing {
                     result.push_str(" /");
                 }
                 result.push('>');
-                write!(f, "{}", result)
+                write!(f, "{result}")
             }
             Token::EndTag {
                 name,
@@ -188,7 +188,7 @@ mod tests {
             pub_identifier: None,
             sys_identifier: None,
         };
-        assert_eq!(format!("{}", token), "<!DOCTYPE html />");
+        assert_eq!(format!("{token}"), "<!DOCTYPE html />");
 
         let token = Token::DocType {
             name: Some("html".to_string()),
@@ -197,27 +197,27 @@ mod tests {
             sys_identifier: Some("bar".to_string()),
         };
         assert_eq!(
-            format!("{}", token),
-            "<!DOCTYPE html PUBLIC \"foo\" SYSTEM \"bar\" />"
+            format!("{token}"),
+            r#"<!DOCTYPE html PUBLIC "foo" SYSTEM "bar" />"#
         );
     }
 
     #[test]
     fn test_token_display_comment() {
         let token = Token::Comment("Hello World".to_string());
-        assert_eq!(format!("{}", token), "<!-- Hello World -->");
+        assert_eq!(format!("{token}"), "<!-- Hello World -->");
     }
 
     #[test]
     fn test_token_display_comment_with_html() {
         let token = Token::Comment("<p>Hello world</p>".to_string());
-        assert_eq!(format!("{}", token), "<!-- <p>Hello world</p> -->");
+        assert_eq!(format!("{token}"), "<!-- <p>Hello world</p> -->");
     }
 
     #[test]
     fn test_token_display_text() {
         let token = Token::Text("Hello World".to_string());
-        assert_eq!(format!("{}", token), "Hello World");
+        assert_eq!(format!("{token}"), "Hello World");
     }
 
     #[test]
@@ -227,7 +227,7 @@ mod tests {
             is_self_closing: false,
             attributes: HashMap::new(),
         };
-        assert_eq!(format!("{}", token), "<html>");
+        assert_eq!(format!("{token}"), "<html>");
 
         let mut attributes = HashMap::new();
         attributes.insert("foo".to_string(), "bar".to_string());
@@ -237,14 +237,14 @@ mod tests {
             is_self_closing: false,
             attributes,
         };
-        assert_eq!(format!("{}", token), "<html foo=\"bar\">");
+        assert_eq!(format!("{token}"), r#"<html foo="bar">"#);
 
         let token = Token::StartTag {
             name: "br".to_string(),
             is_self_closing: true,
             attributes: HashMap::new(),
         };
-        assert_eq!(format!("{}", token), "<br />");
+        assert_eq!(format!("{token}"), "<br />");
     }
 
     #[test]
@@ -253,13 +253,13 @@ mod tests {
             name: "html".to_string(),
             is_self_closing: false,
         };
-        assert_eq!(format!("{}", token), "</html>");
+        assert_eq!(format!("{token}"), "</html>");
     }
 
     #[test]
     fn test_token_display_eof() {
         let token = Token::Eof;
-        assert_eq!(format!("{}", token), "EOF");
+        assert_eq!(format!("{token}"), "EOF");
     }
 
     #[test]

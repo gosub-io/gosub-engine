@@ -33,7 +33,7 @@ pub enum LogLevel {
 impl fmt::Display for LogLevel {
     // When displaying the enum, make sure it is in lowercase
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", format!("{:?}", self).to_lowercase())
+        write!(f, "{}", format!("{self:?}").to_lowercase())
     }
 }
 
@@ -72,8 +72,9 @@ impl Console {
     /// # Returns
     ///
     /// A new Console struct
-    pub fn new(printer: Box<dyn Printer>) -> Console {
-        Console {
+    #[must_use]
+    pub fn new(printer: Box<dyn Printer>) -> Self {
+        Self {
             timer_map: HashMap::new(),
             count_map: HashMap::new(),
             group_stacks: vec![],
@@ -132,7 +133,7 @@ impl Console {
     /// Emit table if tabular data is supported
     pub fn table(&mut self, tabular_data: String, _properties: &[&str]) {
         // TODO: needs implementation
-        self.printer.print(LogLevel::Log, &[&tabular_data], &[])
+        self.printer.print(LogLevel::Log, &[&tabular_data], &[]);
     }
 
     /// Emit a trace message
@@ -224,7 +225,7 @@ impl Console {
     /// Create a timer with given label
     pub fn time(&mut self, label: &str) {
         if self.timer_map.contains_key(&label.to_owned()) {
-            let warning = format!("Timer '{}' already started", label);
+            let warning = format!("Timer '{label}' already started");
             self.logger(LogLevel::Warn, &[&warning]);
             return;
         }
@@ -248,7 +249,7 @@ impl Console {
     pub fn time_log(&mut self, label: &str, data: &[&dyn fmt::Display]) {
         let mut message = String::from(" ");
         for arg in data {
-            message.push_str(&format!("{} ", arg));
+            message.push_str(&format!("{arg} "));
         }
         let message = message.trim_end();
 
@@ -325,7 +326,7 @@ mod tests {
         c.log(&[&"some", &"data", &12i32]);
         c.warn(&[&"Hello", &"World"]);
 
-        let out = buffer.borrow().to_string().unwrap();
+        let out = buffer.borrow().try_to_string().unwrap();
         assert_eq!(
             out,
             "\
@@ -357,7 +358,7 @@ mod tests {
         c.group_end();
         c.warn(&[&"Back", &"To root"]);
 
-        let out = buffer.borrow().to_string().unwrap();
+        let out = buffer.borrow().try_to_string().unwrap();
         let re = Regex::new(
             r"^--- Clear ---
  > Expanded group: foo
@@ -385,7 +386,7 @@ $",
         c.assert(true, &[]);
         c.assert(false, &[]);
 
-        let out = buffer.borrow().to_string().unwrap();
+        let out = buffer.borrow().try_to_string().unwrap();
         assert_eq!(
             out,
             "\

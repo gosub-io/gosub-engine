@@ -29,14 +29,14 @@ pub enum BookMark<NodeId> {
 }
 
 impl Html5Parser<'_> {
-    fn find_position_in_active_format(&self, node_id: &NodeId) -> Option<usize> {
+    fn find_position_in_active_format(&self, node_id: NodeId) -> Option<usize> {
         self.active_formatting_elements
             .iter()
-            .position(|&x| x == ActiveElement::Node(*node_id))
+            .position(|&x| x == ActiveElement::Node(node_id))
     }
 
-    fn find_position_in_open_element(&self, node_id: &NodeId) -> Option<usize> {
-        self.open_elements.iter().position(|x| x == node_id)
+    fn find_position_in_open_element(&self, node_id: NodeId) -> Option<usize> {
+        self.open_elements.iter().position(|&x| x == node_id)
     }
 
     fn find_format_element_index(&self, subject: &str) -> Option<(usize, NodeId)> {
@@ -171,7 +171,7 @@ impl Html5Parser<'_> {
         if let NodeData::Element(ref mut element) = node.data {
             if element.attributes.contains_key("class") {
                 if let Some(class_string) = element.attributes.get("class") {
-                    element.classes = ElementClass::from_string(class_string);
+                    element.classes = ElementClass::from(class_string.as_str());
                 }
             }
         }
@@ -180,7 +180,7 @@ impl Html5Parser<'_> {
 
     pub fn insert_element_from_node(
         &mut self,
-        org_node: Node,
+        org_node: &Node,
         override_node: Option<NodeId>,
     ) -> NodeId {
         // Create a node, but without children and push it onto the open elements stack (if needed)
@@ -192,7 +192,7 @@ impl Html5Parser<'_> {
         if let NodeData::Element(ref mut element) = new_node.data {
             if element.attributes.contains_key("class") {
                 if let Some(class_string) = element.attributes.get("class") {
-                    element.classes = ElementClass::from_string(class_string);
+                    element.classes = ElementClass::from(class_string.as_str());
                 }
             }
         }
@@ -227,15 +227,12 @@ impl Html5Parser<'_> {
 
     pub fn insert_comment_element(&mut self, token: &Token, insert_position: Option<NodeId>) {
         let node = self.create_node(token, HTML_NAMESPACE);
-        match insert_position {
-            Some(position) => {
-                self.document.get_mut().add_node(node, position, None);
-            }
-            None => {
-                let node_id = self.document.get_mut().add_new_node(node);
-                let insert_position = self.appropriate_place_insert(None);
-                self.insert_element_helper(node_id, insert_position);
-            }
+        if let Some(position) = insert_position {
+            self.document.get_mut().add_node(node, position, None);
+        } else {
+            let node_id = self.document.get_mut().add_new_node(node);
+            let insert_position = self.appropriate_place_insert(None);
+            self.insert_element_helper(node_id, insert_position);
         }
     }
 
@@ -325,7 +322,7 @@ impl Html5Parser<'_> {
         if current_node.name == *subject
             && current_node.is_namespace(HTML_NAMESPACE)
             && self
-                .find_position_in_active_format(&current_node_id)
+                .find_position_in_active_format(current_node_id)
                 .is_none()
         {
             self.open_elements.pop();
@@ -421,18 +418,16 @@ impl Html5Parser<'_> {
 
                 // step 4.13.4
                 if inner_loop_counter > ADOPTION_AGENCY_INNER_LOOP_DEPTH {
-                    self.find_position_in_active_format(&node_id)
+                    self.find_position_in_active_format(node_id)
                         .map(|position| self.active_formatting_elements.remove(position));
                     self.open_elements.remove(node_idx);
                     continue;
                 }
                 // step 4.13.5
-                let node_active_position = match self.find_position_in_active_format(&node_id) {
-                    Some(pos) => pos,
-                    None => {
-                        self.open_elements.remove(node_idx);
-                        continue;
-                    }
+                let Some(node_active_position) = self.find_position_in_active_format(node_id)
+                else {
+                    self.open_elements.remove(node_idx);
+                    continue;
                 };
 
                 // step 4.13.6
@@ -493,7 +488,7 @@ impl Html5Parser<'_> {
                 .get_mut()
                 .add_new_node(new_format_node.clone());
             let further_block_node = get_node_by_id!(self.document, further_block_node_id);
-            for child in further_block_node.children.iter() {
+            for child in &further_block_node.children {
                 self.document.get_mut().relocate(*child, new_node_id);
             }
 
@@ -506,18 +501,18 @@ impl Html5Parser<'_> {
             match bookmark_node_id {
                 BookMark::Replace(current) => {
                     let index = self
-                        .find_position_in_active_format(&current)
+                        .find_position_in_active_format(current)
                         .expect("node not found");
                     self.active_formatting_elements[index] = ActiveElement::Node(new_node_id);
                 }
                 BookMark::InsertAfter(previous) => {
                     let index = self
-                        .find_position_in_active_format(&previous)
+                        .find_position_in_active_format(previous)
                         .expect("node not foudn")
                         + 1;
                     self.active_formatting_elements
                         .insert(index, ActiveElement::Node(new_node_id));
-                    let position = self.find_position_in_active_format(&format_elem_node_id);
+                    let position = self.find_position_in_active_format(format_elem_node_id);
                     self.active_formatting_elements.remove(position.unwrap());
                 }
             }
@@ -525,7 +520,7 @@ impl Html5Parser<'_> {
             // step 4.19
             self.open_elements.retain(|x| x != &format_elem_node_id);
             let position = self
-                .find_position_in_open_element(&further_block_node_id)
+                .find_position_in_open_element(further_block_node_id)
                 .unwrap();
             self.open_elements.insert(position + 1, new_node_id);
         }

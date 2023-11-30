@@ -2,6 +2,7 @@ use crate::types::Result;
 use std::io::Write;
 
 /// A buffer that can be written to and then converted to a string
+#[derive(Default)]
 pub struct Buffer {
     /// Internal buffer
     buf: Vec<u8>,
@@ -9,12 +10,13 @@ pub struct Buffer {
 
 impl Buffer {
     /// Creates a new buffer
+    #[must_use]
     pub fn new() -> Self {
-        Self { buf: Vec::new() }
+        Self::default()
     }
 
     /// Converts the buffer to a String
-    pub fn to_string(&self) -> Result<String> {
+    pub fn try_to_string(&self) -> Result<String> {
         Ok(String::from_utf8(self.buf.clone())?)
     }
 }

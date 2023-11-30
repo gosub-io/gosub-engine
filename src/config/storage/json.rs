@@ -18,26 +18,21 @@ impl TryFrom<&String> for JsonStorageAdapter {
     type Error = Error;
 
     fn try_from(path: &String) -> Result<Self> {
-        let _ = match fs::metadata(path) {
-            Ok(metadata) => {
-                if !metadata.is_file() {
-                    panic!("json file is not a regular file")
-                }
+        let _ = if let Ok(metadata) = fs::metadata(path) {
+            assert!(metadata.is_file(), "json file is not a regular file");
 
-                File::options()
-                    .read(true)
-                    .write(true)
-                    .open(path)
-                    .expect("failed to open json file")
-            }
-            Err(_) => {
-                let json = "{}";
+            File::options()
+                .read(true)
+                .write(true)
+                .open(path)
+                .expect("failed to open json file")
+        } else {
+            let json = "{}";
 
-                let mut file = File::create(path).expect("cannot create json file");
-                file.write_all(json.as_bytes())?;
+            let mut file = File::create(path).expect("cannot create json file");
+            file.write_all(json.as_bytes())?;
 
-                file
-            }
+            file
         };
 
         let mut adapter = JsonStorageAdapter {
@@ -59,7 +54,7 @@ impl StorageAdapter for JsonStorageAdapter {
 
     fn set(&self, key: &str, value: Setting) {
         let mut lock = self.elements.lock().unwrap();
-        lock.insert(key.to_string(), value);
+        lock.insert(key.to_owned(), value);
 
         // self.write_file()
     }
@@ -86,7 +81,7 @@ impl JsonStorageAdapter {
             self.elements = Mutex::new(HashMap::new());
 
             let mut lock = self.elements.lock().unwrap();
-            for (key, value) in settings.iter() {
+            for (key, value) in &settings {
                 match serde_json::from_value(value.clone()) {
                     Ok(setting) => {
                         lock.insert(key.clone(), setting);

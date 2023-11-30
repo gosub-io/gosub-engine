@@ -77,19 +77,19 @@ pub enum Token {
 impl fmt::Display for Token {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let string = match self {
-            Token::AtKeyword(val) => val.into(),
-            Token::Url(val) => val.into(),
-            Token::BadUrl(val) => val.into(),
+            Token::AtKeyword(val)
+            | Token::Url(val)
+            | Token::BadUrl(val)
+            | Token::Hash(val)
+            | Token::IDHash(val)
+            | Token::Ident(val)
+            | Token::Function(val)
+            | Token::QuotedString(val)
+            | Token::BadString(val) => val.into(),
             Token::Delim(val) => val.to_string(),
-            Token::Function(val) => val.into(),
-            Token::Hash(val) => val.into(),
-            Token::IDHash(val) => val.into(),
-            Token::Ident(val) => val.into(),
             Token::Number(val) => val.to_string(),
-            Token::Percentage(val) => format!("{}%", val),
-            Token::QuotedString(val) => val.into(),
-            Token::BadString(val) => val.into(),
-            Token::Dimension { unit, value } => format!("{}{}", value, unit),
+            Token::Percentage(val) => format!("{val}%"),
+            Token::Dimension { unit, value } => format!("{value}{unit}"),
             Token::CDC => "-->".into(),
             Token::CDO => "<!--".into(),
             Token::Colon => ":".into(),
@@ -102,10 +102,10 @@ impl fmt::Display for Token {
             Token::LParen => "(".into(),
             Token::RParen => ")".into(),
             Token::Whitespace => " ".into(),
-            Token::EOF => "".into(),
+            Token::EOF => String::new(),
         };
 
-        write!(f, "{}", string)
+        write!(f, "{string}")
     }
 }
 
@@ -237,8 +237,9 @@ pub struct Tokenizer<'stream> {
 }
 
 impl<'stream> Tokenizer<'stream> {
-    pub fn new(stream: &'stream mut CharIterator) -> Tokenizer {
-        Tokenizer {
+    #[must_use]
+    pub fn new(stream: &'stream mut CharIterator) -> Self {
+        Self {
             stream,
             position: 0,
             tokens: Vec::new(),
@@ -473,7 +474,7 @@ impl<'stream> Tokenizer<'stream> {
                 continue;
             }
 
-            value.push(self.stream.read_char().into())
+            value.push(self.stream.read_char().into());
         }
     }
 
@@ -608,7 +609,7 @@ impl<'stream> Tokenizer<'stream> {
 
         let mut value = String::new();
 
-        let default_char = get_unicode_char(UnicodeChar::ReplacementCharacter);
+        let default_char = get_unicode_char(&UnicodeChar::ReplacementCharacter);
         // eof: parser error
         if self.stream.eof() {
             return default_char;
@@ -632,8 +633,8 @@ impl<'stream> Tokenizer<'stream> {
 
         // todo: look for better implementation
         if let Some(char) = char::from_u32(as_u32) {
-            if char == get_unicode_char(UnicodeChar::Null)
-                || char >= get_unicode_char(UnicodeChar::MaxAllowed)
+            if char == get_unicode_char(&UnicodeChar::Null)
+                || char >= get_unicode_char(&UnicodeChar::MaxAllowed)
             {
                 return default_char;
             }
@@ -688,7 +689,7 @@ impl<'stream> Tokenizer<'stream> {
         let mut value = String::new();
 
         while matches!(self.stream.current_char(), Ch(c) if c.is_numeric()) {
-            value.push(self.stream.read_char().into())
+            value.push(self.stream.read_char().into());
         }
 
         value
@@ -699,7 +700,7 @@ impl<'stream> Tokenizer<'stream> {
 
         while len > 0 {
             value.push(self.stream.read_char().into());
-            len -= 1
+            len -= 1;
         }
 
         value
@@ -726,12 +727,12 @@ impl<'stream> Tokenizer<'stream> {
     /// def: [non-printable code point](https://www.w3.org/TR/css-syntax-3/#non-printable-code-point)
     fn is_non_printable_char(&self) -> bool {
         if let Ch(char) = self.stream.current_char() {
-            (char >= get_unicode_char(UnicodeChar::Null)
-                && char <= get_unicode_char(UnicodeChar::Backspace))
-                || (char >= get_unicode_char(UnicodeChar::ShiftOut)
-                    && char <= get_unicode_char(UnicodeChar::InformationSeparatorOne))
-                || char == get_unicode_char(UnicodeChar::Tab)
-                || char == get_unicode_char(UnicodeChar::Delete)
+            (char >= get_unicode_char(&UnicodeChar::Null)
+                && char <= get_unicode_char(&UnicodeChar::Backspace))
+                || (char >= get_unicode_char(&UnicodeChar::ShiftOut)
+                    && char <= get_unicode_char(&UnicodeChar::InformationSeparatorOne))
+                || char == get_unicode_char(&UnicodeChar::Tab)
+                || char == get_unicode_char(&UnicodeChar::Delete)
         } else {
             false
         }
@@ -856,19 +857,19 @@ mod test {
             let mut chars = CharIterator::new();
 
             let escaped_chars = vec![
-                ("\\005F ", get_unicode_char(UnicodeChar::LowLine)),
+                ("\\005F ", get_unicode_char(&UnicodeChar::LowLine)),
                 ("\\2A", '*'),
                 (
                     "\\000000 ",
-                    get_unicode_char(UnicodeChar::ReplacementCharacter),
+                    get_unicode_char(&UnicodeChar::ReplacementCharacter),
                 ),
                 (
                     "\\FFFFFF ",
-                    get_unicode_char(UnicodeChar::ReplacementCharacter),
+                    get_unicode_char(&UnicodeChar::ReplacementCharacter),
                 ),
                 (
                     "\\10FFFF ",
-                    get_unicode_char(UnicodeChar::ReplacementCharacter),
+                    get_unicode_char(&UnicodeChar::ReplacementCharacter),
                 ),
             ];
 

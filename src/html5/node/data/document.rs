@@ -19,7 +19,8 @@ impl Debug for DocumentData {
 }
 
 impl DocumentData {
+    #[must_use]
     pub(crate) fn new() -> Self {
-        DocumentData {}
+        Self {}
     }
 }

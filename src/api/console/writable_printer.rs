@@ -18,8 +18,8 @@ pub(crate) struct WritablePrinter<W: Write> {
 
 impl<W: Write> WritablePrinter<W> {
     /// Creates a new writable printer
-    pub fn new(writer: Rc<RefCell<W>>) -> WritablePrinter<W> {
-        WritablePrinter {
+    pub fn new(writer: Rc<RefCell<W>>) -> Self {
+        Self {
             writer,
             groups: vec![],
         }
@@ -58,11 +58,11 @@ impl<W: Write> Printer for WritablePrinter<W> {
 
         let group_prefix = " > ".repeat(self.groups.len());
 
-        let mut data = String::from("");
+        let mut data = String::new();
         for arg in args {
-            data.push_str(format!("{} ", arg).as_str());
+            data.push_str(format!("{arg} ").as_str());
         }
-        data = data.trim_end().to_string();
+        data = data.trim_end().to_owned();
         let mut writer = self.writer.borrow_mut();
 
         let _ = match log_level {
@@ -71,13 +71,13 @@ impl<W: Write> Printer for WritablePrinter<W> {
             | LogLevel::Error
             | LogLevel::Log
             | LogLevel::Assert => {
-                writeln!(writer, "{}[{}] {}", group_prefix, log_level, data)
+                writeln!(writer, "{group_prefix}[{log_level}] {data}")
             }
-            LogLevel::Group => writeln!(writer, "{}Expanded group: {}", group_prefix, data),
+            LogLevel::Group => writeln!(writer, "{group_prefix}Expanded group: {data}"),
             LogLevel::GroupCollapsed => {
-                writeln!(writer, "{}Collapsed group: {}", group_prefix, data)
+                writeln!(writer, "{group_prefix}Collapsed group: {data}")
             }
-            LogLevel::TimeEnd => writeln!(writer, "{}{} - timer ended", group_prefix, data),
+            LogLevel::TimeEnd => writeln!(writer, "{group_prefix}{data} - timer ended"),
             _ => Ok(()),
         };
     }
@@ -106,7 +106,10 @@ mod tests {
 
         printer.print(LogLevel::Log, &[&"Hello", &"World"], &[]);
         assert_eq!(
-            buffer.borrow_mut().to_string().expect("failed to convert"),
+            buffer
+                .borrow_mut()
+                .try_to_string()
+                .expect("failed to convert"),
             "[log] Hello World\n"
         );
 
@@ -116,7 +119,10 @@ mod tests {
         printer.print(LogLevel::Warn, &[&"a", &"b"], &[]);
         printer.print(LogLevel::Error, &[], &[]);
         assert_eq!(
-            buffer.borrow_mut().to_string().expect("failed to convert"),
+            buffer
+                .borrow_mut()
+                .try_to_string()
+                .expect("failed to convert"),
             "[info] Foo 2 false\n[warn] a b\n"
         );
     }

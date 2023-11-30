@@ -67,8 +67,7 @@ const DISABLED_CASES: &[&str] = &[
 #[test_case("webkit01.dat")]
 #[test_case("webkit02.dat")]
 fn tree_construction(filename: &str) {
-    let fixture_file =
-        read_fixture_from_path(&fixture_root_path().join(filename)).expect("fixture");
+    let fixture_file = read_fixture_from_path(fixture_root_path().join(filename)).expect("fixture");
     let mut harness = Harness::new();
 
     for test in fixture_file.tests {

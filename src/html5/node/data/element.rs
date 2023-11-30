@@ -36,14 +36,16 @@ impl Debug for ElementData {
 }
 
 impl ElementData {
+    #[must_use]
     pub(crate) fn new(node_id: NodeId, document: DocumentHandle) -> Self {
+        let (name, attributes, classes, force_async, template_contents) = <_>::default();
         Self {
             node_id,
-            name: "".to_string(),
-            attributes: HashMap::new(),
-            classes: ElementClass::new(),
-            force_async: false,
-            template_contents: None,
+            name,
+            attributes,
+            classes,
+            force_async,
+            template_contents,
             document,
         }
     }
@@ -54,14 +56,15 @@ impl ElementData {
         name: &str,
         attributes: HashMap<String, String>,
     ) -> Self {
+        let (classes, force_async, template_contents) = <_>::default();
         Self {
             node_id,
             name: name.into(),
             attributes,
-            classes: ElementClass::new(),
-            force_async: false,
-            template_contents: None,
             document,
+            classes,
+            force_async,
+            template_contents,
         }
     }
 

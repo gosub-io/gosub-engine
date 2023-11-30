@@ -46,7 +46,7 @@ fn main() -> Result<()> {
     }
 
     for e in parse_errors {
-        println!("Parse Error: {}", e.message)
+        println!("Parse Error: {}", e.message);
     }
 
     Ok(())

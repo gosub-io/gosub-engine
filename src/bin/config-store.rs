@@ -40,7 +40,7 @@ enum Commands {
     },
 }
 
-#[derive(Debug, Clone, Copy, clap::ValueEnum, Display)]
+#[derive(Clone, Copy, Debug, Display, clap::ValueEnum)]
 enum Engine {
     Sqlite,
     Json,
@@ -91,15 +91,15 @@ fn main() -> anyhow::Result<()> {
             let info = config::config_store().get_info(&key).unwrap();
             let value = config::config_store().get(&key).unwrap();
 
-            println!("Key            : {}", key);
-            println!("Current Value  : {}", value);
+            println!("Key            : {key}");
+            println!("Current Value  : {value}");
             println!("Default Value  : {}", info.default);
             println!("Description    : {}", info.description);
         }
         Commands::List => {
             for key in config::config_store().find("*") {
                 let value = config::config_store().get(&key).unwrap();
-                println!("{:40}: {}", key, value);
+                println!("{key:40}: {value}");
             }
         }
         Commands::Set { key, value } => {
@@ -108,7 +108,7 @@ fn main() -> anyhow::Result<()> {
         Commands::Search { key } => {
             for key in config::config_store().find(&key) {
                 let value = config::config_store().get(&key).unwrap();
-                println!("{:40}: {}", key, value);
+                println!("{key:40}: {value}");
             }
         }
     }

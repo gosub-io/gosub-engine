@@ -16,23 +16,10 @@ impl Default for ElementClass {
 
 impl ElementClass {
     /// Initialise a new (empty) ElementClass
+    #[must_use]
     pub fn new() -> Self {
-        ElementClass {
+        Self {
             class_map: HashMap::new(),
-        }
-    }
-
-    /// Initialize a class from a class string
-    /// with space-delimited class names
-    pub fn from_string(class_string: &str) -> Self {
-        let mut class_map_local = HashMap::new();
-        let classes = class_string.split_whitespace();
-        for class_name in classes {
-            class_map_local.insert(class_name.to_owned(), true);
-        }
-
-        ElementClass {
-            class_map: class_map_local,
         }
     }
 
@@ -89,6 +76,21 @@ impl ElementClass {
         }
 
         false
+    }
+}
+
+/// Initialize a class from a class string
+/// with space-delimited class names
+impl From<&str> for ElementClass {
+    fn from(class_string: &str) -> Self {
+        let class_map_local = class_string
+            .split_whitespace()
+            .map(|class| (class.to_owned(), true))
+            .collect::<HashMap<String, bool>>();
+
+        ElementClass {
+            class_map: class_map_local,
+        }
     }
 }
 

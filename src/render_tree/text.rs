@@ -10,6 +10,7 @@ pub struct TextNode {
 }
 
 impl TextNode {
+    #[must_use]
     fn new(fs: f64, bold: bool) -> Self {
         Self {
             value: "".to_owned(),
