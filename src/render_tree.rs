@@ -13,7 +13,8 @@ pub mod util;
 
 /// The position of the render cursor used to determine where
 /// to draw an object
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
+#[repr(C)]
 pub struct Position {
     pub x: f64,
     pub y: f64,
@@ -25,7 +26,6 @@ impl Position {
         Self { x: 0., y: 0. }
     }
 
-    // TODO: might be more idiomatic to use From trait for this?
     pub fn new_from_existing(position: &Position) -> Self {
         Self {
             x: position.x,
