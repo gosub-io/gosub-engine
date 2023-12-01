@@ -1,21 +1,23 @@
 use core::slice::Iter;
-use crate::css3::tokenizer::Token;
 use nom::{InputIter, InputLength, InputTake, Needed, Slice, UnspecializedInput};
 use std::iter::Enumerate;
 use std::ops::{Range, RangeFrom, RangeFull, RangeTo};
+use crate::css3::parser::{ComponentValue, Function, SimpleBlock};
+use crate::css3::tokenizer::Token;
 
-/// Span is a slice of tokens that can be used as input for nom parsers. Originally taken from
+/// Span is a slice of component values that are parsed by the main css3 parser that can be used
+/// as input for nom parsers. Originally taken from
 /// https://github.com/Rydgel/monkey-rust/blob/master/lib/lexer/token.rs
 
 #[derive(Clone, Debug)]
 pub struct Span<'t> {
-    pub list: &'t [Token],
+    pub list: &'t [ComponentValue],
     pub start: usize,
     pub end: usize,
 }
 
 impl<'t> Span<'t> {
-    pub(crate) fn new(input: &'t Vec<Token>) -> Self {
+    pub(crate) fn new(input: &'t Vec<ComponentValue>) -> Self {
         Span {
             list: input.as_slice(),
             start: 0,
@@ -23,16 +25,33 @@ impl<'t> Span<'t> {
         }
     }
 
-    pub(crate) fn get(&self, index: usize) -> Option<&Token> {
-        self.list.get(index)
+    pub fn to_token(&self) -> Option<&Token> {
+        match self.list.get(0) {
+            Some(ComponentValue::PreservedToken(token)) => Some(token),
+            _ => None,
+        }
     }
+
+    pub fn to_simple_block(&self) -> Option<&SimpleBlock> {
+        match self.list.get(0) {
+            Some(ComponentValue::SimpleBlock(block)) => Some(block),
+            _ => None,
+        }
+    }
+
+    pub fn to_function(&self) -> Option<&Function> {
+        match self.list.get(0) {
+            Some(ComponentValue::Function(func)) => Some(func),
+            _ => None,
+        }
+    }
+
+    // pub(crate) fn get(&self, index: usize) -> Option<&ComponentValue> {
+    //     self.list.get(index)
+    // }
 
     pub fn is_empty(&self) -> bool {
         self.list.is_empty()
-    }
-
-    pub fn to_token(&self) -> Token {
-        self.list[0].clone()
     }
 }
 
@@ -115,9 +134,9 @@ impl<'t> Slice<RangeFull> for Span<'t> {
 }
 
 impl<'t> InputIter for Span<'t> {
-    type Item = &'t Token;
-    type Iter = Enumerate<Iter<'t, Token>>;
-    type IterElem = Iter<'t, Token>;
+    type Item = &'t ComponentValue;
+    type Iter = Enumerate<Iter<'t, ComponentValue>>;
+    type IterElem = Iter<'t, ComponentValue>;
 
     #[inline]
     fn iter_indices(&self) -> Self::Iter {
@@ -146,93 +165,6 @@ impl<'t> InputIter for Span<'t> {
         Err(Needed::Unknown)
     }
 }
-
-
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-// impl Compare<Token> for Span<'_> {
-//     fn compare(&self, t: Token) -> nom::CompareResult {
-//         if self.0[0] == t {
-//             nom::CompareResult::Ok
-//         } else {
-//             nom::CompareResult::Error
-//         }
-//     }
-//
-//     fn compare_no_case(&self, _t: Token) -> nom::CompareResult {
-//         todo!()
-//     }
-// }
-//
-//
-// pub struct SpanIter;
-//
-// impl Iterator for SpanIter {
-//     type Item = (usize, Token);
-//
-//     fn next(&mut self) -> Option<Self::Item> {
-//         todo!()
-//     }
-// }
-//
-// pub struct TokenIter;
-//
-// impl Iterator for TokenIter {
-//     type Item = Token;
-//
-//     fn next(&mut self) -> Option<Self::Item> {
-//         todo!()
-//     }
-// }
-//
-// impl InputIter for Span<'_> {
-//     type Item = Token;
-//
-//     type Iter = SpanIter;
-//
-//     type IterElem = TokenIter;
-//
-//     fn iter_indices(&self) -> Self::Iter {
-//         todo!()
-//     }
-//
-//     fn iter_elements(&self) -> Self::IterElem {
-//         todo!()
-//     }
-//
-//     fn position<P>(&self, predicate: P) -> Option<usize>
-//     where
-//         P: Fn(Self::Item) -> bool,
-//     {
-//         for (i, t) in self.0.iter().enumerate() {
-//             if predicate(t.clone()) {
-//                 return Some(i);
-//             }
-//         }
-//         None
-//     }
-//
-//     fn slice_index(&self, _count: usize) -> Result<usize, nom::Needed> {
-//         todo!()
-//     }
-// }
 
 impl UnspecializedInput for Span<'_> {
 }

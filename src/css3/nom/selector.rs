@@ -1,10 +1,10 @@
 use crate::css3::ast::Node;
-use crate::css3::tokenizer::Token;
 use nom::branch::alt;
+use nom::bytes::complete::take;
 use nom::combinator::{map, opt};
 use nom::multi::{many0, separated_list1};
 use nom::IResult;
-use crate::css3::nom::{any, any_function, any_hash, any_ident, any_string, comma, delim, ident, whitespace0, whitespace1};
+use crate::css3::nom::{function, any_hash, any_ident, any_string, comma, delim, ident, whitespace0, whitespace1};
 use crate::css3::span::Span;
 
 /// This module contains functions to parse CSS level 4 selectors. For more information, see:
@@ -348,14 +348,14 @@ fn parse_pseudo_class_selector_ident(input: Span) -> IResult<Span, Node> {
 /// ':' <function-token> <any-value> ')'
 fn parse_pseudo_class_selector_function(input: Span) -> IResult<Span, Node> {
     let (input, _) = delim(input, ':')?;
-    let (input, name) = any_function(input)?;
-    let (input, value) = any(input)?;
-    let (input, _) = delim(input, ')')?;
+    let (input, func_node) = function(input)?;
+    let (input, _) = take(1usize)(input)?;
 
-    let mut node = Node::new("PseudoClassSelector");
-    node.attributes.insert("name".into(), format!(":{}({})", name, value));
+    // let (input, _) = delim(input, ')')?;
+    // let mut node = Node::new("PseudoClassSelector");
+    // node.attributes.insert("name".into(), format!(":{}({})", name, value));
 
-    Ok((input, node))
+    Ok((input, func_node))
 }
 
 /// <pseudo-element-selector> = ':' <pseudo-class-selector>
@@ -367,64 +367,4 @@ fn parse_pseudo_element_selector(input: Span) -> IResult<Span, Node> {
     node.attributes.insert("name".into(), format!("::{}", name));
 
     Ok((input, node))
-}
-
-// =================================================================================================
-// These functions will return direct strings from the wanted tokens
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::bytes::{CharIterator, Encoding};
-    use crate::css3::tokenizer::Tokenizer;
-
-    #[test]
-    fn test_parse_selector_list() {
-        let mut it = CharIterator::new();
-        // it.read_from_str("div > span + span ~ span || span { color: red } ", Some(Encoding::UTF8));
-        it.read_from_str("\
-* {
-    box-sizing: border-box
-}
-
-.main-content h2 {
-    color: #3c4040;
-    font-weight: 400;
-    line-height: 1.5rem;
-    font-size: 1rem;
-    padding-right: 60px
-}
-", Some(Encoding::UTF8));
-/*
-        it.read_from_str(
-            "
-            ahr .short, bhr .long {
-            background-color: var(--border-base-color);
-            border: 0;
-            color: var(--border-base-color);
-            height: 1px;
-            margin: 20px 0 0 0;
-            overflow: hidden;
-            padding: 0;
-            text-align: left;
-            width: 65px
-        }",
-            Some(Encoding::UTF8),
-        );
-*/
-        let mut tokenizer = Tokenizer::new(&mut it);
-        tokenizer.consume_all();
-        let tokens = tokenizer.tokens;
-        let tokens = tokens
-            .iter()
-            .cloned()
-            .filter(|t| *t != Token::Whitespace)
-            .collect();
-
-        let input = Span::new(&tokens);
-        let (input, node) = parse_selector_list(input).unwrap();
-
-        println!("{:?}", input);
-        println!("{:#?}", node);
-    }
 }

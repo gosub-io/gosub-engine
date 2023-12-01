@@ -1,6 +1,5 @@
 use crate::css3::ast::Node;
 use crate::css3::tokenizer::{Token, TokenStreamer};
-// use crate::css3::Error::{Syntax, UnexpectedEof};
 use core::fmt::Debug;
 use log::{debug, trace};
 use std::collections::HashMap;
@@ -123,6 +122,41 @@ pub enum ComponentValue {
     SimpleBlock(SimpleBlock),
 }
 
+impl ComponentValue {
+    pub fn is_token(&self) -> bool {
+        matches!(self, ComponentValue::PreservedToken(_))
+    }
+
+    pub fn get_token(&self) -> Option<Token> {
+        match self {
+            ComponentValue::PreservedToken(token) => Some(token.clone()),
+            _ => None,
+        }
+    }
+
+    pub fn is_function(&self) -> bool {
+        matches!(self, ComponentValue::Function(_))
+    }
+
+    pub fn get_function(&self) -> Option<&Function> {
+        match self {
+            ComponentValue::Function(function) => Some(function),
+            _ => None,
+        }
+    }
+
+    pub fn is_simple_block(&self) -> bool {
+        matches!(self, ComponentValue::SimpleBlock(_))
+    }
+
+    pub fn get_simple_block(&self) -> Option<&SimpleBlock> {
+        match self {
+            ComponentValue::SimpleBlock(block) => Some(block),
+            _ => None,
+        }
+    }
+}
+
 impl Debug for ComponentValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -135,7 +169,7 @@ impl Debug for ComponentValue {
 
 #[derive(PartialEq, Debug)]
 pub struct Function {
-    name: String,
+    pub(crate) name: String,
     values: Vec<ComponentValue>,
 }
 
@@ -937,8 +971,7 @@ mod tests {
 
                     match at_rule.keyword.as_str() {
                         "media" => {
-                            let input_slice = from_component_values(&at_rule.prelude);
-                            let input_span = Span::new(&input_slice);
+                            let input_span = Span::new(&at_rule.prelude);
                             let (input, node) = media_query::parse_media_query_list(input_span).unwrap();
                             if !input.is_empty() {
                                 println!("input is not empty");
@@ -968,8 +1001,7 @@ mod tests {
                     println!("qrule: {:?}", qrule);
 
                     // compile prelude
-                    let input_slice = from_component_values(&qrule.prelude);
-                    let input_span = Span::new(&input_slice);
+                    let input_span = Span::new(&qrule.prelude);
                     let (input, node) = selector::parse_selector_list(input_span).unwrap();
                     if !input.is_empty() {
                         println!("input is not empty");
@@ -986,14 +1018,5 @@ mod tests {
         //
         // println!("ast tree:\n");
         // ast.display_tree();
-    }
-
-    fn from_component_values(input: &Vec<ComponentValue>) -> Vec<Token> {
-        input.iter().filter_map(|cv|
-            match cv {
-                ComponentValue::PreservedToken(t) => Some(t.clone()),
-                _ => None
-            }
-        ).collect()
     }
 }

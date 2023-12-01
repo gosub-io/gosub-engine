@@ -3,7 +3,7 @@ use nom::branch::alt;
 use nom::combinator::{map, opt};
 use nom::multi::{many0, separated_list1};
 use nom::IResult;
-use crate::css3::nom::{any_function, any_ident, comma, delim, dimension, ident, number, whitespace0, whitespace1};
+use crate::css3::nom::{any_ident, comma, delim, dimension, function, ident, number, whitespace0, whitespace1};
 use crate::css3::nom::values::parse_ratio;
 use crate::css3::span::Span;
 
@@ -21,6 +21,8 @@ pub(crate) fn parse_media_query_list(input: Span) -> IResult<Span, Node> {
 
 // <media-query> = <media-condition> | [ not | only ]? <media-type> [ and <media-condition-without-or> ]?
 fn parse_media_query(input: Span) -> IResult<Span, Node> {
+    let (input, _) = whitespace0(input)?;
+
     let (input, media_query) = alt((
         |i| parse_media_condition(i),
         |i| {
@@ -80,14 +82,17 @@ fn parse_media_condition(input: Span) -> IResult<Span, Node> {
     ))(input)?;
 
     // Must have zero or more media-ands, OR zero or more media-ors
-    let (input, cond) = alt((
-        |i|
-            many0(|i| parse_media_and(i))(i),
-        |i| many0(|i| parse_media_and(i))(i),
-    ))(input)?;
+    let (input, additional_media_conditions) = opt(
+        |i| alt((
+            |i| many0(|i| parse_media_and(i))(i),
+            |i| many0(|i| parse_media_or(i))(i),
+        ))(i)
+    )(input)?;
 
-    // add condition (media-and* | media-or*) as child onder media-condition (media-not | media-in-parens)
-    media_condition.children = cond;
+    if additional_media_conditions.is_some() {
+        // add condition (media-and* | media-or*) as child onder media-condition (media-not | media-in-parens)
+        media_condition.children = additional_media_conditions.unwrap();
+    }
 
     let mut node = Node::new("MediaCondition");
     node.children.push(media_condition);
@@ -102,9 +107,9 @@ fn parse_media_without_or(input: Span) -> IResult<Span, Node> {
         |i| parse_media_in_parens(i),
     ))(input)?;
 
-    let (input, ands) = many0(|i| parse_media_and(i))(input)?;
+    let (input, extra_and_conditions) = many0(|i| parse_media_and(i))(input)?;
     let mut node = Node::new("MediaConditionWithoutOr");
-    node.children = ands;
+    node.children = extra_and_conditions;
 
     Ok((input, node))
 }
@@ -333,40 +338,5 @@ fn mf_comparison(input: Span) -> IResult<Span, String> {
 
 // <general-enclosed> = [ <function-token> <any-value>? ) ] | ( <any-value>? )
 fn general_enclosed(input: Span) -> IResult<Span, Node> {
-
-    alt((
-        |i| {
-            let (i, _) = delim(i, '(')?;
-            let (i, function_token) = opt(|i| any_function(i))(i)?;
-            let (i, any_value) = opt(|i| any_ident(i))(i)?;
-            let (i, _) = delim(i, ')')?;
-
-            let mut node = Node::new("GeneralEnclosed");
-            if function_token.is_some() {
-                node.attributes.insert("function".to_string(), function_token.unwrap());
-            }
-            if any_value.is_some() {
-                node.attributes.insert("value".to_string(), any_value.unwrap());
-            }
-
-            Ok((i, node))
-        },
-        |i| {
-            let (i, _) = delim(i, '(')?;
-            let (i, any_value) = opt(|i| any_ident(i))(i)?;
-            let (i, _) = delim(i, ')')?;
-
-            let mut node = Node::new("GeneralEnclosed");
-            if any_value.is_some() {
-                node.attributes.insert("value".to_string(), any_value.unwrap());
-            }
-
-            Ok((i, node))
-        }
-    ))(input)
-
-    // function( any-value )
-    // function( )
-    // ( any-value )
-    // ( )
+    function(input)
 }
