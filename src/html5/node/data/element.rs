@@ -1,6 +1,6 @@
 use crate::html5::element_class::ElementClass;
 use crate::html5::node::NodeId;
-use crate::html5::parser::document::{DocumentFragment, DocumentHandle};
+use crate::html5::parser::document::DocumentFragment;
 use core::fmt::{Debug, Formatter};
 
 use std::collections::HashMap;
@@ -24,8 +24,6 @@ pub struct ElementData {
     pub(crate) force_async: bool,
     // Template contents (when it's a template element)
     pub(crate) template_contents: Option<DocumentFragment>,
-    /// Pointer to the document the node associated with this data is tied to
-    pub(crate) document: DocumentHandle,
 }
 
 impl Debug for ElementData {
@@ -37,7 +35,7 @@ impl Debug for ElementData {
 
 impl ElementData {
     #[must_use]
-    pub(crate) fn new(node_id: NodeId, document: DocumentHandle) -> Self {
+    pub(crate) fn new(node_id: NodeId) -> Self {
         let (name, attributes, classes, force_async, template_contents) = <_>::default();
         Self {
             node_id,
@@ -46,13 +44,11 @@ impl ElementData {
             classes,
             force_async,
             template_contents,
-            document,
         }
     }
 
     pub(crate) fn with_name_and_attributes(
         node_id: NodeId,
-        document: DocumentHandle,
         name: &str,
         attributes: HashMap<String, String>,
     ) -> Self {
@@ -61,7 +57,6 @@ impl ElementData {
             node_id,
             name: name.into(),
             attributes,
-            document,
             classes,
             force_async,
             template_contents,

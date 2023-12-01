@@ -93,63 +93,66 @@ impl Harness {
 
     /// Run the html5 parser and return the document tree and errors
     fn do_parse(&mut self, scripting_enabled: bool) -> Result<(DocumentHandle, Vec<ParseError>)> {
-        let mut context_node = None;
-        let document;
-        let is_fragment;
-
-        if let Some(fragment) = self.test.spec.document_fragment.clone() {
-            // First, create a (fake) main document that contains only the fragment as node
-            let main_document = DocumentBuilder::new_document();
-            let mut main_document = Document::clone(&main_document);
-            let (element, namespace) = if fragment.starts_with("svg ") {
-                (
-                    fragment.strip_prefix("svg ").unwrap().to_string(),
-                    SVG_NAMESPACE,
-                )
-            } else if fragment.starts_with("math ") {
-                (
-                    fragment.strip_prefix("math ").unwrap().to_string(),
-                    MATHML_NAMESPACE,
-                )
-            } else {
-                (fragment, HTML_NAMESPACE)
-            };
-
-            // Add context node
-            let context_node_id =
-                main_document.create_element(element.as_str(), NodeId::root(), None, namespace);
-            context_node = Some(
-                main_document
-                    .get()
-                    .get_node_by_id(context_node_id)
-                    .unwrap()
-                    .clone(),
-            );
-
-            is_fragment = true;
-            document = DocumentBuilder::new_document_fragment(&context_node.clone().expect(""));
-        } else {
-            is_fragment = false;
-            document = DocumentBuilder::new_document();
-        };
-
         let options = Html5ParserOptions { scripting_enabled };
-
         let mut chars = CharIterator::new();
         chars.read_from_str(self.test.spec_data(), None);
 
-        let parse_errors = if is_fragment {
-            Html5Parser::parse_fragment(
-                &mut chars,
-                Document::clone(&document),
-                &context_node.expect(""),
-                Some(options),
-            )?
+        let (document, parse_errors) = if let Some(fragment) =
+            self.test.spec.document_fragment.clone()
+        {
+            self.parse_fragment(fragment, chars, options)?
         } else {
-            Html5Parser::parse_document(&mut chars, Document::clone(&document), Some(options))?
+            let document = DocumentBuilder::new_document();
+            let parser_errors =
+                Html5Parser::parse_document(&mut chars, Document::clone(&document), Some(options))?;
+            (document, parser_errors)
         };
 
         Ok((document, parse_errors))
+    }
+
+    fn parse_fragment(
+        &mut self,
+        fragment: String,
+        mut chars: CharIterator,
+        options: Html5ParserOptions,
+    ) -> Result<(DocumentHandle, Vec<ParseError>)> {
+        // First, create a (fake) main document that contains only the fragment as node
+        let main_document = DocumentBuilder::new_document();
+        let mut main_document = Document::clone(&main_document);
+        let (element, namespace) = if fragment.starts_with("svg ") {
+            (
+                fragment.strip_prefix("svg ").unwrap().to_string(),
+                SVG_NAMESPACE,
+            )
+        } else if fragment.starts_with("math ") {
+            (
+                fragment.strip_prefix("math ").unwrap().to_string(),
+                MATHML_NAMESPACE,
+            )
+        } else {
+            (fragment, HTML_NAMESPACE)
+        };
+
+        // Add context node
+        let context_node_id =
+            main_document.create_element(element.as_str(), NodeId::root(), None, namespace);
+        let context_node = main_document
+            .get()
+            .get_node_by_id(context_node_id)
+            .unwrap()
+            .clone();
+
+        let document = DocumentBuilder::new_document_fragment(&context_node);
+
+        let parser_errors = Html5Parser::parse_fragment(
+            &mut chars,
+            Document::clone(&document),
+            &context_node,
+            Some(options),
+        )?;
+
+        Ok((document, parser_errors))
     }
 
     /// Retrieves the next line from the spec document

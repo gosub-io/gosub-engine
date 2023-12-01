@@ -6,7 +6,9 @@ use crate::html5::node::data::element::ElementData;
 use crate::html5::node::data::text::TextData;
 use core::fmt::Debug;
 use derive_more::Display;
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Weak;
 
 pub const HTML_NAMESPACE: &str = "http://www.w3.org/1999/xhtml";
 pub const MATHML_NAMESPACE: &str = "http://www.w3.org/1998/Math/MathML";
@@ -109,7 +111,6 @@ impl NodeId {
 }
 
 /// Node structure that resembles a DOM node
-#[derive(PartialEq)]
 pub struct Node {
     /// ID of the node, 0 is always the root / document node
     pub id: NodeId,
@@ -123,11 +124,16 @@ pub struct Node {
     pub namespace: Option<String>,
     /// actual data of the node
     pub data: NodeData,
-    /// pointer to document this node is attached to
-    pub document: DocumentHandle,
-
+    /// weak pointer to document this node is attached to
+    pub document: Weak<RefCell<Document>>,
     // Returns true when the given node is registered into an arena
     pub is_registered: bool,
+}
+
+impl PartialEq for Node {
+    fn eq(&self, other: &Node) -> bool {
+        self.id == other.id
+    }
 }
 
 impl Node {
@@ -229,7 +235,7 @@ impl Clone for Node {
             name: self.name.clone(),
             namespace: self.namespace.clone(),
             data: self.data.clone(),
-            document: Document::clone(&self.document),
+            document: Weak::clone(&self.document),
             is_registered: self.is_registered,
         }
     }
@@ -247,7 +253,7 @@ impl Node {
             data: NodeData::Document(DocumentData::new()),
             name,
             namespace,
-            document: Document::clone(document),
+            document: document.to_weak(),
             is_registered,
         }
     }
@@ -265,9 +271,9 @@ impl Node {
             parent,
             children,
             data: NodeData::DocType(DocTypeData::new(name, pub_identifier, sys_identifier)),
-            name: name.to_owned(),
+            name: "".to_owned(),
             namespace,
-            document: Document::clone(document),
+            document: document.to_weak(),
             is_registered,
         }
     }
@@ -287,13 +293,12 @@ impl Node {
             children,
             data: NodeData::Element(Box::new(ElementData::with_name_and_attributes(
                 NodeId::default(),
-                Document::clone(document),
                 name,
                 attributes,
             ))),
             name: name.to_owned(),
             namespace: Some(namespace.into()),
-            document: Document::clone(document),
+            document: document.to_weak(),
             is_registered,
         }
     }
@@ -309,7 +314,7 @@ impl Node {
             data: NodeData::Comment(CommentData::with_value(value)),
             name,
             namespace,
-            document: Document::clone(document),
+            document: document.to_weak(),
             is_registered,
         }
     }
@@ -325,7 +330,7 @@ impl Node {
             data: NodeData::Text(TextData::with_value(value)),
             name,
             namespace,
-            document: Document::clone(document),
+            document: document.to_weak(),
             is_registered,
         }
     }
