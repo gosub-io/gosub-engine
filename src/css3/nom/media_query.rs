@@ -3,7 +3,8 @@ use nom::branch::alt;
 use nom::combinator::{map, opt};
 use nom::multi::{many0, separated_list1};
 use nom::IResult;
-use crate::css3::nom::{any_function, any_ident, comma, delim, ident, whitespace0, whitespace1};
+use crate::css3::nom::{any_function, any_ident, comma, delim, dimension, ident, number, whitespace0, whitespace1};
+use crate::css3::nom::values::parse_ratio;
 use crate::css3::span::Span;
 
 /// This module contains functions to parse Media queries. For more information see:
@@ -23,17 +24,23 @@ fn parse_media_query(input: Span) -> IResult<Span, Node> {
     let (input, media_query) = alt((
         |i| parse_media_condition(i),
         |i| {
-            let (i, _) = opt(|i| ident(i, "not".to_string()))(i)?;
+            let (i, not) = opt(|i| ident(i, "not".to_string()))(i)?;
             let (i, _) = whitespace0(i)?;
-            let (i, _) = opt(|i| ident(i, "only".to_string()))(i)?;
+            let (i, only) = opt(|i| ident(i, "only".to_string()))(i)?;
             let (i, _) = whitespace0(i)?;
             let (i, media_type) = parse_media_type(i)?;
             let (i, _) = whitespace0(i)?;
-            let (i, _) = opt(|i| ident(i, "and".to_string()))(i)?;
+            let (i, _and) = opt(|i| ident(i, "and".to_string()))(i)?;
             let (i, _) = whitespace0(i)?;
             let (i, media_condition_without_or) = opt(|i| parse_media_without_or(i))(i)?;
 
             let mut node = Node::new("MediaQuery");
+            if not.is_some() {
+                node.attributes.insert("not".to_string(), not.unwrap());
+            }
+            if only.is_some() {
+                node.attributes.insert("only".to_string(), only.unwrap());
+            }
             node.children.push(media_type);
 
             if let Some(media_condition_without_or) = media_condition_without_or {
@@ -282,8 +289,8 @@ fn mf_value(input: Span) -> IResult<Span, Node> {
     alt((
         |i| number(i),
         |i| dimension(i),
-        |i| map(|i| any_ident(i), |name| Node::new("Ident").with_attribute("name", name))(i),
-        |i| ratio(i),
+        |i| map(|i| any_ident(i), |name| Node::new("ident").with_attribute("name", name))(i),
+        |i| parse_ratio(i),
     ))(input)
 }
 
@@ -326,15 +333,15 @@ fn mf_comparison(input: Span) -> IResult<Span, String> {
 
 // <general-enclosed> = [ <function-token> <any-value>? ) ] | ( <any-value>? )
 fn general_enclosed(input: Span) -> IResult<Span, Node> {
-    let mut node = Node::new("GeneralEnclosed");
 
-    let (input, node) = alt((
+    alt((
         |i| {
             let (i, _) = delim(i, '(')?;
             let (i, function_token) = opt(|i| any_function(i))(i)?;
             let (i, any_value) = opt(|i| any_ident(i))(i)?;
             let (i, _) = delim(i, ')')?;
 
+            let mut node = Node::new("GeneralEnclosed");
             if function_token.is_some() {
                 node.attributes.insert("function".to_string(), function_token.unwrap());
             }
@@ -342,37 +349,24 @@ fn general_enclosed(input: Span) -> IResult<Span, Node> {
                 node.attributes.insert("value".to_string(), any_value.unwrap());
             }
 
-            Ok((i, node.clone()))
+            Ok((i, node))
         },
         |i| {
             let (i, _) = delim(i, '(')?;
             let (i, any_value) = opt(|i| any_ident(i))(i)?;
             let (i, _) = delim(i, ')')?;
 
+            let mut node = Node::new("GeneralEnclosed");
             if any_value.is_some() {
                 node.attributes.insert("value".to_string(), any_value.unwrap());
             }
 
-            Ok((i, node.clone()))
+            Ok((i, node))
         }
-    ))(input)?;
+    ))(input)
 
     // function( any-value )
     // function( )
     // ( any-value )
     // ( )
-
-    Ok((input, node))
-}
-
-fn number(_input: Span) -> IResult<Span, Node> {
-    todo!()
-}
-
-fn dimension(_input: Span) -> IResult<Span, Node> {
-    todo!()
-}
-
-fn ratio(_input: Span) -> IResult<Span, Node> {
-    todo!()
 }

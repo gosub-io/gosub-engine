@@ -1,10 +1,12 @@
 use nom::bytes::complete::{take, take_while, take_while1};
 use nom::IResult;
+use crate::css3::ast::Node;
 use crate::css3::span::Span;
 use crate::css3::tokenizer::Token;
 
 pub mod selector;
 pub mod media_query;
+pub mod values;
 
 pub fn any(input: Span) -> IResult<Span, String> {
     let (input, span) = take(1usize)(input)?;
@@ -155,3 +157,38 @@ pub fn ident(input: Span, ident: String) -> IResult<Span, String> {
         nom::error::ErrorKind::IsNot,
     )))
 }
+
+fn number(input: Span) -> IResult<Span, Node> {
+    let (input, span) = take(1usize)(input)?;
+
+    if let Token::Number(value) = span.to_token() {
+        let mut node = Node::new("number");
+        node.attributes.insert("value".to_string(), value.to_string());
+
+        return Ok((input, node));
+    }
+
+    Err(nom::Err::Error(nom::error::Error::new(
+        input.clone(),
+        nom::error::ErrorKind::IsNot,
+    )))
+}
+
+fn dimension(input: Span) -> IResult<Span, Node> {
+    let (input, span) = take(1usize)(input)?;
+
+    if let Token::Dimension{value, unit} = span.to_token() {
+        let mut node = Node::new("dimension");
+        node.attributes.insert("value".to_string(), value.to_string());
+        node.attributes.insert("unit".to_string(), unit);
+
+        return Ok((input, node));
+    }
+
+    Err(nom::Err::Error(nom::error::Error::new(
+        input.clone(),
+        nom::error::ErrorKind::IsNot,
+    )))
+}
+
+

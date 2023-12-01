@@ -900,24 +900,24 @@ mod tests {
 
         let mut ci = CharIterator::new();
         ci.read_from_str(
-            // "
-            // hr .short, hr .long {
-            //     color: red
-            // }
-            // ",
             "
-            body {
-                color: red;
-            }
-
             @media only screen and (max-width: 600px) {
                 color: blue;
             }
-
-            hr .short, hr .long {
-                background-color: var(--border-base-color);
-            }
             ",
+            // "
+            // body {
+            //     color: red;
+            // }
+            //
+            // @media only screen and (max-width: 600px) {
+            //     color: blue;
+            // }
+            //
+            // hr .short, hr .long {
+            //     background-color: var(--border-base-color);
+            // }
+            // ",
             Some(Encoding::UTF8),
         );
 
