@@ -1,13 +1,17 @@
-use crate::css3::ast::{Node, Span};
-use crate::css3::new_tokenizer::Token;
+use crate::css3::ast::Node;
+use crate::css3::tokenizer::Token;
 use nom::branch::alt;
 use nom::combinator::{map, opt};
 use nom::multi::{many0, separated_list1};
 use nom::IResult;
-use nom::InputTake;
+use crate::css3::nom::{any, any_function, any_hash, any_ident, any_string, comma, delim, ident, whitespace0, whitespace1};
+use crate::css3::span::Span;
+
+/// This module contains functions to parse CSS level 4 selectors. For more information, see:
+/// https://www.w3.org/TR/selectors-4
 
 /// <selector-list> = <complex-selector-list>
-fn parse_selector_list(input: Span) -> IResult<Span, Node> {
+pub(crate) fn parse_selector_list(input: Span) -> IResult<Span, Node> {
     parse_complex_selector_list(input)
 }
 
@@ -56,8 +60,15 @@ fn parse_complex_selector(input: Span) -> IResult<Span, Node> {
     let (input, first_selector) = parse_compound_selector(input)?;
 
     let (input, other_selectors) = many0(|i| {
-        let (i, combinator) = opt(|i| parse_combinator(i))(i)?;
+        let (i, combinator) = opt(|i|
+            alt((
+                |i| parse_combinator(i),
+                map(|i| whitespace1(i), |_| Node::new("whitespace")),
+            ))(i)
+        )(i)?;
+
         let (i, selector) = parse_compound_selector(i)?;
+        let (i, _) = whitespace0(i)?;
 
         let node = match combinator {
             Some(combinator) => {
@@ -70,6 +81,8 @@ fn parse_complex_selector(input: Span) -> IResult<Span, Node> {
         };
         Ok((i, node))
     })(input)?;
+
+    let (input, _) = whitespace0(input)?;
 
     let mut selectors = vec![first_selector];
     for selector in other_selectors {
@@ -86,6 +99,7 @@ fn parse_complex_selector(input: Span) -> IResult<Span, Node> {
 fn parse_relative_selector(input: Span) -> IResult<Span, Node> {
     let (input, combinator) = opt(|i| parse_combinator(i))(input)?;
     let (input, complex_selector) = parse_complex_selector(input)?;
+    let (input, _) = whitespace0(input)?;
 
     let mut node = Node::new("RelativeSelector");
     if combinator.is_some() {
@@ -105,6 +119,7 @@ fn parse_compound_selector(input: Span) -> IResult<Span, Node> {
         let (i, pseudo_class_selector) = many0(|i| parse_pseudo_class_selector(i))(i)?;
         Ok((i, (pseudo_element_selector, pseudo_class_selector)))
     })(i)?;
+    let (i, _) = whitespace0(i)?;
 
     if type_selector.is_none() && subclass_selectors.is_empty() && pseudo_element_and_class_selectors.is_empty() {
         return Err(nom::Err::Error(nom::error::Error::new(
@@ -185,7 +200,12 @@ fn ns_prefix_star(input: Span) -> IResult<Span, String> {
 
 /// <ns-prefix> = [ <ident-token> | '*' ]? '|'
 fn ns_prefix(input: Span) -> IResult<Span, String> {
-    let (input, ns_prefix) = opt(|i| alt((|i| any_ident(i), |i| delim(i, '*')))(i))(input)?;
+    let (input, ns_prefix) = opt(|i|
+        alt((
+            |i| any_ident(i),
+            |i| delim(i, '*')
+        ))(i)
+    )(input)?;
 
     let (input, _) = delim(input, '|')?;
 
@@ -352,150 +372,11 @@ fn parse_pseudo_element_selector(input: Span) -> IResult<Span, Node> {
 // =================================================================================================
 // These functions will return direct strings from the wanted tokens
 
-fn any(input: Span) -> IResult<Span, String> {
-    let (input, span) = input.take_split(1);
-
-    match span.to_token() {
-        Token::Ident(s) => return Ok((input, s)),
-        Token::Hash(s) => return Ok((input, s)),
-        Token::QuotedString(s) => return Ok((input, s)),
-        Token::Delim(c) => return Ok((input, format!("{}", c))),
-        Token::Function(s) => return Ok((input, s)),
-        Token::AtKeyword(s) => return Ok((input, s)),
-        Token::Url(s) => return Ok((input, s)),
-        Token::BadUrl(s) => return Ok((input, s)),
-        Token::Dimension { value, unit } => return Ok((input, format!("{}{}", value, unit))),
-        Token::Percentage(s) => return Ok((input, format!("{}", s))),
-        Token::Number(s) => return Ok((input, format!("{}", s))),
-        Token::BadString(s) => return Ok((input, s)),
-        Token::IDHash(s) => return Ok((input, s)),
-        _ => {}
-    }
-
-    Err(nom::Err::Error(nom::error::Error::new(
-        input.clone(),
-        nom::error::ErrorKind::Tag,
-    )))
-}
-
-/// Returns the name of a function token
-fn any_function(input: Span) -> IResult<Span, String> {
-    let (input, span) = input.take_split(1);
-
-    if let Token::Function(name) = span.to_token() {
-        return Ok((input, name));
-    }
-
-    Err(nom::Err::Error(nom::error::Error::new(
-        input.clone(),
-        nom::error::ErrorKind::Tag,
-    )))
-}
-
-/// Returns any string
-fn any_string(input: Span) -> IResult<Span, String> {
-    let (input, span) = input.take_split(1);
-
-    if let Token::QuotedString(qs) = span.to_token() {
-        return Ok((input, qs));
-    }
-
-    Err(nom::Err::Error(nom::error::Error::new(
-        input.clone(),
-        nom::error::ErrorKind::Tag,
-    )))
-}
-
-/// Returns a comma
-fn comma(input: Span) -> IResult<Span, Span> {
-    let (input, span) = input.take_split(1);
-
-    if let Token::Comma = span.to_token() {
-        return Ok((input, span));
-    }
-
-    Err(nom::Err::Error(nom::error::Error::new(
-        input.clone(),
-        nom::error::ErrorKind::IsNot,
-    )))
-}
-
-/// Returns any hash
-fn any_hash(input: Span) -> IResult<Span, String> {
-    let (input, span) = input.take_split(1);
-
-    if let Token::Hash(h) = span.to_token() {
-        return Ok((input, h));
-    }
-
-    Err(nom::Err::Error(nom::error::Error::new(
-        input.clone(),
-        nom::error::ErrorKind::Tag,
-    )))
-}
-
-/// Returns any delimiter
-fn any_delim(input: Span) -> IResult<Span, String> {
-    let (input, span) = input.take_split(1);
-
-    if let Token::Delim(c) = span.to_token() {
-        return Ok((input, format!("{}", c)));
-    }
-
-    Err(nom::Err::Error(nom::error::Error::new(
-        input.clone(),
-        nom::error::ErrorKind::Tag,
-    )))
-}
-
-/// Returns the given delimiter
-fn delim(input: Span, delim: char) -> IResult<Span, String> {
-    let (i, span) = input.take_split(1);
-
-    if let Token::Delim(c) = span.to_token() {
-        if c == delim {
-            return Ok((i, format!("{}", c)));
-        }
-    }
-
-    Err(nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::IsNot)))
-}
-
-/// Returns any identifier
-fn any_ident(input: Span) -> IResult<Span, String> {
-    let (input, span) = input.take_split(1);
-
-    if let Token::Ident(s) = span.to_token() {
-        return Ok((input, s));
-    }
-
-    Err(nom::Err::Error(nom::error::Error::new(
-        input.clone(),
-        nom::error::ErrorKind::IsNot,
-    )))
-}
-
-/// Returns the identifier if it matches the given string.
-fn ident(input: Span, ident: String) -> IResult<Span, String> {
-    let (input, span) = input.take_split(1);
-
-    if let Token::Ident(s) = span.to_token() {
-        if s == ident {
-            return Ok((input, s));
-        }
-    }
-
-    Err(nom::Err::Error(nom::error::Error::new(
-        input.clone(),
-        nom::error::ErrorKind::IsNot,
-    )))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::bytes::{CharIterator, Encoding};
-    use crate::css3::new_tokenizer::Tokenizer;
+    use crate::css3::tokenizer::Tokenizer;
 
     #[test]
     fn test_parse_selector_list() {
