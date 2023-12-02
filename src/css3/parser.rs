@@ -115,7 +115,7 @@ pub enum DeclarationAndAtRules {
     AtRule(AtRule),
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone)]
 pub enum ComponentValue {
     PreservedToken(Token),
     Function(Function),
@@ -167,7 +167,7 @@ impl Debug for ComponentValue {
     }
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct Function {
     pub(crate) name: String,
     values: Vec<ComponentValue>,
@@ -182,10 +182,10 @@ impl Function {
     }
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct SimpleBlock {
-    associated_token: Token,
-    values: Vec<ComponentValue>,
+    pub associated_token: Token,
+    pub values: Vec<ComponentValue>,
 }
 
 impl SimpleBlock {
@@ -713,10 +713,9 @@ impl<'a> Parser<'a> {
     }
 
     fn consume_component_value(&mut self) -> Option<ComponentValue> {
-        let current_token = self.token_stream.current();
         match self.token_stream.consume() {
             Token::LCurly | Token::LBracket | Token::LParen => {
-                match self.consume_simple_block(current_token) {
+                match self.consume_simple_block(mirror_token(self.token_stream.current())) {
                     Some(block) => {
                         return Some(ComponentValue::SimpleBlock(block));
                     }
@@ -787,6 +786,15 @@ impl<'a> Parser<'a> {
         }
 
         Some(function)
+    }
+}
+
+fn mirror_token(t: Token) -> Token {
+    match t {
+        Token::LCurly => Token::RCurly,
+        Token::LBracket => Token::RBracket,
+        Token::LParen => Token::RParen,
+        _ => panic!("we should not be here"),
     }
 }
 

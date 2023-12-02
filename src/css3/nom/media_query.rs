@@ -3,7 +3,7 @@ use nom::branch::alt;
 use nom::combinator::{map, opt};
 use nom::multi::{many0, separated_list1};
 use nom::IResult;
-use crate::css3::nom::{any_ident, comma, delim, dimension, function, ident, number, whitespace0, whitespace1};
+use crate::css3::nom::{any_ident, comma, delim, dimension, function, ident, number, simple_block, whitespace0, whitespace1};
 use crate::css3::nom::values::parse_ratio;
 use crate::css3::span::Span;
 
@@ -154,28 +154,29 @@ fn parse_media_or(input: Span) -> IResult<Span, Node> {
 
 // <media-in-parens> = ( <media-condition> ) | ( <media-feature> ) | <general-enclosed>
 fn parse_media_in_parens(input: Span) -> IResult<Span, Node> {
-    let (input, media_in_parens) = alt((
+    alt((
         |i| {
-            let (i, _) = delim(i, '(')?;
-            let (i, condition) = parse_media_condition(i)?;
-            let (i, _) = delim(i, ')')?;
+            let (i, internal_span) = simple_block(i)?;
+            let (_, media_condition) = parse_media_condition(internal_span)?;
 
-            Ok((i, condition))
+            let mut node = Node::new("MediaInParens");
+            node.attributes.insert("type".to_string(), "condition".to_string());
+            node.children.push(media_condition);
+
+            Ok((i, node))
         },
         |i| {
-            let (i, _) = delim(i, '(')?;
-            let (i, feature) = parse_media_feature(i)?;
-            let (i, _) = delim(i, ')')?;
+            let (i, internal_span) = simple_block(i)?;
+            let (_, media_feature) = parse_media_feature(internal_span)?;
 
-            Ok((i, feature))
+            let mut node = Node::new("MediaInParens");
+            node.attributes.insert("type".to_string(), "feature".to_string());
+            node.children.push(media_feature);
+
+            Ok((i, node))
         },
         |i| general_enclosed(i),
-    ))(input)?;
-
-    let mut node = Node::new("MediaInParens");
-    node.children.push(media_in_parens);
-
-    Ok((input, node))
+    ))(input)
 }
 
 // <media-feature> = [ <mf-plain> | <mf-boolean> | <mf-range> ]

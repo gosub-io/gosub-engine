@@ -11,7 +11,7 @@ use crate::css3::tokenizer::Token;
 
 #[derive(Clone, Debug)]
 pub struct Span<'t> {
-    pub list: &'t [ComponentValue],
+    pub list: Vec<ComponentValue>,
     pub start: usize,
     pub end: usize,
 }
@@ -45,10 +45,6 @@ impl<'t> Span<'t> {
             _ => None,
         }
     }
-
-    // pub(crate) fn get(&self, index: usize) -> Option<&ComponentValue> {
-    //     self.list.get(index)
-    // }
 
     pub fn is_empty(&self) -> bool {
         self.list.is_empty()

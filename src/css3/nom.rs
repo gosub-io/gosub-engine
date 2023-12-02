@@ -210,4 +210,15 @@ fn dimension(input: Span) -> IResult<Span, Node> {
     )))
 }
 
+pub fn simple_block(input: Span) -> IResult<Span, Span> {
+    let (input, span) = take(1usize)(input)?;
 
+    if let Some(block) = span.to_simple_block() {
+        return Ok((input, Span::new(&block.values.clone())));
+    }
+
+    Err(nom::Err::Error(nom::error::Error::new(
+        input.clone(),
+        nom::error::ErrorKind::IsNot,
+    )))
+}
