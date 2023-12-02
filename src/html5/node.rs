@@ -136,7 +136,172 @@ impl PartialEq for Node {
     }
 }
 
+impl Debug for Node {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut debug = f.debug_struct("Node");
+        debug.field("id", &self.id);
+        debug.field("parent", &self.parent);
+        debug.field("children", &self.children);
+        debug.field("name", &self.name);
+        match &self.namespace {
+            Some(namespace) if namespace == HTML_NAMESPACE => debug.field("namespace", &"HTML"),
+            Some(namespace) if namespace == XML_NAMESPACE => debug.field("namespace", &"XML"),
+            Some(namespace) if namespace == XMLNS_NAMESPACE => debug.field("namespace", &"XMLNS"),
+            Some(namespace) if namespace == MATHML_NAMESPACE => debug.field("namespace", &"MATHML"),
+            Some(namespace) if namespace == SVG_NAMESPACE => debug.field("namespace", &"SVG"),
+            Some(namespace) if namespace == XLINK_NAMESPACE => debug.field("namespace", &"XLINK"),
+            None => debug.field("namespace", &"None"),
+            _ => debug.field("namespace", &"unknown"),
+        };
+        debug.field("data", &self.data);
+        debug.finish_non_exhaustive()
+    }
+}
+
+impl Clone for Node {
+    fn clone(&self) -> Self {
+        Node {
+            id: self.id,
+            parent: self.parent,
+            children: self.children.clone(),
+            name: self.name.clone(),
+            namespace: self.namespace.clone(),
+            data: self.data.clone(),
+            document: Weak::clone(&self.document),
+            is_registered: self.is_registered,
+        }
+    }
+}
+
 impl Node {
+    /// create a new `Node`
+    #[must_use]
+    pub fn new(data: NodeData, document: &DocumentHandle) -> Self {
+        let (id, parent, children, name, namespace, is_registered) = <_>::default();
+        Self {
+            id,
+            parent,
+            children,
+            data,
+            name,
+            namespace,
+            document: document.to_weak(),
+            is_registered,
+        }
+    }
+    /// Create a new document node
+    #[must_use]
+    pub fn new_document(document: &DocumentHandle) -> Self {
+        Self::new(NodeData::Document(DocumentData::new()), document)
+    }
+
+    #[must_use]
+    pub fn new_doctype(
+        document: &DocumentHandle,
+        name: &str,
+        pub_identifier: &str,
+        sys_identifier: &str,
+    ) -> Self {
+        Self::new(
+            NodeData::DocType(DocTypeData::new(name, pub_identifier, sys_identifier)),
+            document,
+        )
+    }
+
+    /// Create a new element node with the given name and attributes and namespace
+    #[must_use]
+    pub fn new_element(
+        document: &DocumentHandle,
+        name: &str,
+        attributes: HashMap<String, String>,
+        namespace: &str,
+    ) -> Self {
+        Self {
+            name: name.to_owned(),
+            namespace: Some(namespace.into()),
+            ..Self::new(
+                NodeData::Element(Box::new(ElementData::with_name_and_attributes(
+                    NodeId::default(),
+                    name,
+                    attributes,
+                ))),
+                document,
+            )
+        }
+    }
+
+    /// Creates a new comment node
+    #[must_use]
+    pub fn new_comment(document: &DocumentHandle, value: &str) -> Self {
+        Self::new(NodeData::Comment(CommentData::with_value(value)), document)
+    }
+
+    /// Creates a new text node
+    #[must_use]
+    pub fn new_text(document: &DocumentHandle, value: &str) -> Self {
+        Self::new(NodeData::Text(TextData::with_value(value)), document)
+    }
+
+    /// Returns true if the given node is a "formatting" node
+    pub fn is_formatting(&self) -> bool {
+        self.namespace == Some(HTML_NAMESPACE.into())
+            && FORMATTING_HTML_ELEMENTS.contains(&self.name.as_str())
+    }
+
+    /// Returns true if the given node is "special" node based on the namespace and name
+    pub fn is_special(&self) -> bool {
+        if self.namespace == Some(HTML_NAMESPACE.into())
+            && SPECIAL_HTML_ELEMENTS.contains(&self.name.as_str())
+        {
+            return true;
+        }
+        if self.namespace == Some(MATHML_NAMESPACE.into())
+            && SPECIAL_MATHML_ELEMENTS.contains(&self.name.as_str())
+        {
+            return true;
+        }
+        if self.namespace == Some(SVG_NAMESPACE.into())
+            && SPECIAL_SVG_ELEMENTS.contains(&self.name.as_str())
+        {
+            return true;
+        }
+
+        false
+    }
+
+    /// Returns true if this node is registered into an arena
+    pub fn is_registered(&self) -> bool {
+        self.is_registered
+    }
+
+    /// This will only compare against the tag, namespace and data same except element data.
+    /// for element data compaare against the tag, namespace and attributes without order.
+    /// Both nodes could still have other parents and children.
+    pub fn matches_tag_and_attrs_without_order(&self, other: &Self) -> bool {
+        if self.name != other.name || self.namespace != other.namespace {
+            return false;
+        }
+
+        if self.type_of() != other.type_of() {
+            return false;
+        }
+
+        match self.type_of() {
+            NodeType::Element => {
+                let mut self_attributes = None;
+                let mut other_attributes = None;
+                if let NodeData::Element(element) = &self.data {
+                    self_attributes = Some(element.attributes.clone());
+                }
+                if let NodeData::Element(element) = &other.data {
+                    other_attributes = Some(element.attributes.clone());
+                }
+                self_attributes.eq(&other_attributes)
+            }
+            _ => self.data == other.data,
+        }
+    }
+
     /// Returns true when the given node is of the given namespace
     pub(crate) fn is_namespace(&self, namespace: &str) -> bool {
         self.namespace == Some(namespace.into())
@@ -171,200 +336,6 @@ impl Node {
 
         namespace == MATHML_NAMESPACE
             && ["mi", "mo", "mn", "ms", "mtext"].contains(&self.name.as_str())
-    }
-}
-
-impl Debug for Node {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut debug = f.debug_struct("Node");
-        debug.field("id", &self.id);
-        debug.field("parent", &self.parent);
-        debug.field("children", &self.children);
-        debug.field("name", &self.name);
-        match &self.namespace {
-            Some(namespace) if namespace == HTML_NAMESPACE => debug.field("namespace", &"HTML"),
-            Some(namespace) if namespace == XML_NAMESPACE => debug.field("namespace", &"XML"),
-            Some(namespace) if namespace == XMLNS_NAMESPACE => debug.field("namespace", &"XMLNS"),
-            Some(namespace) if namespace == MATHML_NAMESPACE => debug.field("namespace", &"MATHML"),
-            Some(namespace) if namespace == SVG_NAMESPACE => debug.field("namespace", &"SVG"),
-            Some(namespace) if namespace == XLINK_NAMESPACE => debug.field("namespace", &"XLINK"),
-            None => debug.field("namespace", &"None"),
-            _ => debug.field("namespace", &"unknown"),
-        };
-        debug.field("data", &self.data);
-        debug.finish_non_exhaustive()
-    }
-}
-
-impl Node {
-    /// This will only compare against the tag, namespace and data same except element data.
-    /// for element data compaare against the tag, namespace and attributes without order.
-    /// Both nodes could still have other parents and children.
-    pub fn matches_tag_and_attrs_without_order(&self, other: &Self) -> bool {
-        if self.name != other.name || self.namespace != other.namespace {
-            return false;
-        }
-
-        if self.type_of() != other.type_of() {
-            return false;
-        }
-
-        match self.type_of() {
-            NodeType::Element => {
-                let mut self_attributes = None;
-                let mut other_attributes = None;
-                if let NodeData::Element(element) = &self.data {
-                    self_attributes = Some(element.attributes.clone());
-                }
-                if let NodeData::Element(element) = &other.data {
-                    other_attributes = Some(element.attributes.clone());
-                }
-                self_attributes.eq(&other_attributes)
-            }
-            _ => self.data == other.data,
-        }
-    }
-}
-
-impl Clone for Node {
-    fn clone(&self) -> Self {
-        Node {
-            id: self.id,
-            parent: self.parent,
-            children: self.children.clone(),
-            name: self.name.clone(),
-            namespace: self.namespace.clone(),
-            data: self.data.clone(),
-            document: Weak::clone(&self.document),
-            is_registered: self.is_registered,
-        }
-    }
-}
-
-impl Node {
-    /// Create a new document node
-    #[must_use]
-    pub fn new_document(document: &DocumentHandle) -> Self {
-        let (id, parent, children, name, namespace, is_registered) = <_>::default();
-        Node {
-            id,
-            parent,
-            children,
-            data: NodeData::Document(DocumentData::new()),
-            name,
-            namespace,
-            document: document.to_weak(),
-            is_registered,
-        }
-    }
-
-    #[must_use]
-    pub fn new_doctype(
-        document: &DocumentHandle,
-        name: &str,
-        pub_identifier: &str,
-        sys_identifier: &str,
-    ) -> Self {
-        let (id, parent, children, namespace, is_registered) = <_>::default();
-        Node {
-            id,
-            parent,
-            children,
-            data: NodeData::DocType(DocTypeData::new(name, pub_identifier, sys_identifier)),
-            name: "".to_owned(),
-            namespace,
-            document: document.to_weak(),
-            is_registered,
-        }
-    }
-
-    /// Create a new element node with the given name and attributes and namespace
-    #[must_use]
-    pub fn new_element(
-        document: &DocumentHandle,
-        name: &str,
-        attributes: HashMap<String, String>,
-        namespace: &str,
-    ) -> Self {
-        let (id, parent, children, is_registered) = <_>::default();
-        Node {
-            id,
-            parent,
-            children,
-            data: NodeData::Element(Box::new(ElementData::with_name_and_attributes(
-                NodeId::default(),
-                name,
-                attributes,
-            ))),
-            name: name.to_owned(),
-            namespace: Some(namespace.into()),
-            document: document.to_weak(),
-            is_registered,
-        }
-    }
-
-    /// Creates a new comment node
-    #[must_use]
-    pub fn new_comment(document: &DocumentHandle, value: &str) -> Self {
-        let (id, parent, children, name, namespace, is_registered) = <_>::default();
-        Node {
-            id,
-            parent,
-            children,
-            data: NodeData::Comment(CommentData::with_value(value)),
-            name,
-            namespace,
-            document: document.to_weak(),
-            is_registered,
-        }
-    }
-
-    /// Creates a new text node
-    #[must_use]
-    pub fn new_text(document: &DocumentHandle, value: &str) -> Self {
-        let (id, parent, children, name, namespace, is_registered) = <_>::default();
-        Node {
-            id,
-            parent,
-            children,
-            data: NodeData::Text(TextData::with_value(value)),
-            name,
-            namespace,
-            document: document.to_weak(),
-            is_registered,
-        }
-    }
-
-    /// Returns true if the given node is a "formatting" node
-    pub fn is_formatting(&self) -> bool {
-        self.namespace == Some(HTML_NAMESPACE.into())
-            && FORMATTING_HTML_ELEMENTS.contains(&self.name.as_str())
-    }
-
-    /// Returns true if the given node is "special" node based on the namespace and name
-    pub fn is_special(&self) -> bool {
-        if self.namespace == Some(HTML_NAMESPACE.into())
-            && SPECIAL_HTML_ELEMENTS.contains(&self.name.as_str())
-        {
-            return true;
-        }
-        if self.namespace == Some(MATHML_NAMESPACE.into())
-            && SPECIAL_MATHML_ELEMENTS.contains(&self.name.as_str())
-        {
-            return true;
-        }
-        if self.namespace == Some(SVG_NAMESPACE.into())
-            && SPECIAL_SVG_ELEMENTS.contains(&self.name.as_str())
-        {
-            return true;
-        }
-
-        false
-    }
-
-    /// Returns true if this node is registered into an arena
-    pub fn is_registered(&self) -> bool {
-        self.is_registered
     }
 }
 
