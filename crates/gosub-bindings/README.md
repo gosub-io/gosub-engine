@@ -1,5 +1,5 @@
 # Gosub Bindings
-These are the bindings the expose some of Gosub's engine to the world via a C API. Typically these will be used by user agents.
+These are bindings that expose some of Gosub's engine to the world via a C API. Typically these bindings will be used by user agents.
 
 ## Building
 By default, the bindings will be built in release mode. You can modify this by specifying a `MODE` variable:
