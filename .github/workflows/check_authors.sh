@@ -1,8 +1,8 @@
 #!/bin/bash
 
 is_in_authors() {
-  TARGET=$1
-  if grep -Fq "$TARGET" AUTHORS; then
+  local target=$1
+  if grep -Fq "$target" AUTHORS; then
     return 1
   else
     return 0
