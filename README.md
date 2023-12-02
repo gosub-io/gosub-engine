@@ -6,17 +6,19 @@ Join us at our development [Zulip chat](https://chat.developer.gosub.io)!
 
 For more general information you can also join our [Discord server](https://chat.gosub.io).
 
+If you are interested in contributing to Gosub, please checkout the [contribution guide](CONTRIBUTING.md)!
+
 
 ```
-                       _     
-                      | |    
-  __ _  ___  ___ _   _| |__  
- / _` |/ _ \/ __| | | | '_ \ 
+                       _
+                      | |
+  __ _  ___  ___ _   _| |__
+ / _` |/ _ \/ __| | | | '_ \
 | (_| | (_) \__ \ |_| | |_) |
- \__, |\___/|___/\__,_|_.__/ 
-  __/ |  The Gateway to                    
- |___/   Optimized Searching and 
-         Unlimited Browsing                    
+ \__, |\___/|___/\__,_|_.__/
+  __/ |  The Gateway to
+ |___/   Optimized Searching and
+         Unlimited Browsing
 ```
 
 ## About
@@ -83,7 +85,7 @@ To run the tests and benchmark suite, do:
 ```bash
 $ make test
 $ cargo bench
-$ ls target/criterion/report 
+$ ls target/criterion/report
 index.html
 ```
 
