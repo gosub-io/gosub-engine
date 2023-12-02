@@ -21,7 +21,7 @@ This is an initial (but not fully complete) contribution guide.
 * [Modules](#modules)
 * [Signed Commits](#signed-commits)
 * [PR Guidelines](#pr-guidelines)
-* [Waht to do?](#what-to-do)
+* [What to do?](#what-to-do)
 
 ## Introduction to the Makefiles
 Before writing any code, it's good to get familiar with our Makefiles.
