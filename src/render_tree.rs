@@ -5,66 +5,12 @@ use crate::html5::node::NodeData;
 use crate::html5::parser::document;
 use crate::html5::parser::document::{Document, DocumentHandle};
 
+use crate::render_tree::properties::Position;
 use crate::render_tree::{properties::Rectangle, text::TextNode};
 
 pub mod properties;
 pub mod text;
 pub mod util;
-
-/// The position of the render cursor used to determine where
-/// to draw an object
-#[derive(Debug, PartialEq, Clone)]
-#[repr(C)]
-pub struct Position {
-    pub x: f64,
-    pub y: f64,
-}
-
-impl Position {
-    #[must_use]
-    pub fn new() -> Self {
-        Self { x: 0., y: 0. }
-    }
-
-    pub fn new_from_existing(position: &Position) -> Self {
-        Self {
-            x: position.x,
-            y: position.y,
-        }
-    }
-
-    /// Move position to (x, y)
-    pub fn move_to(&mut self, x: f64, y: f64) {
-        self.x = x;
-        self.y = y;
-    }
-
-    /// Move position relative to another position.
-    /// x = relative.x + x_offset
-    /// y = relative.y + y_offset
-    pub fn move_relative_to(&mut self, relative_position: &Position, x_offset: f64, y_offset: f64) {
-        self.x = relative_position.x + x_offset;
-        self.y = relative_position.y + y_offset;
-    }
-
-    /// Adjust y by an offset.
-    /// y += offset_y
-    pub fn offset_y(&mut self, offset_y: f64) {
-        self.y += offset_y;
-    }
-
-    /// Adjust x by an offset.
-    /// x += offset_x
-    pub fn offset_x(&mut self, offset_x: f64) {
-        self.x += offset_x;
-    }
-}
-
-impl Default for Position {
-    fn default() -> Self {
-        Self::new()
-    }
-}
 
 /// A RenderTree is a data structure to be consumed by a user agent
 /// that combines the DOM and CSSOM to compute layouts and styles
@@ -257,7 +203,7 @@ impl Default for Node {
 #[repr(C, u32)]
 pub enum NodeType {
     /// Serves no purpose besides being the entry point
-    // NOTE: the bool is a dummy value, otherwise it appears to be ignored when transfering to C API
+    // NOTE: the bool is a dummy value, otherwise it appears to be ignored when transferring to C API
     Root(bool),
     /// Represents text to render. Usually created from heading or paragraph elements in the DOM.
     Text(TextNode),
