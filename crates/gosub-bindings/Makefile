@@ -1,15 +1,37 @@
 # "global" compile settings
-INCLUDE_DIR := include
-SRC_DIR := src
-CPPFLAGS := -I$(INCLUDE_DIR) -I$(INCLUDE_DIR)/nodes
+
+# compilation mode Release or Debug
+MODE?=Release
+
 CFLAGS_DEBUG := -std=c99 -g -Wall -Wextra -O0
 CFLAGS_RELEASE := -std=c99 -Wall -Wextra -O2
-CFLAGS := $(CFLAGS_DEBUG)
-CC := gcc
-TARGET_DIR := ../../target/debug
 
-LDFLAGS := -L$(TARGET_DIR)
+TARGET_DIR_DEBUG := ../../target/debug
+TARGET_DIR_RELEASE := ../../target/release
+
+ifeq ($(MODE), Release)
+$(info ***** COMPILING IN RELEASE MODE *****)
+CFLAGS = $(CFLAGS_RELEASE)
+TARGET_DIR = $(TARGET_DIR_RELEASE)
+else ifeq ($(MODE), Debug)
+$(info ***** COMPILING IN DEBUG MODE *****)
+CFLAGS = $(CFLAGS_DEBUG)
+TARGET_DIR = $(TARGET_DIR_DEBUG)
+else
+$(warning ***** UNKNOWN MODE. DEFAULTING TO RELEASE MODE *****)
+CFLAGS = $(CFLAGS_RELEASE)
+TARGET_DIR = $(TARGET_DIR_RELEASE)
+endif
+
+CC := gcc
+
+INCLUDE_DIR := include
+SRC_DIR := src
 NODE_SRC_DIR := $(SRC_DIR)/nodes
+
+CPPFLAGS := -I$(INCLUDE_DIR) -I$(INCLUDE_DIR)/nodes
+LDFLAGS := -L$(TARGET_DIR)
+
 bindings: # build gosub static library to be used externally
 	$(CC) $(CFLAGS) $(CPPFLAGS) -c $(SRC_DIR)/gosub_api.c $(SRC_DIR)/nodes.c $(NODE_SRC_DIR)/text.c
 	ar rcs libgosub.a gosub_api.o nodes.o text.o
