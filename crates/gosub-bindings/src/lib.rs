@@ -93,7 +93,7 @@ pub unsafe extern "C" fn gosub_render_tree_next_node(
 pub unsafe extern "C" fn gosub_render_tree_get_node_data(node: *const Node, c_node: *mut CNode) {
     // Change this to a match when we have more types
     if let NodeType::Text(text_node) = &(*node).node_type {
-        (*c_node) = CNode::new_text(&(*node).position, text_node);
+        *c_node = CNode::new_text(&*node, text_node);
     }
 }
 

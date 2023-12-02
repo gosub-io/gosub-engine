@@ -25,80 +25,90 @@ int main() {
 
   const double tol = 0.00001;
 
-  // TODO: it'll be good at some point in the future to have the
-  // margins to compute the expected_y position instead of manually
-  // doing math. This will make the tests more robust if we change
-  // margins/etc. in the engine.
+  double y = 0.00;
 
   // <h1>
   node = render_tree_next(&render_tree);
+  y += render_tree_node_get_margin_top(node);
   assert(node->type == NODE_TYPE_TEXT);
-  assert(strcmp(node->data.text.value, "this is heading 1") == 0);
-  assert(strcmp(node->data.text.font, "Times New Roman") == 0);
-  assert(fabs(node->data.text.font_size - 37.0) < 0.00001);
-  assert(node->data.text.is_bold == true);
-  assert(fabs(node->position.x - 0.00) < tol);
-  assert(fabs(node->position.y - 10.72) < tol);
+  assert(strcmp(render_tree_node_text_get_value(node), "this is heading 1") == 0);
+  assert(strcmp(render_tree_node_text_get_font(node), "Times New Roman") == 0);
+  assert(fabs(render_tree_node_text_get_font_size(node) - 37.0) < tol);
+  assert(render_tree_node_text_get_bold(node) == true);
+  assert(fabs(render_tree_node_get_x(node) - 0.00) < tol);
+  assert(fabs(render_tree_node_get_y(node) - y) < tol);
+  y += (render_tree_node_text_get_font_size(node) + render_tree_node_get_margin_bottom(node));
 
   // <h2>
   node = render_tree_next(&render_tree);
+  y += render_tree_node_get_margin_top(node);
   assert(node->type == NODE_TYPE_TEXT);
-  assert(strcmp(node->data.text.value, "this is heading 2") == 0);
-  assert(strcmp(node->data.text.font, "Times New Roman") == 0);
-  assert(fabs(node->data.text.font_size - 27.5) < 0.00001);
-  assert(node->data.text.is_bold == true);
-  assert(fabs(node->position.x - 0.00) < tol);
-  assert(fabs(node->position.y - 68.4) < tol);
+  assert(strcmp(render_tree_node_text_get_value(node), "this is heading 2") == 0);
+  assert(strcmp(render_tree_node_text_get_font(node), "Times New Roman") == 0);
+  assert(fabs(render_tree_node_text_get_font_size(node) - 27.5) < tol);
+  assert(render_tree_node_text_get_bold(node) == true);
+  assert(fabs(render_tree_node_get_x(node) - 0.00) < tol);
+  assert(fabs(render_tree_node_get_y(node) - y) < tol);
+  y += (render_tree_node_text_get_font_size(node) + render_tree_node_get_margin_bottom(node));
 
   // <h3>
   node = render_tree_next(&render_tree);
+  y += render_tree_node_get_margin_top(node);
   assert(node->type == NODE_TYPE_TEXT);
-  assert(strcmp(node->data.text.value, "this is heading 3") == 0);
-  assert(strcmp(node->data.text.font, "Times New Roman") == 0);
-  assert(fabs(node->data.text.font_size - 21.5) < 0.00001);
-  assert(node->data.text.is_bold == true);
-  assert(fabs(node->position.x - 0.00) < tol);
-  assert(fabs(node->position.y - 115.22) < tol);
+  assert(strcmp(render_tree_node_text_get_value(node), "this is heading 3") == 0);
+  assert(strcmp(render_tree_node_text_get_font(node), "Times New Roman") == 0);
+  assert(fabs(render_tree_node_text_get_font_size(node) - 21.5) < tol);
+  assert(render_tree_node_text_get_bold(node) == true);
+  assert(fabs(render_tree_node_get_x(node) - 0.00) < tol);
+  assert(fabs(render_tree_node_get_y(node) - y) < tol);
+  y += (render_tree_node_text_get_font_size(node) + render_tree_node_get_margin_bottom(node));
 
   // <h4>
   node = render_tree_next(&render_tree);
+  y += render_tree_node_get_margin_top(node);
   assert(node->type == NODE_TYPE_TEXT);
-  assert(strcmp(node->data.text.value, "this is heading 4") == 0);
-  assert(strcmp(node->data.text.font, "Times New Roman") == 0);
-  assert(fabs(node->data.text.font_size - 18.5) < 0.00001);
-  assert(node->data.text.is_bold == true);
-  assert(fabs(node->position.x - 0.00) < tol);
-  assert(fabs(node->position.y - 156.72) < tol);
+  assert(strcmp(render_tree_node_text_get_value(node), "this is heading 4") == 0);
+  assert(strcmp(render_tree_node_text_get_font(node), "Times New Roman") == 0);
+  assert(fabs(render_tree_node_text_get_font_size(node) - 18.5) < tol);
+  assert(render_tree_node_text_get_bold(node) == true);
+  assert(fabs(render_tree_node_get_x(node) - 0.00) < tol);
+  assert(fabs(render_tree_node_get_y(node) - y) < tol);
+  y += (render_tree_node_text_get_font_size(node) + render_tree_node_get_margin_bottom(node));
 
   // <h5>
   node = render_tree_next(&render_tree);
+  y += render_tree_node_get_margin_top(node);
   assert(node->type == NODE_TYPE_TEXT);
-  assert(strcmp(node->data.text.value, "this is heading 5") == 0);
-  assert(strcmp(node->data.text.font, "Times New Roman") == 0);
-  assert(fabs(node->data.text.font_size - 15.5) < 0.00001);
-  assert(node->data.text.is_bold == true);
-  assert(fabs(node->position.x - 0.00) < tol);
-  assert(fabs(node->position.y - 196.949) < tol);
+  assert(strcmp(render_tree_node_text_get_value(node), "this is heading 5") == 0);
+  assert(strcmp(render_tree_node_text_get_font(node), "Times New Roman") == 0);
+  assert(fabs(render_tree_node_text_get_font_size(node) - 15.5) < tol);
+  assert(render_tree_node_text_get_bold(node) == true);
+  assert(fabs(render_tree_node_get_x(node) - 0.00) < tol);
+  assert(fabs(render_tree_node_get_y(node) - y) < tol);
+  y += (render_tree_node_text_get_font_size(node) + render_tree_node_get_margin_bottom(node));
 
   // <h6>
   node = render_tree_next(&render_tree);
+  y += render_tree_node_get_margin_top(node);
   assert(node->type == NODE_TYPE_TEXT);
-  assert(strcmp(node->data.text.value, "this is heading 6") == 0);
-  assert(strcmp(node->data.text.font, "Times New Roman") == 0);
-  assert(fabs(node->data.text.font_size - 12.0) < 0.00001);
-  assert(node->data.text.is_bold == true);
-  assert(fabs(node->position.x - 0.00) < tol);
-  assert(fabs(node->position.y - 236.027) < tol);
+  assert(strcmp(render_tree_node_text_get_value(node), "this is heading 6") == 0);
+  assert(strcmp(render_tree_node_text_get_font(node), "Times New Roman") == 0);
+  assert(fabs(render_tree_node_text_get_font_size(node) - 12.0) < tol);
+  assert(render_tree_node_text_get_bold(node) == true);
+  assert(fabs(render_tree_node_get_x(node) - 0.00) < tol);
+  assert(fabs(render_tree_node_get_y(node) - y) < tol);
+  y += (render_tree_node_text_get_font_size(node) + render_tree_node_get_margin_bottom(node));
 
   // <p>
   node = render_tree_next(&render_tree);
+  y += render_tree_node_get_margin_top(node);
   assert(node->type == NODE_TYPE_TEXT);
-  assert(strcmp(node->data.text.value, "this is a paragraph") == 0);
-  assert(strcmp(node->data.text.font, "Times New Roman") == 0);
-  assert(fabs(node->data.text.font_size - 18.5) < 0.00001);
-  assert(node->data.text.is_bold == false);
-  assert(fabs(node->position.x - 0.00) < tol);
-  assert(fabs(node->position.y - 268.516) < tol);
+  assert(strcmp(render_tree_node_text_get_value(node), "this is a paragraph") == 0);
+  assert(strcmp(render_tree_node_text_get_font(node), "Times New Roman") == 0);
+  assert(fabs(render_tree_node_text_get_font_size(node) - 18.5) < tol);
+  assert(render_tree_node_text_get_bold(node) == false);
+  assert(fabs(render_tree_node_get_x(node) - 0.00) < tol);
+  assert(fabs(render_tree_node_get_y(node) - y) < tol);
 
   // end of iterator, last node is free'd
   node = render_tree_next(&render_tree);
