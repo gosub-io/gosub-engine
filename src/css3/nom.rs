@@ -183,3 +183,14 @@ fn dimension(input: Span) -> IResult<Span, Node> {
         nom::error::ErrorKind::IsNot,
     )))
 }
+
+/// Returns the a colon
+pub fn colon(input: Span) -> IResult<Span, char> {
+    let (input, span) = take(1usize)(input)?;
+
+    if let Some(Token::Colon) = span.to_token() {
+        return Ok((input, ':'));
+    }
+
+    Err(nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::IsNot)))
+}

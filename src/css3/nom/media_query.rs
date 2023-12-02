@@ -4,7 +4,7 @@ use nom::bytes::streaming::take;
 use nom::combinator::{map, opt};
 use nom::multi::{many0, separated_list1};
 use nom::IResult;
-use crate::css3::nom::{any_ident, comma, delim, dimension, function, ident, number, whitespace0, whitespace1};
+use crate::css3::nom::{any_ident, colon, comma, delim, dimension, function, ident, number, whitespace0, whitespace1};
 use crate::css3::nom::values::parse_ratio;
 use crate::css3::span::Span;
 
@@ -103,14 +103,16 @@ fn parse_media_condition(input: Span) -> IResult<Span, Node> {
 
 // <media-condition-without-or> = <media-not> | <media-in-parens> <media-and>*
 fn parse_media_without_or(input: Span) -> IResult<Span, Node> {
-    let (input, _media_condition_without_or) = alt((
+    let (input, media_condition_without_or) = alt((
         |i| parse_media_not(i),
         |i| parse_media_in_parens(i),
     ))(input)?;
 
-    let (input, extra_and_conditions) = many0(|i| parse_media_and(i))(input)?;
     let mut node = Node::new("MediaConditionWithoutOr");
-    node.children = extra_and_conditions;
+    node.children.push(media_condition_without_or);
+
+    let (input, mut extra_and_conditions) = many0(|i| parse_media_and(i))(input)?;
+    node.children.append(&mut extra_and_conditions);
 
     Ok((input, node))
 }
@@ -130,15 +132,16 @@ fn parse_media_not(input: Span) -> IResult<Span, Node> {
 
 // <media-and> = and <media-in-parens>
 fn parse_media_and(input: Span) -> IResult<Span, Node> {
+    let (input, _) = whitespace0(input)?;
     let (input, _) = ident(input, "and".to_string())?;
     let (input, _) = whitespace1(input)?;
     let (input, media_in_parens) = parse_media_in_parens(input)?;
+    let (input, _) = whitespace0(input)?;
 
     let mut node = Node::new("MediaAnd");
     node.children.push(media_in_parens);
 
     Ok((input, node))
-
 }
 
 // <media-or> = or <media-in-parens>
@@ -155,19 +158,53 @@ fn parse_media_or(input: Span) -> IResult<Span, Node> {
 
 // <media-in-parens> = ( <media-condition> ) | ( <media-feature> ) | <general-enclosed>
 fn parse_media_in_parens(input: Span) -> IResult<Span, Node> {
-    parse_simple_block(input)
+    let (input, span) = take(1usize)(input)?;
+
+    if let Some(block) = span.to_simple_block() {
+
+        // tricky, we create a new span from the values of the simple block. We should not
+        // do this here, but instead already have a parsed block. But for now, this works.
+        let inner_block = Span::new(&block.values);
+        let (inner_block, node) = match alt((
+            |i| parse_media_condition(i),
+            |i| parse_media_feature(i),
+            |i| general_enclosed(i),
+        ))(inner_block) {
+            Ok((i, node)) => (i, node),
+            Err(err) => {
+                println!("Error: {:?}", err);
+                return Err(nom::Err::Error(nom::error::Error::new(
+                    input.clone(),
+                    nom::error::ErrorKind::IsNot,
+                )))
+            }
+        };
+
+        if !inner_block.is_empty() {
+            return Err(nom::Err::Error(nom::error::Error::new(
+                input.clone(),
+                nom::error::ErrorKind::TooLarge,
+            )))
+        }
+
+        return Ok((input, node));
+    }
+
+    Err(nom::Err::Error(nom::error::Error::new(
+        input.clone(),
+        nom::error::ErrorKind::IsNot,
+    )))
 }
 
 // <media-feature> = [ <mf-plain> | <mf-boolean> | <mf-range> ]
 fn parse_media_feature(input: Span) -> IResult<Span, Node> {
-    let (input, _) = delim(input, '[')?;
+    // let (input, _) = delim(input, '[')?;
     let (input, feature) = alt((
-        |i| mf_plain(i),
         |i| mf_plain(i),
         |i| mf_boolean(i),
         |i| mf_range(i),
     ))(input)?;
-    let (input, _) = delim(input, ']')?;
+    // let (input, _) = delim(input, ']')?;
 
     let mut node = Node::new("MediaFeature");
     node.children.push(feature);
@@ -178,10 +215,10 @@ fn parse_media_feature(input: Span) -> IResult<Span, Node> {
 // <mf-plain> = <mf-name> : <mf-value>
 fn mf_plain(input: Span) -> IResult<Span, Node> {
     let (input, name) = mf_name(input)?;
-    let (input, _) = delim(input, ':')?;
-    let (input, _) = whitespace1(input)?;
+    let (input, _) = colon(input)?;
+    let (input, _) = whitespace0(input)?;
     let (input, value) = mf_value(input)?;
-    let (input, _) = whitespace1(input)?;
+    let (input, _) = whitespace0(input)?;
 
     let mut node = Node::new("PlainMediaFeature");
     node.attributes.insert("name".to_string(), name);
@@ -319,28 +356,4 @@ fn mf_comparison(input: Span) -> IResult<Span, String> {
 // <general-enclosed> = [ <function-token> <any-value>? ) ] | ( <any-value>? )
 fn general_enclosed(input: Span) -> IResult<Span, Node> {
     function(input)
-}
-
-pub fn parse_simple_block(input: Span) -> IResult<Span, Node> {
-    let (input, span) = take(1usize)(input)?;
-
-    if let Some(block) = span.to_simple_block() {
-        let inner_block = Span::new(&block.values);
-
-        let (_, node) = alt((
-            |i| parse_media_condition(i),
-            |i| parse_media_feature(i),
-        ))(inner_block)?;
-
-        return Ok((Span::new(&vec![]), node));
-    }
-
-    Err(nom::Err::Error(nom::error::Error::new(
-        input.clone(),
-        nom::error::ErrorKind::IsNot,
-    )))
-}
-
-fn parse_simple_block_inner(input: Span) -> IResult<Span, Node> {
-    Ok((input, Node::new("simple_block")))
 }

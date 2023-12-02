@@ -943,7 +943,7 @@ mod tests {
         let mut ci = CharIterator::new();
         ci.read_from_str(
             "
-            @media only screen and (max-width: 600px) {
+            @media not all and (monochrome) and (min-width: 600px) and (max-width: 1200px) and (min-height: 800px) and (orientation: landscape) {
                 color: blue;
             }
             ",
