@@ -1,6 +1,6 @@
-# GoSub: Gateway to Optimized Searching and Unlimited Browsing
+# Gosub: Gateway to Optimized Searching and Unlimited Browsing
 
-This repository holds the GoSub browser engine. It will become a standalone library that can be used by other projects but will ultimately be used by the Gosub browser user-agent. See the [About](#about) section for more information.
+This repository holds the Gosub browser engine. It will become a standalone library that can be used by other projects but will ultimately be used by the Gosub browser user-agent. See the [About](#about) section for more information.
 
 Join us at our development [Zulip chat](https://chat.developer.gosub.io)!
 
