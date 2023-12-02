@@ -1,9 +1,10 @@
 use crate::css3::ast::Node;
 use nom::branch::alt;
+use nom::bytes::streaming::take;
 use nom::combinator::{map, opt};
 use nom::multi::{many0, separated_list1};
 use nom::IResult;
-use crate::css3::nom::{any_ident, comma, delim, dimension, function, ident, number, simple_block, whitespace0, whitespace1};
+use crate::css3::nom::{any_ident, comma, delim, dimension, function, ident, number, whitespace0, whitespace1};
 use crate::css3::nom::values::parse_ratio;
 use crate::css3::span::Span;
 
@@ -154,29 +155,7 @@ fn parse_media_or(input: Span) -> IResult<Span, Node> {
 
 // <media-in-parens> = ( <media-condition> ) | ( <media-feature> ) | <general-enclosed>
 fn parse_media_in_parens(input: Span) -> IResult<Span, Node> {
-    alt((
-        |i| {
-            let (i, internal_span) = simple_block(i)?;
-            let (_, media_condition) = parse_media_condition(internal_span)?;
-
-            let mut node = Node::new("MediaInParens");
-            node.attributes.insert("type".to_string(), "condition".to_string());
-            node.children.push(media_condition);
-
-            Ok((i, node))
-        },
-        |i| {
-            let (i, internal_span) = simple_block(i)?;
-            let (_, media_feature) = parse_media_feature(internal_span)?;
-
-            let mut node = Node::new("MediaInParens");
-            node.attributes.insert("type".to_string(), "feature".to_string());
-            node.children.push(media_feature);
-
-            Ok((i, node))
-        },
-        |i| general_enclosed(i),
-    ))(input)
+    parse_simple_block(input)
 }
 
 // <media-feature> = [ <mf-plain> | <mf-boolean> | <mf-range> ]
@@ -340,4 +319,28 @@ fn mf_comparison(input: Span) -> IResult<Span, String> {
 // <general-enclosed> = [ <function-token> <any-value>? ) ] | ( <any-value>? )
 fn general_enclosed(input: Span) -> IResult<Span, Node> {
     function(input)
+}
+
+pub fn parse_simple_block(input: Span) -> IResult<Span, Node> {
+    let (input, span) = take(1usize)(input)?;
+
+    if let Some(block) = span.to_simple_block() {
+        let inner_block = Span::new(&block.values);
+
+        let (_, node) = alt((
+            |i| parse_media_condition(i),
+            |i| parse_media_feature(i),
+        ))(inner_block)?;
+
+        return Ok((Span::new(&vec![]), node));
+    }
+
+    Err(nom::Err::Error(nom::error::Error::new(
+        input.clone(),
+        nom::error::ErrorKind::IsNot,
+    )))
+}
+
+fn parse_simple_block_inner(input: Span) -> IResult<Span, Node> {
+    Ok((input, Node::new("simple_block")))
 }

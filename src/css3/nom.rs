@@ -9,32 +9,6 @@ pub mod selector;
 pub mod media_query;
 pub mod values;
 
-// pub fn any(input: Span) -> IResult<Span, String> {
-//     let (input, span) = take(1usize)(input)?;
-//
-//     match span.to_token() {
-//         Token::Ident(s) => return Ok((input, s)),
-//         Token::Hash(s) => return Ok((input, s)),
-//         Token::QuotedString(s) => return Ok((input, s)),
-//         Token::Delim(c) => return Ok((input, format!("{}", c))),
-//         Token::Function(s) => return Ok((input, s)),
-//         Token::AtKeyword(s) => return Ok((input, s)),
-//         Token::Url(s) => return Ok((input, s)),
-//         Token::BadUrl(s) => return Ok((input, s)),
-//         Token::Dimension { value, unit } => return Ok((input, format!("{}{}", value, unit))),
-//         Token::Percentage(s) => return Ok((input, format!("{}", s))),
-//         Token::Number(s) => return Ok((input, format!("{}", s))),
-//         Token::BadString(s) => return Ok((input, s)),
-//         Token::IDHash(s) => return Ok((input, s)),
-//         _ => {}
-//     }
-//
-//     Err(nom::Err::Error(nom::error::Error::new(
-//         input.clone(),
-//         nom::error::ErrorKind::Tag,
-//     )))
-// }
-
 /// Returns the function token
 pub fn function(input: Span) -> IResult<Span, Node> {
     let (input, span) = take(1usize)(input)?;
@@ -202,19 +176,6 @@ fn dimension(input: Span) -> IResult<Span, Node> {
         node.attributes.insert("unit".to_string(), unit.clone());
 
         return Ok((input, node));
-    }
-
-    Err(nom::Err::Error(nom::error::Error::new(
-        input.clone(),
-        nom::error::ErrorKind::IsNot,
-    )))
-}
-
-pub fn simple_block(input: Span) -> IResult<Span, Span> {
-    let (input, span) = take(1usize)(input)?;
-
-    if let Some(block) = span.to_simple_block() {
-        return Ok((input, Span::new(&block.values.clone())));
     }
 
     Err(nom::Err::Error(nom::error::Error::new(

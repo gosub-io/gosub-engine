@@ -11,7 +11,7 @@ use crate::css3::tokenizer::Token;
 
 #[derive(Clone, Debug)]
 pub struct Span<'t> {
-    pub list: Vec<ComponentValue>,
+    pub list: &'t [ComponentValue],
     pub start: usize,
     pub end: usize,
 }
