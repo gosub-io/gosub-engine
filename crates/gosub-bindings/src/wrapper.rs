@@ -1,3 +1,4 @@
+pub mod node;
 pub mod text;
 
 /// Numerical values that map render_tree::NodeType to C

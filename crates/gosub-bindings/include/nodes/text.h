@@ -2,10 +2,13 @@
 #define GOSUB_API_NODES_TEXT_H
 
 #include <stdbool.h>
+#include <stdint.h>
 
 struct node_t;
 
 struct node_text_t {
+  // this tag is not used but is required to map properly from Rust
+  uint32_t tag;
   char *value;
   char *font;
   double font_size;

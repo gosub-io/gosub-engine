@@ -4,8 +4,6 @@ use std::ptr;
 
 pub mod wrapper;
 
-use crate::wrapper::text::CTextNode;
-
 use gosub_engine::{
     bytes::{CharIterator, Confidence, Encoding},
     html5::parser::{
@@ -14,6 +12,7 @@ use gosub_engine::{
     },
     render_tree::{Node, NodeType, RenderTree, TreeIterator},
 };
+use wrapper::node::CNode;
 
 /// Initialize a render tree and return an owning pointer to it.
 /// If the HTML fails to parse or the html string fails to be converted to Rust,
@@ -91,12 +90,10 @@ pub unsafe extern "C" fn gosub_render_tree_next_node(
 /// and a mutable pointer owned by the C API to write (copy) the contents
 /// of the read-only pointer into the mutable pointer.
 #[no_mangle]
-pub unsafe extern "C" fn gosub_render_tree_get_node_data(
-    node: *const Node,
-    node_data: *mut CTextNode,
-) {
+pub unsafe extern "C" fn gosub_render_tree_get_node_data(node: *const Node, c_node: *mut CNode) {
+    // Change this to a match when we have more types
     if let NodeType::Text(text_node) = &(*node).node_type {
-        *node_data = CTextNode::from(text_node);
+        (*c_node) = CNode::new_text(&(*node).position, text_node);
     }
 }
 

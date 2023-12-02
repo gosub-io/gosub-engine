@@ -21,6 +21,14 @@ void render_tree_node_free_data(struct node_t *node) {
   }
 }
 
+double render_tree_node_get_x(const struct node_t *node) {
+  return node->position.x;
+}
+
+double render_tree_node_get_y(const struct node_t *node) {
+  return node->position.y;
+}
+
 void render_tree_node_free(struct node_t **node) {
   free(*node);
   *node = NULL;
