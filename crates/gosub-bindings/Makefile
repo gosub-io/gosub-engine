@@ -47,8 +47,8 @@ endif
 
 TEST_SRC_DIR := tests
 test: # build and run tests for bindings
-	$(CC) $(TEST_SRC_DIR)/render_tree_test.c -L./ -lgosub $(LDFLAGS) -lgosub_bindings -lsqlite3 -lm -o $(TEST_SRC_DIR)/render_tree_test $(CPPFLAGS) $(CFLAGS)
-	./$(TEST_SRC_DIR)/render_tree_test
+	$(CC) $(TEST_SRC_DIR)/rendertree_test.c -L./ -lgosub $(LDFLAGS) -lgosub_bindings -lsqlite3 -lm -o $(TEST_SRC_DIR)/rendertree_test $(CPPFLAGS) $(CFLAGS)
+	./$(TEST_SRC_DIR)/rendertree_test
 
 format:
 	cargo clippy --fix --allow-dirty --allow-staged

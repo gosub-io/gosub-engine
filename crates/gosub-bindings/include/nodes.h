@@ -9,8 +9,8 @@
 #include "nodes/text.h"
 #include "properties.h"
 
-struct node_t *render_tree_node_init();
-void render_tree_node_free(struct node_t **node);
+struct node_t *rendertree_node_init();
+void rendertree_node_free(struct node_t **node);
 
 enum node_type_e { NODE_TYPE_ROOT = 0u, NODE_TYPE_TEXT };
 
@@ -25,18 +25,18 @@ struct node_t {
   } data;
 };
 
-struct node_t *render_tree_node_init();
-double render_tree_node_get_x(const struct node_t *node);
-double render_tree_node_get_y(const struct node_t *node);
-double render_tree_node_get_margin_top(const struct node_t *node);
-double render_tree_node_get_margin_left(const struct node_t *node);
-double render_tree_node_get_margin_right(const struct node_t *node);
-double render_tree_node_get_margin_bottom(const struct node_t *node);
-double render_tree_node_get_padding_top(const struct node_t *node);
-double render_tree_node_get_padding_left(const struct node_t *node);
-double render_tree_node_get_padding_right(const struct node_t *node);
-double render_tree_node_get_padding_bottom(const struct node_t *node);
-void render_tree_node_free_data(struct node_t *node);
-void render_tree_node_free(struct node_t **node);
+struct node_t *rendertree_node_init();
+double rendertree_node_get_x(const struct node_t *node);
+double rendertree_node_get_y(const struct node_t *node);
+double rendertree_node_get_margin_top(const struct node_t *node);
+double rendertree_node_get_margin_left(const struct node_t *node);
+double rendertree_node_get_margin_right(const struct node_t *node);
+double rendertree_node_get_margin_bottom(const struct node_t *node);
+double rendertree_node_get_padding_top(const struct node_t *node);
+double rendertree_node_get_padding_left(const struct node_t *node);
+double rendertree_node_get_padding_right(const struct node_t *node);
+double rendertree_node_get_padding_bottom(const struct node_t *node);
+void rendertree_node_free_data(struct node_t *node);
+void rendertree_node_free(struct node_t **node);
 
 #endif
