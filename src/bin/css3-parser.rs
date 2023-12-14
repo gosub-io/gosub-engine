@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use std::fs;
 use std::process::exit;
 use gosub_engine::css3;
@@ -54,13 +54,44 @@ fn main() -> Result<()> {
         SimpleLogger::new().init().unwrap();
     }
 
-    let res = Css3::parse(css.as_str(), config);
-    if res.is_err() {
-        println!("{:?}", res.err().unwrap());
-        return Ok(());
+    let result = Css3::parse(css.as_str(), config);
+    if result.is_err() {
+        let err = result.err().unwrap();
+
+        let loc = err.location.clone();
+        let lines: Vec<&str> = css.split('\n').collect();
+        let line_nr = loc.line() - 1;
+        let col_nr = if loc.column() < 2 {
+            0
+        } else {
+            loc.column() - 2
+        };
+        
+        println!();
+        println!();
+        for n in ((line_nr - 5) as i32)..(line_nr as i32) {
+            if n < 0 {
+                continue;
+            }
+            println!("{:<5}|{}", n + 1, lines[n as usize]);
+        }
+
+        println!("{:<5}|{}", line_nr + 1, lines[line_nr as usize]);
+        println!("   ---{}^", "-".repeat(col_nr as usize));
+
+        for n in line_nr + 1..line_nr + 6 {
+            if n > lines.len() as u32 - 1 {
+                continue;
+            }
+            println!("{:<5}|{}", n + 1, lines[n as usize]);
+        }
+        println!();
+        println!();
+
+        return Err(anyhow!(err.message));
     }
 
-    css3::walker::Walker.walk(&res.unwrap());
+    css3::walker::Walker.walk(&result.unwrap());
 
     Ok(())
 }

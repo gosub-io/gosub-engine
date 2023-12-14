@@ -252,6 +252,11 @@ impl ByteStream {
         }
     }
 
+    /// Retrieves a slice of the buffer
+    pub fn get_buffer_slice(&self, start: usize, end: usize) -> &[Character] {
+        &self.buffer[start..end]
+    }
+
     /// Populates the current buffer with the contents of given file f
     pub fn read_from_file(&mut self, mut f: impl Read, e: Option<Encoding>) -> io::Result<()> {
         // First we read the u8 bytes into a buffer
