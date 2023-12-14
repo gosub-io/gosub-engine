@@ -208,14 +208,6 @@ impl fmt::Display for Token {
     }
 }
 
-macro_rules! consume {
-    ($self:expr, $token:expr) => {{
-        $self.next_char();
-
-        $token
-    }};
-}
-
 /// CSS Tokenizer according to the [w3 specification](https://www.w3.org/TR/css-syntax-3/#tokenization)
 pub struct Tokenizer<'stream> {
     stream: &'stream mut ByteStream,
@@ -339,19 +331,24 @@ impl<'stream> Tokenizer<'stream> {
 
         // todo: reframe the concept of "tokenizer::current" and "is::current" and "is::next"
         let current = self.current_char();
+        let loc = self.current_location().clone();
 
         let t = match current {
             Character::Surrogate(_) => {
+                self.next_char();
                 // @todo: we found a surrogate. Just return a replacement char
-                Token::new(TokenType::Delim('\u{FFFD}'), self.current_location().clone())
+                Token::new(TokenType::Delim('\u{FFFD}'), loc)
             }
-            Character::StreamEnd => Token::new(TokenType::Eof, self.current_location().clone()),
+            Character::StreamEnd => Token::new(TokenType::Eof, loc),
             Character::StreamEmpty => {
                 // @todo: we are in a situation where we don't have more characters yet, but the stream is still open. We should wait
                 // for more characters to come in.
-                Token::new(TokenType::Eof, self.current_location().clone())
+                Token::new(TokenType::Eof, loc)
             }
-            Ch(c) if c.is_whitespace() => self.consume_whitespace(),
+            Ch(c) if c.is_whitespace() => {
+                self.consume_whitespace();
+                Token::new(TokenType::Whitespace, loc)
+            },
             // note: consume_string_token doesn't work as expected
             Ch('"' | '\'') => self.consume_string_token(),
             Ch(c @ '#') => {
@@ -364,54 +361,54 @@ impl<'stream> Tokenizer<'stream> {
                     return if self.is_next_3_points_starts_ident_seq(0) {
                         Token::new_id_hash(
                             self.consume_ident().as_str(),
-                            self.current_location().clone(),
+                            loc,
                         )
                     } else {
                         Token::new_hash(
                             self.consume_ident().as_str(),
-                            self.current_location().clone(),
+                            loc,
                         )
                     };
                 }
 
-                Token::new_delim(c, self.current_location().clone())
+                Token::new_delim(c, loc)
             }
-            Ch(')') => consume!(
-                self,
-                Token::new(TokenType::RParen, self.current_location().clone())
-            ),
-            Ch('(') => consume!(
-                self,
-                Token::new(TokenType::LParen, self.current_location().clone())
-            ),
-            Ch('[') => consume!(
-                self,
-                Token::new(TokenType::LBracket, self.current_location().clone())
-            ),
-            Ch(']') => consume!(
-                self,
-                Token::new(TokenType::RBracket, self.current_location().clone())
-            ),
-            Ch('{') => consume!(
-                self,
-                Token::new(TokenType::LCurly, self.current_location().clone())
-            ),
-            Ch('}') => consume!(
-                self,
-                Token::new(TokenType::RCurly, self.current_location().clone())
-            ),
-            Ch(',') => consume!(
-                self,
-                Token::new(TokenType::Comma, self.current_location().clone())
-            ),
-            Ch(':') => consume!(
-                self,
-                Token::new(TokenType::Colon, self.current_location().clone())
-            ),
-            Ch(';') => consume!(
-                self,
-                Token::new(TokenType::Semicolon, self.current_location().clone())
-            ),
+            Ch(')') => {
+                self.next_char();
+                Token::new(TokenType::RParen, loc)
+            },
+            Ch('(') => {
+                self.next_char();
+                Token::new(TokenType::LParen, loc)
+            },
+            Ch('[') => {
+                self.next_char();
+                Token::new(TokenType::LBracket, loc)
+            },
+            Ch(']') => {
+                self.next_char();
+                Token::new(TokenType::RBracket, loc)
+            },
+            Ch('{') => {
+                self.next_char();
+                Token::new(TokenType::LCurly, loc)
+            }
+            Ch('}') => {
+                self.next_char();
+                Token::new(TokenType::RCurly, loc)
+            }
+            Ch(',') => {
+                self.next_char();
+                Token::new(TokenType::Comma, loc)
+            }
+            Ch(':') => {
+                self.next_char();
+                Token::new(TokenType::Colon, loc)
+            }
+            Ch(';') => {
+                self.next_char();
+                Token::new(TokenType::Semicolon, loc)
+            }
             Ch(c @ '+') => {
                 if self.is_signed_decimal(0) {
                     return self.consume_numeric_token();
@@ -419,7 +416,7 @@ impl<'stream> Tokenizer<'stream> {
 
                 // consume '+'
                 self.next_char();
-                Token::new_delim(c, self.current_location().clone())
+                Token::new_delim(c, loc)
             }
             Ch('.') => {
                 if matches!(self.stream.look_ahead(1), Ch(c) if c.is_numeric()) {
@@ -428,7 +425,7 @@ impl<'stream> Tokenizer<'stream> {
 
                 // consume '.'
                 self.next_char();
-                Token::new_delim('.', self.current_location().clone())
+                Token::new_delim('.', loc)
             }
             Ch(c @ '-') => {
                 if self.is_signed_decimal(0) {
@@ -439,7 +436,7 @@ impl<'stream> Tokenizer<'stream> {
                 if self.look_ahead_slice(cdc_token.len()) == cdc_token {
                     // consume '--'
                     self.consume_chars(cdc_token.len());
-                    return Token::new(TokenType::Cdc, self.current_location().clone());
+                    return Token::new(TokenType::Cdc, loc);
                 }
 
                 if self.is_next_3_points_starts_ident_seq(0) {
@@ -448,19 +445,19 @@ impl<'stream> Tokenizer<'stream> {
 
                 // consume '-'
                 self.next_char();
-                Token::new_delim(c, self.current_location().clone())
+                Token::new_delim(c, loc)
             }
             Ch(c @ '<') => {
                 let cdo_token = "<!--";
                 if self.look_ahead_slice(cdo_token.len()) == cdo_token {
                     // consume "<!--"
                     self.consume_chars(cdo_token.len());
-                    return Token::new(TokenType::Cdo, self.current_location().clone());
+                    return Token::new(TokenType::Cdo, loc);
                 }
 
                 // consume '<'
                 self.next_char();
-                Token::new_delim(c, self.current_location().clone())
+                Token::new_delim(c, loc)
             }
             Ch(c @ '@') => {
                 // consume '@'
@@ -469,11 +466,11 @@ impl<'stream> Tokenizer<'stream> {
                 if self.is_next_3_points_starts_ident_seq(0) {
                     return Token::new_atkeyword(
                         self.consume_ident().as_str(),
-                        self.current_location().clone(),
+                        loc,
                     );
                 }
 
-                Token::new_delim(c, self.current_location().clone())
+                Token::new_delim(c, loc)
             }
             Ch(c @ '\\') => {
                 if self.is_start_of_escape(0) {
@@ -483,14 +480,14 @@ impl<'stream> Tokenizer<'stream> {
                 // parser error
                 // consume '\'
                 self.next_char();
-                Token::new_delim(c, self.current_location().clone())
+                Token::new_delim(c, loc)
             }
             Ch(c) if c.is_numeric() => self.consume_numeric_token(),
             Ch(c) if self.is_ident_start(c) => self.consume_ident_like_seq(),
-            Ch(c) => consume!(
-                self,
-                Token::new(TokenType::Delim(c), self.current_location().clone())
-            )
+            Ch(c) => {
+                self.next_char();
+                Token::new(TokenType::Delim(c), loc)
+            }
         };
 
         t
@@ -519,24 +516,28 @@ impl<'stream> Tokenizer<'stream> {
     fn consume_numeric_token(&mut self) -> Token {
         let number = self.consume_number();
 
+        let loc = self.current_location().clone();
+
         if self.is_next_3_points_starts_ident_seq(0) {
             let unit = self.consume_ident();
 
-            return Token::new_dimension(number, unit.as_str(), self.current_location().clone());
+            return Token::new_dimension(number, unit.as_str(), loc);
         } else if self.current_char() == Ch('%') {
             // consume '%'
             self.next_char();
-            return Token::new_percentage(number, self.current_location().clone());
+            return Token::new_percentage(number, loc);
         }
 
-        Token::new_number(number, self.current_location().clone())
+        Token::new_number(number, loc)
     }
 
     /// 4.3.5. [Consume a string token](https://www.w3.org/TR/css-syntax-3/#consume-string-token)
     ///
     /// Returns either a `<string-token>` or `<bad-string-token>`.
     fn consume_string_token(&mut self) -> Token {
-        // consume string staring: (') or (") ...
+        let loc = self.current_location().clone();
+
+        // consume string starting: (') or (") ...
         let ending = self.next_char();
         let mut value = String::new();
 
@@ -545,13 +546,13 @@ impl<'stream> Tokenizer<'stream> {
             if self.current_char() == ending || self.stream.eof() {
                 // consume string ending
                 self.next_char();
-                return Token::new_quoted_string(value.as_str(), self.current_location().clone());
+                return Token::new_quoted_string(value.as_str(), loc);
             }
 
             // newline: parser error
             if self.current_char() == Ch('\n') {
                 // note: don't consume '\n'
-                return Token::new_bad_string(value.as_str(), self.current_location().clone());
+                return Token::new_bad_string(value.as_str(), loc);
             }
 
             if self.current_char() == Ch('\\') && self.stream.look_ahead(1) == Ch('\n') {
@@ -655,6 +656,8 @@ impl<'stream> Tokenizer<'stream> {
     fn consume_url(&mut self) -> Token {
         let mut url = String::new();
 
+        let loc = self.current_location().clone();
+
         self.consume_whitespace();
 
         loop {
@@ -677,7 +680,7 @@ impl<'stream> Tokenizer<'stream> {
             if self.is_any_of(vec!['"', '\'', '(']) || self.is_non_printable_char() {
                 // parse error
                 self.consume_remnants_of_bad_url();
-                return Token::new_bad_url(url.as_str(), self.current_location().clone());
+                return Token::new_bad_url(url.as_str(), loc);
             }
 
             if self.is_start_of_escape(0) {
@@ -688,7 +691,7 @@ impl<'stream> Tokenizer<'stream> {
             url.push(self.next_char().into());
         }
 
-        return Token::new_url(url.as_str(), self.current_location().clone());
+        return Token::new_url(url.as_str(), loc);
     }
 
     /// 4.3.14. [Consume the remnants of a bad url](https://www.w3.org/TR/css-syntax-3/#consume-remnants-of-bad-url)
@@ -814,12 +817,10 @@ impl<'stream> Tokenizer<'stream> {
         value
     }
 
-    fn consume_whitespace(&mut self) -> Token {
+    fn consume_whitespace(&mut self) {
         while self.current_char().is_whitespace() {
-            self.stream.next();
+            self.next_char();
         }
-
-        Token::new(TokenType::Whitespace, self.current_location().clone())
     }
 
     /// [ident-start code point](https://www.w3.org/TR/css-syntax-3/#ident-start-code-point)
@@ -902,19 +903,19 @@ impl<'stream> Tokenizer<'stream> {
             return Character::StreamEnd;
         }
 
+        log::trace!("current_location: {:?}", self.current_location());
         let c = self.stream.read();
+        log::trace!("read_char: {:?}", c);
+
         if c == Ch('\n') {
             self.cur_location.inc_line();
-            self.cur_location.set_column(0);
+            self.cur_location.set_column(1);
         } else {
             self.cur_location.inc_column();
         }
 
         // advance position in the stream
         self.stream.next();
-
-        log::trace!("read_char: {:?}", c);
-        log::trace!("current_location: {:?}", self.current_location());
 
         c
     }
@@ -938,6 +939,12 @@ mod test {
     use simple_logger::SimpleLogger;
     use crate::byte_stream::Encoding;
     use super::*;
+
+    macro_rules! assert_token_eq {
+        ($t1:expr, $t2:expr) => {
+            assert_eq!($t1.token_type, $t2.token_type)
+        }
+    }
 
     #[test]
     fn parse_comment() {
@@ -1066,7 +1073,7 @@ mod test {
             tokenizer
                 .stream
                 .read_from_str(raw_url, Some(Encoding::UTF8));
-            assert_eq!(tokenizer.consume_ident_like_seq(), url_token);
+            assert_token_eq!(tokenizer.consume_ident_like_seq(), url_token);
         }
     }
 
@@ -1122,7 +1129,7 @@ mod test {
             tokenizer
                 .stream
                 .read_from_str(raw_function, Some(Encoding::UTF8));
-            assert_eq!(tokenizer.consume_ident_like_seq(), function_token);
+            assert_token_eq!(tokenizer.consume_ident_like_seq(), function_token);
         }
     }
 
@@ -1147,7 +1154,7 @@ mod test {
             tokenizer
                 .stream
                 .read_from_str(raw_token, Some(Encoding::UTF8));
-            assert_eq!(tokenizer.consume_numeric_token(), token);
+            assert_token_eq!(tokenizer.consume_numeric_token(), token);
         }
     }
 
@@ -1187,7 +1194,7 @@ mod test {
             tokenizer.stream.close();
 
             let t = tokenizer.consume_string_token();
-            assert_eq!(t, string_token);
+            assert_token_eq!(t, string_token);
         }
     }
 
@@ -1220,7 +1227,7 @@ mod test {
         let mut tokenizer = Tokenizer::new(&mut chars, Location::default());
 
         for token in tokens {
-            assert_eq!(tokenizer.consume_token(), token);
+            assert_token_eq!(tokenizer.consume_token(), token);
         }
 
         assert!(tokenizer.stream.eof());
@@ -1255,7 +1262,7 @@ mod test {
         let mut tokenizer = Tokenizer::new(&mut chars, Location::default());
 
         for token in tokens {
-            assert_eq!(tokenizer.consume_token(), token);
+            assert_token_eq!(tokenizer.consume_token(), token);
         }
 
         assert!(tokenizer.stream.eof());
@@ -1303,7 +1310,7 @@ mod test {
         let mut tokenizer = Tokenizer::new(&mut chars, Location::default());
 
         for token in tokens {
-            assert_eq!(tokenizer.consume_token(), token);
+            assert_token_eq!(tokenizer.consume_token(), token);
         }
 
         assert!(tokenizer.stream.eof());
@@ -1380,7 +1387,7 @@ mod test {
 
         tokenizer.consume_whitespace();
         for token in tokens {
-            assert_eq!(tokenizer.consume_token(), token);
+            assert_token_eq!(tokenizer.consume_token(), token);
         }
     }
 
@@ -1415,7 +1422,7 @@ mod test {
         let mut tokenizer = Tokenizer::new(&mut chars, Location::default());
 
         for token in tokens {
-            assert_eq!(tokenizer.consume_token(), token);
+            assert_token_eq!(tokenizer.consume_token(), token);
         }
     }
 
@@ -1441,7 +1448,7 @@ mod test {
         let mut tokenizer = Tokenizer::new(&mut chars, Location::default());
 
         for token in tokens {
-            assert_eq!(tokenizer.consume_token(), token);
+            assert_token_eq!(tokenizer.consume_token(), token);
         }
     }
 
@@ -1462,7 +1469,7 @@ mod test {
 
         for token in tokens {
             let t = tokenizer.consume_token();
-            assert_eq!(t, token);
+            assert_token_eq!(t, token);
         }
 
         assert!(tokenizer.stream.eof());
@@ -1484,7 +1491,7 @@ mod test {
         let mut tokenizer = Tokenizer::new(&mut chars, Location::default());
 
         for token in tokens {
-            assert_eq!(tokenizer.consume_token(), token);
+            assert_token_eq!(tokenizer.consume_token(), token);
         }
 
         assert!(tokenizer.stream.eof());
@@ -1533,7 +1540,7 @@ mod test {
         let mut tokenizer = Tokenizer::new(&mut chars, Location::default());
 
         for token in tokens {
-            assert_eq!(tokenizer.consume_token(), token);
+            assert_token_eq!(tokenizer.consume_token(), token);
         }
 
         assert!(tokenizer.stream.eof());
@@ -1586,7 +1593,7 @@ mod test {
         let mut tokenizer = Tokenizer::new(&mut chars, Location::default());
 
         for token in tokens {
-            assert_eq!(tokenizer.consume_token(), token);
+            assert_token_eq!(tokenizer.consume_token(), token);
         }
 
         assert!(tokenizer.stream.eof());
@@ -1639,7 +1646,7 @@ mod test {
         let mut tokenizer = Tokenizer::new(&mut chars, Location::default());
 
         for token in tokens {
-            assert_eq!(tokenizer.consume_token(), token);
+            assert_token_eq!(tokenizer.consume_token(), token);
         }
 
         ();
@@ -1688,7 +1695,7 @@ mod test {
         let mut tokenizer = Tokenizer::new(&mut chars, Location::default());
 
         for token in tokens {
-            assert_eq!(tokenizer.consume_token(), token);
+            assert_token_eq!(tokenizer.consume_token(), token);
         }
 
         assert!(tokenizer.stream.eof());
@@ -1736,7 +1743,7 @@ mod test {
         let mut tokenizer = Tokenizer::new(&mut chars, Location::default());
 
         for token in tokens {
-            assert_eq!(tokenizer.consume_token(), token);
+            assert_token_eq!(tokenizer.consume_token(), token);
         }
 
         assert!(tokenizer.stream.eof());
@@ -1796,7 +1803,7 @@ mod test {
         let mut tokenizer = Tokenizer::new(&mut chars, Location::default());
 
         for token in tokens {
-            assert_eq!(tokenizer.consume_token(), token);
+            assert_token_eq!(tokenizer.consume_token(), token);
         }
 
         assert!(tokenizer.stream.eof());
@@ -1825,7 +1832,7 @@ mod test {
         let mut tokenizer = Tokenizer::new(&mut chars, Location::default());
 
         for token in tokens {
-            assert_eq!(tokenizer.consume_token(), token);
+            assert_token_eq!(tokenizer.consume_token(), token);
         }
 
         assert!(tokenizer.stream.eof());
@@ -1882,7 +1889,7 @@ mod test {
         let mut tokenizer = Tokenizer::new(&mut chars, Location::default());
 
         for token in tokens {
-            assert_eq!(tokenizer.consume_token(), token);
+            assert_token_eq!(tokenizer.consume_token(), token);
         }
 
         assert!(tokenizer.stream.eof());
@@ -1909,7 +1916,7 @@ mod test {
         let mut tokenizer = Tokenizer::new(&mut chars, Location::default());
 
         for token in tokens {
-            assert_eq!(tokenizer.consume_token(), token);
+            assert_token_eq!(tokenizer.consume_token(), token);
         }
 
         assert!(tokenizer.stream.eof());
@@ -1924,24 +1931,24 @@ mod test {
         let mut tokenizer = Tokenizer::new(&mut chars, Location::default());
         tokenizer.consume_all();
 
-        assert_eq!(
+        assert_token_eq!(
             tokenizer.lookahead(0),
             Token::new(TokenType::LBracket, Location::default())
         );
-        assert_eq!(
+        assert_token_eq!(
             tokenizer.lookahead(1),
             Token::new(TokenType::RBracket, Location::default())
         );
-        assert_eq!(
+        assert_token_eq!(
             tokenizer.lookahead(4),
             Token::new(TokenType::Eof, Location::default())
         );
 
-        assert_eq!(
+        assert_token_eq!(
             tokenizer.consume(),
             Token::new(TokenType::LBracket, Location::default())
         );
-        assert_eq!(
+        assert_token_eq!(
             tokenizer.lookahead(0),
             Token::new(TokenType::RBracket, Location::default())
         );
@@ -1978,7 +1985,7 @@ mod test {
         let mut tokenizer = Tokenizer::new(&mut chars, Location::default());
 
         for token in tokens {
-            assert_eq!(tokenizer.consume_token(), token);
+            assert_token_eq!(tokenizer.consume_token(), token);
         }
 
         assert!(tokenizer.stream.eof());
@@ -2005,14 +2012,14 @@ mod test {
             Token::new(TokenType::Colon, Location::new(1, 13)),
             Token::new(TokenType::Whitespace, Location::new(1, 14)),
             Token::new_hash("123", Location::new(1, 15)),
-            Token::new(TokenType::Semicolon, Location::new(1, 18)),
-            Token::new(TokenType::Whitespace, Location::new(1, 19)),
-            Token::new_ident("background-color", Location::new(1, 20)),
+            Token::new(TokenType::Semicolon, Location::new(1, 19)),
+            Token::new(TokenType::Whitespace, Location::new(1, 20)),
+            Token::new_ident("background-color", Location::new(1, 21)),
             Token::new(TokenType::Colon, Location::new(1, 37)),
             Token::new(TokenType::Whitespace, Location::new(1, 38)),
             Token::new_hash("11223344", Location::new(1, 39)),
-            Token::new(TokenType::Whitespace, Location::new(1, 47)),
-            Token::new(TokenType::RCurly, Location::new(1, 48)),
+            Token::new(TokenType::Whitespace, Location::new(1, 48)),
+            Token::new(TokenType::RCurly, Location::new(1, 49)),
         ];
         let mut tokenizer = Tokenizer::new(&mut chars, Location::default());
 
@@ -2044,13 +2051,13 @@ mod test {
             Token::new(TokenType::Colon, Location::new(2, 10)),
             Token::new(TokenType::Whitespace, Location::new(2, 11)),
             Token::new_hash("123", Location::new(2, 12)),
-            Token::new(TokenType::Semicolon, Location::new(2, 15)),
-            Token::new(TokenType::Whitespace, Location::new(2, 16)),
+            Token::new(TokenType::Semicolon, Location::new(2, 16)),
+            Token::new(TokenType::Whitespace, Location::new(2, 17)),
             Token::new_ident("background-color", Location::new(3, 5)),
-            Token::new(TokenType::Colon, Location::new(3, 20)),
-            Token::new(TokenType::Whitespace, Location::new(3, 21)),
-            Token::new_hash("11223344", Location::new(3, 22)),
-            Token::new(TokenType::Whitespace, Location::new(3, 30)),
+            Token::new(TokenType::Colon, Location::new(3, 21)),
+            Token::new(TokenType::Whitespace, Location::new(3, 22)),
+            Token::new_hash("11223344", Location::new(3, 23)),
+            Token::new(TokenType::Whitespace, Location::new(3, 32)),
             Token::new(TokenType::RCurly, Location::new(4, 1)),
         ];
         let mut tokenizer = Tokenizer::new(&mut chars, Location::default());
