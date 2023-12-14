@@ -2,7 +2,7 @@ use crate::css3::location::Location;
 use crate::css3::unicode::{get_unicode_char, UnicodeChar};
 use std::usize;
 use std::fmt;
-use crate::byte_stream::{ByteStream, Character};
+use crate::byte_stream::{ByteStream, Character, Stream};
 use crate::byte_stream::Character::Ch;
 
 pub type Number = f32;
@@ -210,7 +210,7 @@ impl fmt::Display for Token {
 
 macro_rules! consume {
     ($self:expr, $token:expr) => {{
-        $self.stream.read_char();
+        $self.next_char();
 
         $token
     }};
@@ -225,8 +225,10 @@ pub struct Tokenizer<'stream> {
     tokens: Vec<Token>,
     /// List of all line endings
     line_endings: Vec<usize>,
+    /// Start position of the stream (this does not have to be 1/1)
     start_location: Location,
-    pub current_location: Location,
+    /// Current position of the stream, to get the absolute position, we must add start_location to it
+    cur_location: Location,
     eof: bool,
 }
 
@@ -238,10 +240,17 @@ impl<'stream> Tokenizer<'stream> {
             position: 0,
             tokens: Vec::new(),
             start_location: location.clone(),
-            current_location: location.clone(),
+            cur_location: Location::new(1,1),
             eof: false,
             line_endings: Vec::new(),
         }
+    }
+
+    pub fn current_location(&self) -> Location {
+        return Location::new(
+            self.start_location.line() + self.cur_location.line() - 1,
+            self.start_location.column() + self.cur_location.column() - 1,
+        );
     }
 
     /// Returns true when there is no next element, and the stream is closed
@@ -252,10 +261,10 @@ impl<'stream> Tokenizer<'stream> {
     pub fn current(&self) -> Token {
         if self.position == 0 {
             // We haven't read anything yet. We can't really return anything (we haven't read anything), so we return EOF
-            return Token::new(TokenType::Eof, self.current_location.clone());
+            return Token::new(TokenType::Eof, self.current_location().clone());
         }
         if self.position > self.tokens.len() {
-            return Token::new(TokenType::Eof, self.current_location.clone());
+            return Token::new(TokenType::Eof, self.current_location().clone());
         }
 
         self.tokens[self.position - 1].clone()
@@ -287,7 +296,7 @@ impl<'stream> Tokenizer<'stream> {
         let pos: isize = (self.position + offset) as isize;
         if pos < 0 || pos >= self.tokens.len() as isize {
             // Both start of the stream, and end of the stream return EOF
-            return Token::new(TokenType::Eof, self.current_location.clone());
+            return Token::new(TokenType::Eof, self.current_location().clone());
         }
 
         self.tokens[pos as usize].clone()
@@ -329,80 +338,79 @@ impl<'stream> Tokenizer<'stream> {
         self.consume_comment();
 
         // todo: reframe the concept of "tokenizer::current" and "is::current" and "is::next"
-        let current = self.stream.current_char();
+        let current = self.current_char();
 
         let t = match current {
             Character::Surrogate(_) => {
                 // @todo: we found a surrogate. Just return a replacement char
-                Token::new(TokenType::Delim('\u{FFFD}'), self.current_location.clone())
+                Token::new(TokenType::Delim('\u{FFFD}'), self.current_location().clone())
             }
-            Character::StreamStart => Token::new(TokenType::Eof, self.current_location.clone()),
-            Character::StreamEnd => Token::new(TokenType::Eof, self.current_location.clone()),
+            Character::StreamEnd => Token::new(TokenType::Eof, self.current_location().clone()),
             Character::StreamEmpty => {
                 // @todo: we are in a situation where we don't have more characters yet, but the stream is still open. We should wait
                 // for more characters to come in.
-                Token::new(TokenType::Eof, self.current_location.clone())
+                Token::new(TokenType::Eof, self.current_location().clone())
             }
             Ch(c) if c.is_whitespace() => self.consume_whitespace(),
             // note: consume_string_token doesn't work as expected
             Ch('"' | '\'') => self.consume_string_token(),
             Ch(c @ '#') => {
                 // consume '#'
-                self.stream.read_char();
+                self.next_char();
 
-                if self.is_ident_char(self.stream.current_char().into())
+                if self.is_ident_char(self.current_char().into())
                     || self.is_start_of_escape(0)
                 {
                     return if self.is_next_3_points_starts_ident_seq(0) {
                         Token::new_id_hash(
                             self.consume_ident().as_str(),
-                            self.current_location.clone(),
+                            self.current_location().clone(),
                         )
                     } else {
                         Token::new_hash(
                             self.consume_ident().as_str(),
-                            self.current_location.clone(),
+                            self.current_location().clone(),
                         )
                     };
                 }
 
-                Token::new_delim(c, self.current_location.clone())
+                Token::new_delim(c, self.current_location().clone())
             }
             Ch(')') => consume!(
                 self,
-                Token::new(TokenType::RParen, self.current_location.clone())
+                Token::new(TokenType::RParen, self.current_location().clone())
             ),
             Ch('(') => consume!(
                 self,
-                Token::new(TokenType::LParen, self.current_location.clone())
+                Token::new(TokenType::LParen, self.current_location().clone())
             ),
             Ch('[') => consume!(
                 self,
-                Token::new(TokenType::LBracket, self.current_location.clone())
+                Token::new(TokenType::LBracket, self.current_location().clone())
             ),
             Ch(']') => consume!(
                 self,
-                Token::new(TokenType::RBracket, self.current_location.clone())
+                Token::new(TokenType::RBracket, self.current_location().clone())
             ),
             Ch('{') => consume!(
                 self,
-                Token::new(TokenType::LCurly, self.current_location.clone())
+                Token::new(TokenType::LCurly, self.current_location().clone())
             ),
             Ch('}') => consume!(
                 self,
-                Token::new(TokenType::RCurly, self.current_location.clone())
+                Token::new(TokenType::RCurly, self.current_location().clone())
             ),
             Ch(',') => consume!(
                 self,
-                Token::new(TokenType::Comma, self.current_location.clone())
+                Token::new(TokenType::Comma, self.current_location().clone())
             ),
             Ch(':') => consume!(
                 self,
-                Token::new(TokenType::Colon, self.current_location.clone())
+                Token::new(TokenType::Colon, self.current_location().clone())
             ),
             Ch(';') => consume!(
                 self,
-                Token::new(TokenType::Semicolon, self.current_location.clone())
+                Token::new(TokenType::Semicolon, self.current_location().clone())
             ),
             Ch(c @ '+') => {
                 if self.is_signed_decimal(0) {
@@ -410,17 +418,17 @@ impl<'stream> Tokenizer<'stream> {
                 }
 
                 // consume '+'
-                self.stream.read_char();
-                Token::new_delim(c, self.current_location.clone())
+                self.next_char();
+                Token::new_delim(c, self.current_location().clone())
             }
             Ch('.') => {
-                if matches!(self.stream.next_char(), Ch(c) if c.is_numeric()) {
+                if matches!(self.stream.look_ahead(1), Ch(c) if c.is_numeric()) {
                     return self.consume_numeric_token();
                 }
 
                 // consume '.'
-                self.stream.read_char();
-                Token::new_delim('.', self.current_location.clone())
+                self.next_char();
+                Token::new_delim('.', self.current_location().clone())
             }
             Ch(c @ '-') => {
                 if self.is_signed_decimal(0) {
@@ -428,10 +436,10 @@ impl<'stream> Tokenizer<'stream> {
                 }
 
                 let cdc_token = "-->";
-                if self.stream.look_ahead_slice(cdc_token.len()) == cdc_token {
+                if self.look_ahead_slice(cdc_token.len()) == cdc_token {
                     // consume '--'
                     self.consume_chars(cdc_token.len());
-                    return Token::new(TokenType::Cdc, self.current_location.clone());
+                    return Token::new(TokenType::Cdc, self.current_location().clone());
                 }
 
                 if self.is_next_3_points_starts_ident_seq(0) {
@@ -439,33 +447,33 @@ impl<'stream> Tokenizer<'stream> {
                 }
 
                 // consume '-'
-                self.stream.read_char();
-                Token::new_delim(c, self.current_location.clone())
+                self.next_char();
+                Token::new_delim(c, self.current_location().clone())
             }
             Ch(c @ '<') => {
                 let cdo_token = "<!--";
-                if self.stream.look_ahead_slice(cdo_token.len()) == cdo_token {
+                if self.look_ahead_slice(cdo_token.len()) == cdo_token {
                     // consume "<!--"
                     self.consume_chars(cdo_token.len());
-                    return Token::new(TokenType::Cdo, self.current_location.clone());
+                    return Token::new(TokenType::Cdo, self.current_location().clone());
                 }
 
                 // consume '<'
-                self.stream.read_char();
-                Token::new_delim(c, self.current_location.clone())
+                self.next_char();
+                Token::new_delim(c, self.current_location().clone())
             }
             Ch(c @ '@') => {
                 // consume '@'
-                self.stream.read_char();
+                self.next_char();
 
                 if self.is_next_3_points_starts_ident_seq(0) {
                     return Token::new_atkeyword(
                         self.consume_ident().as_str(),
-                        self.current_location.clone(),
+                        self.current_location().clone(),
                     );
                 }
 
-                Token::new_delim(c, self.current_location.clone())
+                Token::new_delim(c, self.current_location().clone())
             }
             Ch(c @ '\\') => {
                 if self.is_start_of_escape(0) {
@@ -474,14 +482,14 @@ impl<'stream> Tokenizer<'stream> {
 
                 // parser error
                 // consume '\'
-                self.stream.read_char();
-                Token::new_delim(c, self.current_location.clone())
+                self.next_char();
+                Token::new_delim(c, self.current_location().clone())
             }
             Ch(c) if c.is_numeric() => self.consume_numeric_token(),
             Ch(c) if self.is_ident_start(c) => self.consume_ident_like_seq(),
             Ch(c) => consume!(
                 self,
-                Token::new(TokenType::Delim(c), self.current_location.clone())
+                Token::new(TokenType::Delim(c), self.current_location().clone())
             )
         };
 
@@ -491,12 +499,12 @@ impl<'stream> Tokenizer<'stream> {
     /// 4.3.2. [Consume comments](https://www.w3.org/TR/css-syntax-3/#consume-comment)
     fn consume_comment(&mut self) -> String {
         let mut comment = String::new();
-        if self.stream.look_ahead_slice(2) == "/*" {
+        if self.look_ahead_slice(2) == "/*" {
             // consume '/*'
             comment.push_str(&self.consume_chars(2));
 
-            while self.stream.look_ahead_slice(2) != "*/" && !self.stream.eof() {
-                comment.push(self.stream.read_char().into());
+            while self.look_ahead_slice(2) != "*/" && !self.stream.eof() {
+                comment.push(self.next_char().into());
             }
 
             // consume '*/'
@@ -514,14 +522,14 @@ impl<'stream> Tokenizer<'stream> {
         if self.is_next_3_points_starts_ident_seq(0) {
             let unit = self.consume_ident();
 
-            return Token::new_dimension(number, unit.as_str(), self.current_location.clone());
-        } else if self.stream.current_char() == Ch('%') {
+            return Token::new_dimension(number, unit.as_str(), self.current_location().clone());
+        } else if self.current_char() == Ch('%') {
             // consume '%'
-            self.stream.read_char();
-            return Token::new_percentage(number, self.current_location.clone());
+            self.next_char();
+            return Token::new_percentage(number, self.current_location().clone());
         }
 
-        Token::new_number(number, self.current_location.clone())
+        Token::new_number(number, self.current_location().clone())
     }
 
     /// 4.3.5. [Consume a string token](https://www.w3.org/TR/css-syntax-3/#consume-string-token)
@@ -529,24 +537,24 @@ impl<'stream> Tokenizer<'stream> {
     /// Returns either a `<string-token>` or `<bad-string-token>`.
     fn consume_string_token(&mut self) -> Token {
         // consume string staring: (') or (") ...
-        let ending = self.stream.read_char();
+        let ending = self.next_char();
         let mut value = String::new();
 
         loop {
             // if eof => parser error => return the current string
-            if self.stream.current_char() == ending || self.stream.eof() {
+            if self.current_char() == ending || self.stream.eof() {
                 // consume string ending
-                self.stream.read_char();
-                return Token::new_quoted_string(value.as_str(), self.current_location.clone());
+                self.next_char();
+                return Token::new_quoted_string(value.as_str(), self.current_location().clone());
             }
 
             // newline: parser error
-            if self.stream.current_char() == Ch('\n') {
+            if self.current_char() == Ch('\n') {
                 // note: don't consume '\n'
-                return Token::new_bad_string(value.as_str(), self.current_location.clone());
+                return Token::new_bad_string(value.as_str(), self.current_location().clone());
             }
 
-            if self.stream.current_char() == Ch('\\') && self.stream.next_char() == Ch('\n') {
+            if self.current_char() == Ch('\\') && self.stream.look_ahead(1) == Ch('\n') {
                 // consume '\\n'
                 self.consume_chars(2);
                 continue;
@@ -555,15 +563,15 @@ impl<'stream> Tokenizer<'stream> {
             // todo: move to its own util function (used for string & ident tokens)
             // TIMP: confirmation needed
             // according to css tests `-\\-` should parsed to `--`
-            if self.stream.current_char() == Ch('\\')
-                && !matches!(self.stream.next_char(), Ch(c) if c.is_ascii_hexdigit())
-                && !matches!(self.stream.next_char(), Character::StreamEnd)
+            if self.current_char() == Ch('\\')
+                && !matches!(self.stream.look_ahead(1), Ch(c) if c.is_ascii_hexdigit())
+                && !matches!(self.stream.look_ahead(1), Character::StreamEnd)
             {
                 // consume '\'
-                self.stream.read_char();
+                self.next_char();
 
                 // consume char next to `\`
-                value.push(self.stream.read_char().into());
+                value.push(self.next_char().into());
                 continue;
             }
 
@@ -572,7 +580,7 @@ impl<'stream> Tokenizer<'stream> {
                 continue;
             }
 
-            value.push(self.stream.read_char().into());
+            value.push(self.next_char().into());
         }
     }
 
@@ -581,16 +589,16 @@ impl<'stream> Tokenizer<'stream> {
     /// Note: for the sake of simplicity, we exclude the number type mentioned in the algorithm.
     fn consume_number(&mut self) -> Number {
         let mut value = String::new();
-        let lookahead = self.stream.current_char();
+        let lookahead = self.current_char();
 
         if matches!(lookahead, Ch('+' | '-')) {
-            value.push(self.stream.read_char().into());
+            value.push(self.next_char().into());
         }
 
         value.push_str(&self.consume_digits());
 
-        if self.stream.current_char() == Ch('.')
-            && matches!(self.stream.next_char(), Ch(c) if c.is_numeric())
+        if self.current_char() == Ch('.')
+            && matches!(self.stream.look_ahead(1), Ch(c) if c.is_numeric())
         {
             value.push_str(&self.consume_chars(2));
         }
@@ -601,11 +609,11 @@ impl<'stream> Tokenizer<'stream> {
         // todo: move them to gobal constants
         // U+0045: LATIN CAPITAL LETTER E (E)
         // U+0065: LATIN SMALL LETTER E (e)
-        if matches!(self.stream.current_char(), Ch('\u{0045}' | '\u{0065}')) {
-            value.push(self.stream.read_char().into());
+        if matches!(self.current_char(), Ch('\u{0045}' | '\u{0065}')) {
+            value.push(self.next_char().into());
 
-            if matches!(self.stream.current_char(), Ch('-' | '+')) {
-                value.push(self.stream.read_char().into());
+            if matches!(self.current_char(), Ch('-' | '+')) {
+                value.push(self.next_char().into());
             }
         }
 
@@ -618,25 +626,27 @@ impl<'stream> Tokenizer<'stream> {
     ///
     /// Returns: `<ident-token>`, `<function-token>`, `<url-token>`, or `<bad-url-token>`.
     fn consume_ident_like_seq(&mut self) -> Token {
+        let loc = self.current_location().clone();
+
         let value = self.consume_ident();
 
-        if value == "url" && self.stream.current_char() == Ch('(') {
+        if value == "url" && self.current_char() == Ch('(') {
             // consume '('
-            self.stream.read_char();
+            self.next_char();
             self.consume_whitespace();
 
             if self.is_any_of(vec!['"', '\'']) {
-                return Token::new_function(value.as_str(), self.current_location.clone());
+                return Token::new_function(value.as_str(), loc);
             }
 
             return self.consume_url();
-        } else if self.stream.current_char() == Ch('(') {
+        } else if self.current_char() == Ch('(') {
             // consume '('
-            self.stream.read_char();
-            return Token::new_function(value.as_str(), self.current_location.clone());
+            self.next_char();
+            return Token::new_function(value.as_str(), loc);
         }
 
-        return Token::new_ident(value.as_str(), self.current_location.clone());
+        return Token::new_ident(value.as_str(), loc);
     }
 
     /// 4.3.6. [Consume a url token](https://www.w3.org/TR/css-syntax-3/#consume-a-url-token)
@@ -648,9 +658,9 @@ impl<'stream> Tokenizer<'stream> {
         self.consume_whitespace();
 
         loop {
-            if self.stream.current_char() == Ch(')') {
+            if self.current_char() == Ch(')') {
                 // consume ')'
-                self.stream.read_char();
+                self.next_char();
                 break;
             }
 
@@ -659,7 +669,7 @@ impl<'stream> Tokenizer<'stream> {
                 break;
             }
 
-            if self.stream.current_char().is_whitespace() {
+            if self.current_char().is_whitespace() {
                 self.consume_whitespace();
                 continue;
             }
@@ -667,7 +677,7 @@ impl<'stream> Tokenizer<'stream> {
             if self.is_any_of(vec!['"', '\'', '(']) || self.is_non_printable_char() {
                 // parse error
                 self.consume_remnants_of_bad_url();
-                return Token::new_bad_url(url.as_str(), self.current_location.clone());
+                return Token::new_bad_url(url.as_str(), self.current_location().clone());
             }
 
             if self.is_start_of_escape(0) {
@@ -675,10 +685,10 @@ impl<'stream> Tokenizer<'stream> {
                 continue;
             }
 
-            url.push(self.stream.read_char().into());
+            url.push(self.next_char().into());
         }
 
-        return Token::new_url(url.as_str(), self.current_location.clone());
+        return Token::new_url(url.as_str(), self.current_location().clone());
     }
 
     /// 4.3.14. [Consume the remnants of a bad url](https://www.w3.org/TR/css-syntax-3/#consume-remnants-of-bad-url)
@@ -687,7 +697,7 @@ impl<'stream> Tokenizer<'stream> {
     fn consume_remnants_of_bad_url(&mut self) {
         loop {
             // recovery point
-            if self.stream.current_char() == Ch(')') || self.stream.eof() {
+            if self.current_char() == Ch(')') || self.stream.eof() {
                 break;
             }
 
@@ -696,14 +706,14 @@ impl<'stream> Tokenizer<'stream> {
             }
 
             // todo: parse escaped code point.
-            self.stream.read_char();
+            self.next_char();
         }
     }
 
     /// 4.3.7. [Consume an escaped code point](https://www.w3.org/TR/css-syntax-3/#consume-an-escaped-code-point)
     fn consume_escaped_token(&mut self) -> char {
         // consume '\'
-        self.stream.read_char();
+        self.next_char();
 
         let mut value = String::new();
 
@@ -713,14 +723,14 @@ impl<'stream> Tokenizer<'stream> {
             return default_char;
         }
 
-        while matches!(self.stream.current_char(), Ch(c) if c.is_ascii_hexdigit())
+        while matches!(self.current_char(), Ch(c) if c.is_ascii_hexdigit())
             && value.len() <= 5
         {
-            value.push(self.stream.read_char().into());
+            value.push(self.next_char().into());
         }
 
-        if self.stream.current_char().is_whitespace() {
-            self.stream.read_char();
+        if self.current_char().is_whitespace() {
+            self.next_char();
         }
 
         if value.is_empty() {
@@ -756,15 +766,15 @@ impl<'stream> Tokenizer<'stream> {
         loop {
             // TIMP: confirmation needed
             // according to css tests `-\\-` should parsed to `--`
-            if self.stream.current_char() == Ch('\\')
-                && !matches!(self.stream.next_char(), Ch(c) if c.is_ascii_hexdigit())
-                && !matches!(self.stream.next_char(), Character::StreamEnd)
+            if self.current_char() == Ch('\\')
+                && !matches!(self.stream.look_ahead(1), Ch(c) if c.is_ascii_hexdigit())
+                && !matches!(self.stream.look_ahead(1), Character::StreamEnd)
             {
                 // consume '\'
-                self.stream.read_char();
+                self.next_char();
 
                 // consume char next to `\`
-                value.push(self.stream.read_char().into());
+                value.push(self.next_char().into());
                 continue;
             }
 
@@ -773,11 +783,11 @@ impl<'stream> Tokenizer<'stream> {
                 continue;
             }
 
-            if !self.is_ident_char(self.stream.current_char().into()) {
+            if !self.is_ident_char(self.current_char().into()) {
                 break;
             }
 
-            value.push(self.stream.read_char().into());
+            value.push(self.next_char().into());
         }
 
         value
@@ -786,8 +796,8 @@ impl<'stream> Tokenizer<'stream> {
     fn consume_digits(&mut self) -> String {
         let mut value = String::new();
 
-        while matches!(self.stream.current_char(), Ch(c) if c.is_numeric()) {
-            value.push(self.stream.read_char().into());
+        while matches!(self.current_char(), Ch(c) if c.is_numeric()) {
+            value.push(self.next_char().into());
         }
 
         value
@@ -797,7 +807,7 @@ impl<'stream> Tokenizer<'stream> {
         let mut value = String::new();
 
         while len > 0 {
-            value.push(self.stream.read_char().into());
+            value.push(self.next_char().into());
             len -= 1;
         }
 
@@ -805,11 +815,11 @@ impl<'stream> Tokenizer<'stream> {
     }
 
     fn consume_whitespace(&mut self) -> Token {
-        while self.stream.current_char().is_whitespace() {
-            self.stream.read_char();
+        while self.current_char().is_whitespace() {
+            self.stream.next();
         }
 
-        Token::new(TokenType::Whitespace, self.current_location.clone())
+        Token::new(TokenType::Whitespace, self.current_location().clone())
     }
 
     /// [ident-start code point](https://www.w3.org/TR/css-syntax-3/#ident-start-code-point)
@@ -824,7 +834,7 @@ impl<'stream> Tokenizer<'stream> {
 
     /// def: [non-printable code point](https://www.w3.org/TR/css-syntax-3/#non-printable-code-point)
     fn is_non_printable_char(&self) -> bool {
-        if let Ch(char) = self.stream.current_char() {
+        if let Ch(char) = self.current_char() {
             (char >= get_unicode_char(&UnicodeChar::Null)
                 && char <= get_unicode_char(&UnicodeChar::Backspace))
                 || (char >= get_unicode_char(&UnicodeChar::ShiftOut)
@@ -873,7 +883,7 @@ impl<'stream> Tokenizer<'stream> {
     }
 
     fn is_any_of(&self, chars: Vec<char>) -> bool {
-        let current_char = self.stream.current_char();
+        let current_char = self.current_char();
         for char in chars {
             if current_char == Ch(char) {
                 return true;
@@ -882,10 +892,50 @@ impl<'stream> Tokenizer<'stream> {
 
         false
     }
+
+    fn current_char(&self) -> Character {
+        self.stream.look_ahead(0)
+    }
+
+    fn next_char(&mut self) -> Character {
+        if self.stream.eof() {
+            return Character::StreamEnd;
+        }
+
+        let c = self.stream.read();
+        if c == Ch('\n') {
+            self.cur_location.inc_line();
+            self.cur_location.set_column(0);
+        } else {
+            self.cur_location.inc_column();
+        }
+
+        // advance position in the stream
+        self.stream.next();
+
+        log::trace!("read_char: {:?}", c);
+        log::trace!("current_location: {:?}", self.current_location());
+
+        c
+    }
+
+    fn look_ahead_slice(&self, len: usize) -> String {
+        let mut s = String::new();
+
+        for i in 0..len {
+            match self.stream.look_ahead(i) {
+                Ch(c) => s.push(c),
+                _ => break,
+            }
+        }
+
+        s
+    }
 }
 
 #[cfg(test)]
 mod test {
+    use simple_logger::SimpleLogger;
     use crate::byte_stream::Encoding;
     use super::*;
 
@@ -893,7 +943,7 @@ mod test {
     fn parse_comment() {
         let mut chars = ByteStream::new();
         chars.read_from_str("/* css comment */", Some(Encoding::UTF8));
-        chars.close_stream();
+        chars.close();
 
         let mut tokenizer = Tokenizer::new(&mut chars, Location::default());
         tokenizer.consume_comment();
@@ -1134,7 +1184,7 @@ mod test {
             tokenizer
                 .stream
                 .read_from_str(raw_string, Some(Encoding::UTF8));
-            tokenizer.stream.close_stream();
+            tokenizer.stream.close();
 
             let t = tokenizer.consume_string_token();
             assert_eq!(t, string_token);
@@ -1149,7 +1199,7 @@ mod test {
             "\"\" \"Lorem 'îpsum'\" \"a\\\nb\" \"a\nb \"eof",
             Some(Encoding::UTF8),
         );
-        chars.close_stream();
+        chars.close();
 
         let tokens = vec![
             // `\"\"`
@@ -1184,7 +1234,7 @@ mod test {
             "'' 'Lorem \"îpsum\"' 'a\\\nb' 'a\nb 'eof",
             Some(Encoding::UTF8),
         );
-        chars.close_stream();
+        chars.close();
 
         let tokens = vec![
             // `\"\"`
@@ -1219,7 +1269,7 @@ mod test {
             "url( '') url('Lorem \"îpsum\"'\n) url('a\\\nb' ) url('a\nb) url('eof",
             Some(Encoding::UTF8),
         );
-        chars.close_stream();
+        chars.close();
 
         let tokens = vec![
             // `url( '')`
@@ -1278,7 +1328,7 @@ mod test {
         ",
             Some(Encoding::UTF8),
         );
-        chars.close_stream();
+        chars.close();
 
         let tokens = vec![
             // 1st css rule
@@ -1344,7 +1394,7 @@ mod test {
         ",
             Some(Encoding::UTF8),
         );
-        chars.close_stream();
+        chars.close();
 
         let tokens = vec![
             Token::new(TokenType::Whitespace, Location::default()),
@@ -1377,7 +1427,7 @@ mod test {
             "/* CDO/CDC are not special */ <!-- --> {}",
             Some(Encoding::UTF8),
         );
-        chars.close_stream();
+        chars.close();
 
         let tokens = vec![
             Token::new(TokenType::Whitespace, Location::default()),
@@ -1400,7 +1450,7 @@ mod test {
         let mut chars = ByteStream::new();
 
         chars.read_from_str("/*/*///** /* **/*//* ", Some(Encoding::UTF8));
-        chars.close_stream();
+        chars.close();
 
         let tokens = vec![
             Token::new_delim('/', Location::default()),
@@ -1423,7 +1473,7 @@ mod test {
         let mut chars = ByteStream::new();
 
         chars.read_from_str("  \t\t\r\n\nRed ", Some(Encoding::UTF8));
-        chars.close_stream();
+        chars.close();
 
         let tokens = vec![
             Token::new(TokenType::Whitespace, Location::default()),
@@ -1448,7 +1498,7 @@ mod test {
             "@media0 @-Media @--media @0media @-0media @_media @.media @medİa @\\30 media\\",
             Some(Encoding::UTF8),
         );
-        chars.close_stream();
+        chars.close();
 
         let tokens = vec![
             Token::new_atkeyword("media0", Location::default()),
@@ -1497,7 +1547,7 @@ mod test {
             "#red0 #-Red #--red #-\\-red #0red #-0red #_Red #.red #rêd #êrd #\\.red\\",
             Some(Encoding::UTF8),
         );
-        chars.close_stream();
+        chars.close();
 
         let tokens = vec![
             Token::new_id_hash("red0", Location::default()),
@@ -1550,7 +1600,7 @@ mod test {
             "12red0 12.0-red 12--red 12-\\-red 120red 12-0red 12\\0000red 12_Red 12.red 12rêd",
             Some(Encoding::UTF8),
         );
-        chars.close_stream();
+        chars.close();
 
         let tokens = vec![
             // `12red0`
@@ -1604,7 +1654,7 @@ mod test {
             "12e2px +34e+1px -45E-0px .68e+3px +.79e-1px -.01E2px 2.3E+1px +45.0e6px -0.67e0px",
             Some(Encoding::UTF8),
         );
-        chars.close_stream();
+        chars.close();
 
         let tokens = vec![
             // `12e2px`
@@ -1652,7 +1702,7 @@ mod test {
             "12e2% +34e+1% -45E-0% .68e+3% +.79e-1% -.01E2% 2.3E+1% +45.0e6% -0.67e0%",
             Some(Encoding::UTF8),
         );
-        chars.close_stream();
+        chars.close();
 
         let tokens = vec![
             // `12e2%`
@@ -1700,7 +1750,7 @@ mod test {
             "a:not([href^=http\\:],  [href ^=\t'https\\:'\n]) { color: rgba(0%, 100%, 50%); }",
             Some(Encoding::UTF8),
         );
-        chars.close_stream();
+        chars.close();
 
         let tokens = vec![
             Token::new_ident("a", Location::default()),
@@ -1757,7 +1807,7 @@ mod test {
         let mut chars = ByteStream::new();
 
         chars.read_from_str("red-->/* Not CDC */", Some(Encoding::UTF8));
-        chars.close_stream();
+        chars.close();
 
         let tokens = vec![
             Token::new_ident("red--", Location::default()),
@@ -1786,7 +1836,7 @@ mod test {
         let mut chars = ByteStream::new();
 
         chars.read_from_str("\\- red0 -red --red -\\-red\\ blue 0red -0red \\0000red _Red .red rêd r\\êd \\007F\\0080\\0081", Some(Encoding::UTF8));
-        chars.close_stream();
+        chars.close();
 
         let tokens = vec![
             // `\\-`
@@ -1846,7 +1896,7 @@ mod test {
             "p[example=\"\\\nfoo(int x) {\\\n   this.x = x;\\\n}\\\n\"]",
             Some(Encoding::UTF8),
         );
-        chars.close_stream();
+        chars.close();
 
         let tokens = vec![
             Token::new_ident("p", Location::default()),
@@ -1869,7 +1919,7 @@ mod test {
     fn consume_tokenizer_as_stream_of_tokens() {
         let mut chars = ByteStream::new();
         chars.read_from_str("[][]", Some(Encoding::UTF8));
-        chars.close_stream();
+        chars.close();
 
         let mut tokenizer = Tokenizer::new(&mut chars, Location::default());
         tokenizer.consume_all();
@@ -1905,7 +1955,7 @@ mod test {
             "test { color: #123; background-color: #11223344 }",
             Some(Encoding::UTF8),
         );
-        chars.close_stream();
+        chars.close();
 
         let tokens = vec![
             Token::new_ident("test", Location::default()),
@@ -1929,6 +1979,85 @@ mod test {
 
         for token in tokens {
             assert_eq!(tokenizer.consume_token(), token);
+        }
+
+        assert!(tokenizer.stream.eof());
+    }
+
+    #[test]
+    fn location() {
+        let mut chars = ByteStream::new();
+
+        SimpleLogger::new().init().unwrap();
+
+        chars.read_from_str(
+            "test { color: #123; background-color: #11223344 }",
+            Some(Encoding::UTF8),
+        );
+        chars.close();
+
+        let tokens = vec![
+            Token::new_ident("test", Location::new(1, 1)),
+            Token::new(TokenType::Whitespace, Location::new(1, 5)),
+            Token::new(TokenType::LCurly, Location::new(1, 6)),
+            Token::new(TokenType::Whitespace, Location::new(1, 7)),
+            Token::new_ident("color", Location::new(1, 8)),
+            Token::new(TokenType::Colon, Location::new(1, 13)),
+            Token::new(TokenType::Whitespace, Location::new(1, 14)),
+            Token::new_hash("123", Location::new(1, 15)),
+            Token::new(TokenType::Semicolon, Location::new(1, 18)),
+            Token::new(TokenType::Whitespace, Location::new(1, 19)),
+            Token::new_ident("background-color", Location::new(1, 20)),
+            Token::new(TokenType::Colon, Location::new(1, 37)),
+            Token::new(TokenType::Whitespace, Location::new(1, 38)),
+            Token::new_hash("11223344", Location::new(1, 39)),
+            Token::new(TokenType::Whitespace, Location::new(1, 47)),
+            Token::new(TokenType::RCurly, Location::new(1, 48)),
+        ];
+        let mut tokenizer = Tokenizer::new(&mut chars, Location::default());
+
+        for token in tokens {
+            let t = tokenizer.consume_token();
+            println!("{:?}", t);
+            assert_eq!(t, token);
+        }
+
+        assert!(tokenizer.stream.eof());
+    }
+
+    #[test]
+    fn location_multiline() {
+        let mut chars = ByteStream::new();
+
+        chars.read_from_str(
+            "test {\n    color: #123;\n    background-color: #11223344\n}",
+            Some(Encoding::UTF8),
+        );
+        chars.close();
+
+        let tokens = vec![
+            Token::new_ident("test", Location::new(1, 1)),
+            Token::new(TokenType::Whitespace, Location::new(1, 5)),
+            Token::new(TokenType::LCurly, Location::new(1, 6)),
+            Token::new(TokenType::Whitespace, Location::new(1, 7)),
+            Token::new_ident("color", Location::new(2, 5)),
+            Token::new(TokenType::Colon, Location::new(2, 10)),
+            Token::new(TokenType::Whitespace, Location::new(2, 11)),
+            Token::new_hash("123", Location::new(2, 12)),
+            Token::new(TokenType::Semicolon, Location::new(2, 15)),
+            Token::new(TokenType::Whitespace, Location::new(2, 16)),
+            Token::new_ident("background-color", Location::new(3, 5)),
+            Token::new(TokenType::Colon, Location::new(3, 20)),
+            Token::new(TokenType::Whitespace, Location::new(3, 21)),
+            Token::new_hash("11223344", Location::new(3, 22)),
+            Token::new(TokenType::Whitespace, Location::new(3, 30)),
+            Token::new(TokenType::RCurly, Location::new(4, 1)),
+        ];
+        let mut tokenizer = Tokenizer::new(&mut chars, Location::default());
+
+        for token in tokens {
+            let t = tokenizer.consume_token();
+            assert_eq!(t, token);
         }
 
         assert!(tokenizer.stream.eof());

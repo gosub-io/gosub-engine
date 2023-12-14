@@ -5,18 +5,24 @@ use crate::css3::{Css3, Error};
 impl Css3<'_> {
     fn parse_class_selector(&mut self) -> Result<Node, Error> {
         log::trace!("parse_class_selector");
+
+        let loc = self.tokenizer.current_location().clone();
+
         self.consume(TokenType::Delim('.'))?;
 
         let value = self.consume_any_ident()?;
 
-        Ok(Node::new(NodeType::ClassSelector { value }))
+        Ok(Node::new(NodeType::ClassSelector { value }, loc))
     }
 
     fn parse_nesting_selector(&mut self) -> Result<Node, Error> {
         log::trace!("parse_nesting_selector");
+
+        let loc = self.tokenizer.current_location().clone();
+
         self.consume(TokenType::Delim('&'))?;
 
-        Ok(Node::new(NodeType::NestingSelector))
+        Ok(Node::new(NodeType::NestingSelector, loc))
     }
 
     fn parse_type_selector(&mut self) -> Result<Node, Error> {
@@ -49,6 +55,9 @@ impl Css3<'_> {
 
     fn parse_attribute_selector(&mut self) -> Result<Node, Error> {
         log::trace!("parse_attribute_selector");
+
+        let loc = self.tokenizer.current_location().clone();
+
         let mut flags = String::new();
         let mut matcher = None;
         let mut value = String::new();
@@ -79,7 +88,7 @@ impl Css3<'_> {
                 } else {
                     return Err(Error::new(
                         format!("Unexpected token {:?}", t),
-                        self.tokenizer.current_location.clone(),
+                        self.tokenizer.current_location().clone(),
                     ));
                 };
             }
@@ -88,11 +97,14 @@ impl Css3<'_> {
         self.consume(TokenType::RBracket)?;
         self.consume_whitespace_comments();
 
-        Ok(Node::new_attribute_selector(name, matcher, value, flags))
+        Ok(Node::new(NodeType::AttributeSelector{ name, matcher, value, flags }, loc))
     }
 
     fn parse_id_selector(&mut self) -> Result<Node, Error> {
         log::trace!("parse_id_selector");
+
+        let loc = self.tokenizer.current_location().clone();
+
         self.consume(TokenType::Delim('#'))?;
 
         let t = self.consume_any()?;
@@ -101,16 +113,19 @@ impl Css3<'_> {
             _ => {
                 return Err(Error::new(
                     format!("Unexpected token {:?}", t),
-                    self.tokenizer.current_location.clone(),
+                    self.tokenizer.current_location().clone(),
                 ));
             }
         };
 
-        Ok(Node::new(NodeType::IdSelector { value }))
+        Ok(Node::new(NodeType::IdSelector { value }, loc))
     }
 
     fn parse_pseudo_element_selector(&mut self) -> Result<Node, Error> {
         log::trace!("parse_pseudo_element_selector");
+
+        let loc = self.tokenizer.current_location().clone();
+
         self.consume(TokenType::Colon)?;
         self.consume(TokenType::Colon)?;
 
@@ -124,49 +139,55 @@ impl Css3<'_> {
         //     if let TokenType::Function(name) = t.token_type {
         //         let name = name.to_lowercase().as_str();
         //     } else {
-        //         return Err(Error::new(format!("Unexpected token {:?}", t), self.tokenizer.current_location.clone()));
+        //         return Err(Error::new(format!("Unexpected token {:?}", t), self.tokenizer.current_location().clone()));
         //     }
         //
         //     self.consume(TokenType::RParen)?;
         } else {
             return Err(Error::new(
                 format!("Unexpected token {:?}", t),
-                self.tokenizer.current_location.clone(),
+                self.tokenizer.current_location().clone(),
             ));
         };
 
-        Ok(Node::new(NodeType::PseudoElementSelector { value }))
+        Ok(Node::new(NodeType::PseudoElementSelector { value }, loc))
     }
 
     fn parse_pseudo_selector(&mut self) -> Result<Node, Error> {
         log::trace!("parse_pseudo_selector");
+
+        let loc = self.tokenizer.current_location().clone();
+
         self.consume(TokenType::Colon)?;
 
         let t = self.tokenizer.consume();
         let value = match t.token_type {
             TokenType::Ident(value) => {
-                Node::new(NodeType::Ident { value })
+                Node::new(NodeType::Ident { value }, t.location)
             }
             TokenType::Function(name) => {
                 let name = name.to_lowercase();
                 let args = self.parse_pseudo_function(name.as_str())?;
                 self.consume(TokenType::RParen)?;
 
-                Node::new(NodeType::Function { name, arguments: vec![args] })
+                Node::new(NodeType::Function { name, arguments: vec![args] }, t.location)
             }
             _ => {
                 return Err(Error::new(
                     format!("Unexpected token {:?}", t),
-                    self.tokenizer.current_location.clone(),
+                    self.tokenizer.current_location().clone(),
                 ));
             }
         };
 
-        Ok(Node::new(NodeType::PseudoClassSelector { value }))
+        Ok(Node::new(NodeType::PseudoClassSelector { value }, loc))
     }
 
     pub fn parse_selector(&mut self) -> Result<Node, Error> {
         log::trace!("parse_selector");
+
+        let loc = self.tokenizer.current_location().clone();
+
         let mut children = vec![];
 
         while !self.tokenizer.eof() {
@@ -180,11 +201,11 @@ impl Css3<'_> {
                     children.push(selector);
                 }
                 TokenType::IDHash(value) => {
-                    let node = Node::new(NodeType::IdSelector { value });
+                    let node = Node::new(NodeType::IdSelector { value }, t.location);
                     children.push(node);
                 }
                 TokenType::Hash(value) => {
-                    let node = Node::new(NodeType::IdSelector { value });
+                    let node = Node::new(NodeType::IdSelector { value }, t.location);
                     children.push(node);
                 }
                 TokenType::Colon => {
@@ -200,22 +221,22 @@ impl Css3<'_> {
                     }
                 }
                 TokenType::Ident(value) => {
-                    let node = Node::new(NodeType::Ident { value });
+                    let node = Node::new(NodeType::Ident { value }, t.location);
                     children.push(node);
                 }
 
                 TokenType::Number(value) => {
-                    let node = Node::new(NodeType::Number { value });
+                    let node = Node::new(NodeType::Number { value }, t.location);
                     children.push(node);
                 }
 
                 TokenType::Percentage(value) => {
-                    let node = Node::new(NodeType::Percentage { value });
+                    let node = Node::new(NodeType::Percentage { value }, t.location);
                     children.push(node);
                 }
 
                 TokenType::Dimension { value, unit } => {
-                    let node = Node::new(NodeType::Dimension { value, unit });
+                    let node = Node::new(NodeType::Dimension { value, unit }, t.location);
                     children.push(node);
                 }
 
@@ -256,6 +277,6 @@ impl Css3<'_> {
             }
         }
 
-        Ok(Node::new_selector(children))
+        Ok(Node::new(NodeType::Selector{ children }, loc))
     }
 }

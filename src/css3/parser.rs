@@ -22,7 +22,7 @@ impl Css3<'_> {
         if t.token_type != token_type {
             return Err(Error::new(
                 format!("Expected {:?}, got {:?}", token_type, t),
-                self.tokenizer.current_location.clone(),
+                self.tokenizer.current_location().clone(),
             ));
         }
 
@@ -40,7 +40,7 @@ impl Css3<'_> {
             TokenType::Function(name) => Ok(name),
             _ => Err(Error::new(
                 format!("Expected function, got {:?}", t),
-                self.tokenizer.current_location.clone(),
+                self.tokenizer.current_location().clone(),
             )),
         }
     }
@@ -51,7 +51,7 @@ impl Css3<'_> {
             TokenType::Delim(c) if c == delimiter => Ok(c),
             _ => Err(Error::new(
                 format!("Expected delimiter '{}', got {:?}", delimiter, t),
-                self.tokenizer.current_location.clone(),
+                self.tokenizer.current_location().clone(),
             )),
         }
     }
@@ -77,7 +77,7 @@ impl Css3<'_> {
             TokenType::Ident(s) if s == ident => Ok(s),
             _ => Err(Error::new(
                 format!("Expected ident, got {:?}", t),
-                self.tokenizer.current_location.clone(),
+                self.tokenizer.current_location().clone(),
             )),
         }
     }
@@ -88,7 +88,7 @@ impl Css3<'_> {
             TokenType::Ident(s) => Ok(s),
             _ => Err(Error::new(
                 format!("Expected ident, got {:?}", t),
-                self.tokenizer.current_location.clone(),
+                self.tokenizer.current_location().clone(),
             )),
         }
     }

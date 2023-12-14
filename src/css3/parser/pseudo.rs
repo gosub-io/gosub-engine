@@ -15,9 +15,12 @@ impl Css3<'_> {
 
     fn parse_pseudo_function_ident_list(&mut self) -> Result<Node, Error> {
         log::trace!("parse_pseudo_function_ident_list");
+
+        let loc = self.tokenizer.current_location().clone();
+
         let value = self.consume_any_ident()?;
 
-        Ok(Node::new(NodeType::Ident{ value }))
+        Ok(Node::new(NodeType::Ident{ value }, loc))
     }
 
     fn parse_pseudo_function_nth(&mut self) -> Result<Node, Error> {
@@ -47,7 +50,7 @@ impl Css3<'_> {
             "host-context" => self.parse_pseudo_function_selector(),
             _ => Err(Error::new(
                 format!("Unexpected pseudo function {:?}", name),
-                self.tokenizer.current_location.clone(),
+                self.tokenizer.current_location().clone(),
             )),
         }
     }

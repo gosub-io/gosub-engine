@@ -1,4 +1,4 @@
-use crate::byte_stream::{ByteStream, Encoding};
+use crate::byte_stream::{ByteStream, Encoding, Stream};
 use crate::css3::location::Location;
 use crate::css3::node::Node;
 use crate::css3::parser_config::{Context, ParserConfig};
@@ -37,7 +37,7 @@ impl<'stream> Css3<'stream> {
     pub fn parse(data: &str, config: ParserConfig) -> Result<Node, Error> {
         let mut it = ByteStream::new();
         it.read_from_str(data, Some(Encoding::UTF8));
-        it.close_stream();
+        it.close();
 
         let mut parser = Css3::new(&mut it);
         parser.parse_internal(config)

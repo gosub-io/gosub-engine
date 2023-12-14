@@ -1,4 +1,4 @@
-use crate::css3::node::Node;
+use crate::css3::node::{Node, NodeType};
 use crate::css3::tokenizer::TokenType;
 use crate::css3::{Css3, Error};
 
@@ -22,20 +22,20 @@ impl Css3<'_> {
                 } else {
                     return Err(Error::new(
                         format!("Unexpected token {:?}", tn1),
-                        self.tokenizer.current_location.clone(),
+                        self.tokenizer.current_location().clone(),
                     ));
                 }
             }
             _ => {
                 return Err(Error::new(
                     format!("Unexpected token {:?}", t),
-                    self.tokenizer.current_location.clone(),
+                    self.tokenizer.current_location().clone(),
                 ));
             }
         };
 
         self.consume_whitespace_comments();
 
-        Ok(Node::new_combinator(name))
+        Ok(Node::new(NodeType::Combinator{ value: name }, t.location))
     }
 }

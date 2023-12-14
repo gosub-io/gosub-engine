@@ -11,6 +11,9 @@ impl Css3<'_> {
 
     pub fn parse_function(&mut self) -> Result<Node, Error> {
         log::trace!("parse_function");
+
+        let loc = self.tokenizer.current_location().clone();
+
         let name = self.consume_function()?;
         let arguments = self.parse_function_arguments()?;
 
@@ -21,6 +24,6 @@ impl Css3<'_> {
         Ok(Node::new(NodeType::Function {
             name,
             arguments,
-        }))
+        }, loc))
     }
 }

@@ -44,34 +44,34 @@ impl Css3<'_> {
         let t = self.consume_any()?;
         match t.token_type {
             TokenType::IDHash(value) => {
-                let node = Node::new(NodeType::Ident { value: format!("#{}", value) });
+                let node = Node::new(NodeType::Ident { value: format!("#{}", value) }, t.location);
                 Ok(Some(node))
             }
             TokenType::Hash(value) => {
-                let node = Node::new(NodeType::Hash { value });
+                let node = Node::new(NodeType::Hash { value }, t.location);
                 Ok(Some(node))
             }
             TokenType::Comma => {
-                let node = Node::new(NodeType::Operator(",".into()));
+                let node = Node::new(NodeType::Operator(",".into()), t.location);
                 Ok(Some(node))
             }
             TokenType::LBracket => {
                 todo!();
             }
             TokenType::QuotedString(value) => {
-                let node = Node::new(NodeType::String { value });
+                let node = Node::new(NodeType::String { value }, t.location);
                 Ok(Some(node))
             }
             TokenType::Dimension { value, unit } => {
-                let node = Node::new(NodeType::Dimension { value, unit });
+                let node = Node::new(NodeType::Dimension { value, unit }, t.location);
                 Ok(Some(node))
             }
             TokenType::Percentage(value) => {
-                let node = Node::new(NodeType::Percentage { value });
+                let node = Node::new(NodeType::Percentage { value }, t.location);
                 Ok(Some(node))
             }
             TokenType::Number(value) => {
-                let node = Node::new(NodeType::Number { value });
+                let node = Node::new(NodeType::Number { value }, t.location);
                 Ok(Some(node))
             }
             TokenType::Function(name) => {
@@ -86,7 +86,7 @@ impl Css3<'_> {
                 Ok(Some(node))
             }
             TokenType::Url(url) => {
-                let node = Node::new(NodeType::Url { url });
+                let node = Node::new(NodeType::Url { url }, t.location);
                 Ok(Some(node))
             }
             TokenType::Ident(value) => {
@@ -94,7 +94,7 @@ impl Css3<'_> {
                     // unicode
                     todo!("unicode");
                 } else {
-                    let node = Node::new(NodeType::Ident { value });
+                    let node = Node::new(NodeType::Ident { value }, t.location);
                     Ok(Some(node))
                 }
             }
@@ -108,7 +108,7 @@ impl Css3<'_> {
                     '#' => {
                         Err(Error::new(
                             format!("Unexpected token {:?}", t),
-                            self.tokenizer.current_location.clone(),
+                            self.tokenizer.current_location().clone(),
                         ))
                     }
                     _ => {

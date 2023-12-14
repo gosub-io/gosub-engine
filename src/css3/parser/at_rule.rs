@@ -9,7 +9,7 @@ mod scope;
 mod starting_style;
 mod supports;
 
-use crate::css3::node::Node;
+use crate::css3::node::{Node, NodeType};
 use crate::css3::parser::block::BlockParseMode;
 use crate::css3::tokenizer::TokenType;
 use crate::css3::{Css3, Error};
@@ -103,6 +103,10 @@ impl Css3<'_> {
         let block = self.parse_at_rule_block(name.clone(), is_declaration)?;
         self.consume_whitespace_comments();
 
-        Ok(Node::new_at_rule(name.clone(), prelude, block))
+        Ok(Node::new(NodeType::AtRule {
+            name: name.clone(),
+            prelude,
+            block,
+        }, t.location.clone()))
     }
 }

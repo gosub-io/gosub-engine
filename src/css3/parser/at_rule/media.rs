@@ -6,6 +6,8 @@ impl Css3<'_> {
     fn parse_media_feature_feature(&mut self, kind: FeatureKind) -> Result<Node, Error> {
         log::trace!("parse_media_feature_feature");
 
+        let loc = self.tokenizer.current_location().clone();
+
         let mut value: Option<Node> = None;
 
         self.consume_whitespace_comments();
@@ -23,11 +25,11 @@ impl Css3<'_> {
 
             let t = self.consume_any()?;
             value = match t.token_type {
-                TokenType::Number(value) => Some(Node::new(NodeType::Number { value })),
+                TokenType::Number(value) => Some(Node::new(NodeType::Number { value }, t.location)),
                 TokenType::Dimension { value, unit } => {
-                    Some(Node::new(NodeType::Dimension { value, unit }))
+                    Some(Node::new(NodeType::Dimension { value, unit }, t.location))
                 }
-                TokenType::Ident(value) => Some(Node::new(NodeType::Ident { value })),
+                TokenType::Ident(value) => Some(Node::new(NodeType::Ident { value }, t.location)),
                 TokenType::Function(_) => {
                     todo!();
                     // Some(t)
@@ -43,7 +45,7 @@ impl Css3<'_> {
             self.consume_whitespace_comments();
         }
 
-        Ok(Node::new(NodeType::Feature { kind, name, value }))
+        Ok(Node::new(NodeType::Feature { kind, name, value }, loc))
     }
 
     fn parse_media_feature_range(&mut self, _kind: FeatureKind) -> Result<Node, Error> {
@@ -73,6 +75,8 @@ impl Css3<'_> {
     pub fn parse_media_condition(&mut self, kind: FeatureKind) -> Result<Node, Error> {
         log::trace!("parse_media_condition");
 
+        let loc = self.tokenizer.current_location().clone();
+
         let mut list = Vec::new();
 
         loop {
@@ -83,7 +87,7 @@ impl Css3<'_> {
                     continue;
                 }
                 TokenType::Ident(ident) => {
-                    list.push(Node::new(NodeType::Ident { value: ident }));
+                    list.push(Node::new(NodeType::Ident { value: ident }, t.location));
                 }
                 TokenType::LParen => match kind {
                     FeatureKind::Media => {
@@ -106,11 +110,13 @@ impl Css3<'_> {
             }
         }
 
-        Ok(Node::new(NodeType::Condition { list }))
+        Ok(Node::new(NodeType::Condition { list }, loc))
     }
 
     pub fn parse_media_query(&mut self) -> Result<Node, Error> {
         log::trace!("parse_media_query");
+
+        let loc = self.tokenizer.current_location().clone();
 
         let mut modifier = "".into();
         let mut media_type = "".into();
@@ -176,11 +182,14 @@ impl Css3<'_> {
             }
         }
 
-        Ok(Node::new_media_query(modifier, media_type, condition))
+        Ok(Node::new(NodeType::MediaQuery { modifier, media_type, condition }, loc))
     }
 
     pub fn parse_media_query_list(&mut self) -> Result<Node, Error> {
         log::trace!("parse_media_query_list");
+
+        let loc = self.tokenizer.current_location().clone();
+
         let mut queries = vec![];
 
         while !self.tokenizer.eof() {
@@ -196,7 +205,7 @@ impl Css3<'_> {
             }
         }
 
-        Ok(Node::new_media_query_list(queries))
+        Ok(Node::new(NodeType::MediaQueryList { media_queries: queries }, loc))
     }
 
     pub fn parse_at_rule_media(&mut self) -> Result<Node, Error> {

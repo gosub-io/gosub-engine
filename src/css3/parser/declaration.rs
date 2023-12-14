@@ -5,10 +5,13 @@ use crate::css3::{Css3, Error};
 impl Css3<'_> {
     fn parse_declaration_custom_property(&mut self) -> Result<Node, Error> {
         log::trace!("parse_declaration_custom_property");
+        let loc = self.tokenizer.current_location().clone();
+
         let n = Node::new(NodeType::String {
             value: "custom_property".to_string(),
-        });
-        Ok(Node::new(NodeType::Value { children: vec![n] }))
+        }, loc.clone());
+
+        Ok(Node::new(NodeType::Value { children: vec![n] }, loc))
     }
 
     pub fn parse_property_name(&mut self) -> Result<String, Error> {
@@ -42,21 +45,20 @@ impl Css3<'_> {
             TokenType::Hash(value) => Ok(value),
             _ => Err(Error::new(
                 format!("Unexpected token {:?}", t),
-                self.tokenizer.current_location.clone(),
+                self.tokenizer.current_location().clone(),
             )),
         }
     }
 
     pub fn parse_declaration(&mut self) -> Result<Node, Error> {
         log::trace!("parse_declaration");
+
+        let loc = self.tokenizer.current_location().clone();
+
         let mut important = false;
 
-        // let stt = self.tokenizer.current().token_type;
-
         let property = self.consume_any_ident()?;
-        // let property = self.parse_property_name()?;
         let custom_property = property.starts_with("--");
-
 
         self.consume_whitespace_comments();
         self.consume(TokenType::Colon)?;
@@ -86,7 +88,7 @@ impl Css3<'_> {
             self.tokenizer.reconsume();
         }
 
-        Ok(Node::new_declaration(property, value, important))
+        Ok(Node::new(NodeType::Declaration{ property, value, important }, loc))
     }
 }
 

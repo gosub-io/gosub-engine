@@ -22,8 +22,9 @@ impl Css3<'_> {
 
     pub fn parse_block(&mut self, mode: BlockParseMode) -> Result<Node, Error> {
         log::trace!("parse_block");
-        let mut children: Vec<Node> = Vec::new();
 
+        let loc = self.tokenizer.current_location().clone();
+        let mut children: Vec<Node> = Vec::new();
         let mut semicolon_seperated= true;
 
         while !self.tokenizer.eof() {
@@ -33,7 +34,7 @@ impl Css3<'_> {
                     // End the block
                     self.tokenizer.reconsume();
 
-                    let n = Node::new(NodeType::Block { children });
+                    let n = Node::new(NodeType::Block { children }, t.location.clone());
                     return Ok(n)
                 }
                 TokenType::Whitespace | TokenType::Comment(_) => {
@@ -54,7 +55,7 @@ impl Css3<'_> {
                         if semicolon_seperated == false {
                             return Err(Error::new(
                                 format!("Expected a ; got {:?}", t),
-                                self.tokenizer.current_location.clone(),
+                                self.tokenizer.current_location().clone(),
                             ));
                         }
 
@@ -87,7 +88,7 @@ impl Css3<'_> {
             }
         }
 
-        let n = Node::new(NodeType::Block { children });
+        let n = Node::new(NodeType::Block { children }, loc);
 
         Ok(n)
     }

@@ -6,11 +6,13 @@ impl Css3<'_> {
     pub fn parse_url(&mut self) -> Result<Node, Error> {
         log::trace!("parse_url");
 
+        let loc = self.tokenizer.current_location().clone();
+
         let name = self.consume_function()?;
         if name.to_ascii_lowercase() != "url" {
             return Err(Error::new(
                 format!("Expected url, got {:?}", name),
-                self.tokenizer.current_location.clone(),
+                self.tokenizer.current_location().clone(),
             ));
         }
 
@@ -20,13 +22,13 @@ impl Css3<'_> {
             _ => {
                 return Err(Error::new(
                     format!("Expected url, got {:?}", t),
-                    self.tokenizer.current_location.clone(),
+                    self.tokenizer.current_location().clone(),
                 ))
             }
         };
 
         self.consume(TokenType::RParen)?;
 
-        Ok(Node::new(NodeType::Url { url }))
+        Ok(Node::new(NodeType::Url { url }, loc))
     }
 }

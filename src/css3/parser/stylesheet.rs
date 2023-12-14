@@ -1,10 +1,12 @@
-use crate::css3::node::Node;
+use crate::css3::node::{Node, NodeType};
 use crate::css3::tokenizer::TokenType;
 use crate::css3::{Css3, Error};
 
 impl Css3<'_> {
     pub fn parse_stylesheet(&mut self) -> Result<Node, Error> {
         log::trace!("parse_stylesheet");
+
+        let loc = self.tokenizer.current_location().clone();
 
         let mut children = Vec::new();
 
@@ -16,14 +18,14 @@ impl Css3<'_> {
                 TokenType::Whitespace => {}
                 TokenType::Comment(comment) => {
                     if comment.chars().nth(2) == Some('!') {
-                        children.push(Node::new_comment(comment));
+                        children.push(Node::new(NodeType::Comment { value: comment }, t.location.clone()));
                     }
                 }
                 TokenType::Cdo => {
-                    children.push(Node::new_cdo());
+                    children.push(Node::new(NodeType::Cdo, t.location.clone()));
                 }
                 TokenType::Cdc => {
-                    children.push(Node::new_cdc());
+                    children.push(Node::new(NodeType::Cdc, t.location.clone()));
                 }
                 TokenType::AtKeyword(_keyword) => {
                     self.tokenizer.reconsume();
@@ -38,6 +40,6 @@ impl Css3<'_> {
             }
         }
 
-        Ok(Node::new_stylesheet(children))
+        Ok(Node::new(NodeType::StyleSheet{ children }, loc))
     }
 }

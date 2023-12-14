@@ -1,4 +1,4 @@
-use crate::css3::node::Node;
+use crate::css3::node::{Node, NodeType};
 use crate::css3::parser::block::BlockParseMode;
 use crate::css3::tokenizer::TokenType;
 use crate::css3::{Css3, Error};
@@ -6,6 +6,8 @@ use crate::css3::{Css3, Error};
 impl Css3<'_> {
     pub fn parse_rule(&mut self) -> Result<Node, Error> {
         log::trace!("parse_rule");
+        let loc = self.tokenizer.current_location().clone();
+
         let prelude = self.parse_selector_list()?;
 
         self.consume(TokenType::LCurly)?;
@@ -15,6 +17,6 @@ impl Css3<'_> {
 
         self.consume(TokenType::RCurly)?;
 
-        Ok(Node::new_rule(prelude, block))
+        Ok(Node::new(NodeType::Rule{ prelude: Some(prelude), block: Some(block) }, loc))
     }
 }
