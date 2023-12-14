@@ -78,3 +78,16 @@ test-case = "3.3.1"
 [features]
 # Enables extended debugging information during parsing.
 debug_parser = []
+
+
+[profile.release]
+lto = "fat"
+opt-level = 3
+codegen-units = 1
+#rustflags = ["-C", "target-cpu=native"] # Currently unstable and it can cause problems on older CPUs (don't have newer CPU instructions).
+
+[profile.bench]
+lto = "fat"
+opt-level = 3
+codegen-units = 1
+
