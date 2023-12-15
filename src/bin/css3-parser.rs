@@ -66,7 +66,7 @@ fn main() -> Result<()> {
         } else {
             loc.column() - 2
         };
-        
+
         println!();
         println!();
         for n in ((line_nr - 5) as i32)..(line_nr as i32) {

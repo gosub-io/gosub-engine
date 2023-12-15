@@ -66,7 +66,7 @@ mod tests {
 
     #[test]
     fn parser() {
-        let filename = "test.css";
+        let filename = "ms2.css";
 
         SimpleLogger::new().init().unwrap();
 

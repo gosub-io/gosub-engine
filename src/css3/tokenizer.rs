@@ -903,10 +903,7 @@ impl<'stream> Tokenizer<'stream> {
             return Character::StreamEnd;
         }
 
-        log::trace!("current_location: {:?}", self.current_location());
         let c = self.stream.read();
-        log::trace!("read_char: {:?}", c);
-
         if c == Ch('\n') {
             self.cur_location.inc_line();
             self.cur_location.set_column(1);
