@@ -65,7 +65,10 @@ pub enum NodeType {
         value: String,
     },
     NestingSelector,
-    TypeSelector,
+    TypeSelector {
+        namespace: Option<String>,
+        value: String
+    },
     Combinator {
         value: String,
     },

@@ -8,6 +8,8 @@ impl Css3<'_> {
 
         let loc = self.tokenizer.current_location().clone();
 
+        self.consume(TokenType::LParen)?;
+
         let mut value: Option<Node> = None;
 
         self.consume_whitespace_comments();
@@ -22,6 +24,7 @@ impl Css3<'_> {
             if !t.is_colon() {
                 return Err(Error::new("Expected colon".to_string(), t.location));
             }
+            self.consume_whitespace_comments();
 
             let t = self.consume_any()?;
             value = match t.token_type {
@@ -45,6 +48,10 @@ impl Css3<'_> {
             self.consume_whitespace_comments();
         }
 
+        if !self.tokenizer.eof() {
+            self.consume(TokenType::RParen)?;
+        }
+
         Ok(Node::new(NodeType::Feature { kind, name, value }, loc))
     }
 
@@ -58,8 +65,8 @@ impl Css3<'_> {
     fn parse_media_feature_or_range(&mut self, kind: FeatureKind) -> Result<Node, Error> {
         log::trace!("parse_media_feature_or_range");
 
-        let t = self.tokenizer.lookahead_sc(0);
-        let nt = self.tokenizer.lookahead_sc(1);
+        let t = self.tokenizer.lookahead_sc(1);
+        let nt = self.tokenizer.lookahead_sc(2);
         if t.is_ident()
             && (nt.is_colon()
                 || nt.token_type == TokenType::RParen)
@@ -89,25 +96,31 @@ impl Css3<'_> {
                 TokenType::Ident(ident) => {
                     list.push(Node::new(NodeType::Ident { value: ident }, t.location));
                 }
-                TokenType::LParen => match kind {
-                    FeatureKind::Media => {
-                        list.push(self.parse_media_feature_or_range(kind.clone())?);
+                TokenType::LParen => {
+                    self.tokenizer.reconsume();
+
+                    let term = self.parse_media_feature_or_range(kind.clone());
+                    if term.is_err() {
                         self.consume(TokenType::RParen)?;
-                        break;
+                        let res = self.parse_media_condition(kind.clone())?;
+                        self.consume(TokenType::LParen)?;
+                        return Ok(res);
                     }
-                    FeatureKind::Container => {
-                        list.push(self.parse_media_feature_or_range(kind.clone())?);
-                        self.consume(TokenType::RParen)?;
-                        break;
-                    }
+
+                    list.push(term.unwrap());
                 },
                 TokenType::Function(_) => {
                     todo!();
                 }
                 _ => {
+                    self.tokenizer.reconsume();
                     break;
                 }
             }
+        }
+
+        if list.is_empty() {
+            return Err(Error::new("Expected condition".to_string(), loc));
         }
 
         Ok(Node::new(NodeType::Condition { list }, loc))
@@ -125,8 +138,7 @@ impl Css3<'_> {
         self.consume_whitespace_comments();
         let t = self.consume_any()?;
 
-        self.consume_whitespace_comments();
-        let nt = self.tokenizer.lookahead(0);
+        let nt = self.tokenizer.lookahead_sc(0);
         if t.is_ident() && nt.token_type != TokenType::LParen {
             let ident = match t.token_type {
                 TokenType::Ident(s) => s,
@@ -143,7 +155,7 @@ impl Css3<'_> {
             };
 
             self.consume_whitespace_comments();
-            let nt = self.tokenizer.lookahead(0);
+            let nt = self.tokenizer.lookahead_sc(0);
             match nt.token_type {
                 TokenType::Ident(s) => {
                     if s != "and" {
@@ -208,7 +220,7 @@ impl Css3<'_> {
         Ok(Node::new(NodeType::MediaQueryList { media_queries: queries }, loc))
     }
 
-    pub fn parse_at_rule_media(&mut self) -> Result<Node, Error> {
+    pub fn parse_at_rule_media_prelude(&mut self) -> Result<Node, Error> {
         log::trace!("parse_at_rule_media");
 
         let node = self.parse_media_query_list()?;

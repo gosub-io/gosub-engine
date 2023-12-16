@@ -3,6 +3,29 @@ use crate::css3::tokenizer::TokenType;
 use crate::css3::{Css3, Error};
 
 impl Css3<'_> {
+    fn parse_attribute_operator(&mut self) -> Result<Node, Error> {
+        log::trace!("parse_attribute_operator");
+
+        let mut value = String::new();
+        let loc = self.tokenizer.current_location().clone();
+
+        let c = self.consume_any_delim()?;
+        if !['=', '~', '|', '^', '$', '*'].contains(&c) {
+            self.tokenizer.reconsume();
+
+            return Err(Error::new(
+                format!("Expected attribute operator, got {:?}", c),
+                loc
+            ));
+        }
+        value.push(c);
+
+        self.consume_delim('=')?;
+        value.push('=');
+
+        return Ok(Node::new(NodeType::Operator(value), loc));
+    }
+
     fn parse_class_selector(&mut self) -> Result<Node, Error> {
         log::trace!("parse_class_selector");
 
@@ -25,32 +48,54 @@ impl Css3<'_> {
         Ok(Node::new(NodeType::NestingSelector, loc))
     }
 
+    fn parse_type_selector_ident_or_asterisk(&mut self) -> Result<String, Error> {
+        let t = self.tokenizer.lookahead(0);
+        match t.token_type {
+            TokenType::Ident(value) => {
+                self.tokenizer.consume();
+                Ok(value)
+            }
+            TokenType::Delim('*') => {
+                self.tokenizer.consume();
+                Ok("*".to_string())
+            }
+            _ => {
+                return Err(Error::new(
+                    format!("Unexpected token {:?}", t),
+                    self.tokenizer.current_location().clone(),
+                ));
+            }
+        }
+    }
+
     fn parse_type_selector(&mut self) -> Result<Node, Error> {
         log::trace!("parse_type_selector");
-        todo!();
-        // let value;
 
-        // entrypoint is either | or *
-        // it can be:
-        //   *|E
-        //   |E
+        let loc = self.tokenizer.current_location().clone();
+        let mut value = String::new();
 
-        // let t = self.consume_any();
-        //
-        // if t.token_type == TokenType::Delim('|') {
-        //     let t = self.consume_any();
-        //     // eat identifier or asterisk
-        // } else {
-        //     // eat identifier or asterisk
-        //
-        //     let t = self.consume_any();
-        //     if t.token_type == TokenType::Delim('|') {
-        //         let t = self.consume_any();
-        //         // eat identifier or asterisk
-        //     }
-        // }
-        //
-        // Ok(Node::new(NodeType::TypeSelector))
+        let t = self.tokenizer.current();
+        if t.token_type == TokenType::Delim('|') {
+            self.tokenizer.consume();
+            value.push_str("|");
+            value.push_str(self.parse_type_selector_ident_or_asterisk()?.as_str());
+        } else {
+            value.push_str(self.parse_type_selector_ident_or_asterisk()?.as_str());
+
+            let t = self.tokenizer.current();
+            if t.token_type == TokenType::Delim('|') {
+                self.tokenizer.consume();
+                value.push_str("|");
+                value.push_str(self.parse_type_selector_ident_or_asterisk()?.as_str());
+            }
+        }
+
+        let (namespace, ident) = match value.split_once('|') {
+            Some((namespace, ident)) => (Some(namespace.to_string()), ident.to_string()),
+            None => (None, value.to_string()),
+        };
+
+        Ok(Node::new(NodeType::TypeSelector{namespace, value: ident}, loc))
     }
 
     fn parse_attribute_selector(&mut self) -> Result<Node, Error> {
@@ -78,18 +123,20 @@ impl Css3<'_> {
             }
             _ => {
                 self.tokenizer.reconsume();
-                let op = self.parse_operator()?;
+                let op = self.parse_attribute_operator()?;
                 matcher = Some(op);
                 self.consume_whitespace_comments();
 
                 let t = self.consume_any()?;
-                value = if let TokenType::Ident(s) = t.token_type {
-                    s
-                } else {
-                    return Err(Error::new(
-                        format!("Unexpected token {:?}", t),
-                        self.tokenizer.current_location().clone(),
-                    ));
+                value = match t.token_type {
+                    TokenType::QuotedString(value) => value,
+                    TokenType::Ident(value) => value,
+                    _ => {
+                        return Err(Error::new(
+                            format!("Unexpected token {:?}", t),
+                            self.tokenizer.current_location().clone(),
+                        ));
+                    }
                 };
             }
         }

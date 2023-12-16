@@ -15,32 +15,63 @@ use crate::css3::tokenizer::TokenType;
 use crate::css3::{Css3, Error};
 
 impl Css3<'_> {
+
+    fn declaration_block_at_rule(&mut self) -> BlockParseMode {
+        let mut offset = 1;
+        loop {
+            let t = self.tokenizer.lookahead(offset);
+            offset += 1;
+
+            match t.token_type {
+                TokenType::RCurly => {
+                    return BlockParseMode::RegularBlock;
+                }
+                TokenType::LCurly => {
+                    return BlockParseMode::RegularBlock;
+                }
+                TokenType::Eof => {
+                    return BlockParseMode::RegularBlock;
+                }
+                TokenType::AtKeyword(_) => {
+                    return BlockParseMode::RegularBlock;
+                }
+                _ => {
+                    // continue
+                }
+            }
+        }
+    }
+
     fn parse_at_rule_prelude(&mut self, name: String) -> Result<Option<Node>, Error> {
         log::trace!("parse_at_rule_prelude");
 
         self.consume_whitespace_comments();
         let node = match name.to_lowercase().as_str() {
-            "container" => self.parse_at_rule_container()?,
-            "font-face" => self.parse_at_rule_font_face()?,
-            "import" => self.parse_at_rule_import()?,
-            "layer" => self.parse_at_rule_layer()?,
-            "media" => self.parse_at_rule_media()?,
-            "nest" => self.parse_at_rule_next()?,
-            "page" => self.parse_at_rule_page()?,
-            "scope" => self.parse_at_rule_scope()?,
-            "starting-style" => self.parse_at_rule_starting_style()?,
-            "supports" => self.parse_at_rule_supports()?,
-            _ => self.parse_selector_list()?,
+            "container" => Some(self.parse_at_rule_container_prelude()?),
+            "font-face" => None,
+            "import" => Some(self.parse_at_rule_import_prelude()?),
+            "layer" => Some(self.parse_at_rule_layer_prelude()?),
+            "media" => Some(self.parse_at_rule_media_prelude()?),
+            "nest" => Some(self.parse_at_rule_next_prelude()?),
+            "page" => Some(self.parse_at_rule_page_prelude()?),
+            "scope" => Some(self.parse_at_rule_scope_prelude()?),
+            "starting-style" => None,
+            "supports" => Some(self.parse_at_rule_supports_prelude()?),
+            // @todo: this should be atRulePrelude scope
+            _ => Some(self.parse_selector_list()?),
         };
 
-        let t = self.tokenizer.current();
+        self.consume_whitespace_comments();
 
-        if t.token_type == TokenType::Semicolon || t.token_type == TokenType::LCurly {
-            // Seems there is no prelude
-            return Ok(None);
+        let t = self.tokenizer.lookahead(0);
+        if !self.tokenizer.eof() && t.token_type != TokenType::Semicolon && t.token_type != TokenType::LCurly {
+            return Err(Error::new(
+                "Expected semicolon or left curly brace".to_string(),
+                t.location.clone(),
+            ));
         }
 
-        Ok(Some(node))
+        Ok(node)
     }
 
     fn parse_at_rule_block(
@@ -74,9 +105,9 @@ impl Css3<'_> {
             "starting-style" => self.parse_block(mode)?,
             "supports" => self.parse_block(mode)?,
             _ => {
-                todo!("We have to figure out if we are a isDeclaration or not atrule)");
-                // self.parse_block()?
-            }
+                let mode = self.declaration_block_at_rule();
+                self.parse_block(mode)?
+            },
         };
 
         self.consume(TokenType::RCurly)?;

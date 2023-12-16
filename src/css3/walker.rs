@@ -97,8 +97,11 @@ fn inner_walk(node: &Node, depth: usize) {
         NodeType::NestingSelector => {
             println!("{}[NestingSelector]", prefix);
         }
-        NodeType::TypeSelector => {
-            println!("{}[TypeSelector]", prefix);
+        NodeType::TypeSelector { namespace, value } => {
+            println!(
+                "{}[TypeSelector] namespace: {:?} value: {}",
+                prefix, namespace, value
+            );
         }
         NodeType::Combinator { value } => {
             println!("{}[Combinator] {}", prefix, value);

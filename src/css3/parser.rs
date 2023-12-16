@@ -45,6 +45,17 @@ impl Css3<'_> {
         }
     }
 
+    pub fn consume_any_delim(&mut self) -> Result<char, Error> {
+        let t = self.tokenizer.consume();
+        match t.token_type {
+            TokenType::Delim(c) => Ok(c),
+            _ => Err(Error::new(
+                format!("Expected delimiter, got {:?}", t),
+                self.tokenizer.current_location().clone(),
+            )),
+        }
+    }
+
     pub fn consume_delim(&mut self, delimiter: char) -> Result<char, Error> {
         let t = self.tokenizer.consume();
         match t.token_type {
