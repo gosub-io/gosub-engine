@@ -90,6 +90,13 @@ impl Css3<'_> {
                 Ok(Some(node))
             }
             TokenType::Ident(value) => {
+                if value == "opacity" && self.in_alpha_function {
+                    self.consume_delim('=')?;
+                    let value = self.consume_any_number()?;
+                    let node = Node::new(NodeType::OpacityIE8Hack { value }, t.location);
+                    return Ok(Some(node))
+                }
+
                 if value.eq_ignore_ascii_case("u+") {
                     // unicode
                     todo!("unicode");

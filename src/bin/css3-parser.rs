@@ -3,8 +3,10 @@ use std::fs;
 use std::process::exit;
 use gosub_engine::css3;
 use gosub_engine::css3::Css3;
+use gosub_engine::css3::location::Location;
 use gosub_engine::css3::parser_config::ParserConfig;
 use simple_logger::SimpleLogger;
+use gosub_engine::byte_stream::{ByteStream, Encoding, Stream};
 
 fn bail(message: &str) -> ! {
     println!("{message}");
@@ -25,9 +27,15 @@ fn main() -> Result<()> {
             .long("debug")
             .action(clap::ArgAction::SetTrue)
         )
+        .arg(clap::Arg::new("tokens")
+            .help("Just print the tokens")
+            .long("tokens")
+            .action(clap::ArgAction::SetTrue)
+        )
         .get_matches();
 
     let debug = matches.get_flag("debug");
+    let tokens = matches.get_flag("tokens");
     let url: String = matches.get_one::<String>("url").expect("url").to_string();
 
     let css = if url.starts_with("http://") || url.starts_with("https://") {
@@ -44,6 +52,11 @@ fn main() -> Result<()> {
         // Get html from the file
         fs::read_to_string(&url)?
     };
+
+    if tokens {
+        print_tokens(css);
+        return Ok(());
+    }
 
     let config = ParserConfig {
         source: Some("stylesheet.css".into()),
@@ -94,4 +107,20 @@ fn main() -> Result<()> {
     css3::walker::Walker.walk(&result.unwrap());
 
     Ok(())
+}
+
+fn print_tokens(css: String) {
+    let mut it = ByteStream::new();
+    it.read_from_str(&css, Some(Encoding::UTF8));
+    it.close();
+
+    let mut tokenizer = css3::tokenizer::Tokenizer::new(&mut it, Location::default());
+    loop {
+        let token = tokenizer.consume();
+        println!("{:?}", token);
+
+        if token.token_type == css3::tokenizer::TokenType::Eof {
+            break;
+        }
+    }
 }

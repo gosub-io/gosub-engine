@@ -303,7 +303,6 @@ impl<'stream> Tokenizer<'stream> {
         let token = &self.tokens[self.position];
         self.position += 1;
 
-        // log::trace!("token: ({}) {:?}", self.position - 1, token);
         log::trace!("{:?}", token);
 
         token.clone()
@@ -327,7 +326,9 @@ impl<'stream> Tokenizer<'stream> {
 
     /// 4.3.1. [Consume a token](https://www.w3.org/TR/css-syntax-3/#consume-token)
     fn consume_token(&mut self) -> Token {
-        self.consume_comment();
+        while self.look_ahead_slice(2) == "/*" {
+            self.consume_comment();
+        }
 
         // todo: reframe the concept of "tokenizer::current" and "is::current" and "is::next"
         let current = self.current_char();

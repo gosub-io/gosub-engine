@@ -46,10 +46,10 @@ impl Css3<'_> {
             };
 
             self.consume_whitespace_comments();
-        }
 
-        if !self.tokenizer.eof() {
-            self.consume(TokenType::RParen)?;
+            if !self.tokenizer.eof() {
+                self.consume(TokenType::RParen)?;
+            }
         }
 
         Ok(Node::new(NodeType::Feature { kind, name, value }, loc))

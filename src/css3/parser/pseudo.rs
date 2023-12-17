@@ -1,5 +1,6 @@
 use crate::css3::{Css3, Error};
 use crate::css3::node::{Node, NodeType};
+use crate::css3::tokenizer::TokenType;
 
 impl Css3<'_> {
     fn parse_pseudo_function_selector_list(&mut self) -> Result<Node, Error> {
@@ -25,8 +26,47 @@ impl Css3<'_> {
 
     fn parse_pseudo_function_nth(&mut self) -> Result<Node, Error> {
         log::trace!("parse_pseudo_function_nth");
-        todo!("parse_pseudo_function_nth")
-        // self.parse_nth()
+
+        self.consume_whitespace_comments();
+
+        let loc = self.tokenizer.current_location().clone();
+
+        let mut selector = None;
+
+        let nth = match self.consume_any()?.token_type {
+            TokenType::Ident(value) if value == "odd" => {
+                Node::new(NodeType::AnPlusB { a: "2".into(), b: "1".into() }, loc.clone())
+            }
+            TokenType::Ident(value) if value == "even" => {
+                Node::new(NodeType::AnPlusB { a: "2".into(), b: "0".into() }, loc.clone())
+            }
+            TokenType::Ident(_) => {
+                self.tokenizer.reconsume();
+                self.parse_anplusb()?
+            }
+            TokenType::Number(value) => {
+                Node::new(NodeType::Number { value }, loc.clone())
+            }
+            _ => {
+                return Err(Error::new(
+                    format!("Unexpected token {:?}", self.tokenizer.lookahead(0)),
+                    self.tokenizer.current_location().clone(),
+                ));
+            }
+        };
+
+        self.consume_whitespace_comments();
+
+        let t = self.tokenizer.lookahead(0);
+        if let TokenType::Ident(value) = t.token_type {
+            self.consume_any()?;
+
+            if value == "of" {
+                selector = Some(self.parse_selector_list()?);
+            }
+        }
+
+        Ok(Node::new(NodeType::Nth { nth, selector }, loc.clone()))
     }
 
     pub(crate) fn parse_pseudo_function(&mut self, name: &str) -> Result<Node, Error> {

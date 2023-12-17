@@ -20,8 +20,10 @@ impl Css3<'_> {
         }
         value.push(c);
 
-        self.consume_delim('=')?;
-        value.push('=');
+        if c != '=' {
+            self.consume_delim('=')?;
+            value.push('=');
+        }
 
         return Ok(Node::new(NodeType::Operator(value), loc));
     }

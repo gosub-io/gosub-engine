@@ -115,6 +115,9 @@ pub enum NodeType {
         arguments: Vec<Node>
     },
     Operator(String),
+    Nth { nth: Node, selector: Option<Node> },
+    AnPlusB { a: String, b: String },
+    OpacityIE8Hack { value: Number },
 }
 
 /// A node is a single element in the AST

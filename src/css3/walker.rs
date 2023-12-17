@@ -177,5 +177,19 @@ fn inner_walk(node: &Node, depth: usize) {
         NodeType::Operator(value) => {
             println!("{}[Operator] {}", prefix, value);
         }
+        NodeType::Nth { nth, selector } => {
+            println!("{}[Nth]", prefix);
+            inner_walk(nth, depth + 1);
+            if selector.is_some() {
+                inner_walk(selector.as_ref().unwrap(), depth + 1);
+            }
+        }
+        NodeType::AnPlusB { a, b } => {
+            println!("{}[AnPlusB] a: {} b: {}", prefix, a, b);
+        }
+
+        NodeType::OpacityIE8Hack { value } => {
+            println!("{}[OpacityIE8Hack] {}", prefix, value);
+        }
     }
 }

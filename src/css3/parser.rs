@@ -1,4 +1,4 @@
-use crate::css3::tokenizer::{Token, TokenType};
+use crate::css3::tokenizer::{Number, Token, TokenType};
 use crate::css3::{Css3, Error};
 
 mod at_rule;
@@ -14,6 +14,7 @@ mod stylesheet;
 mod url;
 mod value;
 mod pseudo;
+mod anplusb;
 
 impl Css3<'_> {
     /// Consumes a specific token
@@ -40,6 +41,17 @@ impl Css3<'_> {
             TokenType::Function(name) => Ok(name),
             _ => Err(Error::new(
                 format!("Expected function, got {:?}", t),
+                self.tokenizer.current_location().clone(),
+            )),
+        }
+    }
+
+    pub fn consume_any_number(&mut self) -> Result<Number, Error> {
+        let t = self.tokenizer.consume();
+        match t.token_type {
+            TokenType::Number(value) => Ok(value),
+            _ => Err(Error::new(
+                format!("Expected number, got {:?}", t),
                 self.tokenizer.current_location().clone(),
             )),
         }

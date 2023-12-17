@@ -1,14 +1,14 @@
 use crate::byte_stream::{ByteStream, Encoding, Stream};
-use crate::css3::location::Location;
 use crate::css3::node::Node;
 use crate::css3::parser_config::{Context, ParserConfig};
 use crate::css3::tokenizer::Tokenizer;
+use crate::css3::location::Location;
 
-mod location;
+pub mod location;
 mod node;
 mod parser;
 pub mod parser_config;
-mod tokenizer;
+pub mod tokenizer;
 mod unicode;
 pub mod walker;
 
@@ -18,6 +18,7 @@ pub mod walker;
 
 pub struct Css3<'stream> {
     pub tokenizer: Tokenizer<'stream>,
+    in_alpha_function: bool,
 }
 
 #[derive(Debug)]
@@ -46,6 +47,7 @@ impl<'stream> Css3<'stream> {
     fn new(it: &'stream mut ByteStream) -> Self {
         Self {
             tokenizer: Tokenizer::new(it, Location::default()),
+            in_alpha_function: false,
         }
     }
 
