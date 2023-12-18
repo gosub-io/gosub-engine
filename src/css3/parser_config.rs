@@ -16,6 +16,8 @@ pub struct ParserConfig {
     pub location: Location,
     /// Optional source filename or url
     pub source: Option<String>,
+    /// Ignore errors and continue parsing
+    pub ignore_errors: bool,
 }
 
 impl Default for ParserConfig {
@@ -24,6 +26,7 @@ impl Default for ParserConfig {
             context: Context::Stylesheet,
             location: Location::default(),
             source: None,
+            ignore_errors: false,
         }
     }
 }

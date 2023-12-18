@@ -9,17 +9,6 @@ impl Css3<'_> {
         self.parse_value_sequence()
     }
 
-    // filter:alpha() can use filter:alpha(opacity=50) as a fallback for IE8
-    fn parse_function_arguments_for_alpha(&mut self) -> Result<Vec<Node>, Error> {
-        log::trace!("parse_function_arguments_for_alpha");
-        self.in_alpha_function = true;
-        let args = self.parse_value_sequence()?;
-        self.in_alpha_function = false;
-
-        Ok(args)
-
-    }
-
     pub fn parse_function(&mut self) -> Result<Node, Error> {
         log::trace!("parse_function");
 
@@ -27,7 +16,10 @@ impl Css3<'_> {
 
         let name = self.consume_function()?;
         let arguments = if name == "alpha" {
-            self.parse_function_arguments_for_alpha()?
+            self.allow_values_in_argument_list.push(true);
+            let args = self.parse_function_arguments()?;
+            self.allow_values_in_argument_list.pop();
+            args
         } else {
             self.parse_function_arguments()?
         };

@@ -117,7 +117,9 @@ pub enum NodeType {
     Operator(String),
     Nth { nth: Node, selector: Option<Node> },
     AnPlusB { a: String, b: String },
-    OpacityIE8Hack { value: Number },
+    MSFunction { func: Node },
+    MSIdent { value: String, default_value: String },
+    Calc { expr: Node },
 }
 
 /// A node is a single element in the AST

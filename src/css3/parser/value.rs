@@ -27,7 +27,6 @@ impl Css3<'_> {
                 break;
             }
             let child = child.unwrap();
-
             children.push(child);
         }
 
@@ -41,6 +40,7 @@ impl Css3<'_> {
     //    parsing went wrong
     fn parse_value(&mut self) -> Result<Option<Node>, Error> {
         log::trace!("parse_value");
+
         let t = self.consume_any()?;
         match t.token_type {
             TokenType::IDHash(value) => {
@@ -75,13 +75,18 @@ impl Css3<'_> {
                 Ok(Some(node))
             }
             TokenType::Function(name) => {
-                let node = if name.eq_ignore_ascii_case("url") {
-                    // it would make sense if this would start at url("") instead of the actual string
-                    self.tokenizer.reconsume();
-                    self.parse_url()?
-                } else {
-                    self.tokenizer.reconsume();
-                    self.parse_function()?
+                let node = match name.to_ascii_lowercase().as_str() {
+                    "calc" => {
+                        self.parse_calc()?
+                    }
+                    "url" => {
+                        self.tokenizer.reconsume();
+                        self.parse_url()?
+                    }
+                    _ => {
+                        self.tokenizer.reconsume();
+                        self.parse_function()?
+                    }
                 };
                 Ok(Some(node))
             }
@@ -90,10 +95,44 @@ impl Css3<'_> {
                 Ok(Some(node))
             }
             TokenType::Ident(value) => {
-                if value == "opacity" && self.in_alpha_function {
+                if value.eq_ignore_ascii_case("progid") {
+                    let _ = self.consume(TokenType::Colon)?;
+                    let _ = self.consume_ident_ci("dximagetransform")?;
+                    let _ = self.consume_delim('.')?;
+                    let _ = self.consume_ident_ci("microsoft")?;
+                    let _ = self.consume_delim('.')?;
+                    self.allow_values_in_argument_list.push(true);
+                    let func = self.parse_function()?;
+                    self.allow_values_in_argument_list.pop();
+                    let n = Node::new(NodeType::MSFunction { func }, t.location);
+
+                    return Ok(Some(n));
+                }
+
+                if !self.allow_values_in_argument_list.is_empty() && self.tokenizer.lookahead(0).is_delim('=') {
                     self.consume_delim('=')?;
-                    let value = self.consume_any_number()?;
-                    let node = Node::new(NodeType::OpacityIE8Hack { value }, t.location);
+                    let t = self.consume_any()?;
+                    let node = match t.token_type {
+                        TokenType::QuotedString(default_value) => {
+                            let node = Node::new(NodeType::MSIdent { value: value.to_string(), default_value }, t.location);
+                            node
+                        }
+                        TokenType::Number(default_value) => {
+                            let node = Node::new(NodeType::MSIdent { value: value.to_string(), default_value: default_value.to_string() }, t.location);
+                            node
+                        }
+                        TokenType::Ident(default_value) => {
+                            let node = Node::new(NodeType::MSIdent { value, default_value: default_value }, t.location);
+                            node
+                        }
+                        _ => {
+                            return Err(Error::new(
+                                format!("Expected number or ident, got {:?}", t),
+                                self.tokenizer.current_location().clone(),
+                            ))
+                        }
+                    };
+
                     return Ok(Some(node))
                 }
 

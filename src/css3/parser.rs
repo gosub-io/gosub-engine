@@ -15,6 +15,7 @@ mod url;
 mod value;
 mod pseudo;
 mod anplusb;
+mod calc;
 
 impl Css3<'_> {
     /// Consumes a specific token
@@ -91,6 +92,17 @@ impl Css3<'_> {
                     break;
                 }
             }
+        }
+    }
+
+    pub fn consume_ident_ci(&mut self, ident: &str) -> Result<String, Error> {
+        let t = self.tokenizer.consume();
+        match t.token_type {
+            TokenType::Ident(s) if s.eq_ignore_ascii_case(ident) => Ok(s),
+            _ => Err(Error::new(
+                format!("Expected ident, got {:?}", t),
+                self.tokenizer.current_location().clone(),
+            )),
         }
     }
 

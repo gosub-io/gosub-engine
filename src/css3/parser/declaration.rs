@@ -58,6 +58,7 @@ impl Css3<'_> {
         let mut important = false;
 
         let property = self.consume_any_ident()?;
+
         let custom_property = property.starts_with("--");
 
         self.consume_whitespace_comments();
@@ -68,15 +69,6 @@ impl Css3<'_> {
 
         self.consume_whitespace_comments();
         let value = self.parse_value_sequence()?;
-
-        // let value = if !custom_property {
-        //     self.consume_whitespace_comments();
-        //     self.parse_value_sequence()?
-        // } else {
-        //     vec![
-        //         self.parse_declaration_custom_property()?
-        //     ]
-        // };
 
         let t = self.consume_any()?;
         if t.is_delim('!') {

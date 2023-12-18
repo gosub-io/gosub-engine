@@ -18,7 +18,9 @@ pub mod walker;
 
 pub struct Css3<'stream> {
     pub tokenizer: Tokenizer<'stream>,
-    in_alpha_function: bool,
+    // in_alpha_function: bool,
+    // in_filter: bool,
+    allow_values_in_argument_list: Vec<bool>,
 }
 
 #[derive(Debug)]
@@ -47,7 +49,9 @@ impl<'stream> Css3<'stream> {
     fn new(it: &'stream mut ByteStream) -> Self {
         Self {
             tokenizer: Tokenizer::new(it, Location::default()),
-            in_alpha_function: false,
+            // in_alpha_function: false,
+            // in_filter: false,
+            allow_values_in_argument_list: Vec::new(),
         }
     }
 
@@ -68,7 +72,7 @@ mod tests {
 
     #[test]
     fn parser() {
-        let filename = "ms2.css";
+        let filename = "ms.css";
 
         SimpleLogger::new().init().unwrap();
 

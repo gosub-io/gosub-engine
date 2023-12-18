@@ -187,9 +187,19 @@ fn inner_walk(node: &Node, depth: usize) {
         NodeType::AnPlusB { a, b } => {
             println!("{}[AnPlusB] a: {} b: {}", prefix, a, b);
         }
-
-        NodeType::OpacityIE8Hack { value } => {
-            println!("{}[OpacityIE8Hack] {}", prefix, value);
+        NodeType::MSFunction { func } => {
+            println!("{}[MSFunction]", prefix);
+            inner_walk(func, depth + 1);
+        }
+        NodeType::MSIdent { value, default_value } => {
+            println!(
+                "{}[MSIdent] value: {} default_value: {}",
+                prefix, value, default_value
+            );
+        }
+        NodeType::Calc { expr } => {
+            println!("{}[Calc]", prefix);
+            inner_walk(expr, depth + 1);
         }
     }
 }
