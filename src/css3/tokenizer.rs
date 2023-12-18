@@ -908,6 +908,21 @@ impl<'stream> Tokenizer<'stream> {
         self.stream.look_ahead(0)
     }
 
+    pub fn tell(&self) -> usize {
+        self.stream.tell()
+    }
+
+    pub fn slice(&self, start: usize, end: usize) -> String {
+        let mut s = String::new();
+        for c in self.stream.get_slice(start, end) {
+            if let Ch(c) = c {
+                s.push(c.clone());
+            }
+        }
+
+        s
+    }
+
     fn next_char(&mut self) -> Character {
         if self.stream.eof() {
             return Character::StreamEnd;

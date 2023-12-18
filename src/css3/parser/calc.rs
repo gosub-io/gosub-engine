@@ -2,14 +2,6 @@ use crate::css3::node::{Node, NodeType};
 use crate::css3::{Css3, Error};
 use crate::css3::tokenizer::TokenType;
 
-pub enum Nearest {
-    None,
-    Nearest,
-    Up,
-    Down,
-    ToZero,
-}
-
 impl Css3<'_> {
     pub fn parse_calc(&mut self) -> Result<Node, Error> {
         log::trace!("parse_calc");
@@ -18,227 +10,39 @@ impl Css3<'_> {
 
         let expr = self.parse_calc_expr()?;
 
-        Ok(Node::new(NodeType::Calc{expr}, loc))
-    }
-
-    fn parse_calc_sum(&mut self) -> Result<Node, Error> {
-        let t = self.consume_any()?;
-
-        let loc = self.tokenizer.current_location().clone();
-
-        match t.token_type {
-            // This doesn't work correctly..  now:   calc( * 12px + 12) is parsed
-            TokenType::Delim('+') => {
-                let expr1 = self.parse_calc_product()?;
-                let expr2 = self.parse_calc_sum()?;
-                Ok(Node::new(NodeType::CalcSum{ expr: Box::new(expr1), expr2: Box::new(expr2) }, loc))
-            }
-            TokenType::Delim('-') => {
-                let expr1 = self.parse_calc_product()?;
-                let expr2 = self.parse_calc_sum()?;
-                Ok(Node::new(NodeType::CalcSum{ expr: Box::new(expr1), expr2: Box::new(expr2) }, loc))
-            }
-            TokenType::Delim('*') => {
-                let expr1 = self.parse_calc_product()?;
-                let expr2 = self.parse_calc_sum()?;
-                Ok(Node::new(NodeType::CalcSum{ expr: Box::new(expr1), expr2: Box::new(expr2) }, loc))
-            }
-            TokenType::Delim('/') => {
-                let expr1 = self.parse_calc_product()?;
-                let expr2 = self.parse_calc_sum()?;
-                Ok(Node::new(NodeType::CalcSum{ expr: Box::new(expr1), expr2: Box::new(expr2) }, loc))
-            }
-
-            TokenType::LParen => {
-                let expr = self.parse_calc_sum()?;
-                self.consume(TokenType::RParen)?;
-                Ok(Node::new(NodeType::CalcSum{ expr}, loc))
-            }
-            TokenType::Percentage(value) => {
-                Ok(Node::new(NodeType::Percentage{value}, t.location))
-            }
-            TokenType::Number(value) => {
-                Ok(Node::new(NodeType::Number{value}, t.location))
-            }
-            TokenType::Dimension { value, unit } => {
-                Ok(Node::new(NodeType::Dimension { value, unit }, t.location))
-            }
-            TokenType::Ident(value) if value.to_ascii_lowercase() == "e" => {
-                Ok(Node::new(NodeType::Ident { value: "e".to_string() }, t.location))
-            }
-            TokenType::Ident(value) if value.to_ascii_lowercase() == "pi" => {
-                Ok(Node::new(NodeType::Ident { value: "pi".to_string() }, t.location))
-            }
-            TokenType::Ident(value) if value.to_ascii_lowercase() == "infinity" => {
-                Ok(Node::new(NodeType::Ident { value: "infinity".to_string() }, t.location))
-            }
-            TokenType::Ident(value) if value.to_ascii_lowercase() == "-infinity" => {
-                Ok(Node::new(NodeType::Ident { value: "-infinity".to_string() }, t.location))
-            }
-            TokenType::Ident(value) if value.to_ascii_lowercase() == "nan" => {
-                Ok(Node::new(NodeType::Ident { value: "nan".to_string() }, t.location))
-            }
-            _ => {
-            }
-        }
-
-        Err(Error::new(
-            format!("Unexpected token {:?}", t),
-            self.tokenizer.current_location().clone(),
-        ))
+        Ok(Node::new(NodeType::Calc{ expr }, loc))
     }
 
     fn parse_calc_expr(&mut self) -> Result<Node, Error> {
+        log::trace!("parse_calc_expr");
+
         let loc = self.tokenizer.current_location().clone();
 
-        let t = self.consume_any()?;
-        let node = match t.token_type {
-            TokenType::Function(name) if name == "calc" => {
-                Node::new(NodeType::CalcCalc{
-                    expr: self.parse_calc_sum()?
-                })
-            }
-            TokenType::Function(name) if name == "min" => {
+        let start = self.tokenizer.tell();
 
-                Node::new(NodeType::CalcMin{
-                    expr: self.parse_calc_sum_list(1, None)
-                })
-            }
-            TokenType::Function(name) if name == "max" => {
-                self.parse_calc_sum_list(1, None);
-                Node::new(NodeType::CalcMax{
-                    expr: self.parse_calc_sum_list(1, None)
-                })
-            }
-            TokenType::Function(name) if name == "clamp" => {
-                Node::new(NodeType::CalcClamp{
-                    expr1: self.parse_calc_sum()?,
-                    expr2: self.parse_calc_sum()?,
-                    expr3: self.parse_calc_sum()?,
-                })
-            }
-            TokenType::Function(name) if name == "round" => {
-                let mut nearest = Nearest::None;
-
-                let t = self.tokenizer.lookahead(1);
-                if let TokenType::Ident(value) = t.token_type {
-                    nearest = match value.as_str() {
-                        "nearest" => {
-                            self.consume_any_ident();
-                            Nearest::Nearest
-                        },
-                        "up" => {
-                            self.consume_any_ident();
-                            Nearest::Up
-                        },
-                        "down" => {
-                            self.consume_any_ident();
-                            Nearest::Down
-                        },
-                        "to-zero" => {
-                            self.consume_any_ident();
-                            Nearest::ToZero
-                        },
-                        _ => Nearest::None,
-                    };
+        loop {
+            let t = self.consume_any()?;
+            match t.token_type {
+                TokenType::Function(_) => {
+                    self.parse_calc_expr()?;
+                },
+                TokenType::LParen => {
+                    self.parse_calc_expr()?;
+                },
+                TokenType::RParen => {
+                    break
+                },
+                _ => {
+                    // ignore
                 }
-                let a = self.parse_calc_sum()?;
-                let b = self.parse_calc_sum()?;
+            }
+        }
 
-                Node::new(NodeType::CalcRound{
-                    rounding: nearest,
-                    expr1: self.parse_calc_sum()?,
-                    expr2: self.parse_calc_sum()?,
-                })
-            }
-            TokenType::Function(name) if name == "mod" => {
-                Node::new(NodeType::CalcMod{
-                    expr1: self.parse_calc_sum()?,
-                    expr2: self.parse_calc_sum()?,
-                })
-            }
-            TokenType::Function(name) if name == "rem" => {
-                Node::new(NodeType::CalcRem{
-                    expr1: self.parse_calc_sum()?,
-                    expr2: self.parse_calc_sum()?,
-                })
-            }
-            TokenType::Function(name) if name == "sin" => {
-                Node::new(NodeType::CalcSin{
-                    expr: self.parse_calc_sum()?,
-                })
-            }
-            TokenType::Function(name) if name == "cos" => {
-                Node::new(NodeType::CalcCos{
-                    expr: self.parse_calc_sum()?,
-                })
-            }
-            TokenType::Function(name) if name == "tan" => {
-                Node::new(NodeType::CalcTan{
-                    expr: self.parse_calc_sum()?,
-                })
-            }
-            TokenType::Function(name) if name == "asin" => {
-                Node::new(NodeType::CalcASin{
-                    expr: self.parse_calc_sum()?,
-                })
-            }
-            TokenType::Function(name) if name == "acos" => {
-                Node::new(NodeType::CalcACos{
-                    expr: self.parse_calc_sum()?,
-                })
-            }
-            TokenType::Function(name) if name == "atan" => {
-                Node::new(NodeType::CalcATan{
-                    expr: self.parse_calc_sum()?,
-                })
-            }
-            TokenType::Function(name) if name == "atan2" => {
-                Node::new(NodeType::CalcATan2 {
-                    expr1: self.parse_calc_sum()?,
-                    expr2: self.parse_calc_sum()?,
-                })
-            }
-            TokenType::Function(name) if name == "pow" => {
-                Node::new(NodeType::CalcPow {
-                    expr1: self.parse_calc_sum()?,
-                    expr2: self.parse_calc_sum()?,
-                })
-            }
-            TokenType::Function(name) if name == "sqrt" => {
-                Node::new(NodeType::CalcSqrt {
-                    expr: self.parse_calc_sum()?,
-                })
-            }
-            TokenType::Function(name) if name == "hypot" => {
-                Node::new(NodeType::CalcHypot{
-                    expr: self.parse_calc_sum_list()?,
-                })
-            }
-            TokenType::Function(name) if name == "log" => {
-                Node::new(NodeType::CalcLog {
-                    expr1: self.parse_calc_sum()?,
-                    expr2: self.parse_calc_sum_optional(),
-                })
-            }
-            TokenType::Function(name) if name == "exp" => {
-                Node::new(NodeType::CalcExp {
-                    expr1: self.parse_calc_sum()?,
-                })
-            }
-            TokenType::Function(name) if name == "abs" => {
-                Node::new(NodeType::CalcAbs {
-                    expr1: self.parse_calc_sum()?,
-                })
-            }
-            TokenType::Function(name) if name == "sign" => {
-                Node::new(NodeType::CalcSign {
-                    expr1: self.parse_calc_sum()?,
-                })
-            }
-        };
+        let end = self.tokenizer.tell();
 
-        Ok(Node::new(NodeType::Calc{ expr: node }, loc))
+        let expr = self.tokenizer.slice(start, end);
+
+        Ok(Node::new(NodeType::String{ value: expr }, loc))
     }
 }
 

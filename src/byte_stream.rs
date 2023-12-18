@@ -103,6 +103,9 @@ pub trait Stream {
     /// Unread n characters
     fn prev_n(&mut self, n: usize);
 
+    // Returns a slice
+    fn get_slice(&self, start: usize, end: usize) -> &[Character];
+
     /// Resets the stream back to the start position
     fn reset_stream(&mut self);
     /// Closes the stream (no more data can be added)
@@ -236,6 +239,11 @@ impl Stream for ByteStream {
             self.buffer_pos -= n;
         }
     }
+
+    /// Retrieves a slice of the buffer
+    fn get_slice(&self, start: usize, end: usize) -> &[Character] {
+        &self.buffer[start..end]
+    }
 }
 
 impl ByteStream {
@@ -250,11 +258,6 @@ impl ByteStream {
             u8_buffer: Vec::new(),
             closed: false,
         }
-    }
-
-    /// Retrieves a slice of the buffer
-    pub fn get_buffer_slice(&self, start: usize, end: usize) -> &[Character] {
-        &self.buffer[start..end]
     }
 
     /// Populates the current buffer with the contents of given file f
