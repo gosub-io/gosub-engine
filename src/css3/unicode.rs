@@ -4,7 +4,7 @@ use lazy_static::lazy_static;
 use std::collections::HashMap;
 
 // note: should be shared
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, Eq, Hash, PartialEq)]
 pub enum UnicodeChar {
     Null,
     Backspace,
@@ -31,6 +31,6 @@ lazy_static! {
     ]);
 }
 
-pub fn get_unicode_char(char: UnicodeChar) -> char {
-    *UNICODE_CHARS.get(&char).unwrap()
+pub fn get_unicode_char(char: &UnicodeChar) -> char {
+    *UNICODE_CHARS.get(char).expect("Unknown unicode char.")
 }

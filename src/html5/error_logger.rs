@@ -1,4 +1,5 @@
-use crate::html5::input_stream::Position;
+use crate::bytes::Position;
+use crate::types::ParseError;
 
 /// Possible parser error enumerated
 pub enum ParserError {
@@ -152,30 +153,10 @@ impl ParserError {
     }
 }
 
-/// Parser error that defines an error (message) on the given position
-#[derive(Debug, PartialEq, Clone)]
-pub struct ParseError {
-    /// Parse error message
-    pub message: String,
-    /// Line number (1-based) of the error
-    pub line: usize,
-    // Column (1-based) on line of the error
-    pub col: usize,
-    // Position (0-based) of the error in the input stream
-    pub offset: usize,
-}
-
 #[derive(Clone)]
 pub struct ErrorLogger {
     /// List of errors that occurred during parsing
     errors: Vec<ParseError>,
-}
-
-impl ErrorLogger {
-    /// Creates a new error logger
-    pub fn new() -> Self {
-        ErrorLogger { errors: Vec::new() }
-    }
 }
 
 impl Default for ErrorLogger {
@@ -185,6 +166,12 @@ impl Default for ErrorLogger {
 }
 
 impl ErrorLogger {
+    /// Creates a new error logger
+    #[must_use]
+    pub fn new() -> Self {
+        Self { errors: Vec::new() }
+    }
+
     /// Returns a cloned instance of the errors
     pub fn get_errors(&self) -> Vec<ParseError> {
         self.errors.clone()

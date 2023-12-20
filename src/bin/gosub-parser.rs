@@ -1,14 +1,14 @@
 use anyhow::Result;
-use gosub_engine::html5::parser::document::Document;
-use gosub_engine::html5::{
-    input_stream::{Confidence, Encoding, InputStream},
-    parser::Html5Parser,
+use gosub_engine::html5::parser::document::{Document, DocumentBuilder};
+use gosub_engine::{
+    bytes::{CharIterator, Confidence, Encoding},
+    html5::parser::Html5Parser,
 };
 use std::fs;
 use std::process::exit;
 
 fn bail(message: &str) -> ! {
-    println!("{}", message);
+    println!("{message}");
     exit(1);
 }
 
@@ -32,23 +32,22 @@ fn main() -> Result<()> {
         fs::read_to_string(&url)?
     };
 
-    let mut stream = InputStream::new();
-    stream.read_from_str(&html, Some(Encoding::UTF8));
-    stream.set_confidence(Confidence::Certain);
+    let mut chars = CharIterator::new();
+    chars.read_from_str(&html, Some(Encoding::UTF8));
+    chars.set_confidence(Confidence::Certain);
 
     // If the encoding confidence is not Confidence::Certain, we should detect the encoding.
-    if !stream.is_certain_encoding() {
-        stream.detect_encoding()
+    if !chars.is_certain_encoding() {
+        chars.detect_encoding();
     }
 
-    let mut parser = Html5Parser::new(&mut stream);
-    let document = Document::shared();
-    let parse_errors = parser.parse(Document::clone(&document))?;
+    let document = DocumentBuilder::new_document();
+    let parse_errors = Html5Parser::parse_document(&mut chars, Document::clone(&document), None)?;
 
-    println!("Generated tree: \n\n {}", document);
+    println!("Generated tree: \n\n {document}");
 
     for e in parse_errors {
-        println!("Parse Error: {}", e.message)
+        println!("Parse Error: {}", e.message);
     }
 
     Ok(())

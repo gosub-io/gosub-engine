@@ -1,0 +1,100 @@
+{
+  "dns": [
+    {
+      "key": "cache.max_entries",
+      "type": "u",
+      "default": "u:1000",
+      "description": "This setting defines the maximum number of entries that may be stored in the DNS cache before the oldest entry is evicted."
+    },
+    {
+      "key": "cache.ttl.override.enabled",
+      "type": "b",
+      "default": "b:false",
+      "description": "When enabled, the TTL of each entry will be overridden with the value defined in resolve.ttl.override."
+    },
+    {
+      "key": "cache.ttl.override.seconds",
+      "type": "u",
+      "default": "u:0",
+      "description": "Number of seconds to override the TTL with. When set to 0, the TTL will expire directly"
+    },
+    {
+      "key": "local.enabled",
+      "type": "b",
+      "default": "b:true",
+      "description": "This setting enables the local DNS override table. When enabled, Gosub will return any IP address that is defined in the local DNS override table."
+    },
+    {
+      "key": "local.table",
+      "type": "m",
+      "default": "m:''",
+      "description": "This setting defines the local DNS override table."
+    },
+    {
+      "key": "remote.doh.enabled",
+      "type": "b",
+      "default": "b:false",
+      "description": "This setting enabled DNS over HTTPS. A secure way of communicating with DNS servers."
+    },
+    {
+      "key": "remote.dot.enabled",
+      "type": "b",
+      "default": "b:false",
+      "description": "This setting enabled DNS over TLS. A secure way of communicating with DNS servers."
+    },
+    {
+      "key": "remote.nameservers",
+      "type": "m",
+      "default": "m:''",
+      "description": "Any resolvers defined here will be used for DNS lookups. If no resolvers are defined, the system resolvers will be used."
+    },
+    {
+      "key": "remote.retries",
+      "type": "u",
+      "default": "u:3",
+      "description": "How many times to retry a DNS lookup before giving up."
+    },
+    {
+      "key": "remote.timeout",
+      "type": "u",
+      "default": "u:5",
+      "description": "How many seconds to wait for a DNS lookup to complete before giving up."
+    },
+    {
+      "key": "remote.use_hosts_file",
+      "type": "b",
+      "default": "b:true",
+      "description": "When enabled, Gosub will use the hosts file to resolve hostnames as well."
+    }
+  ],
+  "useragent": [
+    {
+      "key": "default_page",
+      "type": "s",
+      "default": "s:about:blank",
+      "description": "This setting sets the default page to load when GosuB starts or when a new tab is opened."
+    },
+    {
+      "key": "tab.close_button",
+      "type": "m",
+      "values": "left,right",
+      "default": "m:left",
+      "description": "Defines where the close button on tabs located"
+    },
+    {
+      "key": "tab.max_opened",
+      "type": "i",
+      "values": "-1,0-9999",
+      "default": "i:-1",
+      "description": "Defines how many tabs may be opened inside a window. -1 means unlimited."
+    }
+  ],
+  "renderer": [
+    {
+      "key": "opengl.enabled",
+      "type": "b",
+      "default": "b:true",
+      "description": "When set to true, the OpenGL renderer will be used. When set to false, the software renderer will be used."
+    }
+  ]
+}

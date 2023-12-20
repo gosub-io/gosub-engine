@@ -25,30 +25,16 @@ macro_rules! unexpected_token {
 /// # CSS3 Parser
 /// The parser using the Recursive Descent Parser algorithm (predictive parser).
 /// The grammer rules is defined using Backus–Naur form (BNF)
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Default, PartialEq)]
 pub struct CSS3Parser {
     tokenizer: Tokenizer,
     lookahead: Option<Token>,
     raw: String,
 }
 
-impl Default for CSS3Parser {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl CSS3Parser {
-    pub fn new() -> CSS3Parser {
-        CSS3Parser {
-            tokenizer: Tokenizer::new(),
-            lookahead: None,
-            raw: "".to_string(),
-        }
-    }
-
     pub fn parse(&mut self, raw: &str) -> StyleSheet {
-        self.raw = raw.to_string();
+        self.raw = raw.to_owned();
         self.tokenizer.init(raw);
         self.lookahead = self.tokenizer.get_next_token();
         self.skip_whitespace();
@@ -126,7 +112,7 @@ impl CSS3Parser {
             selector_list.pop();
         }
 
-        println!("Selector List: {:#?}", selector_list);
+        println!("Selector List: {selector_list:#?}");
 
         selector_list
     }
@@ -206,26 +192,13 @@ impl CSS3Parser {
         let name = self.identifier();
 
         self.skip_whitespace();
+        let matcher = (!self.is_next_token(TokenType::RBracket)).then(|| self.attribute_matcher());
 
-        let matcher = if !self.is_next_token(TokenType::RBracket) {
-            Some(self.attribute_matcher())
-        } else {
-            None
-        };
-
-        let value = if matcher.is_some() {
-            Some(self.string())
-        } else {
-            None
-        };
+        let value = matcher.is_some().then(|| self.string());
 
         self.skip_whitespace();
 
-        let flag = if !self.is_next_token(TokenType::RBracket) {
-            Some(self.identifier())
-        } else {
-            None
-        };
+        let flag = (!self.is_next_token(TokenType::RBracket)).then(|| self.identifier());
 
         self.consume_token(TokenType::RBracket);
 
@@ -291,7 +264,9 @@ impl CSS3Parser {
                 }
             };
 
-            self.consume_token(self.get_next_token_type().unwrap());
+            if let Some(token) = self.get_next_token_type() {
+                self.consume_token(token);
+            }
             return combinator;
         };
 
@@ -327,7 +302,7 @@ impl CSS3Parser {
         self.consume_token(TokenType::LCurly);
 
         while !self.is_next_token(TokenType::RCurly) {
-            block.add_child(BlockChild::DeclarationList(self.declaration_list()))
+            block.add_child(BlockChild::DeclarationList(self.declaration_list()));
         }
 
         self.consume_token(TokenType::RCurly);
@@ -382,7 +357,7 @@ impl CSS3Parser {
     fn value_list(&mut self) -> ValueList {
         let mut value_list = ValueList::default();
 
-        while !self.is_next_tokens(vec![TokenType::Semicolon, TokenType::Important]) {
+        while !self.is_next_tokens(&[TokenType::Semicolon, TokenType::Important]) {
             let value = self.value();
             value_list.add_child(value);
             self.skip_whitespace();
@@ -424,23 +399,20 @@ impl CSS3Parser {
     fn dimension(&mut self) -> Dimension {
         let value = self.consume_token(TokenType::Number).value;
 
-        let unit = if self.is_next_token(TokenType::Ident) {
-            Some(self.consume_token(TokenType::Ident).value)
-        } else {
-            None
-        };
+        let unit = self
+            .is_next_token(TokenType::Ident)
+            .then(|| self.consume_token(TokenType::Ident).value);
 
         Dimension::new(value, unit)
     }
 
     fn consume(&mut self, token_type: TokenType) -> Token {
         if let Some(token) = self.lookahead.clone() {
-            if token.token_type != token_type {
-                panic!(
-                    "Unexpected token: '{:?}', expected: '{:?}'. Got '{}' at '{}'",
-                    token.token_type, token_type, token.value, self.tokenizer.cursor
-                )
-            }
+            assert_eq!(
+                token.token_type, token_type,
+                "Unexpected token: '{:?}', expected: '{:?}'. Got '{}' at '{}'",
+                token.token_type, token_type, token.value, self.tokenizer.cursor,
+            );
 
             // Advance to the next token
             self.lookahead = self.tokenizer.get_next_token();
@@ -449,7 +421,7 @@ impl CSS3Parser {
             return token.clone();
         }
 
-        panic!("Unexpected end of input, expected: {:?}", token_type)
+        panic!("Unexpected end of input, expected: {token_type:?}")
     }
 
     fn consume_token(&mut self, token_type: TokenType) -> Token {
@@ -475,25 +447,18 @@ impl CSS3Parser {
         false
     }
 
-    fn is_next_tokens(&self, token_types: Vec<TokenType>) -> bool {
-        for token_type in token_types {
-            if self.is_next_token(token_type) {
-                return true;
-            }
-        }
-        false
+    fn is_next_tokens(&self, token_types: &[TokenType]) -> bool {
+        token_types
+            .iter()
+            .any(|&token_type| self.is_next_token(token_type))
     }
 
     fn get_next_token_type(&self) -> Option<TokenType> {
-        if let Some(token) = self.lookahead.clone() {
-            return Some(token.token_type);
-        }
-
-        None
+        self.lookahead.clone().map(|token| token.token_type)
     }
 
     fn is_combinator_next(&self) -> bool {
-        self.is_next_tokens(vec![
+        self.is_next_tokens(&[
             TokenType::ChildCombinator,
             TokenType::ColumnCombinator,
             TokenType::WhiteSpace, // Descendant Combinator (Empty Space: ` `)
@@ -511,7 +476,7 @@ mod test {
 
     #[test]
     fn parse_css() {
-        let mut parser = CSS3Parser::new();
+        let mut parser = CSS3Parser::default();
         let style_sheet = parser.parse(
             r#"
             
@@ -562,7 +527,7 @@ mod test {
 
     #[test]
     fn parse_attribute_selectors() {
-        let mut parser = CSS3Parser::new();
+        let mut parser = CSS3Parser::default();
 
         assert_eq!(
             parser.parse(
@@ -764,7 +729,7 @@ mod test {
 
     #[test]
     fn parse_selectors_combinators() {
-        let mut parser = CSS3Parser::new();
+        let mut parser = CSS3Parser::default();
 
         let combinators: Vec<Combinator> = vec![
             Combinator::ChildCombinator,

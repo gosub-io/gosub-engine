@@ -1,5 +1,6 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use gosub_engine::testing::tree_construction;
+use gosub_engine::testing::tree_construction::Harness;
 
 fn criterion_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("Tree construction");
@@ -7,16 +8,21 @@ fn criterion_benchmark(c: &mut Criterion) {
 
     // Careful about reading files inside the closure
     let filenames = Some(&["tests1.dat"][..]);
-    let fixtures = tree_construction::fixtures(filenames).expect("problem loading fixtures");
+    let fixtures =
+        tree_construction::fixture::read_fixtures(filenames).expect("problem loading fixtures");
+
+    let mut harness = Harness::new();
 
     group.bench_function("fixtures", |b| {
         b.iter(|| {
             for root in &fixtures {
                 for test in &root.tests {
-                    let _ = test.parse().unwrap();
+                    for &scripting_enabled in test.script_modes() {
+                        let _ = harness.run_test(test.clone(), scripting_enabled);
+                    }
                 }
             }
-        })
+        });
     });
 
     group.finish();

@@ -1,0 +1,51 @@
+# Security Policy
+
+As we are not yet in any phase of publishing code outside the realm of interested developers, we do not have a security policy in place.
+
+However, if you feel that something warrants communication about something you have found, you can use [security@gosub.io](mailto:security@gosub.io).
+
+If there is a need to communicate privately, please use the following GPG key:
+
+```
+-----BEGIN PGP PUBLIC KEY BLOCK-----
+
+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
+=HhKF
+-----END PGP PUBLIC KEY BLOCK-----
+```

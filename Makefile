@@ -1,27 +1,30 @@
 .SILENT:
 
-SHELL=/usr/bin/env bash -O globstar
+#SHELL=/usr/bin/env bash -O globstar
 
 all: help
 
-test: test_unit test_clippy test_fmt ## Runs tests
+test: test_commands test_unit test_clippy test_fmt ## Runs tests
 
-bench:
+bench: ## Benchmark the project
 	cargo bench
 
-build: ## Build	the project
+build: ## Build the project
 	source test-utils.sh ;\
 	section "Cargo build" ;\
-	cargo build
+	cargo build --all
 
-fix:
-	cargo fmt
-	cargo clippy --fix --allow-dirty --allow-staged
+fix: ## Fix formatting and clippy errors (deprecated)
+	echo "Use 'make format' instead"
+
+format:  ## Fix formatting and clippy errors
+	cargo fmt --all
+	cargo clippy --all --fix --allow-dirty --allow-staged
 
 test_unit:
 	source test-utils.sh ;\
 	section "Cargo test" ;\
-	cargo test
+	cargo test --all --all-features
 
 test_clippy:
 	source test-utils.sh ;\
@@ -31,7 +34,14 @@ test_clippy:
 test_fmt:
 	source test-utils.sh ;\
 	section "Cargo fmt" ;\
-	cargo fmt -- --check
+	cargo fmt --all -- --check
+
+test_commands:
+	cargo run --bin html5-parser-test >/dev/null
+	cargo run --bin parser-test >/dev/null
+	cargo run --bin config-store list >/dev/null
+	cargo run --bin gosub-parser ./tests/data/tree_iterator/stackoverflow.html >/dev/null
+	cargo run --example html5-parser >/dev/null
 
 help: ## Display available commands
 	echo "Available make commands:"

@@ -2,7 +2,7 @@ pub static MATHML_ADJUSTMENTS: phf::Map<&str, &str> = phf::phf_map! {
     "definitionurl" => "definitionURL",
 };
 
-pub static SVG_ADJUSTMENTS_TAG: phf::Map<&str, &str> = phf::phf_map! {
+pub static SVG_ADJUSTMENTS_TAGS: phf::Map<&str, &str> = phf::phf_map! {
     "altglyph" => "altGlyph",
     "altglyphdef" => "altGlyphDef",
     "altglyphitem" => "altGlyphItem",

@@ -1,9 +1,7 @@
-use crate::html5::error_logger::ParserError;
-use crate::html5::input_stream::Element;
-// use crate::read_char;
-
 extern crate lazy_static;
-use crate::html5::input_stream::SeekMode::SeekCur;
+
+use crate::bytes::Bytes::{self, *};
+use crate::html5::error_logger::ParserError;
 use crate::html5::tokenizer::replacement_tables::{TOKEN_NAMED_CHARS, TOKEN_REPLACEMENTS};
 use crate::html5::tokenizer::{Tokenizer, CHAR_REPLACEMENT};
 use lazy_static::lazy_static;
@@ -21,14 +19,14 @@ pub enum CcrState {
     NumericalCharacterReferenceEnd,
 }
 
-impl<'stream> Tokenizer<'stream> {
+impl Tokenizer<'_> {
     /// Consumes a character reference and places this in the tokenizer consume buffer
     /// ref: 8.2.4.69 Tokenizing character references
     ///
     /// @TODO: fix additional allowed char
     pub fn consume_character_reference(
         &mut self,
-        _additional_allowed_char: Option<Element>,
+        _additional_allowed_char: Option<Bytes>,
         as_attribute: bool,
     ) {
         let mut ccr_state = CcrState::CharacterReference;
@@ -42,32 +40,33 @@ impl<'stream> Tokenizer<'stream> {
 
                     let c = self.read_char();
                     match c {
-                        Element::Utf8(ch) if ch.is_ascii_alphanumeric() => {
-                            self.stream.unread();
+                        Ch(ch) if ch.is_ascii_alphanumeric() => {
+                            self.chars.unread();
                             ccr_state = CcrState::NamedCharacterReference;
                         }
-                        Element::Utf8('#') => {
-                            self.temporary_buffer.push(c.utf8());
+                        Ch(c @ '#') => {
+                            self.temporary_buffer.push(c);
                             ccr_state = CcrState::NumericCharacterReference;
                         }
                         _ => {
                             self.consume_temp_buffer(as_attribute);
 
-                            self.stream.unread();
+                            self.chars.unread();
                             return;
                         }
                     }
                 }
                 CcrState::NamedCharacterReference => {
                     if let Some(entity) = self.find_entity() {
-                        self.stream.seek(SeekCur, entity.len() as isize);
-                        let c = self.stream.look_ahead(0);
+                        self.chars.skip(entity.len());
+                        let c = self.chars.look_ahead(0);
+
                         if as_attribute
                             && !entity.ends_with(';')
-                            && c.is_utf8()
-                            && (c.utf8() == '=' || c.utf8().is_ascii_alphanumeric())
+                            && (c == Ch('=') || matches!(c, Ch(c) if c.is_ascii_alphanumeric()))
                         {
-                            // for historical reasons, the codepoints should be flushed as is
+                            // for historical reasons, the codepoints should be flushed as
+                            // is
                             for c in entity.chars() {
                                 self.temporary_buffer.push(c);
                             }
@@ -90,9 +89,9 @@ impl<'stream> Tokenizer<'stream> {
 
                         if !entity.ends_with(';') {
                             // We need to return the position where we expected the ';'
-                            self.stream.read_char(); // We can't use skip, as this might interfere with EOF stuff (fix it)
+                            self.chars.read_char(); // We can't use skip, as this might interfere with EOF stuff (fix it)
                             self.parse_error(ParserError::MissingSemicolonAfterCharacterReference);
-                            self.stream.unread();
+                            self.chars.unread();
                         }
 
                         return;
@@ -105,20 +104,20 @@ impl<'stream> Tokenizer<'stream> {
                     let c = self.read_char();
                     match c {
                         // Element::Eof => return,
-                        Element::Utf8(ch) if ch.is_ascii_alphanumeric() => {
+                        Ch(ch) if ch.is_ascii_alphanumeric() => {
                             if as_attribute {
-                                self.current_attr_value.push(c.utf8());
+                                self.current_attr_value.push(c.into());
                             } else {
-                                self.consume(c.utf8());
+                                self.consume(c.into());
                             }
                         }
-                        Element::Utf8(';') => {
+                        Ch(';') => {
                             self.parse_error(ParserError::UnknownNamedCharacterReference);
-                            self.stream.unread();
+                            self.chars.unread();
                             return;
                         }
                         _ => {
-                            self.stream.unread();
+                            self.chars.unread();
                             return;
                         }
                     }
@@ -127,91 +126,76 @@ impl<'stream> Tokenizer<'stream> {
                     char_ref_code = Some(0);
 
                     let c = self.read_char();
-                    match c {
-                        // Element::Eof => ccr_state = CcrState::NumericalCharacterReferenceEndState,
-                        Element::Utf8('X') | Element::Utf8('x') => {
-                            self.temporary_buffer.push(c.utf8());
-                            ccr_state = CcrState::HexadecimalCharacterReferenceStart;
-                        }
-                        _ => {
-                            self.stream.unread();
-                            ccr_state = CcrState::DecimalCharacterReferenceStart;
-                        }
+                    if let Ch('X' | 'x') = c {
+                        // Element::Eof => ccr_state = CcrState::NumericalCharacterReferenceEnd,
+                        self.temporary_buffer.push(c.into());
+                        ccr_state = CcrState::HexadecimalCharacterReferenceStart;
+                    } else {
+                        self.chars.unread();
+                        ccr_state = CcrState::DecimalCharacterReferenceStart;
                     }
                 }
                 CcrState::HexadecimalCharacterReferenceStart => {
                     let c = self.read_char();
-                    match c {
-                        // Element::Eof => ccr_state = CcrState::NumericalCharacterReferenceEndState,
-                        Element::Utf8('0'..='9')
-                        | Element::Utf8('A'..='F')
-                        | Element::Utf8('a'..='f') => {
-                            self.stream.unread();
-                            ccr_state = CcrState::HexadecimalCharacterReference
-                        }
-                        _ => {
-                            self.parse_error(
-                                ParserError::AbsenceOfDigitsInNumericCharacterReference,
-                            );
-                            self.consume_temp_buffer(as_attribute);
+                    if let Ch('0'..='9' | 'A'..='F' | 'a'..='f') = c {
+                        // Element::Eof => ccr_state = CcrState::NumericalCharacterReferenceEnd,
+                        self.chars.unread();
+                        ccr_state = CcrState::HexadecimalCharacterReference;
+                    } else {
+                        self.parse_error(ParserError::AbsenceOfDigitsInNumericCharacterReference);
+                        self.consume_temp_buffer(as_attribute);
 
-                            self.stream.unread();
-                            return;
-                        }
+                        self.chars.unread();
+                        return;
                     }
                 }
                 CcrState::DecimalCharacterReferenceStart => {
                     let c = self.read_char();
-                    match c {
-                        Element::Utf8('0'..='9') => {
-                            self.stream.unread();
-                            ccr_state = CcrState::DecimalCharacterReference;
-                        }
-                        _ => {
-                            self.parse_error(
-                                ParserError::AbsenceOfDigitsInNumericCharacterReference,
-                            );
-                            self.consume_temp_buffer(as_attribute);
+                    if let Ch('0'..='9') = c {
+                        self.chars.unread();
+                        ccr_state = CcrState::DecimalCharacterReference;
+                    } else {
+                        self.parse_error(ParserError::AbsenceOfDigitsInNumericCharacterReference);
+                        self.consume_temp_buffer(as_attribute);
 
-                            self.stream.unread();
-                            return;
-                        }
+                        self.chars.unread();
+                        return;
                     }
                 }
                 CcrState::HexadecimalCharacterReference => {
                     let c = self.read_char();
                     match c {
-                        // Element::Eof => ccr_state = CcrState::NumericalCharacterReferenceEndState,
-                        Element::Utf8('0'..='9') => {
-                            let i = c.utf8() as u32 - 0x30;
+                        // Element::Eof => ccr_state = CcrState::NumericalCharacterReferenceEnd,
+                        Ch(c @ '0'..='9') => {
+                            let i = c as u32 - 0x30;
                             if let Some(value) = char_ref_code {
                                 char_ref_code = value
                                     .checked_mul(16)
                                     .and_then(|mul_result| mul_result.checked_add(i));
                             }
                         }
-                        Element::Utf8('A'..='F') => {
-                            let i = c.utf8() as u32 - 0x37;
+                        Ch(c @ 'A'..='F') => {
+                            let i = c as u32 - 0x37;
                             if let Some(value) = char_ref_code {
                                 char_ref_code = value
                                     .checked_mul(16)
                                     .and_then(|mul_result| mul_result.checked_add(i));
                             }
                         }
-                        Element::Utf8('a'..='f') => {
-                            let i = c.utf8() as u32 - 0x57;
+                        Ch(c @ 'a'..='f') => {
+                            let i = c as u32 - 0x57;
                             if let Some(value) = char_ref_code {
                                 char_ref_code = value
                                     .checked_mul(16)
                                     .and_then(|mul_result| mul_result.checked_add(i));
                             }
                         }
-                        Element::Utf8(';') => {
+                        Ch(';') => {
                             ccr_state = CcrState::NumericalCharacterReferenceEnd;
                         }
                         _ => {
                             self.parse_error(ParserError::MissingSemicolonAfterCharacterReference);
-                            self.stream.unread();
+                            self.chars.unread();
                             ccr_state = CcrState::NumericalCharacterReferenceEnd;
                         }
                     }
@@ -220,20 +204,20 @@ impl<'stream> Tokenizer<'stream> {
                     let c = self.read_char();
                     match c {
                         // Element::Eof => ccr_state = CcrState::NumericalCharacterReferenceEndState,
-                        Element::Utf8('0'..='9') => {
-                            let i = c.utf8() as u32 - 0x30;
+                        Ch(c @ '0'..='9') => {
+                            let i = c as u32 - 0x30;
                             if let Some(value) = char_ref_code {
                                 char_ref_code = value
                                     .checked_mul(10)
                                     .and_then(|mul_result| mul_result.checked_add(i));
                             }
                         }
-                        Element::Utf8(';') => {
+                        Ch(';') => {
                             ccr_state = CcrState::NumericalCharacterReferenceEnd;
                         }
                         _ => {
                             self.parse_error(ParserError::MissingSemicolonAfterCharacterReference);
-                            self.stream.unread();
+                            self.chars.unread();
                             ccr_state = CcrState::NumericalCharacterReferenceEnd;
                         }
                     }
@@ -243,35 +227,35 @@ impl<'stream> Tokenizer<'stream> {
                     let mut char_ref_code = char_ref_code.unwrap_or(0);
 
                     if char_ref_code == 0 && !overflow {
-                        self.stream.read_char();
+                        self.chars.read_char();
                         self.parse_error(ParserError::NullCharacterReference);
-                        self.stream.unread();
+                        self.chars.unread();
                         char_ref_code = CHAR_REPLACEMENT as u32;
                     }
 
                     if char_ref_code > 0x10FFFF || overflow {
-                        self.stream.read_char();
+                        self.chars.read_char();
                         self.parse_error(ParserError::CharacterReferenceOutsideUnicodeRange);
-                        self.stream.unread();
+                        self.chars.unread();
                         char_ref_code = CHAR_REPLACEMENT as u32;
                     }
 
                     if self.is_surrogate(char_ref_code) {
-                        self.stream.read_char();
+                        self.chars.read_char();
                         self.parse_error(ParserError::SurrogateCharacterReference);
-                        self.stream.unread();
+                        self.chars.unread();
                         char_ref_code = CHAR_REPLACEMENT as u32;
                     }
                     if self.is_noncharacter(char_ref_code) {
-                        self.stream.read_char();
+                        self.chars.read_char();
                         self.parse_error(ParserError::NoncharacterCharacterReference);
-                        self.stream.unread();
+                        self.chars.unread();
                         // char_ref_code = CHAR_REPLACEMENT as u32;
                     }
                     if self.is_control_char(char_ref_code) || char_ref_code == 0x0D {
-                        self.stream.read_char();
+                        self.chars.read_char();
                         self.parse_error(ParserError::ControlCharacterReference);
-                        self.stream.unread();
+                        self.chars.unread();
 
                         if TOKEN_REPLACEMENTS.contains_key(&char_ref_code) {
                             char_ref_code = *TOKEN_REPLACEMENTS.get(&char_ref_code).unwrap() as u32;
@@ -325,7 +309,7 @@ impl<'stream> Tokenizer<'stream> {
     /// Finds the longest entity from the current position in the stream. Returns the entity
     /// replacement OR None when no entity has been found.
     fn find_entity(&mut self) -> Option<String> {
-        let s = self.stream.look_ahead_slice(*LONGEST_ENTITY_LENGTH);
+        let s = self.chars.look_ahead_slice(*LONGEST_ENTITY_LENGTH);
         let chars: Vec<char> = s.chars().collect();
 
         for i in (0..=s.len()).rev() {
@@ -350,8 +334,8 @@ lazy_static! {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::html5::error_logger::ErrorLogger;
-    use crate::html5::input_stream::InputStream;
+    use crate::html5::tokenizer::ParserData;
+    use crate::{bytes::CharIterator, html5::error_logger::ErrorLogger};
     use std::cell::RefCell;
     use std::rc::Rc;
 
@@ -362,13 +346,13 @@ mod tests {
                 fn $name() {
                     let (input, expected) = $value;
 
-                    let mut is = InputStream::new();
-                    is.read_from_str(input, None);
+                    let mut chars = CharIterator::new();
+                    chars.read_from_str(input, None);
 
                     let error_logger = Rc::new(RefCell::new(ErrorLogger::new()));
-                    let mut tokenizer = Tokenizer::new(&mut is, None, error_logger.clone());
+                    let mut tokenizer = Tokenizer::new(&mut chars, None, error_logger.clone());
 
-                    let token = tokenizer.next_token().unwrap();
+                    let token = tokenizer.next_token(ParserData::default()).unwrap();
                     assert_eq!(expected, token.to_string());
                 }
             )*

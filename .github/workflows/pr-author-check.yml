@@ -1,0 +1,67 @@
+name: Check PR Author
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+permissions:
+  # Need permissions to write to the pull request by the check-authors.sh script
+  pull-requests: write
+
+jobs:
+  check-author:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check if PR author is in AUTHORS file
+        id: author_found
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_EVENT_PATH: ${{ github.event_path }}
+        run: |
+          git fetch origin ${{ github.base_ref }}
+          git fetch origin ${{ github.head_ref }}
+          sh .github/workflows/check_authors.sh "origin/${{ github.base_ref }}..origin/${{ github.head_ref }}" || exit_status=$?
+          echo "found=${exit_status:-0}" >> $GITHUB_OUTPUT
+      - name: Find Comment
+        uses: peter-evans/find-comment@v2
+        id: fc
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          comment-author: 'github-actions[bot]'
+          # Make sure the body has the comment-includes string. We can't add metadata to comments, which would have been a nice to have.
+          body-includes: "[Author check]"
+
+      # Delete comment when author is in AUTHORS file and we have a comment id
+      - name: Delete comment
+        uses: actions/github-script@v3
+        if: steps.author_found.outputs.found == '0' && steps.fc.outputs.comment-id != ''
+        with:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            github.issues.deleteComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: ${{ steps.fc.outputs.comment-id }},
+            })          
+
+      # Post the comment (or replace it) when a committer is not found in the AUTHORS file
+      - name: Post comment if not found
+        uses: peter-evans/create-or-update-comment@v3
+        if: steps.author_found.outputs.found == '1'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          comment-id: ${{ steps.fc.outputs.comment-id }}
+          issue-number: ${{ github.event.pull_request.number }}
+          body: |
+            Welcome and thank you for your contribution. It appears that you might be a new contributor to our project. 
+            To acknowledge your work appropriately, we kindly ask you to add your name and/or email to the AUTHORS file. 
+            This helps us maintain a record of all our valuable contributors. 
+            
+            Thanks again for your involvement!
+            
+            [Author check]
+          edit-mode: replace

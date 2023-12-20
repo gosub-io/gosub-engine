@@ -4,5 +4,15 @@ target/
 *.swo*
 *.swp*
 
-# Local testing 
+# Local testing
 local/
+
+# mac
+.DS_Store
+
+settings.db
+
+# C API tests (ignore everything but source files)
+*/gosub-bindings/tests/*
+!*/gosub-bindings/tests/*.c
+*.dSYM

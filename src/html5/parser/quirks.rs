@@ -1,13 +1,13 @@
 use crate::html5::parser::Html5Parser;
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Copy, Clone)]
 pub enum QuirksMode {
     Quirks,
     LimitedQuirks,
     NoQuirks,
 }
 
-impl<'stream> Html5Parser<'stream> {
+impl Html5Parser<'_> {
     // returns the correct quirk mode for the given doctype
     pub(crate) fn identify_quirks_mode(
         &self,
@@ -155,14 +155,14 @@ static LIMITED_QUIRKS_PUB_IDENTIFIER_PREFIX_NOT_MISSING_SYS: &[&str] = &[
 
 #[cfg(test)]
 mod tests {
-    use crate::html5::input_stream::InputStream;
+    use crate::bytes::CharIterator;
     use crate::html5::parser::Html5Parser;
     use crate::html5::parser::QuirksMode;
 
     #[test]
     fn test_quirks_mode() {
-        let mut stream = InputStream::new();
-        let parser = Html5Parser::new(&mut stream);
+        let chars = &mut CharIterator::new();
+        let parser = Html5Parser::new_parser(chars);
 
         assert_eq!(
             parser.identify_quirks_mode(&None, None, None, false),
@@ -247,8 +247,8 @@ mod tests {
 
     #[test]
     fn test_quirks_mode_force() {
-        let mut stream = InputStream::new();
-        let parser = Html5Parser::new(&mut stream);
+        let chars = &mut CharIterator::new();
+        let parser = Html5Parser::new_parser(chars);
 
         assert_eq!(
             parser.identify_quirks_mode(&Some("html".to_string()), None, None, true),
@@ -321,8 +321,8 @@ mod tests {
 
     #[test]
     fn test_quirks_mode_sys() {
-        let mut stream = InputStream::new();
-        let parser = Html5Parser::new(&mut stream);
+        let chars = &mut CharIterator::new();
+        let parser = Html5Parser::new_parser(chars);
 
         assert_eq!(
             parser.identify_quirks_mode(
@@ -346,8 +346,8 @@ mod tests {
 
     #[test]
     fn test_quirks_mode_sys_missing() {
-        let mut stream = InputStream::new();
-        let parser = Html5Parser::new(&mut stream);
+        let chars = &mut CharIterator::new();
+        let parser = Html5Parser::new_parser(chars);
 
         assert_eq!(
             parser.identify_quirks_mode(

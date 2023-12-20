@@ -2,15 +2,22 @@ use crate::css3::tokens::{Token, TOKEN_REFS};
 use regex::{self, Regex};
 
 /// CSS Tokenizer
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct Tokenizer {
     pub cursor: usize,
     raw: String,
 }
 
+impl Default for Tokenizer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Tokenizer {
+    #[must_use]
     pub fn new() -> Self {
-        Tokenizer {
+        Self {
             cursor: 0,
             raw: String::new(),
         }
@@ -35,7 +42,7 @@ impl Tokenizer {
         }
 
         let raw = &self.raw[self.cursor..];
-        for (regex, token_type) in TOKEN_REFS.iter() {
+        for (regex, token_type) in &TOKEN_REFS {
             let re = Regex::new(regex).unwrap();
             let result = re.captures(raw);
 

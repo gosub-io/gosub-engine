@@ -12,15 +12,16 @@ impl Default for CommentData {
 }
 
 impl CommentData {
+    #[must_use]
     pub(crate) fn new() -> Self {
         Self {
-            value: "".to_string(),
+            value: String::new(),
         }
     }
 
     pub(crate) fn with_value(value: &str) -> Self {
         Self {
-            value: value.to_string(),
+            value: value.to_owned(),
         }
     }
 

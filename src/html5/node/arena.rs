@@ -17,20 +17,26 @@ pub struct NodeArena {
     next_id: NodeId,
 }
 
-impl Clone for NodeId {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-
 impl NodeArena {
     /// Creates a new NodeArena
+    #[must_use]
     pub fn new() -> Self {
         Self {
             nodes: HashMap::new(),
-            next_id: Default::default(),
+            next_id: NodeId::default(),
             order: Vec::new(),
         }
+    }
+
+    /// Count the number of nodes registered in the arena
+    pub(crate) fn count_nodes(&self) -> usize {
+        self.nodes.len()
+    }
+
+    /// Peek what the next node ID is without incrementing the internal counter.
+    /// Used by DocumentTaskQueue for create_element() tasks.
+    pub(crate) fn peek_next_id(&self) -> NodeId {
+        self.next_id
     }
 
     /// Gets the node with the given id
@@ -45,9 +51,7 @@ impl NodeArena {
 
     /// Registered an unregistered node into the arena
     pub fn register_node(&mut self, mut node: Node) -> NodeId {
-        if node.is_registered {
-            panic!("Node is already attached to an arena");
-        }
+        assert!(!node.is_registered, "Node is already attached to an arena");
 
         let id = self.next_id;
         self.next_id = id.next();
@@ -63,7 +67,7 @@ impl NodeArena {
     /// Prints the list of nodes in sequential order. This makes debugging a bit easier, but should
     /// be removed.
     pub(crate) fn print_nodes(&self) {
-        for id in self.order.iter() {
+        for id in &self.order {
             println!("({}): {:?}", id, self.nodes.get(id).expect("node"));
         }
     }
@@ -152,239 +156,4 @@ mod tests {
         assert!(child.is_some());
         assert_eq!(child.unwrap().parent, Some(parent_id));
     }
-
-    // #[test]
-    // fn attach_node_with_position() {
-    //     let mut arena = NodeArena::new();
-    //     let mut document = Document::shared();
-    //
-    //     let parent = Node::new_element(&document, "parent", HashMap::new(), HTML_NAMESPACE);
-    //     let parent_id = arena.register_node(parent);
-    //
-    //     let child1 = Node::new_element(&document, "child1", HashMap::new(), HTML_NAMESPACE);
-    //     let child1_id = arena.register_node(child1);
-    //     let child2 = Node::new_element(&document, "child2", HashMap::new(), HTML_NAMESPACE);
-    //     let child2_id = arena.register_node(child2);
-    //     let child3 = Node::new_element(&document, "child3", HashMap::new(), HTML_NAMESPACE);
-    //     let child3_id = arena.register_node(child3);
-    //     let child4 = Node::new_element(&document, "child4", HashMap::new(), HTML_NAMESPACE);
-    //     let child4_id = arena.register_node(child4);
-    //
-    //     assert!(document.add_node(child1, parent_id, None));
-    //     assert!(document.add_node(child2, parent_id, None));
-    //     assert!(document.add_node(child3, parent_id, Some(1)));
-    //
-    //     let parent = arena.get_node(parent_id);
-    //     assert!(parent.is_some());
-    //     assert_eq!(parent.unwrap().children.len(), 3);
-    //     assert_eq!(parent.unwrap().children[0], child1_id);
-    //     assert_eq!(parent.unwrap().children[1], child3_id);
-    //     assert_eq!(parent.unwrap().children[2], child2_id);
-    //
-    //     // Insert at a very large position which doesn't exist
-    //     assert!(document.add_node(parent_id, child4_id, Some(123456)));
-    //
-    //     let parent = arena.get_node(parent_id);
-    //     assert!(parent.is_some());
-    //     assert_eq!(parent.unwrap().children.len(), 4);
-    //     assert_eq!(parent.unwrap().children[0], child1_id);
-    //     assert_eq!(parent.unwrap().children[1], child3_id);
-    //     assert_eq!(parent.unwrap().children[2], child2_id);
-    //     assert_eq!(parent.unwrap().children[3], child4_id);
-    // }
-    //
-    // #[test]
-    // fn attach_node_to_itself() {
-    //     let mut arena = NodeArena::new();
-    //     let document = Document::shared();
-    //
-    //     let node = Node::new_element(&document, "some_node", HashMap::new(), HTML_NAMESPACE);
-    //     let node_id = arena.register_node(node);
-    //
-    //     assert!(!document.add_node(node_id, node_id, None));
-    //
-    //     let node = arena.get_node(node_id);
-    //     assert!(node.is_some());
-    //     assert_eq!(node.unwrap().children.len(), 0);
-    // }
-    //
-    // #[test]
-    // fn attach_node_with_loop_pointer() {
-    //     let mut arena = NodeArena::new();
-    //     let document = Document::shared();
-    //     let parent = Node::new_element(&document, "parent", HashMap::new(), HTML_NAMESPACE);
-    //     let mut child = Node::new_element(&document, "child", HashMap::new(), HTML_NAMESPACE);
-    //
-    //     // push the PARENT to the CHILD
-    //     let parent_id = arena.register_node(parent);
-    //     child.children.push(parent_id);
-    //
-    //     // try and add the CHILD to the PARENT
-    //     let child_id = arena.register_node(child);
-    //     assert!(!document.add_node(parent_id, child_id, None));
-    //
-    //     let parent = arena.get_node(parent_id);
-    //     let child = arena.get_node(child_id);
-    //     assert!(parent.is_some());
-    //     assert!(child.is_some());
-    //     assert_eq!(parent.unwrap().children.len(), 0); // parent could not add child, recursive
-    //     assert_eq!(child.unwrap().children.len(), 1); // child adding the parent is ok
-    // }
-    //
-    // #[test]
-    // fn attach_node_with_indirect_loop_pointer() {
-    //     let mut arena = NodeArena::new();
-    //     let document = Document::shared();
-    //     let parent = Node::new_element(&document, "parent", HashMap::new(), HTML_NAMESPACE);
-    //     let child1 = Node::new_element(&document, "child1", HashMap::new(), HTML_NAMESPACE);
-    //     let child2 = Node::new_element(&document, "child2", HashMap::new(), HTML_NAMESPACE);
-    //
-    //     let parent_id = arena.register_node(parent);
-    //     let child1_id = arena.register_node(child1);
-    //     let child2_id = arena.register_node(child2);
-    //
-    //     assert!(document.add_node(parent_id, child1_id, None));
-    //     assert!(document.add_node(child1_id, child2_id, None));
-    //
-    //     let parent = arena.get_node(parent_id);
-    //     let child1 = arena.get_node(child1_id);
-    //     let child2 = arena.get_node(child2_id);
-    //     assert_eq!(parent.unwrap().children.len(), 1);
-    //     assert_eq!(child1.unwrap().children.len(), 1);
-    //     assert_eq!(child2.unwrap().children.len(), 0);
-    //
-    //     // Add parent to child 2, thus creating a loop
-    //     assert!(!document.add_node(child2_id, parent_id, None));
-    //
-    //     let parent = arena.get_node(parent_id);
-    //     let child1 = arena.get_node(child1_id);
-    //     let child2 = arena.get_node(child2_id);
-    //     assert_eq!(parent.unwrap().children.len(), 1);
-    //     assert_eq!(child1.unwrap().children.len(), 1);
-    //     assert_eq!(child2.unwrap().children.len(), 0);
-    // }
-    //
-    // #[test]
-    // fn remove_child_node() {
-    //     let mut arena = NodeArena::new();
-    //     let document = Document::shared();
-    //
-    //     let parent = Node::new_element(&document, "parent", HashMap::new(), HTML_NAMESPACE);
-    //     let parent_id = arena.register_node(parent);
-    //     let child1 = Node::new_element(&document, "child1", HashMap::new(), HTML_NAMESPACE);
-    //     let child1_id = arena.register_node(child1);
-    //     let child2 = Node::new_element(&document, "child2", HashMap::new(), HTML_NAMESPACE);
-    //     let child2_id = arena.register_node(child2);
-    //
-    //     arena.attach_node(parent_id, child1_id, None);
-    //     arena.attach_node(parent_id, child2_id, None);
-    //     let parent = arena.get_node(parent_id);
-    //     assert!(parent.is_some());
-    //     assert_eq!(parent.unwrap().children.len(), 2);
-    //
-    //     arena.detach_node(child1_id);
-    //
-    //     let child = arena.get_node(child1_id);
-    //     assert!(child.is_none());
-    //     let child = arena.get_node(child2_id);
-    //     assert!(child.is_some());
-    //     assert_eq!(child.unwrap().parent, Some(parent_id));
-    //
-    //     let parent = arena.get_node(parent_id);
-    //     assert_eq!(parent.unwrap().children.len(), 1);
-    // }
-    //
-    // #[test]
-    // fn detach_node_with_children() {
-    //     let mut arena = NodeArena::new();
-    //     let document = Document::shared();
-    //
-    //     let parent = Node::new_element(&document, "parent", HashMap::new(), HTML_NAMESPACE);
-    //     let parent_id = arena.register_node(parent);
-    //     let child = Node::new_element(&document, "child", HashMap::new(), HTML_NAMESPACE);
-    //     let child_id = arena.register_node(child);
-    //
-    //     arena.attach_node(parent_id, child_id, None);
-    //     arena.detach_node(parent_id);
-    //
-    //     let parent = arena.get_node(parent_id);
-    //     assert!(parent.is_none());
-    //     let child = arena.get_node(child_id);
-    //     assert!(child.is_none());
-    // }
-    //
-    // #[test]
-    // fn detach_node_with_children_and_parent() {
-    //     let mut arena = NodeArena::new();
-    //     let document = Document::shared();
-    //
-    //     let parent = Node::new_element(&document, "parent", HashMap::new(), HTML_NAMESPACE);
-    //     let parent_id = arena.register_node(parent);
-    //     let child = Node::new_element(&document, "child", HashMap::new(), HTML_NAMESPACE);
-    //     let child_id = arena.register_node(child);
-    //
-    //     arena.attach_node(parent_id, child_id, None);
-    //     arena.detach_node(child_id);
-    //     arena.detach_node(parent_id);
-    //
-    //     let parent = arena.get_node(parent_id);
-    //     assert!(parent.is_none());
-    //     let child = arena.get_node(child_id);
-    //     assert!(child.is_none());
-    // }
-    //
-    // #[test]
-    // fn detach_node_with_children_and_parent_and_grandchildren() {
-    //     let mut arena = NodeArena::new();
-    //     let document = Document::shared();
-    //
-    //     let parent = Node::new_element(&document, "parent", HashMap::new(), HTML_NAMESPACE);
-    //     let parent_id = arena.register_node(parent);
-    //     let child = Node::new_element(&document, "child", HashMap::new(), HTML_NAMESPACE);
-    //     let child_id = arena.register_node(child);
-    //     let grandchild = Node::new_element(&document, "grandchild", HashMap::new(), HTML_NAMESPACE);
-    //     let grandchild_id = arena.register_node(grandchild);
-    //
-    //     arena.attach_node(parent_id, child_id, None);
-    //     arena.attach_node(child_id, grandchild_id, None);
-    //     arena.detach_node(child_id);
-    //     arena.detach_node(parent_id);
-    //
-    //     let parent = arena.get_node(parent_id);
-    //     assert!(parent.is_none());
-    //     let child = arena.get_node(child_id);
-    //     assert!(child.is_none());
-    //     let grandchild = arena.get_node(grandchild_id);
-    //     assert!(grandchild.is_none());
-    // }
-    //
-    // #[test]
-    // fn detach_node_with_children_and_parent_and_grandchildren_and_siblings() {
-    //     let mut arena = NodeArena::new();
-    //     let document = Document::shared();
-    //
-    //     let parent = Node::new_element(&document, "parent", HashMap::new(), HTML_NAMESPACE);
-    //     let parent_id = arena.register_node(parent);
-    //     let child = Node::new_element(&document, "child", HashMap::new(), HTML_NAMESPACE);
-    //     let child_id = arena.register_node(child);
-    //     let grandchild = Node::new_element(&document, "grandchild", HashMap::new(), HTML_NAMESPACE);
-    //     let grandchild_id = arena.register_node(grandchild);
-    //     let sibling = Node::new_element(&document, "sibling", HashMap::new(), HTML_NAMESPACE);
-    //     let sibling_id = arena.register_node(sibling);
-    //
-    //     arena.attach_node(parent_id, child_id, None);
-    //     arena.attach_node(child_id, grandchild_id, None);
-    //     arena.attach_node(parent_id, sibling_id, None);
-    //     arena.detach_node(child_id);
-    //     arena.detach_node(parent_id);
-    //
-    //     let parent = arena.get_node(parent_id);
-    //     assert!(parent.is_none());
-    //     let child = arena.get_node(child_id);
-    //     assert!(child.is_none());
-    //     let grandchild = arena.get_node(grandchild_id);
-    //     assert!(grandchild.is_none());
-    //     let sibling = arena.get_node(sibling_id);
-    //     assert!(sibling.is_none());
-    // }
 }
