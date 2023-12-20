@@ -21,6 +21,7 @@ pub struct Css3<'stream> {
     // in_alpha_function: bool,
     // in_filter: bool,
     allow_values_in_argument_list: Vec<bool>,
+    config: ParserConfig,
 }
 
 #[derive(Debug)]
@@ -52,11 +53,14 @@ impl<'stream> Css3<'stream> {
             // in_alpha_function: false,
             // in_filter: false,
             allow_values_in_argument_list: Vec::new(),
+            config: Default::default(),
         }
     }
 
     fn parse_internal(&mut self, config: ParserConfig) -> Result<Node, Error> {
-        match config.context {
+        self.config = config;
+
+        match self.config.context {
             Context::Stylesheet => self.parse_stylesheet(),
             Context::Rule => self.parse_rule(),
             Context::AtRule => self.parse_at_rule(true),
@@ -78,6 +82,7 @@ mod tests {
 
         let config = ParserConfig {
             source: Some(filename.to_string()),
+            ignore_errors: true,
             ..Default::default()
         };
 

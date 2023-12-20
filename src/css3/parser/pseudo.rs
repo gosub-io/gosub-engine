@@ -44,6 +44,10 @@ impl Css3<'_> {
                 self.tokenizer.reconsume();
                 self.parse_anplusb()?
             }
+            TokenType::Dimension{ .. } => {
+                self.tokenizer.reconsume();
+                self.parse_anplusb()?
+            }
             TokenType::Number(value) => {
                 Node::new(NodeType::Number { value }, loc.clone())
             }

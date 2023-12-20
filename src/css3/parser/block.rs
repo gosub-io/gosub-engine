@@ -20,6 +20,31 @@ impl Css3<'_> {
         Ok(declaration)
     }
 
+    /// Reads until the end of a declaration or rule (or end of the block), in case there is a syntax error
+    fn parse_until_rule_end(&mut self) {
+        loop {
+            let t = self.consume_any();
+            if t.is_err() {
+                break;
+            }
+            match t.unwrap().token_type {
+                TokenType::Semicolon => {
+                    break;
+                }
+                TokenType::RCurly => {
+                    self.tokenizer.reconsume();
+                    break;
+                }
+                TokenType::Eof => {
+                    break;
+                }
+                _ => {
+                    // ignore
+                }
+            }
+        }
+    }
+
     pub fn parse_block(&mut self, mode: BlockParseMode) -> Result<Node, Error> {
         log::trace!("parse_block");
 
@@ -61,9 +86,28 @@ impl Css3<'_> {
 
                         self.tokenizer.reconsume();
                         if t.is_delim('&') {
-                            children.push(self.parse_consume_rule()?);
+                            let rule = self.parse_consume_rule();
+                            if rule.is_err() {
+                                self.parse_until_rule_end();
+                                if self.config.ignore_errors {
+                                    continue;
+                                } else {
+                                    return rule;
+                                }
+                            }
+                            children.push(rule.unwrap());
                         } else {
-                            children.push(self.parse_consume_declaration()?);
+                            let declaration = self.parse_consume_declaration();
+                            if declaration.is_err() {
+                                self.parse_until_rule_end();
+                                if self.config.ignore_errors {
+                                    continue;
+                                } else {
+                                    return declaration;
+                                }
+                            }
+
+                            children.push(declaration.unwrap());
                         }
 
                         // // check for either semicolon, eof, or rcurly
@@ -80,7 +124,17 @@ impl Css3<'_> {
                     }
                     BlockParseMode::RegularBlock => {
                         self.tokenizer.reconsume();
-                        children.push(self.parse_consume_rule()?);
+
+                        let rule = self.parse_consume_rule();
+                        if rule.is_err() {
+                            self.parse_until_rule_end();
+                            if self.config.ignore_errors {
+                                continue;
+                            } else {
+                                return rule;
+                            }
+                        }
+                        children.push(rule.unwrap());
 
                         semicolon_seperated = false;
                     }

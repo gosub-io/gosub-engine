@@ -66,11 +66,23 @@ impl Css3<'_> {
     }
 
     fn parse_anplusb_b(&mut self) -> Result<String, Error> {
+        log::trace!("parse_anplusb_b");
+
         self.consume_whitespace_comments();
 
         if let TokenType::Eof = self.tokenizer.lookahead(0).token_type {
             return Ok("0".to_string());
         }
+        if let TokenType::Semicolon = self.tokenizer.lookahead(0).token_type {
+            return Ok("0".to_string());
+        }
+        if let TokenType::RCurly = self.tokenizer.lookahead(0).token_type {
+            return Ok("0".to_string());
+        }
+        if let TokenType::RParen = self.tokenizer.lookahead(0).token_type {
+            return Ok("0".to_string());
+        }
+
 
         let negative = match self.tokenizer.lookahead(0).token_type {
             TokenType::Delim('-') => {
