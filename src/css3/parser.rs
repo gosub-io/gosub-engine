@@ -16,6 +16,8 @@ mod value;
 mod pseudo;
 mod anplusb;
 mod calc;
+mod condition;
+mod feature_function;
 
 impl Css3<'_> {
     /// Consumes a specific token
@@ -64,6 +66,17 @@ impl Css3<'_> {
             TokenType::Delim(c) => Ok(c),
             _ => Err(Error::new(
                 format!("Expected delimiter, got {:?}", t),
+                self.tokenizer.current_location().clone(),
+            )),
+        }
+    }
+
+    pub fn consume_any_string(&mut self) -> Result<String, Error> {
+        let t = self.tokenizer.consume();
+        match t.token_type {
+            TokenType::QuotedString(s) => Ok(s),
+            _ => Err(Error::new(
+                format!("Expected string, got {:?}", t),
                 self.tokenizer.current_location().clone(),
             )),
         }

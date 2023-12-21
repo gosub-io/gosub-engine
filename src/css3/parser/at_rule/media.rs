@@ -33,9 +33,12 @@ impl Css3<'_> {
                     Some(Node::new(NodeType::Dimension { value, unit }, t.location))
                 }
                 TokenType::Ident(value) => Some(Node::new(NodeType::Ident { value }, t.location)),
-                TokenType::Function(_) => {
-                    todo!();
-                    // Some(t)
+                TokenType::Function(name) => {
+                    let name = name.to_lowercase();
+                    let args = self.parse_pseudo_function(name.as_str())?;
+                    self.consume(TokenType::RParen)?;
+
+                    Some(Node::new(NodeType::Function { name, arguments: vec![args] }, t.location))
                 }
                 _ => {
                     return Err(Error::new(
@@ -62,7 +65,7 @@ impl Css3<'_> {
         // Ok(Node::new(NodeType::Ident{value: "foo".into()}))
     }
 
-    fn parse_media_feature_or_range(&mut self, kind: FeatureKind) -> Result<Node, Error> {
+    pub fn parse_media_feature_or_range(&mut self, kind: FeatureKind) -> Result<Node, Error> {
         log::trace!("parse_media_feature_or_range");
 
         let t = self.tokenizer.lookahead_sc(1);
@@ -77,53 +80,6 @@ impl Css3<'_> {
 
         // otherwise it's a range
         self.parse_media_feature_range(kind)
-    }
-
-    pub fn parse_media_condition(&mut self, kind: FeatureKind) -> Result<Node, Error> {
-        log::trace!("parse_media_condition");
-
-        let loc = self.tokenizer.current_location().clone();
-
-        let mut list = Vec::new();
-
-        loop {
-            let t = self.consume_any()?;
-            match t.token_type {
-                TokenType::Comment(_) | TokenType::Whitespace => {
-                    // skip
-                    continue;
-                }
-                TokenType::Ident(ident) => {
-                    list.push(Node::new(NodeType::Ident { value: ident }, t.location));
-                }
-                TokenType::LParen => {
-                    self.tokenizer.reconsume();
-
-                    let term = self.parse_media_feature_or_range(kind.clone());
-                    if term.is_err() {
-                        self.consume(TokenType::RParen)?;
-                        let res = self.parse_media_condition(kind.clone())?;
-                        self.consume(TokenType::LParen)?;
-                        return Ok(res);
-                    }
-
-                    list.push(term.unwrap());
-                },
-                TokenType::Function(_) => {
-                    todo!();
-                }
-                _ => {
-                    self.tokenizer.reconsume();
-                    break;
-                }
-            }
-        }
-
-        if list.is_empty() {
-            return Err(Error::new("Expected condition".to_string(), loc));
-        }
-
-        Ok(Node::new(NodeType::Condition { list }, loc))
     }
 
     pub fn parse_media_query(&mut self) -> Result<Node, Error> {
@@ -163,7 +119,7 @@ impl Css3<'_> {
                     }
 
                     self.consume_ident("and")?;
-                    condition = Some(self.parse_media_condition(FeatureKind::Media)?);
+                    condition = Some(self.parse_condition(FeatureKind::Media)?);
                 }
                 TokenType::LCurly | TokenType::Semicolon | TokenType::Comma => {
                     // skip;
@@ -180,7 +136,7 @@ impl Css3<'_> {
             match t.token_type {
                 TokenType::Ident(_) | TokenType::LParen | TokenType::Function(_) => {
                     self.tokenizer.reconsume();
-                    condition = Some(self.parse_media_condition(FeatureKind::Media)?);
+                    condition = Some(self.parse_condition(FeatureKind::Media)?);
                 }
                 TokenType::LCurly | TokenType::Semicolon => {
                     // skip
@@ -197,34 +153,9 @@ impl Css3<'_> {
         Ok(Node::new(NodeType::MediaQuery { modifier, media_type, condition }, loc))
     }
 
-    pub fn parse_media_query_list(&mut self) -> Result<Node, Error> {
-        log::trace!("parse_media_query_list");
-
-        let loc = self.tokenizer.current_location().clone();
-
-        let mut queries = vec![];
-
-        while !self.tokenizer.eof() {
-            let query = self.parse_media_query()?;
-            queries.push(query);
-
-            self.consume_whitespace_comments();
-
-            let t = self.consume_any()?;
-            if !t.is_comma() {
-                self.tokenizer.reconsume();
-                break;
-            }
-        }
-
-        Ok(Node::new(NodeType::MediaQueryList { media_queries: queries }, loc))
-    }
-
     pub fn parse_at_rule_media_prelude(&mut self) -> Result<Node, Error> {
         log::trace!("parse_at_rule_media");
 
-        let node = self.parse_media_query_list()?;
-
-        Ok(node)
+        self.parse_at_rule_prelude_query_list()
     }
 }

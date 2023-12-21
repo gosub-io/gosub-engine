@@ -37,10 +37,17 @@ fn main() -> Result<()> {
             .long("ignore-errors")
             .action(clap::ArgAction::SetTrue)
         )
+        .arg(clap::Arg::new("quiet")
+            .help("Don't display AST")
+            .long("quiet")
+            .short('q')
+            .action(clap::ArgAction::SetTrue)
+        )
         .get_matches();
 
-    let ignore_errors = matches.get_flag("debug");
-    let debug = matches.get_flag("ignore-errors");
+    let debug = matches.get_flag("debug");
+    let quiet = matches.get_flag("quiet");
+    let ignore_errors = matches.get_flag("ignore-errors");
     let tokens = matches.get_flag("tokens");
     let url: String = matches.get_one::<String>("url").expect("url").to_string();
 
@@ -82,7 +89,9 @@ fn main() -> Result<()> {
         return Err(anyhow!(message));
     }
 
-    css3::walker::Walker.walk(&result.unwrap());
+    if !quiet {
+        css3::walker::Walker.walk(&result.unwrap());
+    }
 
     Ok(())
 }

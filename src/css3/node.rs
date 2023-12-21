@@ -6,6 +6,7 @@ pub type Number = f32;
 pub enum FeatureKind {
     Media,
     Container,
+    Supports
 }
 
 #[derive(Debug, PartialEq)]
@@ -120,6 +121,8 @@ pub enum NodeType {
     MSFunction { func: Node },
     MSIdent { value: String, default_value: String },
     Calc { expr: Node },
+    SupportsDeclaration { term: Node },
+    FeatureFunction,
 }
 
 /// A node is a single element in the AST

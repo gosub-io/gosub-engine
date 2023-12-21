@@ -8,6 +8,7 @@ mod page;
 mod scope;
 mod starting_style;
 mod supports;
+mod charset;
 
 use crate::css3::node::{Node, NodeType};
 use crate::css3::parser::block::BlockParseMode;
@@ -42,11 +43,35 @@ impl Css3<'_> {
         }
     }
 
+    pub fn parse_at_rule_prelude_query_list(&mut self) -> Result<Node, Error> {
+        log::trace!("parse_media_query_list");
+
+        let loc = self.tokenizer.current_location().clone();
+
+        let mut queries = vec![];
+
+        while !self.tokenizer.eof() {
+            let query = self.parse_media_query()?;
+            queries.push(query);
+
+            self.consume_whitespace_comments();
+
+            let t = self.consume_any()?;
+            if !t.is_comma() {
+                self.tokenizer.reconsume();
+                break;
+            }
+        }
+
+        Ok(Node::new(NodeType::MediaQueryList { media_queries: queries }, loc))
+    }
+
     fn parse_at_rule_prelude(&mut self, name: String) -> Result<Option<Node>, Error> {
         log::trace!("parse_at_rule_prelude");
 
         self.consume_whitespace_comments();
         let node = match name.to_lowercase().as_str() {
+            "charset" => Some(self.parse_at_rule_charset_prelude()?),
             "container" => Some(self.parse_at_rule_container_prelude()?),
             "font-face" => None,
             "import" => Some(self.parse_at_rule_import_prelude()?),
@@ -56,7 +81,7 @@ impl Css3<'_> {
             "page" => Some(self.parse_at_rule_page_prelude()?),
             "scope" => Some(self.parse_at_rule_scope_prelude()?),
             "starting-style" => None,
-            "supports" => Some(self.parse_at_rule_supports_prelude()?),
+            "supports" => Some(self.parse_selector_list()?),
             // @todo: this should be atRulePrelude scope
             _ => Some(self.parse_selector_list()?),
         };
@@ -95,24 +120,28 @@ impl Css3<'_> {
 
         // parse block. They may or may not have nested rules depending on the is_declaration and block type
         let node = match name.to_lowercase().as_str() {
-            "container" => self.parse_block(mode)?,
-            "font-face" => self.parse_block(BlockParseMode::StyleBlock)?,
-            "layer" => self.parse_block(BlockParseMode::RegularBlock)?,
-            "media" => self.parse_block(mode)?,
-            "nest" => self.parse_block(BlockParseMode::StyleBlock)?,
-            "page" => self.parse_block(BlockParseMode::StyleBlock)?,
-            "scope" => self.parse_block(mode)?,
-            "starting-style" => self.parse_block(mode)?,
-            "supports" => self.parse_block(mode)?,
+            "charset" => None,
+            "container" => Some(self.parse_block(mode)?),
+            "font-face" => Some(self.parse_block(BlockParseMode::StyleBlock)?),
+            "layer" => Some(self.parse_block(BlockParseMode::RegularBlock)?),
+            "media" => Some(self.parse_block(mode)?),
+            "nest" => Some(self.parse_block(BlockParseMode::StyleBlock)?),
+            "page" => Some(self.parse_block(BlockParseMode::StyleBlock)?),
+            "scope" => Some(self.parse_block(mode)?),
+            "starting-style" => Some(self.parse_block(mode)?),
+            "supports" => Some(self.parse_block(mode)?),
             _ => {
                 let mode = self.declaration_block_at_rule();
-                self.parse_block(mode)?
+                Some(self.parse_block(mode)?)
             },
         };
 
-        self.consume(TokenType::RCurly)?;
+        // if we did a block, we need to close it
+        if node.is_some() {
+            self.consume(TokenType::RCurly)?;
+        }
 
-        Ok(Some(node))
+        Ok(node)
     }
 
     pub fn parse_at_rule(&mut self, is_declaration: bool) -> Result<Node, Error> {

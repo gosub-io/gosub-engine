@@ -201,5 +201,12 @@ fn inner_walk(node: &Node, depth: usize) {
             println!("{}[Calc]", prefix);
             inner_walk(expr, depth + 1);
         }
+        NodeType::SupportsDeclaration { term } => {
+            println!("{}[SupportsDeclaration]", prefix);
+            inner_walk(term, depth + 1);
+        }
+        NodeType::FeatureFunction => {
+            println!("{}[FeatureFunction]", prefix);
+        }
     }
 }
