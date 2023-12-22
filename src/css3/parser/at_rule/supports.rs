@@ -12,7 +12,8 @@ impl Css3<'_> {
         self.consume(TokenType::LParen)?;
         self.consume_whitespace_comments();
 
-        let term = self.parse_declaration()?;
+        // let term = self.parse_declaration()?;
+        let term = self.parse_condition(FeatureKind::Supports)?;
 
         if !self.tokenizer.eof() {
             self.consume(TokenType::RParen)?;

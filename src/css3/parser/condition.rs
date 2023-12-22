@@ -17,6 +17,9 @@ impl Css3<'_> {
                     // skip
                     continue;
                 }
+                TokenType::Url(url) => {
+                    list.push(Node::new(NodeType::Url { url }, t.location));
+                }
                 TokenType::Ident(ident) => {
                     list.push(Node::new(NodeType::Ident { value: ident }, t.location));
                 }
