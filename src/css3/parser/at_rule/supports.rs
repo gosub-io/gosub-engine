@@ -22,8 +22,30 @@ impl Css3<'_> {
         Ok(Node::new(NodeType::SupportsDeclaration { term }, loc))
     }
 
+    fn parse_at_rule_supports_condition(&mut self) -> Result<Node, Error> {
+        loop {
+            let t = self.consume_any()?;
+            match t.token_type {
+                TokenType::Ident(ident) if ident.eq_ignore_ascii_case("not") => {
+                    let term = self.parse_supports_condition_parens()?;
+                    return Ok(Node::new(NodeType::SupportsNot { term }, t.location));
+                }
+            }
+        }
+    }
+
     pub fn parse_at_rule_supports_prelude(&mut self) -> Result<Node, Error> {
-        log::trace!("parse_at_rule_supports");
+        log::trace!("parse_at_rule_supports_prelude");
+
+        loop {
+            let t = self.consume_any()?;
+        }
+
+        // not
+
+        // optional (
+        <supports condition>
+        // and / or
 
         self.parse_condition(FeatureKind::Supports)
     }
