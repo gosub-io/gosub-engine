@@ -36,7 +36,6 @@ impl Css3<'_> {
                     };
 
                     if term.is_err() {
-                        // TODO: check if this is correct
                         self.consume(TokenType::RParen)?;
                         let res = self.parse_condition(kind.clone())?;
                         self.consume(TokenType::LParen)?;

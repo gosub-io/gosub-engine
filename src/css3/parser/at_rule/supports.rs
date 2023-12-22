@@ -1,4 +1,4 @@
-use crate::css3::node::{Node, NodeType};
+use crate::css3::node::{FeatureKind, Node, NodeType};
 use crate::css3::{Css3, Error};
 use crate::css3::tokenizer::TokenType;
 
@@ -21,10 +21,9 @@ impl Css3<'_> {
         Ok(Node::new(NodeType::SupportsDeclaration { term }, loc))
     }
 
-
     pub fn parse_at_rule_supports_prelude(&mut self) -> Result<Node, Error> {
         log::trace!("parse_at_rule_supports");
 
-        self.parse_at_rule_prelude_query_list()
+        self.parse_condition(FeatureKind::Supports)
     }
 }

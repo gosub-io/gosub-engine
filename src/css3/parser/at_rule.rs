@@ -81,7 +81,7 @@ impl Css3<'_> {
             "page" => Some(self.parse_at_rule_page_prelude()?),
             "scope" => Some(self.parse_at_rule_scope_prelude()?),
             "starting-style" => None,
-            "supports" => Some(self.parse_selector_list()?),
+            "supports" => Some(self.parse_at_rule_supports_prelude()?),
             // @todo: this should be atRulePrelude scope
             _ => Some(self.parse_selector_list()?),
         };
