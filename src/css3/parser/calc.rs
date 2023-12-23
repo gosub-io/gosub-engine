@@ -42,7 +42,7 @@ impl Css3<'_> {
 
         let expr = self.tokenizer.slice(start, end);
 
-        Ok(Node::new(NodeType::String{ value: expr }, loc))
+        Ok(Node::new(NodeType::Raw{ value: expr }, loc))
     }
 }
 

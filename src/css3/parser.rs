@@ -140,4 +140,19 @@ impl Css3<'_> {
             )),
         }
     }
+
+    pub fn consume_raw_condition(&mut self) -> Result<String, Error> {
+        let start = self.tokenizer.tell();
+
+        while !self.tokenizer.eof() {
+            let t = self.tokenizer.consume();
+            if let TokenType::LCurly = t.token_type {
+                self.tokenizer.reconsume();
+                break;
+            }
+        }
+        let end = self.tokenizer.tell();
+
+        Ok(self.tokenizer.slice(start, end))
+    }
 }

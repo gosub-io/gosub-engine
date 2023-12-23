@@ -242,7 +242,7 @@ impl Stream for ByteStream {
 
     /// Retrieves a slice of the buffer
     fn get_slice(&self, start: usize, end: usize) -> &[Character] {
-        &self.buffer[start..end]
+        &self.buffer[start-1..end-1]
     }
 }
 

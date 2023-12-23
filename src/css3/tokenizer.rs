@@ -75,11 +75,14 @@ pub enum TokenType {
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct Token {
+    /// Type of the token
     pub token_type: TokenType,
+    /// Location of the token in the stream
     pub location: Location,
 }
 
 impl Token {
+    /// Returns a new token for the given type on the given location
     fn new(token_type: TokenType, location: Location) -> Token {
         Token {
             token_type,
@@ -221,27 +224,31 @@ pub struct Tokenizer<'stream> {
     start_location: Location,
     /// Current position of the stream, to get the absolute position, we must add start_location to it
     cur_location: Location,
+    /// WHen true, the stream is closed and no more tokens can be produced
     eof: bool,
 }
 
 impl<'stream> Tokenizer<'stream> {
-    #[must_use]
+    /// Creates a new tokenizer with the given stream that starts on the given location. This does not have
+    /// to be 1/1, but can be any location.
     pub fn new(stream: &'stream mut ByteStream, location: Location) -> Self {
         Self {
             stream,
             position: 0,
             tokens: Vec::new(),
             start_location: location.clone(),
-            cur_location: Location::new(1,1),
+            cur_location: Location::new(1,1, 0),
             eof: false,
             line_endings: Vec::new(),
         }
     }
 
+    /// Returns the current location and takes the start location into account
     pub fn current_location(&self) -> Location {
         return Location::new(
             self.start_location.line() + self.cur_location.line() - 1,
             self.start_location.column() + self.cur_location.column() - 1,
+            self.cur_location.offset(),
         );
     }
 
@@ -250,6 +257,8 @@ impl<'stream> Tokenizer<'stream> {
         self.stream.eof() && self.position >= self.tokens.len()
     }
 
+    /// Returns the current token. This can be either EOF at the end of the stream, of EOF when we
+    /// haven't read anything. It would be more correct to return this in an Option.
     pub fn current(&self) -> Token {
         if self.position == 0 {
             // We haven't read anything yet. We can't really return anything (we haven't read anything), so we return EOF
@@ -294,6 +303,7 @@ impl<'stream> Tokenizer<'stream> {
         self.tokens[pos as usize].clone()
     }
 
+    /// Consumes the next token and returns it
     pub fn consume(&mut self) -> Token {
         if self.tokens.is_empty() || self.tokens.len() == self.position {
             let token = self.consume_token();
@@ -308,6 +318,7 @@ impl<'stream> Tokenizer<'stream> {
         token.clone()
     }
 
+    /// Reconsumes will push the current position back so the next read will be the same token
     pub fn reconsume(&mut self) {
         if self.position > 0 {
             self.position -= 1;
@@ -909,7 +920,7 @@ impl<'stream> Tokenizer<'stream> {
     }
 
     pub fn tell(&self) -> usize {
-        self.stream.tell()
+        self.tokens[self.position - 1].location.offset() as usize
     }
 
     pub fn slice(&self, start: usize, end: usize) -> String {
@@ -929,6 +940,7 @@ impl<'stream> Tokenizer<'stream> {
         }
 
         let c = self.stream.read();
+        self.cur_location.inc_offset();
         if c == Ch('\n') {
             self.cur_location.inc_line();
             self.cur_location.set_column(1);
@@ -2026,22 +2038,22 @@ mod test {
         chars.close();
 
         let tokens = vec![
-            Token::new_ident("test", Location::new(1, 1)),
-            Token::new(TokenType::Whitespace, Location::new(1, 5)),
-            Token::new(TokenType::LCurly, Location::new(1, 6)),
-            Token::new(TokenType::Whitespace, Location::new(1, 7)),
-            Token::new_ident("color", Location::new(1, 8)),
-            Token::new(TokenType::Colon, Location::new(1, 13)),
-            Token::new(TokenType::Whitespace, Location::new(1, 14)),
-            Token::new_hash("123", Location::new(1, 15)),
-            Token::new(TokenType::Semicolon, Location::new(1, 19)),
-            Token::new(TokenType::Whitespace, Location::new(1, 20)),
-            Token::new_ident("background-color", Location::new(1, 21)),
-            Token::new(TokenType::Colon, Location::new(1, 37)),
-            Token::new(TokenType::Whitespace, Location::new(1, 38)),
-            Token::new_hash("11223344", Location::new(1, 39)),
-            Token::new(TokenType::Whitespace, Location::new(1, 48)),
-            Token::new(TokenType::RCurly, Location::new(1, 49)),
+            Token::new_ident("test", Location::new(1, 1, 0)),
+            Token::new(TokenType::Whitespace, Location::new(1, 5, 4)),
+            Token::new(TokenType::LCurly, Location::new(1, 6, 5)),
+            Token::new(TokenType::Whitespace, Location::new(1, 7, 6)),
+            Token::new_ident("color", Location::new(1, 8, 7)),
+            Token::new(TokenType::Colon, Location::new(1, 13, 12)),
+            Token::new(TokenType::Whitespace, Location::new(1, 14, 13)),
+            Token::new_hash("123", Location::new(1, 15, 14)),
+            Token::new(TokenType::Semicolon, Location::new(1, 19, 18)),
+            Token::new(TokenType::Whitespace, Location::new(1, 20, 19)),
+            Token::new_ident("background-color", Location::new(1, 21, 20)),
+            Token::new(TokenType::Colon, Location::new(1, 37, 36)),
+            Token::new(TokenType::Whitespace, Location::new(1, 38, 37)),
+            Token::new_hash("11223344", Location::new(1, 39, 38)),
+            Token::new(TokenType::Whitespace, Location::new(1, 48, 47)),
+            Token::new(TokenType::RCurly, Location::new(1, 49, 48)),
         ];
         let mut tokenizer = Tokenizer::new(&mut chars, Location::default());
 
@@ -2065,22 +2077,22 @@ mod test {
         chars.close();
 
         let tokens = vec![
-            Token::new_ident("test", Location::new(1, 1)),
-            Token::new(TokenType::Whitespace, Location::new(1, 5)),
-            Token::new(TokenType::LCurly, Location::new(1, 6)),
-            Token::new(TokenType::Whitespace, Location::new(1, 7)),
-            Token::new_ident("color", Location::new(2, 5)),
-            Token::new(TokenType::Colon, Location::new(2, 10)),
-            Token::new(TokenType::Whitespace, Location::new(2, 11)),
-            Token::new_hash("123", Location::new(2, 12)),
-            Token::new(TokenType::Semicolon, Location::new(2, 16)),
-            Token::new(TokenType::Whitespace, Location::new(2, 17)),
-            Token::new_ident("background-color", Location::new(3, 5)),
-            Token::new(TokenType::Colon, Location::new(3, 21)),
-            Token::new(TokenType::Whitespace, Location::new(3, 22)),
-            Token::new_hash("11223344", Location::new(3, 23)),
-            Token::new(TokenType::Whitespace, Location::new(3, 32)),
-            Token::new(TokenType::RCurly, Location::new(4, 1)),
+            Token::new_ident("test", Location::new(1, 1, 0)),
+            Token::new(TokenType::Whitespace, Location::new(1, 5, 4)),
+            Token::new(TokenType::LCurly, Location::new(1, 6, 5)),
+            Token::new(TokenType::Whitespace, Location::new(1, 7, 6)),
+            Token::new_ident("color", Location::new(2, 5, 999)),
+            Token::new(TokenType::Colon, Location::new(2, 10, 999)),
+            Token::new(TokenType::Whitespace, Location::new(2, 11, 999)),
+            Token::new_hash("123", Location::new(2, 12, 999)),
+            Token::new(TokenType::Semicolon, Location::new(2, 16, 999)),
+            Token::new(TokenType::Whitespace, Location::new(2, 17, 999)),
+            Token::new_ident("background-color", Location::new(3, 5, 999)),
+            Token::new(TokenType::Colon, Location::new(3, 21, 999)),
+            Token::new(TokenType::Whitespace, Location::new(3, 22, 999)),
+            Token::new_hash("11223344", Location::new(3, 23, 999)),
+            Token::new(TokenType::Whitespace, Location::new(3, 32, 999)),
+            Token::new(TokenType::RCurly, Location::new(4, 1, 999)),
         ];
         let mut tokenizer = Tokenizer::new(&mut chars, Location::default());
 

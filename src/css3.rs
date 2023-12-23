@@ -17,16 +17,19 @@ pub mod walker;
 /// The original version can be found at https://github.com/csstree/csstree
 
 pub struct Css3<'stream> {
+    /// The tokenizer is responsible for reading the input stream and
     pub tokenizer: Tokenizer<'stream>,
-    // in_alpha_function: bool,
-    // in_filter: bool,
+    /// When the last item is true, we allow values in argument lists.
     allow_values_in_argument_list: Vec<bool>,
+    /// The parser configuration as given
     config: ParserConfig,
 }
 
 #[derive(Debug)]
 pub struct Error {
+    /// The error message
     pub message: String,
+    /// The location of the error
     pub location: Location,
 }
 
@@ -47,16 +50,16 @@ impl<'stream> Css3<'stream> {
         parser.parse_internal(config)
     }
 
+    /// Create a new parser with the given bytestream
     fn new(it: &'stream mut ByteStream) -> Self {
         Self {
             tokenizer: Tokenizer::new(it, Location::default()),
-            // in_alpha_function: false,
-            // in_filter: false,
             allow_values_in_argument_list: Vec::new(),
             config: Default::default(),
         }
     }
 
+    /// Actual parser implementation
     fn parse_internal(&mut self, config: ParserConfig) -> Result<Node, Error> {
         self.config = config;
 
@@ -72,10 +75,12 @@ impl<'stream> Css3<'stream> {
 #[cfg(test)]
 mod tests {
     use simple_logger::SimpleLogger;
+    use crate::css3::walker::Walker;
     use super::*;
 
     #[test]
     fn parser() {
+        // let filename = "../tests/data/css3-data/data.css";
         let filename = "ms.css";
 
         SimpleLogger::new().init().unwrap();
@@ -93,6 +98,8 @@ mod tests {
             return;
         }
 
-        walker::Walker.walk(&res.unwrap());
+        let binding = res.unwrap();
+        let w = Walker::new(&binding);
+        w.walk_stdout();
     }
 }

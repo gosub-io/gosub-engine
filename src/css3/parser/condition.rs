@@ -34,7 +34,7 @@ impl Css3<'_> {
                             self.parse_media_feature_or_range(kind.clone())
                         }
                         FeatureKind::Supports => {
-                            self.parse_supports_condition()
+                            panic!("not implemented")
                         }
                     };
 

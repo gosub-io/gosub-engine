@@ -1,52 +1,39 @@
-use crate::css3::node::{FeatureKind, Node, NodeType};
+use crate::css3::node::{Node, NodeType};
 use crate::css3::{Css3, Error};
-use crate::css3::tokenizer::TokenType;
 
 impl Css3<'_> {
-
-    pub fn parse_supports_condition(&mut self) -> Result<Node, Error> {
-        log::trace!("parse_supports_condition");
-
-        let loc = self.tokenizer.current_location().clone();
-
-        self.consume(TokenType::LParen)?;
-        self.consume_whitespace_comments();
-
-        // let term = self.parse_declaration()?;
-        let term = self.parse_condition(FeatureKind::Supports)?;
-
-        if !self.tokenizer.eof() {
-            self.consume(TokenType::RParen)?;
-        }
-
-        Ok(Node::new(NodeType::SupportsDeclaration { term }, loc))
-    }
-
-    fn parse_at_rule_supports_condition(&mut self) -> Result<Node, Error> {
-        loop {
-            let t = self.consume_any()?;
-            match t.token_type {
-                TokenType::Ident(ident) if ident.eq_ignore_ascii_case("not") => {
-                    let term = self.parse_supports_condition_parens()?;
-                    return Ok(Node::new(NodeType::SupportsNot { term }, t.location));
-                }
-            }
-        }
-    }
 
     pub fn parse_at_rule_supports_prelude(&mut self) -> Result<Node, Error> {
         log::trace!("parse_at_rule_supports_prelude");
 
-        loop {
-            let t = self.consume_any()?;
-        }
+        let loc = self.tokenizer.current_location().clone();
 
-        // not
+        // @todo: parse supports condition
+        let value = self.consume_raw_condition()?;
 
-        // optional (
-        <supports condition>
-        // and / or
+        Ok(Node::new(NodeType::Raw { value }, loc))
+    }
+}
 
-        self.parse_condition(FeatureKind::Supports)
+
+#[cfg(test)]
+mod tests {
+    use simple_logger::SimpleLogger;
+    use crate::byte_stream::{ByteStream, Encoding};
+    use crate::css3::Css3;
+    use crate::css3::walker::Walker;
+
+    #[test]
+    fn test_parse_at_rule_supports_prelude() {
+        SimpleLogger::new().init().unwrap();
+
+        let mut it = ByteStream::new();
+        it.read_from_str("@supports (display: flex)", Some(Encoding::UTF8));
+        let mut parser = Css3::new(&mut it);
+
+        let node = parser.parse_at_rule_supports_prelude().unwrap();
+
+        let w = Walker::new(&node);
+        assert_eq!(w.walk_to_string(), "@supports (display: flex)")
     }
 }

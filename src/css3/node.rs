@@ -123,6 +123,11 @@ pub enum NodeType {
     Calc { expr: Node },
     SupportsDeclaration { term: Node },
     FeatureFunction,
+    Raw { value: String },
+    Scope { root: Option<Node>, limit: Option<Node> },
+    LayerList { layers: Vec<Node> },
+    ImportList { children: Vec<Node> },
+    Container { children: Vec<Node> },
 }
 
 /// A node is a single element in the AST

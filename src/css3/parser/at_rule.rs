@@ -3,12 +3,11 @@ mod font_face;
 mod import;
 mod layer;
 mod media;
-mod next;
+mod nest;
 mod page;
 mod scope;
 mod starting_style;
 mod supports;
-mod charset;
 
 use crate::css3::node::{Node, NodeType};
 use crate::css3::parser::block::BlockParseMode;
@@ -43,27 +42,9 @@ impl Css3<'_> {
         }
     }
 
-    pub fn parse_at_rule_prelude_query_list(&mut self) -> Result<Node, Error> {
-        log::trace!("parse_media_query_list");
-
-        let loc = self.tokenizer.current_location().clone();
-
-        let mut queries = vec![];
-
-        while !self.tokenizer.eof() {
-            let query = self.parse_media_query()?;
-            queries.push(query);
-
-            self.consume_whitespace_comments();
-
-            let t = self.consume_any()?;
-            if !t.is_comma() {
-                self.tokenizer.reconsume();
-                break;
-            }
-        }
-
-        Ok(Node::new(NodeType::MediaQueryList { media_queries: queries }, loc))
+    fn read_sequence_at_rule_prelude(&mut self) -> Result<Node, Error> {
+        log::trace!("read_sequence_at_rule_prelude");
+        todo!()
     }
 
     fn parse_at_rule_prelude(&mut self, name: String) -> Result<Option<Node>, Error> {
@@ -71,19 +52,17 @@ impl Css3<'_> {
 
         self.consume_whitespace_comments();
         let node = match name.to_lowercase().as_str() {
-            "charset" => Some(self.parse_at_rule_charset_prelude()?),
             "container" => Some(self.parse_at_rule_container_prelude()?),
             "font-face" => None,
             "import" => Some(self.parse_at_rule_import_prelude()?),
             "layer" => Some(self.parse_at_rule_layer_prelude()?),
             "media" => Some(self.parse_at_rule_media_prelude()?),
-            "nest" => Some(self.parse_at_rule_next_prelude()?),
+            "nest" => Some(self.parse_at_rule_nest_prelude()?),
             "page" => Some(self.parse_at_rule_page_prelude()?),
             "scope" => Some(self.parse_at_rule_scope_prelude()?),
             "starting-style" => None,
             "supports" => Some(self.parse_at_rule_supports_prelude()?),
-            // @todo: this should be atRulePrelude scope
-            _ => Some(self.parse_selector_list()?),
+            _ => Some(self.read_sequence_at_rule_prelude()?),
         };
 
         self.consume_whitespace_comments();
@@ -120,9 +99,9 @@ impl Css3<'_> {
 
         // parse block. They may or may not have nested rules depending on the is_declaration and block type
         let node = match name.to_lowercase().as_str() {
-            "charset" => None,
             "container" => Some(self.parse_block(mode)?),
             "font-face" => Some(self.parse_block(BlockParseMode::StyleBlock)?),
+            "import" => None,
             "layer" => Some(self.parse_block(BlockParseMode::RegularBlock)?),
             "media" => Some(self.parse_block(mode)?),
             "nest" => Some(self.parse_block(BlockParseMode::StyleBlock)?),
