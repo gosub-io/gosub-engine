@@ -1,22 +1,24 @@
-# GoSub: Gateway to Optimized Searching and Unlimited Browsing
+# Gosub: Gateway to Optimized Searching and Unlimited Browsing
 
-This repository holds the GoSub browser engine. It will become a standalone library that can be used by other projects but will ultimately be used by the Gosub browser user-agent. See the [About](#about) section for more information.
+This repository holds the Gosub browser engine. It will become a standalone library that can be used by other projects but will ultimately be used by the Gosub browser user-agent. See the [About](#about) section for more information.
 
 Join us at our development [Zulip chat](https://chat.developer.gosub.io)!
 
 For more general information you can also join our [Discord server](https://chat.gosub.io).
 
+If you are interested in contributing to Gosub, please checkout the [contribution guide](CONTRIBUTING.md)!
+
 
 ```
-                       _     
-                      | |    
-  __ _  ___  ___ _   _| |__  
- / _` |/ _ \/ __| | | | '_ \ 
+                       _
+                      | |
+  __ _  ___  ___ _   _| |__
+ / _` |/ _ \/ __| | | | '_ \
 | (_| | (_) \__ \ |_| | |_) |
- \__, |\___/|___/\__,_|_.__/ 
-  __/ |  The Gateway to                    
- |___/   Optimized Searching and 
-         Unlimited Browsing                    
+ \__, |\___/|___/\__,_|_.__/
+  __/ |  The Gateway to
+ |___/   Optimized Searching and
+         Unlimited Browsing
 ```
 
 ## About
@@ -83,7 +85,7 @@ To run the tests and benchmark suite, do:
 ```bash
 $ make test
 $ cargo bench
-$ ls target/criterion/report 
+$ ls target/criterion/report
 index.html
 ```
 

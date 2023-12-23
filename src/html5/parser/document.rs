@@ -17,6 +17,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::ops::{Deref, DerefMut};
+use std::rc::Weak;
 
 /// Type of the given document
 #[derive(PartialEq, Debug, Copy, Clone)]
@@ -570,7 +571,7 @@ impl Display for Document {
 }
 
 #[derive(Debug)]
-pub struct DocumentHandle(Rc<RefCell<Document>>);
+pub struct DocumentHandle(pub(crate) Rc<RefCell<Document>>);
 
 impl Display for DocumentHandle {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -597,6 +598,11 @@ impl Clone for DocumentHandle {
 impl Eq for DocumentHandle {}
 
 impl DocumentHandle {
+    /// Retrieves a weak pointer to the document
+    pub fn to_weak(&self) -> Weak<RefCell<Document>> {
+        Rc::downgrade(&self.0)
+    }
+
     /// Retrieves an immutable reference to the document
     pub fn get(&self) -> impl Deref<Target = Document> + '_ {
         self.0.borrow()
@@ -862,10 +868,13 @@ impl DocumentBuilder {
         let mut doc = Document::shared();
         doc.get_mut().doctype = DocumentType::HTML;
 
-        if context.document.get().quirks_mode == QuirksMode::Quirks {
-            doc.get_mut().quirks_mode = QuirksMode::Quirks;
-        } else if context.document.get().quirks_mode == QuirksMode::LimitedQuirks {
-            doc.get_mut().quirks_mode = QuirksMode::LimitedQuirks;
+        let doc_weak = Weak::clone(&context.document);
+        if let Some(doc_get) = doc_weak.upgrade() {
+            if doc_get.borrow().quirks_mode == QuirksMode::Quirks {
+                doc.get_mut().quirks_mode = QuirksMode::Quirks;
+            } else if doc_get.borrow().quirks_mode == QuirksMode::LimitedQuirks {
+                doc.get_mut().quirks_mode = QuirksMode::LimitedQuirks;
+            }
         }
 
         // @TODO: Set tokenizer state based on context element

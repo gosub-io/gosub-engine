@@ -1,13 +1,11 @@
-use crate::wrapper::CNodeType;
 use gosub_engine::render_tree::text::TextNode;
 use std::ffi::c_char;
 use std::ffi::CString;
 
-/// This is a C-friendly wrapper around gosub_engine::render_tree::text::TextNode
+/// This is a C-friendly wrapper around gosub_engine::rendertree::text::TextNode
 /// that converts Rust Strings to owned pointers to pass to the C API.
 #[repr(C)]
 pub struct CTextNode {
-    pub tag: CNodeType,
     pub value: *mut c_char,
     pub font: *mut c_char,
     pub font_size: f64,
@@ -17,7 +15,6 @@ pub struct CTextNode {
 impl From<&TextNode> for CTextNode {
     fn from(text_node: &TextNode) -> Self {
         Self {
-            tag: CNodeType::Text,
             value: CString::new(text_node.value.clone().into_bytes())
                 .expect("Failed to allocate memory for text node value in CTextNode")
                 .into_raw(),
