@@ -18,7 +18,7 @@ impl Css3<'_> {
                     format!("Expected attribute operator, got {:?}", c),
                     loc,
                 ));
-            },
+            }
             _ => {}
         }
         value.push(c);

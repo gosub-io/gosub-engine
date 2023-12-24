@@ -54,7 +54,7 @@ fn main() -> Result<()> {
         // Fetch the html from the url
         let response = ureq::get(&url).call()?;
         if response.status() != 200 {
-            bail!(&format!(
+            bail!(format!(
                 "Could not get url. Status code {}",
                 response.status()
             ));

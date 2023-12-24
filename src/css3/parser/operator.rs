@@ -13,8 +13,8 @@ impl Css3<'_> {
             match &c {
                 '/' | '*' | ',' | ':' | '+' | '-' | '=' => {
                     return Ok(Node::new(NodeType::Operator(c.to_string()), loc));
-                },
-                _ => {},
+                }
+                _ => {}
             }
         }
 

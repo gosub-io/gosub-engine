@@ -19,15 +19,9 @@ impl Css3<'_> {
             ));
         }
         Ok(if unit.len() == 1 {
-            (
-                value.to_string(),
-                self.parse_anplusb_b()?
-            )
+            (value.to_string(), self.parse_anplusb_b()?)
         } else {
-            (
-                value.to_string(),
-                unit[1..].to_string()
-            )
+            (value.to_string(), unit[1..].to_string())
         })
     }
 
