@@ -12,25 +12,23 @@ impl Css3<'_> {
 
         let value = value.to_string();
 
-        let a;
-        let b;
-
         if unit.chars().nth(0).unwrap().to_lowercase().to_string() != "n" {
             return Err(Error::new(
                 format!("Expected n, found {}", unit).to_string(),
                 self.tokenizer.current_location().clone(),
             ));
         }
-
-        if unit.len() == 1 {
-            a = value.to_string();
-            b = self.parse_anplusb_b()?;
+        Ok(if unit.len() == 1 {
+            (
+                value.to_string(),
+                self.parse_anplusb_b()?
+            )
         } else {
-            a = value.to_string();
-            b = unit[1..].to_string();
-        }
-
-        Ok((a, b))
+            (
+                value.to_string(),
+                unit[1..].to_string()
+            )
+        })
     }
 
     fn check_integer(

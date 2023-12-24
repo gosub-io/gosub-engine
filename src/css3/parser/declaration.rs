@@ -21,16 +21,8 @@ impl Css3<'_> {
         log::trace!("parse_property_name");
         let t = self.consume_any()?;
         match t.token_type {
-            TokenType::Delim('*') => { // next
-            }
-            TokenType::Delim('$') => { // next
-            }
-            TokenType::Delim('+') => { // next
-            }
-            TokenType::Delim('#') => { // next
-            }
-            TokenType::Delim('&') => { // next
-            }
+            TokenType::Delim('*') | TokenType::Delim('$') | TokenType::Delim('+') |
+            TokenType::Delim('#') | TokenType::Delim('&') => {} //next
             TokenType::Delim('/') => {
                 let t = self.tokenizer.lookahead(1);
                 if t.token_type == TokenType::Delim('/') {

@@ -151,9 +151,6 @@ impl CharIterator {
 
     /// Returns true when the stream pointer is at the end of the stream
     pub fn eof(&self) -> bool {
-        println!("stream: has_read_eof: {:?}", self.has_read_eof);
-        println!("stream: position.offset: {:?}", self.position.offset);
-        println!("stream: length: {:?}", self.length);
         self.has_read_eof || self.position.offset >= self.length
     }
 
@@ -337,16 +334,6 @@ impl CharIterator {
 
         Eof
     }
-    //
-    // /// Reads the current character
-    // pub(crate) fn current_char(&self) -> Bytes {
-    //     self.look_ahead(0)
-    // }
-    //
-    // /// Reads the next character
-    // pub(crate) fn next_char(&self) -> Bytes {
-    //     self.look_ahead(1)
-    // }
 
     pub(crate) fn unread(&mut self) {
         // We already read eof, so "unread" the eof by unsetting the flag

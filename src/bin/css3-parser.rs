@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Result};
 use gosub_engine::byte_stream::{ByteStream, Encoding, Stream};
 use gosub_engine::css3;
 use gosub_engine::css3::location::Location;
@@ -6,12 +6,6 @@ use gosub_engine::css3::parser_config::ParserConfig;
 use gosub_engine::css3::{Css3, Error};
 use simple_logger::SimpleLogger;
 use std::fs;
-use std::process::exit;
-
-fn bail(message: &str) -> ! {
-    println!("{message}");
-    exit(1);
-}
 
 fn main() -> Result<()> {
     let matches = clap::Command::new("Gosub CSS3 parser")
@@ -60,7 +54,7 @@ fn main() -> Result<()> {
         // Fetch the html from the url
         let response = ureq::get(&url).call()?;
         if response.status() != 200 {
-            bail(&format!(
+            bail!(&format!(
                 "Could not get url. Status code {}",
                 response.status()
             ));

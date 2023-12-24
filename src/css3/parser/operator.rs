@@ -10,8 +10,11 @@ impl Css3<'_> {
 
         let operator = self.consume_any()?;
         if let TokenType::Delim(c) = operator.token_type {
-            if ['/', '*', ',', ':', '+', '-', '='].contains(&c) {
-                return Ok(Node::new(NodeType::Operator(c.to_string()), loc));
+            match &c {
+                '/' | '*' | ',' | ':' | '+' | '-' | '=' => {
+                    return Ok(Node::new(NodeType::Operator(c.to_string()), loc));
+                },
+                _ => {},
             }
         }
 

@@ -10,13 +10,16 @@ impl Css3<'_> {
         let loc = self.tokenizer.current_location().clone();
 
         let c = self.consume_any_delim()?;
-        if !['=', '~', '|', '^', '$', '*'].contains(&c) {
-            self.tokenizer.reconsume();
+        match &c {
+            '=' | '~' | '|' | '^' | '$' | '*' => {
+                self.tokenizer.reconsume();
 
-            return Err(Error::new(
-                format!("Expected attribute operator, got {:?}", c),
-                loc,
-            ));
+                return Err(Error::new(
+                    format!("Expected attribute operator, got {:?}", c),
+                    loc,
+                ));
+            },
+            _ => {}
         }
         value.push(c);
 
@@ -193,17 +196,6 @@ impl Css3<'_> {
         let t = self.tokenizer.lookahead(0);
         let value = if t.is_ident() {
             self.consume_any_ident()?
-        // } else if t.is_function() {
-        //
-        //     // name is already in T
-        //
-        //     if let TokenType::Function(name) = t.token_type {
-        //         let name = name.to_lowercase().as_str();
-        //     } else {
-        //         return Err(Error::new(format!("Unexpected token {:?}", t), self.tokenizer.current_location().clone()));
-        //     }
-        //
-        //     self.consume(TokenType::RParen)?;
         } else {
             return Err(Error::new(
                 format!("Unexpected token {:?}", t),
