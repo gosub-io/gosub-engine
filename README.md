@@ -32,6 +32,7 @@ This repository is part of the Gosub browser project. This is the main engine th
  - Configuration store
  - An basic OS/System Information Fetcher
  - An basic WebSocket
+ - An basic error handler for web pages
 
 The idea is that this engine will receive some kind of stream of bytes (most likely from a socket or file) and parse this into a valid HTML5 document tree. From that point, it can be fed to a renderer engine that will render the document tree into a window, or it can be fed to a more simplistic engine that will render it in a terminal.
 
