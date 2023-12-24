@@ -38,4 +38,4 @@ int main() {
     getOSInformation();
     return 0;
 }
-// this code is basic and it does not cover all the parts
+// this code is basic and it does not cover all the parts for a functional system information fetcher
