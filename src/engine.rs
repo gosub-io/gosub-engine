@@ -162,7 +162,7 @@ mod tests {
         let resp = fetch_url("GET", url, headers, cookies);
         assert!(resp.is_ok());
 
-        let resp = resp.unwrap();
-        print!("{:?}", resp);
+        // let resp = resp.unwrap();
+        // print!("{:?}", resp);
     }
 }
