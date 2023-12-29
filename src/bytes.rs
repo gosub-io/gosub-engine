@@ -16,7 +16,7 @@ pub enum Encoding {
 #[derive(PartialEq)]
 pub enum Confidence {
     /// This encoding might be the one we need
-    Tentative,
+    Tentative(f32),
     /// We are certain to use this encoding
     Certain,
 }
@@ -126,7 +126,7 @@ impl CharIterator {
     pub fn new() -> Self {
         Self {
             encoding: Encoding::UTF8,
-            confidence: Confidence::Tentative,
+            confidence: Confidence::Tentative(0.0),
             position: Position {
                 offset: 0,
                 line: 1,
@@ -145,8 +145,17 @@ impl CharIterator {
     }
 
     /// Detect the given encoding from stream analysis
-    pub fn detect_encoding(&self) {
-        todo!()
+    pub fn detect_encoding(&mut self) {
+        let encoding = chardet::detect(&self.u8_buffer);
+        match encoding.0.as_str() {
+            "ascii" => self.encoding = Encoding::ASCII,
+            "utf-8" => self.encoding = Encoding::UTF8,
+            _ => {}
+        };
+        match encoding.1 {
+            p if p >= 0.99 => self.confidence = Confidence::Certain,
+            p => self.confidence = Confidence::Tentative(p),
+        }
     }
 
     /// Returns true when the stream pointer is at the end of the stream
@@ -461,7 +470,7 @@ mod test {
         chars.set_confidence(Confidence::Certain);
         assert!(chars.is_certain_encoding());
 
-        chars.set_confidence(Confidence::Tentative);
+        chars.set_confidence(Confidence::Tentative(0.5));
         assert!(!chars.is_certain_encoding());
     }
 
@@ -512,5 +521,20 @@ mod test {
         assert!(matches!(chars.read_char(), Eof));
         chars.unread();
         assert!(matches!(chars.read_char(), Eof));
+    }
+
+    #[test]
+    fn test_detect_encoding() {
+        let mut chars = CharIterator::new();
+        chars.read_from_str("abc", Some(Encoding::UTF8));
+        chars.detect_encoding();
+        assert!(matches!(chars.encoding, Encoding::ASCII));
+        assert!(matches!(chars.confidence, Confidence::Certain));
+
+        let mut chars = CharIterator::new();
+        chars.read_from_str("abc浏览器", Some(Encoding::UTF8));
+        chars.detect_encoding();
+        assert!(matches!(chars.encoding, Encoding::UTF8));
+        assert!(matches!(chars.confidence, Confidence::Tentative(_)));
     }
 }
