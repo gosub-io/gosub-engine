@@ -70,6 +70,9 @@ testing_logger = "0.1.1"
 cookie = { version = "0.18.0", features = ["secure", "private"] }
 http = "1.0.0"
 url = "2.5.0"
+v8 = "0.82.0"
+rand = "0.8.5"
+ouroboros = "0.18.0"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
