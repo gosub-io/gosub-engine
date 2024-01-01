@@ -586,7 +586,7 @@ impl<'chars> Html5Parser<'chars> {
 
                 loop {
                     // Fragment case is when the first element in the stack is this node
-                    match self.open_elements.get(0) {
+                    match self.open_elements.first() {
                         // fragment case
                         Some(node_id) if *node_id == node.id => return,
                         _ => {}
@@ -3852,7 +3852,7 @@ impl<'chars> Html5Parser<'chars> {
             }
         }
 
-        let token = self.token_queue.get(0).cloned();
+        let token = self.token_queue.first().cloned();
         self.token_queue.remove(0);
 
         token.expect("no token found")
