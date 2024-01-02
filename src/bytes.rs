@@ -128,6 +128,7 @@ impl Iterator for CharIterator {
             return None;
         }
 
+        // SAFETY: self.buffer and self.u8_buffer have the same length
         let c = self.u8_buffer[self.position.offset] as char;
 
         if c == '\n' {
