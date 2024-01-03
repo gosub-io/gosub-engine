@@ -142,7 +142,7 @@ impl Iterator for CharIterator {
             self.position.col += 1;
         }
         self.position.offset += 1;
-        return Some(c);
+        Some(c)
     }
 }
 
