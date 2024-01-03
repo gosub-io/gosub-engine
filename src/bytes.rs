@@ -141,6 +141,7 @@ impl Iterator for CharIterator {
         } else {
             self.position.col += 1;
         }
+
         self.position.offset += 1;
         Some(c)
     }
