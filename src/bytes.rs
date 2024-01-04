@@ -582,4 +582,3 @@ mod test {
         assert_eq!(peekable.next(), None);
     }
 }
-
