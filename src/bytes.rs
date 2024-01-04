@@ -1,6 +1,7 @@
 use crate::html5::tokenizer::{CHAR_CR, CHAR_LF};
 use std::collections::HashMap;
 use std::io::Read;
+use std::iter::Iterator;
 use std::{fmt, io};
 
 /// Encoding defines the way the buffer stream is read, as what defines a "character".
@@ -94,7 +95,6 @@ impl Bytes {
 }
 
 /// Buffered UTF-8 iterator
-/// TODO: Implement `Peekable` and `Iterator<Item = char>`
 pub struct CharIterator {
     /// Current encoding
     pub encoding: Encoding,
@@ -117,6 +117,33 @@ pub struct CharIterator {
 impl Default for CharIterator {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl Iterator for CharIterator {
+    type Item = char;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.eof() || self.position.offset >= self.length {
+            return None;
+        }
+
+        // SAFETY: self.buffer and self.u8_buffer have the same length
+        let c = self.u8_buffer[self.position.offset] as char;
+
+        if c == '\n' {
+            // Store line offset for the given line
+            self.line_columns
+                .insert(self.position.line, self.position.col);
+            // And continue position on the next line
+            self.position.line += 1;
+            self.position.col = 1;
+        } else {
+            self.position.col += 1;
+        }
+
+        self.position.offset += 1;
+        Some(c)
     }
 }
 
@@ -344,16 +371,6 @@ impl CharIterator {
         Eof
     }
 
-    /// Reads the current character
-    pub(crate) fn current_char(&self) -> Bytes {
-        self.look_ahead(0)
-    }
-
-    /// Reads the next character
-    pub(crate) fn next_char(&self) -> Bytes {
-        self.look_ahead(1)
-    }
-
     pub(crate) fn unread(&mut self) {
         // We already read eof, so "unread" the eof by unsetting the flag
         if self.has_read_eof {
@@ -536,6 +553,33 @@ mod test {
         chars.detect_encoding();
         assert!(matches!(chars.encoding, Encoding::UTF8));
         assert!(matches!(chars.confidence, Confidence::Tentative(_)));
+    }
+
+    #[test]
+    fn test_iter() {
+        let mut chars = CharIterator::new();
+        chars.read_from_str("abc", Some(Encoding::UTF8));
+        assert_eq!(chars.next(), Some('a'));
+        assert_eq!(chars.next(), Some('b'));
+        assert_eq!(chars.next(), Some('c'));
+        assert_eq!(chars.next(), None);
+        assert!(chars.eof());
+    }
+
+    #[test]
+    fn test_peekable() {
+        let mut chars = CharIterator::new();
+        chars.read_from_str("abc", Some(Encoding::UTF8));
+        let mut peekable = chars.peekable();
+        assert_eq!(peekable.peek(), Some(&'a'));
+        assert_eq!(peekable.next(), Some('a'));
+        assert_eq!(peekable.peek(), Some(&'b'));
+        assert_eq!(peekable.next(), Some('b'));
+        let nxt = peekable.peek_mut().unwrap();
+        *nxt = 'd';
+        assert_eq!(peekable.peek(), Some(&'d'));
+        assert_eq!(peekable.next(), Some('d'));
+        assert_eq!(peekable.next(), None);
     }
 }
 
