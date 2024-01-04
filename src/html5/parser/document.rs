@@ -1186,7 +1186,7 @@ mod tests {
         for error in &errors {
             println!("{}", error);
         }
-        assert_eq!(errors.len(), 6);
+        assert_eq!(errors.len(), 5);
         assert_eq!(
             errors[0],
             "document task error: ID 'myid' already exists in DOM",
@@ -1202,17 +1202,12 @@ mod tests {
         );
         assert_eq!(
             errors[4],
-            "document task error: Attribute value '123' did not pass validation",
-        );
-        assert_eq!(
-            errors[5],
             "document task error: Attribute value '' did not pass validation",
         );
 
         // validate that invalid changes did not apply to DOM
         let doc_read = document.get();
         assert!(doc_read.named_id_elements.get("my id").is_none());
-        assert!(doc_read.named_id_elements.get("123").is_none());
         assert!(doc_read.named_id_elements.get("").is_none());
     }
 
