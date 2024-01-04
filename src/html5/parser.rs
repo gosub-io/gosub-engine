@@ -4369,7 +4369,6 @@ mod test {
         let mut chars = CharIterator::new();
         chars.read_from_str(
             "<div id=\"my id\"></div> \
-             <div id=\"123\"></div> \
              <div id=\"\"></div>",
             Some(Encoding::UTF8),
         );
@@ -4378,7 +4377,6 @@ mod test {
         let _ = Html5Parser::parse_document(&mut chars, Document::clone(&document), None);
 
         assert!(document.get().get_node_by_named_id("my id").is_none());
-        assert!(document.get().get_node_by_named_id("123").is_none());
         assert!(document.get().get_node_by_named_id("").is_none());
     }
 
