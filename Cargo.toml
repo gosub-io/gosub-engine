@@ -73,6 +73,7 @@ url = "2.5.0"
 v8 = "0.82.0"
 rand = "0.8.5"
 ouroboros = "0.18.0"
+chardet = "0.2.4"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
