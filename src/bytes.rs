@@ -1,6 +1,7 @@
 use crate::html5::tokenizer::{CHAR_CR, CHAR_LF};
 use std::collections::HashMap;
 use std::io::Read;
+use std::iter::Iterator;
 use std::{fmt, io};
 
 /// Encoding defines the way the buffer stream is read, as what defines a "character".
@@ -16,7 +17,7 @@ pub enum Encoding {
 #[derive(PartialEq)]
 pub enum Confidence {
     /// This encoding might be the one we need
-    Tentative,
+    Tentative(f32),
     /// We are certain to use this encoding
     Certain,
 }
@@ -94,7 +95,6 @@ impl Bytes {
 }
 
 /// Buffered UTF-8 iterator
-/// TODO: Implement `Peekable` and `Iterator<Item = char>`
 pub struct CharIterator {
     /// Current encoding
     pub encoding: Encoding,
@@ -120,13 +120,40 @@ impl Default for CharIterator {
     }
 }
 
+impl Iterator for CharIterator {
+    type Item = char;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.eof() || self.position.offset >= self.length {
+            return None;
+        }
+
+        // SAFETY: self.buffer and self.u8_buffer have the same length
+        let c = self.u8_buffer[self.position.offset] as char;
+
+        if c == '\n' {
+            // Store line offset for the given line
+            self.line_columns
+                .insert(self.position.line, self.position.col);
+            // And continue position on the next line
+            self.position.line += 1;
+            self.position.col = 1;
+        } else {
+            self.position.col += 1;
+        }
+
+        self.position.offset += 1;
+        Some(c)
+    }
+}
+
 impl CharIterator {
     /// Create a new default empty input stream
     #[must_use]
     pub fn new() -> Self {
         Self {
             encoding: Encoding::UTF8,
-            confidence: Confidence::Tentative,
+            confidence: Confidence::Tentative(0.0),
             position: Position {
                 offset: 0,
                 line: 1,
@@ -145,8 +172,17 @@ impl CharIterator {
     }
 
     /// Detect the given encoding from stream analysis
-    pub fn detect_encoding(&self) {
-        todo!()
+    pub fn detect_encoding(&mut self) {
+        let encoding = chardet::detect(&self.u8_buffer);
+        match encoding.0.as_str() {
+            "ascii" => self.encoding = Encoding::ASCII,
+            "utf-8" => self.encoding = Encoding::UTF8,
+            _ => {}
+        };
+        match encoding.1 {
+            p if p >= 0.99 => self.confidence = Confidence::Certain,
+            p => self.confidence = Confidence::Tentative(p),
+        };
     }
 
     /// Returns true when the stream pointer is at the end of the stream
@@ -451,7 +487,7 @@ mod test {
         chars.set_confidence(Confidence::Certain);
         assert!(chars.is_certain_encoding());
 
-        chars.set_confidence(Confidence::Tentative);
+        chars.set_confidence(Confidence::Tentative(0.5));
         assert!(!chars.is_certain_encoding());
     }
 
@@ -502,5 +538,47 @@ mod test {
         assert!(matches!(chars.read_char(), Eof));
         chars.unread();
         assert!(matches!(chars.read_char(), Eof));
+    }
+
+    #[test]
+    fn test_detect_encoding() {
+        let mut chars = CharIterator::new();
+        chars.read_from_str("abc", Some(Encoding::UTF8));
+        chars.detect_encoding();
+        assert!(matches!(chars.encoding, Encoding::ASCII));
+        assert!(matches!(chars.confidence, Confidence::Certain));
+
+        let mut chars = CharIterator::new();
+        chars.read_from_str("abc浏览器", Some(Encoding::UTF8));
+        chars.detect_encoding();
+        assert!(matches!(chars.encoding, Encoding::UTF8));
+        assert!(matches!(chars.confidence, Confidence::Tentative(_)));
+    }
+
+    #[test]
+    fn test_iter() {
+        let mut chars = CharIterator::new();
+        chars.read_from_str("abc", Some(Encoding::UTF8));
+        assert_eq!(chars.next(), Some('a'));
+        assert_eq!(chars.next(), Some('b'));
+        assert_eq!(chars.next(), Some('c'));
+        assert_eq!(chars.next(), None);
+        assert!(chars.eof());
+    }
+
+    #[test]
+    fn test_peekable() {
+        let mut chars = CharIterator::new();
+        chars.read_from_str("abc", Some(Encoding::UTF8));
+        let mut peekable = chars.peekable();
+        assert_eq!(peekable.peek(), Some(&'a'));
+        assert_eq!(peekable.next(), Some('a'));
+        assert_eq!(peekable.peek(), Some(&'b'));
+        assert_eq!(peekable.next(), Some('b'));
+        let nxt = peekable.peek_mut().unwrap();
+        *nxt = 'd';
+        assert_eq!(peekable.peek(), Some(&'d'));
+        assert_eq!(peekable.next(), Some('d'));
+        assert_eq!(peekable.next(), None);
     }
 }
