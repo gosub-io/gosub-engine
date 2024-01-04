@@ -155,7 +155,7 @@ impl CharIterator {
         match encoding.1 {
             p if p >= 0.99 => self.confidence = Confidence::Certain,
             p => self.confidence = Confidence::Tentative(p),
-        }
+        };
     }
 
     /// Returns true when the stream pointer is at the end of the stream
