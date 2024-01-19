@@ -45,17 +45,17 @@ pub enum TokenType {
     IDHash(String),
     /// A `<delim-token>`
     Delim(char),
-    /// A `<}-token>`
-    LCurly,
     /// A `<{-token>`
+    LCurly,
+    /// A `<}-token>`
     RCurly,
     /// A `<(-token>`
     LParen,
     /// A `<)-token>`
     RParen,
-    /// A `<]-token>`
-    LBracket,
     /// A `<[-token>`
+    LBracket,
+    /// A `<]-token>`
     RBracket,
     /// A `<comma-token>`
     Comma,
