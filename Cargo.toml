@@ -70,7 +70,7 @@ testing_logger = "0.1.1"
 cookie = { version = "0.18.0", features = ["secure", "private"] }
 http = "1.0.0"
 url = "2.5.0"
-v8 = "0.82.0"
+v8 = "0.83.1"
 rand = "0.8.5"
 ouroboros = "0.18.2"
 chardet = "0.2.4"
