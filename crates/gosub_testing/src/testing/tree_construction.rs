@@ -95,7 +95,7 @@ impl Harness {
         {
             self.parse_fragment(fragment, chars, options)?
         } else {
-            let document = DocumentBuilder::new_document();
+            let document = DocumentBuilder::new_document(None);
             let parser_errors =
                 Html5Parser::parse_document(&mut chars, Document::clone(&document), Some(options))?;
             (document, parser_errors)
@@ -111,7 +111,7 @@ impl Harness {
         options: Html5ParserOptions,
     ) -> Result<(DocumentHandle, Vec<ParseError>)> {
         // First, create a (fake) main document that contains only the fragment as node
-        let main_document = DocumentBuilder::new_document();
+        let main_document = DocumentBuilder::new_document(None);
         let mut main_document = Document::clone(&main_document);
         let (element, namespace) = if fragment.starts_with("svg ") {
             (

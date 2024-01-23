@@ -1,8 +1,3 @@
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::ops::Add;
-use std::rc::Rc;
-
 //use webinterop::{web_fns, web_interop};
 use crate::js::v8::{V8Engine, V8Value};
 use crate::js::{
@@ -11,6 +6,10 @@ use crate::js::{
     JSValue, ValueConversion, VariadicArgs, VariadicArgsInternal,
 };
 use gosub_shared::types::Result;
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::ops::Add;
+use std::rc::Rc;
 
 //#[web_interop]
 struct TestStruct {

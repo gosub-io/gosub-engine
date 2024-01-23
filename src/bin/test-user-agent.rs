@@ -31,7 +31,7 @@ fn main() -> Result<()> {
         chars.detect_encoding()
     }
 
-    let document = DocumentBuilder::new_document();
+    let document = DocumentBuilder::new_document(None);
     let parse_errors = Html5Parser::parse_document(&mut chars, Document::clone(&document), None)?;
 
     match get_node_by_path(&document.get(), vec!["html", "body"]) {

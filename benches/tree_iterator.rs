@@ -18,7 +18,7 @@ fn wikipedia_main_page(c: &mut Criterion) {
     let _ = char_iter.read_from_file(html_file, Some(gosub_shared::bytes::Encoding::UTF8));
     char_iter.set_confidence(gosub_shared::bytes::Confidence::Certain);
 
-    let main_document = DocumentBuilder::new_document();
+    let main_document = DocumentBuilder::new_document(None);
     let document = Document::clone(&main_document);
     let _ = Html5Parser::parse_document(&mut char_iter, document, None);
 
@@ -45,7 +45,7 @@ fn stackoverflow_home(c: &mut Criterion) {
     let _ = char_iter.read_from_file(html_file, Some(gosub_shared::bytes::Encoding::UTF8));
     char_iter.set_confidence(gosub_shared::bytes::Confidence::Certain);
 
-    let main_document = DocumentBuilder::new_document();
+    let main_document = DocumentBuilder::new_document(None);
     let document = Document::clone(&main_document);
     let _ = Html5Parser::parse_document(&mut char_iter, document, None);
 

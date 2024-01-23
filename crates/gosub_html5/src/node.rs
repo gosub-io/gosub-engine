@@ -189,6 +189,7 @@ impl Node {
             is_registered,
         }
     }
+
     /// Create a new document node
     #[must_use]
     pub fn new_document(document: &DocumentHandle) -> Self {
@@ -337,6 +338,65 @@ impl Node {
         namespace == MATHML_NAMESPACE
             && ["mi", "mo", "mn", "ms", "mtext"].contains(&self.name.as_str())
     }
+
+    /// Returns true if the node is an element node
+    pub fn is_element(&self) -> bool {
+        if let NodeData::Element(_) = &self.data {
+            return true;
+        }
+
+        false
+    }
+
+    pub fn is_text(&self) -> bool {
+        if let NodeData::Text(_) = &self.data {
+            return true;
+        }
+
+        false
+    }
+
+    pub fn as_text(&self) -> &TextData {
+        if let NodeData::Text(text) = &self.data {
+            return text;
+        }
+
+        panic!("Node is not a text");
+    }
+
+    pub fn as_element(&self) -> &ElementData {
+        if let NodeData::Element(element) = &self.data {
+            return element;
+        }
+
+        panic!("Node is not an element");
+    }
+
+    pub fn as_element_mut(&mut self) -> &mut ElementData {
+        if let NodeData::Element(ref mut element) = self.data {
+            element
+        } else {
+            panic!("Node is not an element");
+        }
+    }
+
+    /// Returns true when the given attribute has been set on the node
+    pub fn has_attribute(&self, name: &str) -> bool {
+        if let NodeData::Element(element) = &self.data {
+            return element.attributes.contains_key(name);
+        }
+
+        false
+    }
+
+    /// Returns the given attribute value or None when the attribute is not found
+    pub fn get_attribute(&self, name: &str) -> Option<&String> {
+        if let NodeData::Element(element) = &self.data {
+            return element.attributes.get(name);
+        }
+
+        None
+    }
 }
 
 pub trait NodeTrait {
@@ -463,7 +523,7 @@ mod tests {
 
     #[test]
     fn new_document() {
-        let document = Document::shared();
+        let document = Document::shared(None);
         let node = Node::new_document(&document);
         assert_eq!(node.id, NodeId::default());
         assert_eq!(node.parent, None);
@@ -480,7 +540,7 @@ mod tests {
     fn new_element() {
         let mut attributes = HashMap::new();
         attributes.insert("id".to_string(), "test".to_string());
-        let document = Document::shared();
+        let document = Document::shared(None);
         let node = Node::new_element(&document, "div", attributes.clone(), HTML_NAMESPACE);
         assert_eq!(node.id, NodeId::default());
         assert_eq!(node.parent, None);
@@ -497,7 +557,7 @@ mod tests {
 
     #[test]
     fn new_comment() {
-        let document = Document::shared();
+        let document = Document::shared(None);
         let node = Node::new_comment(&document, "test");
         assert_eq!(node.id, NodeId::default());
         assert_eq!(node.parent, None);
@@ -512,7 +572,7 @@ mod tests {
 
     #[test]
     fn new_text() {
-        let document = Document::shared();
+        let document = Document::shared(None);
         let node = Node::new_text(&document, "test");
         assert_eq!(node.id, NodeId::default());
         assert_eq!(node.parent, None);
@@ -529,14 +589,14 @@ mod tests {
     fn is_special() {
         let mut attributes = HashMap::new();
         attributes.insert("id".to_string(), "test".to_string());
-        let document = Document::shared();
+        let document = Document::shared(None);
         let node = Node::new_element(&document, "div", attributes, HTML_NAMESPACE);
         assert!(node.is_special());
     }
 
     #[test]
     fn type_of() {
-        let document = Document::shared();
+        let document = Document::shared(None);
         let node = Node::new_document(&document);
         assert_eq!(node.type_of(), NodeType::Document);
         let node = Node::new_text(&document, "test");
@@ -551,7 +611,7 @@ mod tests {
 
     #[test]
     fn special_html_elements() {
-        let document = Document::shared();
+        let document = Document::shared(None);
         for element in SPECIAL_HTML_ELEMENTS.iter() {
             let mut attributes = HashMap::new();
             attributes.insert("id".to_string(), "test".to_string());
@@ -562,7 +622,7 @@ mod tests {
 
     #[test]
     fn special_mathml_elements() {
-        let document = Document::shared();
+        let document = Document::shared(None);
         for element in SPECIAL_MATHML_ELEMENTS.iter() {
             let mut attributes = HashMap::new();
             attributes.insert("id".to_string(), "test".to_string());
@@ -573,7 +633,7 @@ mod tests {
 
     #[test]
     fn special_svg_elements() {
-        let document = Document::shared();
+        let document = Document::shared(None);
         for element in SPECIAL_SVG_ELEMENTS.iter() {
             let mut attributes = HashMap::new();
             attributes.insert("id".to_string(), "test".to_string());
@@ -584,7 +644,7 @@ mod tests {
 
     #[test]
     fn type_of_node() {
-        let document = Document::shared();
+        let document = Document::shared(None);
         let node = Node::new_document(&document);
         assert_eq!(node.type_of(), NodeType::Document);
         let node = Node::new_text(&document, "test");

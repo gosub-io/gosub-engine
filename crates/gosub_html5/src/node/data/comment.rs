@@ -2,7 +2,7 @@
 /// Data structure for comment nodes
 pub struct CommentData {
     /// The actual comment value
-    pub(crate) value: String,
+    pub value: String,
 }
 
 impl Default for CommentData {

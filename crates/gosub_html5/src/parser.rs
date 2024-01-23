@@ -20,12 +20,18 @@ use crate::tokenizer::token::Token;
 use crate::tokenizer::{ParserData, Tokenizer, CHAR_REPLACEMENT};
 use core::cell::RefCell;
 use core::option::Option::Some;
+use gosub_css3::convert::ast_converter::convert_ast_to_stylesheet;
+use gosub_css3::parser_config::ParserConfig;
+use gosub_css3::stylesheet::{CssOrigin, CssStylesheet};
+use gosub_css3::Css3;
 use gosub_shared::bytes::CharIterator;
 use gosub_shared::types::{ParseError, Result};
+use log::warn;
 use std::collections::HashMap;
 #[cfg(feature = "debug_parser")]
 use std::io::Write;
 use std::rc::Rc;
+use url::Url;
 
 /// Insertion modes as defined in 13.2.4.1
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -272,7 +278,7 @@ impl<'chars> Html5Parser<'chars> {
     /// Creates a new parser with a dummy document and dummy tokenizer. This is ONLY used for testing purposes.
     /// Regular users should use the parse_document() and parse_fragment() functions instead.
     pub fn new_parser(chars: &'chars mut CharIterator) -> Self {
-        let doc = DocumentBuilder::new_document();
+        let doc = DocumentBuilder::new_document(None);
         let error_logger = Rc::new(RefCell::new(ErrorLogger::new()));
         let tokenizer = Tokenizer::new(chars, None, error_logger.clone());
 
@@ -1000,10 +1006,38 @@ impl<'chars> Html5Parser<'chars> {
                         self.insertion_mode = self.original_insertion_mode;
                         self.reprocess_token = true;
                     }
+                    Token::EndTag { name, .. } if name == "style" => {
+                        // Fetch first child node id. This should be the inline stylesheet text
+                        let style_node = current_node!(self);
+                        if style_node.children.is_empty() {
+                            self.open_elements.pop();
+                            self.insertion_mode = self.original_insertion_mode;
+                            return;
+                        }
+
+                        let style_text_node_id = *style_node.children.first().unwrap();
+
+                        // Fetch node
+                        let style_text_node = self
+                            .document
+                            .get()
+                            .get_node_by_id(style_text_node_id)
+                            .expect("Style text node not found")
+                            .clone();
+
+                        // Load stylesheet from text node
+                        if let Some(stylesheet) =
+                            self.load_inline_stylesheet(CssOrigin::Author, &style_text_node)
+                        {
+                            self.document.get_mut().stylesheets.push(stylesheet);
+                        }
+
+                        self.open_elements.pop();
+                        self.insertion_mode = self.original_insertion_mode;
+                    }
                     Token::EndTag { name, .. } if name == "script" => {
                         // @todo: If the active speculative HTML parser is null and the JavaScript execution context stack is empty, then perform a microtask checkpoint.
-
-                        let _script = current_node!(self);
+                        let _script_node = current_node!(self);
 
                         self.open_elements.pop();
                         self.insertion_mode = self.original_insertion_mode;
@@ -2968,17 +3002,19 @@ impl<'chars> Html5Parser<'chars> {
     fn handle_in_head(&mut self) {
         let mut anything_else = false;
 
-        match &self.current_token {
-            Token::Text(value) if self.current_token.is_mixed() => {
+        let token = self.current_token.clone();
+
+        match &token {
+            Token::Text(value) if token.is_mixed() => {
                 let tokens = self.split_mixed_token(value);
                 self.tokenizer.insert_tokens_at_queue_start(&tokens);
                 return;
             }
-            Token::Text(..) if self.current_token.is_empty_or_white() => {
-                self.insert_text_element(&self.current_token.clone());
+            Token::Text(..) if token.is_empty_or_white() => {
+                self.insert_text_element(&token.clone());
             }
             Token::Comment(..) => {
-                self.insert_comment_element(&self.current_token.clone(), None);
+                self.insert_comment_element(&token.clone(), None);
             }
             Token::DocType { .. } => {
                 self.parse_error("doctype not allowed in before head insertion mode");
@@ -2990,11 +3026,16 @@ impl<'chars> Html5Parser<'chars> {
             Token::StartTag {
                 name,
                 is_self_closing,
-                ..
+                attributes,
             } if name == "base" || name == "basefont" || name == "bgsound" || name == "link" => {
+                if name == "link" {
+                    // Handle link elements, as it depends on rel/itemprop attributes and other factors
+                    self.handle_link_element(attributes.clone());
+                }
+
                 self.acknowledge_closing_tag(*is_self_closing);
 
-                self.insert_html_element(&self.current_token.clone());
+                self.insert_html_element(&token.clone());
                 self.open_elements.pop();
             }
             Token::StartTag {
@@ -3016,9 +3057,13 @@ impl<'chars> Html5Parser<'chars> {
             Token::StartTag { name, .. } if name == "noscript" && self.scripting_enabled => {
                 self.parse_raw_data();
             }
-            Token::StartTag { name, .. } if name == "noframes" || name == "style" => {
+            Token::StartTag { name, .. } if name == "noframes" => {
                 self.parse_raw_data();
             }
+            Token::StartTag { name, .. } if name == "style" => {
+                self.parse_raw_data();
+            }
+
             Token::StartTag { name, .. } if name == "noscript" && !self.scripting_enabled => {
                 self.insert_html_element(&self.current_token.clone());
                 self.insertion_mode = InsertionMode::InHeadNoscript;
@@ -3745,8 +3790,6 @@ impl<'chars> Html5Parser<'chars> {
     #[cfg(feature = "debug_parser")]
     fn display_debug_info(&self) {
         println!("-----------------------------------------\n");
-        self.document.get().print_nodes();
-        println!("-----------------------------------------\n");
         println!("current token   : '{}'", self.current_token);
         println!("insertion mode  : {:?}", self.insertion_mode);
         print!("Open elements   : [ ");
@@ -4057,6 +4100,167 @@ impl<'chars> Html5Parser<'chars> {
 
         tokens
     }
+
+    /// Load an inline stylesheet from the <style>-node
+    fn load_inline_stylesheet(&self, origin: CssOrigin, node: &Node) -> Option<CssStylesheet> {
+        if !node.is_text() {
+            return None;
+        }
+
+        let config = ParserConfig {
+            source: None,
+            ignore_errors: true,
+            ..Default::default()
+        };
+
+        match Css3::parse(node.as_text().value.as_str(), config) {
+            Ok(ast) => {
+                match convert_ast_to_stylesheet(&ast, origin, "") {
+                    Ok(sheet) => return Some(sheet),
+                    Err(err) => warn!("Error while converting CSS AST to rules: {} ", err),
+                }
+                None
+            }
+            Err(err) => {
+                warn!(
+                    "Error while parsing CSS stylesheet: {} ",
+                    err.message.clone()
+                );
+                None
+            }
+        }
+    }
+
+    /// Load and parse an external stylesheet by URL
+    fn load_external_stylesheet(&self, origin: CssOrigin, url: Url) -> Option<CssStylesheet> {
+        if url.scheme() != "http" && url.scheme() != "https" {
+            // Only load http and https
+            return None;
+        }
+
+        // Fetch the html from the url
+        let response = ureq::get(url.as_ref()).call();
+        if response.is_err() {
+            warn!(
+                "Could not load external stylesheet from {}. Error: {}",
+                url,
+                response.unwrap_err()
+            );
+            return None;
+        }
+        let response = response.expect("result");
+
+        if response.status() != 200 {
+            warn!(
+                "Could not load external stylesheet from {}. Status code {} ",
+                url,
+                response.status()
+            );
+            return None;
+        }
+        if response.content_type() != "text/css" {
+            warn!(
+                "External stylesheet has no text/css content type: {} ",
+                response.content_type()
+            );
+        }
+
+        let css = match response.into_string() {
+            Ok(css) => css,
+            Err(err) => {
+                warn!(
+                    "Could not load external stylesheet from {}. Error: {}",
+                    url, err
+                );
+                return None;
+            }
+        };
+
+        let config = ParserConfig {
+            source: Some(url.to_string()),
+            ignore_errors: true,
+            ..Default::default()
+        };
+
+        match Css3::parse(css.as_str(), config) {
+            Ok(ast) => {
+                match convert_ast_to_stylesheet(&ast, origin, url.to_string().as_str()) {
+                    Ok(sheet) => return Some(sheet),
+                    Err(err) => warn!("Error while converting CSS AST to rules: {} ", err),
+                }
+                None
+            }
+            Err(err) => {
+                warn!(
+                    "Error while parsing CSS stylesheet: {} ",
+                    err.message.clone()
+                );
+                None
+            }
+        }
+    }
+
+    fn handle_link_element(&mut self, attributes: HashMap<String, String>) {
+        if attributes.contains_key("rel") && attributes.contains_key("itemprop") {
+            // cannot have them both
+            self.parse_error("link element cannot have both 'rel' and 'itemprop' attributes");
+            return;
+        }
+
+        if attributes.contains_key("itemprop") {
+            self.parse_error("link element with 'itemprop' attribute not supported yet");
+            return;
+        }
+
+        if !attributes.contains_key("rel") {
+            self.parse_error("link element without 'rel' attribute not supported yet");
+            return;
+        }
+
+        let rel = attributes.get("rel").expect("rel").clone();
+
+        // @todo: We need to check if the link rel is body-ok
+        let parser_in_body = true;
+        let body_ok_types = [
+            "dns-prefetch",
+            "modulepreload",
+            "pingback",
+            "preconnect",
+            "prefetch",
+            "preload",
+            "prerender",
+            "stylesheet",
+        ];
+        if parser_in_body && !body_ok_types.contains(&rel.as_str()) {
+            self.parse_error(
+                format!(
+                    "link element with rel attribute '{}' is not supported in the body",
+                    rel
+                )
+                .as_str(),
+            );
+            return;
+        }
+
+        match rel.as_str() {
+            "stylesheet" => {
+                let href = attributes.get("href").unwrap();
+                let base_url = self.document.get().location.clone().unwrap();
+                let css_url = base_url.join(href).unwrap();
+                println!("loading external stylesheet: {}", css_url);
+
+                if let Some(stylesheet) = self.load_external_stylesheet(CssOrigin::Author, css_url)
+                {
+                    self.document.get_mut().stylesheets.push(stylesheet);
+                }
+            }
+            _ => {
+                self.parse_error(
+                    format!("link element with rel attribute '{}' is not supported", rel).as_str(),
+                );
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -4301,7 +4505,7 @@ mod test {
             Some(Encoding::UTF8),
         );
 
-        let document = DocumentBuilder::new_document();
+        let document = DocumentBuilder::new_document(None);
         let _ = Html5Parser::parse_document(&mut chars, Document::clone(&document), None);
 
         println!("{}", document);
@@ -4312,7 +4516,7 @@ mod test {
         let mut chars = CharIterator::new();
         chars.read_from_str("<div class=\"one two three\"></div>", Some(Encoding::UTF8));
 
-        let document = DocumentBuilder::new_document();
+        let document = DocumentBuilder::new_document(None);
         let _ = Html5Parser::parse_document(&mut chars, Document::clone(&document), None);
 
         let binding = document.get();
@@ -4343,7 +4547,7 @@ mod test {
             Some(Encoding::UTF8),
         );
 
-        let document = DocumentBuilder::new_document();
+        let document = DocumentBuilder::new_document(None);
         let _ = Html5Parser::parse_document(&mut chars, Document::clone(&document), None);
 
         let binding = document.get();
@@ -4375,7 +4579,7 @@ mod test {
             Some(Encoding::UTF8),
         );
 
-        let document = DocumentBuilder::new_document();
+        let document = DocumentBuilder::new_document(None);
         let _ = Html5Parser::parse_document(&mut chars, Document::clone(&document), None);
 
         assert!(document.get().get_node_by_named_id("my id").is_none());
@@ -4391,7 +4595,7 @@ mod test {
             Some(Encoding::UTF8),
         );
 
-        let document = DocumentBuilder::new_document();
+        let document = DocumentBuilder::new_document(None);
         let _ = Html5Parser::parse_document(&mut chars, Document::clone(&document), None);
 
         // we are expecting the div (ID: 4) and p would be ignored

@@ -154,6 +154,10 @@ impl Token {
         matches!(self.token_type, TokenType::Comma)
     }
 
+    pub(crate) fn is_string(&self) -> bool {
+        matches!(self.token_type, TokenType::QuotedString(_))
+    }
+
     pub(crate) fn is_ident(&self) -> bool {
         matches!(self.token_type, TokenType::Ident(_))
     }
