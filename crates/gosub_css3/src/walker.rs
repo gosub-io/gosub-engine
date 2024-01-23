@@ -76,8 +76,8 @@ fn inner_walk(node: &Node, depth: usize, f: &mut dyn Write) -> Result<(), std::i
             }
         }
         NodeType::Comment { .. } => {}
-        NodeType::Cdo => {}
-        NodeType::Cdc => {}
+        // NodeType::Cdo => {}
+        // NodeType::Cdc => {}
         NodeType::IdSelector { .. } => {}
         NodeType::Ident { value } => {
             writeln!(f, "{}[Ident] {}", prefix, value)?;
@@ -267,6 +267,8 @@ fn inner_walk(node: &Node, depth: usize, f: &mut dyn Write) -> Result<(), std::i
                 inner_walk(child, depth + 1, f)?;
             }
         }
+        NodeType::Cdo => {}
+        NodeType::Cdc => {}
     }
     Ok(())
 }

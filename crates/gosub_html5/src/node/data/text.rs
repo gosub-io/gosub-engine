@@ -2,7 +2,7 @@
 /// Data structure for text nodes
 pub struct TextData {
     /// Actual text
-    pub(crate) value: String,
+    pub value: String,
 }
 
 impl Default for TextData {

@@ -89,7 +89,7 @@ mod tests {
 
     #[test]
     fn register_node() {
-        let mut doc = Document::shared();
+        let mut doc = Document::shared(None);
 
         let node = Node::new_element(&doc, "test", HashMap::new(), HTML_NAMESPACE);
         let mut document = doc.get_mut();
@@ -103,7 +103,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn register_node_twice() {
-        let mut doc = Document::shared();
+        let mut doc = Document::shared(None);
 
         let node = Node::new_element(&doc, "test", HashMap::new(), HTML_NAMESPACE);
         let mut document = doc.get_mut();
@@ -115,7 +115,7 @@ mod tests {
 
     #[test]
     fn get_node() {
-        let mut doc = Document::shared();
+        let mut doc = Document::shared(None);
         let node = Node::new_element(&doc, "test", HashMap::new(), HTML_NAMESPACE);
 
         let mut document = doc.get_mut();
@@ -127,7 +127,7 @@ mod tests {
 
     #[test]
     fn get_node_mut() {
-        let mut doc = Document::shared();
+        let mut doc = Document::shared(None);
         let node = Node::new_element(&doc, "test", HashMap::new(), HTML_NAMESPACE);
 
         let mut document = doc.get_mut();
@@ -140,7 +140,7 @@ mod tests {
 
     #[test]
     fn register_node_through_document() {
-        let mut doc = Document::shared();
+        let mut doc = Document::shared(None);
 
         let parent = Node::new_element(&doc, "parent", HashMap::new(), HTML_NAMESPACE);
         let child = Node::new_element(&doc, "child", HashMap::new(), HTML_NAMESPACE);

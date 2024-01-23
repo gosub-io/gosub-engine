@@ -71,7 +71,7 @@ fn fetch_url(
     let mut fetch_response = FetchResponse {
         request: http_req,
         response: Response::new(),
-        document: DocumentBuilder::new_document(),
+        document: DocumentBuilder::new_document(Some(parts.clone())),
         parse_errors: vec![],
         render_tree: String::new(),
         timings: TimingTable::default(),
@@ -136,7 +136,7 @@ fn fetch_url(
     let mut chars = CharIterator::new();
     let _ = chars.read_from_bytes(&fetch_response.response.body, Some(Encoding::UTF8));
     chars.set_confidence(Confidence::Certain);
-    fetch_response.document = DocumentBuilder::new_document();
+    fetch_response.document = DocumentBuilder::new_document(Some(parts));
 
     match Html5Parser::parse_document(&mut chars, Document::clone(&fetch_response.document), None) {
         Ok(parse_errors) => {

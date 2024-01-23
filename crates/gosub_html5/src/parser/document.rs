@@ -10,6 +10,7 @@ use crate::parser::query::{Condition, Query};
 use crate::parser::quirks::QuirksMode;
 use crate::parser::tree_builder::TreeBuilder;
 use crate::util::is_valid_id_attribute_value;
+use crate::styles::styles::CssStylesheet;
 use core::fmt;
 use core::fmt::Debug;
 use gosub_shared::types::Result;
@@ -18,6 +19,7 @@ use std::collections::HashMap;
 use std::fmt::Display;
 use std::ops::{Deref, DerefMut};
 use std::rc::{Rc, Weak};
+use url::Url;
 
 /// Type of the given document
 #[derive(PartialEq, Debug, Copy, Clone)]
@@ -238,6 +240,8 @@ impl DocumentTaskQueue {
 /// Defines a document
 #[derive(Debug, PartialEq)]
 pub struct Document {
+    /// Location of the given document (if any)
+    pub location: Option<Url>,
     /// Holds and owns all nodes in the document
     pub(crate) arena: NodeArena,
     /// HTML elements with ID (e.g., <div id="myid">)
@@ -246,41 +250,40 @@ pub struct Document {
     pub doctype: DocumentType,
     /// Quirks mode of this document
     pub quirks_mode: QuirksMode,
+
+    pub stylesheets: Vec<CssStylesheet>,
 }
 
 impl Default for Document {
     /// Returns a default document
     fn default() -> Self {
-        Self::new()
+        Self::new(None)
     }
 }
 
 impl Document {
     /// Creates a new document
     #[must_use]
-    pub fn new() -> Self {
+    pub fn new(location: Option<Url>) -> Self {
         Self {
+            location,
             arena: NodeArena::new(),
             named_id_elements: HashMap::new(),
             doctype: DocumentType::HTML,
             quirks_mode: QuirksMode::NoQuirks,
+            stylesheets: Vec::new(),
         }
     }
 
     /// Returns a shared reference-counted handle for the document
-    pub fn shared() -> DocumentHandle {
-        DocumentHandle(Rc::new(RefCell::new(Self::new())))
+    pub fn shared(location: Option<Url>) -> DocumentHandle {
+        DocumentHandle(Rc::new(RefCell::new(Self::new(location))))
     }
 
     /// Fast clone of a lightweight reference-counted handle for the document.  This is a shallow
     /// clone, and different handles will see the same underlying document.
     pub fn clone(handle: &DocumentHandle) -> DocumentHandle {
         DocumentHandle(Rc::clone(&handle.0))
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn print_nodes(&self) {
-        self.arena.print_nodes();
     }
 
     /// Fetches a node by id or returns None when no node with this ID is found
@@ -440,6 +443,13 @@ impl Document {
             .expect("Root node not found !?")
     }
 
+    /// returns the root node
+    pub fn get_root_mut(&mut self) -> &mut Node {
+        self.arena
+            .get_node_mut(NodeId::root())
+            .expect("Root node not found !?")
+    }
+
     /// Returns true when the given parent_id is a child of the node_id
     pub fn has_cyclic_reference(&self, node_id: NodeId, parent_id: NodeId) -> bool {
         has_child_recursive(&self.arena, node_id, parent_id)
@@ -458,6 +468,39 @@ impl Document {
         }
 
         false
+    }
+}
+
+// Walk the document tree with the given visitor
+pub fn visit(doc: &DocumentHandle, visitor: &mut Box<dyn Visitor<Node>>) {
+    let binding = doc.get();
+    let root = binding.get_root();
+    internal_visit(doc, root, visitor);
+}
+
+fn internal_visit(doc: &DocumentHandle, node: &Node, visitor: &mut Box<dyn Visitor<Node>>) {
+    // Enter node
+    match &node.data {
+        NodeData::Document(document) => visitor.document_enter(node, document),
+        NodeData::DocType(doctype) => visitor.doctype_enter(node, doctype),
+        NodeData::Text(text) => visitor.text_enter(node, text),
+        NodeData::Comment(comment) => visitor.comment_enter(node, comment),
+        NodeData::Element(element) => visitor.element_enter(node, element),
+    }
+
+    let binding = doc.get();
+    for child_id in &node.children {
+        let child = binding.arena.get_node(*child_id).unwrap();
+        internal_visit(doc, child, visitor);
+    }
+
+    // Leave node
+    match &node.data {
+        NodeData::Document(document) => visitor.document_leave(node, document),
+        NodeData::DocType(doctype) => visitor.doctype_leave(node, doctype),
+        NodeData::Text(text) => visitor.text_leave(node, text),
+        NodeData::Comment(comment) => visitor.comment_leave(node, comment),
+        NodeData::Element(element) => visitor.element_leave(node, element),
     }
 }
 
@@ -514,7 +557,7 @@ impl Document {
             buffer.push_str("├─ ");
         }
 
-        // buffer.push_str(&format!("({:?}) ", node.id.as_usize()));
+        buffer.push_str(format!("{} ", node.id).as_str());
 
         match &node.data {
             NodeData::Document(_) => {
@@ -541,6 +584,11 @@ impl Document {
                 for (key, value) in &element.attributes {
                     _ = write!(f, " {key}={value}");
                 }
+
+                // for (key, value) in node.style.borrow().iter() {
+                //     _ = write!(f, "[CSS: {key}={value}]");
+                // }
+
                 _ = writeln!(f, ">");
             }
         }
@@ -854,8 +902,8 @@ pub struct DocumentBuilder;
 
 impl DocumentBuilder {
     /// Creates a new document with a document root node
-    pub fn new_document() -> DocumentHandle {
-        let mut doc = Document::shared();
+    pub fn new_document(url: Option<Url>) -> DocumentHandle {
+        let mut doc = Document::shared(url);
 
         let handle = &Document::clone(&doc);
         let node = Node::new_document(handle);
@@ -866,7 +914,7 @@ impl DocumentBuilder {
 
     /// Creates a new document fragment with the context as the root node
     pub fn new_document_fragment(context: &Node) -> DocumentHandle {
-        let mut doc = Document::shared();
+        let mut doc = Document::shared(None);
         doc.get_mut().doctype = DocumentType::HTML;
 
         let doc_weak = Weak::clone(&context.document);
@@ -876,6 +924,9 @@ impl DocumentBuilder {
             } else if doc_get.borrow().quirks_mode == QuirksMode::LimitedQuirks {
                 doc.get_mut().quirks_mode = QuirksMode::LimitedQuirks;
             }
+
+            // Copy location
+            doc.get_mut().location = doc_get.borrow().location.clone();
         }
 
         // @TODO: Set tokenizer state based on context element
@@ -944,7 +995,7 @@ mod tests {
 
     #[test]
     fn relocate() {
-        let mut document = DocumentBuilder::new_document();
+        let mut document = DocumentBuilder::new_document(None);
 
         let parent = Node::new_element(&document, "parent", HashMap::new(), HTML_NAMESPACE);
         let node1 = Node::new_element(&document, "div1", HashMap::new(), HTML_NAMESPACE);
@@ -996,7 +1047,7 @@ mod tests {
 
     #[test]
     fn duplicate_named_id_elements() {
-        let mut document = DocumentBuilder::new_document();
+        let mut document = DocumentBuilder::new_document(None);
 
         let div_1 = document.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
         let div_2 = document.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
@@ -1031,7 +1082,7 @@ mod tests {
 
     #[test]
     fn verify_node_ids_in_element_data() {
-        let mut document = DocumentBuilder::new_document();
+        let mut document = DocumentBuilder::new_document(None);
 
         let node1 = Node::new_element(&document, "div", HashMap::new(), HTML_NAMESPACE);
         let node2 = Node::new_element(&document, "div", HashMap::new(), HTML_NAMESPACE);
@@ -1059,7 +1110,7 @@ mod tests {
 
     #[test]
     fn document_task_queue() {
-        let document = DocumentBuilder::new_document();
+        let document = DocumentBuilder::new_document(None);
 
         // Using task queue to create the following structure initially:
         // <div>
@@ -1167,7 +1218,7 @@ mod tests {
 
     #[test]
     fn task_queue_insert_attribute_failues() {
-        let document = DocumentBuilder::new_document();
+        let document = DocumentBuilder::new_document(None);
 
         let mut task_queue = DocumentTaskQueue::new(&document);
         let div_id = task_queue.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
@@ -1216,7 +1267,7 @@ mod tests {
     // but using tree builder directly instead of the task queue
     #[test]
     fn document_tree_builder() {
-        let mut document = DocumentBuilder::new_document();
+        let mut document = DocumentBuilder::new_document(None);
 
         // Using tree builder to create the following structure:
         // <div>
@@ -1298,7 +1349,7 @@ mod tests {
 
     #[test]
     fn insert_generic_attribute() {
-        let mut doc = DocumentBuilder::new_document();
+        let mut doc = DocumentBuilder::new_document(None);
         let div_id = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
         let res = doc.insert_attribute("key", "value", div_id);
         assert!(res.is_ok());
@@ -1311,7 +1362,7 @@ mod tests {
 
     #[test]
     fn task_queue_insert_generic_attribute() {
-        let doc = DocumentBuilder::new_document();
+        let doc = DocumentBuilder::new_document(None);
         let mut task_queue = DocumentTaskQueue::new(&doc);
         let div_id = task_queue.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
         let _ = task_queue.insert_attribute("key", "value", div_id);
@@ -1326,7 +1377,7 @@ mod tests {
 
     #[test]
     fn insert_class_attribute() {
-        let mut doc = DocumentBuilder::new_document();
+        let mut doc = DocumentBuilder::new_document(None);
         let div_id = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
         let res = doc.insert_attribute("class", "one two three", div_id);
         assert!(res.is_ok());
@@ -1341,7 +1392,7 @@ mod tests {
 
     #[test]
     fn task_queue_insert_class_attribute() {
-        let doc = DocumentBuilder::new_document();
+        let doc = DocumentBuilder::new_document(None);
         let mut task_queue = DocumentTaskQueue::new(&doc);
         let div_id = task_queue.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
         let _ = task_queue.insert_attribute("class", "one two three", div_id);
@@ -1358,7 +1409,7 @@ mod tests {
 
     #[test]
     fn uninitialized_query() {
-        let doc = DocumentBuilder::new_document();
+        let doc = DocumentBuilder::new_document(None);
 
         let query = Query::new();
         let found_ids = doc.query(&query);
@@ -1381,7 +1432,7 @@ mod tests {
         // <div>
         //     <p>
         // <p>
-        let mut doc = DocumentBuilder::new_document();
+        let mut doc = DocumentBuilder::new_document(None);
 
         let div_id = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
         let div_id_2 = doc.create_element("div", div_id, None, HTML_NAMESPACE);
@@ -1408,7 +1459,7 @@ mod tests {
         // <div>
         //     <p>
         // <p>
-        let mut doc = DocumentBuilder::new_document();
+        let mut doc = DocumentBuilder::new_document(None);
 
         let div_id = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
         let div_id_2 = doc.create_element("div", div_id, None, HTML_NAMESPACE);
@@ -1435,7 +1486,7 @@ mod tests {
         // <div>
         //     <p>
         // <p>
-        let mut doc = DocumentBuilder::new_document();
+        let mut doc = DocumentBuilder::new_document(None);
 
         let div_id = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
         let div_id_2 = doc.create_element("div", div_id, None, HTML_NAMESPACE);
@@ -1464,7 +1515,7 @@ mod tests {
         // <div>
         //     <p class="two three">
         // <p class="three">
-        let mut doc = DocumentBuilder::new_document();
+        let mut doc = DocumentBuilder::new_document(None);
 
         let div_id = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
         let div_id_2 = doc.create_element("div", div_id, None, HTML_NAMESPACE);
@@ -1501,7 +1552,7 @@ mod tests {
         // <div>
         //     <p class="two three">
         // <p class="three">
-        let mut doc = DocumentBuilder::new_document();
+        let mut doc = DocumentBuilder::new_document(None);
 
         let div_id = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
         let div_id_2 = doc.create_element("div", div_id, None, HTML_NAMESPACE);
@@ -1538,7 +1589,7 @@ mod tests {
         // <div style="otherstyle" id="otherid">
         //     <p>
         // <p title="yo" style="cat">
-        let mut doc = DocumentBuilder::new_document();
+        let mut doc = DocumentBuilder::new_document(None);
 
         let div_id = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
         let div_id_2 = doc.create_element("div", div_id, None, HTML_NAMESPACE);
@@ -1579,7 +1630,7 @@ mod tests {
         // <div style="otherstyle" id="otherid">
         //     <p>
         // <p title="yo" style="cat">
-        let mut doc = DocumentBuilder::new_document();
+        let mut doc = DocumentBuilder::new_document(None);
 
         let div_id = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
         let div_id_2 = doc.create_element("div", div_id, None, HTML_NAMESPACE);
@@ -1620,7 +1671,7 @@ mod tests {
         // <div>
         //     <p>
         // <p>
-        let mut doc = DocumentBuilder::new_document();
+        let mut doc = DocumentBuilder::new_document(None);
 
         let div_id = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
         let div_id_2 = doc.create_element("div", div_id, None, HTML_NAMESPACE);
@@ -1647,7 +1698,7 @@ mod tests {
         // <div>
         //     <p>
         // <p>
-        let mut doc = DocumentBuilder::new_document();
+        let mut doc = DocumentBuilder::new_document(None);
 
         let div_id = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
         let div_id_2 = doc.create_element("div", div_id, None, HTML_NAMESPACE);
@@ -1674,7 +1725,7 @@ mod tests {
         // <div>
         //     <p>
         // <p>
-        let mut doc = DocumentBuilder::new_document();
+        let mut doc = DocumentBuilder::new_document(None);
 
         let div_id = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
         let div_id_2 = doc.create_element("div", div_id, None, HTML_NAMESPACE);
@@ -1701,7 +1752,7 @@ mod tests {
         // <div>
         //     <p>
         // <p>
-        let mut doc = DocumentBuilder::new_document();
+        let mut doc = DocumentBuilder::new_document(None);
 
         let div_id = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
         let div_id_2 = doc.create_element("div", div_id, None, HTML_NAMESPACE);
@@ -1721,7 +1772,7 @@ mod tests {
 
     #[test]
     fn tree_iterator() {
-        let mut doc = DocumentBuilder::new_document();
+        let mut doc = DocumentBuilder::new_document(None);
 
         // <div>
         //     <div>
@@ -1761,7 +1812,7 @@ mod tests {
 
     #[test]
     fn tree_iterator_mutation() {
-        let mut doc = DocumentBuilder::new_document();
+        let mut doc = DocumentBuilder::new_document(None);
         let div_id = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
 
         let mut tree_iterator = TreeIterator::new(&doc);

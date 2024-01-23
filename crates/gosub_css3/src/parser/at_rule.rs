@@ -43,7 +43,10 @@ impl Css3<'_> {
 
     fn read_sequence_at_rule_prelude(&mut self) -> Result<Node, Error> {
         log::trace!("read_sequence_at_rule_prelude");
-        todo!()
+
+        let loc = self.tokenizer.lookahead(0).location.clone();
+
+        Ok(Node::new(NodeType::Container { children: self.parse_value_sequence()? }, loc))
     }
 
     fn parse_at_rule_prelude(&mut self, name: String) -> Result<Option<Node>, Error> {
