@@ -5,7 +5,7 @@ use crate::css3::parser_config::{Context, ParserConfig};
 use crate::css3::tokenizer::Tokenizer;
 
 pub mod location;
-mod node;
+pub mod node;
 mod parser;
 pub mod parser_config;
 pub mod tokenizer;

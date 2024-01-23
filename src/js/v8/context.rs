@@ -117,7 +117,7 @@ impl<'a> JSContext for V8Context<'a> {
         compiled.run()
     }
 
-    fn new_global_object(&mut self, name: &str) -> Result<Self::Object> {
+    fn new_global_object(&mut self, _name: &str) -> Result<Self::Object> {
         todo!()
     }
 }
