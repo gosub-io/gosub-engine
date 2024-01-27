@@ -1,13 +1,12 @@
-use crate::js::{JSArray, JSContext, JSObject, JSType};
 use crate::types::Result;
+use crate::web_executor::js::{JSArray, JSContext, JSObject, JSRuntime, JSType};
 
 pub trait JSValue
 where
     Self: Sized,
 {
-    type Object: JSObject;
-
     type Context: JSContext;
+    type Object: JSObject;
 
     fn as_string(&self) -> Result<String>;
 

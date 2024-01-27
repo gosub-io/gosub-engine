@@ -11,15 +11,17 @@ pub use function::*;
 pub use object::*;
 pub use value::*;
 
-use crate::js::context::Context;
-use crate::js::{JSArray, JSContext, JSObject, JSRuntime, JSValue, ValueConversion};
 use crate::types::Result;
+use crate::web_executor::js::{
+    JSArray, JSContext, JSFunction, JSObject, JSRuntime, JSValue, ValueConversion,
+};
 
 mod array;
 mod compile;
 mod context;
 mod function;
 mod object;
+mod utils;
 mod value;
 
 // status of the V8 engine
@@ -83,7 +85,7 @@ impl<'a> JSRuntime for V8Engine<'a> {
     //let c = Context::new(hs);
     //let s = &mut ContextScope::new(hs, c);
 
-    fn new_context(&mut self) -> Result<Context<Self::Context>> {
+    fn new_context(&mut self) -> Result<Self::Context> {
         V8Ctx::default()
     }
 }
@@ -94,9 +96,9 @@ mod tests {
 
     use colored::Colorize;
 
-    use crate::js::v8::PLATFORM_INITIALIZED;
-    use crate::js::{JSContext, JSRuntime, JSValue};
     use crate::types::Error;
+    use crate::web_executor::js::v8::PLATFORM_INITIALIZED;
+    use crate::web_executor::js::{JSContext, JSRuntime, JSValue};
 
     #[test]
     fn v8_test() {
@@ -127,7 +129,7 @@ mod tests {
     }
 
     fn v8_engine_initialization() {
-        let mut engine = crate::js::v8::V8Engine::new();
+        let mut engine = crate::web_executor::js::v8::V8Engine::new();
 
         assert!(PLATFORM_INITIALIZED.load(Ordering::SeqCst));
     }
@@ -151,7 +153,7 @@ mod tests {
     // }
 
     fn v8_js_execution() {
-        let mut engine = crate::js::v8::V8Engine::new();
+        let mut engine = crate::web_executor::js::v8::V8Engine::new();
         let mut context = engine.new_context().unwrap();
 
         let value = context
@@ -168,7 +170,7 @@ mod tests {
     }
 
     fn v8_run_invalid_syntax() {
-        let mut engine = crate::js::v8::V8Engine::new();
+        let mut engine = crate::web_executor::js::v8::V8Engine::new();
 
         let mut context = engine.new_context().unwrap();
 
@@ -183,12 +185,12 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(Error::JS(crate::js::JSError::Compile(_)))
+            Err(Error::JS(crate::web_executor::js::JSError::Compile(_)))
         ));
     }
 
     fn v8_context_creation() {
-        let mut engine = crate::js::v8::V8Engine::new();
+        let mut engine = crate::web_executor::js::v8::V8Engine::new();
 
         let context = engine.new_context();
         assert!(context.is_ok());

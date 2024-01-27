@@ -2,13 +2,13 @@ use alloc::rc::Rc;
 
 use v8::{Local, Value};
 
-use crate::js::v8::{FromContext, V8Context, V8Object};
-use crate::js::{JSError, JSType, JSValue, ValueConversion};
 use crate::types::Error;
+use crate::web_executor::js::v8::{FromContext, V8Context, V8Engine, V8Object};
+use crate::web_executor::js::{JSError, JSRuntime, JSType, JSValue, ValueConversion};
 
 pub struct V8Value<'a> {
-    pub(super) context: V8Context<'a>,
-    pub(super) value: Local<'a, Value>,
+    pub(crate) context: V8Context<'a>,
+    pub(crate) value: Local<'a, Value>,
 }
 
 impl<'a> V8Value<'a> {
@@ -29,9 +29,8 @@ macro_rules! impl_is {
 }
 
 impl<'a> JSValue for V8Value<'a> {
-    type Object = V8Object<'a>;
-
     type Context = V8Context<'a>;
+    type Object = V8Object<'a>;
 
     fn as_string(&self) -> crate::types::Result<String> {
         Ok(self
