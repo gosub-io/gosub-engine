@@ -49,7 +49,7 @@ lazy_static = "1.4"
 typed-arena = "2.0.2"
 thiserror = "1.0.56"
 ureq = "2.9.1"
-anyhow = "1.0.76"
+anyhow = "1.0.79"
 uuid = { version = "1.7.0", features = ["v4"] }
 colored = "2.1.0"
 walkdir = "2.3"
