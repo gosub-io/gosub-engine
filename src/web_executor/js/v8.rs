@@ -58,7 +58,8 @@ impl V8Engine<'_> {
 
         PLATFORM_INITIALIZING.store(true, Ordering::SeqCst);
 
-        let platform = v8::new_default_platform(0, false).make_shared();
+        //https://github.com/denoland/rusty_v8/issues/1381
+        let platform = v8::new_unprotected_default_platform(0, false).make_shared();
         v8::V8::initialize_platform(platform);
         v8::V8::initialize();
 
@@ -101,33 +102,6 @@ mod tests {
     use crate::web_executor::js::{JSContext, JSRuntime, JSValue};
 
     #[test]
-    fn v8_test() {
-        //This is needed because the v8 engine is not thread safe - TODO: make it "thread safe"
-
-        println!("running 4 tests in one test function ...");
-
-        v8_engine_initialization();
-        println!(
-            "test js::v8::tests::v8_engine_initialization ... {}",
-            "ok".green()
-        );
-
-        v8_context_creation();
-        println!(
-            "test js::v8::tests::v8_context_creation ... {}",
-            "ok".green()
-        );
-
-        v8_js_execution();
-        println!("test js::v8::tests::v8_js_execution ... {}", "ok".green());
-
-        v8_run_invalid_syntax();
-        println!(
-            "test js::v8::tests::v8_run_invalid_syntax ... {}",
-            "ok".green()
-        );
-    }
-
     fn v8_engine_initialization() {
         let mut engine = crate::web_executor::js::v8::V8Engine::new();
 
@@ -152,6 +126,7 @@ mod tests {
     //     println!("{}", value.to_rust_string_lossy(s));
     // }
 
+    #[test]
     fn v8_js_execution() {
         let mut engine = crate::web_executor::js::v8::V8Engine::new();
         let mut context = engine.new_context().unwrap();
@@ -169,6 +144,7 @@ mod tests {
         assert_eq!(value.as_number().unwrap(), 1234.0);
     }
 
+    #[test]
     fn v8_run_invalid_syntax() {
         let mut engine = crate::web_executor::js::v8::V8Engine::new();
 
@@ -189,6 +165,7 @@ mod tests {
         ));
     }
 
+    #[test]
     fn v8_context_creation() {
         let mut engine = crate::web_executor::js::v8::V8Engine::new();
 

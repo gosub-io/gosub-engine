@@ -206,18 +206,22 @@ impl Drop for V8Ctx<'_> {
 
         if !self.copied.context_scope {
             let _ = unsafe { Box::from_raw(self.context_scope.as_ptr()) };
+            self.context_scope = NonNull::dangling(); //use a dangling pointer to prevent double free and segfaults, instead it crashes with a null pointer dereference
         }
 
         if !self.copied.handle_scope {
             let _ = unsafe { Box::from_raw(self.handle_scope.as_ptr()) };
+            self.handle_scope = NonNull::dangling();
         }
 
         if !self.copied.ctx {
             let _ = unsafe { Box::from_raw(self.ctx.as_ptr()) };
+            self.ctx = NonNull::dangling();
         }
 
         if !self.copied.isolate {
             let _ = unsafe { Box::from_raw(self.isolate.as_ptr()) };
+            self.isolate = NonNull::dangling();
         }
     }
 }
