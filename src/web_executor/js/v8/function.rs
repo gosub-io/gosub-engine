@@ -171,9 +171,13 @@ extern "C" fn callback(info: *const FunctionCallbackInfo) {
 
     let data = unsafe { &mut *(external.value() as *mut CallbackWrapper) };
 
-    let ctx = match ctx_from_function_callback_info(unsafe { CallbackScope::new(info) }) {
+    let ctx = match ctx_from_function_callback_info(
+        unsafe { CallbackScope::new(info) },
+        data.ctx.borrow().isolate,
+    ) {
         Ok(scope) => scope,
-        Err(e) => {
+        Err((mut st, e)) => {
+            let scope = st.get();
             let Some(e) = v8::String::new(scope, &e.to_string()) else {
                 eprintln!("failed to create exception string\nexception was: {e}"); //TODO: replace with our own logger
                 return;
@@ -421,13 +425,13 @@ impl<'a> V8FunctionVariadic<'a> {
 
 extern "C" fn callback_variadic(info: *const FunctionCallbackInfo) {
     let info = unsafe { &*info };
-    let scope = &mut unsafe { CallbackScope::new(info) };
+    let mut scope = unsafe { CallbackScope::new(info) };
     let args = FunctionCallbackArguments::from_function_callback_info(info);
     let rv = ReturnValue::from_function_callback_info(info);
     let external = match <Local<External>>::try_from(args.data()) {
         Ok(external) => external,
         Err(e) => {
-            let Some(e) = v8::String::new(scope, &e.to_string()) else {
+            let Some(e) = v8::String::new(&mut scope, &e.to_string()) else {
                 eprintln!("failed to create exception string\nexception was: {e}"); //TODO: replace with our own logger
                 return;
             };
@@ -438,9 +442,10 @@ extern "C" fn callback_variadic(info: *const FunctionCallbackInfo) {
 
     let data = unsafe { &mut *(external.value() as *mut CallbackWrapperVariadic) };
 
-    let ctx = match ctx_from_function_callback_info(unsafe { CallbackScope::new(info) }) {
+    let ctx = match ctx_from_function_callback_info(scope, data.ctx.borrow().isolate) {
         Ok(scope) => scope,
-        Err(e) => {
+        Err((mut st, e)) => {
+            let scope = st.get();
             let Some(e) = v8::String::new(scope, &e.to_string()) else {
                 eprintln!("failed to create exception string\nexception was: {e}"); //TODO: replace with our own logger
                 return;

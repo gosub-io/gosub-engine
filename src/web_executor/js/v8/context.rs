@@ -16,10 +16,10 @@ use crate::web_executor::js::{JSContext, JSError, JSRuntime};
 /// SAFETY: This is NOT thread safe, as the rest of the engine is not thread safe.
 /// This struct uses `NonNull` internally to store pointers to the V8Context "values" in one struct.
 pub struct V8Ctx<'a> {
-    isolate: NonNull<OwnedIsolate>,
-    handle_scope: NonNull<HandleScopeType<'a>>,
-    ctx: NonNull<Local<'a, v8::Context>>,
-    context_scope: NonNull<ContextScope<'a, HandleScope<'a>>>,
+    pub(crate) isolate: NonNull<OwnedIsolate>,
+    pub(crate) handle_scope: NonNull<HandleScopeType<'a>>,
+    pub(crate) ctx: NonNull<Local<'a, v8::Context>>,
+    pub(crate) context_scope: NonNull<ContextScope<'a, HandleScope<'a>>>,
     copied: Copied,
 }
 
@@ -41,8 +41,9 @@ impl Copied {
     }
 }
 
-enum HandleScopeType<'a> {
+pub(crate) enum HandleScopeType<'a> {
     WithContext(HandleScope<'a>),
+    WithContextRef(&'a mut HandleScope<'a>),
     WithoutContext(HandleScope<'a, ()>),
     CallbackScope(CallbackScope<'a>),
 }
@@ -52,11 +53,12 @@ impl<'a> HandleScopeType<'a> {
         Self::WithoutContext(HandleScope::new(isolate))
     }
 
-    fn get(&mut self) -> &mut HandleScope<'a, ()> {
+    pub(crate) fn get(&mut self) -> &mut HandleScope<'a, ()> {
         match self {
             Self::WithContext(scope) => scope,
             Self::WithoutContext(scope) => scope,
             Self::CallbackScope(scope) => scope,
+            Self::WithContextRef(scope) => scope,
         }
     }
 }
@@ -149,9 +151,13 @@ impl<'a> V8Ctx<'a> {
     }
 }
 
-pub(crate) fn ctx_from_function_callback_info(mut scope: CallbackScope) -> Result<V8Context> {
+pub(crate) fn ctx_from_scope_isolate<'a>(
+    scope: HandleScopeType<'a>,
+    ctx: Local<'a, v8::Context>,
+    isolate: NonNull<OwnedIsolate>,
+) -> std::result::Result<V8Context<'a>, (HandleScopeType<'a>, Error)> {
     let mut v8_ctx = V8Ctx {
-        isolate: NonNull::dangling(),
+        isolate,
         handle_scope: NonNull::dangling(),
         ctx: NonNull::dangling(),
         context_scope: NonNull::dangling(),
@@ -160,25 +166,30 @@ pub(crate) fn ctx_from_function_callback_info(mut scope: CallbackScope) -> Resul
             handle_scope: false,
             ctx: false,
             context_scope: false,
-        }, //TODO: figure out what to deallocate
+        },
     };
 
-    let ctx = Box::new(scope.get_current_context());
+    let ctx = Box::new(ctx);
 
     let Some(ctx) = NonNull::new(Box::into_raw(ctx)) else {
-        return Err(Error::JS(JSError::Compile(
-            "Failed to create context".to_owned(),
-        )));
+        return Err((
+            scope,
+            Error::JS(JSError::Compile("Failed to create context".to_owned())),
+        ));
     };
 
     v8_ctx.ctx = ctx;
 
-    let scope = Box::new(HandleScopeType::CallbackScope(scope));
+    let scope = Box::new(scope);
 
-    let Some(scope) = NonNull::new(Box::into_raw(scope)) else {
-        return Err(Error::JS(JSError::Compile(
-            "Failed to create handle scope".to_owned(),
-        )));
+    let raw_scope = Box::into_raw(scope);
+    let Some(scope) = NonNull::new(raw_scope) else {
+        //SAFETY: we just created this, so it is safe to convert it back to a Box
+        let scope = unsafe { Box::from_raw(raw_scope) };
+        return Err((
+            *scope,
+            Error::JS(JSError::Compile("Failed to create handle scope".to_owned())),
+        ));
     };
 
     v8_ctx.handle_scope = scope;
@@ -189,15 +200,45 @@ pub(crate) fn ctx_from_function_callback_info(mut scope: CallbackScope) -> Resul
     ));
 
     let Some(ctx_scope) = NonNull::new(Box::into_raw(ctx_scope)) else {
-        return Err(Error::JS(JSError::Compile(
-            "Failed to create context scope".to_owned(),
-        )));
+        //SAFETY: we just created this, so it is safe to convert it back to a Box
+        let scope = unsafe { Box::from_raw(v8_ctx.handle_scope.as_ptr()) };
+
+        return Err((
+            *scope,
+            Error::JS(JSError::Compile(
+                "Failed to create context scope".to_owned(),
+            )),
+        ));
     };
 
     v8_ctx.context_scope = ctx_scope;
 
     Ok(Rc::new(RefCell::new(v8_ctx)))
     // Ok(v8_ctx)
+}
+
+pub(crate) fn ctx_from_function_callback_info(
+    mut scope: CallbackScope,
+    isolate: NonNull<OwnedIsolate>,
+) -> std::result::Result<V8Context, (HandleScopeType, Error)> {
+    let ctx = scope.get_current_context();
+    let scope = HandleScopeType::CallbackScope(scope);
+
+    ctx_from_scope_isolate(scope, ctx, isolate)
+}
+
+pub(crate) fn ctx_from<'a>(
+    scope: &'a mut HandleScope,
+    isolate: NonNull<OwnedIsolate>,
+) -> std::result::Result<V8Context<'a>, (HandleScopeType<'a>, Error)> {
+    let ctx = scope.get_current_context();
+
+    //SAFETY: This can only shorten the lifetime of the scope, which is fine. (we borrow it for 'a and it is '2, which will always be longer than 'a)
+    let scope = unsafe { std::mem::transmute(scope) };
+
+    let scope = HandleScopeType::WithContextRef(scope);
+
+    ctx_from_scope_isolate(scope, ctx, isolate)
 }
 
 impl Drop for V8Ctx<'_> {
