@@ -1,5 +1,5 @@
-use crate::js::v8::{FromContext, V8Context, V8Ctx, V8Value};
-use crate::js::{Context, JSCompiled};
+use crate::web_executor::js::v8::{FromContext, V8Context, V8Ctx, V8Engine, V8Value};
+use crate::web_executor::js::{JSCompiled, JSRuntime};
 use alloc::rc::Rc;
 use v8::{Local, Script};
 pub struct V8Compiled<'a> {
@@ -18,9 +18,6 @@ impl<'a> FromContext<'a, Local<'a, Script>> for V8Compiled<'a> {
 
 impl<'a> JSCompiled for V8Compiled<'a> {
     type Value = V8Value<'a>;
-
-    type Context = Context<V8Context<'a>>;
-
     fn run(&mut self) -> crate::types::Result<Self::Value> {
         let try_catch = &mut v8::TryCatch::new(self.context.borrow_mut().scope());
 

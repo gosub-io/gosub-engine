@@ -69,7 +69,7 @@ pub enum Error {
     Url(#[from] url::ParseError),
 
     #[error("js: {0}")]
-    JS(#[from] crate::js::JSError),
+    JS(#[from] crate::web_executor::js::JSError),
 }
 
 /// Result that can be returned which holds either T or an Error

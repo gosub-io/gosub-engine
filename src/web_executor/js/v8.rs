@@ -11,15 +11,17 @@ pub use function::*;
 pub use object::*;
 pub use value::*;
 
-use crate::js::context::Context;
-use crate::js::{JSArray, JSContext, JSObject, JSRuntime, JSValue, ValueConversion};
 use crate::types::Result;
+use crate::web_executor::js::{
+    JSArray, JSContext, JSFunction, JSObject, JSRuntime, JSValue, ValueConversion,
+};
 
 mod array;
 mod compile;
 mod context;
 mod function;
 mod object;
+mod utils;
 mod value;
 
 // status of the V8 engine
@@ -56,7 +58,8 @@ impl V8Engine<'_> {
 
         PLATFORM_INITIALIZING.store(true, Ordering::SeqCst);
 
-        let platform = v8::new_default_platform(0, false).make_shared();
+        //https://github.com/denoland/rusty_v8/issues/1381
+        let platform = v8::new_unprotected_default_platform(0, false).make_shared();
         v8::V8::initialize_platform(platform);
         v8::V8::initialize();
 
@@ -83,7 +86,7 @@ impl<'a> JSRuntime for V8Engine<'a> {
     //let c = Context::new(hs);
     //let s = &mut ContextScope::new(hs, c);
 
-    fn new_context(&mut self) -> Result<Context<Self::Context>> {
+    fn new_context(&mut self) -> Result<Self::Context> {
         V8Ctx::default()
     }
 }
@@ -94,40 +97,13 @@ mod tests {
 
     use colored::Colorize;
 
-    use crate::js::v8::PLATFORM_INITIALIZED;
-    use crate::js::{JSContext, JSRuntime, JSValue};
     use crate::types::Error;
+    use crate::web_executor::js::v8::PLATFORM_INITIALIZED;
+    use crate::web_executor::js::{JSContext, JSRuntime, JSValue};
 
     #[test]
-    fn v8_test() {
-        //This is needed because the v8 engine is not thread safe - TODO: make it "thread safe"
-
-        println!("running 4 tests in one test function ...");
-
-        v8_engine_initialization();
-        println!(
-            "test js::v8::tests::v8_engine_initialization ... {}",
-            "ok".green()
-        );
-
-        v8_context_creation();
-        println!(
-            "test js::v8::tests::v8_context_creation ... {}",
-            "ok".green()
-        );
-
-        v8_js_execution();
-        println!("test js::v8::tests::v8_js_execution ... {}", "ok".green());
-
-        v8_run_invalid_syntax();
-        println!(
-            "test js::v8::tests::v8_run_invalid_syntax ... {}",
-            "ok".green()
-        );
-    }
-
     fn v8_engine_initialization() {
-        let mut engine = crate::js::v8::V8Engine::new();
+        let mut engine = crate::web_executor::js::v8::V8Engine::new();
 
         assert!(PLATFORM_INITIALIZED.load(Ordering::SeqCst));
     }
@@ -150,8 +126,9 @@ mod tests {
     //     println!("{}", value.to_rust_string_lossy(s));
     // }
 
+    #[test]
     fn v8_js_execution() {
-        let mut engine = crate::js::v8::V8Engine::new();
+        let mut engine = crate::web_executor::js::v8::V8Engine::new();
         let mut context = engine.new_context().unwrap();
 
         let value = context
@@ -167,8 +144,9 @@ mod tests {
         assert_eq!(value.as_number().unwrap(), 1234.0);
     }
 
+    #[test]
     fn v8_run_invalid_syntax() {
-        let mut engine = crate::js::v8::V8Engine::new();
+        let mut engine = crate::web_executor::js::v8::V8Engine::new();
 
         let mut context = engine.new_context().unwrap();
 
@@ -183,12 +161,13 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(Error::JS(crate::js::JSError::Compile(_)))
+            Err(Error::JS(crate::web_executor::js::JSError::Compile(_)))
         ));
     }
 
+    #[test]
     fn v8_context_creation() {
-        let mut engine = crate::js::v8::V8Engine::new();
+        let mut engine = crate::web_executor::js::v8::V8Engine::new();
 
         let context = engine.new_context();
         assert!(context.is_ok());
