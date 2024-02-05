@@ -1,5 +1,6 @@
 use crate::types::Result;
 use crate::web_executor::js::{JSContext, JSError, JSObject, JSRuntime, JSValue};
+use core::fmt::Display;
 
 struct Function<T: JSFunction>(pub T);
 
@@ -30,6 +31,8 @@ pub trait JSFunctionCallBack {
     fn is_empty(&self) -> bool {
         self.len() == 0
     }
+
+    fn error(&mut self, error: impl Display);
 
     fn ret(&mut self, value: Self::Value);
 }
@@ -76,6 +79,8 @@ pub trait JSFunctionCallBackVariadic {
     fn is_empty(&self) -> bool {
         self.len() == 0
     }
+
+    fn error(&mut self, error: impl Display);
 
     fn ret(&mut self, value: Self::Value);
 }

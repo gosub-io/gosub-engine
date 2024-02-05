@@ -1,4 +1,5 @@
 use crate::web_executor::js::{JSContext, JSFunction, JSFunctionVariadic, JSValue};
+use core::fmt::Display;
 
 pub trait JSObject {
     type Value: JSValue;
@@ -35,6 +36,9 @@ pub trait JSGetterCallback {
     type Context: JSContext;
 
     fn context(&mut self) -> &mut Self::Context;
+
+    fn error(&mut self, error: impl Display);
+
     fn ret(&mut self, value: Self::Value);
 }
 
@@ -43,5 +47,8 @@ pub trait JSSetterCallback {
     type Context: JSContext;
 
     fn context(&mut self) -> &mut Self::Context;
+
+    fn error(&mut self, error: impl Display);
+
     fn value(&mut self) -> &Self::Value;
 }

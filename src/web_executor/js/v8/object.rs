@@ -1,3 +1,4 @@
+use core::fmt::Display;
 use std::ffi::c_void;
 
 use v8::{
@@ -31,6 +32,16 @@ impl<'a> JSGetterCallback for GetterCallback<'a, '_> {
         &mut self.ctx
     }
 
+    fn error(&mut self, error: impl Display) {
+        let scope = self.ctx.borrow_mut().scope();
+        let err = error.to_string();
+        let Some(e) = v8::String::new(scope, &err) else {
+            eprintln!("failed to create exception string\nexception was: {}", err);
+            return;
+        };
+        scope.throw_exception(Local::from(e));
+    }
+
     fn ret(&mut self, value: Self::Value) {
         *self.ret = value;
     }
@@ -47,6 +58,16 @@ impl<'a, 'v> JSSetterCallback for SetterCallback<'a, 'v> {
 
     fn context(&mut self) -> &mut Self::Context {
         &mut self.ctx
+    }
+
+    fn error(&mut self, error: impl Display) {
+        let scope = self.ctx.borrow_mut().scope();
+        let err = error.to_string();
+        let Some(e) = v8::String::new(scope, &err) else {
+            eprintln!("failed to create exception string\nexception was: {}", err);
+            return;
+        };
+        scope.throw_exception(Local::from(e));
     }
 
     fn value(&mut self) -> &'v Self::Value {
@@ -217,7 +238,7 @@ impl<'a> JSObject for V8Object<'a> {
                     Ok(external) => external,
                     Err(e) => {
                         let Some(e) = v8::String::new(scope, &e.to_string()) else {
-                            eprintln!("failed to create exception string\nexception was: {e}"); //TODO: replace with our own logger
+                            eprintln!("failed to create exception string\nexception was: {e}");
                             return;
                         };
                         scope.throw_exception(Local::from(e));
@@ -234,7 +255,7 @@ impl<'a> JSObject for V8Object<'a> {
                     Err((mut st, e)) => {
                         let scope = st.get();
                         let Some(e) = v8::String::new(scope, &e.to_string()) else {
-                            eprintln!("failed to create exception string\nexception was: {e}"); //TODO: replace with our own logger
+                            eprintln!("failed to create exception string\nexception was: {e}");
                             return;
                         };
                         scope.throw_exception(Local::from(e));
@@ -247,7 +268,7 @@ impl<'a> JSObject for V8Object<'a> {
                     Err(e) => {
                         let scope = ctx.borrow_mut().scope();
                         let Some(e) = v8::String::new(scope, &e.to_string()) else {
-                            eprintln!("failed to create exception string\nexception was: {e}"); //TODO: replace with our own logger
+                            eprintln!("failed to create exception string\nexception was: {e}");
                             return;
                         };
                         scope.throw_exception(Local::from(e));
@@ -272,7 +293,7 @@ impl<'a> JSObject for V8Object<'a> {
                     Ok(external) => external,
                     Err(e) => {
                         let Some(e) = v8::String::new(scope, &e.to_string()) else {
-                            eprintln!("failed to create exception string\nexception was: {e}"); //TODO: replace with our own logger
+                            eprintln!("failed to create exception string\nexception was: {e}");
                             return;
                         };
                         scope.throw_exception(Local::from(e));
@@ -289,7 +310,7 @@ impl<'a> JSObject for V8Object<'a> {
                     Err((mut st, e)) => {
                         let scope = st.get();
                         let Some(e) = v8::String::new(scope, &e.to_string()) else {
-                            eprintln!("failed to create exception string\nexception was: {e}"); //TODO: replace with our own logger
+                            eprintln!("failed to create exception string\nexception was: {e}");
                             return;
                         };
                         scope.throw_exception(Local::from(e));

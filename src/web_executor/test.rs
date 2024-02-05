@@ -7,7 +7,6 @@ use std::ops::Add;
 use crate::types::Result;
 use crate::web_executor::js::v8::{
     GetterCallback, SetterCallback, V8Context, V8Function, V8FunctionVariadic, V8Value,
-    V8VariadicArgsInternal,
 };
 use crate::web_executor::js::{
     Args, JSContext, JSFunction, JSFunctionCallBack, JSFunctionCallBackVariadic,
@@ -137,7 +136,7 @@ impl Test2 {
                     let value = match value.to_js_value(ctx.clone()) {
                         Ok(value) => value,
                         Err(e) => {
-                            // cb.error(e); TODO
+                            cb.error(e);
                             return;
                         }
                     };
@@ -153,7 +152,7 @@ impl Test2 {
                     let value = match value.as_number() {
                         Ok(value) => value,
                         Err(e) => {
-                            // cb.error(e); TODO
+                            cb.error(e);
                             return;
                         }
                     };
@@ -178,7 +177,7 @@ impl Test2 {
                     let value = match value.to_js_value(ctx.clone()) {
                         Ok(value) => value,
                         Err(e) => {
-                            // cb.error(e); TODO
+                            cb.error(e);
                             return;
                         }
                     };
@@ -194,7 +193,7 @@ impl Test2 {
                     let value = match value.as_string() {
                         Ok(value) => value,
                         Err(e) => {
-                            // cb.error(e); TODO
+                            cb.error(e);
                             return;
                         }
                     };
@@ -211,18 +210,20 @@ impl Test2 {
         let cool_fn = {
             let s = Rc::clone(&s);
             V8Function::new(ctx.clone(), move |cb| {
-                //TODO: add R::Function::new
                 let num_args = 0; //function.arguments.len();
                 if num_args != cb.len() {
-                    // cb.error("wrong number of arguments"); //TODO
+                    cb.error("wrong number of arguments");
                     return;
                 }
 
                 let ctx = cb.context();
 
-                let Ok(ret) = s.borrow().cool_fn().to_js_value(ctx.clone()) else {
-                    // cb.error(e); //TODO
-                    return;
+                let ret = match s.borrow().cool_fn().to_js_value(ctx.clone()) {
+                    Ok(ret) => ret,
+                    Err(e) => {
+                        cb.error(e);
+                        return;
+                    }
                 };
 
                 cb.ret(ret);
@@ -236,7 +237,7 @@ impl Test2 {
             V8Function::new(ctx.clone(), move |cb| {
                 let num_args = 1; //function.arguments.len();
                 if num_args != cb.len() {
-                    // cb.error("wrong number of arguments"); //TODO
+                    cb.error("wrong number of arguments");
                     return;
                 }
 
@@ -245,12 +246,12 @@ impl Test2 {
                 let args = cb.args();
 
                 let Some(arg0) = cb.args().get(0, ctx.clone()) else {
-                    // cb.error("failed to get argument"); //TODO
+                    cb.error("failed to get argument");
                     return;
                 };
 
                 let Ok(arg0) = arg0.as_number() else {
-                    // cb.error("failed to convert argument"); //TODO
+                    cb.error("failed to convert argument");
                     return;
                 };
 
@@ -271,7 +272,7 @@ impl Test2 {
             V8Function::new(ctx.clone(), move |cb| {
                 let num_args = 1; //function.arguments.len();
                 if num_args != cb.len() {
-                    // cb.error("wrong number of arguments"); //TODO
+                    cb.error("wrong number of arguments");
                     return;
                 }
 
@@ -280,12 +281,12 @@ impl Test2 {
                 let args = cb.args();
 
                 let Some(arg0) = cb.args().get(0, ctx.clone()) else {
-                    // cb.error("failed to get argument"); //TODO
+                    cb.error("failed to get argument");
                     return;
                 };
 
                 let Ok(arg0) = arg0.as_string() else {
-                    // cb.error("failed to convert argument"); //TODO
+                    cb.error("failed to convert argument");
                     return;
                 };
 
@@ -301,7 +302,7 @@ impl Test2 {
             V8Function::new(ctx.clone(), move |cb| {
                 let num_args = 1; //function.arguments.len();
                 if num_args != cb.len() {
-                    // cb.error("wrong number of arguments"); //TODO
+                    cb.error("wrong number of arguments");
                     return;
                 }
 
@@ -310,12 +311,12 @@ impl Test2 {
                 let args = cb.args();
 
                 let Some(arg0) = cb.args().get(0, ctx.clone()) else {
-                    // cb.error("failed to get argument"); //TODO
+                    cb.error("failed to get argument");
                     return;
                 };
 
                 let Ok(arg0) = arg0.as_string() else {
-                    // cb.error("failed to convert argument"); //TODO
+                    cb.error("failed to convert argument");
                     return;
                 };
 
