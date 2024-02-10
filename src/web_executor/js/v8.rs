@@ -21,7 +21,6 @@ mod compile;
 mod context;
 mod function;
 mod object;
-mod utils;
 mod value;
 
 // status of the V8 engine
@@ -43,15 +42,26 @@ impl Default for V8Engine<'_> {
     }
 }
 
+const MAX_V8_INIT_SECONDS: u64 = 10;
+
 impl V8Engine<'_> {
     pub fn initialize() {
         if PLATFORM_INITIALIZED.load(Ordering::SeqCst) {
             return;
         }
 
+        let mut wait_time = MAX_V8_INIT_SECONDS * 1000;
+
         if PLATFORM_INITIALIZING.load(Ordering::SeqCst) {
             while !PLATFORM_INITIALIZED.load(Ordering::SeqCst) {
                 std::thread::sleep(std::time::Duration::from_millis(10));
+                wait_time -= 10;
+                if wait_time <= 9 {
+                    panic!(
+                        "V8 initialization timed out after {} seconds",
+                        MAX_V8_INIT_SECONDS
+                    );
+                }
             }
             return;
         }
@@ -107,24 +117,6 @@ mod tests {
 
         assert!(PLATFORM_INITIALIZED.load(Ordering::SeqCst));
     }
-
-    // #[test]
-    // fn v8_bindings_test() {
-    //     let platform = v8::new_default_platform(0, false).make_shared();
-    //     v8::V8::initialize_platform(platform);
-    //     v8::V8::initialize();
-    //
-    //     let isolate = &mut v8::Isolate::new(Default::default());
-    //     let hs = &mut v8::HandleScope::new(isolate);
-    //     let c = v8::Context::new(hs);
-    //     let s = &mut v8::ContextScope::new(hs, c);
-    //
-    //     let code = v8::String::new(s, "console.log(\"Hello World!\"); 1234").unwrap();
-    //
-    //     let value = v8::Script::compile(s, code, None).unwrap().run(s).unwrap();
-    //
-    //     println!("{}", value.to_rust_string_lossy(s));
-    // }
 
     #[test]
     fn v8_js_execution() {

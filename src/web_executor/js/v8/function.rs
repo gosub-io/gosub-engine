@@ -1,4 +1,5 @@
 use alloc::rc::Rc;
+use core::fmt::Display;
 
 use v8::{
     CallbackScope, External, Function, FunctionBuilder, FunctionCallbackArguments,
@@ -105,6 +106,16 @@ impl<'a> JSFunctionCallBack for V8FunctionCallBack<'a> {
     fn ret(&mut self, value: Self::Value) {
         self.ret = Ok(value.value);
     }
+
+    fn error(&mut self, error: impl Display) {
+        let scope = self.ctx.borrow_mut().scope();
+        let err = error.to_string();
+        let Some(e) = v8::String::new(scope, &err) else {
+            eprintln!("failed to create exception string\nexception was: {}", err);
+            return;
+        };
+        scope.throw_exception(Local::from(e));
+    }
 }
 
 impl<'a> V8Function<'a> {
@@ -142,7 +153,7 @@ impl<'a> V8Function<'a> {
                 {
                     exception.into()
                 } else {
-                    eprintln!("failed to create exception string\nexception was: {e}"); //TODO: replace with our own logger
+                    eprintln!("failed to create exception string\nexception was: {e}");
                     v8::undefined(ctx.borrow_mut().scope()).into()
                 };
 
@@ -161,7 +172,7 @@ extern "C" fn callback(info: *const FunctionCallbackInfo) {
         Ok(external) => external,
         Err(e) => {
             let Some(e) = v8::String::new(scope, &e.to_string()) else {
-                eprintln!("failed to create exception string\nexception was: {e}"); //TODO: replace with our own logger
+                eprintln!("failed to create exception string\nexception was: {e}");
                 return;
             };
             scope.throw_exception(Local::from(e));
@@ -171,11 +182,15 @@ extern "C" fn callback(info: *const FunctionCallbackInfo) {
 
     let data = unsafe { &mut *(external.value() as *mut CallbackWrapper) };
 
-    let ctx = match ctx_from_function_callback_info(unsafe { CallbackScope::new(info) }) {
+    let ctx = match ctx_from_function_callback_info(
+        unsafe { CallbackScope::new(info) },
+        data.ctx.borrow().isolate,
+    ) {
         Ok(scope) => scope,
-        Err(e) => {
+        Err((mut st, e)) => {
+            let scope = st.get();
             let Some(e) = v8::String::new(scope, &e.to_string()) else {
-                eprintln!("failed to create exception string\nexception was: {e}"); //TODO: replace with our own logger
+                eprintln!("failed to create exception string\nexception was: {e}");
                 return;
             };
             scope.throw_exception(Local::from(e));
@@ -247,8 +262,6 @@ impl<'a> JSFunction for V8Function<'a> {
         };
     }
 }
-
-//TODO: maybe move both implementations into a macro, so we have less code duplication
 
 pub struct V8FunctionVariadic<'a> {
     pub(super) ctx: V8Context<'a>,
@@ -369,6 +382,16 @@ impl<'a> JSFunctionCallBackVariadic for V8FunctionCallBackVariadic<'a> {
         self.args.len()
     }
 
+    fn error(&mut self, error: impl Display) {
+        let scope = self.ctx.borrow_mut().scope();
+        let err = error.to_string();
+        let Some(e) = v8::String::new(scope, &err) else {
+            eprintln!("failed to create exception string\nexception was: {}", err);
+            return;
+        };
+        scope.throw_exception(Local::from(e));
+    }
+
     fn ret(&mut self, value: Self::Value) {
         self.ret = Ok(value.value);
     }
@@ -409,7 +432,7 @@ impl<'a> V8FunctionVariadic<'a> {
                 {
                     exception.into()
                 } else {
-                    eprintln!("failed to create exception string\nexception was: {e}"); //TODO: replace with our own logger
+                    eprintln!("failed to create exception string\nexception was: {e}");
                     v8::undefined(ctx.borrow_mut().scope()).into()
                 };
 
@@ -421,14 +444,14 @@ impl<'a> V8FunctionVariadic<'a> {
 
 extern "C" fn callback_variadic(info: *const FunctionCallbackInfo) {
     let info = unsafe { &*info };
-    let scope = &mut unsafe { CallbackScope::new(info) };
+    let mut scope = unsafe { CallbackScope::new(info) };
     let args = FunctionCallbackArguments::from_function_callback_info(info);
     let rv = ReturnValue::from_function_callback_info(info);
     let external = match <Local<External>>::try_from(args.data()) {
         Ok(external) => external,
         Err(e) => {
-            let Some(e) = v8::String::new(scope, &e.to_string()) else {
-                eprintln!("failed to create exception string\nexception was: {e}"); //TODO: replace with our own logger
+            let Some(e) = v8::String::new(&mut scope, &e.to_string()) else {
+                eprintln!("failed to create exception string\nexception was: {e}");
                 return;
             };
             scope.throw_exception(Local::from(e));
@@ -438,11 +461,12 @@ extern "C" fn callback_variadic(info: *const FunctionCallbackInfo) {
 
     let data = unsafe { &mut *(external.value() as *mut CallbackWrapperVariadic) };
 
-    let ctx = match ctx_from_function_callback_info(unsafe { CallbackScope::new(info) }) {
+    let ctx = match ctx_from_function_callback_info(scope, data.ctx.borrow().isolate) {
         Ok(scope) => scope,
-        Err(e) => {
+        Err((mut st, e)) => {
+            let scope = st.get();
             let Some(e) = v8::String::new(scope, &e.to_string()) else {
-                eprintln!("failed to create exception string\nexception was: {e}"); //TODO: replace with our own logger
+                eprintln!("failed to create exception string\nexception was: {e}");
                 return;
             };
             scope.throw_exception(Local::from(e));
