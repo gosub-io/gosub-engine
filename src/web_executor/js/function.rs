@@ -6,25 +6,24 @@ struct Function<T: JSFunction>(pub T);
 
 //trait for JS functions (interop between JS and Rust)
 pub trait JSFunction {
-    type CB: JSFunctionCallBack;
-    type Context: JSContext;
-    type Value: JSValue;
+    type RT: JSRuntime;
 
-    fn new(ctx: Self::Context, func: impl Fn(&mut Self::CB) + 'static) -> Result<Self>
+    fn new(
+        ctx: <Self::RT as JSRuntime>::Context,
+        func: impl Fn(&mut <Self::RT as JSRuntime>::FunctionCallBack) + 'static,
+    ) -> Result<Self>
     where
         Self: Sized;
 
-    fn call(&mut self, callback: &mut Self::CB);
+    fn call(&mut self, callback: &mut <Self::RT as JSRuntime>::FunctionCallBack);
 }
 
 pub trait JSFunctionCallBack {
-    type Args: Args;
-    type Context: JSContext;
-    type Value: JSValue;
+    type RT: JSRuntime;
 
-    fn context(&mut self) -> Self::Context;
+    fn context(&mut self) -> <Self::RT as JSRuntime>::Context;
 
-    fn args(&mut self) -> &Self::Args;
+    fn args(&mut self) -> &<Self::RT as JSRuntime>::Args;
 
     fn len(&self) -> usize;
 
@@ -34,14 +33,17 @@ pub trait JSFunctionCallBack {
 
     fn error(&mut self, error: impl Display);
 
-    fn ret(&mut self, value: Self::Value);
+    fn ret(&mut self, value: <Self::RT as JSRuntime>::Value);
 }
 
 pub trait Args: Iterator {
-    type Context: JSContext;
-    type Value: JSValue;
+    type RT: JSRuntime;
 
-    fn get(&self, index: usize, ctx: Self::Context) -> Option<Self::Value>;
+    fn get(
+        &self,
+        index: usize,
+        ctx: <Self::RT as JSRuntime>::Context,
+    ) -> Option<<Self::RT as JSRuntime>::Value>;
 
     fn len(&self) -> usize;
 
@@ -49,30 +51,28 @@ pub trait Args: Iterator {
         self.len() == 0
     }
 
-    fn as_vec(&self, ctx: Self::Context) -> Vec<Self::Value>;
+    fn as_vec(&self, ctx: <Self::RT as JSRuntime>::Context) -> Vec<<Self::RT as JSRuntime>::Value>;
 }
 
 //extra trait for variadic functions to mark them as such
 pub trait JSFunctionVariadic {
-    type CB: JSFunctionCallBackVariadic;
-    type Context: JSContext;
-    type Value: JSValue;
-
-    fn new(ctx: Self::Context, func: impl Fn(&mut Self::CB) + 'static) -> Result<Self>
+    type RT: JSRuntime;
+    fn new(
+        ctx: <Self::RT as JSRuntime>::Context,
+        func: impl Fn(&mut <Self::RT as JSRuntime>::FunctionCallBackVariadic) + 'static,
+    ) -> Result<Self>
     where
         Self: Sized;
 
-    fn call(&mut self, callback: &mut Self::CB);
+    fn call(&mut self, callback: &mut <Self::RT as JSRuntime>::FunctionCallBackVariadic);
 }
 
 pub trait JSFunctionCallBackVariadic {
-    type Args: VariadicArgsInternal;
-    type Context: JSContext;
-    type Value: JSValue;
+    type RT: JSRuntime;
 
-    fn context(&mut self) -> Self::Context;
+    fn context(&mut self) -> <Self::RT as JSRuntime>::Context;
 
-    fn args(&mut self) -> &Self::Args;
+    fn args(&mut self) -> &<Self::RT as JSRuntime>::VariadicArgsInternal;
 
     fn len(&self) -> usize;
 
@@ -82,16 +82,17 @@ pub trait JSFunctionCallBackVariadic {
 
     fn error(&mut self, error: impl Display);
 
-    fn ret(&mut self, value: Self::Value);
+    fn ret(&mut self, value: <Self::RT as JSRuntime>::Value);
 }
 
 pub trait VariadicArgsInternal: Iterator {
-    type Context: JSContext;
-    type Value: JSValue;
+    type RT: JSRuntime;
 
-    type Args: VariadicArgs;
-
-    fn get(&self, index: usize, ctx: Self::Context) -> Option<Self::Value>;
+    fn get(
+        &self,
+        index: usize,
+        ctx: <Self::RT as JSRuntime>::Context,
+    ) -> Option<<Self::RT as JSRuntime>::Value>;
 
     fn len(&self) -> usize;
 
@@ -99,15 +100,18 @@ pub trait VariadicArgsInternal: Iterator {
         self.len() == 0
     }
 
-    fn as_vec(&self, ctx: Self::Context) -> Vec<Self::Value>;
+    fn as_vec(&self, ctx: <Self::RT as JSRuntime>::Context) -> Vec<<Self::RT as JSRuntime>::Value>;
 
-    fn variadic(&self, ctx: Self::Context) -> Self::Args;
+    fn variadic(
+        &self,
+        ctx: <Self::RT as JSRuntime>::Context,
+    ) -> <Self::RT as JSRuntime>::VariadicArgs;
 }
 
 pub trait VariadicArgs {
-    type Value: JSValue;
+    type RT: JSRuntime;
 
-    fn get(&self, index: usize) -> Option<&Self::Value>;
+    fn get(&self, index: usize) -> Option<&<Self::RT as JSRuntime>::Value>;
 
     fn len(&self) -> usize;
 
@@ -115,5 +119,5 @@ pub trait VariadicArgs {
         self.len() == 0
     }
 
-    fn as_vec(&self) -> &Vec<Self::Value>;
+    fn as_vec(&self) -> &Vec<<Self::RT as JSRuntime>::Value>;
 }

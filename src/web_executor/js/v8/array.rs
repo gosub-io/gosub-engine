@@ -10,11 +10,9 @@ pub struct V8Array<'a> {
 }
 
 impl<'a> JSArray for V8Array<'a> {
-    type Value = V8Value<'a>;
+    type RT = V8Engine<'a>;
 
-    type Index = u32;
-
-    fn get<T: Into<Self::Index>>(&self, index: T) -> Result<Self::Value> {
+    fn get<T: Into<u32>>(&self, index: T) -> Result<<Self::RT as JSRuntime>::Value> {
         let Some(value) = self
             .value
             .get_index(self.ctx.borrow_mut().scope(), index.into())
@@ -27,7 +25,7 @@ impl<'a> JSArray for V8Array<'a> {
         Ok(V8Value::from_value(self.ctx.clone(), value))
     }
 
-    fn set<T: Into<Self::Index>>(&self, index: T, value: &Self::Value) -> Result<()> {
+    fn set<T: Into<u32>>(&self, index: T, value: &V8Value) -> Result<()> {
         match self
             .value
             .set_index(self.ctx.borrow_mut().scope(), index.into(), value.value)
@@ -39,7 +37,7 @@ impl<'a> JSArray for V8Array<'a> {
         }
     }
 
-    fn push(&self, value: Self::Value) -> Result<()> {
+    fn push(&self, value: V8Value) -> Result<()> {
         let index = self.value.length();
 
         match self
@@ -53,7 +51,7 @@ impl<'a> JSArray for V8Array<'a> {
         }
     }
 
-    fn pop(&self) -> Result<Self::Value> {
+    fn pop(&self) -> Result<<Self::RT as JSRuntime>::Value> {
         let index = self.value.length() - 1;
 
         let Some(value) = self.value.get_index(self.ctx.borrow_mut().scope(), index) else {
@@ -75,7 +73,7 @@ impl<'a> JSArray for V8Array<'a> {
         Ok(V8Value::from_value(self.ctx.clone(), value))
     }
 
-    fn remove<T: Into<Self::Index>>(&self, index: T) -> Result<()> {
+    fn remove<T: Into<u32>>(&self, index: T) -> Result<()> {
         if self
             .value
             .delete_index(self.ctx.borrow_mut().scope(), index.into())
@@ -89,7 +87,7 @@ impl<'a> JSArray for V8Array<'a> {
         Ok(())
     }
 
-    fn length(&self) -> Result<Self::Index> {
+    fn length(&self) -> Result<u32> {
         Ok(self.value.length())
     }
 }

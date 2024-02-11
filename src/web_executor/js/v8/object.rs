@@ -8,10 +8,11 @@ use v8::{
 
 use crate::types::{Error, Result};
 use crate::web_executor::js::v8::{
-    ctx_from, FromContext, V8Context, V8Ctx, V8Function, V8FunctionVariadic, V8Value,
+    ctx_from, FromContext, V8Context, V8Ctx, V8Engine, V8Function, V8FunctionCallBack,
+    V8FunctionVariadic, V8Value,
 };
 use crate::web_executor::js::{
-    JSArray, JSError, JSGetterCallback, JSObject, JSSetterCallback, JSValue,
+    JSArray, JSError, JSGetterCallback, JSObject, JSRuntime, JSSetterCallback, JSValue,
 };
 
 pub struct V8Object<'a> {
@@ -25,10 +26,9 @@ pub struct GetterCallback<'a, 'r> {
 }
 
 impl<'a> JSGetterCallback for GetterCallback<'a, '_> {
-    type Value = V8Value<'a>;
-    type Context = V8Context<'a>;
+    type RT = V8Engine<'a>;
 
-    fn context(&mut self) -> &mut Self::Context {
+    fn context(&mut self) -> &mut <Self::RT as JSRuntime>::Context {
         &mut self.ctx
     }
 
@@ -42,7 +42,7 @@ impl<'a> JSGetterCallback for GetterCallback<'a, '_> {
         scope.throw_exception(Local::from(e));
     }
 
-    fn ret(&mut self, value: Self::Value) {
+    fn ret(&mut self, value: <Self::RT as JSRuntime>::Value) {
         *self.ret = value;
     }
 }
@@ -53,10 +53,9 @@ pub struct SetterCallback<'a, 'v> {
 }
 
 impl<'a, 'v> JSSetterCallback for SetterCallback<'a, 'v> {
-    type Value = V8Value<'a>;
-    type Context = V8Context<'a>;
+    type RT = V8Engine<'a>;
 
-    fn context(&mut self) -> &mut Self::Context {
+    fn context(&mut self) -> &mut <Self::RT as JSRuntime>::Context {
         &mut self.ctx
     }
 
@@ -70,7 +69,7 @@ impl<'a, 'v> JSSetterCallback for SetterCallback<'a, 'v> {
         scope.throw_exception(Local::from(e));
     }
 
-    fn value(&mut self) -> &'v Self::Value {
+    fn value(&mut self) -> &'v <Self::RT as JSRuntime>::Value {
         self.value
     }
 }
@@ -82,13 +81,9 @@ struct GetterSetter<'a, 'r> {
 }
 
 impl<'a> JSObject for V8Object<'a> {
-    type Value = V8Value<'a>;
-    type Function = V8Function<'a>;
-    type FunctionVariadic = V8FunctionVariadic<'a>;
+    type RT = V8Engine<'a>;
 
-    type GetterCB = GetterCallback<'a, 'a>;
-    type SetterCB = SetterCallback<'a, 'a>;
-    fn set_property(&self, name: &str, value: &Self::Value) -> Result<()> {
+    fn set_property(&self, name: &str, value: &V8Value) -> Result<()> {
         let Some(name) = v8::String::new(self.ctx.borrow_mut().scope(), name) else {
             return Err(Error::JS(JSError::Generic(
                 "failed to create a string".to_owned(),
@@ -108,7 +103,7 @@ impl<'a> JSObject for V8Object<'a> {
         }
     }
 
-    fn get_property(&self, name: &str) -> Result<Self::Value> {
+    fn get_property(&self, name: &str) -> Result<<Self::RT as JSRuntime>::Value> {
         let Some(name) = v8::String::new(self.ctx.borrow_mut().scope(), name) else {
             return Err(Error::JS(JSError::Generic(
                 "failed to create a string".to_owned(),
@@ -125,7 +120,11 @@ impl<'a> JSObject for V8Object<'a> {
             .map(|value| V8Value::from_value(self.ctx.clone(), value))
     }
 
-    fn call_method(&self, name: &str, args: &[&Self::Value]) -> Result<Self::Value> {
+    fn call_method(
+        &self,
+        name: &str,
+        args: &[&<Self::RT as JSRuntime>::Value],
+    ) -> Result<<Self::RT as JSRuntime>::Value> {
         let func = self.get_property(name)?.value;
 
         if !func.is_function() {
@@ -150,7 +149,7 @@ impl<'a> JSObject for V8Object<'a> {
         Ok(ret)
     }
 
-    fn set_method(&self, name: &str, func: &Self::Function) -> Result<()> {
+    fn set_method(&self, name: &str, func: &V8Function) -> Result<()> {
         let Some(name) = v8::String::new(self.ctx.borrow_mut().scope(), name) else {
             return Err(Error::JS(JSError::Generic(
                 "failed to create a string".to_owned(),
@@ -180,7 +179,7 @@ impl<'a> JSObject for V8Object<'a> {
         }
     }
 
-    fn set_method_variadic(&self, name: &str, func: &Self::FunctionVariadic) -> Result<()> {
+    fn set_method_variadic(&self, name: &str, func: &V8FunctionVariadic) -> Result<()> {
         let Some(name) = v8::String::new(self.ctx.borrow_mut().scope(), name) else {
             return Err(Error::JS(JSError::Generic(
                 "failed to create a string".to_owned(),
@@ -213,8 +212,8 @@ impl<'a> JSObject for V8Object<'a> {
     fn set_property_accessor(
         &self,
         name: &str,
-        getter: Box<dyn Fn(&mut Self::GetterCB)>,
-        setter: Box<dyn Fn(&mut Self::SetterCB)>,
+        getter: Box<dyn Fn(&mut <Self::RT as JSRuntime>::GetterCB)>,
+        setter: Box<dyn Fn(&mut <Self::RT as JSRuntime>::SetterCB)>,
     ) -> Result<()> {
         let name = v8::String::new(self.ctx.borrow_mut().scope(), name)
             .ok_or_else(|| Error::JS(JSError::Generic("failed to create a string".to_owned())))?;

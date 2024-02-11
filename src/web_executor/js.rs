@@ -6,6 +6,7 @@ use crate::web_executor::js::v8::V8Engine;
 pub use compile::*;
 pub use context::*;
 pub use function::*;
+pub use interop::*;
 pub use object::*;
 pub use runtime::*;
 pub use value::*;
@@ -16,6 +17,7 @@ use crate::types::Result;
 mod compile;
 mod context;
 mod function;
+mod interop;
 mod object;
 mod runtime;
 pub mod v8;
@@ -48,21 +50,26 @@ lazy_static! {
 }
 
 pub trait JSArray {
-    type Value: JSValue;
+    type RT: JSRuntime;
 
-    type Index;
+    fn get<T: Into<<Self::RT as JSRuntime>::ArrayIndex>>(
+        &self,
+        index: T,
+    ) -> Result<<Self::RT as JSRuntime>::Value>;
 
-    fn get<T: Into<Self::Index>>(&self, index: T) -> Result<Self::Value>;
+    fn set<T: Into<<Self::RT as JSRuntime>::ArrayIndex>>(
+        &self,
+        index: T,
+        value: &<Self::RT as JSRuntime>::Value,
+    ) -> Result<()>;
 
-    fn set<T: Into<Self::Index>>(&self, index: T, value: &Self::Value) -> Result<()>;
+    fn push(&self, value: <Self::RT as JSRuntime>::Value) -> Result<()>;
 
-    fn push(&self, value: Self::Value) -> Result<()>;
+    fn pop(&self) -> Result<<Self::RT as JSRuntime>::Value>;
 
-    fn pop(&self) -> Result<Self::Value>;
+    fn remove<T: Into<<Self::RT as JSRuntime>::ArrayIndex>>(&self, index: T) -> Result<()>;
 
-    fn remove<T: Into<Self::Index>>(&self, index: T) -> Result<()>;
-
-    fn length(&self) -> Result<Self::Index>;
+    fn length(&self) -> Result<<Self::RT as JSRuntime>::ArrayIndex>;
 
     //TODO: implement other things when needed. Maybe also `Iterator`?
 }
