@@ -10,7 +10,7 @@ use v8::{
 use crate::types::{Error, Result};
 use crate::web_executor::js::compile::JSCompiled;
 use crate::web_executor::js::v8::compile::V8Compiled;
-use crate::web_executor::js::v8::{FromContext, V8Context, V8Object, V8Value};
+use crate::web_executor::js::v8::{FromContext, V8Context, V8Engine, V8Object, V8Value};
 use crate::web_executor::js::{JSContext, JSError, JSRuntime};
 
 /// SAFETY: This is NOT thread safe, as the rest of the engine is not thread safe.
@@ -268,15 +268,13 @@ impl Drop for V8Ctx<'_> {
 }
 
 impl<'a> JSContext for V8Context<'a> {
-    type Value = V8Value<'a>;
-    type Compiled = V8Compiled<'a>;
-    type Object = V8Object<'a>;
+    type RT = V8Engine<'a>;
 
-    fn run(&mut self, code: &str) -> Result<Self::Value> {
+    fn run(&mut self, code: &str) -> Result<<Self::RT as JSRuntime>::Value> {
         self.compile(code)?.run()
     }
 
-    fn compile(&mut self, code: &str) -> Result<Self::Compiled> {
+    fn compile(&mut self, code: &str) -> Result<<Self::RT as JSRuntime>::Compiled> {
         let s = self.borrow_mut().scope();
 
         let try_catch = &mut TryCatch::new(s);
@@ -292,11 +290,14 @@ impl<'a> JSContext for V8Context<'a> {
         Ok(V8Compiled::from_ctx(Rc::clone(self), script))
     }
 
-    fn run_compiled(&mut self, compiled: &mut Self::Compiled) -> Result<Self::Value> {
+    fn run_compiled(
+        &mut self,
+        compiled: &mut <Self::RT as JSRuntime>::Compiled,
+    ) -> Result<<Self::RT as JSRuntime>::Value> {
         compiled.run()
     }
 
-    fn new_global_object(&mut self, name: &str) -> Result<Self::Object> {
+    fn new_global_object(&mut self, name: &str) -> Result<<Self::RT as JSRuntime>::Object> {
         let scope = self.borrow_mut().scope();
         let obj = Object::new(scope);
         let name = v8::String::new(scope, name).unwrap();

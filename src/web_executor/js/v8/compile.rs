@@ -17,8 +17,8 @@ impl<'a> FromContext<'a, Local<'a, Script>> for V8Compiled<'a> {
 }
 
 impl<'a> JSCompiled for V8Compiled<'a> {
-    type Value = V8Value<'a>;
-    fn run(&mut self) -> crate::types::Result<Self::Value> {
+    type RT = V8Engine<'a>;
+    fn run(&mut self) -> crate::types::Result<<Self::RT as JSRuntime>::Value> {
         let try_catch = &mut v8::TryCatch::new(self.context.borrow_mut().scope());
 
         let Some(value) = self.compiled.run(try_catch) else {

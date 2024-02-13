@@ -1,13 +1,13 @@
 use crate::css3::parser_config::Context;
 use crate::types::Result;
-use crate::web_executor::js::{JSContext, JSValue};
+use crate::web_executor::js::{JSContext, JSRuntime, JSValue};
 use clap::builder::Str;
 
 //trait to easily convert Rust types to JS values (just call .to_js_value() on the type)
 pub trait ValueConversion<V: JSValue> {
     type Value: JSValue;
 
-    fn to_js_value(&self, ctx: V::Context) -> Result<Self::Value>;
+    fn to_js_value(&self, ctx: <V::RT as JSRuntime>::Context) -> Result<Self::Value>;
 }
 
 macro_rules! impl_value_conversion {
@@ -15,7 +15,7 @@ macro_rules! impl_value_conversion {
         impl<V: JSValue> ValueConversion<V> for $type {
             type Value = V;
 
-            fn to_js_value(&self, ctx: V::Context) -> Result<Self::Value> {
+            fn to_js_value(&self, ctx: <V::RT as JSRuntime>::Context) -> Result<Self::Value> {
                 Self::Value::new_number(ctx, *self as f64)
             }
         }
@@ -36,7 +36,7 @@ macro_rules! impl_value_conversion {
     ($func:ident, $type:ty, deref) => {
         impl<V: JSValue> ValueConversion<V> for $type {
             type Value = V;
-            fn to_js_value(&self, ctx: V::Context) -> Result<Self::Value> {
+            fn to_js_value(&self, ctx: <V::RT as JSRuntime>::Context) -> Result<Self::Value> {
                 Self::Value::$func(ctx, *self)
             }
         }
@@ -72,14 +72,14 @@ impl_value_conversion!(bool, bool);
 
 impl<V: JSValue> ValueConversion<V> for String {
     type Value = V;
-    fn to_js_value(&self, ctx: V::Context) -> Result<Self::Value> {
+    fn to_js_value(&self, ctx: <V::RT as JSRuntime>::Context) -> Result<Self::Value> {
         Self::Value::new_string(ctx, self)
     }
 }
 
 impl<V: JSValue> ValueConversion<V> for () {
     type Value = V;
-    fn to_js_value(&self, ctx: V::Context) -> Result<Self::Value> {
+    fn to_js_value(&self, ctx: <V::RT as JSRuntime>::Context) -> Result<Self::Value> {
         Self::Value::new_undefined(ctx)
     }
 }

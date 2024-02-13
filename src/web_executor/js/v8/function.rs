@@ -8,7 +8,7 @@ use v8::{
 
 use crate::types::{Error, Result};
 use crate::web_executor::js::function::{JSFunctionCallBack, JSFunctionCallBackVariadic};
-use crate::web_executor::js::v8::{ctx_from_function_callback_info, V8Context, V8Value};
+use crate::web_executor::js::v8::{ctx_from_function_callback_info, V8Context, V8Engine, V8Value};
 use crate::web_executor::js::{
     Args, JSError, JSFunction, JSFunctionVariadic, JSRuntime, JSValue, VariadicArgs,
     VariadicArgsInternal,
@@ -51,10 +51,13 @@ impl<'a> Iterator for V8Args<'a> {
 }
 
 impl<'a> Args for V8Args<'a> {
-    type Context = V8Context<'a>;
-    type Value = V8Value<'a>;
+    type RT = V8Engine<'a>;
 
-    fn get(&self, index: usize, ctx: Self::Context) -> Option<Self::Value> {
+    fn get(
+        &self,
+        index: usize,
+        ctx: <Self::RT as JSRuntime>::Context,
+    ) -> Option<<Self::RT as JSRuntime>::Value> {
         if index < self.args.len() {
             Some(V8Value {
                 context: Rc::clone(&ctx),
@@ -69,7 +72,7 @@ impl<'a> Args for V8Args<'a> {
         self.args.len()
     }
 
-    fn as_vec(&self, ctx: Self::Context) -> Vec<Self::Value> {
+    fn as_vec(&self, ctx: <Self::RT as JSRuntime>::Context) -> Vec<<Self::RT as JSRuntime>::Value> {
         let mut a = Vec::with_capacity(self.args.len());
         for i in 0..self.args.len() {
             let Some(value) = self.args.get(i) else {
@@ -87,24 +90,17 @@ impl<'a> Args for V8Args<'a> {
 }
 
 impl<'a> JSFunctionCallBack for V8FunctionCallBack<'a> {
-    type Args = V8Args<'a>;
-    type Context = V8Context<'a>;
-    type Value = V8Value<'a>;
-
-    fn context(&mut self) -> Self::Context {
+    type RT = V8Engine<'a>;
+    fn context(&mut self) -> <Self::RT as JSRuntime>::Context {
         Rc::clone(&self.ctx)
     }
 
-    fn args(&mut self) -> &Self::Args {
+    fn args(&mut self) -> &<Self::RT as JSRuntime>::Args {
         &self.args
     }
 
     fn len(&self) -> usize {
         self.args.len()
-    }
-
-    fn ret(&mut self, value: Self::Value) {
-        self.ret = Ok(value.value);
     }
 
     fn error(&mut self, error: impl Display) {
@@ -115,6 +111,10 @@ impl<'a> JSFunctionCallBack for V8FunctionCallBack<'a> {
             return;
         };
         scope.throw_exception(Local::from(e));
+    }
+
+    fn ret(&mut self, value: <Self::RT as JSRuntime>::Value) {
+        self.ret = Ok(value.value);
     }
 }
 
@@ -222,11 +222,11 @@ impl<'a> CallbackWrapper<'a> {
 }
 
 impl<'a> JSFunction for V8Function<'a> {
-    type CB = V8FunctionCallBack<'a>;
-    type Context = V8Context<'a>;
-    type Value = V8Value<'a>;
-
-    fn new(ctx: Self::Context, f: impl Fn(&mut Self::CB) + 'static) -> Result<Self> {
+    type RT = V8Engine<'a>;
+    fn new(
+        ctx: <Self::RT as JSRuntime>::Context,
+        f: impl Fn(&mut <Self::RT as JSRuntime>::FunctionCallBack) + 'static,
+    ) -> Result<Self> {
         let ctx = Rc::clone(&ctx);
 
         let builder: FunctionBuilder<Function> = FunctionBuilder::new_raw(callback);
@@ -300,12 +300,13 @@ impl<'a> Iterator for V8VariadicArgsInternal<'a> {
 }
 
 impl<'a> VariadicArgsInternal for V8VariadicArgsInternal<'a> {
-    type Context = V8Context<'a>;
-    type Value = V8Value<'a>;
+    type RT = V8Engine<'a>;
 
-    type Args = V8VariadicArgs<'a>;
-
-    fn get(&self, index: usize, ctx: Self::Context) -> Option<Self::Value> {
+    fn get(
+        &self,
+        index: usize,
+        ctx: <Self::RT as JSRuntime>::Context,
+    ) -> Option<<Self::RT as JSRuntime>::Value> {
         if index < self.args.len() {
             Some(V8Value {
                 context: Rc::clone(&ctx),
@@ -320,7 +321,7 @@ impl<'a> VariadicArgsInternal for V8VariadicArgsInternal<'a> {
         self.args.len()
     }
 
-    fn as_vec(&self, ctx: Self::Context) -> Vec<Self::Value> {
+    fn as_vec(&self, ctx: <Self::RT as JSRuntime>::Context) -> Vec<<Self::RT as JSRuntime>::Value> {
         let mut a = Vec::with_capacity(self.args.len());
         for i in 0..self.args.len() {
             let Some(value) = self.args.get(i) else {
@@ -336,7 +337,10 @@ impl<'a> VariadicArgsInternal for V8VariadicArgsInternal<'a> {
         a
     }
 
-    fn variadic(&self, ctx: Self::Context) -> Self::Args {
+    fn variadic(
+        &self,
+        ctx: <Self::RT as JSRuntime>::Context,
+    ) -> <Self::RT as JSRuntime>::VariadicArgs {
         V8VariadicArgs {
             next: 0,
             args: self.as_vec(ctx),
@@ -350,9 +354,9 @@ pub struct V8VariadicArgs<'a> {
 }
 
 impl<'a> VariadicArgs for V8VariadicArgs<'a> {
-    type Value = V8Value<'a>;
+    type RT = V8Engine<'a>;
 
-    fn get(&self, index: usize) -> Option<&Self::Value> {
+    fn get(&self, index: usize) -> Option<&<Self::RT as JSRuntime>::Value> {
         self.args.get(index)
     }
 
@@ -360,21 +364,19 @@ impl<'a> VariadicArgs for V8VariadicArgs<'a> {
         self.args.len()
     }
 
-    fn as_vec(&self) -> &Vec<Self::Value> {
+    fn as_vec(&self) -> &Vec<<Self::RT as JSRuntime>::Value> {
         &self.args
     }
 }
 
 impl<'a> JSFunctionCallBackVariadic for V8FunctionCallBackVariadic<'a> {
-    type Args = V8VariadicArgsInternal<'a>;
-    type Context = V8Context<'a>;
-    type Value = V8Value<'a>;
+    type RT = V8Engine<'a>;
 
-    fn context(&mut self) -> Self::Context {
+    fn context(&mut self) -> <Self::RT as JSRuntime>::Context {
         Rc::clone(&self.ctx)
     }
 
-    fn args(&mut self) -> &Self::Args {
+    fn args(&mut self) -> &<Self::RT as JSRuntime>::VariadicArgsInternal {
         &self.args
     }
 
@@ -392,7 +394,7 @@ impl<'a> JSFunctionCallBackVariadic for V8FunctionCallBackVariadic<'a> {
         scope.throw_exception(Local::from(e));
     }
 
-    fn ret(&mut self, value: Self::Value) {
+    fn ret(&mut self, value: <Self::RT as JSRuntime>::Value) {
         self.ret = Ok(value.value);
     }
 }
@@ -498,11 +500,11 @@ impl<'a> CallbackWrapperVariadic<'a> {
 }
 
 impl<'a> JSFunctionVariadic for V8FunctionVariadic<'a> {
-    type CB = V8FunctionCallBackVariadic<'a>;
-    type Context = V8Context<'a>;
-    type Value = V8Value<'a>;
-
-    fn new(ctx: Self::Context, f: impl Fn(&mut Self::CB) + 'static) -> Result<Self> {
+    type RT = V8Engine<'a>;
+    fn new(
+        ctx: <Self::RT as JSRuntime>::Context,
+        f: impl Fn(&mut <Self::RT as JSRuntime>::FunctionCallBackVariadic) + 'static,
+    ) -> Result<Self> {
         let ctx = Rc::clone(&ctx);
         let scope = ctx.borrow_mut().scope();
 
@@ -521,7 +523,7 @@ impl<'a> JSFunctionVariadic for V8FunctionVariadic<'a> {
         }
     }
 
-    fn call(&mut self, cb: &mut Self::CB) {
+    fn call(&mut self, cb: &mut V8FunctionCallBackVariadic) {
         let ret = self.function.call(
             cb.ctx.borrow_mut().scope(),
             Local::from(v8::undefined(cb.ctx.borrow_mut().scope())),

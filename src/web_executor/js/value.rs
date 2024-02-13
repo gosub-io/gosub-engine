@@ -5,8 +5,7 @@ pub trait JSValue
 where
     Self: Sized,
 {
-    type Context: JSContext;
-    type Object: JSObject;
+    type RT: JSRuntime;
 
     fn as_string(&self) -> Result<String>;
 
@@ -14,7 +13,7 @@ where
 
     fn as_bool(&self) -> Result<bool>;
 
-    fn as_object(&self) -> Result<Self::Object>;
+    fn as_object(&self) -> Result<<Self::RT as JSRuntime>::Object>;
 
     fn is_string(&self) -> bool;
 
@@ -38,13 +37,16 @@ where
     //
     // fn new_array<T: ValueConversion<Self>>(value: &[T]) -> Result<Self::Array>;
 
-    fn new_string(ctx: Self::Context, value: &str) -> Result<Self>;
+    fn new_string(ctx: <Self::RT as JSRuntime>::Context, value: &str) -> Result<Self>;
 
-    fn new_number<N: Into<f64>>(context: Self::Context, value: N) -> Result<Self>;
+    fn new_number<N: Into<f64>>(
+        context: <Self::RT as JSRuntime>::Context,
+        value: N,
+    ) -> Result<Self>;
 
-    fn new_bool(ctx: Self::Context, value: bool) -> Result<Self>;
+    fn new_bool(ctx: <Self::RT as JSRuntime>::Context, value: bool) -> Result<Self>;
 
-    fn new_null(ctx: Self::Context) -> Result<Self>;
+    fn new_null(ctx: <Self::RT as JSRuntime>::Context) -> Result<Self>;
 
-    fn new_undefined(ctx: Self::Context) -> Result<Self>;
+    fn new_undefined(ctx: <Self::RT as JSRuntime>::Context) -> Result<Self>;
 }
