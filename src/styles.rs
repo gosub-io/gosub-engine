@@ -1,14 +1,18 @@
+use crate::css3::parser_config::ParserConfig;
+use crate::css3::Css3;
+use crate::html5::node::{Node, NodeId};
+use crate::html5::parser::document::{Document, DocumentHandle};
+use crate::styles::converter::{
+    convert_css_ast_to_rules, CssOrigin, CssSelector, CssSelectorPart, CssSelectorType,
+    CssStylesheet, MatcherType, Specificity,
+};
 use core::fmt::Debug;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fs;
-use crate::css3::{Css3};
-use crate::css3::parser_config::ParserConfig;
-use crate::html5::node::{Node, NodeId};
-use crate::html5::parser::document::{Document, DocumentHandle};
-use crate::styles::styles::{convert_css_ast_to_rules, CssOrigin, CssSelector, CssSelectorPart, CssSelectorType, CssStylesheet, MatcherType, Specificity};
 
-pub mod styles;
+pub mod converter;
+pub mod css_colors;
 mod property_list;
 mod shorthands;
 
@@ -32,9 +36,27 @@ impl DeclarationProperty {
     /// Priority of the declaration based on the origin and importance as defined in https://developer.mozilla.org/en-US/docs/Web/CSS/Cascade
     fn priority(&self) -> u8 {
         match self.origin {
-            CssOrigin::UserAgent => if self.important { 7 } else { 1 },
-            CssOrigin::User => if self.important { 6 } else { 2 },
-            CssOrigin::Author => if self.important { 5 } else { 3 },
+            CssOrigin::UserAgent => {
+                if self.important {
+                    7
+                } else {
+                    1
+                }
+            }
+            CssOrigin::User => {
+                if self.important {
+                    6
+                } else {
+                    2
+                }
+            }
+            CssOrigin::Author => {
+                if self.important {
+                    5
+                } else {
+                    3
+                }
+            }
         }
     }
 }
@@ -47,7 +69,7 @@ impl PartialEq<Self> for DeclarationProperty {
 
 impl PartialOrd<Self> for DeclarationProperty {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.priority().partial_cmp(&other.priority())
+        Some(self.cmp(other))
     }
 }
 
@@ -58,8 +80,6 @@ impl Ord for DeclarationProperty {
         self.priority().cmp(&other.priority())
     }
 }
-
-
 
 ///
 #[derive(Debug)]
@@ -72,6 +92,12 @@ pub struct ValueEntry {
     pub computed: String,
     pub used: String,
     pub actual: String,
+}
+
+impl Default for ValueEntry {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ValueEntry {
@@ -93,7 +119,6 @@ pub type CssMapEntry = HashMap<String, ValueEntry>;
 /// Map of all declared values for all nodes in the document
 pub type CssMap = HashMap<NodeId, CssMapEntry>;
 
-
 /// Style calculator will generate a declared values map for all nodes in the document based on the stylesheets given
 pub struct StyleCalculator {
     stylesheets: Vec<CssStylesheet>,
@@ -101,7 +126,7 @@ pub struct StyleCalculator {
     css_map: CssMap,
 }
 
-impl<'a> StyleCalculator {
+impl StyleCalculator {
     /// Creates a new style calculator for the given document
     pub fn new(document: DocumentHandle) -> Self {
         let mut sheets = vec![];
@@ -146,17 +171,17 @@ impl<'a> StyleCalculator {
 
             // Iterate all stylesheets we have
             for sheet in self.stylesheets.iter() {
-                println!("Processing sheet: {:?} {}", sheet.origin, sheet.location);
+                // println!("Processing sheet: {:?} {}", sheet.origin, sheet.location);
 
                 // We iterate over all rules in the stylesheet
                 for rule in sheet.rules.iter() {
                     for selector in rule.selectors().iter() {
-                        println!("Checking rule selector: {:?}", selector);
+                        // println!("Checking rule selector: {:?}", selector);
                         if !self.match_selector(current_node_id, selector) {
                             continue;
                         }
 
-                        println!("+++ Matched rule selector: {:?}", selector);
+                        // println!("+++ Matched rule selector: {:?}", selector);
 
                         for declaration in rule.declarations().iter() {
                             let property = declaration.property.clone();
@@ -166,19 +191,32 @@ impl<'a> StyleCalculator {
                                 origin: sheet.origin.clone(),
                                 important: declaration.important,
                                 location: "".into(),
-                                specificity: selector.specificity()
+                                specificity: selector.specificity(),
                             };
 
-                            if css_map_entry.contains_key(&property) {
+                            if let std::collections::hash_map::Entry::Vacant(e) =
+                                css_map_entry.entry(property.clone())
+                            {
+                                let mut entry = ValueEntry::new();
+                                entry.declared.push(declaration);
+                                e.insert(entry);
+                                // println!("+++ Created new entry");
+                            } else {
                                 let entry = css_map_entry.get_mut(&property).unwrap();
                                 entry.declared.push(declaration);
                                 // println!("+++ Adding to existing entry");
-                            } else {
-                                let mut entry = ValueEntry::new();
-                                entry.declared.push(declaration);
-                                css_map_entry.insert(property, entry);
-                                // println!("+++ Created new entry");
                             }
+
+                            // if css_map_entry.contains_key(&property) {
+                            //     let entry = css_map_entry.get_mut(&property).unwrap();
+                            //     entry.declared.push(declaration);
+                            //     // println!("+++ Adding to existing entry");
+                            // } else {
+                            //     let mut entry = ValueEntry::new();
+                            //     entry.declared.push(declaration);
+                            //     css_map_entry.insert(property, entry);
+                            //     // println!("+++ Created new entry");
+                            // }
                         }
                     }
                 }
@@ -243,16 +281,19 @@ impl<'a> StyleCalculator {
     }
 
     /// Returns true when the given node matches the part(s)
-    fn match_selector_part(&self, node_id: NodeId, selector_parts: &mut Vec<CssSelectorPart>) -> bool {
+    fn match_selector_part(
+        &self,
+        node_id: NodeId,
+        selector_parts: &mut Vec<CssSelectorPart>,
+    ) -> bool {
         let binding = self.document.get();
         let mut next_current_node = Some(binding.get_node_by_id(node_id).expect("node not found"));
 
         while !selector_parts.is_empty() {
-            if next_current_node == None {
+            if next_current_node.is_none() {
                 return false;
             }
             let current_node = next_current_node.expect("current_node not found");
-
 
             let part = selector_parts.remove(0);
 
@@ -273,16 +314,25 @@ impl<'a> StyleCalculator {
                     }
                 }
                 CssSelectorType::Id => {
-                    if current_node.as_element().attributes.get("id").unwrap_or(&"".to_string()) != &part.value {
+                    if current_node
+                        .as_element()
+                        .attributes
+                        .get("id")
+                        .unwrap_or(&"".to_string())
+                        != &part.value
+                    {
                         return false;
                     }
                 }
                 CssSelectorType::Attribute => {
                     let wanted_attr_name = part.name.clone();
                     let mut wanted_attr_value = part.value.clone();
-                    let mut got_attr_value = current_node.get_attribute(&wanted_attr_name).unwrap_or(&"".to_string()).to_string();
+                    let mut got_attr_value = current_node
+                        .get_attribute(&wanted_attr_name)
+                        .unwrap_or(&"".to_string())
+                        .to_string();
 
-                    if ! current_node.has_attribute(&wanted_attr_name) {
+                    if !current_node.has_attribute(&wanted_attr_name) {
                         return false;
                     }
 
@@ -303,11 +353,14 @@ impl<'a> StyleCalculator {
                         }
                         MatcherType::Includes => {
                             // Contains word
-                            return wanted_attr_value.split_whitespace().any(|s| s == got_attr_value);
+                            return wanted_attr_value
+                                .split_whitespace()
+                                .any(|s| s == got_attr_value);
                         }
                         MatcherType::DashMatch => {
                             // Exact value or value followed by a hyphen
-                            return got_attr_value == wanted_attr_value || got_attr_value.starts_with(&format!("{}-", wanted_attr_value));
+                            return got_attr_value == wanted_attr_value
+                                || got_attr_value.starts_with(&format!("{}-", wanted_attr_value));
                         }
                         MatcherType::PrefixMatch => {
                             // Starts with
@@ -383,11 +436,11 @@ fn parent_node<'b>(doc: &'b Document, node: &'b Node) -> Option<&'b Node> {
 
     loop {
         let node_id = cur_node.parent;
-        if node_id.is_none() {
-            return None;
-        }
+        node_id?;
 
-        cur_node = doc.get_node_by_id(node_id.expect("node_id")).expect("node not found");
+        cur_node = doc
+            .get_node_by_id(node_id.expect("node_id"))
+            .expect("node not found");
         if cur_node.is_element() {
             return Some(cur_node);
         }
@@ -404,7 +457,8 @@ pub fn load_default_useragent_stylesheet() -> anyhow::Result<CssStylesheet> {
         ..Default::default()
     };
 
-    let css = fs::read_to_string("resources/useragent.css").expect("Could not load useragent stylesheet");
+    let css =
+        fs::read_to_string("resources/useragent.css").expect("Could not load useragent stylesheet");
     let css_ast = Css3::parse(css.as_str(), config).expect("Could not parse useragent stylesheet");
 
     convert_css_ast_to_rules(&css_ast, CssOrigin::UserAgent, location)

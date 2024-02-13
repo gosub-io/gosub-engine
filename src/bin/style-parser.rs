@@ -10,10 +10,13 @@ use gosub_engine::html5::parser::document::DocumentBuilder;
 use gosub_engine::html5::parser::document::{visit, Document};
 use gosub_engine::html5::parser::Html5Parser;
 use gosub_engine::html5::visit::Visitor;
+use gosub_engine::pipeline::Pipeline;
+use gosub_engine::styles::css_colors::get_color_value;
+use gosub_engine::styles::StyleCalculator;
 use regex::Regex;
+use std::collections::HashMap;
 use std::fs;
 use url::Url;
-use gosub_engine::styles::{load_default_useragent_stylesheet, StyleCalculator};
 
 struct TextVisitor {
     color: String,
@@ -63,22 +66,12 @@ impl Visitor<Node> for TextVisitor {
 
     fn element_enter(&mut self, node: &Node, data: &ElementData) {
         let props = self.calculator.get_properties(node.id);
-        let binding = "".to_string();
 
-        let col = props.get("color").unwrap_or(&binding);
-        if !col.is_empty() {
-            let r = i32::from_str_radix(&col[1..3], 16).unwrap();
-            let g = i32::from_str_radix(&col[3..5], 16).unwrap();
-            let b = i32::from_str_radix(&col[5..7], 16).unwrap();
-            print!("\x1b[38;2;{};{};{}m", r, g, b);
+        if let Some(col) = get_css_color(&props, "color") {
+            print!("\x1b[38;2;{};{};{}m", col.r, col.g, col.b);
         }
-
-        let bgcol = props.get("background-color").unwrap_or(&binding);
-        if !bgcol.is_empty() {
-            let r = i32::from_str_radix(&bgcol[1..3], 16).unwrap();
-            let g = i32::from_str_radix(&bgcol[3..5], 16).unwrap();
-            let b = i32::from_str_radix(&bgcol[5..7], 16).unwrap();
-            print!("\x1b[48;2;{};{};{}m", r, g, b);
+        if let Some(col) = get_css_color(&props, "background-color") {
+            print!("\x1b[48;2;{};{};{}m", col.r, col.g, col.b);
         }
 
         print!("<{}>", data.name);
@@ -86,27 +79,47 @@ impl Visitor<Node> for TextVisitor {
 
     fn element_leave(&mut self, node: &Node, data: &ElementData) {
         let props = self.calculator.get_properties(node.id);
-        let binding = "".to_string();
-
-        let col = props.get("color").unwrap_or(&binding);
-        if !col.is_empty() {
-            let r = i32::from_str_radix(&col[1..3], 16).unwrap();
-            let g = i32::from_str_radix(&col[3..5], 16).unwrap();
-            let b = i32::from_str_radix(&col[5..7], 16).unwrap();
-            print!("\x1b[38;2;{};{};{}m", r, g, b);
+        if let Some(col) = get_css_color(&props, "color") {
+            print!("\x1b[38;2;{};{};{}m", col.r, col.g, col.b);
         }
-
-        let bgcol = props.get("background-color").unwrap_or(&binding);
-        if !bgcol.is_empty() {
-            let r = i32::from_str_radix(&bgcol[1..3], 16).unwrap();
-            let g = i32::from_str_radix(&bgcol[3..5], 16).unwrap();
-            let b = i32::from_str_radix(&bgcol[5..7], 16).unwrap();
-            print!("\x1b[48;2;{};{};{}m", r, g, b);
+        if let Some(col) = get_css_color(&props, "background-color") {
+            print!("\x1b[48;2;{};{};{}m", col.r, col.g, col.b);
         }
 
         print!("</{}>", data.name);
-        print!("\x1b[39;49m");        // default terminal color reset
+        print!("\x1b[39;49m"); // default terminal color reset
     }
+}
+
+struct RgbColor {
+    r: u8,
+    g: u8,
+    b: u8,
+}
+
+fn get_css_color(props: &HashMap<String, String>, prop_name: &str) -> Option<RgbColor> {
+    let binding = "".to_string();
+
+    let col = props.get(prop_name).unwrap_or(&binding);
+    let col = match get_color_value(col) {
+        Some(c) => c,
+        None => col,
+    };
+
+    // @todo: #fff must be converted to #ffffff
+    if Regex::new(r"^#[0-9a-fA-F]{6}$").unwrap().is_match(col) {
+        let r = i32::from_str_radix(&col[1..3], 16).unwrap();
+        let g = i32::from_str_radix(&col[3..5], 16).unwrap();
+        let b = i32::from_str_radix(&col[5..7], 16).unwrap();
+
+        return Some(RgbColor {
+            r: r as u8,
+            g: g as u8,
+            b: b as u8,
+        });
+    }
+
+    None
 }
 
 fn main() -> Result<()> {
@@ -125,7 +138,7 @@ fn main() -> Result<()> {
 
     let html = if url.scheme() == "http" || url.scheme() == "https" {
         // Fetch the html from the url
-        let response = ureq::get(&url.to_string()).call()?;
+        let response = ureq::get(url.as_ref()).call()?;
         if response.status() != 200 {
             bail!(format!(
                 "Could not get url. Status code {}",
@@ -144,7 +157,8 @@ fn main() -> Result<()> {
     chars.set_confidence(Confidence::Certain);
 
     let doc_handle = DocumentBuilder::new_document(Some(url));
-    let _parse_errors = Html5Parser::parse_document(&mut chars, Document::clone(&doc_handle), None)?;
+    let _parse_errors =
+        Html5Parser::parse_document(&mut chars, Document::clone(&doc_handle), None)?;
 
     // Create stylesheet calculator and load default user agent stylesheets
     let mut calculator = StyleCalculator::new(Document::clone(&doc_handle));
@@ -158,8 +172,11 @@ fn main() -> Result<()> {
     // calculator.find_used_values(/*layout*/);        // we need to have a layout for calculating these values
     // calculator.find_actual_values();                // Makes sure we use 2px instead of a computed 2.25px
 
+    let pipeline = Pipeline::new();
+    let render_tree = pipeline.generate_render_tree(Document::clone(&doc_handle), &calculator);
+
     let mut visitor = Box::new(TextVisitor::new(calculator)) as Box<dyn Visitor<Node>>;
-    visit(&Document::clone(&doc_handle), &mut visitor);
+    visit(&Document::clone(&render_tree), &mut visitor);
 
     Ok(())
 }

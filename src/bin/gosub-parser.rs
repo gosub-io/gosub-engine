@@ -4,8 +4,8 @@ use gosub_html5::parser::Html5Parser;
 use gosub_shared::bytes::{CharIterator, Confidence, Encoding};
 use std::fs;
 use std::process::exit;
-use url::Url;
 use std::str::FromStr;
+use url::Url;
 
 fn bail(message: &str) -> ! {
     println!("{message}");
@@ -23,7 +23,7 @@ fn main() -> Result<()> {
 
     let html = if url.scheme() == "http" || url.scheme() == "https" {
         // Fetch the html from the url
-        let response = ureq::get(&url.to_string()).call()?;
+        let response = ureq::get(url.as_ref()).call()?;
         if response.status() != 200 {
             bail(&format!(
                 "Could not get url. Status code {}",
@@ -31,7 +31,7 @@ fn main() -> Result<()> {
             ));
         }
         response.into_string()?
-    } else if url.scheme() == "file"{
+    } else if url.scheme() == "file" {
         // Get html from the file
         fs::read_to_string(&url.to_string())?
     } else {
@@ -53,7 +53,6 @@ fn main() -> Result<()> {
     let handle = DocumentBuilder::new_document(Some(url));
     let parse_errors = Html5Parser::parse_document(&mut chars, Document::clone(&handle), None)?;
 
-
     println!("Found {} stylesheets", handle.get().stylesheets.len());
     for sheet in &handle.get().stylesheets {
         println!("Stylesheet location: {:?}", sheet.location);
@@ -71,5 +70,3 @@ fn main() -> Result<()> {
 
     Ok(())
 }
-
-

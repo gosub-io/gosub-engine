@@ -574,13 +574,19 @@ lazy_static! {
     ];
 }
 
-
 #[allow(dead_code)]
 fn get_initial_value(property: &str) -> Option<&'static str> {
-    PROPERTY_TABLE.iter().find(|entry| entry.name == property).map(|entry| entry.initial)
+    PROPERTY_TABLE
+        .iter()
+        .find(|entry| entry.name == property)
+        .map(|entry| entry.initial)
 }
 
 #[allow(dead_code)]
 fn is_inheritable(property: &str) -> bool {
-    PROPERTY_TABLE.iter().find(|entry| entry.name == property).map(|entry| entry.inheritable).unwrap_or(false)
+    PROPERTY_TABLE
+        .iter()
+        .find(|entry| entry.name == property)
+        .map(|entry| entry.inheritable)
+        .unwrap_or(false)
 }

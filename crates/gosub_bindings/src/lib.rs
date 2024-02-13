@@ -34,7 +34,7 @@ pub unsafe extern "C" fn gosub_rendertree_init(html: *const c_char) -> *mut Rend
     chars.read_from_str(html_str, Some(Encoding::UTF8));
     chars.set_confidence(Confidence::Certain);
 
-    let doc = DocumentBuilder::new_document();
+    let doc = DocumentBuilder::new_document(None);
     let parse_result = Html5Parser::parse_document(&mut chars, Document::clone(&doc), None);
 
     if parse_result.is_ok() {

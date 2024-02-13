@@ -8,11 +8,6 @@ use super::NodeId;
 pub struct NodeArena {
     /// Current nodes stored as <id, node>
     nodes: HashMap<NodeId, Node>,
-    /// Order of nodes
-    ///
-    /// Note that the order of nodes isn't directly needed for functionality, but merely present
-    /// for debugging purposes.
-    order: Vec<NodeId>,
     /// Next node ID to use
     next_id: NodeId,
 }
@@ -24,7 +19,6 @@ impl NodeArena {
         Self {
             nodes: HashMap::new(),
             next_id: NodeId::default(),
-            order: Vec::new(),
         }
     }
 
@@ -50,6 +44,10 @@ impl NodeArena {
         self.nodes.get_mut(&node_id)
     }
 
+    pub fn delete_node(&mut self, node_id: NodeId) {
+        self.nodes.remove(&node_id);
+    }
+
     /// Registered an unregistered node into the arena
     pub fn register_node(&mut self, mut node: Node) -> NodeId {
         assert!(!node.is_registered, "Node is already attached to an arena");
@@ -61,17 +59,7 @@ impl NodeArena {
         node.id = id;
 
         self.nodes.insert(id, node);
-        self.order.push(id);
         id
-    }
-
-    /// Prints the list of nodes in sequential order. This makes debugging a bit easier, but should
-    /// be removed.
-    #[allow(dead_code)]
-    pub(crate) fn print_nodes(&self) {
-        for id in &self.order {
-            println!("({}): {:?}", id, self.nodes.get(id).expect("node"));
-        }
     }
 }
 

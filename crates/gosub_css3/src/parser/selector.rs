@@ -125,7 +125,7 @@ impl Css3<'_> {
 
         let t = self.tokenizer.lookahead(0);
         if t.token_type != TokenType::RBracket {
-            if ! t.is_ident() {
+            if !t.is_ident() {
                 let op = self.parse_attribute_operator()?;
                 matcher = Some(op);
 
@@ -243,7 +243,6 @@ impl Css3<'_> {
         Ok(Node::new(NodeType::PseudoClassSelector { value }, loc))
     }
 
-
     pub fn parse_selector(&mut self) -> Result<Node, Error> {
         log::trace!("parse_selector");
 
@@ -253,7 +252,7 @@ impl Css3<'_> {
 
         // When true, we have encountered a space which means we need to emit a descendant combinator
         let mut space = false;
-        let mut whitespace_location= loc.clone();
+        let mut whitespace_location = loc.clone();
 
         while !self.tokenizer.eof() {
             let t = self.consume_any()?;
@@ -273,12 +272,8 @@ impl Css3<'_> {
                     self.tokenizer.reconsume();
                     self.parse_attribute_selector()?
                 }
-                TokenType::IDHash(value) => {
-                    Node::new(NodeType::IdSelector { value }, t.location)
-                }
-                TokenType::Hash(value) => {
-                    Node::new(NodeType::IdSelector { value }, t.location)
-                }
+                TokenType::IDHash(value) => Node::new(NodeType::IdSelector { value }, t.location),
+                TokenType::Hash(value) => Node::new(NodeType::IdSelector { value }, t.location),
                 TokenType::Colon => {
                     let nt = self.tokenizer.lookahead(0);
                     if nt.token_type == TokenType::Colon {
@@ -289,13 +284,9 @@ impl Css3<'_> {
                         self.parse_pseudo_selector()?
                     }
                 }
-                TokenType::Ident(value) => {
-                    Node::new(NodeType::Ident { value }, t.location)
-                }
+                TokenType::Ident(value) => Node::new(NodeType::Ident { value }, t.location),
 
-                TokenType::Number(value) => {
-                    Node::new(NodeType::Number { value }, t.location)
-                }
+                TokenType::Number(value) => Node::new(NodeType::Number { value }, t.location),
 
                 TokenType::Percentage(value) => {
                     Node::new(NodeType::Percentage { value }, t.location)
@@ -340,7 +331,12 @@ impl Css3<'_> {
 
             if space {
                 // Detected a space previously, so we need to emit a descendant combinator
-                let node = Node::new(NodeType::Combinator { value: " ".to_string() }, whitespace_location.clone());
+                let node = Node::new(
+                    NodeType::Combinator {
+                        value: " ".to_string(),
+                    },
+                    whitespace_location.clone(),
+                );
                 // insert before the last added node
                 children.push(node);
                 space = false;

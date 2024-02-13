@@ -250,7 +250,7 @@ pub struct Document {
     pub doctype: DocumentType,
     /// Quirks mode of this document
     pub quirks_mode: QuirksMode,
-
+    /// Loaded stylesheets as extracted from the document
     pub stylesheets: Vec<CssStylesheet>,
 }
 
@@ -294,6 +294,17 @@ impl Document {
     /// Fetches a mutable node by id or returns None when no node with this ID is found
     pub fn get_node_by_id_mut(&mut self, node_id: NodeId) -> Option<&mut Node> {
         self.arena.get_node_mut(node_id)
+    }
+
+    /// Removes a node by id from the arena. Note that this does not check the nodelist itself to see
+    /// if the node is still available as a child or parent in the tree.
+    pub fn delete_node(&mut self, node: &Node) {
+        self.arena.delete_node(node.id);
+
+        if node.parent.is_some() {
+            let parent = self.arena.get_node_mut(node.parent.unwrap()).unwrap();
+            parent.children.retain(|&x| x != node.id);
+        }
     }
 
     /// Fetches a node by named id (string) or returns None when no node with this ID is found
@@ -858,6 +869,19 @@ impl DocumentHandle {
         }
 
         Ok(found_ids)
+    }
+
+    pub fn deep_clone(&self) -> DocumentHandle {
+        let mut doc_handle = Document::shared(None);
+
+        doc_handle.get_mut().location = self.get().location.clone();
+        doc_handle.get_mut().named_id_elements = self.get().named_id_elements.clone();
+        doc_handle.get_mut().doctype = self.get().doctype;
+        doc_handle.get_mut().quirks_mode = self.get().quirks_mode;
+        doc_handle.get_mut().stylesheets = self.get().stylesheets.clone();
+        doc_handle.get_mut().arena = self.get().arena.clone();
+
+        doc_handle
     }
 }
 

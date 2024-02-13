@@ -1005,7 +1005,7 @@ impl<'chars> Html5Parser<'chars> {
                     Token::EndTag { name, .. } if name == "style" => {
                         // Fetch first child node id. This should be the inline stylesheet text
                         let style_node = current_node!(self);
-                        let style_text_node_id = style_node.children.get(0).unwrap().clone();
+                        let style_text_node_id = *style_node.children.get(0).unwrap();
 
                         // Fetch node
                         let style_text_node = self
@@ -1016,7 +1016,9 @@ impl<'chars> Html5Parser<'chars> {
                             .clone();
 
                         // Load stylesheet from text node
-                        if let Some(stylesheet) = self.load_inline_stylesheet(CssOrigin::Author, &style_text_node) {
+                        if let Some(stylesheet) =
+                            self.load_inline_stylesheet(CssOrigin::Author, &style_text_node)
+                        {
                             self.document.get_mut().stylesheets.push(stylesheet);
                         }
 
@@ -3014,7 +3016,7 @@ impl<'chars> Html5Parser<'chars> {
             Token::StartTag {
                 name,
                 is_self_closing,
-                attributes
+                attributes,
             } if name == "base" || name == "basefont" || name == "bgsound" || name == "link" => {
                 if name == "link" {
                     // Handle link elements, as it depends on rel/itemprop attributes and other factors
@@ -4091,9 +4093,8 @@ impl<'chars> Html5Parser<'chars> {
         tokens
     }
 
-
     /// Load an inline stylesheet from the <style>-node
-    fn load_inline_stylesheet(&self, origin: CssOrigin, node: &Node) -> Option<CssStylesheet>{
+    fn load_inline_stylesheet(&self, origin: CssOrigin, node: &Node) -> Option<CssStylesheet> {
         if !node.is_text() {
             return None;
         }
@@ -4111,42 +4112,58 @@ impl<'chars> Html5Parser<'chars> {
                     Err(err) => warn!("Error while converting CSS AST to rules: {} ", err),
                 }
                 None
-            },
+            }
             Err(err) => {
-                warn!("Error while parsing CSS stylesheet: {} ", err.message.clone());
+                warn!(
+                    "Error while parsing CSS stylesheet: {} ",
+                    err.message.clone()
+                );
                 None
             }
         }
-
     }
 
     /// Load and parse an external stylesheet by URL
-    fn load_external_stylesheet(&self, origin: CssOrigin, url: Url) -> Option<CssStylesheet>{
+    fn load_external_stylesheet(&self, origin: CssOrigin, url: Url) -> Option<CssStylesheet> {
         if url.scheme() != "http" && url.scheme() != "https" {
             // Only load http and https
             return None;
         }
 
         // Fetch the html from the url
-        let response = ureq::get(&url.to_string()).call();
+        let response = ureq::get(url.as_ref()).call();
         if response.is_err() {
-            warn!("Could not load external stylesheet from {}. Error: {}", url, response.unwrap_err());
+            warn!(
+                "Could not load external stylesheet from {}. Error: {}",
+                url,
+                response.unwrap_err()
+            );
             return None;
         }
         let response = response.expect("result");
 
         if response.status() != 200 {
-            warn!("Could not load external stylesheet from {}. Status code {} ", url, response.status());
+            warn!(
+                "Could not load external stylesheet from {}. Status code {} ",
+                url,
+                response.status()
+            );
             return None;
         }
         if response.content_type() != "text/css" {
-            warn!("External stylesheet has no text/css content type: {} ", response.content_type());
+            warn!(
+                "External stylesheet has no text/css content type: {} ",
+                response.content_type()
+            );
         }
 
         let css = match response.into_string() {
             Ok(css) => css,
             Err(err) => {
-                warn!("Could not load external stylesheet from {}. Error: {}", url, err);
+                warn!(
+                    "Could not load external stylesheet from {}. Error: {}",
+                    url, err
+                );
                 return None;
             }
         };
@@ -4164,20 +4181,22 @@ impl<'chars> Html5Parser<'chars> {
                     Err(err) => warn!("Error while converting CSS AST to rules: {} ", err),
                 }
                 None
-            },
+            }
             Err(err) => {
-                warn!("Error while parsing CSS stylesheet: {} ", err.message.clone());
+                warn!(
+                    "Error while parsing CSS stylesheet: {} ",
+                    err.message.clone()
+                );
                 None
             }
         }
     }
 
-
     fn handle_link_element(&mut self, attributes: HashMap<String, String>) {
         if attributes.contains_key("rel") && attributes.contains_key("itemprop") {
             // cannot have them both
             self.parse_error("link element cannot have both 'rel' and 'itemprop' attributes");
-            return
+            return;
         }
 
         if attributes.contains_key("itemprop") {
@@ -4189,9 +4208,24 @@ impl<'chars> Html5Parser<'chars> {
 
         // @todo: We need to check if the link rel is body-ok
         let parser_in_body = true;
-        let body_ok_types = ["dns-prefetch", "modulepreload", "pingback", "preconnect", "prefetch", "preload", "prerender", "stylesheet"];
+        let body_ok_types = [
+            "dns-prefetch",
+            "modulepreload",
+            "pingback",
+            "preconnect",
+            "prefetch",
+            "preload",
+            "prerender",
+            "stylesheet",
+        ];
         if parser_in_body && !body_ok_types.contains(&rel.as_str()) {
-            self.parse_error(format!("link element with rel attribute '{}' is not supported in the body", rel).as_str());
+            self.parse_error(
+                format!(
+                    "link element with rel attribute '{}' is not supported in the body",
+                    rel
+                )
+                .as_str(),
+            );
             return;
         }
 
@@ -4202,16 +4236,18 @@ impl<'chars> Html5Parser<'chars> {
                 let css_url = base_url.join(href).unwrap();
                 println!("loading external stylesheet: {}", css_url);
 
-                if let Some(stylesheet) = self.load_external_stylesheet(CssOrigin::Author, css_url) {
+                if let Some(stylesheet) = self.load_external_stylesheet(CssOrigin::Author, css_url)
+                {
                     self.document.get_mut().stylesheets.push(stylesheet);
                 }
             }
             _ => {
-                self.parse_error(format!("link element with rel attribute '{}' is not supported", rel).as_str());
+                self.parse_error(
+                    format!("link element with rel attribute '{}' is not supported", rel).as_str(),
+                );
             }
         }
     }
-
 }
 
 #[cfg(test)]

@@ -11,7 +11,6 @@ pub mod parser_config;
 pub mod tokenizer;
 mod unicode;
 pub mod walker;
-pub mod css3;
 
 /// This CSS3 parser is heavily based on the MIT licensed CssTree parser written by
 /// Roman Dvornov (https://github.com/lahmatiy).
