@@ -33,7 +33,7 @@ fn main() -> Result<()> {
         response.into_string()?
     } else if url.scheme() == "file" {
         // Get html from the file
-        fs::read_to_string(&url.to_string())?
+        fs::read_to_string(url.to_string().trim_start_matches("file://"))?
     } else {
         bail("Invalid url scheme");
     };

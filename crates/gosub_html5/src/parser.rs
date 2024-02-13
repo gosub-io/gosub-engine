@@ -1005,7 +1005,13 @@ impl<'chars> Html5Parser<'chars> {
                     Token::EndTag { name, .. } if name == "style" => {
                         // Fetch first child node id. This should be the inline stylesheet text
                         let style_node = current_node!(self);
-                        let style_text_node_id = *style_node.children.get(0).unwrap();
+                        if style_node.children.is_empty() {
+                            self.open_elements.pop();
+                            self.insertion_mode = self.original_insertion_mode;
+                            return;
+                        }
+
+                        let style_text_node_id = *style_node.children.first().unwrap();
 
                         // Fetch node
                         let style_text_node = self
@@ -3780,8 +3786,6 @@ impl<'chars> Html5Parser<'chars> {
     #[cfg(feature = "debug_parser")]
     fn display_debug_info(&self) {
         println!("-----------------------------------------\n");
-        self.document.get().print_nodes();
-        println!("-----------------------------------------\n");
         println!("current token   : '{}'", self.current_token);
         println!("insertion mode  : {:?}", self.insertion_mode);
         print!("Open elements   : [ ");
@@ -4201,6 +4205,11 @@ impl<'chars> Html5Parser<'chars> {
 
         if attributes.contains_key("itemprop") {
             self.parse_error("link element with 'itemprop' attribute not supported yet");
+            return;
+        }
+
+        if !attributes.contains_key("rel") {
+            self.parse_error("link element without 'rel' attribute not supported yet");
             return;
         }
 

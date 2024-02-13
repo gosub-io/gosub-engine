@@ -568,7 +568,7 @@ impl Document {
             buffer.push_str("├─ ");
         }
 
-        buffer.push_str(format!("{} ", node.id).as_str());
+        // buffer.push_str(format!("{} ", node.id).as_str());
 
         match &node.data {
             NodeData::Document(_) => {
