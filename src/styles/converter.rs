@@ -184,6 +184,7 @@ pub struct CssSelector {
 }
 
 impl CssSelector {
+    /// Generate specificity for this selector
     pub fn specificity(&self) -> Specificity {
         let mut id_count = 0;
         let mut class_count = 0;
@@ -242,8 +243,11 @@ pub enum CssOrigin {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct CssDeclaration {
+    // ie: color
     pub property: String,
+    // ie: red
     pub value: String,
+    // ie: !important
     pub important: bool,
 }
 

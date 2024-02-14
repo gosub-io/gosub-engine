@@ -3,6 +3,8 @@ use crate::html5::parser::document::DocumentHandle;
 use crate::styles::StyleCalculator;
 
 /// The rendering pipeline to convert a document and stylesheets into a rendered page
+/// It's a very simple pipeline with a single step (generate_render_tree). But more
+/// will follow later.
 pub struct Pipeline {}
 
 impl Default for Pipeline {
@@ -16,7 +18,7 @@ impl Pipeline {
         Self {}
     }
 
-    /// Generates a render tree by duplicating the DOM tree and removing all nodes that are not renderable or hidden
+    /// Generates a render tree by duplicating the DOM tree and removing all nodes that are not renderable or hidden.
     pub fn generate_render_tree(
         &self,
         doc_handle: DocumentHandle,
@@ -41,9 +43,9 @@ fn remove_unrenderable_nodes(
     {
         let binding = rendertree_handle.get();
         node = binding.get_node_by_id(node_id).unwrap().clone();
-        // println!("Visiting node: {:?}", node);
     }
 
+    // There are more elements that are not renderable, but for now we only remove the most common ones
     let removable_elements = ["head", "script", "style", "svg"];
 
     if node.is_element() && removable_elements.contains(&node.as_element().name.as_str()) {

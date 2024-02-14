@@ -1,5 +1,5 @@
-use lazy_static::lazy_static;
 /// This file contains the shorthand properties and their expanded properties.
+use lazy_static::lazy_static;
 use std::collections::HashMap;
 
 lazy_static! {
