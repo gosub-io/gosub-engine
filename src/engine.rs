@@ -1,7 +1,7 @@
 use crate::bytes::{CharIterator, Confidence, Encoding};
-use crate::dns::ResolveType;
 use crate::html5::parser::document::{Document, DocumentBuilder, DocumentHandle};
 use crate::html5::parser::Html5Parser;
+use crate::net::dns::ResolveType;
 use crate::net::http::headers::Headers;
 use crate::net::http::request::Request;
 use crate::net::http::response::Response;
@@ -78,7 +78,7 @@ fn fetch_url(
     // measure the DNS lookup time.
     fetch_response.timings.start(Timing::DnsLookup);
 
-    let mut resolver = crate::dns::Dns::new();
+    let mut resolver = crate::net::dns::Dns::new();
     let Some(hostname) = parts.host_str() else {
         return Err(Error::Generic(format!("invalid hostname: {}", url)));
     };

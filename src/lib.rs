@@ -18,8 +18,6 @@ pub mod types;
 
 #[allow(dead_code)]
 pub mod config;
-#[allow(dead_code)]
-mod dns;
 
 #[allow(dead_code)]
 mod engine;

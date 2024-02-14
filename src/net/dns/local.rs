@@ -1,4 +1,4 @@
-use crate::dns::{DnsCache, DnsEntry, DnsResolver, ResolveType};
+use crate::net::dns::{DnsCache, DnsEntry, DnsResolver, ResolveType};
 use crate::types;
 use core::fmt;
 use domain_lookup_tree::DomainLookupTree;

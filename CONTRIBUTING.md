@@ -24,7 +24,7 @@ This is an initial (but not fully complete) contribution guide.
 * [What to do?](#what-to-do)
 
 ## Introduction to the Makefiles
-Before writing any code, it's good to get familiar with our Makefiles.
+Before writing any code, it's good to get familiar with our Makefile(s). Use "make" or "make help" for a list of available commands. 
 
 ### Building the Entire Project
 In the root directory, run `make build` to build the entire project. If you're only interested in building components of the engine (e.g., the core engine or the bindings) then you can use `cargo build` in the relevant directory.

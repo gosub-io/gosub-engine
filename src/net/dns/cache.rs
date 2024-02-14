@@ -1,4 +1,4 @@
-use crate::dns::{DnsCache, DnsEntry, DnsResolver, ResolveType};
+use crate::net::dns::{DnsCache, DnsEntry, DnsResolver, ResolveType};
 use crate::types::Result;
 use log::trace;
 use std::collections::{HashMap, VecDeque};
@@ -102,7 +102,7 @@ impl CacheResolver {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::dns::DnsEntry;
+    use crate::net::dns::DnsEntry;
 
     #[test]
     fn test_cache() {
