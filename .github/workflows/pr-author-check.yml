@@ -12,18 +12,19 @@ jobs:
   check-author:
     runs-on: ubuntu-latest
     steps:
+      - name: 'PR commits + 1'
+        run: echo "PR_FETCH_DEPTH=$(( ${{ github.event.pull_request.commits }} + 1 ))" >> "${GITHUB_ENV}"
       - name: Checkout code
         uses: actions/checkout@v4
-
+        with:
+          fetch-depth: ${{ env.PR_FETCH_DEPTH }}
       - name: Check if PR author is in AUTHORS file
         id: author_found
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_EVENT_PATH: ${{ github.event_path }}
         run: |
-          git fetch origin ${{ github.base_ref }}
-          git fetch origin ${{ github.head_ref }}
-          sh .github/workflows/check_authors.sh "origin/${{ github.base_ref }}..origin/${{ github.head_ref }}" || exit_status=$?
+          sh .github/workflows/check_authors.sh ${{ env.PR_FETCH_DEPTH }} || exit_status=$?
           echo "found=${exit_status:-0}" >> $GITHUB_OUTPUT
       - name: Find Comment
         uses: peter-evans/find-comment@v2
