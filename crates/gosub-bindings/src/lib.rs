@@ -4,14 +4,10 @@ use std::ptr;
 
 pub mod wrapper;
 
-use gosub_engine::{
-    bytes::{CharIterator, Confidence, Encoding},
-    html5::parser::{
-        document::{Document, DocumentBuilder},
-        Html5Parser,
-    },
-    render_tree::{Node, NodeType, RenderTree, TreeIterator},
-};
+use gosub_html5::parser::document::{Document, DocumentBuilder};
+use gosub_html5::parser::Html5Parser;
+use gosub_rendering::render_tree::{Node, NodeType, RenderTree, TreeIterator};
+use gosub_shared::bytes::{CharIterator, Confidence, Encoding};
 use wrapper::node::CNode;
 
 /// Initialize a render tree and return an owning pointer to it.

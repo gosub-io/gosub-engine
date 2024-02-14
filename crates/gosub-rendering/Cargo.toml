@@ -1,0 +1,9 @@
+[package]
+name = "gosub_rendering"
+version = "0.1.0"
+edition = "2021"
+authors = ["Gosub Community <info@gosub.io>"]
+license = "MIT"
+
+[dependencies]
+gosub_html5 = { path = "../gosub-html5" }

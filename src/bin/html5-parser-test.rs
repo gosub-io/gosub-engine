@@ -1,8 +1,8 @@
-use gosub_engine::testing::tree_construction::fixture::{
+use gosub_shared::types::Result;
+use gosub_testing::testing::tree_construction::fixture::{
     fixture_root_path, read_fixture_from_path,
 };
-use gosub_engine::testing::tree_construction::Harness;
-use gosub_engine::types::Result;
+use gosub_testing::testing::tree_construction::Harness;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;

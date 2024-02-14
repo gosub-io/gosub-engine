@@ -1,7 +1,7 @@
-use gosub_engine::testing::tree_construction::fixture::{
+use gosub_testing::testing::tree_construction::fixture::{
     fixture_root_path, read_fixture_from_path,
 };
-use gosub_engine::testing::tree_construction::Harness;
+use gosub_testing::testing::tree_construction::Harness;
 use test_case::test_case;
 
 const DISABLED_CASES: &[&str] = &[

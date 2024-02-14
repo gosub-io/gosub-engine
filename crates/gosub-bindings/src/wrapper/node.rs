@@ -1,5 +1,5 @@
-use gosub_engine::render_tree::properties::{Position, Rectangle};
-use gosub_engine::render_tree::{text::TextNode, Node};
+use gosub_rendering::render_tree::properties::{Position, Rectangle};
+use gosub_rendering::render_tree::{text::TextNode, Node};
 
 use crate::wrapper::{text::CTextNode, CNodeType};
 

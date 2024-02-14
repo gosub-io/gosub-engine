@@ -1,10 +1,9 @@
 use anyhow::anyhow;
 use clap::{Parser, Subcommand};
 use derive_more::Display;
-use gosub_engine::config;
-use gosub_engine::config::settings::Setting;
-use gosub_engine::config::storage::*;
-use gosub_engine::config::StorageAdapter;
+use gosub_config::settings::Setting;
+use gosub_config::storage::*;
+use gosub_config::{config_store, config_store_write, StorageAdapter};
 use std::str::FromStr;
 
 #[derive(Debug, Parser)]
@@ -79,17 +78,17 @@ fn main() -> anyhow::Result<()> {
         Engine::Json => Box::new(JsonStorageAdapter::try_from(&args.global_opts.path)?),
     };
 
-    config::config_store_write().set_storage(storage);
+    config_store_write().set_storage(storage);
 
     match args.command {
         Commands::View { key } => {
-            if !config::config_store().has(&key) {
+            if !config_store().has(&key) {
                 println!("Key not found");
                 return Ok(());
             }
 
-            let info = config::config_store().get_info(&key).unwrap();
-            let value = config::config_store().get(&key).unwrap();
+            let info = config_store().get_info(&key).unwrap();
+            let value = config_store().get(&key).unwrap();
 
             println!("Key            : {key}");
             println!("Current Value  : {value}");
@@ -97,17 +96,17 @@ fn main() -> anyhow::Result<()> {
             println!("Description    : {}", info.description);
         }
         Commands::List => {
-            for key in config::config_store().find("*") {
-                let value = config::config_store().get(&key).unwrap();
+            for key in config_store().find("*") {
+                let value = config_store().get(&key).unwrap();
                 println!("{key:40}: {value}");
             }
         }
         Commands::Set { key, value } => {
-            config::config_store().set(&key, Setting::from_str(&value).expect("incorrect value"));
+            config_store().set(&key, Setting::from_str(&value).expect("incorrect value"));
         }
         Commands::Search { key } => {
-            for key in config::config_store().find(&key) {
-                let value = config::config_store().get(&key).unwrap();
+            for key in config_store().find(&key) {
+                let value = config_store().get(&key).unwrap();
                 println!("{key:40}: {value}");
             }
         }

@@ -1,9 +1,7 @@
 use anyhow::Result;
-use gosub_engine::html5::parser::document::{Document, DocumentBuilder};
-use gosub_engine::{
-    bytes::{CharIterator, Confidence, Encoding},
-    html5::parser::Html5Parser,
-};
+use gosub_html5::parser::document::{Document, DocumentBuilder};
+use gosub_html5::parser::Html5Parser;
+use gosub_shared::bytes::{CharIterator, Confidence, Encoding};
 use std::fs;
 use std::process::exit;
 

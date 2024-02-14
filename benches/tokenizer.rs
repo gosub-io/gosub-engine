@@ -1,5 +1,5 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use gosub_engine::testing::tokenizer::{self, FixtureFile};
+use gosub_testing::testing::tokenizer::{self, FixtureFile};
 
 fn criterion_benchmark(c: &mut Criterion) {
     // Criterion can report inconsistent results from run to run in some cases.  We attempt to

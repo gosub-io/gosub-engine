@@ -1,12 +1,8 @@
-use gosub_engine::html5::parser::document::DocumentBuilder;
-use gosub_engine::{
-    bytes::{CharIterator, Confidence, Encoding},
-    html5::{
-        node::{Node, NodeData},
-        parser::{document::Document, Html5Parser},
-    },
-    types::Result,
-};
+use gosub_html5::node::{Node, NodeData};
+use gosub_html5::parser::document::DocumentBuilder;
+use gosub_html5::parser::{document::Document, Html5Parser};
+use gosub_shared::bytes::{CharIterator, Confidence, Encoding};
+use gosub_shared::types::Result;
 use std::process::exit;
 
 fn main() -> Result<()> {

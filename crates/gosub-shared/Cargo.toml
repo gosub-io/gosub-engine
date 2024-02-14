@@ -1,0 +1,12 @@
+[package]
+name = "gosub_shared"
+version = "0.1.0"
+edition = "2021"
+authors = ["Gosub Community <info@gosub.io>"]
+license = "MIT"
+
+[dependencies]
+chardet = "0.2.4"
+thiserror = "1.0.57"
+url = "2.5.0"
+anyhow = "1.0.80"

@@ -1,19 +1,21 @@
-use crate::bytes::{CharIterator, Confidence, Encoding};
-use crate::html5::parser::document::{Document, DocumentBuilder, DocumentHandle};
-use crate::html5::parser::Html5Parser;
-use crate::net::dns::ResolveType;
-use crate::net::http::headers::Headers;
-use crate::net::http::request::Request;
-use crate::net::http::response::Response;
-use crate::timing::{Timing, TimingTable};
-use crate::types::{Error, ParseError, Result};
 use cookie::CookieJar;
 use core::fmt::Debug;
+use gosub_html5::parser::document::{Document, DocumentBuilder, DocumentHandle};
+use gosub_html5::parser::Html5Parser;
+use gosub_net::dns::{Dns, ResolveType};
+use gosub_net::http::headers::Headers;
+use gosub_net::http::request::Request;
+use gosub_net::http::response::Response;
+use gosub_shared::bytes::{CharIterator, Confidence, Encoding};
+use gosub_shared::timing::{Timing, TimingTable};
+use gosub_shared::types::{Error, ParseError, Result};
 use std::io::Read;
 use url::Url;
 
+#[allow(dead_code)]
 const USER_AGENT: &str = "Mozilla/5.0 (compatible; gosub/0.1; +https://gosub.io)";
 
+#[allow(dead_code)]
 const MAX_BYTES: u64 = 10_000_000;
 
 /// Response that is returned from the fetch function
@@ -53,6 +55,7 @@ impl Debug for FetchResponse {
     }
 }
 
+#[allow(dead_code)]
 fn fetch_url(
     method: &str,
     url: &str,
@@ -78,9 +81,9 @@ fn fetch_url(
     // measure the DNS lookup time.
     fetch_response.timings.start(Timing::DnsLookup);
 
-    let mut resolver = crate::net::dns::Dns::new();
+    let mut resolver = Dns::new();
     let Some(hostname) = parts.host_str() else {
-        return Err(Error::Generic(format!("invalid hostname: {}", url)));
+        return Err(Error::Generic(format!("invalid hostname: {}", url)).into());
     };
     let _ = resolver.resolve(hostname, ResolveType::Ipv4)?;
 
@@ -121,7 +124,7 @@ fn fetch_url(
             fetch_response.response.body = bytes;
         }
         Err(e) => {
-            return Err(Error::Generic(format!("Failed to fetch URL: {}", e)));
+            return Err(Error::Generic(format!("Failed to fetch URL: {}", e)).into());
         }
     }
     fetch_response.timings.end(Timing::ContentTransfer);
@@ -140,7 +143,7 @@ fn fetch_url(
             fetch_response.parse_errors = parse_errors;
         }
         Err(e) => {
-            return Err(Error::Generic(format!("Failed to parse HTML: {}", e)));
+            return Err(Error::Generic(format!("Failed to parse HTML: {}", e)).into());
         }
     }
     fetch_response.timings.end(Timing::HtmlParse);

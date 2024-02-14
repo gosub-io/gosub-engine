@@ -2,9 +2,13 @@
 name = "gosub-bindings"
 version = "0.1.0"
 edition = "2021"
+authors = ["Gosub Community <info@gosub.io>"]
+license = "MIT"
 
 [dependencies]
-gosub-engine = { path = "../../" }
+gosub_shared = { path = "../gosub-shared" }
+gosub_rendering = { path = "../gosub-rendering" }
+gosub_html5 = { path = "../gosub-html5" }
 
 [lib]
 crate-type = ["staticlib"]
