@@ -1,4 +1,4 @@
-use crate::net::http::headers::Headers;
+use crate::http::headers::Headers;
 use cookie::CookieJar;
 use core::fmt::{Display, Formatter};
 

@@ -1,6 +1,6 @@
-use crate::config::settings::Setting;
-use crate::config::StorageAdapter;
-use crate::types::Result;
+use crate::settings::Setting;
+use crate::StorageAdapter;
+use crate::errors::Result;
 use std::collections::HashMap;
 use std::sync::Mutex;
 

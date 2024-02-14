@@ -1,20 +1,22 @@
 pub mod settings;
+#[allow(dead_code)]
 pub mod storage;
+mod errors;
 
-use crate::config::settings::{Setting, SettingInfo};
-use crate::config::storage::MemoryStorageAdapter;
+use crate::settings::{Setting, SettingInfo};
+use crate::storage::MemoryStorageAdapter;
 use lazy_static::lazy_static;
 use log::warn;
 use serde_derive::Deserialize;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::mem;
-use std::str::FromStr;
 use std::sync::RwLock;
 use wildmatch::WildMatch;
+use std::str::FromStr;
 
 /// Settings are stored in a json file, but this is included in the binary for mostly easy editting.
-const SETTINGS_JSON: &str = include_str!("./config/settings.json");
+const SETTINGS_JSON: &str = include_str!("./settings.json");
 
 /// StoreAdapter is the interface for storing and retrieving settings
 /// This can be used to storage settings in a database, json file, etc
@@ -32,7 +34,7 @@ pub trait StorageAdapter: Send + Sync {
     /// Retrieves all the settings in the storage in one go. This is used for preloading the settings
     /// into the ConfigStore and is more performant normally than calling get_setting manually for each
     /// setting.
-    fn all(&self) -> crate::types::Result<HashMap<String, Setting>>;
+    fn all(&self) -> crate::errors::Result<HashMap<String, Setting>>;
 }
 
 lazy_static! {
@@ -118,7 +120,7 @@ macro_rules! config_set {
 struct JsonEntry {
     key: String,
     #[serde(rename = "type")]
-    entry_type: String,
+    _entry_type: String,
     default: String,
     description: String,
 }
@@ -255,7 +257,7 @@ impl ConfigStore {
     }
 
     /// Populates the settings in the storage from the settings.json file
-    fn populate_default_settings(&mut self) -> crate::types::Result<()> {
+    fn populate_default_settings(&mut self) -> crate::errors::Result<()> {
         let json_data: Value =
             serde_json::from_str(SETTINGS_JSON).expect("Failed to parse settings.json");
 

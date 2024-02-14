@@ -1,5 +1,4 @@
-use crate::net::dns::{DnsCache, DnsEntry, DnsResolver, ResolveType};
-use crate::types::Result;
+use crate::dns::{DnsCache, DnsEntry, DnsResolver, ResolveType};
 use log::trace;
 use std::collections::{HashMap, VecDeque};
 
@@ -10,19 +9,19 @@ pub(crate) struct CacheResolver {
 }
 
 impl DnsResolver for CacheResolver {
-    fn resolve(&mut self, domain: &str, resolve_type: ResolveType) -> Result<DnsEntry> {
+    fn resolve(&mut self, domain: &str, resolve_type: ResolveType) -> Result<DnsEntry, E> {
         if let Some(entry) = self.values.get(domain) {
             if !entry.has_ipv4 && !entry.has_ipv6 && resolve_type == ResolveType::Both {
                 trace!("{}: no addresses found in entry", domain);
-                return Err(crate::types::Error::DnsNoIpAddressFound);
+                return Err(crate::errors::Error::DnsNoIpAddressFound);
             }
             if !entry.has_ipv4 && resolve_type == ResolveType::Ipv4 {
                 trace!("{}: no ipv4 addresses found in entry", domain);
-                return Err(crate::types::Error::DnsNoIpAddressFound);
+                return Err(crate::errors::Error::DnsNoIpAddressFound);
             }
             if !entry.has_ipv6 && resolve_type == ResolveType::Ipv6 {
                 trace!("{}: no ipv6 addresses found in entry", domain);
-                return Err(crate::types::Error::DnsNoIpAddressFound);
+                return Err(crate::errors::Error::DnsNoIpAddressFound);
             }
 
             trace!("{}: found in cache with correct resolve type", domain);
@@ -32,7 +31,7 @@ impl DnsResolver for CacheResolver {
             return Ok(entry.clone());
         }
 
-        Err(crate::types::Error::DnsNoIpAddressFound)
+        Err(crate::errors::Error::DnsNoIpAddressFound)
     }
 
     /// When a domain is resolved, it will be announced to all resolvers. This cache resolver
@@ -102,7 +101,7 @@ impl CacheResolver {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::net::dns::DnsEntry;
+    use crate::dns::DnsEntry;
 
     #[test]
     fn test_cache() {

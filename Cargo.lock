@@ -348,6 +348,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "config"
+version = "0.1.0"
+dependencies = [
+ "lazy_static",
+ "log",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "sqlite",
+ "thiserror",
+ "ureq",
+ "url",
+ "wildmatch",
+]
+
+[[package]]
 name = "convert_case"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -718,6 +734,7 @@ dependencies = [
  "lazy_static",
  "libc",
  "log",
+ "net",
  "nom",
  "nom_locate",
  "ouroboros",
@@ -1076,6 +1093,24 @@ dependencies = [
  "libc",
  "wasi",
  "windows-sys 0.48.0",
+]
+
+[[package]]
+name = "net"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "config",
+ "cookie",
+ "derive_more",
+ "domain-lookup-tree",
+ "hickory-resolver",
+ "http",
+ "log",
+ "simple_logger",
+ "thiserror",
+ "ureq",
+ "url",
 ]
 
 [[package]]

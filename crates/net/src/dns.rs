@@ -2,13 +2,13 @@ mod cache;
 mod local;
 mod remote;
 
-use crate::types::Result;
-use crate::{config, types};
 use core::str::FromStr;
 use derive_more::Display;
 use log::{debug, info};
 use std::net::IpAddr;
 use std::time::{SystemTime, UNIX_EPOCH};
+#[macro_use]
+use config::config;
 
 /// A DNS entry is a mapping of a domain to zero or more IP address mapping
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -113,6 +113,7 @@ impl Default for Dns {
         Self::new()
     }
 }
+
 impl Dns {
     #[must_use]
     pub fn new() -> Self {
@@ -122,19 +123,19 @@ impl Dns {
         resolvers.push(Box::new(cache::CacheResolver::new(max_entries)));
 
         // Local table resolver
-        if config!(bool "dns.local.enabled") {
+        if config::config!(bool "dns.local.enabled") {
             resolvers.push(Box::new(local::LocalTableResolver::new()));
         }
 
         // Remove resolver
         let mut opts = remote::RemoteResolverOptions::default();
-        let configured_nameservers = config!(map "dns.remote.nameservers");
+        let configured_nameservers = config::config!(map "dns.remote.nameservers");
         if !configured_nameservers.is_empty() {
             opts.nameservers = configured_nameservers;
         }
-        opts.timeout = config!(uint "dns.remote.timeout");
-        opts.retries = config!(uint "dns.remote.retries");
-        opts.use_hosts_file = config!(bool "dns.remote.use_hosts_file");
+        opts.timeout = config::config!(uint "dns.remote.timeout");
+        opts.retries = config::config!(uint "dns.remote.retries");
+        opts.use_hosts_file = config::config!(bool "dns.remote.use_hosts_file");
 
         resolvers.push(Box::new(remote::RemoteResolver::new(opts)));
 
@@ -165,7 +166,7 @@ impl Dns {
         }
 
         if entry.is_none() {
-            return Err(types::Error::DnsDomainNotFound);
+            return Err(crate::errors::Error::DnsDomainNotFound);
         }
 
         // Iterate all resolvers and add to all cache systems (normally, this is only the first resolver)

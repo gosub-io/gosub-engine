@@ -1,4 +1,4 @@
-use crate::types::{Error, Result};
+use crate::errors::{Error, Result};
 use core::fmt::Display;
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
