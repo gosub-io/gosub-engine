@@ -1,9 +1,9 @@
+use gosub_shared::byte_stream::{ByteStream, Encoding, Stream};
+use gosub_css3::{Css3, Error, walker};
+use gosub_css3::location::Location;
+use gosub_css3::parser_config::ParserConfig;
+use gosub_css3::tokenizer::{Tokenizer, TokenType};
 use anyhow::{anyhow, bail, Result};
-use gosub_engine::byte_stream::{ByteStream, Encoding, Stream};
-use gosub_engine::css3;
-use gosub_engine::css3::location::Location;
-use gosub_engine::css3::parser_config::ParserConfig;
-use gosub_engine::css3::{Css3, Error};
 use simple_logger::SimpleLogger;
 use std::fs;
 
@@ -90,7 +90,7 @@ fn main() -> Result<()> {
 
     if !quiet {
         let binding = result.unwrap();
-        let walker = css3::walker::Walker::new(&binding);
+        let walker = walker::Walker::new(&binding);
         walker.walk_stdout();
     }
 
@@ -142,12 +142,12 @@ fn print_tokens(css: String) {
     it.read_from_str(&css, Some(Encoding::UTF8));
     it.close();
 
-    let mut tokenizer = css3::tokenizer::Tokenizer::new(&mut it, Location::default());
+    let mut tokenizer = Tokenizer::new(&mut it, Location::default());
     loop {
         let token = tokenizer.consume();
         println!("{:?}", token);
 
-        if token.token_type == css3::tokenizer::TokenType::Eof {
+        if token.token_type == TokenType::Eof {
             break;
         }
     }
