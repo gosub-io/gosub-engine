@@ -1,4 +1,4 @@
-use crate::dns::{DnsEntry, DnsResolver, ResolveType};
+use crate::net::dns::{DnsEntry, DnsResolver, ResolveType};
 use crate::types;
 use core::str::FromStr;
 use hickory_resolver::config::Protocol::Udp;
