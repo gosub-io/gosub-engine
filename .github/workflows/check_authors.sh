@@ -9,13 +9,16 @@ is_in_authors() {
   fi
 }
 
-# Only check the first 10 committers found in the PR
-COMMITTERS=$(git log $1 --pretty=format:"%an;%ae" | sort | uniq | head -n 10)
+# Get all commits in this PR
+COMMITTERS=$(git log -n $1 --pretty=format:"%an;%ae" | sort | uniq | grep -v noreply.github.com)
 
+# shellcheck disable=SC2066
 for committer in "$COMMITTERS" ; do
+  echo "Validating author: $committer"
+
   # split sentence in two parts seperated by a ;
-  local name=$(echo $committer | cut -d ";" -f 1)
-  local email=$(echo $committer | cut -d ";" -f 2)
+  name=$(echo $committer | cut -d ";" -f 1)
+  email=$(echo $committer | cut -d ";" -f 2)
 
   if is_in_authors "$email" == 0 && is_in_authors "$name" == 0; then
     echo "Author $name <$email> was not found in the AUTHORS file"
