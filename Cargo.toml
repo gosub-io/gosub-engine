@@ -39,8 +39,12 @@ name = "tree_iterator"
 harness = false
 
 [dependencies]
-net = { path = "./crates/net" }
+engine = { path = "./crates/engine", features = [] }
 config = { path = "./crates/config", features = [] }
+net = { path = "./crates/net", features = [] }
+css3 = { path = "./crates/css3", features = [] }
+html5 = { path = "./crates/html5", features = [] }
+
 phf = { version = "0.11.2", features = ["macros"] }
 derive_more = "0.99"
 serde = { version = "1.0", features = ["derive"] }

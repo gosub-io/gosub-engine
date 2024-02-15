@@ -10,20 +10,20 @@ use std::fmt;
 /// Data structure for element nodes
 pub struct ElementData {
     /// Numerical ID of the node this data is attached to
-    pub(crate) node_id: NodeId,
+    pub node_id: NodeId,
     /// Name of the element (e.g., div)
-    pub(crate) name: String,
+    pub name: String,
     /// Element's attributes stored as key-value pairs.
     /// Note that it is NOT RECOMMENDED to modify this
     /// attribute map directly and instead use TreeBuilder.insert_attribute
     /// to keep attributes in sync with the DOM.
-    pub(crate) attributes: HashMap<String, String>,
+    pub attributes: HashMap<String, String>,
     /// CSS classes
-    pub(crate) classes: ElementClass,
+    pub classes: ElementClass,
     // Only used for <script> elements
-    pub(crate) force_async: bool,
+    pub force_async: bool,
     // Template contents (when it's a template element)
-    pub(crate) template_contents: Option<DocumentFragment>,
+    pub template_contents: Option<DocumentFragment>,
 }
 
 impl Debug for ElementData {

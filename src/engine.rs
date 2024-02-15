@@ -1,6 +1,6 @@
-use crate::bytes::{CharIterator, Confidence, Encoding};
-use crate::html5::parser::document::{Document, DocumentBuilder, DocumentHandle};
-use crate::html5::parser::Html5Parser;
+use engine::bytes::{CharIterator, Confidence, Encoding};
+use html5::html5::parser::document::{Document, DocumentBuilder, DocumentHandle};
+use html5::html5::parser::Html5Parser;
 use crate::timing::{Timing, TimingTable};
 use crate::types::{Error, ParseError, Result};
 use cookie::CookieJar;

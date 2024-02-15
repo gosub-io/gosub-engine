@@ -1,16 +1,19 @@
-use crate::byte_stream::{ByteStream, Encoding, Stream};
+use engine::byte_stream::{ByteStream, Encoding, Stream};
 use crate::css3::location::Location;
 use crate::css3::node::Node;
 use crate::css3::parser_config::{Context, ParserConfig};
 use crate::css3::tokenizer::Tokenizer;
 
 pub mod location;
-mod node;
-mod parser;
 pub mod parser_config;
 pub mod tokenizer;
-mod unicode;
 pub mod walker;
+
+mod node;
+#[allow(dead_code)]
+mod parser;
+mod unicode;
+
 
 /// This CSS3 parser is heavily based on the MIT licensed CssTree parser written by
 /// Roman Dvornov (https://github.com/lahmatiy).

@@ -17,6 +17,7 @@ pub const XLINK_NAMESPACE: &str = "http://www.w3.org/1999/xlink";
 pub const XML_NAMESPACE: &str = "http://www.w3.org/XML/1998/namespace";
 pub const XMLNS_NAMESPACE: &str = "http://www.w3.org/2000/xmlns/";
 
+#[allow(dead_code)]
 pub mod arena;
 pub mod data;
 
@@ -303,7 +304,7 @@ impl Node {
     }
 
     /// Returns true when the given node is of the given namespace
-    pub(crate) fn is_namespace(&self, namespace: &str) -> bool {
+    pub fn is_namespace(&self, namespace: &str) -> bool {
         self.namespace == Some(namespace.into())
     }
 

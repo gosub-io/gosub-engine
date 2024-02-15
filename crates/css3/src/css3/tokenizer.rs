@@ -1,5 +1,5 @@
-use crate::byte_stream::Character::Ch;
-use crate::byte_stream::{ByteStream, Character, Stream};
+use engine::byte_stream::Character::Ch;
+use engine::byte_stream::{ByteStream, Character, Stream};
 use crate::css3::location::Location;
 use crate::css3::unicode::{get_unicode_char, UnicodeChar};
 use std::fmt;
@@ -158,11 +158,11 @@ impl Token {
         matches!(self.token_type, TokenType::Ident(_))
     }
 
-    pub(crate) fn is_comment(&self) -> bool {
+    pub fn is_comment(&self) -> bool {
         matches!(self.token_type, TokenType::Comment(_))
     }
 
-    pub(crate) fn is_whitespace(&self) -> bool {
+    pub fn is_whitespace(&self) -> bool {
         matches!(self.token_type, TokenType::Whitespace)
     }
 
@@ -219,13 +219,13 @@ pub struct Tokenizer<'stream> {
     /// Full list of all tokens produced by the tokenizer
     tokens: Vec<Token>,
     /// List of all line endings
-    line_endings: Vec<usize>,
+    // line_endings: Vec<usize>,
     /// Start position of the stream (this does not have to be 1/1)
     start_location: Location,
     /// Current position of the stream, to get the absolute position, we must add start_location to it
     cur_location: Location,
-    /// WHen true, the stream is closed and no more tokens can be produced
-    eof: bool,
+    // When true, the stream is closed and no more tokens can be produced
+    // eof: bool,
 }
 
 impl<'stream> Tokenizer<'stream> {
@@ -238,8 +238,8 @@ impl<'stream> Tokenizer<'stream> {
             tokens: Vec::new(),
             start_location: location.clone(),
             cur_location: Location::new(1, 1, 0),
-            eof: false,
-            line_endings: Vec::new(),
+            // eof: false,
+            // line_endings: Vec::new(),
         }
     }
 

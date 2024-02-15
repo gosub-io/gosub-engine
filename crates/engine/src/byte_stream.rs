@@ -1,6 +1,9 @@
-use crate::html5::tokenizer::{CHAR_CR, CHAR_LF};
 use std::io::Read;
 use std::{fmt, io};
+
+pub const CHAR_LF: char = '\u{000A}';
+pub const CHAR_CR: char = '\u{000D}';
+
 
 /// Encoding defines the way the buffer stream is read, as what defines a "character".
 #[derive(PartialEq)]

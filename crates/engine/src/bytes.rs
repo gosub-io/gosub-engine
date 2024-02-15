@@ -1,8 +1,10 @@
-use crate::html5::tokenizer::{CHAR_CR, CHAR_LF};
 use std::collections::HashMap;
 use std::io::Read;
 use std::iter::Iterator;
 use std::{fmt, io};
+
+pub const CHAR_LF: char = '\u{000A}';
+pub const CHAR_CR: char = '\u{000D}';
 
 /// Encoding defines the way the buffer stream is read, as what defines a "character".
 #[derive(PartialEq)]
@@ -342,7 +344,7 @@ impl CharIterator {
     }
 
     /// Reads a character and increases the current pointer, or read EOF as None
-    pub(crate) fn read_char(&mut self) -> Bytes {
+    pub fn read_char(&mut self) -> Bytes {
         // Return none if we already have read EOF
         if self.has_read_eof {
             return Eof;
@@ -371,7 +373,7 @@ impl CharIterator {
         Eof
     }
 
-    pub(crate) fn unread(&mut self) {
+    pub fn unread(&mut self) {
         // We already read eof, so "unread" the eof by unsetting the flag
         if self.has_read_eof {
             self.has_read_eof = false;
@@ -393,7 +395,7 @@ impl CharIterator {
     }
 
     /// Looks ahead in the stream and returns len characters
-    pub(crate) fn look_ahead_slice(&self, len: usize) -> String {
+    pub fn look_ahead_slice(&self, len: usize) -> String {
         let end_pos = std::cmp::min(self.length, self.position.offset + len);
 
         let slice = &self.buffer[self.position.offset..end_pos];
@@ -402,7 +404,7 @@ impl CharIterator {
 
     /// Looks ahead in the stream, can use an optional index if we want to seek further
     /// (or back) in the stream.
-    pub(crate) fn look_ahead(&self, offset: usize) -> Bytes {
+    pub fn look_ahead(&self, offset: usize) -> Bytes {
         // Trying to look after the stream
         if self.position.offset + offset >= self.length {
             return Eof;

@@ -8,7 +8,7 @@ pub mod tree_builder;
 
 use self::document::DocumentHandle;
 use super::node::NodeId;
-use crate::bytes::CharIterator;
+use engine::bytes::CharIterator;
 use crate::html5::error_logger::{ErrorLogger, ParserError};
 use crate::html5::node::{Node, NodeData, HTML_NAMESPACE, MATHML_NAMESPACE, SVG_NAMESPACE};
 use crate::html5::parser::attr_replacements::{

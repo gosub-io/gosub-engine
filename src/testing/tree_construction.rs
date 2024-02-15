@@ -3,24 +3,22 @@ mod generator;
 pub(crate) mod parser;
 pub mod result;
 
-use crate::html5::node::{HTML_NAMESPACE, MATHML_NAMESPACE, SVG_NAMESPACE};
-use crate::html5::parser::document::DocumentBuilder;
-use crate::html5::parser::tree_builder::TreeBuilder;
-use crate::html5::parser::Html5ParserOptions;
+use html5::html5::node::{HTML_NAMESPACE, MATHML_NAMESPACE, SVG_NAMESPACE};
+use html5::html5::parser::document::DocumentBuilder;
+use html5::html5::parser::tree_builder::TreeBuilder;
+use html5::html5::parser::Html5ParserOptions;
 use crate::testing::tree_construction::generator::TreeOutputGenerator;
 use crate::testing::tree_construction::parser::{ScriptMode, TestSpec};
 use crate::testing::tree_construction::result::{ResultStatus, TreeLineResult};
-use crate::{
-    bytes::CharIterator,
-    html5::{
+use engine::bytes::CharIterator;
+use html5::html5::{
         node::NodeId,
         parser::{
             document::{Document, DocumentHandle},
             Html5Parser,
         },
-    },
-    types::{ParseError, Result},
-};
+    };
+use html5::types::{ParseError, Result};
 use result::TestResult;
 
 /// Holds a single parser test

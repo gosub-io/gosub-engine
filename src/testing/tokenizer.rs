@@ -1,7 +1,7 @@
 use super::FIXTURE_ROOT;
-use crate::bytes::CharIterator;
-use crate::html5::tokenizer::ParserData;
-use crate::html5::{
+use engine::bytes::CharIterator;
+use html5::html5::tokenizer::ParserData;
+use html5::html5::{
     error_logger::ErrorLogger,
     tokenizer::{
         state::State as TokenState,

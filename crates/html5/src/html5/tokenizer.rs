@@ -4,8 +4,8 @@ pub mod token;
 mod character_reference;
 mod replacement_tables;
 
-use crate::bytes::Bytes::{self, *};
-use crate::bytes::{CharIterator, Position};
+use engine::bytes::Bytes::{self, *};
+use engine::bytes::{CharIterator, Position};
 use crate::html5::error_logger::{ErrorLogger, ParserError};
 use crate::html5::node::HTML_NAMESPACE;
 use crate::html5::tokenizer::state::State;

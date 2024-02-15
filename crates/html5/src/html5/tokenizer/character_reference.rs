@@ -1,6 +1,6 @@
 extern crate lazy_static;
 
-use crate::bytes::Bytes::{self, *};
+use engine::bytes::Bytes::{self, *};
 use crate::html5::error_logger::ParserError;
 use crate::html5::tokenizer::replacement_tables::{TOKEN_NAMED_CHARS, TOKEN_REPLACEMENTS};
 use crate::html5::tokenizer::{Tokenizer, CHAR_REPLACEMENT};
