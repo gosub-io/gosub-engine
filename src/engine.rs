@@ -1,14 +1,14 @@
 use crate::bytes::{CharIterator, Confidence, Encoding};
 use crate::html5::parser::document::{Document, DocumentBuilder, DocumentHandle};
 use crate::html5::parser::Html5Parser;
-use net::dns::{Dns, ResolveType};
-use net::http::headers::Headers;
-use net::http::request::Request;
-use net::http::response::Response;
 use crate::timing::{Timing, TimingTable};
 use crate::types::{Error, ParseError, Result};
 use cookie::CookieJar;
 use core::fmt::Debug;
+use net::dns::{Dns, ResolveType};
+use net::http::headers::Headers;
+use net::http::request::Request;
+use net::http::response::Response;
 use std::io::Read;
 use url::Url;
 

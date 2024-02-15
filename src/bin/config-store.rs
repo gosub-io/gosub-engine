@@ -1,10 +1,10 @@
 use anyhow::anyhow;
 use clap::{Parser, Subcommand};
-use derive_more::Display;
-use config;
+
 use config::settings::Setting;
 use config::storage::*;
 use config::StorageAdapter;
+use derive_more::Display;
 use std::str::FromStr;
 
 #[derive(Debug, Parser)]

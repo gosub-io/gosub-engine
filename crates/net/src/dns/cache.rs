@@ -1,7 +1,7 @@
 use crate::dns::{DnsCache, DnsEntry, DnsResolver, ResolveType};
+use crate::errors::Result;
 use log::trace;
 use std::collections::{HashMap, VecDeque};
-use crate::errors::Result;
 
 pub(crate) struct CacheResolver {
     values: HashMap<String, DnsEntry>,

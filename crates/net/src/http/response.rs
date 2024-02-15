@@ -25,6 +25,12 @@ impl Response {
     }
 }
 
+impl Default for Response {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Display for Response {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         writeln!(f, "HTTP/1.1 {}", self.status)?;

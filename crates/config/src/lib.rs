@@ -301,15 +301,11 @@ mod test {
     fn test_config_store() {
         config_store_write().set_storage(Box::new(MemoryStorageAdapter::new()));
 
-        let setting = config_store()
-            .get("dns.local.enabled")
-            .unwrap();
+        let setting = config_store().get("dns.local.enabled").unwrap();
         assert_eq!(setting, Setting::Bool(true));
 
         config_store_write().set("dns.local.enabled", Setting::Bool(false));
-        let setting = config_store()
-            .get("dns.local.enabled")
-            .unwrap();
+        let setting = config_store().get("dns.local.enabled").unwrap();
         assert_eq!(setting, Setting::Bool(false));
     }
 
