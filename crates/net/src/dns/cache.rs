@@ -1,6 +1,7 @@
 use crate::dns::{DnsCache, DnsEntry, DnsResolver, ResolveType};
 use log::trace;
 use std::collections::{HashMap, VecDeque};
+use crate::errors::Result;
 
 pub(crate) struct CacheResolver {
     values: HashMap<String, DnsEntry>,
@@ -9,7 +10,7 @@ pub(crate) struct CacheResolver {
 }
 
 impl DnsResolver for CacheResolver {
-    fn resolve(&mut self, domain: &str, resolve_type: ResolveType) -> Result<DnsEntry, E> {
+    fn resolve(&mut self, domain: &str, resolve_type: ResolveType) -> Result<DnsEntry> {
         if let Some(entry) = self.values.get(domain) {
             if !entry.has_ipv4 && !entry.has_ipv6 && resolve_type == ResolveType::Both {
                 trace!("{}: no addresses found in entry", domain);

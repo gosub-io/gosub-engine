@@ -8,4 +8,8 @@
 #[allow(dead_code)]
 pub mod dns;
 pub mod errors;
+#[allow(dead_code)]
 pub mod http;
+
+#[macro_use]
+extern crate config;

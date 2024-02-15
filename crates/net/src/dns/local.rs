@@ -3,6 +3,7 @@ use core::fmt;
 use domain_lookup_tree::DomainLookupTree;
 use log::trace;
 use std::collections::HashMap;
+use crate::errors::Result;
 
 /// Local override table that can be used instead of using /etc/hosts or similar 3rd party dns system.
 pub struct LocalTableResolver {
@@ -26,7 +27,7 @@ impl DnsResolver for LocalTableResolver {
         &mut self,
         domain: &str,
         _resolve_type: ResolveType,
-    ) -> Result<DnsEntry, crate::errors::Error> {
+    ) -> Result<DnsEntry> {
         let Some(domain_entry) = self.tree.lookup(domain) else {
             trace!("{domain}: not found in local table");
             return Err(crate::errors::Error::DnsDomainNotFound);

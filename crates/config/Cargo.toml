@@ -31,7 +31,7 @@ log = "0.4.20"
 #simple_logger = "4.2.0"
 #libc = "0.2"
 #shared_singleton = "0.1.0"
-#testing_logger = "0.1.1"
+testing_logger = "0.1.1"
 #cookie = { version = "0.18.0", features = ["secure", "private"] }
 #http = "1.0.0"
 url = "2.5.0"

@@ -1,7 +1,7 @@
+mod errors;
 pub mod settings;
 #[allow(dead_code)]
 pub mod storage;
-mod errors;
 
 use crate::settings::{Setting, SettingInfo};
 use crate::storage::MemoryStorageAdapter;
@@ -11,9 +11,9 @@ use serde_derive::Deserialize;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::mem;
+use std::str::FromStr;
 use std::sync::RwLock;
 use wildmatch::WildMatch;
-use std::str::FromStr;
 
 /// Settings are stored in a json file, but this is included in the binary for mostly easy editting.
 const SETTINGS_JSON: &str = include_str!("./settings.json");
@@ -64,31 +64,31 @@ pub fn config_store_write() -> std::sync::RwLockWriteGuard<'static, ConfigStore>
 #[macro_export]
 macro_rules! config {
     (string $key:expr) => {
-        match crate::config::config_store().get($key) {
+        match config_store().get($key) {
             Some(setting) => setting.to_string(),
             None => String::new(),
         }
     };
     (bool $key:expr) => {
-        match crate::config::config_store().get($key) {
+        match config_store().get($key) {
             Some(setting) => setting.to_bool(),
             None => false,
         }
     };
     (uint $key:expr) => {
-        match crate::config::config_store().get($key) {
+        match config_store().get($key) {
             Some(setting) => setting.to_uint(),
             None => 0,
         }
     };
     (sint $key:expr) => {
-        match crate::config::config_store().get($key) {
+        match config_store().get($key) {
             Some(setting) => setting.to_sint(),
             None => 0,
         }
     };
     (map $key:expr) => {
-        match crate::config::config_store().get($key) {
+        match config_store().get($key) {
             Some(setting) => setting.to_map(),
             None => Vec::new(),
         }
@@ -99,19 +99,19 @@ macro_rules! config {
 #[macro_export]
 macro_rules! config_set {
     (string $key:expr, $val:expr) => {
-        crate::config::config_store().set($key, Setting::String($val))
+        config_store().set($key, Setting::String($val))
     };
     (bool $key:expr, $val:expr) => {
-        crate::config::config_store().set($key, Setting::Bool($val))
+        config_store().set($key, Setting::Bool($val))
     };
     (uint $key:expr, $val:expr) => {
-        crate::config::config_store().set($key, Setting::UInt($val))
+        config_store().set($key, Setting::UInt($val))
     };
     (sint $key:expr, $val:expr) => {
-        crate::config::config_store().set($key, Setting::SInt($val))
+        config_store().set($key, Setting::SInt($val))
     };
     (map $key:expr, $val:expr) => {
-        crate::config::config_store().set($key, Setting::Map($val))
+        config_store().set($key, Setting::Map($val))
     };
 }
 
@@ -257,7 +257,7 @@ impl ConfigStore {
     }
 
     /// Populates the settings in the storage from the settings.json file
-    fn populate_default_settings(&mut self) -> crate::errors::Result<()> {
+    fn populate_default_settings(&mut self) -> errors::Result<()> {
         let json_data: Value =
             serde_json::from_str(SETTINGS_JSON).expect("Failed to parse settings.json");
 
@@ -298,16 +298,16 @@ mod test {
     use storage::MemoryStorageAdapter;
 
     #[test]
-    fn config_store() {
+    fn test_config_store() {
         config_store_write().set_storage(Box::new(MemoryStorageAdapter::new()));
 
-        let setting = crate::config::config_store()
+        let setting = config_store()
             .get("dns.local.enabled")
             .unwrap();
         assert_eq!(setting, Setting::Bool(true));
 
         config_store_write().set("dns.local.enabled", Setting::Bool(false));
-        let setting = crate::config::config_store()
+        let setting = config_store()
             .get("dns.local.enabled")
             .unwrap();
         assert_eq!(setting, Setting::Bool(false));

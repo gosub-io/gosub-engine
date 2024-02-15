@@ -70,6 +70,9 @@ pub enum Error {
 
     #[error("js: {0}")]
     JS(#[from] crate::web_executor::js::JSError),
+
+    #[error("dns: {0}")]
+    Dns(#[from] net::errors::Error),
 }
 
 /// Result that can be returned which holds either T or an Error

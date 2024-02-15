@@ -7,8 +7,8 @@ use derive_more::Display;
 use log::{debug, info};
 use std::net::IpAddr;
 use std::time::{SystemTime, UNIX_EPOCH};
-#[macro_use]
-use config::config;
+use crate::errors::Result;
+use config::config_store;
 
 /// A DNS entry is a mapping of a domain to zero or more IP address mapping
 #[derive(Clone, Debug, Default, PartialEq)]

@@ -13,7 +13,7 @@ pub struct Response {
 }
 
 impl Response {
-    pub(crate) fn new() -> Response {
+    pub fn new() -> Response {
         Self {
             status: 0,
             status_text: "".to_string(),

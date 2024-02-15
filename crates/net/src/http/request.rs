@@ -12,7 +12,7 @@ pub struct Request {
 }
 
 impl Request {
-    pub(crate) fn new(method: &str, uri: &str, version: &str) -> Self {
+    pub fn new(method: &str, uri: &str, version: &str) -> Self {
         Self {
             method: method.to_string(),
             uri: uri.to_string(),

@@ -1,10 +1,10 @@
+use crate::errors::{Error, Result};
 use crate::settings::Setting;
 use crate::StorageAdapter;
-use crate::errors::{Error, Result};
 use log::warn;
 use std::collections::HashMap;
-use std::sync::Mutex;
 use std::str::FromStr;
+use std::sync::Mutex;
 
 pub struct SqliteStorageAdapter {
     connection: Mutex<sqlite::Connection>,

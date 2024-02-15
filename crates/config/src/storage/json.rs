@@ -1,6 +1,6 @@
+use crate::errors::{Error, Result};
 use crate::settings::Setting;
 use crate::StorageAdapter;
-use crate::errors::{Error, Result};
 use log::warn;
 use serde_json::Value;
 use std::collections::HashMap;
