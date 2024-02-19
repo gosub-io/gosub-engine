@@ -3,7 +3,7 @@ use std::rc::Rc;
 
 use v8::{
     CallbackScope, External, Function, FunctionBuilder, FunctionCallbackArguments,
-    FunctionCallbackInfo, Local, ReturnValue,
+    FunctionCallbackInfo, Local, ReturnValue, TryCatch,
 };
 
 use crate::js::function::{JSFunctionCallBack, JSFunctionCallBackVariadic};
@@ -26,6 +26,18 @@ pub struct V8FunctionCallBack<'a> {
     ret: Result<Local<'a, v8::Value>>,
 }
 
+impl<'a> V8FunctionCallBack<'a> {
+    pub fn new(ctx: V8Context<'a>, args: V8Args<'a>) -> Result<V8FunctionCallBack<'a>> {
+        Ok(Self {
+            ctx,
+            args,
+            ret: Err(Error::JS(JSError::Execution(
+                "function was not called".to_owned(),
+            ))),
+        })
+    }
+}
+
 pub struct V8Args<'a> {
     next: usize,
     args: Vec<Local<'a, v8::Value>>,
@@ -34,6 +46,15 @@ pub struct V8Args<'a> {
 impl V8Args<'_> {
     fn v8(&self) -> &[Local<v8::Value>] {
         &self.args
+    }
+}
+
+impl<'a> V8Args<'a> {
+    fn new(args: Vec<V8Value<'a>>, ctx: V8Context<'a>) -> Self {
+        Self {
+            next: 0,
+            args: args.iter().map(|x| x.value).collect(),
+        }
     }
 }
 
@@ -164,13 +185,13 @@ impl<'a> V8Function<'a> {
 
 extern "C" fn callback(info: *const FunctionCallbackInfo) {
     let info = unsafe { &*info };
-    let scope = &mut unsafe { CallbackScope::new(info) };
     let args = FunctionCallbackArguments::from_function_callback_info(info);
+    let mut scope = unsafe { CallbackScope::new(info) };
     let rv = ReturnValue::from_function_callback_info(info);
     let external = match <Local<External>>::try_from(args.data()) {
         Ok(external) => external,
         Err(e) => {
-            let Some(e) = v8::String::new(scope, &e.to_string()) else {
+            let Some(e) = v8::String::new(&mut scope, &e.to_string()) else {
                 eprintln!("failed to create exception string\nexception was: {e}");
                 return;
             };
@@ -181,10 +202,7 @@ extern "C" fn callback(info: *const FunctionCallbackInfo) {
 
     let data = unsafe { &mut *(external.value() as *mut CallbackWrapper) };
 
-    let ctx = match ctx_from_function_callback_info(
-        unsafe { CallbackScope::new(info) },
-        data.ctx.borrow().isolate,
-    ) {
+    let ctx = match ctx_from_function_callback_info(scope, data.ctx.borrow().isolate) {
         Ok(scope) => scope,
         Err((mut st, e)) => {
             let scope = st.get();
@@ -243,19 +261,31 @@ impl<'a> JSFunction for V8Function<'a> {
         }
     }
 
-    fn call(&mut self, cb: &mut V8FunctionCallBack) {
+    fn call(
+        &mut self,
+        args: &[<Self::RT as JSRuntime>::Value],
+    ) -> Result<<Self::RT as JSRuntime>::Value> {
+        let scope = &mut TryCatch::new(self.ctx.borrow_mut().scope());
+
+        let recv = Local::from(v8::undefined(scope));
         let ret = self.function.call(
-            cb.ctx.borrow_mut().scope(),
-            Local::from(v8::undefined(cb.ctx.borrow_mut().scope())),
-            cb.args.v8(),
+            scope,
+            recv,
+            args.iter()
+                .map(|x| x.value)
+                .collect::<Vec<Local<v8::Value>>>()
+                .as_slice(),
         );
 
         if let Some(value) = ret {
-            cb.ret = Ok(value);
+            Ok(V8Value {
+                context: Rc::clone(&self.ctx),
+                value,
+            })
         } else {
-            cb.ret =
-                Err(Error::JS(JSError::Execution("failed to call a function".to_owned())).into());
-        };
+            Err(Error::JS(JSError::Execution(
+                "failed to call a function".to_owned())).into())
+        }
     }
 }
 
@@ -515,18 +545,110 @@ impl<'a> JSFunctionVariadic for V8FunctionVariadic<'a> {
         }
     }
 
-    fn call(&mut self, cb: &mut V8FunctionCallBackVariadic) {
+    fn call(
+        &mut self,
+        args: &[<Self::RT as JSRuntime>::Value],
+    ) -> Result<<Self::RT as JSRuntime>::Value> {
+        let scope = &mut v8::TryCatch::new(self.ctx.borrow_mut().scope());
+        let recv = Local::from(v8::undefined(scope));
         let ret = self.function.call(
-            cb.ctx.borrow_mut().scope(),
-            Local::from(v8::undefined(cb.ctx.borrow_mut().scope())),
-            cb.args.v8(),
+            scope,
+            recv,
+            args.iter()
+                .map(|x| x.value)
+                .collect::<Vec<Local<v8::Value>>>()
+                .as_slice(),
         );
 
         if let Some(value) = ret {
-            cb.ret = Ok(value);
+            Ok(V8Value {
+                context: Rc::clone(&self.ctx),
+                value,
+            })
         } else {
-            cb.ret =
-                Err(Error::JS(JSError::Execution("failed to call a function".to_owned())).into());
+            Err(Error::JS(JSError::Execution(
+                "failed to call a function".to_owned())).into())
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::web_executor::js::v8::{V8Engine, V8Function, V8FunctionVariadic, V8Value};
+    use crate::web_executor::js::{
+        Args, JSContext, JSFunction, JSFunctionCallBack, JSFunctionVariadic, JSRuntime, JSValue,
+        ValueConversion,
+    };
+
+    use super::*;
+
+    #[test]
+    fn function_test() {
+        let mut ctx = V8Engine::new().new_context().unwrap();
+
+        let mut function = {
+            let ctx = ctx.clone();
+            V8Function::new(ctx.clone(), move |cb| {
+                let ctx = cb.context();
+                assert_eq!(cb.len(), 3);
+
+                let sum = cb
+                    .args()
+                    .as_vec(ctx.clone())
+                    .iter()
+                    .fold(0, |acc, x| acc + x.as_number().unwrap() as i32);
+
+                cb.ret(sum.to_js_value(ctx.clone()).unwrap());
+            })
+            .unwrap()
         };
+
+        let ret = function.call(&[
+            1.to_js_value(ctx.clone()).unwrap(),
+            2.to_js_value(ctx.clone()).unwrap(),
+            3.to_js_value(ctx.clone()).unwrap(),
+        ]);
+
+        assert_eq!(ret.unwrap().as_number().unwrap(), 6.0);
+    }
+
+    #[test]
+    fn function_variadic_test() {
+        let mut ctx = V8Engine::new().new_context().unwrap();
+
+        let mut function = {
+            let ctx = ctx.clone();
+            V8FunctionVariadic::new(ctx.clone(), move |cb| {
+                let ctx = cb.context();
+                let sum = cb.args().as_vec(ctx.clone()).iter().fold(0, |acc, x| {
+                    acc + match x.as_number() {
+                        Ok(x) => x as i32,
+                        Err(e) => {
+                            cb.error(e);
+                            return 0;
+                        }
+                    }
+                });
+
+                let val = match sum.to_js_value(ctx.clone()) {
+                    Ok(val) => val,
+                    Err(e) => {
+                        cb.error(e);
+                        return;
+                    }
+                };
+                cb.ret(val);
+            })
+            .unwrap()
+        };
+
+        let ret = function.call(&[
+            1.to_js_value(ctx.clone()).unwrap(),
+            2.to_js_value(ctx.clone()).unwrap(),
+            3.to_js_value(ctx.clone()).unwrap(),
+            4.to_js_value(ctx.clone()).unwrap(),
+        ]);
+
+        assert_eq!(ret.unwrap().as_number().unwrap(), 10.0);
     }
 }

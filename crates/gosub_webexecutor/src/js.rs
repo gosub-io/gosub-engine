@@ -52,14 +52,14 @@ lazy_static! {
 pub trait JSArray {
     type RT: JSRuntime;
 
-    fn get<T: Into<<Self::RT as JSRuntime>::ArrayIndex>>(
+    fn get(
         &self,
-        index: T,
+        index: <Self::RT as JSRuntime>::ArrayIndex,
     ) -> Result<<Self::RT as JSRuntime>::Value>;
 
-    fn set<T: Into<<Self::RT as JSRuntime>::ArrayIndex>>(
+    fn set(
         &self,
-        index: T,
+        index: <Self::RT as JSRuntime>::ArrayIndex,
         value: &<Self::RT as JSRuntime>::Value,
     ) -> Result<()>;
 
@@ -74,6 +74,7 @@ pub trait JSArray {
     //TODO: implement other things when needed. Maybe also `Iterator`?
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub enum JSType {
     Undefined,
     Null,

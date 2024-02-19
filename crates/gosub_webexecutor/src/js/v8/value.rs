@@ -84,8 +84,6 @@ impl<'a> JSValue for V8Value<'a> {
             JSType::Number
         } else if self.is_bool() {
             JSType::Boolean
-        } else if self.is_object() {
-            JSType::Object
         } else if self.is_array() {
             JSType::Array
         } else if self.is_null() {
@@ -94,6 +92,8 @@ impl<'a> JSValue for V8Value<'a> {
             JSType::Undefined
         } else if self.is_function() {
             JSType::Function
+        } else if self.is_object() {
+            JSType::Object
         } else {
             let ctx = self.context.borrow_mut().scope();
 
@@ -149,5 +149,302 @@ impl<'a> JSValue for V8Value<'a> {
             context: Rc::clone(&ctx),
             value: Local::from(undefined),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::web_executor::js::JSContext;
+
+    use super::*;
+
+    #[test]
+    fn test_v8_value_string() {
+        let mut engine = V8Engine::new();
+        let mut context = engine.new_context().unwrap();
+
+        let value = context
+            .run(
+                r#"
+            "Hello World!"
+        "#,
+            )
+            .unwrap();
+
+        assert!(value.is_string());
+        assert_eq!(value.as_string().unwrap(), "Hello World!");
+    }
+
+    #[test]
+    fn test_v8_value_number() {
+        let mut engine = V8Engine::new();
+        let mut context = engine.new_context().unwrap();
+
+        let value = context
+            .run(
+                r#"
+            1234
+        "#,
+            )
+            .unwrap();
+
+        assert!(value.is_number());
+        assert_eq!(value.as_number().unwrap(), 1234.0);
+    }
+
+    #[test]
+    fn test_v8_value_bool() {
+        let mut engine = V8Engine::new();
+        let mut context = engine.new_context().unwrap();
+
+        let value = context
+            .run(
+                r#"
+            true
+        "#,
+            )
+            .unwrap();
+
+        assert!(value.is_bool());
+        assert!(value.as_bool().unwrap());
+    }
+
+    #[test]
+    fn test_v8_value_null() {
+        let mut engine = V8Engine::new();
+        let mut context = engine.new_context().unwrap();
+
+        let value = context
+            .run(
+                r#"
+            null
+        "#,
+            )
+            .unwrap();
+
+        assert!(value.is_null());
+    }
+
+    #[test]
+    fn test_v8_value_undefined() {
+        let mut engine = V8Engine::new();
+        let mut context = engine.new_context().unwrap();
+
+        let value = context
+            .run(
+                r#"
+            undefined
+        "#,
+            )
+            .unwrap();
+
+        assert!(value.is_undefined());
+    }
+
+    #[test]
+    fn test_v8_value_object() {
+        let mut engine = V8Engine::new();
+        let mut context = engine.new_context().unwrap();
+
+        let value = context
+            .run(
+                r#"
+            obj = { "hello": "world" }
+            obj
+        "#,
+            )
+            .unwrap();
+
+        assert!(value.is_object());
+    }
+
+    #[test]
+    fn test_v8_value_array() {
+        let mut engine = V8Engine::new();
+        let mut context = engine.new_context().unwrap();
+
+        let value = context
+            .run(
+                r#"
+            [1, 2, 3]
+        "#,
+            )
+            .unwrap();
+
+        assert!(value.is_array());
+        // assert_eq!(value.as_array().unwrap(), vec![1.0, 2.0, 3.0]); //TODO
+        assert_eq!(value.as_string().unwrap(), "1,2,3");
+    }
+
+    #[test]
+    fn test_v8_value_function() {
+        let mut engine = V8Engine::new();
+        let mut context = engine.new_context().unwrap();
+
+        let value = context
+            .run(
+                r#"
+            function hello() {
+                return "world";
+            }
+            hello
+        "#,
+            )
+            .unwrap();
+
+        assert!(value.is_function());
+    }
+
+    #[test]
+    fn test_v8_value_type_of() {
+        let mut engine = V8Engine::new();
+        let mut context = engine.new_context().unwrap();
+
+        // Test String
+        {
+            let value = context
+                .run(
+                    r#"
+            "Hello World!"
+            "#,
+                )
+                .unwrap();
+            assert_eq!(value.type_of(), JSType::String);
+        }
+
+        // Test Number
+        {
+            let value = context
+                .run(
+                    r#"
+            1234
+            "#,
+                )
+                .unwrap();
+            assert_eq!(value.type_of(), JSType::Number);
+        }
+
+        // Test Boolean
+        {
+            let value = context
+                .run(
+                    r#"
+            true
+            "#,
+                )
+                .unwrap();
+            assert_eq!(value.type_of(), JSType::Boolean);
+        }
+
+        // Test Object
+        {
+            let value = context
+                .run(
+                    r#"
+            obj = {"key": "value"}
+            obj
+            "#,
+                )
+                .unwrap();
+            assert_eq!(value.type_of(), JSType::Object);
+        }
+
+        // Test Array
+        {
+            let value = context
+                .run(
+                    r#"
+            [1, 2, 3]
+            "#,
+                )
+                .unwrap();
+            assert_eq!(value.type_of(), JSType::Array);
+        }
+
+        // Test Null
+        {
+            let value = context
+                .run(
+                    r#"
+            null
+            "#,
+                )
+                .unwrap();
+            assert_eq!(value.type_of(), JSType::Null);
+        }
+
+        // Test Undefined
+        {
+            let value = context
+                .run(
+                    r#"
+            undefined
+            "#,
+                )
+                .unwrap();
+            assert_eq!(value.type_of(), JSType::Undefined);
+        }
+
+        // Test Function
+        {
+            let value = context
+                .run(
+                    r#"
+            function test() {}
+
+            test
+            "#,
+                )
+                .unwrap();
+            assert_eq!(value.type_of(), JSType::Function);
+        }
+    }
+
+    #[test]
+    fn test_v8_value_new_string() {
+        let mut engine = V8Engine::new();
+        let mut context = engine.new_context().unwrap();
+
+        let value = V8Value::new_string(context, "Hello World!").unwrap();
+        assert!(value.is_string());
+        assert_eq!(value.as_string().unwrap(), "Hello World!");
+    }
+
+    #[test]
+    fn test_v8_value_new_number() {
+        let mut engine = V8Engine::new();
+        let mut context = engine.new_context().unwrap();
+
+        let value = V8Value::new_number(context, 1234).unwrap();
+        assert!(value.is_number());
+        assert_eq!(value.as_number().unwrap(), 1234.0);
+    }
+
+    #[test]
+    fn test_v8_value_new_bool() {
+        let mut engine = V8Engine::new();
+        let mut context = engine.new_context().unwrap();
+
+        let value = V8Value::new_bool(context, true).unwrap();
+        assert!(value.is_bool());
+        assert!(value.as_bool().unwrap());
+    }
+
+    #[test]
+    fn test_v8_value_new_null() {
+        let mut engine = V8Engine::new();
+        let mut context = engine.new_context().unwrap();
+
+        let value = V8Value::new_null(context).unwrap();
+        assert!(value.is_null());
+    }
+
+    #[test]
+    fn test_v8_value_new_undefined() {
+        let mut engine = V8Engine::new();
+        let mut context = engine.new_context().unwrap();
+
+        let value = V8Value::new_undefined(context).unwrap();
+        assert!(value.is_undefined());
     }
 }

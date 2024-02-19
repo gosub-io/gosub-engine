@@ -61,7 +61,6 @@ impl V8Engine<'_> {
             return;
         }
 
-
         V8_INITIALIZED.call_once(|| {
             V8_INITIALIZING.store(true, Ordering::SeqCst);
             //https://github.com/denoland/rusty_v8/issues/1381
