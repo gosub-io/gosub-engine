@@ -1,4 +1,4 @@
-use crate::errors::Result;
+use gosub_shared::types::Result;
 use crate::settings::Setting;
 use crate::StorageAdapter;
 use std::collections::HashMap;

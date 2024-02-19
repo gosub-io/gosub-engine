@@ -29,6 +29,7 @@ impl NodeArena {
     }
 
     /// Count the number of nodes registered in the arena
+    #[allow(dead_code)]
     pub(crate) fn count_nodes(&self) -> usize {
         self.nodes.len()
     }
@@ -66,6 +67,7 @@ impl NodeArena {
 
     /// Prints the list of nodes in sequential order. This makes debugging a bit easier, but should
     /// be removed.
+    #[allow(dead_code)]
     pub(crate) fn print_nodes(&self) {
         for id in &self.order {
             println!("({}): {:?}", id, self.nodes.get(id).expect("node"));

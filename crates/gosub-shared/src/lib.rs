@@ -6,3 +6,4 @@
 pub mod bytes;
 pub mod byte_stream;
 pub mod types;
+pub mod timing;

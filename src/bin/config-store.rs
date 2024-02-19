@@ -1,9 +1,8 @@
+use gosub_config::settings::Setting;
+use gosub_config::storage::*;
+use gosub_config::StorageAdapter;
 use anyhow::anyhow;
 use clap::{Parser, Subcommand};
-
-use config::settings::Setting;
-use config::storage::*;
-use config::StorageAdapter;
 use derive_more::Display;
 use std::str::FromStr;
 

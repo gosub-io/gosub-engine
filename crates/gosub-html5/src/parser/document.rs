@@ -1,4 +1,5 @@
-use gosub_shared::types::{Error, Result};
+use gosub_shared::types::Result;
+use crate::errors::Error;
 use crate::element_class::ElementClass;
 use crate::node::arena::NodeArena;
 use crate::node::data::doctype::DocTypeData;
@@ -16,7 +17,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::ops::{Deref, DerefMut};
-use std::rc::Weak;
+use std::rc::{Rc, Weak};
 
 /// Type of the given document
 #[derive(PartialEq, Debug, Copy, Clone)]
@@ -128,6 +129,7 @@ impl DocumentTaskQueue {
         self.tasks.is_empty()
     }
 
+    #[allow(dead_code)]
     fn flush(&mut self) -> Vec<String> {
         let mut errors = Vec::new();
         for current_task in &self.tasks {
@@ -276,6 +278,7 @@ impl Document {
         DocumentHandle(Rc::clone(&handle.0))
     }
 
+    #[allow(dead_code)]
     pub(crate) fn print_nodes(&self) {
         self.arena.print_nodes();
     }
@@ -648,24 +651,24 @@ impl DocumentHandle {
 
     fn insert_id_attribute(&mut self, value: &str, element_id: NodeId) -> Result<()> {
         if !is_valid_id_attribute_value(value) {
-            return Err(Error::DocumentTask(format!(
+            return Err(Box::new(Error::DocumentTask(format!(
                 "Attribute value '{value}' did not pass validation",
-            )));
+            ))));
         }
 
         // an ID must be tied to only one element
         if self.get().named_id_elements.contains_key(value) {
-            return Err(Error::DocumentTask(format!(
+            return Err(Box::new(Error::DocumentTask(format!(
                 "ID '{value}' already exists in DOM",
-            )));
+            ))));
         }
 
         let mut doc = self.get_mut();
         let data = &mut doc
             .get_node_by_id_mut(element_id)
-            .ok_or(Error::DocumentTask(format!(
+            .ok_or(Box::new(Error::DocumentTask(format!(
                 "Node ID {element_id} not found",
-            )))?
+            ))))?
             .data;
 
         let old_id = if let NodeData::Element(element) = data {
@@ -674,9 +677,9 @@ impl DocumentHandle {
             attributes.insert("id".into(), value.into());
             old_id
         } else {
-            return Err(Error::DocumentTask(format!(
+            return Err(Box::new(Error::DocumentTask(format!(
                 "Node ID {element_id} is not an element"
-            )));
+            ))));
         };
 
         old_id.map(|id| doc.named_id_elements.remove(&id));
@@ -689,15 +692,15 @@ impl DocumentHandle {
         let mut doc = self.get_mut();
         let node = doc
             .get_node_by_id_mut(element_id)
-            .ok_or(Error::DocumentTask(format!(
+            .ok_or(Box::new(Error::DocumentTask(format!(
                 "Node ID {element_id} not found",
-            )))?;
+            ))))?;
         if let NodeData::Element(element) = &mut node.data {
             element.classes = ElementClass::from(value);
         } else {
-            return Err(Error::DocumentTask(format!(
+            return Err(Box::new(Error::DocumentTask(format!(
                 "Node ID {element_id} is not an element",
-            )));
+            ))));
         }
 
         Ok(())
@@ -712,15 +715,15 @@ impl DocumentHandle {
         let mut doc = self.get_mut();
         let node = doc
             .get_node_by_id_mut(element_id)
-            .ok_or(Error::DocumentTask(format!(
+            .ok_or(Box::new(Error::DocumentTask(format!(
                 "Node ID {element_id} not found"
-            )))?;
+            ))))?;
         if let NodeData::Element(element) = &mut node.data {
             element.attributes.insert(key.to_owned(), value.to_owned());
         } else {
-            return Err(Error::DocumentTask(format!(
+            return Err(Box::new(Error::DocumentTask(format!(
                 "Node ID {element_id} is not an element"
-            )));
+            ))));
         }
 
         Ok(())
@@ -780,7 +783,7 @@ impl DocumentHandle {
     /// Otherwise, returns a vector of NodeIds that match the predicate in tree order (preorder depth-first.)
     pub fn query(&self, query: &Query) -> Result<Vec<NodeId>> {
         if query.search_type == SearchType::Uninitialized {
-            return Err(Error::Query("Query predicate is uninitialized".to_owned()));
+            return Err(Box::new(Error::Query("Query predicate is uninitialized".to_owned())));
         }
 
         let doc_read = self.get();

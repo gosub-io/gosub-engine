@@ -6,6 +6,7 @@ authors = ["Gosub Community <info@gosub.io>"]
 license = "MIT"
 
 [dependencies]
+gosub_shared = { path = "../gosub-shared", features = [] }
 gosub_config = { path = "../gosub-config", features = [] }
 derive_more = "0.99"
 thiserror = "1.0.57"

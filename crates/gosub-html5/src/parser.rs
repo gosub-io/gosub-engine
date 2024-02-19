@@ -8,7 +8,7 @@ pub mod tree_builder;
 
 use gosub_shared::bytes::CharIterator;
 use gosub_shared::types::{ParseError, Result};
-use crate::document::DocumentHandle;
+use crate::parser::document::DocumentHandle;
 use crate::node::NodeId;
 use crate::error_logger::{ErrorLogger, ParserError};
 use crate::node::{Node, NodeData, HTML_NAMESPACE, MATHML_NAMESPACE, SVG_NAMESPACE};
@@ -25,6 +25,7 @@ use core::option::Option::Some;
 use std::collections::HashMap;
 #[cfg(feature = "debug_parser")]
 use std::io::Write;
+use std::rc::Rc;
 
 /// Insertion modes as defined in 13.2.4.1
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -1745,6 +1746,7 @@ impl<'chars> Html5Parser<'chars> {
     }
 
     /// Pops the last element from the open elements until we reach $name
+    #[allow(dead_code)]
     fn pop_until(&mut self, name: &str) {
         loop {
             if self.open_elements.is_empty() {
@@ -1853,6 +1855,7 @@ impl<'chars> Html5Parser<'chars> {
         }
     }
 
+    #[allow(dead_code)]
     fn flush_pending_table_character_tokens(&mut self) {
         todo!()
     }

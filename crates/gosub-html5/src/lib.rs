@@ -9,3 +9,4 @@ pub mod node;
 pub mod parser;
 pub mod tokenizer;
 pub mod util;
+mod errors;

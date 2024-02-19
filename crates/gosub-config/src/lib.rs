@@ -2,6 +2,7 @@ mod errors;
 pub mod settings;
 pub mod storage;
 
+use gosub_shared::types::Result;
 use crate::settings::{Setting, SettingInfo};
 use crate::storage::MemoryStorageAdapter;
 use lazy_static::lazy_static;
@@ -33,7 +34,7 @@ pub trait StorageAdapter: Send + Sync {
     /// Retrieves all the settings in the storage in one go. This is used for preloading the settings
     /// into the ConfigStore and is more performant normally than calling get_setting manually for each
     /// setting.
-    fn all(&self) -> crate::errors::Result<HashMap<String, Setting>>;
+    fn all(&self) -> Result<HashMap<String, Setting>>;
 }
 
 lazy_static! {
@@ -256,7 +257,7 @@ impl ConfigStore {
     }
 
     /// Populates the settings in the storage from the settings.json file
-    fn populate_default_settings(&mut self) -> errors::Result<()> {
+    fn populate_default_settings(&mut self) -> Result<()> {
         let json_data: Value =
             serde_json::from_str(SETTINGS_JSON).expect("Failed to parse settings.json");
 

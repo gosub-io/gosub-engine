@@ -1,4 +1,4 @@
-use crate::errors::{Error, Result};
+use gosub_shared::types::Result;
 use crate::settings::Setting;
 use crate::StorageAdapter;
 use log::warn;
@@ -11,7 +11,7 @@ pub struct SqliteStorageAdapter {
 }
 
 impl TryFrom<&String> for SqliteStorageAdapter {
-    type Error = Error;
+    type Error = Box<dyn std::error::Error>;
 
     fn try_from(path: &String) -> Result<Self> {
         let conn = sqlite::open(path).expect("cannot open db file");

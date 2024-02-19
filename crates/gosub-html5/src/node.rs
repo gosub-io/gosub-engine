@@ -1,4 +1,4 @@
-use super::parser::document::{Document, DocumentHandle};
+use crate::parser::document::{Document, DocumentHandle};
 use crate::node::data::comment::CommentData;
 use crate::node::data::doctype::DocTypeData;
 use crate::node::data::document::DocumentData;

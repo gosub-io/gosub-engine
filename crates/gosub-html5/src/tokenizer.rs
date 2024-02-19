@@ -4,17 +4,17 @@ pub mod token;
 mod character_reference;
 mod replacement_tables;
 
-use gosub_shared::bytes::Ch;
-use gosub_shared::bytes;
-use gosub_shared::{CharIterator, Position};
-use gosub_shared::types::{Error, Result};
+use gosub_shared::bytes::{Bytes, CharIterator, Position};
+use gosub_shared::types::Result;
 use crate::error_logger::{ErrorLogger, ParserError};
 use crate::node::HTML_NAMESPACE;
+use crate::tokenizer::Bytes::{Ch, Eof};
 use crate::tokenizer::state::State;
 use crate::tokenizer::token::Token;
 use std::cell::{Ref, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
+use crate::errors::Error;
 
 /// Constants that are not directly captured as visible chars
 pub const CHAR_NUL: char = '\u{0000}';
@@ -2090,6 +2090,7 @@ impl<'stream> Tokenizer<'stream> {
     }
 
     /// Consumes the given string
+    #[allow(dead_code)]
     pub(crate) fn consume_str(&mut self, s: &str) {
         // Add s to the current token data
         self.consumed.push_str(s);
@@ -2149,6 +2150,7 @@ impl<'stream> Tokenizer<'stream> {
     }
 
     /// Adds a new attribute to the current token
+    #[allow(dead_code)]
     fn set_add_attribute_to_current_token(&mut self, name: &str, value: &str) {
         if let Token::StartTag { attributes, .. } = &mut self.current_token.as_mut().unwrap() {
             attributes.insert(name.into(), value.into());
@@ -2158,15 +2160,16 @@ impl<'stream> Tokenizer<'stream> {
     }
 
     /// Sets the given name into the current token
+    #[allow(dead_code)]
     fn set_name_in_current_token(&mut self, new_name: String) -> Result<()> {
         match &mut self.current_token.as_mut().expect("current token") {
             Token::StartTag { name, .. } | Token::EndTag { name, .. } => {
                 *name = new_name;
             }
             _ => {
-                return Err(Error::Parse(
+                return Err(Box::new(Error::Parse(
                     "trying to set the name of a non start/end tag token".into(),
-                ))
+                )))
             }
         }
 

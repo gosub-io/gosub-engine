@@ -1,4 +1,4 @@
-use crate::errors::{Error, Result};
+use crate::errors::Error;
 use core::fmt::Display;
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -154,7 +154,7 @@ impl FromStr for Setting {
     //   m:foo,bar,baz
 
     /// Converts a string to a setting or None when the string is invalid
-    fn from_str(key: &str) -> Result<Setting> {
+    fn from_str(key: &str) -> Result<Setting, crate::errors::Error> {
         let (key_type, key_value) = key.split_once(':').expect("");
 
         let setting = match key_type {

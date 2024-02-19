@@ -34,7 +34,7 @@ impl Debug for ElementData {
 }
 
 impl ElementData {
-    #[must_use]
+    #[allow(dead_code)]
     pub(crate) fn new(node_id: NodeId) -> Self {
         let (name, attributes, classes, force_async, template_contents) = <_>::default();
         Self {

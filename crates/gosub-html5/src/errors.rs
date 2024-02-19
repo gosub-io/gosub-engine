@@ -8,7 +8,7 @@ pub struct ParseError {
     pub message: String,
     /// Line number (1-based) of the error
     pub line: usize,
-    // Column (1-based) of the line of the error
+    // Column (1-based) on line of the error
     pub col: usize,
     // Position (0-based) of the error in the input stream
     pub offset: usize,
@@ -17,15 +17,15 @@ pub struct ParseError {
 /// Serious errors and errors from third-party libraries
 #[derive(Debug, Error)]
 pub enum Error {
-    #[error("config error: {0}")]
-    Config(String),
+    #[error("parse error: {0}")]
+    Parse(String),
 
-    #[error("io error: {0}")]
-    IO(#[from] std::io::Error),
+    #[error("utf8 conversion error: {0}")]
+    Utf8(#[from] std::string::FromUtf8Error),
 
-    #[error("json parsing error: {0}")]
-    JsonSerde(#[from] serde_json::Error),
+    #[error("document task error: {0}")]
+    DocumentTask(String),
 
-    #[error("there was a problem: {0}")]
-    Generic(String),
+    #[error("query: generic error: {0}")]
+    Query(String),
 }

@@ -1,14 +1,14 @@
-use crate::bytes::{CharIterator, Confidence, Encoding};
-use crate::html5::parser::document::{Document, DocumentBuilder, DocumentHandle};
-use crate::html5::parser::Html5Parser;
-use crate::timing::{Timing, TimingTable};
-use crate::types::{Error, ParseError, Result};
+use gosub_shared::bytes::{CharIterator, Confidence, Encoding};
+use gosub_shared::timing::{Timing, TimingTable};
+use gosub_shared::types::{Error, ParseError, Result};
+use gosub_html5::parser::document::{Document, DocumentBuilder, DocumentHandle};
+use gosub_html5::parser::Html5Parser;
+use gosub_net::dns::{Dns, ResolveType};
+use gosub_net::http::headers::Headers;
+use gosub_net::http::request::Request;
+use gosub_net::http::response::Response;
 use cookie::CookieJar;
 use core::fmt::Debug;
-use net::dns::{Dns, ResolveType};
-use net::http::headers::Headers;
-use net::http::request::Request;
-use net::http::response::Response;
 use std::io::Read;
 use url::Url;
 
@@ -80,7 +80,7 @@ fn fetch_url(
 
     let mut resolver = Dns::new();
     let Some(hostname) = parts.host_str() else {
-        return Err(Error::Generic(format!("invalid hostname: {}", url)));
+        return Err(Box::new(Error::Generic(format!("invalid hostname: {}", url))));
     };
     let _ = resolver.resolve(hostname, ResolveType::Ipv4)?;
 
@@ -121,7 +121,7 @@ fn fetch_url(
             fetch_response.response.body = bytes;
         }
         Err(e) => {
-            return Err(Error::Generic(format!("Failed to fetch URL: {}", e)));
+            return Err(Box::new(Error::Generic(format!("Failed to fetch URL: {}", e))));
         }
     }
     fetch_response.timings.end(Timing::ContentTransfer);
@@ -140,7 +140,7 @@ fn fetch_url(
             fetch_response.parse_errors = parse_errors;
         }
         Err(e) => {
-            return Err(Error::Generic(format!("Failed to parse HTML: {}", e)));
+            return Err(Box::new(Error::Generic(format!("Failed to parse HTML: {}", e))));
         }
     }
     fetch_response.timings.end(Timing::HtmlParse);

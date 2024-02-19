@@ -1,5 +1,6 @@
+use gosub_shared::types::Result;
 use crate::dns::{DnsCache, DnsEntry, DnsResolver, ResolveType};
-use crate::errors::Result;
+use crate::errors::Error;
 use log::trace;
 use std::collections::{HashMap, VecDeque};
 
@@ -14,15 +15,15 @@ impl DnsResolver for CacheResolver {
         if let Some(entry) = self.values.get(domain) {
             if !entry.has_ipv4 && !entry.has_ipv6 && resolve_type == ResolveType::Both {
                 trace!("{}: no addresses found in entry", domain);
-                return Err(crate::errors::Error::DnsNoIpAddressFound);
+                return Err(Box::new(Error::DnsNoIpAddressFound));
             }
             if !entry.has_ipv4 && resolve_type == ResolveType::Ipv4 {
                 trace!("{}: no ipv4 addresses found in entry", domain);
-                return Err(crate::errors::Error::DnsNoIpAddressFound);
+                return Err(Box::new(Error::DnsNoIpAddressFound));
             }
             if !entry.has_ipv6 && resolve_type == ResolveType::Ipv6 {
                 trace!("{}: no ipv6 addresses found in entry", domain);
-                return Err(crate::errors::Error::DnsNoIpAddressFound);
+                return Err(Box::new(Error::DnsNoIpAddressFound));
             }
 
             trace!("{}: found in cache with correct resolve type", domain);
@@ -32,7 +33,7 @@ impl DnsResolver for CacheResolver {
             return Ok(entry.clone());
         }
 
-        Err(crate::errors::Error::DnsNoIpAddressFound)
+        Err(Box::new(Error::DnsNoIpAddressFound))
     }
 
     /// When a domain is resolved, it will be announced to all resolvers. This cache resolver

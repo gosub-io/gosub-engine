@@ -686,6 +686,7 @@ dependencies = [
 name = "gosub_config"
 version = "0.1.0"
 dependencies = [
+ "gosub_shared",
  "lazy_static",
  "log",
  "serde",
@@ -712,10 +713,16 @@ dependencies = [
 name = "gosub_html5"
 version = "0.1.0"
 dependencies = [
+ "derive_more",
  "gosub_shared",
  "lazy_static",
  "phf",
+ "thiserror",
 ]
+
+[[package]]
+name = "gosub_js"
+version = "0.1.0"
 
 [[package]]
 name = "gosub_jsapi"
@@ -734,6 +741,7 @@ dependencies = [
  "derive_more",
  "domain-lookup-tree",
  "gosub_config",
+ "gosub_shared",
  "hickory-resolver",
  "http",
  "log",
@@ -744,6 +752,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "gosub_rendering"
+version = "0.1.0"
+
+[[package]]
 name = "gosub_shared"
 version = "0.1.0"
 dependencies = [
@@ -751,6 +763,10 @@ dependencies = [
  "thiserror",
  "url",
 ]
+
+[[package]]
+name = "gosub_testing"
+version = "0.1.0"
 
 [[package]]
 name = "half"

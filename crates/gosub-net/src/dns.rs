@@ -2,8 +2,9 @@ mod cache;
 mod local;
 mod remote;
 
-use crate::errors::Result;
+use gosub_shared::types::Result;
 use gosub_config::config_store;
+use crate::errors::Error;
 use core::str::FromStr;
 use derive_more::Display;
 use log::{debug, info};
@@ -169,7 +170,7 @@ impl Dns {
         }
 
         if entry.is_none() {
-            return Err(crate::errors::Error::DnsDomainNotFound);
+            return Err(Box::new(Error::DnsDomainNotFound));
         }
 
         // Iterate all resolvers and add to all cache systems (normally, this is only the first resolver)

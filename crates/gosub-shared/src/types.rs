@@ -32,33 +32,9 @@ pub enum Error {
     #[error("test error: {0}")]
     Test(String),
 
-    #[error("document task error: {0}")]
-    DocumentTask(String),
-
-    #[error("query: generic error: {0}")]
-    Query(String),
-
-    #[error("dns: generic error: {0}")]
-    DnsGeneric(String),
-
-    #[error("dns: no ipv6 address found")]
-    DnsNoIpv6Found,
-
-    #[error("dns: no ipv4 address found")]
-    DnsNoIpv4Found,
-
-    #[error("dns: no ip address found")]
-    DnsNoIpAddressFound,
-
-    #[error("dns: domain not found")]
-    DnsDomainNotFound,
-
     #[error("there was a problem: {0}")]
     Generic(String),
-
-    #[error("failed to parse url: {0}")]
-    Url(#[from] url::ParseError),
 }
 
 /// Result that can be returned which holds either T or an Error
-pub type Result<T> = std::result::Result<T, Error>;
+pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;

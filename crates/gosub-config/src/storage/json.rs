@@ -1,4 +1,4 @@
-use crate::errors::{Error, Result};
+use gosub_shared::types::Result;
 use crate::settings::Setting;
 use crate::StorageAdapter;
 use log::warn;
@@ -15,7 +15,7 @@ pub struct JsonStorageAdapter {
 }
 
 impl TryFrom<&String> for JsonStorageAdapter {
-    type Error = Error;
+    type Error = Box<dyn std::error::Error>;
 
     fn try_from(path: &String) -> Result<Self> {
         let _ = if let Ok(metadata) = fs::metadata(path) {

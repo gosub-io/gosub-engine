@@ -1,4 +1,6 @@
+use gosub_shared::types::Result;
 use crate::dns::{DnsEntry, DnsResolver, ResolveType};
+use crate::errors::Error;
 use core::str::FromStr;
 use hickory_resolver::config::Protocol::Udp;
 use hickory_resolver::config::{NameServerConfig, ResolverConfig, ResolverOpts};
@@ -15,7 +17,7 @@ impl DnsResolver for RemoteResolver {
         &mut self,
         domain: &str,
         resolve_type: ResolveType,
-    ) -> Result<DnsEntry, crate::errors::Error> {
+    ) -> Result<DnsEntry> {
         let mut entry = DnsEntry::new(domain, vec![]);
 
         let mut ip_types = Vec::new();
@@ -67,7 +69,7 @@ impl DnsResolver for RemoteResolver {
         }
 
         if !entry.has_ipv4 && !entry.has_ipv6 {
-            return Err(crate::errors::Error::DnsNoIpAddressFound);
+            return Err(Box::new(Error::DnsNoIpAddressFound));
         }
 
         Ok(entry)
