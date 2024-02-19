@@ -59,7 +59,7 @@ sqlite = "0.33.0"
 wildmatch = "2.2.0"
 clap = { version = "4.5.0", features = ["derive"] }
 cli-table = "0.4.7"
-textwrap = "0.16.0"
+textwrap = "0.16.1"
 log = "0.4.20"
 domain-lookup-tree = "0.1"
 hickory-resolver = "0.24.0"
