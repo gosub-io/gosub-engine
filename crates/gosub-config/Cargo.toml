@@ -1,0 +1,17 @@
+[package]
+name = "gosub_config"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = {version = "1.0", features = ["preserve_order"]}
+serde_derive = "1.0"
+lazy_static = "1.4"
+thiserror = "1.0.57"
+ureq = "2.9.5"
+sqlite = "0.33.0"
+wildmatch = "2.2.0"
+log = "0.4.20"
+testing_logger = "0.1.1"
+url = "2.5.0"

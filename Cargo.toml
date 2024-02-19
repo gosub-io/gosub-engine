@@ -12,7 +12,7 @@ keywords = ["html5", "parser", "browser", "Rust", "DOM"]
 
 [workspace]
 members = [
-  "crates/*"
+    "crates/*"
 ]
 
 [[example]]
@@ -39,12 +39,16 @@ name = "tree_iterator"
 harness = false
 
 [dependencies]
-net = { path = "./crates/net" }
-config = { path = "./crates/config", features = [] }
+gosub_shared = { path = "./crates/gosub-shared", features = [] }
+gosub_net = { path = "./crates/gosub-net", features = [] }
+gosub_config = { path = "./crates/gosub-config", features = [] }
+gosub_html5 = { path = "./crates/gosub-html5", features = [] }
+gosub_css3 = { path = "./crates/gosub-css3", features = [] }
+gosub_jsapi = { path = "./crates/gosub-jsapi", features = [] }
 phf = { version = "0.11.2", features = ["macros"] }
 derive_more = "0.99"
 serde = { version = "1.0", features = ["derive"] }
-serde_json = {version = "1.0", features = ["preserve_order"]}
+serde_json = { version = "1.0", features = ["preserve_order"] }
 serde_derive = "1.0"
 regex = "1"
 lazy_static = "1.4"
