@@ -1,6 +1,7 @@
 use v8::{Array, Local};
 
-use crate::types::{Error, Result};
+use gosub_shared::types::Result;
+use crate::Error;
 use crate::web_executor::js::v8::{V8Context, V8Engine, V8Value};
 use crate::web_executor::js::{JSArray, JSError, JSRuntime};
 
@@ -19,7 +20,7 @@ impl<'a> JSArray for V8Array<'a> {
         else {
             return Err(Error::JS(JSError::Generic(
                 "failed to get a value from an array".to_owned(),
-            )));
+            )).into());
         };
 
         Ok(V8Value::from_value(self.ctx.clone(), value))
@@ -33,7 +34,7 @@ impl<'a> JSArray for V8Array<'a> {
             Some(_) => Ok(()),
             None => Err(Error::JS(JSError::Conversion(
                 "failed to set a value in an array".to_owned(),
-            ))),
+            )).into()),
         }
     }
 
@@ -47,7 +48,7 @@ impl<'a> JSArray for V8Array<'a> {
             Some(_) => Ok(()),
             None => Err(Error::JS(JSError::Conversion(
                 "failed to push to an array".to_owned(),
-            ))),
+            )).into()),
         }
     }
 
@@ -57,7 +58,7 @@ impl<'a> JSArray for V8Array<'a> {
         let Some(value) = self.value.get_index(self.ctx.borrow_mut().scope(), index) else {
             return Err(Error::JS(JSError::Generic(
                 "failed to get a value from an array".to_owned(),
-            )));
+            )).into());
         };
 
         if self
@@ -67,7 +68,7 @@ impl<'a> JSArray for V8Array<'a> {
         {
             return Err(Error::JS(JSError::Generic(
                 "failed to delete a value from an array".to_owned(),
-            )));
+            )).into());
         }
 
         Ok(V8Value::from_value(self.ctx.clone(), value))
@@ -81,7 +82,7 @@ impl<'a> JSArray for V8Array<'a> {
         {
             return Err(Error::JS(JSError::Generic(
                 "failed to delete a value from an array".to_owned(),
-            )));
+            )).into());
         }
 
         Ok(())

@@ -1,7 +1,7 @@
-use gosub_engine::testing::tree_construction::fixture::read_fixtures;
-use gosub_engine::testing::tree_construction::result::ResultStatus;
-use gosub_engine::testing::tree_construction::Harness;
-use gosub_engine::testing::tree_construction::Test;
+use gosub_testing::testing::tree_construction::fixture::read_fixtures;
+use gosub_testing::testing::tree_construction::result::ResultStatus;
+use gosub_testing::testing::tree_construction::Harness;
+use gosub_testing::testing::tree_construction::Test;
 
 /// Holds the results from all tests that are executed
 #[derive(Default)]

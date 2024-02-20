@@ -1,6 +1,6 @@
-use crate::html5::node::{Node, NodeData, NodeTrait, NodeType, HTML_NAMESPACE};
-use crate::html5::node::{MATHML_NAMESPACE, SVG_NAMESPACE, XLINK_NAMESPACE, XMLNS_NAMESPACE};
-use crate::html5::parser::document::DocumentHandle;
+use gosub_html5::node::{Node, NodeData, NodeTrait, NodeType, HTML_NAMESPACE};
+use gosub_html5::node::{MATHML_NAMESPACE, SVG_NAMESPACE, XLINK_NAMESPACE, XMLNS_NAMESPACE};
+use gosub_html5::parser::document::DocumentHandle;
 
 /// Generates a tree output that can be used for matching with the expected output
 pub struct TreeOutputGenerator {

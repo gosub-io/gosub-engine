@@ -1,3 +1,4 @@
+use gosub_shared::types::Result;
 use crate::web_executor::js::{JSContext, JSFunction, JSFunctionVariadic, JSRuntime, JSValue};
 use core::fmt::Display;
 
@@ -8,27 +9,27 @@ pub trait JSObject {
         &self,
         name: &str,
         value: &<Self::RT as JSRuntime>::Value,
-    ) -> crate::types::Result<()>;
+    ) -> Result<()>;
 
-    fn get_property(&self, name: &str) -> crate::types::Result<<Self::RT as JSRuntime>::Value>;
+    fn get_property(&self, name: &str) -> Result<<Self::RT as JSRuntime>::Value>;
 
     fn call_method(
         &self,
         name: &str,
         args: &[&<Self::RT as JSRuntime>::Value],
-    ) -> crate::types::Result<<Self::RT as JSRuntime>::Value>;
+    ) -> Result<<Self::RT as JSRuntime>::Value>;
 
     fn set_method(
         &self,
         name: &str,
         func: &<Self::RT as JSRuntime>::Function,
-    ) -> crate::types::Result<()>;
+    ) -> Result<()>;
 
     fn set_method_variadic(
         &self,
         name: &str,
         func: &<Self::RT as JSRuntime>::FunctionVariadic,
-    ) -> crate::types::Result<()>;
+    ) -> Result<()>;
 
     #[allow(clippy::type_complexity)]
     fn set_property_accessor(
@@ -36,7 +37,7 @@ pub trait JSObject {
         name: &str,
         getter: Box<dyn Fn(&mut <Self::RT as JSRuntime>::GetterCB)>,
         setter: Box<dyn Fn(&mut <Self::RT as JSRuntime>::SetterCB)>,
-    ) -> crate::types::Result<()>;
+    ) -> Result<()>;
 }
 
 pub trait JSGetterCallback {

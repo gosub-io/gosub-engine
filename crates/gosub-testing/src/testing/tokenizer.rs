@@ -1,7 +1,7 @@
 use super::FIXTURE_ROOT;
-use crate::bytes::CharIterator;
-use crate::html5::tokenizer::ParserData;
-use crate::html5::{
+use gosub_shared::bytes::CharIterator;
+use gosub_html5::tokenizer::ParserData;
+use gosub_html5::{
     error_logger::ErrorLogger,
     tokenizer::{
         state::State as TokenState,
@@ -9,7 +9,7 @@ use crate::html5::{
         {Options, Tokenizer},
     },
 };
-use crate::types::Result;
+use gosub_shared::types::Result;
 use lazy_static::lazy_static;
 use regex::{Captures, Regex};
 use serde::{

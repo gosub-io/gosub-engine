@@ -1,7 +1,7 @@
+use gosub_shared::types::Result;
 use crate::testing::tree_construction::parser::{parse_fixture, QUOTED_DOUBLE_NEWLINE};
 use crate::testing::tree_construction::Test;
 use crate::testing::{FIXTURE_ROOT, TREE_CONSTRUCTION_PATH};
-use crate::types::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -15,7 +15,7 @@ pub struct FixtureFile {
 }
 
 /// Reads a given test file and extract all test data
-pub fn read_fixture_from_path(path: impl AsRef<Path>) -> Result<FixtureFile, Error> {
+pub fn read_fixture_from_path(path: impl AsRef<Path>) -> Result<FixtureFile> {
     let input = fs::read_to_string(&path)?;
     let path = path.as_ref().to_string_lossy().into_owned();
 
@@ -54,7 +54,7 @@ pub fn fixture_root_path() -> PathBuf {
 
 /// Read tree construction fixtures from the given path. If no filenames are given, all
 /// fixtures are read, otherwise only the fixes with the given filenames are read.
-pub fn read_fixtures(filenames: Option<&[&str]>) -> Result<Vec<FixtureFile>, Error> {
+pub fn read_fixtures(filenames: Option<&[&str]>) -> Result<Vec<FixtureFile>> {
     let filenames = filenames.unwrap_or_default();
     let mut files = vec![];
 

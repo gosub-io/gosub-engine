@@ -1,4 +1,4 @@
-use alloc::rc::Rc;
+use std::rc::Rc;
 use std::any::Any;
 use std::cell::RefCell;
 use std::ops::{Deref, DerefMut};
@@ -11,7 +11,7 @@ pub use function::*;
 pub use object::*;
 pub use value::*;
 
-use crate::types::Result;
+use gosub_shared::types::Result;
 use crate::web_executor::js::{
     JSArray, JSContext, JSFunction, JSObject, JSRuntime, JSValue, ValueConversion,
 };
@@ -121,7 +121,7 @@ mod tests {
 
     use colored::Colorize;
 
-    use crate::types::Error;
+    use gosub_shared::types::Error;
     use crate::web_executor::js::v8::PLATFORM_INITIALIZED;
     use crate::web_executor::js::{JSContext, JSRuntime, JSValue};
 

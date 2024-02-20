@@ -12,7 +12,7 @@ pub use runtime::*;
 pub use value::*;
 pub use value_conversion::*;
 
-use crate::types::Result;
+use gosub_shared::types::Result;
 
 mod compile;
 mod context;

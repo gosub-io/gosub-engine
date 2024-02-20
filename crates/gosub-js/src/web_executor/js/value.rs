@@ -1,4 +1,4 @@
-use crate::types::Result;
+use gosub_shared::types::Result;
 use crate::web_executor::js::{JSArray, JSContext, JSObject, JSRuntime, JSType};
 
 pub trait JSValue

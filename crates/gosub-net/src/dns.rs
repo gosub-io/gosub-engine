@@ -170,7 +170,7 @@ impl Dns {
         }
 
         if entry.is_none() {
-            return Err(Box::new(Error::DnsDomainNotFound));
+            return Err(Error::DnsDomainNotFound.into());
         }
 
         // Iterate all resolvers and add to all cache systems (normally, this is only the first resolver)

@@ -6,3 +6,8 @@ authors = ["Gosub Community <info@gosub.io>"]
 license = "MIT"
 
 [dependencies]
+gosub_shared = { path = "../gosub-shared" }
+derive_more = "0.99"
+lazy_static = "1.4"
+thiserror = "1.0.57"
+v8 = "0.83.2"

@@ -15,7 +15,7 @@ pub struct JsonStorageAdapter {
 }
 
 impl TryFrom<&String> for JsonStorageAdapter {
-    type Error = Box<dyn std::error::Error>;
+    type Error = anyhow::Error;
 
     fn try_from(path: &String) -> Result<Self> {
         let _ = if let Ok(metadata) = fs::metadata(path) {

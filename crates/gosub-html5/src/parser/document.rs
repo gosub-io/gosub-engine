@@ -651,16 +651,16 @@ impl DocumentHandle {
 
     fn insert_id_attribute(&mut self, value: &str, element_id: NodeId) -> Result<()> {
         if !is_valid_id_attribute_value(value) {
-            return Err(Box::new(Error::DocumentTask(format!(
+            return Err(Error::DocumentTask(format!(
                 "Attribute value '{value}' did not pass validation",
-            ))));
+            )).into());
         }
 
         // an ID must be tied to only one element
         if self.get().named_id_elements.contains_key(value) {
-            return Err(Box::new(Error::DocumentTask(format!(
+            return Err(Error::DocumentTask(format!(
                 "ID '{value}' already exists in DOM",
-            ))));
+            )).into());
         }
 
         let mut doc = self.get_mut();
@@ -677,9 +677,9 @@ impl DocumentHandle {
             attributes.insert("id".into(), value.into());
             old_id
         } else {
-            return Err(Box::new(Error::DocumentTask(format!(
+            return Err(Error::DocumentTask(format!(
                 "Node ID {element_id} is not an element"
-            ))));
+            )).into());
         };
 
         old_id.map(|id| doc.named_id_elements.remove(&id));
@@ -698,9 +698,9 @@ impl DocumentHandle {
         if let NodeData::Element(element) = &mut node.data {
             element.classes = ElementClass::from(value);
         } else {
-            return Err(Box::new(Error::DocumentTask(format!(
+            return Err(Error::DocumentTask(format!(
                 "Node ID {element_id} is not an element",
-            ))));
+            )).into());
         }
 
         Ok(())
@@ -721,9 +721,9 @@ impl DocumentHandle {
         if let NodeData::Element(element) = &mut node.data {
             element.attributes.insert(key.to_owned(), value.to_owned());
         } else {
-            return Err(Box::new(Error::DocumentTask(format!(
+            return Err(Error::DocumentTask(format!(
                 "Node ID {element_id} is not an element"
-            ))));
+            )).into());
         }
 
         Ok(())
@@ -783,7 +783,7 @@ impl DocumentHandle {
     /// Otherwise, returns a vector of NodeIds that match the predicate in tree order (preorder depth-first.)
     pub fn query(&self, query: &Query) -> Result<Vec<NodeId>> {
         if query.search_type == SearchType::Uninitialized {
-            return Err(Box::new(Error::Query("Query predicate is uninitialized".to_owned())));
+            return Err(Error::Query("Query predicate is uninitialized".to_owned()).into());
         }
 
         let doc_read = self.get();

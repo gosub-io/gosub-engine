@@ -17,7 +17,7 @@ pub struct ElementData {
     /// Note that it is NOT RECOMMENDED to modify this
     /// attribute map directly and instead use TreeBuilder.insert_attribute
     /// to keep attributes in sync with the DOM.
-    pub(crate) attributes: HashMap<String, String>,
+    pub attributes: HashMap<String, String>,
     /// CSS classes
     pub(crate) classes: ElementClass,
     // Only used for <script> elements

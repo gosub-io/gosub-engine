@@ -27,7 +27,7 @@ impl DnsResolver for LocalTableResolver {
     fn resolve(&mut self, domain: &str, _resolve_type: ResolveType) -> Result<DnsEntry> {
         let Some(domain_entry) = self.tree.lookup(domain) else {
             trace!("{domain}: not found in local table");
-            return Err(Box::new(Error::DnsDomainNotFound));
+            return Err(Error::DnsDomainNotFound.into());
         };
 
         trace!("{domain_entry}: found in local tree");
@@ -39,7 +39,7 @@ impl DnsResolver for LocalTableResolver {
         }
 
         trace!("{domain}: not found in local table");
-        Err(Box::new(Error::DnsDomainNotFound))
+        Err(Error::DnsDomainNotFound.into())
     }
 
     fn name(&self) -> &'static str {

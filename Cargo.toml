@@ -44,7 +44,9 @@ gosub_net = { path = "./crates/gosub-net", features = [] }
 gosub_config = { path = "./crates/gosub-config", features = [] }
 gosub_html5 = { path = "./crates/gosub-html5", features = [] }
 gosub_css3 = { path = "./crates/gosub-css3", features = [] }
+gosub_js = { path = "./crates/gosub-js", features = [] }
 gosub_jsapi = { path = "./crates/gosub-jsapi", features = [] }
+gosub_testing = { path = "./crates/gosub-testing", features = [] }
 phf = { version = "0.11.2", features = ["macros"] }
 derive_more = "0.99"
 serde = { version = "1.0", features = ["derive"] }
@@ -100,3 +102,6 @@ codegen-units = 1
 lto = "fat"
 opt-level = 3
 codegen-units = 1
+
+[lib]
+crate-type = ["staticlib"]

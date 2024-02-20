@@ -2167,9 +2167,9 @@ impl<'stream> Tokenizer<'stream> {
                 *name = new_name;
             }
             _ => {
-                return Err(Box::new(Error::Parse(
+                return Err(Error::Parse(
                     "trying to set the name of a non start/end tag token".into(),
-                )))
+                ).into())
             }
         }
 

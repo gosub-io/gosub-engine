@@ -3,24 +3,17 @@ mod generator;
 pub(crate) mod parser;
 pub mod result;
 
-use crate::html5::node::{HTML_NAMESPACE, MATHML_NAMESPACE, SVG_NAMESPACE};
-use crate::html5::parser::document::DocumentBuilder;
-use crate::html5::parser::tree_builder::TreeBuilder;
-use crate::html5::parser::Html5ParserOptions;
-use crate::testing::tree_construction::generator::TreeOutputGenerator;
-use crate::testing::tree_construction::parser::{ScriptMode, TestSpec};
-use crate::testing::tree_construction::result::{ResultStatus, TreeLineResult};
-use crate::{
-    bytes::CharIterator,
-    html5::{
-        node::NodeId,
-        parser::{
-            document::{Document, DocumentHandle},
-            Html5Parser,
-        },
-    },
-    types::{ParseError, Result},
-};
+use gosub_shared::types::{ParseError, Result};
+use gosub_shared::bytes::CharIterator;
+use gosub_html5::node::{HTML_NAMESPACE, MATHML_NAMESPACE, SVG_NAMESPACE};
+use gosub_html5::parser::document::DocumentBuilder;
+use gosub_html5::parser::tree_builder::TreeBuilder;
+use gosub_html5::parser::{Html5Parser, Html5ParserOptions};
+use gosub_html5::node::NodeId;
+use gosub_html5::parser::document::{Document, DocumentHandle};
+use generator::TreeOutputGenerator;
+use parser::{ScriptMode, TestSpec};
+use result::{ResultStatus, TreeLineResult};
 use result::TestResult;
 
 /// Holds a single parser test

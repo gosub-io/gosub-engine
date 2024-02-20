@@ -11,7 +11,7 @@ pub struct SqliteStorageAdapter {
 }
 
 impl TryFrom<&String> for SqliteStorageAdapter {
-    type Error = Box<dyn std::error::Error>;
+    type Error = anyhow::Error;
 
     fn try_from(path: &String) -> Result<Self> {
         let conn = sqlite::open(path).expect("cannot open db file");

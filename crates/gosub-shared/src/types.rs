@@ -37,4 +37,4 @@ pub enum Error {
 }
 
 /// Result that can be returned which holds either T or an Error
-pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+pub type Result<T> = std::result::Result<T, anyhow::Error>;

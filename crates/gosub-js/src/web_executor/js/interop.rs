@@ -1,6 +1,6 @@
-use crate::types::Result;
+use gosub_shared::types::Result;
 use crate::web_executor::js::JSRuntime;
-use alloc::rc::Rc;
+use std::rc::Rc;
 use std::cell::RefCell;
 
 pub trait JSInterop {

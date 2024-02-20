@@ -1,5 +1,5 @@
 // See https://github.com/html5lib/html5lib-tests/tree/master/tree-construction
-use crate::types::{Error, Result};
+use gosub_shared::types::{Error, Result};
 use nom::{
     branch::alt,
     bytes::complete::{tag, take_until, take_until1},

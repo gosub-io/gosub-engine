@@ -69,7 +69,7 @@ impl DnsResolver for RemoteResolver {
         }
 
         if !entry.has_ipv4 && !entry.has_ipv6 {
-            return Err(Box::new(Error::DnsNoIpAddressFound));
+            return Err(Error::DnsNoIpAddressFound.into());
         }
 
         Ok(entry)

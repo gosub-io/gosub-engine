@@ -658,9 +658,11 @@ dependencies = [
  "gosub_config",
  "gosub_css3",
  "gosub_html5",
+ "gosub_js",
  "gosub_jsapi",
  "gosub_net",
  "gosub_shared",
+ "gosub_testing",
  "lazy_static",
  "log",
  "nom",
@@ -686,6 +688,7 @@ dependencies = [
 name = "gosub_config"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "gosub_shared",
  "lazy_static",
  "log",
@@ -723,6 +726,13 @@ dependencies = [
 [[package]]
 name = "gosub_js"
 version = "0.1.0"
+dependencies = [
+ "derive_more",
+ "gosub_shared",
+ "lazy_static",
+ "thiserror",
+ "v8",
+]
 
 [[package]]
 name = "gosub_jsapi"
@@ -759,6 +769,7 @@ version = "0.1.0"
 name = "gosub_shared"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "chardet",
  "thiserror",
  "url",
@@ -767,6 +778,17 @@ dependencies = [
 [[package]]
 name = "gosub_testing"
 version = "0.1.0"
+dependencies = [
+ "gosub_html5",
+ "gosub_shared",
+ "lazy_static",
+ "nom",
+ "nom_locate",
+ "regex",
+ "serde",
+ "serde_derive",
+ "serde_json",
+]
 
 [[package]]
 name = "half"

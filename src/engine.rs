@@ -12,8 +12,10 @@ use core::fmt::Debug;
 use std::io::Read;
 use url::Url;
 
+#[allow(dead_code)]
 const USER_AGENT: &str = "Mozilla/5.0 (compatible; gosub/0.1; +https://gosub.io)";
 
+#[allow(dead_code)]
 const MAX_BYTES: u64 = 10_000_000;
 
 /// Response that is returned from the fetch function
@@ -53,6 +55,7 @@ impl Debug for FetchResponse {
     }
 }
 
+#[allow(dead_code)]
 fn fetch_url(
     method: &str,
     url: &str,
@@ -80,7 +83,7 @@ fn fetch_url(
 
     let mut resolver = Dns::new();
     let Some(hostname) = parts.host_str() else {
-        return Err(Box::new(Error::Generic(format!("invalid hostname: {}", url))));
+        return Err(Error::Generic(format!("invalid hostname: {}", url)).into());
     };
     let _ = resolver.resolve(hostname, ResolveType::Ipv4)?;
 
@@ -121,7 +124,7 @@ fn fetch_url(
             fetch_response.response.body = bytes;
         }
         Err(e) => {
-            return Err(Box::new(Error::Generic(format!("Failed to fetch URL: {}", e))));
+            return Err(Error::Generic(format!("Failed to fetch URL: {}", e)).into());
         }
     }
     fetch_response.timings.end(Timing::ContentTransfer);
@@ -140,7 +143,7 @@ fn fetch_url(
             fetch_response.parse_errors = parse_errors;
         }
         Err(e) => {
-            return Err(Box::new(Error::Generic(format!("Failed to parse HTML: {}", e))));
+            return Err(Error::Generic(format!("Failed to parse HTML: {}", e)).into());
         }
     }
     fetch_response.timings.end(Timing::HtmlParse);

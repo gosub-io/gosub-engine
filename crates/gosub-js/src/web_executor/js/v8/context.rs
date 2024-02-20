@@ -1,4 +1,4 @@
-use alloc::rc::Rc;
+use std::rc::Rc;
 use std::cell::RefCell;
 use std::ptr::NonNull;
 
@@ -7,7 +7,8 @@ use v8::{
     TryCatch,
 };
 
-use crate::types::{Error, Result};
+use gosub_shared::types::Result;
+use crate::Error;
 use crate::web_executor::js::compile::JSCompiled;
 use crate::web_executor::js::v8::compile::V8Compiled;
 use crate::web_executor::js::v8::{FromContext, V8Context, V8Engine, V8Object, V8Value};
@@ -78,7 +79,7 @@ impl<'a> V8Ctx<'a> {
         let Some(isolate) = NonNull::new(Box::into_raw(isolate)) else {
             return Err(Error::JS(JSError::Compile(
                 "Failed to create isolate".to_owned(),
-            )));
+            )).into());
         };
         v8_ctx.isolate = isolate;
 
@@ -87,7 +88,7 @@ impl<'a> V8Ctx<'a> {
         let Some(handle_scope) = NonNull::new(Box::into_raw(handle_scope)) else {
             return Err(Error::JS(JSError::Compile(
                 "Failed to create handle scope".to_owned(),
-            )));
+            )).into());
         };
 
         v8_ctx.handle_scope = handle_scope;
@@ -102,7 +103,7 @@ impl<'a> V8Ctx<'a> {
         let Some(ctx) = NonNull::new(Box::into_raw(Box::new(ctx))) else {
             return Err(Error::JS(JSError::Compile(
                 "Failed to create context".to_owned(),
-            )));
+            )).into());
         };
 
         v8_ctx.ctx = ctx;
@@ -110,7 +111,7 @@ impl<'a> V8Ctx<'a> {
         let Some(ctx_scope) = NonNull::new(Box::into_raw(ctx_scope)) else {
             return Err(Error::JS(JSError::Compile(
                 "Failed to create context scope".to_owned(),
-            )));
+            )).into());
         };
 
         v8_ctx.context_scope = ctx_scope;
@@ -138,16 +139,16 @@ impl<'a> V8Ctx<'a> {
         if let Some(exception) = try_catch.exception() {
             let e = exception.to_rust_string_lossy(try_catch);
 
-            return Error::JS(JSError::Compile(e));
+            return Error::JS(JSError::Compile(e).into());
         }
 
         if let Some(m) = try_catch.message() {
             let message = m.get(try_catch).to_rust_string_lossy(try_catch);
 
-            return Error::JS(JSError::Compile(message));
+            return Error::JS(JSError::Compile(message).into());
         }
 
-        Error::JS(JSError::Compile("unknown error".to_owned()))
+        Error::JS(JSError::Compile("unknown error".to_owned())).into()
     }
 }
 
@@ -174,7 +175,7 @@ pub(crate) fn ctx_from_scope_isolate<'a>(
     let Some(ctx) = NonNull::new(Box::into_raw(ctx)) else {
         return Err((
             scope,
-            Error::JS(JSError::Compile("Failed to create context".to_owned())),
+            Error::JS(JSError::Compile("Failed to create context".to_owned()).into()),
         ));
     };
 
@@ -188,7 +189,7 @@ pub(crate) fn ctx_from_scope_isolate<'a>(
         let scope = unsafe { Box::from_raw(raw_scope) };
         return Err((
             *scope,
-            Error::JS(JSError::Compile("Failed to create handle scope".to_owned())),
+            Error::JS(JSError::Compile("Failed to create handle scope".to_owned()).into()),
         ));
     };
 
@@ -207,7 +208,7 @@ pub(crate) fn ctx_from_scope_isolate<'a>(
             *scope,
             Error::JS(JSError::Compile(
                 "Failed to create context scope".to_owned(),
-            )),
+            ).into()),
         ));
     };
 
@@ -284,7 +285,7 @@ impl<'a> JSContext for V8Context<'a> {
         let script = v8::Script::compile(try_catch, code, None);
 
         let Some(script) = script else {
-            return Err(V8Ctx::report_exception(try_catch));
+            return Err(V8Ctx::report_exception(try_catch).into());
         };
 
         Ok(V8Compiled::from_ctx(Rc::clone(self), script))

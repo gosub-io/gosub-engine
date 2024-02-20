@@ -1,4 +1,4 @@
-use crate::types::Result;
+use gosub_shared::types::Result;
 use crate::web_executor::js::{
     Args, JSArray, JSCompiled, JSContext, JSFunction, JSFunctionCallBack,
     JSFunctionCallBackVariadic, JSFunctionVariadic, JSGetterCallback, JSObject, JSSetterCallback,

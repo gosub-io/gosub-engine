@@ -303,7 +303,7 @@ impl Node {
     }
 
     /// Returns true when the given node is of the given namespace
-    pub(crate) fn is_namespace(&self, namespace: &str) -> bool {
+    pub fn is_namespace(&self, namespace: &str) -> bool {
         self.namespace == Some(namespace.into())
     }
 

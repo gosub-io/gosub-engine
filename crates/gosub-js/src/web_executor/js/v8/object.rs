@@ -6,7 +6,8 @@ use v8::{
     ReturnValue, Value,
 };
 
-use crate::types::{Error, Result};
+use gosub_shared::types::Result;
+use crate::Error;
 use crate::web_executor::js::v8::{
     ctx_from, FromContext, V8Context, V8Ctx, V8Engine, V8Function, V8FunctionCallBack,
     V8FunctionVariadic, V8Value,
@@ -87,7 +88,7 @@ impl<'a> JSObject for V8Object<'a> {
         let Some(name) = v8::String::new(self.ctx.borrow_mut().scope(), name) else {
             return Err(Error::JS(JSError::Generic(
                 "failed to create a string".to_owned(),
-            )));
+            )).into());
         };
 
         if self
@@ -97,7 +98,7 @@ impl<'a> JSObject for V8Object<'a> {
         {
             Err(Error::JS(JSError::Generic(
                 "failed to set a property in an object".to_owned(),
-            )))
+            )).into())
         } else {
             Ok(())
         }
@@ -107,7 +108,7 @@ impl<'a> JSObject for V8Object<'a> {
         let Some(name) = v8::String::new(self.ctx.borrow_mut().scope(), name) else {
             return Err(Error::JS(JSError::Generic(
                 "failed to create a string".to_owned(),
-            )));
+            )).into());
         };
 
         self.value
@@ -115,7 +116,7 @@ impl<'a> JSObject for V8Object<'a> {
             .ok_or_else(|| {
                 Error::JS(JSError::Generic(
                     "failed to get a property from an object".to_owned(),
-                ))
+                )).into()
             })
             .map(|value| V8Value::from_value(self.ctx.clone(), value))
     }
@@ -130,7 +131,7 @@ impl<'a> JSObject for V8Object<'a> {
         if !func.is_function() {
             return Err(Error::JS(JSError::Generic(
                 "property is not a function".to_owned(),
-            )));
+            )).into());
         }
 
         let function = Local::<v8::Function>::try_from(func).unwrap();
@@ -143,7 +144,7 @@ impl<'a> JSObject for V8Object<'a> {
             .call(try_catch, self.value.into(), &args)
             .map(|v| V8Value::from_value(self.ctx.clone(), v))
         else {
-            return Err(V8Ctx::report_exception(try_catch));
+            return Err(V8Ctx::report_exception(try_catch).into());
         };
 
         Ok(ret)
@@ -153,13 +154,13 @@ impl<'a> JSObject for V8Object<'a> {
         let Some(name) = v8::String::new(self.ctx.borrow_mut().scope(), name) else {
             return Err(Error::JS(JSError::Generic(
                 "failed to create a string".to_owned(),
-            )));
+            )).into());
         };
 
         if !func.function.is_function() {
             return Err(Error::JS(JSError::Generic(
                 "property is not a function".to_owned(),
-            )));
+            )).into());
         }
 
         if self
@@ -173,7 +174,7 @@ impl<'a> JSObject for V8Object<'a> {
         {
             Err(Error::JS(JSError::Generic(
                 "failed to set a property in an object".to_owned(),
-            )))
+            )).into())
         } else {
             Ok(())
         }
@@ -183,13 +184,13 @@ impl<'a> JSObject for V8Object<'a> {
         let Some(name) = v8::String::new(self.ctx.borrow_mut().scope(), name) else {
             return Err(Error::JS(JSError::Generic(
                 "failed to create a string".to_owned(),
-            )));
+            )).into());
         };
 
         if !func.function.is_function() {
             return Err(Error::JS(JSError::Generic(
                 "property is not a function".to_owned(),
-            )));
+            )).into());
         }
 
         if self
@@ -203,7 +204,7 @@ impl<'a> JSObject for V8Object<'a> {
         {
             Err(Error::JS(JSError::Generic(
                 "failed to set a property in an object".to_owned(),
-            )))
+            )).into())
         } else {
             Ok(())
         }
