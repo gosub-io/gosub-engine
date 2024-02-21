@@ -1,4 +1,4 @@
-use crate::web_executor::js::{
+use crate::js::{
     Args, JSArray, JSCompiled, JSContext, JSFunction, JSFunctionCallBack,
     JSFunctionCallBackVariadic, JSFunctionVariadic, JSGetterCallback, JSObject, JSSetterCallback,
     JSValue, ValueConversion, VariadicArgs, VariadicArgsInternal,

@@ -1,4 +1,4 @@
-use crate::web_executor::js::{JSArray, JSCompiled, JSFunction, JSObject, JSRuntime, JSValue};
+use crate::js::{JSArray, JSCompiled, JSFunction, JSObject, JSRuntime, JSValue};
 use gosub_shared::types::Result;
 
 //main trait for JS context (can be implemented for different JS engines like V8, SpiderMonkey, JSC, etc.)

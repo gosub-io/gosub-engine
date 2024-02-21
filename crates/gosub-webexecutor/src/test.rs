@@ -4,10 +4,10 @@ use std::ops::Add;
 use std::rc::Rc;
 
 //use webinterop::{web_fns, web_interop};
-use crate::web_executor::js::v8::{
+use crate::js::v8::{
     GetterCallback, SetterCallback, V8Context, V8Engine, V8Function, V8FunctionVariadic, V8Value,
 };
-use crate::web_executor::js::{
+use crate::js::{
     Args, JSContext, JSFunction, JSFunctionCallBack, JSFunctionCallBackVariadic,
     JSFunctionVariadic, JSGetterCallback, JSInterop, JSObject, JSRuntime, JSSetterCallback,
     JSValue, ValueConversion, VariadicArgs, VariadicArgsInternal,

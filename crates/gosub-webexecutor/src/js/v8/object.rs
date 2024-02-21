@@ -6,11 +6,11 @@ use v8::{
     ReturnValue, Value,
 };
 
-use crate::web_executor::js::v8::{
+use crate::js::v8::{
     ctx_from, FromContext, V8Context, V8Ctx, V8Engine, V8Function, V8FunctionCallBack,
     V8FunctionVariadic, V8Value,
 };
-use crate::web_executor::js::{
+use crate::js::{
     JSArray, JSError, JSGetterCallback, JSObject, JSRuntime, JSSetterCallback, JSValue,
 };
 use crate::Error;

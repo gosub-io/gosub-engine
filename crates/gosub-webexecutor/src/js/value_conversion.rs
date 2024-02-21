@@ -1,4 +1,4 @@
-use crate::web_executor::js::{JSContext, JSRuntime, JSValue};
+use crate::js::{JSContext, JSRuntime, JSValue};
 use gosub_shared::types::Result;
 
 //trait to easily convert Rust types to JS values (just call .to_js_value() on the type)

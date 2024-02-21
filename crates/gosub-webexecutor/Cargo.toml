@@ -1,5 +1,5 @@
 [package]
-name = "gosub_js"
+name = "gosub_webexecutor"
 version = "0.1.0"
 edition = "2021"
 authors = ["Gosub Community <info@gosub.io>"]

@@ -7,10 +7,10 @@ use v8::{
     TryCatch,
 };
 
-use crate::web_executor::js::compile::JSCompiled;
-use crate::web_executor::js::v8::compile::V8Compiled;
-use crate::web_executor::js::v8::{FromContext, V8Context, V8Engine, V8Object, V8Value};
-use crate::web_executor::js::{JSContext, JSError, JSRuntime};
+use crate::js::compile::JSCompiled;
+use crate::js::v8::compile::V8Compiled;
+use crate::js::v8::{FromContext, V8Context, V8Engine, V8Object, V8Value};
+use crate::js::{JSContext, JSError, JSRuntime};
 use crate::Error;
 use gosub_shared::types::Result;
 

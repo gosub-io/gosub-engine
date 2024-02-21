@@ -1,4 +1,4 @@
-use crate::web_executor::js::{JSContext, JSError, JSObject, JSRuntime, JSValue};
+use crate::js::{JSContext, JSError, JSObject, JSRuntime, JSValue};
 use core::fmt::Display;
 use gosub_shared::types::Result;
 

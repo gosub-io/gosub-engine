@@ -2,7 +2,7 @@ use lazy_static::lazy_static;
 use std::sync::Mutex;
 use thiserror::Error;
 
-use crate::web_executor::js::v8::V8Engine;
+use crate::js::v8::V8Engine;
 pub use compile::*;
 pub use context::*;
 pub use function::*;

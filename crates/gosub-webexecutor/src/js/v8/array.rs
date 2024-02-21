@@ -1,7 +1,7 @@
 use v8::{Array, Local};
 
-use crate::web_executor::js::v8::{V8Context, V8Engine, V8Value};
-use crate::web_executor::js::{JSArray, JSError, JSRuntime};
+use crate::js::v8::{V8Context, V8Engine, V8Value};
+use crate::js::{JSArray, JSError, JSRuntime};
 use crate::Error;
 use gosub_shared::types::Result;
 

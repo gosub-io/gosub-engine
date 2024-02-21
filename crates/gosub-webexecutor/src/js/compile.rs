@@ -1,4 +1,4 @@
-use crate::web_executor::js::{JSContext, JSRuntime, JSValue};
+use crate::js::{JSContext, JSRuntime, JSValue};
 use gosub_shared::types::Result;
 
 //compiled code will be stored with this trait for later execution (e.g HTML parsing not done yet)

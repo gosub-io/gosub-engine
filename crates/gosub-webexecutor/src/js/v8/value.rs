@@ -2,8 +2,8 @@ use std::rc::Rc;
 
 use v8::{Local, Value};
 
-use crate::web_executor::js::v8::{FromContext, V8Context, V8Engine, V8Object};
-use crate::web_executor::js::{JSError, JSRuntime, JSType, JSValue, ValueConversion};
+use crate::js::v8::{FromContext, V8Context, V8Engine, V8Object};
+use crate::js::{JSError, JSRuntime, JSType, JSValue, ValueConversion};
 use crate::Error;
 use gosub_shared::types::Result;
 

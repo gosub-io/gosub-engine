@@ -6,9 +6,9 @@ use v8::{
     FunctionCallbackInfo, Local, ReturnValue,
 };
 
-use crate::web_executor::js::function::{JSFunctionCallBack, JSFunctionCallBackVariadic};
-use crate::web_executor::js::v8::{ctx_from_function_callback_info, V8Context, V8Engine, V8Value};
-use crate::web_executor::js::{
+use crate::js::function::{JSFunctionCallBack, JSFunctionCallBackVariadic};
+use crate::js::v8::{ctx_from_function_callback_info, V8Context, V8Engine, V8Value};
+use crate::js::{
     Args, JSError, JSFunction, JSFunctionVariadic, JSRuntime, JSValue, VariadicArgs,
     VariadicArgsInternal,
 };

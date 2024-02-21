@@ -44,7 +44,7 @@ gosub_net = { path = "./crates/gosub-net", features = [] }
 gosub_config = { path = "./crates/gosub-config", features = [] }
 gosub_html5 = { path = "./crates/gosub-html5", features = [] }
 gosub_css3 = { path = "./crates/gosub-css3", features = [] }
-gosub_js = { path = "./crates/gosub-js", features = [] }
+gosub_webexecutor = { path = "./crates/gosub-webexecutor", features = [] }
 gosub_jsapi = { path = "./crates/gosub-jsapi", features = [] }
 gosub_testing = { path = "./crates/gosub-testing", features = [] }
 serde = { version = "1.0", features = ["derive"] }

@@ -1,4 +1,4 @@
-use crate::web_executor::js::{JSContext, JSFunction, JSFunctionVariadic, JSRuntime, JSValue};
+use crate::js::{JSContext, JSFunction, JSFunctionVariadic, JSRuntime, JSValue};
 use core::fmt::Display;
 use gosub_shared::types::Result;
 

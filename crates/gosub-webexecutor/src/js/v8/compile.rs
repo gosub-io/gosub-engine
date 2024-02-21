@@ -1,5 +1,5 @@
-use crate::web_executor::js::v8::{FromContext, V8Context, V8Ctx, V8Engine, V8Value};
-use crate::web_executor::js::{JSCompiled, JSRuntime};
+use crate::js::v8::{FromContext, V8Context, V8Ctx, V8Engine, V8Value};
+use crate::js::{JSCompiled, JSRuntime};
 use gosub_shared::types::Result;
 use std::rc::Rc;
 use v8::{Local, Script};

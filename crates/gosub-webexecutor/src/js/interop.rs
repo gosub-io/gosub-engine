@@ -1,4 +1,4 @@
-use crate::web_executor::js::JSRuntime;
+use crate::js::JSRuntime;
 use gosub_shared::types::Result;
 use std::cell::RefCell;
 use std::rc::Rc;

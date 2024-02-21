@@ -11,9 +11,7 @@ pub use function::*;
 pub use object::*;
 pub use value::*;
 
-use crate::web_executor::js::{
-    JSArray, JSContext, JSFunction, JSObject, JSRuntime, JSValue, ValueConversion,
-};
+use crate::js::{JSArray, JSContext, JSFunction, JSObject, JSRuntime, JSValue, ValueConversion};
 use gosub_shared::types::Result;
 
 mod array;
@@ -122,21 +120,21 @@ mod tests {
     use anyhow;
     use colored::Colorize;
 
-    use crate::web_executor::js::v8::PLATFORM_INITIALIZED;
-    use crate::web_executor::js::{JSContext, JSError, JSRuntime, JSValue};
+    use crate::js::v8::PLATFORM_INITIALIZED;
+    use crate::js::{JSContext, JSError, JSRuntime, JSValue};
     use crate::Error;
     use crate::Error::JS;
 
     #[test]
     fn v8_engine_initialization() {
-        let mut engine = crate::web_executor::js::v8::V8Engine::new();
+        let mut engine = crate::js::v8::V8Engine::new();
 
         assert!(PLATFORM_INITIALIZED.load(Ordering::SeqCst));
     }
 
     #[test]
     fn v8_js_execution() {
-        let mut engine = crate::web_executor::js::v8::V8Engine::new();
+        let mut engine = crate::js::v8::V8Engine::new();
         let mut context = engine.new_context().unwrap();
 
         let value = context
@@ -154,7 +152,7 @@ mod tests {
 
     #[test]
     fn v8_run_invalid_syntax() {
-        let mut engine = crate::web_executor::js::v8::V8Engine::new();
+        let mut engine = crate::js::v8::V8Engine::new();
 
         let mut context = engine.new_context().unwrap();
 
@@ -175,7 +173,7 @@ mod tests {
 
     #[test]
     fn v8_context_creation() {
-        let mut engine = crate::web_executor::js::v8::V8Engine::new();
+        let mut engine = crate::js::v8::V8Engine::new();
 
         let context = engine.new_context();
         assert!(context.is_ok());

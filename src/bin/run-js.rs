@@ -1,6 +1,6 @@
-use gosub_js::web_executor::js::v8::V8Context;
-use gosub_js::web_executor::js::{JSContext, JSRuntime, JSValue, RUNTIME};
 use gosub_shared::types::Result;
+use gosub_webexecutor::js::v8::V8Context;
+use gosub_webexecutor::js::{JSContext, JSRuntime, JSValue, RUNTIME};
 use std::env::args;
 
 fn main() -> Result<()> {
