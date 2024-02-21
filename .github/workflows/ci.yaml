@@ -46,6 +46,8 @@ jobs:
       matrix:
         rust_version: [ stable, beta, nightly, 1.73.0, "stable minus 1 release", "stable minus 2 releases" ]
     steps:
+      - name: Print CPU info
+        run: lscpu
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
         with:
