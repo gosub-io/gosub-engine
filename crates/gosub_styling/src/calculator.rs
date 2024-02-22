@@ -1,124 +1,16 @@
-use crate::css3::parser_config::ParserConfig;
-use crate::css3::Css3;
-use crate::html5::node::{Node, NodeId};
-use crate::html5::parser::document::{Document, DocumentHandle};
-use crate::styles::converter::{
-    convert_css_ast_to_rules, CssOrigin, CssSelector, CssSelectorPart, CssSelectorType,
-    CssStylesheet, MatcherType, Specificity,
-};
 use core::fmt::Debug;
+use gosub_css3::convert::ast_converter::convert_ast_to_stylesheet;
+use gosub_css3::parser_config::ParserConfig;
+use gosub_css3::stylesheet::{
+    CssOrigin, CssSelector, CssSelectorPart, CssSelectorType, CssStylesheet, MatcherType,
+    Specificity,
+};
+use gosub_css3::Css3;
+use gosub_html5::node::{Node, NodeId};
+use gosub_html5::parser::document::{Document, DocumentHandle, TreeIterator};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fs;
-
-pub mod converter;
-pub mod css_colors;
-mod property_list;
-mod shorthands;
-
-/// A declarationProperty defines a single value for a property (color: red;). It consists of the value, origin, importance, location and
-/// specificity of the declaration.
-#[derive(Debug)]
-pub struct DeclarationProperty {
-    /// The actual value of the property
-    pub value: String,
-    /// Origin of the declaration (user stylesheet, author stylesheet etc)
-    pub origin: CssOrigin,
-    /// Whether the declaration is !important
-    pub important: bool,
-    /// The location of the declaration in the stylesheet (name.css:123) or empty
-    pub location: String,
-    /// The specificity of the selector that declared this property
-    pub specificity: Specificity,
-}
-
-impl DeclarationProperty {
-    /// Priority of the declaration based on the origin and importance as defined in https://developer.mozilla.org/en-US/docs/Web/CSS/Cascade
-    fn priority(&self) -> u8 {
-        match self.origin {
-            CssOrigin::UserAgent => {
-                if self.important {
-                    7
-                } else {
-                    1
-                }
-            }
-            CssOrigin::User => {
-                if self.important {
-                    6
-                } else {
-                    2
-                }
-            }
-            CssOrigin::Author => {
-                if self.important {
-                    5
-                } else {
-                    3
-                }
-            }
-        }
-    }
-}
-
-impl PartialEq<Self> for DeclarationProperty {
-    fn eq(&self, other: &Self) -> bool {
-        self.priority() == other.priority()
-    }
-}
-
-impl PartialOrd<Self> for DeclarationProperty {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Eq for DeclarationProperty {}
-
-impl Ord for DeclarationProperty {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.priority().cmp(&other.priority())
-    }
-}
-
-/// A value entry contains all values for a single property for a single node. It contains the declared values, and
-/// all the computed values.
-#[derive(Debug)]
-pub struct ValueEntry {
-    /// List of all declared values for this property
-    pub declared: Vec<DeclarationProperty>,
-    /// Cascaded value
-    pub cascaded: Option<String>,
-    pub specified: String,
-    pub computed: String,
-    pub used: String,
-    pub actual: String,
-}
-
-impl Default for ValueEntry {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl ValueEntry {
-    pub fn new() -> Self {
-        Self {
-            declared: Vec::new(),
-            cascaded: None,
-            specified: "".into(),
-            computed: "".into(),
-            used: "".into(),
-            actual: "".into(),
-        }
-    }
-}
-
-/// Map of all declared values for a single node
-pub type CssMapEntry = HashMap<String, ValueEntry>;
-
-/// Map of all declared values for all nodes in the document
-pub type CssMap = HashMap<NodeId, CssMapEntry>;
 
 /// Style calculator will generate a declared values map for all nodes in the document based on the stylesheets given
 pub struct StyleCalculator {
@@ -162,7 +54,7 @@ impl StyleCalculator {
         self.css_map = CssMap::new();
 
         // Iterate the complete document tree
-        let tree_iterator = crate::html5::parser::document::TreeIterator::new(&self.document);
+        let tree_iterator = TreeIterator::new(&self.document);
         for current_node_id in tree_iterator {
             let mut css_map_entry = CssMapEntry::new();
 
@@ -432,8 +324,112 @@ pub fn load_default_useragent_stylesheet() -> anyhow::Result<CssStylesheet> {
         fs::read_to_string("resources/useragent.css").expect("Could not load useragent stylesheet");
     let css_ast = Css3::parse(css.as_str(), config).expect("Could not parse useragent stylesheet");
 
-    convert_css_ast_to_rules(&css_ast, CssOrigin::UserAgent, location)
+    convert_ast_to_stylesheet(&css_ast, CssOrigin::UserAgent, location)
 }
+
+/// A declarationProperty defines a single value for a property (color: red;). It consists of the value,
+/// origin, importance, location and specificity of the declaration.
+#[derive(Debug)]
+pub struct DeclarationProperty {
+    /// The actual value of the property
+    pub value: String,
+    /// Origin of the declaration (user stylesheet, author stylesheet etc)
+    pub origin: CssOrigin,
+    /// Whether the declaration is !important
+    pub important: bool,
+    /// The location of the declaration in the stylesheet (name.css:123) or empty
+    pub location: String,
+    /// The specificity of the selector that declared this property
+    pub specificity: Specificity,
+}
+
+impl DeclarationProperty {
+    /// Priority of the declaration based on the origin and importance as defined in https://developer.mozilla.org/en-US/docs/Web/CSS/Cascade
+    fn priority(&self) -> u8 {
+        match self.origin {
+            CssOrigin::UserAgent => {
+                if self.important {
+                    7
+                } else {
+                    1
+                }
+            }
+            CssOrigin::User => {
+                if self.important {
+                    6
+                } else {
+                    2
+                }
+            }
+            CssOrigin::Author => {
+                if self.important {
+                    5
+                } else {
+                    3
+                }
+            }
+        }
+    }
+}
+
+impl PartialEq<Self> for DeclarationProperty {
+    fn eq(&self, other: &Self) -> bool {
+        self.priority() == other.priority()
+    }
+}
+
+impl PartialOrd<Self> for DeclarationProperty {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Eq for DeclarationProperty {}
+
+impl Ord for DeclarationProperty {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.priority().cmp(&other.priority())
+    }
+}
+
+/// A value entry contains all values for a single property for a single node. It contains the declared values, and
+/// all the computed values.
+#[derive(Debug)]
+pub struct ValueEntry {
+    /// List of all declared values for this property
+    pub declared: Vec<DeclarationProperty>,
+    /// Cascaded value
+    pub cascaded: Option<String>,
+    pub specified: String,
+    pub computed: String,
+    pub used: String,
+    pub actual: String,
+}
+
+impl Default for ValueEntry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ValueEntry {
+    pub fn new() -> Self {
+        Self {
+            declared: Vec::new(),
+            cascaded: None,
+            specified: "".into(),
+            computed: "".into(),
+            used: "".into(),
+            actual: "".into(),
+        }
+    }
+}
+
+/// Map of all declared values for a single node
+pub type CssMapEntry = HashMap<String, ValueEntry>;
+
+/// Map of all declared values for all nodes in the document
+pub type CssMap = HashMap<NodeId, CssMapEntry>;
 
 #[cfg(test)]
 mod tests {

@@ -1,8 +1,8 @@
-use crate::html5::node::data::comment::CommentData;
-use crate::html5::node::data::doctype::DocTypeData;
-use crate::html5::node::data::document::DocumentData;
-use crate::html5::node::data::element::ElementData;
-use crate::html5::node::data::text::TextData;
+use crate::node::data::comment::CommentData;
+use crate::node::data::doctype::DocTypeData;
+use crate::node::data::document::DocumentData;
+use crate::node::data::element::ElementData;
+use crate::node::data::text::TextData;
 
 pub trait Visitor<Node> {
     fn document_enter(&mut self, node: &Node, data: &DocumentData);

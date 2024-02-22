@@ -3,19 +3,23 @@ use std::io::Write;
 use std::ops::Deref;
 
 /// The walker is used to walk the AST and print it to stdout.
+#[allow(dead_code)]
 pub struct Walker<'a> {
     root: &'a Node,
 }
 
 impl<'a> Walker<'a> {
+    #[allow(dead_code)]
     pub fn new(root: &'a Node) -> Self {
         Self { root }
     }
 
+    #[allow(dead_code)]
     pub fn walk_stdout(&self) {
         let _ = inner_walk(self.root, 0, &mut std::io::stdout());
     }
 
+    #[allow(dead_code)]
     pub fn walk_to_string(&self) -> String {
         let mut output: Vec<u8> = Vec::new();
 

@@ -1,18 +1,14 @@
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::ops::Add;
-use std::rc::Rc;
-
-//use webinterop::{web_fns, web_interop};
-use crate::js::v8::{
-    GetterCallback, SetterCallback, V8Context, V8Engine, V8Function, V8FunctionVariadic, V8Value,
-};
+use crate::js::v8::{V8Engine, V8Value};
 use crate::js::{
     Args, JSContext, JSFunction, JSFunctionCallBack, JSFunctionCallBackVariadic,
     JSFunctionVariadic, JSGetterCallback, JSInterop, JSObject, JSRuntime, JSSetterCallback,
     JSValue, ValueConversion, VariadicArgs, VariadicArgsInternal,
 };
 use gosub_shared::types::Result;
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::ops::Add;
+use std::rc::Rc;
 
 //#[web_interop]
 struct TestStruct {
@@ -36,9 +32,9 @@ impl TestStruct {
     fn add3(a: i32, b: i32) -> i32 {
         a + b
     }
-    fn variadic<T: VariadicArgsInternal>(nums: T) {}
+    fn variadic<T: VariadicArgsInternal>(_nums: T) {}
 
-    fn v8_variadic(nums: V8Value) {}
+    fn v8_variadic(_nums: V8Value) {}
 }
 
 // #[test]
@@ -72,23 +68,23 @@ fn array_test() {
     mut_size_slice(&mut <[i32; 3]>::try_from(test_vec.clone()).unwrap()); //clone only needed for the test
 }
 
-fn vec(vec: Vec<i32>) {}
+fn vec(_vec: Vec<i32>) {}
 
 #[allow(clippy::ptr_arg)]
-fn ref_vec(vec: &Vec<i32>) {}
+fn ref_vec(_vec: &Vec<i32>) {}
 
 #[allow(clippy::ptr_arg)]
-fn mut_vec(vec: &mut Vec<i32>) {}
+fn mut_vec(_vec: &mut Vec<i32>) {}
 
-fn ref_slice(slice: &[i32]) {}
+fn ref_slice(_slice: &[i32]) {}
 
-fn mut_slice(slice: &mut [i32]) {}
+fn mut_slice(_slice: &mut [i32]) {}
 
-fn size_slice(array: [i32; 3]) {}
+fn size_slice(_array: [i32; 3]) {}
 
-fn ref_size_slice(slice: &[i32; 3]) {}
+fn ref_size_slice(_slice: &[i32; 3]) {}
 
-fn mut_size_slice(slice: &mut [i32; 3]) {}
+fn mut_size_slice(_slice: &mut [i32; 3]) {}
 
 #[derive(Debug)]
 struct Test2 {
@@ -147,7 +143,7 @@ impl JSInterop for Test2 {
             let setter = {
                 let s = Rc::clone(&s);
                 Box::new(move |cb: &mut RT::SetterCB| {
-                    let ctx = cb.context();
+                    let _ctx = cb.context();
                     let value = cb.value();
                     let value = match value.as_number() {
                         Ok(value) => value,
@@ -188,7 +184,7 @@ impl JSInterop for Test2 {
             let setter = {
                 let s = Rc::clone(&s);
                 Box::new(move |cb: &mut RT::SetterCB| {
-                    let ctx = cb.context();
+                    let _ctx = cb.context();
                     let value = cb.value();
                     let value = match value.as_string() {
                         Ok(value) => value,
@@ -243,7 +239,7 @@ impl JSInterop for Test2 {
 
                 let ctx = cb.context();
 
-                let args = cb.args();
+                let _args = cb.args();
 
                 let Some(arg0) = cb.args().get(0, ctx.clone()) else {
                     cb.error("failed to get argument");
@@ -278,7 +274,7 @@ impl JSInterop for Test2 {
 
                 let ctx = cb.context();
 
-                let args = cb.args();
+                let _args = cb.args();
 
                 let Some(arg0) = cb.args().get(0, ctx.clone()) else {
                     cb.error("failed to get argument");
@@ -308,7 +304,7 @@ impl JSInterop for Test2 {
 
                 let ctx = cb.context();
 
-                let args = cb.args();
+                let _args = cb.args();
 
                 let Some(arg0) = cb.args().get(0, ctx.clone()) else {
                     cb.error("failed to get argument");

@@ -1,6 +1,6 @@
-use crate::html5::node::NodeId;
-use crate::html5::parser::document::DocumentHandle;
-use crate::styles::StyleCalculator;
+use crate::calculator::StyleCalculator;
+use gosub_html5::node::NodeId;
+use gosub_html5::parser::document::DocumentHandle;
 
 /// The rendering pipeline to convert a document and stylesheets into a rendered page
 /// It's a very simple pipeline with a single step (generate_render_tree). But more

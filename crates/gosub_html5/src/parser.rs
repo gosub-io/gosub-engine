@@ -20,13 +20,17 @@ use crate::tokenizer::token::Token;
 use crate::tokenizer::{ParserData, Tokenizer, CHAR_REPLACEMENT};
 use core::cell::RefCell;
 use core::option::Option::Some;
+use gosub_css3::convert::ast_converter::convert_ast_to_stylesheet;
+use gosub_css3::parser_config::ParserConfig;
+use gosub_css3::stylesheet::{CssOrigin, CssStylesheet};
+use gosub_css3::Css3;
 use gosub_shared::bytes::CharIterator;
 use gosub_shared::types::{ParseError, Result};
+use log::warn;
 use std::collections::HashMap;
 #[cfg(feature = "debug_parser")]
 use std::io::Write;
 use std::rc::Rc;
-use log::warn;
 use url::Url;
 
 /// Insertion modes as defined in 13.2.4.1
@@ -4111,7 +4115,7 @@ impl<'chars> Html5Parser<'chars> {
 
         match Css3::parse(node.as_text().value.as_str(), config) {
             Ok(ast) => {
-                match convert_css_ast_to_rules(&ast, origin, "") {
+                match convert_ast_to_stylesheet(&ast, origin, "") {
                     Ok(sheet) => return Some(sheet),
                     Err(err) => warn!("Error while converting CSS AST to rules: {} ", err),
                 }
@@ -4180,7 +4184,7 @@ impl<'chars> Html5Parser<'chars> {
 
         match Css3::parse(css.as_str(), config) {
             Ok(ast) => {
-                match convert_css_ast_to_rules(&ast, origin, url.to_string().as_str()) {
+                match convert_ast_to_stylesheet(&ast, origin, url.to_string().as_str()) {
                     Ok(sheet) => return Some(sheet),
                     Err(err) => warn!("Error while converting CSS AST to rules: {} ", err),
                 }
