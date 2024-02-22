@@ -6,6 +6,6 @@ authors = ["Gosub Community <info@gosub.io>"]
 license = "MIT"
 
 [dependencies]
-gosub_shared = { path = "../gosub-shared", features = [] }
+gosub_shared = { path = "../gosub_shared", features = [] }
 uuid = { version = "1.7.0", features = ["v4"] }
 regex = "1"

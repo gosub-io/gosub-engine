@@ -6,8 +6,8 @@ authors = ["Gosub Community <info@gosub.io>"]
 license = "MIT"
 
 [dependencies]
-gosub_shared = { path = "../gosub-shared" }
-gosub_html5 = { path = "../gosub-html5" }
+gosub_shared = { path = "../gosub_shared" }
+gosub_html5 = { path = "../gosub_html5" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", features = ["preserve_order"] }
 serde_derive = "1.0"

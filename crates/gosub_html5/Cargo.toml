@@ -1,15 +1,14 @@
 [package]
-name = "gosub_webexecutor"
+name = "gosub_html5"
 version = "0.1.0"
 edition = "2021"
 authors = ["Gosub Community <info@gosub.io>"]
 license = "MIT"
 
 [dependencies]
-gosub_shared = { path = "../gosub-shared" }
-colored = "2.1.0"
+gosub_shared = { path = "../gosub_shared", features = [] }
 derive_more = "0.99"
+phf = { version = "0.11.2", features = ["macros"] }
 lazy_static = "1.4"
 thiserror = "1.0.57"
-v8 = "0.83.2"
-anyhow = "1.0.80"
+

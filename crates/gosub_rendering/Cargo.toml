@@ -6,4 +6,4 @@ authors = ["Gosub Community <info@gosub.io>"]
 license = "MIT"
 
 [dependencies]
-gosub_html5 = { path = "../gosub-html5" }
+gosub_html5 = { path = "../gosub_html5" }

@@ -638,40 +638,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4271d37baee1b8c7e4b708028c57d816cf9d2434acb33a549475f78c181f6253"
 
 [[package]]
-name = "gosub-bindings"
+name = "gosub_bindings"
 version = "0.1.0"
 dependencies = [
  "gosub_html5",
  "gosub_rendering",
  "gosub_shared",
-]
-
-[[package]]
-name = "gosub-engine"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "cookie",
- "criterion",
- "derive_more",
- "gosub_config",
- "gosub_css3",
- "gosub_html5",
- "gosub_jsapi",
- "gosub_net",
- "gosub_shared",
- "gosub_testing",
- "gosub_webexecutor",
- "lazy_static",
- "regex",
- "serde",
- "serde_derive",
- "simple_logger",
- "test-case",
- "ureq",
- "url",
- "walkdir",
 ]
 
 [[package]]
@@ -701,6 +673,34 @@ dependencies = [
  "lazy_static",
  "log",
  "simple_logger",
+]
+
+[[package]]
+name = "gosub_engine"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "cookie",
+ "criterion",
+ "derive_more",
+ "gosub_config",
+ "gosub_css3",
+ "gosub_html5",
+ "gosub_jsapi",
+ "gosub_net",
+ "gosub_shared",
+ "gosub_testing",
+ "gosub_webexecutor",
+ "lazy_static",
+ "regex",
+ "serde",
+ "serde_derive",
+ "simple_logger",
+ "test-case",
+ "ureq",
+ "url",
+ "walkdir",
 ]
 
 [[package]]
