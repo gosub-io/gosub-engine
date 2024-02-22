@@ -39,7 +39,7 @@ In the root directory, run `make format` to have clippy automatically fix some o
 In the root directory, run `make bench` to run the benchmarks.
 
 ### Building C API Bindings
-In the `crates/gosub-bindings` directory, run `make bindings` to build the C static libraries. For more information on this, see the [README](crates/gosub-bindings/README.md).
+In the `crates/gosub_bindings` directory, run `make bindings` to build the C static libraries. For more information on this, see the [README](crates/gosub-bindings/README.md).
 
 Can also run `make test` in the same directory to build and run the tests for the C bindings.
 

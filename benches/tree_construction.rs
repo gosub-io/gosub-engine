@@ -1,6 +1,6 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use gosub_engine::testing::tree_construction;
-use gosub_engine::testing::tree_construction::Harness;
+use gosub_testing::testing::tree_construction;
+use gosub_testing::testing::tree_construction::Harness;
 
 fn criterion_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("Tree construction");

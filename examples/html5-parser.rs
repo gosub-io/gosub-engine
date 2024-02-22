@@ -1,8 +1,6 @@
-use gosub_engine::html5::parser::document::{Document, DocumentBuilder};
-use gosub_engine::{
-    bytes::{CharIterator, Encoding},
-    html5::parser::Html5Parser,
-};
+use gosub_html5::parser::document::{Document, DocumentBuilder};
+use gosub_html5::parser::Html5Parser;
+use gosub_shared::bytes::{CharIterator, Encoding};
 
 fn main() {
     // Creates an input stream
