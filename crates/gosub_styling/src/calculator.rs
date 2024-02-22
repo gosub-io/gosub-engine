@@ -11,6 +11,7 @@ use gosub_html5::parser::document::{Document, DocumentHandle, TreeIterator};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fs;
+use crate::css_colors::RgbColor;
 
 /// Style calculator will generate a declared values map for all nodes in the document based on the stylesheets given
 pub struct StyleCalculator {
@@ -98,13 +99,13 @@ impl StyleCalculator {
                 }
             }
 
-            self.css_map.insert(current_node_id, css_map_entry);
+            self.css_map.nodes.insert(current_node_id, css_map_entry);
         }
     }
 
     /// Orders all declared values and finds the cascaded values
     pub fn find_cascaded_values(&mut self) {
-        for (_, css_map_entry) in self.css_map.iter_mut() {
+        for (_, css_map_entry) in self.css_map.nodes.iter_mut() {
             for (_, entry) in css_map_entry.iter_mut() {
                 // Sort on origin and importance
                 entry.declared.sort();
@@ -129,7 +130,7 @@ impl StyleCalculator {
     pub fn get_properties(&self, node_id: NodeId) -> HashMap<String, String> {
         let mut props = HashMap::new();
 
-        if let Some(entry) = self.css_map.get(&node_id) {
+        if let Some(entry) = self.css_map.nodes.get(&node_id) {
             for (k, v) in entry {
                 props.insert(k.clone(), v.cascaded.clone().unwrap_or("".into()));
             }
@@ -188,15 +189,16 @@ impl StyleCalculator {
                 }
                 CssSelectorType::Attribute => {
                     let wanted_attr_name = part.name.clone();
+
+                    if !current_node.has_attribute(&wanted_attr_name) {
+                        return false;
+                    }
+
                     let mut wanted_attr_value = part.value.clone();
                     let mut got_attr_value = current_node
                         .get_attribute(&wanted_attr_name)
                         .unwrap_or(&"".to_string())
                         .to_string();
-
-                    if !current_node.has_attribute(&wanted_attr_name) {
-                        return false;
-                    }
 
                     // If we need to match case-insensitive, just convert everything to lowercase for comparison
                     if part.flags.eq_ignore_ascii_case("i") {
@@ -429,7 +431,26 @@ impl ValueEntry {
 pub type CssMapEntry = HashMap<String, ValueEntry>;
 
 /// Map of all declared values for all nodes in the document
-pub type CssMap = HashMap<NodeId, CssMapEntry>;
+pub struct CssMap {
+    nodes: HashMap<NodeId, CssMapEntry>
+}
+
+impl CssMap {
+    fn new() -> Self {
+        Self {
+            nodes: HashMap::new()
+        }
+    }
+
+    #[allow(dead_code)]
+    fn get_color(&self, name: &str) -> Option<RgbColor> {
+        let name = name.to_lowercase();
+        crate::css_colors::CSS_COLORNAMES
+            .iter()
+            .find(|entry| entry.name == name)
+            .map(|entry| RgbColor::from(entry.value))
+    }
+}
 
 #[cfg(test)]
 mod tests {

@@ -771,6 +771,7 @@ dependencies = [
  "gosub_html5",
  "gosub_shared",
  "lazy_static",
+ "regex",
 ]
 
 [[package]]

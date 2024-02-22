@@ -91,37 +91,6 @@ impl Visitor<Node> for TextVisitor {
     }
 }
 
-struct RgbColor {
-    r: u8,
-    g: u8,
-    b: u8,
-}
-
-fn get_css_color(props: &HashMap<String, String>, prop_name: &str) -> Option<RgbColor> {
-    let binding = "".to_string();
-
-    let col = props.get(prop_name).unwrap_or(&binding);
-    let col = match get_color_value(col) {
-        Some(c) => c,
-        None => col,
-    };
-
-    // @todo: #fff must be converted to #ffffff
-    if Regex::new(r"^#[0-9a-fA-F]{6}$").unwrap().is_match(col) {
-        let r = i32::from_str_radix(&col[1..3], 16).unwrap();
-        let g = i32::from_str_radix(&col[3..5], 16).unwrap();
-        let b = i32::from_str_radix(&col[5..7], 16).unwrap();
-
-        return Some(RgbColor {
-            r: r as u8,
-            g: g as u8,
-            b: b as u8,
-        });
-    }
-
-    None
-}
-
 fn main() -> Result<()> {
     let matches = clap::Command::new("Gosub Style parser")
         .version("0.1.0")

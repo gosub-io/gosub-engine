@@ -1,15 +1,82 @@
 use lazy_static::lazy_static;
+use std::convert::From;
+use regex::Regex;
 
 // Values for this table is taken from https://www.w3.org/TR/CSS21/propidx.html
 // Probably not the complete list, but it will do for now
 
-struct CssColorEntry {
-    name: &'static str,
-    value: &'static str,
+pub struct CssColorEntry {
+    pub name: &'static str,
+    pub value: &'static str,
+}
+
+pub struct RgbColor {
+    /// Red component
+    pub r: u8,
+    /// Green component
+    pub g: u8,
+    /// Blue component
+    pub b: u8,
+    /// Alpha component (0 = transparent, 255 = solid)
+    pub a: u8,
+}
+
+impl RgbColor {
+    pub fn new(r: u8, g: u8, b: u8, a: u8) -> Self {
+        RgbColor { r, g, b, a }
+    }
+}
+
+impl Default for RgbColor {
+    fn default() -> Self {
+        RgbColor {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 255,
+        }
+    }
+}
+
+impl From<&str> for RgbColor {
+    fn from(value: &str) -> Self {
+        // 6 with RRGGBB or 8 hex digits RRGGBBAA
+        if Regex::new(r"^#[0-9a-fA-F]{6,8}$").unwrap().is_match(value) {
+            let r = i32::from_str_radix(&value[1..3], 16).unwrap();
+            let g = i32::from_str_radix(&value[3..5], 16).unwrap();
+            let b = i32::from_str_radix(&value[5..7], 16).unwrap();
+            let mut a = 255;
+
+            if value.len() == 9 {
+                a = i32::from_str_radix(&value[7..9], 16).unwrap();
+            }
+
+            return RgbColor::new(r as u8, g as u8, b as u8, a as u8);
+        }
+
+        // 3 with RGB or 4 hex digits RGBA
+        if Regex::new(r"^#[0-9a-fA-F]{3,4}$").unwrap().is_match(value) {
+            let mut r = i32::from_str_radix(&value[1..2], 16).unwrap();
+            r = r * 16 + r;
+            let mut g = i32::from_str_radix(&value[2..3], 16).unwrap();
+            g = g * 16 + g;
+            let mut b = i32::from_str_radix(&value[3..4], 16).unwrap();
+            b = b * 16 + b;
+            let mut a = 255;
+            if value.len() == 5 {
+                a = i32::from_str_radix(&value[4..5], 16).unwrap();
+                a = a * 16 + a;
+            }
+
+            return RgbColor::new(r as u8, g as u8, b as u8, a as u8);
+        }
+
+        RgbColor::default()
+    }
 }
 
 lazy_static! {
-    static ref CSS_COLORNAMES: &'static [CssColorEntry] = &[
+    pub static ref CSS_COLORNAMES: &'static [CssColorEntry] = &[
         CssColorEntry {
             name: "aliceblue",
             value: "#f0f8ff",
@@ -601,10 +668,105 @@ lazy_static! {
     ];
 }
 
-pub fn get_color_value(color_name: &str) -> Option<&'static str> {
-    let name = color_name.to_lowercase();
-    CSS_COLORNAMES
-        .iter()
-        .find(|entry| entry.name == name)
-        .map(|entry| entry.value)
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_css_color() {
+        let color = super::RgbColor::from("#ff0000");
+        assert_eq!(color.r, 255);
+        assert_eq!(color.g, 0);
+        assert_eq!(color.b, 0);
+        assert_eq!(color.a, 255);
+
+        let color = super::RgbColor::from("#f00");
+        assert_eq!(color.r, 255);
+        assert_eq!(color.g, 0);
+        assert_eq!(color.b, 0);
+        assert_eq!(color.a, 255);
+
+        let color = super::RgbColor::from("#ff0000ff");
+        assert_eq!(color.r, 255);
+        assert_eq!(color.g, 0);
+        assert_eq!(color.b, 0);
+        assert_eq!(color.a, 255);
+
+        let color = super::RgbColor::from("#f00f");
+        assert_eq!(color.r, 255);
+        assert_eq!(color.g, 0);
+        assert_eq!(color.b, 0);
+        assert_eq!(color.a, 255);
+
+        let color = super::RgbColor::from("#ff0000");
+        assert_eq!(color.r, 255);
+        assert_eq!(color.g, 0);
+        assert_eq!(color.b, 0);
+        assert_eq!(color.a, 255);
+
+        let color = super::RgbColor::from("#f00");
+        assert_eq!(color.r, 255);
+        assert_eq!(color.g, 0);
+        assert_eq!(color.b, 0);
+        assert_eq!(color.a, 255);
+
+        let color = super::RgbColor::from("#ff0000ff");
+        assert_eq!(color.r, 255);
+        assert_eq!(color.g, 0);
+        assert_eq!(color.b, 0);
+        assert_eq!(color.a, 255);
+
+        let color = super::RgbColor::from("#f00f");
+        assert_eq!(color.r, 255);
+        assert_eq!(color.g, 0);
+        assert_eq!(color.b, 0);
+        assert_eq!(color.a, 255);
+    }
+
+    #[test]
+    fn random_colors() {
+        let color = super::RgbColor::from("#1234");
+        assert_eq!(color.r, 17);
+        assert_eq!(color.g, 34);
+        assert_eq!(color.b, 51);
+        assert_eq!(color.a, 68);
+
+        let color = super::RgbColor::from("#c2e");
+        assert_eq!(color.r, 204);
+        assert_eq!(color.g, 34);
+        assert_eq!(color.b, 238);
+        assert_eq!(color.a, 255);
+
+        let color = super::RgbColor::from("#432636");
+        assert_eq!(color.r, 67);
+        assert_eq!(color.g, 38);
+        assert_eq!(color.b, 54);
+        assert_eq!(color.a, 255);
+
+        let color = super::RgbColor::from("#10203040");
+        assert_eq!(color.r, 16);
+        assert_eq!(color.g, 32);
+        assert_eq!(color.b, 48);
+        assert_eq!(color.a, 64);
+    }
+
+    #[test]
+    fn wrong_hex_colors() {
+        let color = super::RgbColor::from("#incorrect");
+        assert_eq!(color.r, 0);
+        assert_eq!(color.g, 0);
+        assert_eq!(color.b, 0);
+        assert_eq!(color.a, 255);
+
+        let color = super::RgbColor::from("ff0000");
+        assert_eq!(color.r, 0);
+        assert_eq!(color.g, 0);
+        assert_eq!(color.b, 0);
+        assert_eq!(color.a, 255);
+
+        let color = super::RgbColor::from("abcd");
+        assert_eq!(color.r, 0);
+        assert_eq!(color.g, 0);
+        assert_eq!(color.b, 0);
+        assert_eq!(color.a, 255);
+    }
 }

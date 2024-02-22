@@ -11,3 +11,4 @@ gosub_css3 = { path = "../gosub_css3" }
 gosub_html5 = { path = "../gosub_html5" }
 lazy_static = "1.4"
 anyhow = "1.0.80"
+regex = "1.10.3"
