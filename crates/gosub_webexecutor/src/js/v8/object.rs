@@ -6,6 +6,8 @@ use v8::{
     ReturnValue, Value,
 };
 
+use gosub_shared::types::Result;
+
 use crate::js::v8::{
     ctx_from, FromContext, V8Context, V8Ctx, V8Engine, V8Function, V8FunctionCallBack,
     V8FunctionVariadic, V8Value,
@@ -14,7 +16,6 @@ use crate::js::{
     JSArray, JSError, JSGetterCallback, JSObject, JSRuntime, JSSetterCallback, JSValue,
 };
 use crate::Error;
-use gosub_shared::types::Result;
 
 pub struct V8Object<'a> {
     ctx: V8Context<'a>,
@@ -115,7 +116,7 @@ impl<'a> JSObject for V8Object<'a> {
         let Some(name) = v8::String::new(self.ctx.borrow_mut().scope(), name) else {
             return Err(Error::JS(JSError::Generic("failed to create a string".to_owned())).into());
         };
-        
+
         let scope = self.ctx.borrow_mut().scope();
 
         self.value
@@ -253,7 +254,7 @@ impl<'a> JSObject for V8Object<'a> {
                 };
 
                 let gs = unsafe { &*(external.value() as *const GetterSetter) };
-                
+
                 let isolate = gs.ctx.borrow().isolate;
 
                 let ctx = match ctx_from(scope, isolate) {
@@ -351,13 +352,13 @@ impl<'a> FromContext<'a, Local<'a, Object>> for V8Object<'a> {
 
 #[cfg(test)]
 mod tests {
-    use alloc::rc::Rc;
     use std::cell::RefCell;
+    use std::rc::Rc;
 
     use serde_json::to_string;
 
-    use crate::web_executor::js::v8::V8FunctionCallBackVariadic;
-    use crate::web_executor::js::{
+    use crate::js::v8::V8FunctionCallBackVariadic;
+    use crate::js::{
         JSFunction, JSFunctionCallBack, JSFunctionCallBackVariadic, JSFunctionVariadic,
         ValueConversion, VariadicArgsInternal,
     };

@@ -1,6 +1,8 @@
-use crate::js::{JSContext, JSError, JSObject, JSRuntime, JSValue};
 use core::fmt::Display;
+
 use gosub_shared::types::Result;
+
+use crate::js::{JSContext, JSObject, JSRuntime, JSValue};
 
 struct Function<T: JSFunction>(pub T);
 

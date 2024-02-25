@@ -1,6 +1,8 @@
-use crate::js::{JSContext, JSFunction, JSFunctionVariadic, JSRuntime, JSValue};
 use core::fmt::Display;
+
 use gosub_shared::types::Result;
+
+use crate::js::{JSContext, JSFunction, JSFunctionVariadic, JSRuntime, JSValue};
 
 pub trait JSObject {
     type RT: JSRuntime;

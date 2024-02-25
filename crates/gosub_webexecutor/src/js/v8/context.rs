@@ -7,12 +7,13 @@ use v8::{
     TryCatch,
 };
 
+use gosub_shared::types::Result;
+
 use crate::js::compile::JSCompiled;
 use crate::js::v8::compile::V8Compiled;
-use crate::js::v8::{FromContext, V8Context, V8Engine, V8Object, V8Value};
+use crate::js::v8::{FromContext, V8Context, V8Engine, V8Object};
 use crate::js::{JSContext, JSError, JSRuntime};
 use crate::Error;
-use gosub_shared::types::Result;
 
 /// SAFETY: This is NOT thread safe, as the rest of the engine is not thread safe.
 /// This struct uses `NonNull` internally to store pointers to the V8Context "values" in one struct.

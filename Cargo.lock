@@ -798,6 +798,7 @@ dependencies = [
  "derive_more",
  "gosub_shared",
  "lazy_static",
+ "serde_json",
  "thiserror",
  "v8",
 ]

@@ -1,5 +1,6 @@
-use crate::js::{JSArray, JSContext, JSObject, JSRuntime, JSType};
 use gosub_shared::types::Result;
+
+use crate::js::{JSArray, JSContext, JSObject, JSRuntime, JSType};
 
 pub trait JSValue
 where

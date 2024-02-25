@@ -1,9 +1,10 @@
 use v8::{Array, Local};
 
+use gosub_shared::types::Result;
+
 use crate::js::v8::{V8Context, V8Engine, V8Value};
 use crate::js::{JSArray, JSError, JSRuntime};
 use crate::Error;
-use gosub_shared::types::Result;
 
 pub struct V8Array<'a> {
     value: Local<'a, Array>,
@@ -25,10 +26,7 @@ impl<'a> JSArray for V8Array<'a> {
     type RT = V8Engine<'a>;
 
     fn get(&self, index: u32) -> Result<<Self::RT as JSRuntime>::Value> {
-        let Some(value) = self
-            .value
-            .get_index(self.ctx.borrow_mut().scope(), index)
-        else {
+        let Some(value) = self.value.get_index(self.ctx.borrow_mut().scope(), index) else {
             return Err(Error::JS(JSError::Generic(
                 "failed to get a value from an array".to_owned(),
             ))
@@ -111,8 +109,8 @@ impl<'a> JSArray for V8Array<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::web_executor::js::v8::{V8Array, V8Engine};
-    use crate::web_executor::js::{JSArray, JSRuntime, JSValue, ValueConversion};
+    use crate::js::v8::{V8Array, V8Engine};
+    use crate::js::{JSArray, JSRuntime, JSValue, ValueConversion};
 
     #[test]
     fn set() {
@@ -145,10 +143,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(array.get(0).unwrap().as_number().unwrap(), 1234.0);
-        assert_eq!(
-            array.get(1).unwrap().as_string().unwrap(),
-            "Hello World!"
-        );
+        assert_eq!(array.get(1).unwrap().as_string().unwrap(), "Hello World!");
     }
 
     #[test]

@@ -2,10 +2,11 @@ use std::rc::Rc;
 
 use v8::{Local, Value};
 
+use gosub_shared::types::Result;
+
 use crate::js::v8::{FromContext, V8Context, V8Engine, V8Object};
 use crate::js::{JSError, JSRuntime, JSType, JSValue, ValueConversion};
 use crate::Error;
-use gosub_shared::types::Result;
 
 pub struct V8Value<'a> {
     pub(crate) context: V8Context<'a>,
@@ -154,7 +155,7 @@ impl<'a> JSValue for V8Value<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::web_executor::js::JSContext;
+    use crate::js::JSContext;
 
     use super::*;
 

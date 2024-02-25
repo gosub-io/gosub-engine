@@ -1,18 +1,19 @@
-use lazy_static::lazy_static;
 use std::sync::Mutex;
+
+use lazy_static::lazy_static;
 use thiserror::Error;
 
-use crate::js::v8::V8Engine;
 pub use compile::*;
 pub use context::*;
 pub use function::*;
+use gosub_shared::types::Result;
 pub use interop::*;
 pub use object::*;
 pub use runtime::*;
 pub use value::*;
 pub use value_conversion::*;
 
-use gosub_shared::types::Result;
+use crate::js::v8::V8Engine;
 
 mod compile;
 mod context;

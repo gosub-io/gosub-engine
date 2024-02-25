@@ -6,6 +6,8 @@ use v8::{
     FunctionCallbackInfo, Local, ReturnValue, TryCatch,
 };
 
+use gosub_shared::types::Result;
+
 use crate::js::function::{JSFunctionCallBack, JSFunctionCallBackVariadic};
 use crate::js::v8::{ctx_from_function_callback_info, V8Context, V8Engine, V8Value};
 use crate::js::{
@@ -13,7 +15,6 @@ use crate::js::{
     VariadicArgsInternal,
 };
 use crate::Error;
-use gosub_shared::types::Result;
 
 pub struct V8Function<'a> {
     pub(super) ctx: V8Context<'a>,
@@ -31,9 +32,7 @@ impl<'a> V8FunctionCallBack<'a> {
         Ok(Self {
             ctx,
             args,
-            ret: Err(Error::JS(JSError::Execution(
-                "function was not called".to_owned(),
-            ))),
+            ret: Err(Error::JS(JSError::Execution("function was not called".to_owned())).into()),
         })
     }
 }
@@ -283,8 +282,7 @@ impl<'a> JSFunction for V8Function<'a> {
                 value,
             })
         } else {
-            Err(Error::JS(JSError::Execution(
-                "failed to call a function".to_owned())).into())
+            Err(Error::JS(JSError::Execution("failed to call a function".to_owned())).into())
         }
     }
 }
@@ -566,17 +564,16 @@ impl<'a> JSFunctionVariadic for V8FunctionVariadic<'a> {
                 value,
             })
         } else {
-            Err(Error::JS(JSError::Execution(
-                "failed to call a function".to_owned())).into())
+            Err(Error::JS(JSError::Execution("failed to call a function".to_owned())).into())
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::web_executor::js::v8::{V8Engine, V8Function, V8FunctionVariadic, V8Value};
-    use crate::web_executor::js::{
-        Args, JSContext, JSFunction, JSFunctionCallBack, JSFunctionVariadic, JSRuntime, JSValue,
+    use crate::js::v8::{V8Engine, V8Function, V8FunctionVariadic};
+    use crate::js::{
+        Args, JSFunction, JSFunctionCallBack, JSFunctionVariadic, JSRuntime, JSValue,
         ValueConversion,
     };
 

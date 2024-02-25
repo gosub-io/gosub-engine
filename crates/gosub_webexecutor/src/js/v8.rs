@@ -9,11 +9,11 @@ pub use array::*;
 pub use compile::*;
 pub use context::*;
 pub use function::*;
+use gosub_shared::types::Result;
 pub use object::*;
 pub use value::*;
 
 use crate::js::{JSArray, JSContext, JSFunction, JSObject, JSRuntime, JSValue, ValueConversion};
-use gosub_shared::types::Result;
 
 mod array;
 mod compile;
@@ -111,15 +111,10 @@ impl<'a> JSRuntime for V8Engine<'a> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::Ordering;
-
     use anyhow;
-    use colored::Colorize;
 
     use crate::js::v8::V8_INITIALIZED;
-    use crate::js::{JSContext, JSError, JSRuntime, JSValue};
-    use crate::Error;
-    use crate::Error::JS;
+    use crate::js::{JSContext, JSRuntime, JSValue};
 
     #[test]
     fn v8_engine_initialization() {
@@ -147,6 +142,7 @@ mod tests {
     }
 
     #[test]
+    #[should_panic = "called `Result::unwrap()` on an `Err` value: js: compile error: SyntaxError: missing ) after argument list\n\nCaused by:\n    compile error: SyntaxError: missing ) after argument list"]
     fn v8_run_invalid_syntax() {
         let mut engine = crate::js::v8::V8Engine::new();
 
@@ -160,11 +156,7 @@ mod tests {
         );
 
         assert!(result.is_err());
-        // This assertion fails because the error type is not correct
-        // assert!(matches!(
-        //     result,
-        //     Err(anyhow::Error::new(JSError::Compile(_)))
-        // ));
+        result.unwrap();
     }
 
     #[test]

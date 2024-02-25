@@ -1,8 +1,12 @@
+use std::rc::Rc;
+
+use v8::{Local, Script};
+
+use gosub_shared::types::Result;
+
 use crate::js::v8::{FromContext, V8Context, V8Ctx, V8Engine, V8Value};
 use crate::js::{JSCompiled, JSRuntime};
-use gosub_shared::types::Result;
-use std::rc::Rc;
-use v8::{Local, Script};
+
 pub struct V8Compiled<'a> {
     compiled: Local<'a, Script>,
     context: V8Context<'a>,
