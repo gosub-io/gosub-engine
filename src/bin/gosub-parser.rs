@@ -1,22 +1,28 @@
-use anyhow::{bail, Result};
+use anyhow::bail;
 use gosub_html5::parser::document::{Document, DocumentBuilder};
 use gosub_html5::parser::Html5Parser;
 use gosub_shared::bytes::{CharIterator, Confidence, Encoding};
+use gosub_shared::types::Result;
 use std::fs;
 
 fn main() -> Result<()> {
-    let url = std::env::args()
-        .nth(1)
-        .unwrap_or_else(|| bail!("Usage: gosub-parser <url>"));
+    let matches = clap::Command::new("Gosub parser")
+        .version("0.1.0")
+        .arg(
+            clap::Arg::new("url")
+                .help("The url or file to parse")
+                .required(true)
+                .index(1),
+        )
+        .get_matches();
+
+    let url: String = matches.get_one::<String>("url").expect("url").to_string();
 
     let html = if url.starts_with("http://") || url.starts_with("https://") {
         // Fetch the html from the url
         let response = ureq::get(&url).call()?;
         if response.status() != 200 {
-            bail!(&format!(
-                "Could not get url. Status code {}",
-                response.status()
-            ));
+            bail!("Could not get url. Status code {}", response.status());
         }
         response.into_string()?
     } else {
