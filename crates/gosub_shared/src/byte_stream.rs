@@ -83,7 +83,7 @@ pub struct ByteStream {
     buffer_pos: usize,
     /// Reference to the actual buffer stream in u8 bytes
     u8_buffer: Vec<u8>,
-    // True when the buffer is empty and not yet have a closed stream
+    /// True when the buffer is empty and not yet have a closed stream
     closed: bool,
 }
 
@@ -103,10 +103,8 @@ pub trait Stream {
     fn prev(&mut self);
     /// Unread n characters
     fn prev_n(&mut self, n: usize);
-
     // Returns a slice
     fn get_slice(&self, start: usize, end: usize) -> &[Character];
-
     /// Resets the stream back to the start position
     fn reset_stream(&mut self);
     /// Closes the stream (no more data can be added)
@@ -114,11 +112,11 @@ pub trait Stream {
     /// Returns true when the stream is closed
     fn closed(&self) -> bool;
     /// Returns true when the stream is empty (but still open)
-    fn empty(&self) -> bool;
+    fn exhausted(&self) -> bool;
     /// REturns true when the stream is closed and empty
     fn eof(&self) -> bool;
     /// Returns the current offset in the stream
-    fn tell(&self) -> usize;
+    fn offset(&self) -> usize;
     /// Returns the length of the stream
     fn length(&self) -> usize;
     /// Returns the number of characters left in the stream
@@ -132,54 +130,26 @@ impl Default for ByteStream {
 }
 
 impl Stream for ByteStream {
-    /// Closes the stream so no more data can be added
-    fn close(&mut self) {
-        self.closed = true;
-    }
-
-    /// Returns true when the stream is closed and no more input can be read after this buffer
-    /// is emptied
-    fn closed(&self) -> bool {
-        self.closed
-    }
-
-    /// Returns true when the buffer is empty and there is no more input to read
-    fn empty(&self) -> bool {
-        self.buffer_pos >= self.buffer.len()
-    }
-
-    /// Returns true when the stream is closed and all the bytes have been read
-    fn eof(&self) -> bool {
-        self.closed() && self.empty()
-    }
-
-    fn next(&mut self) {
-        self.next_n(1);
-    }
-
-    fn next_n(&mut self, offset: usize) {
-        if self.buffer.is_empty() {
-            return;
+    /// Read the current character
+    fn read(&self) -> Character {
+        // Return none if we already have read EOF
+        if self.eof() {
+            return StreamEnd;
         }
 
-        self.buffer_pos += offset;
-        if self.buffer_pos >= self.buffer.len() {
-            self.buffer_pos = self.buffer.len();
+        if self.buffer.is_empty() || self.buffer_pos >= self.buffer.len() {
+            return StreamEmpty;
         }
+
+        self.buffer[self.buffer_pos]
     }
 
-    /// Returns the current offset in the stream
-    fn tell(&self) -> usize {
-        self.buffer_pos
-    }
+    /// Read a character and advance to the next
+    fn read_and_next(&mut self) -> Character {
+        let c = self.read();
 
-    /// Returns the length of the buffer
-    fn length(&self) -> usize {
-        self.buffer.len()
-    }
-
-    fn reset_stream(&mut self) {
-        self.buffer_pos = 0;
+        self.next();
+        c
     }
 
     /// Looks ahead in the stream, can use an optional index if we want to seek further
@@ -201,38 +171,29 @@ impl Stream for ByteStream {
         self.buffer[self.buffer_pos + offset]
     }
 
-    fn read_and_next(&mut self) -> Character {
-        let c = self.read();
-
-        self.next();
-        c
+    /// Returns the next character in the stream
+    fn next(&mut self) {
+        self.next_n(1);
     }
 
-    fn read(&self) -> Character {
-        // Return none if we already have read EOF
-        if self.eof() {
-            return StreamEnd;
+    /// Returns the n'th character in the stream
+    fn next_n(&mut self, offset: usize) {
+        if self.buffer.is_empty() {
+            return;
         }
 
-        if self.buffer.is_empty() || self.buffer_pos >= self.buffer.len() {
-            return StreamEmpty;
-        }
-
-        self.buffer[self.buffer_pos]
-    }
-
-    fn chars_left(&self) -> usize {
+        self.buffer_pos += offset;
         if self.buffer_pos >= self.buffer.len() {
-            return 0;
+            self.buffer_pos = self.buffer.len();
         }
-
-        self.buffer.len() - self.buffer_pos
     }
 
+    /// Unread the current character
     fn prev(&mut self) {
         self.prev_n(1);
     }
 
+    /// Unread n characters
     fn prev_n(&mut self, n: usize) {
         if self.buffer_pos < n {
             self.buffer_pos = 0;
@@ -244,6 +205,52 @@ impl Stream for ByteStream {
     /// Retrieves a slice of the buffer
     fn get_slice(&self, start: usize, end: usize) -> &[Character] {
         &self.buffer[start..end]
+    }
+
+    /// Resets the stream to the first character of the stream
+    fn reset_stream(&mut self) {
+        self.buffer_pos = 0;
+    }
+
+    /// Closes the stream so no more data can be added
+    fn close(&mut self) {
+        self.closed = true;
+    }
+
+    /// Returns true when the stream is closed and no more input can be read after this buffer
+    /// is emptied
+    fn closed(&self) -> bool {
+        self.closed
+    }
+
+    /// Returns true when the buffer is empty and there is no more input to read
+    /// Note that it does not check if the stream is closed. Use `closed` for that.
+    fn exhausted(&self) -> bool {
+        self.buffer_pos >= self.buffer.len()
+    }
+
+    /// Returns true when the stream is closed and all the bytes have been read
+    fn eof(&self) -> bool {
+        self.closed() && self.exhausted()
+    }
+
+    /// Returns the current offset in the stream
+    fn offset(&self) -> usize {
+        self.buffer_pos
+    }
+
+    /// Returns the length of the buffer
+    fn length(&self) -> usize {
+        self.buffer.len()
+    }
+
+    /// Returns the number of characters left in the buffer
+    fn chars_left(&self) -> usize {
+        if self.buffer_pos >= self.buffer.len() {
+            return 0;
+        }
+
+        self.buffer.len() - self.buffer_pos
     }
 }
 
@@ -351,6 +358,10 @@ impl ByteStream {
 
     /// Sets the encoding for this stream, and decodes the u8_buffer into the buffer with the
     /// correct encoding.
+    ///
+    /// @TODO: I think we should not set an encoding and completely convert a stream. Instead,
+    /// we should set an encoding, and try to use that encoding. If we find that we have a different
+    /// encoding, we can notify the user, or try to convert the stream to the correct encoding.
     pub fn force_set_encoding(&mut self, e: Encoding) {
         match e {
             Encoding::UTF8 => {
@@ -400,7 +411,7 @@ mod test {
     #[test]
     fn test_stream() {
         let mut stream = ByteStream::new();
-        assert!(stream.empty());
+        assert!(stream.exhausted());
         assert!(!stream.eof());
 
         stream.read_from_str("foo", Some(Encoding::ASCII));
