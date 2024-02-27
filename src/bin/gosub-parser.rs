@@ -16,7 +16,11 @@ fn main() -> Result<()> {
         )
         .get_matches();
 
-    let url: String = matches.get_one::<String>("url").expect("url").to_string();
+    let url = matches
+        .get_one::<String>("url")
+        .ok_or("Missing url")
+        .unwrap()
+        .to_string();
 
     let html = if url.starts_with("http://") || url.starts_with("https://") {
         // Fetch the html from the url
