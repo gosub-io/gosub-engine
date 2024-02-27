@@ -112,11 +112,11 @@ pub trait Stream {
     /// Returns true when the stream is closed
     fn closed(&self) -> bool;
     /// Returns true when the stream is empty (but still open)
-    fn empty(&self) -> bool;
+    fn exhausted(&self) -> bool;
     /// REturns true when the stream is closed and empty
     fn eof(&self) -> bool;
     /// Returns the current offset in the stream
-    fn tell(&self) -> usize;
+    fn offset(&self) -> usize;
     /// Returns the length of the stream
     fn length(&self) -> usize;
     /// Returns the number of characters left in the stream
@@ -224,17 +224,18 @@ impl Stream for ByteStream {
     }
 
     /// Returns true when the buffer is empty and there is no more input to read
-    fn empty(&self) -> bool {
+    /// Note that it does not check if the stream is closed. Use `closed` for that.
+    fn exhausted(&self) -> bool {
         self.buffer_pos >= self.buffer.len()
     }
 
     /// Returns true when the stream is closed and all the bytes have been read
     fn eof(&self) -> bool {
-        self.closed() && self.empty()
+        self.closed() && self.exhausted()
     }
 
     /// Returns the current offset in the stream
-    fn tell(&self) -> usize {
+    fn offset(&self) -> usize {
         self.buffer_pos
     }
 
@@ -410,7 +411,7 @@ mod test {
     #[test]
     fn test_stream() {
         let mut stream = ByteStream::new();
-        assert!(stream.empty());
+        assert!(stream.exhausted());
         assert!(!stream.eof());
 
         stream.read_from_str("foo", Some(Encoding::ASCII));
