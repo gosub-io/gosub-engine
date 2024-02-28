@@ -1,5 +1,4 @@
 use lazy_static::lazy_static;
-use regex::Regex;
 use std::convert::From;
 
 // Values for this table is taken from https://www.w3.org/TR/CSS21/propidx.html
@@ -69,40 +68,68 @@ fn get_hex_color_from_name(color_name: &str) -> Option<&str> {
     None
 }
 
-fn parse_hex(value: &str) -> RgbColor {
-    lazy_static! {
-        static ref RE_HEX68: Regex = Regex::new(r"^#[0-9a-fA-F]{6,8}$").unwrap();
-        static ref RE_HEX34: Regex = Regex::new(r"^#[0-9a-fA-F]{3,4}$").unwrap();
+fn is_hex(value: &str) -> bool {
+    // Check if the input is empty or doesn't start with '#'
+    if value.is_empty() || !value.starts_with('#') {
+        return false;
     }
 
-    // 6 with RRGGBB or 8 hex digits RRGGBBAA
-    if RE_HEX68.is_match(value) {
+    // Check if all characters after '#' are hexadecimal digits
+    for c in value.chars().skip(1) {
+        if !c.is_ascii_hexdigit() {
+            return false;
+        }
+    }
+
+    true
+}
+
+fn parse_hex(value: &str) -> RgbColor {
+    if !is_hex(value) {
+        return RgbColor::default();
+    }
+
+    // 3 hex digits (RGB)
+    if value.len() == 4 {
+        let r = i32::from_str_radix(&value[1..2], 16).unwrap();
+        let g = i32::from_str_radix(&value[2..3], 16).unwrap();
+        let b = i32::from_str_radix(&value[3..4], 16).unwrap();
+        return RgbColor::new(
+            (r * 16 + r) as u8,
+            (g * 16 + g) as u8,
+            (b * 16 + b) as u8,
+            255,
+        );
+    }
+
+    // 4 hex digits (RGBA)
+    if value.len() == 5 {
+        let r = i32::from_str_radix(&value[1..2], 16).unwrap();
+        let g = i32::from_str_radix(&value[2..3], 16).unwrap();
+        let b = i32::from_str_radix(&value[3..4], 16).unwrap();
+        let a = i32::from_str_radix(&value[4..5], 16).unwrap();
+        return RgbColor::new(
+            (r * 16 + r) as u8,
+            (g * 16 + g) as u8,
+            (b * 16 + b) as u8,
+            (a * 16 + a) as u8,
+        );
+    }
+
+    // 6 hex digits (RRGGBB)
+    if value.len() == 6 {
         let r = i32::from_str_radix(&value[1..3], 16).unwrap();
         let g = i32::from_str_radix(&value[3..5], 16).unwrap();
         let b = i32::from_str_radix(&value[5..7], 16).unwrap();
-        let mut a = 255;
-
-        if value.len() == 9 {
-            a = i32::from_str_radix(&value[7..9], 16).unwrap();
-        }
-
-        return RgbColor::new(r as u8, g as u8, b as u8, a as u8);
+        return RgbColor::new(r as u8, g as u8, b as u8, 255);
     }
 
-    // 3 with RGB or 4 hex digits RGBA
-    if RE_HEX34.is_match(value) {
-        let mut r = i32::from_str_radix(&value[1..2], 16).unwrap();
-        r = r * 16 + r;
-        let mut g = i32::from_str_radix(&value[2..3], 16).unwrap();
-        g = g * 16 + g;
-        let mut b = i32::from_str_radix(&value[3..4], 16).unwrap();
-        b = b * 16 + b;
-        let mut a = 255;
-        if value.len() == 5 {
-            a = i32::from_str_radix(&value[4..5], 16).unwrap();
-            a = a * 16 + a;
-        }
-
+    // 8 hex digits (RRGGBBAA)
+    if value.len() == 8 {
+        let r = i32::from_str_radix(&value[1..3], 16).unwrap();
+        let g = i32::from_str_radix(&value[3..5], 16).unwrap();
+        let b = i32::from_str_radix(&value[5..7], 16).unwrap();
+        let a = i32::from_str_radix(&value[7..9], 16).unwrap();
         return RgbColor::new(r as u8, g as u8, b as u8, a as u8);
     }
 
