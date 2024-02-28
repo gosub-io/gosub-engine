@@ -1,4 +1,4 @@
-use crate::node::Node as CssNode;
+use crate::node::{Node as CssNode, NodeType};
 use crate::stylesheet::{
     CssDeclaration, CssOrigin, CssRule, CssSelector, CssSelectorPart, CssSelectorType,
     CssStylesheet, MatcherType,
@@ -99,66 +99,59 @@ pub fn convert_ast_to_stylesheet(
                 }
 
                 for node in node.as_selector() {
-                    if node.is_ident() {
-                        selector.parts.push(CssSelectorPart {
+                    let part = match &*node.node_type {
+                        NodeType::Ident { value } => CssSelectorPart {
                             type_: CssSelectorType::Type,
-                            value: node.as_ident().clone(),
+                            value: value.clone(),
                             ..Default::default()
-                        });
-                    } else if node.is_class_selector() {
-                        selector.parts.push(CssSelectorPart {
+                        },
+                        NodeType::ClassSelector { value } => CssSelectorPart {
                             type_: CssSelectorType::Class,
-                            value: node.as_class_selector().clone(),
+                            value: value.clone(),
                             ..Default::default()
-                        });
-                    } else if node.is_combinator() {
-                        selector.parts.push(CssSelectorPart {
+                        },
+                        NodeType::Combinator { value } => CssSelectorPart {
                             type_: CssSelectorType::Combinator,
-                            value: node.as_combinator().clone(),
+                            value: value.clone(),
                             ..Default::default()
-                        });
-                    } else if node.is_id_selector() {
-                        selector.parts.push(CssSelectorPart {
+                        },
+                        NodeType::IdSelector { value } => CssSelectorPart {
                             type_: CssSelectorType::Id,
-                            value: node.as_id_selector().clone(),
+                            value: value.clone(),
                             ..Default::default()
-                        });
-                    } else if node.is_universal_selector() {
-                        selector.parts.push(CssSelectorPart {
+                        },
+                        NodeType::TypeSelector { value, .. } if value == "*" => CssSelectorPart {
                             type_: CssSelectorType::Universal,
                             value: "*".to_string(),
                             ..Default::default()
-                        });
-                    } else if node.is_pseudo_class_selector() {
-                        selector.parts.push(CssSelectorPart {
+                        },
+                        NodeType::PseudoClassSelector { value, .. } => CssSelectorPart {
                             type_: CssSelectorType::PseudoClass,
-                            value: node.as_pseudo_class_selector().clone(),
+                            value: value.to_string(),
                             ..Default::default()
-                        });
-                    } else if node.is_pseudo_element_selector() {
-                        selector.parts.push(CssSelectorPart {
+                        },
+                        NodeType::PseudoElementSelector { value, .. } => CssSelectorPart {
                             type_: CssSelectorType::PseudoElement,
-                            value: node.as_pseudo_element_selector().clone(),
+                            value: value.clone(),
                             ..Default::default()
-                        });
-                    } else if node.is_type_selector() {
-                        selector.parts.push(CssSelectorPart {
+                        },
+                        NodeType::TypeSelector { value, .. } => CssSelectorPart {
                             type_: CssSelectorType::Type,
-                            value: node.as_type_selector().clone(),
+                            value: value.clone(),
                             ..Default::default()
-                        });
-                    } else if node.is_attribute_selector() {
-                        let attr_selector = node.as_attribute_selector();
-                        selector.parts.push(CssSelectorPart {
+                        },
+                        NodeType::AttributeSelector { name, value, flags, .. } => CssSelectorPart {
                             type_: CssSelectorType::Attribute,
-                            name: attr_selector.0.clone(),
+                            name: name.clone(),
                             matcher: MatcherType::Equals, // @todo: this needs to be parsed
-                            value: attr_selector.2.clone(),
-                            flags: attr_selector.3.clone(),
-                        });
-                    } else {
-                        panic!("Unknown selector type: {:?}", node);
-                    }
+                            value: value.clone(),
+                            flags: flags.clone(),
+                        },
+                        _ => {
+                            panic!("Unknown selector type: {:?}", node);
+                        }
+                    };
+                    selector.parts.push(part);
                 }
             }
             rule.selectors.push(selector);

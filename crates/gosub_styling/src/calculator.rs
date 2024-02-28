@@ -85,13 +85,13 @@ impl StyleCalculator {
                             };
 
                             if let std::collections::hash_map::Entry::Vacant(e) =
-                                css_map_entry.entry(property.clone())
+                                css_map_entry.properties.entry(property.clone())
                             {
                                 let mut entry = ValueEntry::new();
                                 entry.declared.push(declaration);
                                 e.insert(entry);
                             } else {
-                                let entry = css_map_entry.get_mut(&property).unwrap();
+                                let entry = css_map_entry.properties.get_mut(&property).unwrap();
                                 entry.declared.push(declaration);
                             }
                         }
@@ -106,7 +106,7 @@ impl StyleCalculator {
     /// Orders all declared values and finds the cascaded values
     pub fn find_cascaded_values(&mut self) {
         for (_, css_map_entry) in self.css_map.nodes.iter_mut() {
-            for (_, entry) in css_map_entry.iter_mut() {
+            for (_, entry) in css_map_entry.properties.iter_mut() {
                 // Sort on origin and importance
                 entry.declared.sort();
 
@@ -126,17 +126,26 @@ impl StyleCalculator {
         }
     }
 
-    /// Returns the list of all properties (cascaded values for now) for the given node
-    pub fn get_properties(&self, node_id: NodeId) -> HashMap<String, String> {
-        let mut props = HashMap::new();
+    pub fn find_specified_values(&mut self) {
+        for (_, css_map_entry) in self.css_map.nodes.iter_mut() {
+            for (_, entry) in css_map_entry.properties.iter_mut() {
 
-        if let Some(entry) = self.css_map.nodes.get(&node_id) {
-            for (k, v) in entry {
-                props.insert(k.clone(), v.cascaded.clone().unwrap_or("".into()));
+                match entry.cascaded {
+                    Some(ref cascaded) => {
+                        entry.specified = cascaded.clone();
+                    }
+                    None => {
+                        // @todo: find default value for this property
+                        entry.specified = "".into();
+                    }
+                }
             }
         }
+    }
 
-        props
+    /// Returns the list of all properties (cascaded values for now) for the given node
+    pub fn get_css_properties_for_node(&self, node_id: NodeId) -> Option<&CssMapEntry> {
+        self.css_map.nodes.get(&node_id)
     }
 
     // Matches a complete selector (all parts) against the given node(id)
@@ -428,7 +437,29 @@ impl ValueEntry {
 }
 
 /// Map of all declared values for a single node
-pub type CssMapEntry = HashMap<String, ValueEntry>;
+pub struct CssMapEntry {
+    properties: HashMap<String, ValueEntry>
+}
+
+impl CssMapEntry {
+    pub fn new() -> Self {
+        Self {
+            properties: HashMap::new()
+        }
+    }
+
+    // @todo: This should not be here. When we resolve a property, we should also resolve the value so we can
+    // use entry.actual or something
+    pub fn get_color_value(&self, prop_name: &str) -> Option<RgbColor> {
+        let prop_name = prop_name.to_lowercase();
+        match self.properties.get(&prop_name) {
+            Some(entry) => {
+                Some(RgbColor::from(entry.specified.as_ref()))
+            }
+            None => None
+        }
+    }
+}
 
 /// Map of all declared values for all nodes in the document
 pub struct CssMap {
@@ -440,15 +471,6 @@ impl CssMap {
         Self {
             nodes: HashMap::new()
         }
-    }
-
-    #[allow(dead_code)]
-    fn get_color(&self, name: &str) -> Option<RgbColor> {
-        let name = name.to_lowercase();
-        crate::css_colors::CSS_COLORNAMES
-            .iter()
-            .find(|entry| entry.name == name)
-            .map(|entry| RgbColor::from(entry.value))
     }
 }
 

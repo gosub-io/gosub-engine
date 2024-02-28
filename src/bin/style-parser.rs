@@ -11,10 +11,8 @@ use gosub_html5::parser::Html5Parser;
 use gosub_html5::visit::Visitor;
 use gosub_shared::bytes::{CharIterator, Confidence, Encoding};
 use gosub_styling::calculator::StyleCalculator;
-use gosub_styling::css_colors::get_color_value;
 use gosub_styling::pipeline::Pipeline;
 use regex::Regex;
-use std::collections::HashMap;
 use std::fs;
 use url::Url;
 
@@ -65,25 +63,30 @@ impl Visitor<Node> for TextVisitor {
     fn comment_leave(&mut self, _node: &Node, _data: &CommentData) {}
 
     fn element_enter(&mut self, node: &Node, data: &ElementData) {
-        let props = self.calculator.get_properties(node.id);
-
-        if let Some(col) = get_css_color(&props, "color") {
-            print!("\x1b[38;2;{};{};{}m", col.r, col.g, col.b);
-        }
-        if let Some(col) = get_css_color(&props, "background-color") {
-            print!("\x1b[48;2;{};{};{}m", col.r, col.g, col.b);
+        let props = self.calculator.get_css_properties_for_node(node.id);
+        if props.is_some() {
+            let props = props.unwrap();
+            if let Some(col) = props.get_color_value("color") {
+                print!("\x1b[38;2;{};{};{}m", col.r, col.g, col.b);
+            }
+            if let Some(col) = props.get_color_value("background-color") {
+                print!("\x1b[48;2;{};{};{}m", col.r, col.g, col.b);
+            }
         }
 
         print!("<{}>", data.name);
     }
 
     fn element_leave(&mut self, node: &Node, data: &ElementData) {
-        let props = self.calculator.get_properties(node.id);
-        if let Some(col) = get_css_color(&props, "color") {
-            print!("\x1b[38;2;{};{};{}m", col.r, col.g, col.b);
-        }
-        if let Some(col) = get_css_color(&props, "background-color") {
-            print!("\x1b[48;2;{};{};{}m", col.r, col.g, col.b);
+        let props = self.calculator.get_css_properties_for_node(node.id);
+        if props.is_some() {
+            let props = props.unwrap();
+            if let Some(col) = props.get_color_value("color") {
+                print!("\x1b[38;2;{};{};{}m", col.r, col.g, col.b);
+            }
+            if let Some(col) = props.get_color_value("background-color") {
+                print!("\x1b[48;2;{};{};{}m", col.r, col.g, col.b);
+            }
         }
 
         print!("</{}>", data.name);
@@ -136,7 +139,7 @@ fn main() -> Result<()> {
     // pipeline
     calculator.find_declared_values();
     calculator.find_cascaded_values();
-    // calculator.find_specified_values();
+    calculator.find_specified_values();
     // calculator.find_computed_values(1024, 786);     // Do we need more info?
     // calculator.find_used_values(/*layout*/);        // we need to have a layout for calculating these values
     // calculator.find_actual_values();                // Makes sure we use 2px instead of a computed 2.25px
