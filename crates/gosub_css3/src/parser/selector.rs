@@ -12,6 +12,9 @@ impl Css3<'_> {
         let c = self.consume_any_delim()?;
         match &c {
             '=' | '~' | '|' | '^' | '$' | '*' => {
+                value.push(c);
+            }
+            _ => {
                 self.tokenizer.reconsume();
 
                 return Err(Error::new(
@@ -19,9 +22,7 @@ impl Css3<'_> {
                     loc,
                 ));
             }
-            _ => {}
         }
-        value.push(c);
 
         if c != '=' {
             self.consume_delim('=')?;
@@ -122,31 +123,33 @@ impl Css3<'_> {
         let name = self.consume_any_ident()?;
         self.consume_whitespace_comments();
 
-        let t = self.consume_any()?;
-        match t.token_type {
-            TokenType::RBracket => {
-                self.tokenizer.reconsume();
-            }
-            TokenType::Ident(value) => {
-                flags = value;
-            }
-            _ => {
-                self.tokenizer.reconsume();
+        let t = self.tokenizer.lookahead(0);
+        if t.token_type != TokenType::RBracket {
+            if !t.is_ident() {
                 let op = self.parse_attribute_operator()?;
                 matcher = Some(op);
+
                 self.consume_whitespace_comments();
 
-                let t = self.consume_any()?;
-                value = match t.token_type {
-                    TokenType::QuotedString(value) => value,
-                    TokenType::Ident(value) => value,
-                    _ => {
-                        return Err(Error::new(
-                            format!("Unexpected token {:?}", t),
-                            self.tokenizer.current_location().clone(),
-                        ));
-                    }
-                };
+                let t = self.tokenizer.lookahead(0);
+                if t.is_string() {
+                    value = self.consume_any_string()?;
+                } else if t.is_ident() {
+                    value = self.consume_any_ident()?;
+                } else {
+                    return Err(Error::new(
+                        format!("Unexpected token {:?}", t),
+                        self.tokenizer.current_location().clone(),
+                    ));
+                }
+            }
+
+            self.consume_whitespace_comments();
+
+            let t = self.tokenizer.lookahead(0);
+            if t.is_ident() {
+                flags = self.consume_any_ident()?;
+                self.consume_whitespace_comments();
             }
         }
 
@@ -247,91 +250,99 @@ impl Css3<'_> {
 
         let mut children = vec![];
 
-        while !self.tokenizer.eof() {
-            self.consume_whitespace_comments();
+        // When true, we have encountered a space which means we need to emit a descendant combinator
+        let mut space = false;
+        let mut whitespace_location = loc.clone();
 
+        while !self.tokenizer.eof() {
             let t = self.consume_any()?;
-            match t.token_type {
+            if t.is_comment() {
+                continue;
+            }
+            if t.is_whitespace() {
+                // on whitespace for selector
+                whitespace_location = t.location.clone();
+                space = true;
+                continue;
+            }
+
+            // let t = self.consume_any()?;
+            let child = match t.token_type {
                 TokenType::LBracket => {
                     self.tokenizer.reconsume();
-                    let selector = self.parse_attribute_selector()?;
-                    children.push(selector);
+                    self.parse_attribute_selector()?
                 }
-                TokenType::IDHash(value) => {
-                    let node = Node::new(NodeType::IdSelector { value }, t.location);
-                    children.push(node);
-                }
-                TokenType::Hash(value) => {
-                    let node = Node::new(NodeType::IdSelector { value }, t.location);
-                    children.push(node);
-                }
+                TokenType::IDHash(value) => Node::new(NodeType::IdSelector { value }, t.location),
+                TokenType::Hash(value) => Node::new(NodeType::IdSelector { value }, t.location),
                 TokenType::Colon => {
                     let nt = self.tokenizer.lookahead(0);
                     if nt.token_type == TokenType::Colon {
                         self.tokenizer.reconsume();
-                        let selector = self.parse_pseudo_element_selector()?;
-                        children.push(selector);
+                        self.parse_pseudo_element_selector()?
                     } else {
                         self.tokenizer.reconsume();
-                        let selector = self.parse_pseudo_selector()?;
-                        children.push(selector);
+                        self.parse_pseudo_selector()?
                     }
                 }
-                TokenType::Ident(value) => {
-                    let node = Node::new(NodeType::Ident { value }, t.location);
-                    children.push(node);
-                }
+                TokenType::Ident(value) => Node::new(NodeType::Ident { value }, t.location),
 
-                TokenType::Number(value) => {
-                    let node = Node::new(NodeType::Number { value }, t.location);
-                    children.push(node);
-                }
+                TokenType::Number(value) => Node::new(NodeType::Number { value }, t.location),
 
                 TokenType::Percentage(value) => {
-                    let node = Node::new(NodeType::Percentage { value }, t.location);
-                    children.push(node);
+                    Node::new(NodeType::Percentage { value }, t.location)
                 }
 
                 TokenType::Dimension { value, unit } => {
-                    let node = Node::new(NodeType::Dimension { value, unit }, t.location);
-                    children.push(node);
+                    Node::new(NodeType::Dimension { value, unit }, t.location)
                 }
 
                 TokenType::Delim('+')
                 | TokenType::Delim('>')
                 | TokenType::Delim('~')
                 | TokenType::Delim('/') => {
+                    // Dont add descendant combinator since we are now adding another one
+                    space = false;
+
                     self.tokenizer.reconsume();
-                    let node = self.parse_combinator()?;
-                    children.push(node);
+                    self.parse_combinator()?
                 }
 
                 TokenType::Delim('.') => {
                     self.tokenizer.reconsume();
-                    let selector = self.parse_class_selector()?;
-                    children.push(selector);
+                    self.parse_class_selector()?
                 }
                 TokenType::Delim('|') | TokenType::Delim('*') => {
                     self.tokenizer.reconsume();
-                    let selector = self.parse_type_selector()?;
-                    children.push(selector);
+                    self.parse_type_selector()?
                 }
                 TokenType::Delim('#') => {
                     self.tokenizer.reconsume();
-                    let selector = self.parse_id_selector()?;
-                    children.push(selector);
+                    self.parse_id_selector()?
                 }
                 TokenType::Delim('&') => {
                     self.tokenizer.reconsume();
-                    let selector = self.parse_nesting_selector()?;
-                    children.push(selector);
+                    self.parse_nesting_selector()?
                 }
-
                 _ => {
                     self.tokenizer.reconsume();
                     break;
                 }
+            };
+
+            if space {
+                // Detected a space previously, so we need to emit a descendant combinator
+                let node = Node::new(
+                    NodeType::Combinator {
+                        value: " ".to_string(),
+                    },
+                    whitespace_location.clone(),
+                );
+                // insert before the last added node
+                children.push(node);
+                space = false;
             }
+
+            children.push(child);
         }
 
         Ok(Node::new(NodeType::Selector { children }, loc))

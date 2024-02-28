@@ -14,9 +14,6 @@ build: ## Build the project
 	section "Cargo build" ;\
 	cargo build --all
 
-fix: ## Fix formatting and clippy errors (deprecated)
-	echo "Use 'make format' instead"
-
 format:  ## Fix formatting and clippy errors
 	cargo fmt --all
 	cargo clippy --all --fix --allow-dirty --allow-staged
@@ -40,7 +37,7 @@ test_commands:
 	cargo run --bin html5-parser-test >/dev/null
 	cargo run --bin parser-test >/dev/null
 	cargo run --bin config-store list >/dev/null
-	cargo run --bin gosub-parser ./tests/data/tree_iterator/stackoverflow.html >/dev/null
+	cargo run --bin gosub-parser file://tests/data/tree_iterator/stackoverflow.html >/dev/null
 	cargo run --example html5-parser >/dev/null
 
 help: ## Display available commands
