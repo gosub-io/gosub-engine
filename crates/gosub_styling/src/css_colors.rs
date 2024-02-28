@@ -117,7 +117,7 @@ fn parse_hex(value: &str) -> RgbColor {
     }
 
     // 6 hex digits (RRGGBB)
-    if value.len() == 6 {
+    if value.len() == 7 {
         let r = i32::from_str_radix(&value[1..3], 16).unwrap();
         let g = i32::from_str_radix(&value[3..5], 16).unwrap();
         let b = i32::from_str_radix(&value[5..7], 16).unwrap();
@@ -125,7 +125,7 @@ fn parse_hex(value: &str) -> RgbColor {
     }
 
     // 8 hex digits (RRGGBBAA)
-    if value.len() == 8 {
+    if value.len() == 9 {
         let r = i32::from_str_radix(&value[1..3], 16).unwrap();
         let g = i32::from_str_radix(&value[3..5], 16).unwrap();
         let b = i32::from_str_radix(&value[5..7], 16).unwrap();
