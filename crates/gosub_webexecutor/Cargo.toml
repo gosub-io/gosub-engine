@@ -13,3 +13,6 @@ lazy_static = "1.4"
 thiserror = "1.0.57"
 v8 = "0.84.0"
 anyhow = "1.0.80"
+
+[dev-dependencies]
+serde_json = "1.0.114"

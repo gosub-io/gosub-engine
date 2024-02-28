@@ -1,6 +1,8 @@
-use crate::js::{JSContext, JSError, JSObject, JSRuntime, JSValue};
 use core::fmt::Display;
+
 use gosub_shared::types::Result;
+
+use crate::js::{JSContext, JSObject, JSRuntime, JSValue};
 
 struct Function<T: JSFunction>(pub T);
 
@@ -15,7 +17,10 @@ pub trait JSFunction {
     where
         Self: Sized;
 
-    fn call(&mut self, callback: &mut <Self::RT as JSRuntime>::FunctionCallBack);
+    fn call(
+        &mut self,
+        args: &[<Self::RT as JSRuntime>::Value],
+    ) -> Result<<Self::RT as JSRuntime>::Value>;
 }
 
 pub trait JSFunctionCallBack {
@@ -64,7 +69,10 @@ pub trait JSFunctionVariadic {
     where
         Self: Sized;
 
-    fn call(&mut self, callback: &mut <Self::RT as JSRuntime>::FunctionCallBackVariadic);
+    fn call(
+        &mut self,
+        args: &[<Self::RT as JSRuntime>::Value],
+    ) -> Result<<Self::RT as JSRuntime>::Value>;
 }
 
 pub trait JSFunctionCallBackVariadic {

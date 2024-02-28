@@ -1,9 +1,10 @@
+use gosub_shared::types::Result;
+
 use crate::js::{
     Args, JSArray, JSCompiled, JSContext, JSFunction, JSFunctionCallBack,
     JSFunctionCallBackVariadic, JSFunctionVariadic, JSGetterCallback, JSObject, JSSetterCallback,
-    JSValue, ValueConversion, VariadicArgs, VariadicArgsInternal,
+    JSValue, VariadicArgs, VariadicArgsInternal,
 };
-use gosub_shared::types::Result;
 
 //trait around the main JS engine (e.g V8, SpiderMonkey, JSC, etc.)
 pub trait JSRuntime {
