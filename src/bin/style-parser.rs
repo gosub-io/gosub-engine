@@ -12,7 +12,6 @@ use gosub_html5::visit::Visitor;
 use gosub_shared::bytes::{CharIterator, Confidence, Encoding};
 use gosub_styling::calculator::StyleCalculator;
 use gosub_styling::pipeline::Pipeline;
-use regex::Regex;
 use std::fs;
 use url::Url;
 
@@ -40,8 +39,9 @@ impl Visitor<Node> for TextVisitor {
     fn doctype_leave(&mut self, _node: &Node, _data: &DocTypeData) {}
 
     fn text_enter(&mut self, _node: &Node, data: &TextData) {
-        let re = Regex::new(r"\s{2,}").unwrap();
-        let s = re.replace_all(&data.value, " ");
+        // let re = Regex::new(r"\s{2,}").unwrap();
+        // let s = re.replace_all(&data.value, " ");
+        let s = &data.value;
 
         if !self.color.is_empty() {
             print!("\x1b[{}m", self.color)

@@ -70,8 +70,13 @@ fn get_hex_color_from_name(color_name: &str) -> Option<&str> {
 }
 
 fn parse_hex(value: &str) -> RgbColor {
+    lazy_static! {
+        static ref RE_HEX68: Regex = Regex::new(r"^#[0-9a-fA-F]{6,8}$").unwrap();
+        static ref RE_HEX34: Regex = Regex::new(r"^#[0-9a-fA-F]{3,4}$").unwrap();
+    }
+
     // 6 with RRGGBB or 8 hex digits RRGGBBAA
-    if Regex::new(r"^#[0-9a-fA-F]{6,8}$").unwrap().is_match(value) {
+    if RE_HEX68.is_match(value) {
         let r = i32::from_str_radix(&value[1..3], 16).unwrap();
         let g = i32::from_str_radix(&value[3..5], 16).unwrap();
         let b = i32::from_str_radix(&value[5..7], 16).unwrap();
@@ -85,7 +90,7 @@ fn parse_hex(value: &str) -> RgbColor {
     }
 
     // 3 with RGB or 4 hex digits RGBA
-    if Regex::new(r"^#[0-9a-fA-F]{3,4}$").unwrap().is_match(value) {
+    if RE_HEX34.is_match(value) {
         let mut r = i32::from_str_radix(&value[1..2], 16).unwrap();
         r = r * 16 + r;
         let mut g = i32::from_str_radix(&value[2..3], 16).unwrap();
