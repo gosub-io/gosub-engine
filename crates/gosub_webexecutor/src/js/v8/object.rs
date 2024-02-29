@@ -18,7 +18,7 @@ use crate::js::{
 use crate::Error;
 
 pub struct V8Object<'a> {
-    ctx: V8Context<'a>,
+    pub(crate) ctx: V8Context<'a>,
     pub(crate) value: Local<'a, Object>,
 }
 
