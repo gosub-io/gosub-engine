@@ -4245,8 +4245,20 @@ impl<'chars> Html5Parser<'chars> {
         match rel.as_str() {
             "stylesheet" => {
                 let href = attributes.get("href").unwrap();
-                let base_url = self.document.get().location.clone().unwrap();
-                let css_url = base_url.join(href).unwrap();
+                let css_url = match Url::parse(href) {
+                    Ok(url) => url,
+                    Err(_err) => {
+                        // Relative URL
+                        if self.document.get().location.is_some() {
+                            let binding = self.document.get();
+                            let base_url = binding.location.as_ref().unwrap();
+                            base_url.join(href).unwrap()
+                        } else {
+                            self.parse_error("link element without base url not supported yet");
+                            return;
+                        }
+                    }
+                };
                 println!("loading external stylesheet: {}", css_url);
 
                 if let Some(stylesheet) = self.load_external_stylesheet(CssOrigin::Author, css_url)
