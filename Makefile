@@ -21,7 +21,7 @@ format:  ## Fix formatting and clippy errors
 test_unit:
 	source test-utils.sh ;\
 	section "Cargo test" ;\
-	cargo test --all --all-features
+	cargo test --verbose --all --no-fail-fast --all-features --all-targets
 
 test_clippy:
 	source test-utils.sh ;\

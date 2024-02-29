@@ -37,7 +37,7 @@ jobs:
           path: target
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}-${{ matrix.rust_version }}
       - name: Build
-        run: cargo build --verbose
+        run: cargo build --verbose --all --all-features
 
   test:
     runs-on: ubuntu-latest
@@ -68,7 +68,7 @@ jobs:
           path: target
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}-${{ matrix.rust_version }}
       - name: Run tests
-        run: cargo test --verbose
+        run: cargo test --verbose --all --no-fail-fast --all-features --all-targets
 
   clippy:
     runs-on: ubuntu-latest
@@ -97,7 +97,7 @@ jobs:
           path: target
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}-${{ matrix.rust_version }}
       - name: Run Clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --all --tests -- -D warnings
 
   fmt:
     runs-on: ubuntu-latest
@@ -120,4 +120,4 @@ jobs:
           path: target
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}-stable
       - name: Run fmt
-        run: cargo fmt -- --check
+        run: cargo fmt --check --all
