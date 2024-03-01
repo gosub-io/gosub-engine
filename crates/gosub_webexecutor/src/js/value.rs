@@ -1,8 +1,9 @@
 use gosub_shared::types::Result;
 
-use crate::js::{JSArray, JSContext, JSObject, JSRuntime, JSType};
+use crate::js::{JSArray, JSContext, JSObject, JSRuntime, JSType, ValueConversion};
 
-pub trait JSValue
+pub trait JSValue:
+    Sized + From<<Self::RT as JSRuntime>::Object> + From<<Self::RT as JSRuntime>::Array>
 where
     Self: Sized,
 {
@@ -15,6 +16,8 @@ where
     fn as_bool(&self) -> Result<bool>;
 
     fn as_object(&self) -> Result<<Self::RT as JSRuntime>::Object>;
+
+    fn as_array(&self) -> Result<<Self::RT as JSRuntime>::Array>;
 
     fn is_string(&self) -> bool;
 
@@ -34,9 +37,17 @@ where
 
     fn type_of(&self) -> JSType;
 
-    // fn new_object() -> Result<Self::Object>;
-    //
-    // fn new_array<T: ValueConversion<Self>>(value: &[T]) -> Result<Self::Array>;
+    fn new_object(ctx: <Self::RT as JSRuntime>::Context)
+        -> Result<<Self::RT as JSRuntime>::Object>;
+
+    fn new_array<T: ValueConversion<Self, Value = Self>>(
+        ctx: <Self::RT as JSRuntime>::Context,
+        value: &[T],
+    ) -> Result<<Self::RT as JSRuntime>::Array>;
+
+    fn new_empty_array(
+        ctx: <Self::RT as JSRuntime>::Context,
+    ) -> Result<<Self::RT as JSRuntime>::Array>;
 
     fn new_string(ctx: <Self::RT as JSRuntime>::Context, value: &str) -> Result<Self>;
 

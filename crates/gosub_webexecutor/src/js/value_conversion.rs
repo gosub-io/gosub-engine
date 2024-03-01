@@ -1,6 +1,6 @@
 use gosub_shared::types::Result;
 
-use crate::js::{JSContext, JSRuntime, JSValue};
+use crate::js::{JSArray, JSContext, JSRuntime, JSValue};
 
 //trait to easily convert Rust types to JS values (just call .to_js_value() on the type)
 pub trait ValueConversion<V: JSValue> {
@@ -80,5 +80,27 @@ impl<V: JSValue> ValueConversion<V> for () {
     type Value = V;
     fn to_js_value(&self, ctx: <V::RT as JSRuntime>::Context) -> Result<Self::Value> {
         Self::Value::new_undefined(ctx)
+    }
+}
+
+pub trait ArrayConversion<A: JSArray> {
+    type Array: JSArray;
+
+    fn to_js_array(&self, ctx: <A::RT as JSRuntime>::Context) -> Result<A>;
+}
+
+impl<A, T> ArrayConversion<A> for [T]
+where
+    A: JSArray,
+    T: ValueConversion<<A::RT as JSRuntime>::Value, Value = <A::RT as JSRuntime>::Value>,
+{
+    type Array = A;
+    fn to_js_array(&self, ctx: <A::RT as JSRuntime>::Context) -> Result<A> {
+        let data = self
+            .iter()
+            .map(|v| v.to_js_value(ctx.clone()))
+            .collect::<Result<Vec<_>>>()?;
+
+        Self::Array::new_with_data(ctx.clone(), &data)
     }
 }

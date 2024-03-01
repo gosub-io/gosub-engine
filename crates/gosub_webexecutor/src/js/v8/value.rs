@@ -1,11 +1,11 @@
 use std::rc::Rc;
 
-use v8::{Local, Value};
+use v8::{Array, Data, Local, Value};
 
 use gosub_shared::types::Result;
 
-use crate::js::v8::{FromContext, V8Context, V8Engine, V8Object};
-use crate::js::{JSError, JSRuntime, JSType, JSValue, ValueConversion};
+use crate::js::v8::{FromContext, IntoContext, V8Array, V8Context, V8Engine, V8Object};
+use crate::js::{ArrayConversion, JSArray, JSError, JSRuntime, JSType, JSValue, ValueConversion};
 use crate::Error;
 
 pub struct V8Value<'a> {
@@ -28,6 +28,24 @@ macro_rules! impl_is {
             self.value.$name()
         }
     };
+}
+
+impl<'a> From<V8Array<'a>> for V8Value<'a> {
+    fn from(array: V8Array<'a>) -> Self {
+        Self {
+            context: array.ctx,
+            value: array.value.into(),
+        }
+    }
+}
+
+impl<'a> From<V8Object<'a>> for V8Value<'a> {
+    fn from(object: V8Object<'a>) -> Self {
+        Self {
+            context: object.ctx,
+            value: object.value.into(),
+        }
+    }
 }
 
 impl<'a> JSValue for V8Value<'a> {
@@ -73,6 +91,12 @@ impl<'a> JSValue for V8Value<'a> {
     impl_is!(is_undefined);
     impl_is!(is_function);
 
+    fn as_array(&self) -> Result<<Self::RT as JSRuntime>::Array> {
+        let array: Local<Array> = self.value.try_into()?;
+
+        Ok(array.into_ctx(Rc::clone(&self.context)))
+    }
+
     fn is_bool(&self) -> bool {
         self.value.is_boolean()
     }
@@ -102,6 +126,25 @@ impl<'a> JSValue for V8Value<'a> {
 
             JSType::Other(t)
         }
+    }
+
+    fn new_object(
+        ctx: <Self::RT as JSRuntime>::Context,
+    ) -> Result<<Self::RT as JSRuntime>::Object> {
+        V8Object::new(ctx)
+    }
+
+    fn new_array<T: ValueConversion<Self, Value = Self>>(
+        ctx: <Self::RT as JSRuntime>::Context,
+        value: &[T],
+    ) -> Result<<Self::RT as JSRuntime>::Array> {
+        value.to_js_array(ctx)
+    }
+
+    fn new_empty_array(
+        ctx: <Self::RT as JSRuntime>::Context,
+    ) -> Result<<Self::RT as JSRuntime>::Array> {
+        V8Array::new(ctx, 0)
     }
 
     fn new_string(ctx: <Self::RT as JSRuntime>::Context, value: &str) -> Result<Self> {
@@ -160,7 +203,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_v8_value_string() {
+    fn string() {
         let mut engine = V8Engine::new();
         let mut context = engine.new_context().unwrap();
 
@@ -177,7 +220,7 @@ mod tests {
     }
 
     #[test]
-    fn test_v8_value_number() {
+    fn number() {
         let mut engine = V8Engine::new();
         let mut context = engine.new_context().unwrap();
 
@@ -194,7 +237,7 @@ mod tests {
     }
 
     #[test]
-    fn test_v8_value_bool() {
+    fn bool() {
         let mut engine = V8Engine::new();
         let mut context = engine.new_context().unwrap();
 
@@ -211,7 +254,7 @@ mod tests {
     }
 
     #[test]
-    fn test_v8_value_null() {
+    fn null() {
         let mut engine = V8Engine::new();
         let mut context = engine.new_context().unwrap();
 
@@ -227,7 +270,7 @@ mod tests {
     }
 
     #[test]
-    fn test_v8_value_undefined() {
+    fn undefined() {
         let mut engine = V8Engine::new();
         let mut context = engine.new_context().unwrap();
 
@@ -243,7 +286,7 @@ mod tests {
     }
 
     #[test]
-    fn test_v8_value_object() {
+    fn object() {
         let mut engine = V8Engine::new();
         let mut context = engine.new_context().unwrap();
 
@@ -260,7 +303,7 @@ mod tests {
     }
 
     #[test]
-    fn test_v8_value_array() {
+    fn array() {
         let mut engine = V8Engine::new();
         let mut context = engine.new_context().unwrap();
 
@@ -278,7 +321,7 @@ mod tests {
     }
 
     #[test]
-    fn test_v8_value_function() {
+    fn function() {
         let mut engine = V8Engine::new();
         let mut context = engine.new_context().unwrap();
 
@@ -297,7 +340,7 @@ mod tests {
     }
 
     #[test]
-    fn test_v8_value_type_of() {
+    fn type_of() {
         let mut engine = V8Engine::new();
         let mut context = engine.new_context().unwrap();
 
@@ -402,7 +445,7 @@ mod tests {
     }
 
     #[test]
-    fn test_v8_value_new_string() {
+    fn new_string() {
         let mut engine = V8Engine::new();
         let mut context = engine.new_context().unwrap();
 
@@ -412,7 +455,7 @@ mod tests {
     }
 
     #[test]
-    fn test_v8_value_new_number() {
+    fn new_number() {
         let mut engine = V8Engine::new();
         let mut context = engine.new_context().unwrap();
 
@@ -422,7 +465,7 @@ mod tests {
     }
 
     #[test]
-    fn test_v8_value_new_bool() {
+    fn new_bool() {
         let mut engine = V8Engine::new();
         let mut context = engine.new_context().unwrap();
 
@@ -432,7 +475,7 @@ mod tests {
     }
 
     #[test]
-    fn test_v8_value_new_null() {
+    fn new_null() {
         let mut engine = V8Engine::new();
         let mut context = engine.new_context().unwrap();
 
@@ -441,7 +484,7 @@ mod tests {
     }
 
     #[test]
-    fn test_v8_value_new_undefined() {
+    fn new_undefined() {
         let mut engine = V8Engine::new();
         let mut context = engine.new_context().unwrap();
 

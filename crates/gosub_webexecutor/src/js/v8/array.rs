@@ -2,23 +2,36 @@ use v8::{Array, Local};
 
 use gosub_shared::types::Result;
 
-use crate::js::v8::{V8Context, V8Engine, V8Value};
+use crate::js::v8::{FromContext, V8Context, V8Engine, V8Value};
 use crate::js::{JSArray, JSError, JSRuntime};
 use crate::Error;
 
 pub struct V8Array<'a> {
-    value: Local<'a, Array>,
-    ctx: V8Context<'a>,
+    pub(crate) value: Local<'a, Array>,
+    pub(crate) ctx: V8Context<'a>,
+    next: u32,
 }
 
-impl<'a> V8Array<'a> {
-    pub fn new(ctx: &V8Context<'a>, len: u32) -> Result<Self> {
-        let value = Array::new(ctx.borrow_mut().scope(), len as i32);
-
-        Ok(Self {
+impl<'a> FromContext<'a, Local<'a, Array>> for V8Array<'a> {
+    fn from_ctx(ctx: V8Context<'a>, value: Local<'a, Array>) -> Self {
+        Self {
             value,
-            ctx: ctx.clone(),
-        })
+            ctx,
+            next: 0,
+        }
+    }
+}
+
+impl<'a> Iterator for V8Array<'a> {
+    type Item = V8Value<'a>;
+    fn next(&mut self) -> Option<Self::Item> {
+        let value = self
+            .value
+            .get_index(self.ctx.borrow_mut().scope(), self.next);
+
+        self.next += 1;
+
+        value.map(|v| V8Value::from_value(self.ctx.clone(), v))
     }
 }
 
@@ -102,22 +115,49 @@ impl<'a> JSArray for V8Array<'a> {
         Ok(())
     }
 
-    fn length(&self) -> Result<u32> {
-        Ok(self.value.length())
+    fn len(&self) -> u32 {
+        self.value.length()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.value.length() == 0
+    }
+
+    fn new(ctx: V8Context<'a>, cap: u32) -> Result<Self> {
+        let value = Array::new(ctx.borrow_mut().scope(), cap as i32);
+
+        Ok(Self {
+            value,
+            ctx: ctx.clone(),
+            next: 0,
+        })
+    }
+
+    fn new_with_data(ctx: V8Context<'a>, data: &[V8Value]) -> Result<Self> {
+        let elements = data.iter().map(|v| v.value).collect::<Vec<_>>();
+        let value = Array::new_with_elements(ctx.borrow_mut().scope(), &elements);
+
+        Ok(Self {
+            value,
+            ctx: ctx.clone(),
+            next: 0,
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::js::v8::{V8Array, V8Engine};
-    use crate::js::{JSArray, JSRuntime, JSValue, ValueConversion};
+    use crate::js::{
+        ArrayConversion, JSArray, JSContext, JSObject, JSRuntime, JSValue, ValueConversion,
+    };
 
     #[test]
     fn set() {
         let mut engine = V8Engine::new();
         let mut context = engine.new_context().unwrap();
 
-        let array = V8Array::new(&context, 2).unwrap();
+        let array = V8Array::new(context.clone(), 2).unwrap();
         array
             .set(0, &1234.0.to_js_value(context.clone()).unwrap())
             .unwrap();
@@ -125,7 +165,7 @@ mod tests {
             .set(1, &"Hello World!".to_js_value(context).unwrap())
             .unwrap();
 
-        assert_eq!(array.length().unwrap(), 2);
+        assert_eq!(array.len(), 2);
     }
 
     #[test]
@@ -133,7 +173,7 @@ mod tests {
         let mut engine = V8Engine::new();
         let mut context = engine.new_context().unwrap();
 
-        let array = V8Array::new(&context, 2).unwrap();
+        let array = V8Array::new(context.clone(), 2).unwrap();
 
         array
             .set(0, &1234.0.to_js_value(context.clone()).unwrap())
@@ -151,7 +191,7 @@ mod tests {
         let mut engine = V8Engine::new();
         let mut context = engine.new_context().unwrap();
 
-        let array = V8Array::new(&context, 2).unwrap();
+        let array = V8Array::new(context.clone(), 2).unwrap();
 
         array
             .push(1234.0.to_js_value(context.clone()).unwrap())
@@ -160,7 +200,7 @@ mod tests {
             .push("Hello World!".to_js_value(context).unwrap())
             .unwrap();
 
-        assert_eq!(array.length().unwrap(), 4);
+        assert_eq!(array.len(), 4);
     }
 
     #[test]
@@ -168,7 +208,7 @@ mod tests {
         let mut engine = V8Engine::new();
         let mut context = engine.new_context().unwrap();
 
-        let array = V8Array::new(&context, 2).unwrap();
+        let array = V8Array::new(context.clone(), 2).unwrap();
 
         array
             .set(0, &1234.0.to_js_value(context.clone()).unwrap())
@@ -185,7 +225,7 @@ mod tests {
         let mut engine = V8Engine::new();
         let mut context = engine.new_context().unwrap();
 
-        let array = V8Array::new(&context, 2).unwrap();
+        let array = V8Array::new(context.clone(), 2).unwrap();
 
         array
             .set(0, &1234.0.to_js_value(context.clone()).unwrap())
@@ -204,7 +244,7 @@ mod tests {
         let mut engine = V8Engine::new();
         let mut context = engine.new_context().unwrap();
 
-        let array = V8Array::new(&context, 2).unwrap();
+        let array = V8Array::new(context.clone(), 2).unwrap();
 
         array
             .set(0, &1234.0.to_js_value(context.clone()).unwrap())
@@ -219,6 +259,141 @@ mod tests {
             .set(3, &"Hello World!".to_js_value(context.clone()).unwrap())
             .unwrap();
 
-        assert_eq!(array.length().unwrap(), 4);
+        assert_eq!(array.len(), 4);
+    }
+
+    #[test]
+    fn rust_to_js() {
+        let mut engine = V8Engine::new();
+        let mut context = engine.new_context().unwrap();
+
+        let array: V8Array = [42, 1337, 1234].to_js_array(context.clone()).unwrap();
+
+        assert_eq!(array.len(), 3);
+        assert_eq!(array.get(0).unwrap().as_number().unwrap(), 42.0);
+        assert_eq!(array.get(1).unwrap().as_number().unwrap(), 1337.0);
+        assert_eq!(array.get(2).unwrap().as_number().unwrap(), 1234.0);
+    }
+
+    #[test]
+    fn rust_to_js_global() {
+        let mut engine = V8Engine::new();
+        let mut context = engine.new_context().unwrap();
+
+        let array: V8Array = [42, 1337, 1234].to_js_array(context.clone()).unwrap();
+
+        let test_obj = context.new_global_object("test").unwrap();
+
+        test_obj.set_property("array", &array.into()).unwrap();
+
+        {
+            let val = context
+                .run(
+                    r#"
+                test.array
+            "#,
+                )
+                .unwrap();
+
+            assert!(val.is_array());
+            let array = val.as_array().unwrap();
+            assert_eq!(array.len(), 3);
+
+            assert_eq!(array.get(0).unwrap().as_number().unwrap(), 42.0);
+            assert_eq!(array.get(1).unwrap().as_number().unwrap(), 1337.0);
+            assert_eq!(array.get(2).unwrap().as_number().unwrap(), 1234.0);
+        }
+
+        {
+            let val = context
+                .run(
+                    r#"
+                test.array[0]
+            "#,
+                )
+                .unwrap();
+
+            assert!(val.is_number());
+            assert_eq!(val.as_number().unwrap(), 42.0);
+        }
+
+        {
+            let val = context
+                .run(
+                    r#"
+                test.array[1]
+            "#,
+                )
+                .unwrap();
+
+            assert!(val.is_number());
+            assert_eq!(val.as_number().unwrap(), 1337.0);
+        }
+
+        {
+            let val = context
+                .run(
+                    r#"
+                test.array[2]
+            "#,
+                )
+                .unwrap();
+
+            assert!(val.is_number());
+            assert_eq!(val.as_number().unwrap(), 1234.0);
+        }
+
+        {
+            let val = context
+                .run(
+                    r#"
+                test.array.push(5678)
+                
+                test.array
+            "#,
+                )
+                .unwrap();
+
+            assert!(val.is_array());
+            let array = val.as_array().unwrap();
+            assert_eq!(array.len(), 4);
+        }
+    }
+
+    #[test]
+    fn js_to_rust() {
+        let mut engine = V8Engine::new();
+        let mut context = engine.new_context().unwrap();
+
+        let array = context
+            .run(
+                r#"
+            [42, 1337, 1234]
+        "#,
+            )
+            .unwrap();
+
+        assert!(array.is_array());
+        let array = array.as_array().unwrap();
+        assert_eq!(array.len(), 3);
+        assert_eq!(array.get(0).unwrap().as_number().unwrap(), 42.0);
+        assert_eq!(array.get(1).unwrap().as_number().unwrap(), 1337.0);
+        assert_eq!(array.get(2).unwrap().as_number().unwrap(), 1234.0);
+    }
+
+    #[test]
+    fn rust_vec_to_js() {
+        let mut engine = V8Engine::new();
+        let mut context = engine.new_context().unwrap();
+
+        #[allow(clippy::useless_vec)]
+        let vec = vec![42, 1337, 1234];
+
+        let array: V8Array = vec.to_js_array(context.clone()).unwrap();
+
+        assert_eq!(array.len(), 3);
+        assert_eq!(array.get(0).unwrap().as_number().unwrap(), 42.0);
+        assert_eq!(array.get(1).unwrap().as_number().unwrap(), 1337.0);
+        assert_eq!(array.get(2).unwrap().as_number().unwrap(), 1234.0);
     }
 }
