@@ -13,7 +13,7 @@ use gosub_shared::types::Result;
 pub use object::*;
 pub use value::*;
 
-use crate::js::{JSArray, JSContext, JSFunction, JSObject, JSRuntime, JSValue, ValueConversion};
+use crate::js::{IntoJSValue, JSArray, JSContext, JSFunction, JSObject, JSRuntime, JSValue};
 
 mod array;
 mod compile;

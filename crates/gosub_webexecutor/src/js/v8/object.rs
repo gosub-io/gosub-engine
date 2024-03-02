@@ -359,8 +359,8 @@ mod tests {
 
     use crate::js::v8::V8FunctionCallBackVariadic;
     use crate::js::{
-        JSFunction, JSFunctionCallBack, JSFunctionCallBackVariadic, JSFunctionVariadic,
-        ValueConversion, VariadicArgsInternal,
+        IntoJSValue, JSFunction, JSFunctionCallBack, JSFunctionCallBackVariadic,
+        JSFunctionVariadic, VariadicArgsInternal,
     };
 
     use super::*;

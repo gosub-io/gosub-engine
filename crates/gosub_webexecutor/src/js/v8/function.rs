@@ -573,8 +573,7 @@ impl<'a> JSFunctionVariadic for V8FunctionVariadic<'a> {
 mod tests {
     use crate::js::v8::{V8Engine, V8Function, V8FunctionVariadic};
     use crate::js::{
-        Args, JSFunction, JSFunctionCallBack, JSFunctionVariadic, JSRuntime, JSValue,
-        ValueConversion,
+        Args, IntoJSValue, JSFunction, JSFunctionCallBack, JSFunctionVariadic, JSRuntime, JSValue,
     };
 
     use super::*;
