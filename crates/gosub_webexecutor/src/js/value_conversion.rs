@@ -85,6 +85,22 @@ where
     }
 }
 
+impl<V, T> IntoJSValue<V> for [T]
+where
+    V: JSValue,
+    T: IntoJSValue<V, Value = V>,
+    V::RT: JSRuntime<Value = V>,
+{
+    type Value = V;
+    fn to_js_value(&self, ctx: <V::RT as JSRuntime>::Context) -> Result<Self::Value> {
+        let data = self
+            .iter()
+            .map(|v| v.to_js_value(ctx.clone()))
+            .collect::<Result<Vec<_>>>()?;
+
+        <V::RT as JSRuntime>::Array::new_with_data(ctx.clone(), &data).map(|v| v.as_value())
+    }
+}
 
 pub trait IntoRustValue<T> {
     fn to_rust_value(&self) -> Result<T>
@@ -135,5 +151,20 @@ impl<T: JSValue> IntoRustValue<()> for T {
         } else {
             Err(JSError::Conversion("Value is not undefined or null".to_string()).into())
         }
+    }
+}
+
+
+impl<A, T> IntoRustValue<Vec<T>> for A 
+    where
+        A: JSArray,
+        <A::RT as JSRuntime>::Value: IntoRustValue<T>,
+{
+    fn to_rust_value(&self) -> Result<Vec<T>>{
+        let mut vec: Vec<T> = Vec::with_capacity(self.len());
+        for i in 0..self.len() {
+            vec.push(self.get(i)?.to_rust_value()?);
+        }
+        Ok(vec)
     }
 }

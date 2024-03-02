@@ -17,7 +17,6 @@ pub trait JSRuntime {
     type Function: JSFunction<RT = Self>;
     type FunctionVariadic: JSFunctionVariadic<RT = Self>;
     type Array: JSArray<RT = Self>;
-    type ArrayIndex;
     type FunctionCallBack: JSFunctionCallBack<RT = Self>;
     type FunctionCallBackVariadic: JSFunctionCallBackVariadic<RT = Self>;
     type Args: Args<RT = Self>;

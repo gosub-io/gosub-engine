@@ -106,7 +106,6 @@ impl<'a> JSRuntime for V8Engine<'a> {
     type Function = V8Function<'a>;
     type FunctionVariadic = V8FunctionVariadic<'a>;
     type Array = V8Array<'a>;
-    type ArrayIndex = u32;
     type FunctionCallBack = V8FunctionCallBack<'a>;
     type FunctionCallBackVariadic = V8FunctionCallBackVariadic<'a>;
     type Args = V8Args<'a>;
