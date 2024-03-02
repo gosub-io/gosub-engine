@@ -1,6 +1,6 @@
 use gosub_shared::types::Result;
 
-use crate::js::{JSArray, JSContext, JSError, JSRuntime, JSValue};
+use crate::js::{JSArray, JSError, JSRuntime, JSValue};
 
 //trait to easily convert Rust types to JS values (just call .to_js_value() on the type)
 pub trait IntoJSValue<V: JSValue> {
@@ -154,13 +154,12 @@ impl<T: JSValue> IntoRustValue<()> for T {
     }
 }
 
-
-impl<A, T> IntoRustValue<Vec<T>> for A 
-    where
-        A: JSArray,
-        <A::RT as JSRuntime>::Value: IntoRustValue<T>,
+impl<A, T> IntoRustValue<Vec<T>> for A
+where
+    A: JSArray,
+    <A::RT as JSRuntime>::Value: IntoRustValue<T>,
 {
-    fn to_rust_value(&self) -> Result<Vec<T>>{
+    fn to_rust_value(&self) -> Result<Vec<T>> {
         let mut vec: Vec<T> = Vec::with_capacity(self.len());
         for i in 0..self.len() {
             vec.push(self.get(i)?.to_rust_value()?);

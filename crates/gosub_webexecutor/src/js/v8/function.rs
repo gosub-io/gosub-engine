@@ -11,8 +11,7 @@ use gosub_shared::types::Result;
 use crate::js::function::{JSFunctionCallBack, JSFunctionCallBackVariadic};
 use crate::js::v8::{ctx_from_function_callback_info, V8Context, V8Engine, V8Value};
 use crate::js::{
-    Args, JSError, JSFunction, JSFunctionVariadic, JSRuntime, JSValue, VariadicArgs,
-    VariadicArgsInternal,
+    Args, JSError, JSFunction, JSFunctionVariadic, JSRuntime, VariadicArgs, VariadicArgsInternal,
 };
 use crate::Error;
 
@@ -40,21 +39,6 @@ impl<'a> V8FunctionCallBack<'a> {
 pub struct V8Args<'a> {
     next: usize,
     args: Vec<Local<'a, v8::Value>>,
-}
-
-impl V8Args<'_> {
-    fn v8(&self) -> &[Local<v8::Value>] {
-        &self.args
-    }
-}
-
-impl<'a> V8Args<'a> {
-    fn new(args: Vec<V8Value<'a>>, ctx: V8Context<'a>) -> Self {
-        Self {
-            next: 0,
-            args: args.iter().map(|x| x.value).collect(),
-        }
-    }
 }
 
 impl<'a> Iterator for V8Args<'a> {
@@ -303,12 +287,6 @@ pub struct V8VariadicArgsInternal<'a> {
     args: Vec<Local<'a, v8::Value>>,
 }
 
-impl V8VariadicArgsInternal<'_> {
-    fn v8(&self) -> &[Local<v8::Value>] {
-        &self.args
-    }
-}
-
 impl<'a> Iterator for V8VariadicArgsInternal<'a> {
     type Item = Local<'a, v8::Value>;
 
@@ -366,14 +344,12 @@ impl<'a> VariadicArgsInternal for V8VariadicArgsInternal<'a> {
         ctx: <Self::RT as JSRuntime>::Context,
     ) -> <Self::RT as JSRuntime>::VariadicArgs {
         V8VariadicArgs {
-            next: 0,
             args: self.as_vec(ctx),
         }
     }
 }
 
 pub struct V8VariadicArgs<'a> {
-    next: usize,
     args: Vec<V8Value<'a>>,
 }
 
@@ -580,7 +556,7 @@ mod tests {
 
     #[test]
     fn function_test() {
-        let mut ctx = V8Engine::new().new_context().unwrap();
+        let ctx = V8Engine::new().new_context().unwrap();
 
         let mut function = {
             let ctx = ctx.clone();
@@ -610,7 +586,7 @@ mod tests {
 
     #[test]
     fn function_variadic_test() {
-        let mut ctx = V8Engine::new().new_context().unwrap();
+        let ctx = V8Engine::new().new_context().unwrap();
 
         let mut function = {
             let ctx = ctx.clone();

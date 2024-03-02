@@ -9,12 +9,9 @@ use v8::{
 use gosub_shared::types::Result;
 
 use crate::js::v8::{
-    ctx_from, FromContext, V8Context, V8Ctx, V8Engine, V8Function, V8FunctionCallBack,
-    V8FunctionVariadic, V8Value,
+    ctx_from, FromContext, V8Context, V8Ctx, V8Engine, V8Function, V8FunctionVariadic, V8Value,
 };
-use crate::js::{
-    JSArray, JSError, JSGetterCallback, JSObject, JSRuntime, JSSetterCallback, JSValue,
-};
+use crate::js::{JSError, JSGetterCallback, JSObject, JSRuntime, JSSetterCallback, JSValue};
 use crate::Error;
 
 pub struct V8Object<'a> {
@@ -238,7 +235,7 @@ impl<'a> JSObject for V8Object<'a> {
 
         let config = AccessorConfiguration::new(
             |scope: &mut HandleScope,
-             name: Local<Name>,
+             _name: Local<Name>,
              args: PropertyCallbackArguments,
              mut rv: ReturnValue| {
                 let external = match Local::<External>::try_from(args.data()) {
@@ -292,10 +289,10 @@ impl<'a> JSObject for V8Object<'a> {
         )
         .setter(
             |scope: &mut HandleScope,
-             name: Local<Name>,
+             _name: Local<Name>,
              value: Local<Value>,
              args: PropertyCallbackArguments,
-             rv: ReturnValue| {
+             _rv: ReturnValue| {
                 let external = match Local::<External>::try_from(args.data()) {
                     Ok(external) => external,
                     Err(e) => {
@@ -309,8 +306,6 @@ impl<'a> JSObject for V8Object<'a> {
                 };
 
                 let gs = unsafe { &*(external.value() as *const GetterSetter) };
-
-                let mut ctx = scope.get_current_context();
 
                 let ctx = match ctx_from(scope, gs.ctx.borrow().isolate) {
                     Ok(ctx) => ctx,
@@ -357,7 +352,7 @@ mod tests {
 
     use serde_json::to_string;
 
-    use crate::js::v8::V8FunctionCallBackVariadic;
+    use crate::js::v8::{V8FunctionCallBack, V8FunctionCallBackVariadic};
     use crate::js::{
         IntoJSValue, JSFunction, JSFunctionCallBack, JSFunctionCallBackVariadic,
         JSFunctionVariadic, VariadicArgsInternal,
@@ -368,7 +363,7 @@ mod tests {
     #[test]
     fn test_object() {
         let mut engine = V8Engine::new();
-        let mut ctx = engine.new_context().unwrap();
+        let ctx = engine.new_context().unwrap();
 
         let obj = V8Object::new(ctx.clone()).unwrap();
 
@@ -382,9 +377,9 @@ mod tests {
     #[test]
     fn test_object_accessor() {
         let mut engine = V8Engine::new();
-        let mut ctx = engine.new_context().unwrap();
+        let ctx = engine.new_context().unwrap();
 
-        let mut string = Rc::new(RefCell::new("value".to_string()));
+        let string = Rc::new(RefCell::new("value".to_string()));
 
         let getter = {
             let string = Rc::clone(&string);
@@ -413,11 +408,11 @@ mod tests {
     #[test]
     fn test_object_method() {
         let mut engine = V8Engine::new();
-        let mut ctx = engine.new_context().unwrap();
+        let ctx = engine.new_context().unwrap();
 
         let obj = V8Object::new(ctx.clone()).unwrap();
 
-        let called = Rc::new(RefCell::new(false));
+        let _called = Rc::new(RefCell::new(false));
         let mut func = V8Function::new(ctx.clone(), |cb: &mut V8FunctionCallBack| {
             let value = V8Value::new_string(cb.context().clone(), "value").unwrap();
             cb.ret(value);
@@ -435,11 +430,11 @@ mod tests {
     #[test]
     fn test_object_method_variadic() {
         let mut engine = V8Engine::new();
-        let mut ctx = engine.new_context().unwrap();
+        let ctx = engine.new_context().unwrap();
 
         let obj = V8Object::new(ctx.clone()).unwrap();
 
-        let called = Rc::new(RefCell::new(false));
+        let _called = Rc::new(RefCell::new(false));
         let func = V8FunctionVariadic::new(ctx.clone(), |cb: &mut V8FunctionCallBackVariadic| {
             let ctx = cb.context().clone();
 

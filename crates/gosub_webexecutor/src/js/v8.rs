@@ -1,6 +1,5 @@
-use std::any::Any;
 use std::cell::RefCell;
-use std::ops::{Deref, DerefMut};
+
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Once;
@@ -13,7 +12,7 @@ use gosub_shared::types::Result;
 pub use object::*;
 pub use value::*;
 
-use crate::js::{IntoJSValue, JSArray, JSContext, JSFunction, JSObject, JSRuntime, JSValue};
+use crate::js::JSRuntime;
 
 mod array;
 mod compile;
@@ -124,14 +123,13 @@ impl<'a> JSRuntime for V8Engine<'a> {
 
 #[cfg(test)]
 mod tests {
-    use anyhow;
 
     use crate::js::v8::V8_INITIALIZED;
     use crate::js::{JSContext, JSRuntime, JSValue};
 
     #[test]
     fn v8_engine_initialization() {
-        let mut engine = crate::js::v8::V8Engine::new();
+        let _engine = crate::js::v8::V8Engine::new();
 
         assert!(V8_INITIALIZED.is_completed());
     }

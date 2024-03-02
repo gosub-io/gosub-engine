@@ -2,9 +2,7 @@ use core::fmt::Display;
 
 use gosub_shared::types::Result;
 
-use crate::js::{JSContext, JSObject, JSRuntime, JSValue};
-
-struct Function<T: JSFunction>(pub T);
+use crate::js::JSRuntime;
 
 //trait for JS functions (interop between JS and Rust)
 pub trait JSFunction {

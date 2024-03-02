@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use v8::{Array, Data, Local, Value};
+use v8::{Array, Local, Value};
 
 use gosub_shared::types::Result;
 
@@ -447,7 +447,7 @@ mod tests {
     #[test]
     fn new_string() {
         let mut engine = V8Engine::new();
-        let mut context = engine.new_context().unwrap();
+        let context = engine.new_context().unwrap();
 
         let value = V8Value::new_string(context, "Hello World!").unwrap();
         assert!(value.is_string());
@@ -457,7 +457,7 @@ mod tests {
     #[test]
     fn new_number() {
         let mut engine = V8Engine::new();
-        let mut context = engine.new_context().unwrap();
+        let context = engine.new_context().unwrap();
 
         let value = V8Value::new_number(context, 1234).unwrap();
         assert!(value.is_number());
@@ -467,7 +467,7 @@ mod tests {
     #[test]
     fn new_bool() {
         let mut engine = V8Engine::new();
-        let mut context = engine.new_context().unwrap();
+        let context = engine.new_context().unwrap();
 
         let value = V8Value::new_bool(context, true).unwrap();
         assert!(value.is_bool());
@@ -477,7 +477,7 @@ mod tests {
     #[test]
     fn new_null() {
         let mut engine = V8Engine::new();
-        let mut context = engine.new_context().unwrap();
+        let context = engine.new_context().unwrap();
 
         let value = V8Value::new_null(context).unwrap();
         assert!(value.is_null());
@@ -486,7 +486,7 @@ mod tests {
     #[test]
     fn new_undefined() {
         let mut engine = V8Engine::new();
-        let mut context = engine.new_context().unwrap();
+        let context = engine.new_context().unwrap();
 
         let value = V8Value::new_undefined(context).unwrap();
         assert!(value.is_undefined());

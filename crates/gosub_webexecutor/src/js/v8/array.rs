@@ -39,13 +39,15 @@ impl<'a> JSArray for V8Array<'a> {
     type RT = V8Engine<'a>;
 
     fn get(&self, index: usize) -> Result<<Self::RT as JSRuntime>::Value> {
-        let Some(value) = self.value.get_index(self.ctx.borrow_mut().scope(), index as u32) else {
+        let Some(value) = self
+            .value
+            .get_index(self.ctx.borrow_mut().scope(), index as u32)
+        else {
             return Err(Error::JS(JSError::Generic(
                 "failed to get a value from an array".to_owned(),
             ))
             .into());
         };
-        
 
         Ok(V8Value::from_value(self.ctx.clone(), value))
     }
@@ -148,7 +150,7 @@ impl<'a> JSArray for V8Array<'a> {
     fn as_value(&self) -> <Self::RT as JSRuntime>::Value {
         V8Value::from_value(self.ctx.clone(), Local::from(self.value))
     }
-    
+
     fn as_vec(&self) -> Vec<<Self::RT as JSRuntime>::Value> {
         let mut vec = Vec::with_capacity(self.len());
         for i in 0..self.len() {
@@ -161,12 +163,15 @@ impl<'a> JSArray for V8Array<'a> {
 #[cfg(test)]
 mod tests {
     use crate::js::v8::{V8Array, V8Engine, V8Value};
-    use crate::js::{ArrayConversion, IntoJSValue, IntoRustValue, JSArray, JSContext, JSObject, JSRuntime, JSValue};
+    use crate::js::{
+        ArrayConversion, IntoJSValue, IntoRustValue, JSArray, JSContext, JSObject, JSRuntime,
+        JSValue,
+    };
 
     #[test]
     fn set() {
         let mut engine = V8Engine::new();
-        let mut context = engine.new_context().unwrap();
+        let context = engine.new_context().unwrap();
 
         let array = V8Array::new(context.clone(), 2).unwrap();
         array
@@ -182,7 +187,7 @@ mod tests {
     #[test]
     fn get() {
         let mut engine = V8Engine::new();
-        let mut context = engine.new_context().unwrap();
+        let context = engine.new_context().unwrap();
 
         let array = V8Array::new(context.clone(), 2).unwrap();
 
@@ -200,7 +205,7 @@ mod tests {
     #[test]
     fn push() {
         let mut engine = V8Engine::new();
-        let mut context = engine.new_context().unwrap();
+        let context = engine.new_context().unwrap();
 
         let array = V8Array::new(context.clone(), 2).unwrap();
 
@@ -217,7 +222,7 @@ mod tests {
     #[test]
     fn out_of_bounds() {
         let mut engine = V8Engine::new();
-        let mut context = engine.new_context().unwrap();
+        let context = engine.new_context().unwrap();
 
         let array = V8Array::new(context.clone(), 2).unwrap();
 
@@ -234,7 +239,7 @@ mod tests {
     #[test]
     fn pop() {
         let mut engine = V8Engine::new();
-        let mut context = engine.new_context().unwrap();
+        let context = engine.new_context().unwrap();
 
         let array = V8Array::new(context.clone(), 2).unwrap();
 
@@ -253,7 +258,7 @@ mod tests {
     #[test]
     fn dynamic_resize() {
         let mut engine = V8Engine::new();
-        let mut context = engine.new_context().unwrap();
+        let context = engine.new_context().unwrap();
 
         let array = V8Array::new(context.clone(), 2).unwrap();
 
@@ -276,7 +281,7 @@ mod tests {
     #[test]
     fn rust_to_js() {
         let mut engine = V8Engine::new();
-        let mut context = engine.new_context().unwrap();
+        let context = engine.new_context().unwrap();
 
         let array: V8Array = [42, 1337, 1234].to_js_array(context.clone()).unwrap();
 
@@ -289,7 +294,7 @@ mod tests {
     #[test]
     fn rust_to_js_value() {
         let mut engine = V8Engine::new();
-        let mut context = engine.new_context().unwrap();
+        let context = engine.new_context().unwrap();
 
         let array: V8Value = [42, 1337, 1234].to_js_value(context.clone()).unwrap();
 
@@ -410,7 +415,7 @@ mod tests {
     #[test]
     fn rust_vec_to_js() {
         let mut engine = V8Engine::new();
-        let mut context = engine.new_context().unwrap();
+        let context = engine.new_context().unwrap();
 
         #[allow(clippy::useless_vec)]
         let vec = vec![42, 1337, 1234];
@@ -422,7 +427,7 @@ mod tests {
         assert_eq!(array.get(1).unwrap().as_number().unwrap(), 1337.0);
         assert_eq!(array.get(2).unwrap().as_number().unwrap(), 1234.0);
     }
-    
+
     #[test]
     fn js_vec_to_rust() {
         let mut engine = V8Engine::new();
@@ -436,8 +441,7 @@ mod tests {
             )
             .unwrap();
 
-        let vec: Vec<u32>= array.as_array().unwrap()
-            .to_rust_value().unwrap();
+        let vec: Vec<u32> = array.as_array().unwrap().to_rust_value().unwrap();
 
         assert_eq!(vec, vec![42, 1337, 1234]);
     }

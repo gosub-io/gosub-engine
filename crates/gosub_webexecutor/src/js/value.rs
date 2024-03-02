@@ -1,6 +1,6 @@
 use gosub_shared::types::Result;
 
-use crate::js::{IntoJSValue, JSArray, JSContext, JSObject, JSRuntime, JSType};
+use crate::js::{IntoJSValue, JSRuntime, JSType};
 
 pub trait JSValue:
     Sized + From<<Self::RT as JSRuntime>::Object> + From<<Self::RT as JSRuntime>::Array>

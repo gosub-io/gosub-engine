@@ -2,7 +2,7 @@ use core::fmt::Display;
 
 use gosub_shared::types::Result;
 
-use crate::js::{JSContext, JSFunction, JSFunctionVariadic, JSRuntime, JSValue};
+use crate::js::JSRuntime;
 
 pub trait JSObject {
     type RT: JSRuntime;
