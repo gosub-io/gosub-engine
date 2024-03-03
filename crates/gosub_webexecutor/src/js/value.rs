@@ -1,6 +1,6 @@
 use gosub_shared::types::Result;
 
-use crate::js::{JSArray, JSContext, JSObject, JSRuntime, JSType, ValueConversion};
+use crate::js::{IntoJSValue, JSRuntime, JSType};
 
 pub trait JSValue:
     Sized + From<<Self::RT as JSRuntime>::Object> + From<<Self::RT as JSRuntime>::Array>
@@ -40,7 +40,7 @@ where
     fn new_object(ctx: <Self::RT as JSRuntime>::Context)
         -> Result<<Self::RT as JSRuntime>::Object>;
 
-    fn new_array<T: ValueConversion<Self, Value = Self>>(
+    fn new_array<T: IntoJSValue<Self, Value = Self>>(
         ctx: <Self::RT as JSRuntime>::Context,
         value: &[T],
     ) -> Result<<Self::RT as JSRuntime>::Array>;

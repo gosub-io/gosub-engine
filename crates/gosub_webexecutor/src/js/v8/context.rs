@@ -44,7 +44,6 @@ impl Copied {
 }
 
 pub(crate) enum HandleScopeType<'a> {
-    WithContext(HandleScope<'a>),
     WithContextRef(&'a mut HandleScope<'a>),
     WithoutContext(HandleScope<'a, ()>),
     CallbackScope(CallbackScope<'a>),
@@ -57,7 +56,6 @@ impl<'a> HandleScopeType<'a> {
 
     pub(crate) fn get(&mut self) -> &mut HandleScope<'a, ()> {
         match self {
-            Self::WithContext(scope) => scope,
             Self::WithoutContext(scope) => scope,
             Self::CallbackScope(scope) => scope,
             Self::WithContextRef(scope) => scope,
@@ -121,9 +119,9 @@ impl<'a> V8Ctx<'a> {
         unsafe { self.context_scope.as_mut() }
     }
 
-    pub(crate) fn handle_scope(&mut self) -> &'a mut HandleScope<'a, ()> {
-        unsafe { self.handle_scope.as_mut() }.get()
-    }
+    // pub(crate) fn handle_scope(&mut self) -> &'a mut HandleScope<'a, ()> {
+    //     unsafe { self.handle_scope.as_mut() }.get()
+    // }
 
     pub(crate) fn context(&mut self) -> &'a mut Local<'a, v8::Context> {
         unsafe { self.ctx.as_mut() }
@@ -217,7 +215,7 @@ pub(crate) fn ctx_from_scope_isolate<'a>(
 }
 
 pub(crate) fn ctx_from_function_callback_info(
-    mut scope: CallbackScope,
+    scope: CallbackScope,
     isolate: NonNull<OwnedIsolate>,
 ) -> std::result::Result<V8Context, (HandleScopeType, Error)> {
     let ctx = scope.get_current_context();

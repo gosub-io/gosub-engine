@@ -1,11 +1,11 @@
 use std::rc::Rc;
 
-use v8::{Array, Data, Local, Value};
+use v8::{Array, Local, Value};
 
 use gosub_shared::types::Result;
 
 use crate::js::v8::{FromContext, IntoContext, V8Array, V8Context, V8Engine, V8Object};
-use crate::js::{ArrayConversion, JSArray, JSError, JSRuntime, JSType, JSValue, ValueConversion};
+use crate::js::{ArrayConversion, IntoJSValue, JSArray, JSError, JSRuntime, JSType, JSValue};
 use crate::Error;
 
 pub struct V8Value<'a> {
@@ -134,7 +134,7 @@ impl<'a> JSValue for V8Value<'a> {
         V8Object::new(ctx)
     }
 
-    fn new_array<T: ValueConversion<Self, Value = Self>>(
+    fn new_array<T: IntoJSValue<Self, Value = Self>>(
         ctx: <Self::RT as JSRuntime>::Context,
         value: &[T],
     ) -> Result<<Self::RT as JSRuntime>::Array> {
@@ -198,7 +198,7 @@ impl<'a> JSValue for V8Value<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::js::JSContext;
+    use crate::js::{IntoRustValue, JSContext};
 
     use super::*;
 
@@ -447,7 +447,7 @@ mod tests {
     #[test]
     fn new_string() {
         let mut engine = V8Engine::new();
-        let mut context = engine.new_context().unwrap();
+        let context = engine.new_context().unwrap();
 
         let value = V8Value::new_string(context, "Hello World!").unwrap();
         assert!(value.is_string());
@@ -457,7 +457,7 @@ mod tests {
     #[test]
     fn new_number() {
         let mut engine = V8Engine::new();
-        let mut context = engine.new_context().unwrap();
+        let context = engine.new_context().unwrap();
 
         let value = V8Value::new_number(context, 1234).unwrap();
         assert!(value.is_number());
@@ -467,7 +467,7 @@ mod tests {
     #[test]
     fn new_bool() {
         let mut engine = V8Engine::new();
-        let mut context = engine.new_context().unwrap();
+        let context = engine.new_context().unwrap();
 
         let value = V8Value::new_bool(context, true).unwrap();
         assert!(value.is_bool());
@@ -477,7 +477,7 @@ mod tests {
     #[test]
     fn new_null() {
         let mut engine = V8Engine::new();
-        let mut context = engine.new_context().unwrap();
+        let context = engine.new_context().unwrap();
 
         let value = V8Value::new_null(context).unwrap();
         assert!(value.is_null());
@@ -486,9 +486,62 @@ mod tests {
     #[test]
     fn new_undefined() {
         let mut engine = V8Engine::new();
-        let mut context = engine.new_context().unwrap();
+        let context = engine.new_context().unwrap();
 
         let value = V8Value::new_undefined(context).unwrap();
         assert!(value.is_undefined());
+    }
+
+    #[test]
+    fn into_rust() {
+        let mut engine = V8Engine::new();
+        let mut context = engine.new_context().unwrap();
+
+        let value = context
+            .run(
+                r#"
+            "Hello World!"
+        "#,
+            )
+            .unwrap();
+
+        let val: String = value.to_rust_value().unwrap();
+        assert_eq!(val, "Hello World!");
+
+        let value = context
+            .run(
+                r#"
+            1234
+        "#,
+            )
+            .unwrap();
+
+        let val: u32 = value.to_rust_value().unwrap();
+        assert_eq!(val, 1234);
+        let val: f64 = value.to_rust_value().unwrap();
+        assert_eq!(val, 1234.0);
+        let val: u64 = value.to_rust_value().unwrap();
+        assert_eq!(val, 1234);
+
+        let value = context
+            .run(
+                r#"
+            true
+        "#,
+            )
+            .unwrap();
+
+        let val: bool = value.to_rust_value().unwrap();
+        assert!(val);
+
+        let value = context
+            .run(
+                r#"
+            null
+        "#,
+            )
+            .unwrap();
+
+        let _: () = value.to_rust_value().unwrap();
     }
 }

@@ -1,34 +1,24 @@
-use crate::js::{JSRuntime, JSValue};
+use crate::js::JSRuntime;
 use gosub_shared::types::Result;
 
 pub trait JSArray: Iterator {
     type RT: JSRuntime;
 
-    fn get(
-        &self,
-        index: <Self::RT as JSRuntime>::ArrayIndex,
-    ) -> Result<<Self::RT as JSRuntime>::Value>;
+    fn get(&self, index: usize) -> Result<<Self::RT as JSRuntime>::Value>;
 
-    fn set(
-        &self,
-        index: <Self::RT as JSRuntime>::ArrayIndex,
-        value: &<Self::RT as JSRuntime>::Value,
-    ) -> Result<()>;
+    fn set(&self, index: usize, value: &<Self::RT as JSRuntime>::Value) -> Result<()>;
 
     fn push(&self, value: <Self::RT as JSRuntime>::Value) -> Result<()>;
 
     fn pop(&self) -> Result<<Self::RT as JSRuntime>::Value>;
 
-    fn remove<T: Into<<Self::RT as JSRuntime>::ArrayIndex>>(&self, index: T) -> Result<()>;
+    fn remove(&self, index: usize) -> Result<()>;
 
-    fn len(&self) -> <Self::RT as JSRuntime>::ArrayIndex;
+    fn len(&self) -> usize;
 
     fn is_empty(&self) -> bool;
 
-    fn new(
-        ctx: <Self::RT as JSRuntime>::Context,
-        cap: <Self::RT as JSRuntime>::ArrayIndex,
-    ) -> Result<Self>
+    fn new(ctx: <Self::RT as JSRuntime>::Context, cap: usize) -> Result<Self>
     where
         Self: Sized;
 
@@ -38,4 +28,8 @@ pub trait JSArray: Iterator {
     ) -> Result<Self>
     where
         Self: Sized;
+
+    fn as_value(&self) -> <Self::RT as JSRuntime>::Value;
+
+    fn as_vec(&self) -> Vec<<Self::RT as JSRuntime>::Value>;
 }

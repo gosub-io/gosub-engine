@@ -1,6 +1,6 @@
 use gosub_shared::types::Result;
 
-use crate::js::{JSArray, JSCompiled, JSFunction, JSObject, JSRuntime, JSValue};
+use crate::js::JSRuntime;
 
 //main trait for JS context (can be implemented for different JS engines like V8, SpiderMonkey, JSC, etc.)
 pub trait JSContext: Clone {
