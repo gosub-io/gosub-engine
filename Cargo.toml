@@ -55,7 +55,7 @@ lazy_static = "1.4"
 regex = "1"
 ureq = "2.9.6"
 anyhow = "1.0.79"
-walkdir = "2.3"
+walkdir = "2.5"
 clap = { version = "4.5.0", features = ["derive"] }
 simple_logger = "4.2.0"
 cookie = { version = "0.18.0", features = ["secure", "private"] }
