@@ -13,6 +13,6 @@ phf = { version = "0.11.2", features = ["macros"] }
 lazy_static = "1.4"
 thiserror = "1.0.57"
 url = { version = "2.5.0", features = [] }
-log = { version = "0.4.20", features = [] }
+log = { version = "0.4.21", features = [] }
 ureq = "2.9.6"
 
