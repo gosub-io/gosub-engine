@@ -26,6 +26,7 @@ use gosub_css3::stylesheet::{CssOrigin, CssStylesheet};
 use gosub_css3::Css3;
 use gosub_shared::bytes::CharIterator;
 use gosub_shared::types::{ParseError, Result};
+use gosub_shared::{timing_start, timing_stop};
 use log::warn;
 use std::collections::HashMap;
 #[cfg(feature = "debug_parser")]
@@ -405,10 +406,17 @@ impl<'chars> Html5Parser<'chars> {
         // Create a new error logger that will be used in both the tokenizer and the parser
         let error_logger = Rc::new(RefCell::new(ErrorLogger::new()));
 
+        let t_id = match &document.get().location {
+            Some(location) => timing_start!("html5.parse", location),
+            None => timing_start!("html5.parse", "unknown"),
+        };
         let tokenizer = Tokenizer::new(chars, None, error_logger.clone());
         let mut parser = Html5Parser::init(tokenizer, document, error_logger, options);
 
-        parser.do_parse()
+        let ret = parser.do_parse();
+        timing_stop!(t_id);
+
+        ret
     }
 
     /// Internal parser function that does the actual parsing
@@ -4107,15 +4115,20 @@ impl<'chars> Html5Parser<'chars> {
             return None;
         }
 
+        let source = match &self.document.get().location {
+            Some(location) => format!("{}#inline", location),
+            None => "<unknown>#inline".into(),
+        };
+
         let config = ParserConfig {
-            source: None,
+            source: Some(source.clone()),
             ignore_errors: true,
             ..Default::default()
         };
 
         match Css3::parse(node.as_text().value.as_str(), config) {
             Ok(ast) => {
-                match convert_ast_to_stylesheet(&ast, origin, "") {
+                match convert_ast_to_stylesheet(&ast, origin, &source) {
                     Ok(sheet) => return Some(sheet),
                     Err(err) => warn!("Error while converting CSS AST to rules: {} ", err),
                 }

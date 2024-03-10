@@ -3,6 +3,7 @@ use crate::node::Node;
 use crate::parser_config::{Context, ParserConfig};
 use crate::tokenizer::Tokenizer;
 use gosub_shared::byte_stream::{ByteStream, Encoding, Stream};
+use gosub_shared::{timing_start, timing_stop};
 
 pub mod convert;
 pub mod location;
@@ -44,12 +45,18 @@ impl Error {
 impl<'stream> Css3<'stream> {
     /// Parse a CSS string, which depends on the context.
     pub fn parse(data: &str, config: ParserConfig) -> Result<Node, Error> {
+        let t_id = timing_start!("css3.parse", config.source.as_deref().unwrap_or(""));
+
         let mut it = ByteStream::new();
         it.read_from_str(data, Some(Encoding::UTF8));
         it.close();
 
         let mut parser = Css3::new(&mut it);
-        parser.parse_internal(config)
+        let ret = parser.parse_internal(config);
+
+        timing_stop!(t_id);
+
+        ret
     }
 
     /// Create a new parser with the given bytestream

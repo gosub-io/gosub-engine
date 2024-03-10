@@ -2,6 +2,8 @@ use anyhow::bail;
 use gosub_html5::parser::document::{Document, DocumentBuilder};
 use gosub_html5::parser::Html5Parser;
 use gosub_shared::bytes::{CharIterator, Confidence, Encoding};
+use gosub_shared::timing::Scale;
+use gosub_shared::timing_display;
 use gosub_shared::types::Result;
 use std::fs;
 use std::process::exit;
@@ -77,6 +79,8 @@ fn main() -> Result<()> {
     for e in parse_errors {
         println!("Parse Error: {}", e.message);
     }
+
+    timing_display!(true, Scale::Auto);
 
     Ok(())
 }

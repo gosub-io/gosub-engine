@@ -10,3 +10,6 @@ chardet = "0.2.4"
 thiserror = "1.0.57"
 url = "2.5.0"
 anyhow = "1.0.80"
+lazy_static = "1.4.0"
+uuid = { version = "1.7.0", features = ["v4"] }
+rand = "0.9.0-alpha.0"
