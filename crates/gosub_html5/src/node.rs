@@ -130,6 +130,12 @@ pub struct Node {
     pub is_registered: bool,
 }
 
+impl Node {
+    pub fn is_root(&self) -> bool {
+        self.id.is_root()
+    }
+}
+
 impl PartialEq for Node {
     fn eq(&self, other: &Node) -> bool {
         self.id == other.id

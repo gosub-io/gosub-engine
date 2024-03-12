@@ -1,592 +1,576 @@
+use crate::css_node_tree::CssValue;
 use lazy_static::lazy_static;
 
 // Values for this table is taken from https://www.w3.org/TR/CSS21/propidx.html
 // Probably not the complete list, but it will do for now
 
-struct PropertyTableEntry {
-    name: &'static str,
-    initial: &'static str,
-    inheritable: bool,
+pub struct PropertyTableEntry {
+    pub(crate) name: &'static str,
+    pub(crate) initial: CssValue,
+    pub(crate) inheritable: bool,
 }
 
 lazy_static! {
-    static ref PROPERTY_TABLE: &'static [PropertyTableEntry] = &[
+    pub static ref PROPERTY_TABLE: Vec<PropertyTableEntry> = vec![
         PropertyTableEntry {
             name: "azimuth",
-            initial: "center",
+            initial: CssValue::String("center".into()),
             inheritable: true,
         },
         PropertyTableEntry {
             name: "background-attachment",
-            initial: "scroll",
+            initial: CssValue::String("scroll".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "background-color",
-            initial: "transparent",
+            initial: CssValue::String("transparent".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "background-image",
-            initial: "none",
+            initial: CssValue::String("none".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "background-position",
-            initial: "0% 0%",
+            initial: CssValue::String("0% 0%".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "background-repeat",
-            initial: "repeat",
+            initial: CssValue::String("repeat".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "border-collapse",
-            initial: "separate",
+            initial: CssValue::String("separate".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "border-color",
-            initial: "initial",
+            initial: CssValue::String("initial".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "border-spacing",
-            initial: "0",
+            initial: CssValue::Number(0_f32),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "border-style",
-            initial: "none",
+            initial: CssValue::String("none".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "border-top",
-            initial: "initial",
+            initial: CssValue::String("initial".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "border-right",
-            initial: "initial",
+            initial: CssValue::String("initial".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "border-bottom",
-            initial: "initial",
+            initial: CssValue::String("initial".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "border-left",
-            initial: "initial",
+            initial: CssValue::String("initial".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "border-top-color",
-            initial: "initial",
+            initial: CssValue::String("initial".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "border-right-color",
-            initial: "initial",
+            initial: CssValue::String("initial".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "border-bottom-color",
-            initial: "initial",
+            initial: CssValue::String("initial".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "border-left-color",
-            initial: "initial",
+            initial: CssValue::String("initial".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "border-top-style",
-            initial: "none",
+            initial: CssValue::String("none".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "border-right-style",
-            initial: "none",
+            initial: CssValue::String("none".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "border-bottom-style",
-            initial: "none",
+            initial: CssValue::String("none".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "border-left-style",
-            initial: "none",
+            initial: CssValue::String("none".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "border-top-width",
-            initial: "medium",
+            initial: CssValue::String("medium".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "border-right-width",
-            initial: "medium",
+            initial: CssValue::String("medium".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "border-bottom-width",
-            initial: "medium",
+            initial: CssValue::String("medium".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "border-left-width",
-            initial: "medium",
+            initial: CssValue::String("medium".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "border-width",
-            initial: "initial",
+            initial: CssValue::String("initial".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "bottom",
-            initial: "auto",
+            initial: CssValue::String("auto".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "caption-side",
-            initial: "top",
+            initial: CssValue::String("top".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "clear",
-            initial: "none",
+            initial: CssValue::String("none".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "clip",
-            initial: "auto",
+            initial: CssValue::String("auto".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "color",
-            initial: "initial",
+            initial: CssValue::String("initial".into()),
             inheritable: true,
         },
         PropertyTableEntry {
             name: "content",
-            initial: "normal",
+            initial: CssValue::String("normal".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "counter-increment",
-            initial: "none",
+            initial: CssValue::String("none".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "counter-reset",
-            initial: "none",
+            initial: CssValue::String("none".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "cue",
-            initial: "none",
+            initial: CssValue::String("none".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "cue-after",
-            initial: "none",
+            initial: CssValue::String("none".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "cue-before",
-            initial: "none",
+            initial: CssValue::String("none".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "cursor",
-            initial: "auto",
+            initial: CssValue::String("auto".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "direction",
-            initial: "ltr",
+            initial: CssValue::String("ltr".into()),
             inheritable: true,
         },
         PropertyTableEntry {
             name: "display",
-            initial: "inline",
+            initial: CssValue::String("inline".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "elevation",
-            initial: "level",
+            initial: CssValue::String("level".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "empty-cells",
-            initial: "show",
+            initial: CssValue::String("show".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "float",
-            initial: "none",
+            initial: CssValue::String("none".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "font",
-            initial: "initial",
+            initial: CssValue::String("initial".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "font-family",
-            initial: "initial",
+            initial: CssValue::String("initial".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "font-size",
-            initial: "medium",
+            initial: CssValue::String("medium".into()),
             inheritable: true,
         },
         PropertyTableEntry {
             name: "font-style",
-            initial: "normal",
+            initial: CssValue::String("normal".into()),
             inheritable: true,
         },
         PropertyTableEntry {
             name: "font-variant",
-            initial: "normal",
+            initial: CssValue::String("normal".into()),
             inheritable: true,
         },
         PropertyTableEntry {
             name: "font-weight",
-            initial: "normal",
+            initial: CssValue::String("normal".into()),
             inheritable: true,
         },
         PropertyTableEntry {
             name: "height",
-            initial: "auto",
+            initial: CssValue::String("auto".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "left",
-            initial: "auto",
+            initial: CssValue::String("auto".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "letter-spacing",
-            initial: "normal",
+            initial: CssValue::String("normal".into()),
             inheritable: true,
         },
         PropertyTableEntry {
             name: "line-height",
-            initial: "normal",
+            initial: CssValue::String("normal".into()),
             inheritable: true,
         },
         PropertyTableEntry {
             name: "list-style",
-            initial: "initial",
+            initial: CssValue::String("initial".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "list-style-image",
-            initial: "none",
+            initial: CssValue::String("none".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "list-style-position",
-            initial: "outside",
+            initial: CssValue::String("outside".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "list-style-type",
-            initial: "disc",
+            initial: CssValue::String("disc".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "margin",
-            initial: "0",
+            initial: CssValue::Number(0_f32),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "margin-top",
-            initial: "0",
+            initial: CssValue::Number(0_f32),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "margin-right",
-            initial: "0",
+            initial: CssValue::Number(0_f32),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "margin-bottom",
-            initial: "0",
+            initial: CssValue::Number(0_f32),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "margin-left",
-            initial: "0",
+            initial: CssValue::Number(0_f32),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "max-height",
-            initial: "none",
+            initial: CssValue::String("none".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "max-width",
-            initial: "none",
+            initial: CssValue::String("none".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "min-height",
-            initial: "0",
+            initial: CssValue::Number(0_f32),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "min-width",
-            initial: "0",
+            initial: CssValue::Number(0_f32),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "orphans",
-            initial: "2",
+            initial: CssValue::Number(2_f32),
             inheritable: true,
         },
         PropertyTableEntry {
             name: "outline",
-            initial: "initial",
+            initial: CssValue::String("initial".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "outline-color",
-            initial: "invert",
+            initial: CssValue::String("invert".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "outline-style",
-            initial: "none",
+            initial: CssValue::String("none".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "outline-width",
-            initial: "medium",
+            initial: CssValue::String("medium".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "overflow",
-            initial: "visible",
+            initial: CssValue::String("visible".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "padding",
-            initial: "0",
+            initial: CssValue::Number(0_f32),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "padding-top",
-            initial: "0",
+            initial: CssValue::Number(0_f32),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "padding-right",
-            initial: "0",
+            initial: CssValue::Number(0_f32),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "padding-bottom",
-            initial: "0",
+            initial: CssValue::Number(0_f32),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "padding-left",
-            initial: "0",
+            initial: CssValue::Number(0_f32),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "page-break-after",
-            initial: "auto",
+            initial: CssValue::String("auto".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "page-break-before",
-            initial: "auto",
+            initial: CssValue::String("auto".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "page-break-inside",
-            initial: "auto",
+            initial: CssValue::String("auto".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "pause-after",
-            initial: "0",
+            initial: CssValue::Number(0_f32),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "pause-before",
-            initial: "0",
+            initial: CssValue::Number(0_f32),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "pitch",
-            initial: "medium",
+            initial: CssValue::String("medium".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "pitch-range",
-            initial: "50",
+            initial: CssValue::Number(50_f32),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "play-during",
-            initial: "auto",
+            initial: CssValue::String("auto".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "position",
-            initial: "static",
+            initial: CssValue::String("static".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "quotes",
-            initial: "initial",
+            initial: CssValue::String("initial".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "richness",
-            initial: "50",
+            initial: CssValue::Number(50_f32),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "right",
-            initial: "auto",
+            initial: CssValue::String("auto".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "speak",
-            initial: "normal",
+            initial: CssValue::String("normal".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "speak-header",
-            initial: "once",
+            initial: CssValue::String("once".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "speak-numeral",
-            initial: "continuous",
+            initial: CssValue::String("continuous".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "speak-punctuation",
-            initial: "none",
+            initial: CssValue::String("none".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "speech-rate",
-            initial: "medium",
+            initial: CssValue::String("medium".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "stress",
-            initial: "50",
+            initial: CssValue::Number(50_f32),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "table-layout",
-            initial: "auto",
+            initial: CssValue::String("auto".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "text-align",
-            initial: "initial",
+            initial: CssValue::String("initial".into()),
             inheritable: true,
         },
         PropertyTableEntry {
             name: "text-decoration",
-            initial: "none",
+            initial: CssValue::String("none".into()),
             inheritable: true,
         },
         PropertyTableEntry {
             name: "text-indent",
-            initial: "0",
+            initial: CssValue::Number(0_f32),
             inheritable: true,
         },
         PropertyTableEntry {
             name: "text-transform",
-            initial: "none",
+            initial: CssValue::String("none".into()),
             inheritable: true,
         },
         PropertyTableEntry {
             name: "top",
-            initial: "auto",
+            initial: CssValue::String("auto".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "unicode-bidi",
-            initial: "normal",
+            initial: CssValue::String("normal".into()),
             inheritable: true,
         },
         PropertyTableEntry {
             name: "vertical-align",
-            initial: "baseline",
+            initial: CssValue::String("baseline".into()),
             inheritable: true,
         },
         PropertyTableEntry {
             name: "visibility",
-            initial: "visible",
+            initial: CssValue::String("visible".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "voice-family",
-            initial: "initial",
+            initial: CssValue::String("initial".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "volume",
-            initial: "medium",
+            initial: CssValue::String("medium".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "white-space",
-            initial: "normal",
+            initial: CssValue::String("normal".into()),
             inheritable: true,
         },
         PropertyTableEntry {
             name: "widows",
-            initial: "2",
+            initial: CssValue::Number(2_f32),
             inheritable: true,
         },
         PropertyTableEntry {
             name: "width",
-            initial: "auto",
+            initial: CssValue::String("auto".into()),
             inheritable: false,
         },
         PropertyTableEntry {
             name: "word-spacing",
-            initial: "normal",
+            initial: CssValue::String("normal".into()),
             inheritable: true,
         },
         PropertyTableEntry {
             name: "z-index",
-            initial: "auto",
+            initial: CssValue::String("auto".into()),
             inheritable: false,
         },
     ];
-}
-
-#[allow(dead_code)]
-fn get_initial_value(property: &str) -> Option<&'static str> {
-    PROPERTY_TABLE
-        .iter()
-        .find(|entry| entry.name == property)
-        .map(|entry| entry.initial)
-}
-
-#[allow(dead_code)]
-fn is_inheritable(property: &str) -> bool {
-    PROPERTY_TABLE
-        .iter()
-        .find(|entry| entry.name == property)
-        .map(|entry| entry.inheritable)
-        .unwrap_or(false)
 }
