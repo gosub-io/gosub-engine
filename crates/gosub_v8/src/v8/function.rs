@@ -1,15 +1,18 @@
 use core::fmt::Display;
 
-use v8::{CallbackScope, External, Function, FunctionBuilder, FunctionCallbackArguments, FunctionCallbackInfo, Local, ReturnValue, TryCatch, undefined};
+use v8::{
+    undefined, CallbackScope, External, Function, FunctionBuilder, FunctionCallbackArguments,
+    FunctionCallbackInfo, Local, ReturnValue, TryCatch,
+};
 
 use gosub_shared::types::Result;
-
-use crate::v8::{ctx_from_function_callback_info, V8Context, V8Engine, V8Value};
 use gosub_webexecutor::js::{
     Args, IntoRustValue, JSError, JSFunction, JSFunctionCallBack, JSFunctionCallBackVariadic,
     JSFunctionVariadic, JSRuntime, VariadicArgs, VariadicArgsInternal,
 };
 use gosub_webexecutor::Error;
+
+use crate::v8::{ctx_from_function_callback_info, V8Context, V8Engine, V8Value};
 
 pub struct V8Function<'a> {
     pub ctx: V8Context<'a>,
@@ -20,6 +23,7 @@ pub struct V8FunctionCallBack<'a> {
     ctx: V8Context<'a>,
     args: V8Args<'a>,
     ret: Result<Local<'a, v8::Value>>,
+    is_error: bool,
 }
 
 pub struct V8Args<'a> {
@@ -96,6 +100,7 @@ impl<'a> JSFunctionCallBack for V8FunctionCallBack<'a> {
 
     fn error(&mut self, error: impl Display) {
         self.ctx.error(error);
+        self.is_error = true;
     }
 
     fn ret(&mut self, value: <Self::RT as JSRuntime>::Value) {
@@ -122,9 +127,15 @@ impl<'a> V8Function<'a> {
             ctx: V8Context::clone(ctx),
             args,
             ret: Err(Error::JS(JSError::Execution("function was not called".to_owned())).into()),
+            is_error: false,
         };
 
         f(&mut cb);
+
+        if cb.is_error {
+            ret.set(undefined(ctx.scope()).into());
+            return;
+        }
 
         match cb.ret {
             Ok(value) => {
@@ -169,10 +180,9 @@ extern "C" fn callback(info: *const FunctionCallbackInfo) {
                 let scope = st.get();
                 let Some(e) = v8::String::new(scope, &e.to_string()) else {
                     eprintln!("failed to create exception string\nexception was: {e}");
-                    return
+                    return;
                 };
                 scope.throw_exception(e.into());
-                
             }
             return;
         }
@@ -260,6 +270,7 @@ pub struct V8FunctionCallBackVariadic<'a> {
     ctx: V8Context<'a>,
     args: V8VariadicArgsInternal<'a>,
     ret: Result<Local<'a, v8::Value>>,
+    is_error: bool,
 }
 
 pub struct V8VariadicArgsInternal<'a> {
@@ -399,6 +410,7 @@ impl<'a> JSFunctionCallBackVariadic for V8FunctionCallBackVariadic<'a> {
 
     fn error(&mut self, error: impl Display) {
         self.ctx.error(error);
+        self.is_error = true;
     }
 
     fn ret(&mut self, value: <Self::RT as JSRuntime>::Value) {
@@ -425,9 +437,15 @@ impl<'a> V8FunctionVariadic<'a> {
             ctx: V8Context::clone(ctx),
             args,
             ret: Err(Error::JS(JSError::Execution("function was not called".to_owned())).into()),
+            is_error: false,
         };
 
         f(&mut cb);
+
+        if cb.is_error {
+            ret.set(undefined(ctx.scope()).into());
+            return;
+        }
 
         match cb.ret {
             Ok(value) => {
@@ -450,7 +468,7 @@ extern "C" fn callback_variadic(info: *const FunctionCallbackInfo) {
         Err(e) => {
             let Some(e) = V8Context::create_exception(&mut scope, e) else {
                 eprintln!("failed to create exception string\nexception was: {e}");
-                return
+                return;
             };
 
             scope.throw_exception(e);
@@ -473,10 +491,9 @@ extern "C" fn callback_variadic(info: *const FunctionCallbackInfo) {
                 let scope = st.get();
                 let Some(e) = v8::String::new(scope, &e.to_string()) else {
                     eprintln!("failed to create exception string\nexception was: {e}");
-                    return
+                    return;
                 };
                 scope.throw_exception(e.into());
-
             }
             return;
         }
@@ -555,10 +572,11 @@ impl<'a> JSFunctionVariadic for V8FunctionVariadic<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::v8::{V8Engine, V8Function, V8FunctionVariadic};
     use gosub_webexecutor::js::{
         Args, IntoJSValue, JSFunction, JSFunctionCallBack, JSFunctionVariadic, JSRuntime, JSValue,
     };
+
+    use crate::v8::{V8Engine, V8Function, V8FunctionVariadic};
 
     use super::*;
 
