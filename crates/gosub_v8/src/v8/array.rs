@@ -25,6 +25,9 @@ impl<'a> FromContext<'a, Local<'a, Array>> for V8Array<'a> {
 impl<'a> Iterator for V8Array<'a> {
     type Item = V8Value<'a>;
     fn next(&mut self) -> Option<Self::Item> {
+        if self.next >= self.value.length() {
+            return None;
+        }
         let value = self.value.get_index(self.ctx.scope(), self.next);
 
         self.next += 1;
