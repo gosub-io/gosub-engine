@@ -39,6 +39,9 @@ pub enum JSError {
 
     #[error("execution error: {0}")]
     Execution(String),
+    
+    #[error("exception: {0}")]
+    Exception(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]

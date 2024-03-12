@@ -42,13 +42,7 @@ impl<'a> JSGetterCallback for GetterCallback<'a> {
     }
 
     fn error(&mut self, error: impl Display) {
-        let scope = self.ctx.scope();
-        let err = error.to_string();
-        let Some(e) = v8::String::new(scope, &err) else {
-            eprintln!("failed to create exception string\nexception was: {}", err);
-            return;
-        };
-        scope.throw_exception(Local::from(e));
+        self.ctx.error(error);
     }
 
     fn ret(&mut self, value: <Self::RT as JSRuntime>::Value) {
@@ -69,13 +63,7 @@ impl<'a> JSSetterCallback for SetterCallback<'a> {
     }
 
     fn error(&mut self, error: impl Display) {
-        let scope = self.ctx.scope();
-        let err = error.to_string();
-        let Some(e) = v8::String::new(scope, &err) else {
-            eprintln!("failed to create exception string\nexception was: {}", err);
-            return;
-        };
-        scope.throw_exception(Local::from(e));
+        self.ctx.error(error)
     }
 
     fn value(&mut self) -> &<Self::RT as JSRuntime>::Value {
@@ -228,18 +216,18 @@ impl<'a> JSObject for V8Object<'a> {
         let data = External::new(scope, Box::into_raw(gs) as *mut c_void);
 
         let config = AccessorConfiguration::new(
-            |scope: &mut HandleScope,
+            |scope: &mut HandleScope, 
              _name: Local<Name>,
              args: PropertyCallbackArguments,
              mut rv: ReturnValue| {
                 let external = match Local::<External>::try_from(args.data()) {
                     Ok(external) => external,
                     Err(e) => {
-                        let Some(e) = v8::String::new(scope, &e.to_string()) else {
+                        let Some(e) = V8Context::create_exception(scope, e) else {
                             eprintln!("failed to create exception string\nexception was: {e}");
                             return;
                         };
-                        scope.throw_exception(Local::from(e));
+                        scope.throw_exception(e);
                         return;
                     }
                 };
@@ -251,12 +239,21 @@ impl<'a> JSObject for V8Object<'a> {
                 let ctx = match ctx_from(scope, isolate) {
                     Ok(ctx) => ctx,
                     Err((mut st, e)) => {
-                        let scope = st.get();
-                        let Some(e) = v8::String::new(scope, &e.to_string()) else {
-                            eprintln!("failed to create exception string\nexception was: {e}");
-                            return;
-                        };
-                        scope.throw_exception(Local::from(e));
+                        let scope = st.with_context();
+                        if let Some(scope) = scope {
+                            let e = V8Context::create_exception(scope, e);
+                            if let Some(exception) = e {
+                                scope.throw_exception(exception);
+                            }
+                        } else {
+                            let scope = st.get();
+                            let Some(e) = v8::String::new(scope, &e.to_string()) else {
+                                eprintln!("failed to create exception string\nexception was: {e}");
+                                return
+                            };
+                            scope.throw_exception(e.into());
+
+                        }
                         return;
                     }
                 };
@@ -264,13 +261,8 @@ impl<'a> JSObject for V8Object<'a> {
                 let ret = match V8Value::new_undefined(ctx.clone()) {
                     Ok(ret) => ret,
                     Err(e) => {
-                        let scope = ctx.scope();
-                        let Some(e) = v8::String::new(scope, &e.to_string()) else {
-                            eprintln!("failed to create exception string\nexception was: {e}");
-                            return;
-                        };
-                        scope.throw_exception(Local::from(e));
-                        return;
+                        ctx.error(e);
+                        return
                     }
                 };
 
@@ -290,11 +282,11 @@ impl<'a> JSObject for V8Object<'a> {
                 let external = match Local::<External>::try_from(args.data()) {
                     Ok(external) => external,
                     Err(e) => {
-                        let Some(e) = v8::String::new(scope, &e.to_string()) else {
+                        let Some(e) = V8Context::create_exception(scope, e) else {
                             eprintln!("failed to create exception string\nexception was: {e}");
                             return;
                         };
-                        scope.throw_exception(Local::from(e));
+                        scope.throw_exception(e);
                         return;
                     }
                 };
@@ -304,12 +296,21 @@ impl<'a> JSObject for V8Object<'a> {
                 let ctx = match ctx_from(scope, gs.ctx.borrow().isolate) {
                     Ok(ctx) => ctx,
                     Err((mut st, e)) => {
-                        let scope = st.get();
-                        let Some(e) = v8::String::new(scope, &e.to_string()) else {
-                            eprintln!("failed to create exception string\nexception was: {e}");
-                            return;
-                        };
-                        scope.throw_exception(Local::from(e));
+                        let scope = st.with_context();
+                        if let Some(scope) = scope {
+                            let e = V8Context::create_exception(scope, e);
+                            if let Some(exception) = e {
+                                scope.throw_exception(exception);
+                            }
+                        } else {
+                            let scope = st.get();
+                            let Some(e) = v8::String::new(scope, &e.to_string()) else {
+                                eprintln!("failed to create exception string\nexception was: {e}");
+                                return
+                            };
+                            scope.throw_exception(e.into());
+
+                        }
                         return;
                     }
                 };

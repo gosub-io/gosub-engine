@@ -1,9 +1,6 @@
 use core::fmt::Display;
 
-use v8::{
-    CallbackScope, External, Function, FunctionBuilder, FunctionCallbackArguments,
-    FunctionCallbackInfo, Local, ReturnValue, TryCatch,
-};
+use v8::{CallbackScope, External, Function, FunctionBuilder, FunctionCallbackArguments, FunctionCallbackInfo, Local, ReturnValue, TryCatch, undefined};
 
 use gosub_shared::types::Result;
 
@@ -23,16 +20,6 @@ pub struct V8FunctionCallBack<'a> {
     ctx: V8Context<'a>,
     args: V8Args<'a>,
     ret: Result<Local<'a, v8::Value>>,
-}
-
-impl<'a> V8FunctionCallBack<'a> {
-    pub fn new(ctx: V8Context<'a>, args: V8Args<'a>) -> Result<V8FunctionCallBack<'a>> {
-        Ok(Self {
-            ctx,
-            args,
-            ret: Err(Error::JS(JSError::Execution("function was not called".to_owned())).into()),
-        })
-    }
 }
 
 pub struct V8Args<'a> {
@@ -108,13 +95,7 @@ impl<'a> JSFunctionCallBack for V8FunctionCallBack<'a> {
     }
 
     fn error(&mut self, error: impl Display) {
-        let scope = self.ctx.scope();
-        let err = error.to_string();
-        let Some(e) = v8::String::new(scope, &err) else {
-            eprintln!("failed to create exception string\nexception was: {}", err);
-            return;
-        };
-        scope.throw_exception(Local::from(e));
+        self.ctx.error(error);
     }
 
     fn ret(&mut self, value: <Self::RT as JSRuntime>::Value) {
@@ -150,14 +131,8 @@ impl<'a> V8Function<'a> {
                 ret.set(value);
             }
             Err(e) => {
-                let excep = if let Some(exception) = v8::String::new(ctx.scope(), &e.to_string()) {
-                    exception.into()
-                } else {
-                    eprintln!("failed to create exception string\nexception was: {e}");
-                    v8::undefined(ctx.scope()).into()
-                };
-
-                ret.set(ctx.scope().throw_exception(excep));
+                ctx.error(e);
+                ret.set(undefined(ctx.scope()).into())
             }
         }
     }
@@ -171,11 +146,10 @@ extern "C" fn callback(info: *const FunctionCallbackInfo) {
     let external = match <Local<External>>::try_from(args.data()) {
         Ok(external) => external,
         Err(e) => {
-            let Some(e) = v8::String::new(&mut scope, &e.to_string()) else {
-                eprintln!("failed to create exception string\nexception was: {e}");
-                return;
-            };
-            scope.throw_exception(Local::from(e));
+            let excep = V8Context::create_exception(&mut scope, e.to_string());
+            if let Some(exception) = excep {
+                scope.throw_exception(exception);
+            }
             return;
         }
     };
@@ -185,12 +159,21 @@ extern "C" fn callback(info: *const FunctionCallbackInfo) {
     let ctx = match ctx_from_function_callback_info(scope, data.ctx.borrow().isolate) {
         Ok(scope) => scope,
         Err((mut st, e)) => {
-            let scope = st.get();
-            let Some(e) = v8::String::new(scope, &e.to_string()) else {
-                eprintln!("failed to create exception string\nexception was: {e}");
-                return;
-            };
-            scope.throw_exception(Local::from(e));
+            let scope = st.with_context();
+            if let Some(scope) = scope {
+                let e = V8Context::create_exception(scope, e);
+                if let Some(exception) = e {
+                    scope.throw_exception(exception);
+                }
+            } else {
+                let scope = st.get();
+                let Some(e) = v8::String::new(scope, &e.to_string()) else {
+                    eprintln!("failed to create exception string\nexception was: {e}");
+                    return
+                };
+                scope.throw_exception(e.into());
+                
+            }
             return;
         }
     };
@@ -415,13 +398,7 @@ impl<'a> JSFunctionCallBackVariadic for V8FunctionCallBackVariadic<'a> {
     }
 
     fn error(&mut self, error: impl Display) {
-        let scope = self.ctx.scope();
-        let err = error.to_string();
-        let Some(e) = v8::String::new(scope, &err) else {
-            eprintln!("failed to create exception string\nexception was: {}", err);
-            return;
-        };
-        scope.throw_exception(Local::from(e));
+        self.ctx.error(error);
     }
 
     fn ret(&mut self, value: <Self::RT as JSRuntime>::Value) {
@@ -457,14 +434,7 @@ impl<'a> V8FunctionVariadic<'a> {
                 ret.set(value);
             }
             Err(e) => {
-                let excep = if let Some(exception) = v8::String::new(ctx.scope(), &e.to_string()) {
-                    exception.into()
-                } else {
-                    eprintln!("failed to create exception string\nexception was: {e}");
-                    v8::undefined(ctx.scope()).into()
-                };
-
-                ret.set(ctx.scope().throw_exception(excep));
+                ctx.error(e);
             }
         }
     }
@@ -478,11 +448,12 @@ extern "C" fn callback_variadic(info: *const FunctionCallbackInfo) {
     let external = match <Local<External>>::try_from(args.data()) {
         Ok(external) => external,
         Err(e) => {
-            let Some(e) = v8::String::new(&mut scope, &e.to_string()) else {
+            let Some(e) = V8Context::create_exception(&mut scope, e) else {
                 eprintln!("failed to create exception string\nexception was: {e}");
-                return;
+                return
             };
-            scope.throw_exception(Local::from(e));
+
+            scope.throw_exception(e);
             return;
         }
     };
@@ -492,12 +463,21 @@ extern "C" fn callback_variadic(info: *const FunctionCallbackInfo) {
     let ctx = match ctx_from_function_callback_info(scope, data.ctx.borrow().isolate) {
         Ok(scope) => scope,
         Err((mut st, e)) => {
-            let scope = st.get();
-            let Some(e) = v8::String::new(scope, &e.to_string()) else {
-                eprintln!("failed to create exception string\nexception was: {e}");
-                return;
-            };
-            scope.throw_exception(Local::from(e));
+            let scope = st.with_context();
+            if let Some(scope) = scope {
+                let e = V8Context::create_exception(scope, e);
+                if let Some(exception) = e {
+                    scope.throw_exception(exception);
+                }
+            } else {
+                let scope = st.get();
+                let Some(e) = v8::String::new(scope, &e.to_string()) else {
+                    eprintln!("failed to create exception string\nexception was: {e}");
+                    return
+                };
+                scope.throw_exception(e.into());
+
+            }
             return;
         }
     };

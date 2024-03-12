@@ -1,15 +1,12 @@
 use std::ptr::NonNull;
 
-use v8::{
-    CallbackScope, ContextScope, CreateParams, HandleScope, Isolate, Local, Object, OwnedIsolate,
-    TryCatch,
-};
+use v8::{CallbackScope, ContextScope, CreateParams, HandleScope, Isolate, Local, Object, OwnedIsolate, StackFrame, StackTrace, TryCatch};
 
 use gosub_shared::types::Result;
+use gosub_webexecutor::Error;
+use gosub_webexecutor::js::{JSCompiled, JSContext, JSError, JSRuntime};
 
 use crate::{FromContext, V8Compiled, V8Context, V8Engine, V8Object};
-use gosub_webexecutor::js::{JSCompiled, JSContext, JSError, JSRuntime};
-use gosub_webexecutor::Error;
 
 /// SAFETY: This is NOT thread safe, as the rest of the engine is not thread safe.
 /// This struct uses `NonNull` internally to store pointers to the V8Context "values" in one struct.
@@ -57,6 +54,15 @@ impl<'a> HandleScopeType<'a> {
             Self::WithContextRef(scope) => scope,
         }
     }
+    
+    pub fn with_context(&mut self) -> Option<&mut HandleScope<'a>> {
+        match self {
+            Self::WithoutContext(_) => None,
+            Self::CallbackScope(scope) => Some(scope),
+            Self::WithContextRef(scope) => Some(*scope),
+        }
+    
+    }
 }
 
 impl<'a> V8Ctx<'a> {
@@ -103,7 +109,7 @@ impl<'a> V8Ctx<'a> {
             return Err(Error::JS(JSError::Compile(
                 "Failed to create context scope".to_owned(),
             ))
-            .into());
+                .into());
         };
 
         v8_ctx.context_scope = ctx_scope;
@@ -124,19 +130,50 @@ impl<'a> V8Ctx<'a> {
     }
 
     pub fn report_exception(try_catch: &mut TryCatch<HandleScope>) -> Error {
-        if let Some(exception) = try_catch.exception() {
-            let e = exception.to_rust_string_lossy(try_catch);
+        let mut err = String::new();
 
-            return Error::JS(JSError::Compile(e));
+        if let Some(exception) = try_catch.exception() {
+            err = exception.to_rust_string_lossy(try_catch);
         }
 
         if let Some(m) = try_catch.message() {
-            let message = m.get(try_catch).to_rust_string_lossy(try_catch);
-
-            return Error::JS(JSError::Compile(message));
+            err.push_str("\nMessage: ");
+            err.push_str(&m.get(try_catch).to_rust_string_lossy(try_catch));
+            if let Some(stacktrace) = m.get_stack_trace(try_catch) {
+                let st = Self::handle_stack_trace(try_catch, stacktrace);
+                err.push_str(&format!("\nStacktrace:\n{st}"))
+            } else {
+                err.push_str("\nStacktrace: <missing information>");
+            };
         }
 
-        Error::JS(JSError::Compile("unknown error".to_owned()))
+        Error::JS(JSError::Exception(err))
+    }
+
+    pub fn handle_stack_trace(ctx: &mut HandleScope, stacktrace: Local<StackTrace>) -> String {
+        let mut st = String::new();
+
+        for i in 0..stacktrace.get_frame_count() {
+            if let Some(frame) = stacktrace.get_frame(ctx, i) {
+                if let Some(frame) = Self::handle_stack_frame(ctx, frame) {
+                    st.push_str(&frame);
+                    st.push('\n');
+                }
+                continue;
+            }
+            st.push_str("<missing information>");
+        }
+
+        st
+    }
+
+    fn handle_stack_frame(ctx: &mut HandleScope, frame: Local<StackFrame>) -> Option<String> {
+        let function = frame.get_function_name(ctx)?.to_rust_string_lossy(ctx);
+        let script = frame.get_script_name_or_source_url(ctx)?.to_rust_string_lossy(ctx);
+        let line = frame.get_line_number();
+        let column = frame.get_column();
+
+        Some(format!("{}@{}:{}: {}", function, script, line, column))
     }
 }
 
@@ -269,6 +306,7 @@ impl<'a> JSContext for V8Context<'a> {
         let try_catch = &mut TryCatch::new(s);
 
         let code = v8::String::new(try_catch, code).unwrap();
+
 
         let script = v8::Script::compile(try_catch, code, None);
 

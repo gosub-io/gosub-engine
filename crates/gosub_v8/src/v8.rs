@@ -1,9 +1,10 @@
 use std::cell::RefCell;
+use std::fmt::Display;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Once;
 
-use v8::{ContextScope, CreateParams, HandleScope};
+use v8::{ContextScope, CreateParams, Exception, HandleScope, Local, Value};
 
 pub use array::*;
 pub use compile::*;
@@ -77,6 +78,30 @@ impl V8Engine<'_> {
 //V8 context is stored in a Rc<RefCell<>>, so we can attach it to Values, ...
 pub struct V8Context<'a> {
     ctx: Rc<RefCell<V8Ctx<'a>>>,
+}
+
+impl<'a> V8Context<'a> {
+    pub fn error(&self, error: impl Display) {
+        let scope = self.scope();
+        let err = error.to_string();
+        let Some(e) = v8::String::new(scope, &err) else {
+            eprintln!("failed to create exception string\nexception was: {}", err);
+            return;
+        };
+
+        let e = Exception::error(scope, e);
+        scope.throw_exception(e);
+    }
+    
+    pub fn create_exception<'b>(scope: &mut HandleScope<'b>, error: impl Display) -> Option<Local<'b, Value>> {
+        let err = error.to_string();
+        let Some(e) = v8::String::new(scope, &err) else {
+            eprintln!("failed to create exception string\nexception was: {}", err);
+            return None;
+        };
+
+        Some(Exception::error(scope, e))
+    }
 }
 
 impl Clone for V8Context<'_> {
@@ -176,7 +201,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic = "called `Result::unwrap()` on an `Err` value: js: compile error: SyntaxError: missing ) after argument list\n\nCaused by:\n    compile error: SyntaxError: missing ) after argument list"]
+    #[should_panic = "called `Result::unwrap()` on an `Err` value: js: exception: SyntaxError: missing ) after argument list\nMessage: Uncaught SyntaxError: missing ) after argument list\nStacktrace: <missing information>\n\nCaused by:\n    exception: SyntaxError: missing ) after argument list\n    Message: Uncaught SyntaxError: missing ) after argument list\n    Stacktrace: <missing information>"]
     fn v8_run_invalid_syntax() {
         let mut engine = crate::v8::V8Engine::new();
 
