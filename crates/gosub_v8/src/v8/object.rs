@@ -8,15 +8,17 @@ use v8::{
 
 use gosub_shared::types::Result;
 
-use crate::js::v8::{
+use crate::{
     ctx_from, FromContext, V8Context, V8Ctx, V8Engine, V8Function, V8FunctionVariadic, V8Value,
 };
-use crate::js::{JSError, JSGetterCallback, JSObject, JSRuntime, JSSetterCallback, JSValue};
-use crate::Error;
+use gosub_webexecutor::js::{
+    JSError, JSGetterCallback, JSObject, JSRuntime, JSSetterCallback, JSValue,
+};
+use gosub_webexecutor::Error;
 
 pub struct V8Object<'a> {
-    pub(crate) ctx: V8Context<'a>,
-    pub(crate) value: Local<'a, Object>,
+    pub ctx: V8Context<'a>,
+    pub value: Local<'a, Object>,
 }
 
 pub struct GetterCallback<'a, 'r> {
@@ -26,7 +28,7 @@ pub struct GetterCallback<'a, 'r> {
 
 impl V8Object<'_> {
     pub fn new(ctx: V8Context) -> Result<V8Object> {
-        let scope = ctx.borrow_mut().scope();
+        let scope = ctx.scope();
         let value = Object::new(scope);
         Ok(V8Object { ctx, value })
     }
@@ -40,7 +42,7 @@ impl<'a> JSGetterCallback for GetterCallback<'a, '_> {
     }
 
     fn error(&mut self, error: impl Display) {
-        let scope = self.ctx.borrow_mut().scope();
+        let scope = self.ctx.scope();
         let err = error.to_string();
         let Some(e) = v8::String::new(scope, &err) else {
             eprintln!("failed to create exception string\nexception was: {}", err);
@@ -67,7 +69,7 @@ impl<'a, 'v> JSSetterCallback for SetterCallback<'a, 'v> {
     }
 
     fn error(&mut self, error: impl Display) {
-        let scope = self.ctx.borrow_mut().scope();
+        let scope = self.ctx.scope();
         let err = error.to_string();
         let Some(e) = v8::String::new(scope, &err) else {
             eprintln!("failed to create exception string\nexception was: {}", err);
@@ -91,13 +93,13 @@ impl<'a> JSObject for V8Object<'a> {
     type RT = V8Engine<'a>;
 
     fn set_property(&self, name: &str, value: &V8Value) -> Result<()> {
-        let Some(name) = v8::String::new(self.ctx.borrow_mut().scope(), name) else {
+        let Some(name) = v8::String::new(self.ctx.scope(), name) else {
             return Err(Error::JS(JSError::Generic("failed to create a string".to_owned())).into());
         };
 
         if self
             .value
-            .set(self.ctx.borrow_mut().scope(), name.into(), value.value)
+            .set(self.ctx.scope(), name.into(), value.value)
             .is_none()
         {
             Err(Error::JS(JSError::Generic(
@@ -110,11 +112,11 @@ impl<'a> JSObject for V8Object<'a> {
     }
 
     fn get_property(&self, name: &str) -> Result<<Self::RT as JSRuntime>::Value> {
-        let Some(name) = v8::String::new(self.ctx.borrow_mut().scope(), name) else {
+        let Some(name) = v8::String::new(self.ctx.scope(), name) else {
             return Err(Error::JS(JSError::Generic("failed to create a string".to_owned())).into());
         };
 
-        let scope = self.ctx.borrow_mut().scope();
+        let scope = self.ctx.scope();
 
         self.value
             .get(scope, name.into())
@@ -144,7 +146,7 @@ impl<'a> JSObject for V8Object<'a> {
 
         let args: Vec<Local<Value>> = args.iter().map(|v| v.value).collect();
 
-        let try_catch = &mut v8::TryCatch::new(self.ctx.borrow_mut().scope());
+        let try_catch = &mut v8::TryCatch::new(self.ctx.scope());
 
         let Some(ret) = function
             .call(try_catch, self.value.into(), &args)
@@ -157,7 +159,7 @@ impl<'a> JSObject for V8Object<'a> {
     }
 
     fn set_method(&self, name: &str, func: &V8Function) -> Result<()> {
-        let Some(name) = v8::String::new(self.ctx.borrow_mut().scope(), name) else {
+        let Some(name) = v8::String::new(self.ctx.scope(), name) else {
             return Err(Error::JS(JSError::Generic("failed to create a string".to_owned())).into());
         };
 
@@ -169,11 +171,7 @@ impl<'a> JSObject for V8Object<'a> {
 
         if self
             .value
-            .set(
-                self.ctx.borrow_mut().scope(),
-                name.into(),
-                func.function.into(),
-            )
+            .set(self.ctx.scope(), name.into(), func.function.into())
             .is_none()
         {
             Err(Error::JS(JSError::Generic(
@@ -186,7 +184,7 @@ impl<'a> JSObject for V8Object<'a> {
     }
 
     fn set_method_variadic(&self, name: &str, func: &V8FunctionVariadic) -> Result<()> {
-        let Some(name) = v8::String::new(self.ctx.borrow_mut().scope(), name) else {
+        let Some(name) = v8::String::new(self.ctx.scope(), name) else {
             return Err(Error::JS(JSError::Generic("failed to create a string".to_owned())).into());
         };
 
@@ -198,11 +196,7 @@ impl<'a> JSObject for V8Object<'a> {
 
         if self
             .value
-            .set(
-                self.ctx.borrow_mut().scope(),
-                name.into(),
-                func.function.into(),
-            )
+            .set(self.ctx.scope(), name.into(), func.function.into())
             .is_none()
         {
             Err(Error::JS(JSError::Generic(
@@ -220,10 +214,10 @@ impl<'a> JSObject for V8Object<'a> {
         getter: Box<dyn Fn(&mut <Self::RT as JSRuntime>::GetterCB)>,
         setter: Box<dyn Fn(&mut <Self::RT as JSRuntime>::SetterCB)>,
     ) -> Result<()> {
-        let name = v8::String::new(self.ctx.borrow_mut().scope(), name)
+        let name = v8::String::new(self.ctx.scope(), name)
             .ok_or_else(|| Error::JS(JSError::Generic("failed to create a string".to_owned())))?;
 
-        let scope = self.ctx.borrow_mut().scope();
+        let scope = self.ctx.scope();
 
         let gs = Box::new(GetterSetter {
             ctx: self.ctx.clone(),
@@ -270,7 +264,7 @@ impl<'a> JSObject for V8Object<'a> {
                 let mut ret = match V8Value::new_undefined(ctx.clone()) {
                     Ok(ret) => ret,
                     Err(e) => {
-                        let scope = ctx.borrow_mut().scope();
+                        let scope = ctx.scope();
                         let Some(e) = v8::String::new(scope, &e.to_string()) else {
                             eprintln!("failed to create exception string\nexception was: {e}");
                             return;
@@ -352,8 +346,8 @@ mod tests {
 
     use serde_json::to_string;
 
-    use crate::js::v8::{V8FunctionCallBack, V8FunctionCallBackVariadic};
-    use crate::js::{
+    use crate::v8::{V8FunctionCallBack, V8FunctionCallBackVariadic};
+    use gosub_webexecutor::js::{
         IntoJSValue, JSFunction, JSFunctionCallBack, JSFunctionCallBackVariadic,
         JSFunctionVariadic, VariadicArgsInternal,
     };

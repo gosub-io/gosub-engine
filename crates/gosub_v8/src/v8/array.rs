@@ -2,13 +2,13 @@ use v8::{Array, Local};
 
 use gosub_shared::types::Result;
 
-use crate::js::v8::{FromContext, V8Context, V8Engine, V8Value};
-use crate::js::{JSArray, JSError, JSRuntime};
-use crate::Error;
+use crate::{FromContext, V8Context, V8Engine, V8Value};
+use gosub_webexecutor::js::{JSArray, JSError, JSRuntime};
+use gosub_webexecutor::Error;
 
 pub struct V8Array<'a> {
-    pub(crate) value: Local<'a, Array>,
-    pub(crate) ctx: V8Context<'a>,
+    pub value: Local<'a, Array>,
+    pub ctx: V8Context<'a>,
     next: u32,
 }
 
@@ -25,9 +25,7 @@ impl<'a> FromContext<'a, Local<'a, Array>> for V8Array<'a> {
 impl<'a> Iterator for V8Array<'a> {
     type Item = V8Value<'a>;
     fn next(&mut self) -> Option<Self::Item> {
-        let value = self
-            .value
-            .get_index(self.ctx.borrow_mut().scope(), self.next);
+        let value = self.value.get_index(self.ctx.scope(), self.next);
 
         self.next += 1;
 
@@ -39,10 +37,7 @@ impl<'a> JSArray for V8Array<'a> {
     type RT = V8Engine<'a>;
 
     fn get(&self, index: usize) -> Result<<Self::RT as JSRuntime>::Value> {
-        let Some(value) = self
-            .value
-            .get_index(self.ctx.borrow_mut().scope(), index as u32)
-        else {
+        let Some(value) = self.value.get_index(self.ctx.scope(), index as u32) else {
             return Err(Error::JS(JSError::Generic(
                 "failed to get a value from an array".to_owned(),
             ))
@@ -55,7 +50,7 @@ impl<'a> JSArray for V8Array<'a> {
     fn set(&self, index: usize, value: &V8Value) -> Result<()> {
         match self
             .value
-            .set_index(self.ctx.borrow_mut().scope(), index as u32, value.value)
+            .set_index(self.ctx.scope(), index as u32, value.value)
         {
             Some(_) => Ok(()),
             None => Err(Error::JS(JSError::Conversion(
@@ -68,10 +63,7 @@ impl<'a> JSArray for V8Array<'a> {
     fn push(&self, value: V8Value) -> Result<()> {
         let index = self.value.length();
 
-        match self
-            .value
-            .set_index(self.ctx.borrow_mut().scope(), index, value.value)
-        {
+        match self.value.set_index(self.ctx.scope(), index, value.value) {
             Some(_) => Ok(()),
             None => {
                 Err(Error::JS(JSError::Conversion("failed to push to an array".to_owned())).into())
@@ -82,18 +74,14 @@ impl<'a> JSArray for V8Array<'a> {
     fn pop(&self) -> Result<<Self::RT as JSRuntime>::Value> {
         let index = self.value.length() - 1;
 
-        let Some(value) = self.value.get_index(self.ctx.borrow_mut().scope(), index) else {
+        let Some(value) = self.value.get_index(self.ctx.scope(), index) else {
             return Err(Error::JS(JSError::Generic(
                 "failed to get a value from an array".to_owned(),
             ))
             .into());
         };
 
-        if self
-            .value
-            .delete_index(self.ctx.borrow_mut().scope(), index)
-            .is_none()
-        {
+        if self.value.delete_index(self.ctx.scope(), index).is_none() {
             return Err(Error::JS(JSError::Generic(
                 "failed to delete a value from an array".to_owned(),
             ))
@@ -106,7 +94,7 @@ impl<'a> JSArray for V8Array<'a> {
     fn remove(&self, index: usize) -> Result<()> {
         if self
             .value
-            .delete_index(self.ctx.borrow_mut().scope(), index as u32)
+            .delete_index(self.ctx.scope(), index as u32)
             .is_none()
         {
             return Err(Error::JS(JSError::Generic(
@@ -127,7 +115,7 @@ impl<'a> JSArray for V8Array<'a> {
     }
 
     fn new(ctx: V8Context<'a>, cap: usize) -> Result<Self> {
-        let value = Array::new(ctx.borrow_mut().scope(), cap as i32);
+        let value = Array::new(ctx.scope(), cap as i32);
 
         Ok(Self {
             value,
@@ -138,7 +126,7 @@ impl<'a> JSArray for V8Array<'a> {
 
     fn new_with_data(ctx: V8Context<'a>, data: &[V8Value]) -> Result<Self> {
         let elements = data.iter().map(|v| v.value).collect::<Vec<_>>();
-        let value = Array::new_with_elements(ctx.borrow_mut().scope(), &elements);
+        let value = Array::new_with_elements(ctx.scope(), &elements);
 
         Ok(Self {
             value,
@@ -162,8 +150,8 @@ impl<'a> JSArray for V8Array<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::js::v8::{V8Array, V8Engine, V8Value};
-    use crate::js::{
+    use crate::v8::{V8Array, V8Engine, V8Value};
+    use gosub_webexecutor::js::{
         ArrayConversion, IntoJSValue, IntoRustValue, JSArray, JSContext, JSObject, JSRuntime,
         JSValue,
     };

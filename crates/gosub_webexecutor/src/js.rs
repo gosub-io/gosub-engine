@@ -1,6 +1,3 @@
-use std::sync::Mutex;
-
-use lazy_static::lazy_static;
 use thiserror::Error;
 
 pub use array::*;
@@ -13,8 +10,6 @@ pub use runtime::*;
 pub use value::*;
 pub use value_conversion::*;
 
-use crate::js::v8::V8Engine;
-
 mod array;
 mod compile;
 mod context;
@@ -22,7 +17,6 @@ mod function;
 mod interop;
 mod object;
 mod runtime;
-pub mod v8;
 mod value;
 mod value_conversion;
 
@@ -45,10 +39,6 @@ pub enum JSError {
 
     #[error("execution error: {0}")]
     Execution(String),
-}
-
-lazy_static! {
-    pub static ref RUNTIME: Mutex<V8Engine<'static>> = Mutex::new(V8Engine::new());
 }
 
 #[derive(Debug, Clone, PartialEq)]

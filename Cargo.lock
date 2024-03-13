@@ -690,6 +690,7 @@ dependencies = [
  "gosub_shared",
  "gosub_styling",
  "gosub_testing",
+ "gosub_v8",
  "gosub_webexecutor",
  "lazy_static",
  "regex",
@@ -790,6 +791,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "gosub_v8"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "gosub_shared",
+ "gosub_webexecutor",
+ "serde_json",
+ "thiserror",
+ "v8",
+]
+
+[[package]]
 name = "gosub_webexecutor"
 version = "0.1.0"
 dependencies = [
@@ -797,6 +810,7 @@ dependencies = [
  "colored",
  "derive_more",
  "gosub_shared",
+ "gosub_v8",
  "lazy_static",
  "serde_json",
  "thiserror",

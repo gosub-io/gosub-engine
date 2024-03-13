@@ -1,19 +1,16 @@
 [package]
-name = "gosub_webexecutor"
+name = "gosub_v8"
 version = "0.1.0"
 edition = "2021"
 authors = ["Gosub Community <info@gosub.io>"]
 license = "MIT"
 
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
 [dependencies]
 gosub_shared = { path = "../gosub_shared" }
-colored = "2.1.0"
-derive_more = "0.99"
-lazy_static = "1.4"
+gosub_webexecutor = { path = "../gosub_webexecutor" }
 thiserror = "1.0.57"
 v8 = "0.84.0"
 anyhow = "1.0.80"
-
-[dev-dependencies]
 serde_json = "1.0.114"
-gosub_v8 = { path = "../gosub_v8" }

@@ -3,6 +3,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Once;
+use v8::{ContextScope, CreateParams, HandleScope};
 
 pub use array::*;
 pub use compile::*;
@@ -12,7 +13,7 @@ use gosub_shared::types::Result;
 pub use object::*;
 pub use value::*;
 
-use crate::js::JSRuntime;
+use gosub_webexecutor::js::JSRuntime;
 
 mod array;
 mod compile;
@@ -24,24 +25,6 @@ mod value;
 // status of the V8 engine
 static V8_INITIALIZING: AtomicBool = AtomicBool::new(false);
 static V8_INITIALIZED: Once = Once::new();
-
-trait FromContext<'a, T> {
-    fn from_ctx(ctx: V8Context<'a>, value: T) -> Self;
-}
-
-trait IntoContext<'a, T> {
-    fn into_ctx(self, ctx: V8Context<'a>) -> T;
-}
-
-//impl into context for everything that implements FromContext
-impl<'a, T, U> IntoContext<'a, U> for T
-where
-    U: FromContext<'a, T>,
-{
-    fn into_ctx(self, ctx: V8Context<'a>) -> U {
-        U::from_ctx(ctx, self)
-    }
-}
 
 //V8 keeps track of the state internally, so this is just a dummy struct for the wrapper
 pub struct V8Engine<'a> {
@@ -93,7 +76,48 @@ impl V8Engine<'_> {
 }
 
 //V8 context is stored in a Rc<RefCell<>>, so we can attach it to Values, ...
-pub type V8Context<'a> = Rc<RefCell<V8Ctx<'a>>>;
+pub struct V8Context<'a> {
+    ctx: Rc<RefCell<V8Ctx<'a>>>,
+}
+
+impl Clone for V8Context<'_> {
+    fn clone(&self) -> Self {
+        Self {
+            ctx: Rc::clone(&self.ctx),
+        }
+    }
+}
+
+impl<'a> V8Context<'a> {
+    pub fn with_default() -> Result<Self> {
+        Self::new(Default::default())
+    }
+
+    pub fn new(params: CreateParams) -> Result<Self> {
+        let ctx = V8Ctx::new(params)?;
+        Ok(Self {
+            ctx: Rc::new(RefCell::new(ctx)),
+        })
+    }
+
+    pub fn borrow_mut(&self) -> std::cell::RefMut<'_, V8Ctx<'a>> {
+        self.ctx.borrow_mut()
+    }
+
+    pub fn borrow(&self) -> std::cell::Ref<'_, V8Ctx<'a>> {
+        self.ctx.borrow()
+    }
+
+    pub(crate) fn from_ctx(ctx: V8Ctx<'a>) -> Self {
+        Self {
+            ctx: Rc::new(RefCell::new(ctx)),
+        }
+    }
+
+    pub(crate) fn scope(&self) -> &'a mut ContextScope<'a, HandleScope<'a>> {
+        self.ctx.borrow_mut().scope()
+    }
+}
 
 impl<'a> JSRuntime for V8Engine<'a> {
     type Context = V8Context<'a>;
@@ -117,26 +141,26 @@ impl<'a> JSRuntime for V8Engine<'a> {
     //let s = &mut ContextScope::new(hs, c);
 
     fn new_context(&mut self) -> Result<Self::Context> {
-        V8Ctx::default()
+        V8Context::with_default()
     }
 }
 
 #[cfg(test)]
 mod tests {
 
-    use crate::js::v8::V8_INITIALIZED;
-    use crate::js::{JSContext, JSRuntime, JSValue};
+    use crate::v8::V8_INITIALIZED;
+    use gosub_webexecutor::js::{JSContext, JSRuntime, JSValue};
 
     #[test]
     fn v8_engine_initialization() {
-        let _engine = crate::js::v8::V8Engine::new();
+        let _engine = crate::v8::V8Engine::new();
 
         assert!(V8_INITIALIZED.is_completed());
     }
 
     #[test]
     fn v8_js_execution() {
-        let mut engine = crate::js::v8::V8Engine::new();
+        let mut engine = crate::v8::V8Engine::new();
         let mut context = engine.new_context().unwrap();
 
         let value = context
@@ -155,7 +179,7 @@ mod tests {
     #[test]
     #[should_panic = "called `Result::unwrap()` on an `Err` value: js: compile error: SyntaxError: missing ) after argument list\n\nCaused by:\n    compile error: SyntaxError: missing ) after argument list"]
     fn v8_run_invalid_syntax() {
-        let mut engine = crate::js::v8::V8Engine::new();
+        let mut engine = crate::v8::V8Engine::new();
 
         let mut context = engine.new_context().unwrap();
 
@@ -172,7 +196,7 @@ mod tests {
 
     #[test]
     fn v8_context_creation() {
-        let mut engine = crate::js::v8::V8Engine::new();
+        let mut engine = crate::v8::V8Engine::new();
 
         let context = engine.new_context();
         assert!(context.is_ok());
