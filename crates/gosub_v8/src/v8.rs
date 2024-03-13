@@ -92,8 +92,11 @@ impl<'a> V8Context<'a> {
         let e = Exception::error(scope, e);
         scope.throw_exception(e);
     }
-    
-    pub fn create_exception<'b>(scope: &mut HandleScope<'b>, error: impl Display) -> Option<Local<'b, Value>> {
+
+    pub fn create_exception<'b>(
+        scope: &mut HandleScope<'b>,
+        error: impl Display,
+    ) -> Option<Local<'b, Value>> {
         let err = error.to_string();
         let Some(e) = v8::String::new(scope, &err) else {
             eprintln!("failed to create exception string\nexception was: {}", err);

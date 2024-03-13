@@ -216,7 +216,7 @@ impl<'a> JSObject for V8Object<'a> {
         let data = External::new(scope, Box::into_raw(gs) as *mut c_void);
 
         let config = AccessorConfiguration::new(
-            |scope: &mut HandleScope, 
+            |scope: &mut HandleScope,
              _name: Local<Name>,
              args: PropertyCallbackArguments,
              mut rv: ReturnValue| {
@@ -249,10 +249,9 @@ impl<'a> JSObject for V8Object<'a> {
                             let scope = st.get();
                             let Some(e) = v8::String::new(scope, &e.to_string()) else {
                                 eprintln!("failed to create exception string\nexception was: {e}");
-                                return
+                                return;
                             };
                             scope.throw_exception(e.into());
-
                         }
                         return;
                     }
@@ -262,7 +261,7 @@ impl<'a> JSObject for V8Object<'a> {
                     Ok(ret) => ret,
                     Err(e) => {
                         ctx.error(e);
-                        return
+                        return;
                     }
                 };
 
@@ -306,10 +305,9 @@ impl<'a> JSObject for V8Object<'a> {
                             let scope = st.get();
                             let Some(e) = v8::String::new(scope, &e.to_string()) else {
                                 eprintln!("failed to create exception string\nexception was: {e}");
-                                return
+                                return;
                             };
                             scope.throw_exception(e.into());
-
                         }
                         return;
                     }
