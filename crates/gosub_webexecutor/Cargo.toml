@@ -13,7 +13,13 @@ lazy_static = "1.4"
 thiserror = "1.0.57"
 v8 = "0.84.0"
 anyhow = "1.0.80"
+paste = "1.0.14"
 
 [dev-dependencies]
 serde_json = "1.0.114"
 gosub_v8 = { path = "../gosub_v8" }
+
+
+[[test]]
+name = "interop"
+path = "tests/interop.rs"

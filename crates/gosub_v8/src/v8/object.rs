@@ -61,7 +61,7 @@ pub struct SetterCallback<'a> {
     value: V8Value<'a>,
 }
 
-impl<'a, 'v> JSSetterCallback for SetterCallback<'a> {
+impl<'a> JSSetterCallback for SetterCallback<'a> {
     type RT = V8Engine<'a>;
 
     fn context(&mut self) -> &mut <Self::RT as JSRuntime>::Context {
@@ -261,7 +261,7 @@ impl<'a> JSObject for V8Object<'a> {
                     }
                 };
 
-                let mut ret = match V8Value::new_undefined(ctx.clone()) {
+                let ret = match V8Value::new_undefined(ctx.clone()) {
                     Ok(ret) => ret,
                     Err(e) => {
                         let scope = ctx.scope();
@@ -314,7 +314,7 @@ impl<'a> JSObject for V8Object<'a> {
                     }
                 };
 
-                let mut val = V8Value::from_value(ctx.clone(), value);
+                let val = V8Value::from_value(ctx.clone(), value);
 
                 let mut sc = SetterCallback { ctx, value: val };
 

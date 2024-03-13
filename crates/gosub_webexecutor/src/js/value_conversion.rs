@@ -1,3 +1,5 @@
+use paste;
+
 use gosub_shared::types::Result;
 
 use crate::js::{JSArray, JSError, JSRuntime, JSValue};
@@ -6,7 +8,7 @@ use crate::js::{JSArray, JSError, JSRuntime, JSValue};
 pub trait IntoJSValue<V: JSValue> {
     type Value: JSValue;
 
-    fn to_js_value(&self, ctx: <V::RT as JSRuntime>::Context) -> Result<Self::Value>;
+    fn to_js_value(&self, ctx: <V::RT as JSRuntime>::Context) -> Result<V>;
 }
 
 macro_rules! impl_value_conversion {
@@ -189,3 +191,44 @@ where
         Ok(vec)
     }
 }
+macro_rules! impl_tuple {
+    ($($t:expr),*) => {
+            paste::paste! {
+                impl<V: JSValue, $([<T $t>]: IntoJSValue<<V::RT as JSRuntime>::Value>),*> IntoJSValue<V> for ($([<T $t>],)*)
+                {
+                    type Value = V;
+
+                    fn to_js_value(&self, ctx: <V::RT as JSRuntime>::Context) -> Result<Self::Value> {
+                        let vals = vec![$(self.$t.to_js_value(ctx.clone())?),*];
+                        let arr = <V::RT as JSRuntime>::Array::new_with_data(ctx, &vals)?;
+                        Ok(arr.as_value())
+                    }
+                }
+
+                impl<V: AsArray, $([<T $t>]),*> IntoRustValue<($([<T $t>],)*)> for V
+                where
+                    $(<V::Runtime as JSRuntime>::Value: IntoRustValue<[<T $t>]>),*
+
+                {
+                    fn to_rust_value(&self) -> Result<($([<T $t>],)*)> {
+                        let arr = self.array()?;
+                        let arr = arr.get_ref();
+                        Ok(($((arr.get($t)?.to_rust_value()?),)*))
+                    }
+                }
+            }
+    };
+}
+
+impl_tuple!(0);
+impl_tuple!(0, 1);
+impl_tuple!(0, 1, 2);
+impl_tuple!(0, 1, 2, 3);
+impl_tuple!(0, 1, 2, 3, 4);
+impl_tuple!(0, 1, 2, 3, 4, 5);
+impl_tuple!(0, 1, 2, 3, 4, 5, 6);
+impl_tuple!(0, 1, 2, 3, 4, 5, 6, 7);
+impl_tuple!(0, 1, 2, 3, 4, 5, 6, 7, 8);
+impl_tuple!(0, 1, 2, 3, 4, 5, 6, 7, 8, 9);
+impl_tuple!(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
+impl_tuple!(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11);
