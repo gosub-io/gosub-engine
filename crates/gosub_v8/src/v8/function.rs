@@ -8,7 +8,10 @@ use v8::{
 use gosub_shared::types::Result;
 
 use crate::v8::{ctx_from_function_callback_info, V8Context, V8Engine, V8Value};
-use gosub_webexecutor::js::{Args, IntoRustValue, JSError, JSFunction, JSFunctionCallBack, JSFunctionCallBackVariadic, JSFunctionVariadic, JSRuntime, VariadicArgs, VariadicArgsInternal};
+use gosub_webexecutor::js::{
+    Args, IntoRustValue, JSError, JSFunction, JSFunctionCallBack, JSFunctionCallBackVariadic,
+    JSFunctionVariadic, JSRuntime, VariadicArgs, VariadicArgsInternal,
+};
 use gosub_webexecutor::Error;
 
 pub struct V8Function<'a> {
@@ -341,6 +344,22 @@ impl<'a> VariadicArgsInternal for V8VariadicArgsInternal<'a> {
             args: self.as_vec(ctx),
         }
     }
+
+    fn variadic_start(
+        &self,
+        start: usize,
+        ctx: <Self::RT as JSRuntime>::Context,
+    ) -> <Self::RT as JSRuntime>::VariadicArgs {
+        V8VariadicArgs {
+            args: self.args[start..]
+                .iter()
+                .map(|x| V8Value {
+                    context: V8Context::clone(&ctx),
+                    value: *x,
+                })
+                .collect(),
+        }
+    }
 }
 
 pub struct V8VariadicArgs<'a> {
@@ -362,11 +381,20 @@ impl<'a> VariadicArgs for V8VariadicArgs<'a> {
         &self.args
     }
 
-    fn as_vec_as<T>(&self) -> Vec<T> where <Self::RT as JSRuntime>::Value: IntoRustValue<T> {
-        self.args.iter().map(|x| x.to_rust_value().unwrap()).collect()
+    fn as_vec_as<T>(&self) -> Vec<T>
+    where
+        <Self::RT as JSRuntime>::Value: IntoRustValue<T>,
+    {
+        self.args
+            .iter()
+            .map(|x| x.to_rust_value().unwrap())
+            .collect()
     }
 
-    fn get_as<T>(&self, index: usize) -> Option<T> where <Self::RT as JSRuntime>::Value: IntoRustValue<T> {
+    fn get_as<T>(&self, index: usize) -> Option<T>
+    where
+        <Self::RT as JSRuntime>::Value: IntoRustValue<T>,
+    {
         self.args.get(index).map(|x| x.to_rust_value().unwrap())
     }
 }

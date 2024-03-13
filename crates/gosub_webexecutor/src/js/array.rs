@@ -1,10 +1,8 @@
 use crate::js::{AsArray, JSRuntime};
 use gosub_shared::types::Result;
 
-
-pub trait JSArray: Iterator
-+ Into<<Self::RT as JSRuntime>::Value>
-+ AsArray<Runtime = Self::RT>
+pub trait JSArray:
+    Iterator + Into<<Self::RT as JSRuntime>::Value> + AsArray<Runtime = Self::RT>
 {
     type RT: JSRuntime;
 

@@ -1,4 +1,3 @@
-use std::ops::Deref;
 use gosub_shared::types::Result;
 
 use crate::js::{JSArray, JSError, JSRuntime, JSValue};
@@ -71,9 +70,9 @@ pub trait ArrayConversion<A: JSArray> {
 }
 
 impl<A, T> ArrayConversion<A> for [T]
-    where
-        A: JSArray,
-        T: IntoJSValue<<A::RT as JSRuntime>::Value, Value=<A::RT as JSRuntime>::Value>,
+where
+    A: JSArray,
+    T: IntoJSValue<<A::RT as JSRuntime>::Value, Value = <A::RT as JSRuntime>::Value>,
 {
     type Array = A;
     fn to_js_array(&self, ctx: <A::RT as JSRuntime>::Context) -> Result<A> {
@@ -87,10 +86,10 @@ impl<A, T> ArrayConversion<A> for [T]
 }
 
 impl<V, T> IntoJSValue<V> for [T]
-    where
-        V: JSValue,
-        T: IntoJSValue<V, Value=V>,
-        V::RT: JSRuntime<Value=V>,
+where
+    V: JSValue,
+    T: IntoJSValue<V, Value = V>,
+    V::RT: JSRuntime<Value = V>,
 {
     type Value = V;
     fn to_js_value(&self, ctx: <V::RT as JSRuntime>::Context) -> Result<Self::Value> {
@@ -105,8 +104,8 @@ impl<V, T> IntoJSValue<V> for [T]
 
 pub trait IntoRustValue<T> {
     fn to_rust_value(&self) -> Result<T>
-        where
-            Self: Sized;
+    where
+        Self: Sized;
 }
 
 macro_rules! impl_rust_conversion {
@@ -155,7 +154,8 @@ impl<T: JSValue> IntoRustValue<()> for T {
     }
 }
 
-pub enum Ref<'a, T> { //basically cow but without clone
+pub enum Ref<'a, T> {
+    //basically cow but without clone
     Ref(&'a T),
     Owned(T),
 }
@@ -175,9 +175,9 @@ pub trait AsArray {
 }
 
 impl<V, T> IntoRustValue<Vec<T>> for V
-    where
-        V: AsArray,
-        <V::Runtime as JSRuntime>::Value: IntoRustValue<T>,
+where
+    V: AsArray,
+    <V::Runtime as JSRuntime>::Value: IntoRustValue<T>,
 {
     fn to_rust_value(&self) -> Result<Vec<T>> {
         let arr = self.array()?;
@@ -189,5 +189,3 @@ impl<V, T> IntoRustValue<Vec<T>> for V
         Ok(vec)
     }
 }
-
-

@@ -3,7 +3,9 @@ use v8::{Array, Local, Value};
 use gosub_shared::types::Result;
 
 use crate::{FromContext, IntoContext, V8Array, V8Context, V8Engine, V8Object};
-use gosub_webexecutor::js::{ArrayConversion, AsArray, IntoJSValue, JSArray, JSError, JSRuntime, JSType, JSValue, Ref};
+use gosub_webexecutor::js::{
+    ArrayConversion, AsArray, IntoJSValue, JSArray, JSError, JSRuntime, JSType, JSValue, Ref,
+};
 use gosub_webexecutor::Error;
 
 pub struct V8Value<'a> {

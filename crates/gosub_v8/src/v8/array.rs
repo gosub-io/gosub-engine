@@ -1,8 +1,8 @@
 use v8::{Array, Local};
 
 use gosub_shared::types::Result;
+use gosub_webexecutor::js::{AsArray, JSArray, JSError, JSRuntime, Ref};
 use gosub_webexecutor::Error;
-use gosub_webexecutor::js::{AsArray, IntoJSValue, JSArray, JSError, JSRuntime, JSValue, Ref};
 
 use crate::{FromContext, V8Context, V8Engine, V8Value};
 
@@ -49,7 +49,7 @@ impl<'a> JSArray for V8Array<'a> {
             return Err(Error::JS(JSError::Generic(
                 "failed to get a value from an array".to_owned(),
             ))
-                .into());
+            .into());
         };
 
         Ok(V8Value::from_value(self.ctx.clone(), value))
@@ -64,7 +64,7 @@ impl<'a> JSArray for V8Array<'a> {
             None => Err(Error::JS(JSError::Conversion(
                 "failed to set a value in an array".to_owned(),
             ))
-                .into()),
+            .into()),
         }
     }
 
@@ -86,14 +86,14 @@ impl<'a> JSArray for V8Array<'a> {
             return Err(Error::JS(JSError::Generic(
                 "failed to get a value from an array".to_owned(),
             ))
-                .into());
+            .into());
         };
 
         if self.value.delete_index(self.ctx.scope(), index).is_none() {
             return Err(Error::JS(JSError::Generic(
                 "failed to delete a value from an array".to_owned(),
             ))
-                .into());
+            .into());
         }
 
         Ok(V8Value::from_value(self.ctx.clone(), value))
@@ -108,7 +108,7 @@ impl<'a> JSArray for V8Array<'a> {
             return Err(Error::JS(JSError::Generic(
                 "failed to delete a value from an array".to_owned(),
             ))
-                .into());
+            .into());
         }
 
         Ok(())
@@ -415,7 +415,7 @@ mod tests {
         let context = engine.new_context().unwrap();
 
         #[allow(clippy::useless_vec)]
-            let vec = vec![42, 1337, 1234];
+        let vec = vec![42, 1337, 1234];
 
         let array: V8Array = vec.to_js_array(context.clone()).unwrap();
 

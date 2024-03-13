@@ -7,10 +7,14 @@ use v8::{
 };
 
 use gosub_shared::types::Result;
+use gosub_webexecutor::js::{
+    JSError, JSGetterCallback, JSObject, JSRuntime, JSSetterCallback, JSValue,
+};
 use gosub_webexecutor::Error;
-use gosub_webexecutor::js::{IntoJSValue, JSError, JSGetterCallback, JSObject, JSRuntime, JSSetterCallback, JSValue};
 
-use crate::{ctx_from, FromContext, V8Context, V8Ctx, V8Engine, V8Function, V8FunctionVariadic, V8Value};
+use crate::{
+    ctx_from, FromContext, V8Context, V8Ctx, V8Engine, V8Function, V8FunctionVariadic, V8Value,
+};
 
 pub struct V8Object<'a> {
     pub ctx: V8Context<'a>,
@@ -101,7 +105,7 @@ impl<'a> JSObject for V8Object<'a> {
             Err(Error::JS(JSError::Generic(
                 "failed to set a property in an object".to_owned(),
             ))
-                .into())
+            .into())
         } else {
             Ok(())
         }
@@ -120,7 +124,7 @@ impl<'a> JSObject for V8Object<'a> {
                 Error::JS(JSError::Generic(
                     "failed to get a property from an object".to_owned(),
                 ))
-                    .into()
+                .into()
             })
             .map(|value| V8Value::from_value(self.ctx.clone(), value))
     }
@@ -147,9 +151,9 @@ impl<'a> JSObject for V8Object<'a> {
         let Some(ret) = function
             .call(try_catch, self.value.into(), &args)
             .map(|v| V8Value::from_value(self.ctx.clone(), v))
-            else {
-                return Err(V8Ctx::report_exception(try_catch).into());
-            };
+        else {
+            return Err(V8Ctx::report_exception(try_catch).into());
+        };
 
         Ok(ret)
     }
@@ -173,7 +177,7 @@ impl<'a> JSObject for V8Object<'a> {
             Err(Error::JS(JSError::Generic(
                 "failed to set a property in an object".to_owned(),
             ))
-                .into())
+            .into())
         } else {
             Ok(())
         }
@@ -198,7 +202,7 @@ impl<'a> JSObject for V8Object<'a> {
             Err(Error::JS(JSError::Generic(
                 "failed to set a property in an object".to_owned(),
             ))
-                .into())
+            .into())
         } else {
             Ok(())
         }
@@ -277,50 +281,50 @@ impl<'a> JSObject for V8Object<'a> {
                 rv.set(ret.value);
             },
         )
-            .setter(
-                |scope: &mut HandleScope,
-                 _name: Local<Name>,
-                 value: Local<Value>,
-                 args: PropertyCallbackArguments,
-                 _rv: ReturnValue| {
-                    let external = match Local::<External>::try_from(args.data()) {
-                        Ok(external) => external,
-                        Err(e) => {
-                            let Some(e) = v8::String::new(scope, &e.to_string()) else {
-                                eprintln!("failed to create exception string\nexception was: {e}");
-                                return;
-                            };
-                            scope.throw_exception(Local::from(e));
+        .setter(
+            |scope: &mut HandleScope,
+             _name: Local<Name>,
+             value: Local<Value>,
+             args: PropertyCallbackArguments,
+             _rv: ReturnValue| {
+                let external = match Local::<External>::try_from(args.data()) {
+                    Ok(external) => external,
+                    Err(e) => {
+                        let Some(e) = v8::String::new(scope, &e.to_string()) else {
+                            eprintln!("failed to create exception string\nexception was: {e}");
                             return;
-                        }
-                    };
+                        };
+                        scope.throw_exception(Local::from(e));
+                        return;
+                    }
+                };
 
-                    let gs = unsafe { &*(external.value() as *const GetterSetter) };
+                let gs = unsafe { &*(external.value() as *const GetterSetter) };
 
-                    let ctx = match ctx_from(scope, gs.ctx.borrow().isolate) {
-                        Ok(ctx) => ctx,
-                        Err((mut st, e)) => {
-                            let scope = st.get();
-                            let Some(e) = v8::String::new(scope, &e.to_string()) else {
-                                eprintln!("failed to create exception string\nexception was: {e}");
-                                return;
-                            };
-                            scope.throw_exception(Local::from(e));
+                let ctx = match ctx_from(scope, gs.ctx.borrow().isolate) {
+                    Ok(ctx) => ctx,
+                    Err((mut st, e)) => {
+                        let scope = st.get();
+                        let Some(e) = v8::String::new(scope, &e.to_string()) else {
+                            eprintln!("failed to create exception string\nexception was: {e}");
                             return;
-                        }
-                    };
+                        };
+                        scope.throw_exception(Local::from(e));
+                        return;
+                    }
+                };
 
-                    let mut val = V8Value::from_value(ctx.clone(), value);
+                let mut val = V8Value::from_value(ctx.clone(), value);
 
-                    let mut sc = SetterCallback {
-                        ctx,
-                        value: &mut val,
-                    };
+                let mut sc = SetterCallback {
+                    ctx,
+                    value: &mut val,
+                };
 
-                    (gs.setter)(&mut sc);
-                },
-            )
-            .data(Local::from(data));
+                (gs.setter)(&mut sc);
+            },
+        )
+        .data(Local::from(data));
 
         self.value
             .set_accessor_with_configuration(scope, name.into(), config);
@@ -408,7 +412,7 @@ mod tests {
             let value = V8Value::new_string(cb.context().clone(), "value").unwrap();
             cb.ret(value);
         })
-            .unwrap();
+        .unwrap();
 
         func.call(&[]).unwrap();
 
@@ -440,7 +444,7 @@ mod tests {
 
             cb.ret(value);
         })
-            .unwrap();
+        .unwrap();
 
         obj.set_method_variadic("key", &func).unwrap();
 

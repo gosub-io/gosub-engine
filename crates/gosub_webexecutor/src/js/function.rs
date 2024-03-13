@@ -2,8 +2,8 @@ use core::fmt::Display;
 
 use gosub_shared::types::Result;
 
-use crate::js::JSRuntime;
 use crate::js::IntoRustValue;
+use crate::js::JSRuntime;
 
 //trait for JS functions (interop between JS and Rust)
 pub trait JSFunction {
@@ -113,6 +113,12 @@ pub trait VariadicArgsInternal: Iterator {
         &self,
         ctx: <Self::RT as JSRuntime>::Context,
     ) -> <Self::RT as JSRuntime>::VariadicArgs;
+
+    fn variadic_start(
+        &self,
+        start: usize,
+        ctx: <Self::RT as JSRuntime>::Context,
+    ) -> <Self::RT as JSRuntime>::VariadicArgs;
 }
 
 pub trait VariadicArgs {
@@ -128,11 +134,11 @@ pub trait VariadicArgs {
 
     fn as_vec(&self) -> &Vec<<Self::RT as JSRuntime>::Value>;
 
-    fn as_vec_as<T>(&self) ->  Vec<T>
-        where
-            <Self::RT as JSRuntime>::Value: IntoRustValue<T>;
+    fn as_vec_as<T>(&self) -> Vec<T>
+    where
+        <Self::RT as JSRuntime>::Value: IntoRustValue<T>;
 
     fn get_as<T>(&self, index: usize) -> Option<T>
-        where
-            <Self::RT as JSRuntime>::Value: IntoRustValue<T>;
+    where
+        <Self::RT as JSRuntime>::Value: IntoRustValue<T>;
 }
