@@ -180,14 +180,14 @@ lazy_static! {
 #[macro_export]
 macro_rules! timing_start {
     ($namespace:expr, $context:expr) => {{
-        gosub_shared::timing::TIMING_TABLE
+        $crate::timing::TIMING_TABLE
             .lock()
             .unwrap()
             .start_timer($namespace, Some($context.to_string()))
     }};
 
     ($namespace:expr) => {{
-        gosub_shared::timing::TIMING_TABLE
+        $crate::timing::TIMING_TABLE
             .lock()
             .unwrap()
             .start_timer($namespace, None)
@@ -198,7 +198,7 @@ macro_rules! timing_start {
 #[macro_export]
 macro_rules! timing_stop {
     ($timer_id:expr) => {{
-        gosub_shared::timing::TIMING_TABLE
+        $crate::timing::TIMING_TABLE
             .lock()
             .unwrap()
             .stop_timer($timer_id);
@@ -209,21 +209,21 @@ macro_rules! timing_stop {
 #[macro_export]
 macro_rules! timing_display {
     () => {{
-        gosub_shared::timing::TIMING_TABLE
+        $crate::timing::TIMING_TABLE
             .lock()
             .unwrap()
-            .print_timings(false, gosub_shared::timing::Scale::Auto);
+            .print_timings(false, Scale::Auto);
     }};
 
     ($scale:expr) => {{
-        gosub_shared::timing::TIMING_TABLE
+        $crate::timing::TIMING_TABLE
             .lock()
             .unwrap()
             .print_timings(false, $scale);
     }};
 
     ($details:expr, $scale:expr) => {{
-        gosub_shared::timing::TIMING_TABLE
+        $crate::timing::TIMING_TABLE
             .lock()
             .unwrap()
             .print_timings($details, $scale);
@@ -277,7 +277,6 @@ mod tests {
     use super::*;
     use rand::random;
     use std::thread::sleep;
-    use rand::random;
 
     #[test]
     fn test_timing_defaults() {
