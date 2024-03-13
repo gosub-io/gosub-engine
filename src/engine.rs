@@ -7,8 +7,8 @@ use gosub_net::http::headers::Headers;
 use gosub_net::http::request::Request;
 use gosub_net::http::response::Response;
 use gosub_shared::bytes::{CharIterator, Confidence, Encoding};
-use gosub_shared::timing::{Timing, TimingTable};
 use gosub_shared::types::{Error, ParseError, Result};
+use gosub_shared::{timing_start, timing_stop};
 use std::io::Read;
 use url::Url;
 
@@ -30,8 +30,6 @@ pub struct FetchResponse {
     pub parse_errors: Vec<ParseError>,
     /// Rendertree that is generated from the document tree and css tree
     pub render_tree: String,
-    /// Timing table that contains all the timings
-    pub timings: TimingTable,
 }
 
 impl Debug for FetchResponse {
@@ -48,8 +46,6 @@ impl Debug for FetchResponse {
         }
         writeln!(f, "Render tree:")?;
         writeln!(f, "{}", self.render_tree)?;
-        writeln!(f, "Timings:")?;
-        writeln!(f, "{}", self.timings)?;
 
         Ok(())
     }
@@ -74,12 +70,11 @@ fn fetch_url(
         document: DocumentBuilder::new_document(Some(parts.clone())),
         parse_errors: vec![],
         render_tree: String::new(),
-        timings: TimingTable::default(),
     };
 
     // For now, we do a DNS lookup here. We don't use this information yet, but it allows us to
     // measure the DNS lookup time.
-    fetch_response.timings.start(Timing::DnsLookup);
+    let t_id = timing_start!("dns.lookup", parts.host_str().unwrap());
 
     let mut resolver = Dns::new();
     let Some(hostname) = parts.host_str() else {
@@ -87,10 +82,10 @@ fn fetch_url(
     };
     let _ = resolver.resolve(hostname, ResolveType::Ipv4)?;
 
-    fetch_response.timings.end(Timing::DnsLookup);
+    timing_stop!(t_id);
 
     // Fetch the HTML document from the site
-    fetch_response.timings.start(Timing::ContentTransfer);
+    let t_id = timing_start!("http.transfer", parts.host_str().unwrap());
 
     let agent = ureq::agent();
     let mut req = agent.request(method, url).set("User-Agent", USER_AGENT);
@@ -127,11 +122,11 @@ fn fetch_url(
             return Err(Error::Generic(format!("Failed to fetch URL: {}", e)).into());
         }
     }
-    fetch_response.timings.end(Timing::ContentTransfer);
+    timing_stop!(t_id);
 
     println!("resp: {:?}", fetch_response.response);
 
-    fetch_response.timings.start(Timing::HtmlParse);
+    let t_id = timing_start!("html.parse", parts.as_str());
 
     let mut chars = CharIterator::new();
     let _ = chars.read_from_bytes(&fetch_response.response.body, Some(Encoding::UTF8));
@@ -146,7 +141,8 @@ fn fetch_url(
             return Err(Error::Generic(format!("Failed to parse HTML: {}", e)).into());
         }
     }
-    fetch_response.timings.end(Timing::HtmlParse);
+
+    timing_stop!(t_id);
 
     Ok(fetch_response)
 }
@@ -164,8 +160,5 @@ mod tests {
 
         let resp = fetch_url("GET", url, headers, cookies);
         assert!(resp.is_ok());
-
-        // let resp = resp.unwrap();
-        // print!("{:?}", resp);
     }
 }
