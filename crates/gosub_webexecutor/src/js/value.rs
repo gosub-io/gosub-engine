@@ -1,11 +1,12 @@
 use gosub_shared::types::Result;
 
-use crate::js::{IntoJSValue, JSRuntime, JSType};
+use crate::js::{AsArray, IntoJSValue, JSRuntime, JSType};
 
 pub trait JSValue:
-    Sized + From<<Self::RT as JSRuntime>::Object> + From<<Self::RT as JSRuntime>::Array>
-where
-    Self: Sized,
+Sized + From<<Self::RT as JSRuntime>::Object> + From<<Self::RT as JSRuntime>::Array>
++ AsArray<Runtime = Self::RT>
+    where
+        Self: Sized,
 {
     type RT: JSRuntime;
 
@@ -38,9 +39,9 @@ where
     fn type_of(&self) -> JSType;
 
     fn new_object(ctx: <Self::RT as JSRuntime>::Context)
-        -> Result<<Self::RT as JSRuntime>::Object>;
+                  -> Result<<Self::RT as JSRuntime>::Object>;
 
-    fn new_array<T: IntoJSValue<Self, Value = Self>>(
+    fn new_array<T: IntoJSValue<Self, Value=Self>>(
         ctx: <Self::RT as JSRuntime>::Context,
         value: &[T],
     ) -> Result<<Self::RT as JSRuntime>::Array>;

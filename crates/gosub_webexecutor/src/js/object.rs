@@ -4,7 +4,7 @@ use gosub_shared::types::Result;
 
 use crate::js::JSRuntime;
 
-pub trait JSObject {
+pub trait JSObject: Into<<Self::RT as JSRuntime>::Value> {
     type RT: JSRuntime;
 
     fn set_property(&self, name: &str, value: &<Self::RT as JSRuntime>::Value) -> Result<()>;

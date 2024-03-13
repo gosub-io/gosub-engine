@@ -3,9 +3,7 @@ use v8::{Array, Local, Value};
 use gosub_shared::types::Result;
 
 use crate::{FromContext, IntoContext, V8Array, V8Context, V8Engine, V8Object};
-use gosub_webexecutor::js::{
-    ArrayConversion, IntoJSValue, JSArray, JSError, JSRuntime, JSType, JSValue,
-};
+use gosub_webexecutor::js::{ArrayConversion, AsArray, IntoJSValue, JSArray, JSError, JSRuntime, JSType, JSValue, Ref};
 use gosub_webexecutor::Error;
 
 pub struct V8Value<'a> {
@@ -45,6 +43,14 @@ impl<'a> From<V8Object<'a>> for V8Value<'a> {
             context: object.ctx,
             value: object.value.into(),
         }
+    }
+}
+
+impl<'a> AsArray for V8Value<'a> {
+    type Runtime = V8Engine<'a>;
+
+    fn array(&self) -> Result<Ref<<Self::Runtime as JSRuntime>::Array>> {
+        Ok(Ref::Owned(self.as_array()?))
     }
 }
 

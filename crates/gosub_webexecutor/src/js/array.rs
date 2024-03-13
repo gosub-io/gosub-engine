@@ -1,7 +1,11 @@
-use crate::js::JSRuntime;
+use crate::js::{AsArray, JSRuntime};
 use gosub_shared::types::Result;
 
-pub trait JSArray: Iterator {
+
+pub trait JSArray: Iterator
++ Into<<Self::RT as JSRuntime>::Value>
++ AsArray<Runtime = Self::RT>
+{
     type RT: JSRuntime;
 
     fn get(&self, index: usize) -> Result<<Self::RT as JSRuntime>::Value>;
