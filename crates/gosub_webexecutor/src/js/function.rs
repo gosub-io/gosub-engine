@@ -7,7 +7,7 @@ use crate::js::JSRuntime;
 
 //trait for JS functions (interop between JS and Rust)
 pub trait JSFunction {
-    type RT: JSRuntime;
+    type RT: JSRuntime<Function = Self>;
 
     fn new(
         ctx: <Self::RT as JSRuntime>::Context,
@@ -23,7 +23,7 @@ pub trait JSFunction {
 }
 
 pub trait JSFunctionCallBack {
-    type RT: JSRuntime;
+    type RT: JSRuntime<FunctionCallBack = Self>;
 
     fn context(&mut self) -> <Self::RT as JSRuntime>::Context;
 
@@ -41,7 +41,7 @@ pub trait JSFunctionCallBack {
 }
 
 pub trait Args: Iterator {
-    type RT: JSRuntime;
+    type RT: JSRuntime<Args = Self>;
 
     fn get(
         &self,
@@ -60,7 +60,7 @@ pub trait Args: Iterator {
 
 //extra trait for variadic functions to mark them as such
 pub trait JSFunctionVariadic {
-    type RT: JSRuntime;
+    type RT: JSRuntime<FunctionVariadic = Self>;
     fn new(
         ctx: <Self::RT as JSRuntime>::Context,
         func: impl Fn(&mut <Self::RT as JSRuntime>::FunctionCallBackVariadic) + 'static,
@@ -75,7 +75,7 @@ pub trait JSFunctionVariadic {
 }
 
 pub trait JSFunctionCallBackVariadic {
-    type RT: JSRuntime;
+    type RT: JSRuntime<FunctionCallBackVariadic = Self>;
 
     fn context(&mut self) -> <Self::RT as JSRuntime>::Context;
 
@@ -93,7 +93,7 @@ pub trait JSFunctionCallBackVariadic {
 }
 
 pub trait VariadicArgsInternal: Iterator {
-    type RT: JSRuntime;
+    type RT: JSRuntime<VariadicArgsInternal = Self>;
 
     fn get(
         &self,
@@ -122,7 +122,7 @@ pub trait VariadicArgsInternal: Iterator {
 }
 
 pub trait VariadicArgs {
-    type RT: JSRuntime;
+    type RT: JSRuntime<VariadicArgs = Self>;
 
     fn get(&self, index: usize) -> Option<&<Self::RT as JSRuntime>::Value>;
 

@@ -21,9 +21,9 @@ pub struct V8Object<'a> {
     pub value: Local<'a, Object>,
 }
 
-pub struct GetterCallback<'a, 'r> {
+pub struct GetterCallback<'a> {
     ctx: V8Context<'a>,
-    ret: &'r mut V8Value<'a>,
+    ret: V8Value<'a>,
 }
 
 impl V8Object<'_> {
@@ -34,7 +34,7 @@ impl V8Object<'_> {
     }
 }
 
-impl<'a> JSGetterCallback for GetterCallback<'a, '_> {
+impl<'a> JSGetterCallback for GetterCallback<'a> {
     type RT = V8Engine<'a>;
 
     fn context(&mut self) -> &mut <Self::RT as JSRuntime>::Context {
@@ -52,16 +52,16 @@ impl<'a> JSGetterCallback for GetterCallback<'a, '_> {
     }
 
     fn ret(&mut self, value: <Self::RT as JSRuntime>::Value) {
-        *self.ret = value;
+        self.ret = value;
     }
 }
 
-pub struct SetterCallback<'a, 'v> {
+pub struct SetterCallback<'a> {
     ctx: V8Context<'a>,
-    value: &'v V8Value<'a>,
+    value: V8Value<'a>,
 }
 
-impl<'a, 'v> JSSetterCallback for SetterCallback<'a, 'v> {
+impl<'a, 'v> JSSetterCallback for SetterCallback<'a> {
     type RT = V8Engine<'a>;
 
     fn context(&mut self) -> &mut <Self::RT as JSRuntime>::Context {
@@ -78,15 +78,15 @@ impl<'a, 'v> JSSetterCallback for SetterCallback<'a, 'v> {
         scope.throw_exception(Local::from(e));
     }
 
-    fn value(&mut self) -> &'v <Self::RT as JSRuntime>::Value {
-        self.value
+    fn value(&mut self) -> &<Self::RT as JSRuntime>::Value {
+        &self.value
     }
 }
 
-struct GetterSetter<'a, 'r> {
+struct GetterSetter<'a> {
     ctx: V8Context<'a>,
-    getter: Box<dyn Fn(&mut GetterCallback<'a, 'r>)>,
-    setter: Box<dyn Fn(&mut SetterCallback<'a, 'r>)>,
+    getter: Box<dyn Fn(&mut GetterCallback<'a>)>,
+    setter: Box<dyn Fn(&mut SetterCallback<'a>)>,
 }
 
 impl<'a> JSObject for V8Object<'a> {
@@ -274,11 +274,11 @@ impl<'a> JSObject for V8Object<'a> {
                     }
                 };
 
-                let mut gc = GetterCallback { ctx, ret: &mut ret };
+                let mut gc = GetterCallback { ctx, ret };
 
                 (gs.getter)(&mut gc);
 
-                rv.set(ret.value);
+                rv.set(gc.ret.value);
             },
         )
         .setter(
@@ -316,10 +316,7 @@ impl<'a> JSObject for V8Object<'a> {
 
                 let mut val = V8Value::from_value(ctx.clone(), value);
 
-                let mut sc = SetterCallback {
-                    ctx,
-                    value: &mut val,
-                };
+                let mut sc = SetterCallback { ctx, value: val };
 
                 (gs.setter)(&mut sc);
             },

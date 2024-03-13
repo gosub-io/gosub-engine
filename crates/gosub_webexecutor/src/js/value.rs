@@ -10,7 +10,7 @@ pub trait JSValue:
 where
     Self: Sized,
 {
-    type RT: JSRuntime;
+    type RT: JSRuntime<Value = Self>;
 
     fn as_string(&self) -> Result<String>;
 

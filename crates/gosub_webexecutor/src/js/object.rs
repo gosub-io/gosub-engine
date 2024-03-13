@@ -5,7 +5,7 @@ use gosub_shared::types::Result;
 use crate::js::JSRuntime;
 
 pub trait JSObject: Into<<Self::RT as JSRuntime>::Value> {
-    type RT: JSRuntime;
+    type RT: JSRuntime<Object = Self>;
 
     fn set_property(&self, name: &str, value: &<Self::RT as JSRuntime>::Value) -> Result<()>;
 
@@ -35,7 +35,7 @@ pub trait JSObject: Into<<Self::RT as JSRuntime>::Value> {
 }
 
 pub trait JSGetterCallback {
-    type RT: JSRuntime;
+    type RT: JSRuntime<GetterCB = Self>;
 
     fn context(&mut self) -> &mut <Self::RT as JSRuntime>::Context;
 
@@ -45,7 +45,7 @@ pub trait JSGetterCallback {
 }
 
 pub trait JSSetterCallback {
-    type RT: JSRuntime;
+    type RT: JSRuntime<SetterCB = Self>;
 
     fn context(&mut self) -> &mut <Self::RT as JSRuntime>::Context;
 

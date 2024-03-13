@@ -1,8 +1,8 @@
 use std::cell::RefCell;
-
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Once;
+
 use v8::{ContextScope, CreateParams, HandleScope};
 
 pub use array::*;
@@ -10,10 +10,9 @@ pub use compile::*;
 pub use context::*;
 pub use function::*;
 use gosub_shared::types::Result;
+use gosub_webexecutor::js::JSRuntime;
 pub use object::*;
 pub use value::*;
-
-use gosub_webexecutor::js::JSRuntime;
 
 mod array;
 mod compile;
@@ -124,8 +123,8 @@ impl<'a> JSRuntime for V8Engine<'a> {
     type Value = V8Value<'a>;
     type Object = V8Object<'a>;
     type Compiled = V8Compiled<'a>;
-    type GetterCB = GetterCallback<'a, 'a>;
-    type SetterCB = SetterCallback<'a, 'a>;
+    type GetterCB = GetterCallback<'a>;
+    type SetterCB = SetterCallback<'a>;
     type Function = V8Function<'a>;
     type FunctionVariadic = V8FunctionVariadic<'a>;
     type Array = V8Array<'a>;
@@ -147,9 +146,9 @@ impl<'a> JSRuntime for V8Engine<'a> {
 
 #[cfg(test)]
 mod tests {
+    use gosub_webexecutor::js::{JSContext, JSRuntime, JSValue};
 
     use crate::v8::V8_INITIALIZED;
-    use gosub_webexecutor::js::{JSContext, JSRuntime, JSValue};
 
     #[test]
     fn v8_engine_initialization() {
