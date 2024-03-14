@@ -1,16 +1,16 @@
-use std::rc::Rc;
-
 use v8::{Array, Local, Value};
 
 use gosub_shared::types::Result;
 
-use crate::js::v8::{FromContext, IntoContext, V8Array, V8Context, V8Engine, V8Object};
-use crate::js::{ArrayConversion, IntoJSValue, JSArray, JSError, JSRuntime, JSType, JSValue};
-use crate::Error;
+use crate::{FromContext, IntoContext, V8Array, V8Context, V8Engine, V8Object};
+use gosub_webexecutor::js::{
+    ArrayConversion, AsArray, IntoJSValue, JSArray, JSError, JSRuntime, JSType, JSValue, Ref,
+};
+use gosub_webexecutor::Error;
 
 pub struct V8Value<'a> {
-    pub(crate) context: V8Context<'a>,
-    pub(crate) value: Local<'a, Value>,
+    pub context: V8Context<'a>,
+    pub value: Local<'a, Value>,
 }
 
 impl<'a> V8Value<'a> {
@@ -48,17 +48,23 @@ impl<'a> From<V8Object<'a>> for V8Value<'a> {
     }
 }
 
+impl<'a> AsArray for V8Value<'a> {
+    type Runtime = V8Engine<'a>;
+
+    fn array(&self) -> Result<Ref<<Self::Runtime as JSRuntime>::Array>> {
+        Ok(Ref::Owned(self.as_array()?))
+    }
+}
+
 impl<'a> JSValue for V8Value<'a> {
     type RT = V8Engine<'a>;
 
     fn as_string(&self) -> Result<String> {
-        Ok(self
-            .value
-            .to_rust_string_lossy(self.context.borrow_mut().scope()))
+        Ok(self.value.to_rust_string_lossy(self.context.scope()))
     }
 
     fn as_number(&self) -> Result<f64> {
-        if let Some(value) = self.value.number_value(self.context.borrow_mut().scope()) {
+        if let Some(value) = self.value.number_value(self.context.scope()) {
             Ok(value)
         } else {
             Err(Error::JS(JSError::Conversion(
@@ -69,12 +75,12 @@ impl<'a> JSValue for V8Value<'a> {
     }
 
     fn as_bool(&self) -> Result<bool> {
-        Ok(self.value.boolean_value(self.context.borrow_mut().scope()))
+        Ok(self.value.boolean_value(self.context.scope()))
     }
 
     fn as_object(&self) -> Result<<Self::RT as JSRuntime>::Object> {
-        if let Some(value) = self.value.to_object(self.context.borrow_mut().scope()) {
-            Ok(V8Object::from_ctx(Rc::clone(&self.context), value))
+        if let Some(value) = self.value.to_object(self.context.scope()) {
+            Ok(V8Object::from_ctx(V8Context::clone(&self.context), value))
         } else {
             Err(Error::JS(JSError::Conversion(
                 "could not convert to number".to_owned(),
@@ -94,7 +100,7 @@ impl<'a> JSValue for V8Value<'a> {
     fn as_array(&self) -> Result<<Self::RT as JSRuntime>::Array> {
         let array: Local<Array> = self.value.try_into()?;
 
-        Ok(array.into_ctx(Rc::clone(&self.context)))
+        Ok(array.into_ctx(V8Context::clone(&self.context)))
     }
 
     fn is_bool(&self) -> bool {
@@ -120,7 +126,7 @@ impl<'a> JSValue for V8Value<'a> {
         } else if self.is_object() {
             JSType::Object
         } else {
-            let ctx = self.context.borrow_mut().scope();
+            let ctx = self.context.scope();
 
             let t = self.value.type_of(ctx).to_rust_string_lossy(ctx);
 
@@ -148,9 +154,9 @@ impl<'a> JSValue for V8Value<'a> {
     }
 
     fn new_string(ctx: <Self::RT as JSRuntime>::Context, value: &str) -> Result<Self> {
-        if let Some(value) = v8::String::new(ctx.borrow_mut().scope(), value) {
+        if let Some(value) = v8::String::new(ctx.scope(), value) {
             Ok(Self {
-                context: Rc::clone(&ctx),
+                context: V8Context::clone(&ctx),
                 value: Local::from(value),
             })
         } else {
@@ -162,35 +168,37 @@ impl<'a> JSValue for V8Value<'a> {
     }
 
     fn new_number<N: Into<f64>>(ctx: <Self::RT as JSRuntime>::Context, value: N) -> Result<Self> {
-        let value = v8::Number::new(ctx.borrow_mut().scope(), value.into());
+        let value = v8::Number::new(ctx.scope(), value.into());
         Ok(Self {
-            context: Rc::clone(&ctx),
+            context: V8Context::clone(&ctx),
             value: Local::from(value),
         })
     }
 
     fn new_bool(ctx: <Self::RT as JSRuntime>::Context, value: bool) -> Result<Self> {
-        let value = v8::Boolean::new(ctx.borrow_mut().scope(), value);
+        let value = v8::Boolean::new(ctx.scope(), value);
         Ok(Self {
-            context: Rc::clone(&ctx),
+            context: V8Context::clone(&ctx),
             value: Local::from(value),
         })
     }
 
     fn new_null(ctx: <Self::RT as JSRuntime>::Context) -> Result<Self> {
-        let null = v8::null(ctx.borrow_mut().scope());
+        let null = v8::null(ctx.scope());
 
         Ok(Self {
-            context: Rc::clone(&ctx),
+            context: V8Context::clone(&ctx),
             value: Local::from(null),
         })
     }
 
     fn new_undefined(ctx: <Self::RT as JSRuntime>::Context) -> Result<Self> {
-        let undefined = v8::undefined(ctx.borrow_mut().scope());
+        let scope = ctx.scope();
+
+        let undefined = v8::undefined(scope);
 
         Ok(Self {
-            context: Rc::clone(&ctx),
+            context: V8Context::clone(&ctx),
             value: Local::from(undefined),
         })
     }
@@ -198,7 +206,7 @@ impl<'a> JSValue for V8Value<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::js::{IntoRustValue, JSContext};
+    use gosub_webexecutor::js::{IntoRustValue, JSContext};
 
     use super::*;
 

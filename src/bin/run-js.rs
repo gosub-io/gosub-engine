@@ -1,12 +1,13 @@
 use gosub_shared::types::Result;
-use gosub_webexecutor::js::v8::V8Context;
-use gosub_webexecutor::js::{JSContext, JSRuntime, JSValue, RUNTIME};
+use gosub_v8::{V8Context, V8Engine};
+use gosub_webexecutor::js::{JSContext, JSRuntime, JSValue};
 use std::env::args;
 
 fn main() -> Result<()> {
     let file = args().nth(1).expect("no file given");
 
-    let mut ctx: V8Context = RUNTIME.lock().unwrap().new_context()?;
+    let mut runtime = V8Engine::new();
+    let mut ctx: V8Context = runtime.new_context()?;
 
     let code = std::fs::read_to_string(file)?;
 

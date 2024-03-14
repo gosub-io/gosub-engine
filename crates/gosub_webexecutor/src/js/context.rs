@@ -4,7 +4,7 @@ use crate::js::JSRuntime;
 
 //main trait for JS context (can be implemented for different JS engines like V8, SpiderMonkey, JSC, etc.)
 pub trait JSContext: Clone {
-    type RT: JSRuntime;
+    type RT: JSRuntime<Context = Self>;
     fn run(&mut self, code: &str) -> Result<<Self::RT as JSRuntime>::Value>;
 
     fn compile(&mut self, code: &str) -> Result<<Self::RT as JSRuntime>::Compiled>;

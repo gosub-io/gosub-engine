@@ -7,9 +7,6 @@ use thiserror::Error;
 
 pub mod js;
 
-#[cfg(test)]
-mod test;
-
 #[derive(Debug, Error)]
 pub enum Error {
     #[error("js: {0}")]

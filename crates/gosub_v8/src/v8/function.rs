@@ -1,39 +1,29 @@
 use core::fmt::Display;
-use std::rc::Rc;
 
 use v8::{
-    CallbackScope, External, Function, FunctionBuilder, FunctionCallbackArguments,
+    undefined, CallbackScope, External, Function, FunctionBuilder, FunctionCallbackArguments,
     FunctionCallbackInfo, Local, ReturnValue, TryCatch,
 };
 
 use gosub_shared::types::Result;
-
-use crate::js::function::{JSFunctionCallBack, JSFunctionCallBackVariadic};
-use crate::js::v8::{ctx_from_function_callback_info, V8Context, V8Engine, V8Value};
-use crate::js::{
-    Args, JSError, JSFunction, JSFunctionVariadic, JSRuntime, VariadicArgs, VariadicArgsInternal,
+use gosub_webexecutor::js::{
+    Args, IntoRustValue, JSError, JSFunction, JSFunctionCallBack, JSFunctionCallBackVariadic,
+    JSFunctionVariadic, JSRuntime, VariadicArgs, VariadicArgsInternal,
 };
-use crate::Error;
+use gosub_webexecutor::Error;
+
+use crate::v8::{ctx_from_function_callback_info, V8Context, V8Engine, V8Value};
 
 pub struct V8Function<'a> {
-    pub(super) ctx: V8Context<'a>,
-    pub(super) function: Local<'a, Function>,
+    pub ctx: V8Context<'a>,
+    pub function: Local<'a, Function>,
 }
 
 pub struct V8FunctionCallBack<'a> {
     ctx: V8Context<'a>,
     args: V8Args<'a>,
     ret: Result<Local<'a, v8::Value>>,
-}
-
-impl<'a> V8FunctionCallBack<'a> {
-    pub fn new(ctx: V8Context<'a>, args: V8Args<'a>) -> Result<V8FunctionCallBack<'a>> {
-        Ok(Self {
-            ctx,
-            args,
-            ret: Err(Error::JS(JSError::Execution("function was not called".to_owned())).into()),
-        })
-    }
+    is_error: bool,
 }
 
 pub struct V8Args<'a> {
@@ -65,7 +55,7 @@ impl<'a> Args for V8Args<'a> {
     ) -> Option<<Self::RT as JSRuntime>::Value> {
         if index < self.args.len() {
             Some(V8Value {
-                context: Rc::clone(&ctx),
+                context: V8Context::clone(&ctx),
                 value: *self.args.get(index)?,
             })
         } else {
@@ -85,7 +75,7 @@ impl<'a> Args for V8Args<'a> {
             };
 
             a.push(V8Value {
-                context: Rc::clone(&ctx),
+                context: V8Context::clone(&ctx),
                 value: *value,
             });
         }
@@ -97,7 +87,7 @@ impl<'a> Args for V8Args<'a> {
 impl<'a> JSFunctionCallBack for V8FunctionCallBack<'a> {
     type RT = V8Engine<'a>;
     fn context(&mut self) -> <Self::RT as JSRuntime>::Context {
-        Rc::clone(&self.ctx)
+        V8Context::clone(&self.ctx)
     }
 
     fn args(&mut self) -> &<Self::RT as JSRuntime>::Args {
@@ -109,13 +99,8 @@ impl<'a> JSFunctionCallBack for V8FunctionCallBack<'a> {
     }
 
     fn error(&mut self, error: impl Display) {
-        let scope = self.ctx.borrow_mut().scope();
-        let err = error.to_string();
-        let Some(e) = v8::String::new(scope, &err) else {
-            eprintln!("failed to create exception string\nexception was: {}", err);
-            return;
-        };
-        scope.throw_exception(Local::from(e));
+        self.ctx.error(error);
+        self.is_error = true;
     }
 
     fn ret(&mut self, value: <Self::RT as JSRuntime>::Value) {
@@ -124,7 +109,7 @@ impl<'a> JSFunctionCallBack for V8FunctionCallBack<'a> {
 }
 
 impl<'a> V8Function<'a> {
-    pub(crate) fn callback(
+    pub fn callback(
         ctx: &V8Context<'a>,
         args: FunctionCallbackArguments<'a>,
         mut ret: ReturnValue,
@@ -139,28 +124,26 @@ impl<'a> V8Function<'a> {
         let args = V8Args { next: 0, args: a };
 
         let mut cb = V8FunctionCallBack {
-            ctx: Rc::clone(ctx),
+            ctx: V8Context::clone(ctx),
             args,
             ret: Err(Error::JS(JSError::Execution("function was not called".to_owned())).into()),
+            is_error: false,
         };
 
         f(&mut cb);
+
+        if cb.is_error {
+            ret.set(undefined(ctx.scope()).into());
+            return;
+        }
 
         match cb.ret {
             Ok(value) => {
                 ret.set(value);
             }
             Err(e) => {
-                let excep = if let Some(exception) =
-                    v8::String::new(ctx.borrow_mut().scope(), &e.to_string())
-                {
-                    exception.into()
-                } else {
-                    eprintln!("failed to create exception string\nexception was: {e}");
-                    v8::undefined(ctx.borrow_mut().scope()).into()
-                };
-
-                ret.set(ctx.borrow_mut().scope().throw_exception(excep));
+                ctx.error(e);
+                ret.set(undefined(ctx.scope()).into())
             }
         }
     }
@@ -174,11 +157,10 @@ extern "C" fn callback(info: *const FunctionCallbackInfo) {
     let external = match <Local<External>>::try_from(args.data()) {
         Ok(external) => external,
         Err(e) => {
-            let Some(e) = v8::String::new(&mut scope, &e.to_string()) else {
-                eprintln!("failed to create exception string\nexception was: {e}");
-                return;
-            };
-            scope.throw_exception(Local::from(e));
+            let excep = V8Context::create_exception(&mut scope, e.to_string());
+            if let Some(exception) = excep {
+                scope.throw_exception(exception);
+            }
             return;
         }
     };
@@ -188,12 +170,20 @@ extern "C" fn callback(info: *const FunctionCallbackInfo) {
     let ctx = match ctx_from_function_callback_info(scope, data.ctx.borrow().isolate) {
         Ok(scope) => scope,
         Err((mut st, e)) => {
-            let scope = st.get();
-            let Some(e) = v8::String::new(scope, &e.to_string()) else {
-                eprintln!("failed to create exception string\nexception was: {e}");
-                return;
-            };
-            scope.throw_exception(Local::from(e));
+            let scope = st.with_context();
+            if let Some(scope) = scope {
+                let e = V8Context::create_exception(scope, e);
+                if let Some(exception) = e {
+                    scope.throw_exception(exception);
+                }
+            } else {
+                let scope = st.get();
+                let Some(e) = v8::String::new(scope, &e.to_string()) else {
+                    eprintln!("failed to create exception string\nexception was: {e}");
+                    return;
+                };
+                scope.throw_exception(e.into());
+            }
             return;
         }
     };
@@ -227,11 +217,11 @@ impl<'a> JSFunction for V8Function<'a> {
         ctx: <Self::RT as JSRuntime>::Context,
         f: impl Fn(&mut <Self::RT as JSRuntime>::FunctionCallBack) + 'static,
     ) -> Result<Self> {
-        let ctx = Rc::clone(&ctx);
+        let ctx = V8Context::clone(&ctx);
 
         let builder: FunctionBuilder<Function> = FunctionBuilder::new_raw(callback);
 
-        let scope = ctx.borrow_mut().scope();
+        let scope = ctx.scope();
 
         let data = External::new(scope, CallbackWrapper::new(ctx.clone(), f));
 
@@ -248,7 +238,7 @@ impl<'a> JSFunction for V8Function<'a> {
         &mut self,
         args: &[<Self::RT as JSRuntime>::Value],
     ) -> Result<<Self::RT as JSRuntime>::Value> {
-        let scope = &mut TryCatch::new(self.ctx.borrow_mut().scope());
+        let scope = &mut TryCatch::new(self.ctx.scope());
 
         let recv = Local::from(v8::undefined(scope));
         let ret = self.function.call(
@@ -262,7 +252,7 @@ impl<'a> JSFunction for V8Function<'a> {
 
         if let Some(value) = ret {
             Ok(V8Value {
-                context: Rc::clone(&self.ctx),
+                context: V8Context::clone(&self.ctx),
                 value,
             })
         } else {
@@ -272,14 +262,15 @@ impl<'a> JSFunction for V8Function<'a> {
 }
 
 pub struct V8FunctionVariadic<'a> {
-    pub(super) ctx: V8Context<'a>,
-    pub(super) function: Local<'a, Function>,
+    pub ctx: V8Context<'a>,
+    pub function: Local<'a, Function>,
 }
 
 pub struct V8FunctionCallBackVariadic<'a> {
     ctx: V8Context<'a>,
     args: V8VariadicArgsInternal<'a>,
     ret: Result<Local<'a, v8::Value>>,
+    is_error: bool,
 }
 
 pub struct V8VariadicArgsInternal<'a> {
@@ -311,7 +302,7 @@ impl<'a> VariadicArgsInternal for V8VariadicArgsInternal<'a> {
     ) -> Option<<Self::RT as JSRuntime>::Value> {
         if index < self.args.len() {
             Some(V8Value {
-                context: Rc::clone(&ctx),
+                context: V8Context::clone(&ctx),
                 value: *self.args.get(index)?,
             })
         } else {
@@ -331,7 +322,7 @@ impl<'a> VariadicArgsInternal for V8VariadicArgsInternal<'a> {
             };
 
             a.push(V8Value {
-                context: Rc::clone(&ctx),
+                context: V8Context::clone(&ctx),
                 value: *value,
             });
         }
@@ -345,6 +336,22 @@ impl<'a> VariadicArgsInternal for V8VariadicArgsInternal<'a> {
     ) -> <Self::RT as JSRuntime>::VariadicArgs {
         V8VariadicArgs {
             args: self.as_vec(ctx),
+        }
+    }
+
+    fn variadic_start(
+        &self,
+        start: usize,
+        ctx: <Self::RT as JSRuntime>::Context,
+    ) -> <Self::RT as JSRuntime>::VariadicArgs {
+        V8VariadicArgs {
+            args: self.args[start..]
+                .iter()
+                .map(|x| V8Value {
+                    context: V8Context::clone(&ctx),
+                    value: *x,
+                })
+                .collect(),
         }
     }
 }
@@ -367,13 +374,30 @@ impl<'a> VariadicArgs for V8VariadicArgs<'a> {
     fn as_vec(&self) -> &Vec<<Self::RT as JSRuntime>::Value> {
         &self.args
     }
+
+    fn as_vec_as<T>(&self) -> Vec<T>
+    where
+        <Self::RT as JSRuntime>::Value: IntoRustValue<T>,
+    {
+        self.args
+            .iter()
+            .map(|x| x.to_rust_value().unwrap())
+            .collect()
+    }
+
+    fn get_as<T>(&self, index: usize) -> Option<T>
+    where
+        <Self::RT as JSRuntime>::Value: IntoRustValue<T>,
+    {
+        self.args.get(index).map(|x| x.to_rust_value().unwrap())
+    }
 }
 
 impl<'a> JSFunctionCallBackVariadic for V8FunctionCallBackVariadic<'a> {
     type RT = V8Engine<'a>;
 
     fn context(&mut self) -> <Self::RT as JSRuntime>::Context {
-        Rc::clone(&self.ctx)
+        V8Context::clone(&self.ctx)
     }
 
     fn args(&mut self) -> &<Self::RT as JSRuntime>::VariadicArgsInternal {
@@ -385,13 +409,8 @@ impl<'a> JSFunctionCallBackVariadic for V8FunctionCallBackVariadic<'a> {
     }
 
     fn error(&mut self, error: impl Display) {
-        let scope = self.ctx.borrow_mut().scope();
-        let err = error.to_string();
-        let Some(e) = v8::String::new(scope, &err) else {
-            eprintln!("failed to create exception string\nexception was: {}", err);
-            return;
-        };
-        scope.throw_exception(Local::from(e));
+        self.ctx.error(error);
+        self.is_error = true;
     }
 
     fn ret(&mut self, value: <Self::RT as JSRuntime>::Value) {
@@ -415,28 +434,25 @@ impl<'a> V8FunctionVariadic<'a> {
         let args = V8VariadicArgsInternal { next: 0, args: a };
 
         let mut cb = V8FunctionCallBackVariadic {
-            ctx: Rc::clone(ctx),
+            ctx: V8Context::clone(ctx),
             args,
             ret: Err(Error::JS(JSError::Execution("function was not called".to_owned())).into()),
+            is_error: false,
         };
 
         f(&mut cb);
+
+        if cb.is_error {
+            ret.set(undefined(ctx.scope()).into());
+            return;
+        }
 
         match cb.ret {
             Ok(value) => {
                 ret.set(value);
             }
             Err(e) => {
-                let excep = if let Some(exception) =
-                    v8::String::new(ctx.borrow_mut().scope(), &e.to_string())
-                {
-                    exception.into()
-                } else {
-                    eprintln!("failed to create exception string\nexception was: {e}");
-                    v8::undefined(ctx.borrow_mut().scope()).into()
-                };
-
-                ret.set(ctx.borrow_mut().scope().throw_exception(excep));
+                ctx.error(e);
             }
         }
     }
@@ -450,11 +466,12 @@ extern "C" fn callback_variadic(info: *const FunctionCallbackInfo) {
     let external = match <Local<External>>::try_from(args.data()) {
         Ok(external) => external,
         Err(e) => {
-            let Some(e) = v8::String::new(&mut scope, &e.to_string()) else {
+            let Some(e) = V8Context::create_exception(&mut scope, e) else {
                 eprintln!("failed to create exception string\nexception was: {e}");
                 return;
             };
-            scope.throw_exception(Local::from(e));
+
+            scope.throw_exception(e);
             return;
         }
     };
@@ -464,12 +481,20 @@ extern "C" fn callback_variadic(info: *const FunctionCallbackInfo) {
     let ctx = match ctx_from_function_callback_info(scope, data.ctx.borrow().isolate) {
         Ok(scope) => scope,
         Err((mut st, e)) => {
-            let scope = st.get();
-            let Some(e) = v8::String::new(scope, &e.to_string()) else {
-                eprintln!("failed to create exception string\nexception was: {e}");
-                return;
-            };
-            scope.throw_exception(Local::from(e));
+            let scope = st.with_context();
+            if let Some(scope) = scope {
+                let e = V8Context::create_exception(scope, e);
+                if let Some(exception) = e {
+                    scope.throw_exception(exception);
+                }
+            } else {
+                let scope = st.get();
+                let Some(e) = v8::String::new(scope, &e.to_string()) else {
+                    eprintln!("failed to create exception string\nexception was: {e}");
+                    return;
+                };
+                scope.throw_exception(e.into());
+            }
             return;
         }
     };
@@ -503,8 +528,8 @@ impl<'a> JSFunctionVariadic for V8FunctionVariadic<'a> {
         ctx: <Self::RT as JSRuntime>::Context,
         f: impl Fn(&mut <Self::RT as JSRuntime>::FunctionCallBackVariadic) + 'static,
     ) -> Result<Self> {
-        let ctx = Rc::clone(&ctx);
-        let scope = ctx.borrow_mut().scope();
+        let ctx = V8Context::clone(&ctx);
+        let scope = ctx.scope();
 
         let builder: FunctionBuilder<Function> = FunctionBuilder::new_raw(callback_variadic);
 
@@ -523,7 +548,7 @@ impl<'a> JSFunctionVariadic for V8FunctionVariadic<'a> {
         &mut self,
         args: &[<Self::RT as JSRuntime>::Value],
     ) -> Result<<Self::RT as JSRuntime>::Value> {
-        let scope = &mut v8::TryCatch::new(self.ctx.borrow_mut().scope());
+        let scope = &mut v8::TryCatch::new(self.ctx.scope());
         let recv = Local::from(v8::undefined(scope));
         let ret = self.function.call(
             scope,
@@ -536,7 +561,7 @@ impl<'a> JSFunctionVariadic for V8FunctionVariadic<'a> {
 
         if let Some(value) = ret {
             Ok(V8Value {
-                context: Rc::clone(&self.ctx),
+                context: V8Context::clone(&self.ctx),
                 value,
             })
         } else {
@@ -547,10 +572,11 @@ impl<'a> JSFunctionVariadic for V8FunctionVariadic<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::js::v8::{V8Engine, V8Function, V8FunctionVariadic};
-    use crate::js::{
+    use gosub_webexecutor::js::{
         Args, IntoJSValue, JSFunction, JSFunctionCallBack, JSFunctionVariadic, JSRuntime, JSValue,
     };
+
+    use crate::v8::{V8Engine, V8Function, V8FunctionVariadic};
 
     use super::*;
 

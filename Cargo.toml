@@ -48,6 +48,7 @@ gosub_styling = { path = "./crates/gosub_styling", features = [] }
 gosub_webexecutor = { path = "./crates/gosub_webexecutor", features = [] }
 gosub_jsapi = { path = "./crates/gosub_jsapi", features = [] }
 gosub_testing = { path = "./crates/gosub_testing", features = [] }
+gosub_v8 = { path = "./crates/gosub_v8", features = [] }
 serde = { version = "1.0", features = ["derive"] }
 serde_derive = "1.0"
 derive_more = "0.99"

@@ -1,13 +1,16 @@
 use gosub_shared::types::Result;
 
-use crate::js::{IntoJSValue, JSRuntime, JSType};
+use crate::js::{AsArray, IntoJSValue, JSRuntime, JSType};
 
 pub trait JSValue:
-    Sized + From<<Self::RT as JSRuntime>::Object> + From<<Self::RT as JSRuntime>::Array>
+    Sized
+    + From<<Self::RT as JSRuntime>::Object>
+    + From<<Self::RT as JSRuntime>::Array>
+    + AsArray<Runtime = Self::RT>
 where
     Self: Sized,
 {
-    type RT: JSRuntime;
+    type RT: JSRuntime<Value = Self>;
 
     fn as_string(&self) -> Result<String>;
 

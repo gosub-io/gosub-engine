@@ -2,11 +2,12 @@ use core::fmt::Display;
 
 use gosub_shared::types::Result;
 
+use crate::js::IntoRustValue;
 use crate::js::JSRuntime;
 
 //trait for JS functions (interop between JS and Rust)
 pub trait JSFunction {
-    type RT: JSRuntime;
+    type RT: JSRuntime<Function = Self>;
 
     fn new(
         ctx: <Self::RT as JSRuntime>::Context,
@@ -22,7 +23,7 @@ pub trait JSFunction {
 }
 
 pub trait JSFunctionCallBack {
-    type RT: JSRuntime;
+    type RT: JSRuntime<FunctionCallBack = Self>;
 
     fn context(&mut self) -> <Self::RT as JSRuntime>::Context;
 
@@ -40,7 +41,7 @@ pub trait JSFunctionCallBack {
 }
 
 pub trait Args: Iterator {
-    type RT: JSRuntime;
+    type RT: JSRuntime<Args = Self>;
 
     fn get(
         &self,
@@ -59,7 +60,7 @@ pub trait Args: Iterator {
 
 //extra trait for variadic functions to mark them as such
 pub trait JSFunctionVariadic {
-    type RT: JSRuntime;
+    type RT: JSRuntime<FunctionVariadic = Self>;
     fn new(
         ctx: <Self::RT as JSRuntime>::Context,
         func: impl Fn(&mut <Self::RT as JSRuntime>::FunctionCallBackVariadic) + 'static,
@@ -74,7 +75,7 @@ pub trait JSFunctionVariadic {
 }
 
 pub trait JSFunctionCallBackVariadic {
-    type RT: JSRuntime;
+    type RT: JSRuntime<FunctionCallBackVariadic = Self>;
 
     fn context(&mut self) -> <Self::RT as JSRuntime>::Context;
 
@@ -92,7 +93,7 @@ pub trait JSFunctionCallBackVariadic {
 }
 
 pub trait VariadicArgsInternal: Iterator {
-    type RT: JSRuntime;
+    type RT: JSRuntime<VariadicArgsInternal = Self>;
 
     fn get(
         &self,
@@ -112,10 +113,16 @@ pub trait VariadicArgsInternal: Iterator {
         &self,
         ctx: <Self::RT as JSRuntime>::Context,
     ) -> <Self::RT as JSRuntime>::VariadicArgs;
+
+    fn variadic_start(
+        &self,
+        start: usize,
+        ctx: <Self::RT as JSRuntime>::Context,
+    ) -> <Self::RT as JSRuntime>::VariadicArgs;
 }
 
 pub trait VariadicArgs {
-    type RT: JSRuntime;
+    type RT: JSRuntime<VariadicArgs = Self>;
 
     fn get(&self, index: usize) -> Option<&<Self::RT as JSRuntime>::Value>;
 
@@ -126,4 +133,12 @@ pub trait VariadicArgs {
     }
 
     fn as_vec(&self) -> &Vec<<Self::RT as JSRuntime>::Value>;
+
+    fn as_vec_as<T>(&self) -> Vec<T>
+    where
+        <Self::RT as JSRuntime>::Value: IntoRustValue<T>;
+
+    fn get_as<T>(&self, index: usize) -> Option<T>
+    where
+        <Self::RT as JSRuntime>::Value: IntoRustValue<T>;
 }

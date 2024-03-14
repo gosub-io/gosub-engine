@@ -1,27 +1,23 @@
-use std::cell::RefCell;
 use std::ptr::NonNull;
-use std::rc::Rc;
 
 use v8::{
     CallbackScope, ContextScope, CreateParams, HandleScope, Isolate, Local, Object, OwnedIsolate,
-    TryCatch,
+    StackFrame, StackTrace, TryCatch,
 };
 
 use gosub_shared::types::Result;
+use gosub_webexecutor::js::{JSCompiled, JSContext, JSError, JSRuntime};
+use gosub_webexecutor::Error;
 
-use crate::js::compile::JSCompiled;
-use crate::js::v8::compile::V8Compiled;
-use crate::js::v8::{FromContext, V8Context, V8Engine, V8Object};
-use crate::js::{JSContext, JSError, JSRuntime};
-use crate::Error;
+use crate::{FromContext, V8Compiled, V8Context, V8Engine, V8Object};
 
 /// SAFETY: This is NOT thread safe, as the rest of the engine is not thread safe.
 /// This struct uses `NonNull` internally to store pointers to the V8Context "values" in one struct.
 pub struct V8Ctx<'a> {
-    pub(crate) isolate: NonNull<OwnedIsolate>,
-    pub(crate) handle_scope: NonNull<HandleScopeType<'a>>,
-    pub(crate) ctx: NonNull<Local<'a, v8::Context>>,
-    pub(crate) context_scope: NonNull<ContextScope<'a, HandleScope<'a>>>,
+    pub isolate: NonNull<OwnedIsolate>,
+    pub handle_scope: NonNull<HandleScopeType<'a>>,
+    pub ctx: NonNull<Local<'a, v8::Context>>,
+    pub context_scope: NonNull<ContextScope<'a, HandleScope<'a>>>,
     copied: Copied,
 }
 
@@ -43,7 +39,7 @@ impl Copied {
     }
 }
 
-pub(crate) enum HandleScopeType<'a> {
+pub enum HandleScopeType<'a> {
     WithContextRef(&'a mut HandleScope<'a>),
     WithoutContext(HandleScope<'a, ()>),
     CallbackScope(CallbackScope<'a>),
@@ -54,17 +50,25 @@ impl<'a> HandleScopeType<'a> {
         Self::WithoutContext(HandleScope::new(isolate))
     }
 
-    pub(crate) fn get(&mut self) -> &mut HandleScope<'a, ()> {
+    pub fn get(&mut self) -> &mut HandleScope<'a, ()> {
         match self {
             Self::WithoutContext(scope) => scope,
             Self::CallbackScope(scope) => scope,
             Self::WithContextRef(scope) => scope,
         }
     }
+
+    pub fn with_context(&mut self) -> Option<&mut HandleScope<'a>> {
+        match self {
+            Self::WithoutContext(_) => None,
+            Self::CallbackScope(scope) => Some(scope),
+            Self::WithContextRef(scope) => Some(*scope),
+        }
+    }
 }
 
 impl<'a> V8Ctx<'a> {
-    fn new(params: CreateParams) -> Result<V8Context<'a>> {
+    pub(crate) fn new(params: CreateParams) -> Result<Self> {
         let mut v8_ctx = Self {
             isolate: NonNull::dangling(),
             handle_scope: NonNull::dangling(),
@@ -112,10 +116,10 @@ impl<'a> V8Ctx<'a> {
 
         v8_ctx.context_scope = ctx_scope;
 
-        Ok(Rc::new(RefCell::new(v8_ctx)))
+        Ok(v8_ctx)
     }
 
-    pub(crate) fn scope(&mut self) -> &'a mut ContextScope<'a, HandleScope<'a>> {
+    pub fn scope(&mut self) -> &'a mut ContextScope<'a, HandleScope<'a>> {
         unsafe { self.context_scope.as_mut() }
     }
 
@@ -123,32 +127,61 @@ impl<'a> V8Ctx<'a> {
     //     unsafe { self.handle_scope.as_mut() }.get()
     // }
 
-    pub(crate) fn context(&mut self) -> &'a mut Local<'a, v8::Context> {
+    pub fn context(&mut self) -> &'a mut Local<'a, v8::Context> {
         unsafe { self.ctx.as_mut() }
     }
 
-    pub(crate) fn default() -> Result<Rc<RefCell<Self>>> {
-        Self::new(Default::default())
-    }
+    pub fn report_exception(try_catch: &mut TryCatch<HandleScope>) -> Error {
+        let mut err = String::new();
 
-    pub(crate) fn report_exception(try_catch: &mut TryCatch<HandleScope>) -> Error {
         if let Some(exception) = try_catch.exception() {
-            let e = exception.to_rust_string_lossy(try_catch);
-
-            return Error::JS(JSError::Compile(e));
+            err = exception.to_rust_string_lossy(try_catch);
         }
 
         if let Some(m) = try_catch.message() {
-            let message = m.get(try_catch).to_rust_string_lossy(try_catch);
-
-            return Error::JS(JSError::Compile(message));
+            err.push_str("\nMessage: ");
+            err.push_str(&m.get(try_catch).to_rust_string_lossy(try_catch));
+            if let Some(stacktrace) = m.get_stack_trace(try_catch) {
+                let st = Self::handle_stack_trace(try_catch, stacktrace);
+                err.push_str(&format!("\nStacktrace:\n{st}"))
+            } else {
+                err.push_str("\nStacktrace: <missing information>");
+            };
         }
 
-        Error::JS(JSError::Compile("unknown error".to_owned()))
+        Error::JS(JSError::Exception(err))
+    }
+
+    pub fn handle_stack_trace(ctx: &mut HandleScope, stacktrace: Local<StackTrace>) -> String {
+        let mut st = String::new();
+
+        for i in 0..stacktrace.get_frame_count() {
+            if let Some(frame) = stacktrace.get_frame(ctx, i) {
+                if let Some(frame) = Self::handle_stack_frame(ctx, frame) {
+                    st.push_str(&frame);
+                    st.push('\n');
+                }
+                continue;
+            }
+            st.push_str("<missing information>");
+        }
+
+        st
+    }
+
+    fn handle_stack_frame(ctx: &mut HandleScope, frame: Local<StackFrame>) -> Option<String> {
+        let function = frame.get_function_name(ctx)?.to_rust_string_lossy(ctx);
+        let script = frame
+            .get_script_name_or_source_url(ctx)?
+            .to_rust_string_lossy(ctx);
+        let line = frame.get_line_number();
+        let column = frame.get_column();
+
+        Some(format!("{}@{}:{}: {}", function, script, line, column))
     }
 }
 
-pub(crate) fn ctx_from_scope_isolate<'a>(
+pub fn ctx_from_scope_isolate<'a>(
     scope: HandleScopeType<'a>,
     ctx: Local<'a, v8::Context>,
     isolate: NonNull<OwnedIsolate>,
@@ -210,11 +243,11 @@ pub(crate) fn ctx_from_scope_isolate<'a>(
 
     v8_ctx.context_scope = ctx_scope;
 
-    Ok(Rc::new(RefCell::new(v8_ctx)))
+    Ok(V8Context::from_ctx(v8_ctx))
     // Ok(v8_ctx)
 }
 
-pub(crate) fn ctx_from_function_callback_info(
+pub fn ctx_from_function_callback_info(
     scope: CallbackScope,
     isolate: NonNull<OwnedIsolate>,
 ) -> std::result::Result<V8Context, (HandleScopeType, Error)> {
@@ -224,7 +257,7 @@ pub(crate) fn ctx_from_function_callback_info(
     ctx_from_scope_isolate(scope, ctx, isolate)
 }
 
-pub(crate) fn ctx_from<'a>(
+pub fn ctx_from<'a>(
     scope: &'a mut HandleScope,
     isolate: NonNull<OwnedIsolate>,
 ) -> std::result::Result<V8Context<'a>, (HandleScopeType<'a>, Error)> {
@@ -272,7 +305,7 @@ impl<'a> JSContext for V8Context<'a> {
     }
 
     fn compile(&mut self, code: &str) -> Result<<Self::RT as JSRuntime>::Compiled> {
-        let s = self.borrow_mut().scope();
+        let s = self.scope();
 
         let try_catch = &mut TryCatch::new(s);
 
@@ -284,7 +317,7 @@ impl<'a> JSContext for V8Context<'a> {
             return Err(V8Ctx::report_exception(try_catch).into());
         };
 
-        Ok(V8Compiled::from_ctx(Rc::clone(self), script))
+        Ok(V8Compiled::from_ctx(V8Context::clone(self), script))
     }
 
     fn run_compiled(
@@ -295,13 +328,14 @@ impl<'a> JSContext for V8Context<'a> {
     }
 
     fn new_global_object(&mut self, name: &str) -> Result<<Self::RT as JSRuntime>::Object> {
-        let scope = self.borrow_mut().scope();
+        let scope = self.scope();
         let obj = Object::new(scope);
         let name = v8::String::new(scope, name).unwrap();
+
         let global = self.borrow_mut().context().global(scope);
 
         global.set(scope, name.into(), obj.into());
 
-        Ok(V8Object::from_ctx(Rc::clone(self), obj))
+        Ok(V8Object::from_ctx(V8Context::clone(self), obj))
     }
 }

@@ -690,6 +690,7 @@ dependencies = [
  "gosub_shared",
  "gosub_styling",
  "gosub_testing",
+ "gosub_v8",
  "gosub_webexecutor",
  "lazy_static",
  "regex",
@@ -793,6 +794,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "gosub_v8"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "gosub_shared",
+ "gosub_webexecutor",
+ "serde_json",
+ "thiserror",
+ "v8",
+]
+
+[[package]]
 name = "gosub_webexecutor"
 version = "0.1.0"
 dependencies = [
@@ -800,7 +813,9 @@ dependencies = [
  "colored",
  "derive_more",
  "gosub_shared",
+ "gosub_v8",
  "lazy_static",
+ "paste",
  "serde_json",
  "thiserror",
  "v8",
@@ -1211,6 +1226,12 @@ dependencies = [
  "smallvec",
  "windows-targets 0.48.5",
 ]
+
+[[package]]
+name = "paste"
+version = "1.0.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "de3145af08024dea9fa9914f381a17b8fc6034dfb00f3a84013f7ff43f29ed4c"
 
 [[package]]
 name = "percent-encoding"
