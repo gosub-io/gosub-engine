@@ -1,79 +1,167 @@
-use crate::js::{
-    Args, IntoJSValue, JSContext, JSFunction, JSFunctionCallBack, JSFunctionCallBackVariadic,
-    JSFunctionVariadic, JSGetterCallback, JSInterop, JSObject, JSRuntime, JSSetterCallback,
-    JSValue, VariadicArgs, VariadicArgsInternal,
-};
-//use webinterop::{web_fns, web_interop};
-use crate::js::v8::V8Engine;
-use gosub_shared::types::Result;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-//#[web_interop]
-// struct TestStruct {
-//     //#[property]
-//     field: i32,
-//
-//     //#[property]
-//     field2: HashMap<i32, i32>, //should crash it
-// }
-//
-// //#[web_fns]
-// impl TestStruct {
-//     fn add(&self, other: i32) -> i32 {
-//         self.field + other
-//     }
-//
-//     fn add2(&mut self, other: i32) {
-//         self.field += other
-//     }
-//
-//     fn add3(a: i32, b: i32) -> i32 {
-//         a + b
-//     }
-//     fn variadic<T: VariadicArgsInternal>(_nums: T) {}
-//
-//     fn v8_variadic(_nums: V8Value) {}
-// }
+use gosub_shared::types::Result;
+use gosub_v8::V8Engine;
+use gosub_webexecutor::js::{
+    Args, IntoJSValue, IntoRustValue, JSContext, JSFunction, JSFunctionCallBack,
+    JSFunctionCallBackVariadic, JSFunctionVariadic, JSGetterCallback, JSInterop, JSObject,
+    JSRuntime, JSSetterCallback, JSValue, VariadicArgs, VariadicArgsInternal,
+};
+use gosub_webinterop::{web_fns, web_interop};
 
-//test, how we need to implement slices and vectors with refs (deref things)
-// fn array_test() {
-//     let mut test_vec = vec![1, 2, 3];
-//
-//     vec(test_vec.clone()); //clone only needed for the test
-//
-//     ref_vec(&test_vec);
-//
-//     mut_vec(&mut test_vec);
-//
-//     ref_slice(&test_vec);
-//
-//     mut_slice(&mut test_vec);
-//
-//     size_slice(<[i32; 3]>::try_from(test_vec.clone()).unwrap()); //clone only needed for the test
-//
-//     ref_size_slice(&<[i32; 3]>::try_from(test_vec.clone()).unwrap()); //clone only needed for the test
-//
-//     mut_size_slice(&mut <[i32; 3]>::try_from(test_vec.clone()).unwrap()); //clone only needed for the test
-// }
-//
-// fn vec(_vec: Vec<i32>) {}
-//
-// #[allow(clippy::ptr_arg)]
-// fn ref_vec(_vec: &Vec<i32>) {}
-//
-// #[allow(clippy::ptr_arg)]
-// fn mut_vec(_vec: &mut Vec<i32>) {}
-//
-// fn ref_slice(_slice: &[i32]) {}
-//
-// fn mut_slice(_slice: &mut [i32]) {}
-//
-// fn size_slice(_array: [i32; 3]) {}
-//
-// fn ref_size_slice(_slice: &[i32; 3]) {}
-//
-// fn mut_size_slice(_slice: &mut [i32; 3]) {}
+#[web_interop]
+struct TestStruct {
+    #[property]
+    field: i32,
+    #[property]
+    field2: u32,
+}
+
+#[web_fns(1)]
+impl TestStruct {
+    fn add(&self, other: i32) -> i32 {
+        self.field + other
+    }
+
+    fn add2(&mut self, other: i32) {
+        self.field += other
+    }
+
+    fn add3(a: i32, b: i32) -> i32 {
+        a + b
+    }
+
+    fn vec_test(&self, vec: Vec<i32>) -> Vec<i32> {
+        vec
+    }
+
+    fn slice_test<'a>(&self, slice: &'a [i32]) -> &'a [i32] {
+        slice
+    }
+
+    fn tuple(&self, tuple: (i32, String)) -> (i32, String) {
+        tuple
+    }
+
+    fn array_test(&self, array: &[[i32; 3]; 3]) {
+        println!("{:?}", array);
+    }
+
+    fn array_test2(&self, array: &[[i32; 3]; 3]) -> Vec<i32> {
+        array.iter().flatten().copied().collect()
+    }
+
+    fn variadic2(args: &impl VariadicArgs) {
+        for a in args.as_vec() {
+            println!("got an arg...: {}", a.as_string().unwrap());
+        }
+    }
+
+    fn variadic3(num: i32, args: &impl VariadicArgs) {
+        println!("got num arg...: {}", num);
+        for a in args.as_vec() {
+            println!("got an arg...: {}", a.as_string().unwrap());
+        }
+    }
+
+    fn variadic3_2(num: i32, args: &impl VariadicArgs) -> Vec<i32> {
+        let mut vec = Vec::new();
+        vec.push(num);
+        for a in args.as_vec() {
+            vec.push(a.as_number().unwrap() as i32);
+        }
+
+        vec
+    }
+
+    fn variadic4<RT: JSRuntime>(_args: &RT::VariadicArgs) {}
+
+    #[generic(I, i32, String)]
+    fn variadic5<RT: JSRuntime, I: T1>(_i: I, _args: &RT::VariadicArgs, _ctx: &RT::Context) {}
+
+    fn test222() {}
+
+    fn uses_ctx(_ctx: &impl JSContext) {}
+
+    #[generic(T, i32, String)]
+    fn generic<T: T1>(_num: i32, _val: T) {}
+
+    #[generic(T1, i32)]
+    fn generic2(_num: u64, _val: impl T1) {}
+}
+
+trait T1 {}
+
+impl T1 for i32 {}
+
+impl T1 for String {}
+
+#[test]
+fn macro_interop() {
+    let test_struct = TestStruct {
+        field: 14,
+        field2: 14,
+    };
+
+    let mut engine = V8Engine::new();
+    let mut context = engine.new_context().unwrap();
+
+    TestStruct::implement::<V8Engine>(Rc::new(RefCell::new(test_struct)), context.clone()).unwrap();
+
+    let out = context
+        .run(
+            r#"
+        let calls = []
+        calls.push([TestStruct.add(3), TestStruct.field, TestStruct.field2])
+        calls.push([TestStruct.add2(3), TestStruct.field, TestStruct.field2])
+        calls.push([TestStruct.add3(3, 4), TestStruct.field, TestStruct.field2])
+        calls.push([TestStruct.vec_test([1, 2, 3]), TestStruct.field, TestStruct.field2])
+        calls.push([TestStruct.slice_test([1, 2, 3]), TestStruct.field, TestStruct.field2])
+        calls.push([TestStruct.tuple([1, "2"]), TestStruct.field, TestStruct.field2])
+        calls.push([TestStruct.array_test([[1, 2, 3], [4, 5, 6], [7, 8, 9]]), TestStruct.field, TestStruct.field2])
+        calls.push([TestStruct.array_test2([[1, 2, 3], [4, 5, 6], [7, 8, 9]]), TestStruct.field, TestStruct.field2])
+        calls.push([TestStruct.variadic2(1, 2, 3, 4, 5, 6, 7, 8, 9, 10), TestStruct.field, TestStruct.field2])
+        calls.push([TestStruct.variadic3(1, 2, 3, 4, 5, 6, 7, 8, 9, 10), TestStruct.field, TestStruct.field2])
+        calls.push([TestStruct.variadic3_2(1, 2, 3, 4, 5, 6, 7, 8, 9, 10), TestStruct.field, TestStruct.field2])
+        calls.push([TestStruct.variadic4(1, 2, 3, 4, 5, 6, 7, 8, 9, 10), TestStruct.field, TestStruct.field2])
+        calls.push([TestStruct.variadic5(1, 2, 3, 4, 5, 6, 7, 8, 9, 10), TestStruct.field, TestStruct.field2])
+        calls.push([TestStruct.test222(), TestStruct.field, TestStruct.field2])
+        calls.push([TestStruct.uses_ctx(), TestStruct.field, TestStruct.field2])
+        calls.push([TestStruct.generic(1, "hello"), TestStruct.field, TestStruct.field2])
+        calls.push([TestStruct.generic2(1, 2), TestStruct.field, TestStruct.field2])
+        
+        calls
+        "#).expect("failed to run");
+
+    let mut expected = vec![
+        "17,14,14",
+        ",17,14",
+        "7,17,14",
+        "1,2,3,17,14",
+        "1,2,3,17,14",
+        "1,2,17,14",
+        ",17,14",
+        "1,2,3,4,5,6,7,8,9,17,14",
+        ",17,14",
+        ",17,14",
+        "1,2,3,4,5,6,7,8,9,10,17,14",
+        ",17,14",
+        ",17,14",
+        ",17,14",
+        ",17,14",
+        ",17,14",
+        ",17,14",
+    ];
+
+    let arr = out
+        .as_array()
+        .expect("failed to get array from run ret value");
+
+    for v in arr {
+        assert_eq!(v.as_string().unwrap(), expected.remove(0));
+    }
+}
 
 #[derive(Debug)]
 struct Test2 {
@@ -103,7 +191,25 @@ impl Test2 {
             println!("got an arg...: {}", a.as_string().unwrap());
         }
     }
+
+    fn generic<A: I32, B: U64>(&self, val: A, _val2: B) -> A {
+        val
+    }
 }
+
+trait I32 {}
+
+impl I32 for i32 {}
+
+impl I32 for String {}
+
+impl I32 for bool {}
+
+trait U64 {}
+
+impl U64 for u64 {}
+
+impl U64 for String {}
 
 impl JSInterop for Test2 {
     //this function will be generated by a macro
@@ -116,7 +222,7 @@ impl JSInterop for Test2 {
                 let s = Rc::clone(&s);
                 Box::new(move |cb: &mut RT::GetterCB| {
                     let ctx = cb.context();
-                    let value: i32 = s.borrow().field;
+                    let value = s.borrow().field;
                     println!("got a call to getter: {}", value);
                     let value = match value.to_js_value(ctx.clone()) {
                         Ok(value) => value,
@@ -264,7 +370,7 @@ impl JSInterop for Test2 {
                     return;
                 };
 
-                let Ok(arg0) = arg0.as_string() else {
+                let Ok(arg0) = arg0.to_rust_value() else {
                     cb.error("failed to convert argument");
                     return;
                 };
@@ -292,7 +398,7 @@ impl JSInterop for Test2 {
                     return;
                 };
 
-                let Ok(arg0) = arg0.as_string() else {
+                let Ok(arg0) = arg0.to_rust_value() else {
                     cb.error("failed to convert argument");
                     return;
                 };
@@ -325,12 +431,98 @@ impl JSInterop for Test2 {
 
         obj.set_method_variadic("variadic", &variadic)?;
 
+        let generic = {
+            let s = Rc::clone(&s);
+            RT::Function::new(ctx.clone(), move |cb| {
+                let num_args = 1; //function.arguments.len();
+                if num_args != cb.len() {
+                    cb.error("wrong number of arguments");
+                    return;
+                }
+
+                let ctx = cb.context();
+
+                let Some(arg0) = cb.args().get(0, ctx.clone()) else {
+                    cb.error("failed to get argument");
+                    return;
+                };
+
+                let Some(arg1) = cb.args().get(1, ctx.clone()) else {
+                    cb.error("failed to get argument");
+                    return;
+                };
+
+                if arg0.is_number() {
+                    let Ok(arg0): Result<i32> = arg0.to_rust_value() else {
+                        cb.error("failed to convert argument");
+                        return;
+                    };
+
+                    if arg1.is_number() {
+                        let Ok(arg1): Result<u64> = arg1.to_rust_value() else {
+                            cb.error("failed to convert argument");
+                            return;
+                        };
+
+                        let ret = s
+                            .borrow()
+                            .generic(arg0, arg1)
+                            .to_js_value(ctx.clone())
+                            .unwrap();
+
+                        cb.ret(ret);
+                    }
+                }
+
+                if arg0.is_string() {
+                    let Ok(arg0): Result<String> = arg0.to_rust_value() else {
+                        cb.error("failed to convert argument");
+                        return;
+                    };
+
+                    if arg1.is_number() {
+                        let Ok(arg1): Result<u64> = arg1.to_rust_value() else {
+                            cb.error("failed to convert argument");
+                            return;
+                        };
+
+                        let ret = s
+                            .borrow()
+                            .generic(arg0, arg1)
+                            .to_js_value(ctx.clone())
+                            .unwrap();
+
+                        cb.ret(ret);
+
+                        return;
+                    }
+
+                    if arg1.is_string() {
+                        let Ok(arg1): Result<String> = arg1.to_rust_value() else {
+                            cb.error("failed to convert argument");
+                            return;
+                        };
+
+                        let ret = s
+                            .borrow()
+                            .generic(arg0, arg1)
+                            .to_js_value(ctx.clone())
+                            .unwrap();
+
+                        cb.ret(ret);
+                    }
+                }
+            })?
+        };
+
+        obj.set_method("generic", &generic)?;
+
         Ok(())
     }
 }
 
 #[test]
-fn manual_js_inop() {
+fn manual_js_interop() {
     let mut engine = V8Engine::new();
     let mut context = engine.new_context().unwrap();
 
