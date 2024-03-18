@@ -3,15 +3,17 @@
 //! This crate connects CSS3 and HTML5 into a styling pipeline
 //!
 
+use std::fs;
+
 use gosub_css3::convert::ast_converter::convert_ast_to_stylesheet;
 use gosub_css3::parser_config::ParserConfig;
 use gosub_css3::stylesheet::{CssOrigin, CssStylesheet};
 use gosub_css3::Css3;
-use std::fs;
 
 pub mod css_colors;
-pub mod css_node_tree;
+pub mod css_values;
 mod property_list;
+pub mod render_tree;
 
 /// Loads the default user agent stylesheet
 pub fn load_default_useragent_stylesheet() -> anyhow::Result<CssStylesheet> {
