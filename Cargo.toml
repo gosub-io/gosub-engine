@@ -57,7 +57,7 @@ regex = "1"
 ureq = "2.9.6"
 anyhow = "1.0.81"
 walkdir = "2.5"
-clap = { version = "4.5.2", features = ["derive"] }
+clap = { version = "4.5.3", features = ["derive"] }
 simple_logger = "4.2.0"
 cookie = { version = "0.18.0", features = ["secure", "private"] }
 url = "2.5.0"
