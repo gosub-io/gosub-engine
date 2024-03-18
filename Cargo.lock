@@ -802,7 +802,7 @@ dependencies = [
  "gosub_webexecutor",
  "serde_json",
  "thiserror",
- "v8 0.84.0",
+ "v8",
 ]
 
 [[package]]
@@ -819,7 +819,7 @@ dependencies = [
  "paste",
  "serde_json",
  "thiserror",
- "v8 0.85.0",
+ "v8",
 ]
 
 [[package]]
@@ -2025,18 +2025,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f00cc9702ca12d3c81455259621e676d0f7251cec66a21e98fe2e9a37db93b2a"
 dependencies = [
  "getrandom",
-]
-
-[[package]]
-name = "v8"
-version = "0.84.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a9205df12ea9e4e9e966c44a408b1b905ce8784ff70ef27c4ed1e73daec51b97"
-dependencies = [
- "bitflags 2.4.2",
- "fslock",
- "once_cell",
- "which",
 ]
 
 [[package]]
