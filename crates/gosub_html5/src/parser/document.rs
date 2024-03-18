@@ -339,6 +339,14 @@ impl Document {
         None
     }
 
+    /// Returns the parent node of the given node, or None when no parent is found
+    pub fn parent_node(&self, node: &Node) -> Option<&Node> {
+        match node.parent {
+            Some(parent_node_id) => self.get_node_by_id(parent_node_id),
+            None => None,
+        }
+    }
+
     pub fn add_new_node(&mut self, node: Node) -> NodeId {
         // if a node contains attributes when adding to the tree,
         // be sure to handle the special attributes "id" and "class"

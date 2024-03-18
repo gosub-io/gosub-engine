@@ -10,21 +10,20 @@ use gosub_html5::parser::document::{visit, Document};
 use gosub_html5::parser::Html5Parser;
 use gosub_html5::visit::Visitor;
 use gosub_shared::bytes::{CharIterator, Confidence, Encoding};
-use gosub_styling::calculator::StyleCalculator;
-use gosub_styling::pipeline::Pipeline;
+use gosub_styling::css_node_tree::{generate_css_node_tree, CssNodeTree, CssValue};
 use std::fs;
 use url::Url;
 
 struct TextVisitor {
     color: String,
-    calculator: StyleCalculator,
+    css_nodetree: CssNodeTree,
 }
 
 impl TextVisitor {
-    fn new(calculator: StyleCalculator) -> Self {
+    fn new(css_node_tree: CssNodeTree) -> Self {
         Self {
             color: String::from(""),
-            calculator,
+            css_nodetree: css_node_tree,
         }
     }
 }
@@ -63,14 +62,15 @@ impl Visitor<Node> for TextVisitor {
     fn comment_leave(&mut self, _node: &Node, _data: &CommentData) {}
 
     fn element_enter(&mut self, node: &Node, data: &ElementData) {
-        let props = self.calculator.get_css_properties_for_node(node.id);
-        if props.is_some() {
-            let props = props.unwrap();
-            if let Some(col) = props.get_color_value("color") {
-                print!("\x1b[38;2;{};{};{}m", col.r, col.g, col.b);
+        if let Some(mut prop) = self.css_nodetree.get_property(node.id, "color") {
+            if let CssValue::Color(col) = prop.compute_value() {
+                self.color = format!("\x1b[38;2;{};{};{}m", col.r, col.g, col.b)
             }
-            if let Some(col) = props.get_color_value("background-color") {
-                print!("\x1b[48;2;{};{};{}m", col.r, col.g, col.b);
+        }
+
+        if let Some(mut prop) = self.css_nodetree.get_property(node.id, "background-color") {
+            if let CssValue::Color(col) = prop.compute_value() {
+                print!("\x1b[48;2;{};{};{}m", col.r, col.g, col.b)
             }
         }
 
@@ -78,14 +78,15 @@ impl Visitor<Node> for TextVisitor {
     }
 
     fn element_leave(&mut self, node: &Node, data: &ElementData) {
-        let props = self.calculator.get_css_properties_for_node(node.id);
-        if props.is_some() {
-            let props = props.unwrap();
-            if let Some(col) = props.get_color_value("color") {
-                print!("\x1b[38;2;{};{};{}m", col.r, col.g, col.b);
+        if let Some(mut prop) = self.css_nodetree.get_property(node.id, "color") {
+            if let CssValue::Color(col) = prop.compute_value() {
+                self.color = format!("\x1b[38;2;{};{};{}m", col.r, col.g, col.b)
             }
-            if let Some(col) = props.get_color_value("background-color") {
-                print!("\x1b[48;2;{};{};{}m", col.r, col.g, col.b);
+        }
+
+        if let Some(mut prop) = self.css_nodetree.get_property(node.id, "background-color") {
+            if let CssValue::Color(col) = prop.compute_value() {
+                print!("\x1b[48;2;{};{};{}m", col.r, col.g, col.b)
             }
         }
 
@@ -132,23 +133,10 @@ fn main() -> Result<()> {
     let _parse_errors =
         Html5Parser::parse_document(&mut chars, Document::clone(&doc_handle), None)?;
 
-    // Create stylesheet calculator and load default user agent stylesheets
-    let mut calculator = StyleCalculator::new(Document::clone(&doc_handle));
-    // calculator.add_stylesheet(load_default_useragent_stylesheet()?);
+    let css_tree = generate_css_node_tree(Document::clone(&doc_handle))?;
 
-    // pipeline
-    calculator.find_declared_values();
-    calculator.find_cascaded_values();
-    calculator.find_specified_values();
-    // calculator.find_computed_values(1024, 786);     // Do we need more info?
-    // calculator.find_used_values(/*layout*/);        // we need to have a layout for calculating these values
-    // calculator.find_actual_values();                // Makes sure we use 2px instead of a computed 2.25px
-
-    let pipeline = Pipeline::new();
-    let render_tree = pipeline.generate_render_tree(Document::clone(&doc_handle), &calculator);
-
-    let mut visitor = Box::new(TextVisitor::new(calculator)) as Box<dyn Visitor<Node>>;
-    visit(&Document::clone(&render_tree), &mut visitor);
+    let mut visitor = Box::new(TextVisitor::new(css_tree)) as Box<dyn Visitor<Node>>;
+    visit(&Document::clone(&doc_handle), &mut visitor);
 
     Ok(())
 }

@@ -1,14 +1,18 @@
 use lazy_static::lazy_static;
 use std::convert::From;
+use std::fmt::Debug;
 
 // Values for this table is taken from https://www.w3.org/TR/CSS21/propidx.html
 // Probably not the complete list, but it will do for now
 
+/// A list of CSS color names
 pub struct CssColorEntry {
     pub name: &'static str,
     pub value: &'static str,
 }
 
+/// A RGB color with alpha channel
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RgbColor {
     /// Red component
     pub r: u8,
@@ -21,6 +25,7 @@ pub struct RgbColor {
 }
 
 impl RgbColor {
+    /// Create a new color with r,g,b and alpha values
     pub fn new(r: u8, g: u8, b: u8, a: u8) -> Self {
         RgbColor { r, g, b, a }
     }
@@ -28,6 +33,7 @@ impl RgbColor {
 
 impl Default for RgbColor {
     fn default() -> Self {
+        // Default full alpha (solid) with black color
         RgbColor {
             r: 0,
             g: 0,
@@ -47,12 +53,19 @@ impl From<&str> for RgbColor {
         }
         if value.starts_with("rgb(") {
             // Rgb function
+            todo!()
         }
         if value.starts_with("rgba(") {
             // Rgba function
+            todo!()
         }
         if value.starts_with("hsl(") {
             // HSL function
+            todo!()
+        }
+        if value.starts_with("hsla(") {
+            // HSLA function
+            todo!()
         }
 
         return get_hex_color_from_name(value).map_or(RgbColor::default(), parse_hex);
@@ -726,6 +739,10 @@ lazy_static! {
             name: "yellowgreen",
             value: "#9acd32",
         },
+        CssColorEntry {
+            name: "rebeccapurple",
+            value: "#663399",
+        },
     ];
 }
 
@@ -827,6 +844,33 @@ mod tests {
         assert_eq!(color.r, 0);
         assert_eq!(color.g, 0);
         assert_eq!(color.b, 0);
+        assert_eq!(color.a, 255);
+    }
+
+    #[test]
+    fn color_names() {
+        let color = super::RgbColor::from("red");
+        assert_eq!(color.r, 255);
+        assert_eq!(color.g, 0);
+        assert_eq!(color.b, 0);
+        assert_eq!(color.a, 255);
+
+        let color = super::RgbColor::from("green");
+        assert_eq!(color.r, 0);
+        assert_eq!(color.g, 128);
+        assert_eq!(color.b, 0);
+        assert_eq!(color.a, 255);
+
+        let color = super::RgbColor::from("blue");
+        assert_eq!(color.r, 0);
+        assert_eq!(color.g, 0);
+        assert_eq!(color.b, 255);
+        assert_eq!(color.a, 255);
+
+        let color = super::RgbColor::from("rebeccapurple");
+        assert_eq!(color.r, 0x66);
+        assert_eq!(color.g, 0x33);
+        assert_eq!(color.b, 0x99);
         assert_eq!(color.a, 255);
     }
 }
