@@ -55,7 +55,7 @@ derive_more = "0.99"
 lazy_static = "1.4"
 regex = "1"
 ureq = "2.9.6"
-anyhow = "1.0.79"
+anyhow = "1.0.81"
 walkdir = "2.5"
 clap = { version = "4.5.2", features = ["derive"] }
 simple_logger = "4.2.0"
