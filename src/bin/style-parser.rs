@@ -1,4 +1,8 @@
+use std::fs;
+
 use anyhow::{bail, Result};
+use url::Url;
+
 use gosub_html5::node::data::comment::CommentData;
 use gosub_html5::node::data::doctype::DocTypeData;
 use gosub_html5::node::data::document::DocumentData;
@@ -10,17 +14,16 @@ use gosub_html5::parser::document::{visit, Document};
 use gosub_html5::parser::Html5Parser;
 use gosub_html5::visit::Visitor;
 use gosub_shared::bytes::{CharIterator, Confidence, Encoding};
-use gosub_styling::css_node_tree::{generate_css_node_tree, CssNodeTree, CssValue};
-use std::fs;
-use url::Url;
+use gosub_styling::css_values::CssValue;
+use gosub_styling::render_tree::{generate_render_tree, RenderTree};
 
 struct TextVisitor {
     color: String,
-    css_nodetree: CssNodeTree,
+    css_nodetree: RenderTree,
 }
 
 impl TextVisitor {
-    fn new(css_node_tree: CssNodeTree) -> Self {
+    fn new(css_node_tree: RenderTree) -> Self {
         Self {
             color: String::from(""),
             css_nodetree: css_node_tree,
@@ -133,9 +136,9 @@ fn main() -> Result<()> {
     let _parse_errors =
         Html5Parser::parse_document(&mut chars, Document::clone(&doc_handle), None)?;
 
-    let css_tree = generate_css_node_tree(Document::clone(&doc_handle))?;
+    let render_tree = generate_render_tree(Document::clone(&doc_handle))?;
 
-    let mut visitor = Box::new(TextVisitor::new(css_tree)) as Box<dyn Visitor<Node>>;
+    let mut visitor = Box::new(TextVisitor::new(render_tree)) as Box<dyn Visitor<Node>>;
     visit(&Document::clone(&doc_handle), &mut visitor);
 
     Ok(())

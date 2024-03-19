@@ -1,91 +1,22 @@
-use crate::css_colors::RgbColor;
 use core::fmt::Debug;
-use gosub_css3::stylesheet::{
-    CssOrigin, CssSelector, CssSelectorPart, CssSelectorType, MatcherType, Specificity,
-};
-use gosub_html5::node::NodeId;
-use gosub_html5::parser::document::{DocumentHandle, TreeIterator};
-use gosub_shared::types::Result;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt::Display;
 
-/// Generates a css node tree for the given document based on its loaded stylesheets
-pub fn generate_css_node_tree(document: DocumentHandle) -> Result<CssNodeTree> {
-    // Restart css map
-    let mut css_node_tree = CssNodeTree::new(DocumentHandle::clone(&document));
+use gosub_css3::stylesheet::{
+    CssOrigin, CssSelector, CssSelectorPart, CssSelectorType, MatcherType, Specificity,
+};
+use gosub_html5::node::NodeId;
+use gosub_html5::parser::document::DocumentHandle;
 
-    // Iterate the complete document tree
-    let tree_iterator = TreeIterator::new(&document);
-    for current_node_id in tree_iterator {
-        let mut css_map_entry = CssProperties::new();
-
-        let binding = document.get();
-        let node = binding
-            .get_node_by_id(current_node_id)
-            .expect("node not found");
-        if !node.is_element() {
-            continue;
-        }
-
-        for sheet in document.get().stylesheets.iter() {
-            for rule in sheet.rules.iter() {
-                for selector in rule.selectors().iter() {
-                    if !match_selector(DocumentHandle::clone(&document), current_node_id, selector)
-                    {
-                        continue;
-                    }
-
-                    // Selector matched, so we add all declared values to the map
-                    for declaration in rule.declarations().iter() {
-                        let prop_name = declaration.property.clone();
-
-                        let declaration = DeclarationProperty {
-                            value: CssValue::String(declaration.value.clone()), // @TODO: parse the value into the correct CSSValue
-                            origin: sheet.origin.clone(),
-                            important: declaration.important,
-                            location: sheet.location.clone(),
-                            specificity: selector.specificity(),
-                        };
-
-                        if let std::collections::hash_map::Entry::Vacant(e) =
-                            css_map_entry.properties.entry(prop_name.clone())
-                        {
-                            let mut entry = CssProperty::new(prop_name.as_str());
-                            entry.declared.push(declaration);
-                            e.insert(entry);
-                        } else {
-                            let entry = css_map_entry.properties.get_mut(&prop_name).unwrap();
-                            entry.declared.push(declaration);
-                        }
-                    }
-                }
-            }
-        }
-
-        css_node_tree.nodes.insert(current_node_id, css_map_entry);
-    }
-
-    for (node_id, props) in css_node_tree.nodes.iter() {
-        println!("Node: {:?}", node_id);
-        for (prop, values) in props.properties.iter() {
-            println!("  {}", prop);
-            if prop == "color" {
-                for decl in values.declared.iter() {
-                    println!(
-                        "    {:?} {:?} {:?} {:?}",
-                        decl.origin, decl.location, decl.value, decl.specificity
-                    );
-                }
-            }
-        }
-    }
-
-    Ok(css_node_tree)
-}
+use crate::css_colors::RgbColor;
 
 // Matches a complete selector (all parts) against the given node(id)
-fn match_selector(document: DocumentHandle, node_id: NodeId, selector: &CssSelector) -> bool {
+pub(crate) fn match_selector(
+    document: DocumentHandle,
+    node_id: NodeId,
+    selector: &CssSelector,
+) -> bool {
     let mut parts = selector.parts.clone();
     parts.reverse();
     match_selector_part(document, node_id, &mut parts)
@@ -451,7 +382,7 @@ impl CssProperty {
 /// Map of all declared values for a single node. Note that these are only the defined properties, not
 /// the non-existing properties.
 pub struct CssProperties {
-    properties: HashMap<String, CssProperty>,
+    pub(crate) properties: HashMap<String, CssProperty>,
 }
 
 impl Default for CssProperties {
@@ -492,58 +423,6 @@ impl Display for CssValue {
             CssValue::String(s) => write!(f, "{}", s),
             CssValue::Unit(val, unit) => write!(f, "{}{}", val, unit),
         }
-    }
-}
-
-/// Map of all declared values for all nodes in the document
-pub struct CssNodeTree {
-    nodes: HashMap<NodeId, CssProperties>,
-    document: DocumentHandle,
-}
-
-impl CssNodeTree {
-    /// Creates a new CssNodeTree for the given document
-    pub fn new(doc: DocumentHandle) -> Self {
-        Self {
-            document: doc,
-            nodes: HashMap::new(),
-        }
-    }
-
-    /// Returns a clone of the document handle
-    pub fn get_document(&self) -> DocumentHandle {
-        DocumentHandle::clone(&self.document)
-    }
-
-    /// Mark the given node as dirty, so it will be recalculated
-    pub fn mark_dirty(&mut self, node_id: NodeId) {
-        if let Some(props) = self.nodes.get_mut(&node_id) {
-            for prop in props.properties.values_mut() {
-                prop.mark_dirty();
-            }
-        }
-    }
-
-    /// Mark the given node as clean, so it will not be recalculated
-    pub fn mark_clean(&mut self, node_id: NodeId) {
-        if let Some(props) = self.nodes.get_mut(&node_id) {
-            for prop in props.properties.values_mut() {
-                prop.mark_clean();
-            }
-        }
-    }
-
-    /// Retrieves the property for the given node, or None when not found
-    pub fn get_property(&self, node_id: NodeId, prop_name: &str) -> Option<CssProperty> {
-        let props = self.nodes.get(&node_id);
-        props?;
-
-        props.expect("props").properties.get(prop_name).cloned()
-    }
-
-    /// Retrieves the value for the given property for the given node, or None when not found
-    pub fn get_all_properties(&self, node_id: NodeId) -> Option<&CssProperties> {
-        self.nodes.get(&node_id)
     }
 }
 

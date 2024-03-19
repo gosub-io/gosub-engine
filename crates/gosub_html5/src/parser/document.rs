@@ -1,3 +1,16 @@
+use core::fmt;
+use core::fmt::Debug;
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::fmt::Display;
+use std::ops::{Deref, DerefMut};
+use std::rc::{Rc, Weak};
+
+use url::Url;
+
+use gosub_css3::stylesheet::CssStylesheet;
+use gosub_shared::types::Result;
+
 use crate::element_class::ElementClass;
 use crate::errors::Error;
 use crate::node::arena::NodeArena;
@@ -11,16 +24,6 @@ use crate::parser::quirks::QuirksMode;
 use crate::parser::tree_builder::TreeBuilder;
 use crate::util::is_valid_id_attribute_value;
 use crate::visit::Visitor;
-use core::fmt;
-use core::fmt::Debug;
-use gosub_css3::stylesheet::CssStylesheet;
-use gosub_shared::types::Result;
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::fmt::Display;
-use std::ops::{Deref, DerefMut};
-use std::rc::{Rc, Weak};
-use url::Url;
 
 /// Type of the given document
 #[derive(PartialEq, Debug, Copy, Clone)]
@@ -276,6 +279,9 @@ impl Document {
         }
     }
 
+    pub fn count_nodes(&self) -> usize {
+        self.arena.count_nodes()
+    }
     /// Returns a shared reference-counted handle for the document
     pub fn shared(location: Option<Url>) -> DocumentHandle {
         DocumentHandle(Rc::new(RefCell::new(Self::new(location))))
@@ -1019,12 +1025,13 @@ impl Iterator for TreeIterator {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use crate::node::{NodeTrait, NodeType, HTML_NAMESPACE};
     use crate::parser::document::{DocumentBuilder, DocumentTaskQueue, TreeIterator};
     use crate::parser::query::Query;
     use crate::parser::tree_builder::TreeBuilder;
     use crate::parser::{Node, NodeData, NodeId};
-    use std::collections::HashMap;
 
     #[test]
     fn relocate() {

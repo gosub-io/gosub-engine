@@ -1,5 +1,6 @@
-use crate::css_node_tree::CssValue;
 use lazy_static::lazy_static;
+
+use crate::css_values::CssValue;
 
 // Values for this table is taken from https://www.w3.org/TR/CSS21/propidx.html
 // Probably not the complete list, but it will do for now
