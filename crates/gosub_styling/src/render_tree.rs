@@ -9,7 +9,7 @@ use crate::css_values::{
 };
 
 /// Map of all declared values for all nodes in the document
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct RenderTree {
     pub nodes: HashMap<NodeId, RenderTreeNode>,
 }
@@ -48,6 +48,7 @@ impl RenderTree {
     }
 }
 
+#[derive(Debug)]
 pub struct RenderTreeNode {
     pub properties: CssProperties,
     pub children: Vec<NodeId>,
@@ -128,6 +129,16 @@ pub fn generate_render_tree(document: DocumentHandle) -> Result<RenderTree> {
             .get_node_by_id(current_node_id)
             .expect("node not found");
         if !node.is_element() {
+            let render_tree_node = RenderTreeNode {
+                properties: css_map_entry,
+                children: node.children.clone(),
+                parent: node.parent,
+                name: node.name.clone(), // We might be able to move node into render_tree_node
+                namespace: node.namespace.clone(),
+                data: node.data.clone(),
+            };
+
+            render_tree.nodes.insert(current_node_id, render_tree_node);
             continue;
         }
 
@@ -168,7 +179,7 @@ pub fn generate_render_tree(document: DocumentHandle) -> Result<RenderTree> {
 
         let render_tree_node = RenderTreeNode {
             properties: css_map_entry,
-            children: Vec::new(),
+            children: node.children.clone(),
             parent: node.parent,
             name: node.name.clone(), // We might be able to move node into render_tree_node
             namespace: node.namespace.clone(),
