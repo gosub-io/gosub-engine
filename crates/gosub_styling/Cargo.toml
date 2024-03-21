@@ -12,3 +12,4 @@ gosub_html5 = { path = "../gosub_html5" }
 lazy_static = "1.4"
 anyhow = "1.0.81"
 regex = "1.10.3"
+colors-transform = "0.2.11"

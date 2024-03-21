@@ -14,19 +14,18 @@ use gosub_html5::parser::document::{visit, Document};
 use gosub_html5::parser::Html5Parser;
 use gosub_html5::visit::Visitor;
 use gosub_shared::bytes::{CharIterator, Confidence, Encoding};
-use gosub_styling::css_values::CssValue;
 use gosub_styling::render_tree::{generate_render_tree, RenderTree};
 
 struct TextVisitor {
     color: String,
-    css_nodetree: RenderTree,
+    render_tree: RenderTree,
 }
 
 impl TextVisitor {
-    fn new(css_node_tree: RenderTree) -> Self {
+    fn new(render_tree: RenderTree) -> Self {
         Self {
             color: String::from(""),
-            css_nodetree: css_node_tree,
+            render_tree: render_tree,
         }
     }
 }
@@ -46,7 +45,7 @@ impl Visitor<Node> for TextVisitor {
         let s = &data.value;
 
         if !self.color.is_empty() {
-            print!("\x1b[{}m", self.color)
+            print!("\x1b[{}", self.color)
         }
 
         if !s.is_empty() {
@@ -65,14 +64,14 @@ impl Visitor<Node> for TextVisitor {
     fn comment_leave(&mut self, _node: &Node, _data: &CommentData) {}
 
     fn element_enter(&mut self, node: &Node, data: &ElementData) {
-        if let Some(mut prop) = self.css_nodetree.get_property(node.id, "color") {
-            if let CssValue::Color(col) = prop.compute_value() {
+        if let Some(mut prop) = self.render_tree.get_property(node.id, "color") {
+            if let Some(col) = prop.compute_value().to_color() {
                 self.color = format!("\x1b[38;2;{};{};{}m", col.r, col.g, col.b)
             }
         }
 
-        if let Some(mut prop) = self.css_nodetree.get_property(node.id, "background-color") {
-            if let CssValue::Color(col) = prop.compute_value() {
+        if let Some(mut prop) = self.render_tree.get_property(node.id, "background-color") {
+            if let Some(col) = prop.compute_value().to_color() {
                 print!("\x1b[48;2;{};{};{}m", col.r, col.g, col.b)
             }
         }
@@ -81,14 +80,14 @@ impl Visitor<Node> for TextVisitor {
     }
 
     fn element_leave(&mut self, node: &Node, data: &ElementData) {
-        if let Some(mut prop) = self.css_nodetree.get_property(node.id, "color") {
-            if let CssValue::Color(col) = prop.compute_value() {
+        if let Some(mut prop) = self.render_tree.get_property(node.id, "color") {
+            if let Some(col) = prop.compute_value().to_color() {
                 self.color = format!("\x1b[38;2;{};{};{}m", col.r, col.g, col.b)
             }
         }
 
-        if let Some(mut prop) = self.css_nodetree.get_property(node.id, "background-color") {
-            if let CssValue::Color(col) = prop.compute_value() {
+        if let Some(mut prop) = self.render_tree.get_property(node.id, "background-color") {
+            if let Some(col) = prop.compute_value().to_color() {
                 print!("\x1b[48;2;{};{};{}m", col.r, col.g, col.b)
             }
         }

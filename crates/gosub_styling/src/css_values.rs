@@ -381,6 +381,7 @@ impl CssProperty {
 
 /// Map of all declared values for a single node. Note that these are only the defined properties, not
 /// the non-existing properties.
+#[derive(Debug)]
 pub struct CssProperties {
     pub(crate) properties: HashMap<String, CssProperty>,
 }
@@ -416,12 +417,22 @@ impl Display for CssValue {
         match self {
             CssValue::None => write!(f, "none"),
             CssValue::Color(col) => {
-                write!(f, "#{:02x}{:02x}{:02x}{:02x}", col.r, col.g, col.b, col.a)
+                write!(f, "#{:02x}{:02x}{:02x}{:02x}", col.r as u8, col.g as u8, col.b as u8, col.a as u8)
             }
             CssValue::Number(num) => write!(f, "{}", num),
             CssValue::Percentage(p) => write!(f, "{}%", p),
             CssValue::String(s) => write!(f, "{}", s),
             CssValue::Unit(val, unit) => write!(f, "{}{}", val, unit),
+        }
+    }
+}
+
+impl CssValue {
+    pub fn to_color(&self) -> Option<RgbColor> {
+        match self {
+            CssValue::Color(col) => Some(col.clone()),
+            CssValue::String(s) => Some(RgbColor::from(s.as_str())),
+            _ => None,
         }
     }
 }

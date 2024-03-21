@@ -28,6 +28,7 @@ impl RenderTree {
         for (id, node) in &self.nodes {
             if let NodeData::Element(element) = &node.data {
                 if removable_elements.contains(&element.name.as_str()) {
+                    // @todo: does this also "remove" the children?
                     delete.push(*id);
                     continue;
                 }
@@ -36,6 +37,7 @@ impl RenderTree {
             // Check CSS styles and remove if not renderable
             if let Some(mut prop) = self.get_property(*id, "display") {
                 if prop.compute_value().to_string() == "none" {
+                    // @todo: does this also "remove" the children?
                     delete.push(*id);
                     continue;
                 }
@@ -48,6 +50,7 @@ impl RenderTree {
     }
 }
 
+#[derive(Debug)]
 pub struct RenderTreeNode {
     pub properties: CssProperties,
     pub children: Vec<NodeId>,
@@ -134,15 +137,14 @@ pub fn generate_render_tree(document: DocumentHandle) -> Result<RenderTree> {
         for sheet in document.get().stylesheets.iter() {
             for rule in sheet.rules.iter() {
                 for selector in rule.selectors().iter() {
-                    if !match_selector(DocumentHandle::clone(&document), current_node_id, selector)
-                    {
+                    if !match_selector(DocumentHandle::clone(&document), current_node_id, selector) {
                         continue;
                     }
 
                     // Selector matched, so we add all declared values to the map
                     for declaration in rule.declarations().iter() {
                         let prop_name = declaration.property.clone();
-
+                        
                         let declaration = DeclarationProperty {
                             value: CssValue::String(declaration.value.clone()), // @TODO: parse the value into the correct CSSValue
                             origin: sheet.origin.clone(),
@@ -178,20 +180,20 @@ pub fn generate_render_tree(document: DocumentHandle) -> Result<RenderTree> {
         render_tree.nodes.insert(current_node_id, render_tree_node);
     }
 
-    for (node_id, render_node) in render_tree.nodes.iter() {
-        println!("Node: {:?}", node_id);
-        for (prop, values) in render_node.properties.properties.iter() {
-            println!("  {}", prop);
-            if prop == "color" {
-                for decl in values.declared.iter() {
-                    println!(
-                        "    {:?} {:?} {:?} {:?}",
-                        decl.origin, decl.location, decl.value, decl.specificity
-                    );
-                }
-            }
-        }
-    }
+    // for (node_id, render_node) in render_tree.nodes.iter() {
+    //     println!("Node: {:?}", node_id);
+    //     for (prop, values) in render_node.properties.properties.iter() {
+    //         println!("  {}", prop);
+    //         if prop == "color" {
+    //             for decl in values.declared.iter() {
+    //                 println!(
+    //                     "    {:?} {:?} {:?} {:?}",
+    //                     decl.origin, decl.location, decl.value, decl.specificity
+    //                 );
+    //             }
+    //         }
+    //     }
+    // }
 
     render_tree.remove_unrenderable_nodes();
 

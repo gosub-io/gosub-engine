@@ -1,6 +1,9 @@
 use lazy_static::lazy_static;
 use std::convert::From;
 use std::fmt::Debug;
+use std::str::FromStr;
+use colors_transform::{Rgb, Hsl, AlphaColor};
+use colors_transform::Color;
 
 // Values for this table is taken from https://www.w3.org/TR/CSS21/propidx.html
 // Probably not the complete list, but it will do for now
@@ -15,18 +18,18 @@ pub struct CssColorEntry {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RgbColor {
     /// Red component
-    pub r: u8,
+    pub r: f32,
     /// Green component
-    pub g: u8,
+    pub g: f32,
     /// Blue component
-    pub b: u8,
+    pub b: f32,
     /// Alpha component (0 = transparent, 255 = solid)
-    pub a: u8,
+    pub a: f32,
 }
 
 impl RgbColor {
     /// Create a new color with r,g,b and alpha values
-    pub fn new(r: u8, g: u8, b: u8, a: u8) -> Self {
+    pub fn new(r: f32, g: f32, b: f32, a: f32) -> Self {
         RgbColor { r, g, b, a }
     }
 }
@@ -35,10 +38,10 @@ impl Default for RgbColor {
     fn default() -> Self {
         // Default full alpha (solid) with black color
         RgbColor {
-            r: 0,
-            g: 0,
-            b: 0,
-            a: 255,
+            r: 0.0,
+            g: 0.0,
+            b: 0.0,
+            a: 255.0,
         }
     }
 }
@@ -53,19 +56,38 @@ impl From<&str> for RgbColor {
         }
         if value.starts_with("rgb(") {
             // Rgb function
-            todo!()
+            let rgb = Rgb::from_str(value);
+            if rgb.is_err() {
+                return RgbColor::default();
+            }
+            let rgb = rgb.unwrap();
+            return RgbColor::new(rgb.get_red(), rgb.get_green(), rgb.get_blue(), 255.0);
         }
         if value.starts_with("rgba(") {
             // Rgba function
-            todo!()
+            let rgb = Rgb::from_str(value);
+            if rgb.is_err() {
+                return RgbColor::default();
+            }
+            let rgb = rgb.unwrap();
+            return RgbColor::new(rgb.get_red(), rgb.get_green(), rgb.get_blue(), rgb.get_alpha());
         }
         if value.starts_with("hsl(") {
-            // HSL function
-            todo!()
+            let hsl = Hsl::from_str(value);
+            if hsl.is_err() {
+                return RgbColor::default();
+            }
+            let rgb: Rgb = hsl.unwrap().to_rgb();
+            return RgbColor::new(rgb.get_red(), rgb.get_green(), rgb.get_blue(), 255.0);
         }
         if value.starts_with("hsla(") {
             // HSLA function
-            todo!()
+            let hsl = Hsl::from_str(value);
+            if hsl.is_err() {
+                return RgbColor::default();
+            }
+            let rgb: Rgb = hsl.unwrap().to_rgb();
+            return RgbColor::new(rgb.get_red(), rgb.get_green(), rgb.get_blue(), rgb.get_alpha());
         }
 
         return get_hex_color_from_name(value).map_or(RgbColor::default(), parse_hex);
@@ -108,10 +130,10 @@ fn parse_hex(value: &str) -> RgbColor {
         let g = i32::from_str_radix(&value[2..3], 16).unwrap();
         let b = i32::from_str_radix(&value[3..4], 16).unwrap();
         return RgbColor::new(
-            (r * 16 + r) as u8,
-            (g * 16 + g) as u8,
-            (b * 16 + b) as u8,
-            255,
+            (r * 16 + r) as f32,
+            (g * 16 + g) as f32,
+            (b * 16 + b) as f32,
+            255.0,
         );
     }
 
@@ -122,10 +144,10 @@ fn parse_hex(value: &str) -> RgbColor {
         let b = i32::from_str_radix(&value[3..4], 16).unwrap();
         let a = i32::from_str_radix(&value[4..5], 16).unwrap();
         return RgbColor::new(
-            (r * 16 + r) as u8,
-            (g * 16 + g) as u8,
-            (b * 16 + b) as u8,
-            (a * 16 + a) as u8,
+            (r * 16 + r) as f32,
+            (g * 16 + g) as f32,
+            (b * 16 + b) as f32,
+            (a * 16 + a) as f32,
         );
     }
 
@@ -134,7 +156,7 @@ fn parse_hex(value: &str) -> RgbColor {
         let r = i32::from_str_radix(&value[1..3], 16).unwrap();
         let g = i32::from_str_radix(&value[3..5], 16).unwrap();
         let b = i32::from_str_radix(&value[5..7], 16).unwrap();
-        return RgbColor::new(r as u8, g as u8, b as u8, 255);
+        return RgbColor::new(r as f32, g as f32, b as f32, 255.0);
     }
 
     // 8 hex digits (RRGGBBAA)
@@ -143,7 +165,7 @@ fn parse_hex(value: &str) -> RgbColor {
         let g = i32::from_str_radix(&value[3..5], 16).unwrap();
         let b = i32::from_str_radix(&value[5..7], 16).unwrap();
         let a = i32::from_str_radix(&value[7..9], 16).unwrap();
-        return RgbColor::new(r as u8, g as u8, b as u8, a as u8);
+        return RgbColor::new(r as f32, g as f32, b as f32, a as f32);
     }
 
     RgbColor::default()
