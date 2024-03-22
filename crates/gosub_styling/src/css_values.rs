@@ -417,7 +417,11 @@ impl Display for CssValue {
         match self {
             CssValue::None => write!(f, "none"),
             CssValue::Color(col) => {
-                write!(f, "#{:02x}{:02x}{:02x}{:02x}", col.r as u8, col.g as u8, col.b as u8, col.a as u8)
+                write!(
+                    f,
+                    "#{:02x}{:02x}{:02x}{:02x}",
+                    col.r as u8, col.g as u8, col.b as u8, col.a as u8
+                )
             }
             CssValue::Number(num) => write!(f, "{}", num),
             CssValue::Percentage(p) => write!(f, "{}%", p),
@@ -430,7 +434,7 @@ impl Display for CssValue {
 impl CssValue {
     pub fn to_color(&self) -> Option<RgbColor> {
         match self {
-            CssValue::Color(col) => Some(col.clone()),
+            CssValue::Color(col) => Some(*col),
             CssValue::String(s) => Some(RgbColor::from(s.as_str())),
             _ => None,
         }

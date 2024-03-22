@@ -498,7 +498,7 @@ impl Document {
 }
 
 // Walk the document tree with the given visitor
-pub fn visit(doc: &DocumentHandle, visitor: &mut Box<dyn Visitor<Node>>) {
+pub fn walk_document_tree(doc: &DocumentHandle, visitor: &mut Box<dyn Visitor<Node>>) {
     let binding = doc.get();
     let root = binding.get_root();
     internal_visit(doc, root, visitor);

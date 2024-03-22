@@ -1,9 +1,9 @@
+use colors_transform::Color;
+use colors_transform::{AlphaColor, Hsl, Rgb};
 use lazy_static::lazy_static;
 use std::convert::From;
 use std::fmt::Debug;
 use std::str::FromStr;
-use colors_transform::{Rgb, Hsl, AlphaColor};
-use colors_transform::Color;
 
 // Values for this table is taken from https://www.w3.org/TR/CSS21/propidx.html
 // Probably not the complete list, but it will do for now
@@ -70,7 +70,12 @@ impl From<&str> for RgbColor {
                 return RgbColor::default();
             }
             let rgb = rgb.unwrap();
-            return RgbColor::new(rgb.get_red(), rgb.get_green(), rgb.get_blue(), rgb.get_alpha());
+            return RgbColor::new(
+                rgb.get_red(),
+                rgb.get_green(),
+                rgb.get_blue(),
+                rgb.get_alpha(),
+            );
         }
         if value.starts_with("hsl(") {
             let hsl = Hsl::from_str(value);
@@ -87,7 +92,12 @@ impl From<&str> for RgbColor {
                 return RgbColor::default();
             }
             let rgb: Rgb = hsl.unwrap().to_rgb();
-            return RgbColor::new(rgb.get_red(), rgb.get_green(), rgb.get_blue(), rgb.get_alpha());
+            return RgbColor::new(
+                rgb.get_red(),
+                rgb.get_green(),
+                rgb.get_blue(),
+                rgb.get_alpha(),
+            );
         }
 
         return get_hex_color_from_name(value).map_or(RgbColor::default(), parse_hex);
@@ -773,126 +783,126 @@ mod tests {
     #[test]
     fn test_css_color() {
         let color = super::RgbColor::from("#ff0000");
-        assert_eq!(color.r, 255);
-        assert_eq!(color.g, 0);
-        assert_eq!(color.b, 0);
-        assert_eq!(color.a, 255);
+        assert_eq!(color.r, 255.0);
+        assert_eq!(color.g, 0.0);
+        assert_eq!(color.b, 0.0);
+        assert_eq!(color.a, 255.0);
 
         let color = super::RgbColor::from("#f00");
-        assert_eq!(color.r, 255);
-        assert_eq!(color.g, 0);
-        assert_eq!(color.b, 0);
-        assert_eq!(color.a, 255);
+        assert_eq!(color.r, 255.0);
+        assert_eq!(color.g, 0.0);
+        assert_eq!(color.b, 0.0);
+        assert_eq!(color.a, 255.0);
 
         let color = super::RgbColor::from("#ff0000ff");
-        assert_eq!(color.r, 255);
-        assert_eq!(color.g, 0);
-        assert_eq!(color.b, 0);
-        assert_eq!(color.a, 255);
+        assert_eq!(color.r, 255.0);
+        assert_eq!(color.g, 0.0);
+        assert_eq!(color.b, 0.0);
+        assert_eq!(color.a, 255.0);
 
         let color = super::RgbColor::from("#f00f");
-        assert_eq!(color.r, 255);
-        assert_eq!(color.g, 0);
-        assert_eq!(color.b, 0);
-        assert_eq!(color.a, 255);
+        assert_eq!(color.r, 255.0);
+        assert_eq!(color.g, 0.0);
+        assert_eq!(color.b, 0.0);
+        assert_eq!(color.a, 255.0);
 
         let color = super::RgbColor::from("#ff0000");
-        assert_eq!(color.r, 255);
-        assert_eq!(color.g, 0);
-        assert_eq!(color.b, 0);
-        assert_eq!(color.a, 255);
+        assert_eq!(color.r, 255.0);
+        assert_eq!(color.g, 0.0);
+        assert_eq!(color.b, 0.0);
+        assert_eq!(color.a, 255.0);
 
         let color = super::RgbColor::from("#f00");
-        assert_eq!(color.r, 255);
-        assert_eq!(color.g, 0);
-        assert_eq!(color.b, 0);
-        assert_eq!(color.a, 255);
+        assert_eq!(color.r, 255.0);
+        assert_eq!(color.g, 0.0);
+        assert_eq!(color.b, 0.0);
+        assert_eq!(color.a, 255.0);
 
         let color = super::RgbColor::from("#ff0000ff");
-        assert_eq!(color.r, 255);
-        assert_eq!(color.g, 0);
-        assert_eq!(color.b, 0);
-        assert_eq!(color.a, 255);
+        assert_eq!(color.r, 255.0);
+        assert_eq!(color.g, 0.0);
+        assert_eq!(color.b, 0.0);
+        assert_eq!(color.a, 255.0);
 
         let color = super::RgbColor::from("#f00f");
-        assert_eq!(color.r, 255);
-        assert_eq!(color.g, 0);
-        assert_eq!(color.b, 0);
-        assert_eq!(color.a, 255);
+        assert_eq!(color.r, 255.0);
+        assert_eq!(color.g, 0.0);
+        assert_eq!(color.b, 0.0);
+        assert_eq!(color.a, 255.0);
     }
 
     #[test]
     fn random_colors() {
         let color = super::RgbColor::from("#1234");
-        assert_eq!(color.r, 17);
-        assert_eq!(color.g, 34);
-        assert_eq!(color.b, 51);
-        assert_eq!(color.a, 68);
+        assert_eq!(color.r, 17.0);
+        assert_eq!(color.g, 34.0);
+        assert_eq!(color.b, 51.0);
+        assert_eq!(color.a, 68.0);
 
         let color = super::RgbColor::from("#c2e");
-        assert_eq!(color.r, 204);
-        assert_eq!(color.g, 34);
-        assert_eq!(color.b, 238);
-        assert_eq!(color.a, 255);
+        assert_eq!(color.r, 204.0);
+        assert_eq!(color.g, 34.0);
+        assert_eq!(color.b, 238.0);
+        assert_eq!(color.a, 255.0);
 
         let color = super::RgbColor::from("#432636");
-        assert_eq!(color.r, 67);
-        assert_eq!(color.g, 38);
-        assert_eq!(color.b, 54);
-        assert_eq!(color.a, 255);
+        assert_eq!(color.r, 67.0);
+        assert_eq!(color.g, 38.0);
+        assert_eq!(color.b, 54.0);
+        assert_eq!(color.a, 255.0);
 
         let color = super::RgbColor::from("#10203040");
-        assert_eq!(color.r, 16);
-        assert_eq!(color.g, 32);
-        assert_eq!(color.b, 48);
-        assert_eq!(color.a, 64);
+        assert_eq!(color.r, 16.0);
+        assert_eq!(color.g, 32.0);
+        assert_eq!(color.b, 48.0);
+        assert_eq!(color.a, 64.0);
     }
 
     #[test]
     fn wrong_hex_colors() {
         let color = super::RgbColor::from("#incorrect");
-        assert_eq!(color.r, 0);
-        assert_eq!(color.g, 0);
-        assert_eq!(color.b, 0);
-        assert_eq!(color.a, 255);
+        assert_eq!(color.r, 0.0);
+        assert_eq!(color.g, 0.0);
+        assert_eq!(color.b, 0.0);
+        assert_eq!(color.a, 255.0);
 
         let color = super::RgbColor::from("ff0000");
-        assert_eq!(color.r, 0);
-        assert_eq!(color.g, 0);
-        assert_eq!(color.b, 0);
-        assert_eq!(color.a, 255);
+        assert_eq!(color.r, 0.0);
+        assert_eq!(color.g, 0.0);
+        assert_eq!(color.b, 0.0);
+        assert_eq!(color.a, 255.0);
 
         let color = super::RgbColor::from("abcd");
-        assert_eq!(color.r, 0);
-        assert_eq!(color.g, 0);
-        assert_eq!(color.b, 0);
-        assert_eq!(color.a, 255);
+        assert_eq!(color.r, 0.0);
+        assert_eq!(color.g, 0.0);
+        assert_eq!(color.b, 0.0);
+        assert_eq!(color.a, 255.0);
     }
 
     #[test]
     fn color_names() {
         let color = super::RgbColor::from("red");
-        assert_eq!(color.r, 255);
-        assert_eq!(color.g, 0);
-        assert_eq!(color.b, 0);
-        assert_eq!(color.a, 255);
+        assert_eq!(color.r, 255.0);
+        assert_eq!(color.g, 0.0);
+        assert_eq!(color.b, 0.0);
+        assert_eq!(color.a, 255.0);
 
         let color = super::RgbColor::from("green");
-        assert_eq!(color.r, 0);
-        assert_eq!(color.g, 128);
-        assert_eq!(color.b, 0);
-        assert_eq!(color.a, 255);
+        assert_eq!(color.r, 0.0);
+        assert_eq!(color.g, 128.0);
+        assert_eq!(color.b, 0.0);
+        assert_eq!(color.a, 255.0);
 
         let color = super::RgbColor::from("blue");
-        assert_eq!(color.r, 0);
-        assert_eq!(color.g, 0);
-        assert_eq!(color.b, 255);
-        assert_eq!(color.a, 255);
+        assert_eq!(color.r, 0.0);
+        assert_eq!(color.g, 0.0);
+        assert_eq!(color.b, 255.0);
+        assert_eq!(color.a, 255.0);
 
         let color = super::RgbColor::from("rebeccapurple");
-        assert_eq!(color.r, 0x66);
-        assert_eq!(color.g, 0x33);
-        assert_eq!(color.b, 0x99);
-        assert_eq!(color.a, 255);
+        assert_eq!(color.r, 0x66 as f32);
+        assert_eq!(color.g, 0x33 as f32);
+        assert_eq!(color.b, 0x99 as f32);
+        assert_eq!(color.a, 255.0);
     }
 }
