@@ -316,6 +316,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "colors-transform"
+version = "0.2.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9226dbc05df4fb986f48d730b001532580883c4c06c5d1c213f4b34c1c157178"
+
+[[package]]
 name = "convert_case"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -771,6 +777,7 @@ name = "gosub_styling"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "colors-transform",
  "gosub_css3",
  "gosub_html5",
  "gosub_shared",

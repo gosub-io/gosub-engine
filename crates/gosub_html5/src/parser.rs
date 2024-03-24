@@ -4272,7 +4272,7 @@ impl<'chars> Html5Parser<'chars> {
                         }
                     }
                 };
-                println!("loading external stylesheet: {}", css_url);
+                // println!("loading external stylesheet: {}", css_url);
 
                 if let Some(stylesheet) = self.load_external_stylesheet(CssOrigin::Author, css_url)
                 {

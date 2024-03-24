@@ -8,45 +8,44 @@ use gosub_html5::node::data::doctype::DocTypeData;
 use gosub_html5::node::data::document::DocumentData;
 use gosub_html5::node::data::element::ElementData;
 use gosub_html5::node::data::text::TextData;
-use gosub_html5::node::Node;
+use gosub_html5::parser::document::Document;
 use gosub_html5::parser::document::DocumentBuilder;
-use gosub_html5::parser::document::{visit, Document};
 use gosub_html5::parser::Html5Parser;
-use gosub_html5::visit::Visitor;
 use gosub_shared::bytes::{CharIterator, Confidence, Encoding};
-use gosub_styling::css_values::CssValue;
-use gosub_styling::render_tree::{generate_render_tree, RenderTree};
+use gosub_styling::render_tree::{
+    generate_render_tree, walk_render_tree, RenderTree, RenderTreeNode, TreeVisitor,
+};
 
 struct TextVisitor {
     color: String,
-    css_nodetree: RenderTree,
 }
 
 impl TextVisitor {
-    fn new(css_node_tree: RenderTree) -> Self {
+    fn new() -> Self {
         Self {
             color: String::from(""),
-            css_nodetree: css_node_tree,
         }
     }
 }
 
-impl Visitor<Node> for TextVisitor {
-    fn document_enter(&mut self, _node: &Node, _data: &DocumentData) {}
+impl TreeVisitor<RenderTreeNode> for TextVisitor {
+    fn document_enter(&mut self, _tree: &RenderTree, _node: &RenderTreeNode, _data: &DocumentData) {
+    }
 
-    fn document_leave(&mut self, _node: &Node, _data: &DocumentData) {}
+    fn document_leave(&mut self, _tree: &RenderTree, _node: &RenderTreeNode, _data: &DocumentData) {
+    }
 
-    fn doctype_enter(&mut self, _node: &Node, _data: &DocTypeData) {}
+    fn doctype_enter(&mut self, _tree: &RenderTree, _node: &RenderTreeNode, _data: &DocTypeData) {}
 
-    fn doctype_leave(&mut self, _node: &Node, _data: &DocTypeData) {}
+    fn doctype_leave(&mut self, _tree: &RenderTree, _node: &RenderTreeNode, _data: &DocTypeData) {}
 
-    fn text_enter(&mut self, _node: &Node, data: &TextData) {
+    fn text_enter(&mut self, _tree: &RenderTree, _node: &RenderTreeNode, data: &TextData) {
         // let re = Regex::new(r"\s{2,}").unwrap();
         // let s = re.replace_all(&data.value, " ");
         let s = &data.value;
 
         if !self.color.is_empty() {
-            print!("\x1b[{}m", self.color)
+            print!("\x1b[{}", self.color)
         }
 
         if !s.is_empty() {
@@ -58,37 +57,37 @@ impl Visitor<Node> for TextVisitor {
         }
     }
 
-    fn text_leave(&mut self, _node: &Node, _data: &TextData) {}
+    fn text_leave(&mut self, _tree: &RenderTree, _node: &RenderTreeNode, _data: &TextData) {}
 
-    fn comment_enter(&mut self, _node: &Node, _data: &CommentData) {}
+    fn comment_enter(&mut self, _tree: &RenderTree, _node: &RenderTreeNode, _data: &CommentData) {}
 
-    fn comment_leave(&mut self, _node: &Node, _data: &CommentData) {}
+    fn comment_leave(&mut self, _tree: &RenderTree, _node: &RenderTreeNode, _data: &CommentData) {}
 
-    fn element_enter(&mut self, node: &Node, data: &ElementData) {
-        if let Some(mut prop) = self.css_nodetree.get_property(node.id, "color") {
-            if let CssValue::Color(col) = prop.compute_value() {
+    fn element_enter(&mut self, tree: &RenderTree, node: &RenderTreeNode, data: &ElementData) {
+        if let Some(mut prop) = tree.get_property(node.id, "color") {
+            if let Some(col) = prop.compute_value().to_color() {
                 self.color = format!("\x1b[38;2;{};{};{}m", col.r, col.g, col.b)
             }
         }
 
-        if let Some(mut prop) = self.css_nodetree.get_property(node.id, "background-color") {
-            if let CssValue::Color(col) = prop.compute_value() {
+        if let Some(mut prop) = tree.get_property(node.id, "background-color") {
+            if let Some(col) = prop.compute_value().to_color() {
                 print!("\x1b[48;2;{};{};{}m", col.r, col.g, col.b)
             }
         }
 
-        print!("<{}>", data.name);
+        print!("<{} ({})>", data.name, data.node_id);
     }
 
-    fn element_leave(&mut self, node: &Node, data: &ElementData) {
-        if let Some(mut prop) = self.css_nodetree.get_property(node.id, "color") {
-            if let CssValue::Color(col) = prop.compute_value() {
+    fn element_leave(&mut self, tree: &RenderTree, node: &RenderTreeNode, data: &ElementData) {
+        if let Some(mut prop) = tree.get_property(node.id, "color") {
+            if let Some(col) = prop.compute_value().to_color() {
                 self.color = format!("\x1b[38;2;{};{};{}m", col.r, col.g, col.b)
             }
         }
 
-        if let Some(mut prop) = self.css_nodetree.get_property(node.id, "background-color") {
-            if let CssValue::Color(col) = prop.compute_value() {
+        if let Some(mut prop) = tree.get_property(node.id, "background-color") {
+            if let Some(col) = prop.compute_value().to_color() {
                 print!("\x1b[48;2;{};{};{}m", col.r, col.g, col.b)
             }
         }
@@ -138,8 +137,8 @@ fn main() -> Result<()> {
 
     let render_tree = generate_render_tree(Document::clone(&doc_handle))?;
 
-    let mut visitor = Box::new(TextVisitor::new(render_tree)) as Box<dyn Visitor<Node>>;
-    visit(&Document::clone(&doc_handle), &mut visitor);
+    let mut visitor = Box::new(TextVisitor::new()) as Box<dyn TreeVisitor<RenderTreeNode>>;
+    walk_render_tree(&render_tree, &mut visitor);
 
     Ok(())
 }
