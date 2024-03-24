@@ -49,7 +49,7 @@ impl RenderTree {
         self.nodes.get(&self.root).expect("root node")
     }
 
-    /// INserts a new node into the render tree, note that you are responsible for the node id
+    /// Inserts a new node into the render tree, note that you are responsible for the node id
     /// and the children of the node
     pub fn insert_node(&mut self, id: NodeId, node: RenderTreeNode) {
         self.nodes.insert(id, node);
