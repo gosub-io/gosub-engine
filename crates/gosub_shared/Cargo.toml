@@ -12,4 +12,4 @@ url = "2.5.0"
 anyhow = "1.0.81"
 lazy_static = "1.4.0"
 uuid = { version = "1.8.0", features = ["v4"] }
-rand = "0.9.0-alpha.0"
+rand = "0.9.0-alpha.1"
