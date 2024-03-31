@@ -47,16 +47,25 @@ fn match_selector_part(
                 // '*' always matches any selector
             }
             CssSelectorType::Type => {
+                if !current_node.is_element() {
+                    return false;
+                }
                 if part.value != current_node.as_element().name {
                     return false;
                 }
             }
             CssSelectorType::Class => {
+                if !current_node.is_element() {
+                    return false;
+                }
                 if !current_node.as_element().classes.contains(&part.value) {
                     return false;
                 }
             }
             CssSelectorType::Id => {
+                if !current_node.is_element() {
+                    return false;
+                }
                 if current_node
                     .as_element()
                     .attributes
@@ -383,7 +392,7 @@ impl CssProperty {
 /// the non-existing properties.
 #[derive(Debug)]
 pub struct CssProperties {
-    pub(crate) properties: HashMap<String, CssProperty>,
+    pub properties: HashMap<String, CssProperty>,
 }
 
 impl Default for CssProperties {
@@ -397,6 +406,10 @@ impl CssProperties {
         Self {
             properties: HashMap::new(),
         }
+    }
+
+    pub fn get(&mut self, name: &str) -> Option<&mut CssProperty> {
+        self.properties.get_mut(name)
     }
 }
 
@@ -437,6 +450,30 @@ impl CssValue {
             CssValue::Color(col) => Some(*col),
             CssValue::String(s) => Some(RgbColor::from(s.as_str())),
             _ => None,
+        }
+    }
+
+    pub fn unit_to_px(&self) -> f32 {
+        //TODO: Implement the rest of the units
+        match self {
+            CssValue::Unit(val, unit) => match unit.as_str() {
+                "px" => *val,
+                "em" => *val * 16.0,
+                "rem" => *val * 16.0,
+                _ => *val,
+            },
+            CssValue::String(value) => {
+                if value.ends_with("px") {
+                    value.trim_end_matches("px").parse::<f32>().unwrap()
+                } else if value.ends_with("rem") {
+                    value.trim_end_matches("rem").parse::<f32>().unwrap() * 16.0
+                } else if value.ends_with("em") {
+                    value.trim_end_matches("em").parse::<f32>().unwrap() * 16.0
+                } else {
+                    0.0
+                }
+            }
+            _ => 0.0,
         }
     }
 }

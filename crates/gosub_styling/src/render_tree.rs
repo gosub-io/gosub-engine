@@ -12,12 +12,13 @@ use gosub_shared::types::Result;
 use crate::css_values::{
     match_selector, CssProperties, CssProperty, CssValue, DeclarationProperty,
 };
+use crate::prerender_text::PrerenderText;
 
 /// Map of all declared values for all nodes in the document
 #[derive(Default)]
 pub struct RenderTree {
-    nodes: HashMap<NodeId, RenderTreeNode>,
-    root: NodeId,
+    pub nodes: HashMap<NodeId, RenderTreeNode>,
+    pub root: NodeId,
 }
 
 impl RenderTree {
@@ -37,7 +38,7 @@ impl RenderTree {
                 parent: None,
                 name: String::from("root"),
                 namespace: None,
-                data: NodeData::Document(DocumentData::default()),
+                data: RenderNodeData::Document(DocumentData::default()),
             },
         );
 
@@ -47,6 +48,21 @@ impl RenderTree {
     /// Returns the root node of the render tree
     pub fn get_root(&self) -> &RenderTreeNode {
         self.nodes.get(&self.root).expect("root node")
+    }
+
+    /// Returns the node with the given id
+    pub fn get_node(&self, id: NodeId) -> Option<&RenderTreeNode> {
+        self.nodes.get(&id)
+    }
+
+    /// Returns a mutable reference to the node with the given id
+    pub fn get_node_mut(&mut self, id: NodeId) -> Option<&mut RenderTreeNode> {
+        self.nodes.get_mut(&id)
+    }
+
+    /// Returns the children of the given node
+    pub fn get_children(&self, id: NodeId) -> Option<&Vec<NodeId>> {
+        self.nodes.get(&id).map(|node| &node.children)
     }
 
     /// Inserts a new node into the render tree, note that you are responsible for the node id
@@ -136,9 +152,6 @@ impl RenderTree {
             let node = binding
                 .get_node_by_id(current_node_id)
                 .expect("node not found");
-            // if !node.is_element() {
-            //     continue;
-            // }
 
             for sheet in document.get().stylesheets.iter() {
                 for rule in sheet.rules.iter() {
@@ -180,6 +193,28 @@ impl RenderTree {
 
             let binding = document.get();
             let current_node = binding.get_node_by_id(current_node_id).unwrap();
+
+            let mut data = || {
+                if let Some(parent_id) = current_node.parent {
+                    if let Some(parent) = self.nodes.get_mut(&parent_id) {
+                        let parent_props = Some(&mut parent.properties);
+
+                        return RenderNodeData::from_node_data(
+                            current_node.data.clone(),
+                            parent_props,
+                        )
+                        .ok();
+                    };
+                };
+
+                RenderNodeData::from_node_data(current_node.data.clone(), None).ok()
+            };
+
+            let Some(data) = data() else {
+                eprintln!("Failed to create node data for node: {:?}", current_node_id);
+                continue;
+            };
+
             let render_tree_node = RenderTreeNode {
                 id: current_node_id,
                 properties: css_map_entry,
@@ -187,7 +222,7 @@ impl RenderTree {
                 parent: node.parent,
                 name: node.name.clone(), // We might be able to move node into render_tree_node
                 namespace: node.namespace.clone(),
-                data: node.data.clone(),
+                data,
             };
 
             self.nodes.insert(current_node_id, render_tree_node);
@@ -202,7 +237,7 @@ impl RenderTree {
         let mut delete_list = Vec::new();
 
         for (id, node) in &self.nodes {
-            if let NodeData::Element(element) = &node.data {
+            if let RenderNodeData::Element(element) = &node.data {
                 if removable_elements.contains(&element.name.as_str()) {
                     delete_list.append(&mut self.get_child_node_ids(*id));
                     delete_list.push(*id);
@@ -227,6 +262,68 @@ impl RenderTree {
 }
 
 #[derive(Debug)]
+pub enum RenderNodeData {
+    Document(DocumentData),
+    Element(Box<ElementData>),
+    Text(PrerenderText),
+    Comment(CommentData),
+    //are these really needed in the render tree?
+    DocType(DocTypeData),
+}
+
+impl RenderNodeData {
+    pub fn from_node_data(node: NodeData, props: Option<&mut CssProperties>) -> Result<Self> {
+        Ok(match node {
+            NodeData::Document(data) => RenderNodeData::Document(data),
+            NodeData::Element(data) => RenderNodeData::Element(data),
+            NodeData::Text(data) => {
+                let props = props.ok_or(anyhow::anyhow!("No properties found"))?;
+                let ff;
+                if let Some(prop) = props.get("font-family") {
+                    prop.compute_value();
+                    ff = if let CssValue::String(ref font_family) = prop.actual {
+                        font_family.clone()
+                    } else {
+                        String::from("Arial")
+                    };
+                } else {
+                    ff = String::from("Arial")
+                };
+
+                let ff = ff
+                    .trim()
+                    .split(',')
+                    .map(|ff| ff.to_string())
+                    .collect::<Vec<String>>();
+
+                let fs;
+
+                if let Some(prop) = props.get("font-size") {
+                    prop.compute_value();
+
+                    fs = if let CssValue::String(ref fs) = prop.actual {
+                        if fs.ends_with("px") {
+                            fs.trim_end_matches("px").parse::<f32>().unwrap_or(12.0)
+                        } else {
+                            12.01
+                        }
+                    } else {
+                        12.02
+                    };
+                } else {
+                    fs = 12.03
+                };
+
+                let text = PrerenderText::new(data.value.clone(), fs, ff)?;
+                RenderNodeData::Text(text)
+            }
+            NodeData::Comment(data) => RenderNodeData::Comment(data),
+            NodeData::DocType(data) => RenderNodeData::DocType(data),
+        })
+    }
+}
+
+#[derive(Debug)]
 pub struct RenderTreeNode {
     pub id: NodeId,
     pub properties: CssProperties,
@@ -234,18 +331,31 @@ pub struct RenderTreeNode {
     pub parent: Option<NodeId>,
     pub name: String,
     pub namespace: Option<String>,
-    pub data: NodeData,
+    pub data: RenderNodeData,
 }
 
 impl RenderTreeNode {
     /// Returns true if the node is an element node
     pub fn is_element(&self) -> bool {
-        matches!(self.data, NodeData::Element(_))
+        matches!(self.data, RenderNodeData::Element(_))
     }
 
     /// Returns true if the node is a text node
     pub fn is_text(&self) -> bool {
-        matches!(self.data, NodeData::Text(_))
+        matches!(self.data, RenderNodeData::Text(_))
+    }
+
+    /// Returns the requested property for the node
+    pub fn get_property(&mut self, prop_name: &str) -> Option<&mut CssProperty> {
+        self.properties.properties.get_mut(prop_name)
+    }
+
+    /// Returns the requested attribute for the node
+    pub fn get_attribute(&self, attr_name: &str) -> Option<&String> {
+        match &self.data {
+            RenderNodeData::Element(element) => element.attributes.get(attr_name),
+            _ => None,
+        }
     }
 }
 
@@ -268,11 +378,11 @@ fn internal_walk_render_tree(
 ) {
     // Enter node
     match &node.data {
-        NodeData::Document(document) => visitor.document_enter(tree, node, document),
-        NodeData::DocType(doctype) => visitor.doctype_enter(tree, node, doctype),
-        NodeData::Text(text) => visitor.text_enter(tree, node, text),
-        NodeData::Comment(comment) => visitor.comment_enter(tree, node, comment),
-        NodeData::Element(element) => visitor.element_enter(tree, node, element),
+        RenderNodeData::Document(document) => visitor.document_enter(tree, node, document),
+        RenderNodeData::DocType(doctype) => visitor.doctype_enter(tree, node, doctype),
+        RenderNodeData::Text(text) => visitor.text_enter(tree, node, &text.into()),
+        RenderNodeData::Comment(comment) => visitor.comment_enter(tree, node, comment),
+        RenderNodeData::Element(element) => visitor.element_enter(tree, node, element),
     }
 
     for child_id in &node.children {
@@ -284,11 +394,11 @@ fn internal_walk_render_tree(
 
     // Leave node
     match &node.data {
-        NodeData::Document(document) => visitor.document_leave(tree, node, document),
-        NodeData::DocType(doctype) => visitor.doctype_leave(tree, node, doctype),
-        NodeData::Text(text) => visitor.text_leave(tree, node, text),
-        NodeData::Comment(comment) => visitor.comment_leave(tree, node, comment),
-        NodeData::Element(element) => visitor.element_leave(tree, node, element),
+        RenderNodeData::Document(document) => visitor.document_leave(tree, node, document),
+        RenderNodeData::DocType(doctype) => visitor.doctype_leave(tree, node, doctype),
+        RenderNodeData::Text(text) => visitor.text_leave(tree, node, &text.into()),
+        RenderNodeData::Comment(comment) => visitor.comment_leave(tree, node, comment),
+        RenderNodeData::Element(element) => visitor.element_leave(tree, node, element),
     }
 }
 
