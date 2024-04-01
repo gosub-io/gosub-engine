@@ -16,6 +16,6 @@ log = "0.4.21"
 domain-lookup-tree = "0.1"
 hickory-resolver = "0.24.0"
 simple_logger = "4.2.0"
-cookie = { version = "0.18.0", features = ["secure", "private"] }
+cookie = { version = "0.18.1", features = ["secure", "private"] }
 http = "1.0.0"
 url = "2.5.0"
