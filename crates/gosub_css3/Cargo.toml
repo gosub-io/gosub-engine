@@ -11,3 +11,4 @@ lazy_static = "1.4"
 log = "0.4.21"
 simple_logger = "4.2.0"
 anyhow = { version = "1.0.82", features = [] }
+colors-transform = "0.2.11"

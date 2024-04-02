@@ -10,9 +10,9 @@ use vello::peniko::{Color, Fill, Format, Image};
 use vello::Scene;
 use winit::dpi::PhysicalSize;
 
+use gosub_css3::colors::RgbColor;
+use gosub_css3::stylesheet::CssValue;
 use gosub_html5::node::NodeId as GosubId;
-use gosub_styling::css_colors::RgbColor;
-use gosub_styling::css_values::CssValue;
 use gosub_styling::render_tree::{RenderNodeData, RenderTree, RenderTreeNode};
 
 use crate::render_tree::{NodeID, TreeDrawer};

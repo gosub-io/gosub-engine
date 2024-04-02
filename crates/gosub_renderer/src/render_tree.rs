@@ -4,8 +4,8 @@ use url::Url;
 use winit::dpi::PhysicalSize;
 
 use gosub_html5::node::NodeId as GosubID;
-use gosub_styling::css_values::CssProperties;
 use gosub_styling::render_tree::{RenderNodeData, RenderTree as StyleTree};
+use gosub_styling::styling::CssProperties;
 
 pub type NodeID = TaffyID;
 

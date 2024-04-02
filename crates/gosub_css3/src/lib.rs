@@ -5,6 +5,7 @@ use crate::tokenizer::Tokenizer;
 use gosub_shared::byte_stream::{ByteStream, Encoding, Stream};
 use gosub_shared::{timing_start, timing_stop};
 
+pub mod colors;
 pub mod convert;
 pub mod location;
 mod node;

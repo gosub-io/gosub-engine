@@ -1,7 +1,9 @@
+use gosub_css3::stylesheet::{CssDeclaration, CssSelector, CssStylesheet, CssValue};
 use std::collections::HashMap;
 
 use anyhow::anyhow;
 
+use crate::css_definitions::CssPropertyDefinitions;
 use gosub_html5::node::data::comment::CommentData;
 use gosub_html5::node::data::doctype::DocTypeData;
 use gosub_html5::node::data::document::DocumentData;
@@ -11,10 +13,8 @@ use gosub_html5::node::{NodeData, NodeId};
 use gosub_html5::parser::document::{DocumentHandle, TreeIterator};
 use gosub_shared::types::Result;
 
-use crate::css_values::{
-    match_selector, CssProperties, CssProperty, CssValue, DeclarationProperty,
-};
 use crate::prerender_text::{PrerenderText, DEFAULT_FS, FONT_RENDERER_CACHE};
+use crate::styling::{match_selector, CssProperties, CssProperty, DeclarationProperty};
 
 /// Map of all declared values for all nodes in the document
 #[derive(Default, Debug)]
@@ -157,6 +157,8 @@ impl RenderTree {
                 .get_node_by_id(current_node_id)
                 .expect("node not found");
 
+            let definitions = CssPropertyDefinitions::new();
+
             for sheet in document.get().stylesheets.iter() {
                 for rule in sheet.rules.iter() {
                     for selector in rule.selectors().iter() {
@@ -170,26 +172,35 @@ impl RenderTree {
 
                         // Selector matched, so we add all declared values to the map
                         for declaration in rule.declarations().iter() {
-                            let prop_name = declaration.property.clone();
+                            // Step 1: find the property in our CSS definition list
+                            let definition = definitions.find(&declaration.property);
+                            // If not found, we skip this declaration
+                            if definition.is_none() {
+                                println!(
+                                    "Definition is not found for property {:?}",
+                                    declaration.property
+                                );
+                                continue;
+                            }
 
-                            let declaration = DeclarationProperty {
-                                value: CssValue::String(declaration.value.clone()), // @TODO: parse the value into the correct CSSValue
-                                origin: sheet.origin.clone(),
+                            // Check if the declaration matches the definition and return the "expanded" order
+                            if definition.unwrap().matches(&declaration.value).is_none() {
+                                println!(
+                                    "Declaration does not match definition: {:?}",
+                                    declaration
+                                );
+                                continue;
+                            }
+
+                            // create property for the given values
+                            let property_name = declaration.property.clone();
+                            let decl = CssDeclaration {
+                                property: property_name.to_string(),
+                                value: declaration.value.clone(),
                                 important: declaration.important,
-                                location: sheet.location.clone(),
-                                specificity: selector.specificity(),
                             };
 
-                            if let std::collections::hash_map::Entry::Vacant(e) =
-                                css_map_entry.properties.entry(prop_name.clone())
-                            {
-                                let mut entry = CssProperty::new(prop_name.as_str());
-                                entry.declared.push(declaration);
-                                e.insert(entry);
-                            } else {
-                                let entry = css_map_entry.properties.get_mut(&prop_name).unwrap();
-                                entry.declared.push(declaration);
-                            }
+                            add_property_to_map(&mut css_map_entry, sheet, selector, &decl);
                         }
                     }
                 }
@@ -261,6 +272,55 @@ impl RenderTree {
         for id in delete_list {
             self.delete_node(&id);
         }
+    }
+}
+
+// Generates a declaration property and adds it to the css_map_entry
+fn add_property_to_map(
+    css_map_entry: &mut CssProperties,
+    sheet: &CssStylesheet,
+    selector: &CssSelector,
+    declaration: &CssDeclaration,
+) {
+    let property_name = declaration.property.clone();
+    let entry = CssProperty::new(property_name.as_str());
+
+    // If the property is a shorthand css property, we need fetch the individual properties
+    // It's possible that need to recurse here as these individual properties can be shorthand as well
+    if entry.is_shorthand() {
+        for property_name in entry.get_props_from_shorthand() {
+            let decl = CssDeclaration {
+                property: property_name.to_string(),
+                value: declaration.value.clone(),
+                important: declaration.important,
+            };
+
+            add_property_to_map(css_map_entry, sheet, selector, &decl);
+        }
+    }
+
+    let declaration = DeclarationProperty {
+        value: declaration.value.clone(),
+        origin: sheet.origin.clone(),
+        important: declaration.important,
+        location: sheet.location.clone(),
+        specificity: selector.specificity(),
+    };
+
+    if let std::collections::hash_map::Entry::Vacant(e) =
+        css_map_entry.properties.entry(property_name.clone())
+    {
+        println!("Adding new property: {:?} {:?}", property_name, declaration);
+        // Generate new property in the css map
+        let mut entry = CssProperty::new(property_name.as_str());
+        entry.declared.push(declaration);
+        e.insert(entry);
+    } else {
+        println!("Updating on property: {:?}", property_name);
+
+        // Just add the declaration to the existing property
+        let entry = css_map_entry.properties.get_mut(&property_name).unwrap();
+        entry.declared.push(declaration);
     }
 }
 
@@ -427,4 +487,140 @@ pub trait TreeVisitor<Node> {
 
     fn element_enter(&mut self, tree: &RenderTree, node: &RenderTreeNode, data: &ElementData);
     fn element_leave(&mut self, tree: &RenderTree, node: &RenderTreeNode, data: &ElementData);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gosub_html5::html_compile;
+
+    #[test]
+    fn shorthand_props() {
+        let source = r#"
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <style>
+                    .container {
+                        background: red;
+                        border: 1px solid black;
+                        border-radius: 5px;
+                        margin: 10px;
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <p>Some text</p>
+                </div>
+            </body>
+            </html>
+        "#;
+
+        let document = html_compile(source);
+        let mut render_tree = generate_render_tree(document).unwrap();
+
+        let render_node = render_tree.get_node_mut(NodeId::from(11)).unwrap();
+
+        // These props should exist
+        assert_eq!(render_node.properties.properties.len(), 26);
+        assert!(render_node
+            .properties
+            .properties
+            .contains_key("border-radius"));
+        assert!(render_node
+            .properties
+            .properties
+            .contains_key("border-width"));
+        assert!(render_node
+            .properties
+            .properties
+            .contains_key("border-top-width"));
+        assert!(render_node
+            .properties
+            .properties
+            .contains_key("border-bottom-width"));
+        assert!(render_node
+            .properties
+            .properties
+            .contains_key("border-left-width"));
+        assert!(render_node.properties.properties.contains_key("margin"));
+        assert!(render_node.properties.properties.contains_key("border"));
+        assert!(render_node.properties.properties.contains_key("background"));
+        assert!(render_node
+            .properties
+            .properties
+            .contains_key("background-color"));
+        assert!(render_node
+            .properties
+            .properties
+            .contains_key("border-color"));
+        assert!(render_node.properties.properties.contains_key("margin-top"));
+        assert!(render_node
+            .properties
+            .properties
+            .contains_key("margin-bottom"));
+        // This prop should not exist
+        assert!(!render_node.properties.properties.contains_key("display"));
+
+        assert_eq!(
+            render_node.get_property("border").unwrap().compute_value(),
+            &CssValue::List(vec![
+                CssValue::Unit(1.0, "px".to_string()),
+                CssValue::String("solid".to_string()),
+                CssValue::String("black".to_string())
+            ])
+        );
+        assert_eq!(
+            render_node
+                .get_property("border-color")
+                .unwrap()
+                .compute_value(),
+            &CssValue::String("black".to_string())
+        );
+        assert_eq!(
+            render_node
+                .get_property("border-width")
+                .unwrap()
+                .compute_value(),
+            &CssValue::String("1px".to_string())
+        );
+        assert_eq!(
+            render_node
+                .get_property("border-left-width")
+                .unwrap()
+                .compute_value(),
+            &CssValue::String("1px".to_string())
+        );
+        assert_eq!(
+            render_node
+                .get_property("border-top-width")
+                .unwrap()
+                .compute_value(),
+            &CssValue::String("1px".to_string())
+        );
+        assert_eq!(
+            render_node
+                .get_property("border-right-width")
+                .unwrap()
+                .compute_value(),
+            &CssValue::String("1px".to_string())
+        );
+        assert_eq!(
+            render_node
+                .get_property("border-bottom-width")
+                .unwrap()
+                .compute_value(),
+            &CssValue::String("1px".to_string())
+        );
+        assert_eq!(
+            render_node
+                .get_property("border-style")
+                .unwrap()
+                .compute_value(),
+            &CssValue::String("solid".to_string())
+        );
+
+        dbg!(&render_node.properties.properties);
+    }
 }
