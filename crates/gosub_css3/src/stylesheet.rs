@@ -1,6 +1,7 @@
 use core::fmt::Debug;
 use std::cmp::Ordering;
 use std::fmt::Display;
+use crate::colors::RgbColor;
 
 /// Defines a complete stylesheet with all its rules and the location where it was found
 #[derive(Debug, PartialEq, Clone)]
@@ -48,8 +49,9 @@ impl CssRule {
 pub struct CssDeclaration {
     // Css property color
     pub property: String,
-    // Raw value of the declaration. It is not calculated or converted in any way (ie: "red", "50px" etc)
-    pub value: String,
+    // Raw values of the declaration. It is not calculated or converted in any way (ie: "red", "50px" etc)
+    // There can be multiple values  (ie:   "1px solid black" are split into 3 values)
+    pub values: Vec<CssValue>,
     // ie: !important
     pub important: bool,
 }
@@ -201,6 +203,95 @@ impl Ord for Specificity {
                     Ordering::Equal => Ordering::Equal,
                 },
             },
+        }
+    }
+}
+
+
+/// Actual CSS value, can be a color, length, percentage, string or unit. Some relative values will be computed
+/// from other values (ie: Percent(50) will convert to Length(100) when the parent width is 200)
+#[derive(Debug, Clone, PartialEq)]
+pub enum CssValue {
+    None,
+    Color(RgbColor),
+    Number(f32),
+    Percentage(f32),
+    String(String),
+    Unit(f32, String),
+    List(Vec<CssValue>),
+}
+
+impl Display for CssValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CssValue::None => write!(f, "none"),
+            CssValue::Color(col) => {
+                write!(
+                    f,
+                    "#{:02x}{:02x}{:02x}{:02x}",
+                    col.r as u8, col.g as u8, col.b as u8, col.a as u8
+                )
+            }
+            CssValue::Number(num) => write!(f, "{}", num),
+            CssValue::Percentage(p) => write!(f, "{}%", p),
+            CssValue::String(s) => write!(f, "{}", s),
+            CssValue::Unit(val, unit) => write!(f, "{}{}", val, unit),
+            CssValue::List(list) => {
+                for (i, item) in list.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, " ")?;
+                    }
+                    write!(f, "{}", item)?;
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
+impl CssValue {
+    pub fn to_color(&self) -> Option<RgbColor> {
+        match self {
+            CssValue::Color(col) => Some(*col),
+            CssValue::String(s) => Some(RgbColor::from(s.as_str())),
+            _ => None,
+        }
+    }
+
+    pub fn unit_to_px(&self) -> f32 {
+        //TODO: Implement the rest of the units
+        match self {
+            CssValue::Unit(val, unit) => match unit.as_str() {
+                "px" => *val,
+                "em" => *val * 16.0,
+                "rem" => *val * 16.0,
+                _ => *val,
+            },
+            CssValue::String(value) => {
+                if value.ends_with("px") {
+                    value.trim_end_matches("px").parse::<f32>().unwrap()
+                } else if value.ends_with("rem") {
+                    value.trim_end_matches("rem").parse::<f32>().unwrap() * 16.0
+                } else if value.ends_with("em") {
+                    value.trim_end_matches("em").parse::<f32>().unwrap() * 16.0
+                } else {
+                    0.0
+                }
+            }
+            _ => 0.0,
+        }
+    }
+
+    /// Converts a CSS AST node to a CSS value
+    pub fn from_ast_node(node: &crate::node::Node) -> Self {
+        match *node.node_type.clone() {
+            crate::node::NodeType::Ident { value } => CssValue::String(value),
+            crate::node::NodeType::Number { value } => CssValue::Number(value),
+            crate::node::NodeType::Percentage { value } => CssValue::Percentage(value),
+            crate::node::NodeType::Dimension { value, unit } => CssValue::Unit(value, unit),
+            crate::node::NodeType::String { value } => CssValue::String(value),
+            crate::node::NodeType::Hash { value } => CssValue::String(value),
+            _ => panic!("Cannot convert node to CssValue: {:?}", node),
         }
     }
 }

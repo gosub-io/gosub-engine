@@ -1,6 +1,5 @@
 use lazy_static::lazy_static;
-
-use crate::css_values::CssValue;
+use gosub_css3::stylesheet::CssValue;
 
 // Values for this table is taken from https://www.w3.org/TR/CSS21/propidx.html
 // Probably not the complete list, but it will do for now
@@ -574,4 +573,14 @@ lazy_static! {
             inheritable: false,
         },
     ];
+}
+
+
+pub fn get_property_values(name: &str) -> Option<&PropertyTableEntry> {
+    for entry in PROPERTY_TABLE.iter() {
+        if entry.name == name {
+            return Some(entry);
+        }
+    }
+    None
 }

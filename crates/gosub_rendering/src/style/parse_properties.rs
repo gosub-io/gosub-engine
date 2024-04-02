@@ -2,7 +2,7 @@ use regex::Regex;
 use taffy::prelude::*;
 use taffy::{Overflow, Point};
 
-use gosub_styling::css_values::CssValue;
+use gosub_styling::styling::CssValue;
 use gosub_styling::render_tree::RenderTreeNode;
 
 use crate::style::parse::{

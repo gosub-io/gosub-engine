@@ -1,0 +1,141 @@
+[
+  {
+    "name": "border",
+    "expanded_properties": [
+      "border-width",
+      "border-style",
+      "border-color"
+    ],
+    "type_parser": "any_order_is_ok",
+    "inherits": false
+  },
+  {
+    "name": "border-width",
+    "expanded_properties": [
+      "border-top-width",
+      "border-right-width",
+      "border-bottom-width",
+      "border-left-width"
+    ],
+    "type_parser": "one_two_three_four",
+    "inherits": false,
+    "initial_value": "'medium'"
+  },
+  {
+    "name": "border-style",
+    "expanded_properties": [
+      "border-top-style",
+      "border-right-style",
+      "border-bottom-style",
+      "border-left-style"
+    ],
+    "type": "'none'|'hidden'|'dotted'|'dashed'|'solid'|'double'|'groove'|'ridge'|'inset'|'outset'|'inherit'|'initial'|'revert'|'revert-layer'|'unset'",
+    "type_parser": "one_two_three_four",
+    "inherits": false,
+    "initial_value": "'none'"
+  },
+  {
+    "name": "border-color",
+    "expanded_properties": [
+      "border-top-color",
+      "border-right-color",
+      "border-bottom-color",
+      "border-left-color"
+    ],
+    "type_parser": "one_two_three_four",
+    "inherits": false,
+    "initial_value": "color(currentcolor)"
+  },
+  {
+    "name": "border-top-color",
+    "type": "color",
+    "initial_value": "color(currentcolor)",
+    "inherits": false
+  },
+  {
+    "name": "border-right-color",
+    "type": "color",
+    "initial_value": "color(currentcolor)",
+    "inherits": false
+  },
+  {
+    "name": "border-bottom-color",
+    "type": "color",
+    "initial_value": "color(currentcolor)",
+    "inherits": false
+  },
+  {
+    "name": "border-left-color",
+    "type": "color",
+    "initial_value": "color(currentcolor)",
+    "inherits": false
+  },
+  {
+    "name": "border-top-width",
+    "type": "unit|'thing'|'medium'|'thick'",
+    "initial_value": "'medium'",
+    "inherits": false
+  },
+  {
+    "name": "border-top-width",
+    "type": "unit|'thing'|'medium'|'thick'",
+    "initial_value": "'medium'",
+    "inherits": false
+  },
+  {
+    "name": "border-right-width",
+    "type": "unit|'thing'|'medium'|'thick'",
+    "initial_value": "'medium'",
+    "inherits": false
+  },
+  {
+    "name": "border-bottom-width",
+    "type": "unit|'thing'|'medium'|'thick'",
+    "initial_value": "'medium'",
+    "inherits": false
+  },
+  {
+    "name": "border-left-width",
+    "type": "unit|'thing'|'medium'|'thick'",
+    "initial_value": "'medium'",
+    "inherits": false
+  },
+  {
+    "name": "border-top-style",
+    "type": "'none'|'hidden'|'dotted'|'dashed'|'solid'|'double'|'groove'|'ridge'|'inset'|'outset'|'inherit'|'initial'|'revert'|'revert-layer'|'unset'",
+    "initial_value": "'none'",
+    "inherits": false
+  },
+  {
+    "name": "border-left-style",
+    "type": "'none'|'hidden'|'dotted'|'dashed'|'solid'|'double'|'groove'|'ridge'|'inset'|'outset'|'inherit'|'initial'|'revert'|'revert-layer'|'unset'",
+    "initial_value": "'none'",
+    "inherits": false
+  },
+  {
+    "name": "border-bottom-style",
+    "type": "'none'|'hidden'|'dotted'|'dashed'|'solid'|'double'|'groove'|'ridge'|'inset'|'outset'|'inherit'|'initial'|'revert'|'revert-layer'|'unset'",
+    "initial_value": "'none'",
+    "inherits": false
+  },
+  {
+    "name": "border-right-style",
+    "type": "'none'|'hidden'|'dotted'|'dashed'|'solid'|'double'|'groove'|'ridge'|'inset'|'outset'|",
+    "initial_value": "'none'",
+    "inherits": false
+  },
+
+  {
+    "name": "color",
+    "type": "color|'currentcolor'|'inherit'|'initial'|'revert'|'revert-layer'|'unset'",
+    "initial_value": "'canvastext'",
+    "inherits": true
+  },
+
+  {
+    "name": "width",
+    "type": "unit|function|'auto'|'max-content'|'min-content'|fit-content'|'inherit'|'initial'|'revert'|'revert-layer'|'unset'",
+    "initial_value": "'auto'",
+    "inherits": false
+  }
+]

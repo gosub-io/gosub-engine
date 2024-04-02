@@ -4,7 +4,7 @@ use taffy::{
     TrackSizingFunction,
 };
 
-use gosub_styling::css_values::CssValue;
+use gosub_styling::styling::CssValue;
 use gosub_styling::render_tree::{RenderNodeData, RenderTreeNode};
 
 pub(crate) fn parse_len(node: &mut RenderTreeNode, name: &str) -> LengthPercentage {
