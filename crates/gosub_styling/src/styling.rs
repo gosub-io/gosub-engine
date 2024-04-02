@@ -1,15 +1,13 @@
 use core::fmt::Debug;
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::fmt::Display;
 
+use crate::css_definitions::get_css_definitions;
 use gosub_css3::stylesheet::{
-    CssOrigin, CssSelector, CssSelectorPart, CssSelectorType, MatcherType, Specificity,
+    CssOrigin, CssSelector, CssSelectorPart, CssSelectorType, CssValue, MatcherType, Specificity,
 };
 use gosub_html5::node::NodeId;
 use gosub_html5::parser::document::DocumentHandle;
-
-use crate::css_colors::RgbColor;
 
 // Matches a complete selector (all parts) against the given node(id)
 pub(crate) fn match_selector(
@@ -370,21 +368,37 @@ impl CssProperty {
         }
     }
 
-    // Returns true when the property is inheritable, false otherwise
+    // // Returns true when the property is inheritable, false otherwise
     fn is_inheritable(&self) -> bool {
-        crate::property_list::PROPERTY_TABLE
-            .iter()
-            .find(|entry| entry.name == self.name)
-            .map(|entry| entry.inheritable)
-            .unwrap_or(false)
+        let defs = get_css_definitions();
+        match defs.find(&self.name) {
+            Some(def) => def.inherits(),
+            None => false,
+        }
     }
 
-    // Returns the initial value for the property, if any
+    // /// Returns true if the given property is a shorthand property (ie: border, margin etc)
+    pub fn is_shorthand(&self) -> bool {
+        let defs = get_css_definitions();
+        match defs.find(&self.name) {
+            Some(def) => !def.expanded_properties().is_empty(),
+            None => false,
+        }
+    }
+
+    /// Returns the list of properties from a shorthand property, or just the property itself if it isn't a shorthand property.
+    pub fn get_props_from_shorthand(&self) -> Vec<String> {
+        let defs = get_css_definitions();
+        match defs.find(&self.name) {
+            Some(def) => def.expanded_properties(),
+            None => vec![],
+        }
+    }
+
+    // // Returns the initial value for the property, if any
     fn get_initial_value(&self) -> Option<CssValue> {
-        crate::property_list::PROPERTY_TABLE
-            .iter()
-            .find(|entry| entry.name == self.name)
-            .map(|entry| entry.initial.clone())
+        let defs = get_css_definitions();
+        defs.find(&self.name).map(|def| def.initial_value())
     }
 }
 
@@ -481,6 +495,72 @@ impl CssValue {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gosub_css3::colors::RgbColor;
+
+    #[test]
+    fn css_props() {
+        let mut props = CssProperties::new();
+        let prop = CssProperty::new("color");
+        props.properties.insert("color".into(), prop);
+
+        let prop = props.get("color").unwrap();
+        assert_eq!(prop.name, "color");
+
+        let prop = props.get("not-exists");
+        assert!(prop.is_none());
+    }
+
+    #[test]
+    fn border_prop_test() {
+        let mut prop = CssProperty::new("border");
+
+        prop.declared.push(DeclarationProperty {
+            value: CssValue::List(vec![
+                CssValue::Unit(1.0, "px".into()),
+                CssValue::String("solid".into()),
+                CssValue::Color(RgbColor::new(255.0, 0.0, 0.0, 255.0)),
+            ]),
+            origin: CssOrigin::Author,
+            important: false,
+            location: "".into(),
+            specificity: Specificity::new(1, 0, 0),
+        });
+
+        assert_eq!(
+            prop.compute_value(),
+            &CssValue::List(vec![
+                CssValue::Unit(1.0, "px".into()),
+                CssValue::String("solid".into()),
+                CssValue::Color("red".into()),
+            ])
+        );
+        assert!(prop.is_shorthand());
+        assert_eq!(prop.name, "border");
+        assert_eq!(prop.get_initial_value(), Some(CssValue::None));
+        assert!(!prop.is_inheritable());
+    }
+
+    #[test]
+    fn color_prop_test() {
+        let mut prop = CssProperty::new("color");
+
+        prop.declared.push(DeclarationProperty {
+            value: CssValue::String("red".into()),
+            origin: CssOrigin::Author,
+            important: false,
+            location: "".into(),
+            specificity: Specificity::new(1, 0, 0),
+        });
+
+        assert_eq!(prop.compute_value(), &CssValue::String("red".into()));
+        assert!(!prop.is_shorthand());
+        assert_eq!(prop.name, "color");
+        assert_eq!(
+            prop.get_initial_value(),
+            Some(&CssValue::None).cloned()
+        );
+        assert!(prop.is_inheritable());
+    }
 
     #[test]
     fn compare_declared() {
@@ -546,5 +626,49 @@ mod tests {
         assert!(c < d);
         assert_eq!(c, c);
         assert_eq!(d, d);
+    }
+
+    #[test]
+    fn is_inheritable() {
+        let prop = CssProperty::new("border");
+        assert!(!prop.is_inheritable());
+
+        let prop = CssProperty::new("color");
+        assert!(prop.is_inheritable());
+
+        let prop = CssProperty::new("font");
+        assert!(prop.is_inheritable());
+
+        let prop = CssProperty::new("border-top-color");
+        assert!(!prop.is_inheritable());
+    }
+
+    #[test]
+    fn shorthand_props() {
+        let prop = CssProperty::new("border");
+        assert!(prop.is_shorthand());
+        assert_eq!(
+            prop.get_props_from_shorthand(),
+            vec!["border-width", "border-style", "border-color"]
+        );
+        let prop = CssProperty::new("window");
+        assert!(!prop.is_shorthand());
+        assert!(prop.get_props_from_shorthand().is_empty());
+
+        let prop = CssProperty::new("border-color");
+        assert!(prop.is_shorthand());
+        assert_eq!(
+            prop.get_props_from_shorthand(),
+            vec![
+                "border-top-color",
+                "border-right-color",
+                "border-bottom-color",
+                "border-left-color",
+            ]
+        );
+
+        let prop = CssProperty::new("border-top-color");
+        assert!(!prop.is_shorthand());
+        assert!(prop.get_props_from_shorthand().is_empty());
     }
 }

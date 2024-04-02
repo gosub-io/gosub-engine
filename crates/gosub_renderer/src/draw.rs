@@ -4,6 +4,8 @@ use taffy::{
 };
 use url::Url;
 
+use gosub_css3::colors::RgbColor;
+use gosub_css3::stylesheet::CssValue;
 use gosub_html5::node::NodeId as GosubId;
 use gosub_render_backend::svg::SvgRenderer;
 use gosub_render_backend::{

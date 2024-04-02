@@ -51,6 +51,11 @@ impl From<&str> for RgbColor {
         if value.is_empty() {
             return RgbColor::default();
         }
+        if value == "currentcolor" {
+            // @todo: implement currentcolor
+            return RgbColor::default();
+        }
+
         if value.starts_with('#') {
             return parse_hex(value);
         }
@@ -86,6 +91,7 @@ impl From<&str> for RgbColor {
             return RgbColor::new(rgb.get_red(), rgb.get_green(), rgb.get_blue(), 255.0);
         }
         if value.starts_with("hsla(") {
+            // @TODO: hsla() does not work properly
             // HSLA function
             let hsl = Hsl::from_str(value);
             if hsl.is_err() {
@@ -105,7 +111,7 @@ impl From<&str> for RgbColor {
 }
 
 fn get_hex_color_from_name(color_name: &str) -> Option<&str> {
-    for entry in crate::css_colors::CSS_COLORNAMES.iter() {
+    for entry in crate::colors::CSS_COLORNAMES.iter() {
         if entry.name == color_name {
             return Some(entry.value);
         }
@@ -903,6 +909,38 @@ mod tests {
         assert_eq!(color.r, 0x66 as f32);
         assert_eq!(color.g, 0x33 as f32);
         assert_eq!(color.b, 0x99 as f32);
+        assert_eq!(color.a, 255.0);
+    }
+
+    #[test]
+    fn rgb_func_colors() {
+        let color = super::RgbColor::from("rgb(10, 20, 30)");
+        assert_eq!(color.r, 10.0);
+        assert_eq!(color.g, 20.0);
+        assert_eq!(color.b, 30.0);
+        assert_eq!(color.a, 255.0);
+
+        // invalid color
+        let color = super::RgbColor::from("rgb(10)");
+        assert_eq!(color.r, 0.0);
+        assert_eq!(color.g, 0.0);
+        assert_eq!(color.b, 0.0);
+        assert_eq!(color.a, 255.0);
+    }
+
+    #[test]
+    fn hsl_func_colors() {
+        let color = super::RgbColor::from("hsl(10, 20%, 30%)");
+        assert_eq!(color.r, 91.8);
+        assert_eq!(color.g, 66.3);
+        assert_eq!(color.b, 61.2);
+        assert_eq!(color.a, 255.0);
+
+        // invalid color
+        let color = super::RgbColor::from("hsl(10)");
+        assert_eq!(color.r, 0.0);
+        assert_eq!(color.g, 0.0);
+        assert_eq!(color.b, 0.0);
         assert_eq!(color.a, 255.0);
     }
 }

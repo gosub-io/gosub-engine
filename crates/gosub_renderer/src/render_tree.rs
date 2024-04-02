@@ -14,6 +14,8 @@ use gosub_rendering::position::PositionTree;
 use gosub_shared::byte_stream::{ByteStream, Confidence, Encoding};
 use gosub_styling::css_values::CssProperties;
 use gosub_styling::render_tree::{generate_render_tree, RenderNodeData, RenderTree as StyleTree};
+use gosub_styling::render_tree::{RenderNodeData, RenderTree as StyleTree};
+use gosub_styling::styling::CssProperties;
 
 pub type NodeID = TaffyID;
 

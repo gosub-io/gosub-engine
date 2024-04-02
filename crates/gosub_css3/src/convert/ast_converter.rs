@@ -1,7 +1,7 @@
 use crate::node::{Node as CssNode, NodeType};
 use crate::stylesheet::{
     CssDeclaration, CssOrigin, CssRule, CssSelector, CssSelectorPart, CssSelectorType,
-    CssStylesheet, MatcherType,
+    CssStylesheet, MatcherType, CssValue
 };
 use anyhow::anyhow;
 use gosub_shared::types::Result;
@@ -56,7 +56,6 @@ in css:
 vs
     h3 { color: rebeccapurple; }
     h4 { color: rebeccapurple; }
-
 */
 
 /// Converts a CSS AST to a CSS stylesheet structure
@@ -92,7 +91,6 @@ pub fn convert_ast_to_stylesheet(
             }
 
             let mut selector = CssSelector { parts: vec![] };
-
             for node in node.as_selector_list().iter() {
                 if !node.is_selector() {
                     continue;
@@ -170,16 +168,126 @@ pub fn convert_ast_to_stylesheet(
                     continue;
                 }
 
-                let (property, value, important) = declaration.as_declaration();
-                rule.declarations.push(CssDeclaration {
-                    property: property.clone(),
-                    value: value[0].to_string(),
-                    important: *important,
-                });
+                let (property, nodes, important) = declaration.as_declaration();
+
+                // Convert the nodes into CSS Values
+                let mut css_values = vec!();
+                for node in nodes.iter() {
+                    if let Ok(value) = CssValue::parse_ast_node(node) {
+                        css_values.push(value);
+                    }
+                }
+
+                if css_values.is_empty() {
+                    continue;
+                }
+
+                if css_values.len() > 1 {
+                    rule.declarations.push(CssDeclaration {
+                        property: property.clone(),
+                        value: CssValue::List(css_values.to_vec()),
+                        important: *important,
+                    });
+                } else {
+                    rule.declarations.push(CssDeclaration {
+                        property: property.clone(),
+                        value: css_values.first().expect("").clone(),
+                        important: *important,
+                    });
+                }
             }
         }
 
         sheet.rules.push(rule);
     }
     Ok(sheet)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parser_config::ParserConfig;
+    use crate::Css3;
+
+    #[test]
+    fn convert_font_family() {
+        let ast = Css3::parse(
+            r#"
+              body {
+                border: 1px solid black;
+                color: #ffffff;
+                background-color: #121212;
+                font-family: "Arial", sans-serif;
+                margin: 0;
+                padding: 0;
+              }
+            "#,
+            ParserConfig::default(),
+        )
+        .unwrap();
+
+        let tree = convert_ast_to_stylesheet(&ast, CssOrigin::UserAgent, "test.css").unwrap();
+
+        dbg!(&tree);
+    }
+
+    #[test]
+    fn convert_test() {
+        let ast = Css3::parse(
+            r#"
+            h1 { color: red; }
+            h3, h4 { border: 1px solid black; }
+            "#,
+            ParserConfig::default(),
+        )
+        .unwrap();
+
+        let tree = convert_ast_to_stylesheet(&ast, CssOrigin::UserAgent, "test.css").unwrap();
+
+        assert_eq!(
+            tree.rules
+                .first()
+                .unwrap()
+                .declarations
+                .first()
+                .unwrap()
+                .property,
+            "color"
+        );
+        assert_eq!(
+            tree.rules
+                .first()
+                .unwrap()
+                .declarations
+                .first()
+                .unwrap()
+                .value,
+            CssValue::String("red".into())
+        );
+
+        assert_eq!(
+            tree.rules
+                .get(1)
+                .unwrap()
+                .declarations
+                .first()
+                .unwrap()
+                .property,
+            "border"
+        );
+        assert_eq!(
+            tree.rules
+                .get(1)
+                .unwrap()
+                .declarations
+                .first()
+                .unwrap()
+                .value,
+            CssValue::List(vec![
+                CssValue::Unit(1.0, "px".into()),
+                CssValue::String("solid".into()),
+                CssValue::String("black".into())
+            ])
+        );
+    }
 }

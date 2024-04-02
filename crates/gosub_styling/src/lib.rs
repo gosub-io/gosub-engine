@@ -3,8 +3,6 @@
 //! This crate connects CSS3 and HTML5 into a styling pipeline
 //!
 
-use std::fs;
-
 use gosub_css3::convert::ast_converter::convert_ast_to_stylesheet;
 use gosub_css3::parser_config::ParserConfig;
 use gosub_css3::stylesheet::{CssOrigin, CssStylesheet};
@@ -14,7 +12,13 @@ pub mod css_colors;
 pub mod css_values;
 // pub mod prerender_text;
 mod property_list;
+pub mod css_definitions;
+mod errors;
+pub mod prerender_text;
 pub mod render_tree;
+pub mod styling;
+mod syntax;
+mod syntax_matcher;
 
 /// Loads the default user agent stylesheet
 pub fn load_default_useragent_stylesheet() -> anyhow::Result<CssStylesheet> {
@@ -26,9 +30,44 @@ pub fn load_default_useragent_stylesheet() -> anyhow::Result<CssStylesheet> {
         ..Default::default()
     };
 
-    let css =
-        fs::read_to_string("resources/useragent.css").expect("Could not load useragent stylesheet");
-    let css_ast = Css3::parse(css.as_str(), config).expect("Could not parse useragent stylesheet");
+    let css = include_str!("../resources/useragent.css");
+    let css_ast = Css3::parse(css, config).expect("Could not parse useragent stylesheet");
 
     convert_ast_to_stylesheet(&css_ast, CssOrigin::UserAgent, location)
+}
+
+#[cfg(test)]
+mod tests {
+
+    use crate::render_tree::generate_render_tree;
+    use gosub_html5::html_compile;
+
+    #[test]
+    fn test_css_stuff() {
+        let html = r#"
+        <html>
+        <head>
+            <style>
+                body { color: blue }
+                h1 { border: solid black 1px; color: red }
+                p { color: green }
+            </style>
+        </head>
+        <body>
+            <h1>Hello world</h1>
+            <p>
+                Goodbye
+                <h1>moon</h1>
+            </p>
+            Yes
+          </body>
+          </html>
+        "#;
+
+        let doc = html_compile(html);
+        let render_tree = generate_render_tree(doc);
+
+        // what is the border-left-color of h1?
+        dbg!(&render_tree);
+    }
 }

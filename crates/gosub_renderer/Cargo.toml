@@ -12,6 +12,7 @@ gosub_rendering = { path = "../gosub_render_utils" }
 gosub_html5 = { path = "../gosub_html5" }
 gosub_shared = { path = "../gosub_shared" }
 gosub_styling = { path = "../gosub_styling" }
+gosub_css3 = { path = "../gosub_css3" }
 gosub_net = { path = "../gosub_net" }
 gosub_render_backend = { path = "../gosub_render_backend" }
 taffy = "0.5.2"
