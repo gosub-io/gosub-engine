@@ -1,7 +1,7 @@
+use crate::colors::RgbColor;
 use core::fmt::Debug;
 use std::cmp::Ordering;
 use std::fmt::Display;
-use crate::colors::RgbColor;
 
 /// Defines a complete stylesheet with all its rules and the location where it was found
 #[derive(Debug, PartialEq, Clone)]
@@ -207,7 +207,6 @@ impl Ord for Specificity {
     }
 }
 
-
 /// Actual CSS value, can be a color, length, percentage, string or unit. Some relative values will be computed
 /// from other values (ie: Percent(50) will convert to Length(100) when the parent width is 200)
 #[derive(Debug, Clone, PartialEq)]
@@ -218,6 +217,7 @@ pub enum CssValue {
     Percentage(f32),
     String(String),
     Unit(f32, String),
+    Function(String, Vec<CssValue>),
     List(Vec<CssValue>),
 }
 
@@ -244,6 +244,16 @@ impl Display for CssValue {
                     write!(f, "{}", item)?;
                 }
                 Ok(())
+            }
+            CssValue::Function(name, args) => {
+                write!(f, "{}(", name)?;
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", arg)?;
+                }
+                write!(f, ")")
             }
         }
     }
@@ -291,6 +301,16 @@ impl CssValue {
             crate::node::NodeType::Dimension { value, unit } => CssValue::Unit(value, unit),
             crate::node::NodeType::String { value } => CssValue::String(value),
             crate::node::NodeType::Hash { value } => CssValue::String(value),
+            crate::node::NodeType::Operator(_) => CssValue::None,
+            crate::node::NodeType::Calc { .. } => CssValue::Function("calc".to_string(), vec![]),
+            crate::node::NodeType::Url { url } => CssValue::Function("url".to_string(), vec![CssValue::String(url)]),
+            crate::node::NodeType::Function { name, arguments }  => {
+                let mut list = vec![];
+                for node in arguments.iter() {
+                    list.push(CssValue::from_ast_node(node));
+                }
+                CssValue::Function(name, list)
+            }
             _ => panic!("Cannot convert node to CssValue: {:?}", node),
         }
     }

@@ -53,7 +53,8 @@ impl From<&str> for RgbColor {
         }
         if value == "currentcolor" {
             // @todo: implement currentcolor
-            return RgbColor::default(); }
+            return RgbColor::default();
+        }
 
         if value.starts_with('#') {
             return parse_hex(value);
@@ -942,5 +943,4 @@ mod tests {
         assert_eq!(color.b, 0.0);
         assert_eq!(color.a, 255.0);
     }
-
 }

@@ -1,5 +1,5 @@
-use lazy_static::lazy_static;
 use gosub_css3::stylesheet::CssValue;
+use lazy_static::lazy_static;
 
 // Values for this table is taken from https://www.w3.org/TR/CSS21/propidx.html
 // Probably not the complete list, but it will do for now
@@ -575,12 +575,7 @@ lazy_static! {
     ];
 }
 
-
+#[allow(dead_code)]
 pub fn get_property_values(name: &str) -> Option<&PropertyTableEntry> {
-    for entry in PROPERTY_TABLE.iter() {
-        if entry.name == name {
-            return Some(entry);
-        }
-    }
-    None
+    PROPERTY_TABLE.iter().find(|&entry| entry.name == name)
 }

@@ -18,8 +18,7 @@
       "border-left-width"
     ],
     "type_parser": "one_two_three_four",
-    "inherits": false,
-    "initial_value": "'medium'"
+    "inherits": false
   },
   {
     "name": "border-style",
@@ -29,10 +28,8 @@
       "border-bottom-style",
       "border-left-style"
     ],
-    "type": "'none'|'hidden'|'dotted'|'dashed'|'solid'|'double'|'groove'|'ridge'|'inset'|'outset'|'inherit'|'initial'|'revert'|'revert-layer'|'unset'",
     "type_parser": "one_two_three_four",
-    "inherits": false,
-    "initial_value": "'none'"
+    "inherits": false
   },
   {
     "name": "border-color",
@@ -43,8 +40,7 @@
       "border-left-color"
     ],
     "type_parser": "one_two_three_four",
-    "inherits": false,
-    "initial_value": "color(currentcolor)"
+    "inherits": false
   },
   {
     "name": "border-top-color",
@@ -124,14 +120,12 @@
     "initial_value": "'none'",
     "inherits": false
   },
-
   {
     "name": "color",
     "type": "color|'currentcolor'|'inherit'|'initial'|'revert'|'revert-layer'|'unset'",
     "initial_value": "'canvastext'",
     "inherits": true
   },
-
   {
     "name": "width",
     "type": "unit|function|'auto'|'max-content'|'min-content'|fit-content'|'inherit'|'initial'|'revert'|'revert-layer'|'unset'",

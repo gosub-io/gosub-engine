@@ -1,25 +1,95 @@
-use std::collections::HashMap;
 use gosub_css3::colors::RgbColor;
 use gosub_css3::stylesheet::CssValue;
 use gosub_shared::types::{Error, Result};
+use std::collections::HashMap;
+use memoize::memoize;
 
 #[allow(dead_code)]
-#[derive(Debug)]
-struct PropertyDefinition {
+#[derive(Debug, Clone)]
+pub struct PropertyDefinition {
     name: String,
-    expanded_values: Vec<String>,
+    expanded_properties: Vec<String>,
     type_: Vec<String>,
     type_parser: String,
     inherits: bool,
     initial_value: CssValue,
 }
 
-fn parse_definition_file() -> HashMap<String, PropertyDefinition> {
-    println!("parse_definition_file");
+impl PropertyDefinition {
 
+    #[allow(dead_code)]
+    fn any_order_is_ok(&self, _values: &Vec<CssValue>) -> bool {
+        // check if values match the
+        true
+    }
+
+    pub fn matches(&self, values: &Vec<CssValue>) -> bool {
+
+        // If the property has no type, it can be anything
+        if self.type_.is_empty() {
+            return true;
+        }
+
+        // If the property has no values, it can be anything
+        if values.is_empty() {
+            return true;
+        }
+
+        match self.type_parser.as_str() {
+            "any_order_is_ok" => {
+                // return self.any_order_is_ok(values)
+            }
+            "one_two_three_four" => {
+                // return self.one_to_four(values)
+            }
+            "" => {
+                // return self.check_values(values)
+            }
+            _ => panic!("Unknown type parser: {}", self.type_parser),
+        }
+
+        for value in values.iter() {
+            println!("Checking value: {:?}", value);
+            for type_ in &self.type_ {
+                println!("Checking against type: {:?}", type_);
+                if check_type(type_, Some(value)) {
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+}
+
+#[derive(Clone)]
+pub struct CssPropertyDefinitions {
+    definitions: HashMap<String, PropertyDefinition>,
+}
+
+impl CssPropertyDefinitions {
+    pub fn new() -> Self {
+        parse_definition_file()
+    }
+
+    pub fn find(&self, name: &str) -> Option<&PropertyDefinition> {
+        self.definitions.get(name)
+    }
+
+    pub fn len(&self) -> usize {
+        self.definitions.len()
+    }
+}
+
+#[memoize]
+pub fn parse_definition_file() -> CssPropertyDefinitions {
     let contents = include_str!("css_definitions.json");
-    let json: serde_json::Value = serde_json::from_str(&contents).expect("JSON was not well-formatted");
+    let json: serde_json::Value =
+        serde_json::from_str(contents).expect("JSON was not well-formatted");
+    parse_definition_file_internal(json)
+}
 
+fn parse_definition_file_internal(json: serde_json::Value) -> CssPropertyDefinitions {
     let mut definitions = HashMap::new();
 
     let entries = json.as_array().unwrap();
@@ -27,22 +97,21 @@ fn parse_definition_file() -> HashMap<String, PropertyDefinition> {
         let name = entry["name"].as_str().unwrap().to_string();
         println!("name: {}", name);
 
-        let mut expanded_values = vec![];
+        let mut expanded_properties = vec![];
         let mut type_: Vec<String> = vec![];
         let mut type_parser: String = "".to_string();
         let mut inherits: bool = false;
         let mut initial_value: CssValue = CssValue::None;
 
-        if let Some(value) = entry["expanded_values"].as_array() {
-            expanded_values = value.iter().map(|v| v.to_string()).collect();
+        if let Some(value) = entry["expanded_properties"].as_array() {
+            expanded_properties = value.iter().map(|v| v.to_string()).collect();
         }
         if let Some(value) = entry["type"].as_str() {
             type_ = value
                 .split('|')
                 .filter(|&v| check_type_definition(v))
                 .map(|v| v.to_string())
-                .collect()
-            ;
+                .collect();
         }
         if let Some(value) = entry["convert_value"].as_str() {
             type_parser = value.to_string();
@@ -54,17 +123,29 @@ fn parse_definition_file() -> HashMap<String, PropertyDefinition> {
             initial_value = convert_value(value).unwrap();
         }
 
-        definitions.insert(name.clone(), PropertyDefinition {
-            name: name.clone(),
-            expanded_values,
-            type_,
-            type_parser,
-            inherits,
-            initial_value,
-        });
+        if expanded_properties.len() > 0 && initial_value != CssValue::None {
+            panic!("Expanded properties and initial value are mutually exclusive");
+        }
+        if expanded_properties.len() > 0 && type_.len() > 0 {
+            panic!("Expanded properties and type are mutually exclusive");
+        }
+
+        definitions.insert(
+            name.clone(),
+            PropertyDefinition {
+                name: name.clone(),
+                expanded_properties,
+                type_,
+                type_parser,
+                inherits,
+                initial_value,
+            },
+        );
     }
 
-    definitions
+    CssPropertyDefinitions {
+        definitions,
+    }
 }
 
 fn check_type_definition(definition: &str) -> bool {
@@ -77,13 +158,13 @@ fn check_type_value(definition: &str, value: &CssValue) -> bool {
 
 fn check_type(definition: &str, value: Option<&CssValue>) -> bool {
     // Literal strings should match exactly
-    if definition.starts_with("'") && definition.ends_with("'") {
+    if definition.starts_with('\'') && definition.ends_with('\'') {
         if value.is_none() {
             return true;
         }
 
         if let Some(CssValue::String(s)) = value {
-            return s == &definition[1..definition.len()-1];
+            return s == &definition[1..definition.len() - 1];
         }
 
         return false;
@@ -114,13 +195,13 @@ fn check_type(definition: &str, value: Option<&CssValue>) -> bool {
     }
 
     // Any number with optional range (e.g. number(42), number(0..100), number(..100), number(0..))
-    if definition.starts_with("number(") && definition.ends_with(")") {
+    if definition.starts_with("number(") && definition.ends_with(')') {
         if value.is_none() {
             return true;
         }
 
         if let Some(CssValue::Number(f)) = value {
-            return is_in_range(&definition[7..definition.len() - 1], *f)
+            return is_in_range(&definition[7..definition.len() - 1], *f);
         }
         return false;
     }
@@ -151,8 +232,10 @@ fn check_type(definition: &str, value: Option<&CssValue>) -> bool {
     }
 
     // Any unit with optional range (e.g. number(42), number(0..100), number(..100), number(0..)) and unit
-    if definition.starts_with("unit(") && definition.ends_with(")") {
-        let mut parts = definition[5..definition.len()-1].splitn(2, ' ').collect::<Vec<&str>>();
+    if definition.starts_with("unit(") && definition.ends_with(')') {
+        let mut parts = definition[5..definition.len() - 1]
+            .splitn(2, ' ')
+            .collect::<Vec<&str>>();
         if parts.len() == 1 {
             parts.insert(0, "")
         }
@@ -161,18 +244,17 @@ fn check_type(definition: &str, value: Option<&CssValue>) -> bool {
             return true;
         }
 
-
         if let Some(CssValue::Unit(f, u)) = value {
             // the unit part can have multiple units (e.g. px|em|vh)
             let allowed_units = parts[1].split('|').collect::<Vec<&str>>();
 
-            if parts[0] == "" {
+            if parts[0].is_empty() {
                 // No value
-                return allowed_units.contains(&u.as_str())
+                return allowed_units.contains(&u.as_str());
             }
 
             // Check if the value is in range and the unit is allowed
-            return is_in_range(&parts[0], *f) && allowed_units.contains(&u.as_str());
+            return is_in_range(parts[0], *f) && allowed_units.contains(&u.as_str());
         }
 
         return false;
@@ -189,39 +271,44 @@ fn check_type(definition: &str, value: Option<&CssValue>) -> bool {
 
 fn convert_value(value: &str) -> Result<CssValue> {
     // Between single quotes is a literal string
-    if value.starts_with("'") && value.ends_with("'") {
-        return Ok(CssValue::String(value[1..value.len()-1].to_string()))
+    if value.starts_with('\'') && value.ends_with('\'') {
+        return Ok(CssValue::String(value[1..value.len() - 1].to_string()));
     }
 
     // Color values
-    if value.starts_with("color(") && value.ends_with(")") {
-        return Ok(CssValue::Color(RgbColor::from(value[6..value.len()-1].to_string().as_str())))
+    if value.starts_with("color(") && value.ends_with(')') {
+        return Ok(CssValue::Color(RgbColor::from(
+            value[6..value.len() - 1].to_string().as_str(),
+        )));
     }
 
     // Numbers (floats)
     let num = value.parse::<f32>();
     if num.is_ok() {
-        return Ok(CssValue::Number(num.unwrap()))
+        return Ok(CssValue::Number(num.unwrap()));
     }
 
     // Percentages
     if value.ends_with('%') {
-        let num = value[0..value.len()-1].parse::<f32>();
+        let num = value[0..value.len() - 1].parse::<f32>();
         if num.is_ok() {
-            return Ok(CssValue::Percentage(num.unwrap()))
+            return Ok(CssValue::Percentage(num.unwrap()));
         }
     }
 
     // units
-    if value.starts_with("unit(") && value.ends_with(")") {
+    if value.starts_with("unit(") && value.ends_with(')') {
         // split by space
-        let parts: Vec<&str> = value[5..value.len()-1].splitn(2, ' ').collect();
-        return Ok(CssValue::Unit(parts[0].parse().unwrap(), parts[1].to_string()))
+        let parts: Vec<&str> = value[5..value.len() - 1].splitn(2, ' ').collect();
+        return Ok(CssValue::Unit(
+            parts[0].parse().unwrap(),
+            parts[1].to_string(),
+        ));
     }
 
     // Explicit none value
     if value == "none" {
-        return Ok(CssValue::None)
+        return Ok(CssValue::None);
     }
 
     Err(Error::Parse(format!("Could not convert value: {}", value)).into())
@@ -240,8 +327,16 @@ fn is_in_range(range: &str, value: f32) -> bool {
         return parts[0].parse::<f32>().unwrap() == value;
     }
 
-    let min = if parts[0] == "" { f32::MIN } else { parts[0].parse().unwrap() };
-    let max = if parts[1] == "" { f32::MAX } else { parts[1].parse().unwrap() };
+    let min = if parts[0].is_empty() {
+        f32::MIN
+    } else {
+        parts[0].parse().unwrap()
+    };
+    let max = if parts[1].is_empty() {
+        f32::MAX
+    } else {
+        parts[1].parse().unwrap()
+    };
 
     value >= min && value <= max
 }
@@ -270,43 +365,106 @@ mod tests {
     #[test]
     fn test_parse_definition_file() {
         let definitions = parse_definition_file();
-        dbg!(&definitions);
         assert_eq!(definitions.len(), 18);
     }
 
     #[test]
+    #[should_panic]
+    fn test_parse_definition_internal() {
+        let json = serde_json::from_str(r#"
+            [
+                {
+                    "name": "color",
+                    "type": "color",
+                    "convert_value": "color",
+                    "inherits": false,
+                    "initial_value": "color(black)"
+                },
+                {
+                    "name": "border-style",
+                    "expanded_properties": [
+                      "border-top-style",
+                      "border-right-style",
+                      "border-bottom-style",
+                      "border-left-style"
+                    ],
+                    "type_parser": "one_two_three_four",
+                    "inherits": false,
+                    "initial_value": "'thick'"
+                }
+            ]"#).unwrap();
+
+        _ = parse_definition_file_internal(json)
+    }
+
+    #[test]
     fn test_convert_value() {
-        assert_eq!(convert_value("'hello'").unwrap(), CssValue::String("hello".to_string()));
-        assert_eq!(convert_value("color(#ff0000)").unwrap(), CssValue::Color(RgbColor::from("#ff0000")));
-        assert_eq!(convert_value("color(#ff0000)").unwrap(), CssValue::Color(RgbColor::from("red")));
-        assert_eq!(convert_value("color(rebeccapurple)").unwrap(), CssValue::Color(RgbColor::from("#663399")));
+        assert_eq!(
+            convert_value("'hello'").unwrap(),
+            CssValue::String("hello".to_string())
+        );
+        assert_eq!(
+            convert_value("color(#ff0000)").unwrap(),
+            CssValue::Color(RgbColor::from("#ff0000"))
+        );
+        assert_eq!(
+            convert_value("color(#ff0000)").unwrap(),
+            CssValue::Color(RgbColor::from("red"))
+        );
+        assert_eq!(
+            convert_value("color(rebeccapurple)").unwrap(),
+            CssValue::Color(RgbColor::from("#663399"))
+        );
         assert_eq!(convert_value("42").unwrap(), CssValue::Number(42.0));
         assert_eq!(convert_value("12.34").unwrap(), CssValue::Number(12.34));
         assert_eq!(convert_value("64.8%").unwrap(), CssValue::Percentage(64.8));
-        assert_eq!(convert_value("unit(42 px)").unwrap(), CssValue::Unit(42.0, "px".to_string()));
+        assert_eq!(
+            convert_value("unit(42 px)").unwrap(),
+            CssValue::Unit(42.0, "px".to_string())
+        );
         assert_eq!(convert_value("none").unwrap(), CssValue::None);
 
         assert!(convert_value("does-not-exists").is_err());
     }
 
-
     #[test]
     fn test_check_type_with_values() {
-        assert!(check_type_value("'hello'", &CssValue::String("hello".to_string())));
-        assert!(!check_type_value("'hello'", &CssValue::String("world".to_string())));
+        assert!(check_type_value(
+            "'hello'",
+            &CssValue::String("hello".to_string())
+        ));
+        assert!(!check_type_value(
+            "'hello'",
+            &CssValue::String("world".to_string())
+        ));
 
-        assert!(check_type_value("color", &CssValue::Color(RgbColor::from("#ff0000"))));
-        assert!(check_type_value("color", &CssValue::Color(RgbColor::from("red"))));
+        assert!(check_type_value(
+            "color",
+            &CssValue::Color(RgbColor::from("#ff0000"))
+        ));
+        assert!(check_type_value(
+            "color",
+            &CssValue::Color(RgbColor::from("red"))
+        ));
         assert!(!check_type_value("color", &CssValue::Number(42.0)));
 
         assert!(check_type_value("number", &CssValue::Number(42.0)));
-        assert!(!check_type_value("number", &CssValue::String("hello".to_string())));
-        assert!(!check_type_value("number", &CssValue::Color(RgbColor::from("red"))));
+        assert!(!check_type_value(
+            "number",
+            &CssValue::String("hello".to_string())
+        ));
+        assert!(!check_type_value(
+            "number",
+            &CssValue::Color(RgbColor::from("red"))
+        ));
 
         assert!(check_type_value("number(0..100)", &CssValue::Number(42.0)));
         assert!(check_type_value("number(0..100)", &CssValue::Number(0.0)));
         assert!(check_type_value("number(0..100)", &CssValue::Number(100.0)));
-        assert!(!check_type_value("number(0..100)", &CssValue::Number(101.0)));
+        assert!(!check_type_value(
+            "number(0..100)",
+            &CssValue::Number(101.0)
+        ));
         assert!(!check_type_value("number(0..100)", &CssValue::Number(-1.0)));
 
         assert!(check_type_value("number(0..)", &CssValue::Number(42.0)));
@@ -323,34 +481,106 @@ mod tests {
         assert!(check_type_value("percentage", &CssValue::Percentage(42.0)));
         assert!(!check_type_value("percentage", &CssValue::Number(42.0)));
 
-        assert!(check_type_value("unit", &CssValue::Unit(525.0, "doesnotmatter".to_string())));
-        assert!(check_type_value("unit(px)", &CssValue::Unit(42.0, "px".to_string())));
-        assert!(check_type_value("unit(px)", &CssValue::Unit(-525.0, "px".to_string())));
-        assert!(check_type_value("unit(px)", &CssValue::Unit(525.0, "px".to_string())));
-        assert!(check_type_value("unit(px|em)", &CssValue::Unit(525.0, "em".to_string())));
-        assert!(check_type_value("unit(px|em)", &CssValue::Unit(525.0, "px".to_string())));
-        assert!(!check_type_value("unit(px|em)", &CssValue::Unit(525.0, "vh".to_string())));
-        assert!(!check_type_value("unit(px)", &CssValue::Unit(42.0, "em".to_string())));
+        assert!(check_type_value(
+            "unit",
+            &CssValue::Unit(525.0, "doesnotmatter".to_string())
+        ));
+        assert!(check_type_value(
+            "unit(px)",
+            &CssValue::Unit(42.0, "px".to_string())
+        ));
+        assert!(check_type_value(
+            "unit(px)",
+            &CssValue::Unit(-525.0, "px".to_string())
+        ));
+        assert!(check_type_value(
+            "unit(px)",
+            &CssValue::Unit(525.0, "px".to_string())
+        ));
+        assert!(check_type_value(
+            "unit(px|em)",
+            &CssValue::Unit(525.0, "em".to_string())
+        ));
+        assert!(check_type_value(
+            "unit(px|em)",
+            &CssValue::Unit(525.0, "px".to_string())
+        ));
+        assert!(!check_type_value(
+            "unit(px|em)",
+            &CssValue::Unit(525.0, "vh".to_string())
+        ));
+        assert!(!check_type_value(
+            "unit(px)",
+            &CssValue::Unit(42.0, "em".to_string())
+        ));
 
-        assert!(check_type_value("unit(..100 px|em|vh)", &CssValue::Unit(42.0, "px".to_string())));
-        assert!(check_type_value("unit(..100 px|em|vh)", &CssValue::Unit(0.0, "px".to_string())));
-        assert!(check_type_value("unit(..100 px|em|vh)", &CssValue::Unit(-1.0, "px".to_string())));
-        assert!(check_type_value("unit(..100.2 px|em|vh)", &CssValue::Unit(100.1, "px".to_string())));
-        assert!(check_type_value("unit(..100.2 px|em|vh)", &CssValue::Unit(100.2, "vh".to_string())));
-        assert!(!check_type_value("unit(..100.2 px|em|vh)", &CssValue::Unit(100.21, "vh".to_string())));
+        assert!(check_type_value(
+            "unit(..100 px|em|vh)",
+            &CssValue::Unit(42.0, "px".to_string())
+        ));
+        assert!(check_type_value(
+            "unit(..100 px|em|vh)",
+            &CssValue::Unit(0.0, "px".to_string())
+        ));
+        assert!(check_type_value(
+            "unit(..100 px|em|vh)",
+            &CssValue::Unit(-1.0, "px".to_string())
+        ));
+        assert!(check_type_value(
+            "unit(..100.2 px|em|vh)",
+            &CssValue::Unit(100.1, "px".to_string())
+        ));
+        assert!(check_type_value(
+            "unit(..100.2 px|em|vh)",
+            &CssValue::Unit(100.2, "vh".to_string())
+        ));
+        assert!(!check_type_value(
+            "unit(..100.2 px|em|vh)",
+            &CssValue::Unit(100.21, "vh".to_string())
+        ));
 
-        assert!(!check_type_value("unit(..100 px|em|vh)", &CssValue::Unit(42.0, "foo".to_string())));
-        assert!(!check_type_value("unit(..100 px|em|vh)", &CssValue::Unit(0.0, "foo".to_string())));
-        assert!(!check_type_value("unit(..100 px|em|vh)", &CssValue::Unit(-1.0, "foo".to_string())));
-        assert!(!check_type_value("unit(..100 px|em|vh)", &CssValue::Unit(100.1, "foo".to_string())));
+        assert!(!check_type_value(
+            "unit(..100 px|em|vh)",
+            &CssValue::Unit(42.0, "foo".to_string())
+        ));
+        assert!(!check_type_value(
+            "unit(..100 px|em|vh)",
+            &CssValue::Unit(0.0, "foo".to_string())
+        ));
+        assert!(!check_type_value(
+            "unit(..100 px|em|vh)",
+            &CssValue::Unit(-1.0, "foo".to_string())
+        ));
+        assert!(!check_type_value(
+            "unit(..100 px|em|vh)",
+            &CssValue::Unit(100.1, "foo".to_string())
+        ));
 
-        assert!(check_type_value("unit(100 px|em|vh)", &CssValue::Unit(100.0, "px".to_string())));
-        assert!(check_type_value("unit(100 px|em|vh)", &CssValue::Unit(100.0, "em".to_string())));
-        assert!(check_type_value("unit(100 px|em|vh)", &CssValue::Unit(100.0, "vh".to_string())));
+        assert!(check_type_value(
+            "unit(100 px|em|vh)",
+            &CssValue::Unit(100.0, "px".to_string())
+        ));
+        assert!(check_type_value(
+            "unit(100 px|em|vh)",
+            &CssValue::Unit(100.0, "em".to_string())
+        ));
+        assert!(check_type_value(
+            "unit(100 px|em|vh)",
+            &CssValue::Unit(100.0, "vh".to_string())
+        ));
 
-        assert!(!check_type_value("unit(100 px|em|vh)", &CssValue::Unit(99.9, "px".to_string())));
-        assert!(!check_type_value("unit(100 px|em|vh)", &CssValue::Unit(99.9, "em".to_string())));
-        assert!(!check_type_value("unit(100 px|em|vh)", &CssValue::Unit(99.9, "vh".to_string())));
+        assert!(!check_type_value(
+            "unit(100 px|em|vh)",
+            &CssValue::Unit(99.9, "px".to_string())
+        ));
+        assert!(!check_type_value(
+            "unit(100 px|em|vh)",
+            &CssValue::Unit(99.9, "em".to_string())
+        ));
+        assert!(!check_type_value(
+            "unit(100 px|em|vh)",
+            &CssValue::Unit(99.9, "vh".to_string())
+        ));
     }
 
     #[test]
@@ -361,4 +591,43 @@ mod tests {
         assert!(check_type_definition("unit"));
         assert!(check_type_definition("percentage"));
     }
+
+    #[test]
+    fn test_prop_def() {
+        let definitions = parse_definition_file();
+
+        let prop = definitions.find("color").unwrap();
+        assert!(prop.matches(&vec![CssValue::Color(RgbColor::from("#ff0000"))]));
+        assert!(!prop.matches(&vec![CssValue::Number(42.0)]));
+
+        let prop = definitions.find("border").unwrap();
+        assert!(prop.matches(&vec![
+            CssValue::Color(RgbColor::from("black")),
+            CssValue::String("solid".into()),
+            CssValue::Unit(1.0, "px".into()),
+        ]));
+        assert!(prop.matches(&vec![
+            CssValue::String("solid".into()),
+            CssValue::Color(RgbColor::from("black")),
+            CssValue::Unit(1.0, "px".into()),
+        ]));
+        assert!(prop.matches(&vec![
+            CssValue::Unit(1.0, "px".into()),
+        ]));
+        assert!(prop.matches(&vec![
+            CssValue::String("solid".into()),
+        ]));
+        assert!(prop.matches(&vec![
+            CssValue::String("solid".into()),
+            CssValue::Color(RgbColor::from("black")),
+        ]));
+        assert!(prop.matches(&vec![
+            CssValue::String("solid".into()),
+            CssValue::Color(RgbColor::from("black")),
+        ]));
+        assert!(prop.matches(&vec![
+            CssValue::String("solid".into()),
+        ]));
+    }
 }
+

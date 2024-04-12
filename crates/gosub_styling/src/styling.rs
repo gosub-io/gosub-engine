@@ -381,7 +381,8 @@ impl CssProperty {
 
     /// Returns the list of properties from a shorthand property, or just the property itself if it isn't a shorthand property.
     pub fn get_props_from_shorthand(&self) -> Vec<String> {
-        if let Some(shorthand) = crate::css_shorthands::SHORTHAND_PROPERTIES.get(self.name.as_str()) {
+        if let Some(shorthand) = crate::css_shorthands::SHORTHAND_PROPERTIES.get(self.name.as_str())
+        {
             let mut ret = vec![];
             for prop in shorthand {
                 ret.push(prop.to_string());
@@ -426,11 +427,10 @@ impl CssProperties {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
-    use gosub_css3::colors::RgbColor;
     use super::*;
+    use gosub_css3::colors::RgbColor;
 
     #[test]
     fn border_prop_test() {
@@ -448,11 +448,14 @@ mod tests {
             specificity: Specificity::new(1, 0, 0),
         });
 
-        assert_eq!(prop.compute_value(), &CssValue::List(vec![
-            CssValue::Unit(1.0, "px".into()),
-            CssValue::String("solid".into()),
-            CssValue::Color("red".into()),
-        ]));
+        assert_eq!(
+            prop.compute_value(),
+            &CssValue::List(vec![
+                CssValue::Unit(1.0, "px".into()),
+                CssValue::String("solid".into()),
+                CssValue::Color("red".into()),
+            ])
+        );
         assert_eq!(prop.is_shorthand(), true);
         assert_eq!(prop.name, "border");
         assert_eq!(prop.get_initial_value(), None);
@@ -474,7 +477,10 @@ mod tests {
         assert_eq!(prop.compute_value(), &CssValue::String("red".into()));
         assert_eq!(prop.is_shorthand(), false);
         assert_eq!(prop.name, "color");
-        assert_eq!(prop.get_initial_value(), Some(&CssValue::String("initial".into())).cloned());
+        assert_eq!(
+            prop.get_initial_value(),
+            Some(&CssValue::String("initial".into())).cloned()
+        );
         assert_eq!(prop.is_inheritable(), true);
     }
 
@@ -544,19 +550,17 @@ mod tests {
         assert_eq!(d, d);
     }
 
-
     // Test if shorthand properties are correctly identified and matched
     #[test]
     fn shorthand_props() {
 
-
         /*
-        p {
-          background-color: red;
-          background: url(images/bg.gif) no-repeat left top;
-        }
+            p {
+              background-color: red;
+              background: url(images/bg.gif) no-repeat left top;
+            }
 
-        background-color is transparent in this case as background overrides the background-color set previously
-    */
+            background-color is transparent in this case as background overrides the background-color set previously
+        */
     }
 }

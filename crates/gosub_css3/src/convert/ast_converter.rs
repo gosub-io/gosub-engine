@@ -1,5 +1,8 @@
 use crate::node::{Node as CssNode, NodeType};
-use crate::stylesheet::{CssDeclaration, CssOrigin, CssRule, CssSelector, CssSelectorPart, CssSelectorType, CssStylesheet, CssValue, MatcherType};
+use crate::stylesheet::{
+    CssDeclaration, CssOrigin, CssRule, CssSelector, CssSelectorPart, CssSelectorType,
+    CssStylesheet, CssValue, MatcherType,
+};
 use anyhow::anyhow;
 use gosub_shared::types::Result;
 
@@ -54,8 +57,6 @@ vs
     h3 { color: rebeccapurple; }
     h4 { color: rebeccapurple; }
 */
-
-
 
 /// Converts a CSS AST to a CSS stylesheet structure
 pub fn convert_ast_to_stylesheet(
@@ -171,7 +172,7 @@ pub fn convert_ast_to_stylesheet(
                 let (property, values, important) = declaration.as_declaration();
                 rule.declarations.push(CssDeclaration {
                     property: property.clone(),
-                    values: values.iter().map(|v| CssValue::from_ast_node(v)).collect(),
+                    values: values.iter().map(|v| CssValue::from_ast_node(v)).filter(|v| *v != CssValue::None).collect(),
                     important: *important,
                 });
             }
@@ -182,33 +183,105 @@ pub fn convert_ast_to_stylesheet(
     Ok(sheet)
 }
 
-
-
 #[cfg(test)]
 mod tests {
-    use crate::Css3;
-    use crate::parser_config::ParserConfig;
     use super::*;
+    use crate::parser_config::ParserConfig;
+    use crate::Css3;
+
+    #[test]
+    fn convert_font_family() {
+        let ast = Css3::parse(
+            r#"
+              body {
+                border: 1px solid black;
+                color: #ffffff;
+                background-color: #121212;
+                font-family: "Arial", sans-serif;
+                margin: 0;
+                padding: 0;
+              }
+            "#,
+            ParserConfig::default(),
+        ).unwrap();
+
+        let tree = convert_ast_to_stylesheet(&ast, CssOrigin::UserAgent, "test.css").unwrap();
+
+        dbg!(&tree);
+    }
+
 
     #[test]
     fn convert_test() {
-        let ast = Css3::parse(r#"
+        let ast = Css3::parse(
+            r#"
             h1 { color: red; }
             h3, h4 { border: 1px solid black; }
-            "#, ParserConfig::default()).unwrap();
+            "#,
+            ParserConfig::default(),
+        )
+        .unwrap();
 
-        let tree = convert_ast_to_stylesheet(
-            &ast,
-            CssOrigin::UserAgent,
-            "test.css",
-        ).unwrap();
+        let tree = convert_ast_to_stylesheet(&ast, CssOrigin::UserAgent, "test.css").unwrap();
 
-        assert_eq!(tree.rules.get(0).unwrap().declarations.get(0).unwrap().property, "color");
-        assert_eq!(tree.rules.get(0).unwrap().declarations.get(0).unwrap().values.get(0).unwrap(), &CssValue::String("red".into()));
+        assert_eq!(
+            tree.rules.first()
+                .unwrap()
+                .declarations.first()
+                .unwrap()
+                .property,
+            "color"
+        );
+        assert_eq!(
+            tree.rules.first()
+                .unwrap()
+                .declarations.first()
+                .unwrap()
+                .values.first()
+                .unwrap(),
+            &CssValue::String("red".into())
+        );
 
-        assert_eq!(tree.rules.get(1).unwrap().declarations.get(0).unwrap().property, "border");
-        assert_eq!(tree.rules.get(1).unwrap().declarations.get(0).unwrap().values.get(0).unwrap(), &CssValue::Unit(1.0, "px".into()));
-        assert_eq!(tree.rules.get(1).unwrap().declarations.get(0).unwrap().values.get(1).unwrap(), &CssValue::String("solid".into()));
-        assert_eq!(tree.rules.get(1).unwrap().declarations.get(0).unwrap().values.get(2).unwrap(), &CssValue::String("black".into()));
+        assert_eq!(
+            tree.rules
+                .get(1)
+                .unwrap()
+                .declarations.first()
+                .unwrap()
+                .property,
+            "border"
+        );
+        assert_eq!(
+            tree.rules
+                .get(1)
+                .unwrap()
+                .declarations.first()
+                .unwrap()
+                .values.first()
+                .unwrap(),
+            &CssValue::Unit(1.0, "px".into())
+        );
+        assert_eq!(
+            tree.rules
+                .get(1)
+                .unwrap()
+                .declarations.first()
+                .unwrap()
+                .values
+                .get(1)
+                .unwrap(),
+            &CssValue::String("solid".into())
+        );
+        assert_eq!(
+            tree.rules
+                .get(1)
+                .unwrap()
+                .declarations.first()
+                .unwrap()
+                .values
+                .get(2)
+                .unwrap(),
+            &CssValue::String("black".into())
+        );
     }
 }

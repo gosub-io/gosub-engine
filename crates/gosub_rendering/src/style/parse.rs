@@ -4,8 +4,8 @@ use taffy::{
     TrackSizingFunction,
 };
 
-use gosub_styling::styling::CssValue;
 use gosub_styling::render_tree::{RenderNodeData, RenderTreeNode};
+use gosub_css3::stylesheet::CssValue;
 
 pub(crate) fn parse_len(node: &mut RenderTreeNode, name: &str) -> LengthPercentage {
     let Some(property) = node.get_property(name) else {

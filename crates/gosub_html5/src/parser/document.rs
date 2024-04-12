@@ -19,11 +19,11 @@ use crate::node::data::doctype::DocTypeData;
 use crate::node::data::{comment::CommentData, text::TextData};
 use crate::node::HTML_NAMESPACE;
 use crate::node::{Node, NodeData, NodeId};
-use crate::parser::Html5Parser;
 use crate::parser::query::SearchType;
 use crate::parser::query::{Condition, Query};
 use crate::parser::quirks::QuirksMode;
 use crate::parser::tree_builder::TreeBuilder;
+use crate::parser::Html5Parser;
 use crate::util::is_valid_id_attribute_value;
 use crate::visit::Visitor;
 

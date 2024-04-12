@@ -1,9 +1,9 @@
+use crate::css_properties::get_property_values;
+use gosub_css3::stylesheet::{CssDeclaration, CssValue};
+
 /// This file contains the shorthand properties and their expanded properties.
 use lazy_static::lazy_static;
 use std::collections::HashMap;
-use gosub_css3::stylesheet::{CssDeclaration, CssValue};
-use crate::css_properties::get_property_values;
-use itertools::Itertools;
 
 lazy_static! {
     pub static ref SHORTHAND_PROPERTIES: HashMap<&'static str, Vec<&'static str>> = {
@@ -314,7 +314,7 @@ lazy_static! {
     };
 }
 
-
+#[allow(dead_code)]
 /// Converts a shorthand property to its expanded properties by making sure that the values are set to the correct properties.
 fn convert_shorthand_properties(declaration: &CssDeclaration) -> Vec<CssDeclaration> {
     match declaration.property.as_str() {
@@ -324,7 +324,7 @@ fn convert_shorthand_properties(declaration: &CssDeclaration) -> Vec<CssDeclarat
                     declaration.values[0].clone(),
                     declaration.values[0].clone(),
                     declaration.values[0].clone(),
-                    declaration.values[0].clone()
+                    declaration.values[0].clone(),
                 ],
                 2 => vec![
                     declaration.values[0].clone(),
@@ -336,40 +336,40 @@ fn convert_shorthand_properties(declaration: &CssDeclaration) -> Vec<CssDeclarat
                     declaration.values[0].clone(),
                     declaration.values[1].clone(),
                     declaration.values[2].clone(),
-                    declaration.values[1].clone()
+                    declaration.values[1].clone(),
                 ],
                 4 => vec![
                     declaration.values[0].clone(),
                     declaration.values[1].clone(),
                     declaration.values[2].clone(),
-                    declaration.values[3].clone()
+                    declaration.values[3].clone(),
                 ],
                 _ => panic!("Invalid number of values for margin property"),
             };
 
             let mut declarations = Vec::new();
-            declarations.push(CssDeclaration{
+            declarations.push(CssDeclaration {
                 property: "margin-top".to_string(),
                 values: vec![values[0].clone()],
                 important: declaration.important,
             });
-            declarations.push(CssDeclaration{
+            declarations.push(CssDeclaration {
                 property: "margin-left".to_string(),
                 values: vec![values[1].clone()],
                 important: declaration.important,
             });
-            declarations.push(CssDeclaration{
+            declarations.push(CssDeclaration {
                 property: "margin-bottom".to_string(),
                 values: vec![values[2].clone()],
                 important: declaration.important,
             });
-            declarations.push(CssDeclaration{
+            declarations.push(CssDeclaration {
                 property: "margin-right".to_string(),
                 values: vec![values[3].clone()],
                 important: declaration.important,
             });
 
-            return declarations;
+            declarations
         }
         "border" => {
             let mut declarations = HashMap::new();
@@ -380,25 +380,34 @@ fn convert_shorthand_properties(declaration: &CssDeclaration) -> Vec<CssDeclarat
             for value in &declaration.values {
                 match value {
                     CssValue::String(_) => {
-                        declarations.insert("border-style", CssDeclaration{
-                            property: "border-style".to_string(),
-                            values: vec![value.clone()],
-                            important: declaration.important,
-                        });
+                        declarations.insert(
+                            "border-style",
+                            CssDeclaration {
+                                property: "border-style".to_string(),
+                                values: vec![value.clone()],
+                                important: declaration.important,
+                            },
+                        );
                     }
                     CssValue::Unit(_, _) => {
-                        declarations.insert("border-width", CssDeclaration{
-                            property: "border-width".to_string(),
-                            values: vec![value.clone()],
-                            important: declaration.important,
-                        });
+                        declarations.insert(
+                            "border-width",
+                            CssDeclaration {
+                                property: "border-width".to_string(),
+                                values: vec![value.clone()],
+                                important: declaration.important,
+                            },
+                        );
                     }
                     CssValue::Color(_) => {
-                        declarations.insert("border-color", CssDeclaration{
-                            property: "border-color".to_string(),
-                            values: vec![value.clone()],
-                            important: declaration.important,
-                        });
+                        declarations.insert(
+                            "border-color",
+                            CssDeclaration {
+                                property: "border-color".to_string(),
+                                values: vec![value.clone()],
+                                important: declaration.important,
+                            },
+                        );
                     }
                     _ => {
                         panic!("Invalid value for border property");
@@ -406,33 +415,33 @@ fn convert_shorthand_properties(declaration: &CssDeclaration) -> Vec<CssDeclarat
                 }
             }
 
-            return declarations.into_iter().map(|(_, v)| v).collect();
+            declarations.into_values().collect()
         }
         _ => {
-            return vec![declaration.clone()];
+            vec![declaration.clone()]
         }
     }
 }
 
-
+#[allow(dead_code)]
 /// Returns the default property of the given css property name. Will return none when the property is not found.
 fn get_initial_values(name: &str) -> Option<CssDeclaration> {
     if let Some(prop_entry) = get_property_values(name) {
-        return Some(CssDeclaration{
+        return Some(CssDeclaration {
             property: name.to_string(),
             values: vec![prop_entry.initial.clone()],
-            important: false,   // @Todo: is this ok or should it use the declaration's important value?
+            important: false, // @Todo: is this ok or should it use the declaration's important value?
         });
     }
 
-    return None
+    None
 }
-
 
 #[cfg(test)]
 mod tests {
-    use gosub_css3::colors::RgbColor;
     use super::*;
+    use gosub_css3::colors::RgbColor;
+    use itertools::Itertools;
 
     macro_rules! border_prop_test {
         ($values:expr, $width:expr, $style:expr, $color:expr,) => {
@@ -455,7 +464,7 @@ mod tests {
                 }
                 assert_eq!(decl.important, false);
             }
-        }
+        };
     }
 
     macro_rules! margin_prop_test {
@@ -480,7 +489,7 @@ mod tests {
                 }
                 assert_eq!(decl.important, false);
             }
-        }
+        };
     }
 
     #[test]
@@ -502,31 +511,29 @@ mod tests {
         }
 
         // tests with missing values
-        border_prop_test!(vec![
-                CssValue::String("solid".to_string()),
-            ],
+        border_prop_test!(
+            vec![CssValue::String("solid".to_string()),],
             CssValue::String("initial".to_string()),
             CssValue::String("solid".to_string()),
             CssValue::String("initial".to_string()),
         );
 
-        border_prop_test!(vec![
-                CssValue::Unit(1.0, "px".to_string()),
-            ],
+        border_prop_test!(
+            vec![CssValue::Unit(1.0, "px".to_string()),],
             CssValue::Unit(1.0, "px".to_string()),
             CssValue::String("none".to_string()),
             CssValue::String("initial".to_string()),
         );
 
-        border_prop_test!(vec![
-                CssValue::Color(RgbColor::from("#123456")),
-            ],
+        border_prop_test!(
+            vec![CssValue::Color(RgbColor::from("#123456")),],
             CssValue::String("initial".to_string()),
             CssValue::String("none".to_string()),
             CssValue::Color(RgbColor::from("#123456")),
         );
 
-        border_prop_test!(vec![
+        border_prop_test!(
+            vec![
                 CssValue::Unit(1.0, "px".to_string()),
                 CssValue::String("solid".to_string()),
             ],
@@ -535,7 +542,8 @@ mod tests {
             CssValue::String("initial".to_string()),
         );
 
-        border_prop_test!(vec![
+        border_prop_test!(
+            vec![
                 CssValue::Unit(1.0, "px".to_string()),
                 CssValue::Color(RgbColor::from("#123456")),
             ],
@@ -544,7 +552,8 @@ mod tests {
             CssValue::Color(RgbColor::from("#123456")),
         );
 
-        border_prop_test!(vec![
+        border_prop_test!(
+            vec![
                 CssValue::String("solid".to_string()),
                 CssValue::Color(RgbColor::from("#123456")),
             ],
@@ -556,16 +565,16 @@ mod tests {
 
     #[test]
     fn test_margin() {
-        margin_prop_test!(vec![
-                CssValue::Unit(1.0, "px".to_string()),
-            ],
+        margin_prop_test!(
+            vec![CssValue::Unit(1.0, "px".to_string()),],
             CssValue::Unit(1.0, "px".to_string()),
             CssValue::Unit(1.0, "px".to_string()),
             CssValue::Unit(1.0, "px".to_string()),
             CssValue::Unit(1.0, "px".to_string()),
         );
 
-        margin_prop_test!(vec![
+        margin_prop_test!(
+            vec![
                 CssValue::Unit(1.0, "px".to_string()),
                 CssValue::Unit(2.0, "px".to_string()),
             ],
@@ -575,8 +584,9 @@ mod tests {
             CssValue::Unit(2.0, "px".to_string()),
         );
 
-        margin_prop_test!(vec![
-              CssValue::Unit(1.0, "px".to_string()),
+        margin_prop_test!(
+            vec![
+                CssValue::Unit(1.0, "px".to_string()),
                 CssValue::Unit(2.0, "px".to_string()),
                 CssValue::Unit(3.0, "px".to_string()),
             ],
@@ -586,7 +596,8 @@ mod tests {
             CssValue::Unit(2.0, "px".to_string()),
         );
 
-        margin_prop_test!(vec![
+        margin_prop_test!(
+            vec![
                 CssValue::Unit(1.0, "px".to_string()),
                 CssValue::Unit(2.0, "px".to_string()),
                 CssValue::Unit(3.0, "px".to_string()),
@@ -604,7 +615,9 @@ mod tests {
         let initial = get_initial_values("border-style");
 
         assert!(initial.is_some());
-        assert_eq!(initial.unwrap().values[0], CssValue::String("none".to_string()));
+        assert_eq!(
+            initial.unwrap().values[0],
+            CssValue::String("none".to_string())
+        );
     }
 }
-

@@ -5,6 +5,7 @@ use crate::tokenizer::Tokenizer;
 use gosub_shared::byte_stream::{ByteStream, Encoding, Stream};
 use gosub_shared::{timing_start, timing_stop};
 
+pub mod colors;
 pub mod convert;
 pub mod location;
 mod node;
@@ -14,7 +15,6 @@ pub mod stylesheet;
 pub mod tokenizer;
 mod unicode;
 pub mod walker;
-pub mod colors;
 
 /// This CSS3 parser is heavily based on the MIT licensed CssTree parser written by
 /// Roman Dvornov (https://github.com/lahmatiy).

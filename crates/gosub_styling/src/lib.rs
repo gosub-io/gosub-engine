@@ -10,12 +10,12 @@ use gosub_css3::parser_config::ParserConfig;
 use gosub_css3::stylesheet::{CssOrigin, CssStylesheet};
 use gosub_css3::Css3;
 
-pub mod styling;
-pub mod prerender_text;
-pub mod render_tree;
+pub mod css_definitions;
 mod css_properties;
 mod css_shorthands;
-mod css_definitions;
+pub mod prerender_text;
+pub mod render_tree;
+pub mod styling;
 
 /// Loads the default user agent stylesheet
 pub fn load_default_useragent_stylesheet() -> anyhow::Result<CssStylesheet> {
