@@ -1,0 +1,21 @@
+[package]
+name = "gosub_renderer"
+version = "0.1.0"
+edition = "2021"
+authors = ["Gosub Community <info@gosub.io>"]
+license = "MIT"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+gosub_rendering = { path = "../gosub_rendering" }
+gosub_html5 = { path = "../gosub_html5" }
+gosub_shared = { path = "../gosub_shared" }
+gosub_styling = { path = "../gosub_styling" }
+taffy = "0.4.1"
+vello = "0.1.0"
+winit = "0.29.15"
+anyhow = "1.0.81"
+wgpu = "0.19.3"
+futures = "0.3.30"
+slotmap = "1.0.7"

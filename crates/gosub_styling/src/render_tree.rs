@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use anyhow::anyhow;
+
 use gosub_html5::node::data::comment::CommentData;
 use gosub_html5::node::data::doctype::DocTypeData;
 use gosub_html5::node::data::document::DocumentData;
@@ -12,13 +14,14 @@ use gosub_shared::types::Result;
 use crate::css_values::{
     match_selector, CssProperties, CssProperty, CssValue, DeclarationProperty,
 };
-use crate::prerender_text::PrerenderText;
+use crate::prerender_text::{PrerenderText, DEFAULT_FS, FONT_RENDERER_CACHE};
 
 /// Map of all declared values for all nodes in the document
 #[derive(Default)]
 pub struct RenderTree {
     pub nodes: HashMap<NodeId, RenderTreeNode>,
     pub root: NodeId,
+    pub dirty: bool,
 }
 
 impl RenderTree {
@@ -27,6 +30,7 @@ impl RenderTree {
         let mut tree = Self {
             nodes: HashMap::with_capacity(capacity),
             root: NodeId::root(),
+            dirty: false,
         };
 
         tree.insert_node(
@@ -278,43 +282,46 @@ impl RenderNodeData {
             NodeData::Element(data) => RenderNodeData::Element(data),
             NodeData::Text(data) => {
                 let props = props.ok_or(anyhow::anyhow!("No properties found"))?;
-                let ff;
-                if let Some(prop) = props.get("font-family") {
+
+                let font_cache = &mut *FONT_RENDERER_CACHE
+                    .lock()
+                    .map_err(|e| anyhow!(e.to_string()))?;
+
+                let font = props.get("font-family").and_then(|prop| {
                     prop.compute_value();
-                    ff = if let CssValue::String(ref font_family) = prop.actual {
-                        font_family.clone()
-                    } else {
-                        String::from("Arial")
+
+                    if let CssValue::String(font_family) = &prop.actual {
+                        let ff = font_family
+                            .trim()
+                            .split(',')
+                            .map(|ff| ff.to_string())
+                            .collect::<Vec<String>>();
+
+                        return Some(font_cache.query_ff(ff));
                     };
+                    None
+                });
+
+                let font = if let Some(font) = font {
+                    font
                 } else {
-                    ff = String::from("Arial")
+                    &mut font_cache.backup
                 };
 
-                let ff = ff
-                    .trim()
-                    .split(',')
-                    .map(|ff| ff.to_string())
-                    .collect::<Vec<String>>();
-
-                let fs;
-
-                if let Some(prop) = props.get("font-size") {
-                    prop.compute_value();
-
-                    fs = if let CssValue::String(ref fs) = prop.actual {
-                        if fs.ends_with("px") {
-                            fs.trim_end_matches("px").parse::<f32>().unwrap_or(12.0)
-                        } else {
-                            12.01
+                let fs = props
+                    .get("font-size")
+                    .and_then(|prop| {
+                        prop.compute_value();
+                        if let CssValue::String(fs) = &prop.actual {
+                            if fs.ends_with("px") {
+                                return fs[..fs.len() - 2].parse::<f32>().ok();
+                            }
                         }
-                    } else {
-                        12.02
-                    };
-                } else {
-                    fs = 12.03
-                };
+                        None
+                    })
+                    .unwrap_or(DEFAULT_FS);
 
-                let text = PrerenderText::new(data.value.clone(), fs, ff)?;
+                let text = PrerenderText::with_renderer(data.value.clone(), fs, font)?;
                 RenderNodeData::Text(text)
             }
             NodeData::Comment(data) => RenderNodeData::Comment(data),

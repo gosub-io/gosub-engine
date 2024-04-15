@@ -3,18 +3,21 @@ use std::sync::{Arc, Mutex};
 use lazy_static::lazy_static;
 use rust_fontconfig::{FcFontCache, FcPattern};
 use vello::glyph::Glyph;
-use vello::peniko::{Blob, Font};
+use vello::kurbo::Affine;
+use vello::peniko::{Blob, BrushRef, Font, StyleRef};
 use vello::skrifa::instance::Size;
 use vello::skrifa::{FontRef, MetadataProvider};
+use vello::Scene;
 
 use gosub_html5::node::data::text::TextData;
 
-const BACKUP_FONT_NAME: &str = "Roboto";
+pub const BACKUP_FONT_NAME: &str = "Roboto";
+pub const DEFAULT_FS: f32 = 16.0;
 
 lazy_static! {
-    static ref FONT_PATH_CACHE: FcFontCache = FcFontCache::build();
+    pub static ref FONT_PATH_CACHE: FcFontCache = FcFontCache::build();
 
-    static ref FONT_RENDERER_CACHE: Mutex<FontRendererCache> = {
+    pub static ref FONT_RENDERER_CACHE: Mutex<FontRendererCache> = {
         // we look for the backup font first, then we look for sans-serif, then we just take the first font we find
         // if we can't find any fonts, we panic
         let mut pattern = FcPattern {
@@ -46,13 +49,12 @@ lazy_static! {
         };
 
         Mutex::new(FontRendererCache::new(backup))
-
     };
 }
 
 pub struct FontRendererCache {
     renderers: Vec<TextRenderer>,
-    backup: TextRenderer,
+    pub backup: TextRenderer,
 }
 
 enum Index {
@@ -161,7 +163,7 @@ impl FontRendererCache {
         }
     }
 
-    fn query_ff(&mut self, font_family: Vec<String>) -> &mut TextRenderer {
+    pub fn query_ff(&mut self, font_family: Vec<String>) -> &mut TextRenderer {
         let mut renderer = IndexNoBackup::None;
         for f in font_family {
             let pattern = FcPattern {
@@ -209,7 +211,7 @@ impl FontRendererCache {
 #[derive(Clone)]
 pub struct TextRenderer {
     pattern: FcPattern,
-    font: Font,
+    pub font: Font,
     sizing: Vec<FontSizing>,
 }
 
@@ -227,6 +229,7 @@ pub struct PrerenderText {
     pub line_height: f32,
     pub font_size: f32,
     pub glyphs: Vec<Glyph>,
+    pub font: Font,
 }
 
 #[allow(clippy::from_over_into)]
@@ -252,6 +255,14 @@ impl PrerenderText {
             .map_err(|_| anyhow::anyhow!("Failed to lock font renderer cache"))?;
         let renderer = renderers_cache.query_ff(font_family);
 
+        Self::with_renderer(text, font_size, renderer)
+    }
+
+    pub fn with_renderer(
+        text: String,
+        font_size: f32,
+        renderer: &mut TextRenderer,
+    ) -> anyhow::Result<Self> {
         let font_ref =
             to_font_ref(&renderer.font).ok_or_else(|| anyhow::anyhow!("Failed to get font ref"))?;
 
@@ -303,7 +314,28 @@ impl PrerenderText {
             line_height,
             font_size,
             glyphs,
+            font: renderer.font.clone(),
         })
+    }
+
+    pub fn show<'a>(
+        &self,
+        scene: &mut Scene,
+        brush: impl Into<BrushRef<'a>>,
+        transform: Affine,
+        style: impl Into<StyleRef<'a>>,
+        glyph_transform: Option<Affine>,
+    ) {
+        let brush = brush.into();
+        let style = style.into();
+
+        scene
+            .draw_glyphs(&self.font)
+            .font_size(self.font_size)
+            .transform(transform)
+            .glyph_transform(glyph_transform)
+            .brush(brush)
+            .draw(style, self.glyphs.iter().copied());
     }
 }
 
