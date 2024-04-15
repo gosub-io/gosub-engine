@@ -12,7 +12,7 @@ derive_more = "0.99"
 lazy_static = "1.4"
 thiserror = "1.0.58"
 v8 = "0.89.0"
-anyhow = "1.0.81"
+anyhow = "1.0.82"
 paste = "1.0.14"
 
 [dev-dependencies]
