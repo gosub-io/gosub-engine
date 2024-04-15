@@ -2532,9 +2532,9 @@ dependencies = [
 
 [[package]]
 name = "taffy"
-version = "0.4.1"
+version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1ebe07d79b1554c75926c01a8431a365d61dd9661096b9b493cb0adba712445e"
+checksum = "7b2e140b328c6cb5e744bb2c65910b47df86b239afc793ee2c52262569cf9225"
 dependencies = [
  "arrayvec",
  "grid",
