@@ -9,5 +9,5 @@ license = "MIT"
 gosub_html5 = { path = "../gosub_html5" }
 gosub_styling = { path = "../gosub_styling" }
 taffy = "0.4.1"
-anyhow = "1.0.81"
+anyhow = "1.0.82"
 regex = "1.10.4"

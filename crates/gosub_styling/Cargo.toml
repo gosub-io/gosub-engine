@@ -10,7 +10,7 @@ gosub_shared = { path = "../gosub_shared" }
 gosub_css3 = { path = "../gosub_css3" }
 gosub_html5 = { path = "../gosub_html5" }
 lazy_static = "1.4"
-anyhow = "1.0.81"
+anyhow = "1.0.82"
 regex = "1.10.4"
 colors-transform = "0.2.11"
 vello = "0.1.0"
