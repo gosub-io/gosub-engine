@@ -1,11 +1,10 @@
-use std::cell::RefCell;
 use std::fs;
-use std::rc::Rc;
 
 use anyhow::bail;
 use gosub_html5::parser::document::{Document, DocumentBuilder};
 use gosub_html5::parser::Html5Parser;
-use gosub_renderer::{render_tree::RenderTree, Renderer};
+use gosub_renderer::render_tree::TreeDrawer;
+use gosub_renderer::renderer::{Renderer, RendererOptions};
 use gosub_rendering::layout::generate_taffy_tree;
 use gosub_shared::bytes::CharIterator;
 use gosub_shared::bytes::{Confidence, Encoding};
@@ -29,14 +28,13 @@ fn main() -> Result<()> {
 
     let (taffy_tree, root) = generate_taffy_tree(&mut rt)?;
 
-    let render_tree = RenderTree::new(rt, taffy_tree, root);
+    let render_tree = TreeDrawer::new(rt, taffy_tree, root);
 
-    let render_tree = Rc::new(RefCell::new(render_tree));
+    let render_tree = render_tree;
 
-    let mut renderer = Renderer::new(render_tree)?;
+    let renderer = Renderer::new(RendererOptions::default())?;
 
-    renderer.start()?;
-
+    renderer.start(render_tree)?;
     Ok(())
 }
 
