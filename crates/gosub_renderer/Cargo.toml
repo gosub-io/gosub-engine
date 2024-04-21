@@ -19,3 +19,8 @@ anyhow = "1.0.81"
 wgpu = "0.19.3"
 futures = "0.3.30"
 slotmap = "1.0.7"
+
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen-futures = "0.4.42"
+web-sys = "0.3.55"

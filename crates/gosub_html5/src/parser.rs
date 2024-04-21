@@ -1,10 +1,20 @@
-mod attr_replacements;
-pub mod document;
-pub mod query;
-mod quirks;
-pub mod tree_builder;
+use core::cell::RefCell;
+use core::option::Option::Some;
+use std::collections::HashMap;
+#[cfg(feature = "debug_parser")]
+use std::io::Write;
+use std::rc::Rc;
 
-// ------------------------------------------------------------
+use log::warn;
+use url::Url;
+
+use gosub_css3::convert::ast_converter::convert_ast_to_stylesheet;
+use gosub_css3::parser_config::ParserConfig;
+use gosub_css3::stylesheet::{CssOrigin, CssStylesheet};
+use gosub_css3::Css3;
+use gosub_shared::bytes::CharIterator;
+use gosub_shared::types::{ParseError, Result};
+use gosub_shared::{timing_start, timing_stop};
 
 use crate::error_logger::{ErrorLogger, ParserError};
 use crate::node::NodeId;
@@ -18,21 +28,14 @@ use crate::parser::quirks::QuirksMode;
 use crate::tokenizer::state::State;
 use crate::tokenizer::token::Token;
 use crate::tokenizer::{ParserData, Tokenizer, CHAR_REPLACEMENT};
-use core::cell::RefCell;
-use core::option::Option::Some;
-use gosub_css3::convert::ast_converter::convert_ast_to_stylesheet;
-use gosub_css3::parser_config::ParserConfig;
-use gosub_css3::stylesheet::{CssOrigin, CssStylesheet};
-use gosub_css3::Css3;
-use gosub_shared::bytes::CharIterator;
-use gosub_shared::types::{ParseError, Result};
-use gosub_shared::{timing_start, timing_stop};
-use log::warn;
-use std::collections::HashMap;
-#[cfg(feature = "debug_parser")]
-use std::io::Write;
-use std::rc::Rc;
-use url::Url;
+
+mod attr_replacements;
+pub mod document;
+pub mod query;
+mod quirks;
+pub mod tree_builder;
+
+// ------------------------------------------------------------
 
 /// Insertion modes as defined in 13.2.4.1
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -4145,6 +4148,12 @@ impl<'chars> Html5Parser<'chars> {
     }
 
     /// Load and parse an external stylesheet by URL
+    #[cfg(target_arch = "wasm32")]
+    fn load_external_stylesheet(&self, _origin: CssOrigin, _url: Url) -> Option<CssStylesheet> {
+        None
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     fn load_external_stylesheet(&self, origin: CssOrigin, url: Url) -> Option<CssStylesheet> {
         if url.scheme() != "http" && url.scheme() != "https" {
             // Only load http and https
@@ -4290,9 +4299,11 @@ impl<'chars> Html5Parser<'chars> {
 
 #[cfg(test)]
 mod test {
-    use super::*;
-    use crate::parser::document::DocumentBuilder;
     use gosub_shared::bytes::Encoding;
+
+    use crate::parser::document::DocumentBuilder;
+
+    use super::*;
 
     macro_rules! node_create {
         ($self:expr, $name:expr) => {{

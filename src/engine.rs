@@ -1,16 +1,19 @@
-use cookie::CookieJar;
-use core::fmt::Debug;
-use gosub_html5::parser::document::{Document, DocumentBuilder, DocumentHandle};
-use gosub_html5::parser::Html5Parser;
-use gosub_net::dns::{Dns, ResolveType};
-use gosub_net::http::headers::Headers;
-use gosub_net::http::request::Request;
-use gosub_net::http::response::Response;
-use gosub_shared::bytes::{CharIterator, Confidence, Encoding};
-use gosub_shared::types::{Error, ParseError, Result};
-use gosub_shared::{timing_start, timing_stop};
-use std::io::Read;
-use url::Url;
+#[cfg(not(target_arch = "wasm32"))]
+use {
+    cookie::CookieJar,
+    core::fmt::Debug,
+    gosub_html5::parser::document::{Document, DocumentBuilder, DocumentHandle},
+    gosub_html5::parser::Html5Parser,
+    gosub_net::{
+        dns::{Dns, ResolveType},
+        http::{headers::Headers, request::Request, response::Response},
+    },
+    gosub_shared::bytes::{CharIterator, Confidence, Encoding},
+    gosub_shared::types::{Error, ParseError, Result},
+    gosub_shared::{timing_start, timing_stop},
+    std::io::Read,
+    url::Url,
+};
 
 #[allow(dead_code)]
 const USER_AGENT: &str = "Mozilla/5.0 (compatible; gosub/0.1; +https://gosub.io)";
@@ -19,6 +22,7 @@ const USER_AGENT: &str = "Mozilla/5.0 (compatible; gosub/0.1; +https://gosub.io)
 const MAX_BYTES: u64 = 10_000_000;
 
 /// Response that is returned from the fetch function
+#[cfg(not(target_arch = "wasm32"))]
 pub struct FetchResponse {
     /// Request that has been send
     pub request: Request,
@@ -32,6 +36,7 @@ pub struct FetchResponse {
     pub render_tree: String,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl Debug for FetchResponse {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         writeln!(f, "Request:")?;
@@ -51,6 +56,7 @@ impl Debug for FetchResponse {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[allow(dead_code)]
 fn fetch_url(
     method: &str,
@@ -151,6 +157,7 @@ fn fetch_url(
 mod tests {
     use super::*;
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn test_fetch_url() {
         let url = "https://gosub.io/";

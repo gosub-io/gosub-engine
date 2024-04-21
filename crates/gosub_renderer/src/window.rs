@@ -9,9 +9,9 @@ use winit::event_loop;
 use winit::event_loop::EventLoopWindowTarget;
 use winit::window::{Window as WinitWindow, WindowBuilder, WindowId};
 
-use crate::draw::SceneDrawer;
 use gosub_shared::types::Result;
 
+use crate::draw::SceneDrawer;
 use crate::renderer::{InstanceAdapter, SurfaceWrapper, RENDERER_CONF};
 
 pub enum WindowState<'a> {
@@ -37,9 +37,36 @@ pub struct Window<'a, D: SceneDrawer> {
 
 impl<'a, D: SceneDrawer> Window<'a, D> {
     /// Creates a new window AND opens it
-    pub fn new(adapter: Arc<InstanceAdapter>, scene_drawer: D) -> Result<Self> {
+    pub fn new(
+        adapter: Arc<InstanceAdapter>,
+        scene_drawer: D,
+        #[cfg(target_arch = "wasm32")] canvas_parent_id: Option<String>,
+    ) -> Result<Self> {
         let event_loop = EventLoop::new()?;
-        let state = WindowState::Suspended(create_window(&event_loop)?);
+
+        let window = create_window(&event_loop)?;
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            use winit::platform::web::WindowExtWebSys;
+            let canvas = window
+                .canvas()
+                .ok_or(anyhow!("failed to get window canvas"))?;
+            web_sys::window()
+                .and_then(|w| w.document())
+                .and_then(|d| {
+                    if let Some(id) = canvas_parent_id {
+                        d.get_element_by_id(&id)
+                    } else {
+                        d.body().map(|b| b.into())
+                    }
+                })
+                .and_then(|b| b.append_child(&canvas).ok());
+
+            let _ = web_sys::HtmlElement::from(canvas).focus();
+        }
+
+        let state = WindowState::Suspended(window);
 
         let renderer = adapter.create_renderer()?;
 

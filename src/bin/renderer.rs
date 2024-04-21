@@ -32,7 +32,7 @@ fn main() -> Result<()> {
 
     let render_tree = render_tree;
 
-    let renderer = Renderer::new(RendererOptions::default())?;
+    let renderer = futures::executor::block_on(Renderer::new(RendererOptions::default()))?;
 
     renderer.start(render_tree)?;
     Ok(())
