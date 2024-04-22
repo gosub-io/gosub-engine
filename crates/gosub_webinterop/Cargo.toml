@@ -9,7 +9,7 @@ edition = "2021"
 syn = { version = "2.0.58", features = ["full", "extra-traits"] }
 quote = { version = "1.0.36", features = [] }
 proc-macro2 = "1.0.80"
-serde = { version = "1.0.193", features = ["derive"] }
+serde = { version = "1.0.198", features = ["derive"] }
 lazy_static = "1.4.0"
 
 
