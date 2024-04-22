@@ -9,7 +9,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = {version = "1.0", features = ["preserve_order"]}
 serde_derive = "1.0"
 lazy_static = "1.4"
-thiserror = "1.0.58"
+thiserror = "1.0.59"
 ureq = "2.9.5"
 sqlite = "0.35.0"
 wildmatch = "2.3.3"
