@@ -1,13 +1,15 @@
 name: Bencher.dev benchmarks
 
 on:
-  push:
-    branches:
-      - * # All branches
+  pull_request:
+    types: [opened, reopened, edited, synchronize]
 
 jobs:
   benchmark_with_bencher:
     name: Continuous Benchmarking with Bencher
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      pull-requests: write
     runs-on: ubuntu-latest
     env:
       BENCHER_PROJECT: gosub-engine
@@ -16,10 +18,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: bencherdev/bencher@main
-      - name: Track Benchmarks with Bencher
+      - name: Track PR Benchmarks with Bencher
         run: |
           bencher run \
-          --branch "$GITHUB_REF_NAME" \
+          --project gosub-engine \
           --token "${{ secrets.BENCHER_API_TOKEN }}" \
-          --err \
+          --branch '${{ github.head_ref }}' \
+          --branch-start-point '${{ github.base_ref }}' \
+          --branch-start-point-hash '${{ github.event.pull_request.base.sha }}' \
+          --testbed ubuntu-latest \
+          --adapter json \
+          --err \          
+          --github-actions '${{ secrets.GITHUB_TOKEN }}' \
           cargo bench --all
