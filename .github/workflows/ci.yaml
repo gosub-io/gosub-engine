@@ -1,4 +1,4 @@
-name: Rust CI
+name: Gosub Continuous Integration (CI)
 
 on:
   push:
