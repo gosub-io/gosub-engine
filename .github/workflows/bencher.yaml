@@ -11,10 +11,6 @@ jobs:
     permissions:
       pull-requests: write
     runs-on: ubuntu-latest
-    env:
-      BENCHER_PROJECT: gosub-engine
-      BENCHER_TESTBED: ubuntu-latest
-      BENCHER_ADAPTER: json
     steps:
       - uses: actions/checkout@v4
       - uses: bencherdev/bencher@main
@@ -26,8 +22,8 @@ jobs:
           --branch '${{ github.head_ref }}' \
           --branch-start-point '${{ github.base_ref }}' \
           --branch-start-point-hash '${{ github.event.pull_request.base.sha }}' \
-          --testbed ubuntu-latest \
-          --adapter json \
+          --testbed github-action-ci \
+          --adapter rust \
           --err \          
           --github-actions '${{ secrets.GITHUB_TOKEN }}' \
           cargo bench --all
