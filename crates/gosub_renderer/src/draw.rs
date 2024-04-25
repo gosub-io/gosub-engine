@@ -13,21 +13,20 @@ use crate::render_tree::{NodeID, TreeDrawer};
 
 pub trait SceneDrawer {
     /// Returns true if the texture needs to be redrawn
-    fn draw(&mut self, scene: &mut Scene, size: PhysicalSize<u32>) -> bool;
+    fn draw(&mut self, scene: &mut Scene, size: PhysicalSize<u32>);
 }
 
 impl SceneDrawer for TreeDrawer {
-    fn draw(&mut self, scene: &mut Scene, size: PhysicalSize<u32>) -> bool {
+    fn draw(&mut self, scene: &mut Scene, size: PhysicalSize<u32>) {
         if self.size == Some(size) {
             //This check needs to be updated in the future, when the tree is mutable
-            return false;
+            return;
         }
 
         self.size = Some(size);
 
         scene.reset();
         self.render(scene, size);
-        true
     }
 }
 
