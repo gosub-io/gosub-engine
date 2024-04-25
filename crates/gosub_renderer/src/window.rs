@@ -190,29 +190,28 @@ impl<'a, D: SceneDrawer> Window<'a, D> {
 
             WindowEvent::RedrawRequested => {
                 let size = window.inner_size();
-                if self.scene_drawer.draw(&mut self.scene, size) {
-                    let width = surface.config.width;
-                    let height = surface.config.height;
+                self.scene_drawer.draw(&mut self.scene, size);
+                let width = surface.config.width;
+                let height = surface.config.height;
 
-                    let surface_texture = surface.surface.get_current_texture()?;
+                let surface_texture = surface.surface.get_current_texture()?;
 
-                    self.renderer
-                        .render_to_surface(
-                            &self.adapter.device,
-                            &self.adapter.queue,
-                            &self.scene,
-                            &surface_texture,
-                            &RenderParams {
-                                base_color: Color::BLACK,
-                                width,
-                                height,
-                                antialiasing_method: AaConfig::Msaa16,
-                            },
-                        )
-                        .map_err(|e| anyhow!(e.to_string()))?;
+                self.renderer
+                    .render_to_surface(
+                        &self.adapter.device,
+                        &self.adapter.queue,
+                        &self.scene,
+                        &surface_texture,
+                        &RenderParams {
+                            base_color: Color::BLACK,
+                            width,
+                            height,
+                            antialiasing_method: AaConfig::Msaa16,
+                        },
+                    )
+                    .map_err(|e| anyhow!(e.to_string()))?;
 
-                    surface_texture.present();
-                }
+                surface_texture.present();
             }
 
             _ => {}
