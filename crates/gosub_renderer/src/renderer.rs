@@ -1,5 +1,6 @@
 use std::num::NonZeroUsize;
 use std::sync::Arc;
+#[cfg(not(target_arch = "wasm32"))]
 use std::thread::JoinHandle;
 
 use anyhow::anyhow;
@@ -19,7 +20,7 @@ use gosub_shared::types::Result;
 use crate::draw::SceneDrawer;
 use crate::window::Window;
 
-const DEFAULT_POWER_PREFERENCE: PowerPreference = PowerPreference::HighPerformance;
+const DEFAULT_POWER_PREFERENCE: PowerPreference = PowerPreference::None;
 const DEFAULT_BACKENDS: Backends = Backends::PRIMARY;
 const DEFAULT_DX12COMPILER: Dx12Compiler = Dx12Compiler::Dxc {
     dxil_path: None,
@@ -55,7 +56,9 @@ pub struct RendererOptions {
     pub backends: Option<Backends>,
     pub dx12compiler: Option<Dx12Compiler>,
     pub gles3minor_version: Option<Gles3MinorVersion>,
+    #[cfg(not(target_arch = "wasm32"))]
     pub adapter: Option<String>,
+    #[cfg(not(target_arch = "wasm32"))]
     pub crash_on_invalid_adapter: bool,
 }
 
@@ -66,7 +69,9 @@ impl Default for RendererOptions {
             backends: backend_bits_from_env(),
             dx12compiler: dx12_shader_compiler_from_env(),
             gles3minor_version: gles_minor_version_from_env(),
+            #[cfg(not(target_arch = "wasm32"))]
             adapter: std::env::var("WGPU_ADAPTER_NAME").ok(),
+            #[cfg(not(target_arch = "wasm32"))]
             crash_on_invalid_adapter: false,
         }
     }
@@ -77,7 +82,9 @@ struct RenderConfig {
     pub backends: Backends,
     pub dx12compiler: Dx12Compiler,
     pub gles3minor_version: Gles3MinorVersion,
+    #[cfg(not(target_arch = "wasm32"))]
     pub adapter: Option<String>,
+    #[cfg(not(target_arch = "wasm32"))]
     pub crash_on_invalid_adapter: bool,
 }
 
@@ -96,22 +103,24 @@ impl From<RendererOptions> for RenderConfig {
             gles3minor_version: opts
                 .gles3minor_version
                 .unwrap_or(gles_minor_version_from_env().unwrap_or(DEFAULT_GLES3_MINOR_VERSION)),
+            #[cfg(not(target_arch = "wasm32"))]
             adapter: opts.adapter,
+            #[cfg(not(target_arch = "wasm32"))]
             crash_on_invalid_adapter: opts.crash_on_invalid_adapter,
         }
     }
 }
 
 impl Renderer {
-    pub fn new(opts: RendererOptions) -> Result<Self> {
+    pub async fn new(opts: RendererOptions) -> Result<Self> {
         let config = RenderConfig::from(opts);
 
         Ok(Self {
-            instance_adapter: Arc::new(Self::get_adapter(config)?),
+            instance_adapter: Arc::new(Self::get_adapter(config).await?),
         })
     }
 
-    fn get_adapter(config: RenderConfig) -> Result<InstanceAdapter> {
+    async fn get_adapter(config: RenderConfig) -> Result<InstanceAdapter> {
         let instance = Instance::new(InstanceDescriptor {
             backends: config.backends,
             dx12_shader_compiler: config.dx12compiler,
@@ -119,46 +128,53 @@ impl Renderer {
             ..Default::default()
         });
 
-        let adapter = config
-            .adapter
-            .and_then(|adapter_name| {
-                let adapters = instance.enumerate_adapters(Backends::all());
-                let adapter_name = adapter_name.to_lowercase();
+        #[cfg(not(target_arch = "wasm32"))]
+        let mut adapter = config.adapter.and_then(|adapter_name| {
+            let adapters = instance.enumerate_adapters(Backends::all());
+            let adapter_name = adapter_name.to_lowercase();
 
-                let mut chosen_adapter = None;
-                for adapter in adapters {
-                    let info = adapter.get_info();
+            let mut chosen_adapter = None;
+            for adapter in adapters {
+                let info = adapter.get_info();
 
-                    if info.name.to_lowercase().contains(&adapter_name) {
-                        chosen_adapter = Some(adapter);
-                        break;
-                    }
+                if info.name.to_lowercase().contains(&adapter_name) {
+                    chosen_adapter = Some(adapter);
+                    break;
                 }
+            }
 
-                if chosen_adapter.is_none() && config.crash_on_invalid_adapter {
-                    eprintln!("No adapter found with name: {}", adapter_name);
-                    std::process::exit(1);
-                }
+            if chosen_adapter.is_none() && config.crash_on_invalid_adapter {
+                eprintln!("No adapter found with name: {}", adapter_name);
+                std::process::exit(1);
+            }
 
-                chosen_adapter
-            })
-            .or_else(|| {
-                let fut = instance.request_adapter(&wgpu::RequestAdapterOptions {
+            chosen_adapter
+        });
+
+        #[cfg(target_arch = "wasm32")]
+        let mut adapter = None;
+
+        if adapter.is_none() {
+            adapter = instance
+                .request_adapter(&wgpu::RequestAdapterOptions {
                     power_preference: config.power_preference,
                     force_fallback_adapter: false,
                     compatible_surface: None,
-                });
-                futures::executor::block_on(fut)
-            })
-            .or_else(|| {
-                let fut = instance.request_adapter(&wgpu::RequestAdapterOptions {
+                })
+                .await;
+        }
+
+        if adapter.is_none() {
+            adapter = instance
+                .request_adapter(&wgpu::RequestAdapterOptions {
                     power_preference: config.power_preference,
                     force_fallback_adapter: true,
                     compatible_surface: None,
-                });
-                futures::executor::block_on(fut)
-            })
-            .ok_or(anyhow!("No adapter found"))?;
+                })
+                .await;
+        }
+
+        let adapter = adapter.ok_or(anyhow!("No adapter found"))?;
 
         let info = adapter.get_info();
 
@@ -171,16 +187,17 @@ impl Renderer {
         features -= wgpu::Features::RAY_QUERY;
         features -= wgpu::Features::RAY_TRACING_ACCELERATION_STRUCTURE;
 
-        let fut = adapter.request_device(
-            &wgpu::DeviceDescriptor {
-                label: None,
-                required_features: Default::default(),
-                required_limits: Default::default(),
-            },
-            None,
-        );
-
-        let (device, queue) = futures::executor::block_on(fut)?;
+        let (device, queue) = adapter
+            .request_device(
+                &wgpu::DeviceDescriptor {
+                    label: None,
+                    required_features: Default::default(),
+                    required_limits: Default::default(),
+                },
+                None,
+            )
+            .await
+            .map_err(|e| anyhow!(e.to_string()))?;
 
         Ok(InstanceAdapter {
             instance,
@@ -190,9 +207,11 @@ impl Renderer {
         })
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn start_in_thread<D: SceneDrawer + Send + 'static>(
         &self,
         drawers: D,
+        #[cfg(target_arch = "wasm32")] id: Option<String>,
     ) -> JoinHandle<Result<()>> {
         let adapter = Arc::clone(&self.instance_adapter);
 
@@ -204,8 +223,15 @@ impl Renderer {
         })
     }
 
-    pub fn start<D: SceneDrawer + 'static>(&self, drawers: D) -> Result<()> {
+    pub fn start<D: SceneDrawer + 'static>(
+        &self,
+        drawers: D,
+        #[cfg(target_arch = "wasm32")] id: Option<String>,
+    ) -> Result<()> {
+        #[cfg(not(target_arch = "wasm32"))]
         let mut window = Window::new(Arc::clone(&self.instance_adapter), drawers)?;
+        #[cfg(target_arch = "wasm32")]
+        let mut window = Window::new(Arc::clone(&self.instance_adapter), drawers, id)?;
         window.start()?;
         Ok(())
     }

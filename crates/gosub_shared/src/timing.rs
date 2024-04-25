@@ -1,8 +1,9 @@
-use lazy_static::lazy_static;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::sync::Mutex;
 use std::time::Instant;
+
+use lazy_static::lazy_static;
 
 type TimerId = uuid::Uuid;
 
@@ -180,17 +181,30 @@ lazy_static! {
 #[macro_export]
 macro_rules! timing_start {
     ($namespace:expr, $context:expr) => {{
-        $crate::timing::TIMING_TABLE
-            .lock()
-            .unwrap()
-            .start_timer($namespace, Some($context.to_string()))
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            $crate::timing::TIMING_TABLE
+                .lock()
+                .unwrap()
+                .start_timer($namespace, Some($context.to_string()))
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = $context;
+            let _ = $namespace;
+        }
     }};
 
     ($namespace:expr) => {{
-        $crate::timing::TIMING_TABLE
-            .lock()
-            .unwrap()
-            .start_timer($namespace, None)
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            $crate::timing::TIMING_TABLE
+                .lock()
+                .unwrap()
+                .start_timer($namespace, None)
+        }
+        #[cfg(target_arch = "wasm32")]
+        let _ = $namespace;
     }};
 }
 
@@ -198,10 +212,15 @@ macro_rules! timing_start {
 #[macro_export]
 macro_rules! timing_stop {
     ($timer_id:expr) => {{
-        $crate::timing::TIMING_TABLE
-            .lock()
-            .unwrap()
-            .stop_timer($timer_id);
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            $crate::timing::TIMING_TABLE
+                .lock()
+                .unwrap()
+                .stop_timer($timer_id);
+        }
+        #[cfg(target_arch = "wasm32")]
+        let _ = $timer_id;
     }};
 }
 
@@ -274,9 +293,11 @@ impl Timer {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use rand::random;
     use std::thread::sleep;
+
+    use rand::random;
+
+    use super::*;
 
     #[test]
     fn test_timing_defaults() {

@@ -17,7 +17,7 @@ use crate::css_values::{
 use crate::prerender_text::{PrerenderText, DEFAULT_FS, FONT_RENDERER_CACHE};
 
 /// Map of all declared values for all nodes in the document
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct RenderTree {
     pub nodes: HashMap<NodeId, RenderTreeNode>,
     pub root: NodeId,

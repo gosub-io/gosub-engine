@@ -1,6 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use lazy_static::lazy_static;
+#[cfg(not(target_arch = "wasm32"))]
 use rust_fontconfig::{FcFontCache, FcPattern};
 use vello::glyph::Glyph;
 use vello::kurbo::Affine;
@@ -11,39 +12,33 @@ use vello::Scene;
 
 use gosub_html5::node::data::text::TextData;
 
-pub const BACKUP_FONT_NAME: &str = "Roboto";
-pub const DEFAULT_FS: f32 = 16.0;
+#[cfg(target_arch = "wasm32")]
+#[derive(Default, Clone, Debug, PartialEq, Eq)]
+pub struct FcPattern {
+    name: Option<String>,
+}
 
+pub const DEFAULT_FS: f32 = 12.0;
+
+#[cfg(not(target_arch = "wasm32"))]
 lazy_static! {
     pub static ref FONT_PATH_CACHE: FcFontCache = FcFontCache::build();
+}
 
+lazy_static! {
     pub static ref FONT_RENDERER_CACHE: Mutex<FontRendererCache> = {
-        // we look for the backup font first, then we look for sans-serif, then we just take the first font we find
-        // if we can't find any fonts, we panic
-        let mut pattern = FcPattern {
-            name: Some(BACKUP_FONT_NAME.to_string()),
-            ..Default::default()
-        };
-
-        let font_path = FONT_PATH_CACHE.query(&pattern).unwrap_or_else(|| {
-            pattern = FcPattern {
-                name: Some("sans-serif".to_string()),
-                ..Default::default()
-            };
-
-            FONT_PATH_CACHE.query(&pattern).unwrap_or_else(|| {
-                FONT_PATH_CACHE.query_all(&Default::default()).first().unwrap_or_else(|| {
-                    panic!("No fonts found")
-                })
-            })
-        });
-
-        //TODO: remove expect here and use a different query
-        let font_bytes = std::fs::read(&font_path.path).expect("Failed to read font file");
-        let font = Font::new(Blob::new(Arc::new(font_bytes)), 0);
+        let font = Font::new(
+            Blob::new(Arc::new(include_bytes!(
+                "../../../resources/fonts/Roboto-Regular.ttf"
+            ))),
+            0,
+        );
 
         let backup = TextRenderer {
-            pattern,
+            pattern: FcPattern {
+                name: Some("Roboto".to_string()),
+                ..Default::default()
+            },
             font,
             sizing: Vec::new(),
         };
@@ -77,6 +72,7 @@ impl From<Option<usize>> for Index {
     }
 }
 
+#[allow(dead_code)]
 enum IndexNoBackup {
     None,
     Some(usize),
@@ -114,11 +110,16 @@ impl FontRendererCache {
             .into();
 
         if index.is_none() {
-            let Some(font_path) = FONT_PATH_CACHE.query(&pattern) else {
-                return IndexNoBackup::None;
-            };
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                let Some(font_path) = FONT_PATH_CACHE.query(&pattern) else {
+                    return IndexNoBackup::None;
+                };
 
-            return IndexNoBackup::Insert(font_path.path.clone());
+                return IndexNoBackup::Insert(font_path.path.clone());
+            }
+            #[cfg(target_arch = "wasm32")]
+            return IndexNoBackup::None;
         }
 
         index
@@ -130,6 +131,7 @@ impl FontRendererCache {
         }
 
         // we need to do this with an index value because of https://github.com/rust-lang/rust/issues/21906
+        #[allow(unused_mut)]
         let mut index: Index = self
             .renderers
             .iter()
@@ -137,24 +139,29 @@ impl FontRendererCache {
             .into();
 
         if index.is_backup() {
-            let Some(font_path) = FONT_PATH_CACHE.query(&pattern) else {
-                return &mut self.backup;
-            };
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                let Some(font_path) = FONT_PATH_CACHE.query(&pattern) else {
+                    return &mut self.backup;
+                };
 
-            let Ok(font_bytes) = std::fs::read(&font_path.path) else {
-                return &mut self.backup;
-            };
+                let Ok(font_bytes) = std::fs::read(&font_path.path) else {
+                    return &mut self.backup;
+                };
 
-            let font = Font::new(Blob::new(Arc::new(font_bytes)), 0);
+                let font = Font::new(Blob::new(Arc::new(font_bytes)), 0);
 
-            let r = TextRenderer {
-                pattern,
-                font,
-                sizing: Vec::new(),
-            };
+                let r = TextRenderer {
+                    pattern,
+                    font,
+                    sizing: Vec::new(),
+                };
 
-            self.renderers.push(r);
-            index = Index::Some(self.renderers.len() - 1);
+                self.renderers.push(r);
+                index = Index::Some(self.renderers.len() - 1);
+            }
+            #[cfg(target_arch = "wasm32")]
+            return &mut self.backup;
         }
 
         match index {

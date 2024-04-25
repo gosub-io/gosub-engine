@@ -14,4 +14,9 @@ anyhow = "1.0.82"
 regex = "1.10.4"
 colors-transform = "0.2.11"
 vello = "0.1.0"
+
+#[target.'cfg(target_arch = "wasm32")'.dependencies]
+#web-sys = { version = "0.3.69", features = ["fontface"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 rust-fontconfig = "0.1.7"
