@@ -1,5 +1,6 @@
 use taffy::NodeId as TaffyID;
 use taffy::{Layout, TaffyTree};
+use winit::dpi::PhysicalSize;
 
 use gosub_html5::node::NodeId as GosubID;
 use gosub_styling::css_values::CssProperties;
@@ -7,15 +8,21 @@ use gosub_styling::render_tree::{RenderNodeData, RenderTree as StyleTree};
 
 pub type NodeID = TaffyID;
 
-pub struct RenderTree {
+pub struct TreeDrawer {
     pub(crate) style: StyleTree,
     pub(crate) root: NodeID,
     pub(crate) taffy: TaffyTree<GosubID>,
+    pub(crate) size: Option<PhysicalSize<u32>>,
 }
 
-impl RenderTree {
+impl TreeDrawer {
     pub fn new(style: StyleTree, taffy: TaffyTree<GosubID>, root: TaffyID) -> Self {
-        Self { style, root, taffy }
+        Self {
+            style,
+            root,
+            taffy,
+            size: None,
+        }
     }
 }
 
