@@ -9,7 +9,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = {version = "1.0", features = ["preserve_order"]}
 serde_derive = "1.0"
 lazy_static = "1.4"
-thiserror = "1.0.58"
+thiserror = "1.0.59"
 wildmatch = "2.3.3"
 log = "0.4.21"
 testing_logger = "0.1.1"
@@ -18,5 +18,5 @@ anyhow = "1.0.82"
 
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-sqlite = "0.34.0"
+sqlite = "0.35.0"
 ureq = "2.9.5"
