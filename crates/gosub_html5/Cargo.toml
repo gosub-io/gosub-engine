@@ -18,5 +18,5 @@ log = { version = "0.4.21", features = [] }
 
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-ureq = "2.9.6"
+ureq = "2.9.7"
 
