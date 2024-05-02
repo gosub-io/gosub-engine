@@ -1,6 +1,8 @@
 use std::fs;
 
 use anyhow::bail;
+use url::Url;
+
 use gosub_html5::parser::document::{Document, DocumentBuilder};
 use gosub_html5::parser::Html5Parser;
 use gosub_renderer::render_tree::TreeDrawer;
@@ -10,7 +12,6 @@ use gosub_shared::bytes::CharIterator;
 use gosub_shared::bytes::{Confidence, Encoding};
 use gosub_shared::types::Result;
 use gosub_styling::render_tree::{generate_render_tree, RenderTree as StyleTree};
-use url::Url;
 
 fn main() -> Result<()> {
     let matches = clap::Command::new("Gosub Renderer")
@@ -28,7 +29,7 @@ fn main() -> Result<()> {
 
     let (taffy_tree, root) = generate_taffy_tree(&mut rt)?;
 
-    let render_tree = TreeDrawer::new(rt, taffy_tree, root);
+    let render_tree = TreeDrawer::new(rt, taffy_tree, root, Url::parse("https://gosub.io/")?);
 
     let render_tree = render_tree;
 
