@@ -96,7 +96,7 @@ impl TreeDrawer {
         pos.0 += layout.location.x as f64;
         pos.1 += layout.location.y as f64;
 
-        let border_radius = render_bg(node, scene, layout, pos);
+        let border_radius = render_bg(node, scene, layout, pos, &self.url);
 
         if let RenderNodeData::Element(element) = &node.data {
             if element.name() == "img" {
@@ -118,7 +118,6 @@ impl TreeDrawer {
                 res.into_reader().read_to_end(&mut img)?;
 
                 let img = image::load_from_memory(&img)?;
-                img.save("test.png")?;
 
                 let width = img.width();
                 let height = img.height();
@@ -176,6 +175,7 @@ fn render_bg(
     scene: &mut Scene,
     layout: &Layout,
     pos: &(f64, f64),
+    root_url: &Url,
 ) -> (f64, f64, f64, f64) {
     let bg_color = node
         .properties
@@ -234,15 +234,59 @@ fn render_bg(
         border_radius_left,
     );
 
+    let rect = RoundedRect::new(
+        pos.0,
+        pos.1,
+        pos.0 + layout.size.width as f64,
+        pos.1 + layout.size.height as f64,
+        border_radius,
+    );
+
     if let Some(bg_color) = bg_color {
-        let rect = RoundedRect::new(
-            pos.0,
-            pos.1,
-            pos.0 + layout.size.width as f64,
-            pos.1 + layout.size.height as f64,
-            border_radius,
-        );
         scene.fill(Fill::NonZero, Affine::IDENTITY, bg_color, None, &rect);
+    }
+
+    let background_image = node.properties.get("background-image").and_then(|prop| {
+        prop.compute_value();
+
+        match &prop.actual {
+            CssValue::String(url) => Some(url.as_str()),
+            _ => None,
+        }
+    });
+
+    if let Some(url) = background_image {
+        let Ok(url) = Url::parse(url).or_else(|_| root_url.join(url)) else {
+            eprintln!("TODO: Add Image not found Image");
+            return border_radius;
+        };
+
+        let res = gosub_net::http::ureq::get(url.as_str()).call().unwrap();
+
+        let mut img = Vec::with_capacity(
+            res.header("Content-Length")
+                .unwrap_or("1024")
+                .parse::<usize>()
+                .unwrap(),
+        );
+
+        res.into_reader().read_to_end(&mut img).unwrap();
+
+        let img = image::load_from_memory(&img).unwrap();
+
+        let height = img.height();
+        let width = img.width();
+
+        let img = Image::new(
+            img.into_rgba8().into_raw().into(),
+            Format::Rgba8,
+            width,
+            height,
+        );
+
+        let _ = render_image(&img, scene, *pos, layout.size, border_radius, "fill").map_err(|e| {
+            eprintln!("Error rendering image: {:?}", e);
+        });
     }
 
     border_radius
