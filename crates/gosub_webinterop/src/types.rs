@@ -1,7 +1,4 @@
-use std::fmt::Debug;
-
 pub(crate) use args::*;
-use executor::Executor;
 pub(crate) use field::*;
 pub(crate) use generics::*;
 pub(crate) use primitive::*;
@@ -15,8 +12,9 @@ mod primitive;
 mod slice;
 mod ty;
 
-#[derive(Clone, PartialEq, Debug)]
-pub(crate) struct PropertyOptions {
-    pub(crate) executor: Executor,
-    pub(crate) rename: Option<String>,
-}
+// #[derive(Clone, PartialEq, Debug)]
+// pub(crate) struct PropertyOptions {
+//     pub(crate) executor: Executor,
+//     pub(crate) rename: Option<String>,
+// }
+//TODO: is this still needed?

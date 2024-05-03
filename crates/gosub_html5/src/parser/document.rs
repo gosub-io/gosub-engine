@@ -889,11 +889,20 @@ impl DocumentHandle {
     pub fn deep_clone(&self) -> DocumentHandle {
         let mut doc_handle = Document::shared(None);
 
-        doc_handle.get_mut().location = self.get().location.clone();
-        doc_handle.get_mut().named_id_elements = self.get().named_id_elements.clone();
+        doc_handle
+            .get_mut()
+            .location
+            .clone_from(&self.get().location);
+        doc_handle
+            .get_mut()
+            .named_id_elements
+            .clone_from(&self.get().named_id_elements);
         doc_handle.get_mut().doctype = self.get().doctype;
         doc_handle.get_mut().quirks_mode = self.get().quirks_mode;
-        doc_handle.get_mut().stylesheets = self.get().stylesheets.clone();
+        doc_handle
+            .get_mut()
+            .stylesheets
+            .clone_from(&self.get().stylesheets);
         doc_handle.get_mut().arena = self.get().arena.clone();
 
         doc_handle
@@ -965,7 +974,9 @@ impl DocumentBuilder {
             }
 
             // Copy location
-            doc.get_mut().location = doc_get.borrow().location.clone();
+            doc.get_mut()
+                .location
+                .clone_from(&doc_get.borrow().location);
         }
 
         // @TODO: Set tokenizer state based on context element
@@ -1299,8 +1310,8 @@ mod tests {
 
         // validate that invalid changes did not apply to DOM
         let doc_read = document.get();
-        assert!(doc_read.named_id_elements.get("my id").is_none());
-        assert!(doc_read.named_id_elements.get("").is_none());
+        assert!(!doc_read.named_id_elements.contains_key("my id"));
+        assert!(!doc_read.named_id_elements.contains_key(""));
     }
 
     // this is basically a replica of document_task_queue() test

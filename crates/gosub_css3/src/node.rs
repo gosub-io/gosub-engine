@@ -1,6 +1,7 @@
-use crate::location::Location;
 use core::fmt::{Display, Formatter};
 use std::ops::Deref;
+
+use crate::location::Location;
 
 pub type Number = f32;
 
@@ -304,7 +305,7 @@ impl Node {
                 matcher,
                 value,
                 flags,
-            } => (&name, matcher, &value, &flags),
+            } => (name, matcher, value, flags),
             _ => panic!("Node is not an attribute selector"),
         }
     }
@@ -348,7 +349,7 @@ impl Node {
 
     pub fn as_dimension(&self) -> (&Number, &String) {
         match &self.node_type.deref() {
-            &NodeType::Dimension { value, unit } => (&value, &unit),
+            &NodeType::Dimension { value, unit } => (value, unit),
             _ => panic!("Node is not a dimension"),
         }
     }
@@ -374,7 +375,7 @@ impl Node {
                 property,
                 value,
                 important,
-            } => (&property, &value, &important),
+            } => (property, value, important),
             _ => panic!("Node is not a declaration"),
         }
     }

@@ -66,7 +66,7 @@ impl<W: Write> Printer for WritablePrinter<W> {
         for arg in args {
             data.push_str(format!("{arg} ").as_str());
         }
-        data = data.trim_end().to_owned();
+        data = data.trim_end().to_string();
         let mut writer = self.writer.borrow_mut();
 
         let _ = match log_level {

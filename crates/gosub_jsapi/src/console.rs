@@ -161,8 +161,8 @@ impl Console {
     /// Create a counter named "label"
     pub fn count(&mut self, label: &str) {
         let mut cnt = 1;
-        if self.count_map.contains_key(&label.to_owned()) {
-            cnt = self.count_map.get(&label.to_owned()).unwrap() + 1;
+        if self.count_map.contains_key(label) {
+            cnt = self.count_map.get(label).unwrap() + 1;
         }
 
         self.count_map.insert(label.to_owned(), cnt);
@@ -173,7 +173,7 @@ impl Console {
 
     /// Reset count of the given label to 0
     pub fn count_reset(&mut self, label: &str) {
-        if !self.count_map.contains_key(&label.to_owned()) {
+        if !self.count_map.contains_key(label) {
             self.logger(LogLevel::CountReset, &[&"label does not exist"]);
             return;
         }
@@ -225,7 +225,7 @@ impl Console {
 
     /// Create a timer with given label
     pub fn time(&mut self, label: &str) {
-        if self.timer_map.contains_key(&label.to_owned()) {
+        if self.timer_map.contains_key(label) {
             let warning = format!("Timer '{label}' already started");
             self.logger(LogLevel::Warn, &[&warning]);
             return;
@@ -262,7 +262,7 @@ impl Console {
         let concat = format!(
             "{}: {}ms{}",
             label.to_owned(),
-            cur - self.timer_map.get(&label.to_owned()).unwrap().start,
+            cur - self.timer_map.get(label).unwrap().start,
             message
         );
         self.printer.print(LogLevel::TimeLog, &[&concat], &[]);
@@ -278,7 +278,7 @@ impl Console {
         let concat = format!(
             "{}: {}ms",
             label.to_owned(),
-            end - self.timer_map.get(&label.to_owned()).unwrap().start
+            end - self.timer_map.get(label).unwrap().start
         );
         self.printer.print(LogLevel::TimeEnd, &[&concat], &[]);
     }
