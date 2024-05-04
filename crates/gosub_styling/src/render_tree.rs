@@ -206,15 +206,14 @@ impl RenderTree {
                         return RenderNodeData::from_node_data(
                             current_node.data.clone(),
                             parent_props,
-                        )
-                        .ok();
+                        );
                     };
                 };
 
-                RenderNodeData::from_node_data(current_node.data.clone(), None).ok()
+                RenderNodeData::from_node_data(current_node.data.clone(), None)
             };
 
-            let Some(data) = data() else {
+            let Ok(data) = data() else {
                 eprintln!("Failed to create node data for node: {:?}", current_node_id);
                 continue;
             };
@@ -281,6 +280,10 @@ impl RenderNodeData {
             NodeData::Document(data) => RenderNodeData::Document(data),
             NodeData::Element(data) => RenderNodeData::Element(data),
             NodeData::Text(data) => {
+                let text = data.value.trim();
+                let text = text.replace('\n', "");
+                let text = text.replace('\r', "");
+
                 let props = props.ok_or(anyhow::anyhow!("No properties found"))?;
 
                 let font_cache = &mut *FONT_RENDERER_CACHE
@@ -321,7 +324,7 @@ impl RenderNodeData {
                     })
                     .unwrap_or(DEFAULT_FS);
 
-                let text = PrerenderText::with_renderer(data.value.clone(), fs, font)?;
+                let text = PrerenderText::with_renderer(text, fs, font)?;
                 RenderNodeData::Text(text)
             }
             NodeData::Comment(data) => RenderNodeData::Comment(data),
