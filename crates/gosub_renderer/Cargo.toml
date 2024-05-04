@@ -12,6 +12,7 @@ gosub_rendering = { path = "../gosub_rendering" }
 gosub_html5 = { path = "../gosub_html5" }
 gosub_shared = { path = "../gosub_shared" }
 gosub_styling = { path = "../gosub_styling" }
+gosub_net = { path = "../gosub_net" }
 taffy = "0.4.1"
 vello = "0.1.0"
 winit = "0.29.15"
@@ -20,6 +21,8 @@ wgpu = "0.19.3"
 futures = "0.3.30"
 slotmap = "1.0.7"
 smallvec = "1.13.2"
+image = "0.25.1"
+url = "2.5.0"
 
 
 

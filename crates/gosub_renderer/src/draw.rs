@@ -1,9 +1,12 @@
+use std::io::Read;
+use std::ops::Div;
+
 use anyhow::anyhow;
 use smallvec::SmallVec;
-use std::ops::Div;
 use taffy::{AvailableSpace, Layout, NodeId, PrintTree, Size, TaffyTree, TraversePartialTree};
+use url::Url;
 use vello::kurbo::{Affine, Arc, BezPath, Cap, Join, Rect, RoundedRect, Stroke};
-use vello::peniko::{Color, Fill};
+use vello::peniko::{Color, Fill, Format, Image};
 use vello::Scene;
 use winit::dpi::PhysicalSize;
 
@@ -93,9 +96,50 @@ impl TreeDrawer {
         pos.0 += layout.location.x as f64;
         pos.1 += layout.location.y as f64;
 
-        render_text(node, scene, pos, layout);
+        let border_radius = render_bg(node, scene, layout, pos, &self.url);
 
-        let border_radius = render_bg(node, scene, layout, pos);
+        if let RenderNodeData::Element(element) = &node.data {
+            if element.name() == "img" {
+                let src = element
+                    .attributes
+                    .get("src")
+                    .ok_or(anyhow!("Image element has no src attribute"))?;
+
+                let url = Url::parse(src.as_str()).or_else(|_| self.url.join(src.as_str()))?;
+
+                let res = gosub_net::http::ureq::get(url.as_str()).call()?;
+
+                let mut img = Vec::with_capacity(
+                    res.header("Content-Length")
+                        .unwrap_or("1024")
+                        .parse::<usize>()?,
+                );
+
+                res.into_reader().read_to_end(&mut img)?;
+
+                let img = image::load_from_memory(&img)?;
+
+                let width = img.width();
+                let height = img.height();
+
+                let img = Image::new(
+                    img.into_rgba8().into_raw().into(),
+                    Format::Rgba8,
+                    width,
+                    height,
+                );
+
+                let fit = element
+                    .attributes
+                    .get("object-fit")
+                    .map(|prop| prop.as_str())
+                    .unwrap_or("contain");
+
+                render_image(&img, scene, *pos, layout.size, border_radius, fit)?;
+            }
+        }
+
+        render_text(node, scene, pos, layout);
 
         render_border(node, scene, layout, pos, border_radius);
 
@@ -131,7 +175,8 @@ fn render_bg(
     scene: &mut Scene,
     layout: &Layout,
     pos: &(f64, f64),
-) -> f64 {
+    root_url: &Url,
+) -> (f64, f64, f64, f64) {
     let bg_color = node
         .properties
         .get("background-color")
@@ -146,24 +191,102 @@ fn render_bg(
         })
         .map(|color| Color::rgba8(color.r as u8, color.g as u8, color.b as u8, color.a as u8));
 
-    let border_radius = node
+    let border_radius_left = node
         .properties
-        .get("border-radius")
+        .get("border-radius-left")
         .map(|prop| {
             prop.compute_value();
             prop.actual.unit_to_px() as f64
         })
         .unwrap_or(0.0);
 
+    let border_radius_right = node
+        .properties
+        .get("border-radius-right")
+        .map(|prop| {
+            prop.compute_value();
+            prop.actual.unit_to_px() as f64
+        })
+        .unwrap_or(0.0);
+
+    let border_radius_top = node
+        .properties
+        .get("border-radius-top")
+        .map(|prop| {
+            prop.compute_value();
+            prop.actual.unit_to_px() as f64
+        })
+        .unwrap_or(0.0);
+
+    let border_radius_bottom = node
+        .properties
+        .get("border-radius-bottom")
+        .map(|prop| {
+            prop.compute_value();
+            prop.actual.unit_to_px() as f64
+        })
+        .unwrap_or(0.0);
+
+    let border_radius = (
+        border_radius_top,
+        border_radius_right,
+        border_radius_bottom,
+        border_radius_left,
+    );
+
+    let rect = RoundedRect::new(
+        pos.0,
+        pos.1,
+        pos.0 + layout.size.width as f64,
+        pos.1 + layout.size.height as f64,
+        border_radius,
+    );
+
     if let Some(bg_color) = bg_color {
-        let rect = RoundedRect::new(
-            pos.0,
-            pos.1,
-            pos.0 + layout.size.width as f64,
-            pos.1 + layout.size.height as f64,
-            border_radius,
-        );
         scene.fill(Fill::NonZero, Affine::IDENTITY, bg_color, None, &rect);
+    }
+
+    let background_image = node.properties.get("background-image").and_then(|prop| {
+        prop.compute_value();
+
+        match &prop.actual {
+            CssValue::String(url) => Some(url.as_str()),
+            _ => None,
+        }
+    });
+
+    if let Some(url) = background_image {
+        let Ok(url) = Url::parse(url).or_else(|_| root_url.join(url)) else {
+            eprintln!("TODO: Add Image not found Image");
+            return border_radius;
+        };
+
+        let res = gosub_net::http::ureq::get(url.as_str()).call().unwrap();
+
+        let mut img = Vec::with_capacity(
+            res.header("Content-Length")
+                .unwrap_or("1024")
+                .parse::<usize>()
+                .unwrap(),
+        );
+
+        res.into_reader().read_to_end(&mut img).unwrap();
+
+        let img = image::load_from_memory(&img).unwrap();
+
+        let height = img.height();
+        let width = img.width();
+
+        let img = Image::new(
+            img.into_rgba8().into_raw().into(),
+            Format::Rgba8,
+            width,
+            height,
+        );
+
+        let _ = render_image(&img, scene, *pos, layout.size, border_radius, "fill").map_err(|e| {
+            eprintln!("Error rendering image: {:?}", e);
+        });
     }
 
     border_radius
@@ -196,10 +319,16 @@ fn render_border(
     scene: &mut Scene,
     layout: &Layout,
     pos: &(f64, f64),
-    border_radius: f64,
+    border_radius: (f64, f64, f64, f64),
 ) {
     for side in Side::all() {
-        render_border_side(node, scene, layout, pos, border_radius, side);
+        let radi = match side {
+            Side::Top => border_radius.0,
+            Side::Right => border_radius.1,
+            Side::Bottom => border_radius.2,
+            Side::Left => border_radius.3,
+        };
+        render_border_side(node, scene, layout, pos, radi, side);
     }
 }
 
@@ -423,6 +552,68 @@ fn render_border_side(
 
         scene.stroke(&stroke, Affine::IDENTITY, border_color, None, &path);
     }
+}
+
+fn render_image(
+    img: &Image,
+    scene: &mut Scene,
+    pos: (f64, f64),
+    size: Size<f32>,
+    radii: (f64, f64, f64, f64),
+    fit: &str,
+) -> anyhow::Result<()> {
+    let width = size.width as f64;
+    let height = size.height as f64;
+
+    let rect = RoundedRect::new(pos.0, pos.1, pos.0 + width, pos.1 + height, radii);
+
+    let affine = match fit {
+        "fill" => {
+            let scale_x = width / img.width as f64;
+            let scale_y = height / img.height as f64;
+
+            Affine::scale_non_uniform(scale_x, scale_y)
+        }
+        "contain" => {
+            let scale_x = width / img.width as f64;
+            let scale_y = height / img.height as f64;
+
+            let scale = scale_x.min(scale_y);
+
+            Affine::scale_non_uniform(scale, scale)
+        }
+        "cover" => {
+            let scale_x = width / img.width as f64;
+            let scale_y = height / img.height as f64;
+
+            let scale = scale_x.max(scale_y);
+
+            Affine::scale_non_uniform(scale, scale)
+        }
+        "scale-down" => {
+            let scale_x = width / img.width as f64;
+            let scale_y = height / img.height as f64;
+
+            let scale = scale_x.min(scale_y);
+            let scale = scale.min(1.0);
+
+            Affine::scale_non_uniform(scale, scale)
+        }
+        _ => Affine::IDENTITY,
+    };
+
+    let affine = affine.with_translation(pos.into());
+
+    println!("affine: {:?}", affine);
+    println!("fit: {:?}", fit);
+    println!("width: {:?}", width);
+    println!("height: {:?}", height);
+    println!("img size: {}x{}", img.width, img.height);
+    println!("rect: {:?}", rect);
+
+    scene.fill(Fill::NonZero, Affine::IDENTITY, img, Some(affine), &rect);
+
+    Ok(())
 }
 
 #[derive(Debug)]
