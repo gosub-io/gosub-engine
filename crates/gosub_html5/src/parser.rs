@@ -65,39 +65,40 @@ enum InsertionMode {
     AfterAfterFrameset,
 }
 
-/// Additional extensions to the Vec type so we can do some stack operations
-trait VecExtensions<T> {
-    fn pop_until<F>(&mut self, f: F)
-    where
-        F: FnMut(&T) -> bool;
-    fn pop_check<F>(&mut self, f: F) -> bool
-    where
-        F: FnMut(&T) -> bool;
-}
-
-impl VecExtensions<NodeId> for Vec<NodeId> {
-    fn pop_until<F>(&mut self, mut f: F)
-    where
-        F: FnMut(&NodeId) -> bool,
-    {
-        while let Some(top) = self.last() {
-            if f(top) {
-                break;
-            }
-            self.pop();
-        }
-    }
-
-    fn pop_check<F>(&mut self, mut f: F) -> bool
-    where
-        F: FnMut(&NodeId) -> bool,
-    {
-        match self.pop() {
-            Some(popped_value) => f(&popped_value),
-            None => false,
-        }
-    }
-}
+// /// Additional extensions to the Vec type so we can do some stack operations
+// trait VecExtensions<T> {
+//     fn pop_until<F>(&mut self, f: F)
+//     where
+//         F: FnMut(&T) -> bool;
+//     fn pop_check<F>(&mut self, f: F) -> bool
+//     where
+//         F: FnMut(&T) -> bool;
+// }
+//
+// impl VecExtensions<NodeId> for Vec<NodeId> {
+//     fn pop_until<F>(&mut self, mut f: F)
+//     where
+//         F: FnMut(&NodeId) -> bool,
+//     {
+//         while let Some(top) = self.last() {
+//             if f(top) {
+//                 break;
+//             }
+//             self.pop();
+//         }
+//     }
+//
+//     fn pop_check<F>(&mut self, mut f: F) -> bool
+//     where
+//         F: FnMut(&NodeId) -> bool,
+//     {
+//         match self.pop() {
+//             Some(popped_value) => f(&popped_value),
+//             None => false,
+//         }
+//     }
+// }
+//TODO: are these still needed?
 
 macro_rules! get_node_by_id {
     ($doc_handle:expr, $id:expr) => {
@@ -3741,7 +3742,7 @@ impl<'chars> Html5Parser<'chars> {
     fn adjust_svg_tag_names(&self, token: &mut Token) {
         if let Token::StartTag { name, .. } = token {
             if SVG_ADJUSTMENTS_TAGS.contains_key(name) {
-                *name = (*SVG_ADJUSTMENTS_TAGS.get(name).expect("svg tagname")).to_owned();
+                (*SVG_ADJUSTMENTS_TAGS.get(name).expect("svg tagname")).clone_into(name);
             }
         }
     }

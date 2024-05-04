@@ -60,9 +60,11 @@ fn main() -> Result<()> {
             ));
         }
         response.into_string()?
+    } else if url.starts_with("file://") {
+        let path = url.trim_start_matches("file://");
+        fs::read_to_string(path)?
     } else {
-        // Get html from the file
-        fs::read_to_string(&url)?
+        bail!("Unsupported url scheme: {}", url);
     };
 
     if tokens {

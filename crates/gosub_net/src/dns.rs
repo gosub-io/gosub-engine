@@ -101,6 +101,7 @@ trait DnsResolver {
     fn name(&self) -> &'static str;
 }
 
+#[allow(dead_code)]
 trait DnsCache {
     /// Flush all domains
     fn flush_all(&mut self);
