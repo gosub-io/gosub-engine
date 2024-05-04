@@ -13,3 +13,12 @@ anyhow = "1.0.82"
 lazy_static = "1.4.0"
 uuid = { version = "1.8.0", features = ["v4"] }
 rand = "0.9.0-alpha.1"
+
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = "0.3.69"
+getrandom = { version = "0.2.14", features = ["js"] }
+web-sys = { version = "0.3.69", features = ["Performance", "Window"] }
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3.20"

@@ -1,9 +1,12 @@
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::sync::Mutex;
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
 
 use lazy_static::lazy_static;
+#[cfg(target_arch = "wasm32")]
+use web_sys::window;
 
 type TimerId = uuid::Uuid;
 
@@ -181,30 +184,17 @@ lazy_static! {
 #[macro_export]
 macro_rules! timing_start {
     ($namespace:expr, $context:expr) => {{
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            $crate::timing::TIMING_TABLE
-                .lock()
-                .unwrap()
-                .start_timer($namespace, Some($context.to_string()))
-        }
-        #[cfg(target_arch = "wasm32")]
-        {
-            let _ = $context;
-            let _ = $namespace;
-        }
+        $crate::timing::TIMING_TABLE
+            .lock()
+            .unwrap()
+            .start_timer($namespace, Some($context.to_string()))
     }};
 
     ($namespace:expr) => {{
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            $crate::timing::TIMING_TABLE
-                .lock()
-                .unwrap()
-                .start_timer($namespace, None)
-        }
-        #[cfg(target_arch = "wasm32")]
-        let _ = $namespace;
+        $crate::timing::TIMING_TABLE
+            .lock()
+            .unwrap()
+            .start_timer($namespace, None)
     }};
 }
 
@@ -212,15 +202,10 @@ macro_rules! timing_start {
 #[macro_export]
 macro_rules! timing_stop {
     ($timer_id:expr) => {{
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            $crate::timing::TIMING_TABLE
-                .lock()
-                .unwrap()
-                .stop_timer($timer_id);
-        }
-        #[cfg(target_arch = "wasm32")]
-        let _ = $timer_id;
+        $crate::timing::TIMING_TABLE
+            .lock()
+            .unwrap()
+            .stop_timer($timer_id);
     }};
 }
 
@@ -253,29 +238,65 @@ macro_rules! timing_display {
 pub struct Timer {
     id: TimerId,
     context: Option<String>,
+    #[cfg(not(target_arch = "wasm32"))]
     start: Instant,
+    #[cfg(target_arch = "wasm32")]
+    start: f64,
+    #[cfg(not(target_arch = "wasm32"))]
     end: Option<Instant>,
+    #[cfg(target_arch = "wasm32")]
+    end: Option<f64>,
     duration_us: u64,
 }
 
 impl Timer {
     pub fn new(context: Option<String>) -> Timer {
+        #[cfg(not(target_arch = "wasm32"))]
+        let start = { Instant::now() };
+
+        #[cfg(target_arch = "wasm32")]
+        let start = {
+            window()
+                .and_then(|w| w.performance())
+                .map(|p| p.now())
+                .unwrap_or(f64::NAN)
+        };
+
         Timer {
             id: new_timer_id(),
             context,
-            start: Instant::now(),
+            start,
             end: None,
             duration_us: 0,
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn start(&mut self) {
         self.start = Instant::now();
     }
 
+    #[cfg(target_arch = "wasm32")]
+    pub fn start(&mut self) {
+        self.start = window()
+            .and_then(|w| w.performance())
+            .map(|p| p.now())
+            .unwrap_or(f64::NAN);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn end(&mut self) {
         self.end = Some(Instant::now());
         self.duration_us = self.end.expect("").duration_since(self.start).as_micros() as u64;
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn end(&mut self) {
+        self.end = window().and_then(|w| w.performance()).map(|p| p.now());
+        self.duration_us = self
+            .end
+            .map(|e| (e - self.start) * 1000.0)
+            .unwrap_or(f64::NAN) as u64;
     }
 
     pub(crate) fn has_finished(&self) -> bool {
@@ -293,43 +314,118 @@ impl Timer {
 
 #[cfg(test)]
 mod tests {
-    use std::thread::sleep;
-
     use rand::random;
+    #[cfg(not(target_arch = "wasm32"))]
+    use std::thread::sleep;
+    use std::time::Duration;
+
+    #[cfg(target_arch = "wasm32")]
+    use {
+        js_sys::wasm_bindgen::closure::Closure, std::sync::atomic::AtomicBool, std::sync::Arc,
+        wasm_bindgen_test::wasm_bindgen_test_configure, wasm_bindgen_test::*,
+        web_sys::wasm_bindgen::JsCast,
+    };
 
     use super::*;
 
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_test_configure!(run_in_browser);
+
     #[test]
+    #[cfg(not(target_arch = "wasm32"))]
     fn test_timing_defaults() {
         let t = timing_start!("dns.lookup", "www.foo.bar");
-        sleep(std::time::Duration::from_millis(10));
+        sleep(Duration::from_millis(10));
         timing_stop!(t);
 
         for _i in 0..10 {
             let t = timing_start!("html5.parse", "index.html");
-            sleep(std::time::Duration::from_millis(random::<u64>() % 50));
+            sleep(Duration::from_millis(random::<u64>() % 50));
             timing_stop!(t);
         }
 
         let t = timing_start!("html5.parse", "index.html");
-        sleep(std::time::Duration::from_millis(20));
+        sleep(Duration::from_millis(20));
         timing_stop!(t);
 
         let t = timing_start!("html5.parse", "page2.html");
-        sleep(std::time::Duration::from_millis(20));
+        sleep(Duration::from_millis(20));
         timing_stop!(t);
 
         let t = timing_start!("html5.parse", "page3.html");
-        sleep(std::time::Duration::from_millis(20));
+        sleep(Duration::from_millis(20));
         timing_stop!(t);
 
         let t = timing_start!("css.parse");
-        sleep(std::time::Duration::from_millis(20));
+        sleep(Duration::from_millis(20));
         timing_stop!(t);
 
         TIMING_TABLE
             .lock()
             .unwrap()
             .print_timings(true, Scale::Auto);
+    }
+
+    #[wasm_bindgen_test]
+    #[cfg(target_arch = "wasm32")]
+    fn test_timing_defaults_wasm() {
+        let window = &window().expect("no global `window` exists");
+
+        let t = timing_start!("dns.lookup", "www.foo.bar");
+        sleep(window, Duration::from_millis(10));
+        timing_stop!(t);
+
+        for _i in 0..10 {
+            let t = timing_start!("html5.parse", "index.html");
+            sleep(window, Duration::from_millis(random::<u64>() % 50));
+            timing_stop!(t);
+        }
+
+        let t = timing_start!("html5.parse", "index.html");
+        sleep(window, Duration::from_millis(20));
+        timing_stop!(t);
+
+        let t = timing_start!("html5.parse", "page2.html");
+        sleep(window, Duration::from_millis(20));
+        timing_stop!(t);
+
+        let t = timing_start!("html5.parse", "page3.html");
+        sleep(window, Duration::from_millis(20));
+        timing_stop!(t);
+
+        let t = timing_start!("css.parse");
+        sleep(window, Duration::from_millis(20));
+        timing_stop!(t);
+
+        TIMING_TABLE
+            .lock()
+            .unwrap()
+            .print_timings(true, Scale::Auto);
+    }
+
+    //This should only be used for testing purposes
+    #[cfg(target_arch = "wasm32")]
+    fn sleep(window: &web_sys::Window, duration: Duration) {
+        let finished = Arc::new(AtomicBool::new(false));
+        let mut remaining_loops = 50_000 * duration.as_millis(); //just meant as a backup to avoid infinite loops
+
+        let barrier = Arc::clone(&finished);
+        let closure: Box<dyn Fn() -> ()> = Box::new(move || {
+            barrier.store(true, std::sync::atomic::Ordering::SeqCst);
+        });
+        window
+            .set_timeout_with_callback_and_timeout_and_arguments_0(
+                Closure::wrap(closure).as_ref().unchecked_ref(),
+                duration.as_millis() as i32,
+            )
+            .unwrap();
+
+        while !finished.load(std::sync::atomic::Ordering::SeqCst) {
+            std::hint::spin_loop();
+            if remaining_loops == 0 {
+                break;
+            }
+            remaining_loops -= 1;
+        }
     }
 }
