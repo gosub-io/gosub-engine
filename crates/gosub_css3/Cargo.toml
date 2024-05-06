@@ -9,5 +9,5 @@ license = "MIT"
 gosub_shared = { path = "../gosub_shared", features = [] }
 lazy_static = "1.4"
 log = "0.4.21"
-simple_logger = "4.2.0"
+simple_logger = "5.0.0"
 anyhow = { version = "1.0.82", features = [] }
