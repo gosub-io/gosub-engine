@@ -1327,6 +1327,7 @@ dependencies = [
  "lazy_static",
  "log",
  "phf",
+ "test-case",
  "thiserror",
  "ureq",
  "url",

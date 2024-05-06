@@ -20,3 +20,6 @@ log = { version = "0.4.21", features = [] }
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 ureq = "2.9.7"
 
+[dev-dependencies]
+test-case = "3.3.1"
+
