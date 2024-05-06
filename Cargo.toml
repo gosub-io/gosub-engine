@@ -46,7 +46,7 @@ gosub_css3 = { path = "./crates/gosub_css3", features = [] }
 gosub_styling = { path = "./crates/gosub_styling", features = [] }
 gosub_jsapi = { path = "./crates/gosub_jsapi", features = [] }
 gosub_testing = { path = "./crates/gosub_testing", features = [] }
-gosub_rendering = { path = "./crates/gosub_rendering", features = [] }
+gosub_rendering = { path = "crates/gosub_render_utils", features = [] }
 gosub_renderer = { path = "./crates/gosub_renderer", features = [] }
 serde = { version = "1.0", features = ["derive"] }
 serde_derive = "1.0"
