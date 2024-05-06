@@ -1324,6 +1324,7 @@ dependencies = [
  "derive_more",
  "gosub_css3",
  "gosub_shared",
+ "gosub_testing",
  "lazy_static",
  "log",
  "phf",
