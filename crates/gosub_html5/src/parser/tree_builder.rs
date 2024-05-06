@@ -33,12 +33,12 @@ mod tests {
     };
     use gosub_testing::testing::tree_construction::Harness;
     use test_case::test_case;
-    
+
     const DISABLED_CASES: &[&str] = &[
         // tests18.dat
         "<!doctype html><template><plaintext>a</template>b",
     ];
-    
+
     // See tests/data/html5lib-tests/tree-construction/ for other test files.
     #[test_case("tests1.dat")]
     #[test_case("tests2.dat")]
@@ -97,21 +97,22 @@ mod tests {
     #[test_case("webkit01.dat")]
     #[test_case("webkit02.dat")]
     fn tree_construction(filename: &str) {
-        let fixture_file = read_fixture_from_path(fixture_root_path().join(filename)).expect("fixture");
+        let fixture_file =
+            read_fixture_from_path(fixture_root_path().join(filename)).expect("fixture");
         let mut harness = Harness::new();
-    
+
         for test in fixture_file.tests {
             // skip disabled tests
             if DISABLED_CASES.contains(&test.document_as_str()) {
                 continue;
             }
-    
+
             // for each test, run it with and without scripting enabled based on the test file
             for &scripting_enabled in test.script_modes() {
                 let result = harness
                     .run_test(test.clone(), scripting_enabled)
                     .expect("problem parsing");
-    
+
                 println!(
                     "tree construction: {}:{} {}",
                     test.file_path,
