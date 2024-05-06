@@ -1,7 +1,7 @@
 use taffy::prelude::*;
 
 use gosub_html5::node::NodeId as GosubID;
-use gosub_styling::render_tree::{RenderNodeData, RenderTree};
+use gosub_styling::render_tree::RenderTree;
 
 use crate::style::get_style_from_node;
 
@@ -40,21 +40,9 @@ fn add_children_to_tree(
 
     let style = get_style_from_node(node);
 
-    let node = rt.get_node(node_id).unwrap();
-    let mut is_text = false;
-    if let RenderNodeData::Text(text) = &node.data {
-        println!("Text: {:?}", text.text);
-        println!("Style: {:?}", style.size);
-        is_text = true;
-    }
-
     let node = tree
         .new_with_children(style, &children)
         .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-
-    if is_text {
-        println!("Node: {:?}", node);
-    }
 
     tree.set_node_context(node, Some(node_id))?;
 

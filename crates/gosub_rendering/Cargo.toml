@@ -11,3 +11,4 @@ gosub_styling = { path = "../gosub_styling" }
 taffy = "0.4.3"
 anyhow = "1.0.82"
 regex = "1.10.4"
+rstar = "0.12.0"

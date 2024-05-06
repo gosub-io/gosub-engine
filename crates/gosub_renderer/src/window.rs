@@ -214,6 +214,11 @@ impl<'a, D: SceneDrawer> Window<'a, D> {
                 surface_texture.present();
             }
 
+            WindowEvent::CursorMoved { position, .. } => {
+                self.scene_drawer
+                    .mouse_move(&mut self.scene, position.x, position.y);
+            }
+
             _ => {}
         }
 
