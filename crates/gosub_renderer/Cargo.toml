@@ -8,7 +8,7 @@ license = "MIT"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-gosub_rendering = { path = "../gosub_rendering" }
+gosub_rendering = { path = "../gosub_render_utils" }
 gosub_html5 = { path = "../gosub_html5" }
 gosub_shared = { path = "../gosub_shared" }
 gosub_styling = { path = "../gosub_styling" }

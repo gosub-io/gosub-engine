@@ -464,11 +464,11 @@ impl CssValue {
             },
             CssValue::String(value) => {
                 if value.ends_with("px") {
-                    value.trim_end_matches("px").parse::<f32>().unwrap()
+                    value.trim_end_matches("px").parse::<f32>().unwrap_or(0.0)
                 } else if value.ends_with("rem") {
-                    value.trim_end_matches("rem").parse::<f32>().unwrap() * 16.0
+                    value.trim_end_matches("rem").parse::<f32>().unwrap_or(0.0) * 16.0
                 } else if value.ends_with("em") {
-                    value.trim_end_matches("em").parse::<f32>().unwrap() * 16.0
+                    value.trim_end_matches("em").parse::<f32>().unwrap_or(0.0) * 16.0
                 } else {
                     0.0
                 }

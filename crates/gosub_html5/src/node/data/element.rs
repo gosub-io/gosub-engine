@@ -29,6 +29,10 @@ pub struct ElementData {
 impl Debug for ElementData {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let mut debug = f.debug_struct("ElementData");
+        debug.field("node_id", &self.node_id);
+        debug.field("name", &self.name);
+        debug.field("attributes", &self.attributes);
+        debug.field("classes", &self.classes);
         debug.finish()
     }
 }

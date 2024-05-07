@@ -11,6 +11,7 @@ use vello::Scene;
 use winit::dpi::PhysicalSize;
 
 use gosub_html5::node::NodeId as GosubId;
+use gosub_rendering::position::PositionTree;
 use gosub_styling::css_colors::RgbColor;
 use gosub_styling::css_values::CssValue;
 use gosub_styling::render_tree::{RenderNodeData, RenderTree, RenderTreeNode};
@@ -20,6 +21,7 @@ use crate::render_tree::{NodeID, TreeDrawer};
 pub trait SceneDrawer {
     /// Returns true if the texture needs to be redrawn
     fn draw(&mut self, scene: &mut Scene, size: PhysicalSize<u32>);
+    fn mouse_move(&mut self, scene: &mut Scene, x: f64, y: f64);
 }
 
 impl SceneDrawer for TreeDrawer {
@@ -33,6 +35,23 @@ impl SceneDrawer for TreeDrawer {
 
         scene.reset();
         self.render(scene, size);
+    }
+
+    fn mouse_move(&mut self, _scene: &mut Scene, x: f64, y: f64) {
+        if let Some(e) = self.position.find(x as f32, y as f32) {
+            if self.last_hover != Some(e) {
+                self.last_hover = Some(e);
+                let Some(node_id) = self.taffy.get_node_context(e) else {
+                    return;
+                };
+
+                let Some(node) = self.style.get_node(*node_id) else {
+                    return;
+                };
+
+                println!("Hovering over: {:?} ({:?})@({x},{y})", node.data, e);
+            }
+        };
     }
 }
 
@@ -49,6 +68,8 @@ impl TreeDrawer {
         }
 
         print_tree(&self.taffy, self.root, &self.style);
+
+        self.position = PositionTree::from_taffy(&self.taffy, self.root);
 
         let bg = Rect::new(0.0, 0.0, size.width as f64, size.height as f64);
         scene.fill(Fill::NonZero, Affine::IDENTITY, Color::BLACK, None, &bg);

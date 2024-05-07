@@ -61,9 +61,21 @@ fn load_html_rendertree(str_url: &str) -> Result<StyleTree> {
     chars.read_from_str(&html, Some(Encoding::UTF8));
     chars.set_confidence(Confidence::Certain);
 
-    let doc_handle = DocumentBuilder::new_document(Some(url));
+    let mut doc_handle = DocumentBuilder::new_document(Some(url));
     let _parse_errors =
         Html5Parser::parse_document(&mut chars, Document::clone(&doc_handle), None)?;
+
+    let mut doc = doc_handle.get_mut();
+    doc.stylesheets
+        .push(gosub_styling::load_default_useragent_stylesheet()?);
+
+    println!("stylesheets: {:?}", doc.stylesheets.len());
+
+    for stylesheet in doc.stylesheets.iter() {
+        println!("stylesheet: {:?}", stylesheet.location);
+    }
+
+    drop(doc);
 
     generate_render_tree(Document::clone(&doc_handle))
 }

@@ -4,5 +4,6 @@
 //!
 
 pub mod layout;
+pub mod position;
 pub mod render_tree;
 pub mod style;
