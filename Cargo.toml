@@ -19,14 +19,6 @@ members = [
 name = "html5-parser"
 
 [[bench]]
-name = "tokenizer"
-harness = false
-
-[[bench]]
-name = "tree_construction"
-harness = false
-
-[[bench]]
 name = "tree_iterator"
 harness = false
 
