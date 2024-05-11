@@ -1,4 +1,5 @@
-use anyhow::bail;
+use anyhow::{anyhow, bail};
+use core::str::FromStr;
 use gosub_html5::parser::document::{Document, DocumentBuilder};
 use gosub_html5::parser::Html5Parser;
 use gosub_shared::byte_stream::{ByteStream, Encoding};
@@ -7,7 +8,6 @@ use gosub_shared::timing_display;
 use gosub_shared::types::Result;
 use std::fs;
 use std::process::exit;
-use std::str::FromStr;
 use url::Url;
 
 fn bail(message: &str) -> ! {
@@ -28,13 +28,12 @@ fn main() -> Result<()> {
 
     let url = matches
         .get_one::<String>("url")
-        .ok_or("Missing url")
-        .unwrap()
+        .ok_or(anyhow!("Missing url"))?
         .to_string();
 
     let url = Url::from_str(&url).unwrap_or_else(|_| bail("Invalid url"));
 
-    println!("Parsing url: {:?}", url);
+    println!("Parsing url: {url:?}");
 
     let html = if url.scheme() == "http" || url.scheme() == "https" {
         // Fetch the html from the url

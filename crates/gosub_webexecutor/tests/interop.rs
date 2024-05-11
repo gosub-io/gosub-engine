@@ -25,7 +25,7 @@ impl TestStruct {
     }
 
     fn add2(&mut self, other: i32) {
-        self.field += other
+        self.field += other;
     }
 
     fn add3(a: i32, b: i32) -> i32 {
@@ -45,7 +45,7 @@ impl TestStruct {
     }
 
     fn array_test(&self, array: &[[i32; 3]; 3]) {
-        println!("{:?}", array);
+        println!("{array:?}");
     }
 
     fn array_test2(&self, array: &[[i32; 3]; 3]) -> Vec<i32> {
@@ -59,7 +59,7 @@ impl TestStruct {
     }
 
     fn variadic3(num: i32, args: &impl VariadicArgs) {
-        println!("got num arg...: {}", num);
+        println!("got num arg...: {num}");
         for a in args.as_vec() {
             println!("got an arg...: {}", a.as_string().unwrap());
         }
@@ -223,7 +223,7 @@ impl JSInterop for Test2 {
                 Box::new(move |cb: &mut RT::GetterCB| {
                     let ctx = cb.context();
                     let value = s.borrow().field;
-                    println!("got a call to getter: {}", value);
+                    println!("got a call to getter: {value}");
                     let value = match value.to_js_value(ctx.clone()) {
                         Ok(value) => value,
                         Err(e) => {
@@ -247,7 +247,7 @@ impl JSInterop for Test2 {
                         }
                     };
 
-                    println!("got a call to setter: {}", value);
+                    println!("got a call to setter: {value}");
 
                     s.borrow_mut().field = value as i32;
                 })
@@ -263,7 +263,7 @@ impl JSInterop for Test2 {
                 Box::new(move |cb: &mut RT::GetterCB| {
                     let ctx = cb.context();
                     let value = s.borrow().other_field.clone();
-                    println!("got a call to getter: {}", value);
+                    println!("got a call to getter: {value}");
                     let value = match value.to_js_value(ctx.clone()) {
                         Ok(value) => value,
                         Err(e) => {
@@ -287,7 +287,7 @@ impl JSInterop for Test2 {
                         }
                     };
 
-                    println!("got a call to setter: {}", value);
+                    println!("got a call to setter: {value}");
 
                     s.borrow_mut().other_field = value;
                 })
@@ -307,7 +307,7 @@ impl JSInterop for Test2 {
 
                 let ctx = cb.context();
 
-                let ret = match s.borrow().cool_fn().to_js_value(ctx.clone()) {
+                let ret = match s.borrow().cool_fn().to_js_value(ctx) {
                     Ok(ret) => ret,
                     Err(e) => {
                         cb.error(e);
@@ -346,7 +346,7 @@ impl JSInterop for Test2 {
                 let ret = s
                     .borrow_mut()
                     .add(arg0 as i32)
-                    .to_js_value(ctx.clone())
+                    .to_js_value(ctx)
                     .unwrap();
 
                 cb.ret(ret);
@@ -375,7 +375,7 @@ impl JSInterop for Test2 {
                     return;
                 };
 
-                let ret = s.borrow().concat(arg0).to_js_value(ctx.clone()).unwrap();
+                let ret = s.borrow().concat(arg0).to_js_value(ctx).unwrap();
 
                 cb.ret(ret);
             })?
@@ -406,7 +406,7 @@ impl JSInterop for Test2 {
                 let ret = s
                     .borrow()
                     .takes_ref(&arg0)
-                    .to_js_value(ctx.clone())
+                    .to_js_value(ctx)
                     .unwrap();
 
                 cb.ret(ret);
@@ -489,7 +489,7 @@ impl JSInterop for Test2 {
                         let ret = s
                             .borrow()
                             .generic(arg0, arg1)
-                            .to_js_value(ctx.clone())
+                            .to_js_value(ctx)
                             .unwrap();
 
                         cb.ret(ret);
@@ -506,7 +506,7 @@ impl JSInterop for Test2 {
                         let ret = s
                             .borrow()
                             .generic(arg0, arg1)
-                            .to_js_value(ctx.clone())
+                            .to_js_value(ctx)
                             .unwrap();
 
                         cb.ret(ret);
@@ -553,6 +553,6 @@ fn manual_js_interop() {
         .as_string()
         .unwrap();
 
-    println!("JS: {}", out);
-    println!("Rust: {:?}", t2.borrow())
+    println!("JS: {out}");
+    println!("Rust: {:?}", t2.borrow());
 }

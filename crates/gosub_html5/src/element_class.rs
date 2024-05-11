@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ElementClass {
     /// a map of classes applied to an HTML element.
-    /// key = name, value = is_active
-    /// the is_active is used to toggle a class (JavaScript API)
+    /// key = name, value = `is_active`
+    /// the `is_active` is used to toggle a class (JavaScript API)
     class_map: HashMap<String, bool>,
 }
 
@@ -15,7 +15,7 @@ impl Default for ElementClass {
 }
 
 impl ElementClass {
-    /// Initialise a new (empty) ElementClass
+    /// Initialise a new (empty) `ElementClass`
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -25,16 +25,19 @@ impl ElementClass {
 
     /// Count the number of classes (active or inactive)
     /// assigned to an element
+    #[must_use]
     pub fn len(&self) -> usize {
         self.class_map.len()
     }
 
     /// Check if any classes are present
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.class_map.is_empty()
     }
 
     /// Check if class name exists
+    #[must_use]
     pub fn contains(&self, name: &str) -> bool {
         self.class_map.contains_key(name)
     }
@@ -70,6 +73,7 @@ impl ElementClass {
     }
 
     /// Check if a class is active. Returns false if class doesn't exist
+    #[must_use]
     pub fn is_active(&self, name: &str) -> bool {
         if let Some(is_active) = self.class_map.get(name) {
             return *is_active;
@@ -88,7 +92,7 @@ impl From<&str> for ElementClass {
             .map(|class| (class.to_owned(), true))
             .collect::<HashMap<String, bool>>();
 
-        ElementClass {
+        Self {
             class_map: class_map_local,
         }
     }

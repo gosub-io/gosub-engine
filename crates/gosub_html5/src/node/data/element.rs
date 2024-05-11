@@ -15,7 +15,7 @@ pub struct ElementData {
     pub name: String,
     /// Element's attributes stored as key-value pairs.
     /// Note that it is NOT RECOMMENDED to modify this
-    /// attribute map directly and instead use TreeBuilder.insert_attribute
+    /// attribute map directly and instead use `TreeBuilder.insert_attribute`
     /// to keep attributes in sync with the DOM.
     pub attributes: HashMap<String, String>,
     /// CSS classes
@@ -67,6 +67,7 @@ impl ElementData {
         }
     }
 
+    #[must_use]
     pub fn name(&self) -> &str {
         &self.name
     }

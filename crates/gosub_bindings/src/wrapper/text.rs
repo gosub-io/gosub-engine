@@ -2,7 +2,7 @@ use gosub_rendering::render_tree::text::TextNode;
 use std::ffi::c_char;
 use std::ffi::CString;
 
-/// This is a C-friendly wrapper around gosub_render_utils::rendertree::text::TextNode
+/// This is a C-friendly wrapper around `gosub_render_utils::rendertree::text::TextNode`
 /// that converts Rust Strings to owned pointers to pass to the C API.
 #[repr(C)]
 pub struct CTextNode {

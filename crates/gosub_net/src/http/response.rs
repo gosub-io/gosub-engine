@@ -14,10 +14,11 @@ pub struct Response {
 }
 
 impl Response {
-    pub fn new() -> Response {
+    #[must_use]
+    pub fn new() -> Self {
         Self {
             status: 0,
-            status_text: "".to_string(),
+            status_text: String::new(),
             version: "HTTP/1.1".to_string(),
             headers: Default::default(),
             cookies: Default::default(),
@@ -94,11 +95,11 @@ impl Display for Response {
         writeln!(f, "HTTP/1.1 {}", self.status)?;
         writeln!(f, "Headers:")?;
         for (key, value) in self.headers.all() {
-            writeln!(f, "  {}: {}", key, value)?;
+            writeln!(f, "  {key}: {value}")?;
         }
         writeln!(f, "Cookies:")?;
         for (key, value) in &self.cookies {
-            writeln!(f, "  {}: {}", key, value)?;
+            writeln!(f, "  {key}: {value}")?;
         }
         writeln!(f, "Body: {} bytes", self.body.len())?;
 
@@ -114,7 +115,7 @@ mod tests {
     fn response() {
         let mut response = Response::new();
 
-        let s = format!("{}", response);
+        let s = format!("{response}");
         assert_eq!(s, "HTTP/1.1 0\nHeaders:\nCookies:\nBody: 0 bytes\n");
 
         response.status = 200;
@@ -124,7 +125,7 @@ mod tests {
             .insert("session".to_string(), "1234567890".to_string());
         response.body = b"Hello, world!".to_vec();
 
-        let s = format!("{}", response);
+        let s = format!("{response}");
         assert_eq!(s, "HTTP/1.1 200\nHeaders:\n  Content-Type: application/json\nCookies:\n  session: 1234567890\nBody: 13 bytes\n");
     }
 }

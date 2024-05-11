@@ -6,7 +6,7 @@ use std::str::FromStr;
 
 /// A setting can be either a signed integer, unsigned integer, string, map or boolean.
 /// Maps could be created by using comma separated strings maybe
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Setting {
     SInt(isize),
     UInt(usize),
@@ -16,60 +16,64 @@ pub enum Setting {
 }
 
 impl Setting {
+    #[must_use]
     pub fn to_bool(&self) -> bool {
-        if !matches!(self, Setting::Bool(_)) {
+        if !matches!(self, Self::Bool(_)) {
             warn!("setting is not a boolean");
         }
 
         match self {
-            Setting::Bool(value) => *value,
-            Setting::SInt(value) => *value != 0,
-            Setting::UInt(value) => *value != 0,
-            Setting::String(value) => is_bool_value(value),
-            Setting::Map(values) => !values.is_empty(),
+            Self::Bool(value) => *value,
+            Self::SInt(value) => *value != 0,
+            Self::UInt(value) => *value != 0,
+            Self::String(value) => is_bool_value(value),
+            Self::Map(values) => !values.is_empty(),
         }
     }
 
+    #[must_use]
     pub fn to_sint(&self) -> isize {
-        if !matches!(self, Setting::SInt(_)) {
+        if !matches!(self, Self::SInt(_)) {
             warn!("setting is not an signed integer");
         }
 
         match self {
-            Setting::SInt(value) => *value,
-            Setting::UInt(value) => *value as isize,
-            Setting::Bool(value) => *value as isize,
-            Setting::String(value) => is_bool_value(value) as isize,
-            Setting::Map(values) => values.len() as isize,
+            Self::SInt(value) => *value,
+            Self::UInt(value) => *value as isize,
+            Self::Bool(value) => isize::from(*value),
+            Self::String(value) => isize::from(is_bool_value(value)),
+            Self::Map(values) => values.len() as isize,
         }
     }
 
+    #[must_use]
     pub fn to_uint(&self) -> usize {
-        if !matches!(self, Setting::UInt(_)) {
+        if !matches!(self, Self::UInt(_)) {
             warn!("setting is not an unsigned integer");
         }
 
         match self {
-            Setting::UInt(value) => *value,
-            Setting::SInt(value) => *value as usize,
-            Setting::Bool(value) => *value as usize,
-            Setting::String(value) => is_bool_value(value) as usize,
-            Setting::Map(values) => values.len(),
+            Self::UInt(value) => *value,
+            Self::SInt(value) => *value as usize,
+            Self::Bool(value) => usize::from(*value),
+            Self::String(value) => usize::from(is_bool_value(value)),
+            Self::Map(values) => values.len(),
         }
     }
 
     #[allow(clippy::inherent_to_string_shadow_display)]
+    #[must_use]
     pub fn to_string(&self) -> String {
-        if !matches!(self, Setting::String(_)) {
+        if !matches!(self, Self::String(_)) {
             warn!("setting is not a string");
         }
 
         match self {
-            Setting::SInt(value) => value.to_string(),
-            Setting::UInt(value) => value.to_string(),
-            Setting::String(value) => value.clone(),
-            Setting::Bool(value) => value.to_string(),
-            Setting::Map(values) => {
+            Self::SInt(value) => value.to_string(),
+            Self::UInt(value) => value.to_string(),
+            Self::String(value) => value.clone(),
+            Self::Bool(value) => value.to_string(),
+            Self::Map(values) => {
                 let mut result = String::new();
                 for value in values {
                     result.push_str(value);
@@ -81,13 +85,14 @@ impl Setting {
         }
     }
 
+    #[must_use]
     pub fn to_map(&self) -> Vec<String> {
-        if !matches!(self, Setting::Map(_)) {
+        if !matches!(self, Self::Map(_)) {
             warn!("setting is not a map");
         }
 
         match self {
-            Setting::Map(values) => values.clone(),
+            Self::Map(values) => values.clone(),
             other => vec![other.to_string()],
         }
     }
@@ -118,7 +123,7 @@ impl<'de> Deserialize<'de> for Setting {
         D: Deserializer<'de>,
     {
         let value = String::deserialize(deserializer)?;
-        Setting::from_str(&value)
+        Self::from_str(&value)
             .map_err(|err| serde::de::Error::custom(format!("cannot deserialize: {err}")))
     }
 }
@@ -126,11 +131,11 @@ impl<'de> Deserialize<'de> for Setting {
 impl Display for Setting {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Setting::SInt(value) => write!(f, "i:{value}"),
-            Setting::UInt(value) => write!(f, "u:{value}"),
-            Setting::String(value) => write!(f, "s:{value}"),
-            Setting::Bool(value) => write!(f, "b:{value}"),
-            Setting::Map(values) => {
+            Self::SInt(value) => write!(f, "i:{value}"),
+            Self::UInt(value) => write!(f, "u:{value}"),
+            Self::String(value) => write!(f, "s:{value}"),
+            Self::Bool(value) => write!(f, "b:{value}"),
+            Self::Map(values) => {
                 let mut result = String::new();
                 for value in values {
                     result.push_str(value);
@@ -154,33 +159,33 @@ impl FromStr for Setting {
     //   m:foo,bar,baz
 
     /// Converts a string to a setting or None when the string is invalid
-    fn from_str(key: &str) -> Result<Setting, crate::errors::Error> {
+    fn from_str(key: &str) -> Result<Self, crate::errors::Error> {
         let (key_type, key_value) = key.split_once(':').expect("");
 
         let setting = match key_type {
-            "b" => Setting::Bool(
+            "b" => Self::Bool(
                 key_value
                     .parse::<bool>()
                     .map_err(|err| Error::Config(format!("error parsing {key_value}: {err}")))?,
             ),
-            "i" => Setting::SInt(
+            "i" => Self::SInt(
                 key_value
                     .parse::<isize>()
                     .map_err(|err| Error::Config(format!("error parsing {key_value}: {err}")))?,
             ),
-            "u" => Setting::UInt(
+            "u" => Self::UInt(
                 key_value
                     .parse::<usize>()
                     .map_err(|err| Error::Config(format!("error parsing {key_value}: {err}")))?,
             ),
-            "s" => Setting::String(key_value.to_string()),
+            "s" => Self::String(key_value.to_string()),
 
             "m" => {
                 let mut values = Vec::new();
                 for value in key_value.split(',') {
                     values.push(value.to_string());
                 }
-                Setting::Map(values)
+                Self::Map(values)
             }
             _ => return Err(Error::Config(format!("unknown setting: {key_value}"))),
         };
@@ -189,8 +194,8 @@ impl FromStr for Setting {
     }
 }
 
-/// SettingInfo returns information about a given setting
-#[derive(Clone, PartialEq, Debug)]
+/// `SettingInfo` returns information about a given setting
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct SettingInfo {
     /// Name of the key (dot notation, (ie: dns.resolver.enabled
     pub key: String,
@@ -214,15 +219,15 @@ mod test {
         assert_eq!(1, s.to_sint());
         assert_eq!(1, s.to_uint());
         assert_eq!("true", s.to_string());
-        assert_eq!(vec!("true"), s.to_map());
+        assert_eq!(vec!["true"], s.to_map());
 
         let s = Setting::from_str("i:-1").unwrap();
         assert_eq!(s, Setting::SInt(-1));
         assert!(s.to_bool());
         assert_eq!(-1, s.to_sint());
-        assert_eq!(18446744073709551615, s.to_uint());
+        assert_eq!(18_446_744_073_709_551_615, s.to_uint());
         assert_eq!("-1", s.to_string());
-        assert_eq!(vec!("-1"), s.to_map());
+        assert_eq!(vec!["-1"], s.to_map());
 
         let s = Setting::from_str("i:1").unwrap();
         assert_eq!(s, Setting::SInt(1));
@@ -230,7 +235,7 @@ mod test {
         assert_eq!(1, s.to_sint());
         assert_eq!(1, s.to_uint());
         assert_eq!("1", s.to_string());
-        assert_eq!(vec!("1"), s.to_map());
+        assert_eq!(vec!["1"], s.to_map());
 
         let s = Setting::from_str("s:hello world").unwrap();
         assert_eq!(s, Setting::String("hello world".into()));
@@ -238,7 +243,7 @@ mod test {
         assert_eq!(0, s.to_sint());
         assert_eq!(0, s.to_uint());
         assert_eq!("hello world", s.to_string());
-        assert_eq!(vec!("hello world"), s.to_map());
+        assert_eq!(vec!["hello world"], s.to_map());
 
         let s = Setting::from_str("m:foo,bar,baz").unwrap();
         assert_eq!(

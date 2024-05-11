@@ -23,7 +23,7 @@ impl TryFrom<&String> for SqliteStorageAdapter {
         )";
         conn.execute(query)?;
 
-        Ok(SqliteStorageAdapter {
+        Ok(Self {
             connection: Mutex::new(conn),
         })
     }
@@ -66,7 +66,7 @@ impl StorageAdapter for SqliteStorageAdapter {
         let mut statement = db_lock.prepare(query).unwrap();
 
         let mut settings = HashMap::new();
-        while let sqlite::State::Row = statement.next().unwrap() {
+        while statement.next().unwrap() == sqlite::State::Row {
             let key = statement.read::<String, _>(1).unwrap();
             let value = statement.read::<String, _>(2).unwrap();
             settings.insert(key, Setting::from_str(&value)?);

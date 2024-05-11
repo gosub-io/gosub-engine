@@ -18,7 +18,7 @@ use wildmatch::WildMatch;
 /// Settings are stored in a json file, but this is included in the binary for mostly easy editting.
 const SETTINGS_JSON: &str = include_str!("./settings.json");
 
-/// StoreAdapter is the interface for storing and retrieving settings
+/// `StoreAdapter` is the interface for storing and retrieving settings
 /// This can be used to storage settings in a database, json file, etc
 /// Note that we need to implement Send so we can send the storage adapter
 /// to other threads.
@@ -32,7 +32,7 @@ pub trait StorageAdapter: Send + Sync {
     fn set(&self, key: &str, value: Setting);
 
     /// Retrieves all the settings in the storage in one go. This is used for preloading the settings
-    /// into the ConfigStore and is more performant normally than calling get_setting manually for each
+    /// into the `ConfigStore` and is more performant normally than calling `get_setting` manually for each
     /// setting.
     fn all(&self) -> Result<HashMap<String, Setting>>;
 }
@@ -44,7 +44,7 @@ lazy_static! {
 }
 
 /// Returns a reference to the config store, which is locked by a mutex.
-/// Any callers of the config store can just do  config::config_store().get("dns.local.enabled")
+/// Any callers of the config store can just do  `config::config_store().get("dns.local.enabled`")
 pub fn config_store() -> std::sync::RwLockReadGuard<'static, ConfigStore> {
     CONFIG_STORE.read().unwrap()
 }
@@ -55,11 +55,11 @@ pub fn config_store_write() -> std::sync::RwLockWriteGuard<'static, ConfigStore>
 
 /// These macro's can be used to simplify the calls to the config store. You can simply do:
 ///
-/// let enabled = config!(bool "dns.local.enabled").unwrap();
-/// config_set!(bool "dns.local.enabled", false);
+/// let enabled = config!(bool "`dns.local.enabled").unwrap()`;
+/// `config_set!(bool` "dns.local.enabled", false);
 ///
 /// Note that when you cannot find the key, it will return a default value. This is not always
-/// what you want, but you can test for existence of the key with config_store().has("key")
+/// what you want, but you can test for existence of the key with `config_store().has("key`")
 #[allow(clippy::crate_in_macro_def)]
 #[macro_export]
 macro_rules! config {
@@ -115,7 +115,7 @@ macro_rules! config_set {
     };
 }
 
-/// JsonEntry is used for parsing the settings.json file
+/// `JsonEntry` is used for parsing the settings.json file
 #[derive(Debug, Deserialize)]
 struct JsonEntry {
     key: String,
@@ -130,7 +130,7 @@ pub struct ConfigStore {
     /// A hashmap of all settings so we can search o(1) time
     /// The mutex allows to share between multiple threads,
     /// The refcell allows us to use mutable references in a non-mutable way (ie: settings can be
-    /// stored while doing a immutable get())
+    /// stored while doing a immutable `get()`)
     settings: std::sync::Mutex<std::cell::RefCell<HashMap<String, Setting>>>,
     /// A hashmap of all setting descriptions, default values and type information
     settings_info: HashMap<String, SettingInfo>,
@@ -142,7 +142,7 @@ pub struct ConfigStore {
 
 impl Default for ConfigStore {
     fn default() -> Self {
-        let mut store = ConfigStore {
+        let mut store = Self {
             settings: std::sync::Mutex::new(std::cell::RefCell::new(HashMap::new())),
             settings_info: HashMap::new(),
             setting_keys: Vec::new(),
@@ -217,7 +217,7 @@ impl ConfigStore {
                 .unwrap()
                 .borrow_mut()
                 .insert(key.to_string(), setting.clone());
-            return Some(setting.clone());
+            return Some(setting);
         }
 
         // Return the default value for the setting when nothing is found
@@ -227,19 +227,16 @@ impl ConfigStore {
 
         // At this point we haven't found the key in the store, we haven't found it in storage, and we
         // don't have a default value. This is a programming error, so we panic.
-        panic!("config: Setting {} is not known", key);
+        panic!("config: Setting {key} is not known");
     }
 
     /// Sets the given setting to the given value. Will persist the setting to the
     /// storage. Note that the setting MUST have a settings-info entry, otherwise
     /// this function will not store the setting.
     pub fn set(&self, key: &str, value: Setting) {
-        let info = match self.settings_info.get(key) {
-            Some(info) => info,
-            None => {
-                warn!("config: Setting {key} is not known");
-                return;
-            }
+        let info = if let Some(info) = self.settings_info.get(key) { info } else {
+            warn!("config: Setting {key} is not known");
+            return;
         };
 
         if mem::discriminant(&info.default) != mem::discriminant(&value) {

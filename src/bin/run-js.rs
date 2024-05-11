@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 use gosub_shared::types::Result;
 use gosub_v8::{V8Context, V8Engine};
 use gosub_webexecutor::js::{JSContext, JSRuntime, JSValue};

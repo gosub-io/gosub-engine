@@ -1,4 +1,4 @@
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 /// Data structure for comment nodes
 pub struct CommentData {
     /// The actual comment value
@@ -25,6 +25,7 @@ impl CommentData {
         }
     }
 
+    #[must_use]
     pub fn value(&self) -> &str {
         &self.value
     }

@@ -250,6 +250,7 @@ impl Html5Parser<'_> {
     }
 
     // @todo: where is the fragment case handled? (substep 4: https://html.spec.whatwg.org/multipage/parsing.html#appropriate-place-for-inserting-a-node)
+    #[must_use]
     pub fn appropriate_place_insert(
         &self,
         override_node: Option<NodeId>,

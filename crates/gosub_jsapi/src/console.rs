@@ -9,7 +9,7 @@ use std::fmt;
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
-/// LogLevel is the type of log level.
+/// `LogLevel` is the type of log level.
 #[derive(Debug)]
 pub enum LogLevel {
     Info,
@@ -85,6 +85,7 @@ impl Console {
     }
 
     /// Returns the printer that is used by the console
+    #[must_use]
     pub fn get_printer(self) -> Box<dyn Printer> {
         self.printer
     }
@@ -186,11 +187,11 @@ impl Console {
         let group_label = if data.is_empty() {
             format!("console.group.{}", Uuid::new_v4())
         } else {
-            self.formatter.format(data).to_string()
+            self.formatter.format(data)
         };
 
         let group = Group {
-            label: group_label.clone(),
+            label: group_label,
         };
 
         // Group should be expanded
@@ -204,11 +205,11 @@ impl Console {
         let group_label = if data.is_empty() {
             format!("console.group.{}", Uuid::new_v4())
         } else {
-            self.formatter.format(data).to_string()
+            self.formatter.format(data)
         };
 
         let group = Group {
-            label: group_label.clone(),
+            label: group_label,
         };
 
         self.printer

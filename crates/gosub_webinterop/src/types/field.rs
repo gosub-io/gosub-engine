@@ -4,7 +4,7 @@ use quote::quote;
 use crate::types::executor::Executor;
 
 #[derive(Clone, Debug)]
-pub(crate) struct Field {
+pub struct Field {
     pub(crate) name: String,
     pub(crate) ident: syn::Ident,
     #[allow(unused)]
@@ -14,7 +14,7 @@ pub(crate) struct Field {
 }
 
 impl Field {
-    pub(crate) fn getters_setters(fields: &[Field]) -> TokenStream {
+    pub(crate) fn getters_setters(fields: &[Self]) -> TokenStream {
         let mut gs = TokenStream::new();
 
         for field in fields {

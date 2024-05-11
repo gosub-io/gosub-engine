@@ -13,38 +13,45 @@ impl TextNode {
     #[must_use]
     fn new(fs: f64, bold: bool) -> Self {
         Self {
-            value: "".to_owned(),
+            value: String::new(),
             font: "Times New Roman".to_owned(),
             font_size: fs,
             is_bold: bold,
         }
     }
 
+    #[must_use]
     pub fn new_heading1() -> Self {
-        TextNode::new(37., true)
+        Self::new(37., true)
     }
 
+    #[must_use]
     pub fn new_heading2() -> Self {
-        TextNode::new(27.5, true)
+        Self::new(27.5, true)
     }
 
+    #[must_use]
     pub fn new_heading3() -> Self {
-        TextNode::new(21.5, true)
+        Self::new(21.5, true)
     }
 
+    #[must_use]
     pub fn new_heading4() -> Self {
-        TextNode::new(18.5, true)
+        Self::new(18.5, true)
     }
 
+    #[must_use]
     pub fn new_heading5() -> Self {
-        TextNode::new(15.5, true)
+        Self::new(15.5, true)
     }
 
+    #[must_use]
     pub fn new_heading6() -> Self {
-        TextNode::new(12., true)
+        Self::new(12., true)
     }
 
+    #[must_use]
     pub fn new_paragraph() -> Self {
-        TextNode::new(18.5, false)
+        Self::new(18.5, false)
     }
 }

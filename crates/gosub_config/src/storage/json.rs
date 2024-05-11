@@ -35,7 +35,7 @@ impl TryFrom<&String> for JsonStorageAdapter {
             file
         };
 
-        let mut adapter = JsonStorageAdapter {
+        let mut adapter = Self {
             path: path.to_string(),
             elements: Mutex::new(HashMap::new()),
         };

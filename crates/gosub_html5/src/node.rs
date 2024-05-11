@@ -22,7 +22,7 @@ pub mod arena;
 pub mod data;
 
 /// Different types of nodes
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum NodeType {
     Document,
     DocType,
@@ -51,14 +51,14 @@ pub enum NodeData {
 pub struct NodeId(pub(crate) usize);
 
 impl From<NodeId> for usize {
-    /// Converts a NodeId into a usize
+    /// Converts a `NodeId` into a usize
     fn from(value: NodeId) -> Self {
         value.0
     }
 }
 
 impl From<usize> for NodeId {
-    /// Converts a usize into a NodeId
+    /// Converts a usize into a `NodeId`
     fn from(value: usize) -> Self {
         Self(value)
     }
@@ -79,7 +79,7 @@ impl From<NodeId> for u64 {
 }
 
 impl Default for &NodeId {
-    /// Returns the default NodeId, which is 0
+    /// Returns the default `NodeId`, which is 0
     fn default() -> Self {
         &NodeId(0)
     }
@@ -90,11 +90,13 @@ impl NodeId {
     pub const ROOT_NODE: usize = 0;
 
     /// Returns the root node ID
+    #[must_use]
     pub fn root() -> Self {
         Self(Self::ROOT_NODE)
     }
 
     /// Returns true when this nodeId is the root node
+    #[must_use]
     pub fn is_root(&self) -> bool {
         self.0 == Self::ROOT_NODE
     }
@@ -110,6 +112,7 @@ impl NodeId {
     }
 
     /// Returns the nodeID as usize
+    #[must_use]
     pub fn as_usize(&self) -> usize {
         self.0
     }
@@ -148,13 +151,14 @@ pub struct Node {
 }
 
 impl Node {
+    #[must_use]
     pub fn is_root(&self) -> bool {
         self.id.is_root()
     }
 }
 
 impl PartialEq for Node {
-    fn eq(&self, other: &Node) -> bool {
+    fn eq(&self, other: &Self) -> bool {
         self.id == other.id
     }
 }
@@ -183,7 +187,7 @@ impl Debug for Node {
 
 impl Clone for Node {
     fn clone(&self) -> Self {
-        Node {
+        Self {
             id: self.id,
             parent: self.parent,
             children: self.children.clone(),
@@ -281,12 +285,14 @@ impl Node {
     }
 
     /// Returns true if the given node is a "formatting" node
+    #[must_use]
     pub fn is_formatting(&self) -> bool {
         self.namespace == Some(HTML_NAMESPACE.into())
             && FORMATTING_HTML_ELEMENTS.contains(&self.name.as_str())
     }
 
     /// Returns true if the given node is "special" node based on the namespace and name
+    #[must_use]
     pub fn is_special(&self) -> bool {
         if self.namespace == Some(HTML_NAMESPACE.into())
             && SPECIAL_HTML_ELEMENTS.contains(&self.name.as_str())
@@ -308,6 +314,7 @@ impl Node {
     }
 
     /// Returns true if this node is registered into an arena
+    #[must_use]
     pub fn is_registered(&self) -> bool {
         self.is_registered
     }
@@ -315,6 +322,7 @@ impl Node {
     /// This will only compare against the tag, namespace and data same except element data.
     /// for element data compaare against the tag, namespace and attributes without order.
     /// Both nodes could still have other parents and children.
+    #[must_use]
     pub fn matches_tag_and_attrs_without_order(&self, other: &Self) -> bool {
         if self.name != other.name || self.namespace != other.namespace {
             return false;
@@ -341,6 +349,7 @@ impl Node {
     }
 
     /// Returns true when the given node is of the given namespace
+    #[must_use]
     pub fn is_namespace(&self, namespace: &str) -> bool {
         self.namespace == Some(namespace.into())
     }
@@ -377,6 +386,7 @@ impl Node {
     }
 
     /// Returns true if the node is an element node
+    #[must_use]
     pub fn is_element(&self) -> bool {
         if let NodeData::Element(_) = &self.data {
             return true;
@@ -385,6 +395,7 @@ impl Node {
         false
     }
 
+    #[must_use]
     pub fn is_text(&self) -> bool {
         if let NodeData::Text(_) = &self.data {
             return true;
@@ -393,6 +404,7 @@ impl Node {
         false
     }
 
+    #[must_use]
     pub fn as_text(&self) -> &TextData {
         if let NodeData::Text(text) = &self.data {
             return text;
@@ -401,6 +413,7 @@ impl Node {
         panic!("Node is not a text");
     }
 
+    #[must_use]
     pub fn as_element(&self) -> &ElementData {
         if let NodeData::Element(element) = &self.data {
             return element;
@@ -418,6 +431,7 @@ impl Node {
     }
 
     /// Returns true when the given attribute has been set on the node
+    #[must_use]
     pub fn has_attribute(&self, name: &str) -> bool {
         if let NodeData::Element(element) = &self.data {
             return element.attributes.contains_key(name);
@@ -427,6 +441,7 @@ impl Node {
     }
 
     /// Returns the given attribute value or None when the attribute is not found
+    #[must_use]
     pub fn get_attribute(&self, name: &str) -> Option<&String> {
         if let NodeData::Element(element) = &self.data {
             return element.attributes.get(name);
@@ -547,7 +562,7 @@ pub static SPECIAL_HTML_ELEMENTS: [&str; 83] = [
     "xmp",
 ];
 
-/// MathML elements that are considered special elements
+/// `MathML` elements that are considered special elements
 pub static SPECIAL_MATHML_ELEMENTS: [&str; 6] = ["mi", "mo", "mn", "ms", "mtext", "annotation-xml"];
 
 /// SVG elements that are considered special elements
@@ -565,12 +580,9 @@ mod tests {
         assert_eq!(node.id, NodeId::default());
         assert_eq!(node.parent, None);
         assert!(node.children.is_empty());
-        assert_eq!(node.name, "".to_string());
+        assert_eq!(node.name, String::new());
         assert_eq!(node.namespace, None);
-        match &node.data {
-            NodeData::Document(_) => (),
-            _ => panic!(),
-        }
+        if let NodeData::Document(_) = &node.data {} else { panic!() }
     }
 
     #[test]
@@ -605,7 +617,7 @@ mod tests {
         assert_eq!(node.id, NodeId::default());
         assert_eq!(node.parent, None);
         assert!(node.children.is_empty());
-        assert_eq!(node.name, "".to_string());
+        assert_eq!(node.name, String::new());
         assert_eq!(node.namespace, None);
         let NodeData::Comment(CommentData { value, .. }) = &node.data else {
             panic!()
@@ -620,7 +632,7 @@ mod tests {
         assert_eq!(node.id, NodeId::default());
         assert_eq!(node.parent, None);
         assert!(node.children.is_empty());
-        assert_eq!(node.name, "".to_string());
+        assert_eq!(node.name, String::new());
         assert_eq!(node.namespace, None);
         let NodeData::Text(TextData { value }) = &node.data else {
             panic!()
@@ -667,7 +679,7 @@ mod tests {
     #[test]
     fn special_html_elements() {
         let document = Document::shared(None);
-        for element in SPECIAL_HTML_ELEMENTS.iter() {
+        for element in &SPECIAL_HTML_ELEMENTS {
             let mut attributes = HashMap::new();
             attributes.insert("id".to_string(), "test".to_string());
             let node = Node::new_element(
@@ -684,7 +696,7 @@ mod tests {
     #[test]
     fn special_mathml_elements() {
         let document = Document::shared(None);
-        for element in SPECIAL_MATHML_ELEMENTS.iter() {
+        for element in &SPECIAL_MATHML_ELEMENTS {
             let mut attributes = HashMap::new();
             attributes.insert("id".to_string(), "test".to_string());
             let node = Node::new_element(
@@ -701,7 +713,7 @@ mod tests {
     #[test]
     fn special_svg_elements() {
         let document = Document::shared(None);
-        for element in SPECIAL_SVG_ELEMENTS.iter() {
+        for element in &SPECIAL_SVG_ELEMENTS {
             let mut attributes = HashMap::new();
             attributes.insert("id".to_string(), "test".to_string());
             let node = Node::new_element(

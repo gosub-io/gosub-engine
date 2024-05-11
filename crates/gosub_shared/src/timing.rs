@@ -58,8 +58,9 @@ fn percentage_to_index(count: u64, percentage: f64) -> usize {
 }
 
 impl TimingTable {
-    pub fn new() -> TimingTable {
-        TimingTable {
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
             timers: HashMap::new(),
             namespaces: HashMap::new(),
         }
@@ -82,6 +83,7 @@ impl TimingTable {
         }
     }
 
+    #[must_use]
     pub fn get_stats(&self, timers: &Vec<TimerId>) -> Stats {
         let mut durations: Vec<u64> = Vec::new();
 
@@ -94,7 +96,7 @@ impl TimingTable {
             }
         }
 
-        durations.sort();
+        durations.sort_unstable();
         let count = durations.len() as u64;
         let total = durations.iter().sum();
         let min = *durations.first().unwrap_or(&0);
@@ -120,12 +122,12 @@ impl TimingTable {
 
     fn scale(&self, value: u64, scale: Scale) -> String {
         match scale {
-            Scale::MicroSecond => format!("{}µs", value),
+            Scale::MicroSecond => format!("{value}µs"),
             Scale::MilliSecond => format!("{}ms", value / 1000),
             Scale::Second => format!("{}s", value / (1000 * 1000)),
             Scale::Auto => {
                 if value < 1000 {
-                    format!("{}µs", value)
+                    format!("{value}µs")
                 } else if value < 1000 * 1000 {
                     format!("{}ms", value / 1000)
                 } else {
@@ -160,7 +162,7 @@ impl TimingTable {
                             "                     | {:>8} | {:>10} | {}",
                             1,
                             self.scale(timer.duration_us, scale.clone()),
-                            timer.context.clone().unwrap_or("".into())
+                            timer.context.clone().unwrap_or_default()
                         );
                     }
                 }
@@ -168,6 +170,7 @@ impl TimingTable {
         }
     }
 
+    #[must_use]
     pub fn duration(&self, timer_id: TimerId) -> u64 {
         if let Some(timer) = self.timers.get(&timer_id) {
             timer.duration()
@@ -251,7 +254,8 @@ pub struct Timer {
 }
 
 impl Timer {
-    pub fn new(context: Option<String>) -> Timer {
+    #[must_use]
+    pub fn new(context: Option<String>) -> Self {
         #[cfg(not(target_arch = "wasm32"))]
         let start = { Instant::now() };
 
@@ -263,7 +267,7 @@ impl Timer {
                 .unwrap_or(f64::NAN)
         };
 
-        Timer {
+        Self {
             id: new_timer_id(),
             context,
             start,
@@ -304,6 +308,7 @@ impl Timer {
         self.end.is_some()
     }
 
+    #[must_use]
     pub fn duration(&self) -> u64 {
         if self.end.is_some() {
             self.duration_us

@@ -12,3 +12,7 @@ gosub_html5 = { path = "../gosub_html5" }
 
 [lib]
 crate-type = ["staticlib"]
+
+
+[lints]
+workspace = true

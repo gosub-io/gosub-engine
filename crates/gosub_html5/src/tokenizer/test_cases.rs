@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use gosub_testing::testing::tokenizer::{self, FixtureFile};
 use lazy_static::lazy_static;
 use std::collections::HashSet;
@@ -31,7 +33,7 @@ const DISABLED_CASES: &[&str] = &[
 lazy_static! {
     static ref DISABLED: HashSet<String> = DISABLED_CASES
         .iter()
-        .map(|s| s.to_string())
+        .map(|s| (*s).to_string())
         .collect::<HashSet<_>>();
 }
 
@@ -53,8 +55,7 @@ fn tokenization(filename: &str) {
     let root = tokenizer::fixture_from_filename(filename).unwrap();
 
     let tests = match root {
-        FixtureFile::Tests { tests } => tests,
-        FixtureFile::XmlTests { tests } => tests,
+        FixtureFile::XmlTests { tests } | FixtureFile::Tests { tests } => tests,
     };
 
     for test in tests {

@@ -12,7 +12,7 @@ pub struct Group {
 type Writer<W> = Rc<RefCell<W>>;
 
 /// A writable printer that can be used to write to a buffer
-pub(crate) struct WritablePrinter<W: Write> {
+pub struct WritablePrinter<W: Write> {
     writer: Writer<W>,
     groups: Vec<Group>,
 }

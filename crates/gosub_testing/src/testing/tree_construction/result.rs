@@ -1,4 +1,4 @@
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum ResultStatus {
     /// This is a correct match
     Success,
@@ -59,7 +59,8 @@ pub struct TestResult {
 }
 
 impl TestResult {
-    /// Returns true when both results and error_results are either empty or have a result that is not Success
+    /// Returns true when both results and `error_results` are either empty or have a result that is not Success
+    #[must_use]
     pub fn is_success(&self) -> bool {
         self.tree_results
             .iter()

@@ -3,21 +3,21 @@ use proc_macro2::TokenStream;
 use quote::{quote, ToTokens};
 use syn::{Expr, Path};
 
-#[derive(Clone, PartialEq, Debug)]
-pub(crate) enum Reference {
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum Reference {
     None,
     Ref,
     MutRef,
 }
 
 #[derive(Clone, PartialEq, Debug)]
-pub(crate) struct Type {
+pub struct Type {
     pub(crate) reference: Reference,
     pub(crate) ty: TypeT,
 }
 
 #[derive(Clone, PartialEq, Debug)]
-pub(crate) enum TypeT {
+pub enum TypeT {
     Type(Path),
     Array(Box<Type>, Option<Expr>),
     Tuple(Vec<Type>), //Array on the JS side
@@ -32,7 +32,7 @@ impl Type {
                     return Err("type can't be a reference here");
                 }
 
-                Ok(Type {
+                Ok(Self {
                     reference: if r.mutability.is_none() {
                         Reference::Ref
                     } else {
@@ -43,14 +43,14 @@ impl Type {
                         .ty,
                 })
             }
-            syn::Type::Array(a) => Ok(Type {
+            syn::Type::Array(a) => Ok(Self {
                 reference: Reference::None,
                 ty: TypeT::Array(
                     Box::new(Self::parse(&a.elem, allow_ref)?),
                     Some(a.len.clone()),
                 ),
             }),
-            syn::Type::Slice(s) => Ok(Type {
+            syn::Type::Slice(s) => Ok(Self {
                 reference: Reference::None,
                 ty: TypeT::Array(Box::new(Self::parse(&s.elem, allow_ref)?), None),
             }),
@@ -58,21 +58,21 @@ impl Type {
                 let mut elements = Vec::with_capacity(t.elems.len());
 
                 for elem in &t.elems {
-                    elements.push(Self::parse(elem, allow_ref)?)
+                    elements.push(Self::parse(elem, allow_ref)?);
                 }
 
-                Ok(Type {
+                Ok(Self {
                     reference: Reference::None,
                     ty: TypeT::Tuple(elements),
                 })
             }
 
-            syn::Type::Path(p) => Ok(Type {
+            syn::Type::Path(p) => Ok(Self {
                 reference: Reference::None,
                 ty: TypeT::Type(p.path.clone()),
             }),
 
-            syn::Type::ImplTrait(p) => Ok(Type {
+            syn::Type::ImplTrait(p) => Ok(Self {
                 reference: Reference::None,
                 ty: TypeT::Generic(parse_impl(&p.bounds)?),
             }),
@@ -121,8 +121,8 @@ impl Type {
 impl TypeT {
     pub(crate) fn generics(&self) -> Option<String> {
         Some(match self {
-            TypeT::Type(p) => p.get_ident()?.to_token_stream().to_string(),
-            TypeT::Generic(t) => {
+            Self::Type(p) => p.get_ident()?.to_token_stream().to_string(),
+            Self::Generic(t) => {
                 let mut out = String::new();
                 for (i, p) in t.iter().enumerate() {
                     if i != 0 {

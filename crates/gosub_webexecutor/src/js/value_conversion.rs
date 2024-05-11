@@ -83,7 +83,7 @@ where
             .map(|v| v.to_js_value(ctx.clone()))
             .collect::<Result<Vec<_>>>()?;
 
-        Self::Array::new_with_data(ctx.clone(), &data)
+        Self::Array::new_with_data(ctx, &data)
     }
 }
 
@@ -100,7 +100,7 @@ where
             .map(|v| v.to_js_value(ctx.clone()))
             .collect::<Result<Vec<_>>>()?;
 
-        <V::RT as JSRuntime>::Array::new_with_data(ctx.clone(), &data).map(|v| v.as_value())
+        <V::RT as JSRuntime>::Array::new_with_data(ctx, &data).map(|v| v.as_value())
     }
 }
 

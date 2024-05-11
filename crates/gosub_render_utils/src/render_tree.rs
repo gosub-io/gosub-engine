@@ -12,7 +12,7 @@ pub mod properties;
 pub mod text;
 pub mod util;
 
-/// A RenderTree is a data structure to be consumed by a user agent
+/// A `RenderTree` is a data structure to be consumed by a user agent
 /// that combines the DOM and CSSOM to compute layouts and styles
 /// for objects to draw on the screen.
 pub struct RenderTree {
@@ -81,10 +81,10 @@ impl RenderTree {
     }
 }
 
-/// An individual node that sits inside a RenderTree.
-/// A RenderTree Node mimics a Node from the DOM but
+/// An individual node that sits inside a `RenderTree`.
+/// A `RenderTree` Node mimics a Node from the DOM but
 /// contains more visual information such as width,
-/// height, font sizes, colors, etc. A RenderTree Node
+/// height, font sizes, colors, etc. A `RenderTree` Node
 /// can have children just like regular DOM nodes.
 #[derive(Debug, PartialEq)]
 #[repr(C)]
@@ -138,52 +138,52 @@ impl Node {
         let margin = 10.72;
         let heading = TextNode::new_heading1();
 
-        Node::new_text(heading, margin, position)
+        Self::new_text(heading, margin, position)
     }
 
     pub fn new_heading2(position: &mut Position) -> Self {
         let margin = 9.96;
         let heading = TextNode::new_heading2();
 
-        Node::new_text(heading, margin, position)
+        Self::new_text(heading, margin, position)
     }
 
     pub fn new_heading3(position: &mut Position) -> Self {
         let margin = 9.36;
         let heading = TextNode::new_heading3();
 
-        Node::new_text(heading, margin, position)
+        Self::new_text(heading, margin, position)
     }
 
     pub fn new_heading4(position: &mut Position) -> Self {
         let margin = 10.64;
         let heading = TextNode::new_heading4();
 
-        Node::new_text(heading, margin, position)
+        Self::new_text(heading, margin, position)
     }
 
     pub fn new_heading5(position: &mut Position) -> Self {
         let margin = 11.089;
         let heading = TextNode::new_heading5();
 
-        Node::new_text(heading, margin, position)
+        Self::new_text(heading, margin, position)
     }
 
     pub fn new_heading6(position: &mut Position) -> Self {
         let margin = 12.489;
         let heading = TextNode::new_heading6();
 
-        Node::new_text(heading, margin, position)
+        Self::new_text(heading, margin, position)
     }
 
     pub fn new_paragraph(position: &mut Position) -> Self {
         let margin = 8.;
         let paragraph = TextNode::new_paragraph();
 
-        Node::new_text(paragraph, margin, position)
+        Self::new_text(paragraph, margin, position)
     }
 
-    pub fn add_child(&mut self, child: &Rc<RefCell<Node>>) {
+    pub fn add_child(&mut self, child: &Rc<RefCell<Self>>) {
         if let Some(last_child) = &self.children.last().borrow_mut() {
             last_child.as_ref().borrow_mut().next_sibling = Some(Rc::clone(child));
         }
@@ -197,7 +197,7 @@ impl Default for Node {
     }
 }
 
-/// Different types of RenderTree Nodes
+/// Different types of `RenderTree` Nodes
 // NOTE: tag size must be u32 otherwise it wont work with a C enum (originally I tried u8)
 #[derive(Debug, PartialEq)]
 #[repr(C, u32)]
@@ -210,7 +210,7 @@ pub enum NodeType {
     // TODO: add more types as we build out the RenderTree
 }
 
-/// Constructs an iterator for a RenderTree
+/// Constructs an iterator for a `RenderTree`
 pub struct TreeIterator {
     current_node: Option<Rc<RefCell<Node>>>,
     node_stack: Vec<Rc<RefCell<Node>>>,
@@ -225,6 +225,7 @@ impl TreeIterator {
         }
     }
 
+    #[must_use]
     pub fn current(&self) -> Option<Rc<RefCell<Node>>> {
         if let Some(node) = &self.current_node {
             return Some(Rc::clone(node));

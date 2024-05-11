@@ -1,4 +1,4 @@
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Condition {
     EqualsTag(String),
     EqualsId(String),
@@ -8,7 +8,7 @@ pub enum Condition {
     HasParentTag(String),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum SearchType {
     Uninitialized,
     FindFirst,

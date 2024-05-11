@@ -1,5 +1,5 @@
 /// These are the states in which the tokenizer can be in.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum State {
     /// 8.2.4.36 After attribute name state
     AfterAttributeName,

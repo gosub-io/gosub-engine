@@ -9,3 +9,7 @@ license = "MIT"
 gosub_shared = { path = "../gosub_shared", features = [] }
 uuid = { version = "1.10.0", features = ["v4"] }
 regex = "1"
+
+
+[lints]
+workspace = true

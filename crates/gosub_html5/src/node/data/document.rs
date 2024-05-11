@@ -1,7 +1,7 @@
 use core::fmt::{Debug, Formatter};
 use std::fmt;
 
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Eq, Clone)]
 /// Data structure for document nodes
 pub struct DocumentData {}
 

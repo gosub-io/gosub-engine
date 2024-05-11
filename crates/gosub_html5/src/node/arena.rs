@@ -13,7 +13,7 @@ pub struct NodeArena {
 }
 
 impl NodeArena {
-    /// Creates a new NodeArena
+    /// Creates a new `NodeArena`
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -29,12 +29,13 @@ impl NodeArena {
     }
 
     /// Peek what the next node ID is without incrementing the internal counter.
-    /// Used by DocumentTaskQueue for create_element() tasks.
+    /// Used by `DocumentTaskQueue` for `create_element()` tasks.
     pub(crate) fn peek_next_id(&self) -> NodeId {
         self.next_id
     }
 
     /// Gets the node with the given id
+    #[must_use]
     pub fn get_node(&self, node_id: NodeId) -> Option<&Node> {
         self.nodes.get(&node_id)
     }

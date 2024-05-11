@@ -6,7 +6,7 @@ use syn::{Path, Token, TypeParamBound};
 use crate::types::{handle_slice_conv, Generics, Reference, Type, TypeT};
 
 #[derive(Clone, PartialEq, Debug)]
-pub(crate) struct Arg {
+pub struct Arg {
     pub(crate) index: usize,
     pub(crate) ty: Type,
     pub(crate) variant: ArgVariant,
@@ -85,8 +85,8 @@ impl Arg {
     }
 }
 
-#[derive(Clone, PartialEq, Debug)]
-pub(crate) enum ArgVariant {
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum ArgVariant {
     Normal,
     Variadic,
     Context,
@@ -98,7 +98,7 @@ impl Arg {
         arg: &syn::Type,
         index: usize,
         generics: &[Generics],
-    ) -> Result<Arg, &'static str> {
+    ) -> Result<Self, &'static str> {
         let ty = Type::parse(arg, true)?;
         let mut variant = ArgVariant::Normal;
 
@@ -119,7 +119,7 @@ impl Arg {
                 }
             }
             TypeT::Generic(p) => {
-                p.iter().for_each(|p| {
+                for p in p {
                     if let Some(s) = p.segments.last() {
                         if s.ident == "JSContext" {
                             variant = ArgVariant::Context;
@@ -129,38 +129,38 @@ impl Arg {
                             variant = ArgVariant::Generic;
                         }
                     }
-                });
+                }
             }
             _ => {}
         }
 
-        Ok(Arg { index, ty, variant })
+        Ok(Self { index, ty, variant })
     }
 }
 
 #[derive(Clone, PartialEq, Debug)]
-pub(crate) enum ReturnType {
+pub enum ReturnType {
     Undefined,
     Type(TypeT),
 }
 
-#[derive(Clone, PartialEq, Debug)]
-pub(crate) enum SelfType {
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum SelfType {
     NoSelf,
     SelfRef,
     SelfMutRef,
 }
 
 impl ReturnType {
-    pub(crate) fn parse(ret: &syn::ReturnType) -> Result<ReturnType, &'static str> {
+    pub(crate) fn parse(ret: &syn::ReturnType) -> Result<Self, &'static str> {
         Ok(match ret {
-            syn::ReturnType::Default => ReturnType::Undefined,
-            syn::ReturnType::Type(_, ty) => ReturnType::Type(Type::parse(ty, true)?.ty),
+            syn::ReturnType::Default => Self::Undefined,
+            syn::ReturnType::Type(_, ty) => Self::Type(Type::parse(ty, true)?.ty),
         })
     }
 }
 
-pub(crate) fn parse_impl(
+pub fn parse_impl(
     bounds: &Punctuated<TypeParamBound, Token![+]>,
 ) -> Result<Vec<Path>, &'static str> {
     let mut out = Vec::with_capacity(bounds.len());

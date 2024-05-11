@@ -4,7 +4,7 @@ use gosub_shared::types::Result;
 use log::trace;
 use std::collections::{HashMap, VecDeque};
 
-pub(crate) struct CacheResolver {
+pub struct CacheResolver {
     values: HashMap<String, DnsEntry>,
     max_entries: usize,
     lru: VecDeque<String>,
@@ -91,8 +91,8 @@ impl DnsCache for CacheResolver {
 }
 
 impl CacheResolver {
-    pub(crate) fn new(max_entries: usize) -> CacheResolver {
-        CacheResolver {
+    pub(crate) fn new(max_entries: usize) -> Self {
+        Self {
             values: HashMap::with_capacity(max_entries),
             max_entries,
             lru: VecDeque::with_capacity(max_entries),

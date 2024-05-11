@@ -44,7 +44,7 @@ pub enum JSError {
     Exception(String),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum JSType {
     Undefined,
     Null,

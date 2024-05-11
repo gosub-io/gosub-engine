@@ -1,4 +1,4 @@
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 /// Data structure for text nodes
 pub struct TextData {
     /// Actual text
@@ -25,6 +25,7 @@ impl TextData {
         }
     }
 
+    #[must_use]
     pub fn value(&self) -> &str {
         &self.value
     }

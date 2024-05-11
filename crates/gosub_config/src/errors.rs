@@ -2,7 +2,7 @@
 use thiserror::Error;
 
 /// Parser error that defines an error (message) on the given position
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ParseError {
     /// Parse error message
     pub message: String,

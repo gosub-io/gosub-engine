@@ -2,7 +2,7 @@ use crate::types::{Type, TypeT};
 use proc_macro2::{Ident, TokenStream};
 use quote::quote;
 
-pub(crate) fn handle_slice_conv(root_arg: &Type, arg_name: &Ident) -> TokenStream {
+pub fn handle_slice_conv(root_arg: &Type, arg_name: &Ident) -> TokenStream {
     if let TypeT::Array(arg, len) = &root_arg.ty {
         if len.is_none() {
             return TokenStream::new();

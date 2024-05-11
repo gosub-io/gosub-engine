@@ -31,10 +31,12 @@ impl Default for CNode {
 }
 
 impl CNode {
+    #[must_use]
     pub fn new_root() -> Self {
         Self::default()
     }
 
+    #[must_use]
     pub fn new_text(node: &Node, text_node: &TextNode) -> Self {
         Self {
             tag: CNodeType::Text,

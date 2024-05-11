@@ -25,6 +25,7 @@ impl Rectangle {
         }
     }
 
+    #[must_use]
     pub fn with_values(top: f64, left: f64, right: f64, bottom: f64) -> Self {
         Self {
             top,
@@ -50,7 +51,8 @@ impl Position {
         Self { x: 0., y: 0. }
     }
 
-    pub fn new_from_existing(position: &Position) -> Self {
+    #[must_use]
+    pub fn new_from_existing(position: &Self) -> Self {
         Self {
             x: position.x,
             y: position.y,
@@ -64,21 +66,21 @@ impl Position {
     }
 
     /// Move position relative to another position.
-    /// x = relative.x + x_offset
-    /// y = relative.y + y_offset
-    pub fn move_relative_to(&mut self, relative_position: &Position, x_offset: f64, y_offset: f64) {
+    /// x = relative.x + `x_offset`
+    /// y = relative.y + `y_offset`
+    pub fn move_relative_to(&mut self, relative_position: &Self, x_offset: f64, y_offset: f64) {
         self.x = relative_position.x + x_offset;
         self.y = relative_position.y + y_offset;
     }
 
     /// Adjust y by an offset.
-    /// y += offset_y
+    /// y += `offset_y`
     pub fn offset_y(&mut self, offset_y: f64) {
         self.y += offset_y;
     }
 
     /// Adjust x by an offset.
-    /// x += offset_x
+    /// x += `offset_x`
     pub fn offset_x(&mut self, offset_x: f64) {
         self.x += offset_x;
     }
