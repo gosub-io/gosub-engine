@@ -23,4 +23,13 @@ ureq = "2.9.7"
 [dev-dependencies]
 gosub_testing = { path = "../gosub_testing" }
 test-case = "3.3.1"
+criterion = { version = "0.5.1", features = ["html_reports"] }
 
+
+[[bench]]
+name = "tokenizer"
+harness = false
+
+[[bench]]
+name = "tree_construction"
+harness = false
