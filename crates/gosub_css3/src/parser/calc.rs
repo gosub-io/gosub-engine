@@ -48,7 +48,7 @@ impl Css3<'_> {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn test_parse_calc() {
+    const fn test_parse_calc() {
         // test!(parse_calc, "calc(1px + 2px)", Box::new(NodeType::AnPlusB { a: "1".to_string(), b: "2".to_string() } ));
         // test!(parse_calc, "calc(100px + (200px - 100px) * ((100vh - 500px) / (800 - 500)))", Box::new(NodeType::AnPlusB { a: "1".to_string(), b: "2".to_string() } ));
         // test!(parse_calc, "calc(12px + (20 - 12) * ((100vw - 300px) / (700 - 300))", Box::new(NodeType::AnPlusB { a: "1".to_string(), b: "2".to_string() } ));

@@ -17,7 +17,7 @@ use result::TestResult;
 use result::{ResultStatus, TreeLineResult};
 
 /// Holds a single parser test
-#[derive(Debug, Default, PartialEq, Clone)]
+#[derive(Debug, Default, PartialEq, Eq, Clone)]
 pub struct Test {
     /// Filename of the test
     pub file_path: String,

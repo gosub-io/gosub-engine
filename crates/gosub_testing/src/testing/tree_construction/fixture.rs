@@ -6,7 +6,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 /// Holds all tests as found in the given fixture file
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct FixtureFile {
     /// All the tests extracted from this fixture file
     pub tests: Vec<Test>,

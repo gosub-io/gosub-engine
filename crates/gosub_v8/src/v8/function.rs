@@ -10,7 +10,7 @@ use gosub_webexecutor::js::{
     Args, IntoRustValue, JSError, JSFunction, JSFunctionCallBack, JSFunctionCallBackVariadic,
     JSFunctionVariadic, JSRuntime, VariadicArgs, VariadicArgsInternal,
 };
-use gosub_webexecutor::Error;
+use gosub_webexecutor::JSError;
 
 use crate::v8::{ctx_from_function_callback_info, V8Context, V8Engine, V8Value};
 
@@ -126,7 +126,7 @@ impl<'a> V8Function<'a> {
         let mut cb = V8FunctionCallBack {
             ctx: V8Context::clone(ctx),
             args,
-            ret: Err(Error::JS(JSError::Execution("function was not called".to_owned())).into()),
+            ret: Err(JSError::JS(JSError::Execution("function was not called".to_owned())).into()),
             is_error: false,
         };
 
@@ -230,7 +230,7 @@ impl<'a> JSFunction for V8Function<'a> {
         if let Some(function) = function {
             Ok(Self { ctx, function })
         } else {
-            Err(Error::JS(JSError::Compile("failed to create function".to_owned())).into())
+            Err(JSError::JS(JSError::Compile("failed to create function".to_owned())).into())
         }
     }
 
@@ -256,7 +256,7 @@ impl<'a> JSFunction for V8Function<'a> {
                 value,
             })
         } else {
-            Err(Error::JS(JSError::Execution("failed to call a function".to_owned())).into())
+            Err(JSError::JS(JSError::Execution("failed to call a function".to_owned())).into())
         }
     }
 }
@@ -436,7 +436,7 @@ impl<'a> V8FunctionVariadic<'a> {
         let mut cb = V8FunctionCallBackVariadic {
             ctx: V8Context::clone(ctx),
             args,
-            ret: Err(Error::JS(JSError::Execution("function was not called".to_owned())).into()),
+            ret: Err(JSError::JS(JSError::Execution("function was not called".to_owned())).into()),
             is_error: false,
         };
 
@@ -540,7 +540,7 @@ impl<'a> JSFunctionVariadic for V8FunctionVariadic<'a> {
         if let Some(function) = function {
             Ok(Self { ctx, function })
         } else {
-            Err(Error::JS(JSError::Compile("failed to create function".to_owned())).into())
+            Err(JSError::JS(JSError::Compile("failed to create function".to_owned())).into())
         }
     }
 
@@ -565,7 +565,7 @@ impl<'a> JSFunctionVariadic for V8FunctionVariadic<'a> {
                 value,
             })
         } else {
-            Err(Error::JS(JSError::Execution("failed to call a function".to_owned())).into())
+            Err(JSError::JS(JSError::Execution("failed to call a function".to_owned())).into())
         }
     }
 }

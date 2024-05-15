@@ -1,5 +1,5 @@
 // See https://github.com/html5lib/html5lib-tests/tree/master/tree-construction
-use gosub_shared::types::{Error, Result};
+use gosub_shared::types::{GosubError, Result};
 use nom::{
     branch::alt,
     bytes::complete::{tag, take_until, take_until1},
@@ -50,7 +50,7 @@ pub enum ScriptMode {
     Both,
 }
 
-#[derive(Debug, PartialEq, Default, Clone)]
+#[derive(Debug, PartialEq, Eq, Default, Clone)]
 pub struct TestSpec {
     /// #data section
     pub data: String,
@@ -328,7 +328,7 @@ pub fn parse_fixture(i: &str) -> Result<Vec<TestSpec>> {
 
     let (_, tests) = all_consuming(files)(Span::new(&input))
         .finish()
-        .map_err(|err| Error::Test(format!("{err}")))?;
+        .map_err(|err| GosubError::Test(format!("{err}")))?;
 
     Ok(tests)
 }

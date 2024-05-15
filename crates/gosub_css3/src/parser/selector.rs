@@ -37,7 +37,7 @@ impl Css3<'_> {
 
         let loc = self.tokenizer.current_location();
 
-        self.consume(TokenType::Delim('.'))?;
+        self.consume(&TokenType::Delim('.'))?;
 
         let value = self.consume_any_ident()?;
 
@@ -49,7 +49,7 @@ impl Css3<'_> {
 
         let loc = self.tokenizer.current_location();
 
-        self.consume(TokenType::Delim('&'))?;
+        self.consume(&TokenType::Delim('&'))?;
 
         Ok(Node::new(NodeType::NestingSelector, loc))
     }
@@ -117,7 +117,7 @@ impl Css3<'_> {
         let mut matcher = None;
         let mut value = String::new();
 
-        self.consume(TokenType::LBracket)?;
+        self.consume(&TokenType::LBracket)?;
         self.consume_whitespace_comments();
 
         let name = self.consume_any_ident()?;
@@ -153,7 +153,7 @@ impl Css3<'_> {
             }
         }
 
-        self.consume(TokenType::RBracket)?;
+        self.consume(&TokenType::RBracket)?;
         self.consume_whitespace_comments();
 
         Ok(Node::new(
@@ -172,7 +172,7 @@ impl Css3<'_> {
 
         let loc = self.tokenizer.current_location();
 
-        self.consume(TokenType::Delim('#'))?;
+        self.consume(&TokenType::Delim('#'))?;
 
         let t = self.consume_any()?;
         let value = match t.token_type {
@@ -193,8 +193,8 @@ impl Css3<'_> {
 
         let loc = self.tokenizer.current_location();
 
-        self.consume(TokenType::Colon)?;
-        self.consume(TokenType::Colon)?;
+        self.consume(&TokenType::Colon)?;
+        self.consume(&TokenType::Colon)?;
 
         let t = self.tokenizer.lookahead(0);
         let value = if t.is_ident() {
@@ -214,7 +214,7 @@ impl Css3<'_> {
 
         let loc = self.tokenizer.current_location();
 
-        self.consume(TokenType::Colon)?;
+        self.consume(&TokenType::Colon)?;
 
         let t = self.tokenizer.consume();
         let value = match t.token_type {
@@ -222,7 +222,7 @@ impl Css3<'_> {
             TokenType::Function(name) => {
                 let name = name.to_lowercase();
                 let args = self.parse_pseudo_function(name.as_str())?;
-                self.consume(TokenType::RParen)?;
+                self.consume(&TokenType::RParen)?;
 
                 Node::new(
                     NodeType::Function {
@@ -297,11 +297,8 @@ impl Css3<'_> {
                     Node::new(NodeType::Dimension { value, unit }, t.location)
                 }
 
-                TokenType::Delim('+')
-                | TokenType::Delim('>')
-                | TokenType::Delim('~')
-                | TokenType::Delim('/') => {
-                    // Dont add descendant combinator since we are now adding another one
+                TokenType::Delim('+' | '>' | '~' | '/') => {
+                    // Don't add descendant combinator since we are now adding another one
                     space = false;
 
                     self.tokenizer.reconsume();
@@ -312,7 +309,7 @@ impl Css3<'_> {
                     self.tokenizer.reconsume();
                     self.parse_class_selector()?
                 }
-                TokenType::Delim('|') | TokenType::Delim('*') => {
+                TokenType::Delim('|' | '*') => {
                     self.tokenizer.reconsume();
                     self.parse_type_selector()?
                 }

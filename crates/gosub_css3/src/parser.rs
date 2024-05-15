@@ -21,9 +21,9 @@ mod value;
 
 impl Css3<'_> {
     /// Consumes a specific token
-    pub fn consume(&mut self, token_type: TokenType) -> Result<Token, Error> {
+    pub fn consume(&mut self, token_type: &TokenType) -> Result<Token, Error> {
         let t = self.tokenizer.consume();
-        if t.token_type != token_type {
+        if t.token_type != *token_type {
             return Err(Error::new(
                 format!("Expected {:?}, got {:?}", token_type, t),
                 self.tokenizer.current_location(),
@@ -157,7 +157,7 @@ impl Css3<'_> {
 
         while !self.tokenizer.eof() {
             let t = self.tokenizer.consume();
-            if let TokenType::LCurly = t.token_type {
+            if t.token_type == TokenType::LCurly {
                 self.tokenizer.reconsume();
                 break;
             }

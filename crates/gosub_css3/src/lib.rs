@@ -17,7 +17,6 @@ pub mod walker;
 /// This CSS3 parser is heavily based on the MIT licensed CssTree parser written by
 /// Roman Dvornov (https://github.com/lahmatiy).
 /// The original version can be found at https://github.com/csstree/csstree
-
 pub struct Css3<'stream> {
     /// The tokenizer is responsible for reading the input stream and
     pub tokenizer: Tokenizer<'stream>,
@@ -36,8 +35,8 @@ pub struct Error {
 }
 
 impl Error {
-    pub(crate) fn new(message: String, location: Location) -> Error {
-        Error { message, location }
+    pub(crate) const fn new(message: String, location: Location) -> Self {
+        Self { message, location }
     }
 }
 
@@ -72,7 +71,7 @@ impl<'stream> Css3<'stream> {
         Self {
             tokenizer: Tokenizer::new(it, Location::default()),
             allow_values_in_argument_list: Vec::new(),
-            config: Default::default(),
+            config: ParserConfig::default(),
         }
     }
 

@@ -1,13 +1,15 @@
 //! Console api as described by <https://console.spec.whatwg.org/>
+use std::collections::HashMap;
+use std::fmt::{self, Write as _};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use uuid::Uuid;
+
+use crate::console::formatter::Formatter;
+
 mod buffer;
 mod formatter;
 mod writable_printer;
-
-use crate::console::formatter::Formatter;
-use std::collections::HashMap;
-use std::fmt;
-use std::time::{SystemTime, UNIX_EPOCH};
-use uuid::Uuid;
 
 /// `LogLevel` is the type of log level.
 #[derive(Debug)]
@@ -133,7 +135,7 @@ impl Console {
     }
 
     /// Emit table if tabular data is supported
-    pub fn table(&mut self, tabular_data: String, _properties: &[&str]) {
+    pub fn table(&mut self, tabular_data: &String, _properties: &[&str]) {
         // TODO: needs implementation
         self.printer.print(LogLevel::Log, &[&tabular_data], &[]);
     }
@@ -161,10 +163,11 @@ impl Console {
 
     /// Create a counter named "label"
     pub fn count(&mut self, label: &str) {
-        let mut cnt = 1;
-        if self.count_map.contains_key(label) {
-            cnt = self.count_map.get(label).unwrap() + 1;
-        }
+        let cnt = if self.count_map.contains_key(label) {
+            self.count_map.get(label).unwrap_or(&0) + 1
+        } else {
+            1
+        };
 
         self.count_map.insert(label.to_owned(), cnt);
 
@@ -190,9 +193,7 @@ impl Console {
             self.formatter.format(data)
         };
 
-        let group = Group {
-            label: group_label,
-        };
+        let group = Group { label: group_label };
 
         // Group should be expanded
         self.printer.print(LogLevel::Group, &[&group.label], &[]);
@@ -208,9 +209,7 @@ impl Console {
             self.formatter.format(data)
         };
 
-        let group = Group {
-            label: group_label,
-        };
+        let group = Group { label: group_label };
 
         self.printer
             .print(LogLevel::GroupCollapsed, &[&group.label], &[]);
@@ -251,14 +250,13 @@ impl Console {
     pub fn time_log(&mut self, label: &str, data: &[&dyn fmt::Display]) {
         let mut message = String::from(" ");
         for arg in data {
-            message.push_str(&format!("{arg} "));
+            write!(message, "{arg}");
         }
         let message = message.trim_end();
 
-        let cur = match SystemTime::now().duration_since(UNIX_EPOCH) {
-            Ok(n) => n.as_millis(),
-            Err(_) => 0,
-        };
+        let cur = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |n| n.as_millis());
 
         let concat = format!(
             "{}: {}ms{}",
@@ -312,12 +310,15 @@ pub trait Printer {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::console::{buffer::Buffer, writable_printer::WritablePrinter};
-    use regex::Regex;
     use std::cell::RefCell;
     use std::rc::Rc;
     use std::thread::sleep;
+
+    use regex::Regex;
+
+    use crate::console::{buffer::Buffer, writable_printer::WritablePrinter};
+
+    use super::*;
 
     #[test]
     fn console() {

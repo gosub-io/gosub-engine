@@ -7,7 +7,7 @@ use v8::{
 
 use gosub_shared::types::Result;
 use gosub_webexecutor::js::{JSCompiled, JSContext, JSError, JSRuntime};
-use gosub_webexecutor::Error;
+use gosub_webexecutor::JSError;
 
 use crate::{FromContext, V8Compiled, V8Context, V8Engine, V8Object};
 
@@ -80,7 +80,9 @@ impl<'a> V8Ctx<'a> {
         let isolate = Box::new(Isolate::new(params));
 
         let Some(isolate) = NonNull::new(Box::into_raw(isolate)) else {
-            return Err(Error::JS(JSError::Compile("Failed to create isolate".to_owned())).into());
+            return Err(
+                JSError::JS(JSError::Compile("Failed to create isolate".to_owned())).into(),
+            );
         };
         v8_ctx.isolate = isolate;
 
@@ -88,7 +90,7 @@ impl<'a> V8Ctx<'a> {
 
         let Some(handle_scope) = NonNull::new(Box::into_raw(handle_scope)) else {
             return Err(
-                Error::JS(JSError::Compile("Failed to create handle scope".to_owned())).into(),
+                JSError::JS(JSError::Compile("Failed to create handle scope".to_owned())).into(),
             );
         };
 
@@ -105,13 +107,15 @@ impl<'a> V8Ctx<'a> {
         ));
 
         let Some(ctx) = NonNull::new(Box::into_raw(Box::new(ctx))) else {
-            return Err(Error::JS(JSError::Compile("Failed to create context".to_owned())).into());
+            return Err(
+                JSError::JS(JSError::Compile("Failed to create context".to_owned())).into(),
+            );
         };
 
         v8_ctx.ctx = ctx;
 
         let Some(ctx_scope) = NonNull::new(Box::into_raw(ctx_scope)) else {
-            return Err(Error::JS(JSError::Compile(
+            return Err(JSError::JS(JSError::Compile(
                 "Failed to create context scope".to_owned(),
             ))
             .into());
@@ -134,7 +138,7 @@ impl<'a> V8Ctx<'a> {
         unsafe { self.ctx.as_mut() }
     }
 
-    pub fn report_exception(try_catch: &mut TryCatch<HandleScope>) -> Error {
+    pub fn report_exception(try_catch: &mut TryCatch<HandleScope>) -> JSError {
         let mut err = String::new();
 
         if let Some(exception) = try_catch.exception() {
@@ -152,7 +156,7 @@ impl<'a> V8Ctx<'a> {
             };
         }
 
-        Error::JS(JSError::Exception(err))
+        JSError::JS(JSError::Exception(err))
     }
 
     pub fn handle_stack_trace(ctx: &mut HandleScope, stacktrace: Local<StackTrace>) -> String {
@@ -188,7 +192,7 @@ pub fn ctx_from_scope_isolate<'a>(
     scope: HandleScopeType<'a>,
     ctx: Local<'a, v8::Context>,
     isolate: NonNull<OwnedIsolate>,
-) -> std::result::Result<V8Context<'a>, (HandleScopeType<'a>, Error)> {
+) -> std::result::Result<V8Context<'a>, (HandleScopeType<'a>, JSError)> {
     let mut v8_ctx = V8Ctx {
         isolate,
         handle_scope: NonNull::dangling(),
@@ -207,7 +211,7 @@ pub fn ctx_from_scope_isolate<'a>(
     let Some(ctx) = NonNull::new(Box::into_raw(ctx)) else {
         return Err((
             scope,
-            Error::JS(JSError::Compile("Failed to create context".to_owned())),
+            JSError::JS(JSError::Compile("Failed to create context".to_owned())),
         ));
     };
 
@@ -221,7 +225,7 @@ pub fn ctx_from_scope_isolate<'a>(
         let scope = unsafe { Box::from_raw(raw_scope) };
         return Err((
             *scope,
-            Error::JS(JSError::Compile("Failed to create handle scope".to_owned())),
+            JSError::JS(JSError::Compile("Failed to create handle scope".to_owned())),
         ));
     };
 
@@ -238,7 +242,7 @@ pub fn ctx_from_scope_isolate<'a>(
 
         return Err((
             *scope,
-            Error::JS(JSError::Compile(
+            JSError::JS(JSError::Compile(
                 "Failed to create context scope".to_owned(),
             )),
         ));
@@ -253,7 +257,7 @@ pub fn ctx_from_scope_isolate<'a>(
 pub fn ctx_from_function_callback_info(
     scope: CallbackScope,
     isolate: NonNull<OwnedIsolate>,
-) -> std::result::Result<V8Context, (HandleScopeType, Error)> {
+) -> std::result::Result<V8Context, (HandleScopeType, JSError)> {
     let ctx = scope.get_current_context();
     let scope = HandleScopeType::CallbackScope(scope);
 
@@ -263,7 +267,7 @@ pub fn ctx_from_function_callback_info(
 pub fn ctx_from<'a>(
     scope: &'a mut HandleScope,
     isolate: NonNull<OwnedIsolate>,
-) -> std::result::Result<V8Context<'a>, (HandleScopeType<'a>, Error)> {
+) -> std::result::Result<V8Context<'a>, (HandleScopeType<'a>, JSError)> {
     let ctx = scope.get_current_context();
 
     //SAFETY: This can only shorten the lifetime of the scope, which is fine. (we borrow it for 'a and it is '2, which will always be longer than 'a)

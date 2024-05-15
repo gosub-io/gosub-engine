@@ -6,7 +6,7 @@ use crate::{FromContext, IntoContext, V8Array, V8Context, V8Engine, V8Object};
 use gosub_webexecutor::js::{
     ArrayConversion, AsArray, IntoJSValue, JSArray, JSError, JSRuntime, JSType, JSValue, Ref,
 };
-use gosub_webexecutor::Error;
+use gosub_webexecutor::JSError;
 
 pub struct V8Value<'a> {
     pub context: V8Context<'a>,
@@ -67,7 +67,7 @@ impl<'a> JSValue for V8Value<'a> {
         if let Some(value) = self.value.number_value(self.context.scope()) {
             Ok(value)
         } else {
-            Err(Error::JS(JSError::Conversion(
+            Err(JSError::JS(JSError::Conversion(
                 "could not convert to number".to_owned(),
             ))
             .into())
@@ -82,7 +82,7 @@ impl<'a> JSValue for V8Value<'a> {
         if let Some(value) = self.value.to_object(self.context.scope()) {
             Ok(V8Object::from_ctx(V8Context::clone(&self.context), value))
         } else {
-            Err(Error::JS(JSError::Conversion(
+            Err(JSError::JS(JSError::Conversion(
                 "could not convert to number".to_owned(),
             ))
             .into())
@@ -160,7 +160,7 @@ impl<'a> JSValue for V8Value<'a> {
                 value: Local::from(value),
             })
         } else {
-            Err(Error::JS(JSError::Conversion(
+            Err(JSError::JS(JSError::Conversion(
                 "could not convert to string".to_owned(),
             ))
             .into())

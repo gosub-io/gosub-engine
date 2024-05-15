@@ -100,7 +100,7 @@ impl Css3<'_> {
             }
             TokenType::Ident(value) => {
                 if value.eq_ignore_ascii_case("progid") {
-                    let _ = self.consume(TokenType::Colon)?;
+                    let _ = self.consume(&TokenType::Colon)?;
                     let _ = self.consume_ident_ci("dximagetransform")?;
                     let _ = self.consume_delim('.')?;
                     let _ = self.consume_ident_ci("microsoft")?;

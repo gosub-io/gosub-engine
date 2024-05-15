@@ -29,7 +29,7 @@ impl<W: Write> WritablePrinter<W> {
 
     /// Returns a reference to the writer
     #[allow(dead_code)]
-    pub fn get_writer(&self) -> &Writer<W> {
+    pub const fn get_writer(&self) -> &Writer<W> {
         &self.writer
     }
 

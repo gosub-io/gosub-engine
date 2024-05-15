@@ -6,7 +6,8 @@ use std::cmp::Ordering;
 use std::fmt::Display;
 
 /// Defines a complete stylesheet with all its rules and the location where it was found
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
+#[allow(clippy::module_name_repetitions)]
 pub struct CssStylesheet {
     /// List of rules found in this stylesheet
     pub rules: Vec<CssRule>,
@@ -17,7 +18,7 @@ pub struct CssStylesheet {
 }
 
 /// Defines the origin of the stylesheet (or declaration)
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum CssOrigin {
     /// Browser/user agent defined stylesheets
     UserAgent,
@@ -28,7 +29,7 @@ pub enum CssOrigin {
 }
 
 /// A CSS rule, which contains a list of selectors and a list of declarations
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct CssRule {
     /// Selectors that must match for the declarations to apply
     pub selectors: Vec<CssSelector>,
@@ -37,17 +38,19 @@ pub struct CssRule {
 }
 
 impl CssRule {
-    pub fn selectors(&self) -> &Vec<CssSelector> {
+    #[must_use]
+    pub const fn selectors(&self) -> &Vec<CssSelector> {
         &self.selectors
     }
 
-    pub fn declarations(&self) -> &Vec<CssDeclaration> {
+    #[must_use]
+    pub const fn declarations(&self) -> &Vec<CssDeclaration> {
         &self.declarations
     }
 }
 
 /// A CSS declaration, which contains a property, value and a flag for !important
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct CssDeclaration {
     // Css property color
     pub property: String,
@@ -58,7 +61,7 @@ pub struct CssDeclaration {
     pub important: bool,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct CssSelector {
     // List of parts that make up this selector
     pub parts: Vec<CssSelectorPart>,
@@ -66,6 +69,7 @@ pub struct CssSelector {
 
 impl CssSelector {
     /// Generate specificity for this selector
+    #[must_use]
     pub fn specificity(&self) -> Specificity {
         let mut id_count = 0;
         let mut class_count = 0;
@@ -90,7 +94,7 @@ impl CssSelector {
 
 /// @todo: it would be nicer to have a struct for each type of selector part, but for now we'll keep it simple
 /// Represents a CSS selector part, which has a type and value (e.g. type=Class, class="my-class")
-#[derive(PartialEq, Clone, Default)]
+#[derive(PartialEq, Eq, Clone, Default)]
 pub struct CssSelectorPart {
     pub type_: CssSelectorType,
     pub value: String,
@@ -135,7 +139,7 @@ impl Debug for CssSelectorPart {
 }
 
 /// Represents a CSS selector type for this part
-#[derive(Debug, PartialEq, Clone, Default)]
+#[derive(Debug, PartialEq, Eq, Clone, Default)]
 pub enum CssSelectorType {
     Universal, // '*'
     #[default]
@@ -149,7 +153,7 @@ pub enum CssSelectorType {
 }
 
 /// Represents which type of matcher is used (in case of an attribute selector type)
-#[derive(Default, PartialEq, Clone)]
+#[derive(Default, PartialEq, Eq, Clone)]
 pub enum MatcherType {
     #[default]
     None, // No matcher
@@ -164,13 +168,13 @@ pub enum MatcherType {
 impl Display for MatcherType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            MatcherType::None => write!(f, ""),
-            MatcherType::Equals => write!(f, "="),
-            MatcherType::Includes => write!(f, "~="),
-            MatcherType::DashMatch => write!(f, "|="),
-            MatcherType::PrefixMatch => write!(f, "^="),
-            MatcherType::SuffixMatch => write!(f, "$="),
-            MatcherType::SubstringMatch => write!(f, "*="),
+            Self::None => write!(f, ""),
+            Self::Equals => write!(f, "="),
+            Self::Includes => write!(f, "~="),
+            Self::DashMatch => write!(f, "|="),
+            Self::PrefixMatch => write!(f, "^="),
+            Self::SuffixMatch => write!(f, "$="),
+            Self::SubstringMatch => write!(f, "*="),
         }
     }
 }
@@ -180,7 +184,8 @@ impl Display for MatcherType {
 pub struct Specificity(u32, u32, u32);
 
 impl Specificity {
-    pub fn new(a: u32, b: u32, c: u32) -> Self {
+    #[must_use]
+    pub const fn new(a: u32, b: u32, c: u32) -> Self {
         Self(a, b, c)
     }
 }

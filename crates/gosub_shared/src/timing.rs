@@ -1,3 +1,4 @@
+#![allow(clippy::module_name_repetitions)] //will always be used via gosub_shared::
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::sync::Mutex;
@@ -14,7 +15,7 @@ fn new_timer_id() -> TimerId {
     uuid::Uuid::new_v4()
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum Scale {
     MicroSecond,
     MilliSecond,
@@ -120,7 +121,7 @@ impl TimingTable {
         }
     }
 
-    fn scale(&self, value: u64, scale: Scale) -> String {
+    fn scale(value: u64, scale: Scale) -> String {
         match scale {
             Scale::MicroSecond => format!("{value}µs"),
             Scale::MilliSecond => format!("{}ms", value / 1000),
@@ -144,24 +145,26 @@ impl TimingTable {
             let stats = self.get_stats(timers);
             println!("{:20} | {:>8} | {:>10} | {:>10} | {:>10} | {:>10} | {:>10} | {:>10} | {:>10} | {:>10}", namespace,
                      stats.count,
-                     self.scale(stats.total, scale.clone()),
-                     self.scale(stats.min, scale.clone()),
-                     self.scale(stats.max, scale.clone()),
-                     self.scale(stats.avg, scale.clone()),
-                     self.scale(stats.p50, scale.clone()),
-                     self.scale(stats.p75, scale.clone()),
-                     self.scale(stats.p95, scale.clone()),
-                     self.scale(stats.p99, scale.clone()),
+                     Self::scale(stats.total, scale),
+                     Self::scale(stats.min, scale),
+                     Self::scale(stats.max, scale),
+                     Self::scale(stats.avg, scale),
+                     Self::scale(stats.p50, scale),
+                     Self::scale(stats.p75, scale),
+                     Self::scale(stats.p95, scale),
+                     Self::scale(stats.p99, scale),
             );
 
             if show_details {
                 for timer_id in timers {
-                    let timer = self.timers.get(timer_id).unwrap();
+                    let Some(timer) = self.timers.get(timer_id) else {
+                        continue;
+                    };
                     if timer.has_finished() {
                         println!(
                             "                     | {:>8} | {:>10} | {}",
                             1,
-                            self.scale(timer.duration_us, scale.clone()),
+                            Self::scale(timer.duration_us, scale),
                             timer.context.clone().unwrap_or_default()
                         );
                     }
@@ -172,11 +175,7 @@ impl TimingTable {
 
     #[must_use]
     pub fn duration(&self, timer_id: TimerId) -> u64 {
-        if let Some(timer) = self.timers.get(&timer_id) {
-            timer.duration()
-        } else {
-            0
-        }
+        self.timers.get(&timer_id).map_or(0, Timer::duration)
     }
 }
 
@@ -291,8 +290,10 @@ impl Timer {
 
     #[cfg(not(target_arch = "wasm32"))]
     pub fn end(&mut self) {
-        self.end = Some(Instant::now());
-        self.duration_us = self.end.expect("").duration_since(self.start).as_micros() as u64;
+        let now = Instant::now();
+
+        self.end = Some(now);
+        self.duration_us = now.duration_since(self.start).as_micros() as u64;
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -304,12 +305,12 @@ impl Timer {
             .unwrap_or(f64::NAN) as u64;
     }
 
-    pub(crate) fn has_finished(&self) -> bool {
+    pub(crate) const fn has_finished(&self) -> bool {
         self.end.is_some()
     }
 
     #[must_use]
-    pub fn duration(&self) -> u64 {
+    pub const fn duration(&self) -> u64 {
         if self.end.is_some() {
             self.duration_us
         } else {

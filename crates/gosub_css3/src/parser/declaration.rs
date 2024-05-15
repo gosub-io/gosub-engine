@@ -7,11 +7,7 @@ impl Css3<'_> {
         log::trace!("parse_property_name");
         let t = self.consume_any()?;
         match t.token_type {
-            TokenType::Delim('*')
-            | TokenType::Delim('$')
-            | TokenType::Delim('+')
-            | TokenType::Delim('#')
-            | TokenType::Delim('&') => {} //next
+            TokenType::Delim('*' | '$' | '+' | '#' | '&') => {} //next
             TokenType::Delim('/') => {
                 let t = self.tokenizer.lookahead(1);
                 if t.token_type == TokenType::Delim('/') {
@@ -60,7 +56,7 @@ impl Css3<'_> {
         let custom_property = property.starts_with("--");
 
         self.consume_whitespace_comments();
-        self.consume(TokenType::Colon)?;
+        self.consume(&TokenType::Colon)?;
         if !custom_property {
             self.consume_whitespace_comments();
         }

@@ -27,7 +27,7 @@ impl Css3<'_> {
             }
         };
 
-        self.consume(TokenType::RParen)?;
+        self.consume(&TokenType::RParen)?;
 
         Ok(Node::new(NodeType::Url { url }, loc))
     }
