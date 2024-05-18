@@ -2,13 +2,14 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 use vello::peniko::Color;
-use vello::{AaConfig, RenderParams, Renderer, Scene};
+use vello::{AaConfig, RenderParams, Renderer};
 use winit::dpi::LogicalSize;
 use winit::event::{Event, WindowEvent};
 use winit::event_loop;
 use winit::event_loop::EventLoopWindowTarget;
 use winit::window::{Window as WinitWindow, WindowBuilder, WindowId};
 
+use gosub_render_backend::RenderBackend;
 use gosub_shared::types::Result;
 
 use crate::draw::SceneDrawer;
@@ -26,16 +27,16 @@ type CustomEvent = ();
 type EventLoop = event_loop::EventLoop<CustomEvent>;
 type WindowEventLoop = EventLoopWindowTarget<CustomEvent>;
 
-pub struct Window<'a, D: SceneDrawer> {
+pub struct Window<'a, D: SceneDrawer<B>, B: RenderBackend> {
     event_loop: Option<EventLoop>,
     state: WindowState<'a>,
-    scene: Scene,
+    scene: B,
     adapter: Arc<InstanceAdapter>,
     renderer: Renderer,
     scene_drawer: D,
 }
 
-impl<'a, D: SceneDrawer> Window<'a, D> {
+impl<'a, D: SceneDrawer<B>, B: RenderBackend> Window<'a, D, B> {
     /// Creates a new window AND opens it
     pub fn new(
         adapter: Arc<InstanceAdapter>,
@@ -73,7 +74,7 @@ impl<'a, D: SceneDrawer> Window<'a, D> {
         Ok(Self {
             event_loop: Some(event_loop),
             state,
-            scene: Scene::new(),
+            scene: todo!(),
             adapter,
             renderer,
             scene_drawer,
@@ -187,7 +188,7 @@ impl<'a, D: SceneDrawer> Window<'a, D> {
                     .resize_surface(surface, size.width, size.height);
                 window.request_redraw();
             }
-
+            #[allow(unused, clippy::diverging_sub_expression, unreachable_code)] //shut up clippy
             WindowEvent::RedrawRequested => {
                 let size = window.inner_size();
                 self.scene_drawer.draw(&mut self.scene, size);
@@ -200,7 +201,7 @@ impl<'a, D: SceneDrawer> Window<'a, D> {
                     .render_to_surface(
                         &self.adapter.device,
                         &self.adapter.queue,
-                        &self.scene,
+                        todo!(),
                         &surface_texture,
                         &RenderParams {
                             base_color: Color::BLACK,

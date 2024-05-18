@@ -12,7 +12,7 @@ use gosub_css3::Css3;
 
 pub mod css_colors;
 pub mod css_values;
-pub mod prerender_text;
+// pub mod prerender_text;
 mod property_list;
 pub mod render_tree;
 

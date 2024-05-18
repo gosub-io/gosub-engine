@@ -2,7 +2,6 @@ use std::sync::{Arc, Mutex};
 
 use lazy_static::lazy_static;
 #[cfg(not(target_arch = "wasm32"))]
-use rust_fontconfig::{FcFontCache, FcPattern};
 use vello::glyph::Glyph;
 use vello::kurbo::Affine;
 use vello::peniko::{Blob, BrushRef, Font, StyleRef};
@@ -11,222 +10,8 @@ use vello::skrifa::{FontRef, MetadataProvider};
 use vello::Scene;
 
 use gosub_html5::node::data::text::TextData;
-
-#[cfg(target_arch = "wasm32")]
-#[derive(Default, Clone, Debug, PartialEq, Eq)]
-pub struct FcPattern {
-    name: Option<String>,
-}
-
-pub const DEFAULT_FS: f32 = 12.0;
-
-#[cfg(not(target_arch = "wasm32"))]
-lazy_static! {
-    pub static ref FONT_PATH_CACHE: FcFontCache = FcFontCache::build();
-}
-
-lazy_static! {
-    pub static ref FONT_RENDERER_CACHE: Mutex<FontRendererCache> = {
-        let font = Font::new(
-            Blob::new(Arc::new(include_bytes!(
-                "../../../resources/fonts/Roboto-Regular.ttf"
-            ))),
-            0,
-        );
-
-        let backup = TextRenderer {
-            pattern: FcPattern {
-                name: Some("Roboto".to_string()),
-                ..Default::default()
-            },
-            font,
-            sizing: Vec::new(),
-        };
-
-        Mutex::new(FontRendererCache::new(backup))
-    };
-}
-
-pub struct FontRendererCache {
-    renderers: Vec<TextRenderer>,
-    pub backup: TextRenderer,
-}
-
-enum Index {
-    Some(usize),
-    Backup,
-}
-
-impl Index {
-    fn is_backup(&self) -> bool {
-        matches!(self, Self::Backup)
-    }
-}
-
-impl From<Option<usize>> for Index {
-    fn from(index: Option<usize>) -> Self {
-        match index {
-            Some(index) => Self::Some(index),
-            None => Self::Backup,
-        }
-    }
-}
-
-#[allow(dead_code)]
-enum IndexNoBackup {
-    None,
-    Some(usize),
-    Insert(String),
-}
-
-impl IndexNoBackup {
-    fn is_none(&self) -> bool {
-        matches!(self, Self::None)
-    }
-}
-
-impl From<Option<usize>> for IndexNoBackup {
-    fn from(index: Option<usize>) -> Self {
-        match index {
-            Some(index) => Self::Some(index),
-            None => Self::None,
-        }
-    }
-}
-
-impl FontRendererCache {
-    fn new(backup: TextRenderer) -> Self {
-        Self {
-            renderers: Vec::new(),
-            backup,
-        }
-    }
-
-    fn query_no_backup(&mut self, pattern: FcPattern) -> IndexNoBackup {
-        let index: IndexNoBackup = self
-            .renderers
-            .iter()
-            .position(|r| r.pattern == pattern)
-            .into();
-
-        if index.is_none() {
-            #[cfg(not(target_arch = "wasm32"))]
-            {
-                let Some(font_path) = FONT_PATH_CACHE.query(&pattern) else {
-                    return IndexNoBackup::None;
-                };
-
-                return IndexNoBackup::Insert(font_path.path.clone());
-            }
-            #[cfg(target_arch = "wasm32")]
-            return IndexNoBackup::None;
-        }
-
-        index
-    }
-
-    pub fn query(&mut self, pattern: FcPattern) -> &mut TextRenderer {
-        if self.backup.pattern == pattern {
-            return &mut self.backup;
-        }
-
-        // we need to do this with an index value because of https://github.com/rust-lang/rust/issues/21906
-        #[allow(unused_mut)]
-        let mut index: Index = self
-            .renderers
-            .iter()
-            .position(|r| r.pattern == pattern)
-            .into();
-
-        if index.is_backup() {
-            #[cfg(not(target_arch = "wasm32"))]
-            {
-                let Some(font_path) = FONT_PATH_CACHE.query(&pattern) else {
-                    return &mut self.backup;
-                };
-
-                let Ok(font_bytes) = std::fs::read(&font_path.path) else {
-                    return &mut self.backup;
-                };
-
-                let font = Font::new(Blob::new(Arc::new(font_bytes)), 0);
-
-                let r = TextRenderer {
-                    pattern,
-                    font,
-                    sizing: Vec::new(),
-                };
-
-                self.renderers.push(r);
-                index = Index::Some(self.renderers.len() - 1);
-            }
-            #[cfg(target_arch = "wasm32")]
-            return &mut self.backup;
-        }
-
-        match index {
-            Index::Some(index) => &mut self.renderers[index],
-            Index::Backup => &mut self.backup,
-        }
-    }
-
-    pub fn query_ff(&mut self, font_family: Vec<String>) -> &mut TextRenderer {
-        let mut renderer = IndexNoBackup::None;
-        for f in font_family {
-            let pattern = FcPattern {
-                name: Some(f),
-                ..Default::default()
-            };
-
-            let rend = self.query_no_backup(pattern);
-
-            match rend {
-                IndexNoBackup::Some(index) => {
-                    return &mut self.renderers[index];
-                }
-                IndexNoBackup::Insert(path) => {
-                    renderer = IndexNoBackup::Insert(path);
-                }
-                IndexNoBackup::None => {}
-            }
-        }
-
-        match renderer {
-            IndexNoBackup::Some(index) => &mut self.renderers[index], //unreachable, but we handle it just in case
-            IndexNoBackup::Insert(path) => {
-                let font_bytes = std::fs::read(&path).expect("Failed to read font file");
-                let font = Font::new(Blob::new(Arc::new(font_bytes)), 0);
-
-                let r = TextRenderer {
-                    pattern: FcPattern {
-                        name: Some(path),
-                        ..Default::default()
-                    },
-                    font,
-                    sizing: Vec::new(),
-                };
-
-                let idx = self.renderers.len();
-                self.renderers.push(r);
-                &mut self.renderers[idx]
-            }
-            IndexNoBackup::None => &mut self.backup,
-        }
-    }
-}
-
-#[derive(Clone)]
-pub struct TextRenderer {
-    pattern: FcPattern,
-    pub font: Font,
-    sizing: Vec<FontSizing>,
-}
-
-#[derive(Clone)]
-pub struct FontSizing {
-    pub font_size: f32,
-    pub line_height: f32,
-}
+use gosub_render_backend::RenderBackend;
+use gosub_typeface::{FontSizing, TextRenderer, FONT_RENDERER_CACHE};
 
 #[derive(Debug)]
 pub struct PrerenderText {
@@ -270,8 +55,9 @@ impl PrerenderText {
         font_size: f32,
         renderer: &mut TextRenderer,
     ) -> anyhow::Result<Self> {
+        let font = Font::new(Blob::new(renderer.font.data), 0);
         let font_ref =
-            to_font_ref(&renderer.font).ok_or_else(|| anyhow::anyhow!("Failed to get font ref"))?;
+            to_font_ref(&font).ok_or_else(|| anyhow::anyhow!("Failed to get font ref"))?;
 
         let axes = font_ref.axes();
         let char_map = font_ref.charmap();
@@ -321,28 +107,32 @@ impl PrerenderText {
             line_height,
             font_size,
             glyphs,
-            font: renderer.font.clone(),
+            font,
         })
     }
 
-    pub fn show<'a>(
+    pub fn show<'a, B: RenderBackend>(
         &self,
-        scene: &mut Scene,
+        scene: &mut B,
         brush: impl Into<BrushRef<'a>>,
-        transform: Affine,
+        transform: B::Transform,
         style: impl Into<StyleRef<'a>>,
-        glyph_transform: Option<Affine>,
+        glyph_transform: Option<B::Transform>,
     ) {
         let brush = brush.into();
         let style = style.into();
 
-        scene
-            .draw_glyphs(&self.font)
-            .font_size(self.font_size)
-            .transform(transform)
-            .glyph_transform(glyph_transform)
-            .brush(brush)
-            .draw(style, self.glyphs.iter().copied());
+        let _ = (scene, transform, glyph_transform, brush, style);
+
+        todo!()
+
+        // scene
+        //     .draw_glyphs(&self.font)
+        //     .font_size(self.font_size)
+        //     .transform(transform)
+        //     .glyph_transform(glyph_transform)
+        //     .brush(brush)
+        //     .draw(style, self.glyphs.iter().copied());
     }
 }
 

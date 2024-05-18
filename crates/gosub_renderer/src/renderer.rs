@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 
 use anyhow::anyhow;
+use gosub_render_backend::RenderBackend;
 use vello::{AaSupport, Renderer as VelloRenderer, RendererOptions as VelloRendererOptions};
 use wgpu::util::{
     backend_bits_from_env, dx12_shader_compiler_from_env, gles_minor_version_from_env,
@@ -208,7 +209,7 @@ impl Renderer {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn start_in_thread<D: SceneDrawer + Send + 'static>(
+    pub fn start_in_thread<D: SceneDrawer<B> + Send + 'static, B: RenderBackend>(
         &self,
         drawers: D,
         #[cfg(target_arch = "wasm32")] id: Option<String>,
@@ -216,20 +217,20 @@ impl Renderer {
         let adapter = Arc::clone(&self.instance_adapter);
 
         std::thread::spawn(move || {
-            let mut window = Window::new(adapter, drawers)?;
+            let mut window: Window<D, B> = Window::new(adapter, drawers)?;
             window.start()?;
 
             Ok(())
         })
     }
 
-    pub fn start<D: SceneDrawer + 'static>(
+    pub fn start<D: SceneDrawer<B> + 'static, B: RenderBackend>(
         &self,
         drawers: D,
         #[cfg(target_arch = "wasm32")] id: Option<String>,
     ) -> Result<()> {
         #[cfg(not(target_arch = "wasm32"))]
-        let mut window = Window::new(Arc::clone(&self.instance_adapter), drawers)?;
+        let mut window: Window<D, B> = Window::new(Arc::clone(&self.instance_adapter), drawers)?;
         #[cfg(target_arch = "wasm32")]
         let mut window = Window::new(Arc::clone(&self.instance_adapter), drawers, id)?;
         window.start()?;

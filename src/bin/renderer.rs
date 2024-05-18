@@ -5,13 +5,14 @@ use url::Url;
 
 use gosub_html5::parser::document::{Document, DocumentBuilder};
 use gosub_html5::parser::Html5Parser;
+use gosub_render_backend::RenderBackend;
 use gosub_renderer::render_tree::TreeDrawer;
 use gosub_renderer::renderer::{Renderer, RendererOptions};
 use gosub_rendering::layout::generate_taffy_tree;
 use gosub_shared::bytes::CharIterator;
 use gosub_shared::bytes::{Confidence, Encoding};
 use gosub_shared::types::Result;
-use gosub_styling::render_tree::{generate_render_tree, RenderTree as StyleTree};
+use gosub_styling::render_tree::{generate_render_tree, RenderTree as StyleTree, RenderTree};
 
 fn main() -> Result<()> {
     let matches = clap::Command::new("Gosub Renderer")
@@ -27,7 +28,7 @@ fn main() -> Result<()> {
 
     let mut rt = load_html_rendertree(&url)?;
 
-    let (taffy_tree, root) = generate_taffy_tree(&mut rt)?;
+    let (taffy_tree, root) = generate_taffy_tree(&mut rt, todo!())?;
 
     let render_tree = TreeDrawer::new(rt, taffy_tree, root, Url::parse("https://gosub.io/")?);
 
@@ -39,7 +40,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn load_html_rendertree(str_url: &str) -> Result<StyleTree> {
+fn load_html_rendertree<B: RenderBackend>(str_url: &str) -> Result<StyleTree<B>> {
     let url = Url::parse(str_url)?;
     let html = if url.scheme() == "http" || url.scheme() == "https" {
         // Fetch the html from the url

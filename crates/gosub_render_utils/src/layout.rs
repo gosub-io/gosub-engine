@@ -1,24 +1,29 @@
 use taffy::prelude::*;
 
 use gosub_html5::node::NodeId as GosubID;
+use gosub_render_backend::RenderBackend;
 use gosub_styling::render_tree::RenderTree;
 
 use crate::style::get_style_from_node;
 
-pub fn generate_taffy_tree(rt: &mut RenderTree) -> anyhow::Result<(TaffyTree<GosubID>, NodeId)> {
+pub fn generate_taffy_tree<B: RenderBackend>(
+    rt: &mut RenderTree<B>,
+    backend: &B,
+) -> anyhow::Result<(TaffyTree<GosubID>, NodeId)> {
     let mut tree: TaffyTree<GosubID> = TaffyTree::with_capacity(rt.nodes.len());
 
     rt.get_root();
 
-    let root = add_children_to_tree(rt, &mut tree, rt.root)?;
+    let root = add_children_to_tree(rt, &mut tree, rt.root, backend)?;
 
     Ok((tree, root))
 }
 
-fn add_children_to_tree(
-    rt: &mut RenderTree,
+fn add_children_to_tree<B: RenderBackend>(
+    rt: &mut RenderTree<B>,
     tree: &mut TaffyTree<GosubID>,
     node_id: GosubID,
+    backend: &B,
 ) -> anyhow::Result<NodeId> {
     let Some(node_children) = rt.get_children(node_id) else {
         return Err(anyhow::anyhow!("Node not found {:?}", node_id));
@@ -28,7 +33,7 @@ fn add_children_to_tree(
 
     //clone, so we can drop the borrow of RT, we would be copying the NodeID anyway, so it's not a big deal (only a few bytes)
     for child in node_children.clone() {
-        match add_children_to_tree(rt, tree, child) {
+        match add_children_to_tree(rt, tree, child, backend) {
             Ok(node) => children.push(node),
             Err(e) => eprintln!("Error adding child to tree: {:?}", e),
         }
@@ -38,7 +43,7 @@ fn add_children_to_tree(
         return Err(anyhow::anyhow!("Node not found"));
     };
 
-    let style = get_style_from_node(node);
+    let style = get_style_from_node(node, backend);
 
     let node = tree
         .new_with_children(style, &children)

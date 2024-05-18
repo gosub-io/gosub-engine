@@ -1425,6 +1425,7 @@ dependencies = [
  "gosub_html5",
  "gosub_jsapi",
  "gosub_net",
+ "gosub_render_backend",
  "gosub_renderer",
  "gosub_rendering",
  "gosub_shared",
@@ -1494,6 +1495,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "gosub_render_backend"
+version = "0.1.0"
+dependencies = [
+ "image",
+ "smallvec",
+]
+
+[[package]]
 name = "gosub_renderer"
 version = "0.1.0"
 dependencies = [
@@ -1501,6 +1510,7 @@ dependencies = [
  "futures",
  "gosub_html5",
  "gosub_net",
+ "gosub_render_backend",
  "gosub_rendering",
  "gosub_shared",
  "gosub_styling",
@@ -1522,6 +1532,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "gosub_html5",
+ "gosub_render_backend",
  "gosub_styling",
  "regex",
  "rstar",
@@ -1553,7 +1564,9 @@ dependencies = [
  "colors-transform",
  "gosub_css3",
  "gosub_html5",
+ "gosub_render_backend",
  "gosub_shared",
+ "gosub_typeface",
  "lazy_static",
  "regex",
  "rust-fontconfig",
@@ -1573,6 +1586,14 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
+]
+
+[[package]]
+name = "gosub_typeface"
+version = "0.1.0"
+dependencies = [
+ "lazy_static",
+ "rust-fontconfig",
 ]
 
 [[package]]
