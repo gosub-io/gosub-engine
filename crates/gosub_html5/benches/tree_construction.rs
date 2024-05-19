@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 use criterion::{criterion_group, criterion_main, Criterion};
 use gosub_testing::testing::tree_construction;
 use gosub_testing::testing::tree_construction::Harness;

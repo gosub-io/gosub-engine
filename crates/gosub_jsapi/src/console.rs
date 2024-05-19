@@ -231,10 +231,9 @@ impl Console {
             return;
         }
 
-        let start = match SystemTime::now().duration_since(UNIX_EPOCH) {
-            Ok(n) => n.as_millis(),
-            Err(_) => 0,
-        };
+        let start = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |n| n.as_millis());
 
         self.timer_map.insert(
             label.to_owned(),
@@ -269,10 +268,9 @@ impl Console {
 
     /// End the timer with the given label
     pub fn time_end(&mut self, label: &str) {
-        let end = match SystemTime::now().duration_since(UNIX_EPOCH) {
-            Ok(n) => n.as_millis(),
-            Err(_) => 0,
-        };
+        let end = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |n| n.as_millis());
 
         let concat = format!(
             "{}: {}ms",
