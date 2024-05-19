@@ -1,9 +1,9 @@
-use anyhow::anyhow;
 use std::collections::HashMap;
 use std::mem;
 use std::str::FromStr;
 use std::sync::RwLock;
 
+use anyhow::anyhow;
 use lazy_static::lazy_static;
 use log::warn;
 use serde_derive::Deserialize;
@@ -176,9 +176,14 @@ impl ConfigStore {
         // Find all keys, and add them to the configuration store
         if let Ok(all_settings) = self.storage.all() {
             for (key, value) in all_settings {
-                self.settings
+                if self
+                    .settings
                     .lock()
-                    .and_then(|x| Ok(x.borrow_mut().insert(key, value)));
+                    .map(|x| x.borrow_mut().insert(key.clone(), value))
+                    .is_err()
+                {
+                    warn!("config: Failed to set setting {key}");
+                }
             }
         }
     }
@@ -258,12 +263,12 @@ impl ConfigStore {
             return;
         }
 
-        let e = self
+        if self
             .settings
             .lock()
-            .map(|x| x.borrow_mut().insert(key.to_owned(), value.clone()));
-
-        if e.is_err() {
+            .map(|x| x.borrow_mut().insert(key.to_owned(), value.clone()))
+            .is_err()
+        {
             warn!("config: Failed to set setting {key}");
             return;
         }

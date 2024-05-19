@@ -17,19 +17,19 @@ impl Css3<'_> {
             root = Some(self.parse_selector_list()?);
             self.consume_whitespace_comments();
 
-            self.consume(TokenType::RParen)?;
+            self.consume(&TokenType::RParen)?;
         }
 
         if let TokenType::Ident(_value) = t.token_type {
             self.consume_whitespace_comments();
             self.consume_ident("to")?;
             self.consume_whitespace_comments();
-            self.consume(TokenType::RParen)?;
+            self.consume(&TokenType::RParen)?;
             self.consume_whitespace_comments();
 
             limit = Some(self.parse_selector_list()?);
             self.consume_whitespace_comments();
-            self.consume(TokenType::RParen)?;
+            self.consume(&TokenType::RParen)?;
         }
 
         Ok(Node::new(NodeType::Scope { root, limit }, t.location))

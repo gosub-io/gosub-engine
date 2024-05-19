@@ -250,7 +250,7 @@ impl Console {
     pub fn time_log(&mut self, label: &str, data: &[&dyn fmt::Display]) {
         let mut message = String::from(" ");
         for arg in data {
-            write!(message, "{arg}");
+            let _ = write!(message, "{arg}");
         }
         let message = message.trim_end();
 

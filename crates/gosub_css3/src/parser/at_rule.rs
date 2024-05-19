@@ -127,7 +127,7 @@ impl Css3<'_> {
 
         // if we did a block, we need to close it
         if node.is_some() {
-            self.consume(TokenType::RCurly)?;
+            self.consume(&TokenType::RCurly)?;
         }
 
         Ok(node)

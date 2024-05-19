@@ -24,7 +24,7 @@ impl Css3<'_> {
         };
 
         if !self.tokenizer.eof() {
-            self.consume(TokenType::RParen)?;
+            self.consume(&TokenType::RParen)?;
         }
 
         Ok(Node::new(NodeType::Function { name, arguments }, loc))

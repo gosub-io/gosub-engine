@@ -29,12 +29,12 @@ impl Css3<'_> {
 
         let prelude = self.parse_selector_list()?;
 
-        self.consume(TokenType::LCurly)?;
+        self.consume(&TokenType::LCurly)?;
         self.consume_whitespace_comments();
 
         let block = self.parse_block(BlockParseMode::StyleBlock)?;
 
-        self.consume(TokenType::RCurly)?;
+        self.consume(&TokenType::RCurly)?;
 
         Ok(Node::new(
             NodeType::Rule {

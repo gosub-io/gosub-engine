@@ -35,9 +35,9 @@ impl Css3<'_> {
                     };
 
                     if term.is_err() {
-                        self.consume(TokenType::RParen)?;
+                        self.consume(&TokenType::RParen)?;
                         let res = self.parse_condition(kind.clone())?;
-                        self.consume(TokenType::LParen)?;
+                        self.consume(&TokenType::LParen)?;
                         return Ok(res);
                     }
 

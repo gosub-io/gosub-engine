@@ -10,7 +10,7 @@ use gosub_shared::types::Result;
 use gosub_webexecutor::js::{
     JSError, JSGetterCallback, JSObject, JSRuntime, JSSetterCallback, JSValue,
 };
-use gosub_webexecutor::JSError;
+use gosub_webexecutor::ExecutorError;
 
 use crate::{
     ctx_from, FromContext, V8Context, V8Ctx, V8Engine, V8Function, V8FunctionVariadic, V8Value,
@@ -82,9 +82,10 @@ impl<'a> JSObject for V8Object<'a> {
 
     fn set_property(&self, name: &str, value: &V8Value) -> Result<()> {
         let Some(name) = v8::String::new(self.ctx.scope(), name) else {
-            return Err(
-                JSError::JS(JSError::Generic("failed to create a string".to_owned())).into(),
-            );
+            return Err(ExecutorError::JS(JSError::Generic(
+                "failed to create a string".to_owned(),
+            ))
+            .into());
         };
 
         if self
@@ -92,7 +93,7 @@ impl<'a> JSObject for V8Object<'a> {
             .set(self.ctx.scope(), name.into(), value.value)
             .is_none()
         {
-            Err(JSError::JS(JSError::Generic(
+            Err(ExecutorError::JS(JSError::Generic(
                 "failed to set a property in an object".to_owned(),
             ))
             .into())
@@ -103,9 +104,10 @@ impl<'a> JSObject for V8Object<'a> {
 
     fn get_property(&self, name: &str) -> Result<<Self::RT as JSRuntime>::Value> {
         let Some(name) = v8::String::new(self.ctx.scope(), name) else {
-            return Err(
-                JSError::JS(JSError::Generic("failed to create a string".to_owned())).into(),
-            );
+            return Err(ExecutorError::JS(JSError::Generic(
+                "failed to create a string".to_owned(),
+            ))
+            .into());
         };
 
         let scope = self.ctx.scope();
@@ -113,7 +115,7 @@ impl<'a> JSObject for V8Object<'a> {
         self.value
             .get(scope, name.into())
             .ok_or_else(|| {
-                JSError::JS(JSError::Generic(
+                ExecutorError::JS(JSError::Generic(
                     "failed to get a property from an object".to_owned(),
                 ))
                 .into()
@@ -129,9 +131,10 @@ impl<'a> JSObject for V8Object<'a> {
         let func = self.get_property(name)?.value;
 
         if !func.is_function() {
-            return Err(
-                JSError::JS(JSError::Generic("property is not a function".to_owned())).into(),
-            );
+            return Err(ExecutorError::JS(JSError::Generic(
+                "property is not a function".to_owned(),
+            ))
+            .into());
         }
 
         let function = Local::<v8::Function>::try_from(func).unwrap();
@@ -152,15 +155,17 @@ impl<'a> JSObject for V8Object<'a> {
 
     fn set_method(&self, name: &str, func: &V8Function) -> Result<()> {
         let Some(name) = v8::String::new(self.ctx.scope(), name) else {
-            return Err(
-                JSError::JS(JSError::Generic("failed to create a string".to_owned())).into(),
-            );
+            return Err(ExecutorError::JS(JSError::Generic(
+                "failed to create a string".to_owned(),
+            ))
+            .into());
         };
 
         if !func.function.is_function() {
-            return Err(
-                JSError::JS(JSError::Generic("property is not a function".to_owned())).into(),
-            );
+            return Err(ExecutorError::JS(JSError::Generic(
+                "property is not a function".to_owned(),
+            ))
+            .into());
         }
 
         if self
@@ -168,7 +173,7 @@ impl<'a> JSObject for V8Object<'a> {
             .set(self.ctx.scope(), name.into(), func.function.into())
             .is_none()
         {
-            Err(JSError::JS(JSError::Generic(
+            Err(ExecutorError::JS(JSError::Generic(
                 "failed to set a property in an object".to_owned(),
             ))
             .into())
@@ -179,15 +184,17 @@ impl<'a> JSObject for V8Object<'a> {
 
     fn set_method_variadic(&self, name: &str, func: &V8FunctionVariadic) -> Result<()> {
         let Some(name) = v8::String::new(self.ctx.scope(), name) else {
-            return Err(
-                JSError::JS(JSError::Generic("failed to create a string".to_owned())).into(),
-            );
+            return Err(ExecutorError::JS(JSError::Generic(
+                "failed to create a string".to_owned(),
+            ))
+            .into());
         };
 
         if !func.function.is_function() {
-            return Err(
-                JSError::JS(JSError::Generic("property is not a function".to_owned())).into(),
-            );
+            return Err(ExecutorError::JS(JSError::Generic(
+                "property is not a function".to_owned(),
+            ))
+            .into());
         }
 
         if self
@@ -195,7 +202,7 @@ impl<'a> JSObject for V8Object<'a> {
             .set(self.ctx.scope(), name.into(), func.function.into())
             .is_none()
         {
-            Err(JSError::JS(JSError::Generic(
+            Err(ExecutorError::JS(JSError::Generic(
                 "failed to set a property in an object".to_owned(),
             ))
             .into())
@@ -210,8 +217,9 @@ impl<'a> JSObject for V8Object<'a> {
         getter: Box<dyn Fn(&mut <Self::RT as JSRuntime>::GetterCB)>,
         setter: Box<dyn Fn(&mut <Self::RT as JSRuntime>::SetterCB)>,
     ) -> Result<()> {
-        let name = v8::String::new(self.ctx.scope(), name)
-            .ok_or_else(|| JSError::JS(JSError::Generic("failed to create a string".to_owned())))?;
+        let name = v8::String::new(self.ctx.scope(), name).ok_or_else(|| {
+            ExecutorError::JS(JSError::Generic("failed to create a string".to_owned()))
+        })?;
 
         let scope = self.ctx.scope();
 

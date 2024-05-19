@@ -8,7 +8,7 @@ use thiserror::Error;
 pub mod js;
 
 #[derive(Debug, Error)]
-pub enum JSError {
+pub enum ExecutorError {
     #[error("js: {0}")]
     JS(#[from] js::JSError),
 }

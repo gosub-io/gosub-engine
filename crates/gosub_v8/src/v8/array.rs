@@ -2,7 +2,7 @@ use v8::{Array, Local};
 
 use gosub_shared::types::Result;
 use gosub_webexecutor::js::{AsArray, JSArray, JSError, JSRuntime, Ref};
-use gosub_webexecutor::JSError;
+use gosub_webexecutor::ExecutorError;
 
 use crate::{FromContext, V8Context, V8Engine, V8Value};
 
@@ -49,7 +49,7 @@ impl<'a> JSArray for V8Array<'a> {
 
     fn get(&self, index: usize) -> Result<<Self::RT as JSRuntime>::Value> {
         let Some(value) = self.value.get_index(self.ctx.scope(), index as u32) else {
-            return Err(JSError::JS(JSError::Generic(
+            return Err(ExecutorError::JS(JSError::Generic(
                 "failed to get a value from an array".to_owned(),
             ))
             .into());
@@ -64,7 +64,7 @@ impl<'a> JSArray for V8Array<'a> {
             .set_index(self.ctx.scope(), index as u32, value.value)
         {
             Some(_) => Ok(()),
-            None => Err(JSError::JS(JSError::Conversion(
+            None => Err(ExecutorError::JS(JSError::Conversion(
                 "failed to set a value in an array".to_owned(),
             ))
             .into()),
@@ -76,9 +76,10 @@ impl<'a> JSArray for V8Array<'a> {
 
         match self.value.set_index(self.ctx.scope(), index, value.value) {
             Some(_) => Ok(()),
-            None => Err(
-                JSError::JS(JSError::Conversion("failed to push to an array".to_owned())).into(),
-            ),
+            None => Err(ExecutorError::JS(JSError::Conversion(
+                "failed to push to an array".to_owned(),
+            ))
+            .into()),
         }
     }
 
@@ -86,14 +87,14 @@ impl<'a> JSArray for V8Array<'a> {
         let index = self.value.length() - 1;
 
         let Some(value) = self.value.get_index(self.ctx.scope(), index) else {
-            return Err(JSError::JS(JSError::Generic(
+            return Err(ExecutorError::JS(JSError::Generic(
                 "failed to get a value from an array".to_owned(),
             ))
             .into());
         };
 
         if self.value.delete_index(self.ctx.scope(), index).is_none() {
-            return Err(JSError::JS(JSError::Generic(
+            return Err(ExecutorError::JS(JSError::Generic(
                 "failed to delete a value from an array".to_owned(),
             ))
             .into());
@@ -108,7 +109,7 @@ impl<'a> JSArray for V8Array<'a> {
             .delete_index(self.ctx.scope(), index as u32)
             .is_none()
         {
-            return Err(JSError::JS(JSError::Generic(
+            return Err(ExecutorError::JS(JSError::Generic(
                 "failed to delete a value from an array".to_owned(),
             ))
             .into());
