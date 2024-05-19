@@ -161,11 +161,11 @@ impl<B: RenderBackend> TreeDrawer<B> {
 
 fn render_text<B: RenderBackend>(
     node: &mut RenderTreeNode<B>,
-    scene: &mut B,
+    backend: &mut B,
     pos: &(FP, FP),
     layout: &Layout,
 ) {
-    if let RenderNodeData::Text(text) = &node.data {
+    if let RenderNodeData::Text(text) = &mut node.data {
         let color = node
             .properties
             .get("color")
@@ -183,7 +183,7 @@ fn render_text<B: RenderBackend>(
 
         let translate = Transform::translate(pos.0 as FP, pos.1 + layout.size.height as FP);
 
-        let text = Text::new(&text.prerender);
+        let text = Text::new(&mut text.prerender, backend);
 
         let rect = Rect::new(
             pos.0 as FP,
@@ -200,7 +200,7 @@ fn render_text<B: RenderBackend>(
             brush_transform: None,
         };
 
-        scene.draw_text(&render_text);
+        backend.draw_text(&render_text);
     }
 }
 

@@ -1,6 +1,7 @@
-use smallvec::SmallVec;
 use std::fmt::Debug;
-use std::ops::{Mul, MulAssign};
+use std::ops::{Div, Mul, MulAssign};
+
+use smallvec::SmallVec;
 
 pub trait RenderBackend: Sized + Debug {
     type Rect: Rect;
@@ -22,6 +23,7 @@ pub trait RenderBackend: Sized + Debug {
 
 pub type FP = f32;
 
+#[derive(Clone, Copy)]
 pub struct Point {
     pub x: FP,
     pub y: FP,
@@ -31,6 +33,19 @@ pub struct Point {
 pub struct Size {
     pub width: FP,
     pub height: FP,
+}
+
+impl Size {
+    pub fn new(width: FP, height: FP) -> Self {
+        Self { width, height }
+    }
+
+    pub fn uniform(size: FP) -> Self {
+        Self {
+            width: size,
+            height: size,
+        }
+    }
 }
 
 pub struct RenderRect<B: RenderBackend> {
@@ -157,6 +172,7 @@ pub trait BorderSide<B: RenderBackend> {
     fn new(width: FP, style: BorderStyle, brush: B::Brush) -> Self;
 }
 
+#[derive(Clone, Copy)]
 pub enum BorderStyle {
     Solid,
     Dashed,
@@ -170,31 +186,184 @@ pub enum BorderStyle {
     Hidden,
 }
 
+#[derive(Clone, Copy)]
+pub enum Radius {
+    Uniform(FP),
+    Elliptical(FP, FP),
+}
+
+impl Radius {
+    pub fn offset(&self) -> Size {
+        match self {
+            Radius::Uniform(value) => Size::uniform(value.powi(2).div(2.0).sqrt() - *value),
+            Radius::Elliptical(x, y) => {
+                //TODO: is this correct?
+
+                let theta = (std::f64::consts::PI / 4.0) as FP;
+                let ox = x * theta.cos();
+                let oy = y * theta.sin();
+
+                Size::new(ox - *x, oy - *y)
+            }
+        }
+    }
+
+    pub fn radi_x(&self) -> FP {
+        match self {
+            Radius::Uniform(value) => *value,
+            Radius::Elliptical(x, _) => *x,
+        }
+    }
+
+    pub fn radi_y(&self) -> FP {
+        match self {
+            Radius::Uniform(value) => *value,
+            Radius::Elliptical(_, y) => *y,
+        }
+    }
+
+    pub fn radii(&self) -> [FP; 2] {
+        match self {
+            Radius::Uniform(value) => [*value, *value],
+            Radius::Elliptical(x, y) => [*x, *y],
+        }
+    }
+
+    pub fn radii_f64(&self) -> (f64, f64) {
+        match self {
+            Radius::Uniform(value) => (*value as f64, *value as f64),
+            Radius::Elliptical(x, y) => (*x as f64, *y as f64),
+        }
+    }
+}
+
+impl From<FP> for Radius {
+    fn from(value: FP) -> Self {
+        Radius::Uniform(value)
+    }
+}
+
+impl From<[FP; 2]> for Radius {
+    fn from(value: [FP; 2]) -> Self {
+        Radius::Elliptical(value[0], value[1])
+    }
+}
+
+impl From<(FP, FP)> for Radius {
+    fn from(value: (FP, FP)) -> Self {
+        Radius::Elliptical(value.0, value.1)
+    }
+}
+
+impl From<Radius> for (f64, f64) {
+    fn from(value: Radius) -> Self {
+        match value {
+            Radius::Uniform(value) => (value as f64, value as f64),
+            Radius::Elliptical(x, y) => (x as f64, y as f64),
+        }
+    }
+}
+
+impl From<Radius> for f64 {
+    fn from(value: Radius) -> Self {
+        match value {
+            Radius::Uniform(value) => value as f64,
+            Radius::Elliptical(x, y) => (x * y).sqrt() as f64,
+        }
+    }
+}
+
+impl From<Radius> for FP {
+    fn from(value: Radius) -> Self {
+        match value {
+            Radius::Uniform(value) => value,
+            Radius::Elliptical(x, y) => (x * y).sqrt(),
+        }
+    }
+}
+
+impl From<Radius> for [FP; 2] {
+    fn from(value: Radius) -> Self {
+        match value {
+            Radius::Uniform(value) => [value, value],
+            Radius::Elliptical(x, y) => [x, y],
+        }
+    }
+}
+
+impl From<Radius> for (FP, FP) {
+    fn from(value: Radius) -> Self {
+        match value {
+            Radius::Uniform(value) => (value, value),
+            Radius::Elliptical(x, y) => (x, y),
+        }
+    }
+}
+
 pub trait BorderRadius:
     Sized
+    + From<FP>
+    + From<Radius>
     + From<[FP; 4]>
+    + From<[Radius; 4]>
     + From<[FP; 8]>
     + From<(FP, FP, FP, FP)>
+    + From<(Radius, Radius, Radius, Radius)>
     + From<(FP, FP, FP, FP, FP, FP, FP, FP)>
 {
-    fn empty() -> Self;
-    fn uniform(radius: FP) -> Self;
-    fn uniform_elliptical(radius_x: FP, radius_y: FP) -> Self;
+    fn empty() -> Self {
+        Self::uniform(0.0)
+    }
+    fn uniform(radius: FP) -> Self {
+        Self::from(radius)
+    }
+    fn uniform_radius(radius: Radius) -> Self;
+    fn uniform_elliptical(radius_x: FP, radius_y: FP) -> Self {
+        Self::from([radius_x, radius_y, radius_x, radius_y])
+    }
 
-    fn top_left(&mut self, radius: FP);
-    fn top_left_elliptical(&mut self, radius_x: FP, radius_y: FP);
+    fn all(radius: FP) -> Self {
+        let radius = radius.into();
+        Self::all_radius(radius, radius, radius, radius)
+    }
+    fn all_elliptical(&self, radius_x: FP, radius_y: FP) -> Self {
+        let radius = Radius::Elliptical(radius_x, radius_y);
 
-    fn top_right(&mut self, radius: FP);
-    fn top_right_elliptical(&mut self, radius_x: FP, radius_y: FP);
+        Self::all_radius(radius, radius, radius, radius)
+    }
+    fn all_radius(tl: Radius, tr: Radius, dl: Radius, dr: Radius) -> Self;
 
-    fn bottom_left(&mut self, radius: FP);
-    fn bottom_left_elliptical(&mut self, radius_x: FP, radius_y: FP);
+    fn top_left(&mut self, radius: FP) {
+        self.top_left_radius(radius.into());
+    }
+    fn top_left_elliptical(&mut self, radius_x: FP, radius_y: FP) {
+        self.top_left_radius(Radius::Elliptical(radius_x, radius_y));
+    }
+    fn top_left_radius(&mut self, radius: Radius);
 
-    fn bottom_right(&mut self, radius: FP);
-    fn bottom_right_elliptical(&mut self, radius_x: FP, radius_y: FP);
+    fn top_right(&mut self, radius: FP) {
+        self.top_right_radius(radius.into());
+    }
+    fn top_right_elliptical(&mut self, radius_x: FP, radius_y: FP) {
+        self.top_right_radius(Radius::Elliptical(radius_x, radius_y));
+    }
+    fn top_right_radius(&mut self, radius: Radius);
 
-    //Can be used if the border was initially created with the empty method
-    fn build(self) -> Option<Self>;
+    fn bottom_left(&mut self, radius: FP) {
+        self.bottom_left_radius(radius.into());
+    }
+    fn bottom_left_elliptical(&mut self, radius_x: FP, radius_y: FP) {
+        self.bottom_left_radius(Radius::Elliptical(radius_x, radius_y));
+    }
+    fn bottom_left_radius(&mut self, radius: Radius);
+
+    fn bottom_right(&mut self, radius: FP) {
+        self.bottom_right_radius(radius.into());
+    }
+    fn bottom_right_elliptical(&mut self, radius_x: FP, radius_y: FP) {
+        self.bottom_right_radius(Radius::Elliptical(radius_x, radius_y));
+    }
+    fn bottom_right_radius(&mut self, radius: Radius);
 }
 
 pub trait Transform: Sized + Mul<Self> + MulAssign {
@@ -227,12 +396,6 @@ pub trait Transform: Sized + Mul<Self> + MulAssign {
 
     fn pre_rotate_around(self, angle: FP, center: Point) -> Self;
 
-    fn pre_skew_x(self, angle: FP) -> Self;
-
-    fn pre_skew_y(self, angle: FP) -> Self;
-
-    fn pre_skew_xy(self, angle_x: FP, angle_y: FP) -> Self;
-
     fn then_scale(self, s: FP) -> Self;
 
     fn then_scale_xy(self, sx: FP, sy: FP) -> Self;
@@ -242,12 +405,6 @@ pub trait Transform: Sized + Mul<Self> + MulAssign {
     fn then_rotate(self, angle: FP) -> Self;
 
     fn then_rotate_around(self, angle: FP, center: Point) -> Self;
-
-    fn then_skew_x(self, angle: FP) -> Self;
-
-    fn then_skew_y(self, angle: FP) -> Self;
-
-    fn then_skew_xy(self, angle_x: FP, angle_y: FP) -> Self;
 
     fn as_matrix(&self) -> [FP; 6];
 
@@ -263,16 +420,17 @@ pub trait Transform: Sized + Mul<Self> + MulAssign {
 pub trait PreRenderText<B: RenderBackend> {
     fn new(text: String, font: Option<Vec<String>>, size: FP) -> Self;
 
+    fn with_lh(text: String, font: Option<Vec<String>>, size: FP, line_height: FP) -> Self;
+
     fn prerender(&mut self, backend: &B) -> Size;
     fn value(&self) -> &str;
-    fn font(&self) -> Option<&[String]>;
     fn fs(&self) -> FP;
 
     //TODO: Who should be responsible for line breaking if the text is too long?
 }
 
 pub trait Text<B: RenderBackend> {
-    fn new(pre: &B::PreRenderText) -> Self;
+    fn new(pre: &mut B::PreRenderText, backend: &B) -> Self;
 }
 
 pub struct ColorStop<B: RenderBackend> {
@@ -280,18 +438,25 @@ pub struct ColorStop<B: RenderBackend> {
     pub color: B::Color,
 }
 
-type ColorStops<B> = SmallVec<[ColorStop<B>; 4]>;
+pub type ColorStops<B> = SmallVec<[ColorStop<B>; 4]>;
 
 pub trait Gradient<B: RenderBackend> {
     fn new_linear(start: Point, end: Point, stops: ColorStops<B>) -> Self;
 
-    fn new_radial(
+    fn new_radial_two_point(
         start_center: Point,
         start_radius: FP,
         end_center: Point,
         end_radius: FP,
         stops: ColorStops<B>,
     ) -> Self;
+
+    fn new_radial(center: Point, radius: FP, stops: ColorStops<B>) -> Self
+    where
+        Self: Sized,
+    {
+        Self::new_radial_two_point(center, radius, center, radius, stops)
+    }
 
     fn new_sweep(center: Point, start_angle: FP, end_angle: FP, stops: ColorStops<B>) -> Self;
 }

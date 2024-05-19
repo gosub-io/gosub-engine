@@ -12,7 +12,8 @@ use gosub_rendering::layout::generate_taffy_tree;
 use gosub_shared::bytes::CharIterator;
 use gosub_shared::bytes::{Confidence, Encoding};
 use gosub_shared::types::Result;
-use gosub_styling::render_tree::{generate_render_tree, RenderTree as StyleTree, RenderTree};
+use gosub_styling::render_tree::{generate_render_tree, RenderTree as StyleTree};
+use gosub_vello::VelloBackend;
 
 fn main() -> Result<()> {
     let matches = clap::Command::new("Gosub Renderer")
@@ -28,7 +29,9 @@ fn main() -> Result<()> {
 
     let mut rt = load_html_rendertree(&url)?;
 
-    let (taffy_tree, root) = generate_taffy_tree(&mut rt, todo!())?;
+    let backend = VelloBackend::new();
+
+    let (taffy_tree, root) = generate_taffy_tree(&mut rt, &backend)?;
 
     let render_tree = TreeDrawer::new(rt, taffy_tree, root, Url::parse("https://gosub.io/")?);
 

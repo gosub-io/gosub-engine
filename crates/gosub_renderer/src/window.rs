@@ -81,10 +81,6 @@ impl<'a, D: SceneDrawer<B>, B: RenderBackend> Window<'a, D, B> {
         })
     }
 
-    pub fn change_adapter(&mut self, adapter: Arc<InstanceAdapter>) {
-        self.adapter = adapter;
-    }
-
     /// Starts the window using up the event loop
     /// Returns Ok(true) if the window was closed
     /// Returns Ok(false) if the window was already opened

@@ -1432,6 +1432,7 @@ dependencies = [
  "gosub_styling",
  "gosub_testing",
  "gosub_v8",
+ "gosub_vello",
  "gosub_webexecutor",
  "js-sys",
  "lazy_static",
@@ -1606,6 +1607,18 @@ dependencies = [
  "serde_json",
  "thiserror",
  "v8",
+]
+
+[[package]]
+name = "gosub_vello"
+version = "0.1.0"
+dependencies = [
+ "gosub_render_backend",
+ "gosub_shared",
+ "gosub_typeface",
+ "image",
+ "smallvec",
+ "vello",
 ]
 
 [[package]]

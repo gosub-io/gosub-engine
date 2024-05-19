@@ -3,13 +3,16 @@ use std::sync::{Arc, Mutex};
 use lazy_static::lazy_static;
 use rust_fontconfig::{FcFontCache, FcPattern};
 
+pub const DEFAULT_FS: f32 = 12.0; //TODO: these need to be moved to somewhere and made configurable
+pub const DEFAULT_LH: f32 = 1.2;
+
 #[derive(Clone, PartialEq, Debug)]
-pub struct Font {
+pub struct SharedFont {
     pub data: Arc<Vec<u8>>,
     pub ty: FontType,
 }
 
-impl Font {
+impl SharedFont {
     pub fn new(data: Arc<Vec<u8>>) -> Self {
         Self {
             data,
@@ -23,6 +26,12 @@ impl Font {
             ty: FontType::Unknown,
         }
     }
+}
+
+#[derive(Clone, PartialEq, Debug)]
+pub struct Font {
+    pub data: Vec<u8>,
+    pub ty: FontType,
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -42,26 +51,26 @@ pub struct FcPattern {
     name: Option<String>,
 }
 
-pub const DEFAULT_FS: f32 = 12.0; //TODO: this needs to be moved to somewhere and made configurable
-
 #[cfg(not(target_arch = "wasm32"))]
 lazy_static! {
     pub static ref FONT_PATH_CACHE: FcFontCache = FcFontCache::build();
 }
 
 lazy_static! {
-    pub static ref FONT_RENDERER_CACHE: Mutex<FontRendererCache> = {
-        let font = Font {
-            data: Arc::new(include_bytes!("../../../resources/fonts/Roboto-Regular.ttf").to_vec()),
-            ty: FontType::TrueType,
-        };
+    pub static ref BACKUP_FONT: SharedFont = SharedFont {
+        data: Arc::new(include_bytes!("../../../resources/fonts/Roboto-Regular.ttf").to_vec()),
+        ty: FontType::TrueType,
+    };
+}
 
+lazy_static! {
+    pub static ref FONT_RENDERER_CACHE: Mutex<FontRendererCache> = {
         let backup = TextRenderer {
             pattern: FcPattern {
                 name: Some("Roboto".to_string()),
                 ..Default::default()
             },
-            font,
+            font: BACKUP_FONT.clone(),
             sizing: Vec::new(),
         };
 
@@ -147,6 +156,33 @@ impl FontRendererCache {
         index
     }
 
+    fn query_font_no_backup(&mut self, pattern: FcPattern) -> Option<SharedFont> {
+        let font = self.query_no_backup(pattern);
+
+        match font {
+            IndexNoBackup::Some(index) => Some(SharedFont::clone(&self.renderers[index].font)),
+            IndexNoBackup::Insert(path) => {
+                let font_bytes = std::fs::read(&path).expect("Failed to read font file");
+
+                let font = SharedFont::unknown(Arc::new(font_bytes));
+
+                let r = TextRenderer {
+                    pattern: FcPattern {
+                        name: Some(path),
+                        ..Default::default()
+                    },
+                    font: SharedFont::clone(&font),
+                    sizing: Vec::new(),
+                };
+
+                self.renderers.push(r);
+
+                Some(font)
+            }
+            IndexNoBackup::None => None,
+        }
+    }
+
     pub fn query(&mut self, pattern: FcPattern) -> &mut TextRenderer {
         if self.backup.pattern == pattern {
             return &mut self.backup;
@@ -171,7 +207,7 @@ impl FontRendererCache {
                     return &mut self.backup;
                 };
 
-                let font = Font::new(Arc::new(font_bytes));
+                let font = SharedFont::new(Arc::new(font_bytes));
 
                 let r = TextRenderer {
                     pattern,
@@ -217,7 +253,7 @@ impl FontRendererCache {
             IndexNoBackup::Some(index) => &mut self.renderers[index], //unreachable, but we handle it just in case
             IndexNoBackup::Insert(path) => {
                 let font_bytes = std::fs::read(&path).expect("Failed to read font file");
-                let font = Font::unknown(Arc::new(font_bytes));
+                let font = SharedFont::unknown(Arc::new(font_bytes));
 
                 let r = TextRenderer {
                     pattern: FcPattern {
@@ -235,12 +271,31 @@ impl FontRendererCache {
             IndexNoBackup::None => &mut self.backup,
         }
     }
+
+    pub fn query_all_shared(&mut self, font_family: Vec<String>) -> Vec<Arc<Vec<u8>>> {
+        let mut fonts = Vec::with_capacity(font_family.len());
+
+        for f in font_family {
+            let pattern = FcPattern {
+                name: Some(f),
+                ..Default::default()
+            };
+
+            let font = self.query_font_no_backup(pattern);
+
+            if let Some(font) = font {
+                fonts.push(font.data);
+            }
+        }
+
+        fonts
+    }
 }
 
 #[derive(Clone)]
 pub struct TextRenderer {
     pub pattern: FcPattern,
-    pub font: Font,
+    pub font: SharedFont,
     pub sizing: Vec<FontSizing>,
 }
 
