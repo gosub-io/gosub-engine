@@ -15,7 +15,7 @@ gosub_styling = { path = "../gosub_styling" }
 gosub_net = { path = "../gosub_net" }
 taffy = "0.4.1"
 vello = "0.1.0"
-winit = "0.29.15"
+winit = "0.30.0"
 anyhow = "1.0.86"
 wgpu = "0.19.3"
 futures = "0.3.30"
