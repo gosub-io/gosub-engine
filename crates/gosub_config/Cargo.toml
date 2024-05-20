@@ -14,7 +14,7 @@ wildmatch = "2.3.3"
 log = "0.4.21"
 testing_logger = "0.1.1"
 url = "2.5.0"
-anyhow = "1.0.82"
+anyhow = "1.0.86"
 
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
