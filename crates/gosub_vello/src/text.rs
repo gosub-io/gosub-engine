@@ -138,8 +138,8 @@ impl TPreRenderText<VelloBackend> for PreRenderText {
 }
 
 impl Text {
-    fn show(vello: &mut VelloBackend, render: RenderText<VelloBackend>) {
-        let brush = render.brush.0;
+    pub(crate) fn show(vello: &mut VelloBackend, render: &RenderText<VelloBackend>) {
+        let brush = &render.brush.0;
         let style: StyleRef = Fill::NonZero.into();
 
         let transform = render.transform.map(|t| t.0).unwrap_or(Affine::IDENTITY);
@@ -151,7 +151,7 @@ impl Text {
             .font_size(render.text.fs)
             .transform(transform)
             .glyph_transform(brush_transform)
-            .brush(&brush)
+            .brush(brush)
             .draw(style, render.text.glyphs.iter().copied());
     }
 }

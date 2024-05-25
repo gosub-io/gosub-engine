@@ -74,7 +74,7 @@ impl RenderBackend for VelloBackend {
     }
 
     fn draw_text(&mut self, text: &RenderText<Self>) {
-        todo!()
+        Text::show(self, text)
     }
 
     fn reset(&mut self) {
