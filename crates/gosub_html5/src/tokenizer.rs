@@ -4,6 +4,9 @@ pub mod token;
 mod character_reference;
 mod replacement_tables;
 
+#[cfg(test)]
+mod tests;
+
 use crate::error_logger::{ErrorLogger, ParserError};
 use crate::errors::Error;
 use crate::node::HTML_NAMESPACE;

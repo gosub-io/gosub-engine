@@ -18,22 +18,6 @@ members = [
 [[example]]
 name = "html5-parser"
 
-[[test]]
-name = "tokenizer"
-path = "tests/tokenizer.rs"
-
-[[test]]
-name = "tree_construction"
-path = "tests/tree_construction.rs"
-
-[[bench]]
-name = "tokenizer"
-harness = false
-
-[[bench]]
-name = "tree_construction"
-harness = false
-
 [[bench]]
 name = "tree_iterator"
 harness = false
