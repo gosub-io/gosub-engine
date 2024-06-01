@@ -139,9 +139,9 @@ impl TTransform for Transform {
         self.0.inverse().into()
     }
 
-    fn with_translation(&self, translation: (FP, FP)) -> Self {
+    fn with_translation(&self, translation: Point) -> Self {
         self.0
-            .with_translation((translation.0 as f64, translation.1 as f64).into())
+            .with_translation((translation.x64(), translation.x64()).into())
             .into()
     }
 }

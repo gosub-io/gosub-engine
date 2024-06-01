@@ -1,8 +1,8 @@
-use gosub_render_backend::RenderBackend;
 use regex::Regex;
 use taffy::prelude::*;
 use taffy::{Overflow, Point};
 
+use gosub_render_backend::RenderBackend;
 use gosub_styling::css_values::CssValue;
 use gosub_styling::render_tree::{RenderNodeData, RenderTreeNode};
 
@@ -96,14 +96,11 @@ pub(crate) fn parse_inset<B: RenderBackend>(
     }
 }
 
-pub(crate) fn parse_size<B: RenderBackend>(
-    node: &mut RenderTreeNode<B>,
-    backend: &B,
-) -> Size<Dimension> {
+pub(crate) fn parse_size<B: RenderBackend>(node: &mut RenderTreeNode<B>) -> Size<Dimension> {
     if let RenderNodeData::Text(t) = &mut node.data {
         return Size {
-            width: parse_text_dim(t, "width", backend),
-            height: parse_text_dim(t, "height", backend),
+            width: parse_text_dim(t, "width"),
+            height: parse_text_dim(t, "height"),
         };
     }
 
@@ -113,14 +110,11 @@ pub(crate) fn parse_size<B: RenderBackend>(
     }
 }
 
-pub(crate) fn parse_min_size<B: RenderBackend>(
-    node: &mut RenderTreeNode<B>,
-    backend: &B,
-) -> Size<Dimension> {
+pub(crate) fn parse_min_size<B: RenderBackend>(node: &mut RenderTreeNode<B>) -> Size<Dimension> {
     if let RenderNodeData::Text(t) = &mut node.data {
         return Size {
-            width: parse_text_dim(t, "min-width", backend),
-            height: parse_text_dim(t, "min-height", backend),
+            width: parse_text_dim(t, "min-width"),
+            height: parse_text_dim(t, "min-height"),
         };
     }
 
@@ -130,14 +124,11 @@ pub(crate) fn parse_min_size<B: RenderBackend>(
     }
 }
 
-pub(crate) fn parse_max_size<B: RenderBackend>(
-    node: &mut RenderTreeNode<B>,
-    backend: &B,
-) -> Size<Dimension> {
+pub(crate) fn parse_max_size<B: RenderBackend>(node: &mut RenderTreeNode<B>) -> Size<Dimension> {
     if let RenderNodeData::Text(t) = &mut node.data {
         return Size {
-            width: parse_text_dim(t, "max-width", backend),
-            height: parse_text_dim(t, "max-height", backend),
+            width: parse_text_dim(t, "max-width"),
+            height: parse_text_dim(t, "max-height"),
         };
     }
 

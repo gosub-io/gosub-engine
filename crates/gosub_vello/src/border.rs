@@ -1,5 +1,6 @@
 use smallvec::SmallVec;
 use vello::kurbo::{Arc, BezPath, Cap, Join, RoundedRectRadii, Stroke};
+use vello::Scene;
 
 use gosub_render_backend::{
     Border as TBorder, BorderRadius as TBorderRadius, BorderSide as TBorderSide, BorderStyle,
@@ -84,7 +85,7 @@ impl<'a> BorderRenderOptions<'a> {
 }
 
 impl Border {
-    pub fn draw(backend: &mut VelloBackend, opts: BorderRenderOptions) {
+    pub fn draw(scene: &mut Scene, opts: BorderRenderOptions) {
         let transform = match (opts.transform, opts.border.transform.as_ref()) {
             (Some(t1), Some(t2)) => Some(*t1 * *t2),
             (Some(t1), None) => Some(*t1),
@@ -96,13 +97,13 @@ impl Border {
 
         let border = &opts.border.border;
 
-        Self::draw_side(backend, opts.left(transform));
-        Self::draw_side(backend, opts.right(transform));
-        Self::draw_side(backend, opts.top(transform));
-        Self::draw_side(backend, opts.bottom(transform));
+        Self::draw_side(scene, opts.left(transform));
+        Self::draw_side(scene, opts.right(transform));
+        Self::draw_side(scene, opts.top(transform));
+        Self::draw_side(scene, opts.bottom(transform));
     }
 
-    fn draw_side(backend: &mut VelloBackend, opts: BorderRenderSideOptions) {
+    fn draw_side(scene: &mut Scene, opts: BorderRenderSideOptions) {
         let border_width = opts.segment.width as f64;
         let brush = &opts.segment.brush.0;
         let style = opts.segment.style;
@@ -350,7 +351,7 @@ impl Border {
             dash_offset: 0.0,
         };
 
-        backend.scene.stroke(
+        scene.stroke(
             &stroke,
             opts.transform.map(|t| t.0).unwrap_or_default(),
             brush,

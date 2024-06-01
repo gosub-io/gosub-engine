@@ -72,12 +72,8 @@ pub(crate) fn parse_dimension<B: RenderBackend>(
     }
 }
 
-pub(crate) fn parse_text_dim<B: RenderBackend>(
-    text: &mut TextData<B>,
-    name: &str,
-    backend: &B,
-) -> Dimension {
-    let size = text.prerender.prerender(backend);
+pub(crate) fn parse_text_dim<B: RenderBackend>(text: &mut TextData<B>, name: &str) -> Dimension {
+    let size = text.prerender.prerender();
 
     if name == "width" || name == "max-width" || name == "min-width" {
         Dimension::Length(size.width)

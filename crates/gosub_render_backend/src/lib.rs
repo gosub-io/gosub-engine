@@ -1,7 +1,19 @@
+use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use std::fmt::Debug;
 use std::ops::{Div, Mul, MulAssign};
 
 use smallvec::SmallVec;
+
+use gosub_shared::types::Result;
+
+use gosub_shared::types::Size as SizeT;
+
+pub type Size = SizeT<f32>;
+pub type SizeU32 = SizeT<u32>;
+
+pub trait WindowHandle: HasDisplayHandle + HasWindowHandle + Send + Sync + Clone {}
+
+impl<T> WindowHandle for T where T: HasDisplayHandle + HasWindowHandle + Send + Sync + Clone {}
 
 pub trait RenderBackend: Sized + Debug {
     type Rect: Rect;
@@ -9,44 +21,51 @@ pub trait RenderBackend: Sized + Debug {
     type BorderSide: BorderSide<Self>;
     type BorderRadius: BorderRadius;
     type Transform: Transform;
-    type PreRenderText: PreRenderText<Self>;
+    type PreRenderText: PreRenderText;
     type Text: Text<Self>;
     type Gradient: Gradient<Self>;
     type Color: Color;
     type Image: Image;
     type Brush: Brush<Self>;
 
-    fn draw_rect(&mut self, rect: &RenderRect<Self>);
-    fn draw_text(&mut self, text: &RenderText<Self>);
-    fn reset(&mut self);
+    type ActiveWindowData<'a>;
+    type WindowData<'a>;
+
+    fn draw_rect(&mut self, data: &mut Self::WindowData<'_>, rect: &RenderRect<Self>);
+    fn draw_text(&mut self, data: &mut Self::WindowData<'_>, text: &RenderText<Self>);
+    fn reset(&mut self, data: &mut Self::WindowData<'_>);
+
+    fn activate_window<'a>(
+        &mut self,
+        handle: impl WindowHandle + 'a,
+        data: &mut Self::WindowData<'_>,
+        size: SizeU32,
+    ) -> Result<Self::ActiveWindowData<'a>>;
+    fn suspend_window(
+        &mut self,
+        handle: impl WindowHandle,
+        data: &mut Self::ActiveWindowData<'_>,
+        window_data: &mut Self::WindowData<'_>,
+    ) -> Result<()>;
+
+    fn create_window_data<'a>(&mut self, handle: impl WindowHandle)
+        -> Result<Self::WindowData<'a>>;
+
+    fn resize_window(
+        &mut self,
+        window_data: &mut Self::WindowData<'_>,
+        active_window_data: &mut Self::ActiveWindowData<'_>,
+        size: SizeU32,
+    ) -> Result<()>;
+    fn render(
+        &mut self,
+        window_data: &mut Self::WindowData<'_>,
+        active_data: &mut Self::ActiveWindowData<'_>,
+    ) -> Result<()>;
 }
 
 pub type FP = f32;
-
-#[derive(Clone, Copy)]
-pub struct Point {
-    pub x: FP,
-    pub y: FP,
-}
-
-#[derive(Debug)]
-pub struct Size {
-    pub width: FP,
-    pub height: FP,
-}
-
-impl Size {
-    pub fn new(width: FP, height: FP) -> Self {
-        Self { width, height }
-    }
-
-    pub fn uniform(size: FP) -> Self {
-        Self {
-            width: size,
-            height: size,
-        }
-    }
-}
+pub type Point = gosub_shared::types::Point<FP>;
 
 pub struct RenderRect<B: RenderBackend> {
     pub rect: B::Rect,
@@ -414,15 +433,15 @@ pub trait Transform: Sized + Mul<Self> + MulAssign {
 
     fn inverse(self) -> Self;
 
-    fn with_translation(&self, translation: (FP, FP)) -> Self;
+    fn with_translation(&self, translation: Point) -> Self;
 }
 
-pub trait PreRenderText<B: RenderBackend> {
+pub trait PreRenderText {
     fn new(text: String, font: Option<Vec<String>>, size: FP) -> Self;
 
     fn with_lh(text: String, font: Option<Vec<String>>, size: FP, line_height: FP) -> Self;
 
-    fn prerender(&mut self, backend: &B) -> Size;
+    fn prerender(&mut self) -> Size;
     fn value(&self) -> &str;
     fn fs(&self) -> FP;
 
@@ -430,7 +449,7 @@ pub trait PreRenderText<B: RenderBackend> {
 }
 
 pub trait Text<B: RenderBackend> {
-    fn new(pre: &mut B::PreRenderText, backend: &B) -> Self;
+    fn new(pre: &mut B::PreRenderText) -> Self;
 }
 
 pub struct ColorStop<B: RenderBackend> {

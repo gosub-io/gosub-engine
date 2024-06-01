@@ -24,6 +24,7 @@ slotmap = "1.0.7"
 smallvec = "1.13.2"
 image = "0.25.1"
 url = "2.5.0"
+dpi = "0.1.1"
 
 
 

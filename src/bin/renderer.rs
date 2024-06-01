@@ -7,12 +7,11 @@ use gosub_html5::parser::document::{Document, DocumentBuilder};
 use gosub_html5::parser::Html5Parser;
 use gosub_render_backend::RenderBackend;
 use gosub_renderer::render_tree::TreeDrawer;
-use gosub_renderer::renderer::{Renderer, RendererOptions};
-use gosub_rendering::layout::generate_taffy_tree;
 use gosub_shared::bytes::CharIterator;
 use gosub_shared::bytes::{Confidence, Encoding};
 use gosub_shared::types::Result;
 use gosub_styling::render_tree::{generate_render_tree, RenderTree as StyleTree};
+use gosub_useragent::application::Application;
 use gosub_vello::VelloBackend;
 
 fn main() -> Result<()> {
@@ -27,19 +26,24 @@ fn main() -> Result<()> {
 
     let url: String = matches.get_one::<String>("url").expect("url").to_string();
 
-    let mut rt = load_html_rendertree(&url)?;
+    // let mut rt = load_html_rendertree(&url)?;
 
-    let backend = VelloBackend::new();
+    let mut application: Application<TreeDrawer<VelloBackend>, VelloBackend> =
+        Application::new(VelloBackend::new());
 
-    let (taffy_tree, root) = generate_taffy_tree(&mut rt, &backend)?;
+    application.initial_tab(Url::parse(&url)?);
 
-    let render_tree = TreeDrawer::new(rt, taffy_tree, root, Url::parse("https://gosub.io/")?);
+    application.start()?;
 
-    let render_tree = render_tree;
-
-    let renderer = futures::executor::block_on(Renderer::new(RendererOptions::default()))?;
-
-    renderer.start(render_tree)?;
+    // let (taffy_tree, root) = generate_taffy_tree(&mut rt, &backend)?;
+    //
+    // let render_tree = TreeDrawer::new(rt, taffy_tree, root, Url::parse("https://gosub.io/")?);
+    //
+    // let render_tree = render_tree;
+    //
+    // let renderer = futures::executor::block_on(Renderer::new(RendererOptions::default()))?;
+    //
+    // renderer.start(render_tree)?;
     Ok(())
 }
 

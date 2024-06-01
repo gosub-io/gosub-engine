@@ -1,12 +1,15 @@
-use std::ops::Deref;
 use vello::glyph::Glyph;
 use vello::kurbo::Affine;
-use vello::peniko::{Blob, BrushRef, Fill, Font, StyleRef};
+use vello::peniko::{Blob, Fill, Font, StyleRef};
 use vello::skrifa::{instance::Size as FSize, FontRef, MetadataProvider};
+use vello::Scene;
 
-use gosub_render_backend::{PreRenderText as TPreRenderText, RenderText, Size, Text as TText, FP};
+use gosub_render_backend::{
+    PreRenderText as TPreRenderText, RenderBackend, RenderText, Size, Text as TText, FP,
+};
 use gosub_typeface::{BACKUP_FONT, DEFAULT_LH, FONT_RENDERER_CACHE};
 
+use crate::render::window::WindowData;
 use crate::VelloBackend;
 
 pub struct Text {
@@ -20,18 +23,14 @@ pub struct PreRenderText {
     fs: FP,
     font: Vec<Font>,
     line_height: FP,
-    size: Option<Size>,
-    glyphs: Option<Vec<Glyph>>,
+    size: Size,
+    glyphs: Vec<Glyph>,
 }
 
 impl TText<VelloBackend> for Text {
-    fn new(pre: &mut PreRenderText, backend: &VelloBackend) -> Self {
-        if pre.glyphs.is_none() {
-            pre.prerender(backend);
-        }
-
+    fn new(pre: &mut PreRenderText) -> Self {
         Text {
-            glyphs: pre.glyphs.clone().unwrap_or_default(),
+            glyphs: pre.glyphs.clone(),
             font: pre.font.clone(),
             fs: pre.fs,
         }
@@ -55,34 +54,42 @@ fn get_fonts_from_family(font_families: Option<Vec<String>>) -> Vec<Font> {
     fonts
 }
 
-impl TPreRenderText<VelloBackend> for PreRenderText {
+impl TPreRenderText for PreRenderText {
     fn new(text: String, font: Option<Vec<String>>, size: FP) -> Self {
         let font = get_fonts_from_family(font);
 
-        PreRenderText {
+        let mut this = PreRenderText {
             text,
             font,
             line_height: DEFAULT_LH,
-            size: None,
+            size: Size::ZERO,
             fs: size,
-            glyphs: None,
-        }
+            glyphs: Vec::new(),
+        };
+
+        this.prerender();
+
+        this
     }
 
     fn with_lh(text: String, font: Option<Vec<String>>, size: FP, line_height: FP) -> Self {
         let font = get_fonts_from_family(font);
 
-        PreRenderText {
+        let mut this = PreRenderText {
             text,
             font,
             line_height,
-            size: None,
+            size: Size::ZERO,
             fs: size,
-            glyphs: None,
-        }
+            glyphs: Vec::new(),
+        };
+
+        this.prerender();
+
+        this
     }
 
-    fn prerender(&mut self, backend: &VelloBackend) -> Size {
+    fn prerender(&mut self) -> Size {
         let font_ref = to_font_ref(&self.font[0]).unwrap();
 
         let axes = font_ref.axes();
@@ -91,13 +98,13 @@ impl TPreRenderText<VelloBackend> for PreRenderText {
         let variations: &[(&str, f32)] = &[]; // if we have more than an empty slice here we need to change the rendering to the scene
         let var_loc = axes.location(variations.iter().copied());
         let glyph_metrics = font_ref.glyph_metrics(fs, &var_loc);
-        let metrics = font_ref.metrics(fs, &var_loc);
+        // let metrics = font_ref.metrics(fs, &var_loc);
         // let line_height = metrics.ascent - metrics.descent + metrics.leading;
 
         let mut width: f32 = 0.0;
         let mut pen_x: f32 = 0.0;
 
-        let glyphs = self
+        self.glyphs = self
             .text
             .chars()
             .filter_map(|c| {
@@ -120,8 +127,6 @@ impl TPreRenderText<VelloBackend> for PreRenderText {
 
         width = width.max(pen_x);
 
-        self.glyphs = Some(glyphs);
-
         Size {
             width,
             height: self.line_height,
@@ -138,15 +143,14 @@ impl TPreRenderText<VelloBackend> for PreRenderText {
 }
 
 impl Text {
-    pub(crate) fn show(vello: &mut VelloBackend, render: &RenderText<VelloBackend>) {
+    pub(crate) fn show(scene: &mut Scene, render: &RenderText<VelloBackend>) {
         let brush = &render.brush.0;
         let style: StyleRef = Fill::NonZero.into();
 
         let transform = render.transform.map(|t| t.0).unwrap_or(Affine::IDENTITY);
         let brush_transform = render.brush_transform.map(|t| t.0);
 
-        vello
-            .scene
+        scene
             .draw_glyphs(&render.text.font[0])
             .font_size(render.text.fs)
             .transform(transform)

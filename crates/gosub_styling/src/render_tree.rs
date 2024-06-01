@@ -279,7 +279,6 @@ impl<B: RenderBackend> Debug for TextData<B> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("TextData")
             .field("text", &self.prerender.value())
-            .field("font", &self.prerender.font())
             .field("fs", &self.prerender.fs())
             .finish()
     }
