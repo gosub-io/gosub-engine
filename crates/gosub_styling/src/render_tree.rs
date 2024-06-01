@@ -338,6 +338,7 @@ impl<B: RenderBackend> RenderNodeData<B> {
 
                 RenderNodeData::Text(Box::new(text))
             }
+            NodeData::Document(_) => RenderNodeData::Document,
             _ => return ControlFlow::Drop,
         })
     }
@@ -381,8 +382,8 @@ impl<B: RenderBackend> RenderTreeNode<B> {
 
 /// Generates a render tree for the given document based on its loaded stylesheets
 pub fn generate_render_tree<B: RenderBackend>(document: DocumentHandle) -> Result<RenderTree<B>> {
-    let mut render_tree = RenderTree::from_document(document);
-    render_tree.remove_unrenderable_nodes();
+    let render_tree = RenderTree::from_document(document);
+
     Ok(render_tree)
 }
 

@@ -65,7 +65,7 @@ pub(crate) fn load_html_rendertree<B: RenderBackend>(
         }
         response.into_string()?
     } else if url.scheme() == "file" {
-        fs::read_to_string(&url.path()[1..])?
+        fs::read_to_string(url.as_str().trim_start_matches("file://"))?
     } else {
         bail!("Unsupported url scheme: {}", url.scheme());
     };
@@ -75,18 +75,15 @@ pub(crate) fn load_html_rendertree<B: RenderBackend>(
     chars.set_confidence(Confidence::Certain);
 
     let mut doc_handle = DocumentBuilder::new_document(Some(url));
-    let _parse_errors =
-        Html5Parser::parse_document(&mut chars, Document::clone(&doc_handle), None)?;
+    let parse_errors = Html5Parser::parse_document(&mut chars, Document::clone(&doc_handle), None)?;
+
+    for error in parse_errors {
+        eprintln!("Parse error: {:?}", error);
+    }
 
     let mut doc = doc_handle.get_mut();
     doc.stylesheets
         .push(gosub_styling::load_default_useragent_stylesheet()?);
-
-    println!("stylesheets: {:?}", doc.stylesheets.len());
-
-    for stylesheet in doc.stylesheets.iter() {
-        println!("stylesheet: {:?}", stylesheet.location);
-    }
 
     drop(doc);
 

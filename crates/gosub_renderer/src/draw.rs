@@ -87,13 +87,13 @@ impl<B: RenderBackend> TreeDrawer<B> {
 
         self.position = PositionTree::from_taffy(&self.taffy, self.root);
 
-        let bg = B::Rect::new(0.0, 0.0, size.width as FP, size.height as FP);
+        let bg = Rect::new(0.0, 0.0, size.width as FP, size.height as FP);
 
         let rect = RenderRect {
             rect: bg,
             transform: None,
             radius: None,
-            brush: B::Brush::color(B::Color::WHITE),
+            brush: Brush::color(Color::BLACK),
             brush_transform: None,
             border: None,
         };
