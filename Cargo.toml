@@ -61,7 +61,7 @@ console_log = "1.0.0"
 console_error_panic_hook = "0.1.7"
 wasm-bindgen = "0.2.92"
 wasm-bindgen-futures = "0.4.42"
-getrandom = { version = "0.2.3", features = ["js"] }
+getrandom = { version = "0.2.15", features = ["js"] }
 
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
