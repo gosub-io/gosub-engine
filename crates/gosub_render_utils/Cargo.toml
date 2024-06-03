@@ -8,7 +8,7 @@ license = "MIT"
 [dependencies]
 gosub_html5 = { path = "../gosub_html5" }
 gosub_styling = { path = "../gosub_styling" }
-taffy = "0.4.3"
+taffy = "0.5.1"
 anyhow = "1.0.86"
 regex = "1.10.4"
 rstar = "0.12.0"

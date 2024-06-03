@@ -13,7 +13,7 @@ gosub_html5 = { path = "../gosub_html5" }
 gosub_shared = { path = "../gosub_shared" }
 gosub_styling = { path = "../gosub_styling" }
 gosub_net = { path = "../gosub_net" }
-taffy = "0.4.1"
+taffy = "0.5.1"
 vello = "0.1.0"
 winit = "0.29.15"
 anyhow = "1.0.86"
