@@ -1,5 +1,5 @@
 use gosub_css3::stylesheet::CssValue;
-use crate::syntax::{GroupCombinators, SyntaxComponent, SyntaxComponentMultiplier, SyntaxComponentType};
+use crate::syntax::{Group, GroupCombinators, SyntaxComponent, SyntaxComponentType};
 
 /// A CSS Syntax Tree is a tree sof CSS syntax components that can be used to match against CSS values.
 #[derive(Clone, Debug, PartialEq)]
@@ -9,7 +9,7 @@ pub struct CssSyntaxTree {
 }
 
 impl CssSyntaxTree {
-    /// Creates a new CSS Syntax Tree
+    /// Creates a new CSS Syntax tree from the given components
     pub fn new(components: Vec<SyntaxComponent>) -> Self {
         CssSyntaxTree { components }
     }
@@ -22,109 +22,129 @@ impl CssSyntaxTree {
 
         match_internal(value, &self.components[0])
     }
-
-    /// Matches a CSS value against the syntax tree, but the CSS value is provided as a (unparsed) string
-    pub fn matches_str(&self, value: &str) -> Option<CssValue> {
-        match CssValue::parse_str(value) {
-            Ok(value) => self.matches(&value),
-            Err(_) => None,
-        }
-    }
 }
 
 fn match_internal(value: &CssValue, component: &SyntaxComponent) -> Option<CssValue> {
-    // dbg!(&component);
-    dbg!(&value);
-
-    match &component.component {
-        SyntaxComponentType::GenericKeyword(keyword) => {
-            print!("Matching keyword: {}", keyword);
-            print!(" with value: {:?}", value);
-            match value {
-                CssValue::None => {
-                    if keyword == "none" {
-                        return Some(value.clone());
-                    }
-                }
-                CssValue::String(v) => {
-                    if v == keyword {
-                        println!("Matched keyword {}", v);
-                        return Some(value.clone());
-                    }
-                }
-                _ => {}
-            }
-
-            return None;
+    return match &component.component {
+        SyntaxComponentType::GenericKeyword(keyword) => match value {
+            CssValue::None if keyword.eq_ignore_ascii_case("none") => Some(value.clone()),
+            CssValue::String(v) if v.eq_ignore_ascii_case(&keyword) => Some(value.clone()),
+            _ => None,
         }
-        SyntaxComponentType::Property(_s) => {}
-        SyntaxComponentType::Function(_s, _t) => {}
-        SyntaxComponentType::TypeDefinition(_s, _t, _u) => {}
-        SyntaxComponentType::Inherit => {}
-        SyntaxComponentType::Initial => {}
-        SyntaxComponentType::Unset => {}
-        SyntaxComponentType::Literal(_s) => {}
-        SyntaxComponentType::Value(_s) => {}
-        SyntaxComponentType::Unit(_s, _t, _u) => {}
+        // SyntaxComponentType::Property(_s) => {},
+        // SyntaxComponentType::Function(_s, _t) => {}
+        // SyntaxComponentType::TypeDefinition(_s, _t, _u) => {}
+        SyntaxComponentType::Inherit => return match value {
+           CssValue::String(v) if v.eq_ignore_ascii_case("inherit") => Some(value.clone()),
+            _ => None,
+        },
+        SyntaxComponentType::Initial => return match value {
+            CssValue::String(v) if v.eq_ignore_ascii_case("initial") => Some(value.clone()),
+            _ => None,
+        },
+        SyntaxComponentType::Unset => return match value {
+            CssValue::String(v) if v.eq_ignore_ascii_case("unset") => Some(value.clone()),
+            _ => None,
+        },
+        // SyntaxComponentType::Literal(_s) => {}
+        // SyntaxComponentType::Value(_s) => {}
+        // SyntaxComponentType::Unit(_s, _t, _u) => {}
         SyntaxComponentType::Group(group) => {
-            let mut elements: Vec<CssValue> = vec![];
-
-            for c in group.components.iter() {
-                match match_internal(value, c) {
-                    Some(val) => {
-                        // @TODO: check combinator
-                        elements.push(val.clone());
-                    }
-                    None => {
-                        // not a valid element
-                    }
-                }
-            }
-
-            println!("matching combinator: {:?}", group.combinator);
-            dbg!(&elements);
-            match group.combinator {
+            return match group.combinator {
                 GroupCombinators::Juxtaposition => {
-                    if group.components.len() == group.components.len() {
-                        // Check the ordering
-                        for (_i, _c) in group.components.iter().enumerate() {
-                            // match_internal(value[i], c)?;
-                            // if ! in_order() {
-                            //     return Err("Incorrect order of values".to_string());
-                            // }
-                        }
-                    }
-
+                    match_group_juxtaposition(value, group)
                 }
                 GroupCombinators::AllAnyOrder => {
-                    if elements.len() == group.components.len() {
-                        return Some(elements[0].clone());
-                    }
+                    match_group_all_any_order(value, group)
                 }
                 GroupCombinators::AtLeastOneAnyOrder => {
-                    if elements.len() >= 1 {
-                        return Some(elements[0].clone());
-                    }
+                    match_group_at_least_one_any_order(value, group)
                 }
                 GroupCombinators::ExactlyOne => {
-                    if elements.len() == 1 {
-                        return Some(elements[0].clone());
-                    }
+                    match_group_exactly_one(value, group)
+                }
+            };
+        }
+        _ => None,
+    };
+
+    // match component.multipliers {
+    //     SyntaxComponentMultiplier::Once => {}
+    //     SyntaxComponentMultiplier::ZeroOrMore => {}
+    //     SyntaxComponentMultiplier::OneOrMore => {}
+    //     SyntaxComponentMultiplier::Optional => {}
+    //     SyntaxComponentMultiplier::Between(_n, _m) => {}
+    //     SyntaxComponentMultiplier::AtLeastOneValue => {}
+    //     SyntaxComponentMultiplier::CommaSeparatedRepeat(_n, _m) => {}
+    // }
+
+    // return None;
+}
+
+fn match_group_exactly_one(value: &CssValue, group: &Group) -> Option<CssValue> {
+    let entries = resolve_group(value, group);
+
+    // We must have exactly one element
+    if entries.len() == 1 {
+        let (v_idx, _) = entries[0];
+
+        if let CssValue::List(list) = value.as_list() {
+            return Some(list[v_idx].clone());
+        }
+    }
+
+    return None;
+}
+
+fn resolve_group(value: &CssValue, group: &Group) -> Vec<(usize, usize)> {
+    let mut values: Vec<(usize, usize)> = vec![];
+
+    if let CssValue::List(list) = value.as_list() {
+        for (v_idx, value) in list.iter().enumerate() {
+            for (c_idx, component) in group.components.iter().enumerate() {
+                if match_internal(value, component).is_some() {
+                    values.push((v_idx, c_idx));
+                    break;
                 }
             }
         }
     }
 
-    match component.multipliers {
-        SyntaxComponentMultiplier::Once => {}
-        SyntaxComponentMultiplier::ZeroOrMore => {}
-        SyntaxComponentMultiplier::OneOrMore => {}
-        SyntaxComponentMultiplier::Optional => {}
-        SyntaxComponentMultiplier::Between(_n, _m) => {}
-        SyntaxComponentMultiplier::AtLeastOneValue => {}
-        SyntaxComponentMultiplier::CommaSeparatedRepeat(_n, _m) => {}
+    dbg!(&values);
+    return values;
+}
+
+fn match_group_at_least_one_any_order(value: &CssValue, group: &Group) -> Option<CssValue> {
+    let values = resolve_group(value, group);
+
+    // We must have at least one element
+    if values.len() >= 1 {
+        return Some(CssValue::String("foobar".into()));
     }
 
+    return None;
+}
+
+fn match_group_all_any_order(value: &CssValue, group: &Group) -> Option<CssValue> {
+    let values = resolve_group(value, group);
+
+    // We must have resolved all values, but we don't care about the ordering
+    if values.len() == group.components.len() {
+        return Some(CssValue::String("foobar".into()));
+    }
+
+    return None;
+}
+
+fn match_group_juxtaposition(value: &CssValue, group: &Group) -> Option<CssValue> {
+    let values = resolve_group(value, group);
+
+    // We must have resolved all values in the correct order
+    if values.len() != group.components.len() {
+        return None;
+    }
+
+    // Check the ordering...
     return None;
 }
 
@@ -156,25 +176,12 @@ mod tests {
     #[test]
     fn test_double_group() {
         let tree = CssSyntax::new("auto none block").compile().unwrap();
-        dbg!(&tree);
-        // assert!(tree.matches(&str!("auto")).is_none());
-        // assert!(tree.matches(&CssValue::None).is_none());
-        // assert!(tree.matches(&str!("block")).is_none());
-        assert!(tree.matches(&CssValue::List(vec![
-            str!("auto"),
-            CssValue::None,
-            str!("block"),
-        ])).is_some());
-        assert!(tree.matches(&CssValue::List(vec![
-            str!("block"),
-            CssValue::None,
-            str!("block"),
-        ])).is_none());
-        assert!(tree.matches(&CssValue::List(vec![
-            str!("auto"),
-            CssValue::None,
-            str!("auto"),
-        ])).is_none());
+        assert!(tree.matches(&str!("auto")).is_none());
+        assert!(tree.matches(&CssValue::None).is_none());
+        assert!(tree.matches(&str!("block")).is_none());
+        assert!(tree.matches(&CssValue::List(vec![str!("auto"), CssValue::None, str!("block")])).is_some());
+        assert!(tree.matches(&CssValue::List(vec![str!("block"), CssValue::None, str!("block")])).is_none());
+        assert!(tree.matches(&CssValue::List(vec![str!("auto"), CssValue::None, str!("auto")])).is_none());
     }
 
 }

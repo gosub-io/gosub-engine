@@ -227,6 +227,19 @@ pub enum CssValue {
     Comma,
 }
 
+impl CssValue {
+    pub fn is_list(&self) -> bool {
+        matches!(self, CssValue::List(_))
+    }
+
+    pub fn as_list(&self) -> CssValue {
+        match self {
+            CssValue::List(list) => CssValue::List(list.clone()),
+            _ => CssValue::List(vec![self.clone()]),
+        }
+    }
+}
+
 impl Display for CssValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
