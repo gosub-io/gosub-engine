@@ -83,8 +83,6 @@ impl<B: RenderBackend> TreeDrawer<B> {
             return;
         }
 
-        // print_tree(&self.taffy, self.root, &self.style);
-
         self.position = PositionTree::from_taffy(&self.taffy, self.root);
 
         let bg = Rect::new(0.0, 0.0, size.width as FP, size.height as FP);

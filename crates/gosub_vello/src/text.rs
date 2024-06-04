@@ -128,11 +128,9 @@ impl TPreRenderText for PreRenderText {
             .collect();
 
         width = width.max(pen_x);
+        let height = self.line_height.max(self.fs); //HACK: we need to get the actual height of the font
 
-        Size {
-            width,
-            height: self.line_height,
-        }
+        Size { width, height }
     }
 
     fn value(&self) -> &str {
@@ -151,6 +149,11 @@ impl Text {
 
         let transform = render.transform.map(|t| t.0).unwrap_or(Affine::IDENTITY);
         let brush_transform = render.brush_transform.map(|t| t.0);
+
+        let x = render.rect.0.x0;
+        let y = render.rect.0.y0 + render.rect.0.height();
+
+        let transform = transform.with_translation((x, y).into());
 
         scene
             .draw_glyphs(&render.text.font[0])
