@@ -141,7 +141,7 @@ impl TTransform for Transform {
 
     fn with_translation(&self, translation: Point) -> Self {
         self.0
-            .with_translation((translation.x64(), translation.x64()).into())
+            .with_translation((translation.x64(), translation.y64()).into())
             .into()
     }
 }

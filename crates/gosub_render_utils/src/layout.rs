@@ -31,7 +31,7 @@ fn add_children_to_tree<B: RenderBackend>(
     for child in node_children.clone() {
         match add_children_to_tree(rt, tree, child) {
             Ok(node) => children.push(node),
-            Err(e) => eprintln!("Error adding child to tree: {:?}", e),
+            Err(e) => eprintln!("Error adding child to tree: {:?}", e.to_string()),
         }
     }
 

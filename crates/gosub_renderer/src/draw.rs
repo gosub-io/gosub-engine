@@ -83,7 +83,7 @@ impl<B: RenderBackend> TreeDrawer<B> {
             return;
         }
 
-        print_tree(&self.taffy, self.root, &self.style);
+        // print_tree(&self.taffy, self.root, &self.style);
 
         self.position = PositionTree::from_taffy(&self.taffy, self.root);
 
@@ -97,7 +97,7 @@ impl<B: RenderBackend> TreeDrawer<B> {
             brush_transform: None,
             border: None,
         };
-
+        //
         backend.draw_rect(data, &rect);
 
         self.render_node_with_children(self.root, backend, data, Point::ZERO);
@@ -161,23 +161,32 @@ impl<B: RenderBackend> TreeDrawer<B> {
 
                 let url = Url::parse(src.as_str()).or_else(|_| self.url.join(src.as_str()))?;
 
-                let res = gosub_net::http::ureq::get(url.as_str()).call()?;
+                let img = if url.scheme() == "file" {
+                    let path = url.as_str().trim_start_matches("file://");
 
-                let mut img = Vec::with_capacity(
-                    res.header("Content-Length")
-                        .unwrap_or("1024")
-                        .parse::<usize>()?,
-                );
+                    image::open(path)?
+                } else {
+                    let res = gosub_net::http::ureq::get(url.as_str()).call()?;
 
-                res.into_reader().read_to_end(&mut img)?;
+                    let mut img = Vec::with_capacity(
+                        res.header("Content-Length")
+                            .unwrap_or("1024")
+                            .parse::<usize>()?,
+                    );
 
-                let img = image::load_from_memory(&img)?;
+                    res.into_reader().read_to_end(&mut img)?;
+
+                    image::load_from_memory(&img)?
+                };
 
                 let fit = element
                     .attributes
                     .get("object-fit")
                     .map(|prop| prop.as_str())
                     .unwrap_or("contain");
+
+                println!("Rendering image at: {:?}", pos);
+                println!("with size: {:?}", layout.size);
 
                 render_image(img, backend, data, *pos, layout.size, border_radius, fit)?;
             }
@@ -218,8 +227,8 @@ fn render_text<B: RenderBackend>(
         let rect = Rect::new(
             pos.x as FP,
             pos.y as FP,
-            pos.x + layout.size.width as FP,
-            pos.y + layout.size.height as FP,
+            layout.size.width as FP,
+            layout.size.height as FP,
         );
 
         let render_text = RenderText {
@@ -303,8 +312,8 @@ fn render_bg<B: RenderBackend>(
         let rect = Rect::new(
             pos.x as FP,
             pos.y as FP,
-            pos.x + layout.size.width as FP,
-            pos.y + layout.size.height as FP,
+            layout.size.width as FP,
+            layout.size.height as FP,
         );
 
         let rect = RenderRect {
@@ -334,18 +343,22 @@ fn render_bg<B: RenderBackend>(
             return border_radius;
         };
 
-        let res = gosub_net::http::ureq::get(url.as_str()).call().unwrap();
+        let Ok(res) = gosub_net::http::ureq::get(url.as_str()).call() else {
+            return border_radius;
+        };
 
         let mut img = Vec::with_capacity(
             res.header("Content-Length")
                 .unwrap_or("1024")
                 .parse::<usize>()
-                .unwrap(),
+                .unwrap_or(1024),
         );
 
-        res.into_reader().read_to_end(&mut img).unwrap();
+        let _ = res.into_reader().read_to_end(&mut img); //TODO: handle error
 
-        let img = image::load_from_memory(&img).unwrap();
+        let Ok(img) = image::load_from_memory(&img) else {
+            return border_radius;
+        };
 
         let _ = render_image(img, backend, data, *pos, layout.size, border_radius, "fill").map_err(
             |e| {
@@ -408,7 +421,7 @@ fn render_image<B: RenderBackend>(
 
             let scale = scale_x.min(scale_y);
 
-            Transform::scale_xy(scale, scale)
+            Transform::scale(scale)
         }
         "cover" => {
             let scale_x = width / img_size.0;
@@ -416,7 +429,7 @@ fn render_image<B: RenderBackend>(
 
             let scale = scale_x.max(scale_y);
 
-            Transform::scale_xy(scale, scale)
+            Transform::scale(scale)
         }
         "scale-down" => {
             let scale_x = width / img_size.0;
@@ -425,7 +438,7 @@ fn render_image<B: RenderBackend>(
             let scale = scale_x.min(scale_y);
             let scale = scale.min(1.0);
 
-            Transform::scale_xy(scale, scale)
+            Transform::scale(scale)
         }
         _ => Transform::IDENTITY,
     };
@@ -434,10 +447,10 @@ fn render_image<B: RenderBackend>(
 
     let rect = RenderRect {
         rect,
-        transform: Some(transform),
+        transform: None,
         radius: Some(B::BorderRadius::from(radii)),
         brush: Brush::image(Image::new(img_size, img.into_rgba8().into_raw())),
-        brush_transform: None,
+        brush_transform: Some(transform),
         border: None,
     };
 

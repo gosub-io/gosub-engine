@@ -9,7 +9,6 @@ use gosub_render_backend::{
 };
 use gosub_typeface::{BACKUP_FONT, DEFAULT_LH, FONT_RENDERER_CACHE};
 
-use crate::render::window::WindowData;
 use crate::VelloBackend;
 
 pub struct Text {
@@ -45,6 +44,9 @@ fn get_fonts_from_family(font_families: Option<Vec<String>>) -> Vec<Font> {
             let font = cache.query_all_shared(ff);
             for (i, f) in font.into_iter().enumerate() {
                 fonts.push(Font::new(Blob::new(f), i as u32));
+            }
+            if fonts.is_empty() {
+                fonts.push(Font::new(Blob::new(BACKUP_FONT.data.clone()), 0));
             }
         }
     } else {
