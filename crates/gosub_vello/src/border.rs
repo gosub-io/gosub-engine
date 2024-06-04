@@ -10,10 +10,10 @@ use gosub_render_backend::{
 use crate::{Brush, Rect, Transform, VelloBackend};
 
 pub struct Border {
-    pub(crate) left: BorderSide,
-    pub(crate) right: BorderSide,
-    pub(crate) top: BorderSide,
-    pub(crate) bottom: BorderSide,
+    pub(crate) left: Option<BorderSide>,
+    pub(crate) right: Option<BorderSide>,
+    pub(crate) top: Option<BorderSide>,
+    pub(crate) bottom: Option<BorderSide>,
 }
 
 enum Side {
@@ -43,44 +43,60 @@ struct BorderRenderSideOptions<'a> {
 }
 
 impl<'a> BorderRenderOptions<'a> {
-    fn left(&self, transform: Option<&'a Transform>) -> BorderRenderSideOptions {
-        BorderRenderSideOptions {
+    fn left(&self, transform: Option<&'a Transform>) -> Option<BorderRenderSideOptions> {
+        let Some(segment) = self.border.border.left.as_ref() else {
+            return None;
+        };
+
+        Some(BorderRenderSideOptions {
             side: Side::Left,
-            segment: &self.border.border.left,
+            segment,
             transform,
             radius: self.radius.map(|r| (r.top_left, r.bottom_left)),
             rect: self.rect,
-        }
+        })
     }
 
-    fn right(&self, transform: Option<&'a Transform>) -> BorderRenderSideOptions {
-        BorderRenderSideOptions {
+    fn right(&self, transform: Option<&'a Transform>) -> Option<BorderRenderSideOptions> {
+        let Some(segment) = self.border.border.right.as_ref() else {
+            return None;
+        };
+
+        Some(BorderRenderSideOptions {
             side: Side::Right,
-            segment: &self.border.border.right,
+            segment,
             transform,
             radius: self.radius.map(|r| (r.top_right, r.bottom_right)),
             rect: self.rect,
-        }
+        })
     }
 
-    fn top(&self, transform: Option<&'a Transform>) -> BorderRenderSideOptions {
-        BorderRenderSideOptions {
+    fn top(&self, transform: Option<&'a Transform>) -> Option<BorderRenderSideOptions> {
+        let Some(segment) = self.border.border.top.as_ref() else {
+            return None;
+        };
+
+        Some(BorderRenderSideOptions {
             side: Side::Top,
-            segment: &self.border.border.top,
+            segment,
             transform,
             radius: self.radius.map(|r| (r.top_left, r.top_right)),
             rect: self.rect,
-        }
+        })
     }
 
-    fn bottom(&self, transform: Option<&'a Transform>) -> BorderRenderSideOptions {
-        BorderRenderSideOptions {
+    fn bottom(&self, transform: Option<&'a Transform>) -> Option<BorderRenderSideOptions> {
+        let Some(segment) = self.border.border.bottom.as_ref() else {
+            return None;
+        };
+
+        Some(BorderRenderSideOptions {
             side: Side::Bottom,
-            segment: &self.border.border.bottom,
+            segment,
             transform,
             radius: self.radius.map(|r| (r.bottom_left, r.bottom_right)),
             rect: self.rect,
-        }
+        })
     }
 }
 
@@ -97,10 +113,18 @@ impl Border {
 
         let border = &opts.border.border;
 
-        Self::draw_side(scene, opts.left(transform));
-        Self::draw_side(scene, opts.right(transform));
-        Self::draw_side(scene, opts.top(transform));
-        Self::draw_side(scene, opts.bottom(transform));
+        if let Some(segment) = opts.left(transform) {
+            Self::draw_side(scene, segment);
+        }
+        if let Some(segment) = opts.right(transform) {
+            Self::draw_side(scene, segment);
+        }
+        if let Some(segment) = opts.top(transform) {
+            Self::draw_side(scene, segment);
+        }
+        if let Some(segment) = opts.bottom(transform) {
+            Self::draw_side(scene, segment);
+        }
     }
 
     fn draw_side(scene: &mut Scene, opts: BorderRenderSideOptions) {
@@ -364,36 +388,45 @@ impl Border {
 impl TBorder<VelloBackend> for Border {
     fn new(all: BorderSide) -> Self {
         Self {
-            left: all.clone(),
-            right: all.clone(),
-            top: all.clone(),
-            bottom: all,
+            left: Some(all.clone()),
+            right: Some(all.clone()),
+            top: Some(all.clone()),
+            bottom: Some(all),
+        }
+    }
+
+    fn empty() -> Self {
+        Self {
+            left: None,
+            right: None,
+            top: None,
+            bottom: None,
         }
     }
 
     fn all(left: BorderSide, right: BorderSide, top: BorderSide, bottom: BorderSide) -> Self {
         Self {
-            left,
-            right,
-            top,
-            bottom,
+            left: Some(left),
+            right: Some(right),
+            top: Some(top),
+            bottom: Some(bottom),
         }
     }
 
     fn left(&mut self, side: BorderSide) {
-        self.left = side;
+        self.left = Some(side);
     }
 
     fn right(&mut self, side: BorderSide) {
-        self.right = side;
+        self.right = Some(side);
     }
 
     fn top(&mut self, side: BorderSide) {
-        self.top = side;
+        self.top = Some(side);
     }
 
     fn bottom(&mut self, side: BorderSide) {
-        self.bottom = side;
+        self.bottom = Some(side);
     }
 }
 

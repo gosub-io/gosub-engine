@@ -9,8 +9,8 @@ use url::Url;
 
 use gosub_html5::node::NodeId as GosubId;
 use gosub_render_backend::{
-    Brush, Color, Image, PreRenderText, Rect, RenderBackend, RenderRect, RenderText, SizeU32, Text,
-    Transform, FP,
+    Border, BorderSide, BorderStyle, Brush, Color, Image, PreRenderText, Rect, RenderBackend,
+    RenderBorder, RenderRect, RenderText, SizeU32, Text, Transform, FP,
 };
 use gosub_rendering::layout::generate_taffy_tree;
 use gosub_rendering::position::PositionTree;
@@ -220,8 +220,6 @@ fn render_text<B: RenderBackend>(
             .map(|color| Color::rgba(color.r as u8, color.g as u8, color.b as u8, color.a as u8))
             .unwrap_or(Color::BLACK);
 
-        let translate = Transform::translate(pos.x as FP, pos.y + layout.size.height as FP);
-
         let text = Text::new(&mut text.prerender);
 
         let rect = Rect::new(
@@ -234,7 +232,7 @@ fn render_text<B: RenderBackend>(
         let render_text = RenderText {
             text,
             rect,
-            transform: Some(translate),
+            transform: None,
             brush: Brush::color(color),
             brush_transform: None,
         };
@@ -308,6 +306,8 @@ fn render_bg<B: RenderBackend>(
         border_radius_left as FP,
     );
 
+    let border = get_border(node).map(|border| RenderBorder::new(border));
+
     if let Some(bg_color) = bg_color {
         let rect = Rect::new(
             pos.x as FP,
@@ -322,7 +322,25 @@ fn render_bg<B: RenderBackend>(
             radius: Some(B::BorderRadius::from(border_radius)),
             brush: Brush::color(bg_color),
             brush_transform: None,
-            border: None,
+            border,
+        };
+
+        backend.draw_rect(data, &rect);
+    } else if let Some(border) = border {
+        let rect = Rect::new(
+            pos.x as FP,
+            pos.y as FP,
+            layout.size.width as FP,
+            layout.size.height as FP,
+        );
+
+        let rect = RenderRect {
+            rect,
+            transform: None,
+            radius: Some(B::BorderRadius::from(border_radius)),
+            brush: Brush::color(Color::TRANSPARENT),
+            brush_transform: None,
+            border: Some(border),
         };
 
         backend.draw_rect(data, &rect);
@@ -459,40 +477,6 @@ fn render_image<B: RenderBackend>(
     Ok(())
 }
 
-#[derive(Debug)]
-enum BorderStyle {
-    None,
-    Hidden,
-    Dotted,
-    Dashed,
-    Solid,
-    Double,
-    Groove,
-    Ridge,
-    Inset,
-    Outset,
-    //DotDash, //TODO: should we support these?
-    //DotDotDash,
-}
-
-impl BorderStyle {
-    fn from_str(style: &str) -> Self {
-        match style {
-            "none" => Self::None,
-            "hidden" => Self::Hidden,
-            "dotted" => Self::Dotted,
-            "dashed" => Self::Dashed,
-            "solid" => Self::Solid,
-            "double" => Self::Double,
-            "groove" => Self::Groove,
-            "ridge" => Self::Ridge,
-            "inset" => Self::Inset,
-            "outset" => Self::Outset,
-            _ => Self::None,
-        }
-    }
-}
-
 //just for debugging
 pub fn print_tree<B: RenderBackend>(
     tree: &TaffyTree<GosubId>,
@@ -561,4 +545,87 @@ pub fn print_tree<B: RenderBackend>(
             print_node(tree, child, has_sibling, new_string.clone(), gosub_tree);
         }
     }
+}
+
+fn get_border<B: RenderBackend>(node: &mut RenderTreeNode<B>) -> Option<B::Border> {
+    let left = get_border_side(node, Side::Left);
+    let right = get_border_side(node, Side::Right);
+    let top = get_border_side(node, Side::Top);
+    let bottom = get_border_side(node, Side::Bottom);
+
+    if left.is_none() && right.is_none() && top.is_none() && bottom.is_none() {
+        return None;
+    }
+
+    let mut border = B::Border::empty();
+
+    if let Some(left) = left {
+        border.left(left)
+    }
+
+    if let Some(right) = right {
+        border.right(right)
+    }
+
+    if let Some(top) = top {
+        border.top(top)
+    }
+
+    if let Some(bottom) = bottom {
+        border.bottom(bottom)
+    }
+
+    Some(border)
+}
+
+fn get_border_side<B: RenderBackend>(
+    node: &mut RenderTreeNode<B>,
+    side: Side,
+) -> Option<B::BorderSide> {
+    let Some(width) = node
+        .properties
+        .get(&format!("border-{}-width", side.to_str()))
+        .map(|prop| {
+            prop.compute_value();
+            prop.actual.unit_to_px()
+        })
+    else {
+        return None;
+    };
+
+    let Some(color) = node
+        .properties
+        .get(&format!("border-{}-color", side.to_str()))
+        .and_then(|prop| {
+            prop.compute_value();
+
+            match &prop.actual {
+                CssValue::Color(color) => Some(*color),
+                CssValue::String(color) => Some(RgbColor::from(color.as_str())),
+                _ => None,
+            }
+        })
+    else {
+        return None;
+    };
+
+    let style = node
+        .properties
+        .get(&format!("border-{}-style", side.to_str()))
+        .map(|prop| {
+            prop.compute_value();
+            prop.actual.to_string()
+        })
+        .unwrap_or("none".to_string());
+
+    let style = BorderStyle::from_str(&style);
+
+    let brush = Brush::color(Color::rgba(
+        color.r as u8,
+        color.g as u8,
+        color.b as u8,
+        color.a as u8,
+    ));
+
+    Some(BorderSide::new(width as FP, style, brush))
 }

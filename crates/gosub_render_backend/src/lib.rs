@@ -171,6 +171,8 @@ pub trait Rect {
 pub trait Border<B: RenderBackend> {
     fn new(all: B::BorderSide) -> Self;
 
+    fn empty() -> Self;
+
     fn all(
         left: B::BorderSide,
         right: B::BorderSide,
@@ -203,6 +205,25 @@ pub enum BorderStyle {
     Outset,
     None,
     Hidden,
+}
+
+impl BorderStyle {
+    #[allow(clippy::should_implement_trait)]
+    pub fn from_str(style: &str) -> Self {
+        match style {
+            "none" => Self::None,
+            "hidden" => Self::Hidden,
+            "dotted" => Self::Dotted,
+            "dashed" => Self::Dashed,
+            "solid" => Self::Solid,
+            "double" => Self::Double,
+            "groove" => Self::Groove,
+            "ridge" => Self::Ridge,
+            "inset" => Self::Inset,
+            "outset" => Self::Outset,
+            _ => Self::None,
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
