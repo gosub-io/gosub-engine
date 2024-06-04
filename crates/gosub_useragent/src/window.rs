@@ -11,7 +11,7 @@ use gosub_renderer::draw::SceneDrawer;
 use gosub_shared::types::Result;
 use url::Url;
 
-use crate::tabs::{Tab, Tabs};
+use crate::tabs::Tabs;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WindowState<'a, B: RenderBackend> {
@@ -57,7 +57,7 @@ impl<'a, D: SceneDrawer<B>, B: RenderBackend> Window<'a, D, B> {
         Ok(())
     }
 
-    pub fn suspended(&mut self, el: &ActiveEventLoop, backend: &mut B) {
+    pub fn suspended(&mut self, _el: &ActiveEventLoop, backend: &mut B) {
         let WindowState::Active { surface: data } = &mut self.state else {
             return;
         };

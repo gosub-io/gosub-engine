@@ -4,9 +4,7 @@ use vello::peniko::{Blob, Fill, Font, StyleRef};
 use vello::skrifa::{instance::Size as FSize, FontRef, MetadataProvider};
 use vello::Scene;
 
-use gosub_render_backend::{
-    PreRenderText as TPreRenderText, RenderBackend, RenderText, Size, Text as TText, FP,
-};
+use gosub_render_backend::{PreRenderText as TPreRenderText, RenderText, Size, Text as TText, FP};
 use gosub_typeface::{BACKUP_FONT, DEFAULT_LH, FONT_RENDERER_CACHE};
 
 use crate::VelloBackend;
@@ -130,7 +128,11 @@ impl TPreRenderText for PreRenderText {
         width = width.max(pen_x);
         let height = self.line_height.max(self.fs); //HACK: we need to get the actual height of the font
 
-        Size { width, height }
+        let size = Size { width, height };
+
+        self.size = size;
+
+        size
     }
 
     fn value(&self) -> &str {

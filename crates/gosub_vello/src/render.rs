@@ -10,8 +10,7 @@ use wgpu::util::{
 };
 use wgpu::{
     Adapter, Backends, CompositeAlphaMode, Device, Dx12Compiler, Gles3MinorVersion, Instance,
-    InstanceDescriptor, PowerPreference, Queue, Surface, SurfaceConfiguration, SurfaceTarget,
-    TextureFormat,
+    InstanceDescriptor, PowerPreference, Queue, Surface, SurfaceConfiguration, TextureFormat,
 };
 
 use gosub_shared::types::Result;

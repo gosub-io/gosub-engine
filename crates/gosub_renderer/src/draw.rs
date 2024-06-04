@@ -162,6 +162,8 @@ impl<B: RenderBackend> TreeDrawer<B> {
                 let img = if url.scheme() == "file" {
                     let path = url.as_str().trim_start_matches("file://");
 
+                    println!("Loading image from: {:?}", path);
+
                     image::open(path)?
                 } else {
                     let res = gosub_net::http::ureq::get(url.as_str()).call()?;
@@ -394,10 +396,6 @@ enum Side {
 }
 
 impl Side {
-    fn all() -> [Side; 4] {
-        [Side::Top, Side::Right, Side::Bottom, Side::Left]
-    }
-
     fn to_str(&self) -> &'static str {
         match self {
             Side::Top => "top",
@@ -580,18 +578,15 @@ fn get_border_side<B: RenderBackend>(
     node: &mut RenderTreeNode<B>,
     side: Side,
 ) -> Option<B::BorderSide> {
-    let Some(width) = node
+    let width = node
         .properties
         .get(&format!("border-{}-width", side.to_str()))
         .map(|prop| {
             prop.compute_value();
             prop.actual.unit_to_px()
-        })
-    else {
-        return None;
-    };
+        })?;
 
-    let Some(color) = node
+    let color = node
         .properties
         .get(&format!("border-{}-color", side.to_str()))
         .and_then(|prop| {
@@ -602,10 +597,7 @@ fn get_border_side<B: RenderBackend>(
                 CssValue::String(color) => Some(RgbColor::from(color.as_str())),
                 _ => None,
             }
-        })
-    else {
-        return None;
-    };
+        })?;
 
     let style = node
         .properties

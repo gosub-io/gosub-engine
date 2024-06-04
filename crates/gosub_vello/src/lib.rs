@@ -1,12 +1,11 @@
 use std::fmt::Debug;
-use std::sync::Arc;
 
 use anyhow::anyhow;
-use vello::kurbo::{Point as VelloPoint, RoundedRect, Shape};
+use vello::kurbo::{Point as VelloPoint, RoundedRect};
 use vello::peniko::{Color as VelloColor, Fill};
 use vello::{AaConfig, RenderParams, Scene};
 
-use crate::render::{InstanceAdapter, Renderer, RendererOptions};
+use crate::render::{Renderer, RendererOptions};
 pub use border::*;
 pub use brush::*;
 pub use color::*;

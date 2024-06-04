@@ -4,7 +4,7 @@ use vello::Scene;
 
 use gosub_render_backend::{
     Border as TBorder, BorderRadius as TBorderRadius, BorderSide as TBorderSide, BorderStyle,
-    Radius, RenderBackend, RenderBorder, FP,
+    Radius, RenderBorder, FP,
 };
 
 use crate::{Brush, Rect, Transform, VelloBackend};
@@ -21,10 +21,6 @@ enum Side {
     Right,
     Top,
     Bottom,
-}
-
-fn all() -> [Side; 4] {
-    [Side::Top, Side::Right, Side::Bottom, Side::Left]
 }
 
 pub struct BorderRenderOptions<'a> {
@@ -44,9 +40,7 @@ struct BorderRenderSideOptions<'a> {
 
 impl<'a> BorderRenderOptions<'a> {
     fn left(&self, transform: Option<&'a Transform>) -> Option<BorderRenderSideOptions> {
-        let Some(segment) = self.border.border.left.as_ref() else {
-            return None;
-        };
+        let segment = self.border.border.left.as_ref()?;
 
         Some(BorderRenderSideOptions {
             side: Side::Left,
@@ -58,9 +52,7 @@ impl<'a> BorderRenderOptions<'a> {
     }
 
     fn right(&self, transform: Option<&'a Transform>) -> Option<BorderRenderSideOptions> {
-        let Some(segment) = self.border.border.right.as_ref() else {
-            return None;
-        };
+        let segment = self.border.border.right.as_ref()?;
 
         Some(BorderRenderSideOptions {
             side: Side::Right,
@@ -72,9 +64,7 @@ impl<'a> BorderRenderOptions<'a> {
     }
 
     fn top(&self, transform: Option<&'a Transform>) -> Option<BorderRenderSideOptions> {
-        let Some(segment) = self.border.border.top.as_ref() else {
-            return None;
-        };
+        let segment = self.border.border.top.as_ref()?;
 
         Some(BorderRenderSideOptions {
             side: Side::Top,
@@ -86,9 +76,7 @@ impl<'a> BorderRenderOptions<'a> {
     }
 
     fn bottom(&self, transform: Option<&'a Transform>) -> Option<BorderRenderSideOptions> {
-        let Some(segment) = self.border.border.bottom.as_ref() else {
-            return None;
-        };
+        let segment = self.border.border.bottom.as_ref()?;
 
         Some(BorderRenderSideOptions {
             side: Side::Bottom,
@@ -110,8 +98,6 @@ impl Border {
         };
 
         let transform = transform.as_ref();
-
-        let border = &opts.border.border;
 
         if let Some(segment) = opts.left(transform) {
             Self::draw_side(scene, segment);

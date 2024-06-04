@@ -7,19 +7,18 @@ use gosub_html5::parser::document::Document;
 use gosub_html5::parser::document::DocumentBuilder;
 use gosub_html5::parser::Html5Parser;
 use gosub_shared::bytes::{CharIterator, Confidence, Encoding};
-use gosub_styling::render_tree::generate_render_tree;
 
-struct TextVisitor {
-    color: String,
-}
-
-impl TextVisitor {
-    fn new() -> Self {
-        Self {
-            color: String::from(""),
-        }
-    }
-}
+// struct TextVisitor {
+//     color: String,
+// }
+//
+// impl TextVisitor {
+//     fn new() -> Self {
+//         Self {
+//             color: String::from(""),
+//         }
+//     }
+// }
 /*
 impl TreeVisitor<RenderTreeNode> for TextVisitor {
     fn document_enter(&mut self, _tree: &RenderTree, _node: &RenderTreeNode, _data: &DocumentData) {}
@@ -127,7 +126,7 @@ fn main() -> Result<()> {
     let _parse_errors =
         Html5Parser::parse_document(&mut chars, Document::clone(&doc_handle), None)?;
 
-    let _render_tree = generate_render_tree(Document::clone(&doc_handle))?;
+    // let _render_tree = generate_render_tree(Document::clone(&doc_handle))?;
 
     //TODO: what do we do with the TreeVisitor?
 

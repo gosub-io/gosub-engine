@@ -136,6 +136,12 @@ impl<'a, D: SceneDrawer<B>, B: RenderBackend> Application<'a, D, B> {
 
         Ok(())
     }
+
+    pub fn close_window(&mut self, id: WindowId) {
+        if let Some(proxy) = &self.proxy {
+            let _ = proxy.send_event(CustomEvent::CloseWindow(id));
+        }
+    }
 }
 
 #[derive(Debug)]
