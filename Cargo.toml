@@ -32,6 +32,9 @@ gosub_jsapi = { path = "./crates/gosub_jsapi", features = [] }
 gosub_testing = { path = "./crates/gosub_testing", features = [] }
 gosub_rendering = { path = "crates/gosub_render_utils", features = [] }
 gosub_renderer = { path = "./crates/gosub_renderer", features = [] }
+gosub_render_backend = { path = "./crates/gosub_render_backend", features = [] }
+gosub_vello = { path = "./crates/gosub_vello", features = [] }
+gosub_useragent = { path = "./crates/gosub_useragent", features = [] }
 serde = { version = "1.0", features = ["derive"] }
 serde_derive = "1.0"
 derive_more = "0.99"

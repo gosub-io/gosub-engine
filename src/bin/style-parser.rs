@@ -3,37 +3,27 @@ use std::fs;
 use anyhow::{bail, Result};
 use url::Url;
 
-use gosub_html5::node::data::comment::CommentData;
-use gosub_html5::node::data::doctype::DocTypeData;
-use gosub_html5::node::data::document::DocumentData;
-use gosub_html5::node::data::element::ElementData;
-use gosub_html5::node::data::text::TextData;
 use gosub_html5::parser::document::Document;
 use gosub_html5::parser::document::DocumentBuilder;
 use gosub_html5::parser::Html5Parser;
 use gosub_shared::bytes::{CharIterator, Confidence, Encoding};
-use gosub_styling::render_tree::{
-    generate_render_tree, walk_render_tree, RenderTree, RenderTreeNode, TreeVisitor,
-};
 
-struct TextVisitor {
-    color: String,
-}
-
-impl TextVisitor {
-    fn new() -> Self {
-        Self {
-            color: String::from(""),
-        }
-    }
-}
-
+// struct TextVisitor {
+//     color: String,
+// }
+//
+// impl TextVisitor {
+//     fn new() -> Self {
+//         Self {
+//             color: String::from(""),
+//         }
+//     }
+// }
+/*
 impl TreeVisitor<RenderTreeNode> for TextVisitor {
-    fn document_enter(&mut self, _tree: &RenderTree, _node: &RenderTreeNode, _data: &DocumentData) {
-    }
+    fn document_enter(&mut self, _tree: &RenderTree, _node: &RenderTreeNode, _data: &DocumentData) {}
 
-    fn document_leave(&mut self, _tree: &RenderTree, _node: &RenderTreeNode, _data: &DocumentData) {
-    }
+    fn document_leave(&mut self, _tree: &RenderTree, _node: &RenderTreeNode, _data: &DocumentData) {}
 
     fn doctype_enter(&mut self, _tree: &RenderTree, _node: &RenderTreeNode, _data: &DocTypeData) {}
 
@@ -96,6 +86,7 @@ impl TreeVisitor<RenderTreeNode> for TextVisitor {
         print!("\x1b[39;49m"); // default terminal color reset
     }
 }
+ */
 
 fn main() -> Result<()> {
     let matches = clap::Command::new("Gosub Style parser")
@@ -135,10 +126,12 @@ fn main() -> Result<()> {
     let _parse_errors =
         Html5Parser::parse_document(&mut chars, Document::clone(&doc_handle), None)?;
 
-    let render_tree = generate_render_tree(Document::clone(&doc_handle))?;
+    // let _render_tree = generate_render_tree(Document::clone(&doc_handle))?;
 
-    let mut visitor = Box::new(TextVisitor::new()) as Box<dyn TreeVisitor<RenderTreeNode>>;
-    walk_render_tree(&render_tree, &mut visitor);
+    //TODO: what do we do with the TreeVisitor?
+
+    // let mut visitor = Box::new(TextVisitor::new()) as Box<dyn TreeVisitor<RenderTreeNode>>;
+    // walk_render_tree(&render_tree, &mut visitor);
 
     Ok(())
 }

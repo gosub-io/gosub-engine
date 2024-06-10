@@ -1,10 +1,8 @@
 use std::num::NonZeroUsize;
 use std::sync::Arc;
-#[cfg(not(target_arch = "wasm32"))]
-use std::thread::JoinHandle;
 
 use anyhow::anyhow;
-use gosub_render_backend::RenderBackend;
+use gosub_render_backend::WindowHandle;
 use vello::{AaSupport, Renderer as VelloRenderer, RendererOptions as VelloRendererOptions};
 use wgpu::util::{
     backend_bits_from_env, dx12_shader_compiler_from_env, gles_minor_version_from_env,
@@ -12,14 +10,12 @@ use wgpu::util::{
 };
 use wgpu::{
     Adapter, Backends, CompositeAlphaMode, Device, Dx12Compiler, Gles3MinorVersion, Instance,
-    InstanceDescriptor, PowerPreference, Queue, Surface, SurfaceConfiguration, SurfaceTarget,
-    TextureFormat,
+    InstanceDescriptor, PowerPreference, Queue, Surface, SurfaceConfiguration, TextureFormat,
 };
 
 use gosub_shared::types::Result;
 
-use crate::draw::SceneDrawer;
-use crate::window::Window;
+pub mod window;
 
 const DEFAULT_POWER_PREFERENCE: PowerPreference = PowerPreference::None;
 const DEFAULT_BACKENDS: Backends = Backends::PRIMARY;
@@ -207,35 +203,6 @@ impl Renderer {
             queue,
         })
     }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn start_in_thread<D: SceneDrawer<B> + Send + 'static, B: RenderBackend>(
-        &self,
-        drawers: D,
-        #[cfg(target_arch = "wasm32")] id: Option<String>,
-    ) -> JoinHandle<Result<()>> {
-        let adapter = Arc::clone(&self.instance_adapter);
-
-        std::thread::spawn(move || {
-            let mut window: Window<D, B> = Window::new(adapter, drawers)?;
-            window.start()?;
-
-            Ok(())
-        })
-    }
-
-    pub fn start<D: SceneDrawer<B> + 'static, B: RenderBackend>(
-        &self,
-        drawers: D,
-        #[cfg(target_arch = "wasm32")] id: Option<String>,
-    ) -> Result<()> {
-        #[cfg(not(target_arch = "wasm32"))]
-        let mut window: Window<D, B> = Window::new(Arc::clone(&self.instance_adapter), drawers)?;
-        #[cfg(target_arch = "wasm32")]
-        let mut window = Window::new(Arc::clone(&self.instance_adapter), drawers, id)?;
-        window.start()?;
-        Ok(())
-    }
 }
 
 pub struct SurfaceWrapper<'a> {
@@ -244,17 +211,20 @@ pub struct SurfaceWrapper<'a> {
 }
 
 impl InstanceAdapter {
-    pub fn create_renderer(&self) -> Result<VelloRenderer> {
-        VelloRenderer::new(&self.device, RENDERER_CONF).map_err(|e| anyhow!(e.to_string()))
+    pub fn create_renderer(&self, surface_format: Option<TextureFormat>) -> Result<VelloRenderer> {
+        let mut conf = RENDERER_CONF;
+        conf.surface_format = surface_format;
+
+        VelloRenderer::new(&self.device, conf).map_err(|e| anyhow!(e.to_string()))
     }
     pub fn create_surface<'a>(
         &self,
-        window: impl Into<SurfaceTarget<'a>>,
+        window: impl WindowHandle + 'a,
         width: u32,
         height: u32,
         present_mode: wgpu::PresentMode,
     ) -> Result<SurfaceWrapper<'a>> {
-        let surface = self.instance.create_surface(window.into())?;
+        let surface = self.instance.create_surface(window)?;
         let capabilities = surface.get_capabilities(&self.adapter);
         let format = capabilities
             .formats

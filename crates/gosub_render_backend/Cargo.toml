@@ -1,0 +1,11 @@
+[package]
+name = "gosub_render_backend"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+smallvec = "1.13.2"
+image = "0.25.1"
+raw-window-handle = "0.6.2"
+gosub_shared = { path = "../gosub_shared" }
+

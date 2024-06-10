@@ -4,10 +4,14 @@ use taffy::{
     TrackSizingFunction,
 };
 
+use gosub_render_backend::{PreRenderText, RenderBackend};
 use gosub_styling::css_values::CssValue;
-use gosub_styling::render_tree::{RenderNodeData, RenderTreeNode};
+use gosub_styling::render_tree::{RenderTreeNode, TextData};
 
-pub(crate) fn parse_len(node: &mut RenderTreeNode, name: &str) -> LengthPercentage {
+pub(crate) fn parse_len<B: RenderBackend>(
+    node: &mut RenderTreeNode<B>,
+    name: &str,
+) -> LengthPercentage {
     let Some(property) = node.get_property(name) else {
         return LengthPercentage::Length(0.0);
     };
@@ -22,7 +26,10 @@ pub(crate) fn parse_len(node: &mut RenderTreeNode, name: &str) -> LengthPercenta
     }
 }
 
-pub(crate) fn parse_len_auto(node: &mut RenderTreeNode, name: &str) -> LengthPercentageAuto {
+pub(crate) fn parse_len_auto<B: RenderBackend>(
+    node: &mut RenderTreeNode<B>,
+    name: &str,
+) -> LengthPercentageAuto {
     let Some(property) = node.get_property(name) else {
         return LengthPercentageAuto::Auto;
     };
@@ -40,29 +47,19 @@ pub(crate) fn parse_len_auto(node: &mut RenderTreeNode, name: &str) -> LengthPer
     }
 }
 
-pub(crate) fn parse_dimension(node: &mut RenderTreeNode, name: &str) -> Dimension {
-    let mut auto = Dimension::Auto;
-    if let RenderNodeData::Text(text) = &node.data {
-        if name == "width" {
-            auto = Dimension::Length(text.width);
-        } else if name == "height" {
-            auto = Dimension::Length(text.height);
-        }
-    }
-
+pub(crate) fn parse_dimension<B: RenderBackend>(
+    node: &mut RenderTreeNode<B>,
+    name: &str,
+) -> Dimension {
     let Some(property) = node.get_property(name) else {
-        return auto;
+        return Dimension::Auto;
     };
 
     property.compute_value();
 
-    if name == "width" {
-        println!("Width: {:?}", property.actual);
-    }
-
     match &property.actual {
         CssValue::String(value) => match value.as_str() {
-            "auto" => auto,
+            "auto" => Dimension::Auto,
             s if s.ends_with('%') => {
                 let value = s.trim_end_matches('%').parse::<f32>().unwrap_or(0.0);
                 Dimension::Percent(value)
@@ -71,11 +68,26 @@ pub(crate) fn parse_dimension(node: &mut RenderTreeNode, name: &str) -> Dimensio
         },
         CssValue::Percentage(value) => Dimension::Percent(*value),
         CssValue::Unit(..) => Dimension::Length(property.actual.unit_to_px()),
-        _ => auto,
+        _ => Dimension::Auto,
     }
 }
 
-pub(crate) fn parse_align_i(node: &mut RenderTreeNode, name: &str) -> Option<AlignItems> {
+pub(crate) fn parse_text_dim<B: RenderBackend>(text: &mut TextData<B>, name: &str) -> Dimension {
+    let size = text.prerender.prerender();
+
+    if name == "width" || name == "max-width" || name == "min-width" {
+        Dimension::Length(size.width)
+    } else if name == "height" || name == "max-height" || name == "min-height" {
+        Dimension::Length(size.height)
+    } else {
+        Dimension::Auto
+    }
+}
+
+pub(crate) fn parse_align_i<B: RenderBackend>(
+    node: &mut RenderTreeNode<B>,
+    name: &str,
+) -> Option<AlignItems> {
     let display = node.get_property(name)?;
     display.compute_value();
 
@@ -95,7 +107,10 @@ pub(crate) fn parse_align_i(node: &mut RenderTreeNode, name: &str) -> Option<Ali
     }
 }
 
-pub(crate) fn parse_align_c(node: &mut RenderTreeNode, name: &str) -> Option<AlignContent> {
+pub(crate) fn parse_align_c<B: RenderBackend>(
+    node: &mut RenderTreeNode<B>,
+    name: &str,
+) -> Option<AlignContent> {
     let display = node.get_property(name)?;
 
     display.compute_value();
@@ -117,8 +132,8 @@ pub(crate) fn parse_align_c(node: &mut RenderTreeNode, name: &str) -> Option<Ali
     }
 }
 
-pub(crate) fn parse_tracking_sizing_function(
-    node: &mut RenderTreeNode,
+pub(crate) fn parse_tracking_sizing_function<B: RenderBackend>(
+    node: &mut RenderTreeNode<B>,
     name: &str,
 ) -> Vec<TrackSizingFunction> {
     let Some(display) = node.get_property(name) else {
@@ -135,15 +150,15 @@ pub(crate) fn parse_tracking_sizing_function(
 }
 
 #[allow(dead_code)]
-pub(crate) fn parse_non_repeated_tracking_sizing_function(
-    _node: &mut RenderTreeNode,
+pub(crate) fn parse_non_repeated_tracking_sizing_function<B: RenderBackend>(
+    _node: &mut RenderTreeNode<B>,
     _name: &str,
 ) -> NonRepeatedTrackSizingFunction {
     todo!("implement parse_non_repeated_tracking_sizing_function")
 }
 
-pub(crate) fn parse_grid_auto(
-    node: &mut RenderTreeNode,
+pub(crate) fn parse_grid_auto<B: RenderBackend>(
+    node: &mut RenderTreeNode<B>,
     name: &str,
 ) -> Vec<NonRepeatedTrackSizingFunction> {
     let Some(display) = node.get_property(name) else {
@@ -159,7 +174,10 @@ pub(crate) fn parse_grid_auto(
     Vec::new() //TODO: Implement this
 }
 
-pub(crate) fn parse_grid_placement(node: &mut RenderTreeNode, name: &str) -> GridPlacement {
+pub(crate) fn parse_grid_placement<B: RenderBackend>(
+    node: &mut RenderTreeNode<B>,
+    name: &str,
+) -> GridPlacement {
     let Some(display) = node.get_property(name) else {
         return GridPlacement::Auto;
     };
@@ -182,7 +200,7 @@ pub(crate) fn parse_grid_placement(node: &mut RenderTreeNode, name: &str) -> Gri
                 GridPlacement::Auto
             }
         }
-        CssValue::Number(value) => GridPlacement::from_line_index(*value as i16),
+        CssValue::Number(value) => GridPlacement::from_line_index((*value) as i16),
         _ => GridPlacement::Auto,
     }
 }

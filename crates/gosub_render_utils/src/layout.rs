@@ -1,22 +1,23 @@
 use taffy::prelude::*;
 
 use gosub_html5::node::NodeId as GosubID;
+use gosub_render_backend::RenderBackend;
 use gosub_styling::render_tree::RenderTree;
 
 use crate::style::get_style_from_node;
 
-pub fn generate_taffy_tree(rt: &mut RenderTree) -> anyhow::Result<(TaffyTree<GosubID>, NodeId)> {
+pub fn generate_taffy_tree<B: RenderBackend>(
+    rt: &mut RenderTree<B>,
+) -> anyhow::Result<(TaffyTree<GosubID>, NodeId)> {
     let mut tree: TaffyTree<GosubID> = TaffyTree::with_capacity(rt.nodes.len());
-
-    rt.get_root();
 
     let root = add_children_to_tree(rt, &mut tree, rt.root)?;
 
     Ok((tree, root))
 }
 
-fn add_children_to_tree(
-    rt: &mut RenderTree,
+fn add_children_to_tree<B: RenderBackend>(
+    rt: &mut RenderTree<B>,
     tree: &mut TaffyTree<GosubID>,
     node_id: GosubID,
 ) -> anyhow::Result<NodeId> {
@@ -30,7 +31,7 @@ fn add_children_to_tree(
     for child in node_children.clone() {
         match add_children_to_tree(rt, tree, child) {
             Ok(node) => children.push(node),
-            Err(e) => eprintln!("Error adding child to tree: {:?}", e),
+            Err(e) => eprintln!("Error adding child to tree: {:?}", e.to_string()),
         }
     }
 
