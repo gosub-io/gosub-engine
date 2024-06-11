@@ -56,9 +56,11 @@ lazy_static! {
     pub static ref FONT_PATH_CACHE: FcFontCache = FcFontCache::build();
 }
 
+const ROBOTO_REGULAR: &[u8] = include_bytes!("../../../resources/fonts/Roboto-Regular.ttf");
+
 lazy_static! {
     pub static ref BACKUP_FONT: SharedFont = SharedFont {
-        data: Arc::new(include_bytes!("../../../resources/fonts/Roboto-Regular.ttf").to_vec()),
+        data: Arc::new(ROBOTO_REGULAR.to_vec()),
         ty: FontType::TrueType,
     };
 }
