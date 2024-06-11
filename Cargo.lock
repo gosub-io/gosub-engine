@@ -1599,7 +1599,6 @@ dependencies = [
  "lazy_static",
  "regex",
  "rust-fontconfig",
- "vello 0.1.0",
 ]
 
 [[package]]
