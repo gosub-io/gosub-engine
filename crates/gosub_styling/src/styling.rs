@@ -492,7 +492,7 @@ mod tests {
         assert_eq!(prop.name, "color");
         assert_eq!(
             prop.get_initial_value(),
-            Some(&CssValue::String("".into())).cloned()
+            Some(&CssValue::None).cloned()
         );
         assert!(prop.is_inheritable());
     }

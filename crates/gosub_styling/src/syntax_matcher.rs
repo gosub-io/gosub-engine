@@ -85,32 +85,46 @@ fn match_group_exactly_one(value: &CssValue, group: &Group) -> Option<CssValue> 
     let entries = resolve_group(value, group);
 
     // We must have exactly one element
-    if entries.len() == 1 {
-        let (v_idx, _) = entries[0];
+    if entries.len() != 1 {
+        return None
+    }
 
-        if let CssValue::List(list) = value.as_list() {
-            return Some(list[v_idx].clone());
-        }
+    // check if there are -1 in the list
+    if entries.iter().any(|&x| x == -1) {
+        return None;
+    }
+    if let CssValue::List(list) = value.as_list() {
+        return Some(list[0].clone());
     }
 
     return None;
 }
 
-fn resolve_group(value: &CssValue, group: &Group) -> Vec<(usize, usize)> {
-    let mut values: Vec<(usize, usize)> = vec![];
+
+/// Resolves a group of values against a group of components based on their position. So if the
+/// first element matches the first component a 0 will be inserted on the first (0) position.
+///
+/// Example:
+///     resolve_group([auto, none, block], [auto, none, block]) => [0, 1, 2]
+///     resolve_group([none, block, auto], [auto, none, block]) => [1, 2, 0]
+///     resolve_group([none, banana, car, block], [auto, none, block]) => [1, -1, -1, 2]
+///     resolve_group([none, block, block, auto, none], [auto, none, block]) => [1, 2, 2, 0, 1]
+///
+fn resolve_group(value: &CssValue, group: &Group) -> Vec<isize> {
+    let mut values: Vec<isize> = vec![];
 
     if let CssValue::List(list) = value.as_list() {
-        for (v_idx, value) in list.iter().enumerate() {
+        for value in list.iter() {
+            let mut v_idx = -1;
             for (c_idx, component) in group.components.iter().enumerate() {
-                if match_internal(value, component).is_some() {
-                    values.push((v_idx, c_idx));
-                    break;
+                if ! match_internal(value, component).is_some() {
+                    continue;
                 }
+                v_idx = c_idx as isize;
             }
+            values.push(v_idx);
         }
     }
-
-    dbg!(&values);
     return values;
 }
 
@@ -118,34 +132,57 @@ fn match_group_at_least_one_any_order(value: &CssValue, group: &Group) -> Option
     let values = resolve_group(value, group);
 
     // We must have at least one element
-    if values.len() >= 1 {
-        return Some(CssValue::String("foobar".into()));
+    if values.is_empty() {
+        return None
     }
 
-    return None;
+    // check if there are -1 in the list
+    if values.iter().any(|&x| x == -1) {
+        return None;
+    }
+
+    return Some(value.clone());
 }
 
 fn match_group_all_any_order(value: &CssValue, group: &Group) -> Option<CssValue> {
     let values = resolve_group(value, group);
 
-    // We must have resolved all values, but we don't care about the ordering
-    if values.len() == group.components.len() {
-        return Some(CssValue::String("foobar".into()));
+    // If it's not the same length, we definitely don't have a match
+    if values.len() != group.components.len() {
+        return None
     }
 
-    return None;
+    // check if there are -1 in the list
+    if values.iter().any(|&x| x == -1) {
+        return None;
+    }
+
+    return Some(value.clone());
 }
 
 fn match_group_juxtaposition(value: &CssValue, group: &Group) -> Option<CssValue> {
     let values = resolve_group(value, group);
 
-    // We must have resolved all values in the correct order
+    // If it's not the same length, we definitely don't have a match
     if values.len() != group.components.len() {
         return None;
     }
 
-    // Check the ordering...
-    return None;
+    // check if there are -1 in the list
+    if values.iter().any(|&x| x == -1) {
+        return None;
+    }
+
+    // Check if the values are in the correct order
+    let mut c_idx = 0;
+    while c_idx < group.components.len() {
+        if values[c_idx] != c_idx as isize {
+            return None;
+        }
+        c_idx += 1;
+    }
+
+    return Some(value.clone());
 }
 
 #[cfg(test)]
@@ -153,35 +190,290 @@ mod tests {
     use gosub_css3::stylesheet::CssValue;
     use crate::syntax::CssSyntax;
 
+    use super::*;
+
     macro_rules! str {
         ($s:expr) => {
             CssValue::String($s.to_string())
         };
     }
 
-    #[test]
-    fn test_simple_group() {
-        let tree = CssSyntax::new("auto | none | block").compile().unwrap();
-        assert!(tree.matches(&str!("auto")).is_some());
-        assert!(tree.matches(&CssValue::None).is_some());
-        assert!(tree.matches(&str!("block")).is_some());
-        assert!(tree.matches(&str!("inline")).is_none());
-        assert!(tree.matches(&str!("")).is_none());
-        assert!(tree.matches(&str!("foobar")).is_none());
-        assert!(tree.matches(&CssValue::List(vec![str!("auto"), CssValue::None])).is_none());
-        assert!(tree.matches(&CssValue::List(vec![str!("auto"), CssValue::Comma, str!("none")])).is_none());
-        assert!(tree.matches(&CssValue::List(vec![str!("auto"), CssValue::Comma, CssValue::None, CssValue::Comma, str!("block") ])).is_none());
+    macro_rules! assert_none {
+        ($e:expr) => {
+            assert!($e.is_none());
+        };
+    }
+
+    macro_rules! assert_some {
+        ($e:expr) => {
+            assert!($e.is_some());
+        };
     }
 
     #[test]
-    fn test_double_group() {
+    fn test_match_group1() {
+        // Exactly one
+        let tree = CssSyntax::new("auto | none | block").compile().unwrap();
+        assert_some!(tree.matches(&str!("auto")));
+        assert_some!(tree.matches(&CssValue::None));
+        assert_some!(tree.matches(&str!("block")));
+        assert_none!(tree.matches(&str!("inline")));
+        assert_none!(tree.matches(&str!("")));
+        assert_none!(tree.matches(&str!("foobar")));
+        assert_none!(tree.matches(&CssValue::List(vec![str!("foo"), CssValue::None])));
+        assert_none!(tree.matches(&CssValue::List(vec![CssValue::None, str!("foo")])));
+        assert_none!(tree.matches(&CssValue::List(vec![str!("auto"), CssValue::None])));
+        assert_none!(tree.matches(&CssValue::List(vec![str!("auto"), CssValue::Comma, str!("none")])));
+        assert_none!(tree.matches(&CssValue::List(vec![str!("auto"), CssValue::Comma, CssValue::None, CssValue::Comma, str!("block") ])));
+    }
+
+    #[test]
+    fn test_match_group2() {
+        // juxtaposition
         let tree = CssSyntax::new("auto none block").compile().unwrap();
-        assert!(tree.matches(&str!("auto")).is_none());
-        assert!(tree.matches(&CssValue::None).is_none());
-        assert!(tree.matches(&str!("block")).is_none());
-        assert!(tree.matches(&CssValue::List(vec![str!("auto"), CssValue::None, str!("block")])).is_some());
-        assert!(tree.matches(&CssValue::List(vec![str!("block"), CssValue::None, str!("block")])).is_none());
-        assert!(tree.matches(&CssValue::List(vec![str!("auto"), CssValue::None, str!("auto")])).is_none());
+        assert_none!(tree.matches(&str!("auto")));
+        assert_none!(tree.matches(&CssValue::None));
+        assert_none!(tree.matches(&str!("block")));
+        assert_some!(tree.matches(&CssValue::List(vec![str!("auto"), CssValue::None, str!("block")])));
+        assert_none!(tree.matches(&CssValue::List(vec![str!("block"), CssValue::None, str!("block")])));
+        assert_none!(tree.matches(&CssValue::List(vec![str!("auto"), CssValue::None, str!("auto")])));
+    }
+
+    #[test]
+    fn test_match_group3() {
+        // all any order
+        let tree = CssSyntax::new("auto && none && block").compile().unwrap();
+        assert_none!(tree.matches(&str!("auto")));
+        assert_none!(tree.matches(&CssValue::None));
+        assert_none!(tree.matches(&str!("block")));
+        assert_none!(tree.matches(&str!("inline")));
+        assert_none!(tree.matches(&str!("")));
+        assert_none!(tree.matches(&str!("foobar")));
+        assert_none!(tree.matches(&CssValue::List(vec![str!("foo"), CssValue::None])));
+        assert_none!(tree.matches(&CssValue::List(vec![CssValue::None, str!("foo")])));
+        assert_none!(tree.matches(&CssValue::List(vec![str!("auto"), CssValue::None])));
+        assert_none!(tree.matches(&CssValue::List(vec![str!("auto"), CssValue::Comma, str!("none")])));
+        assert_none!(tree.matches(&CssValue::List(vec![str!("auto"), CssValue::Comma, CssValue::None, CssValue::Comma, str!("block") ])));
+        assert_some!(tree.matches(&CssValue::List(vec![str!("block"), str!("auto"), CssValue::None])));
+        assert_some!(tree.matches(&CssValue::List(vec![str!("auto"), str!("block"), CssValue::None])));
+        assert_some!(tree.matches(&CssValue::List(vec![str!("block"), CssValue::None, str!("auto")])));
+        assert_some!(tree.matches(&CssValue::List(vec![CssValue::None, str!("auto"), str!("block")])));
+        assert_none!(tree.matches(&CssValue::List(vec![str!("block"), str!("block"), CssValue::None, CssValue::None])));
+    }
+
+    #[test]
+    fn test_match_group4() {
+        // At least one in any order
+        let tree = CssSyntax::new("auto || none || block").compile().unwrap();
+        assert_some!(tree.matches(&str!("auto")));
+        assert_some!(tree.matches(&CssValue::None));
+        assert_some!(tree.matches(&str!("block")));
+        assert_none!(tree.matches(&str!("inline")));
+        assert_none!(tree.matches(&str!("")));
+        assert_none!(tree.matches(&str!("foobar")));
+        assert_none!(tree.matches(&CssValue::List(vec![str!("foo"), CssValue::None])));
+        assert_none!(tree.matches(&CssValue::List(vec![CssValue::None, str!("foo")])));
+        assert_some!(tree.matches(&CssValue::List(vec![str!("auto"), CssValue::None])));
+        assert_none!(tree.matches(&CssValue::List(vec![str!("auto"), CssValue::Comma, str!("none")])));
+        assert_none!(tree.matches(&CssValue::List(vec![str!("auto"), CssValue::Comma, CssValue::None, CssValue::Comma, str!("block") ])));
+        assert_some!(tree.matches(&CssValue::List(vec![str!("block"), str!("auto"), CssValue::None])));
+        assert_some!(tree.matches(&CssValue::List(vec![str!("block"), str!("block"), CssValue::None, CssValue::None])));
+    }
+
+    #[test]
+    fn test_resolve_group() {
+        let tree = CssSyntax::new("auto none block").compile().unwrap();
+        if let SyntaxComponentType::Group(group) = &tree.components[0].component {
+            let values = resolve_group(&CssValue::List(vec!(
+                str!("auto"),
+            )), group);
+            assert_eq!(values, [0]);
+
+            let values = resolve_group(&CssValue::List(vec!(
+                str!("auto"),
+                str!("none"),
+            )), group);
+            assert_eq!(values, [0, 1]);
+
+            let values = resolve_group(&CssValue::List(vec!(
+                str!("auto"),
+                str!("none"),
+                str!("block"),
+            )), group);
+            assert_eq!(values, [0, 1, 2]);
+
+            let values = resolve_group(&CssValue::List(vec!(
+                str!("none"),
+                str!("block"),
+                str!("auto"),
+            )), group);
+            assert_eq!(values, [1, 2, 0]);
+
+            let values = resolve_group(&CssValue::List(vec!(
+                str!("none"),
+                str!("block"),
+                str!("block"),
+                str!("auto"),
+                str!("none"),
+            )), group);
+            assert_eq!(values, [1, 2, 2, 0, 1]);
+
+            let values = resolve_group(&CssValue::List(vec!(
+                str!("none"),
+                str!("banana"),
+                str!("car"),
+                str!("block"),
+            )), group);
+            assert_eq!(values, [1, -1, -1, 2]);
+        }
+    }
+
+    #[test]
+    fn test_match_group_juxtaposition() {
+        let tree = CssSyntax::new("auto none block").compile().unwrap();
+        if let SyntaxComponentType::Group(group) = &tree.components[0].component {
+
+            let res = match_group_juxtaposition(&CssValue::List(vec!(
+                str!("auto"),
+            )), group);
+            assert_none!(res);
+
+
+            let res = match_group_juxtaposition(&CssValue::List(vec!(
+                str!("auto"),
+                str!("none"),
+            )), group);
+            assert_none!(res);
+
+            let res = match_group_juxtaposition(&CssValue::List(vec!(
+                str!("auto"),
+                str!("none"),
+                str!("block"),
+            )), group);
+            assert_some!(res);
+
+            let res = match_group_juxtaposition(&CssValue::List(vec!(
+                str!("none"),
+                str!("block"),
+                str!("auto"),
+            )), group);
+            assert_none!(res);
+
+            let res = match_group_juxtaposition(&CssValue::List(vec!(
+                str!("none"),
+                str!("block"),
+                str!("block"),
+                str!("auto"),
+                str!("none"),
+            )), group);
+            assert_none!(res);
+
+            let res = match_group_juxtaposition(&CssValue::List(vec!(
+                str!("none"),
+                str!("banana"),
+                str!("car"),
+                str!("block"),
+            )), group);
+            assert_none!(res);
+        }
+    }
+
+    #[test]
+    fn test_match_group_all_any_order() {
+        let tree = CssSyntax::new("auto none block").compile().unwrap();
+        if let SyntaxComponentType::Group(group) = &tree.components[0].component {
+
+            let res = match_group_all_any_order(&CssValue::List(vec!(
+                str!("auto"),
+            )), group);
+            assert_none!(res);
+
+            let res = match_group_all_any_order(&CssValue::List(vec!(
+                str!("auto"),
+                str!("none"),
+            )), group);
+            assert_none!(res);
+
+            let res = match_group_all_any_order(&CssValue::List(vec!(
+                str!("auto"),
+                str!("none"),
+                str!("block"),
+            )), group);
+            assert_some!(res);
+
+            let res = match_group_all_any_order(&CssValue::List(vec!(
+                str!("none"),
+                str!("block"),
+                str!("auto"),
+            )), group);
+            assert_some!(res);
+
+            let res = match_group_all_any_order(&CssValue::List(vec!(
+                str!("none"),
+                str!("block"),
+                str!("block"),
+                str!("auto"),
+                str!("none"),
+            )), group);
+            assert_none!(res);
+
+            let res = match_group_all_any_order(&CssValue::List(vec!(
+                str!("none"),
+                str!("banana"),
+                str!("car"),
+                str!("block"),
+            )), group);
+            assert_none!(res);
+        }
+    }
+
+    #[test]
+    fn test_match_group_at_least_one_any_order() {
+        let tree = CssSyntax::new("auto none block").compile().unwrap();
+        if let SyntaxComponentType::Group(group) = &tree.components[0].component {
+
+            let res = match_group_at_least_one_any_order(&CssValue::List(vec!(
+                str!("auto"),
+            )), group);
+            assert_some!(res);
+
+            let res = match_group_at_least_one_any_order(&CssValue::List(vec!(
+                str!("auto"),
+                str!("none"),
+            )), group);
+            assert_some!(res);
+
+            let res = match_group_at_least_one_any_order(&CssValue::List(vec!(
+                str!("auto"),
+                str!("none"),
+                str!("block"),
+            )), group);
+            assert_some!(res);
+
+            let res = match_group_at_least_one_any_order(&CssValue::List(vec!(
+                str!("none"),
+                str!("block"),
+                str!("auto"),
+            )), group);
+            assert_some!(res);
+
+            let res = match_group_at_least_one_any_order(&CssValue::List(vec!(
+                str!("none"),
+                str!("block"),
+                str!("block"),
+                str!("auto"),
+                str!("none"),
+            )), group);
+            assert_some!(res);
+
+            let res = match_group_at_least_one_any_order(&CssValue::List(vec!(
+                str!("none"),
+                str!("banana"),
+                str!("car"),
+                str!("block"),
+            )), group);
+            assert_none!(res);
+        }
     }
 
 }
