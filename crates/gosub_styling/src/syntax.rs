@@ -491,8 +491,8 @@ fn parse_generic_keyword(input: &str) -> IResult<&str, SyntaxComponentType> {
 /// Parses an infinity symbol and returns NumberOrInfinity::Infinity
 fn parse_infinity(input: &str) -> IResult<&str, NumberOrInfinity> {
     alt((
-        map(tag_no_case("∞"), |_| NumberOrInfinity::Infinity),
-        map(tag_no_case("-∞"), |_| NumberOrInfinity::NegativeInfinity),
+        map(tag_no_case("inf"), |_| NumberOrInfinity::Infinity),
+        map(tag_no_case("-inf"), |_| NumberOrInfinity::NegativeInfinity),
     ))(input)
 }
 
@@ -1280,7 +1280,7 @@ mod tests {
                    ), SyntaxComponentMultiplier::Once,
                    ));
 
-        let c = CssSyntax::new("<function [0,∞]>").compile().unwrap();
+        let c = CssSyntax::new("<function [0,inf]>").compile().unwrap();
         assert_eq!(c.components[0],
                    SyntaxComponent::new(SyntaxComponentType::TypeDefinition(
                        "function".to_string(),
@@ -1291,7 +1291,7 @@ mod tests {
                        },
                    ), SyntaxComponentMultiplier::Once,
                    ));
-        let c = CssSyntax::new("<function [-∞, 0]>").compile().unwrap();
+        let c = CssSyntax::new("<function [-inf, 0]>").compile().unwrap();
         assert_eq!(c.components[0],
                    SyntaxComponent::new(SyntaxComponentType::TypeDefinition(
                        "function".to_string(),
@@ -1302,7 +1302,7 @@ mod tests {
                        },
                    ), SyntaxComponentMultiplier::Once,
                    ));
-        let c = CssSyntax::new("<function [-∞,∞]>").compile().unwrap();
+        let c = CssSyntax::new("<function [-inf,inf]>").compile().unwrap();
         assert_eq!(c.components[0],
                    SyntaxComponent::new(SyntaxComponentType::TypeDefinition(
                        "function".to_string(),
