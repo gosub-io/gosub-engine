@@ -3,7 +3,6 @@ use crate::unicode::{get_unicode_char, UnicodeChar};
 use gosub_shared::byte_stream::Character::Ch;
 use gosub_shared::byte_stream::{ByteStream, Character, Stream};
 use std::fmt;
-use std::usize;
 
 pub type Number = f32;
 
