@@ -27,13 +27,22 @@ pub trait RenderBackend: Sized + Debug {
     type Color: Color;
     type Image: Image;
     type Brush: Brush<Self>;
+    type Scene: Scene<Self>;
 
     type ActiveWindowData<'a>;
     type WindowData<'a>;
 
     fn draw_rect(&mut self, data: &mut Self::WindowData<'_>, rect: &RenderRect<Self>);
     fn draw_text(&mut self, data: &mut Self::WindowData<'_>, text: &RenderText<Self>);
+    fn apply_scene(
+        &mut self,
+        data: &mut Self::WindowData<'_>,
+        scene: &Self::Scene,
+        transform: Option<Self::Transform>,
+    );
     fn reset(&mut self, data: &mut Self::WindowData<'_>);
+    // fn layer_push(&mut self, data: &mut Self::WindowData<'_>);
+    // fn layer_pop(&mut self, data: &mut Self::WindowData<'_>);
 
     fn activate_window<'a>(
         &mut self,
@@ -62,6 +71,15 @@ pub trait RenderBackend: Sized + Debug {
         window_data: &mut Self::WindowData<'_>,
         active_data: &mut Self::ActiveWindowData<'_>,
     ) -> Result<()>;
+}
+
+pub trait Scene<B: RenderBackend> {
+    fn draw_rect(&mut self, rect: &RenderRect<B>);
+    fn draw_text(&mut self, text: &RenderText<B>);
+    fn apply_scene(&mut self, scene: &B::Scene, transform: Option<B::Transform>);
+    fn reset(&mut self);
+
+    fn new(data: &mut B::WindowData<'_>) -> Self;
 }
 
 pub type FP = f32;
@@ -525,6 +543,32 @@ pub trait Color {
         Self::with_alpha(r, g, b, a)
     }
 
+    fn tuple3(tup: (u8, u8, u8)) -> Self
+    where
+        Self: Sized,
+    {
+        Self::new(tup.0, tup.1, tup.2)
+    }
+
+    fn tuple4(tup: (u8, u8, u8, u8)) -> Self
+    where
+        Self: Sized,
+    {
+        Self::with_alpha(tup.0, tup.1, tup.2, tup.3)
+    }
+
+    fn alpha(self, a: u8) -> Self
+    where
+        Self: Sized,
+    {
+        Self::with_alpha(self.r(), self.g(), self.b(), a)
+    }
+
+    fn r(&self) -> u8;
+    fn g(&self) -> u8;
+    fn b(&self) -> u8;
+    fn a(&self) -> u8;
+
     const WHITE: Self;
     const BLACK: Self;
     const RED: Self;
@@ -542,7 +586,7 @@ pub trait Image {
     fn from_img(img: &image::DynamicImage) -> Self;
 }
 
-pub trait Brush<B: RenderBackend> {
+pub trait Brush<B: RenderBackend>: Clone {
     fn gradient(gradient: B::Gradient) -> Self;
 
     fn color(color: B::Color) -> Self;

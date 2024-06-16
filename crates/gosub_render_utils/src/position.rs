@@ -3,7 +3,8 @@ use std::cmp::Ordering;
 use rstar::{RTree, RTreeObject, AABB};
 use taffy::{NodeId, PrintTree, TaffyTree};
 
-struct Element {
+#[derive(Debug)]
+pub struct Element {
     id: NodeId,
     x: f32,
     y: f32,
@@ -139,6 +140,14 @@ impl PositionTree {
             })
             .reduce(|a, b| if a.z_index >= b.z_index { a } else { b }) // >= because we just hope that the last-drawn element is last in the list
             .map(|e| e.id)
+    }
+
+    pub fn get_node(&self, id: NodeId) -> Option<&Element> {
+        self.tree.iter().find(|e| e.id == id)
+    }
+
+    pub fn position(&self, id: NodeId) -> Option<(f32, f32)> {
+        self.get_node(id).map(|e| (e.x, e.y))
     }
 }
 

@@ -1,19 +1,22 @@
 use std::fmt::Debug;
 
 use anyhow::anyhow;
-use vello::kurbo::{Point as VelloPoint, RoundedRect};
-use vello::peniko::{Color as VelloColor, Fill};
-use vello::{AaConfig, RenderParams, Scene};
+use vello::kurbo::Point as VelloPoint;
+use vello::peniko::Color as VelloColor;
+use vello::{AaConfig, RenderParams, Scene as VelloScene};
 
 use crate::render::{Renderer, RendererOptions};
 pub use border::*;
 pub use brush::*;
 pub use color::*;
-use gosub_render_backend::{Point, RenderBackend, RenderRect, RenderText, SizeU32, WindowHandle};
+use gosub_render_backend::{
+    Point, RenderBackend, RenderRect, RenderText, Scene as TScene, SizeU32, WindowHandle,
+};
 use gosub_shared::types::Result;
 pub use gradient::*;
 pub use image::*;
 pub use rect::*;
+pub use scene::*;
 pub use text::*;
 pub use transform::*;
 
@@ -26,6 +29,7 @@ mod gradient;
 mod image;
 mod rect;
 mod render;
+mod scene;
 mod text;
 mod transform;
 
@@ -51,36 +55,23 @@ impl RenderBackend for VelloBackend {
     type Brush = Brush;
     type ActiveWindowData<'a> = ActiveWindowData<'a>;
     type WindowData<'a> = WindowData;
+    type Scene = Scene;
 
     fn draw_rect(&mut self, data: &mut Self::WindowData<'_>, rect: &RenderRect<Self>) {
-        let affine = rect.transform.as_ref().map(|t| t.0).unwrap_or_default();
-
-        let brush = &rect.brush.0;
-        let brush_transform = rect.brush_transform.as_ref().map(|t| t.0);
-
-        if let Some(radius) = &rect.radius {
-            let shape = RoundedRect::from_rect(rect.rect.0, radius.clone());
-            data.scene
-                .fill(Fill::NonZero, affine, brush, brush_transform, &shape)
-        } else {
-            data.scene
-                .fill(Fill::NonZero, affine, brush, brush_transform, &rect.rect.0)
-        }
-
-        if let Some(border) = &rect.border {
-            let opts = BorderRenderOptions {
-                border,
-                rect: &rect.rect,
-                transform: rect.transform.as_ref(),
-                radius: rect.radius.as_ref(),
-            };
-
-            Border::draw(&mut data.scene, opts);
-        }
+        data.scene.draw_rect(rect);
     }
 
     fn draw_text(&mut self, data: &mut Self::WindowData<'_>, text: &RenderText<Self>) {
-        Text::show(&mut data.scene, text)
+        data.scene.draw_text(text);
+    }
+
+    fn apply_scene(
+        &mut self,
+        data: &mut Self::WindowData<'_>,
+        scene: &Self::Scene,
+        transform: Option<Self::Transform>,
+    ) {
+        data.scene.apply_scene(scene, transform);
     }
 
     fn reset(&mut self, data: &mut Self::WindowData<'_>) {
@@ -129,7 +120,7 @@ impl RenderBackend for VelloBackend {
         Ok(WindowData {
             adapter,
             renderer,
-            scene: Scene::new(),
+            scene: VelloScene::new().into(),
         })
     }
 
@@ -163,7 +154,7 @@ impl RenderBackend for VelloBackend {
             .render_to_surface(
                 &window_data.adapter.device,
                 &window_data.adapter.queue,
-                &window_data.scene,
+                &window_data.scene.0,
                 &surface_texture,
                 &RenderParams {
                     base_color: VelloColor::BLACK,

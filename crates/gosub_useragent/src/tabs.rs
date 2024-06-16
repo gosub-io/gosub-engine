@@ -39,8 +39,8 @@ impl<D: SceneDrawer<B>, B: RenderBackend> Tabs<D, B> {
         self.tabs.get_mut(self.active.0)
     }
 
-    pub(crate) fn from_url(url: Url) -> Result<Self> {
-        let tab = Tab::from_url(url)?;
+    pub(crate) fn from_url(url: Url, debug: bool) -> Result<Self> {
+        let tab = Tab::from_url(url, debug)?;
 
         Ok(Self::new(tab))
     }
@@ -63,8 +63,8 @@ impl<D: SceneDrawer<B>, B: RenderBackend> Tab<D, B> {
         }
     }
 
-    pub fn from_url(url: Url) -> Result<Self> {
-        let data = D::from_url(url.clone())?;
+    pub fn from_url(url: Url, debug: bool) -> Result<Self> {
+        let data = D::from_url(url.clone(), debug)?;
 
         Ok(Self {
             title: url.as_str().to_string(),

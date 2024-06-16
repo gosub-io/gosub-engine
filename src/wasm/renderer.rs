@@ -78,7 +78,7 @@ async fn renderer_internal(opts: RendererOptions) -> Result<()> {
 
     let (taffy_tree, root) = generate_taffy_tree(&mut rt)?;
 
-    let render_tree = TreeDrawer::new(rt, taffy_tree, root);
+    let render_tree = TreeDrawer::new(rt, taffy_tree, root, opts.debug);
 
     let render_tree = render_tree;
 

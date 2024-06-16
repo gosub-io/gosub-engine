@@ -10,7 +10,7 @@ use url::Url;
 use gosub_html5::node::NodeId as GosubId;
 use gosub_render_backend::{
     Border, BorderSide, BorderStyle, Brush, Color, Image, PreRenderText, Rect, RenderBackend,
-    RenderBorder, RenderRect, RenderText, SizeU32, Text, Transform, FP,
+    RenderBorder, RenderRect, RenderText, Scene as TScene, SizeU32, Text, Transform, FP,
 };
 use gosub_rendering::layout::generate_taffy_tree;
 use gosub_rendering::position::PositionTree;
@@ -23,67 +23,43 @@ use crate::render_tree::{load_html_rendertree, NodeID, TreeDrawer};
 
 pub trait SceneDrawer<B: RenderBackend> {
     fn draw(&mut self, backend: &mut B, data: &mut B::WindowData<'_>, size: SizeU32);
-    fn mouse_move(&mut self, backend: &mut B, data: &mut B::WindowData<'_>, x: f64, y: f64);
+    fn mouse_move(&mut self, backend: &mut B, data: &mut B::WindowData<'_>, x: f64, y: f64)
+        -> bool;
 
-    fn from_url(url: Url) -> Result<Self>
+    fn from_url(url: Url, debug: bool) -> Result<Self>
     where
         Self: Sized;
 }
+
+const DEBUG_CONTENT_COLOR: (u8, u8, u8) = (0, 192, 255); //rgb(0, 192, 255)
+const DEBUG_PADDING_COLOR: (u8, u8, u8) = (0, 255, 192); //rgb(0, 255, 192)
+const DEBUG_BORDER_COLOR: (u8, u8, u8) = (255, 72, 72); //rgb(255, 72, 72)
+                                                        // const DEBUG_MARGIN_COLOR: (u8, u8, u8) = (255, 192, 0);
 
 type Point = gosub_shared::types::Point<FP>;
 
 impl<B: RenderBackend> SceneDrawer<B> for TreeDrawer<B> {
     fn draw(&mut self, backend: &mut B, data: &mut B::WindowData<'_>, size: SizeU32) {
-        if self.size == Some(size) {
-            //This check needs to be updated in the future, when the tree is mutable
+        if !self.debugger_changed && self.size == Some(size) {
             return;
         }
 
-        self.size = Some(size);
+        if self.tree_scene.is_none() || self.size != Some(size) {
+            self.size = Some(size);
+
+            let mut scene = self
+                .tree_scene
+                .take()
+                .unwrap_or_else(|| B::Scene::new(data));
+
+            self.render(&mut scene, size);
+
+            self.tree_scene = Some(scene);
+
+            self.size = Some(size);
+        }
 
         backend.reset(data);
-        self.render(backend, data, size);
-    }
-
-    fn mouse_move(&mut self, _backend: &mut B, _data: &mut B::WindowData<'_>, x: f64, y: f64) {
-        if let Some(e) = self.position.find(x as f32, y as f32) {
-            if self.last_hover != Some(e) {
-                self.last_hover = Some(e);
-                let Some(node_id) = self.taffy.get_node_context(e) else {
-                    return;
-                };
-
-                let Some(node) = self.style.get_node(*node_id) else {
-                    return;
-                };
-
-                println!("Hovering over: {:?} ({e:?})@({x},{y})", node.data);
-            }
-        };
-    }
-
-    fn from_url(url: Url) -> Result<Self> {
-        let mut rt = load_html_rendertree(url.clone())?;
-
-        let (taffy_tree, root) = generate_taffy_tree(&mut rt)?;
-
-        Ok(Self::new(rt, taffy_tree, root, url))
-    }
-}
-
-impl<B: RenderBackend> TreeDrawer<B> {
-    pub(crate) fn render(&mut self, backend: &mut B, data: &mut B::WindowData<'_>, size: SizeU32) {
-        let space = TSize {
-            width: AvailableSpace::Definite(size.width as f32),
-            height: AvailableSpace::Definite(size.height as f32),
-        };
-
-        if let Err(e) = self.taffy.compute_layout(self.root, space) {
-            eprintln!("Failed to compute layout: {:?}", e);
-            return;
-        }
-
-        self.position = PositionTree::from_taffy(&self.taffy, self.root);
 
         let bg = Rect::new(0.0, 0.0, size.width as FP, size.height as FP);
 
@@ -98,17 +74,173 @@ impl<B: RenderBackend> TreeDrawer<B> {
         //
         backend.draw_rect(data, &rect);
 
-        self.render_node_with_children(self.root, backend, data, Point::ZERO);
+        if let Some(scene) = &self.tree_scene {
+            backend.apply_scene(data, scene, None);
+        }
+
+        if let Some(scene) = &self.debugger_scene {
+            self.debugger_changed = false;
+            backend.apply_scene(data, scene, None);
+        }
     }
 
-    fn render_node_with_children(
+    fn mouse_move(
         &mut self,
-        id: NodeID,
-        backend: &mut B,
+        _backend: &mut B,
         data: &mut B::WindowData<'_>,
-        mut pos: Point,
-    ) {
-        let err = self.render_node(id, backend, data, &mut pos);
+        x: f64,
+        y: f64,
+    ) -> bool {
+        if let Some(e) = self.position.find(x as f32, y as f32) {
+            if self.last_hover != Some(e) {
+                self.last_hover = Some(e);
+                if self.debug {
+                    let mut scene = B::Scene::new(data);
+
+                    let layout = self.taffy.get_final_layout(e);
+
+                    let content_size = layout.size;
+                    let padding = layout.padding;
+                    let border_size = layout.border;
+
+                    let Some((x, y)) = self.position.position(e) else {
+                        return false;
+                    };
+
+                    let content_rect =
+                        Rect::new(x, y, content_size.width as FP, content_size.height as FP);
+
+                    let padding_brush =
+                        B::Brush::color(B::Color::tuple3(DEBUG_PADDING_COLOR).alpha(127));
+                    let content_brush =
+                        B::Brush::color(B::Color::tuple3(DEBUG_CONTENT_COLOR).alpha(127));
+                    // let margin_brush = B::Brush::color(B::Color::tuple3(DEBUG_MARGIN_COLOR).alpha(127));
+                    let border_brush =
+                        B::Brush::color(B::Color::tuple3(DEBUG_BORDER_COLOR).alpha(127));
+
+                    let mut border = B::Border::empty();
+
+                    border.left(BorderSide::new(
+                        padding.left as FP,
+                        BorderStyle::Solid,
+                        padding_brush.clone(),
+                    ));
+
+                    border.right(BorderSide::new(
+                        padding.right as FP,
+                        BorderStyle::Solid,
+                        padding_brush.clone(),
+                    ));
+
+                    border.top(BorderSide::new(
+                        padding.top as FP,
+                        BorderStyle::Solid,
+                        padding_brush.clone(),
+                    ));
+
+                    border.bottom(BorderSide::new(
+                        padding.bottom as FP,
+                        BorderStyle::Solid,
+                        padding_brush,
+                    ));
+
+                    let padding_border = RenderBorder::new(border);
+
+                    let render_rect = RenderRect {
+                        rect: content_rect,
+                        transform: None,
+                        radius: None,
+                        brush: content_brush,
+                        brush_transform: None,
+                        border: Some(padding_border),
+                    };
+
+                    scene.draw_rect(&render_rect);
+
+                    let mut border_border = B::Border::empty();
+
+                    border_border.left(BorderSide::new(
+                        border_size.left as FP,
+                        BorderStyle::Solid,
+                        border_brush.clone(),
+                    ));
+
+                    border_border.right(BorderSide::new(
+                        border_size.right as FP,
+                        BorderStyle::Solid,
+                        border_brush.clone(),
+                    ));
+
+                    border_border.top(BorderSide::new(
+                        border_size.top as FP,
+                        BorderStyle::Solid,
+                        border_brush.clone(),
+                    ));
+
+                    border_border.bottom(BorderSide::new(
+                        border_size.bottom as FP,
+                        BorderStyle::Solid,
+                        border_brush,
+                    ));
+
+                    let border_border = RenderBorder::new(border_border);
+
+                    let border_rect = Rect::new(
+                        x as FP - border_size.left as FP - padding.left as FP,
+                        y as FP - border_size.top as FP - padding.top as FP,
+                        (content_size.width + padding.left + padding.right) as FP,
+                        (content_size.height + padding.top + padding.bottom) as FP,
+                    );
+
+                    let render_rect = RenderRect {
+                        rect: border_rect,
+                        transform: None,
+                        radius: None,
+                        brush: Brush::color(Color::TRANSPARENT),
+                        brush_transform: None,
+                        border: Some(border_border),
+                    };
+
+                    scene.draw_rect(&render_rect);
+
+                    self.debugger_scene = Some(scene);
+                    self.debugger_changed = true;
+                    return true;
+                }
+            }
+            return false;
+        };
+        false
+    }
+
+    fn from_url(url: Url, debug: bool) -> Result<Self> {
+        let mut rt = load_html_rendertree(url.clone())?;
+
+        let (taffy_tree, root) = generate_taffy_tree(&mut rt)?;
+
+        Ok(Self::new(rt, taffy_tree, root, url, debug))
+    }
+}
+
+impl<B: RenderBackend> TreeDrawer<B> {
+    pub(crate) fn render(&mut self, scene: &mut B::Scene, size: SizeU32) {
+        let space = TSize {
+            width: AvailableSpace::Definite(size.width as f32),
+            height: AvailableSpace::Definite(size.height as f32),
+        };
+
+        if let Err(e) = self.taffy.compute_layout(self.root, space) {
+            eprintln!("Failed to compute layout: {:?}", e);
+            return;
+        }
+
+        self.position = PositionTree::from_taffy(&self.taffy, self.root);
+
+        self.render_node_with_children(self.root, scene, Point::ZERO);
+    }
+
+    fn render_node_with_children(&mut self, id: NodeID, scene: &mut B::Scene, mut pos: Point) {
+        let err = self.render_node(id, scene, &mut pos);
         if let Err(e) = err {
             eprintln!("Error rendering node: {:?}", e);
         }
@@ -122,15 +254,14 @@ impl<B: RenderBackend> TreeDrawer<B> {
         };
 
         for child in children {
-            self.render_node_with_children(child, backend, data, pos);
+            self.render_node_with_children(child, scene, pos);
         }
     }
 
     fn render_node(
         &mut self,
         id: NodeID,
-        backend: &mut B,
-        data: &mut B::WindowData<'_>,
+        scene: &mut B::Scene,
         pos: &mut Point,
     ) -> anyhow::Result<()> {
         let gosub_id = *self
@@ -148,7 +279,7 @@ impl<B: RenderBackend> TreeDrawer<B> {
         pos.x += layout.location.x as FP;
         pos.y += layout.location.y as FP;
 
-        let border_radius = render_bg(node, backend, data, layout, pos, &self.url);
+        let border_radius = render_bg(node, scene, layout, pos, &self.url);
 
         if let RenderNodeData::Element(element) = &node.data {
             if element.name() == "img" {
@@ -188,19 +319,18 @@ impl<B: RenderBackend> TreeDrawer<B> {
                 println!("Rendering image at: {:?}", pos);
                 println!("with size: {:?}", layout.size);
 
-                render_image(img, backend, data, *pos, layout.size, border_radius, fit)?;
+                render_image::<B>(img, scene, *pos, layout.size, border_radius, fit)?;
             }
         }
 
-        render_text(node, backend, data, pos, layout);
+        render_text(node, scene, pos, layout);
         Ok(())
     }
 }
 
 fn render_text<B: RenderBackend>(
     node: &mut RenderTreeNode<B>,
-    backend: &mut B,
-    data: &mut B::WindowData<'_>,
+    scene: &mut B::Scene,
     pos: &Point,
     layout: &Layout,
 ) {
@@ -237,14 +367,13 @@ fn render_text<B: RenderBackend>(
             brush_transform: None,
         };
 
-        backend.draw_text(data, &render_text);
+        scene.draw_text(&render_text);
     }
 }
 
 fn render_bg<B: RenderBackend>(
     node: &mut RenderTreeNode<B>,
-    backend: &mut B,
-    data: &mut B::WindowData<'_>,
+    scene: &mut B::Scene,
     layout: &Layout,
     pos: &Point,
     root_url: &Url,
@@ -325,7 +454,7 @@ fn render_bg<B: RenderBackend>(
             border,
         };
 
-        backend.draw_rect(data, &rect);
+        scene.draw_rect(&rect);
     } else if let Some(border) = border {
         let rect = Rect::new(
             pos.x as FP,
@@ -343,7 +472,7 @@ fn render_bg<B: RenderBackend>(
             border: Some(border),
         };
 
-        backend.draw_rect(data, &rect);
+        scene.draw_rect(&rect);
     }
 
     let background_image = node.properties.get("background-image").and_then(|prop| {
@@ -378,11 +507,10 @@ fn render_bg<B: RenderBackend>(
             return border_radius;
         };
 
-        let _ = render_image(img, backend, data, *pos, layout.size, border_radius, "fill").map_err(
-            |e| {
+        let _ =
+            render_image::<B>(img, scene, *pos, layout.size, border_radius, "fill").map_err(|e| {
                 eprintln!("Error rendering image: {:?}", e);
-            },
-        );
+            });
     }
 
     border_radius
@@ -408,8 +536,7 @@ impl Side {
 
 fn render_image<B: RenderBackend>(
     img: DynamicImage,
-    backend: &mut B,
-    data: &mut B::WindowData<'_>,
+    scene: &mut B::Scene,
     pos: Point,
     size: TSize<f32>,
     radii: (FP, FP, FP, FP),
@@ -468,7 +595,7 @@ fn render_image<B: RenderBackend>(
         border: None,
     };
 
-    backend.draw_rect(data, &rect);
+    scene.draw_rect(&rect);
 
     Ok(())
 }

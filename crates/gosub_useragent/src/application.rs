@@ -18,6 +18,7 @@ pub struct Application<'a, D: SceneDrawer<B>, B: RenderBackend> {
     windows: HashMap<WindowId, Window<'a, D, B>>,
     backend: B,
     proxy: Option<EventLoopProxy<CustomEvent>>,
+    debug: bool,
 }
 
 impl<'a, D: SceneDrawer<B>, B: RenderBackend> ApplicationHandler<CustomEvent>
@@ -34,7 +35,7 @@ impl<'a, D: SceneDrawer<B>, B: RenderBackend> ApplicationHandler<CustomEvent>
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: CustomEvent) {
         match event {
             CustomEvent::OpenWindow(url) => {
-                let mut window = match Window::new(event_loop, &mut self.backend, url) {
+                let mut window = match Window::new(event_loop, &mut self.backend, url, self.debug) {
                     Ok(window) => window,
                     Err(e) => {
                         eprintln!("Error opening window: {e:?}");
@@ -53,14 +54,18 @@ impl<'a, D: SceneDrawer<B>, B: RenderBackend> ApplicationHandler<CustomEvent>
             }
             CustomEvent::OpenInitial => {
                 for urls in self.open_windows.drain(..) {
-                    let mut window =
-                        match Window::new(event_loop, &mut self.backend, urls[0].clone()) {
-                            Ok(window) => window,
-                            Err(e) => {
-                                eprintln!("Error opening window: {e:?}");
-                                return;
-                            }
-                        };
+                    let mut window = match Window::new(
+                        event_loop,
+                        &mut self.backend,
+                        urls[0].clone(),
+                        self.debug,
+                    ) {
+                        Ok(window) => window,
+                        Err(e) => {
+                            eprintln!("Error opening window: {e:?}");
+                            return;
+                        }
+                    };
 
                     if let Err(e) = window.resumed(&mut self.backend) {
                         eprintln!("Error resuming window: {e:?}");
@@ -94,12 +99,13 @@ impl<'a, D: SceneDrawer<B>, B: RenderBackend> ApplicationHandler<CustomEvent>
 }
 
 impl<'a, D: SceneDrawer<B>, B: RenderBackend> Application<'a, D, B> {
-    pub fn new(backend: B) -> Self {
+    pub fn new(backend: B, debug: bool) -> Self {
         Self {
             windows: HashMap::new(),
             backend,
             proxy: None,
             open_windows: Vec::new(),
+            debug,
         }
     }
 

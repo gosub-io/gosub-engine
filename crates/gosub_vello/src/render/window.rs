@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
-use vello::{Renderer, Scene};
+use vello::Renderer;
+
+use crate::Scene;
 
 use super::{InstanceAdapter, SurfaceWrapper};
 

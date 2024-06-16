@@ -7,10 +7,10 @@ edition = "2021"
 gosub_shared = { path = "../gosub_shared" }
 gosub_render_backend = { path = "../gosub_render_backend" }
 gosub_typeface = { path = "../gosub_typeface" }
-vello = "0.1.0"
+vello = "0.2.0"
 image = "0.25.1"
 smallvec = "1.13.2"
 anyhow = "1.0.82"
-wgpu = "0.19.4"
+wgpu = "0.20.0"
 raw-window-handle = "0.6.2"
 futures = "0.3.30"

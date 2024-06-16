@@ -1,3 +1,4 @@
+use clap::ArgAction;
 use url::Url;
 
 use gosub_renderer::render_tree::TreeDrawer;
@@ -13,14 +14,21 @@ fn main() -> Result<()> {
                 .required(true)
                 .index(1),
         )
+        .arg(
+            clap::Arg::new("debug")
+                .short('d')
+                .long("debug")
+                .action(ArgAction::SetTrue),
+        )
         .get_matches();
 
     let url: String = matches.get_one::<String>("url").expect("url").to_string();
+    let debug = matches.get_one::<bool>("debug").copied().unwrap_or(false);
 
     // let mut rt = load_html_rendertree(&url)?;
 
     let mut application: Application<TreeDrawer<VelloBackend>, VelloBackend> =
-        Application::new(VelloBackend::new());
+        Application::new(VelloBackend::new(), debug);
 
     application.initial_tab(Url::parse(&url)?);
 

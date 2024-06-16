@@ -20,6 +20,22 @@ impl TColor for Color {
         VelloColor::rgba8(r, g, b, a).into()
     }
 
+    fn r(&self) -> u8 {
+        self.0.r
+    }
+
+    fn g(&self) -> u8 {
+        self.0.g
+    }
+
+    fn b(&self) -> u8 {
+        self.0.b
+    }
+
+    fn a(&self) -> u8 {
+        self.0.a
+    }
+
     const WHITE: Self = Color(VelloColor::WHITE);
     const BLACK: Self = Color(VelloColor::BLACK);
     const RED: Self = Color(VelloColor::RED);
