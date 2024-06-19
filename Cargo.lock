@@ -1542,8 +1542,6 @@ name = "gosub_renderer"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "dpi",
- "futures",
  "gosub_html5",
  "gosub_net",
  "gosub_render_backend",
@@ -1551,8 +1549,6 @@ dependencies = [
  "gosub_shared",
  "gosub_styling",
  "image",
- "slotmap",
- "smallvec",
  "taffy",
  "url",
  "wasm-bindgen-futures",
