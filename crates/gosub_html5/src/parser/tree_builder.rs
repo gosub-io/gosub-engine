@@ -114,7 +114,7 @@ mod tests {
                     .expect("problem parsing");
 
                 println!(
-                    "tree construction: {}:{} {}",
+                    "tree construction: {}:{}\n{}",
                     test.file_path,
                     test.line,
                     test.document_as_str()

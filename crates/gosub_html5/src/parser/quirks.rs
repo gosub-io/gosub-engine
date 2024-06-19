@@ -157,12 +157,12 @@ static LIMITED_QUIRKS_PUB_IDENTIFIER_PREFIX_NOT_MISSING_SYS: &[&str] = &[
 mod tests {
     use crate::parser::Html5Parser;
     use crate::parser::QuirksMode;
-    use gosub_shared::bytes::CharIterator;
+    use gosub_shared::byte_stream::ByteStream;
 
     #[test]
     fn test_quirks_mode() {
-        let chars = &mut CharIterator::new();
-        let parser = Html5Parser::new_parser(chars);
+        let stream = &mut ByteStream::new();
+        let parser = Html5Parser::new_parser(stream);
 
         assert_eq!(
             parser.identify_quirks_mode(&None, None, None, false),
@@ -247,8 +247,8 @@ mod tests {
 
     #[test]
     fn test_quirks_mode_force() {
-        let chars = &mut CharIterator::new();
-        let parser = Html5Parser::new_parser(chars);
+        let stream = &mut ByteStream::new();
+        let parser = Html5Parser::new_parser(stream);
 
         assert_eq!(
             parser.identify_quirks_mode(&Some("html".to_string()), None, None, true),
@@ -321,8 +321,8 @@ mod tests {
 
     #[test]
     fn test_quirks_mode_sys() {
-        let chars = &mut CharIterator::new();
-        let parser = Html5Parser::new_parser(chars);
+        let stream = &mut ByteStream::new();
+        let parser = Html5Parser::new_parser(stream);
 
         assert_eq!(
             parser.identify_quirks_mode(
@@ -346,8 +346,8 @@ mod tests {
 
     #[test]
     fn test_quirks_mode_sys_missing() {
-        let chars = &mut CharIterator::new();
-        let parser = Html5Parser::new_parser(chars);
+        let stream = &mut ByteStream::new();
+        let parser = Html5Parser::new_parser(stream);
 
         assert_eq!(
             parser.identify_quirks_mode(

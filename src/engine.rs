@@ -1,3 +1,4 @@
+use gosub_shared::byte_stream::{ByteStream, Confidence, Encoding};
 #[cfg(not(target_arch = "wasm32"))]
 use {
     cookie::CookieJar,
@@ -8,7 +9,6 @@ use {
         dns::{Dns, ResolveType},
         http::{headers::Headers, request::Request, response::Response},
     },
-    gosub_shared::bytes::{CharIterator, Confidence, Encoding},
     gosub_shared::types::{Error, ParseError, Result},
     gosub_shared::{timing_start, timing_stop},
     std::io::Read,
@@ -47,7 +47,11 @@ impl Debug for FetchResponse {
         writeln!(f, "{}", self.document)?;
         writeln!(f, "Parse errors:")?;
         for error in &self.parse_errors {
-            writeln!(f, "  ({}:{}) {}", error.line, error.col, error.message)?;
+            writeln!(
+                f,
+                "  ({}:{}) {}",
+                error.location.line, error.location.column, error.message
+            )?;
         }
         writeln!(f, "Render tree:")?;
         writeln!(f, "{}", self.render_tree)?;
@@ -134,12 +138,13 @@ fn fetch_url(
 
     let t_id = timing_start!("html.parse", parts.as_str());
 
-    let mut chars = CharIterator::new();
-    let _ = chars.read_from_bytes(&fetch_response.response.body, Some(Encoding::UTF8));
-    chars.set_confidence(Confidence::Certain);
+    let mut stream = ByteStream::new();
+    let _ = stream.read_from_bytes(&fetch_response.response.body, Some(Encoding::UTF8));
+    stream.set_confidence(Confidence::Certain);
     fetch_response.document = DocumentBuilder::new_document(Some(parts));
 
-    match Html5Parser::parse_document(&mut chars, Document::clone(&fetch_response.document), None) {
+    match Html5Parser::parse_document(&mut stream, Document::clone(&fetch_response.document), None)
+    {
         Ok(parse_errors) => {
             fetch_response.parse_errors = parse_errors;
         }

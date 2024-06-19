@@ -1,9 +1,8 @@
 use anyhow::{anyhow, bail, Result};
-use gosub_css3::location::Location;
 use gosub_css3::parser_config::ParserConfig;
 use gosub_css3::tokenizer::{TokenType, Tokenizer};
 use gosub_css3::{walker, Css3, Error};
-use gosub_shared::byte_stream::{ByteStream, Encoding, Stream};
+use gosub_shared::byte_stream::{ByteStream, Encoding, Location};
 use simple_logger::SimpleLogger;
 use std::fs;
 
@@ -102,12 +101,8 @@ fn main() -> Result<()> {
 fn display_snippet(css: &str, err: Error) {
     let loc = err.location.clone();
     let lines: Vec<&str> = css.split('\n').collect();
-    let line_nr = loc.line() - 1;
-    let col_nr = if loc.column() < 2 {
-        0
-    } else {
-        loc.column() - 2
-    };
+    let line_nr = loc.line - 1;
+    let col_nr = if loc.column < 2 { 0 } else { loc.column - 2 };
 
     if col_nr > 1000 {
         println!("Error is too far to the right to display.");
@@ -125,26 +120,26 @@ fn display_snippet(css: &str, err: Error) {
     }
 
     // Print the line with the error and a pointer to the error
-    println!("{:<5}|{}", line_nr + 1, lines[line_nr as usize]);
-    println!("   ---{}^", "-".repeat(col_nr as usize));
+    println!("{:<5}|{}", line_nr + 1, lines[line_nr]);
+    println!("   ---{}^", "-".repeat(col_nr));
 
     // Print the next 5 lines
     for n in line_nr + 1..line_nr + 6 {
-        if n > lines.len() as u32 - 1 {
+        if n > lines.len() - 1 {
             continue;
         }
-        println!("{:<5}|{}", n + 1, lines[n as usize]);
+        println!("{:<5}|{}", n + 1, lines[n]);
     }
     println!();
     println!();
 }
 
 fn print_tokens(css: String) {
-    let mut it = ByteStream::new();
-    it.read_from_str(&css, Some(Encoding::UTF8));
-    it.close();
+    let mut stream = ByteStream::new();
+    stream.read_from_str(&css, Some(Encoding::UTF8));
+    stream.close();
 
-    let mut tokenizer = Tokenizer::new(&mut it, Location::default());
+    let mut tokenizer = Tokenizer::new(&mut stream, Location::default());
     loop {
         let token = tokenizer.consume();
         println!("{:?}", token);

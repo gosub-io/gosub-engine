@@ -4,7 +4,7 @@ use criterion::{criterion_group, criterion_main, Criterion};
 use gosub_html5::node::NodeId;
 use gosub_html5::parser::document::{Document, DocumentBuilder, TreeIterator};
 use gosub_html5::parser::Html5Parser;
-use gosub_shared::bytes::CharIterator;
+use gosub_shared::byte_stream::ByteStream;
 
 fn wikipedia_main_page(c: &mut Criterion) {
     // Criterion can report inconsistent results from run to run in some cases.  We attempt to
@@ -14,13 +14,13 @@ fn wikipedia_main_page(c: &mut Criterion) {
     group.significance_level(0.1).sample_size(500);
 
     let html_file = File::open("tests/data/tree_iterator/wikipedia_main.html").unwrap();
-    let mut char_iter = CharIterator::new();
-    let _ = char_iter.read_from_file(html_file, Some(gosub_shared::bytes::Encoding::UTF8));
-    char_iter.set_confidence(gosub_shared::bytes::Confidence::Certain);
+    let mut stream = ByteStream::new();
+    let _ = stream.read_from_file(html_file, Some(gosub_shared::byte_stream::Encoding::UTF8));
+    stream.set_confidence(gosub_shared::byte_stream::Confidence::Certain);
 
     let main_document = DocumentBuilder::new_document(None);
     let document = Document::clone(&main_document);
-    let _ = Html5Parser::parse_document(&mut char_iter, document, None);
+    let _ = Html5Parser::parse_document(&mut stream, document, None);
 
     group.bench_function("wikipedia main page", |b| {
         b.iter(|| {
@@ -41,13 +41,13 @@ fn stackoverflow_home(c: &mut Criterion) {
 
     // using the main page of (english) wikipedia as a rough estimate of traversing a decently sized website
     let html_file = File::open("tests/data/tree_iterator/stackoverflow.html").unwrap();
-    let mut char_iter = CharIterator::new();
-    let _ = char_iter.read_from_file(html_file, Some(gosub_shared::bytes::Encoding::UTF8));
-    char_iter.set_confidence(gosub_shared::bytes::Confidence::Certain);
+    let mut bytestream = ByteStream::new();
+    let _ = bytestream.read_from_file(html_file, Some(gosub_shared::byte_stream::Encoding::UTF8));
+    bytestream.set_confidence(gosub_shared::byte_stream::Confidence::Certain);
 
     let main_document = DocumentBuilder::new_document(None);
     let document = Document::clone(&main_document);
-    let _ = Html5Parser::parse_document(&mut char_iter, document, None);
+    let _ = Html5Parser::parse_document(&mut bytestream, document, None);
 
     group.bench_function("stackoverflow home", |b| {
         b.iter(|| {

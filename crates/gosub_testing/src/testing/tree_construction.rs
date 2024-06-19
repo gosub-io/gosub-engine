@@ -10,7 +10,7 @@ use gosub_html5::parser::document::DocumentBuilder;
 use gosub_html5::parser::document::{Document, DocumentHandle};
 use gosub_html5::parser::tree_builder::TreeBuilder;
 use gosub_html5::parser::{Html5Parser, Html5ParserOptions};
-use gosub_shared::bytes::CharIterator;
+use gosub_shared::byte_stream::ByteStream;
 use gosub_shared::types::{ParseError, Result};
 use parser::{ScriptMode, TestSpec};
 use result::TestResult;
@@ -87,19 +87,22 @@ impl Harness {
     /// Run the html5 parser and return the document tree and errors
     fn do_parse(&mut self, scripting_enabled: bool) -> Result<(DocumentHandle, Vec<ParseError>)> {
         let options = Html5ParserOptions { scripting_enabled };
-        let mut chars = CharIterator::new();
-        chars.read_from_str(self.test.spec_data(), None);
+        let mut stream = ByteStream::new();
+        stream.read_from_str(self.test.spec_data(), None);
+        stream.close();
 
-        let (document, parse_errors) = if let Some(fragment) =
-            self.test.spec.document_fragment.clone()
-        {
-            self.parse_fragment(fragment, chars, options)?
-        } else {
-            let document = DocumentBuilder::new_document(None);
-            let parser_errors =
-                Html5Parser::parse_document(&mut chars, Document::clone(&document), Some(options))?;
-            (document, parser_errors)
-        };
+        let (document, parse_errors) =
+            if let Some(fragment) = self.test.spec.document_fragment.clone() {
+                self.parse_fragment(fragment, stream, options)?
+            } else {
+                let document = DocumentBuilder::new_document(None);
+                let parser_errors = Html5Parser::parse_document(
+                    &mut stream,
+                    Document::clone(&document),
+                    Some(options),
+                )?;
+                (document, parser_errors)
+            };
 
         Ok((document, parse_errors))
     }
@@ -107,7 +110,7 @@ impl Harness {
     fn parse_fragment(
         &mut self,
         fragment: String,
-        mut chars: CharIterator,
+        mut stream: ByteStream,
         options: Html5ParserOptions,
     ) -> Result<(DocumentHandle, Vec<ParseError>)> {
         // First, create a (fake) main document that contains only the fragment as node
@@ -139,7 +142,7 @@ impl Harness {
         let document = DocumentBuilder::new_document_fragment(&context_node);
 
         let parser_errors = Html5Parser::parse_fragment(
-            &mut chars,
+            &mut stream,
             Document::clone(&document),
             &context_node,
             Some(options),

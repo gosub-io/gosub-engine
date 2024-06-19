@@ -1,4 +1,4 @@
-use gosub_shared::bytes::Position;
+use gosub_shared::byte_stream::Location;
 use gosub_shared::types::ParseError;
 
 /// Possible parser error enumerated
@@ -42,6 +42,7 @@ pub enum ParserError {
     NoncharacterInInputStream,
     NonVoidHtmlElementStartTagWithTrailingSolidus,
     NullCharacterReference,
+    SelfClosingFlagOnEndTag,
     SurrogateCharacterReference,
     SurrogateInInputStream,
     UnexpectedCharacterAfterDoctypeSystemIdentifier,
@@ -75,6 +76,7 @@ impl ParserError {
             ParserError::ControlCharacterReference => "control-character-reference",
             ParserError::EndTagWithAttributes => "end-tag-with-attributes",
             ParserError::DuplicateAttribute => "duplicate-attribute",
+            ParserError::SelfClosingFlagOnEndTag => "self-closing-flag-on-end-tag",
             ParserError::EndTagWithTrailingSolidus => "end-tag-with-trailing-solidus",
             ParserError::EofBeforeTagName => "eof-before-tag-name",
             ParserError::EofInCdata => "eof-in-cdata",
@@ -178,22 +180,18 @@ impl ErrorLogger {
     }
 
     /// Adds a new error to the error logger
-    pub fn add_error(&mut self, pos: Position, message: &str) {
+    pub fn add_error(&mut self, location: Location, message: &str) {
         // Check if the error already exists, if so, don't add it again
         for err in &self.errors {
-            if err.line == pos.line && err.col == pos.col && err.message == *message {
+            if err.location == location && err.message == *message {
                 return;
             }
         }
 
         self.errors.push(ParseError {
-            line: pos.line,
-            col: pos.col,
-            offset: pos.offset,
             message: message.to_string(),
+            location: location.clone(),
         });
-
-        // println!("Parse error ({}/{}): {}", pos.line, pos.col, message);
     }
 }
 
@@ -206,11 +204,11 @@ mod tests {
     fn test_error_logger() {
         let mut logger = ErrorLogger::new();
 
-        logger.add_error(Position::new(1, 1, 0), "test");
-        logger.add_error(Position::new(1, 1, 0), "test");
-        logger.add_error(Position::new(1, 1, 0), "test");
-        logger.add_error(Position::new(1, 1, 0), "test");
-        logger.add_error(Position::new(1, 1, 0), "test");
+        logger.add_error(Location::new(1, 1, 0), "test");
+        logger.add_error(Location::new(1, 1, 0), "test");
+        logger.add_error(Location::new(1, 1, 0), "test");
+        logger.add_error(Location::new(1, 1, 0), "test");
+        logger.add_error(Location::new(1, 1, 0), "test");
 
         assert_eq!(logger.get_errors().len(), 1);
     }
@@ -219,11 +217,11 @@ mod tests {
     fn test_error_logger2() {
         let mut logger = ErrorLogger::new();
 
-        logger.add_error(Position::new(1, 1, 0), "test");
-        logger.add_error(Position::new(1, 2, 0), "test");
-        logger.add_error(Position::new(1, 3, 0), "test");
-        logger.add_error(Position::new(1, 4, 0), "test");
-        logger.add_error(Position::new(1, 5, 0), "test");
+        logger.add_error(Location::new(1, 1, 0), "test");
+        logger.add_error(Location::new(1, 2, 0), "test");
+        logger.add_error(Location::new(1, 3, 0), "test");
+        logger.add_error(Location::new(1, 4, 0), "test");
+        logger.add_error(Location::new(1, 5, 0), "test");
 
         assert_eq!(logger.get_errors().len(), 5);
     }
@@ -232,15 +230,15 @@ mod tests {
     fn test_error_logger3() {
         let mut logger = ErrorLogger::new();
 
-        logger.add_error(Position::new(1, 1, 0), "test");
-        logger.add_error(Position::new(1, 2, 0), "test");
-        logger.add_error(Position::new(1, 3, 0), "test");
-        logger.add_error(Position::new(1, 4, 0), "test");
-        logger.add_error(Position::new(1, 5, 0), "test");
-        logger.add_error(Position::new(1, 5, 0), "test");
-        logger.add_error(Position::new(1, 5, 0), "test");
-        logger.add_error(Position::new(1, 5, 0), "test");
-        logger.add_error(Position::new(1, 5, 0), "test");
+        logger.add_error(Location::new(1, 1, 0), "test");
+        logger.add_error(Location::new(1, 2, 0), "test");
+        logger.add_error(Location::new(1, 3, 0), "test");
+        logger.add_error(Location::new(1, 4, 0), "test");
+        logger.add_error(Location::new(1, 5, 0), "test");
+        logger.add_error(Location::new(1, 5, 0), "test");
+        logger.add_error(Location::new(1, 5, 0), "test");
+        logger.add_error(Location::new(1, 5, 0), "test");
+        logger.add_error(Location::new(1, 5, 0), "test");
 
         assert_eq!(logger.get_errors().len(), 5);
     }
@@ -249,24 +247,24 @@ mod tests {
     fn test_error_logger4() {
         let mut logger = ErrorLogger::new();
 
-        logger.add_error(Position::new(0, 1, 1), "test");
-        logger.add_error(Position::new(0, 1, 2), "test");
-        logger.add_error(Position::new(0, 1, 3), "test");
-        logger.add_error(Position::new(0, 1, 4), "test");
-        logger.add_error(Position::new(0, 1, 5), "test");
-        logger.add_error(Position::new(0, 1, 5), "test");
-        logger.add_error(Position::new(0, 1, 5), "test");
-        logger.add_error(Position::new(0, 1, 5), "test");
-        logger.add_error(Position::new(0, 1, 5), "test");
-        logger.add_error(Position::new(0, 2, 1), "test");
-        logger.add_error(Position::new(0, 2, 2), "test");
-        logger.add_error(Position::new(0, 2, 3), "test");
-        logger.add_error(Position::new(0, 2, 4), "test");
-        logger.add_error(Position::new(0, 2, 5), "test");
-        logger.add_error(Position::new(0, 2, 5), "test");
-        logger.add_error(Position::new(0, 2, 5), "test");
-        logger.add_error(Position::new(0, 2, 5), "test");
-        logger.add_error(Position::new(0, 2, 5), "test");
+        logger.add_error(Location::new(0, 1, 1), "test");
+        logger.add_error(Location::new(0, 1, 2), "test");
+        logger.add_error(Location::new(0, 1, 3), "test");
+        logger.add_error(Location::new(0, 1, 4), "test");
+        logger.add_error(Location::new(0, 1, 5), "test");
+        logger.add_error(Location::new(0, 1, 5), "test");
+        logger.add_error(Location::new(0, 1, 5), "test");
+        logger.add_error(Location::new(0, 1, 5), "test");
+        logger.add_error(Location::new(0, 1, 5), "test");
+        logger.add_error(Location::new(0, 2, 1), "test");
+        logger.add_error(Location::new(0, 2, 2), "test");
+        logger.add_error(Location::new(0, 2, 3), "test");
+        logger.add_error(Location::new(0, 2, 4), "test");
+        logger.add_error(Location::new(0, 2, 5), "test");
+        logger.add_error(Location::new(0, 2, 5), "test");
+        logger.add_error(Location::new(0, 2, 5), "test");
+        logger.add_error(Location::new(0, 2, 5), "test");
+        logger.add_error(Location::new(0, 2, 5), "test");
 
         assert_eq!(logger.get_errors().len(), 10);
     }
