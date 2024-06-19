@@ -43,11 +43,12 @@ fn get_fonts_from_family(font_families: Option<Vec<String>>) -> Vec<Font> {
             for (i, f) in font.into_iter().enumerate() {
                 fonts.push(Font::new(Blob::new(f), i as u32));
             }
-            if fonts.is_empty() {
-                fonts.push(Font::new(Blob::new(BACKUP_FONT.data.clone()), 0));
-            }
         }
     } else {
+        fonts.push(Font::new(Blob::new(BACKUP_FONT.data.clone()), 0));
+    }
+
+    if fonts.is_empty() {
         fonts.push(Font::new(Blob::new(BACKUP_FONT.data.clone()), 0));
     }
 
