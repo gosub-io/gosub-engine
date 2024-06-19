@@ -27,7 +27,12 @@ pub struct Window<'a, D: SceneDrawer<B>, B: RenderBackend> {
 }
 
 impl<'a, D: SceneDrawer<B>, B: RenderBackend> Window<'a, D, B> {
-    pub fn new(event_loop: &ActiveEventLoop, backend: &mut B, default_url: Url) -> Result<Self> {
+    pub fn new(
+        event_loop: &ActiveEventLoop,
+        backend: &mut B,
+        default_url: Url,
+        debug: bool,
+    ) -> Result<Self> {
         let window = create_window(event_loop)?;
 
         let renderer_data = backend.create_window_data(window.clone())?;
@@ -36,7 +41,7 @@ impl<'a, D: SceneDrawer<B>, B: RenderBackend> Window<'a, D, B> {
             state: WindowState::Suspended,
             window,
             renderer_data,
-            tabs: Tabs::from_url(default_url)?,
+            tabs: Tabs::from_url(default_url, debug)?,
         })
     }
 

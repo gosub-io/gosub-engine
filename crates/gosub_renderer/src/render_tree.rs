@@ -24,10 +24,20 @@ pub struct TreeDrawer<B: RenderBackend> {
     pub(crate) url: Url,
     pub(crate) position: PositionTree,
     pub(crate) last_hover: Option<NodeId>,
+    pub(crate) debug: bool,
+    pub(crate) debugger_changed: bool,
+    pub(crate) debugger_scene: Option<B::Scene>,
+    pub(crate) tree_scene: Option<B::Scene>,
 }
 
 impl<B: RenderBackend> TreeDrawer<B> {
-    pub fn new(style: StyleTree<B>, taffy: TaffyTree<GosubID>, root: TaffyID, url: Url) -> Self {
+    pub fn new(
+        style: StyleTree<B>,
+        taffy: TaffyTree<GosubID>,
+        root: TaffyID,
+        url: Url,
+        debug: bool,
+    ) -> Self {
         let position = PositionTree::from_taffy(&taffy, root);
         Self {
             style,
@@ -37,6 +47,10 @@ impl<B: RenderBackend> TreeDrawer<B> {
             url,
             position,
             last_hover: None,
+            debug,
+            debugger_scene: None,
+            debugger_changed: false,
+            tree_scene: None,
         }
     }
 }

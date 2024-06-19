@@ -54,8 +54,12 @@ impl<D: SceneDrawer<B>, B: RenderBackend> Window<'_, D, B> {
                     return Ok(());
                 };
 
-                tab.data
-                    .mouse_move(backend, &mut self.renderer_data, position.x, position.y);
+                if tab
+                    .data
+                    .mouse_move(backend, &mut self.renderer_data, position.x, position.y)
+                {
+                    self.window.request_redraw();
+                }
             }
 
             _ => {}
