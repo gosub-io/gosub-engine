@@ -1,8 +1,9 @@
 name: Bencher.dev benchmarks
 
 on:
-  pull_request:
-    types: [opened, reopened, edited, synchronize]
+  push:
+    branches:
+      - main
 
 jobs:
   benchmark_with_bencher:
