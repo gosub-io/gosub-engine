@@ -25,7 +25,7 @@ impl CssSyntaxTree {
 }
 
 fn match_internal(value: &CssValue, component: &SyntaxComponent) -> Option<CssValue> {
-    return match &component.component {
+    return match &component.type_ {
         SyntaxComponentType::GenericKeyword(keyword) => match value {
             CssValue::None if keyword.eq_ignore_ascii_case("none") => Some(value.clone()),
             CssValue::String(v) if v.eq_ignore_ascii_case(&keyword) => Some(value.clone()),
@@ -283,7 +283,7 @@ mod tests {
     #[test]
     fn test_resolve_group() {
         let tree = CssSyntax::new("auto none block").compile().unwrap();
-        if let SyntaxComponentType::Group(group) = &tree.components[0].component {
+        if let SyntaxComponentType::Group(group) = &tree.components[0].type_ {
             let values = resolve_group(&CssValue::List(vec!(
                 str!("auto"),
             )), group);
@@ -331,7 +331,7 @@ mod tests {
     #[test]
     fn test_match_group_juxtaposition() {
         let tree = CssSyntax::new("auto none block").compile().unwrap();
-        if let SyntaxComponentType::Group(group) = &tree.components[0].component {
+        if let SyntaxComponentType::Group(group) = &tree.components[0].type_ {
 
             let res = match_group_juxtaposition(&CssValue::List(vec!(
                 str!("auto"),
@@ -381,7 +381,7 @@ mod tests {
     #[test]
     fn test_match_group_all_any_order() {
         let tree = CssSyntax::new("auto none block").compile().unwrap();
-        if let SyntaxComponentType::Group(group) = &tree.components[0].component {
+        if let SyntaxComponentType::Group(group) = &tree.components[0].type_ {
 
             let res = match_group_all_any_order(&CssValue::List(vec!(
                 str!("auto"),
@@ -430,7 +430,7 @@ mod tests {
     #[test]
     fn test_match_group_at_least_one_any_order() {
         let tree = CssSyntax::new("auto none block").compile().unwrap();
-        if let SyntaxComponentType::Group(group) = &tree.components[0].component {
+        if let SyntaxComponentType::Group(group) = &tree.components[0].type_ {
 
             let res = match_group_at_least_one_any_order(&CssValue::List(vec!(
                 str!("auto"),

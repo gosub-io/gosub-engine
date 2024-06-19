@@ -77,7 +77,7 @@ impl Display for SyntaxComponentMultiplier {
 #[derive(PartialEq, Debug, Clone)]
 pub struct SyntaxComponent {
     /// Actual component
-    pub component: SyntaxComponentType,
+    pub type_: SyntaxComponentType,
     /// Multiplier(s) for this component (there can be multiple multipliers in some cases)
     pub multipliers: SyntaxComponentMultiplier,
 }
@@ -86,7 +86,7 @@ impl SyntaxComponent {
     /// Creates a new syntax component
     pub fn new(type_: SyntaxComponentType, multiplier: SyntaxComponentMultiplier) -> SyntaxComponent {
         SyntaxComponent {
-            component: type_,
+            type_: type_,
             multipliers: multiplier,
         }
     }
@@ -597,7 +597,7 @@ fn parse_component(input: &str) -> IResult<&str, SyntaxComponent> {
     );
 
     let component = SyntaxComponent {
-        component: component_type,
+        type_: component_type,
         multipliers,
     };
 
@@ -997,7 +997,7 @@ mod tests {
     #[test]
     fn test_precedence() {
         let c = CssSyntax::new("left | right").compile().unwrap();
-        assert_eq!(c.components[0].component, SyntaxComponentType::Group(Group {
+        assert_eq!(c.components[0].type_, SyntaxComponentType::Group(Group {
             combinator: GroupCombinators::ExactlyOne,
             components: vec![
                 SyntaxComponent::new(SyntaxComponentType::GenericKeyword("left".to_string()), SyntaxComponentMultiplier::Once),
@@ -1006,7 +1006,7 @@ mod tests {
         }));
 
         let c = CssSyntax::new("left | right && top").compile().unwrap();
-        assert_eq!(c.components[0].component, SyntaxComponentType::Group(Group {
+        assert_eq!(c.components[0].type_, SyntaxComponentType::Group(Group {
             combinator: GroupCombinators::AllAnyOrder,
             components: vec![
                 SyntaxComponent::new(SyntaxComponentType::Group(Group {
@@ -1021,7 +1021,7 @@ mod tests {
         }));
 
         let c = CssSyntax::new("left && right | top").compile().unwrap();
-        assert_eq!(c.components[0].component, SyntaxComponentType::Group(Group {
+        assert_eq!(c.components[0].type_, SyntaxComponentType::Group(Group {
             combinator: GroupCombinators::AllAnyOrder,
             components: vec![
                 SyntaxComponent::new(SyntaxComponentType::GenericKeyword("left".to_string()), SyntaxComponentMultiplier::Once),
@@ -1036,7 +1036,7 @@ mod tests {
         }));
 
         let c = CssSyntax::new("left && right || top").compile().unwrap();
-        assert_eq!(c.components[0].component, SyntaxComponentType::Group(Group {
+        assert_eq!(c.components[0].type_, SyntaxComponentType::Group(Group {
             combinator: GroupCombinators::AllAnyOrder,
             components: vec![
                 SyntaxComponent::new(SyntaxComponentType::GenericKeyword("left".to_string()), SyntaxComponentMultiplier::Once),
@@ -1051,7 +1051,7 @@ mod tests {
         }));
 
         let c = CssSyntax::new("left || right | top").compile().unwrap();
-        assert_eq!(c.components[0].component, SyntaxComponentType::Group(Group {
+        assert_eq!(c.components[0].type_, SyntaxComponentType::Group(Group {
             combinator: GroupCombinators::AtLeastOneAnyOrder,
             components: vec![
                 SyntaxComponent::new(SyntaxComponentType::GenericKeyword("left".to_string()), SyntaxComponentMultiplier::Once),
@@ -1066,7 +1066,7 @@ mod tests {
         }));
 
         let c = CssSyntax::new("left | right || top").compile().unwrap();
-        assert_eq!(c.components[0].component, SyntaxComponentType::Group(Group {
+        assert_eq!(c.components[0].type_, SyntaxComponentType::Group(Group {
             combinator: GroupCombinators::AtLeastOneAnyOrder,
             components: vec![
                 SyntaxComponent::new(SyntaxComponentType::Group(Group {
@@ -1081,7 +1081,7 @@ mod tests {
         }));
 
         let c = CssSyntax::new("left | right || top && bottom").compile().unwrap();
-        assert_eq!(c.components[0].component, SyntaxComponentType::Group(Group {
+        assert_eq!(c.components[0].type_, SyntaxComponentType::Group(Group {
             combinator: GroupCombinators::AllAnyOrder,
             components: vec![
                 SyntaxComponent::new(SyntaxComponentType::Group(Group {
@@ -1102,7 +1102,7 @@ mod tests {
         }));
 
         let c = CssSyntax::new("left || right | top && bottom").compile().unwrap();
-        assert_eq!(c.components[0].component, SyntaxComponentType::Group(Group {
+        assert_eq!(c.components[0].type_, SyntaxComponentType::Group(Group {
             combinator: GroupCombinators::AllAnyOrder,
             components: vec![
                 SyntaxComponent::new(SyntaxComponentType::Group(Group {
@@ -1123,7 +1123,7 @@ mod tests {
         }));
 
         let c = CssSyntax::new("left && right || top | bottom").compile().unwrap();
-        assert_eq!(c.components[0].component, SyntaxComponentType::Group(Group {
+        assert_eq!(c.components[0].type_, SyntaxComponentType::Group(Group {
             combinator: GroupCombinators::AllAnyOrder,
             components: vec![
                 SyntaxComponent::new(SyntaxComponentType::GenericKeyword("left".to_string()), SyntaxComponentMultiplier::Once),
@@ -1144,7 +1144,7 @@ mod tests {
         }));
 
         let c = CssSyntax::new("left  right || top | bottom").compile().unwrap();
-        assert_eq!(c.components[0].component, SyntaxComponentType::Group(Group {
+        assert_eq!(c.components[0].type_, SyntaxComponentType::Group(Group {
             combinator: GroupCombinators::Juxtaposition,
             components: vec![
                 SyntaxComponent::new(SyntaxComponentType::GenericKeyword("left".to_string()), SyntaxComponentMultiplier::Once),
@@ -1165,7 +1165,7 @@ mod tests {
         }));
 
         let c = CssSyntax::new("left | right || top | bottom").compile().unwrap();
-        assert_eq!(c.components[0].component, SyntaxComponentType::Group(Group {
+        assert_eq!(c.components[0].type_, SyntaxComponentType::Group(Group {
             combinator: GroupCombinators::AtLeastOneAnyOrder,
             components: vec![
                 SyntaxComponent::new(SyntaxComponentType::Group(Group {
@@ -1186,7 +1186,7 @@ mod tests {
         }));
 
         let c = CssSyntax::new("left || right | top || bottom").compile().unwrap();
-        assert_eq!(c.components[0].component, SyntaxComponentType::Group(Group {
+        assert_eq!(c.components[0].type_, SyntaxComponentType::Group(Group {
             combinator: GroupCombinators::AtLeastOneAnyOrder,
             components: vec![
                 SyntaxComponent::new(SyntaxComponentType::GenericKeyword("left".to_string()), SyntaxComponentMultiplier::Once),
@@ -1202,7 +1202,7 @@ mod tests {
         }));
 
         let c = CssSyntax::new("left right | top bottom").compile().unwrap();
-        assert_eq!(c.components[0].component, SyntaxComponentType::Group(Group {
+        assert_eq!(c.components[0].type_, SyntaxComponentType::Group(Group {
             combinator: GroupCombinators::Juxtaposition,
             components: vec![
                 SyntaxComponent::new(SyntaxComponentType::GenericKeyword("left".to_string()), SyntaxComponentMultiplier::Once),

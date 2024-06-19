@@ -2,7 +2,7 @@ use gosub_css3::stylesheet::CssValue;
 use memoize::memoize;
 use std::collections::HashMap;
 use log::warn;
-use crate::syntax::CssSyntax;
+use crate::syntax::{CssSyntax, Group, SyntaxComponent, SyntaxComponentType};
 use crate::syntax_matcher::CssSyntaxTree;
 
 /// A CSS property definition including its type and initial value and optional expanded values if it's a shorthand property
@@ -130,7 +130,7 @@ impl CssPropertyTypeDefs {
         }
     }
 
-    pub fn add_typedef(&mut self, name: &str, typedef: CssPropertyTypeDef) {
+    pub fn update_typedef(&mut self, name: &str, typedef: CssPropertyTypeDef) {
         self.typedefs.insert(name.to_string(), typedef);
     }
 
@@ -208,15 +208,83 @@ fn parse_typedef_file_internal(json: serde_json::Value) -> CssPropertyTypeDefs {
                 );
             }
             Err(e) => {
-                warn!("Could not compile syntax for typedef {:?}: {:?}", name, e);
-                // panic!("Could not compile syntax for typedef {:?}: {:?}", name, e);
+                // warn!("Could not compile syntax for typedef {:?}: {:?}", name, e);
+                panic!("Could not compile syntax for typedef {:?}: {:?}", name, e);
             }
         }
     }
 
-    CssPropertyTypeDefs { typedefs }
+    let mut typedefs = CssPropertyTypeDefs { typedefs };
+
+    // Resolve all typedefs since we now have loaded them all
+    typedef_resolve_all(&mut typedefs)
 }
 
+/// Iterate all the typedefs and resolve any typedefs that are used in the syntax. After this call
+/// no more typedefs should exist in the syntax.
+fn typedef_resolve_all(typedefs: &mut CssPropertyTypeDefs) -> CssPropertyTypeDefs {
+    let resolved_typedefs = CssPropertyTypeDefs::new();
+
+    for (name, typedef) in typedefs.typedefs.iter() {
+        println!("Resolving typedef {:?}", name);
+        typedefs.update_typedef(name, resolve_components(typedefs, name));
+    }
+
+    resolved_typedefs
+}
+
+/// Resolves a single typedef by recursively resolving all its components
+fn resolve_components(typedefs: &mut CssPropertyTypeDefs, name: &str) -> CssPropertyTypeDef {
+    let mut resolved_components = vec![];
+
+    let typedef = typedefs.find(name).expect("Could not find typedef");
+    for component in &typedef.syntax.components {
+        // Resolve each component that needs resolving, or just return the component as-is.
+        // If a component is a group, we need to resolve all its components first.
+        let resolved_component_type: SyntaxComponentType = match &component.type_ {
+            // Resolve type definition
+            SyntaxComponentType::TypeDefinition(name, _, _) => {
+                match typedefs.find(name) {
+                    Some(typedef) => {
+                        println!("Resolved typedef {:?}", name);
+
+                        // Watch out for cyclic references as this will cause a stack overflow/endless loop
+                        typedefs.update_typedef(name, resolve_components(typedefs, name));
+
+                        // At this point, we have resolved the typedef, so we can just update the component to be the resolved typedef.
+                        let resolved_typedef = typedefs.find(name).expect("Could not find resolved typedef")
+
+                    }
+                    None => {
+                        panic!("Could not resolve typedef {:?}", name);
+                    }
+                }
+            }
+            // Resolve all components from the group
+            SyntaxComponentType::Group(group) => {
+                SyntaxComponentType::Group(Group{
+                    components: resolve_components(typedefs, &group.components),
+                    combinator: group.combinator.clone(),
+                })
+            }
+            // Just return as-is
+            _ => component.clone().type_
+        };
+
+        let comp = SyntaxComponent {
+            type_: resolved_component_type.clone(),
+            multipliers: component.multipliers.clone(),
+        };
+        resolved_components.push(comp);
+    }
+
+    CssPropertyTypeDef {
+        name: typedef.name.clone(),
+        syntax: CssSyntaxTree {
+            components: resolved_components,
+        },
+    }
+}
 
 /// Parses the JSON input into a CSS property definitions structure
 fn parse_definition_file_internal(json: serde_json::Value, _typedefs: CssPropertyTypeDefs) -> CssPropertyDefinitions {
