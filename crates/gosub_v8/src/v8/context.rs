@@ -264,7 +264,7 @@ pub fn ctx_from<'a>(
     let ctx = scope.get_current_context();
 
     //SAFETY: This can only shorten the lifetime of the scope, which is fine. (we borrow it for 'a and it is '2, which will always be longer than 'a)
-    let scope = unsafe { std::mem::transmute(scope) };
+    let scope = unsafe { std::mem::transmute::<&mut HandleScope<'_>, &mut HandleScope<'_>>(scope) };
 
     let scope = HandleScopeType::WithContextRef(scope);
 
