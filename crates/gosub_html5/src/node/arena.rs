@@ -61,6 +61,11 @@ impl NodeArena {
         self.nodes.insert(id, node);
         id
     }
+
+
+    pub fn nodes(&self) -> &HashMap<NodeId, Node> {
+        &self.nodes
+    }
 }
 
 impl Default for NodeArena {
