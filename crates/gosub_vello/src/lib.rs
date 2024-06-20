@@ -33,6 +33,8 @@ mod scene;
 mod text;
 mod transform;
 
+#[cfg(feature = "vello_svg")]
+mod vello_svg;
 pub struct VelloBackend;
 
 impl Debug for VelloBackend {
@@ -53,9 +55,15 @@ impl RenderBackend for VelloBackend {
     type Color = Color;
     type Image = Image;
     type Brush = Brush;
-    type ActiveWindowData<'a> = ActiveWindowData<'a>;
-    type WindowData<'a> = WindowData;
     type Scene = Scene;
+    #[cfg(feature = "resvg")]
+    type SVGRenderer = gosub_svg::resvg::Resvg;
+    #[cfg(all(feature = "vello_svg", not(feature = "resvg")))]
+    type SVGRenderer = vello_svg::VelloSVG;
+
+    type ActiveWindowData<'a> = ActiveWindowData<'a>;
+
+    type WindowData<'a> = WindowData;
 
     fn draw_rect(&mut self, data: &mut Self::WindowData<'_>, rect: &RenderRect<Self>) {
         data.scene.draw_rect(rect);

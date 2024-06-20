@@ -1,28 +1,23 @@
-use crate::{node::{Node, NodeData, NodeId}, parser::document::Document, visit::Visitor};
-
-
-
-
+use crate::{
+    node::{Node, NodeData, NodeId},
+    parser::document::Document,
+    visit::Visitor,
+};
 
 impl Document {
     pub fn write_document(&self) -> String {
         Writer::write_from_node(NodeId::root(), self)
     }
 
-
     pub fn write_from_node(&self, node: NodeId) -> String {
         Writer::write_from_node(node, self)
     }
 }
 
-
-
-
 struct Writer {
     buffer: String,
     comments: bool,
 }
-
 
 impl Writer {
     pub fn write_from_node(node: NodeId, doc: &Document) -> String {
@@ -37,7 +32,7 @@ impl Writer {
     }
 
     pub fn visit_node(&mut self, id: NodeId, doc: &Document) {
-        let Some(node)= doc.get_node_by_id(id) else {
+        let Some(node) = doc.get_node_by_id(id) else {
             return;
         };
 
@@ -83,7 +78,6 @@ impl Writer {
         }
     }
 
-
     pub fn visit_children(&mut self, children: &Vec<NodeId>, doc: &Document) {
         for child in children {
             self.visit_node(*child, doc);
@@ -91,25 +85,20 @@ impl Writer {
     }
 }
 
-
 impl Visitor<Node> for Writer {
     fn text_enter(&mut self, _node: &Node, data: &crate::node::data::text::TextData) {
         self.buffer.push_str(&data.value);
     }
 
-    fn text_leave(&mut self, _node: &Node, _data: &crate::node::data::text::TextData) {
-
-    }
+    fn text_leave(&mut self, _node: &Node, _data: &crate::node::data::text::TextData) {}
 
     fn doctype_enter(&mut self, _node: &Node, data: &crate::node::data::doctype::DocTypeData) {
         self.buffer.push_str("<!DOCTYPE ");
         self.buffer.push_str(&data.name);
-        self.buffer.push_str(">");
+        self.buffer.push('>');
     }
 
-    fn doctype_leave(&mut self, _node: &Node, _data: &crate::node::data::doctype::DocTypeData) {
-
-    }
+    fn doctype_leave(&mut self, _node: &Node, _data: &crate::node::data::doctype::DocTypeData) {}
 
     fn comment_enter(&mut self, _node: &Node, data: &crate::node::data::comment::CommentData) {
         if self.comments {
@@ -119,35 +108,29 @@ impl Visitor<Node> for Writer {
         }
     }
 
-    fn comment_leave(&mut self, _node: &Node, _data: &crate::node::data::comment::CommentData) {
-
-    }
+    fn comment_leave(&mut self, _node: &Node, _data: &crate::node::data::comment::CommentData) {}
 
     fn element_enter(&mut self, _node: &Node, data: &crate::node::data::element::ElementData) {
-        self.buffer.push_str("<");
+        self.buffer.push('<');
         self.buffer.push_str(&data.name);
         for (name, value) in &data.attributes {
-            self.buffer.push_str(" ");
+            self.buffer.push(' ');
             self.buffer.push_str(name);
             self.buffer.push_str("=\"");
             self.buffer.push_str(value);
-            self.buffer.push_str("\"");
+            self.buffer.push('"');
         }
 
-        self.buffer.push_str(">");
+        self.buffer.push('>');
     }
 
-    fn element_leave(&mut self, node: &Node, data: &crate::node::data::element::ElementData) {
+    fn element_leave(&mut self, _node: &Node, data: &crate::node::data::element::ElementData) {
         self.buffer.push_str("</");
         self.buffer.push_str(&data.name);
-        self.buffer.push_str(">");
+        self.buffer.push('>');
     }
 
-    fn document_enter(&mut self, _node: &Node, _data: &crate::node::data::document::DocumentData) {
-        
-    }
+    fn document_enter(&mut self, _node: &Node, _data: &crate::node::data::document::DocumentData) {}
 
-    fn document_leave(&mut self, _node: &Node, _data: &crate::node::data::document::DocumentData) {
-        
-    }
+    fn document_leave(&mut self, _node: &Node, _data: &crate::node::data::document::DocumentData) {}
 }

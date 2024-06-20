@@ -6,7 +6,6 @@ use gosub_shared::bytes::{CharIterator, Confidence, Encoding};
 use gosub_shared::timing::Scale;
 use gosub_shared::timing_display;
 use gosub_shared::types::Result;
-use std::borrow::Borrow;
 use std::fs;
 use std::process::exit;
 use std::str::FromStr;
@@ -84,9 +83,7 @@ fn main() -> Result<()> {
 
     timing_display!(true, Scale::Auto);
 
-
     let doc = handle.get();
-
 
     let mut body = NodeId::root();
 
@@ -96,12 +93,9 @@ fn main() -> Result<()> {
         }
     }
 
-
-
     let wrote = doc.write_from_node(body);
 
     println!("{wrote}");
-
 
     Ok(())
 }

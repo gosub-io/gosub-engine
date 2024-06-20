@@ -62,7 +62,6 @@ impl NodeArena {
         id
     }
 
-
     pub fn nodes(&self) -> &HashMap<NodeId, Node> {
         &self.nodes
     }

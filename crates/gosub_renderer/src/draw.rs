@@ -1,15 +1,13 @@
-use std::io::Read;
-
 use anyhow::anyhow;
-use image::DynamicImage;
 use taffy::{
     AvailableSpace, Layout, NodeId, PrintTree, Size as TSize, TaffyTree, TraversePartialTree,
 };
 use url::Url;
 
 use gosub_html5::node::NodeId as GosubId;
+use gosub_render_backend::svg::SvgRenderer;
 use gosub_render_backend::{
-    Border, BorderSide, BorderStyle, Brush, Color, Image, PreRenderText, Rect, RenderBackend,
+    Border, BorderSide, BorderStyle, Brush, Color, ImageBuffer, PreRenderText, Rect, RenderBackend,
     RenderBorder, RenderRect, RenderText, Scene as TScene, SizeU32, Text, Transform, FP,
 };
 use gosub_rendering::layout::generate_taffy_tree;
@@ -19,7 +17,10 @@ use gosub_styling::css_colors::RgbColor;
 use gosub_styling::css_values::CssValue;
 use gosub_styling::render_tree::{RenderNodeData, RenderTree, RenderTreeNode};
 
+use crate::draw::img::request_img;
 use crate::render_tree::{load_html_rendertree, NodeID, TreeDrawer};
+
+mod img;
 
 pub trait SceneDrawer<B: RenderBackend> {
     fn draw(&mut self, backend: &mut B, data: &mut B::WindowData<'_>, size: SizeU32);
@@ -52,7 +53,13 @@ impl<B: RenderBackend> SceneDrawer<B> for TreeDrawer<B> {
                 .take()
                 .unwrap_or_else(|| B::Scene::new(data));
 
-            self.render(&mut scene, size);
+            let mut drawer = Drawer {
+                scene: &mut scene,
+                drawer: self,
+                svg: B::SVGRenderer::new(data),
+            };
+
+            drawer.render(size);
 
             self.tree_scene = Some(scene);
 
@@ -222,30 +229,36 @@ impl<B: RenderBackend> SceneDrawer<B> for TreeDrawer<B> {
     }
 }
 
-impl<B: RenderBackend> TreeDrawer<B> {
-    pub(crate) fn render(&mut self, scene: &mut B::Scene, size: SizeU32) {
+struct Drawer<'s, 't, B: RenderBackend> {
+    scene: &'s mut B::Scene,
+    drawer: &'t mut TreeDrawer<B>,
+    svg: B::SVGRenderer,
+}
+
+impl<B: RenderBackend> Drawer<'_, '_, B> {
+    pub(crate) fn render(&mut self, size: SizeU32) {
         let space = TSize {
             width: AvailableSpace::Definite(size.width as f32),
             height: AvailableSpace::Definite(size.height as f32),
         };
 
-        if let Err(e) = self.taffy.compute_layout(self.root, space) {
+        if let Err(e) = self.drawer.taffy.compute_layout(self.drawer.root, space) {
             eprintln!("Failed to compute layout: {:?}", e);
             return;
         }
 
-        self.position = PositionTree::from_taffy(&self.taffy, self.root);
+        self.drawer.position = PositionTree::from_taffy(&self.drawer.taffy, self.drawer.root);
 
-        self.render_node_with_children(self.root, scene, Point::ZERO);
+        self.render_node_with_children(self.drawer.root, Point::ZERO);
     }
 
-    fn render_node_with_children(&mut self, id: NodeID, scene: &mut B::Scene, mut pos: Point) {
-        let err = self.render_node(id, scene, &mut pos);
+    fn render_node_with_children(&mut self, id: NodeID, mut pos: Point) {
+        let err = self.render_node(id, &mut pos);
         if let Err(e) = err {
             eprintln!("Error rendering node: {:?}", e);
         }
 
-        let children = match self.taffy.children(id) {
+        let children = match self.drawer.taffy.children(id) {
             Ok(children) => children,
             Err(e) => {
                 eprintln!("Error rendering node children: {e}");
@@ -254,24 +267,21 @@ impl<B: RenderBackend> TreeDrawer<B> {
         };
 
         for child in children {
-            self.render_node_with_children(child, scene, pos);
+            self.render_node_with_children(child, pos);
         }
     }
 
-    fn render_node(
-        &mut self,
-        id: NodeID,
-        scene: &mut B::Scene,
-        pos: &mut Point,
-    ) -> anyhow::Result<()> {
+    fn render_node(&mut self, id: NodeID, pos: &mut Point) -> anyhow::Result<()> {
         let gosub_id = *self
+            .drawer
             .taffy
             .get_node_context(id)
             .ok_or(anyhow!("Failed to get style id"))?;
 
-        let layout = self.taffy.get_final_layout(id);
+        let layout = self.drawer.taffy.get_final_layout(id);
 
         let node = self
+            .drawer
             .style
             .get_node_mut(gosub_id)
             .ok_or(anyhow!("Node not found"))?;
@@ -279,7 +289,14 @@ impl<B: RenderBackend> TreeDrawer<B> {
         pos.x += layout.location.x as FP;
         pos.y += layout.location.y as FP;
 
-        let border_radius = render_bg(node, scene, layout, pos, &self.url);
+        let border_radius = render_bg(
+            node,
+            self.scene,
+            layout,
+            pos,
+            &self.drawer.url,
+            &mut self.svg,
+        );
 
         if let RenderNodeData::Element(element) = &node.data {
             if element.name() == "img" {
@@ -288,28 +305,10 @@ impl<B: RenderBackend> TreeDrawer<B> {
                     .get("src")
                     .ok_or(anyhow!("Image element has no src attribute"))?;
 
-                let url = Url::parse(src.as_str()).or_else(|_| self.url.join(src.as_str()))?;
+                let url =
+                    Url::parse(src.as_str()).or_else(|_| self.drawer.url.join(src.as_str()))?;
 
-                let img = if url.scheme() == "file" {
-                    let path = url.as_str().trim_start_matches("file://");
-
-                    println!("Loading image from: {:?}", path);
-
-                    image::open(path)?
-                } else {
-                    let res = gosub_net::http::ureq::get(url.as_str()).call()?;
-
-                    let mut img = Vec::with_capacity(
-                        res.header("Content-Length")
-                            .unwrap_or("1024")
-                            .parse::<usize>()?,
-                    );
-
-                    res.into_reader().read_to_end(&mut img)?;
-
-                    image::load_from_memory(&img)?
-                };
-
+                let img = request_img(&mut self.svg, &url)?;
                 let fit = element
                     .attributes
                     .get("object-fit")
@@ -319,11 +318,11 @@ impl<B: RenderBackend> TreeDrawer<B> {
                 println!("Rendering image at: {:?}", pos);
                 println!("with size: {:?}", layout.size);
 
-                render_image::<B>(img, scene, *pos, layout.size, border_radius, fit)?;
+                render_image::<B>(img, self.scene, *pos, layout.size, border_radius, fit)?;
             }
         }
 
-        render_text(node, scene, pos, layout);
+        render_text(node, self.scene, pos, layout);
         Ok(())
     }
 }
@@ -377,6 +376,7 @@ fn render_bg<B: RenderBackend>(
     layout: &Layout,
     pos: &Point,
     root_url: &Url,
+    svg: &mut B::SVGRenderer,
 ) -> (FP, FP, FP, FP) {
     let bg_color = node
         .properties
@@ -490,21 +490,12 @@ fn render_bg<B: RenderBackend>(
             return border_radius;
         };
 
-        let Ok(res) = gosub_net::http::ureq::get(url.as_str()).call() else {
-            return border_radius;
-        };
-
-        let mut img = Vec::with_capacity(
-            res.header("Content-Length")
-                .unwrap_or("1024")
-                .parse::<usize>()
-                .unwrap_or(1024),
-        );
-
-        let _ = res.into_reader().read_to_end(&mut img); //TODO: handle error
-
-        let Ok(img) = image::load_from_memory(&img) else {
-            return border_radius;
+        let img = match request_img(svg, &url) {
+            Ok(img) => img,
+            Err(e) => {
+                eprintln!("Error loading image: {:?}", e);
+                return border_radius;
+            }
         };
 
         let _ =
@@ -535,7 +526,7 @@ impl Side {
 }
 
 fn render_image<B: RenderBackend>(
-    img: DynamicImage,
+    img: ImageBuffer<B>,
     scene: &mut B::Scene,
     pos: Point,
     size: TSize<f32>,
@@ -547,7 +538,7 @@ fn render_image<B: RenderBackend>(
 
     let rect = Rect::new(pos.x, pos.y, pos.x + width, pos.y + height);
 
-    let img_size = (img.width() as FP, img.height() as FP);
+    let img_size = img.size_tuple();
 
     let transform = match fit {
         "fill" => {
@@ -586,16 +577,23 @@ fn render_image<B: RenderBackend>(
 
     let transform = transform.with_translation(pos);
 
-    let rect = RenderRect {
-        rect,
-        transform: None,
-        radius: Some(B::BorderRadius::from(radii)),
-        brush: Brush::image(Image::new(img_size, img.into_rgba8().into_raw())),
-        brush_transform: Some(transform),
-        border: None,
-    };
+    match img {
+        ImageBuffer::Image(img) => {
+            let rect = RenderRect {
+                rect,
+                transform: None,
+                radius: Some(B::BorderRadius::from(radii)),
+                brush: Brush::image(img),
+                brush_transform: Some(transform),
+                border: None,
+            };
 
-    scene.draw_rect(&rect);
+            scene.draw_rect(&rect);
+        }
+        ImageBuffer::Scene(s, _size) => {
+            scene.apply_scene(&s, Some(transform)); //TODO we probably want to use a clip layer here
+        }
+    }
 
     Ok(())
 }
