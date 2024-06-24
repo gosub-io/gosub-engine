@@ -248,6 +248,21 @@ impl<B: RenderBackend> RenderTree<B> {
                 }
             }
 
+            if let RenderNodeData::Text(t) = &node.data {
+                let mut remove = true;
+                for c in t.prerender.value().chars() {
+                    if !c.is_ascii_whitespace() {
+                        remove = false;
+                        break;
+                    }
+                }
+
+                if remove {
+                    delete_list.push(*id);
+                    continue;
+                }
+            }
+
             // Check CSS styles and remove if not renderable
             if let Some(mut prop) = self.get_property(*id, "display") {
                 if prop.compute_value().to_string() == "none" {
