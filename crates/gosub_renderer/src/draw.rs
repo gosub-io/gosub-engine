@@ -24,9 +24,9 @@ mod img;
 
 pub trait SceneDrawer<B: RenderBackend> {
     fn draw(&mut self, backend: &mut B, data: &mut B::WindowData<'_>, size: SizeU32);
-    fn mouse_move(&mut self, backend: &mut B, data: &mut B::WindowData<'_>, x: f64, y: f64)
-        -> bool;
+    fn mouse_move(&mut self, backend: &mut B, data: &mut B::WindowData<'_>, x: FP, y: FP) -> bool;
 
+    fn scroll(&mut self, point: Point);
     fn from_url(url: Url, debug: bool) -> Result<Self>
     where
         Self: Sized;
@@ -41,7 +41,7 @@ type Point = gosub_shared::types::Point<FP>;
 
 impl<B: RenderBackend> SceneDrawer<B> for TreeDrawer<B> {
     fn draw(&mut self, backend: &mut B, data: &mut B::WindowData<'_>, size: SizeU32) {
-        if !self.debugger_changed && self.size == Some(size) {
+        if !self.dirty && self.size == Some(size) {
             return;
         }
 
@@ -82,23 +82,28 @@ impl<B: RenderBackend> SceneDrawer<B> for TreeDrawer<B> {
         backend.draw_rect(data, &rect);
 
         if let Some(scene) = &self.tree_scene {
-            backend.apply_scene(data, scene, None);
+            backend.apply_scene(data, scene, self.scene_transform.clone());
         }
 
         if let Some(scene) = &self.debugger_scene {
-            self.debugger_changed = false;
-            backend.apply_scene(data, scene, None);
+            self.dirty = false;
+            backend.apply_scene(data, scene, self.scene_transform.clone());
         }
     }
 
-    fn mouse_move(
-        &mut self,
-        _backend: &mut B,
-        data: &mut B::WindowData<'_>,
-        x: f64,
-        y: f64,
-    ) -> bool {
-        if let Some(e) = self.position.find(x as f32, y as f32) {
+    fn mouse_move(&mut self, _backend: &mut B, data: &mut B::WindowData<'_>, x: FP, y: FP) -> bool {
+        let x = x - self
+            .scene_transform
+            .clone()
+            .unwrap_or(B::Transform::IDENTITY)
+            .tx();
+        let y = y - self
+            .scene_transform
+            .clone()
+            .unwrap_or(B::Transform::IDENTITY)
+            .ty();
+
+        if let Some(e) = self.position.find(x, y) {
             if self.last_hover != Some(e) {
                 self.last_hover = Some(e);
                 if self.debug {
@@ -211,13 +216,25 @@ impl<B: RenderBackend> SceneDrawer<B> for TreeDrawer<B> {
                     scene.draw_rect(&render_rect);
 
                     self.debugger_scene = Some(scene);
-                    self.debugger_changed = true;
+                    self.dirty = true;
                     return true;
                 }
             }
             return false;
         };
         false
+    }
+
+    fn scroll(&mut self, point: Point) {
+        let transform = self
+            .scene_transform
+            .take()
+            .unwrap_or(B::Transform::IDENTITY);
+        let transform = transform.then_translate(point.x, point.y);
+
+        self.scene_transform = Some(transform);
+
+        self.dirty = true;
     }
 
     fn from_url(url: Url, debug: bool) -> Result<Self> {

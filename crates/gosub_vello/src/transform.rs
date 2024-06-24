@@ -1,4 +1,5 @@
 use std::ops::{Mul, MulAssign};
+
 use vello::kurbo::Affine;
 
 use gosub_render_backend::{Point, Transform as TTransform, FP};
@@ -143,5 +144,13 @@ impl TTransform for Transform {
         self.0
             .with_translation((translation.x64(), translation.y64()).into())
             .into()
+    }
+
+    fn tx(&self) -> FP {
+        self.0.as_coeffs()[4] as FP
+    }
+
+    fn ty(&self) -> FP {
+        self.0.as_coeffs()[5] as FP
     }
 }
