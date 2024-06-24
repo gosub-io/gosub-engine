@@ -9,7 +9,7 @@ license = "MIT"
 gosub_shared = { path = "../gosub_shared" }
 colored = "2.1.0"
 derive_more = "0.99"
-lazy_static = "1.4"
+lazy_static = "1.5"
 thiserror = "1.0.61"
 v8 = "0.94.0"
 anyhow = "1.0.86"
