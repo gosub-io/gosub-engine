@@ -1,4 +1,41 @@
 #data
+FOO<script>'Hello'</script>BAR
+#errors
+(1,3): expected-doctype-but-got-chars
+#document
+| <html>
+|   <head>
+|   <body>
+|     "FOO"
+|     <script>
+|       "'Hello'"
+|     "BAR"
+
+#data
+FOO<script></script>BAR
+#errors
+(1,3): expected-doctype-but-got-chars
+#document
+| <html>
+|   <head>
+|   <body>
+|     "FOO"
+|     <script>
+|     "BAR"
+
+#data
+FOO<script></script >BAR
+#errors
+(1,3): expected-doctype-but-got-chars
+#document
+| <html>
+|   <head>
+|   <body>
+|     "FOO"
+|     <script>
+|     "BAR"
+
+#data
 FOO<script></script/>BAR
 #errors
 (1,3): expected-doctype-but-got-chars
