@@ -335,16 +335,13 @@ impl<'stream> Tokenizer<'stream> {
                 }
                 State::RCDATALessThanSign => {
                     let c = self.read_char();
-                    match c {
-                        Ch('/') => {
-                            self.temporary_buffer.clear();
-                            self.state = State::RCDATAEndTagOpen;
-                        }
-                        _ => {
-                            self.consume('<');
-                            self.stream_prev();
-                            self.state = State::RCDATA;
-                        }
+                    if let Ch('/') = c {
+                        self.temporary_buffer.clear();
+                        self.state = State::RCDATAEndTagOpen;
+                    } else {
+                        self.consume('<');
+                        self.stream_prev();
+                        self.state = State::RCDATA;
                     }
                 }
                 State::RCDATAEndTagOpen => {
@@ -424,16 +421,13 @@ impl<'stream> Tokenizer<'stream> {
                 }
                 State::RAWTEXTLessThanSign => {
                     let c = self.read_char();
-                    match c {
-                        Ch('/') => {
-                            self.temporary_buffer.clear();
-                            self.state = State::RAWTEXTEndTagOpen;
-                        }
-                        _ => {
-                            self.consume('<');
-                            self.stream_prev();
-                            self.state = State::RAWTEXT;
-                        }
+                    if let Ch('/') = c {
+                        self.temporary_buffer.clear();
+                        self.state = State::RAWTEXTEndTagOpen;
+                    } else {
+                        self.consume('<');
+                        self.stream_prev();
+                        self.state = State::RAWTEXT;
                     }
                 }
                 State::RAWTEXTEndTagOpen => {
@@ -1998,15 +1992,12 @@ impl<'stream> Tokenizer<'stream> {
                 }
                 State::CDATASectionBracket => {
                     let c = self.read_char();
-                    match c {
-                        Ch(']') => {
-                            self.state = State::CDATASectionEnd;
-                        }
-                        _ => {
-                            self.consume(']');
-                            self.stream_prev();
-                            self.state = State::CDATASection;
-                        }
+                    if let Ch(']') = c {
+                        self.state = State::CDATASectionEnd;
+                    } else {
+                        self.consume(']');
+                        self.stream_prev();
+                        self.state = State::CDATASection;
                     }
                 }
                 State::CDATASectionEnd => {

@@ -904,7 +904,7 @@ impl<'stream> Tokenizer<'stream> {
         self.stream.seek(start);
 
         // todo: this is not efficient
-        let mut s = String::new();
+        let mut s = String::with_capacity(end - start);
         for c in self.stream.get_slice(end - start) {
             if let Ch(c) = c {
                 s.push(*c);
