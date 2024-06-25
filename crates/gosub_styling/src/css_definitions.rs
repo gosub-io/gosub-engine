@@ -2,7 +2,7 @@ use gosub_css3::stylesheet::CssValue;
 use memoize::memoize;
 use std::collections::HashMap;
 use log::warn;
-use crate::syntax::{CssSyntax, SyntaxComponent, SyntaxComponentType};
+use crate::syntax::{CssSyntax, Group, GroupCombinators, SyntaxComponent, SyntaxComponentMultiplier, SyntaxComponentType};
 use crate::syntax_matcher::CssSyntaxTree;
 
 /// A CSS property definition including its type and initial value and optional expanded values if it's a shorthand property
@@ -149,6 +149,14 @@ impl CssPropertyTypeDefs {
     pub fn get_typedefs(self) -> HashMap<String, CssPropertyTypeDef> {
         self.typedefs.clone()
     }
+
+    pub fn get_keys(self) -> Vec<String> {
+        let mut keys = vec![];
+        for (key, _) in self.typedefs.iter() {
+            keys.push(key.clone());
+        }
+        keys
+    }
 }
 
 /// A CSS property definition including its type and initial value and optional expanded values if it's a shorthand property
@@ -225,68 +233,98 @@ fn parse_typedef_file_internal(json: serde_json::Value) -> CssPropertyTypeDefs {
 fn typedef_resolve_all(typedefs: &mut CssPropertyTypeDefs) -> CssPropertyTypeDefs {
     let resolved_typedefs = CssPropertyTypeDefs::new();
 
-    for (name, typedef) in typedefs.typedefs.iter() {
+    for name in <CssPropertyTypeDefs as Clone>::clone(&typedefs).get_keys() {
         println!("Resolving typedef {:?}", name);
-        typedefs.update_typedef(name, resolve_components(typedefs, name));
+        typedef_resolve(typedefs, &name);
     }
 
     resolved_typedefs
 }
 
+fn typedef_resolve_group(typedefs: &mut CssPropertyTypeDefs, group: &Group) -> Group {
+    let mut resolved_group = Group{
+        combinator: group.combinator.clone(),
+        components: vec![],
+    };
+
+    for component in &group.components {
+        match &component.type_ {
+            SyntaxComponentType::TypeDefinition(name, _, _) => {
+                match typedefs.find(name) {
+                    Some(_typedef) => {
+                        // Resolve the typedef (if it's not already resolved and will take care of recursive typedefs)
+                        typedef_resolve(typedefs, name);
+
+                        resolved_group.components.push(typedefs.find(name).expect("Could not find typedef").syntax.components[0].clone());
+                    }
+                    None => {
+                        panic!("Reference to typedef {:?} found. But it's not defined", name);
+                    }
+                }
+            }
+            SyntaxComponentType::Group(group) => {
+                resolved_group.components.push(typedef_resolve_group(typedefs, group));
+            },
+            _ => {
+                resolved_group.components.push(component);
+            }
+        }
+    }
+
+}
+
 /// Resolves a single typedef by recursively resolving all its components
-fn resolve_components(typedefs: &mut CssPropertyTypeDefs, name: &str) -> CssPropertyTypeDef {
+fn typedef_resolve(typedefs: &mut CssPropertyTypeDefs, name: &str) {
     let mut resolved_components = vec![];
 
     let typedef = typedefs.find(name).expect("Could not find typedef");
     for component in &typedef.syntax.components {
+        println!("Resolving component: {:?}", component);
+
         // Resolve each component that needs resolving, or just return the component as-is.
         // If a component is a group, we need to resolve all its components first.
-        let resolved_component_type: SyntaxComponentType = match &component.type_ {
+        match &component.type_ {
             // Resolve type definition
             SyntaxComponentType::TypeDefinition(name, _, _) => {
                 match typedefs.find(name) {
                     Some(_typedef) => {
                         println!("Resolved typedef {:?}", name);
+                        // Resolve the typedef (if it's not already resolved and will take care of recursive typedefs)
+                        typedef_resolve(typedefs, name);
 
-                        // Watch out for cyclic references as this will cause a stack overflow/endless loop
-                        typedefs.update_typedef(name, resolve_components(typedefs, name));
-
-                        // At this point, we have resolved the typedef, so we can just update the component to be the resolved typedef.
-                        // let resolved_typedef = typedefs.find(name).expect("Could not find resolved typedef");
-                        panic!("at the disco");
-
+                        // Either add the component if it's a single one, or create a group if it's multiple
+                        let resolved_typedef = typedefs.find(name).expect("Could not find typedef");
+                        if resolved_typedef.syntax.components.len() == 1 {
+                            resolved_components.push(resolved_typedef.syntax.components[0].clone());
+                        } else {
+                            resolved_components.push(
+                                SyntaxComponent::new(SyntaxComponentType::Group(Group{
+                                    combinator: GroupCombinators::Juxtaposition,
+                                    components: resolved_typedef.syntax.components.clone(),
+                                }), SyntaxComponentMultiplier::Once)
+                            );
+                        }
                     }
                     None => {
-                        panic!("Could not resolve typedef {:?}", name);
+                        panic!("Reference to typedef {:?} found. But it's not defined", name);
                     }
                 }
             }
-
-            // // Resolve all components from the group
-            // SyntaxComponentType::Group(group) => {
-            //     SyntaxComponentType::Group(Group{
-            //         components: resolve_components(typedefs, &group.components),
-            //         combinator: group.combinator.clone(),
-            //     })
-            // }
-
-            // Just return as-is
-            _ => component.clone().type_
-        };
-
-        let comp = SyntaxComponent {
-            type_: resolved_component_type.clone(),
-            multipliers: component.multipliers.clone(),
-        };
-        resolved_components.push(comp);
+            SyntaxComponentType::Group(group) => {
+                let resolved_group = typedef_resolve_group(typedefs, group);
+                resolved_components.push(resolved_group);
+            },
+            _ => {
+                // No need to resolve this component, just add it as-is
+                resolved_components.push(component.clone());
+            }
+        }
     }
 
-    CssPropertyTypeDef {
-        name: typedef.name.clone(),
-        syntax: CssSyntaxTree {
-            components: resolved_components,
-        },
-    }
+    // Update the typedefs with this new resolved typedef
+    let mut typedef = typedefs.find(name).expect("Could not find typedef");
+    typedef.syntax.components = resolved_components;
+    typedefs.update_typedef(name, typedef);
 }
 
 /// Parses the JSON input into a CSS property definitions structure

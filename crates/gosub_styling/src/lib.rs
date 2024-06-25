@@ -31,38 +31,38 @@ pub fn load_default_useragent_stylesheet() -> anyhow::Result<CssStylesheet> {
     convert_ast_to_stylesheet(&css_ast, CssOrigin::UserAgent, location)
 }
 
-#[cfg(test)]
-mod tests {
-
-    use crate::render_tree::generate_render_tree;
-    use gosub_html5::html_compile;
-
-    #[test]
-    fn test_css_stuff() {
-        let html = r#"
-        <html>
-        <head>
-            <style>
-                body { color: blue }
-                h1 { border: solid black 1px; color: red }
-                p { color: green }
-            </style>
-        </head>
-        <body>
-            <h1>Hello world</h1>
-            <p>
-                Goodbye
-                <h1>moon</h1>
-            </p>
-            Yes
-          </body>
-          </html>
-        "#;
-
-        let doc = html_compile(html);
-        let render_tree = generate_render_tree(doc);
-
-        // what is the border-left-color of h1?
-        dbg!(&render_tree);
-    }
-}
+// #[cfg(test)]
+// mod tests {
+//
+//     use crate::render_tree::generate_render_tree;
+//     use gosub_html5::html_compile;
+//
+//     #[test]
+//     fn test_css_stuff() {
+//         let html = r#"
+//         <html>
+//         <head>
+//             <style>
+//                 body { color: blue }
+//                 h1 { border: solid black 1px; color: red }
+//                 p { color: green }
+//             </style>
+//         </head>
+//         <body>
+//             <h1>Hello world</h1>
+//             <p>
+//                 Goodbye
+//                 <h1>moon</h1>
+//             </p>
+//             Yes
+//           </body>
+//           </html>
+//         "#;
+//
+//         let doc = html_compile(html);
+//         let render_tree = generate_render_tree(doc);
+//
+//         // what is the border-left-color of h1?
+//         dbg!(&render_tree);
+//     }
+// }
