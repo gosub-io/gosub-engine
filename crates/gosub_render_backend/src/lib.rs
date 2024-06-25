@@ -1,12 +1,15 @@
-use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use std::fmt::Debug;
 use std::ops::{Div, Mul, MulAssign};
 
+use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use smallvec::SmallVec;
 
 use gosub_shared::types::Result;
-
 use gosub_shared::types::Size as SizeT;
+
+use crate::svg::SvgRenderer;
+
+pub mod svg;
 
 pub type Size = SizeT<f32>;
 pub type SizeU32 = SizeT<u32>;
@@ -28,6 +31,7 @@ pub trait RenderBackend: Sized + Debug {
     type Image: Image;
     type Brush: Brush<Self>;
     type Scene: Scene<Self>;
+    type SVGRenderer: SvgRenderer<Self>;
 
     type ActiveWindowData<'a>;
     type WindowData<'a>;
@@ -583,7 +587,10 @@ pub trait Color {
 pub trait Image {
     fn new(size: (FP, FP), data: Vec<u8>) -> Self;
 
-    fn from_img(img: &image::DynamicImage) -> Self;
+    fn from_img(img: image::DynamicImage) -> Self;
+
+    fn width(&self) -> u32;
+    fn height(&self) -> u32;
 }
 
 pub trait Brush<B: RenderBackend>: Clone {
@@ -592,4 +599,39 @@ pub trait Brush<B: RenderBackend>: Clone {
     fn color(color: B::Color) -> Self;
 
     fn image(image: B::Image) -> Self;
+}
+
+pub enum ImageBuffer<B: RenderBackend> {
+    Image(B::Image),
+    Scene(B::Scene, SizeU32),
+}
+
+impl<B: RenderBackend> ImageBuffer<B> {
+    pub fn width(&self) -> u32 {
+        match self {
+            ImageBuffer::Image(img) => img.width(),
+            ImageBuffer::Scene(_, size) => size.width,
+        }
+    }
+
+    pub fn height(&self) -> u32 {
+        match self {
+            ImageBuffer::Image(img) => img.height(),
+            ImageBuffer::Scene(_, size) => size.height,
+        }
+    }
+
+    pub fn size(&self) -> SizeU32 {
+        match self {
+            ImageBuffer::Image(img) => SizeU32::new(img.width(), img.height()),
+            ImageBuffer::Scene(_, size) => *size,
+        }
+    }
+
+    pub fn size_tuple(&self) -> (FP, FP) {
+        match self {
+            ImageBuffer::Image(img) => (img.width() as FP, img.height() as FP),
+            ImageBuffer::Scene(_, size) => (size.width as FP, size.height as FP),
+        }
+    }
 }

@@ -7,6 +7,7 @@ edition = "2021"
 gosub_shared = { path = "../gosub_shared" }
 gosub_render_backend = { path = "../gosub_render_backend" }
 gosub_typeface = { path = "../gosub_typeface" }
+gosub_svg = { path = "../gosub_svg" }
 vello = "0.2.0"
 image = "0.25.1"
 smallvec = "1.13.2"
@@ -14,3 +15,11 @@ anyhow = "1.0.82"
 wgpu = "0.20.1"
 raw-window-handle = "0.6.2"
 futures = "0.3.30"
+vello_svg = { version = "0.2.0", optional = true }
+gosub_html5 = { path = "../gosub_html5", optional = true }
+
+
+[features]
+default = ["resvg"]
+resvg = ["gosub_svg/resvg"]
+vello_svg = ["dep:vello_svg", "dep:gosub_html5"] # resvg has higher priority, so if both are enabled, resvg will be used

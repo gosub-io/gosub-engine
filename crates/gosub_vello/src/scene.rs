@@ -1,17 +1,20 @@
-use gosub_render_backend::{RenderBackend, RenderRect, RenderText, Scene as TScene};
 use vello::kurbo::RoundedRect;
 use vello::peniko::Fill;
 use vello::Scene as VelloScene;
+
+use gosub_render_backend::{RenderBackend, RenderRect, RenderText, Scene as TScene};
 
 use crate::{Border, BorderRenderOptions, Text, Transform, VelloBackend};
 
 pub struct Scene(pub(crate) VelloScene);
 
-impl TScene<VelloBackend> for Scene {
-    fn reset(&mut self) {
-        self.0.reset()
+impl Scene {
+    pub fn inner(&mut self) -> &mut VelloScene {
+        &mut self.0
     }
+}
 
+impl TScene<VelloBackend> for Scene {
     fn draw_rect(&mut self, rect: &RenderRect<VelloBackend>) {
         let affine = rect.transform.as_ref().map(|t| t.0).unwrap_or_default();
 
@@ -49,6 +52,10 @@ impl TScene<VelloBackend> for Scene {
         transform: Option<Transform>,
     ) {
         self.0.append(&scene.0, transform.map(|t| t.0));
+    }
+
+    fn reset(&mut self) {
+        self.0.reset()
     }
 
     fn new(_data: &mut <VelloBackend as RenderBackend>::WindowData<'_>) -> Self {

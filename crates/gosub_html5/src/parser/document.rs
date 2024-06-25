@@ -495,6 +495,10 @@ impl Document {
 
         false
     }
+
+    pub fn nodes(&self) -> &HashMap<NodeId, Node> {
+        self.arena.nodes()
+    }
 }
 
 // Walk the document tree with the given visitor
