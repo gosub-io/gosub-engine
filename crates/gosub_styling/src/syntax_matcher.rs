@@ -31,6 +31,16 @@ fn match_internal(value: &CssValue, component: &SyntaxComponent) -> Option<CssVa
             CssValue::String(v) if v.eq_ignore_ascii_case(&keyword) => Some(value.clone()),
             _ => None,
         }
+        SyntaxComponentType::Scalar(scalar) => {
+            match scalar.as_str() {
+                "<number>" => match value {
+                    _ => None,
+                },
+                _ => {
+                    panic!("Unknown scalar: {}", scalar);
+                }
+            }
+        }
         // SyntaxComponentType::Property(_s) => {},
         // SyntaxComponentType::Function(_s, _t) => {}
         // SyntaxComponentType::TypeDefinition(_s, _t, _u) => {}

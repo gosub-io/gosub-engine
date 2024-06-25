@@ -150,6 +150,8 @@ pub enum SyntaxComponentType {
     Group(Group),
     /// special unit() function case (todo: figure out if we need this special case)
     Unit(Option<f32>, Option<f32>, Vec<String>),
+    /// Scalar elements (like: <integer>, <number, <percentage> etc)
+    Scalar(String),
 }
 
 /// A value definition syntax structure. See https://developer.mozilla.org/en-US/docs/Web/CSS/Value_definition_syntax

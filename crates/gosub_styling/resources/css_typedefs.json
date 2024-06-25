@@ -111,7 +111,7 @@
     "<legacy-hsla-syntax>": "hsla( <hue>, <percentage>, <percentage>, <alpha-value>? )",
     "<legacy-rgb-syntax>": "rgb( <percentage>#{3} , <alpha-value>? ) | rgb( <number>#{3} , <alpha-value>? )",
     "<legacy-rgba-syntax>": "rgba( <percentage>#{3} , <alpha-value>? ) | rgba( <number>#{3} , <alpha-value>? )",
-    "<length-percentage>": "<length>      | <percentage>",
+    "<length-percentage>": "<length> | <percentage>",
     "<line-name-list>": "[ <line-names> | <name-repeat> ]+",
     "<line-names>": "'[' <custom-ident>* ']'",
     "<line-style>": "none | hidden | dotted | dashed | solid | double | groove | ridge | inset | outset",
