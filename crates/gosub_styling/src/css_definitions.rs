@@ -2,7 +2,7 @@ use gosub_css3::stylesheet::CssValue;
 use memoize::memoize;
 use std::collections::HashMap;
 use log::warn;
-use crate::syntax::{CssSyntax, Group, SyntaxComponent, SyntaxComponentType};
+use crate::syntax::{CssSyntax, SyntaxComponent, SyntaxComponentType};
 use crate::syntax_matcher::CssSyntaxTree;
 
 /// A CSS property definition including its type and initial value and optional expanded values if it's a shorthand property
@@ -245,14 +245,15 @@ fn resolve_components(typedefs: &mut CssPropertyTypeDefs, name: &str) -> CssProp
             // Resolve type definition
             SyntaxComponentType::TypeDefinition(name, _, _) => {
                 match typedefs.find(name) {
-                    Some(typedef) => {
+                    Some(_typedef) => {
                         println!("Resolved typedef {:?}", name);
 
                         // Watch out for cyclic references as this will cause a stack overflow/endless loop
                         typedefs.update_typedef(name, resolve_components(typedefs, name));
 
                         // At this point, we have resolved the typedef, so we can just update the component to be the resolved typedef.
-                        let resolved_typedef = typedefs.find(name).expect("Could not find resolved typedef")
+                        // let resolved_typedef = typedefs.find(name).expect("Could not find resolved typedef");
+                        panic!("at the disco");
 
                     }
                     None => {
@@ -260,13 +261,15 @@ fn resolve_components(typedefs: &mut CssPropertyTypeDefs, name: &str) -> CssProp
                     }
                 }
             }
-            // Resolve all components from the group
-            SyntaxComponentType::Group(group) => {
-                SyntaxComponentType::Group(Group{
-                    components: resolve_components(typedefs, &group.components),
-                    combinator: group.combinator.clone(),
-                })
-            }
+
+            // // Resolve all components from the group
+            // SyntaxComponentType::Group(group) => {
+            //     SyntaxComponentType::Group(Group{
+            //         components: resolve_components(typedefs, &group.components),
+            //         combinator: group.combinator.clone(),
+            //     })
+            // }
+
             // Just return as-is
             _ => component.clone().type_
         };

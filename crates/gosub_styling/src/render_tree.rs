@@ -2,12 +2,6 @@ use gosub_css3::stylesheet::{CssDeclaration, CssSelector, CssStylesheet, CssValu
 use std::collections::HashMap;
 use std::fmt::Debug;
 
-use anyhow::anyhow;
-
-use crate::css_definitions::CssPropertyDefinitions;
-use gosub_html5::node::data::comment::CommentData;
-use gosub_html5::node::data::doctype::DocTypeData;
-use gosub_html5::node::data::document::DocumentData;
 use gosub_html5::node::data::element::ElementData;
 use gosub_html5::node::{NodeData, NodeId};
 use gosub_html5::parser::document::{DocumentHandle, TreeIterator};
@@ -15,10 +9,7 @@ use gosub_render_backend::{PreRenderText, RenderBackend, FP};
 use gosub_shared::types::Result;
 use gosub_typeface::DEFAULT_FS;
 
-use crate::css_values::{
-    match_selector, CssProperties, CssProperty, CssValue, DeclarationProperty,
-};
-use crate::prerender_text::{PrerenderText, DEFAULT_FS, FONT_RENDERER_CACHE};
+use crate::css_definitions::CssPropertyDefinitions;
 use crate::styling::{match_selector, CssProperties, CssProperty, DeclarationProperty};
 
 /// Map of all declared values for all nodes in the document
@@ -471,7 +462,6 @@ pub fn generate_render_tree<B: RenderBackend>(document: DocumentHandle) -> Resul
     Ok(render_tree)
 }
 
-<<<<<<< HEAD
 // pub fn walk_render_tree(tree: &RenderTree, visitor: &mut Box<dyn TreeVisitor<RenderTreeNode>>) {
 //     let root = tree.get_root();
 //     internal_walk_render_tree(tree, root, visitor);
@@ -524,193 +514,3 @@ pub fn generate_render_tree<B: RenderBackend>(document: DocumentHandle) -> Resul
 //     fn element_enter(&mut self, tree: &RenderTree, node: &RenderTreeNode, data: &ElementData);
 //     fn element_leave(&mut self, tree: &RenderTree, node: &RenderTreeNode, data: &ElementData);
 // }
-=======
-pub fn walk_render_tree(tree: &RenderTree, visitor: &mut Box<dyn TreeVisitor<RenderTreeNode>>) {
-    let root = tree.get_root();
-    internal_walk_render_tree(tree, root, visitor);
-}
-
-fn internal_walk_render_tree(
-    tree: &RenderTree,
-    node: &RenderTreeNode,
-    visitor: &mut Box<dyn TreeVisitor<RenderTreeNode>>,
-) {
-    // Enter node
-    match &node.data {
-        RenderNodeData::Document(document) => visitor.document_enter(tree, node, document),
-        RenderNodeData::DocType(doctype) => visitor.doctype_enter(tree, node, doctype),
-        RenderNodeData::Text(text) => visitor.text_enter(tree, node, &text.into()),
-        RenderNodeData::Comment(comment) => visitor.comment_enter(tree, node, comment),
-        RenderNodeData::Element(element) => visitor.element_enter(tree, node, element),
-    }
-
-    for child_id in &node.children {
-        if tree.nodes.contains_key(child_id) {
-            let child_node = tree.nodes.get(child_id).expect("node");
-            internal_walk_render_tree(tree, child_node, visitor);
-        }
-    }
-
-    // Leave node
-    match &node.data {
-        RenderNodeData::Document(document) => visitor.document_leave(tree, node, document),
-        RenderNodeData::DocType(doctype) => visitor.doctype_leave(tree, node, doctype),
-        RenderNodeData::Text(text) => visitor.text_leave(tree, node, &text.into()),
-        RenderNodeData::Comment(comment) => visitor.comment_leave(tree, node, comment),
-        RenderNodeData::Element(element) => visitor.element_leave(tree, node, element),
-    }
-}
-
-pub trait TreeVisitor<Node> {
-    fn document_enter(&mut self, tree: &RenderTree, node: &RenderTreeNode, data: &DocumentData);
-    fn document_leave(&mut self, tree: &RenderTree, node: &RenderTreeNode, data: &DocumentData);
-
-    fn doctype_enter(&mut self, tree: &RenderTree, node: &RenderTreeNode, data: &DocTypeData);
-    fn doctype_leave(&mut self, tree: &RenderTree, node: &RenderTreeNode, data: &DocTypeData);
-
-    fn text_enter(&mut self, tree: &RenderTree, node: &RenderTreeNode, data: &TextData);
-    fn text_leave(&mut self, tree: &RenderTree, node: &RenderTreeNode, data: &TextData);
-
-    fn comment_enter(&mut self, tree: &RenderTree, node: &RenderTreeNode, data: &CommentData);
-    fn comment_leave(&mut self, tree: &RenderTree, node: &RenderTreeNode, data: &CommentData);
-
-    fn element_enter(&mut self, tree: &RenderTree, node: &RenderTreeNode, data: &ElementData);
-    fn element_leave(&mut self, tree: &RenderTree, node: &RenderTreeNode, data: &ElementData);
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use gosub_html5::html_compile;
-
-    #[test]
-    fn shorthand_props() {
-        let source = r#"
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <style>
-                    .container {
-                        background: red;
-                        border: 1px solid black;
-                        border-radius: 5px;
-                        margin: 10px;
-                    }
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <p>Some text</p>
-                </div>
-            </body>
-            </html>
-        "#;
-
-        let document = html_compile(source);
-        let mut render_tree = generate_render_tree(document).unwrap();
-
-        let render_node = render_tree.get_node_mut(NodeId::from(11)).unwrap();
-
-        // These props should exist
-        assert_eq!(render_node.properties.properties.len(), 26);
-        assert!(render_node
-            .properties
-            .properties
-            .contains_key("border-radius"));
-        assert!(render_node
-            .properties
-            .properties
-            .contains_key("border-width"));
-        assert!(render_node
-            .properties
-            .properties
-            .contains_key("border-top-width"));
-        assert!(render_node
-            .properties
-            .properties
-            .contains_key("border-bottom-width"));
-        assert!(render_node
-            .properties
-            .properties
-            .contains_key("border-left-width"));
-        assert!(render_node.properties.properties.contains_key("margin"));
-        assert!(render_node.properties.properties.contains_key("border"));
-        assert!(render_node.properties.properties.contains_key("background"));
-        assert!(render_node
-            .properties
-            .properties
-            .contains_key("background-color"));
-        assert!(render_node
-            .properties
-            .properties
-            .contains_key("border-color"));
-        assert!(render_node.properties.properties.contains_key("margin-top"));
-        assert!(render_node
-            .properties
-            .properties
-            .contains_key("margin-bottom"));
-        // This prop should not exist
-        assert!(!render_node.properties.properties.contains_key("display"));
-
-        assert_eq!(
-            render_node.get_property("border").unwrap().compute_value(),
-            &CssValue::List(vec![
-                CssValue::Unit(1.0, "px".to_string()),
-                CssValue::String("solid".to_string()),
-                CssValue::String("black".to_string())
-            ])
-        );
-        assert_eq!(
-            render_node
-                .get_property("border-color")
-                .unwrap()
-                .compute_value(),
-            &CssValue::String("black".to_string())
-        );
-        assert_eq!(
-            render_node
-                .get_property("border-width")
-                .unwrap()
-                .compute_value(),
-            &CssValue::String("1px".to_string())
-        );
-        assert_eq!(
-            render_node
-                .get_property("border-left-width")
-                .unwrap()
-                .compute_value(),
-            &CssValue::String("1px".to_string())
-        );
-        assert_eq!(
-            render_node
-                .get_property("border-top-width")
-                .unwrap()
-                .compute_value(),
-            &CssValue::String("1px".to_string())
-        );
-        assert_eq!(
-            render_node
-                .get_property("border-right-width")
-                .unwrap()
-                .compute_value(),
-            &CssValue::String("1px".to_string())
-        );
-        assert_eq!(
-            render_node
-                .get_property("border-bottom-width")
-                .unwrap()
-                .compute_value(),
-            &CssValue::String("1px".to_string())
-        );
-        assert_eq!(
-            render_node
-                .get_property("border-style")
-                .unwrap()
-                .compute_value(),
-            &CssValue::String("solid".to_string())
-        );
-
-        dbg!(&render_node.properties.properties);
-    }
-}
->>>>>>> 511a59d (Trying a new css system)

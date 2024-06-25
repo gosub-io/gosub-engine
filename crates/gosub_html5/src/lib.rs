@@ -2,9 +2,9 @@
 //!
 //! The parser's job is to take a stream of bytes and turn it into a DOM tree. The parser is
 //! implemented as a state machine and runs in the current thread.
+use gosub_shared::byte_stream::{ByteStream, Encoding};
 use crate::parser::document::{Document, DocumentBuilder, DocumentHandle};
 use crate::parser::Html5Parser;
-use gosub_shared::bytes::{CharIterator, Encoding};
 
 pub mod dom;
 pub mod element_class;
@@ -19,11 +19,12 @@ pub mod writer;
 
 /// Parses the given HTML string and returns a handle to the resulting DOM tree.
 pub fn html_compile(html: &str) -> DocumentHandle {
-    let mut chars = CharIterator::new();
-    chars.read_from_str(html, Some(Encoding::UTF8));
+    let mut stream = ByteStream::new();
+    stream.read_from_str(html, Some(Encoding::UTF8));
+    stream.close();
 
     let document = DocumentBuilder::new_document(None);
-    let _ = Html5Parser::parse_document(&mut chars, Document::clone(&document), None);
+    let _ = Html5Parser::parse_document(&mut stream, Document::clone(&document), None);
 
     document
 }
