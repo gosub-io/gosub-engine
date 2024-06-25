@@ -11,5 +11,5 @@ gosub_styling = { path = "../gosub_styling" }
 gosub_render_backend = { path = "../gosub_render_backend" }
 taffy = "0.5.1"
 anyhow = "1.0.86"
-regex = "1.10.4"
+regex = "1.10.5"
 rstar = "0.12.0"
