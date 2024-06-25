@@ -1,4 +1,5 @@
 //! Error results that can be returned from the engine
+use gosub_shared::byte_stream::Location;
 use thiserror::Error;
 
 /// Parser error that defines an error (message) on the given position
@@ -6,12 +7,7 @@ use thiserror::Error;
 pub struct ParseError {
     /// Parse error message
     pub message: String,
-    /// Line number (1-based) of the error
-    pub line: usize,
-    // Column (1-based) on line of the error
-    pub col: usize,
-    // Position (0-based) of the error in the input stream
-    pub offset: usize,
+    pub location: Location,
 }
 
 /// Serious errors and errors from third-party libraries

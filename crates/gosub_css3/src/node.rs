@@ -1,7 +1,6 @@
 use core::fmt::{Display, Formatter};
+use gosub_shared::byte_stream::Location;
 use std::ops::Deref;
-
-use crate::location::Location;
 
 pub type Number = f32;
 

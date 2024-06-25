@@ -7,7 +7,7 @@ pub mod wrapper;
 use gosub_html5::parser::document::{Document, DocumentBuilder};
 use gosub_html5::parser::Html5Parser;
 use gosub_rendering::render_tree::{Node, NodeType, RenderTree, TreeIterator};
-use gosub_shared::bytes::{CharIterator, Confidence, Encoding};
+use gosub_shared::byte_stream::{ByteStream, Confidence, Encoding};
 use wrapper::node::CNode;
 
 /// Initialize a render tree and return an owning pointer to it.
@@ -30,12 +30,13 @@ pub unsafe extern "C" fn gosub_rendertree_init(html: *const c_char) -> *mut Rend
             return ptr::null_mut();
         }
     };
-    let mut chars = CharIterator::new();
-    chars.read_from_str(html_str, Some(Encoding::UTF8));
-    chars.set_confidence(Confidence::Certain);
+    let mut stream = ByteStream::new();
+    stream.read_from_str(html_str, Some(Encoding::UTF8));
+    stream.set_confidence(Confidence::Certain);
+    stream.close();
 
     let doc = DocumentBuilder::new_document(None);
-    let parse_result = Html5Parser::parse_document(&mut chars, Document::clone(&doc), None);
+    let parse_result = Html5Parser::parse_document(&mut stream, Document::clone(&doc), None);
 
     if parse_result.is_ok() {
         let mut rendertree = Box::new(RenderTree::new(&doc));

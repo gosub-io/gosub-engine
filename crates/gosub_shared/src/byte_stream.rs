@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+use std::fmt::{Debug, Formatter};
 use std::io::Read;
 use std::{fmt, io};
 
@@ -42,6 +44,16 @@ use Character::*;
 
 /// Converts the given character to a char. This is only valid for UTF8 characters. Surrogate
 /// and EOF characters are converted to 0x0000
+impl From<&Character> for char {
+    fn from(c: &Character) -> Self {
+        match c {
+            Ch(c) => *c,
+            Surrogate(..) => 0x0000 as char,
+            StreamEmpty | StreamEnd => 0x0000 as char,
+        }
+    }
+}
+
 impl From<Character> for char {
     fn from(c: Character) -> Self {
         match c {
@@ -64,11 +76,19 @@ impl fmt::Display for Character {
 }
 
 impl Character {
+    /// Returns true when the character is a whitespace
     pub fn is_whitespace(&self) -> bool {
-        matches!(self, Self::Ch(c) if c.is_whitespace())
+        matches!(self, Ch(c) if c.is_whitespace())
     }
+
+    /// Returns true when the character is a numerical
     pub fn is_numeric(&self) -> bool {
-        matches!(self, Self::Ch(c) if c.is_numeric())
+        matches!(self, Ch(c) if c.is_numeric())
+    }
+
+    /// Converts a slice of characters into a string
+    pub fn slice_to_string(v: &[Character]) -> String {
+        v.iter().map(char::from).collect()
     }
 }
 
@@ -103,8 +123,10 @@ pub trait Stream {
     fn prev(&mut self);
     /// Unread n characters
     fn prev_n(&mut self, n: usize);
+    // Seek to a specific position
+    fn seek(&mut self, pos: usize);
     // Returns a slice
-    fn get_slice(&self, start: usize, end: usize) -> &[Character];
+    fn get_slice(&self, len: usize) -> &[Character];
     /// Resets the stream back to the start position
     fn reset_stream(&mut self);
     /// Closes the stream (no more data can be added)
@@ -150,6 +172,16 @@ impl Stream for ByteStream {
 
         self.next();
         c
+    }
+
+    /// Seeks to a specific position in the stream
+    fn seek(&mut self, pos: usize) {
+        if pos >= self.buffer.len() {
+            self.buffer_pos = self.buffer.len();
+            return;
+        }
+
+        self.buffer_pos = pos;
     }
 
     /// Looks ahead in the stream, can use an optional index if we want to seek further
@@ -203,8 +235,12 @@ impl Stream for ByteStream {
     }
 
     /// Retrieves a slice of the buffer
-    fn get_slice(&self, start: usize, end: usize) -> &[Character] {
-        &self.buffer[start..end]
+    fn get_slice(&self, len: usize) -> &[Character] {
+        if self.buffer_pos + len > self.buffer.len() {
+            return &self.buffer[self.buffer_pos..];
+        }
+
+        &self.buffer[self.buffer_pos..self.buffer_pos + len]
     }
 
     /// Resets the stream to the first character of the stream
@@ -275,6 +311,7 @@ impl ByteStream {
         self.close();
         self.force_set_encoding(e.unwrap_or(Encoding::UTF8));
         self.reset_stream();
+        self.close();
         Ok(())
     }
 
@@ -289,6 +326,10 @@ impl ByteStream {
         // @todo: this is not very efficient
         self.u8_buffer.extend_from_slice(s.as_bytes());
         self.force_set_encoding(e.unwrap_or(Encoding::UTF8));
+    }
+
+    pub fn close(&mut self) {
+        self.closed = true;
     }
 
     /// Normalizes newlines (CRLF/CR => LF) and converts high ascii to '?'
@@ -401,6 +442,95 @@ impl ByteStream {
         }
 
         self.encoding = e;
+    }
+}
+
+/// Location holds the start position of the given element in the data source
+#[derive(Clone, PartialEq)]
+pub struct Location {
+    /// Line number, starting with 1
+    pub line: usize,
+    /// Column number, starting with 1
+    pub column: usize,
+    /// Byte offset, starting with 0
+    pub offset: usize,
+}
+
+impl Default for Location {
+    /// Default to line 1, column 1
+    fn default() -> Self {
+        Self::new(1, 1, 0)
+    }
+}
+
+impl Location {
+    /// Create a new Location
+    pub fn new(line: usize, column: usize, offset: usize) -> Self {
+        Self {
+            line,
+            column,
+            offset,
+        }
+    }
+}
+
+impl Debug for Location {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "({}:{})", self.line, self.column)
+    }
+}
+
+/// LocationHandler is a wrapper that will deal with line/column locations in the stream
+pub struct LocationHandler {
+    pub start_location: Location,
+    pub cur_location: Location,
+    pub line_columns: HashMap<usize, usize>,
+}
+
+impl LocationHandler {
+    /// Create a new LocationHandler. Start_location can be set in case the stream is
+    /// not starting at 1:1
+    pub fn new(start_location: Location) -> Self {
+        Self {
+            start_location,
+            cur_location: Location::default(),
+            line_columns: HashMap::new(),
+        }
+    }
+
+    pub fn inc(&mut self, ch: Character) {
+        match ch {
+            Ch(CHAR_LF) => {
+                self.line_columns
+                    .insert(self.cur_location.line, self.cur_location.column);
+
+                self.cur_location.line += 1;
+                self.cur_location.column = 1;
+                self.cur_location.offset += 1;
+            }
+            Ch(_) => {
+                self.cur_location.column += 1;
+                self.cur_location.offset += 1;
+            }
+            StreamEnd | StreamEmpty => {}
+            _ => {}
+        }
+    }
+
+    pub fn dec(&mut self) {
+        if self.cur_location.offset == 0 {
+            return;
+        }
+
+        if self.cur_location.column == 1 {
+            self.cur_location.line -= 1;
+            self.cur_location.column =
+                *self.line_columns.get(&self.cur_location.line).unwrap_or(&1);
+        } else {
+            self.cur_location.column -= 1;
+        }
+
+        self.cur_location.offset -= 1;
     }
 }
 
@@ -564,6 +694,7 @@ mod test {
         assert_eq!(stream.read_and_next(), Ch('g'));
         assert_eq!(stream.read_and_next(), Ch('h'));
         assert_eq!(stream.read_and_next(), Ch('i'));
+        assert!(matches!(stream.read_and_next(), StreamEnd));
         assert!(matches!(stream.read_and_next(), StreamEnd));
     }
 

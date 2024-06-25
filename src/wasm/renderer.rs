@@ -7,7 +7,6 @@ use gosub_html5::parser::Html5Parser;
 use gosub_renderer::render_tree::TreeDrawer;
 use gosub_renderer::renderer::{Renderer, RendererOptions as GRendererOptions};
 use gosub_rendering::layout::generate_taffy_tree;
-use gosub_shared::bytes::{CharIterator, Confidence, Encoding};
 use gosub_shared::types::Result;
 use gosub_styling::render_tree::generate_render_tree;
 use gosub_styling::render_tree::RenderTree as StyleTree;
@@ -88,13 +87,14 @@ async fn renderer_internal(opts: RendererOptions) -> Result<()> {
 }
 
 fn load_html_rendertree(input: &str, url: Url) -> Result<StyleTree> {
-    let mut chars = CharIterator::new();
-    chars.read_from_str(&input, Some(Encoding::UTF8));
-    chars.set_confidence(Confidence::Certain);
+    let mut stream = ByteStream::new();
+    stream.read_from_str(&input, Some(Encoding::UTF8));
+    stream.set_confidence(Confidence::Certain);
+    stream.close();
 
     let doc_handle = DocumentBuilder::new_document(Some(url));
     let _parse_errors =
-        Html5Parser::parse_document(&mut chars, Document::clone(&doc_handle), None)?;
+        Html5Parser::parse_document(&mut stream, Document::clone(&doc_handle), None)?;
 
     generate_render_tree(Document::clone(&doc_handle))
 }

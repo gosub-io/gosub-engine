@@ -17,15 +17,15 @@ impl Css3<'_> {
 #[cfg(test)]
 mod tests {
     use crate::walker::Walker;
-    use gosub_shared::byte_stream::{ByteStream, Encoding, Stream};
+    use gosub_shared::byte_stream::{ByteStream, Encoding};
 
     #[test]
     fn test_parse_at_rule_supports_prelude() {
-        let mut it = ByteStream::new();
-        it.read_from_str("(display: flex)", Some(Encoding::UTF8));
-        it.close();
-        let mut parser = crate::Css3::new(&mut it);
+        let mut stream = ByteStream::new();
+        stream.read_from_str("(display: flex)", Some(Encoding::UTF8));
+        stream.close();
 
+        let mut parser = crate::Css3::new(&mut stream);
         let node = parser.parse_at_rule_supports_prelude().unwrap();
 
         let w = Walker::new(&node);

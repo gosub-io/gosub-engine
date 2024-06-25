@@ -1,12 +1,10 @@
-use crate::location::Location;
 use crate::node::Node;
 use crate::parser_config::{Context, ParserConfig};
 use crate::tokenizer::Tokenizer;
-use gosub_shared::byte_stream::{ByteStream, Encoding, Stream};
+use gosub_shared::byte_stream::{ByteStream, Encoding, Location};
 use gosub_shared::{timing_start, timing_stop};
 
 pub mod convert;
-pub mod location;
 mod node;
 pub mod parser;
 pub mod parser_config;
@@ -47,11 +45,11 @@ impl<'stream> Css3<'stream> {
     pub fn parse(data: &str, config: ParserConfig) -> Result<Node, Error> {
         let t_id = timing_start!("css3.parse", config.source.as_deref().unwrap_or(""));
 
-        let mut it = ByteStream::new();
-        it.read_from_str(data, Some(Encoding::UTF8));
-        it.close();
+        let mut stream = ByteStream::new();
+        stream.read_from_str(data, Some(Encoding::UTF8));
+        stream.close();
 
-        let mut parser = Css3::new(&mut it);
+        let mut parser = Css3::new(&mut stream);
         let ret = parser.parse_internal(config);
 
         timing_stop!(t_id);

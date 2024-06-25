@@ -3,17 +3,14 @@
 Parsing a HTML5 site is not difficult, although it currently require some manual work. Later on, this will be encapsulated in the engine API.
 
 First, we need to fetch the actual HTML content. This can be done by a simple HTTP request, or reading a file from disk. These HTML bytes must be 
-passed to the char streamer:
+passed to the byte streamer so it can be converted to tokens without worrying about the encoding:
 
 ```rust
-
-    let mut chars = CharIterator::new();
-    chars.read_from_str(&html, Some(Encoding::UTF8));
+    let stream = &mut ByteStream::new();
 ```
 
-Here, the &html points to a string containing the HTML content. The `CharIterator` will take care of converting the bytes to characters, and handle the encoding.
+Here, the `stream` points to a string containing the HTML content. The `ByteStream` will take care of converting the bytes to characters, and handle the encoding.
 We assume UTF-8 here, but other encodings could be supported later on as well.
-
 
 Next, we need to create a document, which will be the main object that will be filled by the parser. The document will contain all the node elements and other 
 data that is generated during the parsing of the HTML. This also includes any stylesheets that are found, both internally and externally.
@@ -26,7 +23,7 @@ Note that a document itself isn't a document, but a HANDLE to a document (a `Doc
 by calling the `parse_document` method on the `Html5Parser` struct. This method will return a list of parse errors, if any. 
 
 ```rust
-    let parse_errors = Html5Parser::parse_document(&mut chars, Document::clone(&document), None)?;
+    let parse_errors = Html5Parser::parse_document(&mut stream, Document::clone(&document), None)?;
 
     for e in parse_errors {
         println!("Parse Error: {}", e.message);

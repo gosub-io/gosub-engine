@@ -63,7 +63,6 @@ fn tokenization(filename: &str) {
             test.tokenize();
             continue;
         }
-
         test.assert_valid();
     }
 }

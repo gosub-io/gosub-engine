@@ -36,15 +36,15 @@ impl Css3<'_> {
 #[cfg(test)]
 mod tests {
     use crate::walker::Walker;
-    use gosub_shared::byte_stream::{ByteStream, Encoding, Stream};
+    use gosub_shared::byte_stream::{ByteStream, Encoding};
 
     macro_rules! test {
         ($func:ident, $input:expr, $expected:expr) => {
-            let mut it = ByteStream::new();
-            it.read_from_str($input, Some(Encoding::UTF8));
-            it.close();
+            let mut stream = ByteStream::new();
+            stream.read_from_str($input, Some(Encoding::UTF8));
+            stream.close();
 
-            let mut parser = crate::Css3::new(&mut it);
+            let mut parser = crate::Css3::new(&mut stream);
             let result = parser.$func().unwrap();
 
             let w = Walker::new(&result);
@@ -54,11 +54,11 @@ mod tests {
 
     macro_rules! test_err {
         ($func:ident, $input:expr, $expected:expr) => {
-            let mut it = ByteStream::new();
-            it.read_from_str($input, Some(Encoding::UTF8));
-            it.close();
+            let mut stream = ByteStream::new();
+            stream.read_from_str($input, Some(Encoding::UTF8));
+            stream.close();
 
-            let mut parser = crate::Css3::new(&mut it);
+            let mut parser = crate::Css3::new(&mut stream);
             let result = parser.$func();
 
             assert_eq!(true, result.is_err());

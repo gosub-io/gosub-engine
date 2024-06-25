@@ -10,7 +10,7 @@ use gosub_html5::parser::Html5Parser;
 use gosub_net::http::ureq;
 use gosub_render_backend::{RenderBackend, SizeU32};
 use gosub_rendering::position::PositionTree;
-use gosub_shared::bytes::{CharIterator, Confidence, Encoding};
+use gosub_shared::byte_stream::{ByteStream, Confidence, Encoding};
 use gosub_styling::css_values::CssProperties;
 use gosub_styling::render_tree::{generate_render_tree, RenderNodeData, RenderTree as StyleTree};
 
@@ -84,12 +84,14 @@ pub(crate) fn load_html_rendertree<B: RenderBackend>(
         bail!("Unsupported url scheme: {}", url.scheme());
     };
 
-    let mut chars = CharIterator::new();
-    chars.read_from_str(&html, Some(Encoding::UTF8));
-    chars.set_confidence(Confidence::Certain);
+    let mut stream = ByteStream::new();
+    stream.read_from_str(&html, Some(Encoding::UTF8));
+    stream.set_confidence(Confidence::Certain);
+    stream.close();
 
     let mut doc_handle = DocumentBuilder::new_document(Some(url));
-    let parse_errors = Html5Parser::parse_document(&mut chars, Document::clone(&doc_handle), None)?;
+    let parse_errors =
+        Html5Parser::parse_document(&mut stream, Document::clone(&doc_handle), None)?;
 
     for error in parse_errors {
         eprintln!("Parse error: {:?}", error);

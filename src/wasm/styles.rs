@@ -2,7 +2,6 @@ use url::Url;
 
 use gosub_html5::parser::document::{Document, DocumentBuilder};
 use gosub_html5::parser::Html5Parser;
-use gosub_shared::bytes::{CharIterator, Confidence, Encoding};
 use gosub_styling::render_tree::generate_render_tree;
 use wasm_bindgen::prelude::wasm_bindgen;
 
@@ -45,12 +44,14 @@ pub fn styles_parser(input: &str, opts: StylesOptions) -> StylesOutput {
     let url = Url::parse(&opts.url).ok();
     let doc = DocumentBuilder::new_document(url);
 
-    let mut chars = CharIterator::new();
-    chars.read_from_str(&input, Some(Encoding::UTF8));
-    chars.set_confidence(Confidence::Certain);
+    let mut stream = ByteStream::new();
+    stream.read_from_str(&input, Some(Encoding::UTF8));
+    stream.set_confidence(Confidence::Certain);
+    stream.close();
+
     let mut errors = String::new();
 
-    match Html5Parser::parse_document(&mut chars, Document::clone(&doc), None) {
+    match Html5Parser::parse_document(&mut stream, Document::clone(&doc), None) {
         Ok(errs) => {
             for e in errs {
                 errors.push_str(&format!("{}@{}:{}\n", e.message, e.line, e.col));

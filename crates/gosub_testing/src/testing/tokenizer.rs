@@ -8,7 +8,7 @@ use gosub_html5::{
         {Options, Tokenizer},
     },
 };
-use gosub_shared::bytes::CharIterator;
+use gosub_shared::byte_stream::ByteStream;
 use gosub_shared::types::Result;
 use lazy_static::lazy_static;
 use regex::{Captures, Regex};
@@ -24,7 +24,7 @@ use std::{
 };
 
 pub struct TokenizerBuilder {
-    chars: CharIterator,
+    stream: ByteStream,
     state: TokenState,
     last_start_tag: Option<String>,
 }
@@ -33,7 +33,7 @@ impl TokenizerBuilder {
     pub fn build(&mut self) -> Tokenizer<'_> {
         let error_logger = Rc::new(RefCell::new(ErrorLogger::new()));
         Tokenizer::new(
-            &mut self.chars,
+            &mut self.stream,
             Some(Options {
                 initial_state: self.state,
                 last_start_tag: self.last_start_tag.clone().unwrap_or_default(),
@@ -185,16 +185,17 @@ impl TestSpec {
         }
 
         for state in states {
-            let mut chars = CharIterator::new();
+            let mut stream = ByteStream::new();
             let input = if self.double_escaped {
                 from_utf16_lossy(&self.input)
             } else {
                 self.input.to_string()
             };
-            chars.read_from_str(input.as_str(), None);
+            stream.read_from_str(input.as_str(), None);
+            stream.close();
 
             let builder = TokenizerBuilder {
-                chars,
+                stream,
                 last_start_tag: self.last_start_tag.clone(),
                 state,
             };
@@ -218,7 +219,12 @@ impl TestSpec {
             // There can be multiple tokens to match. Make sure we match all of them
             for expected in &self.output {
                 let actual = tokenizer.next_token(ParserData::default()).unwrap();
-                assert_eq!(self.escape(&actual), self.escape(expected));
+                assert_eq!(
+                    self.escape(&actual),
+                    self.escape(expected),
+                    "build state: {:?}",
+                    builder.state
+                );
             }
 
             let borrowed_error_logger = tokenizer.error_logger.borrow();
@@ -247,8 +253,8 @@ impl TestSpec {
         // Iterate all generated errors to see if we have an exact match
         for actual in tokenizer.get_error_logger().get_errors() {
             if actual.message == expected.code
-                && actual.line == expected.line
-                && actual.col == expected.col
+                && actual.location.line == expected.line
+                && actual.location.column == expected.col
             {
                 return;
             }
@@ -258,7 +264,7 @@ impl TestSpec {
         // it's not always correct, it might be a off-by-one position.
         for actual in tokenizer.get_error_logger().get_errors() {
             if actual.message == expected.code
-                && (actual.line != expected.line || actual.col != expected.col)
+                && (actual.location.line != expected.line || actual.location.column != expected.col)
             {
                 panic!(
                     "[{}]: wanted {:?}, got {:?}",

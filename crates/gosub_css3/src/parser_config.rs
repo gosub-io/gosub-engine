@@ -1,4 +1,4 @@
-use crate::location::Location;
+use gosub_shared::byte_stream::Location;
 
 /// Context defines how the data needs to be parsed
 pub enum Context {

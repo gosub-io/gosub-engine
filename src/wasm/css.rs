@@ -1,9 +1,8 @@
-use gosub_css3::location::Location;
 use gosub_css3::parser_config::ParserConfig;
 use gosub_css3::tokenizer::{TokenType, Tokenizer};
 use gosub_css3::walker::Walker;
 use gosub_css3::{Css3, Error};
-use gosub_shared::byte_stream::{ByteStream, Encoding, Stream};
+use gosub_shared::byte_stream::{ByteStream, Encoding};
 use wasm_bindgen::prelude::wasm_bindgen;
 
 #[wasm_bindgen]
@@ -76,12 +75,8 @@ pub fn css3_parser(input: &str, opts: CssOptions) -> CssOutput {
 fn display_snippet(css: &str, err: Error) -> String {
     let loc = err.location.clone();
     let lines: Vec<&str> = css.split('\n').collect();
-    let line_nr = loc.line() - 1;
-    let col_nr = if loc.column() < 2 {
-        0
-    } else {
-        loc.column() - 2
-    };
+    let line_nr = loc.line - 1;
+    let col_nr = if loc.column < 2 { 0 } else { loc.column - 2 };
 
     if col_nr > 1000 {
         return String::from("Error is too far to the right to display.");
@@ -117,11 +112,11 @@ fn display_snippet(css: &str, err: Error) -> String {
 }
 
 fn print_tokens(css: &str) -> String {
-    let mut it = ByteStream::new();
-    it.read_from_str(css, Some(Encoding::UTF8));
-    it.close();
+    let mut stream = ByteStream::new();
+    stream.read_from_str(css, Some(Encoding::UTF8));
+    stream.close();
 
-    let mut tokenizer = Tokenizer::new(&mut it, Location::default());
+    let mut tokenizer = Tokenizer::new(&mut stream, Location::default());
 
     let mut out = String::new();
 
