@@ -1,15 +1,17 @@
-use anyhow::bail;
-use gosub_html5::node::NodeId;
-use gosub_html5::parser::document::{Document, DocumentBuilder};
-use gosub_html5::parser::Html5Parser;
-use gosub_shared::bytes::{CharIterator, Confidence, Encoding};
-use gosub_shared::timing::Scale;
-use gosub_shared::timing_display;
-use gosub_shared::types::Result;
 use std::fs;
 use std::process::exit;
 use std::str::FromStr;
+
+use anyhow::bail;
 use url::Url;
+
+use gosub_html5::node::NodeId;
+use gosub_html5::parser::document::{Document, DocumentBuilder};
+use gosub_html5::parser::Html5Parser;
+use gosub_shared::byte_stream::{ByteStream, Confidence, Encoding};
+use gosub_shared::timing::Scale;
+use gosub_shared::timing_display;
+use gosub_shared::types::Result;
 
 fn bail(message: &str) -> ! {
     println!("{message}");
@@ -51,20 +53,21 @@ fn main() -> Result<()> {
         bail("Invalid url scheme");
     };
 
-    let mut chars = CharIterator::new();
-    chars.read_from_str(&html, Some(Encoding::UTF8));
-    chars.set_confidence(Confidence::Certain);
+    let mut stream = ByteStream::new();
+    stream.read_from_str(&html, Some(Encoding::UTF8));
+    stream.set_confidence(Confidence::Certain);
+    stream.close();
 
     // If the encoding confidence is not Confidence::Certain, we should detect the encoding.
-    if !chars.is_certain_encoding() {
-        chars.detect_encoding();
+    if !stream.is_certain_encoding() {
+        stream.detect_encoding();
     }
 
     // SimpleLogger::new().init().unwrap();
 
     // Create a new document that will be filled in by the parser
     let handle = DocumentBuilder::new_document(Some(url));
-    let parse_errors = Html5Parser::parse_document(&mut chars, Document::clone(&handle), None)?;
+    let parse_errors = Html5Parser::parse_document(&mut stream, Document::clone(&handle), None)?;
 
     println!("Found {} stylesheets", handle.get().stylesheets.len());
     for sheet in &handle.get().stylesheets {
