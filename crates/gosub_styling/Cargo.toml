@@ -11,7 +11,7 @@ gosub_css3 = { path = "../gosub_css3" }
 gosub_html5 = { path = "../gosub_html5" }
 gosub_render_backend = { path = "../gosub_render_backend" }
 gosub_typeface = { path = "../gosub_typeface" }
-lazy_static = "1.4"
+lazy_static = "1.5"
 anyhow = "1.0.86"
 regex = "1.10.4"
 colors-transform = "0.2.11"

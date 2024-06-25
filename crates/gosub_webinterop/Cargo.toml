@@ -10,7 +10,7 @@ syn = { version = "2.0.65", features = ["full", "extra-traits"] }
 quote = { version = "1.0.36", features = [] }
 proc-macro2 = "1.0.85"
 serde = { version = "1.0.202", features = ["derive"] }
-lazy_static = "1.4.0"
+lazy_static = "1.5.0"
 
 
 [lib]

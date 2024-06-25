@@ -11,7 +11,7 @@ gosub_html5 = { path = "../gosub_html5" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", features = ["preserve_order"] }
 serde_derive = "1.0"
-lazy_static = "1.4"
+lazy_static = "1.5"
 nom = "7.1.3"
 nom_locate = "4.2.0"
 regex = "1"
