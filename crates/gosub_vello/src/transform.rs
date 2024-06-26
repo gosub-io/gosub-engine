@@ -145,12 +145,4 @@ impl TTransform for Transform {
             .with_translation((translation.x64(), translation.y64()).into())
             .into()
     }
-
-    fn tx(&self) -> FP {
-        self.0.as_coeffs()[4] as FP
-    }
-
-    fn ty(&self) -> FP {
-        self.0.as_coeffs()[5] as FP
-    }
 }

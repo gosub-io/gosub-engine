@@ -478,9 +478,20 @@ pub trait Transform: Sized + Mul<Self> + MulAssign + Clone {
 
     fn with_translation(&self, translation: Point) -> Self;
 
-    fn tx(&self) -> FP;
+    fn tx(&self) -> FP {
+        self.as_matrix()[4]
+    }
 
-    fn ty(&self) -> FP;
+    fn ty(&self) -> FP {
+        self.as_matrix()[5]
+    }
+
+    fn set_xy(&mut self, x: FP, y: FP) {
+        let mut matrix = self.as_matrix();
+        matrix[4] = x;
+        matrix[5] = y;
+        *self = Self::from_matrix(matrix);
+    }
 }
 
 pub trait PreRenderText {

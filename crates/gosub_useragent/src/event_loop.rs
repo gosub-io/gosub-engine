@@ -71,7 +71,7 @@ impl<D: SceneDrawer<B>, B: RenderBackend> Window<'_, D, B> {
 
                 let delta = match delta {
                     MouseScrollDelta::PixelDelta(delta) => (delta.x as f32, delta.y as f32),
-                    MouseScrollDelta::LineDelta(x, y) => (x * 12.0, y * 4.0),
+                    MouseScrollDelta::LineDelta(x, y) => (x * 4.0, y * 12.0),
                 };
 
                 let delta = Point::new(delta.0 as FP, delta.1 as FP);
