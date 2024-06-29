@@ -1,7 +1,7 @@
-[
+  [
   {
     "name": "azimuth",
-    "syntax": "angle() | [[ left-side | far-left | left | center-left | center | center-right | right | far-right | right-side ] || behind ] | leftwards | rightwards | inherit",
+    "syntax": "<angle> | [[ left-side | far-left | left | center-left | center | center-right | right | far-right | right-side ] || behind ] | leftwards | rightwards | inherit",
     "initial_value": "center",
     "inherits": true,
     "media_groups": [
@@ -19,7 +19,7 @@
   },
   {
     "name": "background-color",
-    "syntax": "color() | transparent | inherit",
+    "syntax": "<color> | transparent | inherit",
     "initial_value": "transparent",
     "inherits": false,
     "media_groups": [
@@ -28,7 +28,7 @@
   },
   {
     "name": "background-image",
-    "syntax": "uri() | none | inherit",
+    "syntax": "<uri> | none | inherit",
     "initial_value": "none",
     "inherits": false,
     "media_groups": [
@@ -37,7 +37,7 @@
   },
   {
     "name": "background-position",
-    "syntax": "[ [ percentage() | length() | left | center | right ] [ percentage() | length() | top | center | bottom ]? ] | [ [ left | center | right ] || [ top | center | bottom ] ] | inherit",
+    "syntax": "[ [ <percentage> | <length> | left | center | right ] [ <percentage> | <length> | top | center | bottom ]? ] | [ [ left | center | right ] || [ top | center | bottom ] ] | inherit",
     "initial_value": "0% 0%",
     "inherits": false,
     "media_groups": [
@@ -85,7 +85,7 @@
       "border-bottom-color",
       "border-left-color"
     ],
-    "syntax": "[ color() | transparent ]{1,4} | inherit",
+    "syntax": "[ <color> | transparent ]{1,4} | inherit",
     "inherits": false,
     "media_groups": [
       "visual"
@@ -93,7 +93,7 @@
   },
   {
     "name": "border-spacing",
-    "syntax": "length() length()? | inherit",
+    "syntax": "<length> <length>? | inherit",
     "initial_value": "0",
     "inherits": true,
     "media_groups": [
@@ -121,7 +121,7 @@
       "border-top-style",
       "border-top-color"
     ],
-    "syntax": "[ [[ thin | medium | thick ] | length()] || [ none | hidden | dotted | dashed | solid | double | groove | ridge | inset | outset ] || 'border-top-color' ] | inherit",
+    "syntax": "[ [[ thin | medium | thick ] | <length>] || [ none | hidden | dotted | dashed | solid | double | groove | ridge | inset | outset ] || 'border-top-color' ] | inherit",
     "inherits": false,
     "media_groups": [
       "visual"
@@ -134,7 +134,7 @@
       "border-right-style",
       "border-right-color"
     ],
-    "syntax": "[ [[ thin | medium | thick ] | length()] || [ none | hidden | dotted | dashed | solid | double | groove | ridge | inset | outset ] || 'border-right-color' ] | inherit",
+    "syntax": "[ [[ thin | medium | thick ] | <length>] || [ none | hidden | dotted | dashed | solid | double | groove | ridge | inset | outset ] || 'border-right-color' ] | inherit",
     "inherits": false,
     "media_groups": [
       "visual"
@@ -147,7 +147,7 @@
       "border-bottom-style",
       "border-bottom-color"
     ],
-    "syntax": "[ [[ thin | medium | thick ] | length()] || [ none | hidden | dotted | dashed | solid | double | groove | ridge | inset | outset ] || 'border-bottom-color' ] | inherit",
+    "syntax": "[ [[ thin | medium | thick ] | <length>] || [ none | hidden | dotted | dashed | solid | double | groove | ridge | inset | outset ] || 'border-bottom-color' ] | inherit",
     "inherits": false,
     "media_groups": [
       "visual"
@@ -160,7 +160,7 @@
       "border-left-style",
       "border-left-color"
     ],
-    "syntax": "[ [[ thin | medium | thick ] | length()] || [ none | hidden | dotted | dashed | solid | double | groove | ridge | inset | outset ] || 'border-left-color' ] | inherit",
+    "syntax": "[ [[ thin | medium | thick ] | <length>] || [ none | hidden | dotted | dashed | solid | double | groove | ridge | inset | outset ] || 'border-left-color' ] | inherit",
     "inherits": false,
     "media_groups": [
       "visual"
@@ -168,7 +168,7 @@
   },
   {
     "name": "border-top-color",
-    "syntax": "color() | transparent | inherit",
+    "syntax": "<color> | transparent | inherit",
     "initial_value": "",
     "inherits": false,
     "media_groups": [
@@ -177,7 +177,7 @@
   },
   {
     "name": "border-right-color",
-    "syntax": "color() | transparent | inherit",
+    "syntax": "<color> | transparent | inherit",
     "initial_value": "",
     "inherits": false,
     "media_groups": [
@@ -186,7 +186,7 @@
   },
   {
     "name": "border-bottom-color",
-    "syntax": "color() | transparent | inherit",
+    "syntax": "<color> | transparent | inherit",
     "initial_value": "",
     "inherits": false,
     "media_groups": [
@@ -195,7 +195,7 @@
   },
   {
     "name": "border-left-color",
-    "syntax": "color() | transparent | inherit",
+    "syntax": "<color> | transparent | inherit",
     "initial_value": "",
     "inherits": false,
     "media_groups": [
@@ -241,7 +241,7 @@
 
   {
     "name": "border-top-width",
-    "syntax": "[[ thin | medium | thick ] | length()] | inherit",
+    "syntax": "[[ thin | medium | thick ] | <length>] | inherit",
     "initial_value": "medium",
     "inherits": false,
     "media_groups": [
@@ -250,7 +250,7 @@
   },
   {
     "name": "border-right-width",
-    "syntax": "[[ thin | medium | thick ] | length()] | inherit",
+    "syntax": "[[ thin | medium | thick ] | <length>] | inherit",
     "initial_value": "medium",
     "inherits": false,
     "media_groups": [
@@ -259,7 +259,7 @@
   },
   {
     "name": "border-bottom-width",
-    "syntax": "[[ thin | medium | thick ] | length()] | inherit",
+    "syntax": "[[ thin | medium | thick ] | <length>] | inherit",
     "initial_value": "medium",
     "inherits": false,
     "media_groups": [
@@ -268,7 +268,7 @@
   },
   {
     "name": "border-left-width",
-    "syntax": "[[ thin | medium | thick ] | length()] | inherit",
+    "syntax": "[[ thin | medium | thick ] | <length>] | inherit",
     "initial_value": "medium",
     "inherits": false,
     "media_groups": [
@@ -283,7 +283,7 @@
       "border-bottom-width",
       "border-left-width"
     ],
-    "syntax": "[[ thin | medium | thick ] | length()]{1,4} | inherit",
+    "syntax": "[[ thin | medium | thick ] | <length>]{1,4} | inherit",
     "inherits": false,
     "media_groups": [
       "visual"
@@ -296,7 +296,7 @@
       "border-style",
       "border-color"
     ],
-    "syntax": "[ [[ thin | medium | thick ] | length()] || [ none | hidden | dotted | dashed | solid | double | groove | ridge | inset | outset ] || 'border-color' ] | inherit",
+    "syntax": "[ [[ thin | medium | thick ] | <length>] || [ none | hidden | dotted | dashed | solid | double | groove | ridge | inset | outset ] || 'border-color' ] | inherit",
     "inherits": false,
     "media_groups": [
       "visual"
@@ -304,7 +304,7 @@
   },
   {
     "name": "bottom",
-    "syntax": "length() | percentage() | auto | inherit",
+    "syntax": "<length> | <percentage> | auto | inherit",
     "initial_value": "auto",
     "inherits": false,
     "media_groups": [
@@ -331,7 +331,7 @@
   },
   {
     "name": "clip",
-    "syntax": "rect() | auto | inherit",
+    "syntax": "<rect> | auto | inherit",
     "initial_value": "auto",
     "inherits": false,
     "media_groups": [
@@ -340,7 +340,7 @@
   },
   {
     "name": "color",
-    "syntax": "color() | inherit",
+    "syntax": "<color> | inherit",
     "initial_value": "",
     "inherits": true,
     "media_groups": [
@@ -349,7 +349,7 @@
   },
   {
     "name": "content",
-    "syntax": "normal | none | [ string() | uri() | counter() | attr(identifier()) | open-quote | close-quote | no-open-quote | no-close-quote ]+ | inherit",
+    "syntax": "normal | none | [ <string> | <uri> | <counter> | attr() | open-quote | close-quote | no-open-quote | no-close-quote ]+ | inherit",
     "initial_value": "normal",
     "inherits": false,
     "media_groups": [
@@ -358,7 +358,7 @@
   },
   {
     "name": "counter-increment",
-    "syntax": "[ identifier() integer()? ]+ | none | inherit",
+    "syntax": "[ <ident> <integer>? ]+ | none | inherit",
     "initial_value": "none",
     "inherits": false,
     "media_groups": [
@@ -367,7 +367,7 @@
   },
   {
     "name": "counter-reset",
-    "syntax": "[ identifier() integer()? ]+ | none | inherit",
+    "syntax": "[ <ident> <integer>? ]+ | none | inherit",
     "initial_value": "none",
     "inherits": false,
     "media_groups": [
@@ -376,7 +376,7 @@
   },
   {
     "name": "cue-after",
-    "syntax": "uri() | none | inherit",
+    "syntax": "<uri> | none | inherit",
     "initial_value": "none",
     "inherits": false,
     "media_groups": [
@@ -385,7 +385,7 @@
   },
   {
     "name": "cue-before",
-    "syntax": "uri() | none | inherit",
+    "syntax": "<uri> | none | inherit",
     "initial_value": "none",
     "inherits": false,
     "media_groups": [
@@ -406,7 +406,7 @@
   },
   {
     "name": "cursor",
-    "syntax": "[ [uri() ,]* [ auto | crosshair | default | pointer | move | e-resize | ne-resize | nw-resize | n-resize | se-resize | sw-resize | s-resize | w-resize | text | wait | help | progress ] ] | inherit",
+    "syntax": "[ [<uri> ,]* [ auto | crosshair | default | pointer | move | e-resize | ne-resize | nw-resize | n-resize | se-resize | sw-resize | s-resize | w-resize | text | wait | help | progress ] ] | inherit",
     "initial_value": "auto",
     "inherits": true,
     "media_groups": [
@@ -460,7 +460,7 @@
   },
   {
     "name": "font-family",
-    "syntax": "[[ string() | serif | sans-serif | cursive | fantasy | monospace ] [, [ string()| serif | sans-serif | cursive | fantasy | monospace] ]* ] | inherit",
+    "syntax": "[[ <string> | serif | sans-serif | cursive | fantasy | monospace ] [, [ <string>| serif | sans-serif | cursive | fantasy | monospace] ]* ] | inherit",
     "initial_value": "",
     "inherits": true,
     "media_groups": [
@@ -469,7 +469,7 @@
   },
   {
     "name": "font-size",
-    "syntax": "xx-small | x-small | small | medium | large | x-large | xx-large | larger | smaller | length() | percentage() | inherit",
+    "syntax": "xx-small | x-small | small | medium | large | x-large | xx-large | larger | smaller | <length> | <percentage> | inherit",
     "initial_value": "medium",
     "inherits": true,
     "media_groups": [
@@ -521,7 +521,7 @@
   },
   {
     "name": "height",
-    "syntax": "length() | percentage() | auto | inherit",
+    "syntax": "<length> | <percentage> | auto | inherit",
     "initial_value": "auto",
     "inherits": false,
     "media_groups": [
@@ -530,7 +530,7 @@
   },
   {
     "name": "left",
-    "syntax": "length() | percentage() | auto | inherit",
+    "syntax": "<length> | <percentage> | auto | inherit",
     "initial_value": "auto",
     "inherits": false,
     "media_groups": [
@@ -539,7 +539,7 @@
   },
   {
     "name": "letter-spacing",
-    "syntax": "normal | length() | inherit",
+    "syntax": "normal | <length> | inherit",
     "initial_value": "normal",
     "inherits": true,
     "media_groups": [
@@ -548,7 +548,7 @@
   },
   {
     "name": "line-height",
-    "syntax": "normal | number() | length() | percentage() | inherit",
+    "syntax": "normal | <number> | <length> | <percentage> | inherit",
     "initial_value": "normal",
     "inherits": true,
     "media_groups": [
@@ -557,7 +557,7 @@
   },
   {
     "name": "list-style-image",
-    "syntax": "uri() | none | inherit",
+    "syntax": "<uri> | none | inherit",
     "initial_value": "none",
     "inherits": true,
     "media_groups": [
@@ -596,7 +596,7 @@
   },
   {
     "name": "margin-top",
-    "syntax": "length()|percentage()|auto | inherit",
+    "syntax": "<length>|<percentage>|auto | inherit",
     "initial_value": "0",
     "inherits": false,
     "media_groups": [
@@ -605,7 +605,7 @@
   },
   {
     "name": "margin-right",
-    "syntax": "length()|percentage()|auto | inherit",
+    "syntax": "<length>|<percentage>|auto | inherit",
     "initial_value": "0",
     "inherits": false,
     "media_groups": [
@@ -614,7 +614,7 @@
   },
   {
     "name": "margin-bottom",
-    "syntax": "length()|percentage()|auto | inherit",
+    "syntax": "<length>|<percentage>|auto | inherit",
     "initial_value": "0",
     "inherits": false,
     "media_groups": [
@@ -623,7 +623,7 @@
   },
   {
     "name": "margin-left",
-    "syntax": "length()|percentage()|auto | inherit",
+    "syntax": "<length>|<percentage>|auto | inherit",
     "initial_value": "0",
     "inherits": false,
     "media_groups": [
@@ -639,7 +639,7 @@
       "margin-bottom",
       "margin-left"
     ],
-    "syntax": "[length()|percentage()|auto]{1,4} | inherit",
+    "syntax": "[<length>|<percentage>|auto]{1,4} | inherit",
     "inherits": false,
     "media_groups": [
       "visual"
@@ -647,7 +647,7 @@
   },
   {
     "name": "max-height",
-    "syntax": "length() | percentage() | none | inherit",
+    "syntax": "<length> | <percentage> | none | inherit",
     "initial_value": "none",
     "inherits": false,
     "media_groups": [
@@ -656,7 +656,7 @@
   },
   {
     "name": "max-width",
-    "syntax": "length() | percentage() | none | inherit",
+    "syntax": "<length> | <percentage> | none | inherit",
     "initial_value": "none",
     "inherits": false,
     "media_groups": [
@@ -665,7 +665,7 @@
   },
   {
     "name": "min-height",
-    "syntax": "length() | percentage() | inherit",
+    "syntax": "<length> | <percentage> | inherit",
     "initial_value": "0",
     "inherits": false,
     "media_groups": [
@@ -674,7 +674,7 @@
   },
   {
     "name": "min-width",
-    "syntax": "length() | percentage() | inherit",
+    "syntax": "<length> | <percentage> | inherit",
     "initial_value": "0",
     "inherits": false,
     "media_groups": [
@@ -683,7 +683,7 @@
   },
   {
     "name": "orphans",
-    "syntax": "integer() | inherit",
+    "syntax": "<integer> | inherit",
     "initial_value": "2",
     "inherits": true,
     "media_groups": [
@@ -692,7 +692,7 @@
   },
   {
     "name": "outline-color",
-    "syntax": "color() | invert | inherit",
+    "syntax": "<color> | invert | inherit",
     "initial_value": "invert",
     "inherits": false,
     "media_groups": [
@@ -710,7 +710,7 @@
   },
   {
     "name": "outline-width",
-    "syntax": "[[ thin | medium | thick ] | length()] | inherit",
+    "syntax": "[[ thin | medium | thick ] | <length>] | inherit",
     "initial_value": "medium",
     "inherits": false,
     "media_groups": [
@@ -741,7 +741,7 @@
   },
   {
     "name": "padding-top",
-    "syntax": "length()|percentage()|auto | inherit",
+    "syntax": "<length>|<percentage>|auto | inherit",
     "initial_value": "0",
     "inherits": false,
     "media_groups": [
@@ -750,7 +750,7 @@
   },
   {
     "name": "padding-top",
-    "syntax": "length()|percentage()|auto | inherit",
+    "syntax": "<length>|<percentage>|auto | inherit",
     "initial_value": "0",
     "inherits": false,
     "media_groups": [
@@ -759,7 +759,7 @@
   },
   {
     "name": "padding-right",
-    "syntax": "length()|percentage()|auto | inherit",
+    "syntax": "<length>|<percentage>|auto | inherit",
     "initial_value": "0",
     "inherits": false,
     "media_groups": [
@@ -768,7 +768,7 @@
   },
   {
     "name": "padding-bottom",
-    "syntax": "length()|percentage()|auto | inherit",
+    "syntax": "<length>|<percentage>|auto | inherit",
     "initial_value": "0",
     "inherits": false,
     "media_groups": [
@@ -777,7 +777,7 @@
   },
   {
     "name": "padding-left",
-    "syntax": "length()|percentage()|auto | inherit",
+    "syntax": "<length>|<percentage>|auto | inherit",
     "initial_value": "0",
     "inherits": false,
     "media_groups": [
@@ -792,7 +792,7 @@
       "padding-bottom",
       "padding-left"
     ],
-    "syntax": "[length()|percentage()|auto]{1,4} | inherit",
+    "syntax": "[<length>|<percentage>|auto]{1,4} | inherit",
     "inherits": false,
     "media_groups": [
       "visual"
@@ -827,7 +827,7 @@
   },
   {
     "name": "pause-after",
-    "syntax": "unit(0.. s|ms) | percentage() | inherit",
+    "syntax": "unit(0.. s|ms) | <percentage> | inherit",
     "initial_value": "0",
     "inherits": false,
     "media_groups": [
@@ -836,7 +836,7 @@
   },
   {
     "name": "pause-before",
-    "syntax": "unit(0.. s|ms) | percentage() | inherit",
+    "syntax": "unit(0.. s|ms) | <percentage> | inherit",
     "initial_value": "0",
     "inherits": false,
     "media_groups": [
@@ -849,7 +849,7 @@
       "pause-before",
       "pause-after"
     ],
-    "syntax": " [ [unit(0.. s|ms) | percentage()]{1,2} ] | inherit",
+    "syntax": " [ [unit(0.. s|ms) | <percentage>]{1,2} ] | inherit",
     "inherits": false,
     "media_groups": [
       "aural"
@@ -857,7 +857,7 @@
   },
   {
     "name": "pitch-range",
-    "syntax": "number() | inherit",
+    "syntax": "<number> | inherit",
     "initial_value": "50",
     "inherits": true,
     "media_groups": [
@@ -875,7 +875,7 @@
   },
   {
     "name": "play-during",
-    "syntax": "uri() [ mix || repeat ]? | auto | none | inherit",
+    "syntax": "<uri> [ mix || repeat ]? | auto | none | inherit",
     "initial_value": "auto",
     "inherits": false,
     "media_groups": [
@@ -893,7 +893,7 @@
   },
   {
     "name": "quotes",
-    "syntax": "[string() string()]+ | none | inherit",
+    "syntax": "[<string> <string>]+ | none | inherit",
     "initial_value": "",
     "inherits": true,
     "media_groups": [
@@ -902,7 +902,7 @@
   },
   {
     "name": "richness",
-    "syntax": "number() | inherit",
+    "syntax": "<number> | inherit",
     "initial_value": "50",
     "inherits": true,
     "media_groups": [
@@ -911,7 +911,7 @@
   },
   {
     "name": "right",
-    "syntax": "length() | percentage() | auto | inherit",
+    "syntax": "<length> | <percentage> | auto | inherit",
     "initial_value": "auto",
     "inherits": false,
     "media_groups": [
@@ -956,7 +956,7 @@
   },
   {
     "name": "speech-rate",
-    "syntax": "number() | x-slow | slow | medium | fast | x-fast | faster | slower | inherit",
+    "syntax": "<number> | x-slow | slow | medium | fast | x-fast | faster | slower | inherit",
     "initial_value": "medium",
     "inherits": true,
     "media_groups": [
@@ -965,7 +965,7 @@
   },
   {
     "name": "stress",
-    "syntax": "number() | inherit",
+    "syntax": "<number> | inherit",
     "initial_value": "50",
     "inherits": true,
     "media_groups": [
@@ -1001,7 +1001,7 @@
   },
   {
     "name": "text-indent",
-    "syntax": "length() | percentage() | inherit",
+    "syntax": "<length> | <percentage> | inherit",
     "initial_value": "0",
     "inherits": true,
     "media_groups": [
@@ -1019,7 +1019,7 @@
   },
   {
     "name": "top",
-    "syntax": "length() | percentage() | auto | inherit",
+    "syntax": "<length> | <percentage> | auto | inherit",
     "initial_value": "auto",
     "inherits": false,
     "media_groups": [
@@ -1037,7 +1037,7 @@
   },
   {
     "name": "vertical-align",
-    "syntax": "baseline | sub | super | top | text-top | middle | bottom | text-bottom | percentage() | length() | inherit",
+    "syntax": "baseline | sub | super | top | text-top | middle | bottom | text-bottom | <percentage> | <length> | inherit",
     "initial_value": "baseline",
     "inherits": false,
     "media_groups": [
@@ -1055,7 +1055,7 @@
   },
   {
     "name": "voice-family",
-    "syntax": "[[string() | male | female | child ],]* [string() | male | female | child ] | inherit",
+    "syntax": "[[<string> | male | female | child ],]* [<string> | male | female | child ] | inherit",
     "initial_value": "",
     "inherits": true,
     "media_groups": [
@@ -1064,7 +1064,7 @@
   },
   {
     "name": "volume",
-    "syntax": "number() | percentage() | silent | x-soft | soft | medium | loud | x-loud | inherit",
+    "syntax": "<number> | <percentage> | silent | x-soft | soft | medium | loud | x-loud | inherit",
     "initial_value": "medium",
     "inherits": true,
     "media_groups": [
@@ -1082,7 +1082,7 @@
   },
   {
     "name": "widows",
-    "syntax": "integer() | inherit",
+    "syntax": "<integer> | inherit",
     "initial_value": "2",
     "inherits": true,
     "media_groups": [
@@ -1091,7 +1091,7 @@
   },
   {
     "name": "width",
-    "syntax": "length() | percentage() | auto | inherit",
+    "syntax": "<length> | <percentage> | auto | inherit",
     "initial_value": "auto",
     "inherits": false,
     "media_groups": [
@@ -1100,7 +1100,7 @@
   },
   {
     "name": "word-spacing",
-    "syntax": "normal | length() | inherit",
+    "syntax": "normal | <length> | inherit",
     "initial_value": "normal",
     "inherits": true,
     "media_groups": [
@@ -1109,7 +1109,7 @@
   },
   {
     "name": "z-index",
-    "syntax": "auto | integer() | inherit",
+    "syntax": "auto | <integer> | inherit",
     "initial_value": "auto",
     "inherits": false,
     "media_groups": [

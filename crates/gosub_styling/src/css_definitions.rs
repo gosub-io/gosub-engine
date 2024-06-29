@@ -93,7 +93,6 @@ impl CssPropertyDefinitions {
         self.definitions.insert(name.to_string(), definition);
     }
 
-
     pub fn find(&self, name: &str) -> Option<PropertyDefinition> {
         self.definitions.get(name).cloned()
     }
@@ -135,7 +134,7 @@ impl CssPropertyTypeDefs {
     }
 
     pub fn find_scalar(&self, name: &str) -> Option<SyntaxComponent> {
-        println!("Finding scalar {:?}", name);
+        // println!("Finding scalar {:?}", name);
         let scalars = vec![
             "number",
             "integer",
@@ -144,7 +143,9 @@ impl CssPropertyTypeDefs {
             "custom-ident",
             "ident",
             "repeat()",
+            "attr()",
             "url",
+            "uri",
             "named-color",
             "system-color",
             "unit()",
@@ -162,7 +163,7 @@ impl CssPropertyTypeDefs {
     }
 
     pub fn find(&self, name: &str) -> Option<CssPropertyTypeDef> {
-        println!("Finding typedef {:?}", name);
+        // println!("Finding typedef {:?}", name);
         let names = vec![
             name.to_string(),
             format!("<{}>", name),
@@ -233,6 +234,8 @@ pub fn parse_definition_files() -> CssPropertyDefinitions {
     let json: serde_json::Value =
         serde_json::from_str(contents).expect("JSON was not well-formatted");
     parse_definition_file_internal(json, typedefs)
+
+
 }
 
 pub fn get_css_definitions() -> CssPropertyDefinitions {
@@ -265,23 +268,20 @@ fn parse_typedef_file_internal(json: serde_json::Value) -> CssPropertyTypeDefs {
     let mut typedefs = CssPropertyTypeDefs { typedefs };
 
     // Resolve all typedefs since we now have loaded them all
-    typedef_resolve_all(&mut typedefs)
+    typedef_resolve_all(&mut typedefs);
+    typedefs
 }
 
 /// Iterate all the typedefs and resolve any typedefs that are used in the syntax. After this call
 /// no more typedefs should exist in the syntax.
-fn typedef_resolve_all(typedefs: &mut CssPropertyTypeDefs) -> CssPropertyTypeDefs {
-    let resolved_typedefs = CssPropertyTypeDefs::new();
-
+fn typedef_resolve_all(typedefs: &mut CssPropertyTypeDefs) {
     for name in <CssPropertyTypeDefs as Clone>::clone(&typedefs).get_keys() {
         typedef_resolve(typedefs, &name);
     }
-
-    resolved_typedefs
 }
 
 fn typedef_resolve_group(typedefs: &mut CssPropertyTypeDefs, group: &Group) -> Group {
-    println!("Resolving group {:?}", group);
+    // println!("Resolving group {:?}", group);
 
     let mut resolved_group = Group{
         combinator: group.combinator.clone(),
@@ -306,6 +306,9 @@ fn typedef_resolve_group(typedefs: &mut CssPropertyTypeDefs, group: &Group) -> G
                     continue;
                 }
 
+                dbg!(&name);
+                dbg!(&typedefs.clone().get_keys());
+                dbg!(&typedefs.typedefs.len());
                 panic!("Reference to typedef {:?} found. But it's not defined", name);
             }
             SyntaxComponentType::Group(group) => {
@@ -323,15 +326,13 @@ fn typedef_resolve_group(typedefs: &mut CssPropertyTypeDefs, group: &Group) -> G
     resolved_group
 }
 
-/// Resolves a single typedef by recursively resolving all its components
-fn typedef_resolve(typedefs: &mut CssPropertyTypeDefs, name: &str) {
-    println!("Resolving typedef {:?}", name);
+fn typedef_resolve_syntaxtree(typedefs: &mut CssPropertyTypeDefs, syntax_tree: CssSyntaxTree) -> CssSyntaxTree {
+    // println!("Resolving syntax tree");
 
     let mut resolved_components = vec![];
 
-    let typedef = typedefs.find(name).expect("Could not find typedef");
-    for component in &typedef.syntax.components {
-        println!("Resolving component");
+    for component in &syntax_tree.components {
+        // println!("Resolving component");
 
         // Resolve each component that needs resolving, or just return the component as-is.
         // If a component is a group, we need to resolve all its components first.
@@ -355,32 +356,6 @@ fn typedef_resolve(typedefs: &mut CssPropertyTypeDefs, name: &str) {
                 }
 
                 panic!("Reference to typedef {:?} found. But it's not defined", name);
-
-                //
-                //
-                // match typedefs.find(name) {
-                //     Some(_typedef) => {
-                //         println!("Resolved typedef {:?}", name);
-                //         // Resolve the typedef (if it's not already resolved and will take care of recursive typedefs)
-                //         typedef_resolve(typedefs, name);
-                //
-                //         // Either add the component if it's a single one, or create a group if it's multiple
-                //         let resolved_typedef = typedefs.find(name).expect("Could not find typedef");
-                //         if resolved_typedef.syntax.components.len() == 1 {
-                //             resolved_components.push(resolved_typedef.syntax.components[0].clone());
-                //         } else {
-                //             resolved_components.push(
-                //                 SyntaxComponent::new(SyntaxComponentType::Group(Group{
-                //                     combinator: GroupCombinators::Juxtaposition,
-                //                     components: resolved_typedef.syntax.components.clone(),
-                //                 }), SyntaxComponentMultiplier::Once)
-                //             );
-                //         }
-                //     }
-                //     None => {
-                //         panic!("Reference to typedef {:?} found. But it's not defined", name);
-                //     }
-                // }
             }
             SyntaxComponentType::Group(group) => {
                 let resolved_group = typedef_resolve_group(typedefs, group);
@@ -399,14 +374,20 @@ fn typedef_resolve(typedefs: &mut CssPropertyTypeDefs, name: &str) {
         }
     }
 
-    // Update the typedefs with this new resolved typedef
+    return CssSyntaxTree {
+        components: resolved_components,
+    };
+}
+
+/// Resolves a single typedef by recursively resolving all its components
+fn typedef_resolve(typedefs: &mut CssPropertyTypeDefs, name: &str) {
     let mut typedef = typedefs.find(name).expect("Could not find typedef");
-    typedef.syntax.components = resolved_components;
+    typedef.syntax = typedef_resolve_syntaxtree(typedefs, typedef.syntax);
     typedefs.update_typedef(name, typedef);
 }
 
 /// Parses the JSON input into a CSS property definitions structure
-fn parse_definition_file_internal(json: serde_json::Value, _typedefs: CssPropertyTypeDefs) -> CssPropertyDefinitions {
+fn parse_definition_file_internal(json: serde_json::Value, mut typedefs: CssPropertyTypeDefs) -> CssPropertyDefinitions {
     let mut definitions = HashMap::new();
 
     let entries = json.as_array().unwrap();
@@ -426,7 +407,7 @@ fn parse_definition_file_internal(json: serde_json::Value, _typedefs: CssPropert
         }
         if let Some(value) = entry["syntax"].as_str() {
             if let Ok(ast) = CssSyntax::new(value).compile() {
-                syntax = ast.clone();
+                syntax = typedef_resolve_syntaxtree(&mut typedefs, ast.clone());
             } else {
                 warn!("Could not compile syntax {:?}", entry);
                 // panic!("Could not compile syntax {:?}", entry);
@@ -567,24 +548,27 @@ mod tests {
         let definitions = parse_definition_files().definitions;
         let def = definitions.get("azimuth").unwrap();
 
-        assert_none!(def.clone().matches(&CssValue::Unit(361.0, "deg".into())));
-        assert_none!(def.clone().matches(&CssValue::Unit(-361.0, "deg".into())));
+        assert_some!(def.clone().matches(&CssValue::Unit(361.0, "deg".into())));
+        assert_some!(def.clone().matches(&CssValue::Unit(361.0, "deg".into())));
+
+        assert_none!(def.clone().matches(&CssValue::Unit(20.0, "blaat".into())));
 
         assert_some!(def.clone().matches(&CssValue::Unit(std::f32::consts::FRAC_PI_2, "rad".into())));
         assert_some!(def.clone().matches(&CssValue::Number(0.0)));
-        assert_none!(def.clone().matches(&CssValue::Unit(360.0, "deg".into())));
-        assert_none!(def.clone().matches(&CssValue::Unit(360.0, "grad".into())));
-        assert_none!(def.clone().matches(&CssValue::Unit(2.0, "grad".into())));
-        assert_none!(def.clone().matches(&CssValue::Unit(-360.0, "grad".into())));
-        assert_none!(def.clone().matches(&CssValue::String("leftside".into())));
-        assert_none!(def.clone().matches(&CssValue::String("left-side".into())));
-        assert_none!(def.clone().matches(&CssValue::String("left".into())));
-        assert_none!(def.clone().matches(&CssValue::String("center".into())));
-        assert_none!(def.clone().matches(&CssValue::String("rightwards".into())));
-        assert_none!(def.clone().matches(&CssValue::List(vec!(
+
+        assert_some!(def.clone().matches(&CssValue::Unit(360.0, "deg".into())));
+        assert_some!(def.clone().matches(&CssValue::Unit(360.0, "grad".into())));
+        assert_some!(def.clone().matches(&CssValue::Unit(2.0, "grad".into())));
+        assert_some!(def.clone().matches(&CssValue::Unit(-360.0, "grad".into())));
+        assert_some!(def.clone().matches(&CssValue::String("leftside".into())));
+        assert_some!(def.clone().matches(&CssValue::String("left-side".into())));
+        assert_some!(def.clone().matches(&CssValue::String("left".into())));
+        assert_some!(def.clone().matches(&CssValue::String("center".into())));
+        assert_some!(def.clone().matches(&CssValue::String("rightwards".into())));
+        assert_some!(def.clone().matches(&CssValue::List(vec!(
             CssValue::String("behind".into()),
             CssValue::String("far-right".into()),
         ))));
-        assert_none!(def.clone().matches(&CssValue::String("behind".into())));
+        assert_some!(def.clone().matches(&CssValue::String("behind".into())));
     }
 }

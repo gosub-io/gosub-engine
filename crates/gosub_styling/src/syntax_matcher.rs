@@ -58,7 +58,18 @@ fn match_internal(value: &CssValue, component: &SyntaxComponent) -> Option<CssVa
         },
         // SyntaxComponentType::Literal(_s) => {}
         // SyntaxComponentType::Value(_s) => {}
-        // SyntaxComponentType::Unit(_s, _t, _u) => {}
+        SyntaxComponentType::Unit(from, to, units) => {
+            println!("Unit: {:?} {:?} {:?}", from, to, units);
+            dbg!(&value, &from, &to, &units);
+            let f32min = f32::MIN;
+            let f32max = f32::MAX;
+            dbg!(f32min, f32max);
+
+            return match value {
+                CssValue::Unit(n, u) if units.contains(u) && n >= &from.unwrap_or(f32min) && n <= &to.unwrap_or(f32max) => Some(value.clone()),
+                _ => None,
+            }
+        },
         SyntaxComponentType::Group(group) => {
             return match group.combinator {
                 GroupCombinators::Juxtaposition => {
