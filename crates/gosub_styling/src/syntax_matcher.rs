@@ -1,4 +1,5 @@
 use gosub_css3::stylesheet::CssValue;
+use serde_json::Value;
 
 use crate::syntax::{Group, GroupCombinators, SyntaxComponent, SyntaxComponentType};
 
@@ -26,128 +27,58 @@ impl CssSyntaxTree {
 }
 
 fn match_internal(value: &CssValue, component: &SyntaxComponent) -> Option<CssValue> {
-    //Solution 1 - more drawbacks and special case for `SyntaxComponentType::Group`
-    match value {
-        CssValue::None => {
-            if let SyntaxComponentType::GenericKeyword(keyword) = &component.type_ {
-                if keyword == "none" {
-                    return Some(value.clone());
-                }
-            }
-        }
-        CssValue::Color(color) => {}
-        CssValue::Number(num) => match &component.type_ {
-            SyntaxComponentType::Scalar(scalar) => match scalar.as_str() {
-                "<number>" => return Some(value.clone()),
-                _ => todo!(),
-            },
-            SyntaxComponentType::Unit(min, max, _) => {
-                if *num == 0.0 && min.unwrap_or(f32::MIN) <= 0.0 {
-                    return Some(value.clone());
-                }
-            }
-            _ => {}
-        },
-        CssValue::Percentage(per) => {}
-        CssValue::String(s) => {
-            match &component.type_ {
-                SyntaxComponentType::GenericKeyword(keyword) => {
-                    if s.eq_ignore_ascii_case(keyword) {
-                        return Some(value.clone());
-                    }
-                }
-                SyntaxComponentType::Inherit => {
-                    //TODO: is this really needed, since we have CssValue::Inherit?
-                    if s.eq_ignore_ascii_case("inherit") {
-                        return Some(value.clone());
-                    }
-                }
-                SyntaxComponentType::Initial => {
-                    //TODO: is this really needed, since we have CssValue::Initial?
-                    if s.eq_ignore_ascii_case("initial") {
-                        return Some(value.clone());
-                    }
-                }
-                SyntaxComponentType::Unset => {
-                    if s.eq_ignore_ascii_case("unset") {
-                        return Some(value.clone());
-                    }
-                }
-
-                _ => {}
-            }
+    if let CssValue::List(list) = value {
+        for value in list.iter() {
+            match_internal(value, component)?;
         }
 
-        CssValue::Unit(num, unit) => match &component.type_ {
-            SyntaxComponentType::Unit(min, max, units) => {
-                if *num == 0.0
-                    && units.contains(unit)
-                    && num >= &min.unwrap_or(f32::MIN)
-                    && num <= &max.unwrap_or(f32::MAX)
-                {
-                    return Some(value.clone());
-                }
-            }
-            _ => {}
-        },
-        CssValue::Function(name, values) => {}
-        CssValue::List(list) => {}
-        CssValue::Initial => {}
-        CssValue::Inherit => {}
-        CssValue::Comma => {}
+        return Some(value.clone());
     }
 
-    // Solution 2 - less drawbacks, but special case for `CssValue::List`
-    return match &component.type_ {
+    match &component.type_ {
         SyntaxComponentType::GenericKeyword(keyword) => match value {
-            CssValue::None if keyword.eq_ignore_ascii_case("none") => Some(value.clone()),
-            CssValue::String(v) if v.eq_ignore_ascii_case(&keyword) => Some(value.clone()),
-            _ => None,
+            CssValue::None if keyword.eq_ignore_ascii_case("none") => return Some(value.clone()),
+            CssValue::String(v) if v.eq_ignore_ascii_case(keyword) => return Some(value.clone()),
+            _ => {}
         },
         SyntaxComponentType::Scalar(scalar) => match scalar.as_str() {
-            "<number>" => match value {
-                _ => None,
-            },
-            _ => {
-                panic!("Unknown scalar: {}", scalar);
+            "<number>" => {
+                if matches!(value, CssValue::Number(_)) {
+                    return Some(value.clone());
+                }
             }
+            _ => todo!(),
         },
         // SyntaxComponentType::Property(_s) => {},
         // SyntaxComponentType::Function(_s, _t) => {}
         // SyntaxComponentType::TypeDefinition(_s, _t, _u) => {}
-        SyntaxComponentType::Inherit => {
-            return match value {
-                CssValue::String(v) if v.eq_ignore_ascii_case("inherit") => Some(value.clone()),
-                _ => None,
-            }
-        }
-        SyntaxComponentType::Initial => {
-            return match value {
-                CssValue::String(v) if v.eq_ignore_ascii_case("initial") => Some(value.clone()),
-                _ => None,
-            }
-        }
-        SyntaxComponentType::Unset => {
-            return match value {
-                CssValue::String(v) if v.eq_ignore_ascii_case("unset") => Some(value.clone()),
-                _ => None,
-            }
-        }
+        SyntaxComponentType::Inherit => match value {
+            CssValue::String(v) if v.eq_ignore_ascii_case("inherit") => return Some(value.clone()),
+            _ => {}
+        },
+        SyntaxComponentType::Initial => match value {
+            CssValue::String(v) if v.eq_ignore_ascii_case("initial") => return Some(value.clone()),
+            _ => {}
+        },
+        SyntaxComponentType::Unset => match value {
+            CssValue::String(v) if v.eq_ignore_ascii_case("unset") => return Some(value.clone()),
+            _ => {}
+        },
         // SyntaxComponentType::Value(_s) => {}
         SyntaxComponentType::Unit(from, to, units) => {
             let f32min = f32::MIN;
             let f32max = f32::MAX;
 
-            return match value {
-                CssValue::Number(n) if *n == 0.0 => Some(value.clone()),
+            match value {
+                CssValue::Number(n) if *n == 0.0 => return Some(value.clone()),
                 CssValue::Unit(n, u)
                     if units.contains(u)
                         && n >= &from.unwrap_or(f32min)
                         && n <= &to.unwrap_or(f32max) =>
                 {
-                    Some(value.clone())
+                    return Some(value.clone())
                 }
-                _ => None,
+                _ => {}
             };
         }
         SyntaxComponentType::Group(group) => {
@@ -162,15 +93,17 @@ fn match_internal(value: &CssValue, component: &SyntaxComponent) -> Option<CssVa
         }
 
         SyntaxComponentType::Literal(lit) => {
-            return match value {
-                CssValue::String(v) if v.eq_ignore_ascii_case(lit) => Some(value.clone()), //TODO: can we ignore case?
-                _ => None,
+            match value {
+                CssValue::String(v) if v.eq_ignore_ascii_case(lit) => return Some(value.clone()), //TODO: can we ignore case?
+                _ => {}
             };
         }
         e => {
             panic!("Unknown syntax component type: {:?}", e);
         }
-    };
+    }
+
+    None
 }
 
 fn match_group_exactly_one(value: &CssValue, group: &Group) -> Option<CssValue> {
