@@ -1,9 +1,12 @@
+use crate::syntax::{
+    CssSyntax, Group, GroupCombinators, SyntaxComponent, SyntaxComponentMultiplier,
+    SyntaxComponentType,
+};
+use crate::syntax_matcher::CssSyntaxTree;
 use gosub_css3::stylesheet::CssValue;
+use log::warn;
 use memoize::memoize;
 use std::collections::HashMap;
-use log::warn;
-use crate::syntax::{CssSyntax, Group, GroupCombinators, SyntaxComponent, SyntaxComponentMultiplier, SyntaxComponentType};
-use crate::syntax_matcher::CssSyntaxTree;
 
 /// A CSS property definition including its type and initial value and optional expanded values if it's a shorthand property
 #[derive(Debug, Clone)]
@@ -152,11 +155,14 @@ impl CssPropertyTypeDefs {
             "string",
             "tech()",
             "length",
-            "reversed()"
+            "reversed()",
         ];
 
         if scalars.contains(&name) {
-            return Some(SyntaxComponent::new(SyntaxComponentType::Scalar(name.to_string()), SyntaxComponentMultiplier::Once));
+            return Some(SyntaxComponent::new(
+                SyntaxComponentType::Scalar(name.to_string()),
+                SyntaxComponentMultiplier::Once,
+            ));
         }
 
         None
@@ -219,7 +225,6 @@ impl CssPropertyTypeDef {
     }
 }
 
-
 /// Parses the internal CSS definition file
 #[memoize]
 pub fn parse_definition_files() -> CssPropertyDefinitions {
@@ -234,8 +239,6 @@ pub fn parse_definition_files() -> CssPropertyDefinitions {
     let json: serde_json::Value =
         serde_json::from_str(contents).expect("JSON was not well-formatted");
     parse_definition_file_internal(json, typedefs)
-
-
 }
 
 pub fn get_css_definitions() -> CssPropertyDefinitions {
@@ -283,7 +286,7 @@ fn typedef_resolve_all(typedefs: &mut CssPropertyTypeDefs) {
 fn typedef_resolve_group(typedefs: &mut CssPropertyTypeDefs, group: &Group) -> Group {
     // println!("Resolving group {:?}", group);
 
-    let mut resolved_group = Group{
+    let mut resolved_group = Group {
         combinator: group.combinator.clone(),
         components: vec![],
     };
@@ -301,7 +304,14 @@ fn typedef_resolve_group(typedefs: &mut CssPropertyTypeDefs, group: &Group) -> G
                 if let Some(_typedef) = typedefs.find(name) {
                     // Resolve the typedef (if it's not already resolved and will take care of recursive typedefs)
                     typedef_resolve(typedefs, name);
-                    resolved_group.components.push(typedefs.find(name).expect("Could not find typedef").syntax.components[0].clone());
+                    resolved_group.components.push(
+                        typedefs
+                            .find(name)
+                            .expect("Could not find typedef")
+                            .syntax
+                            .components[0]
+                            .clone(),
+                    );
 
                     continue;
                 }
@@ -309,14 +319,20 @@ fn typedef_resolve_group(typedefs: &mut CssPropertyTypeDefs, group: &Group) -> G
                 dbg!(&name);
                 dbg!(&typedefs.clone().get_keys());
                 dbg!(&typedefs.typedefs.len());
-                panic!("Reference to typedef {:?} found. But it's not defined", name);
+                panic!(
+                    "Reference to typedef {:?} found. But it's not defined",
+                    name
+                );
             }
             SyntaxComponentType::Group(group) => {
-                resolved_group.components.push(SyntaxComponent::new(SyntaxComponentType::Group(Group{
-                    combinator: group.combinator.clone(),
-                    components: typedef_resolve_group(typedefs, group).components.clone(),
-                }), SyntaxComponentMultiplier::Once));
-            },
+                resolved_group.components.push(SyntaxComponent::new(
+                    SyntaxComponentType::Group(Group {
+                        combinator: group.combinator.clone(),
+                        components: typedef_resolve_group(typedefs, group).components.clone(),
+                    }),
+                    SyntaxComponentMultiplier::Once,
+                ));
+            }
             _ => {
                 resolved_group.components.push(component.clone());
             }
@@ -326,7 +342,10 @@ fn typedef_resolve_group(typedefs: &mut CssPropertyTypeDefs, group: &Group) -> G
     resolved_group
 }
 
-fn typedef_resolve_syntaxtree(typedefs: &mut CssPropertyTypeDefs, syntax_tree: CssSyntaxTree) -> CssSyntaxTree {
+fn typedef_resolve_syntaxtree(
+    typedefs: &mut CssPropertyTypeDefs,
+    syntax_tree: CssSyntaxTree,
+) -> CssSyntaxTree {
     // println!("Resolving syntax tree");
 
     let mut resolved_components = vec![];
@@ -339,7 +358,6 @@ fn typedef_resolve_syntaxtree(typedefs: &mut CssPropertyTypeDefs, syntax_tree: C
         match &component.type_ {
             // Resolve type definition
             SyntaxComponentType::TypeDefinition(name, _, _) => {
-
                 // Is the type definition a scalar?
                 if let Some(scalar) = typedefs.find_scalar(name) {
                     resolved_components.push(scalar);
@@ -350,23 +368,33 @@ fn typedef_resolve_syntaxtree(typedefs: &mut CssPropertyTypeDefs, syntax_tree: C
                 if let Some(_typedef) = typedefs.find(name) {
                     // Resolve the typedef (if it's not already resolved and will take care of recursive typedefs)
                     typedef_resolve(typedefs, name);
-                    resolved_components.push(typedefs.find(name).expect("Could not find typedef").syntax.components[0].clone());
+                    resolved_components.push(
+                        typedefs
+                            .find(name)
+                            .expect("Could not find typedef")
+                            .syntax
+                            .components[0]
+                            .clone(),
+                    );
 
                     continue;
                 }
 
-                panic!("Reference to typedef {:?} found. But it's not defined", name);
+                panic!(
+                    "Reference to typedef {:?} found. But it's not defined",
+                    name
+                );
             }
             SyntaxComponentType::Group(group) => {
                 let resolved_group = typedef_resolve_group(typedefs, group);
                 resolved_components.push(SyntaxComponent::new(
-                    SyntaxComponentType::Group(Group{
-                        combinator: GroupCombinators::Juxtaposition,
+                    SyntaxComponentType::Group(Group {
+                        combinator: group.combinator.clone(),
                         components: resolved_group.components,
                     }),
-                    SyntaxComponentMultiplier::Once
+                    SyntaxComponentMultiplier::Once,
                 ));
-            },
+            }
             _ => {
                 // No need to resolve this component, just add it as-is
                 resolved_components.push(component.clone());
@@ -387,7 +415,10 @@ fn typedef_resolve(typedefs: &mut CssPropertyTypeDefs, name: &str) {
 }
 
 /// Parses the JSON input into a CSS property definitions structure
-fn parse_definition_file_internal(json: serde_json::Value, mut typedefs: CssPropertyTypeDefs) -> CssPropertyDefinitions {
+fn parse_definition_file_internal(
+    json: serde_json::Value,
+    mut typedefs: CssPropertyTypeDefs,
+) -> CssPropertyDefinitions {
     let mut definitions = HashMap::new();
 
     let entries = json.as_array().unwrap();
@@ -430,7 +461,10 @@ fn parse_definition_file_internal(json: serde_json::Value, mut typedefs: CssProp
             match syntax.matches(&value) {
                 Some(v) => initial_value = Some(v.clone()),
                 None => {
-                    warn!("Cannot validate initial value {:?} against syntax for property {}", entry, name);
+                    warn!(
+                        "Cannot validate initial value {:?} against syntax for property {}",
+                        entry, name
+                    );
                 }
             }
         }
@@ -452,8 +486,8 @@ fn parse_definition_file_internal(json: serde_json::Value, mut typedefs: CssProp
 
 #[cfg(test)]
 mod tests {
-    use gosub_css3::colors::RgbColor;
     use super::*;
+    use gosub_css3::colors::RgbColor;
 
     macro_rules! assert_none {
         ($e:expr) => {
@@ -478,7 +512,9 @@ mod tests {
         let definitions = parse_definition_files();
 
         let prop = definitions.find("color").unwrap();
-        assert_some!(prop.clone().matches(&CssValue::Color(RgbColor::from("#ff0000"))));
+        assert_some!(prop
+            .clone()
+            .matches(&CssValue::Color(RgbColor::from("#ff0000"))));
         assert_none!(prop.clone().matches(&CssValue::Number(42.0)));
 
         let prop = definitions.find("border").unwrap();
@@ -513,7 +549,9 @@ mod tests {
             PropertyDefinition {
                 name: "color".to_string(),
                 expanded_properties: vec![],
-                syntax: CssSyntax::new("color()".into()).compile().expect("Could not compile syntax"),
+                syntax: CssSyntax::new("color()".into())
+                    .compile()
+                    .expect("Could not compile syntax"),
                 inherits: false,
                 initial_value: None,
             },
@@ -533,7 +571,9 @@ mod tests {
                     "border-bottom-style".to_string(),
                     "border-left-style".to_string(),
                 ],
-                syntax: CssSyntax::new("".into()).compile().expect("Could not compile syntax"),
+                syntax: CssSyntax::new("".into())
+                    .compile()
+                    .expect("Could not compile syntax"),
                 inherits: false,
                 initial_value: Some(CssValue::String("thick".to_string())),
             },
@@ -553,21 +593,23 @@ mod tests {
 
         assert_none!(def.clone().matches(&CssValue::Unit(20.0, "blaat".into())));
 
-        assert_some!(def.clone().matches(&CssValue::Unit(std::f32::consts::FRAC_PI_2, "rad".into())));
+        assert_some!(def
+            .clone()
+            .matches(&CssValue::Unit(std::f32::consts::FRAC_PI_2, "rad".into())));
         assert_some!(def.clone().matches(&CssValue::Number(0.0)));
 
         assert_some!(def.clone().matches(&CssValue::Unit(360.0, "deg".into())));
         assert_some!(def.clone().matches(&CssValue::Unit(360.0, "grad".into())));
         assert_some!(def.clone().matches(&CssValue::Unit(2.0, "grad".into())));
         assert_some!(def.clone().matches(&CssValue::Unit(-360.0, "grad".into())));
-        assert_some!(def.clone().matches(&CssValue::String("leftside".into())));
+        assert_none!(def.clone().matches(&CssValue::String("leftside".into())));
         assert_some!(def.clone().matches(&CssValue::String("left-side".into())));
         assert_some!(def.clone().matches(&CssValue::String("left".into())));
         assert_some!(def.clone().matches(&CssValue::String("center".into())));
         assert_some!(def.clone().matches(&CssValue::String("rightwards".into())));
         assert_some!(def.clone().matches(&CssValue::List(vec!(
-            CssValue::String("behind".into()),
             CssValue::String("far-right".into()),
+            CssValue::String("behind".into()),
         ))));
         assert_some!(def.clone().matches(&CssValue::String("behind".into())));
     }

@@ -15,8 +15,6 @@ use gosub_render_backend::{
 use gosub_rendering::layout::generate_taffy_tree;
 use gosub_rendering::position::PositionTree;
 use gosub_shared::types::Result;
-use gosub_styling::css_colors::RgbColor;
-use gosub_styling::css_values::CssValue;
 use gosub_styling::render_tree::{RenderNodeData, RenderTree, RenderTreeNode};
 
 use crate::draw::img::request_img;
