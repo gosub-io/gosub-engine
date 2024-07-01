@@ -30,7 +30,7 @@ jobs:
           restore-keys: |
             ${{ matrix.os }}-cargo-registry-${{ matrix.rust_version }}-
       - name: Cache cargo build
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/work/gosub-engine/gosub-engine/target
           key: ${{ matrix.os }}-cargo-target-${{ matrix.rust_version }}-${{ hashFiles('**/Cargo.lock') }}
@@ -66,7 +66,7 @@ jobs:
           restore-keys: |
             ${{ matrix.os }}-cargo-registry-${{ matrix.rust_version }}-
       - name: Cache cargo build
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/work/gosub-engine/gosub-engine/target
           key: ${{ matrix.os }}-cargo-target-${{ matrix.rust_version }}-${{ hashFiles('**/Cargo.lock') }}
@@ -95,7 +95,7 @@ jobs:
           restore-keys: |
             ${{ matrix.os }}-cargo-registry-${{ matrix.rust_version }}-
       - name: Cache cargo build
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/work/gosub-engine/gosub-engine/target
           key: ${{ matrix.os }}-cargo-target-${{ matrix.rust_version }}-${{ hashFiles('**/Cargo.lock') }}
@@ -117,7 +117,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-registry-${{ matrix.rust_version }}-
       - name: Cache cargo build
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/work/gosub-engine/gosub-engine/target
           key: ${{ runner.os }}-cargo-target-${{ matrix.rust_version }}-${{ hashFiles('**/Cargo.lock') }}
