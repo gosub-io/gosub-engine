@@ -16,6 +16,7 @@ jobs:
       fail-fast: false
       matrix:
         rust_version: [ stable, beta, nightly, 1.73.0, "stable minus 1 release", "stable minus 2 releases" ]
+        os: [ ubuntu-latest, windows-latest, macos-latest ]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
@@ -25,16 +26,16 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cargo/
-          key: ${{ runner.os }}-cargo-registry-${{ matrix.rust_version }}-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ matrix.os }}-cargo-registry-${{ matrix.rust_version }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-registry-${{ matrix.rust_version }}-
+            ${{ matrix.os }}-cargo-registry-${{ matrix.rust_version }}-
       - name: Cache cargo build
         uses: actions/cache@v3
         with:
           path: ~/work/gosub-engine/gosub-engine/target
-          key: ${{ runner.os }}-cargo-target-${{ matrix.rust_version }}-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ matrix.os }}-cargo-target-${{ matrix.rust_version }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-target-${{ matrix.rust_version }}-
+            ${{ matrix.os }}-cargo-target-${{ matrix.rust_version }}-
       - name: Build
         run: cargo build --verbose --all --all-features
       - name: Clean
@@ -49,6 +50,7 @@ jobs:
       fail-fast: false
       matrix:
         rust_version: [ stable, beta, nightly, 1.73.0, "stable minus 1 release", "stable minus 2 releases" ]
+        os: [ ubuntu-latest, windows-latest, macos-latest ]
     steps:
       - name: Print CPU info
         run: lscpu
@@ -60,16 +62,16 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cargo
-          key: ${{ runner.os }}-cargo-registry-${{ matrix.rust_version }}-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ matrix.os }}-cargo-registry-${{ matrix.rust_version }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-registry-${{ matrix.rust_version }}-
+            ${{ matrix.os }}-cargo-registry-${{ matrix.rust_version }}-
       - name: Cache cargo build
         uses: actions/cache@v3
         with:
           path: ~/work/gosub-engine/gosub-engine/target
-          key: ${{ runner.os }}-cargo-target-${{ matrix.rust_version }}-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ matrix.os }}-cargo-target-${{ matrix.rust_version }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-target-${{ matrix.rust_version }}-
+            ${{ matrix.os }}-cargo-target-${{ matrix.rust_version }}-
       - name: Run tests
         run: cargo test --verbose --all --no-fail-fast --all-features --all-targets
 
@@ -79,6 +81,7 @@ jobs:
       fail-fast: false
       matrix:
         rust_version: [ stable, beta, nightly, 1.73.0, "stable minus 1 release", "stable minus 2 releases" ]
+        os: [ ubuntu-latest, windows-latest, macos-latest ]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
@@ -88,16 +91,16 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cargo
-          key: ${{ runner.os }}-cargo-registry-${{ matrix.rust_version }}-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ matrix.os }}-cargo-registry-${{ matrix.rust_version }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-registry-${{ matrix.rust_version }}-
+            ${{ matrix.os }}-cargo-registry-${{ matrix.rust_version }}-
       - name: Cache cargo build
         uses: actions/cache@v3
         with:
           path: ~/work/gosub-engine/gosub-engine/target
-          key: ${{ runner.os }}-cargo-target-${{ matrix.rust_version }}-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ matrix.os }}-cargo-target-${{ matrix.rust_version }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-target-${{ matrix.rust_version }}-
+            ${{ matrix.os }}-cargo-target-${{ matrix.rust_version }}-
       - name: Run Clippy
         run: cargo clippy --all --tests -- -D warnings
 
