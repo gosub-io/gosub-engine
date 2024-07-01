@@ -7,5 +7,5 @@ license = "MIT"
 
 [dependencies]
 gosub_shared = { path = "../gosub_shared", features = [] }
-uuid = { version = "1.8.0", features = ["v4"] }
+uuid = { version = "1.9.1", features = ["v4"] }
 regex = "1"
