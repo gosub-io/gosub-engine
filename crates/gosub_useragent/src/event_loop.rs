@@ -1,7 +1,7 @@
-use winit::event::WindowEvent;
+use winit::event::{MouseScrollDelta, WindowEvent};
 use winit::event_loop::ActiveEventLoop;
 
-use gosub_render_backend::{RenderBackend, SizeU32};
+use gosub_render_backend::{Point, RenderBackend, SizeU32, FP};
 use gosub_renderer::draw::SceneDrawer;
 use gosub_shared::types::Result;
 
@@ -54,12 +54,31 @@ impl<D: SceneDrawer<B>, B: RenderBackend> Window<'_, D, B> {
                     return Ok(());
                 };
 
-                if tab
-                    .data
-                    .mouse_move(backend, &mut self.renderer_data, position.x, position.y)
-                {
+                if tab.data.mouse_move(
+                    backend,
+                    &mut self.renderer_data,
+                    position.x as FP,
+                    position.y as FP,
+                ) {
                     self.window.request_redraw();
                 }
+            }
+
+            WindowEvent::MouseWheel { delta, .. } => {
+                let Some(tab) = self.tabs.get_current_tab() else {
+                    return Ok(());
+                };
+
+                let delta = match delta {
+                    MouseScrollDelta::PixelDelta(delta) => (delta.x as f32, delta.y as f32),
+                    MouseScrollDelta::LineDelta(x, y) => (x * 4.0, y * 12.0),
+                };
+
+                let delta = Point::new(delta.0 as FP, delta.1 as FP);
+
+                tab.data.scroll(delta);
+
+                self.window.request_redraw();
             }
 
             _ => {}

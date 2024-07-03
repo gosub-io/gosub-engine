@@ -24,9 +24,9 @@ mod img;
 
 pub trait SceneDrawer<B: RenderBackend> {
     fn draw(&mut self, backend: &mut B, data: &mut B::WindowData<'_>, size: SizeU32);
-    fn mouse_move(&mut self, backend: &mut B, data: &mut B::WindowData<'_>, x: f64, y: f64)
-        -> bool;
+    fn mouse_move(&mut self, backend: &mut B, data: &mut B::WindowData<'_>, x: FP, y: FP) -> bool;
 
+    fn scroll(&mut self, point: Point);
     fn from_url(url: Url, debug: bool) -> Result<Self>
     where
         Self: Sized;
@@ -41,17 +41,26 @@ type Point = gosub_shared::types::Point<FP>;
 
 impl<B: RenderBackend> SceneDrawer<B> for TreeDrawer<B> {
     fn draw(&mut self, backend: &mut B, data: &mut B::WindowData<'_>, size: SizeU32) {
-        if !self.debugger_changed && self.size == Some(size) {
+        if !self.dirty && self.size == Some(size) {
             return;
         }
 
         if self.tree_scene.is_none() || self.size != Some(size) {
             self.size = Some(size);
 
-            let mut scene = self
-                .tree_scene
-                .take()
-                .unwrap_or_else(|| B::Scene::new(data));
+            let mut scene = B::Scene::new(data);
+
+            // Apply new maximums to the scene transform
+            if let Some(scene_transform) = self.scene_transform.as_mut() {
+                let root_size = self.taffy.get_final_layout(self.root).content_size;
+                let max_x = root_size.width - size.width as f32;
+                let max_y = root_size.height - size.height as f32;
+
+                let x = scene_transform.tx().min(0.0).max(-max_x);
+                let y = scene_transform.ty().min(0.0).max(-max_y);
+
+                scene_transform.set_xy(x, y);
+            }
 
             let mut drawer = Drawer {
                 scene: &mut scene,
@@ -74,7 +83,7 @@ impl<B: RenderBackend> SceneDrawer<B> for TreeDrawer<B> {
             rect: bg,
             transform: None,
             radius: None,
-            brush: Brush::color(Color::BLACK),
+            brush: Brush::color(Color::MAGENTA),
             brush_transform: None,
             border: None,
         };
@@ -82,23 +91,28 @@ impl<B: RenderBackend> SceneDrawer<B> for TreeDrawer<B> {
         backend.draw_rect(data, &rect);
 
         if let Some(scene) = &self.tree_scene {
-            backend.apply_scene(data, scene, None);
+            backend.apply_scene(data, scene, self.scene_transform.clone());
         }
 
         if let Some(scene) = &self.debugger_scene {
-            self.debugger_changed = false;
-            backend.apply_scene(data, scene, None);
+            self.dirty = false;
+            backend.apply_scene(data, scene, self.scene_transform.clone());
         }
     }
 
-    fn mouse_move(
-        &mut self,
-        _backend: &mut B,
-        data: &mut B::WindowData<'_>,
-        x: f64,
-        y: f64,
-    ) -> bool {
-        if let Some(e) = self.position.find(x as f32, y as f32) {
+    fn mouse_move(&mut self, _backend: &mut B, data: &mut B::WindowData<'_>, x: FP, y: FP) -> bool {
+        let x = x - self
+            .scene_transform
+            .clone()
+            .unwrap_or(B::Transform::IDENTITY)
+            .tx();
+        let y = y - self
+            .scene_transform
+            .clone()
+            .unwrap_or(B::Transform::IDENTITY)
+            .ty();
+
+        if let Some(e) = self.position.find(x, y) {
             if self.last_hover != Some(e) {
                 self.last_hover = Some(e);
                 if self.debug {
@@ -211,13 +225,38 @@ impl<B: RenderBackend> SceneDrawer<B> for TreeDrawer<B> {
                     scene.draw_rect(&render_rect);
 
                     self.debugger_scene = Some(scene);
-                    self.debugger_changed = true;
+                    self.dirty = true;
                     return true;
                 }
             }
             return false;
         };
         false
+    }
+
+    fn scroll(&mut self, point: Point) {
+        let mut transform = self
+            .scene_transform
+            .take()
+            .unwrap_or(B::Transform::IDENTITY);
+
+        let x = transform.tx() + point.x;
+        let y = transform.ty() + point.y;
+
+        let root_size = self.taffy.get_final_layout(self.root).content_size;
+        let size = self.size.unwrap_or(SizeU32::ZERO);
+
+        let max_x = root_size.width - size.width as f32;
+        let max_y = root_size.height - size.height as f32;
+
+        let x = x.min(0.0).max(-max_x);
+        let y = y.min(0.0).max(-max_y);
+
+        transform.set_xy(x, y);
+
+        self.scene_transform = Some(transform);
+
+        self.dirty = true;
     }
 
     fn from_url(url: Url, debug: bool) -> Result<Self> {
@@ -246,6 +285,8 @@ impl<B: RenderBackend> Drawer<'_, '_, B> {
             eprintln!("Failed to compute layout: {:?}", e);
             return;
         }
+
+        // print_tree(&self.taffy, self.root, &self.style);
 
         self.drawer.position = PositionTree::from_taffy(&self.drawer.taffy, self.drawer.root);
 
@@ -441,8 +482,8 @@ fn render_bg<B: RenderBackend>(
         let rect = Rect::new(
             pos.x as FP,
             pos.y as FP,
-            layout.size.width as FP,
-            layout.size.height as FP,
+            layout.content_size.width as FP,
+            layout.content_size.height as FP,
         );
 
         let rect = RenderRect {

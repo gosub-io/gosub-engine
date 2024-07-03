@@ -1,5 +1,6 @@
-use anyhow::bail;
 use std::fs;
+
+use anyhow::bail;
 use taffy::{Layout, TaffyTree};
 use taffy::{NodeId as TaffyID, NodeId};
 use url::Url;
@@ -25,9 +26,10 @@ pub struct TreeDrawer<B: RenderBackend> {
     pub(crate) position: PositionTree,
     pub(crate) last_hover: Option<NodeId>,
     pub(crate) debug: bool,
-    pub(crate) debugger_changed: bool,
+    pub(crate) dirty: bool,
     pub(crate) debugger_scene: Option<B::Scene>,
     pub(crate) tree_scene: Option<B::Scene>,
+    pub(crate) scene_transform: Option<B::Transform>,
 }
 
 impl<B: RenderBackend> TreeDrawer<B> {
@@ -49,8 +51,9 @@ impl<B: RenderBackend> TreeDrawer<B> {
             last_hover: None,
             debug,
             debugger_scene: None,
-            debugger_changed: false,
+            dirty: false,
             tree_scene: None,
+            scene_transform: None,
         }
     }
 }

@@ -428,7 +428,7 @@ pub trait BorderRadius:
     fn bottom_right_radius(&mut self, radius: Radius);
 }
 
-pub trait Transform: Sized + Mul<Self> + MulAssign {
+pub trait Transform: Sized + Mul<Self> + MulAssign + Clone {
     const IDENTITY: Self;
     const FLIP_X: Self;
     const FLIP_Y: Self;
@@ -477,6 +477,21 @@ pub trait Transform: Sized + Mul<Self> + MulAssign {
     fn inverse(self) -> Self;
 
     fn with_translation(&self, translation: Point) -> Self;
+
+    fn tx(&self) -> FP {
+        self.as_matrix()[4]
+    }
+
+    fn ty(&self) -> FP {
+        self.as_matrix()[5]
+    }
+
+    fn set_xy(&mut self, x: FP, y: FP) {
+        let mut matrix = self.as_matrix();
+        matrix[4] = x;
+        matrix[5] = y;
+        *self = Self::from_matrix(matrix);
+    }
 }
 
 pub trait PreRenderText {
