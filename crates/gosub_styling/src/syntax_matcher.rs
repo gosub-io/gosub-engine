@@ -1,7 +1,14 @@
+use gosub_css3::colors::CSS_COLORNAMES;
 use gosub_css3::stylesheet::CssValue;
 use serde_json::Value;
 
 use crate::syntax::{Group, GroupCombinators, SyntaxComponent, SyntaxComponentType};
+
+const LENGTH_UNITS: [&'static str; 31] = [
+    "cap", "ch", "em", "ex", "ic", "lh", "rcap", "rch", "rem", "rex", "ric", "rlh", "vh", "vw",
+    "vmax", "vmin", "vb", "vi", "cqw", "cqh", "cqi", "cqb", "cqmin", "cqmax", "px", "cm", "mm",
+    "Q", "in", "pc", "pt",
+];
 
 /// A CSS Syntax Tree is a tree sof CSS syntax components that can be used to match against CSS values.
 #[derive(Clone, Debug, PartialEq)]
@@ -47,7 +54,34 @@ fn match_internal(value: &CssValue, component: &SyntaxComponent) -> Option<CssVa
                     return Some(value.clone());
                 }
             }
-            _ => todo!(),
+            "named-color" => {
+                let v = match value {
+                    CssValue::String(v) => v,
+                    CssValue::Color(_) => return Some(value.clone()),
+                    _ => return None,
+                };
+
+                if CSS_COLORNAMES
+                    .iter()
+                    .any(|entry| entry.name.eq_ignore_ascii_case(v))
+                {
+                    return Some(value.clone()); //TODO: should we convert the color directly to a CssValue::Color?
+                }
+            }
+            "system-color" => {
+                return None; //TODO
+                             // return Some(value.clone()) //TODO
+            }
+
+            "length" => match value {
+                CssValue::Number(0.0) => return Some(value.clone()),
+                CssValue::Unit(_, u) if LENGTH_UNITS.contains(&u.as_str()) => {
+                    return Some(value.clone())
+                }
+                _ => {}
+            },
+
+            _ => println!("Unknown scalar: {:?}", scalar),
         },
         // SyntaxComponentType::Property(_s) => {},
         // SyntaxComponentType::Function(_s, _t) => {}
@@ -98,6 +132,28 @@ fn match_internal(value: &CssValue, component: &SyntaxComponent) -> Option<CssVa
                 _ => {}
             };
         }
+        SyntaxComponentType::Function(name, args) => {
+            let CssValue::Function(c_name, c_args) = value else {
+                return None;
+            };
+
+            if !name.eq_ignore_ascii_case(c_name) {
+                return None;
+            }
+
+            let Some(args) = args else {
+                if c_args.is_empty() {
+                    return Some(value.clone());
+                }
+
+                return None;
+            };
+
+            let list = CssValue::List(c_args.clone());
+
+            return match_internal(&list, args);
+        }
+        SyntaxComponentType::Property(prop) => {}
         e => {
             panic!("Unknown syntax component type: {:?}", e);
         }
