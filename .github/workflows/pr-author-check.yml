@@ -27,7 +27,7 @@ jobs:
           sh .github/workflows/check_authors.sh ${{ env.PR_FETCH_DEPTH }} || exit_status=$?
           echo "found=${exit_status:-0}" >> $GITHUB_OUTPUT
       - name: Find Comment
-        uses: peter-evans/find-comment@v2
+        uses: peter-evans/find-comment@v3
         id: fc
         with:
           issue-number: ${{ github.event.pull_request.number }}
