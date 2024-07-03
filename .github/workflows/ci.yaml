@@ -84,7 +84,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        rust_version: [ stable, nightly, 1.73.0 ]
+        rust_version: [ stable, nightly ]
         os: [ ubuntu-latest ]
 #        rust_version: [ stable, beta, nightly, 1.73.0, "stable minus 1 release", "stable minus 2 releases" ]
 #        os: [ ubuntu-latest, windows-latest, macos-latest ]
