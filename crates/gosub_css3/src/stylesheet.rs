@@ -1,9 +1,9 @@
 use crate::colors::RgbColor;
+use anyhow::anyhow;
 use core::fmt::Debug;
+use gosub_shared::types::Result;
 use std::cmp::Ordering;
 use std::fmt::Display;
-use anyhow::anyhow;
-use gosub_shared::types::Result;
 
 /// Defines a complete stylesheet with all its rules and the location where it was found
 #[derive(Debug, PartialEq, Clone)]
@@ -324,10 +324,13 @@ impl CssValue {
             crate::node::NodeType::String { value } => Ok(CssValue::String(value)),
             crate::node::NodeType::Hash { value } => Ok(CssValue::String(value)),
             crate::node::NodeType::Operator(_) => Ok(CssValue::None),
-            crate::node::NodeType::Calc { .. } => Ok(CssValue::Function("calc".to_string(), vec![])),
-            crate::node::NodeType::Url { url } => {
-                 Ok(CssValue::Function("url".to_string(), vec![CssValue::String(url)]))
+            crate::node::NodeType::Calc { .. } => {
+                Ok(CssValue::Function("calc".to_string(), vec![]))
             }
+            crate::node::NodeType::Url { url } => Ok(CssValue::Function(
+                "url".to_string(),
+                vec![CssValue::String(url)],
+            )),
             crate::node::NodeType::Function { name, arguments } => {
                 let mut list = vec![];
                 for node in arguments.iter() {
@@ -338,9 +341,10 @@ impl CssValue {
                 }
                 Ok(CssValue::Function(name, list))
             }
-            _ => {
-                Err(anyhow!(format!("Cannot convert node to CssValue: {:?}", node)))
-            }
+            _ => Err(anyhow!(format!(
+                "Cannot convert node to CssValue: {:?}",
+                node
+            ))),
         }
     }
 

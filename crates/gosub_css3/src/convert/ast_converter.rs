@@ -1,7 +1,7 @@
 use crate::node::{Node as CssNode, NodeType};
 use crate::stylesheet::{
     CssDeclaration, CssOrigin, CssRule, CssSelector, CssSelectorPart, CssSelectorType,
-    CssStylesheet, MatcherType, CssValue
+    CssStylesheet, CssValue, MatcherType,
 };
 use anyhow::anyhow;
 use gosub_shared::types::Result;
@@ -171,7 +171,7 @@ pub fn convert_ast_to_stylesheet(
                 let (property, nodes, important) = declaration.as_declaration();
 
                 // Convert the nodes into CSS Values
-                let mut css_values = vec!();
+                let mut css_values = vec![];
                 for node in nodes.iter() {
                     if let Ok(value) = CssValue::parse_ast_node(node) {
                         css_values.push(value);
