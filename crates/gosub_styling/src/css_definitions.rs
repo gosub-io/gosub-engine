@@ -6,8 +6,7 @@ use memoize::memoize;
 use gosub_css3::stylesheet::CssValue;
 
 use crate::syntax::{
-    CssSyntax, Group, GroupCombinators, SyntaxComponent, SyntaxComponentMultiplier,
-    SyntaxComponentType,
+    CssSyntax, Group, SyntaxComponent, SyntaxComponentMultiplier, SyntaxComponentType,
 };
 use crate::syntax_matcher::CssSyntaxTree;
 
@@ -281,7 +280,7 @@ fn parse_typedef_file_internal(json: serde_json::Value) -> CssPropertyTypeDefs {
 /// Iterate all the typedefs and resolve any typedefs that are used in the syntax. After this call
 /// no more typedefs should exist in the syntax.
 fn typedef_resolve_all(typedefs: &mut CssPropertyTypeDefs) {
-    for name in <CssPropertyTypeDefs as Clone>::clone(&typedefs).get_keys() {
+    for name in <CssPropertyTypeDefs as Clone>::clone(typedefs).get_keys() {
         typedef_resolve(typedefs, &name);
     }
 }
@@ -405,9 +404,9 @@ fn typedef_resolve_syntaxtree(
         }
     }
 
-    return CssSyntaxTree {
+    CssSyntaxTree {
         components: resolved_components,
-    };
+    }
 }
 
 /// Resolves a single typedef by recursively resolving all its components
@@ -560,7 +559,7 @@ mod tests {
             PropertyDefinition {
                 name: "color".to_string(),
                 expanded_properties: vec![],
-                syntax: CssSyntax::new("color()".into())
+                syntax: CssSyntax::new("color()")
                     .compile()
                     .expect("Could not compile syntax"),
                 inherits: false,
@@ -582,7 +581,7 @@ mod tests {
                     "border-bottom-style".to_string(),
                     "border-left-style".to_string(),
                 ],
-                syntax: CssSyntax::new("".into())
+                syntax: CssSyntax::new("")
                     .compile()
                     .expect("Could not compile syntax"),
                 inherits: false,

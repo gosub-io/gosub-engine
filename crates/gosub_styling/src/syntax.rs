@@ -90,7 +90,7 @@ impl SyntaxComponent {
         multiplier: SyntaxComponentMultiplier,
     ) -> SyntaxComponent {
         SyntaxComponent {
-            type_: type_,
+            type_,
             multipliers: multiplier,
         }
     }
@@ -234,7 +234,7 @@ fn parse_unit(input: &str) -> IResult<&str, SyntaxComponentType> {
 }
 
 /// Removes preceding whitespace from a parser
-fn ws<'a, F: 'a, O>(inner: F) -> impl FnMut(&'a str) -> IResult<&'a str, O>
+fn ws<'a, F, O>(inner: F) -> impl FnMut(&'a str) -> IResult<&'a str, O>
 where
     F: FnMut(&'a str) -> IResult<&'a str, O>,
 {
@@ -515,8 +515,8 @@ fn parse_signed_integer(input: &str) -> IResult<&str, NumberOrInfinity> {
         |(sign, digits): (Option<char>, &str)| {
             let neg_multiplier = if sign == Some('-') { -1 } else { 1 };
             let num = digits.parse::<i64>().map(|num| num * neg_multiplier);
-            if num.is_ok() {
-                Ok(NumberOrInfinity::FiniteI64(num.unwrap()))
+            if let Ok(num) = num {
+                Ok(NumberOrInfinity::FiniteI64(num))
             } else {
                 Err(nom::Err::Error(nom::error::Error::new(
                     input,

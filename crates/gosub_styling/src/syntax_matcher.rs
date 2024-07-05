@@ -3,7 +3,7 @@ use gosub_css3::stylesheet::CssValue;
 
 use crate::syntax::{Group, GroupCombinators, SyntaxComponent, SyntaxComponentType};
 
-const LENGTH_UNITS: [&'static str; 31] = [
+const LENGTH_UNITS: [&str; 31] = [
     "cap", "ch", "em", "ex", "ic", "lh", "rcap", "rch", "rem", "rex", "ric", "rlh", "vh", "vw",
     "vmax", "vmin", "vb", "vi", "cqw", "cqh", "cqi", "cqb", "cqmin", "cqmax", "px", "cm", "mm",
     "Q", "in", "pc", "pt",
@@ -219,7 +219,7 @@ fn match_group_exactly_one(value: &CssValue, group: &Group) -> Option<CssValue> 
         return Some(list[0].clone());
     }
 
-    return None;
+    None
 }
 
 struct Matches {
@@ -313,7 +313,7 @@ fn match_group_all_any_order(value: &CssValue, group: &Group) -> Option<CssValue
         return None;
     }
 
-    return Some(value.clone());
+    Some(value.clone())
 }
 
 fn match_group_juxtaposition(value: &CssValue, group: &Group) -> Option<CssValue> {
@@ -345,7 +345,7 @@ fn match_group_juxtaposition(value: &CssValue, group: &Group) -> Option<CssValue
         c_idx += 1;
     }
 
-    return Some(value.clone());
+    Some(value.clone())
 }
 
 #[cfg(test)]
