@@ -1187,12 +1187,6 @@ checksum = "3f9eec918d3f24069decb9af1554cad7c880e2da24a9afd88aca000531ab82c1"
 
 [[package]]
 name = "font-types"
-version = "0.4.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b7f6040d337bd44434ab21fc6509154edf2cece88b23758d9d64654c4e7730b"
-
-[[package]]
-name = "font-types"
 version = "0.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "34fd7136aca682873d859ef34494ab1a7d3f57ecd485ed40eb6437ee8c85aa29"
@@ -1207,20 +1201,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6a595cb550439a117696039dfc69830492058211b771a2a165379f2a1a53d84d"
 dependencies = [
  "roxmltree 0.19.0",
-]
-
-[[package]]
-name = "fontdb"
-version = "0.16.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b0299020c3ef3f60f526a4f64ab4a3d4ce116b1acbf24cdd22da0068e5d81dc3"
-dependencies = [
- "fontconfig-parser",
- "log",
- "memmap2",
- "slotmap",
- "tinyvec",
- "ttf-parser 0.20.0",
 ]
 
 [[package]]
@@ -1699,7 +1679,7 @@ dependencies = [
  "gosub_shared",
  "resvg",
  "tiny-skia",
- "usvg 0.42.0",
+ "usvg",
 ]
 
 [[package]]
@@ -1765,7 +1745,7 @@ dependencies = [
  "image",
  "raw-window-handle",
  "smallvec",
- "vello 0.2.0",
+ "vello",
  "vello_svg",
  "wgpu",
 ]
@@ -3430,21 +3410,12 @@ dependencies = [
 
 [[package]]
 name = "read-fonts"
-version = "0.15.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "17ea23eedb4d938031b6d4343222444608727a6aa68ec355e13588d9947ffe92"
-dependencies = [
- "font-types 0.4.3",
-]
-
-[[package]]
-name = "read-fonts"
 version = "0.19.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e8b8af39d1f23869711ad4cea5e7835a20daa987f80232f7f2a2374d648ca64d"
 dependencies = [
  "bytemuck",
- "font-types 0.5.5",
+ "font-types",
 ]
 
 [[package]]
@@ -3514,7 +3485,7 @@ dependencies = [
  "rgb",
  "svgtypes",
  "tiny-skia",
- "usvg 0.42.0",
+ "usvg",
 ]
 
 [[package]]
@@ -3639,22 +3610,6 @@ dependencies = [
  "ring",
  "rustls-pki-types",
  "untrusted",
-]
-
-[[package]]
-name = "rustybuzz"
-version = "0.13.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "88117946aa1bfb53c2ae0643ceac6506337f44887f8c9fbfb43587b1cc52ba49"
-dependencies = [
- "bitflags 2.5.0",
- "bytemuck",
- "smallvec",
- "ttf-parser 0.20.0",
- "unicode-bidi-mirroring",
- "unicode-ccc",
- "unicode-properties",
- "unicode-script",
 ]
 
 [[package]]
@@ -3827,21 +3782,12 @@ checksum = "56199f7ddabf13fe5074ce809e7d3f42b42ae711800501b5b16ea82ad029c39d"
 
 [[package]]
 name = "skrifa"
-version = "0.15.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eff28ee3b66d43060ef9a327e0f18e4c1813f194120156b4d4524fac3ba8ce22"
-dependencies = [
- "read-fonts 0.15.6",
-]
-
-[[package]]
-name = "skrifa"
 version = "0.19.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ab45fb68b53576a43d4fc0e9ec8ea64e29a4d2cc7f44506964cb75f288222e9"
 dependencies = [
  "bytemuck",
- "read-fonts 0.19.3",
+ "read-fonts",
 ]
 
 [[package]]
@@ -4476,33 +4422,6 @@ dependencies = [
 
 [[package]]
 name = "usvg"
-version = "0.41.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c704361d822337cfc00387672c7b59eaa72a1f0744f62b2a68aa228a0c6927d"
-dependencies = [
- "base64",
- "data-url",
- "flate2",
- "fontdb 0.16.2",
- "imagesize",
- "kurbo",
- "log",
- "pico-args",
- "roxmltree 0.19.0",
- "rustybuzz 0.13.0",
- "simplecss",
- "siphasher 1.0.1",
- "strict-num",
- "svgtypes",
- "tiny-skia-path",
- "unicode-bidi",
- "unicode-script",
- "unicode-vo",
- "xmlwriter",
-]
-
-[[package]]
-name = "usvg"
 version = "0.42.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b84ea542ae85c715f07b082438a4231c3760539d902e11d093847a0b22963032"
@@ -4510,13 +4429,13 @@ dependencies = [
  "base64",
  "data-url",
  "flate2",
- "fontdb 0.18.0",
+ "fontdb",
  "imagesize",
  "kurbo",
  "log",
  "pico-args",
  "roxmltree 0.20.0",
- "rustybuzz 0.14.1",
+ "rustybuzz",
  "simplecss",
  "siphasher 1.0.1",
  "strict-num",
@@ -4573,20 +4492,6 @@ dependencies = [
 
 [[package]]
 name = "vello"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e9a4b96a2d6d6effa67868b4436560e3a767f71f0e043df007587c5d6b2e8b7a"
-dependencies = [
- "bytemuck",
- "futures-intrusive",
- "peniko",
- "raw-window-handle",
- "skrifa 0.15.5",
- "vello_encoding 0.1.0",
-]
-
-[[package]]
-name = "vello"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d08e6dd8a058d02acc1dff78487a0fa34c79bd9b85c01123d97b9134bfd48b24"
@@ -4596,24 +4501,12 @@ dependencies = [
  "log",
  "peniko",
  "raw-window-handle",
- "skrifa 0.19.3",
+ "skrifa",
  "static_assertions",
  "thiserror",
- "vello_encoding 0.2.0",
+ "vello_encoding",
  "vello_shaders",
  "wgpu",
-]
-
-[[package]]
-name = "vello_encoding"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0c5b6c6ec113c9b6ee1e1894ccef1b5559373aead718b7442811f2fefff7d423"
-dependencies = [
- "bytemuck",
- "guillotiere",
- "peniko",
- "skrifa 0.15.5",
 ]
 
 [[package]]
@@ -4625,7 +4518,7 @@ dependencies = [
  "bytemuck",
  "guillotiere",
  "peniko",
- "skrifa 0.19.3",
+ "skrifa",
  "smallvec",
 ]
 
@@ -4638,18 +4531,19 @@ dependencies = [
  "bytemuck",
  "naga",
  "thiserror",
- "vello_encoding 0.2.0",
+ "vello_encoding",
 ]
 
 [[package]]
 name = "vello_svg"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "14c537fcaf660d8e16f971e819450db72cbdeec97d36be1bc6fb4bc7e916084c"
+checksum = "550ba9acde6c03d00372604523ac153724c8c38a959eccfac03e0f90398c5799"
 dependencies = [
  "image",
- "usvg 0.41.0",
- "vello 0.1.0",
+ "thiserror",
+ "usvg",
+ "vello",
 ]
 
 [[package]]

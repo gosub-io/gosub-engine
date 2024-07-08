@@ -15,7 +15,7 @@ anyhow = "1.0.82"
 wgpu = "0.20.1"
 raw-window-handle = "0.6.2"
 futures = "0.3.30"
-vello_svg = { version = "0.2.0", optional = true }
+vello_svg = { version = "0.3.0", optional = true }
 gosub_html5 = { path = "../gosub_html5", optional = true }
 
 
