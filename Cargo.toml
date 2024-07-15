@@ -45,7 +45,7 @@ walkdir = "2.5"
 clap = { version = "4.5.4", features = ["derive"] }
 simple_logger = "5.0.0"
 cookie = { version = "0.18.1", features = ["secure", "private"] }
-url = "2.5.0"
+url = "2.5.2"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

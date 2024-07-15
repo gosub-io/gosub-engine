@@ -18,4 +18,4 @@ hickory-resolver = "0.24.1"
 simple_logger = "5.0.0"
 cookie = { version = "0.18.1", features = ["secure", "private"] }
 http = "1.0.0"
-url = "2.5.0"
+url = "2.5.2"

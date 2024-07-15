@@ -8,7 +8,7 @@ license = "MIT"
 [dependencies]
 chardet = "0.2.4"
 thiserror = "1.0.61"
-url = "2.5.0"
+url = "2.5.2"
 anyhow = "1.0.86"
 lazy_static = "1.5.0"
 uuid = { version = "1.9.1", features = ["v4"] }
