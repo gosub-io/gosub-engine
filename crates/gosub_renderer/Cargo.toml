@@ -17,7 +17,7 @@ gosub_render_backend = { path = "../gosub_render_backend" }
 taffy = "0.5.1"
 anyhow = "1.0.86"
 image = "0.25.1"
-url = "2.5.0"
+url = "2.5.2"
 
 
 
