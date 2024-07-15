@@ -9,7 +9,7 @@ license = "MIT"
 gosub_html5 = { path = "../gosub_html5" }
 gosub_styling = { path = "../gosub_styling" }
 gosub_render_backend = { path = "../gosub_render_backend" }
-taffy = "0.5.1"
+taffy = "0.5.2"
 anyhow = "1.0.86"
 regex = "1.10.5"
 rstar = "0.12.0"
