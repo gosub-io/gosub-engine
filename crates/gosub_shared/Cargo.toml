@@ -11,7 +11,7 @@ thiserror = "1.0.61"
 url = "2.5.2"
 anyhow = "1.0.86"
 lazy_static = "1.5.0"
-uuid = { version = "1.9.1", features = ["v4"] }
+uuid = { version = "1.10.0", features = ["v4"] }
 rand = "0.9.0-alpha.1"
 
 
