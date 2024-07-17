@@ -37,10 +37,19 @@ fn match_internal(value: &CssValue, component: &SyntaxComponent) -> Option<CssVa
         SyntaxComponentType::GenericKeyword(keyword) => match value {
             CssValue::None if keyword.eq_ignore_ascii_case("none") => return Some(value.clone()),
             CssValue::String(v) if v.eq_ignore_ascii_case(keyword) => return Some(value.clone()),
-            _ => {}
+            _ => {
+                // Did not match the keyword
+                // dbg!(keyword, value);
+                // panic!("Unknown generic keyword: {:?}", keyword);
+            }
         },
         SyntaxComponentType::Scalar(scalar) => match scalar.as_str() {
-            "<number>" => {
+            "percentage" | "<percentage>" => {
+                if matches!(value, CssValue::Percentage(_)) {
+                    return Some(value.clone());
+                }
+            }
+            "number" | "<number>" => {
                 if matches!(value, CssValue::Number(_)) {
                     return Some(value.clone());
                 }
@@ -78,10 +87,12 @@ fn match_internal(value: &CssValue, component: &SyntaxComponent) -> Option<CssVa
         // SyntaxComponentType::Function(_s, _t) => {}
         // SyntaxComponentType::TypeDefinition(_s, _t, _u) => {}
         SyntaxComponentType::Inherit => match value {
+            CssValue::Inherit => return Some(value.clone()),
             CssValue::String(v) if v.eq_ignore_ascii_case("inherit") => return Some(value.clone()),
             _ => {}
         },
         SyntaxComponentType::Initial => match value {
+            CssValue::Initial => return Some(value.clone()),
             CssValue::String(v) if v.eq_ignore_ascii_case("initial") => return Some(value.clone()),
             _ => {}
         },
@@ -116,7 +127,6 @@ fn match_internal(value: &CssValue, component: &SyntaxComponent) -> Option<CssVa
                 GroupCombinators::ExactlyOne => match_group_exactly_one(value, group),
             };
         }
-
         SyntaxComponentType::Literal(lit) => {
             match value {
                 CssValue::String(v) if v.eq_ignore_ascii_case(lit) => return Some(value.clone()), //TODO: can we ignore case?
@@ -250,9 +260,6 @@ fn resolve_group(value: &CssValue, group: &Group) -> Matches {
 
 fn match_group_at_least_one_any_order(value: &CssValue, group: &Group) -> Option<CssValue> {
     let matches = resolve_group(value, group);
-
-    dbg!(matches.all, &matches.individual);
-    dbg!(value);
 
     if matches.all != -1 {
         return Some(value.clone());
