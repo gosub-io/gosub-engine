@@ -218,7 +218,7 @@ fn parse_unit(input: &str) -> IResult<&str, SyntaxComponentType> {
     if suffix.is_none() {
         return if value == 0.0 {
             // 0 is a special case as it doesn't need a unit
-            Ok((input, SyntaxComponentType::Value(CssValue::Number(0.0))))
+            Ok((input, SyntaxComponentType::Value(CssValue::Zero)))
         } else {
             Err(nom::Err::Error(nom::error::Error::new(
                 input,
@@ -972,7 +972,7 @@ mod tests {
         assert_eq!(
             parts.unwrap().components,
             vec![SyntaxComponent::new(
-                SyntaxComponentType::Value(CssValue::Number(0.0)),
+                SyntaxComponentType::Value(CssValue::Zero),
                 SyntaxComponentMultiplier::Once,
             )]
         );

@@ -612,7 +612,9 @@ mod tests {
         assert_some!(def.clone().matches(&CssValue::Unit(360.0, "grad".into())));
         assert_some!(def.clone().matches(&CssValue::Unit(2.0, "grad".into())));
         assert_some!(def.clone().matches(&CssValue::Unit(-360.0, "grad".into())));
+
         assert_none!(def.clone().matches(&CssValue::String("leftside".into())));
+
         assert_some!(def.clone().matches(&CssValue::String("left-side".into())));
         assert_some!(def.clone().matches(&CssValue::String("left".into())));
         assert_some!(def.clone().matches(&CssValue::String("center".into())));
@@ -622,5 +624,15 @@ mod tests {
             CssValue::String("behind".into()),
         ))));
         assert_some!(def.clone().matches(&CssValue::String("behind".into())));
+    }
+
+    #[test]
+    fn test_background_color() {
+        let definitions = parse_definition_files().definitions;
+        let def = definitions.get("background-color").unwrap();
+
+        assert_some!(def.clone().matches(&CssValue::Unit(361.0, "deg".into())));
+        assert_some!(def.clone().matches(&CssValue::Unit(361.0, "deg".into())));
+
     }
 }

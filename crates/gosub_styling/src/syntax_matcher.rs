@@ -33,27 +33,6 @@ impl CssSyntaxTree {
 }
 
 fn match_internal(value: &CssValue, component: &SyntaxComponent) -> Option<CssValue> {
-    if let CssValue::List(_list) = value { //
-         //     if let SyntaxComponentType::Group(group) = &component.type_ {
-         //         return match group.combinator {
-         //             GroupCombinators::Juxtaposition => match_group_juxtaposition(value, group),
-         //             GroupCombinators::AllAnyOrder => match_group_all_any_order(value, group),
-         //             GroupCombinators::AtLeastOneAnyOrder => {
-         //                 match_group_at_least_one_any_order(value, group)
-         //             }
-         //             GroupCombinators::ExactlyOne => match_group_exactly_one(value, group),
-         //         };
-         //     }
-         //
-         //
-         //     // This is more like an backup, I don't know what happens if we have something different than a group and a list
-         //     for value in list.iter() {
-         //         match_internal(value, component)?;
-         //     }
-         //
-         //     return Some(value.clone());
-    }
-
     match &component.type_ {
         SyntaxComponentType::GenericKeyword(keyword) => match value {
             CssValue::None if keyword.eq_ignore_ascii_case("none") => return Some(value.clone()),
@@ -86,7 +65,7 @@ fn match_internal(value: &CssValue, component: &SyntaxComponent) -> Option<CssVa
             }
 
             "length" => match value {
-                CssValue::Number(0.0) => return Some(value.clone()),
+                CssValue::Zero => return Some(value.clone()),
                 CssValue::Unit(_, u) if LENGTH_UNITS.contains(&u.as_str()) => {
                     return Some(value.clone())
                 }
@@ -116,7 +95,7 @@ fn match_internal(value: &CssValue, component: &SyntaxComponent) -> Option<CssVa
             let f32max = f32::MAX;
 
             match value {
-                CssValue::Number(n) if *n == 0.0 => return Some(value.clone()),
+                CssValue::Number(n) if *n == 0.0 => return Some(CssValue::Zero),
                 CssValue::Unit(n, u)
                     if units.contains(u)
                         && n >= &from.unwrap_or(f32min)
@@ -702,17 +681,6 @@ mod tests {
                 group,
             );
             assert_some!(res);
-
-            // let res = match_group_at_least_one_any_order(
-            //     &CssValue::List(vec![
-            //         str!("none"),
-            //         str!("banana"),
-            //         str!("car"),
-            //         str!("block"),
-            //     ]),
-            //     group,
-            // );
-            // assert_none!(res);
         }
     }
 }

@@ -216,6 +216,7 @@ impl Ord for Specificity {
 pub enum CssValue {
     None,
     Color(RgbColor),
+    Zero,
     Number(f32),
     Percentage(f32),
     String(String),
@@ -251,6 +252,7 @@ impl Display for CssValue {
                     col.r as u8, col.g as u8, col.b as u8, col.a as u8
                 )
             }
+            CssValue::Zero => write!(f, "0"),
             CssValue::Number(num) => write!(f, "{}", num),
             CssValue::Percentage(p) => write!(f, "{}%", p),
             CssValue::String(s) => write!(f, "{}", s),
@@ -318,7 +320,15 @@ impl CssValue {
     pub fn parse_ast_node(node: &crate::node::Node) -> Result<CssValue> {
         match *node.node_type.clone() {
             crate::node::NodeType::Ident { value } => Ok(CssValue::String(value)),
-            crate::node::NodeType::Number { value } => Ok(CssValue::Number(value)),
+            crate::node::NodeType::Number { value } => {
+                if value == 0.0 {
+                    // Zero is a special case since we need to do some pattern matching once in a while, and
+                    // this is not possible (anymore) with floating point 0.0 it seems
+                    Ok(CssValue::Zero)
+                } else {
+                    Ok(CssValue::Number(value))
+                }
+            },
             crate::node::NodeType::Percentage { value } => Ok(CssValue::Percentage(value)),
             crate::node::NodeType::Dimension { value, unit } => Ok(CssValue::Unit(value, unit)),
             crate::node::NodeType::String { value } => Ok(CssValue::String(value)),
