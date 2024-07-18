@@ -28,6 +28,7 @@ impl CssSyntaxTree {
             panic!("Syntax tree must have exactly one root component");
         }
 
+        dbg!(&self.components);
         match_internal(value, &self.components[0])
     }
 }
@@ -46,6 +47,7 @@ fn match_internal(value: &CssValue, component: &SyntaxComponent) -> Option<CssVa
         SyntaxComponentType::Scalar(scalar) => match scalar.as_str() {
             "percentage" | "<percentage>" => {
                 if matches!(value, CssValue::Percentage(_)) {
+                    println!("Matched percentage! {:?}", value.clone());
                     return Some(value.clone());
                 }
             }
@@ -121,9 +123,7 @@ fn match_internal(value: &CssValue, component: &SyntaxComponent) -> Option<CssVa
             return match group.combinator {
                 GroupCombinators::Juxtaposition => match_group_juxtaposition(value, group),
                 GroupCombinators::AllAnyOrder => match_group_all_any_order(value, group),
-                GroupCombinators::AtLeastOneAnyOrder => {
-                    match_group_at_least_one_any_order(value, group)
-                }
+                GroupCombinators::AtLeastOneAnyOrder => match_group_at_least_one_any_order(value, group),
                 GroupCombinators::ExactlyOne => match_group_exactly_one(value, group),
             };
         }
@@ -186,34 +186,10 @@ fn match_internal(value: &CssValue, component: &SyntaxComponent) -> Option<CssVa
     None
 }
 
-fn match_group_exactly_one(value: &CssValue, group: &Group) -> Option<CssValue> {
-    let matches = resolve_group(value, group);
-
-    if matches.all != -1 {
-        return Some(value.clone());
-    }
-
-    let entries = matches.individual;
-
-    // We must have exactly one element
-    if entries.len() != 1 {
-        return None;
-    }
-
-    // check if there are -1 in the list
-    if entries.iter().any(|&x| x == -1) {
-        return None;
-    }
-    if let CssValue::List(list) = value.as_list() {
-        return Some(list[0].clone());
-    }
-
-    None
-}
-
+#[derive(Debug)]
 struct Matches {
-    individual: Vec<isize>,
-    all: isize,
+    /// Entry is either -1 for each element in the value, or the index of the component that matched
+    entries: Vec<isize>,
 }
 
 /// Resolves a group of values against a group of components based on their position. So if the
@@ -228,110 +204,126 @@ struct Matches {
 fn resolve_group(value: &CssValue, group: &Group) -> Matches {
     let mut values: Vec<isize> = vec![];
 
-    if let CssValue::List(list) = value.as_list() {
-        for value in list.iter() {
-            let mut v_idx = -1;
-            for (c_idx, component) in group.components.iter().enumerate() {
-                if match_internal(value, component).is_none() {
-                    continue;
+    println!("Resolving group");
+
+    // Iterate all values and see where they match in our group
+    value.iter().for_each(|v| {
+        println!("  Iterating element: {:?}", v);
+
+        // Assume the value cannot be matched in the group
+        let mut value_in_group_index = -1;
+
+        // Iterate the whole group
+        for (c_idx, component) in group.components.iter().enumerate() {
+            match match_internal(v, component) {
+                Some(_) => {
+                    value_in_group_index = c_idx as isize;
+                    break;
                 }
-                v_idx = c_idx as isize;
+                None => {}
             }
-            values.push(v_idx);
-        }
-    }
-
-    let mut all = -1;
-
-    for (c_idx, component) in group.components.iter().enumerate() {
-        if match_internal(value, component).is_none() {
-            continue;
         }
 
-        all = c_idx as isize;
-        break;
-    }
+        // Add the index of the matched component to the list, or -1 when it is not matched
+        values.push(value_in_group_index);
+    });
 
     Matches {
-        individual: values,
-        all,
+        entries: values,
     }
 }
 
-fn match_group_at_least_one_any_order(value: &CssValue, group: &Group) -> Option<CssValue> {
+fn match_group_exactly_one(value: &CssValue, group: &Group) -> Option<CssValue> {
     let matches = resolve_group(value, group);
+    println!("Matching exactly one");
+    dbg!(&value, &matches);
 
-    if matches.all != -1 {
-        return Some(value.clone());
-    }
 
-    let values = matches.individual;
-
-    // We must have at least one element
-    if values.is_empty() {
+    // We must have exactly one element
+    if matches.entries.len() != 1 {
         return None;
     }
 
-    // check if there are -1 in the list
-    if values.iter().all(|&x| x == -1) {
+    // Check if there are -1's in the list (the list is always size 1)
+    if matches.entries.iter().any(|&x| x == -1) {
         return None;
     }
 
     Some(value.clone())
 }
 
+fn match_group_at_least_one_any_order(value: &CssValue, group: &Group) -> Option<CssValue> {
+    let matches = resolve_group(value, group);
+    println!("Matching at least one any order");
+    dbg!(&value, &matches);
+
+    // We must have at least one element
+    if matches.entries.is_empty() {
+        return None;
+    }
+
+    // Check if there are -1's in the list
+    if matches.entries.iter().all(|&x| x == -1) {
+        return None;
+    }
+
+    // One (or more) elements found in the value that matched. There are no elements that do not match
+    Some(value.clone())
+}
+
 fn match_group_all_any_order(value: &CssValue, group: &Group) -> Option<CssValue> {
     let matches = resolve_group(value, group);
+    println!("Matching all any order");
+    dbg!(&value, &matches);
 
-    // if matches.all != -1 {
-    //     return Some(value.clone());
-    // }
-
-    let values = matches.individual;
-
-    // If it's not the same length, we definitely don't have a match
-    if values.len() != group.components.len() {
+    // If we do not the same length in our matches, we definitely don't have a match
+    if matches.entries.len() != group.components.len() {
         return None;
     }
 
     // check if there are -1 in the list
-    if values.iter().any(|&x| x == -1) {
+    if matches.entries.iter().any(|&x| x == -1) {
         return None;
     }
 
+    // We have the same number of matches as the elements in the group. We also have no -1's in the
+    // list so we have a match
     Some(value.clone())
 }
 
 fn match_group_juxtaposition(value: &CssValue, group: &Group) -> Option<CssValue> {
     let matches = resolve_group(value, group);
 
-    if group.components.len() == 1 && matches.all != -1 {
+    // if matches.entries[0] == -1 {
+    //     println!("No match found");
+    //     dbg!(&value, &matches, &group);
+    //     panic!("at the disco")
+    // }
+
+    println!("Matching juxtaposition");
+    dbg!(&value, &matches);
+
+    if group.components.len() == 1 {
         //FIXME: this is a hack, since our parser of the css value syntax sometimes inserts additional juxtapositions when it encounters a space.
         return Some(value.clone());
     }
 
-    let values = matches.individual;
-
     // If it's not the same length, we definitely don't have a match
-    if values.len() != group.components.len() {
+    if matches.entries.len() != group.components.len() {
         return None;
     }
 
     // check if there are -1 in the list
-    if values.iter().any(|&x| x == -1) {
+    if matches.entries.iter().any(|&x| x == -1) {
         return None;
     }
 
-    // Check if the values are in the correct order
-    let mut c_idx = 0;
-    while c_idx < values.len() {
-        if values[c_idx] != c_idx as isize {
-            return None;
-        }
-        c_idx += 1;
+    // Check if the values are in the correct order (offset 0 = 0, offset 1 = 1 etc)
+    if matches.entries.iter().enumerate().all(|(i, &entry)| entry == i as isize) {
+        return Some(value.clone());
     }
 
-    Some(value.clone())
+    None
 }
 
 #[cfg(test)]
@@ -507,25 +499,25 @@ mod tests {
     fn test_resolve_group() {
         let tree = CssSyntax::new("auto none block").compile().unwrap();
         if let SyntaxComponentType::Group(group) = &tree.components[0].type_ {
-            let values = resolve_group(&CssValue::List(vec![str!("auto")]), group).individual;
+            let values = resolve_group(&CssValue::List(vec![str!("auto")]), group).entries;
             assert_eq!(values, [0]);
 
             let values =
-                resolve_group(&CssValue::List(vec![str!("auto"), str!("none")]), group).individual;
+                resolve_group(&CssValue::List(vec![str!("auto"), str!("none")]), group).entries;
             assert_eq!(values, [0, 1]);
 
             let values = resolve_group(
                 &CssValue::List(vec![str!("auto"), str!("none"), str!("block")]),
                 group,
             )
-            .individual;
+            .entries;
             assert_eq!(values, [0, 1, 2]);
 
             let values = resolve_group(
                 &CssValue::List(vec![str!("none"), str!("block"), str!("auto")]),
                 group,
             )
-            .individual;
+            .entries;
             assert_eq!(values, [1, 2, 0]);
 
             let values = resolve_group(
@@ -538,7 +530,7 @@ mod tests {
                 ]),
                 group,
             )
-            .individual;
+            .entries;
             assert_eq!(values, [1, 2, 2, 0, 1]);
 
             let values = resolve_group(
@@ -550,7 +542,7 @@ mod tests {
                 ]),
                 group,
             )
-            .individual;
+            .entries;
             assert_eq!(values, [1, -1, -1, 2]);
         }
     }

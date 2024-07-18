@@ -4,6 +4,7 @@ use core::fmt::Debug;
 use gosub_shared::types::Result;
 use std::cmp::Ordering;
 use std::fmt::Display;
+use std::slice;
 
 /// Defines a complete stylesheet with all its rules and the location where it was found
 #[derive(Debug, PartialEq, Clone)]
@@ -229,17 +230,30 @@ pub enum CssValue {
 }
 
 impl CssValue {
-    pub fn is_list(&self) -> bool {
-        matches!(self, CssValue::List(_))
-    }
-
-    pub fn as_list(&self) -> CssValue {
+    pub fn iter(&self) -> CssValueIter {
         match self {
-            CssValue::List(list) => CssValue::List(list.clone()),
-            _ => CssValue::List(vec![self.clone()]),
+            CssValue::List(values) => CssValueIter::List(values.iter()),
+            _ => CssValueIter::Single(Some(self)),
         }
     }
 }
+
+pub enum CssValueIter<'a> {
+    Single(Option<&'a CssValue>),
+    List(slice::Iter<'a, CssValue>)
+}
+
+impl<'a>Iterator for CssValueIter<'a> {
+    type Item = &'a CssValue;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            CssValueIter::Single(ref mut value) => value.take(),
+            CssValueIter::List(ref mut iter) => iter.next(),
+        }
+    }
+}
+
 
 impl Display for CssValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
