@@ -510,15 +510,8 @@ mod tests {
     }
 
     #[test]
-    fn test_prop_def() {
+    fn test_prop_color() {
         let definitions = parse_definition_files();
-
-        // let prop = definitions.find("color").unwrap();
-        // assert_some!(prop
-        //     .clone()
-        //     .matches(&CssValue::Color(RgbColor::from("#ff0000"))));
-        // assert_none!(prop.clone().matches(&CssValue::Number(42.0)));
-
         let prop = definitions.find("border").unwrap();
 
         assert_some!(prop.clone().matches(&CssValue::List(vec![
@@ -653,6 +646,49 @@ mod tests {
         assert_none!(def.clone().matches(&CssValue::String("incorrect".into())));
         assert_none!(def.clone().matches(&CssValue::String("rebeccapurple".into())));
         assert_none!(def.clone().matches(&CssValue::Zero));
+    }
+
+    #[test]
+    fn test_prop() {
+        let definitions = parse_definition_files().definitions;
+        let def = definitions.get("test-prop").unwrap();
+
+        assert_some!(def.clone().matches(&CssValue::List(vec![
+            CssValue::String("foo".into()),
+            CssValue::String("bar".into()),
+        ])));
+
+        assert_none!(def.clone().matches(&CssValue::List(vec![
+            CssValue::String("bar".into()),
+            CssValue::String("foo".into()),
+        ])));
+
+        assert_some!(def.clone().matches(&CssValue::List(vec![
+            CssValue::String("foo".into()),
+        ])));
+
+        assert_none!(def.clone().matches(&CssValue::List(vec![
+            CssValue::String("bar".into()),
+        ])));
+
+        assert_some!(def.clone().matches(&CssValue::List(vec![
+            CssValue::Percentage(15.0),
+            CssValue::String("bar".into()),
+        ])));
+
+        assert_some!(def.clone().matches(&CssValue::List(vec![
+            CssValue::Percentage(15.0),
+            CssValue::Percentage(30.0),
+        ])));
+
+        assert_some!(def.clone().matches(&CssValue::List(vec![
+            CssValue::String("foo".into()),
+            CssValue::Percentage(30.0),
+        ])));
+
+        assert_some!(def.clone().matches(&CssValue::List(vec![
+            CssValue::Percentage(30.0),
+        ])));
     }
 
     #[test]

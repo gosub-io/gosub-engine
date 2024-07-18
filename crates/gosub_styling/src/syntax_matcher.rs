@@ -1,7 +1,7 @@
 use gosub_css3::colors::CSS_COLORNAMES;
 use gosub_css3::stylesheet::CssValue;
 
-use crate::syntax::{Group, GroupCombinators, SyntaxComponent, SyntaxComponentType};
+use crate::syntax::{Group, GroupCombinators, SyntaxComponent, SyntaxComponentMultiplier, SyntaxComponentType};
 
 const LENGTH_UNITS: [&str; 31] = [
     "cap", "ch", "em", "ex", "ic", "lh", "rcap", "rch", "rem", "rex", "ric", "rlh", "vh", "vw",
@@ -28,7 +28,6 @@ impl CssSyntaxTree {
             panic!("Syntax tree must have exactly one root component");
         }
 
-        dbg!(&self.components);
         match_internal(value, &self.components[0])
     }
 }
@@ -293,37 +292,73 @@ fn match_group_all_any_order(value: &CssValue, group: &Group) -> Option<CssValue
 
 fn match_group_juxtaposition(value: &CssValue, group: &Group) -> Option<CssValue> {
     let matches = resolve_group(value, group);
-
-    // if matches.entries[0] == -1 {
-    //     println!("No match found");
-    //     dbg!(&value, &matches, &group);
-    //     panic!("at the disco")
-    // }
-
     println!("Matching juxtaposition");
     dbg!(&value, &matches);
 
-    if group.components.len() == 1 {
+    if group.components.len() == 1 && group.components[0].is_group() {
         //FIXME: this is a hack, since our parser of the css value syntax sometimes inserts additional juxtapositions when it encounters a space.
         return Some(value.clone());
     }
 
-    // If it's not the same length, we definitely don't have a match
-    if matches.entries.len() != group.components.len() {
-        return None;
-    }
-
-    // check if there are -1 in the list
+    // Check if there are -1 in the list. If so, we found unknown values and we can return None immediately
     if matches.entries.iter().any(|&x| x == -1) {
         return None;
     }
 
-    // Check if the values are in the correct order (offset 0 = 0, offset 1 = 1 etc)
-    if matches.entries.iter().enumerate().all(|(i, &entry)| entry == i as isize) {
-        return Some(value.clone());
+    let mut current_v_idx = 0;
+
+    // Check multipliers and see if we got the correct number of matches per component
+    for (c_idx, group_component) in group.components.iter().enumerate() {
+
+        // Count how many times we found the given index in the matches  (ie: foo foo bar in "foo* bar" should return [ 0, 0, 1] in the matches)
+        let value_count = matches.entries.iter().filter(|&&x| x == c_idx as isize).count();
+        if check_multiplier(group_component, value_count) == false {
+            return None;
+        }
+        current_v_idx+ +;
     }
 
-    None
+        }
+    }
+
+    return Some(value.clone());
+}
+
+fn check_multiplier(component: &SyntaxComponent, count: usize) -> bool {
+    match component.multipliers {
+        SyntaxComponentMultiplier::Once => {
+            count == 1;
+        }
+        SyntaxComponentMultiplier::ZeroOrMore => {
+            // Zero or more always matches
+        }
+        SyntaxComponentMultiplier::OneOrMore => {
+            if count == 0 {
+                return false;
+            }
+        }
+        SyntaxComponentMultiplier::Optional => {
+            if count > 1 {
+                return false;
+            }
+        }
+        SyntaxComponentMultiplier::Between(s, e) => {
+            if count < s && count > e {
+                return false;
+            }
+        }
+        SyntaxComponentMultiplier::AtLeastOneValue => {
+            // @TODO: What's the difference between this and OneOrMore?
+            if count == 0 {
+                return false;
+            }
+        }
+        SyntaxComponentMultiplier::CommaSeparatedRepeat(_s, _e) => {
+            panic!("CommaSeparatedRepeat not implemented yet");
+        }
+
+        return true;
+    }
 }
 
 #[cfg(test)]
@@ -681,5 +716,71 @@ mod tests {
             );
             assert_some!(res);
         }
+    }
+
+    #[test]
+    fn test_multipliers_optional() {
+        // let tree = CssSyntax::new("foo bar baz").compile().unwrap();
+        // assert_none!(tree.clone().matches(&CssValue::String("foo".into())));
+        // assert_none!(tree.clone().matches(&CssValue::List(vec![
+        //     CssValue::String("foo".into())
+        // ])));
+        // assert_some!(tree.clone().matches(&CssValue::List(vec![
+        //     CssValue::String("foo".into()),
+        //     CssValue::String("bar".into()),
+        //     CssValue::String("baz".into()),
+        // ])));
+        // assert_none!(tree.clone().matches(&CssValue::List(vec![
+        //     CssValue::String("foo".into()),
+        //     CssValue::String("baz".into()),
+        // ])));
+
+        // let tree = CssSyntax::new("foo bar?").compile().unwrap();
+        // assert_some!(tree.clone().matches(&CssValue::String("foo".into())));
+        // assert_some!(tree.clone().matches(&CssValue::List(vec![
+        //     CssValue::String("foo".into())
+        // ])));
+        // assert_some!(tree.clone().matches(&CssValue::List(vec![
+        //     CssValue::String("foo".into()),
+        //     CssValue::String("bar".into()),
+        // ])));
+        // assert_none!(tree.clone().matches(&CssValue::List(vec![
+        //     CssValue::String("foo".into()),
+        //     CssValue::String("bar".into()),
+        //     CssValue::String("bar".into()),
+        // ])));
+        // assert_none!(tree.clone().matches(&CssValue::List(vec![
+        //     CssValue::String("bar".into()),
+        //     CssValue::String("foo".into()),
+        // ])));
+
+
+
+        let tree = CssSyntax::new("foo bar? baz").compile().unwrap();
+        assert_none!(tree.clone().matches(&CssValue::String("foo".into())));
+        assert_some!(tree.clone().matches(&CssValue::List(vec![
+            CssValue::String("foo".into()),
+            CssValue::String("baz".into())
+        ])));
+        assert_some!(tree.clone().matches(&CssValue::List(vec![
+            CssValue::String("foo".into()),
+            CssValue::String("bar".into()),
+            CssValue::String("baz".into()),
+        ])));
+
+        assert_none!(tree.clone().matches(&CssValue::List(vec![
+            CssValue::String("foo".into()),
+            CssValue::String("bar".into()),
+            CssValue::String("bar".into()),
+            CssValue::String("baz".into()),
+        ])));
+
+        assert_none!(tree.clone().matches(&CssValue::List(vec![
+            CssValue::String("foo".into()),
+            CssValue::String("bar".into()),
+            CssValue::String("baz".into()),
+            CssValue::String("baz".into()),
+        ])));
+
     }
 }
