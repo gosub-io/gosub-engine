@@ -488,8 +488,8 @@ fn parse_definition_file_internal(
 
 #[cfg(test)]
 mod tests {
-    use gosub_css3::colors::RgbColor;
     use super::*;
+    use gosub_css3::colors::RgbColor;
 
     macro_rules! assert_none {
         ($e:expr) => {
@@ -591,7 +591,6 @@ mod tests {
         let def = definitions.get("azimuth").unwrap();
 
         assert_some!(def.clone().matches(&CssValue::Unit(361.0, "deg".into())));
-        assert_some!(def.clone().matches(&CssValue::Unit(361.0, "deg".into())));
 
         assert_none!(def.clone().matches(&CssValue::Unit(20.0, "blaat".into())));
 
@@ -628,10 +627,16 @@ mod tests {
 
         assert_some!(def.clone().matches(&CssValue::String("red".into())));
         assert_some!(def.clone().matches(&CssValue::String("blue".into())));
-        assert_some!(def.clone().matches(&CssValue::Color(RgbColor::from("#ff0000"))));
-        assert_some!(def.clone().matches(&CssValue::String("rebeccapurple".into())));
+        assert_some!(def
+            .clone()
+            .matches(&CssValue::Color(RgbColor::from("#ff0000"))));
+        assert_some!(def
+            .clone()
+            .matches(&CssValue::String("rebeccapurple".into())));
 
-        assert_none!(def.clone().matches(&CssValue::String("thiscolordoesnotexist".into())));
+        assert_none!(def
+            .clone()
+            .matches(&CssValue::String("thiscolordoesnotexist".into())));
     }
 
     #[test]
@@ -644,7 +649,9 @@ mod tests {
         assert_some!(def.clone().matches(&CssValue::String("fixed".into())));
 
         assert_none!(def.clone().matches(&CssValue::String("incorrect".into())));
-        assert_none!(def.clone().matches(&CssValue::String("rebeccapurple".into())));
+        assert_none!(def
+            .clone()
+            .matches(&CssValue::String("rebeccapurple".into())));
         assert_none!(def.clone().matches(&CssValue::Zero));
     }
 
@@ -663,21 +670,21 @@ mod tests {
             CssValue::String("foo".into()),
         ])));
 
-        assert_some!(def.clone().matches(&CssValue::List(vec![
-            CssValue::String("foo".into()),
-        ])));
+        assert_some!(def
+            .clone()
+            .matches(&CssValue::List(vec![CssValue::String("foo".into()),])));
 
-        assert_none!(def.clone().matches(&CssValue::List(vec![
+        assert_none!(def
+            .clone()
+            .matches(&CssValue::List(vec![CssValue::String("bar".into()),])));
+
+        assert_some!(def.clone().matches(&CssValue::List(vec![
+            CssValue::Percentage(15.0),
             CssValue::String("bar".into()),
         ])));
 
         assert_some!(def.clone().matches(&CssValue::List(vec![
             CssValue::Percentage(15.0),
-            CssValue::String("bar".into()),
-        ])));
-
-        assert_some!(def.clone().matches(&CssValue::List(vec![
-            CssValue::Percentage(15.0),
             CssValue::Percentage(30.0),
         ])));
 
@@ -686,9 +693,9 @@ mod tests {
             CssValue::Percentage(30.0),
         ])));
 
-        assert_some!(def.clone().matches(&CssValue::List(vec![
-            CssValue::Percentage(30.0),
-        ])));
+        assert_some!(def
+            .clone()
+            .matches(&CssValue::List(vec![CssValue::Percentage(30.0),])));
     }
 
     #[test]

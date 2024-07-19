@@ -1,7 +1,9 @@
 use gosub_css3::colors::CSS_COLORNAMES;
 use gosub_css3::stylesheet::CssValue;
 
-use crate::syntax::{Group, GroupCombinators, SyntaxComponent, SyntaxComponentMultiplier, SyntaxComponentType};
+use crate::syntax::{
+    Group, GroupCombinators, SyntaxComponent, SyntaxComponentMultiplier, SyntaxComponentType,
+};
 
 const LENGTH_UNITS: [&str; 31] = [
     "cap", "ch", "em", "ex", "ic", "lh", "rcap", "rch", "rem", "rex", "ric", "rlh", "vh", "vw",
@@ -33,131 +35,34 @@ impl CssSyntaxTree {
 }
 
 fn match_internal(value: &CssValue, component: &SyntaxComponent) -> Option<CssValue> {
-    match &component.type_ {
-        SyntaxComponentType::GenericKeyword(keyword) => match value {
-            CssValue::None if keyword.eq_ignore_ascii_case("none") => return Some(value.clone()),
-            CssValue::String(v) if v.eq_ignore_ascii_case(keyword) => return Some(value.clone()),
-            _ => {
-                // Did not match the keyword
-                // dbg!(keyword, value);
-                // panic!("Unknown generic keyword: {:?}", keyword);
-            }
-        },
-        SyntaxComponentType::Scalar(scalar) => match scalar.as_str() {
-            "percentage" | "<percentage>" => {
-                if matches!(value, CssValue::Percentage(_)) {
-                    println!("Matched percentage! {:?}", value.clone());
-                    return Some(value.clone());
-                }
-            }
-            "number" | "<number>" => {
-                if matches!(value, CssValue::Number(_)) {
-                    return Some(value.clone());
-                }
-            }
-            "named-color" => {
-                let v = match value {
-                    CssValue::String(v) => v,
-                    CssValue::Color(_) => return Some(value.clone()),
-                    _ => return None,
-                };
-
-                if CSS_COLORNAMES
-                    .iter()
-                    .any(|entry| entry.name.eq_ignore_ascii_case(v))
-                {
-                    return Some(value.clone()); //TODO: should we convert the color directly to a CssValue::Color?
-                }
-            }
-            "system-color" => {
-                return None; //TODO
-                             // return Some(value.clone()) //TODO
-            }
-
-            "length" => match value {
-                CssValue::Zero => return Some(value.clone()),
-                CssValue::Unit(_, u) if LENGTH_UNITS.contains(&u.as_str()) => {
+    fn match_internal_internal(value: &CssValue, component: &SyntaxComponent) -> Option<CssValue> {
+        match &component.type_ {
+            SyntaxComponentType::GenericKeyword(keyword) => match value {
+                CssValue::None if keyword.eq_ignore_ascii_case("none") => {
                     return Some(value.clone())
                 }
-                _ => {}
+                CssValue::String(v) if v.eq_ignore_ascii_case(keyword) => {
+                    return Some(value.clone())
+                }
+                _ => {
+                    // Did not match the keyword
+                    // dbg!(keyword, value);
+                    // panic!("Unknown generic keyword: {:?}", keyword);
+                }
             },
-
-            _ => panic!("Unknown scalar: {:?}", scalar),
-        },
-        // SyntaxComponentType::Property(_s) => {},
-        // SyntaxComponentType::Function(_s, _t) => {}
-        // SyntaxComponentType::TypeDefinition(_s, _t, _u) => {}
-        SyntaxComponentType::Inherit => match value {
-            CssValue::Inherit => return Some(value.clone()),
-            CssValue::String(v) if v.eq_ignore_ascii_case("inherit") => return Some(value.clone()),
-            _ => {}
-        },
-        SyntaxComponentType::Initial => match value {
-            CssValue::Initial => return Some(value.clone()),
-            CssValue::String(v) if v.eq_ignore_ascii_case("initial") => return Some(value.clone()),
-            _ => {}
-        },
-        SyntaxComponentType::Unset => match value {
-            CssValue::String(v) if v.eq_ignore_ascii_case("unset") => return Some(value.clone()),
-            _ => {}
-        },
-        // SyntaxComponentType::Value(_s) => {}
-        SyntaxComponentType::Unit(from, to, units) => {
-            let f32min = f32::MIN;
-            let f32max = f32::MAX;
-
-            match value {
-                CssValue::Number(n) if *n == 0.0 => return Some(CssValue::Zero),
-                CssValue::Unit(n, u)
-                    if units.contains(u)
-                        && n >= &from.unwrap_or(f32min)
-                        && n <= &to.unwrap_or(f32max) =>
-                {
-                    return Some(value.clone())
+            SyntaxComponentType::Scalar(scalar) => match scalar.as_str() {
+                "percentage" | "<percentage>" => {
+                    if matches!(value, CssValue::Percentage(_)) {
+                        println!("Matched percentage! {:?}", value.clone());
+                        return Some(value.clone());
+                    }
                 }
-                _ => {}
-            };
-        }
-        SyntaxComponentType::Group(group) => {
-            return match group.combinator {
-                GroupCombinators::Juxtaposition => match_group_juxtaposition(value, group),
-                GroupCombinators::AllAnyOrder => match_group_all_any_order(value, group),
-                GroupCombinators::AtLeastOneAnyOrder => match_group_at_least_one_any_order(value, group),
-                GroupCombinators::ExactlyOne => match_group_exactly_one(value, group),
-            };
-        }
-        SyntaxComponentType::Literal(lit) => {
-            match value {
-                CssValue::String(v) if v.eq_ignore_ascii_case(lit) => return Some(value.clone()), //TODO: can we ignore case?
-                _ => {}
-            };
-        }
-        SyntaxComponentType::Function(name, args) => {
-            let CssValue::Function(c_name, c_args) = value else {
-                return None;
-            };
-
-            if !name.eq_ignore_ascii_case(c_name) {
-                return None;
-            }
-
-            let Some(args) = args else {
-                if c_args.is_empty() {
-                    return Some(value.clone());
+                "number" | "<number>" => {
+                    if matches!(value, CssValue::Number(_)) {
+                        return Some(value.clone());
+                    }
                 }
-
-                return None;
-            };
-
-            let list = CssValue::List(c_args.clone());
-
-            return match_internal(&list, args);
-        }
-        SyntaxComponentType::Property(prop) => {
-            dbg!(prop, value.clone());
-
-            match &**prop {
-                "border-color" => {
+                "named-color" => {
                     let v = match value {
                         CssValue::String(v) => v,
                         CssValue::Color(_) => return Some(value.clone()),
@@ -171,18 +76,149 @@ fn match_internal(value: &CssValue, component: &SyntaxComponent) -> Option<CssVa
                         return Some(value.clone()); //TODO: should we convert the color directly to a CssValue::Color?
                     }
                 }
+                "system-color" => {
+                    return None; //TODO
+                                 // return Some(value.clone()) //TODO
+                }
 
-                _ => {
-                    todo!("Property not implemented yet")
+                "length" => match value {
+                    CssValue::Zero => return Some(value.clone()),
+                    CssValue::Unit(_, u) if LENGTH_UNITS.contains(&u.as_str()) => {
+                        return Some(value.clone())
+                    }
+                    _ => {}
+                },
+
+                _ => panic!("Unknown scalar: {:?}", scalar),
+            },
+            // SyntaxComponentType::Property(_s) => {},
+            // SyntaxComponentType::Function(_s, _t) => {}
+            // SyntaxComponentType::TypeDefinition(_s, _t, _u) => {}
+            SyntaxComponentType::Inherit => match value {
+                CssValue::Inherit => return Some(value.clone()),
+                CssValue::String(v) if v.eq_ignore_ascii_case("inherit") => {
+                    return Some(value.clone())
+                }
+                _ => {}
+            },
+            SyntaxComponentType::Initial => match value {
+                CssValue::Initial => return Some(value.clone()),
+                CssValue::String(v) if v.eq_ignore_ascii_case("initial") => {
+                    return Some(value.clone())
+                }
+                _ => {}
+            },
+            SyntaxComponentType::Unset => match value {
+                CssValue::String(v) if v.eq_ignore_ascii_case("unset") => {
+                    return Some(value.clone())
+                }
+                _ => {}
+            },
+            // SyntaxComponentType::Value(_s) => {}
+            SyntaxComponentType::Unit(from, to, units) => {
+                let f32min = f32::MIN;
+                let f32max = f32::MAX;
+
+                match value {
+                    CssValue::Number(n) if *n == 0.0 => return Some(CssValue::Zero),
+                    CssValue::Unit(n, u) => {
+                        if units.contains(u)
+                            && *n >= from.unwrap_or(f32min)
+                            && *n <= to.unwrap_or(f32max)
+                        {
+                            return Some(value.clone());
+                        }
+                    }
+                    _ => {}
+                };
+            }
+            SyntaxComponentType::Group(group) => {
+                return match group.combinator {
+                    GroupCombinators::Juxtaposition => match_group_juxtaposition(value, group),
+                    GroupCombinators::AllAnyOrder => match_group_all_any_order(value, group),
+                    GroupCombinators::AtLeastOneAnyOrder => {
+                        match_group_at_least_one_any_order(value, group)
+                    }
+                    GroupCombinators::ExactlyOne => match_group_exactly_one(value, group),
+                };
+            }
+            SyntaxComponentType::Literal(lit) => {
+                match value {
+                    CssValue::String(v) if v.eq_ignore_ascii_case(lit) => {
+                        return Some(value.clone())
+                    } //TODO: can we ignore case?
+                    _ => {}
+                };
+            }
+            SyntaxComponentType::Function(name, args) => {
+                let CssValue::Function(c_name, c_args) = value else {
+                    return None;
+                };
+
+                if !name.eq_ignore_ascii_case(c_name) {
+                    return None;
+                }
+
+                let Some(args) = args else {
+                    if c_args.is_empty() {
+                        return Some(value.clone());
+                    }
+
+                    return None;
+                };
+
+                let list = CssValue::List(c_args.clone());
+
+                return match_internal(&list, args);
+            }
+            SyntaxComponentType::Property(prop) => {
+                dbg!(prop, value.clone());
+
+                match &**prop {
+                    "border-color" => {
+                        let v = match value {
+                            CssValue::String(v) => v,
+                            CssValue::Color(_) => return Some(value.clone()),
+                            _ => return None,
+                        };
+
+                        if CSS_COLORNAMES
+                            .iter()
+                            .any(|entry| entry.name.eq_ignore_ascii_case(v))
+                        {
+                            return Some(value.clone()); //TODO: should we convert the color directly to a CssValue::Color?
+                        }
+                    }
+
+                    _ => {
+                        todo!("Property not implemented yet")
+                    }
                 }
             }
+            e => {
+                println!("Unknown syntax component type: {:?}", e);
+            }
         }
-        e => {
-            println!("Unknown syntax component type: {:?}", e);
+
+        None
+    }
+
+    let m = match_internal_internal(value, component);
+
+    println!("Value: {:?}", value);
+    println!("Matched: {:?}", m.is_some());
+    println!("Component: {:?}", component);
+
+    if m.is_some() {
+        if let CssValue::Unit(_, u) = value {
+            if *u == "blaat" {
+                let a = match_internal_internal(value, component);
+                println!("SECOND SHOULD ALSO BE SOME: {:?}", a.is_some());
+            }
         }
     }
 
-    None
+    m
 }
 
 #[derive(Debug)]
@@ -214,12 +250,14 @@ fn resolve_group(value: &CssValue, group: &Group) -> Matches {
 
         // Iterate the whole group
         for (c_idx, component) in group.components.iter().enumerate() {
-            match match_internal(v, component) {
-                Some(_) => {
-                    value_in_group_index = c_idx as isize;
-                    break;
-                }
-                None => {}
+            if match_internal(v, component).is_some() {
+                value_in_group_index = c_idx as isize;
+
+                println!("    Matched component: {:?}", component);
+                println!("    Value in group index: {:?}", value_in_group_index);
+                println!("    Value: {:?}", v);
+
+                break;
             }
         }
 
@@ -227,16 +265,13 @@ fn resolve_group(value: &CssValue, group: &Group) -> Matches {
         values.push(value_in_group_index);
     });
 
-    Matches {
-        entries: values,
-    }
+    Matches { entries: values }
 }
 
 fn match_group_exactly_one(value: &CssValue, group: &Group) -> Option<CssValue> {
     let matches = resolve_group(value, group);
     println!("Matching exactly one");
     dbg!(&value, &matches);
-
 
     // We must have exactly one element
     if matches.entries.len() != 1 {
@@ -294,16 +329,16 @@ fn match_group_juxtaposition(value: &CssValue, group: &Group) -> Option<CssValue
     // Step 1: convert to matches
     let matches = resolve_group(value, group);
     println!("Matching juxtaposition");
-    dbg!(&value, &matches);
+    dbg!(&value, &matches, &group);
 
     // Step 2: early return when we found a group with a single element
     //FIXME: this is a hack, since our parser of the css value syntax sometimes inserts additional juxtapositions when it encounters a space.
     if group.components.len() == 1 && group.components[0].is_group() {
-        return Some(value.clone());
+        return match_internal(value, &group.components[0]);
     }
 
     // Step 3: Check if there are -1 in the list. If so, we found unknown values, and thus we can return immediately
-    if matches.entries.iter().any(|&x| x == -1) {
+    if matches.entries.iter().any(|x| *x == -1) {
         return None;
     }
 
@@ -313,7 +348,11 @@ fn match_group_juxtaposition(value: &CssValue, group: &Group) -> Option<CssValue
     // Check multipliers and see if we got the correct number of matches per component, and the values are in the correct (sequential) order
     for (c_idx, group_component) in group.components.iter().enumerate() {
         // Find (the first) value count for the given index (or 0 if the value count is not found for that index)
-        let value_count = items.iter().find(|(idx, _count)| *idx == c_idx).unwrap_or(&(c_idx, 0)).1;
+        let value_count = items
+            .iter()
+            .find(|(idx, _count)| *idx == c_idx)
+            .unwrap_or(&(c_idx, 0))
+            .1;
 
         // Check if this count is correct for the group validator
         if !check_multiplier(group_component, value_count) {
@@ -352,27 +391,18 @@ fn convert_to_counts(matches: Matches) -> Vec<(usize, usize)> {
     items
 }
 
-
 /// This function checks if the given component matches the given count of values. For instance, it will return true
 /// when the multiplier is Once, and there is a count of 1,   or when the multiplier is OneOrMore, when the count is 3.
 fn check_multiplier(component: &SyntaxComponent, count: usize) -> bool {
     match component.multipliers {
-        SyntaxComponentMultiplier::Once => {
-            count == 1
-        }
+        SyntaxComponentMultiplier::Once => count == 1,
         SyntaxComponentMultiplier::ZeroOrMore => {
             // Zero or more always matches
             true
         }
-        SyntaxComponentMultiplier::OneOrMore => {
-            count >= 1
-        }
-        SyntaxComponentMultiplier::Optional => {
-            count <= 1
-        }
-        SyntaxComponentMultiplier::Between(s, e) => {
-            count >= s && count <= e
-        }
+        SyntaxComponentMultiplier::OneOrMore => count >= 1,
+        SyntaxComponentMultiplier::Optional => count <= 1,
+        SyntaxComponentMultiplier::Between(s, e) => count >= s && count <= e,
         SyntaxComponentMultiplier::AtLeastOneValue => {
             // @TODO: What's the difference between this and OneOrMore?
             count >= 1
@@ -744,9 +774,9 @@ mod tests {
     fn test_multipliers_optional() {
         let tree = CssSyntax::new("foo bar baz").compile().unwrap();
         assert_none!(tree.clone().matches(&CssValue::String("foo".into())));
-        assert_none!(tree.clone().matches(&CssValue::List(vec![
-            CssValue::String("foo".into())
-        ])));
+        assert_none!(tree
+            .clone()
+            .matches(&CssValue::List(vec![CssValue::String("foo".into())])));
         assert_some!(tree.clone().matches(&CssValue::List(vec![
             CssValue::String("foo".into()),
             CssValue::String("bar".into()),
@@ -759,9 +789,9 @@ mod tests {
 
         let tree = CssSyntax::new("foo bar?").compile().unwrap();
         assert_some!(tree.clone().matches(&CssValue::String("foo".into())));
-        assert_some!(tree.clone().matches(&CssValue::List(vec![
-            CssValue::String("foo".into())
-        ])));
+        assert_some!(tree
+            .clone()
+            .matches(&CssValue::List(vec![CssValue::String("foo".into())])));
         assert_some!(tree.clone().matches(&CssValue::List(vec![
             CssValue::String("foo".into()),
             CssValue::String("bar".into()),
@@ -807,9 +837,9 @@ mod tests {
     fn test_multipliers_zero_or_more() {
         let tree = CssSyntax::new("foo bar* baz").compile().unwrap();
         assert_none!(tree.clone().matches(&CssValue::String("foo".into())));
-        assert_none!(tree.clone().matches(&CssValue::List(vec![
-            CssValue::String("foo".into())
-        ])));
+        assert_none!(tree
+            .clone()
+            .matches(&CssValue::List(vec![CssValue::String("foo".into())])));
         assert_some!(tree.clone().matches(&CssValue::List(vec![
             CssValue::String("foo".into()),
             CssValue::String("bar".into()),
@@ -835,13 +865,12 @@ mod tests {
             CssValue::String("baz".into()),
             CssValue::String("bar".into()),
         ])));
-
 
         let tree = CssSyntax::new("foo bar*").compile().unwrap();
         assert_some!(tree.clone().matches(&CssValue::String("foo".into())));
-        assert_some!(tree.clone().matches(&CssValue::List(vec![
-            CssValue::String("foo".into())
-        ])));
+        assert_some!(tree
+            .clone()
+            .matches(&CssValue::List(vec![CssValue::String("foo".into())])));
         assert_some!(tree.clone().matches(&CssValue::List(vec![
             CssValue::String("foo".into()),
             CssValue::String("bar".into()),
@@ -861,9 +890,9 @@ mod tests {
     fn test_multipliers_one_or_more() {
         let tree = CssSyntax::new("foo bar+ baz").compile().unwrap();
         assert_none!(tree.clone().matches(&CssValue::String("foo".into())));
-        assert_none!(tree.clone().matches(&CssValue::List(vec![
-            CssValue::String("foo".into())
-        ])));
+        assert_none!(tree
+            .clone()
+            .matches(&CssValue::List(vec![CssValue::String("foo".into())])));
         assert_some!(tree.clone().matches(&CssValue::List(vec![
             CssValue::String("foo".into()),
             CssValue::String("bar".into()),
@@ -889,16 +918,15 @@ mod tests {
             CssValue::String("baz".into()),
             CssValue::String("bar".into()),
         ])));
-
 
         let tree = CssSyntax::new("foo bar+").compile().unwrap();
         assert_none!(tree.clone().matches(&CssValue::String("foo".into())));
-        assert_none!(tree.clone().matches(&CssValue::List(vec![
-            CssValue::String("foo".into())
-        ])));
-        assert_none!(tree.clone().matches(&CssValue::List(vec![
-            CssValue::String("bar".into())
-        ])));
+        assert_none!(tree
+            .clone()
+            .matches(&CssValue::List(vec![CssValue::String("foo".into())])));
+        assert_none!(tree
+            .clone()
+            .matches(&CssValue::List(vec![CssValue::String("bar".into())])));
         assert_some!(tree.clone().matches(&CssValue::List(vec![
             CssValue::String("foo".into()),
             CssValue::String("bar".into()),
@@ -913,15 +941,14 @@ mod tests {
             CssValue::String("foo".into()),
         ])));
     }
-
 
     #[test]
     fn test_multipliers_between() {
         let tree = CssSyntax::new("foo bar{1,3} baz").compile().unwrap();
         assert_none!(tree.clone().matches(&CssValue::String("foo".into())));
-        assert_none!(tree.clone().matches(&CssValue::List(vec![
-            CssValue::String("foo".into())
-        ])));
+        assert_none!(tree
+            .clone()
+            .matches(&CssValue::List(vec![CssValue::String("foo".into())])));
         assert_some!(tree.clone().matches(&CssValue::List(vec![
             CssValue::String("foo".into()),
             CssValue::String("bar".into()),
@@ -960,13 +987,12 @@ mod tests {
             CssValue::String("bar".into()),
             CssValue::String("bar".into()),
         ])));
-
 
         let tree = CssSyntax::new("foo bar{0,3}").compile().unwrap();
         assert_some!(tree.clone().matches(&CssValue::String("foo".into())));
-        assert_some!(tree.clone().matches(&CssValue::List(vec![
-            CssValue::String("foo".into())
-        ])));
+        assert_some!(tree
+            .clone()
+            .matches(&CssValue::List(vec![CssValue::String("foo".into())])));
         assert_some!(tree.clone().matches(&CssValue::List(vec![
             CssValue::String("foo".into()),
             CssValue::String("bar".into()),
@@ -988,8 +1014,6 @@ mod tests {
             CssValue::String("foo".into()),
         ])));
     }
-
-
 
     #[test]
     fn test_convert_to_counts() {
@@ -998,30 +1022,26 @@ mod tests {
         };
 
         let counts = convert_to_counts(matches);
-        assert_eq!(counts, vec![
-            (0, 1),
-            (1, 2),
-            (2, 1),
-            (3, 1),
-            (1, 1),
-        ]);
-
+        assert_eq!(counts, vec![(0, 1), (1, 2), (2, 1), (3, 1), (1, 1),]);
 
         let matches = Matches {
             entries: vec![0, 0, 0, 1, 1, 2, 2, 2, 3, 3, 3, 1, 2, 3, 4, 3, 3, 3],
         };
 
         let counts = convert_to_counts(matches);
-        assert_eq!(counts, vec![
-            (0, 3),
-            (1, 2),
-            (2, 3),
-            (3, 3),
-            (1, 1),
-            (2, 1),
-            (3, 1),
-            (4, 1),
-            (3, 3),
-        ]);
+        assert_eq!(
+            counts,
+            vec![
+                (0, 3),
+                (1, 2),
+                (2, 3),
+                (3, 3),
+                (1, 1),
+                (2, 1),
+                (3, 1),
+                (4, 1),
+                (3, 3),
+            ]
+        );
     }
 }
