@@ -291,73 +291,95 @@ fn match_group_all_any_order(value: &CssValue, group: &Group) -> Option<CssValue
 }
 
 fn match_group_juxtaposition(value: &CssValue, group: &Group) -> Option<CssValue> {
+    // Step 1: convert to matches
     let matches = resolve_group(value, group);
     println!("Matching juxtaposition");
     dbg!(&value, &matches);
 
+    // Step 2: early return when we found a group with a single element
+    //FIXME: this is a hack, since our parser of the css value syntax sometimes inserts additional juxtapositions when it encounters a space.
     if group.components.len() == 1 && group.components[0].is_group() {
-        //FIXME: this is a hack, since our parser of the css value syntax sometimes inserts additional juxtapositions when it encounters a space.
         return Some(value.clone());
     }
 
-    // Check if there are -1 in the list. If so, we found unknown values and we can return None immediately
+    // Step 3: Check if there are -1 in the list. If so, we found unknown values, and thus we can return immediately
     if matches.entries.iter().any(|&x| x == -1) {
         return None;
     }
 
-    let mut current_v_idx = 0;
+    // Step 4: Validate multipliers based on the matches
+    let items = convert_to_counts(matches);
 
-    // Check multipliers and see if we got the correct number of matches per component
+    // Check multipliers and see if we got the correct number of matches per component, and the values are in the correct (sequential) order
     for (c_idx, group_component) in group.components.iter().enumerate() {
+        // Find (the first) value count for the given index (or 0 if the value count is not found for that index)
+        let value_count = items.iter().find(|(idx, _count)| *idx == c_idx).unwrap_or(&(c_idx, 0)).1;
 
-        // Count how many times we found the given index in the matches  (ie: foo foo bar in "foo* bar" should return [ 0, 0, 1] in the matches)
-        let value_count = matches.entries.iter().filter(|&&x| x == c_idx as isize).count();
-        if check_multiplier(group_component, value_count) == false {
+        // Check if this count is correct for the group validator
+        if !check_multiplier(group_component, value_count) {
             return None;
         }
-        current_v_idx+ +;
     }
 
+    // Step 5: check if the order is correct. Juxtaposition means we must have incremental values.
+    let mut last_idx = 0;
+    for (idx, _) in items.iter() {
+        if *idx >= last_idx {
+            last_idx = *idx;
+        } else {
+            return None;
         }
     }
 
-    return Some(value.clone());
+    Some(value.clone())
 }
 
+// Convert the matches into counts
+fn convert_to_counts(matches: Matches) -> Vec<(usize, usize)> {
+    let mut items: Vec<(usize, usize)> = vec![];
+    for idx in matches.entries.iter() {
+        if *idx == -1 {
+            continue;
+        }
+
+        if items.is_empty() || items.last().unwrap().0 != *idx as usize {
+            items.push((*idx as usize, 1));
+        } else {
+            items.last_mut().unwrap().1 += 1;
+        }
+    }
+
+    items
+}
+
+
+/// This function checks if the given component matches the given count of values. For instance, it will return true
+/// when the multiplier is Once, and there is a count of 1,   or when the multiplier is OneOrMore, when the count is 3.
 fn check_multiplier(component: &SyntaxComponent, count: usize) -> bool {
     match component.multipliers {
         SyntaxComponentMultiplier::Once => {
-            count == 1;
+            count == 1
         }
         SyntaxComponentMultiplier::ZeroOrMore => {
             // Zero or more always matches
+            true
         }
         SyntaxComponentMultiplier::OneOrMore => {
-            if count == 0 {
-                return false;
-            }
+            count >= 1
         }
         SyntaxComponentMultiplier::Optional => {
-            if count > 1 {
-                return false;
-            }
+            count <= 1
         }
         SyntaxComponentMultiplier::Between(s, e) => {
-            if count < s && count > e {
-                return false;
-            }
+            count >= s && count <= e
         }
         SyntaxComponentMultiplier::AtLeastOneValue => {
             // @TODO: What's the difference between this and OneOrMore?
-            if count == 0 {
-                return false;
-            }
+            count >= 1
         }
         SyntaxComponentMultiplier::CommaSeparatedRepeat(_s, _e) => {
             panic!("CommaSeparatedRepeat not implemented yet");
         }
-
-        return true;
     }
 }
 
@@ -720,41 +742,39 @@ mod tests {
 
     #[test]
     fn test_multipliers_optional() {
-        // let tree = CssSyntax::new("foo bar baz").compile().unwrap();
-        // assert_none!(tree.clone().matches(&CssValue::String("foo".into())));
-        // assert_none!(tree.clone().matches(&CssValue::List(vec![
-        //     CssValue::String("foo".into())
-        // ])));
-        // assert_some!(tree.clone().matches(&CssValue::List(vec![
-        //     CssValue::String("foo".into()),
-        //     CssValue::String("bar".into()),
-        //     CssValue::String("baz".into()),
-        // ])));
-        // assert_none!(tree.clone().matches(&CssValue::List(vec![
-        //     CssValue::String("foo".into()),
-        //     CssValue::String("baz".into()),
-        // ])));
+        let tree = CssSyntax::new("foo bar baz").compile().unwrap();
+        assert_none!(tree.clone().matches(&CssValue::String("foo".into())));
+        assert_none!(tree.clone().matches(&CssValue::List(vec![
+            CssValue::String("foo".into())
+        ])));
+        assert_some!(tree.clone().matches(&CssValue::List(vec![
+            CssValue::String("foo".into()),
+            CssValue::String("bar".into()),
+            CssValue::String("baz".into()),
+        ])));
+        assert_none!(tree.clone().matches(&CssValue::List(vec![
+            CssValue::String("foo".into()),
+            CssValue::String("baz".into()),
+        ])));
 
-        // let tree = CssSyntax::new("foo bar?").compile().unwrap();
-        // assert_some!(tree.clone().matches(&CssValue::String("foo".into())));
-        // assert_some!(tree.clone().matches(&CssValue::List(vec![
-        //     CssValue::String("foo".into())
-        // ])));
-        // assert_some!(tree.clone().matches(&CssValue::List(vec![
-        //     CssValue::String("foo".into()),
-        //     CssValue::String("bar".into()),
-        // ])));
-        // assert_none!(tree.clone().matches(&CssValue::List(vec![
-        //     CssValue::String("foo".into()),
-        //     CssValue::String("bar".into()),
-        //     CssValue::String("bar".into()),
-        // ])));
-        // assert_none!(tree.clone().matches(&CssValue::List(vec![
-        //     CssValue::String("bar".into()),
-        //     CssValue::String("foo".into()),
-        // ])));
-
-
+        let tree = CssSyntax::new("foo bar?").compile().unwrap();
+        assert_some!(tree.clone().matches(&CssValue::String("foo".into())));
+        assert_some!(tree.clone().matches(&CssValue::List(vec![
+            CssValue::String("foo".into())
+        ])));
+        assert_some!(tree.clone().matches(&CssValue::List(vec![
+            CssValue::String("foo".into()),
+            CssValue::String("bar".into()),
+        ])));
+        assert_none!(tree.clone().matches(&CssValue::List(vec![
+            CssValue::String("foo".into()),
+            CssValue::String("bar".into()),
+            CssValue::String("bar".into()),
+        ])));
+        assert_none!(tree.clone().matches(&CssValue::List(vec![
+            CssValue::String("bar".into()),
+            CssValue::String("foo".into()),
+        ])));
 
         let tree = CssSyntax::new("foo bar? baz").compile().unwrap();
         assert_none!(tree.clone().matches(&CssValue::String("foo".into())));
@@ -781,6 +801,40 @@ mod tests {
             CssValue::String("baz".into()),
             CssValue::String("baz".into()),
         ])));
+    }
 
+
+    #[test]
+    fn test_convert_to_counts() {
+        let matches = Matches {
+            entries: vec![0, 1, 1, 2, 3, 1],
+        };
+
+        let counts = convert_to_counts(matches);
+        assert_eq!(counts, vec![
+            (0, 1),
+            (1, 2),
+            (2, 1),
+            (3, 1),
+            (1, 1),
+        ]);
+
+
+        let matches = Matches {
+            entries: vec![0, 0, 0, 1, 1, 2, 2, 2, 3, 3, 3, 1, 2, 3, 4, 3, 3, 3],
+        };
+
+        let counts = convert_to_counts(matches);
+        assert_eq!(counts, vec![
+            (0, 3),
+            (1, 2),
+            (2, 3),
+            (3, 3),
+            (1, 1),
+            (2, 1),
+            (3, 1),
+            (4, 1),
+            (3, 3),
+        ]);
     }
 }
