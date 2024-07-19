@@ -803,6 +803,193 @@ mod tests {
         ])));
     }
 
+    #[test]
+    fn test_multipliers_zero_or_more() {
+        let tree = CssSyntax::new("foo bar* baz").compile().unwrap();
+        assert_none!(tree.clone().matches(&CssValue::String("foo".into())));
+        assert_none!(tree.clone().matches(&CssValue::List(vec![
+            CssValue::String("foo".into())
+        ])));
+        assert_some!(tree.clone().matches(&CssValue::List(vec![
+            CssValue::String("foo".into()),
+            CssValue::String("bar".into()),
+            CssValue::String("baz".into()),
+        ])));
+        assert_some!(tree.clone().matches(&CssValue::List(vec![
+            CssValue::String("foo".into()),
+            CssValue::String("baz".into()),
+        ])));
+        assert_some!(tree.clone().matches(&CssValue::List(vec![
+            CssValue::String("foo".into()),
+            CssValue::String("bar".into()),
+            CssValue::String("bar".into()),
+            CssValue::String("bar".into()),
+            CssValue::String("bar".into()),
+            CssValue::String("baz".into()),
+        ])));
+        assert_none!(tree.clone().matches(&CssValue::List(vec![
+            CssValue::String("foo".into()),
+            CssValue::String("bar".into()),
+            CssValue::String("bar".into()),
+            CssValue::String("bar".into()),
+            CssValue::String("baz".into()),
+            CssValue::String("bar".into()),
+        ])));
+
+
+        let tree = CssSyntax::new("foo bar*").compile().unwrap();
+        assert_some!(tree.clone().matches(&CssValue::String("foo".into())));
+        assert_some!(tree.clone().matches(&CssValue::List(vec![
+            CssValue::String("foo".into())
+        ])));
+        assert_some!(tree.clone().matches(&CssValue::List(vec![
+            CssValue::String("foo".into()),
+            CssValue::String("bar".into()),
+        ])));
+        assert_some!(tree.clone().matches(&CssValue::List(vec![
+            CssValue::String("foo".into()),
+            CssValue::String("bar".into()),
+            CssValue::String("bar".into()),
+        ])));
+        assert_none!(tree.clone().matches(&CssValue::List(vec![
+            CssValue::String("bar".into()),
+            CssValue::String("foo".into()),
+        ])));
+    }
+
+    #[test]
+    fn test_multipliers_one_or_more() {
+        let tree = CssSyntax::new("foo bar+ baz").compile().unwrap();
+        assert_none!(tree.clone().matches(&CssValue::String("foo".into())));
+        assert_none!(tree.clone().matches(&CssValue::List(vec![
+            CssValue::String("foo".into())
+        ])));
+        assert_some!(tree.clone().matches(&CssValue::List(vec![
+            CssValue::String("foo".into()),
+            CssValue::String("bar".into()),
+            CssValue::String("baz".into()),
+        ])));
+        assert_none!(tree.clone().matches(&CssValue::List(vec![
+            CssValue::String("foo".into()),
+            CssValue::String("baz".into()),
+        ])));
+        assert_some!(tree.clone().matches(&CssValue::List(vec![
+            CssValue::String("foo".into()),
+            CssValue::String("bar".into()),
+            CssValue::String("bar".into()),
+            CssValue::String("bar".into()),
+            CssValue::String("bar".into()),
+            CssValue::String("baz".into()),
+        ])));
+        assert_none!(tree.clone().matches(&CssValue::List(vec![
+            CssValue::String("foo".into()),
+            CssValue::String("bar".into()),
+            CssValue::String("bar".into()),
+            CssValue::String("bar".into()),
+            CssValue::String("baz".into()),
+            CssValue::String("bar".into()),
+        ])));
+
+
+        let tree = CssSyntax::new("foo bar+").compile().unwrap();
+        assert_none!(tree.clone().matches(&CssValue::String("foo".into())));
+        assert_none!(tree.clone().matches(&CssValue::List(vec![
+            CssValue::String("foo".into())
+        ])));
+        assert_none!(tree.clone().matches(&CssValue::List(vec![
+            CssValue::String("bar".into())
+        ])));
+        assert_some!(tree.clone().matches(&CssValue::List(vec![
+            CssValue::String("foo".into()),
+            CssValue::String("bar".into()),
+        ])));
+        assert_some!(tree.clone().matches(&CssValue::List(vec![
+            CssValue::String("foo".into()),
+            CssValue::String("bar".into()),
+            CssValue::String("bar".into()),
+        ])));
+        assert_none!(tree.clone().matches(&CssValue::List(vec![
+            CssValue::String("bar".into()),
+            CssValue::String("foo".into()),
+        ])));
+    }
+
+
+    #[test]
+    fn test_multipliers_between() {
+        let tree = CssSyntax::new("foo bar{1,3} baz").compile().unwrap();
+        assert_none!(tree.clone().matches(&CssValue::String("foo".into())));
+        assert_none!(tree.clone().matches(&CssValue::List(vec![
+            CssValue::String("foo".into())
+        ])));
+        assert_some!(tree.clone().matches(&CssValue::List(vec![
+            CssValue::String("foo".into()),
+            CssValue::String("bar".into()),
+            CssValue::String("baz".into()),
+        ])));
+        assert_none!(tree.clone().matches(&CssValue::List(vec![
+            CssValue::String("foo".into()),
+            CssValue::String("baz".into()),
+        ])));
+        assert_some!(tree.clone().matches(&CssValue::List(vec![
+            CssValue::String("foo".into()),
+            CssValue::String("bar".into()),
+            CssValue::String("bar".into()),
+            CssValue::String("baz".into()),
+        ])));
+        assert_some!(tree.clone().matches(&CssValue::List(vec![
+            CssValue::String("foo".into()),
+            CssValue::String("bar".into()),
+            CssValue::String("bar".into()),
+            CssValue::String("bar".into()),
+            CssValue::String("baz".into()),
+        ])));
+        assert_none!(tree.clone().matches(&CssValue::List(vec![
+            CssValue::String("foo".into()),
+            CssValue::String("bar".into()),
+            CssValue::String("bar".into()),
+            CssValue::String("bar".into()),
+            CssValue::String("bar".into()),
+            CssValue::String("baz".into()),
+        ])));
+        assert_none!(tree.clone().matches(&CssValue::List(vec![
+            CssValue::String("foo".into()),
+            CssValue::String("bar".into()),
+            CssValue::String("bar".into()),
+            CssValue::String("baz".into()),
+            CssValue::String("bar".into()),
+            CssValue::String("bar".into()),
+        ])));
+
+
+        let tree = CssSyntax::new("foo bar{0,3}").compile().unwrap();
+        assert_some!(tree.clone().matches(&CssValue::String("foo".into())));
+        assert_some!(tree.clone().matches(&CssValue::List(vec![
+            CssValue::String("foo".into())
+        ])));
+        assert_some!(tree.clone().matches(&CssValue::List(vec![
+            CssValue::String("foo".into()),
+            CssValue::String("bar".into()),
+        ])));
+        assert_some!(tree.clone().matches(&CssValue::List(vec![
+            CssValue::String("foo".into()),
+            CssValue::String("bar".into()),
+            CssValue::String("bar".into()),
+        ])));
+        assert_none!(tree.clone().matches(&CssValue::List(vec![
+            CssValue::String("foo".into()),
+            CssValue::String("bar".into()),
+            CssValue::String("bar".into()),
+            CssValue::String("bar".into()),
+            CssValue::String("bar".into()),
+        ])));
+        assert_none!(tree.clone().matches(&CssValue::List(vec![
+            CssValue::String("bar".into()),
+            CssValue::String("foo".into()),
+        ])));
+    }
+
+
 
     #[test]
     fn test_convert_to_counts() {
