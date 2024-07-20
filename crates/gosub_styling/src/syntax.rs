@@ -1705,7 +1705,6 @@ mod tests {
         assert!(CssSyntax::new("[ [ left | center | right | top | bottom | <length-percentage> ]| [ left | center | right | <length-percentage> ] [ top | center | bottom | <length-percentage> ]| [ center | [ left | right ] <length-percentage>? ] && [ center | [ top | bottom ] <length-percentage>? ]]").compile().is_ok());
     }
 
-
     #[test]
     fn test_stuff() {
         let c = CssSyntax::new("foo [ bar | baz]?").compile().unwrap();

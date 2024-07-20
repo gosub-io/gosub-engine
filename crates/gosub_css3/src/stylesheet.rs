@@ -240,10 +240,10 @@ impl CssValue {
 
 pub enum CssValueIter<'a> {
     Single(Option<&'a CssValue>),
-    List(slice::Iter<'a, CssValue>)
+    List(slice::Iter<'a, CssValue>),
 }
 
-impl<'a>Iterator for CssValueIter<'a> {
+impl<'a> Iterator for CssValueIter<'a> {
     type Item = &'a CssValue;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -253,7 +253,6 @@ impl<'a>Iterator for CssValueIter<'a> {
         }
     }
 }
-
 
 impl Display for CssValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -342,7 +341,7 @@ impl CssValue {
                 } else {
                     Ok(CssValue::Number(value))
                 }
-            },
+            }
             crate::node::NodeType::Percentage { value } => Ok(CssValue::Percentage(value)),
             crate::node::NodeType::Dimension { value, unit } => Ok(CssValue::Unit(value, unit)),
             crate::node::NodeType::String { value } => Ok(CssValue::String(value)),
