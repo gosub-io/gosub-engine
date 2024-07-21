@@ -2,7 +2,7 @@
 name = "gosub_engine"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.73"
+rust-version = "1.79"
 authors = ["Gosub Community <info@gosub.io>"]
 description = "An HTML5 browser engine written in Rust."
 license = "MIT"
