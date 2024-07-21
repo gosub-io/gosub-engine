@@ -1,9 +1,10 @@
-use colors_transform::Color;
-use colors_transform::{AlphaColor, Hsl, Rgb};
-use lazy_static::lazy_static;
 use std::convert::From;
 use std::fmt::Debug;
 use std::str::FromStr;
+
+use colors_transform::Color;
+use colors_transform::{AlphaColor, Hsl, Rgb};
+use lazy_static::lazy_static;
 
 // Values for this table is taken from https://www.w3.org/TR/CSS21/propidx.html
 // Probably not the complete list, but it will do for now
@@ -783,6 +784,51 @@ lazy_static! {
         },
     ];
 }
+
+pub const CSS_SYSTEM_COLOR_NAMES: [&str; 42] = [
+    "AccentColor",
+    "AccentColorText",
+    "ActiveText",
+    "ButtonBorder",
+    "ButtonFace",
+    "ButtonText",
+    "Canvas",
+    "CanvasText",
+    "Field",
+    "FieldText",
+    "GrayText",
+    "Highlight",
+    "HighlightText",
+    "LinkText",
+    "Mark",
+    "MarkText",
+    "SelectedItem",
+    "SelectedItemText",
+    "VisitedText",
+    "ActiveBorder",
+    "ActiveCaption",
+    "AppWorkspace",
+    "Background",
+    "ButtonHighlight",
+    "ButtonShadow",
+    "CaptionText",
+    "InactiveBorder",
+    "InactiveCaption",
+    "InactiveCaptionText",
+    "InfoBackground",
+    "InfoText",
+    "Menu",
+    "MenuText",
+    "Scrollbar",
+    "ThreeDDarkShadow",
+    "ThreeDFace",
+    "ThreeDHighlight",
+    "ThreeDLightShadow",
+    "ThreeDShadow",
+    "Window",
+    "WindowFrame",
+    "WindowText",
+];
 
 #[cfg(test)]
 mod tests {

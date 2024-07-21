@@ -1,4 +1,4 @@
-use gosub_css3::colors::CSS_COLORNAMES;
+use gosub_css3::colors::{CSS_COLORNAMES, CSS_SYSTEM_COLOR_NAMES};
 use gosub_css3::stylesheet::CssValue;
 
 use crate::syntax::{GroupCombinators, SyntaxComponent, SyntaxComponentMultiplier};
@@ -71,7 +71,14 @@ fn match_internal(value: &CssValue, component: &SyntaxComponent) -> Option<CssVa
                 }
             }
             "system-color" => {
-                todo!("System color not implemented yet");
+                if let CssValue::String(v) = value {
+                    if CSS_SYSTEM_COLOR_NAMES
+                        .iter()
+                        .any(|entry| entry.eq_ignore_ascii_case(v))
+                    {
+                        return Some(value.clone());
+                    }
+                }
             }
 
             "length" => match value {
@@ -629,7 +636,7 @@ mod tests {
             str!("auto"),
             CssValue::None
         ])));
-        assert_some!(tree.matches(&CssValue::List(vec![
+        assert_none!(tree.matches(&CssValue::List(vec![
             str!("block"),
             str!("block"),
             CssValue::None,
@@ -822,13 +829,25 @@ mod tests {
                 &CssValue::List(vec![
                     str!("none"),
                     str!("block"),
+                    // str!("block"),
+                    str!("auto"),
+                    // str!("none"),
+                ]),
+                components,
+            );
+            assert_some!(res);
+
+            let res = match_group_at_least_one_any_order(
+                &CssValue::List(vec![
+                    str!("none"),
+                    str!("block"),
                     str!("block"),
                     str!("auto"),
                     str!("none"),
                 ]),
                 components,
             );
-            assert_some!(res);
+            assert_none!(res);
         }
     }
 
