@@ -35,6 +35,9 @@ impl CssSyntaxTree {
 }
 
 fn match_internal(value: &CssValue, component: &SyntaxComponent) -> Option<CssValue> {
+    dbg!("Match internal");
+    dbg!(value, component);
+
     fn match_internal_internal(value: &CssValue, component: &SyntaxComponent) -> Option<CssValue> {
         match &component {
             SyntaxComponent::GenericKeyword{keyword, ..} => match value {
@@ -46,14 +49,12 @@ fn match_internal(value: &CssValue, component: &SyntaxComponent) -> Option<CssVa
                 }
                 _ => {
                     // Did not match the keyword
-                    // dbg!(keyword, value);
                     // panic!("Unknown generic keyword: {:?}", keyword);
                 }
             },
             SyntaxComponent::Scalar{scalar, ..} => match scalar.as_str() {
                 "percentage" | "<percentage>" => {
                     if matches!(value, CssValue::Percentage(_)) {
-                        println!("Matched percentage! {:?}", value.clone());
                         return Some(value.clone());
                     }
                 }
@@ -168,8 +169,6 @@ fn match_internal(value: &CssValue, component: &SyntaxComponent) -> Option<CssVa
                 // return match_internal(&list, arguments);
             }
             SyntaxComponent::Property{property, ..} => {
-                dbg!(property, value.clone());
-
                 match &**property {
                     "border-color" => {
                         let v = match value {
@@ -192,7 +191,7 @@ fn match_internal(value: &CssValue, component: &SyntaxComponent) -> Option<CssVa
                 }
             }
             e => {
-                println!("Unknown syntax component: {:?}", e);
+                panic!("Unknown syntax component: {:?}", e);
             }
         }
 
@@ -200,10 +199,6 @@ fn match_internal(value: &CssValue, component: &SyntaxComponent) -> Option<CssVa
     }
 
     let m = match_internal_internal(value, component);
-
-    println!("Value: {:?}", value);
-    println!("Matched: {:?}", m.is_some());
-    println!("Component: {:?}", component);
 
     if m.is_some() {
         if let CssValue::Unit(_, u) = value {
@@ -235,12 +230,8 @@ struct Matches {
 fn resolve_group(value: &CssValue, components: &Vec<SyntaxComponent>) -> Matches {
     let mut values: Vec<isize> = vec![];
 
-    println!("Resolving group");
-
     // Iterate all values and see where they match in our group
     value.iter().for_each(|v| {
-        println!("  Iterating element: {:?}", v);
-
         // Assume the value cannot be matched in the group
         let mut value_in_group_index = -1;
 
@@ -248,11 +239,6 @@ fn resolve_group(value: &CssValue, components: &Vec<SyntaxComponent>) -> Matches
         for (c_idx, component) in components.iter().enumerate() {
             if match_internal(v, component).is_some() {
                 value_in_group_index = c_idx as isize;
-
-                println!("    Matched component: {:?}", component);
-                println!("    Value in group index: {:?}", value_in_group_index);
-                println!("    Value: {:?}", v);
-
                 break;
             }
         }
@@ -266,8 +252,6 @@ fn resolve_group(value: &CssValue, components: &Vec<SyntaxComponent>) -> Matches
 
 fn match_group_exactly_one(value: &CssValue, components: &Vec<SyntaxComponent>) -> Option<CssValue> {
     let matches = resolve_group(value, components);
-    println!("Matching exactly one");
-    dbg!(&value, &matches);
 
     // We must have exactly one element
     if matches.entries.len() != 1 {
@@ -284,8 +268,6 @@ fn match_group_exactly_one(value: &CssValue, components: &Vec<SyntaxComponent>) 
 
 fn match_group_at_least_one_any_order(value: &CssValue, components: &Vec<SyntaxComponent>) -> Option<CssValue> {
     let matches = resolve_group(value, components);
-    println!("Matching at least one any order");
-    dbg!(&value, &matches);
 
     // We must have at least one element
     if matches.entries.is_empty() {
@@ -303,8 +285,6 @@ fn match_group_at_least_one_any_order(value: &CssValue, components: &Vec<SyntaxC
 
 fn match_group_all_any_order(value: &CssValue, components: &Vec<SyntaxComponent>) -> Option<CssValue> {
     let matches = resolve_group(value, components);
-    println!("Matching all any order");
-    dbg!(&value, &matches);
 
     // If we do not the same length in our matches, we definitely don't have a match
     if matches.entries.len() != components.len() {
@@ -324,8 +304,6 @@ fn match_group_all_any_order(value: &CssValue, components: &Vec<SyntaxComponent>
 fn match_group_juxtaposition(value: &CssValue, components: &Vec<SyntaxComponent>) -> Option<CssValue> {
     // Step 1: convert to matches
     let matches = resolve_group(value, components);
-    println!("Matching juxtaposition");
-    dbg!(&value, &matches, &components);
 
     // Step 2: early return when we found a group with a single element
     //FIXME: this is a hack, since our parser of the css value syntax sometimes inserts additional juxtapositions when it encounters a space.

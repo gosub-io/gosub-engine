@@ -1,7 +1,7 @@
 use gosub_css3::stylesheet::{CssDeclaration, CssSelector, CssStylesheet, CssValue};
 use std::collections::HashMap;
 use std::fmt::Debug;
-
+use log::warn;
 use gosub_html5::node::data::element::ElementData;
 use gosub_html5::node::{NodeData, NodeId};
 use gosub_html5::parser::document::{DocumentHandle, TreeIterator};
@@ -172,16 +172,13 @@ impl<B: RenderBackend> RenderTree<B> {
                             let definition = definitions.find(&declaration.property);
                             // If not found, we skip this declaration
                             if definition.is_none() {
-                                println!(
-                                    "Definition is not found for property {:?}",
-                                    declaration.property
-                                );
+                                warn!("Definition is not found for property {:?}", declaration.property);
                                 continue;
                             }
 
                             // Check if the declaration matches the definition and return the "expanded" order
                             if definition.unwrap().matches(&declaration.value).is_none() {
-                                println!(
+                                warn!(
                                     "Declaration does not match definition: {:?}",
                                     declaration
                                 );
@@ -224,7 +221,7 @@ impl<B: RenderBackend> RenderTree<B> {
                 ControlFlow::Ok(data) => data,
                 ControlFlow::Drop => continue,
                 ControlFlow::Error(e) => {
-                    eprintln!("Failed to create node data for node: {current_node_id:?} ({e}");
+                    log::error!("Failed to create node data for node: {current_node_id:?} ({e}");
                     continue;
                 }
             };
@@ -325,14 +322,11 @@ fn add_property_to_map(
     if let std::collections::hash_map::Entry::Vacant(e) =
         css_map_entry.properties.entry(property_name.clone())
     {
-        println!("Adding new property: {:?} {:?}", property_name, declaration);
         // Generate new property in the css map
         let mut entry = CssProperty::new(property_name.as_str());
         entry.declared.push(declaration);
         e.insert(entry);
     } else {
-        println!("Updating on property: {:?}", property_name);
-
         // Just add the declaration to the existing property
         let entry = css_map_entry.properties.get_mut(&property_name).unwrap();
         entry.declared.push(declaration);

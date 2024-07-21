@@ -1775,7 +1775,6 @@ mod tests {
     fn test_specific_precedence_configurations() {
         // let c = CssSyntax::new("rgb( [ <number> | <percentage> | none]{3} [ / [<alpha-value> | none] ]? )").compile();
         // let c = CssSyntax::new("<percentage>#{3}").compile();
-        // dbg!(&c);
         // return;
 
         assert!(CssSyntax::new("le, ri ,co , bt,tp").compile().is_ok());
