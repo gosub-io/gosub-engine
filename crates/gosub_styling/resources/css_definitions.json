@@ -1,15 +1,4 @@
-  [
-    {
-      "name": "test-prop",
-      "syntax2": "[ <percentage> | foo ] [ <percentage> | bar ]?",
-      "syntax": "foo [ <percentage> | bar ]?",
-      "initial_value": "0% 0%",
-      "inherits": false,
-      "media_groups": [
-        "visual"
-      ]
-    },
-
+[
   {
     "name": "azimuth",
     "syntax": "<angle> | [[ left-side | far-left | left | center-left | center | center-right | right | far-right | right-side ] || behind ] | leftwards | rightwards | inherit",
