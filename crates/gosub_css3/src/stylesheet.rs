@@ -236,6 +236,10 @@ impl CssValue {
             _ => CssValueIter::Single(Some(self)),
         }
     }
+
+    pub fn is_list(&self) -> bool {
+        matches!(self, CssValue::List(_))
+    }
 }
 
 pub enum CssValueIter<'a> {
