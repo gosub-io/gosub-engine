@@ -4,11 +4,11 @@ use gosub_css3::stylesheet::CssValue;
 use gosub_shared::types::Result;
 use nom::branch::alt;
 use nom::bytes::complete::{tag, tag_no_case, take_while};
-use nom::character::complete::{alpha1, alphanumeric1, char, digit0, digit1, multispace0, one_of};
+use nom::character::complete::{alpha1, alphanumeric1, char, digit0, digit1, multispace0, one_of, space0};
 use nom::combinator::{map, map_res, opt, recognize};
 use nom::multi::{fold_many1, many1, separated_list0, separated_list1};
 use nom::number::complete::float;
-use nom::sequence::{delimited, pair, preceded, separated_pair};
+use nom::sequence::{delimited, pair, preceded, separated_pair, tuple};
 use nom::Err;
 use nom::IResult;
 use std::fmt::{Display, Formatter};
@@ -74,33 +74,6 @@ impl Display for SyntaxComponentMultiplier {
     }
 }
 
-/// Defines a syntax component with a multiplier (defaults to Once)
-#[derive(PartialEq, Debug, Clone)]
-pub struct SyntaxComponent {
-    /// Actual component
-    pub type_: SyntaxComponentType,
-    /// Multiplier(s) for this component (there can be multiple multipliers in some cases)
-    pub multipliers: SyntaxComponentMultiplier,
-}
-
-impl SyntaxComponent {
-    /// Creates a new syntax component
-    pub fn new(
-        type_: SyntaxComponentType,
-        multiplier: SyntaxComponentMultiplier,
-    ) -> SyntaxComponent {
-        SyntaxComponent {
-            type_,
-            multipliers: multiplier,
-        }
-    }
-
-    /// Returns true when the syntax component is a group
-    pub(crate) fn is_group(&self) -> bool {
-        matches!(self.type_, SyntaxComponentType::Group(_))
-    }
-}
-
 /// Represent either a number (i64) or infinity
 #[derive(Debug, PartialEq, Clone)]
 enum NumberOrInfinity {
@@ -133,34 +106,139 @@ impl RangeType {
     }
 }
 
-/// Syntax component types. These are the elements that make up the css declaration syntax.
+/// Syntax components. These are the elements that make up the css declaration syntax.
 #[derive(PartialEq, Debug, Clone)]
-pub enum SyntaxComponentType {
+pub enum SyntaxComponent {
     /// Generic keywords like 'left', 'right', 'ease-in' etc
-    GenericKeyword(String),
+    GenericKeyword{
+        keyword: String,
+        multiplier: SyntaxComponentMultiplier,
+    },
     /// Quoted string that indicates css property
-    Property(String),
+    Property{
+        property: String,
+        multiplier: SyntaxComponentMultiplier,
+    },
     /// Functions like color(), length() etc
-    Function(String, Option<Box<SyntaxComponent>>),
+    Function {
+        name: String,
+        arguments: Vec<SyntaxComponent>,
+        multiplier: SyntaxComponentMultiplier,
+    },
     /// Type definition like <length>, <color>, or quoted like <'background-color'>. Can include
     /// ranges like <percentage [0, 100]> etc.
-    TypeDefinition(String, bool, RangeType),
+    TypeDefinition {
+        definition: String,
+        quoted: bool,
+        range: RangeType,
+        multiplier: SyntaxComponentMultiplier,
+    },
     /// Inherit keyword
-    Inherit,
+    Inherit {
+        multiplier: SyntaxComponentMultiplier,
+    },
     /// Initial keyword
-    Initial,
+    Initial {
+        multiplier: SyntaxComponentMultiplier,
+    },
     /// Unset keyword
-    Unset,
+    Unset {
+        multiplier: SyntaxComponentMultiplier,
+    },
     /// Literal character ',' or '/'
-    Literal(String),
+    Literal {
+        literal: String,
+        multiplier: SyntaxComponentMultiplier,
+    },
     /// CSS Value
-    Value(CssValue),
+    Value {
+        value: CssValue,
+        multiplier: SyntaxComponentMultiplier,
+    },
     /// Group of components surrounded by []
-    Group(Group),
+    Group{
+        components: Vec<SyntaxComponent>,
+        combinator: GroupCombinators,
+        multiplier: SyntaxComponentMultiplier,
+    },
     /// special unit() function case (todo: figure out if we need this special case)
-    Unit(Option<f32>, Option<f32>, Vec<String>),
+    Unit {
+        from: Option<f32>,
+        to: Option<f32>,
+        unit: Vec<String>,
+        multiplier: SyntaxComponentMultiplier,
+    },
     /// Scalar elements (like: <integer>, <number, <percentage> etc)
-    Scalar(String),
+    Scalar{
+        scalar: String,
+        multiplier: SyntaxComponentMultiplier,
+    },
+}
+
+
+impl SyntaxComponent {
+    /// Returns true when the syntax component is a group
+    pub(crate) fn is_group(&self) -> bool {
+        matches!(self, SyntaxComponent::Group{..})
+    }
+
+    pub fn get_multiplier(&self) -> SyntaxComponentMultiplier {
+        match self {
+            SyntaxComponent::Group{multiplier, ..} => multiplier.clone(),
+            SyntaxComponent::Function{ multiplier, ..} => multiplier.clone(),
+            SyntaxComponent::Property{ multiplier, ..} => multiplier.clone(),
+            SyntaxComponent::GenericKeyword{ multiplier, ..} => multiplier.clone(),
+            SyntaxComponent::TypeDefinition{ multiplier, ..} => multiplier.clone(),
+            SyntaxComponent::Unit{ multiplier, ..} => multiplier.clone(),
+            SyntaxComponent::Literal{ multiplier, ..} => multiplier.clone(),
+            SyntaxComponent::Inherit{ multiplier, ..} => multiplier.clone(),
+            SyntaxComponent::Initial{ multiplier, ..} => multiplier.clone(),
+            SyntaxComponent::Unset{ multiplier, ..} => multiplier.clone(),
+            SyntaxComponent::Value { multiplier, .. } => multiplier.clone(),
+            SyntaxComponent::Scalar { multiplier, .. } => multiplier.clone(),
+        }
+    }
+
+    pub fn update_multiplier(&mut self, new_multiplier: SyntaxComponentMultiplier) {
+        match self {
+            SyntaxComponent::Group{multiplier, ..} => {
+                *multiplier = new_multiplier;
+            }
+            SyntaxComponent::Function{ multiplier, ..} => {
+                *multiplier = new_multiplier;
+            }
+            SyntaxComponent::Property{ multiplier, ..} => {
+                *multiplier = new_multiplier;
+            }
+            SyntaxComponent::GenericKeyword{ multiplier, ..} => {
+                *multiplier = new_multiplier;
+            }
+            SyntaxComponent::TypeDefinition{ multiplier, ..} => {
+                *multiplier = new_multiplier;
+            }
+            SyntaxComponent::Unit{ multiplier , ..} => {
+                *multiplier = new_multiplier;
+            }
+            SyntaxComponent::Literal{ multiplier, ..} => {
+                *multiplier = new_multiplier;
+            }
+            SyntaxComponent::Inherit{ multiplier, ..} => {
+                *multiplier = new_multiplier;
+            }
+            SyntaxComponent::Initial{ multiplier, ..} => {
+                *multiplier = new_multiplier;
+            }
+            SyntaxComponent::Unset{ multiplier, ..} => {
+                *multiplier = new_multiplier;
+            }
+            SyntaxComponent::Value { multiplier, .. } => {
+                *multiplier = new_multiplier;
+            }
+            SyntaxComponent::Scalar { multiplier, .. } => {
+                *multiplier = new_multiplier;
+            }
+        }
+    }
 }
 
 /// A value definition syntax structure. See https://developer.mozilla.org/en-US/docs/Web/CSS/Value_definition_syntax
@@ -200,42 +278,43 @@ impl CssSyntax {
     }
 }
 
-/// Converts a list of components into either a single value, or a list if there are multiple values.
-fn value_or_list(list: Vec<SyntaxComponent>, combinator: GroupCombinators) -> SyntaxComponent {
-    if list.len() == 1 {
-        return list.into_iter().next().unwrap();
-    }
-
-    SyntaxComponent::new(
-        SyntaxComponentType::Group(Group {
-            components: list.clone(),
-            combinator,
-        }),
-        SyntaxComponentMultiplier::Once,
-    )
-}
+// /// Converts a list of components into either a single value, or a list if there are multiple values.
+// fn value_or_list(list: Vec<SyntaxComponent>, combinator: GroupCombinators) -> SyntaxComponent {
+//     if list.len() == 1 {
+//         return list.into_iter().next().unwrap();
+//     }
+//
+//     SyntaxComponent::Group {
+//         components: list.clone(),
+//         combinator,
+//         multiplier: SyntaxComponentMultiplier::Once,
+//     }
+// }
 
 /// Parse a unit input
-fn parse_unit(input: &str) -> IResult<&str, SyntaxComponentType> {
+fn parse_unit(input: &str) -> IResult<&str, SyntaxComponent> {
     let (input, value) = float(input)?;
     let (input, suffix) = opt(alpha1)(input)?;
 
     if suffix.is_none() {
         return if value == 0.0 {
             // 0 is a special case as it doesn't need a unit
-            Ok((input, SyntaxComponentType::Value(CssValue::Zero)))
+            Ok((input, SyntaxComponent::Value{
+                value: CssValue::Zero,
+                multiplier: SyntaxComponentMultiplier::Once,
+            }))
         } else {
-            Err(nom::Err::Error(nom::error::Error::new(
+            Err(Err::Error(nom::error::Error::new(
                 input,
                 nom::error::ErrorKind::Alpha,
             )))
         };
     }
 
-    Ok((
-        input,
-        SyntaxComponentType::Value(CssValue::Unit(value, suffix.unwrap().to_string())),
-    ))
+    Ok((input, SyntaxComponent::Value {
+        value: CssValue::Unit(value, suffix.unwrap().to_string()),
+        multiplier: SyntaxComponentMultiplier::Once,
+    }))
 }
 
 /// Removes preceding whitespace from a parser
@@ -308,51 +387,83 @@ fn parse_multipliers(input: &str) -> IResult<&str, SyntaxComponentMultiplier> {
 }
 
 /// Parse a group ([])
-fn parse_group(input: &str) -> IResult<&str, SyntaxComponentType> {
+fn parse_group(input: &str) -> IResult<&str, SyntaxComponent> {
     debug_print!("Parsing group: {}", input);
 
     let (input, components) = delimited(ws(tag("[")), parse_component_list, ws(tag("]")))(input)?;
 
-    let group = Group {
-        components: vec![components],
-        combinator: GroupCombinators::Juxtaposition,
-    };
 
-    debug_print!("<- Parsed group: {:#?}", group);
-    debug_print!("<- Remaining input: '{}'", input);
-    Ok((input, SyntaxComponentType::Group(group)))
+    // if components.is_group() {
+    return Ok((input, components));
+    // }
+
+    // let group = SyntaxComponent::Group {
+    //     components: vec![components],
+    //     combinator: GroupCombinators::Juxtaposition,
+    //     multiplier: SyntaxComponentMultiplier::Once,
+    // };
+    //
+    // debug_print!("<- Parsed group: {:#?}", group);
+    // debug_print!("<- Remaining input: '{}'", input);
+    // Ok((input, group))
 }
 
 fn parse_component_singlebar_list(input: &str) -> IResult<&str, SyntaxComponent> {
     debug_print!("Parsing component singlebar list: {}", input);
 
-    let (input, list) = separated_list1(ws(tag("|")), parse_component)(input)?;
-    let c = value_or_list(list, GroupCombinators::ExactlyOne);
+    let (input, components) = separated_list1(ws(tag("|")), parse_component)(input)?;
 
-    debug_print!("<- parse_component_singlebar_list: {:#?}", c);
+    if components.len() == 1 {
+        return Ok((input, components[0].clone()));
+    }
+
+    let group = SyntaxComponent::Group {
+        components,
+        combinator: GroupCombinators::ExactlyOne,
+        multiplier: SyntaxComponentMultiplier::Once,
+    };
+
+    debug_print!("<- parse_component_singlebar_list: {:#?}", group);
     debug_print!("<- Remaining input: '{}'", input);
-    Ok((input, c))
+    Ok((input, group))
 }
 
 fn parse_component_doublebar_list(input: &str) -> IResult<&str, SyntaxComponent> {
     debug_print!("Parsing component doublebar list: {}", input);
 
-    let (input, list) = separated_list1(ws(tag("||")), parse_component_singlebar_list)(input)?;
-    let c = value_or_list(list, GroupCombinators::AtLeastOneAnyOrder);
+    let (input, components) = separated_list1(ws(tag("||")), parse_component_singlebar_list)(input)?;
 
-    debug_print!("<- parse_component_doublebar_list: {:#?}", c);
+    if components.len() == 1 {
+        return Ok((input, components[0].clone()));
+    }
+
+    let group = SyntaxComponent::Group {
+        components,
+        combinator: GroupCombinators::AtLeastOneAnyOrder,
+        multiplier: SyntaxComponentMultiplier::Once,
+    };
+
+    debug_print!("<- parse_component_doublebar_list: {:#?}", group);
     debug_print!("<- Remaining input: '{}'", input);
-    Ok((input, c))
+    Ok((input, group))
 }
 
 fn parse_component_doubleampersand_list(input: &str) -> IResult<&str, SyntaxComponent> {
-    let (input, list) = separated_list1(ws(tag("&&")), parse_component_doublebar_list)(input)?;
+    let (input, components) = separated_list1(ws(tag("&&")), parse_component_doublebar_list)(input)?;
 
-    let c = value_or_list(list, GroupCombinators::AllAnyOrder);
+    if components.len() == 1 {
+        return Ok((input, components[0].clone()));
+    }
 
-    debug_print!("<- parse_component_doubleampersand_list: {:#?}", c);
+    let group = SyntaxComponent::Group {
+        components,
+        combinator: GroupCombinators::AllAnyOrder,
+        multiplier: SyntaxComponentMultiplier::Once,
+    };
+
+    debug_print!("<- parse_component_doubleampersand_list: {:#?}", group);
     debug_print!("<- Remaining input: '{}'", input);
-    Ok((input, c))
+    Ok((input, group))
 }
 
 fn is_custom_separator(c: char) -> bool {
@@ -363,7 +474,7 @@ fn is_custom_separator(c: char) -> bool {
     c == '|' || c == '&'
 }
 
-fn custom_separated_list_2(input: &str) -> IResult<&str, Vec<SyntaxComponent>> {
+fn custom_separated_list_2(input: &str) -> IResult<&str, SyntaxComponent> {
     debug_print!("Parsing custom separated list: {}", input);
 
     let mut res = Vec::new();
@@ -381,7 +492,7 @@ fn custom_separated_list_2(input: &str) -> IResult<&str, Vec<SyntaxComponent>> {
 
     loop {
         if input.is_empty() {
-            return Ok((input, res));
+            break;
         }
 
         // A separator is:
@@ -393,11 +504,11 @@ fn custom_separated_list_2(input: &str) -> IResult<&str, Vec<SyntaxComponent>> {
         let (input1, _) = take_while(|c: char| c.is_whitespace())(input1)?;
 
         if input1.is_empty() {
-            return Ok((input, res));
+            break;
         }
 
         match parse_component_doubleampersand_list(input1) {
-            Err(Err::Error(_)) => return Ok((input, res)),
+            Err(Err::Error(_)) => break,
             Err(e) => return Err(e),
             Ok((input2, o)) => {
                 res.push(o);
@@ -405,24 +516,49 @@ fn custom_separated_list_2(input: &str) -> IResult<&str, Vec<SyntaxComponent>> {
             }
         }
     }
+
+    if res.len() == 1 {
+        return Ok((input, res[0].clone()));
+    }
+
+    Ok((input, SyntaxComponent::Group {
+        components: res,
+        combinator: GroupCombinators::Juxtaposition,
+        multiplier: SyntaxComponentMultiplier::Once,
+    }))
 }
 
 fn parse_component_list(input: &str) -> IResult<&str, SyntaxComponent> {
     debug_print!("Parsing component list: {}", input);
 
-    let (input, list) = custom_separated_list_2(input)?;
-    let c = value_or_list(list, GroupCombinators::Juxtaposition);
+    let (input, components) = custom_separated_list_2(input)?;
 
-    debug_print!("<- parse_component_list: {:#?}", c);
-    debug_print!("<- Remaining: {:#?}", input);
-    Ok((input, c))
+
+    Ok((input, components))
+
+
+    // if components.is_group() {
+    //     return Ok((input, components));
+    // }
+
+    // let group = SyntaxComponent::Group {
+    //     components: vec![components],
+    //     combinator: GroupCombinators::Juxtaposition,
+    //     multiplier: SyntaxComponentMultiplier::Once,
+    // };
+
+    // let c = value_or_list(list, GroupCombinators::Juxtaposition);
+
+    // debug_print!("<- parse_component_list: {:#?}", group);
+    // debug_print!("<- Remaining: {:#?}", input);
+    // Ok((input, group))
 }
 
 fn int_as_float(input: &str) -> IResult<&str, f32> {
     map(integer, |i| i as f32)(input)
 }
 
-fn parse_unit_inner(input: &str) -> IResult<&str, SyntaxComponentType> {
+fn parse_unit_inner(input: &str) -> IResult<&str, SyntaxComponent> {
     debug_print!("Parsing parse_unit_inner: {}", input);
 
     let single_int = map(integer, |i| (Some(i as f32), None));
@@ -438,11 +574,12 @@ fn parse_unit_inner(input: &str) -> IResult<&str, SyntaxComponentType> {
         // No suffixes, just a range
         return Ok((
             input,
-            SyntaxComponentType::Unit(
-                range.unwrap_or((None, None)).0,
-                range.unwrap_or((None, None)).1,
-                vec![],
-            ),
+            SyntaxComponent::Unit {
+                from: range.unwrap_or((None, None)).0,
+                to: range.unwrap_or((None, None)).1,
+                unit: vec![],
+                multiplier: SyntaxComponentMultiplier::Once,
+            }
         ));
     }
 
@@ -450,25 +587,30 @@ fn parse_unit_inner(input: &str) -> IResult<&str, SyntaxComponentType> {
     let suffixes: Vec<String> = suffixes.unwrap().iter().map(|s| s.to_string()).collect();
     Ok((
         input,
-        SyntaxComponentType::Unit(
-            range.unwrap_or((None, None)).0,
-            range.unwrap_or((None, None)).1,
-            suffixes,
-        ),
+        SyntaxComponent::Unit {
+            from: range.unwrap_or((None, None)).0,
+            to: range.unwrap_or((None, None)).1,
+            unit: suffixes,
+            multiplier: SyntaxComponentMultiplier::Once,
+        }
     ))
 }
 
-fn parse_unit_function(input: &str) -> IResult<&str, SyntaxComponentType> {
+fn parse_unit_function(input: &str) -> IResult<&str, SyntaxComponent> {
     debug_print!("Parsing unit_function: {}", input);
     let (input, unit) = delimited(tag("unit("), parse_unit_inner, tag(")"))(input)?;
 
     Ok((input, unit))
 }
 
-fn parse_function(input: &str) -> IResult<&str, SyntaxComponentType> {
+fn parse_function(input: &str) -> IResult<&str, SyntaxComponent> {
     debug_print!("Parsing function: {}", input);
 
-    let empty_arglist = ws(tag("()"));
+    let empty_arglist = delimited(
+        tuple((space0, char('('), space0)),
+        space0,
+        tuple((space0, char(')'), space0))
+    );
     let arglist = delimited(ws(tag("(")), ws(parse_component_list), ws(tag(")")));
 
     let (input, name) = parse_keyword(input)?;
@@ -477,19 +619,34 @@ fn parse_function(input: &str) -> IResult<&str, SyntaxComponentType> {
         map(arglist, |c| Some(Box::new(c))),
     ))(input)?;
 
-    Ok((
-        input,
-        SyntaxComponentType::Function(name.to_string(), arglist),
-    ))
+
+    match arglist {
+        Some(_arglist) => {
+            panic!("Fix this");
+        },
+        None => {
+            return Ok((
+                input,
+                SyntaxComponent::Function{
+                    name: name.to_string(),
+                    arguments: vec![],
+                    multiplier: SyntaxComponentMultiplier::Once
+                }
+            ));
+        }
+    }
 }
 
-fn parse_property(input: &str) -> IResult<&str, SyntaxComponentType> {
+fn parse_property(input: &str) -> IResult<&str, SyntaxComponent> {
     debug_print!("Parsing property: {}", input);
 
     let (input, property) = delimited(
         tag("'"),
         map(parse_keyword, |s: &str| {
-            SyntaxComponentType::Property(s.to_string())
+            SyntaxComponent::Property {
+                property: s.to_string(),
+                multiplier: SyntaxComponentMultiplier::Once
+            }
         }),
         tag("'"),
     )(input)?;
@@ -497,11 +654,14 @@ fn parse_property(input: &str) -> IResult<&str, SyntaxComponentType> {
     Ok((input, property))
 }
 
-fn parse_generic_keyword(input: &str) -> IResult<&str, SyntaxComponentType> {
+fn parse_generic_keyword(input: &str) -> IResult<&str, SyntaxComponent> {
     debug_print!("Parsing generic keyword: {}", input);
 
     map(parse_keyword, |s: &str| {
-        SyntaxComponentType::GenericKeyword(s.to_string())
+        SyntaxComponent::GenericKeyword{
+            keyword: s.to_string(),
+            multiplier: SyntaxComponentMultiplier::Once,
+        }
     })(input)
 }
 
@@ -554,7 +714,7 @@ fn keyword_or_function(input: &str) -> IResult<&str, &str> {
     recognize(pair(parse_keyword, opt(tag("()"))))(input)
 }
 
-fn parse_typedef(input: &str) -> IResult<&str, SyntaxComponentType> {
+fn parse_typedef(input: &str) -> IResult<&str, SyntaxComponent> {
     debug_print!("Parsing typedef: {}", input);
 
     let (input, (name, quoted, range)) = delimited(
@@ -577,37 +737,38 @@ fn parse_typedef(input: &str) -> IResult<&str, SyntaxComponentType> {
 
     Ok((
         input,
-        SyntaxComponentType::TypeDefinition(
-            name.to_string(),
+        SyntaxComponent::TypeDefinition {
+            definition: name.to_string(),
             quoted,
-            range.unwrap_or(RangeType::empty()),
-        ),
+            range: range.unwrap_or(RangeType::empty()),
+            multiplier: SyntaxComponentMultiplier::Once,
+        },
     ))
 }
 
-fn parse_specific_keyword(input: &str) -> IResult<&str, SyntaxComponentType> {
+fn parse_specific_keyword(input: &str) -> IResult<&str, SyntaxComponent> {
     debug_print!("Parsing specific keyword: {}", input);
 
     alt((
-        map(tag("inherit"), |_| SyntaxComponentType::Inherit),
-        map(tag("initial"), |_| SyntaxComponentType::Initial),
-        map(tag("unset"), |_| SyntaxComponentType::Unset),
+        map(tag("inherit"), |_| SyntaxComponent::Inherit{multiplier: SyntaxComponentMultiplier::Once}),
+        map(tag("initial"), |_| SyntaxComponent::Initial{multiplier: SyntaxComponentMultiplier::Once}),
+        map(tag("unset"), |_| SyntaxComponent::Unset{multiplier: SyntaxComponentMultiplier::Once}),
     ))(input)
 }
 
-fn parse_literal(input: &str) -> IResult<&str, SyntaxComponentType> {
+fn parse_literal(input: &str) -> IResult<&str, SyntaxComponent> {
     debug_print!("Parsing literal: {}", input);
 
     alt((
         map(ws(tag("/")), |_| {
-            SyntaxComponentType::Literal("/".to_string())
+            SyntaxComponent::Literal{ literal: "/".to_string(), multiplier: SyntaxComponentMultiplier::Once }
         }),
         map(ws(tag(",")), |_| {
-            SyntaxComponentType::Literal(",".to_string())
+            SyntaxComponent::Literal{ literal: ",".to_string(), multiplier: SyntaxComponentMultiplier::Once }
         }),
         map(
             delimited(tag("'"), take_while(|c| c != '\''), tag("'")),
-            |s: &str| SyntaxComponentType::Literal(s.to_string()),
+            |s: &str| SyntaxComponent::Literal{ literal: s.to_string(), multiplier: SyntaxComponentMultiplier::Once }
         ),
     ))(input)
 }
@@ -615,7 +776,7 @@ fn parse_literal(input: &str) -> IResult<&str, SyntaxComponentType> {
 fn parse_component(input: &str) -> IResult<&str, SyntaxComponent> {
     debug_print!("Parsing component: {}", input);
 
-    let (input, component_type) = alt((
+    let (input, mut component) = alt((
         parse_unit_function,
         parse_function,
         parse_property,
@@ -628,25 +789,29 @@ fn parse_component(input: &str) -> IResult<&str, SyntaxComponent> {
     ))(input)?;
     let (input, multipliers) = parse_multipliers(input)?;
 
+    component.update_multiplier(multipliers.clone());
+
     debug_print!(
         "<- Parsed component_type: {:#?} {}",
-        component_type,
+        component,
         multipliers
     );
-
-    let component = SyntaxComponent {
-        type_: component_type,
-        multipliers,
-    };
 
     Ok((input, component))
 }
 
 fn parse(input: &str) -> IResult<&str, SyntaxComponent> {
     debug_print!("Parsing: {}", input);
-    let (input, result) = preceded(multispace0, parse_component_list)(input)?;
-    debug_print!("<- Parsed: {:#?}", result);
-    Ok((input, result))
+    let (input, component) = preceded(multispace0, parse_component_list)(input)?;
+    debug_print!("<- Parsed: {:#?}", component);
+
+    // let result = SyntaxComponent::Group{
+    //     components: vec!(components),
+    //     combinator: GroupCombinators::Juxtaposition,
+    //     multiplier: SyntaxComponentMultiplier::Once,
+    // };
+
+    Ok((input, component))
 }
 
 #[cfg(test)]
@@ -672,20 +837,20 @@ mod tests {
         assert!(parts.is_ok());
         assert_eq!(
             parts.unwrap(),
-            CssSyntaxTree::new(vec![SyntaxComponent::new(
-                SyntaxComponentType::GenericKeyword("ease-in".to_string()),
-                SyntaxComponentMultiplier::Once,
-            )])
+            CssSyntaxTree::new(vec![SyntaxComponent::GenericKeyword {
+                keyword: "ease-in".to_string(),
+                multiplier: SyntaxComponentMultiplier::Once,
+            }])
         );
 
         let parts = CssSyntax::new("color").compile();
         assert!(parts.is_ok());
         assert_eq!(
             parts.unwrap(),
-            CssSyntaxTree::new(vec![SyntaxComponent::new(
-                SyntaxComponentType::GenericKeyword("color".to_string()),
-                SyntaxComponentMultiplier::Once,
-            )])
+            CssSyntaxTree::new(vec![SyntaxComponent::GenericKeyword {
+                keyword: "color".into(),
+                multiplier: SyntaxComponentMultiplier::Once,
+            }])
         );
     }
 
@@ -695,70 +860,85 @@ mod tests {
         assert!(parts.is_ok());
         assert_eq!(
             parts.unwrap(),
-            CssSyntaxTree::new(vec![SyntaxComponent::new(
-                SyntaxComponentType::Unit(None, None, vec![]),
-                SyntaxComponentMultiplier::Once,
-            )])
+            CssSyntaxTree::new(vec![SyntaxComponent::Unit{
+                from: None,
+                to: None,
+                unit: vec![],
+                multiplier: SyntaxComponentMultiplier::Once
+            }])
         );
 
         let parts = CssSyntax::new("unit(khz)").compile();
         assert!(parts.is_ok());
         assert_eq!(
             parts.unwrap(),
-            CssSyntaxTree::new(vec![SyntaxComponent::new(
-                SyntaxComponentType::Unit(None, None, vec!["khz".into()]),
-                SyntaxComponentMultiplier::Once,
-            )])
+            CssSyntaxTree::new(vec![SyntaxComponent::Unit {
+                from: None,
+                to: None,
+                unit: vec!["khz".into()],
+                multiplier: SyntaxComponentMultiplier::Once
+            }])
         );
 
         let parts = CssSyntax::new("unit(ms|s)").compile();
         assert!(parts.is_ok());
         assert_eq!(
             parts.unwrap(),
-            CssSyntaxTree::new(vec![SyntaxComponent::new(
-                SyntaxComponentType::Unit(None, None, vec!["ms".into(), "s".into()]),
-                SyntaxComponentMultiplier::Once,
-            )])
+            CssSyntaxTree::new(vec![SyntaxComponent::Unit {
+                from: None,
+                to: None,
+                unit: vec!["ms".into(), "s".into()],
+                multiplier: SyntaxComponentMultiplier::Once
+            }])
+
         );
 
         let parts = CssSyntax::new("unit(10..10000 khz)").compile();
         assert!(parts.is_ok());
         assert_eq!(
             parts.unwrap(),
-            CssSyntaxTree::new(vec![SyntaxComponent::new(
-                SyntaxComponentType::Unit(Some(10.0), Some(10000.0), vec!["khz".into()]),
-                SyntaxComponentMultiplier::Once,
-            )])
+            CssSyntaxTree::new(vec![SyntaxComponent::Unit {
+                from: Some(10.0),
+                to: Some(10000.0),
+                unit: vec!["khz".into()],
+                multiplier: SyntaxComponentMultiplier::Once
+            }])
         );
 
         let parts = CssSyntax::new("unit(0.. ms|s)").compile();
         assert!(parts.is_ok());
         assert_eq!(
             parts.unwrap(),
-            CssSyntaxTree::new(vec![SyntaxComponent::new(
-                SyntaxComponentType::Unit(Some(0.0), None, vec!["ms".into(), "s".into()]),
-                SyntaxComponentMultiplier::Once,
-            )])
+            CssSyntaxTree::new(vec![SyntaxComponent::Unit {
+                from: Some(0.0),
+                to: None,
+                unit: vec!["ms".into(), "s".into()],
+                multiplier: SyntaxComponentMultiplier::Once
+            }])
         );
 
         let parts = CssSyntax::new("unit(..10000 khz)").compile();
         assert!(parts.is_ok());
         assert_eq!(
             parts.unwrap(),
-            CssSyntaxTree::new(vec![SyntaxComponent::new(
-                SyntaxComponentType::Unit(None, Some(10000.0), vec!["khz".into()]),
-                SyntaxComponentMultiplier::Once,
-            )])
+            CssSyntaxTree::new(vec![SyntaxComponent::Unit {
+                from: None,
+                to: Some(10000.0),
+                unit: vec!["khz".into()],
+                multiplier: SyntaxComponentMultiplier::Once
+            }])
         );
 
         let parts = CssSyntax::new("unit(10..10000)").compile();
         assert!(parts.is_ok());
         assert_eq!(
             parts.unwrap(),
-            CssSyntaxTree::new(vec![SyntaxComponent::new(
-                SyntaxComponentType::Unit(Some(10.0), Some(10000.0), vec![]),
-                SyntaxComponentMultiplier::Once,
-            )])
+            CssSyntaxTree::new(vec![SyntaxComponent::Unit {
+                from: Some(10.0),
+                to: Some(10000.0),
+                unit: vec![],
+                multiplier: SyntaxComponentMultiplier::Once
+            }])
         );
     }
 
@@ -768,80 +948,80 @@ mod tests {
         assert!(parts.is_ok());
         assert_eq!(
             parts.unwrap(),
-            CssSyntaxTree::new(vec![SyntaxComponent::new(
-                SyntaxComponentType::GenericKeyword("color".to_string()),
-                SyntaxComponentMultiplier::Once,
-            )])
+            CssSyntaxTree::new(vec![SyntaxComponent::GenericKeyword{
+                keyword: "color".to_string(),
+                multiplier: SyntaxComponentMultiplier::Once,
+            }])
         );
 
         let parts = CssSyntax::new("color*").compile();
         assert!(parts.is_ok());
         assert_eq!(
             parts.unwrap(),
-            CssSyntaxTree::new(vec![SyntaxComponent::new(
-                SyntaxComponentType::GenericKeyword("color".to_string()),
-                SyntaxComponentMultiplier::ZeroOrMore,
-            )])
+            CssSyntaxTree::new(vec![SyntaxComponent::GenericKeyword{
+                keyword: "color".to_string(),
+                multiplier: SyntaxComponentMultiplier::ZeroOrMore,
+            }])
         );
 
         let parts = CssSyntax::new("color+").compile();
         assert!(parts.is_ok());
         assert_eq!(
             parts.unwrap(),
-            CssSyntaxTree::new(vec![SyntaxComponent::new(
-                SyntaxComponentType::GenericKeyword("color".to_string()),
-                SyntaxComponentMultiplier::OneOrMore,
-            )])
+            CssSyntaxTree::new(vec![SyntaxComponent::GenericKeyword{
+                keyword: "color".to_string(),
+                multiplier: SyntaxComponentMultiplier::OneOrMore,
+            }])
         );
 
         let parts = CssSyntax::new("color?").compile();
         assert!(parts.is_ok());
         assert_eq!(
             parts.unwrap(),
-            CssSyntaxTree::new(vec![SyntaxComponent::new(
-                SyntaxComponentType::GenericKeyword("color".to_string()),
-                SyntaxComponentMultiplier::Optional,
-            )])
+            CssSyntaxTree::new(vec![SyntaxComponent::GenericKeyword{
+                keyword: "color".to_string(),
+                multiplier: SyntaxComponentMultiplier::Optional,
+            }])
         );
 
         let parts = CssSyntax::new("color{3,5}").compile();
         assert!(parts.is_ok());
         assert_eq!(
             parts.unwrap(),
-            CssSyntaxTree::new(vec![SyntaxComponent::new(
-                SyntaxComponentType::GenericKeyword("color".to_string()),
-                SyntaxComponentMultiplier::Between(3, 5),
-            )])
+            CssSyntaxTree::new(vec![SyntaxComponent::GenericKeyword{
+                keyword: "color".to_string(),
+                multiplier: SyntaxComponentMultiplier::Between(3, 5),
+            }])
         );
 
         let parts = CssSyntax::new("color#").compile();
         assert!(parts.is_ok());
         assert_eq!(
             parts.unwrap(),
-            CssSyntaxTree::new(vec![SyntaxComponent::new(
-                SyntaxComponentType::GenericKeyword("color".to_string()),
-                SyntaxComponentMultiplier::CommaSeparatedRepeat(1, 1),
-            )])
+            CssSyntaxTree::new(vec![SyntaxComponent::GenericKeyword{
+                keyword: "color".to_string(),
+                multiplier: SyntaxComponentMultiplier::CommaSeparatedRepeat(1, 1),
+            }])
         );
 
         let parts = CssSyntax::new("color#{3,6}").compile();
         assert!(parts.is_ok());
         assert_eq!(
             parts.unwrap(),
-            CssSyntaxTree::new(vec![SyntaxComponent::new(
-                SyntaxComponentType::GenericKeyword("color".to_string()),
-                SyntaxComponentMultiplier::CommaSeparatedRepeat(3, 6),
-            )])
+            CssSyntaxTree::new(vec![SyntaxComponent::GenericKeyword{
+                keyword: "color".to_string(),
+                multiplier: SyntaxComponentMultiplier::CommaSeparatedRepeat(3, 6),
+            }])
         );
 
         let parts = CssSyntax::new("color!").compile();
         assert!(parts.is_ok());
         assert_eq!(
             parts.unwrap(),
-            CssSyntaxTree::new(vec![SyntaxComponent::new(
-                SyntaxComponentType::GenericKeyword("color".to_string()),
-                SyntaxComponentMultiplier::AtLeastOneValue,
-            )])
+            CssSyntaxTree::new(vec![SyntaxComponent::GenericKeyword{
+                keyword: "color".to_string(),
+                multiplier: SyntaxComponentMultiplier::AtLeastOneValue,
+            }])
         );
     }
 
@@ -851,36 +1031,38 @@ mod tests {
         assert!(parts.is_ok());
         assert_eq!(
             parts.unwrap(),
-            CssSyntaxTree::new(vec![SyntaxComponent::new(
-                SyntaxComponentType::Function("length".to_string(), None),
-                SyntaxComponentMultiplier::Between(2, 4),
-            )])
+            CssSyntaxTree::new(vec![SyntaxComponent::Function {
+                name: "length".into(),
+                arguments: vec![],
+                multiplier: SyntaxComponentMultiplier::Between(2, 4)
+            }])
         );
 
         let parts = CssSyntax::new("color()").compile();
         assert!(parts.is_ok());
         assert_eq!(
             parts.unwrap(),
-            CssSyntaxTree::new(vec![SyntaxComponent::new(
-                SyntaxComponentType::Function("color".to_string(), None),
-                SyntaxComponentMultiplier::Once,
-            )])
+            CssSyntaxTree::new(vec![SyntaxComponent::Function {
+                name: "color".into(),
+                arguments: vec![],
+                multiplier: SyntaxComponentMultiplier::Once,
+            }])
         );
 
-        let parts = CssSyntax::new("color(top)").compile();
+        let parts = CssSyntax::new("color(top?){2,4}").compile();
         assert!(parts.is_ok());
         assert_eq!(
             parts.unwrap(),
-            CssSyntaxTree::new(vec![SyntaxComponent::new(
-                SyntaxComponentType::Function(
-                    "color".to_string(),
-                    Some(Box::new(SyntaxComponent::new(
-                        SyntaxComponentType::GenericKeyword("top".to_string()),
-                        SyntaxComponentMultiplier::Once,
-                    ))),
-                ),
-                SyntaxComponentMultiplier::Once,
-            )])
+            CssSyntaxTree::new(vec![SyntaxComponent::Function {
+                name: "color".into(),
+                arguments: vec![
+                    SyntaxComponent::GenericKeyword {
+                        keyword: "top".into(),
+                        multiplier: SyntaxComponentMultiplier::Optional,
+                    }
+                ],
+                multiplier: SyntaxComponentMultiplier::Between(2, 4)
+            }])
         );
     }
 
@@ -890,20 +1072,20 @@ mod tests {
         assert!(parts.is_ok());
         assert_eq!(
             parts.unwrap(),
-            CssSyntaxTree::new(vec![SyntaxComponent::new(
-                SyntaxComponentType::Literal("/".to_string()),
-                SyntaxComponentMultiplier::Once,
-            )])
+            CssSyntaxTree::new(vec![SyntaxComponent::Literal {
+                literal: "/".into(),
+                multiplier: SyntaxComponentMultiplier::Once,
+            }])
         );
 
         let parts = CssSyntax::new(",").compile();
         assert!(parts.is_ok());
         assert_eq!(
             parts.unwrap(),
-            CssSyntaxTree::new(vec![SyntaxComponent::new(
-                SyntaxComponentType::Literal(",".to_string()),
-                SyntaxComponentMultiplier::Once,
-            )])
+            CssSyntaxTree::new(vec![SyntaxComponent::Literal {
+                literal: ",".into(),
+                multiplier: SyntaxComponentMultiplier::Once,
+            }])
         );
     }
 
@@ -913,30 +1095,27 @@ mod tests {
         assert!(parts.is_ok());
         assert_eq!(
             parts.unwrap(),
-            CssSyntaxTree::new(vec![SyntaxComponent::new(
-                SyntaxComponentType::Unset,
-                SyntaxComponentMultiplier::Once,
-            )])
+            CssSyntaxTree::new(vec![SyntaxComponent::Unset {
+                multiplier: SyntaxComponentMultiplier::Once,
+            }])
         );
 
         let parts = CssSyntax::new("initial").compile();
         assert!(parts.is_ok());
         assert_eq!(
             parts.unwrap(),
-            CssSyntaxTree::new(vec![SyntaxComponent::new(
-                SyntaxComponentType::Initial,
-                SyntaxComponentMultiplier::Once,
-            )])
+            CssSyntaxTree::new(vec![SyntaxComponent::Initial {
+                multiplier: SyntaxComponentMultiplier::Once,
+            }])
         );
 
         let parts = CssSyntax::new("unset").compile();
         assert!(parts.is_ok());
         assert_eq!(
             parts.unwrap(),
-            CssSyntaxTree::new(vec![SyntaxComponent::new(
-                SyntaxComponentType::Unset,
-                SyntaxComponentMultiplier::Once,
-            )])
+            CssSyntaxTree::new(vec![SyntaxComponent::Unset {
+                multiplier: SyntaxComponentMultiplier::Once,
+            }])
         );
     }
 
@@ -946,40 +1125,40 @@ mod tests {
         assert!(parts.is_ok());
         assert_eq!(
             parts.unwrap().components,
-            vec![SyntaxComponent::new(
-                SyntaxComponentType::Value(CssValue::Unit(10.0, "px".to_string())),
-                SyntaxComponentMultiplier::Once,
-            )]
+            vec![SyntaxComponent::Value {
+                value: CssValue::Unit(10.0, "px".to_string()),
+                multiplier: SyntaxComponentMultiplier::Once,
+            }]
         );
 
         let parts = CssSyntax::new("10.43px").compile();
         assert!(parts.is_ok());
         assert_eq!(
             parts.unwrap().components,
-            vec![SyntaxComponent::new(
-                SyntaxComponentType::Value(CssValue::Unit(10.43, "px".to_string())),
-                SyntaxComponentMultiplier::Once,
-            )]
+            vec![SyntaxComponent::Value {
+                value: CssValue::Unit(10.43, "px".to_string()),
+                multiplier: SyntaxComponentMultiplier::Once,
+            }]
         );
 
         let parts = CssSyntax::new("-10.43px").compile();
         assert!(parts.is_ok());
         assert_eq!(
             parts.unwrap().components,
-            vec![SyntaxComponent::new(
-                SyntaxComponentType::Value(CssValue::Unit(-10.43, "px".to_string())),
-                SyntaxComponentMultiplier::Once,
-            )]
+            vec![SyntaxComponent::Value {
+                value: CssValue::Unit(-10.43, "px".to_string()),
+                multiplier: SyntaxComponentMultiplier::Once,
+            }]
         );
 
         let parts = CssSyntax::new("0").compile();
         assert!(parts.is_ok());
         assert_eq!(
             parts.unwrap().components,
-            vec![SyntaxComponent::new(
-                SyntaxComponentType::Value(CssValue::Zero),
-                SyntaxComponentMultiplier::Once,
-            )]
+            vec![SyntaxComponent::Value {
+                value: CssValue::Zero,
+                multiplier: SyntaxComponentMultiplier::Once,
+            }]
         );
     }
 
@@ -989,48 +1168,42 @@ mod tests {
         assert!(parts.is_ok());
         assert_eq!(
             parts.unwrap().components,
-            vec![SyntaxComponent::new(
-                SyntaxComponentType::Group(Group {
-                    combinator: GroupCombinators::ExactlyOne,
-                    components: vec![
-                        SyntaxComponent::new(
-                            SyntaxComponentType::TypeDefinition(
-                                "foo".to_string(),
-                                false,
-                                RangeType::empty(),
-                            ),
-                            SyntaxComponentMultiplier::Once,
-                        ),
-                        SyntaxComponent::new(
-                            SyntaxComponentType::TypeDefinition(
-                                "bar()".to_string(),
-                                false,
-                                RangeType::empty(),
-                            ),
-                            SyntaxComponentMultiplier::Once,
-                        ),
-                        SyntaxComponent::new(
-                            SyntaxComponentType::TypeDefinition(
-                                "quoted".to_string(),
-                                true,
-                                RangeType::empty(),
-                            ),
-                            SyntaxComponentMultiplier::Once,
-                        ),
-                    ],
-                }),
-                SyntaxComponentMultiplier::Once,
-            )]
+            vec![SyntaxComponent::Group {
+                combinator: GroupCombinators::ExactlyOne,
+                components: vec![
+                    SyntaxComponent::TypeDefinition{
+                        definition: "foo".to_string(),
+                        quoted: false,
+                        range: RangeType::empty(),
+                        multiplier: SyntaxComponentMultiplier::Once,
+                    },
+                    SyntaxComponent::TypeDefinition{
+                        definition: "bar()".to_string(),
+                        quoted: false,
+                        range: RangeType::empty(),
+                        multiplier: SyntaxComponentMultiplier::Once,
+                    },
+                    SyntaxComponent::TypeDefinition{
+                        definition: "quoted".to_string(),
+                        quoted: true,
+                        range: RangeType::empty(),
+                        multiplier: SyntaxComponentMultiplier::Once,
+                    },
+                ],
+                multiplier: SyntaxComponentMultiplier::Once,
+            }]
         );
 
         let parts = CssSyntax::new("<foo>#").compile();
         assert!(parts.is_ok());
         assert_eq!(
             parts.unwrap().components,
-            vec![SyntaxComponent::new(
-                SyntaxComponentType::TypeDefinition("foo".to_string(), false, RangeType::empty()),
-                SyntaxComponentMultiplier::CommaSeparatedRepeat(1, 1),
-            )]
+            vec![SyntaxComponent::TypeDefinition{
+                definition: "foo".to_string(),
+                quoted: false,
+                range: RangeType::empty(),
+                multiplier: SyntaxComponentMultiplier::CommaSeparatedRepeat(1, 1),
+            }]
         );
     }
 
@@ -1048,476 +1221,440 @@ mod tests {
     fn test_precedence() {
         let c = CssSyntax::new("left | right").compile().unwrap();
         assert_eq!(
-            c.components[0].type_,
-            SyntaxComponentType::Group(Group {
+            c.components[0],
+            SyntaxComponent::Group {
                 combinator: GroupCombinators::ExactlyOne,
                 components: vec![
-                    SyntaxComponent::new(
-                        SyntaxComponentType::GenericKeyword("left".to_string()),
-                        SyntaxComponentMultiplier::Once,
-                    ),
-                    SyntaxComponent::new(
-                        SyntaxComponentType::GenericKeyword("right".to_string()),
-                        SyntaxComponentMultiplier::Once,
-                    ),
+                    SyntaxComponent::GenericKeyword {
+                        keyword: "left".to_string(),
+                        multiplier: SyntaxComponentMultiplier::Once,
+                    },
+                    SyntaxComponent::GenericKeyword{
+                        keyword: "right".to_string(),
+                        multiplier: SyntaxComponentMultiplier::Once,
+                    }
                 ],
-            })
+                multiplier: SyntaxComponentMultiplier::Once,
+            }
         );
 
         let c = CssSyntax::new("left | right && top").compile().unwrap();
         assert_eq!(
-            c.components[0].type_,
-            SyntaxComponentType::Group(Group {
+            c.components[0],
+            SyntaxComponent::Group {
                 combinator: GroupCombinators::AllAnyOrder,
                 components: vec![
-                    SyntaxComponent::new(
-                        SyntaxComponentType::Group(Group {
-                            combinator: GroupCombinators::ExactlyOne,
-                            components: vec![
-                                SyntaxComponent::new(
-                                    SyntaxComponentType::GenericKeyword("left".to_string()),
-                                    SyntaxComponentMultiplier::Once,
-                                ),
-                                SyntaxComponent::new(
-                                    SyntaxComponentType::GenericKeyword("right".to_string()),
-                                    SyntaxComponentMultiplier::Once,
-                                ),
-                            ],
-                        }),
-                        SyntaxComponentMultiplier::Once,
-                    ),
-                    SyntaxComponent::new(
-                        SyntaxComponentType::GenericKeyword("top".to_string()),
-                        SyntaxComponentMultiplier::Once,
-                    ),
+                    SyntaxComponent::Group {
+                        combinator: GroupCombinators::ExactlyOne,
+                        components: vec![
+                            SyntaxComponent::GenericKeyword{
+                                keyword: "left".to_string(),
+                                multiplier: SyntaxComponentMultiplier::Once,
+                            },
+                            SyntaxComponent::GenericKeyword{
+                                keyword: "right".to_string(),
+                                multiplier: SyntaxComponentMultiplier::Once,
+                            },
+                        ],
+                        multiplier: SyntaxComponentMultiplier::Once,
+                    },
+                    SyntaxComponent::GenericKeyword {
+                        keyword: "top".to_string(),
+                        multiplier: SyntaxComponentMultiplier::Once,
+                    },
                 ],
-            })
+                multiplier: SyntaxComponentMultiplier::Once,
+            },
         );
 
         let c = CssSyntax::new("left && right | top").compile().unwrap();
         assert_eq!(
-            c.components[0].type_,
-            SyntaxComponentType::Group(Group {
+            c.components[0],
+            SyntaxComponent::Group {
                 combinator: GroupCombinators::AllAnyOrder,
                 components: vec![
-                    SyntaxComponent::new(
-                        SyntaxComponentType::GenericKeyword("left".to_string()),
-                        SyntaxComponentMultiplier::Once,
-                    ),
-                    SyntaxComponent::new(
-                        SyntaxComponentType::Group(Group {
-                            combinator: GroupCombinators::ExactlyOne,
-                            components: vec![
-                                SyntaxComponent::new(
-                                    SyntaxComponentType::GenericKeyword("right".to_string()),
-                                    SyntaxComponentMultiplier::Once,
-                                ),
-                                SyntaxComponent::new(
-                                    SyntaxComponentType::GenericKeyword("top".to_string()),
-                                    SyntaxComponentMultiplier::Once,
-                                ),
-                            ],
-                        }),
-                        SyntaxComponentMultiplier::Once,
-                    ),
+                    SyntaxComponent::GenericKeyword {
+                        keyword: "left".to_string(),
+                        multiplier: SyntaxComponentMultiplier::Once,
+                    },
+                    SyntaxComponent::Group {
+                        combinator: GroupCombinators::ExactlyOne,
+                        components: vec![
+                            SyntaxComponent::GenericKeyword {
+                                keyword: "right".to_string(),
+                                multiplier: SyntaxComponentMultiplier::Once,
+                            },
+                            SyntaxComponent::GenericKeyword {
+                                keyword: "top".to_string(),
+                                multiplier: SyntaxComponentMultiplier::Once,
+                            },
+                        ],
+                        multiplier: SyntaxComponentMultiplier::Once,
+                    },
                 ],
-            })
+                multiplier: SyntaxComponentMultiplier::Once,
+            }
         );
 
         let c = CssSyntax::new("left && right || top").compile().unwrap();
         assert_eq!(
-            c.components[0].type_,
-            SyntaxComponentType::Group(Group {
+            c.components[0],
+            SyntaxComponent::Group {
                 combinator: GroupCombinators::AllAnyOrder,
                 components: vec![
-                    SyntaxComponent::new(
-                        SyntaxComponentType::GenericKeyword("left".to_string()),
-                        SyntaxComponentMultiplier::Once,
-                    ),
-                    SyntaxComponent::new(
-                        SyntaxComponentType::Group(Group {
-                            combinator: GroupCombinators::AtLeastOneAnyOrder,
-                            components: vec![
-                                SyntaxComponent::new(
-                                    SyntaxComponentType::GenericKeyword("right".to_string()),
-                                    SyntaxComponentMultiplier::Once,
-                                ),
-                                SyntaxComponent::new(
-                                    SyntaxComponentType::GenericKeyword("top".to_string()),
-                                    SyntaxComponentMultiplier::Once,
-                                ),
-                            ],
-                        }),
-                        SyntaxComponentMultiplier::Once,
-                    ),
+                    SyntaxComponent::GenericKeyword {
+                        keyword: "left".to_string(),
+                        multiplier: SyntaxComponentMultiplier::Once,
+                    },
+                    SyntaxComponent::Group {
+                        combinator: GroupCombinators::AtLeastOneAnyOrder,
+                        components: vec![
+                            SyntaxComponent::GenericKeyword {
+                                keyword: "right".to_string(),
+                                multiplier: SyntaxComponentMultiplier::Once,
+                            },
+                            SyntaxComponent::GenericKeyword {
+                                keyword: "top".to_string(),
+                                multiplier: SyntaxComponentMultiplier::Once,
+                            },
+                        ],
+                        multiplier: SyntaxComponentMultiplier::Once,
+                    },
                 ],
-            })
+                multiplier: SyntaxComponentMultiplier::Once,
+            }
         );
 
         let c = CssSyntax::new("left || right | top").compile().unwrap();
         assert_eq!(
-            c.components[0].type_,
-            SyntaxComponentType::Group(Group {
+            c.components[0],
+            SyntaxComponent::Group {
                 combinator: GroupCombinators::AtLeastOneAnyOrder,
                 components: vec![
-                    SyntaxComponent::new(
-                        SyntaxComponentType::GenericKeyword("left".to_string()),
-                        SyntaxComponentMultiplier::Once,
-                    ),
-                    SyntaxComponent::new(
-                        SyntaxComponentType::Group(Group {
-                            combinator: GroupCombinators::ExactlyOne,
-                            components: vec![
-                                SyntaxComponent::new(
-                                    SyntaxComponentType::GenericKeyword("right".to_string()),
-                                    SyntaxComponentMultiplier::Once,
-                                ),
-                                SyntaxComponent::new(
-                                    SyntaxComponentType::GenericKeyword("top".to_string()),
-                                    SyntaxComponentMultiplier::Once,
-                                ),
-                            ],
-                        }),
-                        SyntaxComponentMultiplier::Once,
-                    ),
+                    SyntaxComponent::GenericKeyword {
+                        keyword: "left".to_string(),
+                        multiplier: SyntaxComponentMultiplier::Once,
+                    },
+                    SyntaxComponent::Group {
+                        combinator: GroupCombinators::ExactlyOne,
+                        components: vec![
+                            SyntaxComponent::GenericKeyword {
+                                keyword: "right".to_string(),
+                                multiplier: SyntaxComponentMultiplier::Once,
+                            },
+                            SyntaxComponent::GenericKeyword {
+                                keyword: "top".to_string(),
+                                multiplier: SyntaxComponentMultiplier::Once,
+                            }
+                        ],
+                        multiplier: SyntaxComponentMultiplier::Once,
+                    },
                 ],
-            })
+                multiplier: SyntaxComponentMultiplier::Once,
+            }
         );
 
         let c = CssSyntax::new("left | right || top").compile().unwrap();
         assert_eq!(
-            c.components[0].type_,
-            SyntaxComponentType::Group(Group {
+            c.components[0],
+            SyntaxComponent::Group {
                 combinator: GroupCombinators::AtLeastOneAnyOrder,
                 components: vec![
-                    SyntaxComponent::new(
-                        SyntaxComponentType::Group(Group {
-                            combinator: GroupCombinators::ExactlyOne,
-                            components: vec![
-                                SyntaxComponent::new(
-                                    SyntaxComponentType::GenericKeyword("left".to_string()),
-                                    SyntaxComponentMultiplier::Once,
-                                ),
-                                SyntaxComponent::new(
-                                    SyntaxComponentType::GenericKeyword("right".to_string()),
-                                    SyntaxComponentMultiplier::Once,
-                                ),
-                            ],
-                        }),
-                        SyntaxComponentMultiplier::Once,
-                    ),
-                    SyntaxComponent::new(
-                        SyntaxComponentType::GenericKeyword("top".to_string()),
-                        SyntaxComponentMultiplier::Once,
-                    ),
+                    SyntaxComponent::Group {
+                        combinator: GroupCombinators::ExactlyOne,
+                        components: vec![
+                            SyntaxComponent::GenericKeyword {
+                                keyword: "left".to_string(),
+                                multiplier: SyntaxComponentMultiplier::Once,
+                            },
+                            SyntaxComponent::GenericKeyword {
+                                keyword: "right".to_string(),
+                                multiplier: SyntaxComponentMultiplier::Once,
+                            },
+                        ],
+                        multiplier: SyntaxComponentMultiplier::Once,
+                    },
+                    SyntaxComponent::GenericKeyword {
+                        keyword: "top".to_string(),
+                        multiplier: SyntaxComponentMultiplier::Once,
+                    },
                 ],
-            })
+                multiplier: SyntaxComponentMultiplier::Once,
+            }
         );
 
         let c = CssSyntax::new("left | right || top && bottom")
             .compile()
             .unwrap();
         assert_eq!(
-            c.components[0].type_,
-            SyntaxComponentType::Group(Group {
+            c.components[0],
+            SyntaxComponent::Group {
                 combinator: GroupCombinators::AllAnyOrder,
                 components: vec![
-                    SyntaxComponent::new(
-                        SyntaxComponentType::Group(Group {
-                            combinator: GroupCombinators::AtLeastOneAnyOrder,
-                            components: vec![
-                                SyntaxComponent::new(
-                                    SyntaxComponentType::Group(Group {
-                                        combinator: GroupCombinators::ExactlyOne,
-                                        components: vec![
-                                            SyntaxComponent::new(
-                                                SyntaxComponentType::GenericKeyword(
-                                                    "left".to_string()
-                                                ),
-                                                SyntaxComponentMultiplier::Once,
-                                            ),
-                                            SyntaxComponent::new(
-                                                SyntaxComponentType::GenericKeyword(
-                                                    "right".to_string()
-                                                ),
-                                                SyntaxComponentMultiplier::Once,
-                                            ),
-                                        ],
-                                    }),
-                                    SyntaxComponentMultiplier::Once,
-                                ),
-                                SyntaxComponent::new(
-                                    SyntaxComponentType::GenericKeyword("top".to_string()),
-                                    SyntaxComponentMultiplier::Once,
-                                ),
-                            ],
-                        }),
-                        SyntaxComponentMultiplier::Once,
-                    ),
-                    SyntaxComponent::new(
-                        SyntaxComponentType::GenericKeyword("bottom".to_string()),
-                        SyntaxComponentMultiplier::Once,
-                    ),
+                    SyntaxComponent::Group {
+                        combinator: GroupCombinators::AtLeastOneAnyOrder,
+                        components: vec![
+                            SyntaxComponent::Group {
+                                combinator: GroupCombinators::ExactlyOne,
+                                components: vec![
+                                    SyntaxComponent::GenericKeyword{
+                                        keyword: "left".to_string(),
+                                        multiplier: SyntaxComponentMultiplier::Once,
+                                    },
+                                    SyntaxComponent::GenericKeyword{
+                                        keyword: "right".to_string(),
+                                        multiplier: SyntaxComponentMultiplier::Once,
+                                    },
+                                ],
+                                multiplier: SyntaxComponentMultiplier::Once,
+                            },
+                            SyntaxComponent::GenericKeyword {
+                                keyword: "top".to_string(),
+                                multiplier: SyntaxComponentMultiplier::Once,
+                            },
+                        ],
+                        multiplier: SyntaxComponentMultiplier::Once,
+                    },
+                    SyntaxComponent::GenericKeyword {
+                        keyword: "bottom".to_string(),
+                        multiplier: SyntaxComponentMultiplier::Once,
+                    },
                 ],
-            })
+                multiplier: SyntaxComponentMultiplier::Once,
+            }
         );
 
         let c = CssSyntax::new("left || right | top && bottom")
             .compile()
             .unwrap();
         assert_eq!(
-            c.components[0].type_,
-            SyntaxComponentType::Group(Group {
+            c.components[0],
+            SyntaxComponent::Group {
                 combinator: GroupCombinators::AllAnyOrder,
                 components: vec![
-                    SyntaxComponent::new(
-                        SyntaxComponentType::Group(Group {
-                            combinator: GroupCombinators::AtLeastOneAnyOrder,
-                            components: vec![
-                                SyntaxComponent::new(
-                                    SyntaxComponentType::GenericKeyword("left".to_string()),
-                                    SyntaxComponentMultiplier::Once,
-                                ),
-                                SyntaxComponent::new(
-                                    SyntaxComponentType::Group(Group {
-                                        combinator: GroupCombinators::ExactlyOne,
-                                        components: vec![
-                                            SyntaxComponent::new(
-                                                SyntaxComponentType::GenericKeyword(
-                                                    "right".to_string()
-                                                ),
-                                                SyntaxComponentMultiplier::Once,
-                                            ),
-                                            SyntaxComponent::new(
-                                                SyntaxComponentType::GenericKeyword(
-                                                    "top".to_string()
-                                                ),
-                                                SyntaxComponentMultiplier::Once,
-                                            ),
-                                        ],
-                                    }),
-                                    SyntaxComponentMultiplier::Once,
-                                ),
-                            ],
-                        }),
-                        SyntaxComponentMultiplier::Once,
-                    ),
-                    SyntaxComponent::new(
-                        SyntaxComponentType::GenericKeyword("bottom".to_string()),
-                        SyntaxComponentMultiplier::Once,
-                    ),
+                    SyntaxComponent::Group {
+                        combinator: GroupCombinators::AtLeastOneAnyOrder,
+                        components: vec![
+                            SyntaxComponent::GenericKeyword {
+                                keyword: "left".to_string(),
+                                multiplier: SyntaxComponentMultiplier::Once,
+                            },
+                            SyntaxComponent::Group {
+                                combinator: GroupCombinators::ExactlyOne,
+                                components: vec![
+                                    SyntaxComponent::GenericKeyword {
+                                        keyword: "right".to_string(),
+                                        multiplier: SyntaxComponentMultiplier::Once,
+                                    },
+                                    SyntaxComponent::GenericKeyword {
+                                        keyword: "top".to_string(),
+                                        multiplier: SyntaxComponentMultiplier::Once,
+                                    },
+                                ],
+                                multiplier: SyntaxComponentMultiplier::Once,
+                            }
+                        ],
+                        multiplier: SyntaxComponentMultiplier::Once,
+                    },
+                    SyntaxComponent::GenericKeyword {
+                        keyword: "bottom".to_string(),
+                        multiplier: SyntaxComponentMultiplier::Once,
+                    },
                 ],
-            })
+                multiplier: SyntaxComponentMultiplier::Once,
+            }
         );
 
         let c = CssSyntax::new("left && right || top | bottom")
             .compile()
             .unwrap();
         assert_eq!(
-            c.components[0].type_,
-            SyntaxComponentType::Group(Group {
+            c.components[0],
+            SyntaxComponent::Group {
                 combinator: GroupCombinators::AllAnyOrder,
                 components: vec![
-                    SyntaxComponent::new(
-                        SyntaxComponentType::GenericKeyword("left".to_string()),
-                        SyntaxComponentMultiplier::Once,
-                    ),
-                    SyntaxComponent::new(
-                        SyntaxComponentType::Group(Group {
-                            combinator: GroupCombinators::AtLeastOneAnyOrder,
-                            components: vec![
-                                SyntaxComponent::new(
-                                    SyntaxComponentType::GenericKeyword("right".to_string()),
-                                    SyntaxComponentMultiplier::Once,
-                                ),
-                                SyntaxComponent::new(
-                                    SyntaxComponentType::Group(Group {
-                                        combinator: GroupCombinators::ExactlyOne,
-                                        components: vec![
-                                            SyntaxComponent::new(
-                                                SyntaxComponentType::GenericKeyword(
-                                                    "top".to_string()
-                                                ),
-                                                SyntaxComponentMultiplier::Once,
-                                            ),
-                                            SyntaxComponent::new(
-                                                SyntaxComponentType::GenericKeyword(
-                                                    "bottom".to_string()
-                                                ),
-                                                SyntaxComponentMultiplier::Once,
-                                            ),
-                                        ],
-                                    }),
-                                    SyntaxComponentMultiplier::Once,
-                                ),
-                            ],
-                        }),
-                        SyntaxComponentMultiplier::Once,
-                    ),
+                    SyntaxComponent::GenericKeyword {
+                        keyword: "left".to_string(),
+                        multiplier: SyntaxComponentMultiplier::Once,
+                    },
+                    SyntaxComponent::Group {
+                        combinator: GroupCombinators::AtLeastOneAnyOrder,
+                        components: vec![
+                            SyntaxComponent::GenericKeyword {
+                                keyword: "right".to_string(),
+                                multiplier: SyntaxComponentMultiplier::Once,
+                            },
+                            SyntaxComponent::Group {
+                                combinator: GroupCombinators::ExactlyOne,
+                                components: vec![
+                                    SyntaxComponent::GenericKeyword {
+                                        keyword: "top".to_string(),
+                                        multiplier: SyntaxComponentMultiplier::Once,
+                                    },
+                                    SyntaxComponent::GenericKeyword {
+                                        keyword: "bottom".to_string(),
+                                        multiplier: SyntaxComponentMultiplier::Once,
+                                    },
+                                ],
+                                multiplier: SyntaxComponentMultiplier::Once,
+                            },
+                        ],
+                        multiplier: SyntaxComponentMultiplier::Once,
+                    },
                 ],
-            })
+                multiplier: SyntaxComponentMultiplier::Once,
+            }
         );
 
         let c = CssSyntax::new("left  right || top | bottom")
             .compile()
             .unwrap();
         assert_eq!(
-            c.components[0].type_,
-            SyntaxComponentType::Group(Group {
+            c.components[0],
+            SyntaxComponent::Group {
                 combinator: GroupCombinators::Juxtaposition,
                 components: vec![
-                    SyntaxComponent::new(
-                        SyntaxComponentType::GenericKeyword("left".to_string()),
-                        SyntaxComponentMultiplier::Once,
-                    ),
-                    SyntaxComponent::new(
-                        SyntaxComponentType::Group(Group {
-                            combinator: GroupCombinators::AtLeastOneAnyOrder,
-                            components: vec![
-                                SyntaxComponent::new(
-                                    SyntaxComponentType::GenericKeyword("right".to_string()),
-                                    SyntaxComponentMultiplier::Once,
-                                ),
-                                SyntaxComponent::new(
-                                    SyntaxComponentType::Group(Group {
-                                        combinator: GroupCombinators::ExactlyOne,
-                                        components: vec![
-                                            SyntaxComponent::new(
-                                                SyntaxComponentType::GenericKeyword(
-                                                    "top".to_string()
-                                                ),
-                                                SyntaxComponentMultiplier::Once,
-                                            ),
-                                            SyntaxComponent::new(
-                                                SyntaxComponentType::GenericKeyword(
-                                                    "bottom".to_string()
-                                                ),
-                                                SyntaxComponentMultiplier::Once,
-                                            ),
-                                        ],
-                                    }),
-                                    SyntaxComponentMultiplier::Once,
-                                ),
-                            ],
-                        }),
-                        SyntaxComponentMultiplier::Once,
-                    ),
+                    SyntaxComponent::GenericKeyword {
+                        keyword: "left".to_string(),
+                        multiplier: SyntaxComponentMultiplier::Once,
+                    },
+
+                    SyntaxComponent::Group {
+                        combinator: GroupCombinators::AtLeastOneAnyOrder,
+                        components: vec![
+                            SyntaxComponent::GenericKeyword {
+                                keyword: "right".to_string(),
+                                multiplier: SyntaxComponentMultiplier::Once,
+                            },
+                            SyntaxComponent::Group {
+                                combinator: GroupCombinators::ExactlyOne,
+                                components: vec![
+                                    SyntaxComponent::GenericKeyword {
+                                        keyword: "top".to_string(),
+                                        multiplier: SyntaxComponentMultiplier::Once,
+                                    },
+                                    SyntaxComponent::GenericKeyword {
+                                        keyword: "bottom".to_string(),
+                                        multiplier: SyntaxComponentMultiplier::Once,
+                                    },
+                                ],
+                                multiplier: SyntaxComponentMultiplier::Once,
+                            },
+                        ],
+                        multiplier: SyntaxComponentMultiplier::Once,
+                    },
                 ],
-            })
+                multiplier: SyntaxComponentMultiplier::Once,
+            }
         );
 
         let c = CssSyntax::new("left | right || top | bottom")
             .compile()
             .unwrap();
         assert_eq!(
-            c.components[0].type_,
-            SyntaxComponentType::Group(Group {
+            c.components[0],
+            SyntaxComponent::Group {
                 combinator: GroupCombinators::AtLeastOneAnyOrder,
                 components: vec![
-                    SyntaxComponent::new(
-                        SyntaxComponentType::Group(Group {
-                            combinator: GroupCombinators::ExactlyOne,
-                            components: vec![
-                                SyntaxComponent::new(
-                                    SyntaxComponentType::GenericKeyword("left".to_string()),
-                                    SyntaxComponentMultiplier::Once,
-                                ),
-                                SyntaxComponent::new(
-                                    SyntaxComponentType::GenericKeyword("right".to_string()),
-                                    SyntaxComponentMultiplier::Once,
-                                ),
-                            ],
-                        }),
-                        SyntaxComponentMultiplier::Once,
-                    ),
-                    SyntaxComponent::new(
-                        SyntaxComponentType::Group(Group {
-                            combinator: GroupCombinators::ExactlyOne,
-                            components: vec![
-                                SyntaxComponent::new(
-                                    SyntaxComponentType::GenericKeyword("top".to_string()),
-                                    SyntaxComponentMultiplier::Once,
-                                ),
-                                SyntaxComponent::new(
-                                    SyntaxComponentType::GenericKeyword("bottom".to_string()),
-                                    SyntaxComponentMultiplier::Once,
-                                ),
-                            ],
-                        }),
-                        SyntaxComponentMultiplier::Once,
-                    ),
+                    SyntaxComponent::Group {
+                        combinator: GroupCombinators::ExactlyOne,
+                        components: vec![
+                            SyntaxComponent::GenericKeyword {
+                                keyword: "left".to_string(),
+                                multiplier: SyntaxComponentMultiplier::Once,
+                            },
+                            SyntaxComponent::GenericKeyword {
+                                keyword: "right".to_string(),
+                                multiplier: SyntaxComponentMultiplier::Once,
+                            },
+                        ],
+                        multiplier: SyntaxComponentMultiplier::Once,
+                    },
+                    SyntaxComponent::Group {
+                        combinator: GroupCombinators::ExactlyOne,
+                        components: vec![
+                            SyntaxComponent::GenericKeyword {
+                                keyword: "top".to_string(),
+                                multiplier: SyntaxComponentMultiplier::Once,
+                            },
+                            SyntaxComponent::GenericKeyword {
+                                keyword: "bottom".to_string(),
+                                multiplier: SyntaxComponentMultiplier::Once,
+                            },
+                        ],
+                        multiplier: SyntaxComponentMultiplier::Once,
+                    },
                 ],
-            })
+                multiplier: SyntaxComponentMultiplier::Once,
+            }
         );
 
         let c = CssSyntax::new("left || right | top || bottom")
             .compile()
             .unwrap();
         assert_eq!(
-            c.components[0].type_,
-            SyntaxComponentType::Group(Group {
+            c.components[0],
+            SyntaxComponent::Group {
                 combinator: GroupCombinators::AtLeastOneAnyOrder,
                 components: vec![
-                    SyntaxComponent::new(
-                        SyntaxComponentType::GenericKeyword("left".to_string()),
-                        SyntaxComponentMultiplier::Once,
-                    ),
-                    SyntaxComponent::new(
-                        SyntaxComponentType::Group(Group {
-                            combinator: GroupCombinators::ExactlyOne,
-                            components: vec![
-                                SyntaxComponent::new(
-                                    SyntaxComponentType::GenericKeyword("right".to_string()),
-                                    SyntaxComponentMultiplier::Once,
-                                ),
-                                SyntaxComponent::new(
-                                    SyntaxComponentType::GenericKeyword("top".to_string()),
-                                    SyntaxComponentMultiplier::Once,
-                                ),
-                            ],
-                        }),
-                        SyntaxComponentMultiplier::Once,
-                    ),
-                    SyntaxComponent::new(
-                        SyntaxComponentType::GenericKeyword("bottom".to_string()),
-                        SyntaxComponentMultiplier::Once,
-                    ),
+                    SyntaxComponent::GenericKeyword {
+                        keyword: "left".to_string(),
+                        multiplier: SyntaxComponentMultiplier::Once,
+                    },
+                    SyntaxComponent::Group {
+                        combinator: GroupCombinators::ExactlyOne,
+                        components: vec![
+                            SyntaxComponent::GenericKeyword{
+                                keyword: "right".to_string(),
+                                multiplier: SyntaxComponentMultiplier::Once,
+                            },
+                            SyntaxComponent::GenericKeyword {
+                                keyword: "top".to_string(),
+                                multiplier: SyntaxComponentMultiplier::Once,
+                            },
+                        ],
+                        multiplier: SyntaxComponentMultiplier::Once,
+                    },
+                    SyntaxComponent::GenericKeyword {
+                        keyword: "bottom".to_string(),
+                        multiplier: SyntaxComponentMultiplier::Once,
+                    },
                 ],
-            })
+                multiplier: SyntaxComponentMultiplier::Once,
+            }
         );
 
         let c = CssSyntax::new("left right | top bottom").compile().unwrap();
         assert_eq!(
-            c.components[0].type_,
-            SyntaxComponentType::Group(Group {
+            c.components[0],
+            SyntaxComponent::Group {
                 combinator: GroupCombinators::Juxtaposition,
                 components: vec![
-                    SyntaxComponent::new(
-                        SyntaxComponentType::GenericKeyword("left".to_string()),
-                        SyntaxComponentMultiplier::Once,
-                    ),
-                    SyntaxComponent::new(
-                        SyntaxComponentType::Group(Group {
-                            combinator: GroupCombinators::ExactlyOne,
-                            components: vec![
-                                SyntaxComponent::new(
-                                    SyntaxComponentType::GenericKeyword("right".to_string()),
-                                    SyntaxComponentMultiplier::Once,
-                                ),
-                                SyntaxComponent::new(
-                                    SyntaxComponentType::GenericKeyword("top".to_string()),
-                                    SyntaxComponentMultiplier::Once,
-                                ),
-                            ],
-                        }),
-                        SyntaxComponentMultiplier::Once,
-                    ),
-                    SyntaxComponent::new(
-                        SyntaxComponentType::GenericKeyword("bottom".to_string()),
-                        SyntaxComponentMultiplier::Once,
-                    ),
+                    SyntaxComponent::GenericKeyword{
+                        keyword: "left".into(),
+                        multiplier: SyntaxComponentMultiplier::Once,
+                    },
+                    SyntaxComponent::Group {
+                        combinator: GroupCombinators::ExactlyOne,
+                        components: vec![
+                            SyntaxComponent::GenericKeyword{
+                                keyword: "right".to_string(),
+                                multiplier: SyntaxComponentMultiplier::Once,
+                            },
+                            SyntaxComponent::GenericKeyword {
+                                keyword: "top".to_string(),
+                                multiplier: SyntaxComponentMultiplier::Once,
+                            },
+                        ],
+                        multiplier: SyntaxComponentMultiplier::Once,
+                    },
+                    SyntaxComponent::GenericKeyword {
+                        keyword: "bottom".into(),
+                        multiplier: SyntaxComponentMultiplier::Once,
+                    },
                 ],
-            })
+                multiplier: SyntaxComponentMultiplier::Once,
+            }
         );
     }
 
@@ -1526,127 +1663,111 @@ mod tests {
         let c = CssSyntax::new("<function [1, 2]>").compile().unwrap();
         assert_eq!(
             c.components[0],
-            SyntaxComponent::new(
-                SyntaxComponentType::TypeDefinition(
-                    "function".to_string(),
-                    false,
-                    RangeType {
-                        min: NumberOrInfinity::FiniteI64(1),
-                        max: NumberOrInfinity::FiniteI64(2),
-                    },
-                ),
-                SyntaxComponentMultiplier::Once,
-            )
+            SyntaxComponent::TypeDefinition {
+                definition: "function".to_string(),
+                quoted: false,
+                range: RangeType {
+                    min: NumberOrInfinity::FiniteI64(1),
+                    max: NumberOrInfinity::FiniteI64(2),
+                },
+                multiplier: SyntaxComponentMultiplier::Once,
+            }
         );
 
         let c = CssSyntax::new("<function>").compile().unwrap();
         assert_eq!(
             c.components[0],
-            SyntaxComponent::new(
-                SyntaxComponentType::TypeDefinition(
-                    "function".to_string(),
-                    false,
-                    RangeType {
-                        min: NumberOrInfinity::None,
-                        max: NumberOrInfinity::None,
-                    },
-                ),
-                SyntaxComponentMultiplier::Once,
-            )
+            SyntaxComponent::TypeDefinition {
+                definition: "function".to_string(),
+                quoted: false,
+                range: RangeType {
+                    min: NumberOrInfinity::None,
+                    max: NumberOrInfinity::None,
+                },
+                multiplier: SyntaxComponentMultiplier::Once,
+            }
         );
 
         let c = CssSyntax::new("<function [1,]>").compile().unwrap();
         assert_eq!(
             c.components[0],
-            SyntaxComponent::new(
-                SyntaxComponentType::TypeDefinition(
-                    "function".to_string(),
-                    false,
-                    RangeType {
-                        min: NumberOrInfinity::FiniteI64(1),
-                        max: NumberOrInfinity::None,
-                    },
-                ),
-                SyntaxComponentMultiplier::Once,
-            )
+            SyntaxComponent::TypeDefinition {
+                definition: "function".to_string(),
+                quoted: false,
+                range: RangeType {
+                    min: NumberOrInfinity::FiniteI64(1),
+                    max: NumberOrInfinity::None,
+                },
+                multiplier: SyntaxComponentMultiplier::Once,
+            }
         );
 
         let c = CssSyntax::new("<function [,1]>").compile().unwrap();
         assert_eq!(
             c.components[0],
-            SyntaxComponent::new(
-                SyntaxComponentType::TypeDefinition(
-                    "function".to_string(),
-                    false,
-                    RangeType {
-                        min: NumberOrInfinity::None,
-                        max: NumberOrInfinity::FiniteI64(1),
-                    },
-                ),
-                SyntaxComponentMultiplier::Once,
-            )
+            SyntaxComponent::TypeDefinition {
+                definition: "function".to_string(),
+                quoted: false,
+                range: RangeType {
+                    min: NumberOrInfinity::None,
+                    max: NumberOrInfinity::FiniteI64(1),
+                },
+                multiplier: SyntaxComponentMultiplier::Once,
+            }
         );
 
         let c = CssSyntax::new("<function [-360,360]>").compile().unwrap();
         assert_eq!(
             c.components[0],
-            SyntaxComponent::new(
-                SyntaxComponentType::TypeDefinition(
-                    "function".to_string(),
-                    false,
-                    RangeType {
-                        min: NumberOrInfinity::FiniteI64(-360),
-                        max: NumberOrInfinity::FiniteI64(360),
-                    },
-                ),
-                SyntaxComponentMultiplier::Once,
-            )
+            SyntaxComponent::TypeDefinition{
+                definition: "function".to_string(),
+                quoted: false,
+                range: RangeType {
+                    min: NumberOrInfinity::FiniteI64(-360),
+                    max: NumberOrInfinity::FiniteI64(360),
+                },
+                multiplier: SyntaxComponentMultiplier::Once,
+            }
         );
 
         let c = CssSyntax::new("<function [0,inf]>").compile().unwrap();
         assert_eq!(
             c.components[0],
-            SyntaxComponent::new(
-                SyntaxComponentType::TypeDefinition(
-                    "function".to_string(),
-                    false,
-                    RangeType {
-                        min: NumberOrInfinity::FiniteI64(0),
-                        max: NumberOrInfinity::Infinity,
-                    },
-                ),
-                SyntaxComponentMultiplier::Once,
-            )
+            SyntaxComponent::TypeDefinition {
+                definition: "function".to_string(),
+                quoted: false,
+                range: RangeType {
+                    min: NumberOrInfinity::FiniteI64(0),
+                    max: NumberOrInfinity::Infinity,
+                },
+                multiplier: SyntaxComponentMultiplier::Once,
+            }
         );
         let c = CssSyntax::new("<function [-inf, 0]>").compile().unwrap();
         assert_eq!(
             c.components[0],
-            SyntaxComponent::new(
-                SyntaxComponentType::TypeDefinition(
-                    "function".to_string(),
-                    false,
-                    RangeType {
-                        min: NumberOrInfinity::NegativeInfinity,
-                        max: NumberOrInfinity::FiniteI64(0),
-                    },
-                ),
-                SyntaxComponentMultiplier::Once,
-            )
+            SyntaxComponent::TypeDefinition {
+                definition: "function".to_string(),
+                quoted: false,
+                range: RangeType {
+                    min: NumberOrInfinity::NegativeInfinity,
+                    max: NumberOrInfinity::FiniteI64(0),
+                },
+                multiplier: SyntaxComponentMultiplier::Once,
+            }
         );
         let c = CssSyntax::new("<function [-inf,inf]>").compile().unwrap();
         assert_eq!(
             c.components[0],
-            SyntaxComponent::new(
-                SyntaxComponentType::TypeDefinition(
-                    "function".to_string(),
-                    false,
-                    RangeType {
-                        min: NumberOrInfinity::NegativeInfinity,
-                        max: NumberOrInfinity::Infinity,
-                    },
-                ),
-                SyntaxComponentMultiplier::Once,
-            )
+            SyntaxComponent::TypeDefinition{
+                definition: "function".to_string(),
+                quoted: false,
+                range: RangeType {
+                    min: NumberOrInfinity::NegativeInfinity,
+                    max: NumberOrInfinity::Infinity,
+                },
+                multiplier: SyntaxComponentMultiplier::Once,
+            }
         );
     }
 

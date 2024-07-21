@@ -2,7 +2,7 @@ use gosub_css3::colors::CSS_COLORNAMES;
 use gosub_css3::stylesheet::CssValue;
 
 use crate::syntax::{
-    Group, GroupCombinators, SyntaxComponent, SyntaxComponentMultiplier, SyntaxComponentType,
+    GroupCombinators, SyntaxComponent, SyntaxComponentMultiplier,
 };
 
 const LENGTH_UNITS: [&str; 31] = [
@@ -36,8 +36,8 @@ impl CssSyntaxTree {
 
 fn match_internal(value: &CssValue, component: &SyntaxComponent) -> Option<CssValue> {
     fn match_internal_internal(value: &CssValue, component: &SyntaxComponent) -> Option<CssValue> {
-        match &component.type_ {
-            SyntaxComponentType::GenericKeyword(keyword) => match value {
+        match &component {
+            SyntaxComponent::GenericKeyword{keyword, ..} => match value {
                 CssValue::None if keyword.eq_ignore_ascii_case("none") => {
                     return Some(value.clone())
                 }
@@ -50,7 +50,7 @@ fn match_internal(value: &CssValue, component: &SyntaxComponent) -> Option<CssVa
                     // panic!("Unknown generic keyword: {:?}", keyword);
                 }
             },
-            SyntaxComponentType::Scalar(scalar) => match scalar.as_str() {
+            SyntaxComponent::Scalar{scalar, ..} => match scalar.as_str() {
                 "percentage" | "<percentage>" => {
                     if matches!(value, CssValue::Percentage(_)) {
                         println!("Matched percentage! {:?}", value.clone());
@@ -91,38 +91,38 @@ fn match_internal(value: &CssValue, component: &SyntaxComponent) -> Option<CssVa
 
                 _ => panic!("Unknown scalar: {:?}", scalar),
             },
-            // SyntaxComponentType::Property(_s) => {},
-            // SyntaxComponentType::Function(_s, _t) => {}
-            // SyntaxComponentType::TypeDefinition(_s, _t, _u) => {}
-            SyntaxComponentType::Inherit => match value {
+            // SyntaxComponent::Property(_s) => {},
+            // SyntaxComponent::Function(_s, _t) => {}
+            // SyntaxComponent::TypeDefinition(_s, _t, _u) => {}
+            SyntaxComponent::Inherit{..} => match value {
                 CssValue::Inherit => return Some(value.clone()),
                 CssValue::String(v) if v.eq_ignore_ascii_case("inherit") => {
                     return Some(value.clone())
                 }
                 _ => {}
             },
-            SyntaxComponentType::Initial => match value {
+            SyntaxComponent::Initial{..} => match value {
                 CssValue::Initial => return Some(value.clone()),
                 CssValue::String(v) if v.eq_ignore_ascii_case("initial") => {
                     return Some(value.clone())
                 }
                 _ => {}
             },
-            SyntaxComponentType::Unset => match value {
+            SyntaxComponent::Unset{..} => match value {
                 CssValue::String(v) if v.eq_ignore_ascii_case("unset") => {
                     return Some(value.clone())
                 }
                 _ => {}
             },
             // SyntaxComponentType::Value(_s) => {}
-            SyntaxComponentType::Unit(from, to, units) => {
+            SyntaxComponent::Unit{from, to, unit, ..} => {
                 let f32min = f32::MIN;
                 let f32max = f32::MAX;
 
                 match value {
                     CssValue::Number(n) if *n == 0.0 => return Some(CssValue::Zero),
                     CssValue::Unit(n, u) => {
-                        if units.contains(u)
+                        if unit.contains(u)
                             && *n >= from.unwrap_or(f32min)
                             && *n <= to.unwrap_or(f32max)
                         {
@@ -132,25 +132,25 @@ fn match_internal(value: &CssValue, component: &SyntaxComponent) -> Option<CssVa
                     _ => {}
                 };
             }
-            SyntaxComponentType::Group(group) => {
-                return match group.combinator {
-                    GroupCombinators::Juxtaposition => match_group_juxtaposition(value, group),
-                    GroupCombinators::AllAnyOrder => match_group_all_any_order(value, group),
+            SyntaxComponent::Group{components, combinator, ..} => {
+                return match combinator {
+                    GroupCombinators::Juxtaposition => match_group_juxtaposition(value, components),
+                    GroupCombinators::AllAnyOrder => match_group_all_any_order(value, components),
                     GroupCombinators::AtLeastOneAnyOrder => {
-                        match_group_at_least_one_any_order(value, group)
+                        match_group_at_least_one_any_order(value, components)
                     }
-                    GroupCombinators::ExactlyOne => match_group_exactly_one(value, group),
+                    GroupCombinators::ExactlyOne => match_group_exactly_one(value, components),
                 };
             }
-            SyntaxComponentType::Literal(lit) => {
+            SyntaxComponent::Literal{literal, ..} => {
                 match value {
-                    CssValue::String(v) if v.eq_ignore_ascii_case(lit) => {
+                    CssValue::String(v) if v.eq_ignore_ascii_case(literal) => {
                         return Some(value.clone())
                     } //TODO: can we ignore case?
                     _ => {}
                 };
             }
-            SyntaxComponentType::Function(name, args) => {
+            SyntaxComponent::Function{name, ..} => {
                 let CssValue::Function(c_name, c_args) = value else {
                     return None;
                 };
@@ -159,22 +159,18 @@ fn match_internal(value: &CssValue, component: &SyntaxComponent) -> Option<CssVa
                     return None;
                 }
 
-                let Some(args) = args else {
-                    if c_args.is_empty() {
-                        return Some(value.clone());
-                    }
+                if c_args.is_empty() {
+                    return Some(value.clone());
+                }
 
-                    return None;
-                };
-
-                let list = CssValue::List(c_args.clone());
-
-                return match_internal(&list, args);
+                todo!("Function not implemented yet. We must match the arguments");
+                // let list = CssValue::List(c_args.clone());
+                // return match_internal(&list, arguments);
             }
-            SyntaxComponentType::Property(prop) => {
-                dbg!(prop, value.clone());
+            SyntaxComponent::Property{property, ..} => {
+                dbg!(property, value.clone());
 
-                match &**prop {
+                match &**property {
                     "border-color" => {
                         let v = match value {
                             CssValue::String(v) => v,
@@ -196,7 +192,7 @@ fn match_internal(value: &CssValue, component: &SyntaxComponent) -> Option<CssVa
                 }
             }
             e => {
-                println!("Unknown syntax component type: {:?}", e);
+                println!("Unknown syntax component: {:?}", e);
             }
         }
 
@@ -236,7 +232,7 @@ struct Matches {
 ///     resolve_group([none, banana, car, block], [auto, none, block]) => [1, -1, -1, 2]
 ///     resolve_group([none, block, block, auto, none], [auto, none, block]) => [1, 2, 2, 0, 1]
 ///
-fn resolve_group(value: &CssValue, group: &Group) -> Matches {
+fn resolve_group(value: &CssValue, components: &Vec<SyntaxComponent>) -> Matches {
     let mut values: Vec<isize> = vec![];
 
     println!("Resolving group");
@@ -249,7 +245,7 @@ fn resolve_group(value: &CssValue, group: &Group) -> Matches {
         let mut value_in_group_index = -1;
 
         // Iterate the whole group
-        for (c_idx, component) in group.components.iter().enumerate() {
+        for (c_idx, component) in components.iter().enumerate() {
             if match_internal(v, component).is_some() {
                 value_in_group_index = c_idx as isize;
 
@@ -268,8 +264,8 @@ fn resolve_group(value: &CssValue, group: &Group) -> Matches {
     Matches { entries: values }
 }
 
-fn match_group_exactly_one(value: &CssValue, group: &Group) -> Option<CssValue> {
-    let matches = resolve_group(value, group);
+fn match_group_exactly_one(value: &CssValue, components: &Vec<SyntaxComponent>) -> Option<CssValue> {
+    let matches = resolve_group(value, components);
     println!("Matching exactly one");
     dbg!(&value, &matches);
 
@@ -286,8 +282,8 @@ fn match_group_exactly_one(value: &CssValue, group: &Group) -> Option<CssValue> 
     Some(value.clone())
 }
 
-fn match_group_at_least_one_any_order(value: &CssValue, group: &Group) -> Option<CssValue> {
-    let matches = resolve_group(value, group);
+fn match_group_at_least_one_any_order(value: &CssValue, components: &Vec<SyntaxComponent>) -> Option<CssValue> {
+    let matches = resolve_group(value, components);
     println!("Matching at least one any order");
     dbg!(&value, &matches);
 
@@ -305,13 +301,13 @@ fn match_group_at_least_one_any_order(value: &CssValue, group: &Group) -> Option
     Some(value.clone())
 }
 
-fn match_group_all_any_order(value: &CssValue, group: &Group) -> Option<CssValue> {
-    let matches = resolve_group(value, group);
+fn match_group_all_any_order(value: &CssValue, components: &Vec<SyntaxComponent>) -> Option<CssValue> {
+    let matches = resolve_group(value, components);
     println!("Matching all any order");
     dbg!(&value, &matches);
 
     // If we do not the same length in our matches, we definitely don't have a match
-    if matches.entries.len() != group.components.len() {
+    if matches.entries.len() != components.len() {
         return None;
     }
 
@@ -325,16 +321,16 @@ fn match_group_all_any_order(value: &CssValue, group: &Group) -> Option<CssValue
     Some(value.clone())
 }
 
-fn match_group_juxtaposition(value: &CssValue, group: &Group) -> Option<CssValue> {
+fn match_group_juxtaposition(value: &CssValue, components: &Vec<SyntaxComponent>) -> Option<CssValue> {
     // Step 1: convert to matches
-    let matches = resolve_group(value, group);
+    let matches = resolve_group(value, components);
     println!("Matching juxtaposition");
-    dbg!(&value, &matches, &group);
+    dbg!(&value, &matches, &components);
 
     // Step 2: early return when we found a group with a single element
     //FIXME: this is a hack, since our parser of the css value syntax sometimes inserts additional juxtapositions when it encounters a space.
-    if group.components.len() == 1 && group.components[0].is_group() {
-        return match_internal(value, &group.components[0]);
+    if components.len() == 1 && components[0].is_group() {
+        return match_internal(value, &components[0]);
     }
 
     // Step 3: Check if there are -1 in the list. If so, we found unknown values, and thus we can return immediately
@@ -346,7 +342,7 @@ fn match_group_juxtaposition(value: &CssValue, group: &Group) -> Option<CssValue
     let items = convert_to_counts(matches);
 
     // Check multipliers and see if we got the correct number of matches per component, and the values are in the correct (sequential) order
-    for (c_idx, group_component) in group.components.iter().enumerate() {
+    for (c_idx, group_component) in components.iter().enumerate() {
         // Find (the first) value count for the given index (or 0 if the value count is not found for that index)
         let value_count = items
             .iter()
@@ -394,7 +390,7 @@ fn convert_to_counts(matches: Matches) -> Vec<(usize, usize)> {
 /// This function checks if the given component matches the given count of values. For instance, it will return true
 /// when the multiplier is Once, and there is a count of 1,   or when the multiplier is OneOrMore, when the count is 3.
 fn check_multiplier(component: &SyntaxComponent, count: usize) -> bool {
-    match component.multipliers {
+    match component.get_multiplier() {
         SyntaxComponentMultiplier::Once => count == 1,
         SyntaxComponentMultiplier::ZeroOrMore => {
             // Zero or more always matches
@@ -585,24 +581,24 @@ mod tests {
     #[test]
     fn test_resolve_group() {
         let tree = CssSyntax::new("auto none block").compile().unwrap();
-        if let SyntaxComponentType::Group(group) = &tree.components[0].type_ {
-            let values = resolve_group(&CssValue::List(vec![str!("auto")]), group).entries;
+        if let SyntaxComponent::Group{components, ..} = &tree.components[0] {
+            let values = resolve_group(&CssValue::List(vec![str!("auto")]), components).entries;
             assert_eq!(values, [0]);
 
             let values =
-                resolve_group(&CssValue::List(vec![str!("auto"), str!("none")]), group).entries;
+                resolve_group(&CssValue::List(vec![str!("auto"), str!("none")]), components).entries;
             assert_eq!(values, [0, 1]);
 
             let values = resolve_group(
                 &CssValue::List(vec![str!("auto"), str!("none"), str!("block")]),
-                group,
+                components,
             )
             .entries;
             assert_eq!(values, [0, 1, 2]);
 
             let values = resolve_group(
                 &CssValue::List(vec![str!("none"), str!("block"), str!("auto")]),
-                group,
+                components,
             )
             .entries;
             assert_eq!(values, [1, 2, 0]);
@@ -615,7 +611,7 @@ mod tests {
                     str!("auto"),
                     str!("none"),
                 ]),
-                group,
+                components,
             )
             .entries;
             assert_eq!(values, [1, 2, 2, 0, 1]);
@@ -627,7 +623,7 @@ mod tests {
                     str!("car"),
                     str!("block"),
                 ]),
-                group,
+                components,
             )
             .entries;
             assert_eq!(values, [1, -1, -1, 2]);
@@ -637,23 +633,23 @@ mod tests {
     #[test]
     fn test_match_group_juxtaposition() {
         let tree = CssSyntax::new("auto none block").compile().unwrap();
-        if let SyntaxComponentType::Group(group) = &tree.components[0].type_ {
-            let res = match_group_juxtaposition(&CssValue::List(vec![str!("auto")]), group);
+        if let SyntaxComponent::Group{components, ..} = &tree.components[0] {
+            let res = match_group_juxtaposition(&CssValue::List(vec![str!("auto")]), components);
             assert_none!(res);
 
             let res =
-                match_group_juxtaposition(&CssValue::List(vec![str!("auto"), str!("none")]), group);
+                match_group_juxtaposition(&CssValue::List(vec![str!("auto"), str!("none")]), components);
             assert_none!(res);
 
             let res = match_group_juxtaposition(
                 &CssValue::List(vec![str!("auto"), str!("none"), str!("block")]),
-                group,
+                components,
             );
             assert_some!(res);
 
             let res = match_group_juxtaposition(
                 &CssValue::List(vec![str!("none"), str!("block"), str!("auto")]),
-                group,
+                components,
             );
             assert_none!(res);
 
@@ -665,7 +661,7 @@ mod tests {
                     str!("auto"),
                     str!("none"),
                 ]),
-                group,
+                components,
             );
             assert_none!(res);
 
@@ -676,7 +672,7 @@ mod tests {
                     str!("car"),
                     str!("block"),
                 ]),
-                group,
+                components,
             );
             assert_none!(res);
         }
@@ -685,23 +681,23 @@ mod tests {
     #[test]
     fn test_match_group_all_any_order() {
         let tree = CssSyntax::new("auto none block").compile().unwrap();
-        if let SyntaxComponentType::Group(group) = &tree.components[0].type_ {
-            let res = match_group_all_any_order(&CssValue::List(vec![str!("auto")]), group);
+        if let SyntaxComponent::Group{components, ..} = &tree.components[0] {
+            let res = match_group_all_any_order(&CssValue::List(vec![str!("auto")]), components);
             assert_none!(res);
 
             let res =
-                match_group_all_any_order(&CssValue::List(vec![str!("auto"), str!("none")]), group);
+                match_group_all_any_order(&CssValue::List(vec![str!("auto"), str!("none")]), components);
             assert_none!(res);
 
             let res = match_group_all_any_order(
                 &CssValue::List(vec![str!("auto"), str!("none"), str!("block")]),
-                group,
+                components,
             );
             assert_some!(res);
 
             let res = match_group_all_any_order(
                 &CssValue::List(vec![str!("none"), str!("block"), str!("auto")]),
-                group,
+                components,
             );
             assert_some!(res);
 
@@ -713,7 +709,7 @@ mod tests {
                     str!("auto"),
                     str!("none"),
                 ]),
-                group,
+                components,
             );
             assert_none!(res);
 
@@ -724,7 +720,7 @@ mod tests {
                     str!("car"),
                     str!("block"),
                 ]),
-                group,
+                components,
             );
             assert_none!(res);
         }
@@ -733,26 +729,26 @@ mod tests {
     #[test]
     fn test_match_group_at_least_one_any_order() {
         let tree = CssSyntax::new("auto none block").compile().unwrap();
-        if let SyntaxComponentType::Group(group) = &tree.components[0].type_ {
+        if let SyntaxComponent::Group{components, ..} = &tree.components[0] {
             let res =
-                match_group_at_least_one_any_order(&CssValue::List(vec![str!("auto")]), group);
+                match_group_at_least_one_any_order(&CssValue::List(vec![str!("auto")]), components);
             assert_some!(res);
 
             let res = match_group_at_least_one_any_order(
                 &CssValue::List(vec![str!("auto"), str!("none")]),
-                group,
+                components,
             );
             assert_some!(res);
 
             let res = match_group_at_least_one_any_order(
                 &CssValue::List(vec![str!("auto"), str!("none"), str!("block")]),
-                group,
+                components,
             );
             assert_some!(res);
 
             let res = match_group_at_least_one_any_order(
                 &CssValue::List(vec![str!("none"), str!("block"), str!("auto")]),
-                group,
+                components,
             );
             assert_some!(res);
 
@@ -764,7 +760,7 @@ mod tests {
                     str!("auto"),
                     str!("none"),
                 ]),
-                group,
+                components,
             );
             assert_some!(res);
         }
