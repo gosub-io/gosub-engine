@@ -1,0 +1,5130 @@
+[
+  {
+    "name": "--*",
+    "syntax": "<declaration-value>",
+    "computed": "asSpecifiedWithVarsSubstituted",
+    "initial": "seeProse",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/--*"
+  },
+  {
+    "name": "-ms-accelerator",
+    "syntax": "false | true",
+    "computed": "asSpecified",
+    "initial": "false",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-ms-accelerator"
+  },
+  {
+    "name": "-ms-block-progression",
+    "syntax": "tb | rl | bt | lr",
+    "computed": "asSpecified",
+    "initial": "tb",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-ms-block-progression"
+  },
+  {
+    "name": "-ms-content-zoom-chaining",
+    "syntax": "none | chained",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-ms-content-zoom-chaining"
+  },
+  {
+    "name": "-ms-content-zooming",
+    "syntax": "none | zoom",
+    "computed": "asSpecified",
+    "initial": "zoomForTheTopLevelNoneForTheRest",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-ms-content-zooming"
+  },
+  {
+    "name": "-ms-content-zoom-limit",
+    "syntax": "<'-ms-content-zoom-limit-min'> <'-ms-content-zoom-limit-max'>",
+    "computed": [
+      "-ms-content-zoom-limit-max",
+      "-ms-content-zoom-limit-min"
+    ],
+    "initial": [
+      "-ms-content-zoom-limit-max",
+      "-ms-content-zoom-limit-min"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-ms-content-zoom-limit"
+  },
+  {
+    "name": "-ms-content-zoom-limit-max",
+    "syntax": "<percentage>",
+    "computed": "asSpecified",
+    "initial": "400%",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-ms-content-zoom-limit-max"
+  },
+  {
+    "name": "-ms-content-zoom-limit-min",
+    "syntax": "<percentage>",
+    "computed": "asSpecified",
+    "initial": "100%",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-ms-content-zoom-limit-min"
+  },
+  {
+    "name": "-ms-content-zoom-snap",
+    "syntax": "<'-ms-content-zoom-snap-type'> || <'-ms-content-zoom-snap-points'>",
+    "computed": [
+      "-ms-content-zoom-snap-type",
+      "-ms-content-zoom-snap-points"
+    ],
+    "initial": [
+      "-ms-content-zoom-snap-type",
+      "-ms-content-zoom-snap-points"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-ms-content-zoom-snap"
+  },
+  {
+    "name": "-ms-content-zoom-snap-points",
+    "syntax": "snapInterval( <percentage>, <percentage> ) | snapList( <percentage># )",
+    "computed": "asSpecified",
+    "initial": "snapInterval(0%, 100%)",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-ms-content-zoom-snap-points"
+  },
+  {
+    "name": "-ms-content-zoom-snap-type",
+    "syntax": "none | proximity | mandatory",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-ms-content-zoom-snap-type"
+  },
+  {
+    "name": "-ms-filter",
+    "syntax": "<string>",
+    "computed": "asSpecified",
+    "initial": "\"\"",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-ms-filter"
+  },
+  {
+    "name": "-ms-flow-from",
+    "syntax": "[ none | <custom-ident> ]#",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-ms-flow-from"
+  },
+  {
+    "name": "-ms-flow-into",
+    "syntax": "[ none | <custom-ident> ]#",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-ms-flow-into"
+  },
+  {
+    "name": "-ms-grid-columns",
+    "syntax": "none | <track-list> | <auto-track-list>",
+    "computed": "asSpecifiedRelativeToAbsoluteLengths",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-ms-grid-columns"
+  },
+  {
+    "name": "-ms-grid-rows",
+    "syntax": "none | <track-list> | <auto-track-list>",
+    "computed": "asSpecifiedRelativeToAbsoluteLengths",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-ms-grid-rows"
+  },
+  {
+    "name": "-ms-high-contrast-adjust",
+    "syntax": "auto | none",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-ms-high-contrast-adjust"
+  },
+  {
+    "name": "-ms-hyphenate-limit-chars",
+    "syntax": "auto | <integer>{1,3}",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-ms-hyphenate-limit-chars"
+  },
+  {
+    "name": "-ms-hyphenate-limit-lines",
+    "syntax": "no-limit | <integer>",
+    "computed": "asSpecified",
+    "initial": "no-limit",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-ms-hyphenate-limit-lines"
+  },
+  {
+    "name": "-ms-hyphenate-limit-zone",
+    "syntax": "<percentage> | <length>",
+    "computed": "asSpecified",
+    "initial": "0",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-ms-hyphenate-limit-zone"
+  },
+  {
+    "name": "-ms-ime-align",
+    "syntax": "auto | after",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-ms-ime-align"
+  },
+  {
+    "name": "-ms-overflow-style",
+    "syntax": "auto | none | scrollbar | -ms-autohiding-scrollbar",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-ms-overflow-style"
+  },
+  {
+    "name": "-ms-scrollbar-3dlight-color",
+    "syntax": "<color>",
+    "computed": "asSpecified",
+    "initial": "dependsOnUserAgent",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-ms-scrollbar-3dlight-color"
+  },
+  {
+    "name": "-ms-scrollbar-arrow-color",
+    "syntax": "<color>",
+    "computed": "asSpecified",
+    "initial": "ButtonText",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-ms-scrollbar-arrow-color"
+  },
+  {
+    "name": "-ms-scrollbar-base-color",
+    "syntax": "<color>",
+    "computed": "asSpecified",
+    "initial": "dependsOnUserAgent",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-ms-scrollbar-base-color"
+  },
+  {
+    "name": "-ms-scrollbar-darkshadow-color",
+    "syntax": "<color>",
+    "computed": "asSpecified",
+    "initial": "ThreeDDarkShadow",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-ms-scrollbar-darkshadow-color"
+  },
+  {
+    "name": "-ms-scrollbar-face-color",
+    "syntax": "<color>",
+    "computed": "asSpecified",
+    "initial": "ThreeDFace",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-ms-scrollbar-face-color"
+  },
+  {
+    "name": "-ms-scrollbar-highlight-color",
+    "syntax": "<color>",
+    "computed": "asSpecified",
+    "initial": "ThreeDHighlight",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-ms-scrollbar-highlight-color"
+  },
+  {
+    "name": "-ms-scrollbar-shadow-color",
+    "syntax": "<color>",
+    "computed": "asSpecified",
+    "initial": "ThreeDDarkShadow",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-ms-scrollbar-shadow-color"
+  },
+  {
+    "name": "-ms-scrollbar-track-color",
+    "syntax": "<color>",
+    "computed": "asSpecified",
+    "initial": "Scrollbar",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-ms-scrollbar-track-color"
+  },
+  {
+    "name": "-ms-scroll-chaining",
+    "syntax": "chained | none",
+    "computed": "asSpecified",
+    "initial": "chained",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-ms-scroll-chaining"
+  },
+  {
+    "name": "-ms-scroll-limit",
+    "syntax": "<'-ms-scroll-limit-x-min'> <'-ms-scroll-limit-y-min'> <'-ms-scroll-limit-x-max'> <'-ms-scroll-limit-y-max'>",
+    "computed": [
+      "-ms-scroll-limit-x-min",
+      "-ms-scroll-limit-y-min",
+      "-ms-scroll-limit-x-max",
+      "-ms-scroll-limit-y-max"
+    ],
+    "initial": [
+      "-ms-scroll-limit-x-min",
+      "-ms-scroll-limit-y-min",
+      "-ms-scroll-limit-x-max",
+      "-ms-scroll-limit-y-max"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-ms-scroll-limit"
+  },
+  {
+    "name": "-ms-scroll-limit-x-max",
+    "syntax": "auto | <length>",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-ms-scroll-limit-x-max"
+  },
+  {
+    "name": "-ms-scroll-limit-x-min",
+    "syntax": "<length>",
+    "computed": "asSpecified",
+    "initial": "0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-ms-scroll-limit-x-min"
+  },
+  {
+    "name": "-ms-scroll-limit-y-max",
+    "syntax": "auto | <length>",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-ms-scroll-limit-y-max"
+  },
+  {
+    "name": "-ms-scroll-limit-y-min",
+    "syntax": "<length>",
+    "computed": "asSpecified",
+    "initial": "0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-ms-scroll-limit-y-min"
+  },
+  {
+    "name": "-ms-scroll-rails",
+    "syntax": "none | railed",
+    "computed": "asSpecified",
+    "initial": "railed",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-ms-scroll-rails"
+  },
+  {
+    "name": "-ms-scroll-snap-points-x",
+    "syntax": "snapInterval( <length-percentage>, <length-percentage> ) | snapList( <length-percentage># )",
+    "computed": "asSpecified",
+    "initial": "snapInterval(0px, 100%)",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-ms-scroll-snap-points-x"
+  },
+  {
+    "name": "-ms-scroll-snap-points-y",
+    "syntax": "snapInterval( <length-percentage>, <length-percentage> ) | snapList( <length-percentage># )",
+    "computed": "asSpecified",
+    "initial": "snapInterval(0px, 100%)",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-ms-scroll-snap-points-y"
+  },
+  {
+    "name": "-ms-scroll-snap-type",
+    "syntax": "none | proximity | mandatory",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-ms-scroll-snap-type"
+  },
+  {
+    "name": "-ms-scroll-snap-x",
+    "syntax": "<'-ms-scroll-snap-type'> <'-ms-scroll-snap-points-x'>",
+    "computed": [
+      "-ms-scroll-snap-type",
+      "-ms-scroll-snap-points-x"
+    ],
+    "initial": [
+      "-ms-scroll-snap-type",
+      "-ms-scroll-snap-points-x"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-ms-scroll-snap-x"
+  },
+  {
+    "name": "-ms-scroll-snap-y",
+    "syntax": "<'-ms-scroll-snap-type'> <'-ms-scroll-snap-points-y'>",
+    "computed": [
+      "-ms-scroll-snap-type",
+      "-ms-scroll-snap-points-y"
+    ],
+    "initial": [
+      "-ms-scroll-snap-type",
+      "-ms-scroll-snap-points-y"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-ms-scroll-snap-y"
+  },
+  {
+    "name": "-ms-scroll-translation",
+    "syntax": "none | vertical-to-horizontal",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-ms-scroll-translation"
+  },
+  {
+    "name": "-ms-text-autospace",
+    "syntax": "none | ideograph-alpha | ideograph-numeric | ideograph-parenthesis | ideograph-space",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-ms-text-autospace"
+  },
+  {
+    "name": "-ms-touch-select",
+    "syntax": "grippers | none",
+    "computed": "asSpecified",
+    "initial": "grippers",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-ms-touch-select"
+  },
+  {
+    "name": "-ms-user-select",
+    "syntax": "none | element | text",
+    "computed": "asSpecified",
+    "initial": "text",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-ms-user-select"
+  },
+  {
+    "name": "-ms-wrap-flow",
+    "syntax": "auto | both | start | end | maximum | clear",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-ms-wrap-flow"
+  },
+  {
+    "name": "-ms-wrap-margin",
+    "syntax": "<length>",
+    "computed": "asSpecified",
+    "initial": "0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-ms-wrap-margin"
+  },
+  {
+    "name": "-ms-wrap-through",
+    "syntax": "wrap | none",
+    "computed": "asSpecified",
+    "initial": "wrap",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-ms-wrap-through"
+  },
+  {
+    "name": "-moz-appearance",
+    "syntax": "none | button | button-arrow-down | button-arrow-next | button-arrow-previous | button-arrow-up | button-bevel | button-focus | caret | checkbox | checkbox-container | checkbox-label | checkmenuitem | dualbutton | groupbox | listbox | listitem | menuarrow | menubar | menucheckbox | menuimage | menuitem | menuitemtext | menulist | menulist-button | menulist-text | menulist-textfield | menupopup | menuradio | menuseparator | meterbar | meterchunk | progressbar | progressbar-vertical | progresschunk | progresschunk-vertical | radio | radio-container | radio-label | radiomenuitem | range | range-thumb | resizer | resizerpanel | scale-horizontal | scalethumbend | scalethumb-horizontal | scalethumbstart | scalethumbtick | scalethumb-vertical | scale-vertical | scrollbarbutton-down | scrollbarbutton-left | scrollbarbutton-right | scrollbarbutton-up | scrollbarthumb-horizontal | scrollbarthumb-vertical | scrollbartrack-horizontal | scrollbartrack-vertical | searchfield | separator | sheet | spinner | spinner-downbutton | spinner-textfield | spinner-upbutton | splitter | statusbar | statusbarpanel | tab | tabpanel | tabpanels | tab-scroll-arrow-back | tab-scroll-arrow-forward | textfield | textfield-multiline | toolbar | toolbarbutton | toolbarbutton-dropdown | toolbargripper | toolbox | tooltip | treeheader | treeheadercell | treeheadersortarrow | treeitem | treeline | treetwisty | treetwistyopen | treeview | -moz-mac-unified-toolbar | -moz-win-borderless-glass | -moz-win-browsertabbar-toolbox | -moz-win-communicationstext | -moz-win-communications-toolbox | -moz-win-exclude-glass | -moz-win-glass | -moz-win-mediatext | -moz-win-media-toolbox | -moz-window-button-box | -moz-window-button-box-maximized | -moz-window-button-close | -moz-window-button-maximize | -moz-window-button-minimize | -moz-window-button-restore | -moz-window-frame-bottom | -moz-window-frame-left | -moz-window-frame-right | -moz-window-titlebar | -moz-window-titlebar-maximized",
+    "computed": "asSpecified",
+    "initial": "noneButOverriddenInUserAgentCSS",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-moz-appearance"
+  },
+  {
+    "name": "-moz-binding",
+    "syntax": "<url> | none",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-moz-binding"
+  },
+  {
+    "name": "-moz-border-bottom-colors",
+    "syntax": "<color>+ | none",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-moz-border-bottom-colors"
+  },
+  {
+    "name": "-moz-border-left-colors",
+    "syntax": "<color>+ | none",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-moz-border-left-colors"
+  },
+  {
+    "name": "-moz-border-right-colors",
+    "syntax": "<color>+ | none",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-moz-border-right-colors"
+  },
+  {
+    "name": "-moz-border-top-colors",
+    "syntax": "<color>+ | none",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-moz-border-top-colors"
+  },
+  {
+    "name": "-moz-context-properties",
+    "syntax": "none | [ fill | fill-opacity | stroke | stroke-opacity ]#",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-moz-context-properties"
+  },
+  {
+    "name": "-moz-float-edge",
+    "syntax": "border-box | content-box | margin-box | padding-box",
+    "computed": "asSpecified",
+    "initial": "content-box",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-moz-float-edge"
+  },
+  {
+    "name": "-moz-force-broken-image-icon",
+    "syntax": "0 | 1",
+    "computed": "asSpecified",
+    "initial": "0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-moz-force-broken-image-icon"
+  },
+  {
+    "name": "-moz-image-region",
+    "syntax": "<shape> | auto",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-moz-image-region"
+  },
+  {
+    "name": "-moz-orient",
+    "syntax": "inline | block | horizontal | vertical",
+    "computed": "asSpecified",
+    "initial": "inline",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-moz-orient"
+  },
+  {
+    "name": "-moz-outline-radius",
+    "syntax": "<outline-radius>{1,4} [ / <outline-radius>{1,4} ]?",
+    "computed": [
+      "-moz-outline-radius-topleft",
+      "-moz-outline-radius-topright",
+      "-moz-outline-radius-bottomright",
+      "-moz-outline-radius-bottomleft"
+    ],
+    "initial": [
+      "-moz-outline-radius-topleft",
+      "-moz-outline-radius-topright",
+      "-moz-outline-radius-bottomright",
+      "-moz-outline-radius-bottomleft"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-moz-outline-radius"
+  },
+  {
+    "name": "-moz-outline-radius-bottomleft",
+    "syntax": "<outline-radius>",
+    "computed": "asSpecified",
+    "initial": "0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-moz-outline-radius-bottomleft"
+  },
+  {
+    "name": "-moz-outline-radius-bottomright",
+    "syntax": "<outline-radius>",
+    "computed": "asSpecified",
+    "initial": "0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-moz-outline-radius-bottomright"
+  },
+  {
+    "name": "-moz-outline-radius-topleft",
+    "syntax": "<outline-radius>",
+    "computed": "asSpecified",
+    "initial": "0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-moz-outline-radius-topleft"
+  },
+  {
+    "name": "-moz-outline-radius-topright",
+    "syntax": "<outline-radius>",
+    "computed": "asSpecified",
+    "initial": "0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-moz-outline-radius-topright"
+  },
+  {
+    "name": "-moz-stack-sizing",
+    "syntax": "ignore | stretch-to-fit",
+    "computed": "asSpecified",
+    "initial": "stretch-to-fit",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-moz-stack-sizing"
+  },
+  {
+    "name": "-moz-text-blink",
+    "syntax": "none | blink",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-moz-text-blink"
+  },
+  {
+    "name": "-moz-user-focus",
+    "syntax": "ignore | normal | select-after | select-before | select-menu | select-same | select-all | none",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-moz-user-focus"
+  },
+  {
+    "name": "-moz-user-input",
+    "syntax": "auto | none | enabled | disabled",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-moz-user-input"
+  },
+  {
+    "name": "-moz-user-modify",
+    "syntax": "read-only | read-write | write-only",
+    "computed": "asSpecified",
+    "initial": "read-only",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-moz-user-modify"
+  },
+  {
+    "name": "-moz-window-dragging",
+    "syntax": "drag | no-drag",
+    "computed": "asSpecified",
+    "initial": "drag",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-moz-window-dragging"
+  },
+  {
+    "name": "-moz-window-shadow",
+    "syntax": "default | menu | tooltip | sheet | none",
+    "computed": "asSpecified",
+    "initial": "default",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-moz-window-shadow"
+  },
+  {
+    "name": "-webkit-appearance",
+    "syntax": "none | button | button-bevel | caret | checkbox | default-button | inner-spin-button | listbox | listitem | media-controls-background | media-controls-fullscreen-background | media-current-time-display | media-enter-fullscreen-button | media-exit-fullscreen-button | media-fullscreen-button | media-mute-button | media-overlay-play-button | media-play-button | media-seek-back-button | media-seek-forward-button | media-slider | media-sliderthumb | media-time-remaining-display | media-toggle-closed-captions-button | media-volume-slider | media-volume-slider-container | media-volume-sliderthumb | menulist | menulist-button | menulist-text | menulist-textfield | meter | progress-bar | progress-bar-value | push-button | radio | searchfield | searchfield-cancel-button | searchfield-decoration | searchfield-results-button | searchfield-results-decoration | slider-horizontal | slider-vertical | sliderthumb-horizontal | sliderthumb-vertical | square-button | textarea | textfield | -apple-pay-button",
+    "computed": "asSpecified",
+    "initial": "noneButOverriddenInUserAgentCSS",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-webkit-appearance"
+  },
+  {
+    "name": "-webkit-border-before",
+    "syntax": "<'border-width'> || <'border-style'> || <color>",
+    "computed": [
+      "border-width",
+      "border-style",
+      "color"
+    ],
+    "initial": [
+      "border-width",
+      "border-style",
+      "color"
+    ],
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-webkit-border-before"
+  },
+  {
+    "name": "-webkit-border-before-color",
+    "syntax": "<color>",
+    "computed": "computedColor",
+    "initial": "currentcolor",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-webkit-border-before-color"
+  },
+  {
+    "name": "-webkit-border-before-style",
+    "syntax": "<'border-style'>",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-webkit-border-before-style"
+  },
+  {
+    "name": "-webkit-border-before-width",
+    "syntax": "<'border-width'>",
+    "computed": "absoluteLengthZeroIfBorderStyleNoneOrHidden",
+    "initial": "medium",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-webkit-border-before-width"
+  },
+  {
+    "name": "-webkit-box-reflect",
+    "syntax": "[ above | below | right | left ]? <length>? <image>?",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-webkit-box-reflect"
+  },
+  {
+    "name": "-webkit-line-clamp",
+    "syntax": "none | <integer>",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-webkit-line-clamp"
+  },
+  {
+    "name": "-webkit-mask",
+    "syntax": "[ <mask-reference> || <position> [ / <bg-size> ]? || <repeat-style> || [ <box> | border | padding | content | text ] || [ <box> | border | padding | content ] ]#",
+    "computed": [
+      "-webkit-mask-image",
+      "-webkit-mask-repeat",
+      "-webkit-mask-attachment",
+      "-webkit-mask-position",
+      "-webkit-mask-origin",
+      "-webkit-mask-clip"
+    ],
+    "initial": [
+      "-webkit-mask-image",
+      "-webkit-mask-repeat",
+      "-webkit-mask-attachment",
+      "-webkit-mask-position",
+      "-webkit-mask-origin",
+      "-webkit-mask-clip"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-webkit-mask"
+  },
+  {
+    "name": "-webkit-mask-attachment",
+    "syntax": "<attachment>#",
+    "computed": "asSpecified",
+    "initial": "scroll",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-webkit-mask-attachment"
+  },
+  {
+    "name": "-webkit-mask-clip",
+    "syntax": "[ <box> | border | padding | content | text ]#",
+    "computed": "asSpecified",
+    "initial": "border",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-webkit-mask-clip"
+  },
+  {
+    "name": "-webkit-mask-composite",
+    "syntax": "<composite-style>#",
+    "computed": "asSpecified",
+    "initial": "source-over",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-webkit-mask-composite"
+  },
+  {
+    "name": "-webkit-mask-image",
+    "syntax": "<mask-reference>#",
+    "computed": "absoluteURIOrNone",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-webkit-mask-image"
+  },
+  {
+    "name": "-webkit-mask-origin",
+    "syntax": "[ <box> | border | padding | content ]#",
+    "computed": "asSpecified",
+    "initial": "padding",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-webkit-mask-origin"
+  },
+  {
+    "name": "-webkit-mask-position",
+    "syntax": "<position>#",
+    "computed": "absoluteLengthOrPercentage",
+    "initial": "0% 0%",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-webkit-mask-position"
+  },
+  {
+    "name": "-webkit-mask-position-x",
+    "syntax": "[ <length-percentage> | left | center | right ]#",
+    "computed": "absoluteLengthOrPercentage",
+    "initial": "0%",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-webkit-mask-position-x"
+  },
+  {
+    "name": "-webkit-mask-position-y",
+    "syntax": "[ <length-percentage> | top | center | bottom ]#",
+    "computed": "absoluteLengthOrPercentage",
+    "initial": "0%",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-webkit-mask-position-y"
+  },
+  {
+    "name": "-webkit-mask-repeat",
+    "syntax": "<repeat-style>#",
+    "computed": "asSpecified",
+    "initial": "repeat",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-webkit-mask-repeat"
+  },
+  {
+    "name": "-webkit-mask-repeat-x",
+    "syntax": "repeat | no-repeat | space | round",
+    "computed": "asSpecified",
+    "initial": "repeat",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-webkit-mask-repeat-x"
+  },
+  {
+    "name": "-webkit-mask-repeat-y",
+    "syntax": "repeat | no-repeat | space | round",
+    "computed": "absoluteLengthOrPercentage",
+    "initial": "repeat",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-webkit-mask-repeat-y"
+  },
+  {
+    "name": "-webkit-mask-size",
+    "syntax": "<bg-size>#",
+    "computed": "asSpecified",
+    "initial": "auto auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-webkit-mask-size"
+  },
+  {
+    "name": "-webkit-overflow-scrolling",
+    "syntax": "auto | touch",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-webkit-overflow-scrolling"
+  },
+  {
+    "name": "-webkit-tap-highlight-color",
+    "syntax": "<color>",
+    "computed": "asSpecified",
+    "initial": "black",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-webkit-tap-highlight-color"
+  },
+  {
+    "name": "-webkit-text-fill-color",
+    "syntax": "<color>",
+    "computed": "computedColor",
+    "initial": "currentcolor",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-webkit-text-fill-color"
+  },
+  {
+    "name": "-webkit-text-stroke",
+    "syntax": "<length> || <color>",
+    "computed": [
+      "-webkit-text-stroke-width",
+      "-webkit-text-stroke-color"
+    ],
+    "initial": [
+      "-webkit-text-stroke-width",
+      "-webkit-text-stroke-color"
+    ],
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-webkit-text-stroke"
+  },
+  {
+    "name": "-webkit-text-stroke-color",
+    "syntax": "<color>",
+    "computed": "computedColor",
+    "initial": "currentcolor",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-webkit-text-stroke-color"
+  },
+  {
+    "name": "-webkit-text-stroke-width",
+    "syntax": "<length>",
+    "computed": "absoluteLength",
+    "initial": "0",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-webkit-text-stroke-width"
+  },
+  {
+    "name": "-webkit-touch-callout",
+    "syntax": "default | none",
+    "computed": "asSpecified",
+    "initial": "default",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-webkit-touch-callout"
+  },
+  {
+    "name": "-webkit-user-modify",
+    "syntax": "read-only | read-write | read-write-plaintext-only",
+    "computed": "asSpecified",
+    "initial": "read-only",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/-webkit-user-modify"
+  },
+  {
+    "name": "accent-color",
+    "syntax": "auto | <color>",
+    "computed": "asAutoOrColor",
+    "initial": "auto",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/accent-color"
+  },
+  {
+    "name": "align-content",
+    "syntax": "normal | <baseline-position> | <content-distribution> | <overflow-position>? <content-position>",
+    "computed": "asSpecified",
+    "initial": "normal",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/align-content"
+  },
+  {
+    "name": "align-items",
+    "syntax": "normal | stretch | <baseline-position> | [ <overflow-position>? <self-position> ]",
+    "computed": "asSpecified",
+    "initial": "normal",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/align-items"
+  },
+  {
+    "name": "align-self",
+    "syntax": "auto | normal | stretch | <baseline-position> | <overflow-position>? <self-position>",
+    "computed": "autoOnAbsolutelyPositionedElementsValueOfAlignItemsOnParent",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/align-self"
+  },
+  {
+    "name": "align-tracks",
+    "syntax": "[ normal | <baseline-position> | <content-distribution> | <overflow-position>? <content-position> ]#",
+    "computed": "asSpecified",
+    "initial": "normal",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/align-tracks"
+  },
+  {
+    "name": "all",
+    "syntax": "initial | inherit | unset | revert | revert-layer",
+    "computed": "asSpecifiedAppliesToEachProperty",
+    "initial": "noPracticalInitialValue",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/all"
+  },
+  {
+    "name": "anchor-name",
+    "syntax": "none | <dashed-ident>#",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/anchor-name"
+  },
+  {
+    "name": "anchor-scope",
+    "syntax": "none | all | <dashed-ident>#",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/anchor-scope"
+  },
+  {
+    "name": "animation",
+    "syntax": "<single-animation>#",
+    "computed": [
+      "animation-name",
+      "animation-duration",
+      "animation-timing-function",
+      "animation-delay",
+      "animation-direction",
+      "animation-iteration-count",
+      "animation-fill-mode",
+      "animation-play-state",
+      "animation-timeline"
+    ],
+    "initial": [
+      "animation-name",
+      "animation-duration",
+      "animation-timing-function",
+      "animation-delay",
+      "animation-iteration-count",
+      "animation-direction",
+      "animation-fill-mode",
+      "animation-play-state",
+      "animation-timeline"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/animation"
+  },
+  {
+    "name": "animation-composition",
+    "syntax": "<single-animation-composition>#",
+    "computed": "asSpecified",
+    "initial": "replace",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/animation-composition"
+  },
+  {
+    "name": "animation-delay",
+    "syntax": "<time>#",
+    "computed": "asSpecified",
+    "initial": "0s",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/animation-delay"
+  },
+  {
+    "name": "animation-direction",
+    "syntax": "<single-animation-direction>#",
+    "computed": "asSpecified",
+    "initial": "normal",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/animation-direction"
+  },
+  {
+    "name": "animation-duration",
+    "syntax": "<time>#",
+    "computed": "asSpecified",
+    "initial": "0s",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/animation-duration"
+  },
+  {
+    "name": "animation-fill-mode",
+    "syntax": "<single-animation-fill-mode>#",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/animation-fill-mode"
+  },
+  {
+    "name": "animation-iteration-count",
+    "syntax": "<single-animation-iteration-count>#",
+    "computed": "asSpecified",
+    "initial": "1",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/animation-iteration-count"
+  },
+  {
+    "name": "animation-name",
+    "syntax": "[ none | <keyframes-name> ]#",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/animation-name"
+  },
+  {
+    "name": "animation-play-state",
+    "syntax": "<single-animation-play-state>#",
+    "computed": "asSpecified",
+    "initial": "running",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/animation-play-state"
+  },
+  {
+    "name": "animation-range",
+    "syntax": "[ <'animation-range-start'> <'animation-range-end'>? ]#",
+    "computed": [
+      "animation-range-start",
+      "animation-range-end"
+    ],
+    "initial": [
+      "animation-range-start",
+      "animation-range-end"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/animation-range"
+  },
+  {
+    "name": "animation-range-end",
+    "syntax": "[ normal | <length-percentage> | <timeline-range-name> <length-percentage>? ]#",
+    "computed": "listEachItemConsistingOfNormalLengthPercentageOrNameLengthPercentage",
+    "initial": "normal",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/animation-range-end"
+  },
+  {
+    "name": "animation-range-start",
+    "syntax": "[ normal | <length-percentage> | <timeline-range-name> <length-percentage>? ]#",
+    "computed": "listEachItemConsistingOfNormalLengthPercentageOrNameLengthPercentage",
+    "initial": "normal",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/animation-range-start"
+  },
+  {
+    "name": "animation-timing-function",
+    "syntax": "<easing-function>#",
+    "computed": "asSpecified",
+    "initial": "ease",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/animation-timing-function"
+  },
+  {
+    "name": "animation-timeline",
+    "syntax": "<single-animation-timeline>#",
+    "computed": "listEachItemIdentifierOrNoneAuto",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/animation-timeline"
+  },
+  {
+    "name": "appearance",
+    "syntax": "none | auto | textfield | menulist-button | <compat-auto>",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/appearance"
+  },
+  {
+    "name": "aspect-ratio",
+    "syntax": "auto | <ratio>",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/aspect-ratio"
+  },
+  {
+    "name": "azimuth",
+    "syntax": "<angle> | [ [ left-side | far-left | left | center-left | center | center-right | right | far-right | right-side ] || behind ] | leftwards | rightwards",
+    "computed": "normalizedAngle",
+    "initial": "center",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/azimuth"
+  },
+  {
+    "name": "backdrop-filter",
+    "syntax": "none | <filter-function-list>",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/backdrop-filter"
+  },
+  {
+    "name": "backface-visibility",
+    "syntax": "visible | hidden",
+    "computed": "asSpecified",
+    "initial": "visible",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/backface-visibility"
+  },
+  {
+    "name": "background",
+    "syntax": "[ <bg-layer> , ]* <final-bg-layer>",
+    "computed": [
+      "background-image",
+      "background-position",
+      "background-size",
+      "background-repeat",
+      "background-origin",
+      "background-clip",
+      "background-attachment",
+      "background-color"
+    ],
+    "initial": [
+      "background-image",
+      "background-position",
+      "background-size",
+      "background-repeat",
+      "background-origin",
+      "background-clip",
+      "background-attachment",
+      "background-color"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/background"
+  },
+  {
+    "name": "background-attachment",
+    "syntax": "<attachment>#",
+    "computed": "asSpecified",
+    "initial": "scroll",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/background-attachment"
+  },
+  {
+    "name": "background-blend-mode",
+    "syntax": "<blend-mode>#",
+    "computed": "asSpecified",
+    "initial": "normal",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/background-blend-mode"
+  },
+  {
+    "name": "background-clip",
+    "syntax": "<box>#",
+    "computed": "asSpecified",
+    "initial": "border-box",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/background-clip"
+  },
+  {
+    "name": "background-color",
+    "syntax": "<color>",
+    "computed": "computedColor",
+    "initial": "transparent",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/background-color"
+  },
+  {
+    "name": "background-image",
+    "syntax": "<bg-image>#",
+    "computed": "asSpecifiedURLsAbsolute",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/background-image"
+  },
+  {
+    "name": "background-origin",
+    "syntax": "<box>#",
+    "computed": "asSpecified",
+    "initial": "padding-box",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/background-origin"
+  },
+  {
+    "name": "background-position",
+    "syntax": "<bg-position>#",
+    "computed": [
+      "background-position-x",
+      "background-position-y"
+    ],
+    "initial": "0% 0%",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/background-position"
+  },
+  {
+    "name": "background-position-x",
+    "syntax": "[ center | [ [ left | right | x-start | x-end ]? <length-percentage>? ]! ]#",
+    "computed": "listEachItemConsistingOfAbsoluteLengthPercentageAndOrigin",
+    "initial": "0%",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/background-position-x"
+  },
+  {
+    "name": "background-position-y",
+    "syntax": "[ center | [ [ top | bottom | y-start | y-end ]? <length-percentage>? ]! ]#",
+    "computed": "listEachItemConsistingOfAbsoluteLengthPercentageAndOrigin",
+    "initial": "0%",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/background-position-y"
+  },
+  {
+    "name": "background-repeat",
+    "syntax": "<repeat-style>#",
+    "computed": "listEachItemHasTwoKeywordsOnePerDimension",
+    "initial": "repeat",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/background-repeat"
+  },
+  {
+    "name": "background-size",
+    "syntax": "<bg-size>#",
+    "computed": "asSpecifiedRelativeToAbsoluteLengths",
+    "initial": "auto auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/background-size"
+  },
+  {
+    "name": "block-size",
+    "syntax": "<'width'>",
+    "computed": "sameAsWidthAndHeight",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/block-size"
+  },
+  {
+    "name": "border",
+    "syntax": "<line-width> || <line-style> || <color>",
+    "computed": [
+      "border-width",
+      "border-style",
+      "border-color"
+    ],
+    "initial": [
+      "border-width",
+      "border-style",
+      "border-color"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border"
+  },
+  {
+    "name": "border-block",
+    "syntax": "<'border-top-width'> || <'border-top-style'> || <color>",
+    "computed": [
+      "border-block-width",
+      "border-block-style",
+      "border-block-color"
+    ],
+    "initial": [
+      "border-block-width",
+      "border-block-style",
+      "border-block-color"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-block"
+  },
+  {
+    "name": "border-block-color",
+    "syntax": "<'border-top-color'>{1,2}",
+    "computed": "computedColor",
+    "initial": "currentcolor",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-block-color"
+  },
+  {
+    "name": "border-block-style",
+    "syntax": "<'border-top-style'>",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-block-style"
+  },
+  {
+    "name": "border-block-width",
+    "syntax": "<'border-top-width'>",
+    "computed": "absoluteLengthZeroIfBorderStyleNoneOrHidden",
+    "initial": "medium",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-block-width"
+  },
+  {
+    "name": "border-block-end",
+    "syntax": "<'border-top-width'> || <'border-top-style'> || <color>",
+    "computed": [
+      "border-top-width",
+      "border-top-style",
+      "border-top-color"
+    ],
+    "initial": [
+      "border-top-width",
+      "border-top-style",
+      "border-top-color"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-block-end"
+  },
+  {
+    "name": "border-block-end-color",
+    "syntax": "<'border-top-color'>",
+    "computed": "computedColor",
+    "initial": "currentcolor",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-block-end-color"
+  },
+  {
+    "name": "border-block-end-style",
+    "syntax": "<'border-top-style'>",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-block-end-style"
+  },
+  {
+    "name": "border-block-end-width",
+    "syntax": "<'border-top-width'>",
+    "computed": "absoluteLengthZeroIfBorderStyleNoneOrHidden",
+    "initial": "medium",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-block-end-width"
+  },
+  {
+    "name": "border-block-start",
+    "syntax": "<'border-top-width'> || <'border-top-style'> || <color>",
+    "computed": [
+      "border-width",
+      "border-style",
+      "border-block-start-color"
+    ],
+    "initial": [
+      "border-width",
+      "border-style",
+      "color"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-block-start"
+  },
+  {
+    "name": "border-block-start-color",
+    "syntax": "<'border-top-color'>",
+    "computed": "computedColor",
+    "initial": "currentcolor",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-block-start-color"
+  },
+  {
+    "name": "border-block-start-style",
+    "syntax": "<'border-top-style'>",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-block-start-style"
+  },
+  {
+    "name": "border-block-start-width",
+    "syntax": "<'border-top-width'>",
+    "computed": "absoluteLengthZeroIfBorderStyleNoneOrHidden",
+    "initial": "medium",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-block-start-width"
+  },
+  {
+    "name": "border-bottom",
+    "syntax": "<line-width> || <line-style> || <color>",
+    "computed": [
+      "border-bottom-width",
+      "border-bottom-style",
+      "border-bottom-color"
+    ],
+    "initial": [
+      "border-bottom-width",
+      "border-bottom-style",
+      "border-bottom-color"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-bottom"
+  },
+  {
+    "name": "border-bottom-color",
+    "syntax": "<'border-top-color'>",
+    "computed": "computedColor",
+    "initial": "currentcolor",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-bottom-color"
+  },
+  {
+    "name": "border-bottom-left-radius",
+    "syntax": "<length-percentage>{1,2}",
+    "computed": "twoAbsoluteLengthOrPercentages",
+    "initial": "0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-bottom-left-radius"
+  },
+  {
+    "name": "border-bottom-right-radius",
+    "syntax": "<length-percentage>{1,2}",
+    "computed": "twoAbsoluteLengthOrPercentages",
+    "initial": "0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-bottom-right-radius"
+  },
+  {
+    "name": "border-bottom-style",
+    "syntax": "<line-style>",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-bottom-style"
+  },
+  {
+    "name": "border-bottom-width",
+    "syntax": "<line-width>",
+    "computed": "absoluteLengthOr0IfBorderBottomStyleNoneOrHidden",
+    "initial": "medium",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-bottom-width"
+  },
+  {
+    "name": "border-collapse",
+    "syntax": "collapse | separate",
+    "computed": "asSpecified",
+    "initial": "separate",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-collapse"
+  },
+  {
+    "name": "border-color",
+    "syntax": "<color>{1,4}",
+    "computed": [
+      "border-bottom-color",
+      "border-left-color",
+      "border-right-color",
+      "border-top-color"
+    ],
+    "initial": [
+      "border-top-color",
+      "border-right-color",
+      "border-bottom-color",
+      "border-left-color"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-color"
+  },
+  {
+    "name": "border-end-end-radius",
+    "syntax": "<length-percentage>{1,2}",
+    "computed": "twoAbsoluteLengthOrPercentages",
+    "initial": "0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-end-end-radius"
+  },
+  {
+    "name": "border-end-start-radius",
+    "syntax": "<length-percentage>{1,2}",
+    "computed": "twoAbsoluteLengthOrPercentages",
+    "initial": "0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-end-start-radius"
+  },
+  {
+    "name": "border-image",
+    "syntax": "<'border-image-source'> || <'border-image-slice'> [ / <'border-image-width'> | / <'border-image-width'>? / <'border-image-outset'> ]? || <'border-image-repeat'>",
+    "computed": [
+      "border-image-outset",
+      "border-image-repeat",
+      "border-image-slice",
+      "border-image-source",
+      "border-image-width"
+    ],
+    "initial": [
+      "border-image-source",
+      "border-image-slice",
+      "border-image-width",
+      "border-image-outset",
+      "border-image-repeat"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-image"
+  },
+  {
+    "name": "border-image-outset",
+    "syntax": "[ <length> | <number> ]{1,4}",
+    "computed": "asSpecifiedRelativeToAbsoluteLengths",
+    "initial": "0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-image-outset"
+  },
+  {
+    "name": "border-image-repeat",
+    "syntax": "[ stretch | repeat | round | space ]{1,2}",
+    "computed": "asSpecified",
+    "initial": "stretch",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-image-repeat"
+  },
+  {
+    "name": "border-image-slice",
+    "syntax": "<number-percentage>{1,4} && fill?",
+    "computed": "oneToFourPercentagesOrAbsoluteLengthsPlusFill",
+    "initial": "100%",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-image-slice"
+  },
+  {
+    "name": "border-image-source",
+    "syntax": "none | <image>",
+    "computed": "noneOrImageWithAbsoluteURI",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-image-source"
+  },
+  {
+    "name": "border-image-width",
+    "syntax": "[ <length-percentage> | <number> | auto ]{1,4}",
+    "computed": "asSpecifiedRelativeToAbsoluteLengths",
+    "initial": "1",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-image-width"
+  },
+  {
+    "name": "border-inline",
+    "syntax": "<'border-top-width'> || <'border-top-style'> || <color>",
+    "computed": [
+      "border-inline-width",
+      "border-inline-style",
+      "border-inline-color"
+    ],
+    "initial": [
+      "border-inline-width",
+      "border-inline-style",
+      "border-inline-color"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-inline"
+  },
+  {
+    "name": "border-inline-end",
+    "syntax": "<'border-top-width'> || <'border-top-style'> || <color>",
+    "computed": [
+      "border-width",
+      "border-style",
+      "border-inline-end-color"
+    ],
+    "initial": [
+      "border-width",
+      "border-style",
+      "color"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-inline-end"
+  },
+  {
+    "name": "border-inline-color",
+    "syntax": "<'border-top-color'>{1,2}",
+    "computed": "computedColor",
+    "initial": "currentcolor",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-inline-color"
+  },
+  {
+    "name": "border-inline-style",
+    "syntax": "<'border-top-style'>",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-inline-style"
+  },
+  {
+    "name": "border-inline-width",
+    "syntax": "<'border-top-width'>",
+    "computed": "absoluteLengthZeroIfBorderStyleNoneOrHidden",
+    "initial": "medium",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-inline-width"
+  },
+  {
+    "name": "border-inline-end-color",
+    "syntax": "<'border-top-color'>",
+    "computed": "computedColor",
+    "initial": "currentcolor",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-inline-end-color"
+  },
+  {
+    "name": "border-inline-end-style",
+    "syntax": "<'border-top-style'>",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-inline-end-style"
+  },
+  {
+    "name": "border-inline-end-width",
+    "syntax": "<'border-top-width'>",
+    "computed": "absoluteLengthZeroIfBorderStyleNoneOrHidden",
+    "initial": "medium",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-inline-end-width"
+  },
+  {
+    "name": "border-inline-start",
+    "syntax": "<'border-top-width'> || <'border-top-style'> || <color>",
+    "computed": [
+      "border-width",
+      "border-style",
+      "border-inline-start-color"
+    ],
+    "initial": [
+      "border-width",
+      "border-style",
+      "color"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-inline-start"
+  },
+  {
+    "name": "border-inline-start-color",
+    "syntax": "<'border-top-color'>",
+    "computed": "computedColor",
+    "initial": "currentcolor",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-inline-start-color"
+  },
+  {
+    "name": "border-inline-start-style",
+    "syntax": "<'border-top-style'>",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-inline-start-style"
+  },
+  {
+    "name": "border-inline-start-width",
+    "syntax": "<'border-top-width'>",
+    "computed": "absoluteLengthZeroIfBorderStyleNoneOrHidden",
+    "initial": "medium",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-inline-start-width"
+  },
+  {
+    "name": "border-left",
+    "syntax": "<line-width> || <line-style> || <color>",
+    "computed": [
+      "border-left-width",
+      "border-left-style",
+      "border-left-color"
+    ],
+    "initial": [
+      "border-left-width",
+      "border-left-style",
+      "border-left-color"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-left"
+  },
+  {
+    "name": "border-left-color",
+    "syntax": "<color>",
+    "computed": "computedColor",
+    "initial": "currentcolor",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-left-color"
+  },
+  {
+    "name": "border-left-style",
+    "syntax": "<line-style>",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-left-style"
+  },
+  {
+    "name": "border-left-width",
+    "syntax": "<line-width>",
+    "computed": "absoluteLengthOr0IfBorderLeftStyleNoneOrHidden",
+    "initial": "medium",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-left-width"
+  },
+  {
+    "name": "border-radius",
+    "syntax": "<length-percentage>{1,4} [ / <length-percentage>{1,4} ]?",
+    "computed": [
+      "border-bottom-left-radius",
+      "border-bottom-right-radius",
+      "border-top-left-radius",
+      "border-top-right-radius"
+    ],
+    "initial": [
+      "border-top-left-radius",
+      "border-top-right-radius",
+      "border-bottom-right-radius",
+      "border-bottom-left-radius"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-radius"
+  },
+  {
+    "name": "border-right",
+    "syntax": "<line-width> || <line-style> || <color>",
+    "computed": [
+      "border-right-width",
+      "border-right-style",
+      "border-right-color"
+    ],
+    "initial": [
+      "border-right-width",
+      "border-right-style",
+      "border-right-color"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-right"
+  },
+  {
+    "name": "border-right-color",
+    "syntax": "<color>",
+    "computed": "computedColor",
+    "initial": "currentcolor",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-right-color"
+  },
+  {
+    "name": "border-right-style",
+    "syntax": "<line-style>",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-right-style"
+  },
+  {
+    "name": "border-right-width",
+    "syntax": "<line-width>",
+    "computed": "absoluteLengthOr0IfBorderRightStyleNoneOrHidden",
+    "initial": "medium",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-right-width"
+  },
+  {
+    "name": "border-spacing",
+    "syntax": "<length> <length>?",
+    "computed": "twoAbsoluteLengths",
+    "initial": "0",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-spacing"
+  },
+  {
+    "name": "border-start-end-radius",
+    "syntax": "<length-percentage>{1,2}",
+    "computed": "twoAbsoluteLengthOrPercentages",
+    "initial": "0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-start-end-radius"
+  },
+  {
+    "name": "border-start-start-radius",
+    "syntax": "<length-percentage>{1,2}",
+    "computed": "twoAbsoluteLengthOrPercentages",
+    "initial": "0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-start-start-radius"
+  },
+  {
+    "name": "border-style",
+    "syntax": "<line-style>{1,4}",
+    "computed": [
+      "border-bottom-style",
+      "border-left-style",
+      "border-right-style",
+      "border-top-style"
+    ],
+    "initial": [
+      "border-top-style",
+      "border-right-style",
+      "border-bottom-style",
+      "border-left-style"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-style"
+  },
+  {
+    "name": "border-top",
+    "syntax": "<line-width> || <line-style> || <color>",
+    "computed": [
+      "border-top-width",
+      "border-top-style",
+      "border-top-color"
+    ],
+    "initial": [
+      "border-top-width",
+      "border-top-style",
+      "border-top-color"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-top"
+  },
+  {
+    "name": "border-top-color",
+    "syntax": "<color>",
+    "computed": "computedColor",
+    "initial": "currentcolor",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-top-color"
+  },
+  {
+    "name": "border-top-left-radius",
+    "syntax": "<length-percentage>{1,2}",
+    "computed": "twoAbsoluteLengthOrPercentages",
+    "initial": "0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-top-left-radius"
+  },
+  {
+    "name": "border-top-right-radius",
+    "syntax": "<length-percentage>{1,2}",
+    "computed": "twoAbsoluteLengthOrPercentages",
+    "initial": "0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-top-right-radius"
+  },
+  {
+    "name": "border-top-style",
+    "syntax": "<line-style>",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-top-style"
+  },
+  {
+    "name": "border-top-width",
+    "syntax": "<line-width>",
+    "computed": "absoluteLengthOr0IfBorderTopStyleNoneOrHidden",
+    "initial": "medium",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-top-width"
+  },
+  {
+    "name": "border-width",
+    "syntax": "<line-width>{1,4}",
+    "computed": [
+      "border-bottom-width",
+      "border-left-width",
+      "border-right-width",
+      "border-top-width"
+    ],
+    "initial": [
+      "border-top-width",
+      "border-right-width",
+      "border-bottom-width",
+      "border-left-width"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/border-width"
+  },
+  {
+    "name": "bottom",
+    "syntax": "<length> | <percentage> | auto",
+    "computed": "lengthAbsolutePercentageAsSpecifiedOtherwiseAuto",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/bottom"
+  },
+  {
+    "name": "box-align",
+    "syntax": "start | center | end | baseline | stretch",
+    "computed": "asSpecified",
+    "initial": "stretch",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/box-align"
+  },
+  {
+    "name": "box-decoration-break",
+    "syntax": "slice | clone",
+    "computed": "asSpecified",
+    "initial": "slice",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/box-decoration-break"
+  },
+  {
+    "name": "box-direction",
+    "syntax": "normal | reverse | inherit",
+    "computed": "asSpecified",
+    "initial": "normal",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/box-direction"
+  },
+  {
+    "name": "box-flex",
+    "syntax": "<number>",
+    "computed": "asSpecified",
+    "initial": "0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/box-flex"
+  },
+  {
+    "name": "box-flex-group",
+    "syntax": "<integer>",
+    "computed": "asSpecified",
+    "initial": "1",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/box-flex-group"
+  },
+  {
+    "name": "box-lines",
+    "syntax": "single | multiple",
+    "computed": "asSpecified",
+    "initial": "single",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/box-lines"
+  },
+  {
+    "name": "box-ordinal-group",
+    "syntax": "<integer>",
+    "computed": "asSpecified",
+    "initial": "1",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/box-ordinal-group"
+  },
+  {
+    "name": "box-orient",
+    "syntax": "horizontal | vertical | inline-axis | block-axis | inherit",
+    "computed": "asSpecified",
+    "initial": "inlineAxisHorizontalInXUL",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/box-orient"
+  },
+  {
+    "name": "box-pack",
+    "syntax": "start | center | end | justify",
+    "computed": "asSpecified",
+    "initial": "start",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/box-pack"
+  },
+  {
+    "name": "box-shadow",
+    "syntax": "none | <shadow>#",
+    "computed": "absoluteLengthsSpecifiedColorAsSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/box-shadow"
+  },
+  {
+    "name": "box-sizing",
+    "syntax": "content-box | border-box",
+    "computed": "asSpecified",
+    "initial": "content-box",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/box-sizing"
+  },
+  {
+    "name": "break-after",
+    "syntax": "auto | avoid | always | all | avoid-page | page | left | right | recto | verso | avoid-column | column | avoid-region | region",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/break-after"
+  },
+  {
+    "name": "break-before",
+    "syntax": "auto | avoid | always | all | avoid-page | page | left | right | recto | verso | avoid-column | column | avoid-region | region",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/break-before"
+  },
+  {
+    "name": "break-inside",
+    "syntax": "auto | avoid | avoid-page | avoid-column | avoid-region",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/break-inside"
+  },
+  {
+    "name": "caption-side",
+    "syntax": "top | bottom | block-start | block-end | inline-start | inline-end",
+    "computed": "asSpecified",
+    "initial": "top",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/caption-side"
+  },
+  {
+    "name": "caret",
+    "syntax": "<'caret-color'> || <'caret-shape'>",
+    "computed": [
+      "caret-color",
+      "caret-shape"
+    ],
+    "initial": [
+      "caret-color",
+      "caret-shape"
+    ],
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/caret"
+  },
+  {
+    "name": "caret-color",
+    "syntax": "auto | <color>",
+    "computed": "asAutoOrColor",
+    "initial": "auto",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/caret-color"
+  },
+  {
+    "name": "caret-shape",
+    "syntax": "auto | bar | block | underscore",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/caret-shape"
+  },
+  {
+    "name": "clear",
+    "syntax": "none | left | right | both | inline-start | inline-end",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/clear"
+  },
+  {
+    "name": "clip",
+    "syntax": "<shape> | auto",
+    "computed": "autoOrRectangle",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/clip"
+  },
+  {
+    "name": "clip-path",
+    "syntax": "<clip-source> | [ <basic-shape> || <geometry-box> ] | none",
+    "computed": "asSpecifiedURLsAbsolute",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/clip-path"
+  },
+  {
+    "name": "color",
+    "syntax": "<color>",
+    "computed": "computedColor",
+    "initial": "canvastext",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/color"
+  },
+  {
+    "name": "color-scheme",
+    "syntax": "normal | [ light | dark | <custom-ident> ]+ && only?",
+    "computed": "asSpecified",
+    "initial": "normal",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/color-scheme"
+  },
+  {
+    "name": "column-count",
+    "syntax": "<integer> | auto",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/column-count"
+  },
+  {
+    "name": "column-fill",
+    "syntax": "auto | balance | balance-all",
+    "computed": "asSpecified",
+    "initial": "balance",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/column-fill"
+  },
+  {
+    "name": "column-gap",
+    "syntax": "normal | <length-percentage>",
+    "computed": "asSpecifiedWithLengthsAbsoluteAndNormalComputingToZeroExceptMultiColumn",
+    "initial": "normal",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/column-gap"
+  },
+  {
+    "name": "column-rule",
+    "syntax": "<'column-rule-width'> || <'column-rule-style'> || <'column-rule-color'>",
+    "computed": [
+      "column-rule-color",
+      "column-rule-style",
+      "column-rule-width"
+    ],
+    "initial": [
+      "column-rule-width",
+      "column-rule-style",
+      "column-rule-color"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/column-rule"
+  },
+  {
+    "name": "column-rule-color",
+    "syntax": "<color>",
+    "computed": "computedColor",
+    "initial": "currentcolor",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/column-rule-color"
+  },
+  {
+    "name": "column-rule-style",
+    "syntax": "<'border-style'>",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/column-rule-style"
+  },
+  {
+    "name": "column-rule-width",
+    "syntax": "<'border-width'>",
+    "computed": "absoluteLength0IfColumnRuleStyleNoneOrHidden",
+    "initial": "medium",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/column-rule-width"
+  },
+  {
+    "name": "column-span",
+    "syntax": "none | all",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/column-span"
+  },
+  {
+    "name": "column-width",
+    "syntax": "<length> | auto",
+    "computed": "absoluteLengthZeroOrLarger",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/column-width"
+  },
+  {
+    "name": "columns",
+    "syntax": "<'column-width'> || <'column-count'>",
+    "computed": [
+      "column-width",
+      "column-count"
+    ],
+    "initial": [
+      "column-width",
+      "column-count"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/columns"
+  },
+  {
+    "name": "contain",
+    "syntax": "none | strict | content | [ [ size || inline-size ] || layout || style || paint ]",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/contain"
+  },
+  {
+    "name": "contain-intrinsic-size",
+    "syntax": "[ auto? [ none | <length> ] ]{1,2}",
+    "computed": [
+      "contain-intrinsic-width",
+      "contain-intrinsic-height"
+    ],
+    "initial": [
+      "contain-intrinsic-width",
+      "contain-intrinsic-height"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/contain-intrinsic-size"
+  },
+  {
+    "name": "contain-intrinsic-block-size",
+    "syntax": "auto? [ none | <length> ]",
+    "computed": "asSpecifiedWithLengthValuesComputed",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/contain-intrinsic-block-size"
+  },
+  {
+    "name": "contain-intrinsic-height",
+    "syntax": "auto? [ none | <length> ]",
+    "computed": "asSpecifiedWithLengthValuesComputed",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/contain-intrinsic-height"
+  },
+  {
+    "name": "contain-intrinsic-inline-size",
+    "syntax": "auto? [ none | <length> ]",
+    "computed": "asSpecifiedWithLengthValuesComputed",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/contain-intrinsic-inline-size"
+  },
+  {
+    "name": "contain-intrinsic-width",
+    "syntax": "auto? [ none | <length> ]",
+    "computed": "asSpecifiedWithLengthValuesComputed",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/contain-intrinsic-width"
+  },
+  {
+    "name": "container",
+    "syntax": "<'container-name'> [ / <'container-type'> ]?",
+    "computed": [
+      "container-name",
+      "container-type"
+    ],
+    "initial": [
+      "container-name",
+      "container-type"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/container"
+  },
+  {
+    "name": "container-name",
+    "syntax": "none | <custom-ident>+",
+    "computed": "noneOrOrderedListOfIdentifiers",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/container-name"
+  },
+  {
+    "name": "container-type",
+    "syntax": "normal | size | inline-size",
+    "computed": "asSpecified",
+    "initial": "normal",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/container-type"
+  },
+  {
+    "name": "content",
+    "syntax": "normal | none | [ <content-replacement> | <content-list> ] [/ [ <string> | <counter> ]+ ]?",
+    "computed": "normalOnElementsForPseudosNoneAbsoluteURIStringOrAsSpecified",
+    "initial": "normal",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/content"
+  },
+  {
+    "name": "content-visibility",
+    "syntax": "visible | auto | hidden",
+    "computed": "asSpecified",
+    "initial": "visible",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/content-visibility"
+  },
+  {
+    "name": "counter-increment",
+    "syntax": "[ <counter-name> <integer>? ]+ | none",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/counter-increment"
+  },
+  {
+    "name": "counter-reset",
+    "syntax": "[ <counter-name> <integer>? | <reversed-counter-name> <integer>? ]+ | none",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/counter-reset"
+  },
+  {
+    "name": "counter-set",
+    "syntax": "[ <counter-name> <integer>? ]+ | none",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/counter-set"
+  },
+  {
+    "name": "cursor",
+    "syntax": "[ [ <url> [ <x> <y> ]? , ]* [ auto | default | none | context-menu | help | pointer | progress | wait | cell | crosshair | text | vertical-text | alias | copy | move | no-drop | not-allowed | e-resize | n-resize | ne-resize | nw-resize | s-resize | se-resize | sw-resize | w-resize | ew-resize | ns-resize | nesw-resize | nwse-resize | col-resize | row-resize | all-scroll | zoom-in | zoom-out | grab | grabbing ] ]",
+    "computed": "asSpecifiedURLsAbsolute",
+    "initial": "auto",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/cursor"
+  },
+  {
+    "name": "direction",
+    "syntax": "ltr | rtl",
+    "computed": "asSpecified",
+    "initial": "ltr",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/direction"
+  },
+  {
+    "name": "display",
+    "syntax": "[ <display-outside> || <display-inside> ] | <display-listitem> | <display-internal> | <display-box> | <display-legacy>",
+    "computed": "asSpecifiedExceptPositionedFloatingAndRootElementsKeywordMaybeDifferent",
+    "initial": "inline",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/display"
+  },
+  {
+    "name": "empty-cells",
+    "syntax": "show | hide",
+    "computed": "asSpecified",
+    "initial": "show",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/empty-cells"
+  },
+  {
+    "name": "field-sizing",
+    "syntax": "content | fixed",
+    "computed": "asSpecified",
+    "initial": "fixed",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/field-sizing"
+  },
+  {
+    "name": "filter",
+    "syntax": "none | <filter-function-list>",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/filter"
+  },
+  {
+    "name": "flex",
+    "syntax": "none | [ <'flex-grow'> <'flex-shrink'>? || <'flex-basis'> ]",
+    "computed": [
+      "flex-grow",
+      "flex-shrink",
+      "flex-basis"
+    ],
+    "initial": [
+      "flex-grow",
+      "flex-shrink",
+      "flex-basis"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/flex"
+  },
+  {
+    "name": "flex-basis",
+    "syntax": "content | <'width'>",
+    "computed": "asSpecifiedRelativeToAbsoluteLengths",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/flex-basis"
+  },
+  {
+    "name": "flex-direction",
+    "syntax": "row | row-reverse | column | column-reverse",
+    "computed": "asSpecified",
+    "initial": "row",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/flex-direction"
+  },
+  {
+    "name": "flex-flow",
+    "syntax": "<'flex-direction'> || <'flex-wrap'>",
+    "computed": [
+      "flex-direction",
+      "flex-wrap"
+    ],
+    "initial": [
+      "flex-direction",
+      "flex-wrap"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/flex-flow"
+  },
+  {
+    "name": "flex-grow",
+    "syntax": "<number>",
+    "computed": "asSpecified",
+    "initial": "0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/flex-grow"
+  },
+  {
+    "name": "flex-shrink",
+    "syntax": "<number>",
+    "computed": "asSpecified",
+    "initial": "1",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/flex-shrink"
+  },
+  {
+    "name": "flex-wrap",
+    "syntax": "nowrap | wrap | wrap-reverse",
+    "computed": "asSpecified",
+    "initial": "nowrap",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/flex-wrap"
+  },
+  {
+    "name": "float",
+    "syntax": "left | right | none | inline-start | inline-end",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/float"
+  },
+  {
+    "name": "font",
+    "syntax": "[ [ <'font-style'> || <font-variant-css21> || <'font-weight'> || <'font-stretch'> ]? <'font-size'> [ / <'line-height'> ]? <'font-family'> ] | caption | icon | menu | message-box | small-caption | status-bar",
+    "computed": [
+      "font-style",
+      "font-variant",
+      "font-weight",
+      "font-stretch",
+      "font-size",
+      "line-height",
+      "font-family"
+    ],
+    "initial": [
+      "font-style",
+      "font-variant",
+      "font-weight",
+      "font-stretch",
+      "font-size",
+      "line-height",
+      "font-family"
+    ],
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/font"
+  },
+  {
+    "name": "font-family",
+    "syntax": "[ <family-name> | <generic-family> ]#",
+    "computed": "asSpecified",
+    "initial": "dependsOnUserAgent",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/font-family"
+  },
+  {
+    "name": "font-feature-settings",
+    "syntax": "normal | <feature-tag-value>#",
+    "computed": "asSpecified",
+    "initial": "normal",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/font-feature-settings"
+  },
+  {
+    "name": "font-kerning",
+    "syntax": "auto | normal | none",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/font-kerning"
+  },
+  {
+    "name": "font-language-override",
+    "syntax": "normal | <string>",
+    "computed": "asSpecified",
+    "initial": "normal",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/font-language-override"
+  },
+  {
+    "name": "font-optical-sizing",
+    "syntax": "auto | none",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/font-optical-sizing"
+  },
+  {
+    "name": "font-palette",
+    "syntax": "normal | light | dark | <palette-identifier>",
+    "computed": "asSpecified",
+    "initial": "normal",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/font-palette"
+  },
+  {
+    "name": "font-variation-settings",
+    "syntax": "normal | [ <string> <number> ]#",
+    "computed": "asSpecified",
+    "initial": "normal",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/font-variation-settings"
+  },
+  {
+    "name": "font-size",
+    "syntax": "<absolute-size> | <relative-size> | <length-percentage>",
+    "computed": "asSpecifiedRelativeToAbsoluteLengths",
+    "initial": "medium",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/font-size"
+  },
+  {
+    "name": "font-size-adjust",
+    "syntax": "none | [ ex-height | cap-height | ch-width | ic-width | ic-height ]? [ from-font | <number> ]",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/font-size-adjust"
+  },
+  {
+    "name": "font-smooth",
+    "syntax": "auto | never | always | <absolute-size> | <length>",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/font-smooth"
+  },
+  {
+    "name": "font-stretch",
+    "syntax": "<font-stretch-absolute>",
+    "computed": "asSpecified",
+    "initial": "normal",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/font-stretch"
+  },
+  {
+    "name": "font-style",
+    "syntax": "normal | italic | oblique <angle>?",
+    "computed": "asSpecified",
+    "initial": "normal",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/font-style"
+  },
+  {
+    "name": "font-synthesis",
+    "syntax": "none | [ weight || style || small-caps || position]",
+    "computed": "asSpecified",
+    "initial": "weight style small-caps position ",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/font-synthesis"
+  },
+  {
+    "name": "font-synthesis-position",
+    "syntax": "auto | none",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/font-synthesis-position"
+  },
+  {
+    "name": "font-synthesis-small-caps",
+    "syntax": "auto | none",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/font-synthesis-small-caps"
+  },
+  {
+    "name": "font-synthesis-style",
+    "syntax": "auto | none",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/font-synthesis-style"
+  },
+  {
+    "name": "font-synthesis-weight",
+    "syntax": "auto | none",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/font-synthesis-weight"
+  },
+  {
+    "name": "font-variant",
+    "syntax": "normal | none | [ <common-lig-values> || <discretionary-lig-values> || <historical-lig-values> || <contextual-alt-values> || stylistic( <feature-value-name> ) || historical-forms || styleset( <feature-value-name># ) || character-variant( <feature-value-name># ) || swash( <feature-value-name> ) || ornaments( <feature-value-name> ) || annotation( <feature-value-name> ) || [ small-caps | all-small-caps | petite-caps | all-petite-caps | unicase | titling-caps ] || <numeric-figure-values> || <numeric-spacing-values> || <numeric-fraction-values> || ordinal || slashed-zero || <east-asian-variant-values> || <east-asian-width-values> || ruby ]",
+    "computed": "asSpecified",
+    "initial": "normal",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/font-variant"
+  },
+  {
+    "name": "font-variant-alternates",
+    "syntax": "normal | [ stylistic( <feature-value-name> ) || historical-forms || styleset( <feature-value-name># ) || character-variant( <feature-value-name># ) || swash( <feature-value-name> ) || ornaments( <feature-value-name> ) || annotation( <feature-value-name> ) ]",
+    "computed": "asSpecified",
+    "initial": "normal",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/font-variant-alternates"
+  },
+  {
+    "name": "font-variant-caps",
+    "syntax": "normal | small-caps | all-small-caps | petite-caps | all-petite-caps | unicase | titling-caps",
+    "computed": "asSpecified",
+    "initial": "normal",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/font-variant-caps"
+  },
+  {
+    "name": "font-variant-east-asian",
+    "syntax": "normal | [ <east-asian-variant-values> || <east-asian-width-values> || ruby ]",
+    "computed": "asSpecified",
+    "initial": "normal",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/font-variant-east-asian"
+  },
+  {
+    "name": "font-variant-emoji",
+    "syntax": "normal | text | emoji | unicode",
+    "computed": "asSpecified",
+    "initial": "normal",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/font-variant-emoji"
+  },
+  {
+    "name": "font-variant-ligatures",
+    "syntax": "normal | none | [ <common-lig-values> || <discretionary-lig-values> || <historical-lig-values> || <contextual-alt-values> ]",
+    "computed": "asSpecified",
+    "initial": "normal",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/font-variant-ligatures"
+  },
+  {
+    "name": "font-variant-numeric",
+    "syntax": "normal | [ <numeric-figure-values> || <numeric-spacing-values> || <numeric-fraction-values> || ordinal || slashed-zero ]",
+    "computed": "asSpecified",
+    "initial": "normal",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/font-variant-numeric"
+  },
+  {
+    "name": "font-variant-position",
+    "syntax": "normal | sub | super",
+    "computed": "asSpecified",
+    "initial": "normal",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/font-variant-position"
+  },
+  {
+    "name": "font-weight",
+    "syntax": "<font-weight-absolute> | bolder | lighter",
+    "computed": "keywordOrNumericalValueBolderLighterTransformedToRealValue",
+    "initial": "normal",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/font-weight"
+  },
+  {
+    "name": "forced-color-adjust",
+    "syntax": "auto | none",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/forced-color-adjust"
+  },
+  {
+    "name": "gap",
+    "syntax": "<'row-gap'> <'column-gap'>?",
+    "computed": [
+      "row-gap",
+      "column-gap"
+    ],
+    "initial": [
+      "row-gap",
+      "column-gap"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/gap"
+  },
+  {
+    "name": "grid",
+    "syntax": "<'grid-template'> | <'grid-template-rows'> / [ auto-flow && dense? ] <'grid-auto-columns'>? | [ auto-flow && dense? ] <'grid-auto-rows'>? / <'grid-template-columns'>",
+    "computed": [
+      "grid-template-rows",
+      "grid-template-columns",
+      "grid-template-areas",
+      "grid-auto-rows",
+      "grid-auto-columns",
+      "grid-auto-flow",
+      "grid-column-gap",
+      "grid-row-gap",
+      "column-gap",
+      "row-gap"
+    ],
+    "initial": [
+      "grid-template-rows",
+      "grid-template-columns",
+      "grid-template-areas",
+      "grid-auto-rows",
+      "grid-auto-columns",
+      "grid-auto-flow",
+      "grid-column-gap",
+      "grid-row-gap",
+      "column-gap",
+      "row-gap"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/grid"
+  },
+  {
+    "name": "grid-area",
+    "syntax": "<grid-line> [ / <grid-line> ]{0,3}",
+    "computed": [
+      "grid-row-start",
+      "grid-column-start",
+      "grid-row-end",
+      "grid-column-end"
+    ],
+    "initial": [
+      "grid-row-start",
+      "grid-column-start",
+      "grid-row-end",
+      "grid-column-end"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/grid-area"
+  },
+  {
+    "name": "grid-auto-columns",
+    "syntax": "<track-size>+",
+    "computed": "percentageAsSpecifiedOrAbsoluteLength",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/grid-auto-columns"
+  },
+  {
+    "name": "grid-auto-flow",
+    "syntax": "[ row | column ] || dense",
+    "computed": "asSpecified",
+    "initial": "row",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/grid-auto-flow"
+  },
+  {
+    "name": "grid-auto-rows",
+    "syntax": "<track-size>+",
+    "computed": "percentageAsSpecifiedOrAbsoluteLength",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/grid-auto-rows"
+  },
+  {
+    "name": "grid-column",
+    "syntax": "<grid-line> [ / <grid-line> ]?",
+    "computed": [
+      "grid-column-start",
+      "grid-column-end"
+    ],
+    "initial": [
+      "grid-column-start",
+      "grid-column-end"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/grid-column"
+  },
+  {
+    "name": "grid-column-end",
+    "syntax": "<grid-line>",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/grid-column-end"
+  },
+  {
+    "name": "grid-column-gap",
+    "syntax": "<length-percentage>",
+    "computed": "percentageAsSpecifiedOrAbsoluteLength",
+    "initial": "0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/grid-column-gap"
+  },
+  {
+    "name": "grid-column-start",
+    "syntax": "<grid-line>",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/grid-column-start"
+  },
+  {
+    "name": "grid-gap",
+    "syntax": "<'grid-row-gap'> <'grid-column-gap'>?",
+    "computed": [
+      "grid-row-gap",
+      "grid-column-gap"
+    ],
+    "initial": [
+      "grid-row-gap",
+      "grid-column-gap"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/grid-gap"
+  },
+  {
+    "name": "grid-row",
+    "syntax": "<grid-line> [ / <grid-line> ]?",
+    "computed": [
+      "grid-row-start",
+      "grid-row-end"
+    ],
+    "initial": [
+      "grid-row-start",
+      "grid-row-end"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/grid-row"
+  },
+  {
+    "name": "grid-row-end",
+    "syntax": "<grid-line>",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/grid-row-end"
+  },
+  {
+    "name": "grid-row-gap",
+    "syntax": "<length-percentage>",
+    "computed": "percentageAsSpecifiedOrAbsoluteLength",
+    "initial": "0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/grid-row-gap"
+  },
+  {
+    "name": "grid-row-start",
+    "syntax": "<grid-line>",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/grid-row-start"
+  },
+  {
+    "name": "grid-template",
+    "syntax": "none | [ <'grid-template-rows'> / <'grid-template-columns'> ] | [ <line-names>? <string> <track-size>? <line-names>? ]+ [ / <explicit-track-list> ]?",
+    "computed": [
+      "grid-template-columns",
+      "grid-template-rows",
+      "grid-template-areas"
+    ],
+    "initial": [
+      "grid-template-columns",
+      "grid-template-rows",
+      "grid-template-areas"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/grid-template"
+  },
+  {
+    "name": "grid-template-areas",
+    "syntax": "none | <string>+",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/grid-template-areas"
+  },
+  {
+    "name": "grid-template-columns",
+    "syntax": "none | <track-list> | <auto-track-list> | subgrid <line-name-list>?",
+    "computed": "asSpecifiedRelativeToAbsoluteLengths",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/grid-template-columns"
+  },
+  {
+    "name": "grid-template-rows",
+    "syntax": "none | <track-list> | <auto-track-list> | subgrid <line-name-list>?",
+    "computed": "asSpecifiedRelativeToAbsoluteLengths",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/grid-template-rows"
+  },
+  {
+    "name": "hanging-punctuation",
+    "syntax": "none | [ first || [ force-end | allow-end ] || last ]",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/hanging-punctuation"
+  },
+  {
+    "name": "height",
+    "syntax": "auto | <length> | <percentage> | min-content | max-content | fit-content | fit-content(<length-percentage>)",
+    "computed": "percentageAutoOrAbsoluteLength",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/height"
+  },
+  {
+    "name": "hyphenate-character",
+    "syntax": "auto | <string>",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/hyphenate-character"
+  },
+  {
+    "name": "hyphenate-limit-chars",
+    "syntax": "[ auto | <integer> ]{1,3}",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/hyphenate-limit-chars"
+  },
+  {
+    "name": "hyphens",
+    "syntax": "none | manual | auto",
+    "computed": "asSpecified",
+    "initial": "manual",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/hyphens"
+  },
+  {
+    "name": "image-orientation",
+    "syntax": "from-image | <angle> | [ <angle>? flip ]",
+    "computed": "angleRoundedToNextQuarter",
+    "initial": "from-image",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/image-orientation"
+  },
+  {
+    "name": "image-rendering",
+    "syntax": "auto | crisp-edges | pixelated",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/image-rendering"
+  },
+  {
+    "name": "image-resolution",
+    "syntax": "[ from-image || <resolution> ] && snap?",
+    "computed": "asSpecifiedWithExceptionOfResolution",
+    "initial": "1dppx",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/image-resolution"
+  },
+  {
+    "name": "ime-mode",
+    "syntax": "auto | normal | active | inactive | disabled",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/ime-mode"
+  },
+  {
+    "name": "initial-letter",
+    "syntax": "normal | [ <number> <integer>? ]",
+    "computed": "asSpecified",
+    "initial": "normal",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/initial-letter"
+  },
+  {
+    "name": "initial-letter-align",
+    "syntax": "[ auto | alphabetic | hanging | ideographic ]",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/initial-letter-align"
+  },
+  {
+    "name": "inline-size",
+    "syntax": "<'width'>",
+    "computed": "sameAsWidthAndHeight",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/inline-size"
+  },
+  {
+    "name": "input-security",
+    "syntax": "auto | none",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/input-security"
+  },
+  {
+    "name": "inset",
+    "syntax": "<'top'>{1,4}",
+    "computed": [
+      "top",
+      "bottom",
+      "left",
+      "right"
+    ],
+    "initial": [
+      "top",
+      "bottom",
+      "left",
+      "right"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/inset"
+  },
+  {
+    "name": "inset-area",
+    "syntax": "none | <inset-area>",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/inset-area"
+  },
+  {
+    "name": "inset-block",
+    "syntax": "<'top'>{1,2}",
+    "computed": [
+      "inset-block-start",
+      "inset-block-end"
+    ],
+    "initial": [
+      "inset-block-start",
+      "inset-block-end"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/inset-block"
+  },
+  {
+    "name": "inset-block-end",
+    "syntax": "<'top'>",
+    "computed": "sameAsBoxOffsets",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/inset-block-end"
+  },
+  {
+    "name": "inset-block-start",
+    "syntax": "<'top'>",
+    "computed": "sameAsBoxOffsets",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/inset-block-start"
+  },
+  {
+    "name": "inset-inline",
+    "syntax": "<'top'>{1,2}",
+    "computed": [
+      "inset-inline-start",
+      "inset-inline-end"
+    ],
+    "initial": [
+      "inset-inline-start",
+      "inset-inline-end"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/inset-inline"
+  },
+  {
+    "name": "inset-inline-end",
+    "syntax": "<'top'>",
+    "computed": "sameAsBoxOffsets",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/inset-inline-end"
+  },
+  {
+    "name": "inset-inline-start",
+    "syntax": "<'top'>",
+    "computed": "sameAsBoxOffsets",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/inset-inline-start"
+  },
+  {
+    "name": "isolation",
+    "syntax": "auto | isolate",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/isolation"
+  },
+  {
+    "name": "justify-content",
+    "syntax": "normal | <content-distribution> | <overflow-position>? [ <content-position> | left | right ]",
+    "computed": "asSpecified",
+    "initial": "normal",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/justify-content"
+  },
+  {
+    "name": "justify-items",
+    "syntax": "normal | stretch | <baseline-position> | <overflow-position>? [ <self-position> | left | right ] | legacy | legacy && [ left | right | center ]",
+    "computed": "asSpecified",
+    "initial": "legacy",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/justify-items"
+  },
+  {
+    "name": "justify-self",
+    "syntax": "auto | normal | stretch | <baseline-position> | <overflow-position>? [ <self-position> | left | right ]",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/justify-self"
+  },
+  {
+    "name": "justify-tracks",
+    "syntax": "[ normal | <content-distribution> | <overflow-position>? [ <content-position> | left | right ] ]#",
+    "computed": "asSpecified",
+    "initial": "normal",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/justify-tracks"
+  },
+  {
+    "name": "left",
+    "syntax": "<length> | <percentage> | auto",
+    "computed": "lengthAbsolutePercentageAsSpecifiedOtherwiseAuto",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/left"
+  },
+  {
+    "name": "letter-spacing",
+    "syntax": "normal | <length>",
+    "computed": "optimumValueOfAbsoluteLengthOrNormal",
+    "initial": "normal",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/letter-spacing"
+  },
+  {
+    "name": "line-break",
+    "syntax": "auto | loose | normal | strict | anywhere",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/line-break"
+  },
+  {
+    "name": "line-clamp",
+    "syntax": "none | <integer>",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/line-clamp"
+  },
+  {
+    "name": "line-height",
+    "syntax": "normal | <number> | <length> | <percentage>",
+    "computed": "absoluteLengthOrAsSpecified",
+    "initial": "normal",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/line-height"
+  },
+  {
+    "name": "line-height-step",
+    "syntax": "<length>",
+    "computed": "absoluteLength",
+    "initial": "0",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/line-height-step"
+  },
+  {
+    "name": "list-style",
+    "syntax": "<'list-style-type'> || <'list-style-position'> || <'list-style-image'>",
+    "computed": [
+      "list-style-image",
+      "list-style-position",
+      "list-style-type"
+    ],
+    "initial": [
+      "list-style-type",
+      "list-style-position",
+      "list-style-image"
+    ],
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/list-style"
+  },
+  {
+    "name": "list-style-image",
+    "syntax": "<image> | none",
+    "computed": "theKeywordListStyleImageNoneOrComputedValue",
+    "initial": "none",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/list-style-image"
+  },
+  {
+    "name": "list-style-position",
+    "syntax": "inside | outside",
+    "computed": "asSpecified",
+    "initial": "outside",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/list-style-position"
+  },
+  {
+    "name": "list-style-type",
+    "syntax": "<counter-style> | <string> | none",
+    "computed": "asSpecified",
+    "initial": "disc",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/list-style-type"
+  },
+  {
+    "name": "margin",
+    "syntax": "[ <length> | <percentage> | auto ]{1,4}",
+    "computed": [
+      "margin-bottom",
+      "margin-left",
+      "margin-right",
+      "margin-top"
+    ],
+    "initial": [
+      "margin-bottom",
+      "margin-left",
+      "margin-right",
+      "margin-top"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/margin"
+  },
+  {
+    "name": "margin-block",
+    "syntax": "<'margin-left'>{1,2}",
+    "computed": [
+      "margin-block-start",
+      "margin-block-end"
+    ],
+    "initial": [
+      "margin-block-start",
+      "margin-block-end"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/margin-block"
+  },
+  {
+    "name": "margin-block-end",
+    "syntax": "<'margin-left'>",
+    "computed": "lengthAbsolutePercentageAsSpecifiedOtherwiseAuto",
+    "initial": "0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/margin-block-end"
+  },
+  {
+    "name": "margin-block-start",
+    "syntax": "<'margin-left'>",
+    "computed": "lengthAbsolutePercentageAsSpecifiedOtherwiseAuto",
+    "initial": "0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/margin-block-start"
+  },
+  {
+    "name": "margin-bottom",
+    "syntax": "<length> | <percentage> | auto",
+    "computed": "percentageAsSpecifiedOrAbsoluteLength",
+    "initial": "0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/margin-bottom"
+  },
+  {
+    "name": "margin-inline",
+    "syntax": "<'margin-left'>{1,2}",
+    "computed": [
+      "margin-inline-start",
+      "margin-inline-end"
+    ],
+    "initial": [
+      "margin-inline-start",
+      "margin-inline-end"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/margin-inline"
+  },
+  {
+    "name": "margin-inline-end",
+    "syntax": "<'margin-left'>",
+    "computed": "lengthAbsolutePercentageAsSpecifiedOtherwiseAuto",
+    "initial": "0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/margin-inline-end"
+  },
+  {
+    "name": "margin-inline-start",
+    "syntax": "<'margin-left'>",
+    "computed": "lengthAbsolutePercentageAsSpecifiedOtherwiseAuto",
+    "initial": "0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/margin-inline-start"
+  },
+  {
+    "name": "margin-left",
+    "syntax": "<length> | <percentage> | auto",
+    "computed": "percentageAsSpecifiedOrAbsoluteLength",
+    "initial": "0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/margin-left"
+  },
+  {
+    "name": "margin-right",
+    "syntax": "<length> | <percentage> | auto",
+    "computed": "percentageAsSpecifiedOrAbsoluteLength",
+    "initial": "0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/margin-right"
+  },
+  {
+    "name": "margin-top",
+    "syntax": "<length> | <percentage> | auto",
+    "computed": "percentageAsSpecifiedOrAbsoluteLength",
+    "initial": "0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/margin-top"
+  },
+  {
+    "name": "margin-trim",
+    "syntax": "none | in-flow | all",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/margin-trim"
+  },
+  {
+    "name": "mask",
+    "syntax": "<mask-layer>#",
+    "computed": [
+      "mask-image",
+      "mask-mode",
+      "mask-repeat",
+      "mask-position",
+      "mask-clip",
+      "mask-origin",
+      "mask-size",
+      "mask-composite"
+    ],
+    "initial": [
+      "mask-image",
+      "mask-mode",
+      "mask-repeat",
+      "mask-position",
+      "mask-clip",
+      "mask-origin",
+      "mask-size",
+      "mask-composite"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/mask"
+  },
+  {
+    "name": "mask-border",
+    "syntax": "<'mask-border-source'> || <'mask-border-slice'> [ / <'mask-border-width'>? [ / <'mask-border-outset'> ]? ]? || <'mask-border-repeat'> || <'mask-border-mode'>",
+    "computed": [
+      "mask-border-mode",
+      "mask-border-outset",
+      "mask-border-repeat",
+      "mask-border-slice",
+      "mask-border-source",
+      "mask-border-width"
+    ],
+    "initial": [
+      "mask-border-mode",
+      "mask-border-outset",
+      "mask-border-repeat",
+      "mask-border-slice",
+      "mask-border-source",
+      "mask-border-width"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/mask-border"
+  },
+  {
+    "name": "mask-border-mode",
+    "syntax": "luminance | alpha",
+    "computed": "asSpecified",
+    "initial": "alpha",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/mask-border-mode"
+  },
+  {
+    "name": "mask-border-outset",
+    "syntax": "[ <length> | <number> ]{1,4}",
+    "computed": "asSpecifiedRelativeToAbsoluteLengths",
+    "initial": "0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/mask-border-outset"
+  },
+  {
+    "name": "mask-border-repeat",
+    "syntax": "[ stretch | repeat | round | space ]{1,2}",
+    "computed": "asSpecified",
+    "initial": "stretch",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/mask-border-repeat"
+  },
+  {
+    "name": "mask-border-slice",
+    "syntax": "<number-percentage>{1,4} fill?",
+    "computed": "asSpecified",
+    "initial": "0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/mask-border-slice"
+  },
+  {
+    "name": "mask-border-source",
+    "syntax": "none | <image>",
+    "computed": "asSpecifiedURLsAbsolute",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/mask-border-source"
+  },
+  {
+    "name": "mask-border-width",
+    "syntax": "[ <length-percentage> | <number> | auto ]{1,4}",
+    "computed": "asSpecifiedRelativeToAbsoluteLengths",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/mask-border-width"
+  },
+  {
+    "name": "mask-clip",
+    "syntax": "[ <geometry-box> | no-clip ]#",
+    "computed": "asSpecified",
+    "initial": "border-box",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/mask-clip"
+  },
+  {
+    "name": "mask-composite",
+    "syntax": "<compositing-operator>#",
+    "computed": "asSpecified",
+    "initial": "add",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/mask-composite"
+  },
+  {
+    "name": "mask-image",
+    "syntax": "<mask-reference>#",
+    "computed": "asSpecifiedURLsAbsolute",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/mask-image"
+  },
+  {
+    "name": "mask-mode",
+    "syntax": "<masking-mode>#",
+    "computed": "asSpecified",
+    "initial": "match-source",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/mask-mode"
+  },
+  {
+    "name": "mask-origin",
+    "syntax": "<geometry-box>#",
+    "computed": "asSpecified",
+    "initial": "border-box",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/mask-origin"
+  },
+  {
+    "name": "mask-position",
+    "syntax": "<position>#",
+    "computed": "consistsOfTwoKeywordsForOriginAndOffsets",
+    "initial": "0% 0%",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/mask-position"
+  },
+  {
+    "name": "mask-repeat",
+    "syntax": "<repeat-style>#",
+    "computed": "consistsOfTwoDimensionKeywords",
+    "initial": "repeat",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/mask-repeat"
+  },
+  {
+    "name": "mask-size",
+    "syntax": "<bg-size>#",
+    "computed": "asSpecifiedRelativeToAbsoluteLengths",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/mask-size"
+  },
+  {
+    "name": "mask-type",
+    "syntax": "luminance | alpha",
+    "computed": "asSpecified",
+    "initial": "luminance",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/mask-type"
+  },
+  {
+    "name": "masonry-auto-flow",
+    "syntax": "[ pack | next ] || [ definite-first | ordered ]",
+    "computed": "asSpecified",
+    "initial": "pack",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/masonry-auto-flow"
+  },
+  {
+    "name": "math-depth",
+    "syntax": "auto-add | add(<integer>) | <integer>",
+    "computed": "asSpecified",
+    "initial": "0",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/math-depth"
+  },
+  {
+    "name": "math-shift",
+    "syntax": "normal | compact",
+    "computed": "asSpecified",
+    "initial": "normal",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/math-shift"
+  },
+  {
+    "name": "math-style",
+    "syntax": "normal | compact",
+    "computed": "asSpecified",
+    "initial": "normal",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/math-style"
+  },
+  {
+    "name": "max-block-size",
+    "syntax": "<'max-width'>",
+    "computed": "sameAsMaxWidthAndMaxHeight",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/max-block-size"
+  },
+  {
+    "name": "max-height",
+    "syntax": "none | <length-percentage> | min-content | max-content | fit-content | fit-content(<length-percentage>)",
+    "computed": "percentageAsSpecifiedAbsoluteLengthOrNone",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/max-height"
+  },
+  {
+    "name": "max-inline-size",
+    "syntax": "<'max-width'>",
+    "computed": "sameAsMaxWidthAndMaxHeight",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/max-inline-size"
+  },
+  {
+    "name": "max-lines",
+    "syntax": "none | <integer>",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/max-lines"
+  },
+  {
+    "name": "max-width",
+    "syntax": "none | <length-percentage> | min-content | max-content | fit-content | fit-content(<length-percentage>)",
+    "computed": "percentageAsSpecifiedAbsoluteLengthOrNone",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/max-width"
+  },
+  {
+    "name": "min-block-size",
+    "syntax": "<'min-width'>",
+    "computed": "sameAsMinWidthAndMinHeight",
+    "initial": "0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/min-block-size"
+  },
+  {
+    "name": "min-height",
+    "syntax": "auto | <length> | <percentage> | min-content | max-content | fit-content | fit-content(<length-percentage>)",
+    "computed": "percentageAsSpecifiedOrAbsoluteLength",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/min-height"
+  },
+  {
+    "name": "min-inline-size",
+    "syntax": "<'min-width'>",
+    "computed": "sameAsMinWidthAndMinHeight",
+    "initial": "0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/min-inline-size"
+  },
+  {
+    "name": "min-width",
+    "syntax": "auto | <length> | <percentage> | min-content | max-content | fit-content | fit-content(<length-percentage>)",
+    "computed": "percentageAsSpecifiedOrAbsoluteLength",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/min-width"
+  },
+  {
+    "name": "mix-blend-mode",
+    "syntax": "<blend-mode> | plus-lighter",
+    "computed": "asSpecified",
+    "initial": "normal",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/mix-blend-mode"
+  },
+  {
+    "name": "object-fit",
+    "syntax": "fill | contain | cover | none | scale-down",
+    "computed": "asSpecified",
+    "initial": "fill",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/object-fit"
+  },
+  {
+    "name": "object-position",
+    "syntax": "<position>",
+    "computed": "asSpecified",
+    "initial": "50% 50%",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/object-position"
+  },
+  {
+    "name": "offset",
+    "syntax": "[ <'offset-position'>? [ <'offset-path'> [ <'offset-distance'> || <'offset-rotate'> ]? ]? ]! [ / <'offset-anchor'> ]?",
+    "computed": [
+      "offset-position",
+      "offset-path",
+      "offset-distance",
+      "offset-anchor",
+      "offset-rotate"
+    ],
+    "initial": [
+      "offset-position",
+      "offset-path",
+      "offset-distance",
+      "offset-anchor",
+      "offset-rotate"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/offset"
+  },
+  {
+    "name": "offset-anchor",
+    "syntax": "auto | <position>",
+    "computed": "forLengthAbsoluteValueOtherwisePercentage",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/offset-anchor"
+  },
+  {
+    "name": "offset-distance",
+    "syntax": "<length-percentage>",
+    "computed": "forLengthAbsoluteValueOtherwisePercentage",
+    "initial": "0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/offset-distance"
+  },
+  {
+    "name": "offset-path",
+    "syntax": "none | <offset-path> || <coord-box>",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/offset-path"
+  },
+  {
+    "name": "offset-position",
+    "syntax": "normal | auto | <position>",
+    "computed": "forLengthAbsoluteValueOtherwisePercentage",
+    "initial": "normal",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/offset-position"
+  },
+  {
+    "name": "offset-rotate",
+    "syntax": "[ auto | reverse ] || <angle>",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/offset-rotate"
+  },
+  {
+    "name": "opacity",
+    "syntax": "<alpha-value>",
+    "computed": "specifiedValueNumberClipped0To1",
+    "initial": "1",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/opacity"
+  },
+  {
+    "name": "order",
+    "syntax": "<integer>",
+    "computed": "asSpecified",
+    "initial": "0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/order"
+  },
+  {
+    "name": "orphans",
+    "syntax": "<integer>",
+    "computed": "asSpecified",
+    "initial": "2",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/orphans"
+  },
+  {
+    "name": "outline",
+    "syntax": "[ <'outline-color'> || <'outline-style'> || <'outline-width'> ]",
+    "computed": [
+      "outline-color",
+      "outline-width",
+      "outline-style"
+    ],
+    "initial": [
+      "outline-color",
+      "outline-style",
+      "outline-width"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/outline"
+  },
+  {
+    "name": "outline-color",
+    "syntax": "auto | <color>",
+    "computed": "autoForTranslucentColorRGBAOtherwiseRGB",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/outline-color"
+  },
+  {
+    "name": "outline-offset",
+    "syntax": "<length>",
+    "computed": "asSpecifiedRelativeToAbsoluteLengths",
+    "initial": "0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/outline-offset"
+  },
+  {
+    "name": "outline-style",
+    "syntax": "auto | <'border-style'>",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/outline-style"
+  },
+  {
+    "name": "outline-width",
+    "syntax": "<line-width>",
+    "computed": "absoluteLength0ForNone",
+    "initial": "medium",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/outline-width"
+  },
+  {
+    "name": "overflow",
+    "syntax": "[ visible | hidden | clip | scroll | auto ]{1,2}",
+    "computed": [
+      "overflow-x",
+      "overflow-y"
+    ],
+    "initial": "visible",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/overflow"
+  },
+  {
+    "name": "overflow-anchor",
+    "syntax": "auto | none",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/overflow-anchor"
+  },
+  {
+    "name": "overflow-block",
+    "syntax": "visible | hidden | clip | scroll | auto",
+    "computed": "asSpecifiedButVisibleOrClipReplacedToAutoOrHiddenIfOtherValueDifferent",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/overflow-block"
+  },
+  {
+    "name": "overflow-clip-box",
+    "syntax": "padding-box | content-box",
+    "computed": "asSpecified",
+    "initial": "padding-box",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/overflow-clip-box"
+  },
+  {
+    "name": "overflow-clip-margin",
+    "syntax": "<visual-box> || <length [0,\u221e]>",
+    "computed": "theComputedLengthAndVisualBox",
+    "initial": "0px",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/overflow-clip-margin"
+  },
+  {
+    "name": "overflow-inline",
+    "syntax": "visible | hidden | clip | scroll | auto",
+    "computed": "asSpecifiedButVisibleOrClipReplacedToAutoOrHiddenIfOtherValueDifferent",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/overflow-inline"
+  },
+  {
+    "name": "overflow-wrap",
+    "syntax": "normal | break-word | anywhere",
+    "computed": "asSpecified",
+    "initial": "normal",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/overflow-wrap"
+  },
+  {
+    "name": "overflow-x",
+    "syntax": "visible | hidden | clip | scroll | auto",
+    "computed": "asSpecifiedButVisibleOrClipReplacedToAutoOrHiddenIfOtherValueDifferent",
+    "initial": "visible",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/overflow-x"
+  },
+  {
+    "name": "overflow-y",
+    "syntax": "visible | hidden | clip | scroll | auto",
+    "computed": "asSpecifiedButVisibleOrClipReplacedToAutoOrHiddenIfOtherValueDifferent",
+    "initial": "visible",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/overflow-y"
+  },
+  {
+    "name": "overlay",
+    "syntax": "none | auto",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/overlay"
+  },
+  {
+    "name": "overscroll-behavior",
+    "syntax": "[ contain | none | auto ]{1,2}",
+    "computed": [
+      "overscroll-behavior-x",
+      "overscroll-behavior-y"
+    ],
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/overscroll-behavior"
+  },
+  {
+    "name": "overscroll-behavior-block",
+    "syntax": "contain | none | auto",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/overscroll-behavior-block"
+  },
+  {
+    "name": "overscroll-behavior-inline",
+    "syntax": "contain | none | auto",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/overscroll-behavior-inline"
+  },
+  {
+    "name": "overscroll-behavior-x",
+    "syntax": "contain | none | auto",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/overscroll-behavior-x"
+  },
+  {
+    "name": "overscroll-behavior-y",
+    "syntax": "contain | none | auto",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/overscroll-behavior-y"
+  },
+  {
+    "name": "padding",
+    "syntax": "[ <length> | <percentage> ]{1,4}",
+    "computed": [
+      "padding-bottom",
+      "padding-left",
+      "padding-right",
+      "padding-top"
+    ],
+    "initial": [
+      "padding-bottom",
+      "padding-left",
+      "padding-right",
+      "padding-top"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/padding"
+  },
+  {
+    "name": "padding-block",
+    "syntax": "<'padding-left'>{1,2}",
+    "computed": [
+      "padding-block-start",
+      "padding-block-end"
+    ],
+    "initial": [
+      "padding-block-start",
+      "padding-block-end"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/padding-block"
+  },
+  {
+    "name": "padding-block-end",
+    "syntax": "<'padding-left'>",
+    "computed": "asLength",
+    "initial": "0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/padding-block-end"
+  },
+  {
+    "name": "padding-block-start",
+    "syntax": "<'padding-left'>",
+    "computed": "asLength",
+    "initial": "0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/padding-block-start"
+  },
+  {
+    "name": "padding-bottom",
+    "syntax": "<length> | <percentage>",
+    "computed": "percentageAsSpecifiedOrAbsoluteLength",
+    "initial": "0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/padding-bottom"
+  },
+  {
+    "name": "padding-inline",
+    "syntax": "<'padding-left'>{1,2}",
+    "computed": [
+      "padding-inline-start",
+      "padding-inline-end"
+    ],
+    "initial": [
+      "padding-inline-start",
+      "padding-inline-end"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/padding-inline"
+  },
+  {
+    "name": "padding-inline-end",
+    "syntax": "<'padding-left'>",
+    "computed": "asLength",
+    "initial": "0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/padding-inline-end"
+  },
+  {
+    "name": "padding-inline-start",
+    "syntax": "<'padding-left'>",
+    "computed": "asLength",
+    "initial": "0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/padding-inline-start"
+  },
+  {
+    "name": "padding-left",
+    "syntax": "<length> | <percentage>",
+    "computed": "percentageAsSpecifiedOrAbsoluteLength",
+    "initial": "0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/padding-left"
+  },
+  {
+    "name": "padding-right",
+    "syntax": "<length> | <percentage>",
+    "computed": "percentageAsSpecifiedOrAbsoluteLength",
+    "initial": "0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/padding-right"
+  },
+  {
+    "name": "padding-top",
+    "syntax": "<length> | <percentage>",
+    "computed": "percentageAsSpecifiedOrAbsoluteLength",
+    "initial": "0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/padding-top"
+  },
+  {
+    "name": "page",
+    "syntax": "auto | <custom-ident>",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/page"
+  },
+  {
+    "name": "page-break-after",
+    "syntax": "auto | always | avoid | left | right | recto | verso",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/page-break-after"
+  },
+  {
+    "name": "page-break-before",
+    "syntax": "auto | always | avoid | left | right | recto | verso",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/page-break-before"
+  },
+  {
+    "name": "page-break-inside",
+    "syntax": "auto | avoid",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/page-break-inside"
+  },
+  {
+    "name": "paint-order",
+    "syntax": "normal | [ fill || stroke || markers ]",
+    "computed": "asSpecified",
+    "initial": "normal",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/paint-order"
+  },
+  {
+    "name": "perspective",
+    "syntax": "none | <length>",
+    "computed": "absoluteLengthOrNone",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/perspective"
+  },
+  {
+    "name": "perspective-origin",
+    "syntax": "<position>",
+    "computed": "forLengthAbsoluteValueOtherwisePercentage",
+    "initial": "50% 50%",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/perspective-origin"
+  },
+  {
+    "name": "place-content",
+    "syntax": "<'align-content'> <'justify-content'>?",
+    "computed": [
+      "align-content",
+      "justify-content"
+    ],
+    "initial": [
+      "align-content",
+      "justify-content"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/place-content"
+  },
+  {
+    "name": "place-items",
+    "syntax": "<'align-items'> <'justify-items'>?",
+    "computed": [
+      "align-items",
+      "justify-items"
+    ],
+    "initial": [
+      "align-items",
+      "justify-items"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/place-items"
+  },
+  {
+    "name": "place-self",
+    "syntax": "<'align-self'> <'justify-self'>?",
+    "computed": [
+      "align-self",
+      "justify-self"
+    ],
+    "initial": [
+      "align-self",
+      "justify-self"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/place-self"
+  },
+  {
+    "name": "pointer-events",
+    "syntax": "auto | none | visiblePainted | visibleFill | visibleStroke | visible | painted | fill | stroke | all | inherit",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/pointer-events"
+  },
+  {
+    "name": "position",
+    "syntax": "static | relative | absolute | sticky | fixed",
+    "computed": "asSpecified",
+    "initial": "static",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/position"
+  },
+  {
+    "name": "position-anchor",
+    "syntax": "<anchor-element>",
+    "computed": "asSpecified",
+    "initial": "implicit",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/position-anchor"
+  },
+  {
+    "name": "position-try",
+    "syntax": "<'position-try-order'>? <'position-try-options'>",
+    "computed": [
+      "position-try-options",
+      "position-try-order"
+    ],
+    "initial": [
+      "position-try-options",
+      "position-try-order"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/position-try"
+  },
+  {
+    "name": "position-try-options",
+    "syntax": "none | [ [<dashed-ident> || <try-tactic>] | inset-area( <'inset-area'> ) ]#",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/position-try-options"
+  },
+  {
+    "name": "position-try-order",
+    "syntax": "normal | <try-size>",
+    "computed": "asSpecified",
+    "initial": "normal",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/position-try-order"
+  },
+  {
+    "name": "position-visibility",
+    "syntax": "always | [ anchors-valid || anchors-visible || no-overflow ]",
+    "computed": "asSpecified",
+    "initial": "anchors-visible",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/position-visibility"
+  },
+  {
+    "name": "print-color-adjust",
+    "syntax": "economy | exact",
+    "computed": "asSpecified",
+    "initial": "economy",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/print-color-adjust"
+  },
+  {
+    "name": "quotes",
+    "syntax": "none | auto | [ <string> <string> ]+",
+    "computed": "asSpecified",
+    "initial": "dependsOnUserAgent",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/quotes"
+  },
+  {
+    "name": "resize",
+    "syntax": "none | both | horizontal | vertical | block | inline",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/resize"
+  },
+  {
+    "name": "right",
+    "syntax": "<length> | <percentage> | auto",
+    "computed": "lengthAbsolutePercentageAsSpecifiedOtherwiseAuto",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/right"
+  },
+  {
+    "name": "rotate",
+    "syntax": "none | <angle> | [ x | y | z | <number>{3} ] && <angle>",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/rotate"
+  },
+  {
+    "name": "row-gap",
+    "syntax": "normal | <length-percentage>",
+    "computed": "asSpecifiedWithLengthsAbsoluteAndNormalComputingToZeroExceptMultiColumn",
+    "initial": "normal",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/row-gap"
+  },
+  {
+    "name": "ruby-align",
+    "syntax": "start | center | space-between | space-around",
+    "computed": "asSpecified",
+    "initial": "space-around",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/ruby-align"
+  },
+  {
+    "name": "ruby-merge",
+    "syntax": "separate | collapse | auto",
+    "computed": "asSpecified",
+    "initial": "separate",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/ruby-merge"
+  },
+  {
+    "name": "ruby-position",
+    "syntax": "[ alternate || [ over | under ] ] | inter-character",
+    "computed": "asSpecified",
+    "initial": "alternate",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/ruby-position"
+  },
+  {
+    "name": "scale",
+    "syntax": "none | <number>{1,3}",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/scale"
+  },
+  {
+    "name": "scrollbar-color",
+    "syntax": "auto | <color>{2}",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/scrollbar-color"
+  },
+  {
+    "name": "scrollbar-gutter",
+    "syntax": "auto | stable && both-edges?",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/scrollbar-gutter"
+  },
+  {
+    "name": "scrollbar-width",
+    "syntax": "auto | thin | none",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/scrollbar-width"
+  },
+  {
+    "name": "scroll-behavior",
+    "syntax": "auto | smooth",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/scroll-behavior"
+  },
+  {
+    "name": "scroll-margin",
+    "syntax": "<length>{1,4}",
+    "computed": [
+      "scroll-margin-bottom",
+      "scroll-margin-left",
+      "scroll-margin-right",
+      "scroll-margin-top"
+    ],
+    "initial": [
+      "scroll-margin-bottom",
+      "scroll-margin-left",
+      "scroll-margin-right",
+      "scroll-margin-top"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/scroll-margin"
+  },
+  {
+    "name": "scroll-margin-block",
+    "syntax": "<length>{1,2}",
+    "computed": [
+      "scroll-margin-block-start",
+      "scroll-margin-block-end"
+    ],
+    "initial": [
+      "scroll-margin-block-start",
+      "scroll-margin-block-end"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/scroll-margin-block"
+  },
+  {
+    "name": "scroll-margin-block-start",
+    "syntax": "<length>",
+    "computed": "asSpecified",
+    "initial": "0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/scroll-margin-block-start"
+  },
+  {
+    "name": "scroll-margin-block-end",
+    "syntax": "<length>",
+    "computed": "asSpecified",
+    "initial": "0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/scroll-margin-block-end"
+  },
+  {
+    "name": "scroll-margin-bottom",
+    "syntax": "<length>",
+    "computed": "asSpecified",
+    "initial": "0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/scroll-margin-bottom"
+  },
+  {
+    "name": "scroll-margin-inline",
+    "syntax": "<length>{1,2}",
+    "computed": [
+      "scroll-margin-inline-start",
+      "scroll-margin-inline-end"
+    ],
+    "initial": [
+      "scroll-margin-inline-start",
+      "scroll-margin-inline-end"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/scroll-margin-inline"
+  },
+  {
+    "name": "scroll-margin-inline-start",
+    "syntax": "<length>",
+    "computed": "asSpecified",
+    "initial": "0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/scroll-margin-inline-start"
+  },
+  {
+    "name": "scroll-margin-inline-end",
+    "syntax": "<length>",
+    "computed": "asSpecified",
+    "initial": "0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/scroll-margin-inline-end"
+  },
+  {
+    "name": "scroll-margin-left",
+    "syntax": "<length>",
+    "computed": "asSpecified",
+    "initial": "0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/scroll-margin-left"
+  },
+  {
+    "name": "scroll-margin-right",
+    "syntax": "<length>",
+    "computed": "asSpecified",
+    "initial": "0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/scroll-margin-right"
+  },
+  {
+    "name": "scroll-margin-top",
+    "syntax": "<length>",
+    "computed": "asSpecified",
+    "initial": "0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/scroll-margin-top"
+  },
+  {
+    "name": "scroll-padding",
+    "syntax": "[ auto | <length-percentage> ]{1,4}",
+    "computed": [
+      "scroll-padding-bottom",
+      "scroll-padding-left",
+      "scroll-padding-right",
+      "scroll-padding-top"
+    ],
+    "initial": [
+      "scroll-padding-bottom",
+      "scroll-padding-left",
+      "scroll-padding-right",
+      "scroll-padding-top"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/scroll-padding"
+  },
+  {
+    "name": "scroll-padding-block",
+    "syntax": "[ auto | <length-percentage> ]{1,2}",
+    "computed": [
+      "scroll-padding-block-start",
+      "scroll-padding-block-end"
+    ],
+    "initial": [
+      "scroll-padding-block-start",
+      "scroll-padding-block-end"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/scroll-padding-block"
+  },
+  {
+    "name": "scroll-padding-block-start",
+    "syntax": "auto | <length-percentage>",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/scroll-padding-block-start"
+  },
+  {
+    "name": "scroll-padding-block-end",
+    "syntax": "auto | <length-percentage>",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/scroll-padding-block-end"
+  },
+  {
+    "name": "scroll-padding-bottom",
+    "syntax": "auto | <length-percentage>",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/scroll-padding-bottom"
+  },
+  {
+    "name": "scroll-padding-inline",
+    "syntax": "[ auto | <length-percentage> ]{1,2}",
+    "computed": [
+      "scroll-padding-inline-start",
+      "scroll-padding-inline-end"
+    ],
+    "initial": [
+      "scroll-padding-inline-start",
+      "scroll-padding-inline-end"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/scroll-padding-inline"
+  },
+  {
+    "name": "scroll-padding-inline-start",
+    "syntax": "auto | <length-percentage>",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/scroll-padding-inline-start"
+  },
+  {
+    "name": "scroll-padding-inline-end",
+    "syntax": "auto | <length-percentage>",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/scroll-padding-inline-end"
+  },
+  {
+    "name": "scroll-padding-left",
+    "syntax": "auto | <length-percentage>",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/scroll-padding-left"
+  },
+  {
+    "name": "scroll-padding-right",
+    "syntax": "auto | <length-percentage>",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/scroll-padding-right"
+  },
+  {
+    "name": "scroll-padding-top",
+    "syntax": "auto | <length-percentage>",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/scroll-padding-top"
+  },
+  {
+    "name": "scroll-snap-align",
+    "syntax": "[ none | start | end | center ]{1,2}",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/scroll-snap-align"
+  },
+  {
+    "name": "scroll-snap-coordinate",
+    "syntax": "none | <position>#",
+    "computed": "asSpecifiedRelativeToAbsoluteLengths",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/scroll-snap-coordinate"
+  },
+  {
+    "name": "scroll-snap-destination",
+    "syntax": "<position>",
+    "computed": "asSpecifiedRelativeToAbsoluteLengths",
+    "initial": "0px 0px",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/scroll-snap-destination"
+  },
+  {
+    "name": "scroll-snap-points-x",
+    "syntax": "none | repeat( <length-percentage> )",
+    "computed": "asSpecifiedRelativeToAbsoluteLengths",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/scroll-snap-points-x"
+  },
+  {
+    "name": "scroll-snap-points-y",
+    "syntax": "none | repeat( <length-percentage> )",
+    "computed": "asSpecifiedRelativeToAbsoluteLengths",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/scroll-snap-points-y"
+  },
+  {
+    "name": "scroll-snap-stop",
+    "syntax": "normal | always",
+    "computed": "asSpecified",
+    "initial": "normal",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/scroll-snap-stop"
+  },
+  {
+    "name": "scroll-snap-type",
+    "syntax": "none | [ x | y | block | inline | both ] [ mandatory | proximity ]?",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/scroll-snap-type"
+  },
+  {
+    "name": "scroll-snap-type-x",
+    "syntax": "none | mandatory | proximity",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/scroll-snap-type-x"
+  },
+  {
+    "name": "scroll-snap-type-y",
+    "syntax": "none | mandatory | proximity",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/scroll-snap-type-y"
+  },
+  {
+    "name": "scroll-timeline",
+    "syntax": "[ <'scroll-timeline-name'> <'scroll-timeline-axis'>? ]#",
+    "computed": [
+      "scroll-timeline-name",
+      "scroll-timeline-axis"
+    ],
+    "initial": [
+      "scroll-timeline-name",
+      "scroll-timeline-axis"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/scroll-timeline"
+  },
+  {
+    "name": "scroll-timeline-axis",
+    "syntax": "[ block | inline | x | y ]#",
+    "computed": "asSpecified",
+    "initial": "block",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/scroll-timeline-axis"
+  },
+  {
+    "name": "scroll-timeline-name",
+    "syntax": "none | <dashed-ident>#",
+    "computed": "noneOrOrderedListOfIdentifiers",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/scroll-timeline-name"
+  },
+  {
+    "name": "shape-image-threshold",
+    "syntax": "<alpha-value>",
+    "computed": "specifiedValueNumberClipped0To1",
+    "initial": "0.0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/shape-image-threshold"
+  },
+  {
+    "name": "shape-margin",
+    "syntax": "<length-percentage>",
+    "computed": "asSpecifiedRelativeToAbsoluteLengths",
+    "initial": "0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/shape-margin"
+  },
+  {
+    "name": "shape-outside",
+    "syntax": "none | [ <shape-box> || <basic-shape> ] | <image>",
+    "computed": "asDefinedForBasicShapeWithAbsoluteURIOtherwiseAsSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/shape-outside"
+  },
+  {
+    "name": "tab-size",
+    "syntax": "<integer> | <length>",
+    "computed": "specifiedIntegerOrAbsoluteLength",
+    "initial": "8",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/tab-size"
+  },
+  {
+    "name": "table-layout",
+    "syntax": "auto | fixed",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/table-layout"
+  },
+  {
+    "name": "text-align",
+    "syntax": "start | end | left | right | center | justify | match-parent",
+    "computed": "asSpecifiedExceptMatchParent",
+    "initial": "startOrNamelessValueIfLTRRightIfRTL",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/text-align"
+  },
+  {
+    "name": "text-align-last",
+    "syntax": "auto | start | end | left | right | center | justify",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/text-align-last"
+  },
+  {
+    "name": "text-combine-upright",
+    "syntax": "none | all | [ digits <integer>? ]",
+    "computed": "keywordPlusIntegerIfDigits",
+    "initial": "none",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/text-combine-upright"
+  },
+  {
+    "name": "text-decoration",
+    "syntax": "<'text-decoration-line'> || <'text-decoration-style'> || <'text-decoration-color'> || <'text-decoration-thickness'>",
+    "computed": [
+      "text-decoration-line",
+      "text-decoration-style",
+      "text-decoration-color",
+      "text-decoration-thickness"
+    ],
+    "initial": [
+      "text-decoration-color",
+      "text-decoration-style",
+      "text-decoration-line"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/text-decoration"
+  },
+  {
+    "name": "text-decoration-color",
+    "syntax": "<color>",
+    "computed": "computedColor",
+    "initial": "currentcolor",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/text-decoration-color"
+  },
+  {
+    "name": "text-decoration-line",
+    "syntax": "none | [ underline || overline || line-through || blink ] | spelling-error | grammar-error",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/text-decoration-line"
+  },
+  {
+    "name": "text-decoration-skip",
+    "syntax": "none | [ objects || [ spaces | [ leading-spaces || trailing-spaces ] ] || edges || box-decoration ]",
+    "computed": "asSpecified",
+    "initial": "objects",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/text-decoration-skip"
+  },
+  {
+    "name": "text-decoration-skip-ink",
+    "syntax": "auto | all | none",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/text-decoration-skip-ink"
+  },
+  {
+    "name": "text-decoration-style",
+    "syntax": "solid | double | dotted | dashed | wavy",
+    "computed": "asSpecified",
+    "initial": "solid",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/text-decoration-style"
+  },
+  {
+    "name": "text-decoration-thickness",
+    "syntax": "auto | from-font | <length> | <percentage> ",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/text-decoration-thickness"
+  },
+  {
+    "name": "text-emphasis",
+    "syntax": "<'text-emphasis-style'> || <'text-emphasis-color'>",
+    "computed": [
+      "text-emphasis-style",
+      "text-emphasis-color"
+    ],
+    "initial": [
+      "text-emphasis-style",
+      "text-emphasis-color"
+    ],
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/text-emphasis"
+  },
+  {
+    "name": "text-emphasis-color",
+    "syntax": "<color>",
+    "computed": "computedColor",
+    "initial": "currentcolor",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/text-emphasis-color"
+  },
+  {
+    "name": "text-emphasis-position",
+    "syntax": "[ over | under ] && [ right | left ]",
+    "computed": "asSpecified",
+    "initial": "over right",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/text-emphasis-position"
+  },
+  {
+    "name": "text-emphasis-style",
+    "syntax": "none | [ [ filled | open ] || [ dot | circle | double-circle | triangle | sesame ] ] | <string>",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/text-emphasis-style"
+  },
+  {
+    "name": "text-indent",
+    "syntax": "<length-percentage> && hanging? && each-line?",
+    "computed": "percentageOrAbsoluteLengthPlusKeywords",
+    "initial": "0",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/text-indent"
+  },
+  {
+    "name": "text-justify",
+    "syntax": "auto | inter-character | inter-word | none",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/text-justify"
+  },
+  {
+    "name": "text-orientation",
+    "syntax": "mixed | upright | sideways",
+    "computed": "asSpecified",
+    "initial": "mixed",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/text-orientation"
+  },
+  {
+    "name": "text-overflow",
+    "syntax": "[ clip | ellipsis | <string> ]{1,2}",
+    "computed": "asSpecified",
+    "initial": "clip",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/text-overflow"
+  },
+  {
+    "name": "text-rendering",
+    "syntax": "auto | optimizeSpeed | optimizeLegibility | geometricPrecision",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/text-rendering"
+  },
+  {
+    "name": "text-shadow",
+    "syntax": "none | <shadow-t>#",
+    "computed": "colorPlusThreeAbsoluteLengths",
+    "initial": "none",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/text-shadow"
+  },
+  {
+    "name": "text-size-adjust",
+    "syntax": "none | auto | <percentage>",
+    "computed": "asSpecified",
+    "initial": "autoForSmartphoneBrowsersSupportingInflation",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/text-size-adjust"
+  },
+  {
+    "name": "text-spacing-trim",
+    "syntax": "space-all | normal | space-first | trim-start | trim-both | trim-all | auto",
+    "computed": "asSpecified",
+    "initial": "normal",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/text-spacing-trim"
+  },
+  {
+    "name": "text-transform",
+    "syntax": "none | capitalize | uppercase | lowercase | full-width | full-size-kana",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/text-transform"
+  },
+  {
+    "name": "text-underline-offset",
+    "syntax": "auto | <length> | <percentage> ",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/text-underline-offset"
+  },
+  {
+    "name": "text-underline-position",
+    "syntax": "auto | from-font | [ under || [ left | right ] ]",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/text-underline-position"
+  },
+  {
+    "name": "text-wrap",
+    "syntax": "wrap | nowrap | balance | stable | pretty",
+    "computed": "asSpecified",
+    "initial": "wrap",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/text-wrap"
+  },
+  {
+    "name": "text-wrap-mode",
+    "syntax": "auto | wrap | nowrap",
+    "computed": "asSpecified",
+    "initial": "wrap",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/text-wrap-mode"
+  },
+  {
+    "name": "text-wrap-style",
+    "syntax": "auto | balance | stable | pretty",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/text-wrap-style"
+  },
+  {
+    "name": "timeline-scope",
+    "syntax": "none | <dashed-ident>#",
+    "computed": "noneOrOrderedListOfIdentifiers",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/timeline-scope"
+  },
+  {
+    "name": "top",
+    "syntax": "<length> | <percentage> | auto",
+    "computed": "lengthAbsolutePercentageAsSpecifiedOtherwiseAuto",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/top"
+  },
+  {
+    "name": "touch-action",
+    "syntax": "auto | none | [ [ pan-x | pan-left | pan-right ] || [ pan-y | pan-up | pan-down ] || pinch-zoom ] | manipulation",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/touch-action"
+  },
+  {
+    "name": "transform",
+    "syntax": "none | <transform-list>",
+    "computed": "asSpecifiedRelativeToAbsoluteLengths",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/transform"
+  },
+  {
+    "name": "transform-box",
+    "syntax": "content-box | border-box | fill-box | stroke-box | view-box",
+    "computed": "asSpecified",
+    "initial": "view-box",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/transform-box"
+  },
+  {
+    "name": "transform-origin",
+    "syntax": "[ <length-percentage> | left | center | right | top | bottom ] | [ [ <length-percentage> | left | center | right ] && [ <length-percentage> | top | center | bottom ] ] <length>?",
+    "computed": "forLengthAbsoluteValueOtherwisePercentage",
+    "initial": "50% 50% 0",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/transform-origin"
+  },
+  {
+    "name": "transform-style",
+    "syntax": "flat | preserve-3d",
+    "computed": "asSpecified",
+    "initial": "flat",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/transform-style"
+  },
+  {
+    "name": "transition",
+    "syntax": "<single-transition>#",
+    "computed": [
+      "transition-delay",
+      "transition-duration",
+      "transition-property",
+      "transition-timing-function",
+      "transition-behavior"
+    ],
+    "initial": [
+      "transition-delay",
+      "transition-duration",
+      "transition-property",
+      "transition-timing-function",
+      "transition-behavior"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/transition"
+  },
+  {
+    "name": "transition-behavior",
+    "syntax": "<transition-behavior-value>#",
+    "computed": "asSpecified",
+    "initial": "normal",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/transition-behavior"
+  },
+  {
+    "name": "transition-delay",
+    "syntax": "<time>#",
+    "computed": "asSpecified",
+    "initial": "0s",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/transition-delay"
+  },
+  {
+    "name": "transition-duration",
+    "syntax": "<time>#",
+    "computed": "asSpecified",
+    "initial": "0s",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/transition-duration"
+  },
+  {
+    "name": "transition-property",
+    "syntax": "none | <single-transition-property>#",
+    "computed": "asSpecified",
+    "initial": "all",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/transition-property"
+  },
+  {
+    "name": "transition-timing-function",
+    "syntax": "<easing-function>#",
+    "computed": "asSpecified",
+    "initial": "ease",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/transition-timing-function"
+  },
+  {
+    "name": "translate",
+    "syntax": "none | <length-percentage> [ <length-percentage> <length>? ]?",
+    "computed": "asSpecifiedRelativeToAbsoluteLengths",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/translate"
+  },
+  {
+    "name": "unicode-bidi",
+    "syntax": "normal | embed | isolate | bidi-override | isolate-override | plaintext",
+    "computed": "asSpecified",
+    "initial": "normal",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/unicode-bidi"
+  },
+  {
+    "name": "user-select",
+    "syntax": "auto | text | none | contain | all",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/user-select"
+  },
+  {
+    "name": "vertical-align",
+    "syntax": "baseline | sub | super | text-top | text-bottom | middle | top | bottom | <percentage> | <length>",
+    "computed": "absoluteLengthOrKeyword",
+    "initial": "baseline",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/vertical-align"
+  },
+  {
+    "name": "view-timeline",
+    "syntax": "[ <'view-timeline-name'> <'view-timeline-axis'>? ]#",
+    "computed": [
+      "view-timeline-name",
+      "view-timeline-axis"
+    ],
+    "initial": [
+      "view-timeline-name",
+      "view-timeline-axis"
+    ],
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/view-timeline"
+  },
+  {
+    "name": "view-timeline-axis",
+    "syntax": "[ block | inline | x | y ]#",
+    "computed": "asSpecified",
+    "initial": "block",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/view-timeline-axis"
+  },
+  {
+    "name": "view-timeline-inset",
+    "syntax": "[ [ auto | <length-percentage> ]{1,2} ]#",
+    "computed": "listEachItemConsistingOfPairsOfAutoOrLengthPercentage",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/view-timeline-inset"
+  },
+  {
+    "name": "view-timeline-name",
+    "syntax": "none | <dashed-ident>#",
+    "computed": "noneOrOrderedListOfIdentifiers",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/view-timeline-name"
+  },
+  {
+    "name": "view-transition-name",
+    "syntax": "none | <custom-ident>",
+    "computed": "asSpecified",
+    "initial": "none",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/view-transition-name"
+  },
+  {
+    "name": "visibility",
+    "syntax": "visible | hidden | collapse",
+    "computed": "asSpecified",
+    "initial": "visible",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/visibility"
+  },
+  {
+    "name": "white-space",
+    "syntax": "normal | pre | nowrap | pre-wrap | pre-line | break-spaces | [ <'white-space-collapse'> || <'text-wrap'> || <'white-space-trim'> ]",
+    "computed": "asSpecified",
+    "initial": "normal",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/white-space"
+  },
+  {
+    "name": "white-space-collapse",
+    "syntax": "collapse | discard | preserve | preserve-breaks | preserve-spaces | break-spaces",
+    "computed": "asSpecified",
+    "initial": "collapse",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/white-space-collapse"
+  },
+  {
+    "name": "widows",
+    "syntax": "<integer>",
+    "computed": "asSpecified",
+    "initial": "2",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/widows"
+  },
+  {
+    "name": "width",
+    "syntax": "auto | <length> | <percentage> | min-content | max-content | fit-content | fit-content(<length-percentage>)",
+    "computed": "percentageAutoOrAbsoluteLength",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/width"
+  },
+  {
+    "name": "will-change",
+    "syntax": "auto | <animateable-feature>#",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/will-change"
+  },
+  {
+    "name": "word-break",
+    "syntax": "normal | break-all | keep-all | break-word",
+    "computed": "asSpecified",
+    "initial": "normal",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/word-break"
+  },
+  {
+    "name": "word-spacing",
+    "syntax": "normal | <length>",
+    "computed": "absoluteLength",
+    "initial": "normal",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/word-spacing"
+  },
+  {
+    "name": "word-wrap",
+    "syntax": "normal | break-word",
+    "computed": "asSpecified",
+    "initial": "normal",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/word-wrap"
+  },
+  {
+    "name": "writing-mode",
+    "syntax": "horizontal-tb | vertical-rl | vertical-lr | sideways-rl | sideways-lr",
+    "computed": "asSpecified",
+    "initial": "horizontal-tb",
+    "inherited": true,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/writing-mode"
+  },
+  {
+    "name": "z-index",
+    "syntax": "auto | <integer>",
+    "computed": "asSpecified",
+    "initial": "auto",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/z-index"
+  },
+  {
+    "name": "zoom",
+    "syntax": "normal | reset | <number> | <percentage>",
+    "computed": "asSpecified",
+    "initial": "normal",
+    "inherited": false,
+    "mdn_url": "https://developer.mozilla.org/en-US/docs/Web/CSS/zoom"
+  }
+]

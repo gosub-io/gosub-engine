@@ -679,7 +679,9 @@ fn parse_generic_keyword(input: &str) -> IResult<&str, SyntaxComponent> {
 fn parse_infinity(input: &str) -> IResult<&str, NumberOrInfinity> {
     alt((
         map(tag_no_case("inf"), |_| NumberOrInfinity::Infinity),
+        map(tag_no_case("∞"), |_| NumberOrInfinity::Infinity),
         map(tag_no_case("-inf"), |_| NumberOrInfinity::NegativeInfinity),
+        map(tag_no_case("-∞"), |_| NumberOrInfinity::NegativeInfinity),
     ))(input)
 }
 
@@ -833,8 +835,7 @@ fn parse(input: &str) -> IResult<&str, SyntaxComponent> {
 
 #[cfg(test)]
 mod tests {
-    use crate::css_definitions::get_css_definitions;
-
+    use crate::css_definitions::get_mdn_css_definitions;
     use super::*;
 
     #[test]
@@ -845,7 +846,7 @@ mod tests {
     #[test]
     fn test_compile_all_definitions() {
         // Fetching the definitions will automatically compile all definitions on the first run
-        let defs = get_css_definitions();
+        let defs = get_mdn_css_definitions();
         assert!(!defs.is_empty());
     }
 

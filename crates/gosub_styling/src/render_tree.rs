@@ -8,8 +8,7 @@ use gosub_html5::parser::document::{DocumentHandle, TreeIterator};
 use gosub_render_backend::{PreRenderText, RenderBackend, FP};
 use gosub_shared::types::Result;
 use gosub_typeface::DEFAULT_FS;
-
-use crate::css_definitions::CssPropertyDefinitions;
+use crate::css_definitions::get_mdn_css_definitions;
 use crate::styling::{match_selector, CssProperties, CssProperty, DeclarationProperty};
 
 /// Map of all declared values for all nodes in the document
@@ -153,7 +152,7 @@ impl<B: RenderBackend> RenderTree<B> {
                 .get_node_by_id(current_node_id)
                 .expect("node not found");
 
-            let definitions = CssPropertyDefinitions::new();
+            let definitions = get_mdn_css_definitions();
 
             for sheet in document.get().stylesheets.iter() {
                 for rule in sheet.rules.iter() {
@@ -169,7 +168,7 @@ impl<B: RenderBackend> RenderTree<B> {
                         // Selector matched, so we add all declared values to the map
                         for declaration in rule.declarations().iter() {
                             // Step 1: find the property in our CSS definition list
-                            let definition = definitions.find(&declaration.property);
+                            let definition = definitions.find_property(&declaration.property);
                             // If not found, we skip this declaration
                             if definition.is_none() {
                                 warn!("Definition is not found for property {:?}", declaration.property);

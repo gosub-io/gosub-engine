@@ -2,12 +2,12 @@ use core::fmt::Debug;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
-use crate::css_definitions::get_css_definitions;
 use gosub_css3::stylesheet::{
     CssOrigin, CssSelector, CssSelectorPart, CssSelectorType, CssValue, MatcherType, Specificity,
 };
 use gosub_html5::node::NodeId;
 use gosub_html5::parser::document::DocumentHandle;
+use crate::css_definitions::get_mdn_css_definitions;
 
 // Matches a complete selector (all parts) against the given node(id)
 pub(crate) fn match_selector(
@@ -370,17 +370,17 @@ impl CssProperty {
 
     // // Returns true when the property is inheritable, false otherwise
     fn is_inheritable(&self) -> bool {
-        let defs = get_css_definitions();
-        match defs.find(&self.name) {
-            Some(def) => def.inherits(),
+        let defs = get_mdn_css_definitions();
+        match defs.find_property(&self.name) {
+            Some(def) => def.inherited(),
             None => false,
         }
     }
 
     // /// Returns true if the given property is a shorthand property (ie: border, margin etc)
     pub fn is_shorthand(&self) -> bool {
-        let defs = get_css_definitions();
-        match defs.find(&self.name) {
+        let defs = get_mdn_css_definitions();
+        match defs.find_property(&self.name) {
             Some(def) => !def.expanded_properties().is_empty(),
             None => false,
         }
@@ -388,8 +388,8 @@ impl CssProperty {
 
     /// Returns the list of properties from a shorthand property, or just the property itself if it isn't a shorthand property.
     pub fn get_props_from_shorthand(&self) -> Vec<String> {
-        let defs = get_css_definitions();
-        match defs.find(&self.name) {
+        let defs = get_mdn_css_definitions();
+        match defs.find_property(&self.name) {
             Some(def) => def.expanded_properties(),
             None => vec![],
         }
@@ -397,8 +397,8 @@ impl CssProperty {
 
     // // Returns the initial value for the property, if any
     fn get_initial_value(&self) -> Option<CssValue> {
-        let defs = get_css_definitions();
-        defs.find(&self.name).map(|def| def.initial_value())
+        let defs = get_mdn_css_definitions();
+        defs.find_property(&self.name).map(|def| def.initial_value())
     }
 }
 
