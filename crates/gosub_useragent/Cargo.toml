@@ -7,7 +7,7 @@ edition = "2021"
 gosub_shared = { path = "../gosub_shared" }
 gosub_render_backend = { path = "../gosub_render_backend" }
 gosub_renderer = { path = "../gosub_renderer" }
-winit = "0.30.3"
+winit = "0.30.4"
 slotmap = "1.0.7"
 log = "0.4.22"
 anyhow = "1.0.82"
