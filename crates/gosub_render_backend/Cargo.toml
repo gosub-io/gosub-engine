@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 smallvec = "1.13.2"
-image = "0.25.1"
+image = "0.25.2"
 raw-window-handle = "0.6.2"
 gosub_shared = { path = "../gosub_shared" }
 gosub_html5 = { path = "../gosub_html5" }
