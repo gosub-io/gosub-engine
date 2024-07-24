@@ -2,11 +2,41 @@ use std::collections::HashMap;
 use log::warn;
 use memoize::memoize;
 use gosub_css3::stylesheet::CssValue;
-
-use crate::syntax::CssSyntax;
+use crate::syntax::{CssSyntax, SyntaxComponent};
+use crate::syntax::GroupCombinators::Juxtaposition;
 use crate::syntax_matcher::CssSyntaxTree;
 
+/// List of elements that are built-in data types in the CSS specification
+#[allow(dead_code)]
+const BUILTIN_DATA_TYPES: [&str; 24] = [
+    "anchor-element",
+    "angle",
+    "coord-box",
+    "custom-ident",
+    "dashed-ident",
+    "declaration-value",
+    "hex-color",
+    "inset-area",
+    "integer",
+    "length",
+    "number",
+    "offset-path",
+    "palette-identifier",
+    "percentage",
+    "resolution",
+    "single-animation-composition",
+    "string",
+    "time",
+    "try-size",
+    "try-tactic",
+    "url",
+    "white-space-trim",
+    "x",
+    "y",
+];
+
 /// A CSS property definition including its type and initial value and optional expanded values if it's a shorthand property
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct PropertyDefinition {
     /// Name of the property (ie: color, background etc)
@@ -20,15 +50,23 @@ pub struct PropertyDefinition {
     /// Initial value of the property, if any
     initial_value: Option<CssValue>,
     /// URL to MDN documentation for this property
-    mdn_url: String
+    mdn_url: String,
+    // True when this element is resolved
+    resolved: bool
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct SyntaxDefinition {
+    /// Name of the syntax definition
     name: String,
+    /// Actual syntax
     syntax: CssSyntaxTree,
+    /// True when the element has already been resolved
+    resolved: bool
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct FunctionDefinition {
     /// Name of the function
@@ -143,73 +181,142 @@ impl CssDefinitions {
     }
 }
 
-//     // pub fn find_scalar(&self, name: &str) -> Option<SyntaxComponent> {
-//     //     let scalars = vec![
-//     //         "number",
-//     //         "integer",
-//     //         "percentage",
-//     //         "dashed-ident",
-//     //         "custom-ident",
-//     //         "ident",
-//     //         "repeat()",
-//     //         "attr()",
-//     //         "url",
-//     //         "uri",
-//     //         "named-color",
-//     //         "system-color",
-//     //         "unit()",
-//     //         "string",
-//     //         "tech()",
-//     //         "length",
-//     //         "reversed()",
-//     //     ];
-//     //
-//     //     if scalars.contains(&name) {
-//     //         return Some(SyntaxComponent::Scalar {
-//     //             scalar: name.to_string(),
-//     //             multiplier: SyntaxComponentMultiplier::Once,
-//     //         });
-//     //     }
-//     //
-//     //     None
-//     // }
-//
-//     pub fn find(&self, name: &str) -> Option<CssPropertyTypeDef> {
-//         let names = vec![
-//             name.to_string(),
-//             format!("<{}>", name),
-//             format!("{}()", name),
-//         ];
-//
-//         for name in names {
-//             if let Some(typedef) = self.typedefs.get(&name) {
-//                 return Some(typedef.clone());
-//             }
-//         }
-//
-//         None
-//     }
-//
-//     pub fn len(&self) -> usize {
-//         self.typedefs.len()
-//     }
-//
-//     pub fn is_empty(&self) -> bool {
-//         self.typedefs.is_empty()
-//     }
-//
-//     pub fn get_typedefs(self) -> HashMap<String, CssPropertyTypeDef> {
-//         self.typedefs.clone()
-//     }
-//
-//     pub fn get_keys(self) -> Vec<String> {
-//         let mut keys = vec![];
-//         for (key, _) in self.typedefs.iter() {
-//             keys.push(key.clone());
-//         }
-//         keys
-//     }
-// }
+impl CssDefinitions {
+
+    /// Resolves all elements in the definitions, syntax and functions
+    pub fn resolve(&mut self){
+        let mut names = self.properties.keys().cloned().collect::<Vec<String>>();
+        names.sort();
+
+        for name in names {
+            self.resolve_property(&name);
+        }
+    }
+
+    /// Resolves a property definition (recursive)
+    fn resolve_property(&mut self, name: &str) -> PropertyDefinition {
+        // println!("Resolving property: {:?}", name);
+
+        let mut element = self.find_property(name).expect("Could not find property definition");
+        if !element.resolved {
+            // Resolve if not resolved already
+            let mut resolved_components = vec![];
+            for component in &element.syntax.components {
+                // println!("  resolving component in property: {:?}", component);
+                let component = self.resolve_component(component, name);
+                resolved_components.push(component);
+            }
+
+            // update element in properties
+            element.syntax.components = resolved_components;
+            element.resolved = true;
+            self.add_property(name, element.clone());
+        }
+
+        element
+    }
+
+    #[allow(dead_code)]
+    fn resolve_component(&mut self, component: &SyntaxComponent, prop_name: &str) -> SyntaxComponent {
+        // println!("resolve_component: {:?}", component);
+
+        match component {
+            SyntaxComponent::Definition { datatype, multiplier, .. } => {
+                // println!("Resolving definition {:?}", datatype);
+
+                // Find the datatype in the syntax definitions
+                // println!("syntax check for datatype: {:?}", datatype);
+                if let Some(syntax_element) = self.syntax.get(datatype) {
+                    // println!("definition is a syntax element");
+
+                    let mut syntax_element = syntax_element.clone();
+                    if !syntax_element.resolved {
+                        syntax_element.syntax = self.resolve_syntax(&syntax_element.syntax, prop_name);
+                        syntax_element.resolved = true;
+                    }
+
+                    return SyntaxComponent::Group {
+                        components: syntax_element.syntax.components.clone(),
+                        combinator: Juxtaposition,
+                        multiplier: multiplier.clone(),
+                    };
+                }
+
+                // Don't resolve in properties when the datatype is the same as the propertyname (for instance: inset-area)
+                if datatype != prop_name {
+                    // Find the datatype in the properties definitions
+                    if let Some(property_element) = self.properties.get(datatype) {
+                        // println!("definition is a property element");
+
+                        let resolved_prop = if !property_element.resolved {
+                            self.resolve_property(&datatype)
+                        } else {
+                            property_element.clone()
+                        };
+
+                        // If the resolved syntax is just a single element (be it a group, or a single element),
+                        // return that component.
+                        if resolved_prop.syntax.components.len() == 1 {
+                            return resolved_prop.syntax.components[0].clone();
+                        }
+
+                        // Otherwise, we return a group with the components
+                        return SyntaxComponent::Group {
+                            components: resolved_prop.syntax.components.clone(),
+                            combinator: Juxtaposition,
+                            multiplier: multiplier.clone(),
+                        };
+                    }
+                }
+
+                // Finally, check if the data type is a built-in datatype
+                if BUILTIN_DATA_TYPES.contains(&datatype.as_str()) {
+                    // println!("definition is a built-in element");
+
+                    // Ok, it's a built-in datatype, convert it to a built-in type
+                    return SyntaxComponent::Builtin {
+                        datatype: datatype.clone(),
+                        multiplier: multiplier.clone()
+                    };
+                }
+
+                panic!("Unknown datatype encountered: {:?}", datatype);
+            }
+            SyntaxComponent::Group { components, combinator, multiplier } => {
+                // Resolve each component from the group
+                let mut resolved_components = vec![];
+                // Resolve all elements in the group
+                for component in components {
+                    // println!("resolving group component: {:?}", component);
+                    resolved_components.push(self.resolve_component(component, prop_name));
+                }
+
+                return SyntaxComponent::Group{
+                    components: resolved_components,
+                    combinator: combinator.clone(),
+                    multiplier: multiplier.clone(),
+                }
+            }
+            _ => {
+                // This component does not need any resolving
+                return component.clone()
+            }
+        }
+
+    }
+
+    fn resolve_syntax(&mut self, syntax: &CssSyntaxTree, prop_name: &str) -> CssSyntaxTree {
+        let mut resolved_components = vec![];
+
+        for component in &syntax.components {
+            resolved_components.push(self.resolve_component(component, prop_name));
+        }
+
+        CssSyntaxTree {
+            components: resolved_components
+        }
+    }
+}
 
 /// Parses the internal CSS definition file
 #[memoize]
@@ -232,14 +339,16 @@ pub fn parse_mdn_definition_files() -> CssDefinitions {
         serde_json::from_str(contents).expect("JSON was not well-formatted");
     let properties = parse_mdn_property_file(json);
 
-    let definitions = CssDefinitions{
+    let mut definitions = CssDefinitions{
         properties,
         functions,
         syntax
     };
 
-    /// Resolve all syntax and functions inside the definitions
-    resolve_elements(&definitions)
+    // Resolve all syntax and functions inside the definitions
+    definitions.resolve();
+
+    definitions
 }
 
 /// Main function to return the definitions. THis will automatically load the definition files
@@ -281,6 +390,7 @@ fn parse_mdn_syntax_file(json: serde_json::Value) -> HashMap<String, SyntaxDefin
                     SyntaxDefinition {
                         name: name.clone(),
                         syntax: ast.clone(),
+                        resolved: false,
                     },
                 );
             }
@@ -294,140 +404,6 @@ fn parse_mdn_syntax_file(json: serde_json::Value) -> HashMap<String, SyntaxDefin
     // typedef_resolve_all(&mut typedefs);
     syntaxes
 }
-
-// /// Iterate all the typedefs and resolve any typedefs that are used in the syntax. After this call
-// /// no more typedefs should exist in the syntax.
-// fn typedef_resolve_all(typedefs: &mut CssPropertyTypeDefs) {
-//     for name in <CssPropertyTypeDefs as Clone>::clone(typedefs).get_keys() {
-//         typedef_resolve(typedefs, &name);
-//     }
-// }
-
-// fn typedef_resolve_group(
-//     typedefs: &mut CssPropertyTypeDefs,
-//     components: &Vec<SyntaxComponent>,
-// ) -> Vec<SyntaxComponent> {
-//     let mut resolved_components = vec![];
-//
-//     for component in components {
-//         match &component {
-//             SyntaxComponent::TypeDefinition { definition, .. } => {
-//                 // Is the type definition a scalar?
-//                 if let Some(scalar) = typedefs.find_scalar(definition) {
-//                     resolved_components.push(scalar);
-//                     continue;
-//                 }
-//
-//                 if let Some(_typedef) = typedefs.find(definition) {
-//                     // Resolve the typedef (if it's not already resolved and will take care of recursive typedefs)
-//                     typedef_resolve(typedefs, definition);
-//                     resolved_components.push(
-//                         typedefs
-//                             .find(definition)
-//                             .expect("Could not find typedef")
-//                             .syntax
-//                             .components[0]
-//                             .clone(),
-//                     );
-//
-//                     continue;
-//                 }
-//
-//                 panic!(
-//                     "Reference to typedef {:?} found. But it's not defined",
-//                     definition
-//                 );
-//             }
-//             SyntaxComponent::Group {
-//                 components,
-//                 combinator,
-//                 multiplier,
-//             } => {
-//                 resolved_components.push(SyntaxComponent::Group {
-//                     components: typedef_resolve_group(typedefs, components).clone(),
-//                     combinator: combinator.clone(),
-//                     multiplier: multiplier.clone(),
-//                 });
-//             }
-//             _ => {
-//                 resolved_components.push(component.clone());
-//             }
-//         }
-//     }
-//
-//     resolved_components
-// }
-
-// fn typedef_resolve_syntaxtree(
-//     typedefs: &mut CssPropertyTypeDefs,
-//     syntax_tree: CssSyntaxTree,
-// ) -> CssSyntaxTree {
-//     let mut resolved_components = vec![];
-//
-//     for component in &syntax_tree.components {
-//         // Resolve each component that needs resolving, or just return the component as-is.
-//         // If a component is a group, we need to resolve all its components first.
-//         match &component {
-//             // Resolve type definition
-//             SyntaxComponent::TypeDefinition { definition, .. } => {
-//                 // Is the type definition a scalar?
-//                 if let Some(scalar) = typedefs.find_scalar(definition) {
-//                     resolved_components.push(scalar);
-//
-//                     continue;
-//                 }
-//
-//                 if let Some(_typedef) = typedefs.find(definition) {
-//                     // Resolve the typedef (if it's not already resolved and will take care of recursive typedefs)
-//                     typedef_resolve(typedefs, definition);
-//                     resolved_components.push(
-//                         typedefs
-//                             .find(definition)
-//                             .expect("Could not find typedef")
-//                             .syntax
-//                             .components[0]
-//                             .clone(),
-//                     );
-//
-//                     continue;
-//                 }
-//
-//                 panic!(
-//                     "Reference to typedef {:?} found. But it's not defined",
-//                     definition
-//                 );
-//             }
-//             SyntaxComponent::Group {
-//                 components,
-//                 combinator,
-//                 multiplier,
-//             } => {
-//                 let resolved_group = typedef_resolve_group(typedefs, components);
-//
-//                 resolved_components.push(SyntaxComponent::Group {
-//                     combinator: combinator.clone(),
-//                     components: resolved_group,
-//                     multiplier: multiplier.clone(),
-//                 });
-//             }
-//             _ => {
-//                 // No need to resolve this component, just add it as-is
-//                 resolved_components.push(component.clone());
-//             }
-//         }
-//     }
-//
-//     CssSyntaxTree {
-//         components: resolved_components,
-//     }
-// }
-//
-// /// Resolves a single typedef by recursively resolving all its components
-// fn typedef_resolve(typedefs: &mut CssPropertyTypeDefs, name: &str) {
-//     let mut typedef = typedefs.find(name).expect("Could not find typedef");
-//     typedef.syntax = typedef_resolve_syntaxtree(typedefs, typedef.syntax);
-//     typedefs.update_typedef(name, typedef);
-// }
 
 /// Parses the JSON input into a CSS property definitions structure
 fn parse_mdn_property_file(json: serde_json::Value) -> HashMap<String, PropertyDefinition> {
@@ -486,6 +462,7 @@ fn parse_mdn_property_file(json: serde_json::Value) -> HashMap<String, PropertyD
                 initial_value,
                 inherited: obj["inherited"].as_bool().unwrap(),
                 mdn_url: obj["mdn_url"].as_str().unwrap().to_string(),
+                resolved: false,
             },
         );
     }
@@ -516,46 +493,46 @@ mod tests {
         assert_eq!(definitions.len(), 563);
     }
 
-    // #[test]
-    // fn test_prop_border() {
-    //     let definitions = parse_mdn_definition_files();
-    //     let prop = definitions.find("border").unwrap();
-    //
-    //     // assert_some!(prop.clone().matches(&CssValue::List(vec![
-    //     //     CssValue::Unit(1.0, "px".into()),
-    //     //     CssValue::String("solid".into()),
-    //     //     CssValue::Color(RgbColor::from("black")),
-    //     // ])));
-    //     //
-    //     // assert_some!(prop.clone().matches(&CssValue::List(vec![
-    //     //     CssValue::Color(RgbColor::from("black")),
-    //     //     CssValue::String("solid".into()),
-    //     //     CssValue::Unit(1.0, "px".into()),
-    //     // ])));
-    //     // assert_some!(prop.clone().matches(&CssValue::List(vec![
-    //     //     CssValue::String("solid".into()),
-    //     //     CssValue::Color(RgbColor::from("black")),
-    //     //     CssValue::Unit(1.0, "px".into()),
-    //     // ])));
-    //     assert_some!(prop.clone().matches(&CssValue::Unit(1.0, "px".into())));
-    //     assert_some!(prop.clone().matches(&CssValue::String("solid".into())));
-    //     assert_some!(prop.clone().matches(&CssValue::List(vec![
-    //         CssValue::String("solid".into()),
-    //         CssValue::Color(RgbColor::from("black")),
-    //     ])));
-    //     assert_some!(prop.clone().matches(&CssValue::List(vec![
-    //         CssValue::String("solid".into()),
-    //         CssValue::Color(RgbColor::from("black")),
-    //     ])));
-    //     assert_some!(prop.clone().matches(&CssValue::String("solid".into())));
-    //     assert_none!(prop.clone().matches(&CssValue::String("not-solid".into())));
-    //     assert_none!(prop.clone().matches(&CssValue::List(vec![
-    //         CssValue::String("solid".into()),
-    //         CssValue::String("solid".into()),
-    //         CssValue::Unit(1.0, "px".into()),
-    //     ])));
-    // }
-    //
+    #[test]
+    fn test_prop_border() {
+        let definitions = parse_mdn_definition_files();
+        let prop = definitions.find_property("border").unwrap();
+
+        assert_some!(prop.clone().matches(&CssValue::List(vec![
+            CssValue::Unit(1.0, "px".into()),
+            CssValue::String("solid".into()),
+            CssValue::Color(RgbColor::from("black")),
+        ])));
+
+        assert_some!(prop.clone().matches(&CssValue::List(vec![
+            CssValue::Color(RgbColor::from("black")),
+            CssValue::String("solid".into()),
+            CssValue::Unit(1.0, "px".into()),
+        ])));
+        assert_some!(prop.clone().matches(&CssValue::List(vec![
+            CssValue::String("solid".into()),
+            CssValue::Color(RgbColor::from("black")),
+            CssValue::Unit(1.0, "px".into()),
+        ])));
+        assert_some!(prop.clone().matches(&CssValue::Unit(1.0, "px".into())));
+        assert_some!(prop.clone().matches(&CssValue::String("solid".into())));
+        assert_some!(prop.clone().matches(&CssValue::List(vec![
+            CssValue::String("solid".into()),
+            CssValue::Color(RgbColor::from("black")),
+        ])));
+        assert_some!(prop.clone().matches(&CssValue::List(vec![
+            CssValue::String("solid".into()),
+            CssValue::Color(RgbColor::from("black")),
+        ])));
+        assert_some!(prop.clone().matches(&CssValue::String("solid".into())));
+        assert_none!(prop.clone().matches(&CssValue::String("not-solid".into())));
+        assert_none!(prop.clone().matches(&CssValue::List(vec![
+            CssValue::String("solid".into()),
+            CssValue::String("solid".into()),
+            CssValue::Unit(1.0, "px".into()),
+        ])));
+    }
+
     // #[test]
     // fn test_property_definitions() {
     //     let mut definitions = CssPropertyDefinitions::empty();
@@ -598,320 +575,268 @@ mod tests {
     //     assert!(definitions.find("border-style").is_some());
     // }
     //
-    // #[test]
-    // fn test_azimuth() {
-    //     let definitions = parse_mdn_definition_files().definitions;
-    //     let def = definitions.get("azimuth").unwrap();
-    //
-    //     assert_some!(def.clone().matches(&CssValue::Unit(361.0, "deg".into())));
-    //
-    //     assert_none!(def.clone().matches(&CssValue::Unit(20.0, "blaat".into())));
-    //
-    //     assert_some!(def
-    //         .clone()
-    //         .matches(&CssValue::Unit(std::f32::consts::FRAC_PI_2, "rad".into())));
-    //     assert_some!(def.clone().matches(&CssValue::Number(0.0)));
-    //
-    //     assert_some!(def.clone().matches(&CssValue::Unit(360.0, "deg".into())));
-    //     assert_some!(def.clone().matches(&CssValue::Unit(360.0, "grad".into())));
-    //     assert_some!(def.clone().matches(&CssValue::Unit(2.0, "grad".into())));
-    //     assert_some!(def.clone().matches(&CssValue::Unit(-360.0, "grad".into())));
-    //
-    //     assert_none!(def.clone().matches(&CssValue::String("leftside".into())));
-    //
-    //     assert_some!(def.clone().matches(&CssValue::String("left-side".into())));
-    //     assert_some!(def.clone().matches(&CssValue::String("left".into())));
-    //     assert_some!(def.clone().matches(&CssValue::String("center".into())));
-    //     assert_some!(def.clone().matches(&CssValue::String("rightwards".into())));
-    //     assert_some!(def.clone().matches(&CssValue::List(vec!(
-    //         CssValue::String("far-right".into()),
-    //         CssValue::String("behind".into()),
-    //     ))));
-    //     assert_some!(def.clone().matches(&CssValue::String("behind".into())));
-    // }
-    //
-    // #[test]
-    // fn test_background_color() {
-    //     let definitions = parse_mdn_definition_files().definitions;
-    //     let def = definitions.get("background-color").unwrap();
-    //
-    //     assert_some!(def.clone().matches(&CssValue::Inherit));
-    //     assert_some!(def.clone().matches(&CssValue::String("transparent".into())));
-    //
-    //     assert_some!(def.clone().matches(&CssValue::String("red".into())));
-    //     // System colors
-    //     assert_some!(def.clone().matches(&CssValue::String("Canvas".into())));
-    //     assert_some!(def.clone().matches(&CssValue::String("CanvasText".into())));
-    //     assert_some!(def.clone().matches(&CssValue::String("CanvasText".into())));
-    //     assert_some!(def.clone().matches(&CssValue::String("Menu".into())));
-    //
-    //     assert_some!(def.clone().matches(&CssValue::String("blue".into())));
-    //     assert_some!(def
-    //         .clone()
-    //         .matches(&CssValue::Color(RgbColor::from("#ff0000"))));
-    //     assert_some!(def
-    //         .clone()
-    //         .matches(&CssValue::String("rebeccapurple".into())));
-    //
-    //     assert_none!(def
-    //         .clone()
-    //         .matches(&CssValue::String("thiscolordoesnotexist".into())));
-    // }
-    //
-    // #[test]
-    // fn test_background_attachments() {
-    //     let definitions = parse_mdn_definition_files().definitions;
-    //     let def = definitions.get("background-attachment").unwrap();
-    //
-    //     assert_some!(def.clone().matches(&CssValue::Inherit));
-    //     assert_some!(def.clone().matches(&CssValue::String("scroll".into())));
-    //     assert_some!(def.clone().matches(&CssValue::String("fixed".into())));
-    //
-    //     assert_none!(def.clone().matches(&CssValue::String("incorrect".into())));
-    //     assert_none!(def
-    //         .clone()
-    //         .matches(&CssValue::String("rebeccapurple".into())));
-    //     assert_none!(def.clone().matches(&CssValue::Zero));
-    // }
-    //
-    // // #[test]
-    // fn test_prop() {
-    //     let definitions = parse_mdn_definition_files().definitions;
-    //     let def = definitions.get("test-prop").unwrap();
-    //
-    //     // [ <percentage> | foo ] [ <number> | bar ]?
-    //
-    //     dbg!(&def);
-    //
-    //     assert_some!(def.clone().matches(&CssValue::List(vec![
-    //         CssValue::String("foo".into()),
-    //         CssValue::String("bar".into()),
-    //     ])));
-    //
-    //     assert_none!(def.clone().matches(&CssValue::List(vec![
-    //         CssValue::String("bar".into()),
-    //         CssValue::String("foo".into()),
-    //     ])));
-    //
-    //     assert_some!(def
-    //         .clone()
-    //         .matches(&CssValue::List(vec![CssValue::String("foo".into()),])));
-    //
-    //     assert_none!(def
-    //         .clone()
-    //         .matches(&CssValue::List(vec![CssValue::String("bar".into()),])));
-    //
-    //     assert_some!(def.clone().matches(&CssValue::List(vec![
-    //         CssValue::Percentage(15.0),
-    //         CssValue::String("bar".into()),
-    //     ])));
-    //
-    //     assert_some!(def.clone().matches(&CssValue::List(vec![
-    //         CssValue::Percentage(15.0),
-    //         CssValue::Number(30.0),
-    //     ])));
-    //
-    //     assert_none!(def.clone().matches(&CssValue::List(vec![
-    //         CssValue::Number(30.0),
-    //         CssValue::Percentage(15.0),
-    //     ])));
-    //
-    //     assert_some!(def.clone().matches(&CssValue::List(vec![
-    //         CssValue::String("foo".into()),
-    //         CssValue::Number(30.0),
-    //     ])));
-    //
-    //     assert_some!(def
-    //         .clone()
-    //         .matches(&CssValue::List(vec![CssValue::Percentage(30.0),])));
-    // }
-    //
-    // #[test]
-    // fn test_background_position() {
-    //     let definitions = parse_mdn_definition_files().definitions;
-    //     let def = definitions.get("background-position").unwrap();
-    //
-    //     assert_none!(def.clone().matches(&CssValue::String("scroll".into())));
-    //     assert_none!(def.clone().matches(&CssValue::String("fixed".into())));
-    //     assert_none!(def.clone().matches(&CssValue::String("incorrect".into())));
-    //     assert_none!(def
-    //         .clone()
-    //         .matches(&CssValue::String("rebeccapurple".into())));
-    //
-    //     assert_some!(def.clone().matches(&CssValue::Percentage(0.0)));
-    //     assert_some!(def.clone().matches(&CssValue::Zero));
-    //     assert_some!(def.clone().matches(&CssValue::Unit(12.34, "px".into())));
-    //     assert_none!(def.clone().matches(&CssValue::Number(12.34)));
-    //
-    //     // background-position: left 10px top 20px;
-    //     assert_some!(def.clone().matches(&CssValue::List(vec![
-    //         CssValue::String("left".into()),
-    //         CssValue::Unit(10.0, "px".into()),
-    //         CssValue::String("top".into()),
-    //         CssValue::Unit(20.0, "px".into()),
-    //     ])));
-    //
-    //     // background-position: right 15% bottom 5%;
-    //     assert_some!(def.clone().matches(&CssValue::List(vec![
-    //         CssValue::String("right".into()),
-    //         CssValue::Percentage(15.0),
-    //         CssValue::String("bottom".into()),
-    //         CssValue::Percentage(5.0),
-    //     ])));
-    //
-    //     // background-position: center center;
-    //     assert_some!(def.clone().matches(&CssValue::List(vec![
-    //         CssValue::String("center".into()),
-    //         CssValue::String("center".into()),
-    //     ])));
-    //
-    //     // background-position: 75% 50%;
-    //     assert_some!(def.clone().matches(&CssValue::List(vec![
-    //         CssValue::Percentage(75.0),
-    //         CssValue::Percentage(50.0),
-    //     ])));
-    //
-    //     // background-position: 75%;
-    //     assert_some!(def
-    //         .clone()
-    //         .matches(&CssValue::List(vec![CssValue::Percentage(75.0),])));
-    //
-    //     // background-position: top 10px center;
-    //     assert_some!(def.clone().matches(&CssValue::List(vec![
-    //         CssValue::String("top".into()),
-    //         CssValue::Unit(10.0, "px".into()),
-    //         CssValue::String("center".into()),
-    //     ])));
-    //
-    //     // background-position: bottom 20px right 30px;
-    //     assert_some!(def.clone().matches(&CssValue::List(vec![
-    //         CssValue::String("bottom".into()),
-    //         CssValue::Unit(20.0, "px".into()),
-    //         CssValue::String("right".into()),
-    //         CssValue::Unit(30.0, "px".into()),
-    //     ])));
-    //
-    //     // background-position: 20% 80%;
-    //     assert_some!(def.clone().matches(&CssValue::List(vec![
-    //         CssValue::Percentage(20.0),
-    //         CssValue::Percentage(80.0),
-    //     ])));
-    //
-    //     // background-position: left 5px bottom 15px, right 10px top 20px;
-    //     assert_some!(def.clone().matches(&CssValue::List(vec![
-    //         CssValue::String("left".into()),
-    //         CssValue::Unit(5.0, "px".into()),
-    //         CssValue::String("bottom".into()),
-    //         CssValue::Unit(15.0, "px".into()),
-    //         CssValue::String("right".into()),
-    //         CssValue::Unit(10.0, "px".into()),
-    //         CssValue::String("top".into()),
-    //         CssValue::Unit(20.0, "px".into()),
-    //     ])));
-    //
-    //     // background-position: center top 35px;
-    //     assert_some!(def.clone().matches(&CssValue::List(vec![
-    //         CssValue::String("center".into()),
-    //         CssValue::String("top".into()),
-    //         CssValue::Unit(35.0, "px".into()),
-    //     ])));
-    //
-    //     // background-position: left 45% bottom 25%;
-    //     assert_some!(def.clone().matches(&CssValue::List(vec![
-    //         CssValue::String("left".into()),
-    //         CssValue::Percentage(45.0),
-    //         CssValue::String("bottom".into()),
-    //         CssValue::Percentage(25.0),
-    //     ])));
-    //
-    //     // background-position: right 10% top 50px;
-    //     assert_some!(def.clone().matches(&CssValue::List(vec![
-    //         CssValue::String("right".into()),
-    //         CssValue::Percentage(10.0),
-    //         CssValue::String("top".into()),
-    //         CssValue::Unit(50.0, "px".into()),
-    //     ])));
-    //
-    //     // background-position: 0% 0%, 100% 100%;
-    //     assert_some!(def.clone().matches(&CssValue::List(vec![
-    //         CssValue::Percentage(0.0),
-    //         CssValue::Percentage(0.0),
-    //         CssValue::Percentage(100.0),
-    //         CssValue::Percentage(100.0),
-    //     ])));
-    //
-    //     // background-position: left top, right bottom;
-    //     assert_some!(def.clone().matches(&CssValue::List(vec![
-    //         CssValue::String("left".into()),
-    //         CssValue::String("top".into()),
-    //         CssValue::String("right".into()),
-    //         CssValue::String("bottom".into()),
-    //     ])));
-    //
-    //     // background-position: 100% 0, 0 100%;
-    //     assert_some!(def.clone().matches(&CssValue::List(vec![
-    //         CssValue::Percentage(100.0),
-    //         CssValue::Number(0.0),
-    //         CssValue::Number(0.0),
-    //         CssValue::Percentage(100.0),
-    //     ])));
-    //
-    //     // background-position: left 25px bottom, center top;
-    //     assert_some!(def.clone().matches(&CssValue::List(vec![
-    //         CssValue::String("left".into()),
-    //         CssValue::Unit(25.0, "px".into()),
-    //         CssValue::String("bottom".into()),
-    //         CssValue::String("center".into()),
-    //         CssValue::String("top".into()),
-    //     ])));
-    //
-    //     // background-position: top 10% left 20%, bottom 10% right 20%;
-    //     assert_some!(def.clone().matches(&CssValue::List(vec![
-    //         CssValue::String("top".into()),
-    //         CssValue::Percentage(10.0),
-    //         CssValue::String("left".into()),
-    //         CssValue::Percentage(20.0),
-    //         CssValue::String("bottom".into()),
-    //         CssValue::Percentage(10.0),
-    //         CssValue::String("right".into()),
-    //         CssValue::Percentage(20.0),
-    //     ])));
-    //
-    //     // background-position: 10px 30px, 90% 10%;
-    //     assert_some!(def.clone().matches(&CssValue::List(vec![
-    //         CssValue::Unit(10.0, "px".into()),
-    //         CssValue::Unit(30.0, "px".into()),
-    //         CssValue::Percentage(90.0),
-    //         CssValue::Percentage(10.0),
-    //     ])));
-    //
-    //     // background-position: top right, bottom left 15px;
-    //     assert_some!(def.clone().matches(&CssValue::List(vec![
-    //         CssValue::String("top".into()),
-    //         CssValue::String("right".into()),
-    //         CssValue::String("bottom".into()),
-    //         CssValue::String("left".into()),
-    //         CssValue::Unit(15.0, "px".into()),
-    //     ])));
-    //
-    //     // background-position: 50% 25%, 25% 75%;
-    //     assert_some!(def.clone().matches(&CssValue::List(vec![
-    //         CssValue::Percentage(50.0),
-    //         CssValue::Percentage(25.0),
-    //         CssValue::Percentage(25.0),
-    //         CssValue::Percentage(75.0),
-    //     ])));
-    //
-    //     // background-position: right 5% bottom 5%, left 5% top 5%;
-    //     assert_some!(def.clone().matches(&CssValue::List(vec![
-    //         CssValue::String("right".into()),
-    //         CssValue::Percentage(5.0),
-    //         CssValue::String("bottom".into()),
-    //         CssValue::Percentage(5.0),
-    //         CssValue::String("left".into()),
-    //         CssValue::Percentage(5.0),
-    //         CssValue::String("top".into()),
-    //         CssValue::Percentage(5.0),
-    //     ])));
-    // }
+    #[test]
+    fn test_azimuth() {
+        let definitions = parse_mdn_definition_files();
+        let def = definitions.find_property("azimuth").unwrap();
+
+        assert_some!(def.clone().matches(&CssValue::Unit(361.0, "deg".into())));
+
+        assert_none!(def.clone().matches(&CssValue::Unit(20.0, "blaat".into())));
+
+        assert_some!(def
+            .clone()
+            .matches(&CssValue::Unit(std::f32::consts::FRAC_PI_2, "rad".into())));
+        assert_some!(def.clone().matches(&CssValue::Zero));
+
+        assert_some!(def.clone().matches(&CssValue::Unit(360.0, "deg".into())));
+        assert_some!(def.clone().matches(&CssValue::Unit(360.0, "grad".into())));
+        assert_some!(def.clone().matches(&CssValue::Unit(2.0, "grad".into())));
+        assert_some!(def.clone().matches(&CssValue::Unit(-360.0, "grad".into())));
+
+        assert_none!(def.clone().matches(&CssValue::String("leftside".into())));
+
+        assert_some!(def.clone().matches(&CssValue::String("left-side".into())));
+        assert_some!(def.clone().matches(&CssValue::String("left".into())));
+        assert_some!(def.clone().matches(&CssValue::String("center".into())));
+        assert_some!(def.clone().matches(&CssValue::String("rightwards".into())));
+        assert_some!(def.clone().matches(&CssValue::List(vec!(
+            CssValue::String("far-right".into()),
+            CssValue::String("behind".into()),
+        ))));
+        assert_some!(def.clone().matches(&CssValue::String("behind".into())));
+    }
+
+    #[test]
+    fn test_background_color() {
+        let definitions = parse_mdn_definition_files();
+        let def = definitions.find_property("background-color").unwrap();
+
+        // assert_some!(def.clone().matches(&CssValue::Inherit));
+        assert_some!(def.clone().matches(&CssValue::String("transparent".into())));
+
+        assert_some!(def.clone().matches(&CssValue::String("red".into())));
+        // System colors
+        // assert_some!(def.clone().matches(&CssValue::String("Canvas".into())));
+        // assert_some!(def.clone().matches(&CssValue::String("CanvasText".into())));
+        // assert_some!(def.clone().matches(&CssValue::String("CanvasText".into())));
+        assert_some!(def.clone().matches(&CssValue::String("Menu".into())));
+
+        assert_some!(def.clone().matches(&CssValue::String("blue".into())));
+        assert_some!(def
+            .clone()
+            .matches(&CssValue::Color(RgbColor::from("#ff0000"))));
+        assert_some!(def
+            .clone()
+            .matches(&CssValue::String("rebeccapurple".into())));
+
+        assert_none!(def
+            .clone()
+            .matches(&CssValue::String("thiscolordoesnotexist".into())));
+    }
+
+    #[test]
+    fn test_background_attachments() {
+        let definitions = parse_mdn_definition_files();
+        let def = definitions.find_property("background-attachment").unwrap();
+
+        // assert_some!(def.clone().matches(&CssValue::Inherit));
+        assert_some!(def.clone().matches(&CssValue::String("scroll".into())));
+        assert_some!(def.clone().matches(&CssValue::String("fixed".into())));
+
+        assert_none!(def.clone().matches(&CssValue::String("incorrect".into())));
+        assert_none!(def
+            .clone()
+            .matches(&CssValue::String("rebeccapurple".into())));
+        assert_none!(def.clone().matches(&CssValue::Zero));
+    }
+
+    #[test]
+    fn test_background_position() {
+        let definitions = parse_mdn_definition_files();
+        let def = definitions.find_property("background-position").unwrap();
+
+        assert_none!(def.clone().matches(&CssValue::String("scroll".into())));
+        assert_none!(def.clone().matches(&CssValue::String("fixed".into())));
+        assert_none!(def.clone().matches(&CssValue::String("incorrect".into())));
+        assert_none!(def
+            .clone()
+            .matches(&CssValue::String("rebeccapurple".into())));
+
+        assert_some!(def.clone().matches(&CssValue::Percentage(0.0)));
+        assert_some!(def.clone().matches(&CssValue::Zero));
+        assert_some!(def.clone().matches(&CssValue::Unit(12.34, "px".into())));
+        assert_none!(def.clone().matches(&CssValue::Number(12.34)));
+
+        // background-position: left 10px top 20px;
+        assert_some!(def.clone().matches(&CssValue::List(vec![
+            CssValue::String("left".into()),
+            CssValue::Unit(10.0, "px".into()),
+            CssValue::String("top".into()),
+            CssValue::Unit(20.0, "px".into()),
+        ])));
+
+        // background-position: right 15% bottom 5%;
+        assert_some!(def.clone().matches(&CssValue::List(vec![
+            CssValue::String("right".into()),
+            CssValue::Percentage(15.0),
+            CssValue::String("bottom".into()),
+            CssValue::Percentage(5.0),
+        ])));
+
+        // background-position: center center;
+        assert_some!(def.clone().matches(&CssValue::List(vec![
+            CssValue::String("center".into()),
+            CssValue::String("center".into()),
+        ])));
+
+        // background-position: 75% 50%;
+        assert_some!(def.clone().matches(&CssValue::List(vec![
+            CssValue::Percentage(75.0),
+            CssValue::Percentage(50.0),
+        ])));
+
+        // background-position: 75%;
+        assert_some!(def
+            .clone()
+            .matches(&CssValue::List(vec![CssValue::Percentage(75.0),])));
+
+        // background-position: top 10px center;
+        assert_some!(def.clone().matches(&CssValue::List(vec![
+            CssValue::String("top".into()),
+            CssValue::Unit(10.0, "px".into()),
+            CssValue::String("center".into()),
+        ])));
+
+        // background-position: bottom 20px right 30px;
+        assert_some!(def.clone().matches(&CssValue::List(vec![
+            CssValue::String("bottom".into()),
+            CssValue::Unit(20.0, "px".into()),
+            CssValue::String("right".into()),
+            CssValue::Unit(30.0, "px".into()),
+        ])));
+
+        // background-position: 20% 80%;
+        assert_some!(def.clone().matches(&CssValue::List(vec![
+            CssValue::Percentage(20.0),
+            CssValue::Percentage(80.0),
+        ])));
+
+        // background-position: left 5px bottom 15px, right 10px top 20px;
+        assert_some!(def.clone().matches(&CssValue::List(vec![
+            CssValue::String("left".into()),
+            CssValue::Unit(5.0, "px".into()),
+            CssValue::String("bottom".into()),
+            CssValue::Unit(15.0, "px".into()),
+            CssValue::String("right".into()),
+            CssValue::Unit(10.0, "px".into()),
+            CssValue::String("top".into()),
+            CssValue::Unit(20.0, "px".into()),
+        ])));
+
+        // background-position: center top 35px;
+        assert_some!(def.clone().matches(&CssValue::List(vec![
+            CssValue::String("center".into()),
+            CssValue::String("top".into()),
+            CssValue::Unit(35.0, "px".into()),
+        ])));
+
+        // background-position: left 45% bottom 25%;
+        assert_some!(def.clone().matches(&CssValue::List(vec![
+            CssValue::String("left".into()),
+            CssValue::Percentage(45.0),
+            CssValue::String("bottom".into()),
+            CssValue::Percentage(25.0),
+        ])));
+
+        // background-position: right 10% top 50px;
+        assert_some!(def.clone().matches(&CssValue::List(vec![
+            CssValue::String("right".into()),
+            CssValue::Percentage(10.0),
+            CssValue::String("top".into()),
+            CssValue::Unit(50.0, "px".into()),
+        ])));
+
+        // background-position: 0% 0%, 100% 100%;
+        assert_some!(def.clone().matches(&CssValue::List(vec![
+            CssValue::Percentage(0.0),
+            CssValue::Percentage(0.0),
+            CssValue::Percentage(100.0),
+            CssValue::Percentage(100.0),
+        ])));
+
+        // background-position: left top, right bottom;
+        assert_some!(def.clone().matches(&CssValue::List(vec![
+            CssValue::String("left".into()),
+            CssValue::String("top".into()),
+            CssValue::String("right".into()),
+            CssValue::String("bottom".into()),
+        ])));
+
+        // background-position: 100% 0, 0 100%;
+        assert_some!(def.clone().matches(&CssValue::List(vec![
+            CssValue::Percentage(100.0),
+            CssValue::Number(0.0),
+            CssValue::Number(0.0),
+            CssValue::Percentage(100.0),
+        ])));
+
+        // background-position: left 25px bottom, center top;
+        assert_some!(def.clone().matches(&CssValue::List(vec![
+            CssValue::String("left".into()),
+            CssValue::Unit(25.0, "px".into()),
+            CssValue::String("bottom".into()),
+            CssValue::String("center".into()),
+            CssValue::String("top".into()),
+        ])));
+
+        // background-position: top 10% left 20%, bottom 10% right 20%;
+        assert_some!(def.clone().matches(&CssValue::List(vec![
+            CssValue::String("top".into()),
+            CssValue::Percentage(10.0),
+            CssValue::String("left".into()),
+            CssValue::Percentage(20.0),
+            CssValue::String("bottom".into()),
+            CssValue::Percentage(10.0),
+            CssValue::String("right".into()),
+            CssValue::Percentage(20.0),
+        ])));
+
+        // background-position: 10px 30px, 90% 10%;
+        assert_some!(def.clone().matches(&CssValue::List(vec![
+            CssValue::Unit(10.0, "px".into()),
+            CssValue::Unit(30.0, "px".into()),
+            CssValue::Percentage(90.0),
+            CssValue::Percentage(10.0),
+        ])));
+
+        // background-position: top right, bottom left 15px;
+        assert_some!(def.clone().matches(&CssValue::List(vec![
+            CssValue::String("top".into()),
+            CssValue::String("right".into()),
+            CssValue::String("bottom".into()),
+            CssValue::String("left".into()),
+            CssValue::Unit(15.0, "px".into()),
+        ])));
+
+        // background-position: 50% 25%, 25% 75%;
+        assert_some!(def.clone().matches(&CssValue::List(vec![
+            CssValue::Percentage(50.0),
+            CssValue::Percentage(25.0),
+            CssValue::Percentage(25.0),
+            CssValue::Percentage(75.0),
+        ])));
+
+        // background-position: right 5% bottom 5%, left 5% top 5%;
+        assert_some!(def.clone().matches(&CssValue::List(vec![
+            CssValue::String("right".into()),
+            CssValue::Percentage(5.0),
+            CssValue::String("bottom".into()),
+            CssValue::Percentage(5.0),
+            CssValue::String("left".into()),
+            CssValue::Percentage(5.0),
+            CssValue::String("top".into()),
+            CssValue::Percentage(5.0),
+        ])));
+    }
 }

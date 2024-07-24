@@ -1,8 +1,8 @@
-use gosub_css3::colors::{CSS_COLORNAMES, CSS_SYSTEM_COLOR_NAMES};
 use gosub_css3::stylesheet::CssValue;
 
 use crate::syntax::{GroupCombinators, SyntaxComponent, SyntaxComponentMultiplier};
 
+#[allow(dead_code)]
 const LENGTH_UNITS: [&str; 31] = [
     "cap", "ch", "em", "ex", "ic", "lh", "rcap", "rch", "rem", "rex", "ric", "rlh", "vh", "vw",
     "vmax", "vmin", "vb", "vi", "cqw", "cqh", "cqi", "cqb", "cqmin", "cqmax", "px", "cm", "mm",
@@ -33,9 +33,6 @@ impl CssSyntaxTree {
 }
 
 fn match_internal(value: &CssValue, component: &SyntaxComponent) -> Option<CssValue> {
-    // dbg!("Match internal");
-    // dbg!(value, component);
-
     match &component {
         SyntaxComponent::GenericKeyword { keyword, .. } => match value {
             CssValue::None if keyword.eq_ignore_ascii_case("none") => return Some(value.clone()),
@@ -45,42 +42,63 @@ fn match_internal(value: &CssValue, component: &SyntaxComponent) -> Option<CssVa
                 // panic!("Unknown generic keyword: {:?}", keyword);
             }
         },
-        SyntaxComponent::Scalar { scalar, .. } => match scalar.as_str() {
-            "percentage" | "<percentage>" => {
+        SyntaxComponent::Definition { .. } => {
+            // if let CssValue::String(v) = value {
+            //     if v.eq_ignore_ascii_case(value) {
+            //         return Some(value.clone());
+            //     }
+            // }
+        }
+
+        SyntaxComponent::Builtin { datatype, .. } => match datatype.as_str() {
+            "percentage" => {
                 if matches!(value, CssValue::Percentage(_)) {
                     return Some(value.clone());
                 }
             }
-            "number" | "<number>" => {
-                if matches!(value, CssValue::Number(_)) {
-                    return Some(value.clone());
-                }
+        //     "number" | "<number>" => {
+        //         if matches!(value, CssValue::Number(_)) {
+        //             return Some(value.clone());
+        //         }
+        //     }
+        //     "named-color" => {
+        //         let v = match value {
+        //             CssValue::String(v) => v,
+        //             CssValue::Color(_) => return Some(value.clone()),
+        //             _ => return None,
+        //         };
+        //
+        //         if CSS_COLORNAMES
+        //             .iter()
+        //             .any(|entry| entry.name.eq_ignore_ascii_case(v))
+        //         {
+        //             return Some(value.clone());
+        //         }
+        //     }
+        //     "system-color" => {
+        //         if let CssValue::String(v) = value {
+        //             if CSS_SYSTEM_COLOR_NAMES
+        //                 .iter()
+        //                 .any(|entry| entry.eq_ignore_ascii_case(v))
+        //             {
+        //                 return Some(value.clone());
+        //             }
+        //         }
+        //     }
+        //
+            "angle" => match value {
+                CssValue::Zero => return Some(value.clone()),
+                CssValue::Unit(_, u) if u.eq_ignore_ascii_case("deg") => return Some(value.clone()),
+                CssValue::Unit(_, u) if u.eq_ignore_ascii_case("grad") => return Some(value.clone()),
+                CssValue::Unit(_, u) if u.eq_ignore_ascii_case("rad") => return Some(value.clone()),
+                CssValue::Unit(_, u) if u.eq_ignore_ascii_case("turn") => return Some(value.clone()),
+                _ => {}
             }
-            "named-color" => {
-                let v = match value {
-                    CssValue::String(v) => v,
-                    CssValue::Color(_) => return Some(value.clone()),
-                    _ => return None,
-                };
-
-                if CSS_COLORNAMES
-                    .iter()
-                    .any(|entry| entry.name.eq_ignore_ascii_case(v))
-                {
-                    return Some(value.clone());
-                }
-            }
-            "system-color" => {
-                if let CssValue::String(v) = value {
-                    if CSS_SYSTEM_COLOR_NAMES
-                        .iter()
-                        .any(|entry| entry.eq_ignore_ascii_case(v))
-                    {
-                        return Some(value.clone());
-                    }
-                }
-            }
-
+            "hex-color" => match value {
+                CssValue::Color(_) => return Some(value.clone()),
+                CssValue::String(v) if v.starts_with('#') => return Some(value.clone()),
+                _ => {}
+            },
             "length" => match value {
                 CssValue::Zero => return Some(value.clone()),
                 CssValue::Unit(_, u) if LENGTH_UNITS.contains(&u.as_str()) => {
@@ -88,8 +106,7 @@ fn match_internal(value: &CssValue, component: &SyntaxComponent) -> Option<CssVa
                 }
                 _ => {}
             },
-
-            _ => panic!("Unknown scalar: {:?}", scalar),
+            _ => panic!("Unknown built-in datatype: {:?}", datatype),
         },
         // SyntaxComponent::Property(_s) => {},
         // SyntaxComponent::Function(_s, _t) => {}
@@ -165,26 +182,31 @@ fn match_internal(value: &CssValue, component: &SyntaxComponent) -> Option<CssVa
             // let list = CssValue::List(c_args.clone());
             // return match_internal(&list, arguments);
         }
-        SyntaxComponent::Property { property, .. } => {
-            match &**property {
-                "border-color" => {
-                    let v = match value {
-                        CssValue::String(v) => v,
-                        CssValue::Color(_) => return Some(value.clone()),
-                        _ => return None,
-                    };
-
-                    if CSS_COLORNAMES
-                        .iter()
-                        .any(|entry| entry.name.eq_ignore_ascii_case(v))
-                    {
-                        return Some(value.clone()); //TODO: should we convert the color directly to a CssValue::Color?
-                    }
-                }
-
-                p => {
-                    todo!("Property {p} not implemented yet")
-                }
+        // SyntaxComponent::Property { property, .. } => {
+        //     match &**property {
+        //         "border-color" => {
+        //             let v = match value {
+        //                 CssValue::String(v) => v,
+        //                 CssValue::Color(_) => return Some(value.clone()),
+        //                 _ => return None,
+        //             };
+        //
+        //             if CSS_COLORNAMES
+        //                 .iter()
+        //                 .any(|entry| entry.name.eq_ignore_ascii_case(v))
+        //             {
+        //                 return Some(value.clone()); //TODO: should we convert the color directly to a CssValue::Color?
+        //             }
+        //         }
+        //
+        //         p => {
+        //             todo!("Property {p} not implemented yet")
+        //         }
+        //     }
+        // }
+        SyntaxComponent::Value { value: css_value, ..} => {
+            if value == css_value {
+                return Some(css_value.clone());
             }
         }
         e => {
@@ -262,9 +284,6 @@ fn match_group_exactly_one(
 ) -> Option<CssValue> {
     let matches = resolve_group(value, components);
 
-    // dbg!("Exactly one");
-    // dbg!(&matches, &value);
-
     if matches.all != -1 {
         return Some(value.clone());
     }
@@ -289,9 +308,6 @@ fn match_group_at_least_one_any_order(
     // Step 1: convert to matches
     let matches = resolve_group(value, components);
 
-    dbg!("at least one any order");
-    dbg!(&matches, &value);
-
     // Step 3: Check if there are -1 in the list. If so, we found unknown values, and thus we can return immediately
 
     let len = if let CssValue::List(list) = value {
@@ -304,18 +320,14 @@ fn match_group_at_least_one_any_order(
     // border: 1px ldsjkfj asfaf asdad black 2 passing but 5 values => invalid => if we have more values than passing it is invalid
     let c = matches.entries.iter().filter(|x| **x != -1).count();
     if c < len {
-        dbg!("invalid", c, matches, value, len);
         return None;
     }
 
     // Step 4: Validate multipliers based on the matches
     let items = convert_to_counts(matches);
-    dbg!(&items);
 
     // let mut multiplier_passed = false;
     //TODO: is this right for multipliers that are not Once?
-
-    dbg!(components);
 
     // Check multipliers and see if we got the correct number of matches per component, and the values are in the correct (sequential) order
     for (c_idx, c) in &items {
@@ -366,9 +378,6 @@ fn match_group_all_any_order(
     components: &Vec<SyntaxComponent>,
 ) -> Option<CssValue> {
     let matches = resolve_group(value, components);
-
-    // dbg!("all any order");
-    // dbg!(&matches, &value);
 
     // If we do not the same length in our matches, we definitely don't have a match
     if matches.entries.len() != components.len() {

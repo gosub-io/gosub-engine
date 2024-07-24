@@ -1,4 +1,4 @@
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 
 use nom::branch::alt;
 use nom::bytes::complete::{tag, tag_no_case, take_while};
@@ -114,7 +114,7 @@ impl RangeType {
 /// Syntax components. These are the elements that make up the css declaration syntax.
 #[derive(PartialEq, Debug, Clone)]
 pub enum SyntaxComponent {
-    /// Generic keywords like 'left', 'right', 'ease-in' etc
+    /// Generic keyword strings like 'left', 'right', 'ease-in' etc
     GenericKeyword {
         keyword: String,
         multiplier: SyntaxComponentMultiplier,
@@ -130,10 +130,10 @@ pub enum SyntaxComponent {
         arguments: Vec<SyntaxComponent>,
         multiplier: SyntaxComponentMultiplier,
     },
-    /// Type definition like <length>, <color>, or quoted like <'background-color'>. Can include
+    /// Internal data definition like <length>, <color>, or quoted like <'background-color'>. Can include
     /// ranges like <percentage [0, 100]> etc.
-    TypeDefinition {
-        definition: String,
+    Definition {
+        datatype: String,
         quoted: bool,
         range: RangeType,
         multiplier: SyntaxComponentMultiplier,
@@ -166,19 +166,47 @@ pub enum SyntaxComponent {
         combinator: GroupCombinators,
         multiplier: SyntaxComponentMultiplier,
     },
-    /// special unit() function case (todo: figure out if we need this special case)
+    /// special unit() function case (@todo: figure out if we need this special case)
     Unit {
         from: Option<f32>,
         to: Option<f32>,
         unit: Vec<String>,
         multiplier: SyntaxComponentMultiplier,
     },
-    /// Scalar elements (like: <integer>, <number, <percentage> etc)
-    Scalar {
-        scalar: String,
-        multiplier: SyntaxComponentMultiplier,
+    Builtin {
+        datatype: String,
+        multiplier: SyntaxComponentMultiplier
     },
 }
+
+// impl Debug for SyntaxComponent {
+//     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+//         match self {
+//             SyntaxComponent::GenericKeyword { keyword, .. } => {
+//                 write!(f, "GenericKeyword({})", keyword)
+//             }
+//             SyntaxComponent::Property { property, .. } => {
+//                 write!(f, "Property({})", property)
+//             }
+//             SyntaxComponent::Function { name, .. } => {
+//                 write!(f, "Function({})", name)
+//             }
+//             SyntaxComponent::Definition { datatype, .. } => {
+//                 write!(f, "Definition({})", datatype)
+//             }
+//             SyntaxComponent::Inherit { .. } => write!(f, "inherit"),
+//             SyntaxComponent::Initial { .. } => write!(f, "initial"),
+//             SyntaxComponent::Unset { .. } => write!(f, "unset"),
+//             SyntaxComponent::Literal { literal, .. } => write!(f, "Literal('{}')", literal),
+//             SyntaxComponent::Value { value, .. } => write!(f, "Value({:?})", value),
+//             SyntaxComponent::Group { components, .. } => {
+//                 write!(f, "Group({} elements)", components.len())
+//             },
+//             SyntaxComponent::Unit { .. } => write!(f, "unit()"),
+//             SyntaxComponent::Builtin { datatype, .. } => write!(f, "builtin({})", datatype)
+//         }
+//     }
+// }
 
 impl SyntaxComponent {
     /// Returns true when the syntax component is a group
@@ -192,14 +220,14 @@ impl SyntaxComponent {
             SyntaxComponent::Function { multiplier, .. } => multiplier.clone(),
             SyntaxComponent::Property { multiplier, .. } => multiplier.clone(),
             SyntaxComponent::GenericKeyword { multiplier, .. } => multiplier.clone(),
-            SyntaxComponent::TypeDefinition { multiplier, .. } => multiplier.clone(),
+            SyntaxComponent::Definition { multiplier, .. } => multiplier.clone(),
             SyntaxComponent::Unit { multiplier, .. } => multiplier.clone(),
             SyntaxComponent::Literal { multiplier, .. } => multiplier.clone(),
             SyntaxComponent::Inherit { multiplier, .. } => multiplier.clone(),
             SyntaxComponent::Initial { multiplier, .. } => multiplier.clone(),
             SyntaxComponent::Unset { multiplier, .. } => multiplier.clone(),
             SyntaxComponent::Value { multiplier, .. } => multiplier.clone(),
-            SyntaxComponent::Scalar { multiplier, .. } => multiplier.clone(),
+            SyntaxComponent::Builtin { multiplier, .. } => multiplier.clone(),
         }
     }
 
@@ -217,7 +245,7 @@ impl SyntaxComponent {
             SyntaxComponent::GenericKeyword { multiplier, .. } => {
                 *multiplier = new_multiplier;
             }
-            SyntaxComponent::TypeDefinition { multiplier, .. } => {
+            SyntaxComponent::Definition { multiplier, .. } => {
                 *multiplier = new_multiplier;
             }
             SyntaxComponent::Unit { multiplier, .. } => {
@@ -238,7 +266,7 @@ impl SyntaxComponent {
             SyntaxComponent::Value { multiplier, .. } => {
                 *multiplier = new_multiplier;
             }
-            SyntaxComponent::Scalar { multiplier, .. } => {
+            SyntaxComponent::Builtin { multiplier, .. } => {
                 *multiplier = new_multiplier;
             }
         }
@@ -705,7 +733,7 @@ fn parse_signed_integer(input: &str) -> IResult<&str, NumberOrInfinity> {
 }
 
 /// Parses a range for a type definition  (ie: the square bracket part of: <function [1, 10]>)
-fn typedef_range(input: &str) -> IResult<&str, RangeType> {
+fn datatype_range(input: &str) -> IResult<&str, RangeType> {
     let range = separated_pair(
         opt(ws(alt((parse_infinity, parse_signed_integer)))),
         tag(","),
@@ -726,20 +754,20 @@ fn keyword_or_function(input: &str) -> IResult<&str, &str> {
     recognize(pair(parse_keyword, opt(tag("()"))))(input)
 }
 
-fn parse_typedef(input: &str) -> IResult<&str, SyntaxComponent> {
-    debug_print!("Parsing typedef: {}", input);
+fn parse_datatype(input: &str) -> IResult<&str, SyntaxComponent> {
+    debug_print!("Parsing datatype: {}", input);
 
     let (input, (name, quoted, range)) = delimited(
         ws(tag("<")),
         alt((
             map(
-                pair(keyword_or_function, opt(typedef_range)),
+                pair(keyword_or_function, opt(datatype_range)),
                 |(name, range)| (name, false, range),
             ),
             map(
                 pair(
                     delimited(ws(tag("'")), keyword_or_function, ws(tag("'"))),
-                    opt(typedef_range),
+                    opt(datatype_range),
                 ),
                 |(name, range)| (name, true, range),
             ),
@@ -749,8 +777,8 @@ fn parse_typedef(input: &str) -> IResult<&str, SyntaxComponent> {
 
     Ok((
         input,
-        SyntaxComponent::TypeDefinition {
-            definition: name.to_string(),
+        SyntaxComponent::Definition {
+            datatype: name.to_string(),
             quoted,
             range: range.unwrap_or(RangeType::empty()),
             multiplier: SyntaxComponentMultiplier::Once,
@@ -807,7 +835,7 @@ fn parse_component(input: &str) -> IResult<&str, SyntaxComponent> {
         parse_literal,
         parse_group,
         parse_unit,
-        parse_typedef,
+        parse_datatype,
         parse_generic_keyword, // This is more of a catch-all
     ))(input)?;
     let (input, multipliers) = parse_multipliers(input)?;
@@ -1179,7 +1207,7 @@ mod tests {
     }
 
     #[test]
-    fn test_compile_typedef() {
+    fn test_compile_datatype() {
         let parts = CssSyntax::new("<foo> | <bar()> | <'quoted'>").compile();
         assert!(parts.is_ok());
         assert_eq!(
@@ -1187,20 +1215,20 @@ mod tests {
             vec![SyntaxComponent::Group {
                 combinator: GroupCombinators::ExactlyOne,
                 components: vec![
-                    SyntaxComponent::TypeDefinition {
-                        definition: "foo".to_string(),
+                    SyntaxComponent::Definition {
+                        datatype: "foo".to_string(),
                         quoted: false,
                         range: RangeType::empty(),
                         multiplier: SyntaxComponentMultiplier::Once,
                     },
-                    SyntaxComponent::TypeDefinition {
-                        definition: "bar()".to_string(),
+                    SyntaxComponent::Definition {
+                        datatype: "bar()".to_string(),
                         quoted: false,
                         range: RangeType::empty(),
                         multiplier: SyntaxComponentMultiplier::Once,
                     },
-                    SyntaxComponent::TypeDefinition {
-                        definition: "quoted".to_string(),
+                    SyntaxComponent::Definition {
+                        datatype: "quoted".to_string(),
                         quoted: true,
                         range: RangeType::empty(),
                         multiplier: SyntaxComponentMultiplier::Once,
@@ -1214,8 +1242,8 @@ mod tests {
         assert!(parts.is_ok());
         assert_eq!(
             parts.unwrap().components,
-            vec![SyntaxComponent::TypeDefinition {
-                definition: "foo".to_string(),
+            vec![SyntaxComponent::Definition {
+                datatype: "foo".to_string(),
                 quoted: false,
                 range: RangeType::empty(),
                 multiplier: SyntaxComponentMultiplier::CommaSeparatedRepeat(1, 1),
@@ -1674,12 +1702,12 @@ mod tests {
     }
 
     #[test]
-    fn test_typedef_ranges() {
+    fn test_datatype_ranges() {
         let c = CssSyntax::new("<function [1, 2]>").compile().unwrap();
         assert_eq!(
             c.components[0],
-            SyntaxComponent::TypeDefinition {
-                definition: "function".to_string(),
+            SyntaxComponent::Definition {
+                datatype: "function".to_string(),
                 quoted: false,
                 range: RangeType {
                     min: NumberOrInfinity::FiniteI64(1),
@@ -1692,8 +1720,8 @@ mod tests {
         let c = CssSyntax::new("<function>").compile().unwrap();
         assert_eq!(
             c.components[0],
-            SyntaxComponent::TypeDefinition {
-                definition: "function".to_string(),
+            SyntaxComponent::Definition {
+                datatype: "function".to_string(),
                 quoted: false,
                 range: RangeType {
                     min: NumberOrInfinity::None,
@@ -1706,8 +1734,8 @@ mod tests {
         let c = CssSyntax::new("<function [1,]>").compile().unwrap();
         assert_eq!(
             c.components[0],
-            SyntaxComponent::TypeDefinition {
-                definition: "function".to_string(),
+            SyntaxComponent::Definition {
+                datatype: "function".to_string(),
                 quoted: false,
                 range: RangeType {
                     min: NumberOrInfinity::FiniteI64(1),
@@ -1720,8 +1748,8 @@ mod tests {
         let c = CssSyntax::new("<function [,1]>").compile().unwrap();
         assert_eq!(
             c.components[0],
-            SyntaxComponent::TypeDefinition {
-                definition: "function".to_string(),
+            SyntaxComponent::Definition {
+                datatype: "function".to_string(),
                 quoted: false,
                 range: RangeType {
                     min: NumberOrInfinity::None,
@@ -1734,8 +1762,8 @@ mod tests {
         let c = CssSyntax::new("<function [-360,360]>").compile().unwrap();
         assert_eq!(
             c.components[0],
-            SyntaxComponent::TypeDefinition {
-                definition: "function".to_string(),
+            SyntaxComponent::Definition {
+                datatype: "function".to_string(),
                 quoted: false,
                 range: RangeType {
                     min: NumberOrInfinity::FiniteI64(-360),
@@ -1748,8 +1776,8 @@ mod tests {
         let c = CssSyntax::new("<function [0,inf]>").compile().unwrap();
         assert_eq!(
             c.components[0],
-            SyntaxComponent::TypeDefinition {
-                definition: "function".to_string(),
+            SyntaxComponent::Definition {
+                datatype: "function".to_string(),
                 quoted: false,
                 range: RangeType {
                     min: NumberOrInfinity::FiniteI64(0),
@@ -1761,8 +1789,8 @@ mod tests {
         let c = CssSyntax::new("<function [-inf, 0]>").compile().unwrap();
         assert_eq!(
             c.components[0],
-            SyntaxComponent::TypeDefinition {
-                definition: "function".to_string(),
+            SyntaxComponent::Definition {
+                datatype: "function".to_string(),
                 quoted: false,
                 range: RangeType {
                     min: NumberOrInfinity::NegativeInfinity,
@@ -1774,8 +1802,8 @@ mod tests {
         let c = CssSyntax::new("<function [-inf,inf]>").compile().unwrap();
         assert_eq!(
             c.components[0],
-            SyntaxComponent::TypeDefinition {
-                definition: "function".to_string(),
+            SyntaxComponent::Definition {
+                datatype: "function".to_string(),
                 quoted: false,
                 range: RangeType {
                     min: NumberOrInfinity::NegativeInfinity,
