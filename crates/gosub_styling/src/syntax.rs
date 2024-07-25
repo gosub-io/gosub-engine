@@ -2,9 +2,7 @@ use std::fmt::{Debug, Display, Formatter};
 
 use nom::branch::alt;
 use nom::bytes::complete::{tag, tag_no_case, take_while};
-use nom::character::complete::{
-    alpha1, alphanumeric1, char, digit0, digit1, multispace0, one_of, space0,
-};
+use nom::character::complete::{alpha1, alphanumeric1, char, digit0, digit1, multispace0, one_of, space0};
 use nom::combinator::{map, map_res, opt, recognize};
 use nom::multi::{fold_many1, many1, separated_list0, separated_list1};
 use nom::number::complete::float;
@@ -431,27 +429,16 @@ fn parse_multipliers(input: &str) -> IResult<&str, SyntaxComponentMultiplier> {
 fn parse_group(input: &str) -> IResult<&str, SyntaxComponent> {
     debug_print!("Parsing group: {}", input);
 
-    let (input, components) = delimited(ws(tag("[")), parse_component_list, ws(tag("]")))(input)?;
+    let (input, components) =
+        delimited(ws(tag("[")), parse_component_singlebar_list, ws(tag("]")))(input)?;
 
-    // if components.is_group() {
     return Ok((input, components));
-    // }
-
-    // let group = SyntaxComponent::Group {
-    //     components: vec![components],
-    //     combinator: GroupCombinators::Juxtaposition,
-    //     multiplier: SyntaxComponentMultiplier::Once,
-    // };
-    //
-    // debug_print!("<- Parsed group: {:#?}", group);
-    // debug_print!("<- Remaining input: '{}'", input);
-    // Ok((input, group))
 }
 
 fn parse_component_singlebar_list(input: &str) -> IResult<&str, SyntaxComponent> {
     debug_print!("Parsing component singlebar list: {}", input);
 
-    let (input, components) = separated_list1(ws(tag("|")), parse_component)(input)?;
+    let (input, components) = separated_list1(ws(tag("|")), parse_component_doublebar_list)(input)?;
 
     if components.len() == 1 {
         return Ok((input, components[0].clone()));
@@ -472,7 +459,7 @@ fn parse_component_doublebar_list(input: &str) -> IResult<&str, SyntaxComponent>
     debug_print!("Parsing component doublebar list: {}", input);
 
     let (input, components) =
-        separated_list1(ws(tag("||")), parse_component_singlebar_list)(input)?;
+        separated_list1(ws(tag("||")), parse_component_doubleampersand_list)(input)?;
 
     if components.len() == 1 {
         return Ok((input, components[0].clone()));
@@ -490,8 +477,10 @@ fn parse_component_doublebar_list(input: &str) -> IResult<&str, SyntaxComponent>
 }
 
 fn parse_component_doubleampersand_list(input: &str) -> IResult<&str, SyntaxComponent> {
+    debug_print!("Parsing component doubleampersand list: {}", input);
+
     let (input, components) =
-        separated_list1(ws(tag("&&")), parse_component_doublebar_list)(input)?;
+        separated_list1(ws(tag("&&")), parse_component_juxtaposition_list)(input)?;
 
     if components.len() == 1 {
         return Ok((input, components[0].clone()));
@@ -508,78 +497,130 @@ fn parse_component_doubleampersand_list(input: &str) -> IResult<&str, SyntaxComp
     Ok((input, group))
 }
 
-fn is_custom_separator(c: char) -> bool {
-    if c == ',' {
-        return false;
+// fn is_custom_separator(c: char) -> bool {
+//     if c == ',' {
+//         return false;
+//     }
+//
+//     c == '|' || c == '&'
+// }
+
+// fn custom_separated_list_2(input: &str) -> IResult<&str, SyntaxComponent> {
+//     debug_print!("Parsing custom separated list: {}", input);
+//
+//     let mut res = Vec::new();
+//
+//     let mut input = input;
+//
+//     // Parser the first element
+//     match parse_component_doubleampersand_list(input) {
+//         Err(e) => return Err(e),
+//         Ok((input1, o)) => {
+//             res.push(o);
+//             input = input1;
+//         }
+//     }
+//
+//     loop {
+//         if input.is_empty() {
+//             break;
+//         }
+//
+//         // A separator is:
+//         // - a space character followed by a comma
+//         // - a comma
+//         // - a space character followed by a | or & or [ or ]
+//
+//         let (input1, _) = take_while(|c| is_custom_separator(c) || c.is_whitespace())(input)?;
+//         let (input1, _) = take_while(|c: char| c.is_whitespace())(input1)?;
+//
+//         dbg!(&input1);
+//
+//         if input1.is_empty() {
+//             break;
+//         }
+//
+//         match parse_component_doubleampersand_list(input1) {
+//             Err(Err::Error(_)) => break,
+//             Err(e) => return Err(e),
+//             Ok((input2, o)) => {
+//                 res.push(o);
+//                 input = input2;
+//             }
+//         }
+//     }
+//
+//     if res.len() == 1 {
+//         return Ok((input, res[0].clone()));
+//     }
+//
+//     Ok((
+//         input,
+//         SyntaxComponent::Group {
+//             components: res,
+//             combinator: GroupCombinators::Juxtaposition,
+//             multiplier: SyntaxComponentMultiplier::Once,
+//         },
+//     ))
+// }
+
+fn juxtaseparator(input: &str) -> IResult<&str, &str> {
+    // Remove ALL whitespaces
+    println!("Juxtaposition separator check: '{}'", input);
+    let (input, last) = take_while(|c: char| c.is_whitespace())(input)?;
+    println!("Juxtaposition separator check: '{}'", input);
+
+    // Peek the next character
+    if let Some(next) = input.chars().next() {
+        println!("Next char: '{}'", next);
+        // Seems like a non-juxtaposition separator. So fail
+        if next == '&' || next == '|' {
+            println!("Not a juxtaposition separator");
+            return Err(Err::Error(nom::error::Error::new(
+                input,
+                nom::error::ErrorKind::Char,
+            )));
+        }
     }
 
-    c == '|' || c == '&'
+    // read last char taken from the input
+    println!("Last char read: '{}'", last);
+
+
+    // Last char read was not a space? Then we didn't find a juxtaposition separator
+    let c = last.chars().last();
+    println!("Last char read was a space? '{:?}'", c);
+    if c != Some(' ') {
+        return Err(Err::Error(nom::error::Error::new(
+            input,
+            nom::error::ErrorKind::Char,
+        )));
+    }
+
+    // All is good
+    println!("Juxtaposition separator found");
+    return Ok((input, last));
 }
 
-fn custom_separated_list_2(input: &str) -> IResult<&str, SyntaxComponent> {
-    debug_print!("Parsing custom separated list: {}", input);
+fn parse_component_juxtaposition_list(input: &str) -> IResult<&str, SyntaxComponent> {
+    debug_print!("Parsing component juxtaposition list: {}", input);
 
-    let mut res = Vec::new();
-
-    let mut input = input;
-
-    // Parser the first element
-    match parse_component_doubleampersand_list(input) {
-        Err(e) => return Err(e),
-        Ok((input1, o)) => {
-            res.push(o);
-            input = input1;
-        }
+    let (input, components) =
+        separated_list1(juxtaseparator, parse_component)(input)?;
+    dbg!(&components);
+    if components.len() == 1 {
+        return Ok((input, components[0].clone()));
     }
 
-    loop {
-        if input.is_empty() {
-            break;
-        }
+    let group = SyntaxComponent::Group {
+        components,
+        combinator: GroupCombinators::Juxtaposition,
+        multiplier: SyntaxComponentMultiplier::Once,
+    };
 
-        // A separator is:
-        // - a space character followed by a comma
-        // - a comma
-        // - a space character followed by a | or & or [ or ]
-
-        let (input1, _) = take_while(|c| is_custom_separator(c) || c.is_whitespace())(input)?;
-        let (input1, _) = take_while(|c: char| c.is_whitespace())(input1)?;
-
-        dbg!(&input1);
-
-        if input1.is_empty() {
-            break;
-        }
-
-        match parse_component_doubleampersand_list(input1) {
-            Err(Err::Error(_)) => break,
-            Err(e) => return Err(e),
-            Ok((input2, o)) => {
-                res.push(o);
-                input = input2;
-            }
-        }
-    }
-
-    if res.len() == 1 {
-        return Ok((input, res[0].clone()));
-    }
-
-    Ok((
-        input,
-        SyntaxComponent::Group {
-            components: res,
-            combinator: GroupCombinators::Juxtaposition,
-            multiplier: SyntaxComponentMultiplier::Once,
-        },
-    ))
-}
-
-fn parse_component_list(input: &str) -> IResult<&str, SyntaxComponent> {
-    debug_print!("Parsing component list: {}", input);
-
-    let (input, components) = custom_separated_list_2(input)?;
-    Ok((input, components))
+    debug_print!("<- parse_component_juxtaposition_list: {:#?}", group);
+    debug_print!("<- Remaining input: '{}'", input);
+    Ok((input, group))
 }
 
 fn int_as_float(input: &str) -> IResult<&str, f32> {
@@ -639,7 +680,7 @@ fn parse_function(input: &str) -> IResult<&str, SyntaxComponent> {
         space0,
         tuple((space0, char(')'), space0)),
     );
-    let arglist = delimited(ws(tag("(")), ws(parse_component_list), ws(tag(")")));
+    let arglist = delimited(ws(tag("(")), ws(parse_component_singlebar_list), ws(tag(")")));
 
     let (input, name) = parse_keyword(input)?;
     let (input, arglist) = alt((map(empty_arglist, |_| None), map(arglist, |c| Some(c))))(input)?;
@@ -826,9 +867,7 @@ fn parse_component(input: &str) -> IResult<&str, SyntaxComponent> {
         parse_datatype,
         parse_generic_keyword, // This is more of a catch-all
     ))(input)?;
-    debug_print!("<- 1 Remaining input: '{}'", input);
     let (input, multipliers) = parse_multipliers(input)?;
-    debug_print!("<- 2 Remaining input: '{}'", input);
 
     component.update_multiplier(multipliers.clone());
 
@@ -839,7 +878,7 @@ fn parse_component(input: &str) -> IResult<&str, SyntaxComponent> {
 
 fn parse(input: &str) -> IResult<&str, SyntaxComponent> {
     debug_print!("Parsing: {}", input);
-    let (input, component) = preceded(multispace0, parse_component_list)(input)?;
+    let (input, component) = preceded(multispace0, parse_component_singlebar_list)(input)?;
     debug_print!("<- Parsed: {:#?}", component);
 
     // let result = SyntaxComponent::Group{
@@ -1867,8 +1906,10 @@ mod tests {
     #[test]
     fn test_grouping_precedence() {
         // let c = CssSyntax::new("[ [ left ] | [ right ] [ top ] ]").compile().unwrap();
-        let c = CssSyntax::new("left right | top bottom").compile().unwrap();
-        // let c = CssSyntax::new("left right && foo").compile().unwrap();
+        // let c = CssSyntax::new("left right | top bottom").compile().unwrap();
+        // let c = CssSyntax::new("left && right | foo || bar baz").compile().unwrap();
+        // let c = CssSyntax::new("[ [ left | center | right | top | bottom | <length-percentage> ] | [ left | center | right | <length-percentage> ] [ top | center | bottom | <length-percentage> ] | [ center | [ left | right ] <length-percentage>? ] && [ center | [ top | bottom ] <length-percentage>? ] ]").compile().unwrap();
+        let c = CssSyntax::new("[ [ left ] | [ center ] [ top ] | [ center1 ] && [ center2 ] ]").compile().unwrap();
         dbg!(&c);
     }
 }
