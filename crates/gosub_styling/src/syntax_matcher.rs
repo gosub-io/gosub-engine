@@ -33,6 +33,7 @@ impl CssSyntaxTree {
 }
 
 fn match_internal(value: &CssValue, component: &SyntaxComponent) -> Option<CssValue> {
+    println!("Matching: {:?} against {:?}", value, component);
     match &component {
         SyntaxComponent::GenericKeyword { keyword, .. } => match value {
             CssValue::None if keyword.eq_ignore_ascii_case("none") => return Some(value.clone()),
@@ -52,8 +53,9 @@ fn match_internal(value: &CssValue, component: &SyntaxComponent) -> Option<CssVa
 
         SyntaxComponent::Builtin { datatype, .. } => match datatype.as_str() {
             "percentage" => {
-                if matches!(value, CssValue::Percentage(_)) {
-                    return Some(value.clone());
+                match value {
+                    CssValue::Percentage(_) => return Some(value.clone()),
+                    _ => {}
                 }
             }
         //     "number" | "<number>" => {
@@ -61,31 +63,6 @@ fn match_internal(value: &CssValue, component: &SyntaxComponent) -> Option<CssVa
         //             return Some(value.clone());
         //         }
         //     }
-        //     "named-color" => {
-        //         let v = match value {
-        //             CssValue::String(v) => v,
-        //             CssValue::Color(_) => return Some(value.clone()),
-        //             _ => return None,
-        //         };
-        //
-        //         if CSS_COLORNAMES
-        //             .iter()
-        //             .any(|entry| entry.name.eq_ignore_ascii_case(v))
-        //         {
-        //             return Some(value.clone());
-        //         }
-        //     }
-        //     "system-color" => {
-        //         if let CssValue::String(v) = value {
-        //             if CSS_SYSTEM_COLOR_NAMES
-        //                 .iter()
-        //                 .any(|entry| entry.eq_ignore_ascii_case(v))
-        //             {
-        //                 return Some(value.clone());
-        //             }
-        //         }
-        //     }
-        //
             "angle" => match value {
                 CssValue::Zero => return Some(value.clone()),
                 CssValue::Unit(_, u) if u.eq_ignore_ascii_case("deg") => return Some(value.clone()),
@@ -221,7 +198,7 @@ fn match_internal(value: &CssValue, component: &SyntaxComponent) -> Option<CssVa
 struct Matches {
     /// Entry is either -1 for each element in the value, or the index of the component that matched
     entries: Vec<isize>,
-    all: isize,
+    all: isize,     // @todo: "all" is not the best name. We need to change this.
 }
 
 /// Resolves a group of values against a group of components based on their position. So if the
@@ -234,6 +211,7 @@ struct Matches {
 ///     resolve_group([none, block, block, auto, none], [auto, none, block]) => [1, 2, 2, 0, 1]
 ///
 fn resolve_group(value: &CssValue, components: &Vec<SyntaxComponent>) -> Matches {
+    println!("Resolving group: {:?} against {:?}", value, components);
     let mut values: Vec<isize> = vec![];
 
     let mut subgroup = false;
@@ -278,11 +256,13 @@ fn resolve_group(value: &CssValue, components: &Vec<SyntaxComponent>) -> Matches
     }
 }
 
+/// Returns element if exactly one element matches in the group
 fn match_group_exactly_one(
     value: &CssValue,
     components: &Vec<SyntaxComponent>,
 ) -> Option<CssValue> {
     let matches = resolve_group(value, components);
+    println!("match_group_exactly_one: {:?}", matches);
 
     if matches.all != -1 {
         return Some(value.clone());
@@ -301,14 +281,14 @@ fn match_group_exactly_one(
     Some(value.clone())
 }
 
+/// Returns element, when at least one of the elements in the group matches
 fn match_group_at_least_one_any_order(
     value: &CssValue,
     components: &Vec<SyntaxComponent>,
 ) -> Option<CssValue> {
-    // Step 1: convert to matches
+    // Step: convert to matches
     let matches = resolve_group(value, components);
-
-    // Step 3: Check if there are -1 in the list. If so, we found unknown values, and thus we can return immediately
+    println!("match_group_at_least_one_any_order: {:?}", matches);
 
     let len = if let CssValue::List(list) = value {
         list.len()
@@ -323,7 +303,7 @@ fn match_group_at_least_one_any_order(
         return None;
     }
 
-    // Step 4: Validate multipliers based on the matches
+    // Step: Validate multipliers based on the matches
     let items = convert_to_counts(matches);
 
     // let mut multiplier_passed = false;
@@ -341,31 +321,8 @@ fn match_group_at_least_one_any_order(
             return None;
         }
     }
-    // for (c_idx, group_component) in components.iter().enumerate() {
-    //     // Find (the first) value count for the given index (or 0 if the value count is not found for that index)
-    //     let value_count = items
-    //         .iter()
-    //         .find(|(idx, _count)| *idx == c_idx)
-    //         .unwrap_or(&(c_idx, 0))
-    //         .1;
-    //
-    //
-    //     // if value_count == 0 {
-    //     //     continue;
-    //     // }
-    //
-    //     dbg!(c_idx, value_count);
-    //     // Check if this count is correct for the group validator
-    //     if !check_multiplier(group_component, value_count) {
-    //         return None;
-    //     }
-    // }
 
-    // if !multiplier_passed {
-    //     return None;
-    // }
-
-    // Step 5: There must be at least one item. Order doesn't matter
+    // Step: There must be at least one item. Order doesn't matter
     if !items.is_empty() {
         return Some(value.clone());
     }
@@ -378,19 +335,25 @@ fn match_group_all_any_order(
     components: &Vec<SyntaxComponent>,
 ) -> Option<CssValue> {
     let matches = resolve_group(value, components);
+    println!("match_group_all_any_order: {:?}", matches);
 
     // If we do not the same length in our matches, we definitely don't have a match
     if matches.entries.len() != components.len() {
         return None;
     }
 
-    // check if there are -1 in the list
+    // Check if there are -1 in the list, if so, return early
     if matches.entries.iter().any(|&x| x == -1) {
         return None;
     }
 
-    // We have the same number of matches as the elements in the group. We also have no -1's in the
-    // list so we have a match
+    // Convert to counts, and check if there are any elements that have more than 1 match
+    let items = convert_to_counts(matches);
+    if items.iter().filter(|(_, c)| *c > 1).count() > 0 {
+        return None;
+    }
+
+    // All elements have (at most) one match
     Some(value.clone())
 }
 
@@ -398,21 +361,17 @@ fn match_group_juxtaposition(
     value: &CssValue,
     components: &Vec<SyntaxComponent>,
 ) -> Option<CssValue> {
-    // Step 1: convert to matches
+    // Step: Convert to matches
     let matches = resolve_group(value, components);
+    println!("\n\nmatch_group_juxtaposition: {:?}: {:?} {:?}", matches, value, components);
 
-    // // Step 2: early return when we found a group with a single element
-    // //FIXME: this is a hack, since our parser of the css value syntax sometimes inserts additional juxtapositions when it encounters a space.
-    // if components.len() == 1 && components[0].is_group() {
-    //     return match_internal(value, &components[0]);
-    // }
-
-    // Step 3: Check if there are -1 in the list. If so, we found unknown values, and thus we can return immediately
+    // Step: Check if there are -1 in the list. If so, we found unknown values, and thus we can return immediately
     if matches.entries.iter().any(|x| *x == -1) {
+        println!("Found -1 in the list, returning None");
         return None;
     }
 
-    // Step 4: Validate multipliers based on the matches
+    // Step: Validate multipliers based on the matches
     let items = convert_to_counts(matches);
 
     // Check multipliers and see if we got the correct number of matches per component, and the values are in the correct (sequential) order
@@ -424,27 +383,36 @@ fn match_group_juxtaposition(
             .unwrap_or(&(c_idx, 0))
             .1;
 
+        println!("\n\nChecking component: {:?} with count: {:?}", group_component, value_count);
+
         // Check if this count is correct for the group validator
         if !check_multiplier(group_component, value_count) {
+            println!("Multiplier check failed for component: {:?}", group_component);
             return None;
         }
     }
 
-    // Step 5: check if the order is correct. Juxtaposition means we must have incremental values.
+    // Step: check if the order is correct. Juxtaposition means we must have incremental values.
     let mut last_idx = 0;
     for (idx, _) in items.iter() {
         if *idx >= last_idx {
             last_idx = *idx;
         } else {
+            println!("Order check failed: {:?} < {:?}", idx, last_idx);
             return None;
         }
     }
 
+    println!("Returning value: {:?}", value);
     Some(value.clone())
 }
 
 /// Convert the matches into counts
 /// (index, count)
+/// Note that when we find a value that we already have, we create a new increment:
+///
+/// Example:
+///    [0, 0, 1, 1, 1, 2, 2, 1, 2] => [(0, 2), (1, 3), (2, 2), (1, 1), (2, 1)]
 fn convert_to_counts(matches: Matches) -> Vec<(usize, usize)> {
     let mut items: Vec<(usize, usize)> = vec![];
     for idx in matches.entries.iter() {
@@ -463,7 +431,7 @@ fn convert_to_counts(matches: Matches) -> Vec<(usize, usize)> {
 }
 
 /// This function checks if the given component matches the given count of values. For instance, it will return true
-/// when the multiplier is Once, and there is a count of 1,   or when the multiplier is OneOrMore, when the count is 3.
+/// when the multiplier is Once, and there is a count of 1, or when the multiplier is OneOrMore if the count is 3.
 fn check_multiplier(component: &SyntaxComponent, count: usize) -> bool {
     match component.get_multiplier() {
         SyntaxComponentMultiplier::Once => count == 1,

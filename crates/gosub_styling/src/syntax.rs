@@ -18,9 +18,11 @@ use gosub_shared::types::Result;
 use crate::errors::Error;
 use crate::syntax_matcher::CssSyntaxTree;
 
+// When debugging the parser, it's nice to have some additional information ready. This should maybe
+// be inside a cfg setting, but for now (un)commenting the appropriate line is good enough.
 macro_rules! debug_print {
-    // ($($x:tt)*) => { println!($($x)*) }
-    ($($x:tt)*) => {{}};
+    ($($x:tt)*) => { println!($($x)*) }
+    // ($($x:tt)*) => {{}};
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -399,7 +401,8 @@ fn parse_comma_separated_multiplier(input: &str) -> IResult<&str, SyntaxComponen
             delimited(ws(tag("#{")), range, ws(tag("}"))),
             |(min, max)| (min, max),
         ),
-        map(ws(tag("#")), |_| (1, 1)),
+        // No range means one or more values
+        map(ws(tag("#")), |_| (1, u32::MAX)),
     ))(input)?;
 
     Ok((
@@ -542,6 +545,8 @@ fn custom_separated_list_2(input: &str) -> IResult<&str, SyntaxComponent> {
         let (input1, _) = take_while(|c| is_custom_separator(c) || c.is_whitespace())(input)?;
         let (input1, _) = take_while(|c: char| c.is_whitespace())(input1)?;
 
+        dbg!(&input1);
+
         if input1.is_empty() {
             break;
         }
@@ -574,24 +579,7 @@ fn parse_component_list(input: &str) -> IResult<&str, SyntaxComponent> {
     debug_print!("Parsing component list: {}", input);
 
     let (input, components) = custom_separated_list_2(input)?;
-
     Ok((input, components))
-
-    // if components.is_group() {
-    //     return Ok((input, components));
-    // }
-
-    // let group = SyntaxComponent::Group {
-    //     components: vec![components],
-    //     combinator: GroupCombinators::Juxtaposition,
-    //     multiplier: SyntaxComponentMultiplier::Once,
-    // };
-
-    // let c = value_or_list(list, GroupCombinators::Juxtaposition);
-
-    // debug_print!("<- parse_component_list: {:#?}", group);
-    // debug_print!("<- Remaining: {:#?}", input);
-    // Ok((input, group))
 }
 
 fn int_as_float(input: &str) -> IResult<&str, f32> {
@@ -838,7 +826,9 @@ fn parse_component(input: &str) -> IResult<&str, SyntaxComponent> {
         parse_datatype,
         parse_generic_keyword, // This is more of a catch-all
     ))(input)?;
+    debug_print!("<- 1 Remaining input: '{}'", input);
     let (input, multipliers) = parse_multipliers(input)?;
+    debug_print!("<- 2 Remaining input: '{}'", input);
 
     component.update_multiplier(multipliers.clone());
 
@@ -1871,6 +1861,14 @@ mod tests {
     #[test]
     fn test_stuff() {
         let c = CssSyntax::new("foo [ bar | baz]?").compile().unwrap();
+        dbg!(&c);
+    }
+
+    #[test]
+    fn test_grouping_precedence() {
+        // let c = CssSyntax::new("[ [ left ] | [ right ] [ top ] ]").compile().unwrap();
+        let c = CssSyntax::new("left right | top bottom").compile().unwrap();
+        // let c = CssSyntax::new("left right && foo").compile().unwrap();
         dbg!(&c);
     }
 }
