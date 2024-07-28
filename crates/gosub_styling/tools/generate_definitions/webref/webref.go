@@ -2,6 +2,7 @@ package webref
 
 import (
 	"encoding/json"
+	"generate_definitions/patch"
 	"generate_definitions/utils"
 	"io"
 	"log"
@@ -96,6 +97,7 @@ func GetWebRefFiles() []utils.DirectoryListItem {
 }
 
 func GetWebRefData() Data {
+	fl := patch.GetFileListing()
 	files := GetWebRefFiles()
 
 	var data Data
@@ -129,7 +131,7 @@ func GetWebRefData() Data {
 				return
 			}
 
-			content, err := GetFileContent(&file)
+			content, err := GetFileContent(&file, fl)
 			if err != nil {
 				log.Fatal(file.Path, " ", err)
 			}
@@ -228,15 +230,17 @@ func GetWebRefData() Data {
 	return data
 }
 
-func GetFileContent(file *utils.DirectoryListItem) ([]byte, error) {
+func GetFileContent(file *utils.DirectoryListItem, fl patch.FileListing) ([]byte, error) {
 	cachePath := utils.CACHE_DIR + "/" + file.Name
 
-	hash, err := utils.ComputeGitBlobSHA1(cachePath)
+	content, err := os.ReadFile(cachePath)
 	if err != nil {
-		log.Println("Failed to compute SHA1 for", file.Path)
+		return nil, err
 	}
 
-	if hash != file.Sha {
+	hash := utils.ComputeGitBlobSHA1Content(content)
+
+	if hash != file.Sha && fl.FileNeedsReset(file.Name) {
 		log.Println("Cache file is outdated, downloading", file.Path)
 		resp, err := http.Get(file.DownloadUrl)
 		if err != nil {
@@ -253,10 +257,21 @@ func GetFileContent(file *utils.DirectoryListItem) ([]byte, error) {
 			log.Println("Failed to write cache file", cachePath, err)
 		}
 
+		if fl.FileNeedsPatch(file.Name) {
+			if err := fl.PatchFile(file.Name); err != nil {
+				log.Fatalf("Failed to patch file %v: %v", file.Name, err)
+			}
+
+			body, err = os.ReadFile(cachePath)
+			if err != nil {
+				return nil, err
+			}
+		}
+
 		return body, nil
 	}
 
-	return os.ReadFile(cachePath)
+	return content, nil
 }
 
 func DetectDuplicates(data *Data) {
