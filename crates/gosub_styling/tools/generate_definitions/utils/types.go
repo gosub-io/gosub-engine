@@ -1,4 +1,4 @@
-package main
+package utils
 
 type Data struct {
 	Properties []Properties `json:"properties"`

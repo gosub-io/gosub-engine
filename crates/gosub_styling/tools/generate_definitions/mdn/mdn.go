@@ -1,7 +1,8 @@
-package main
+package mdn
 
 import (
 	"encoding/json"
+	"generate_definitions/utils"
 	"io"
 	"log"
 	"net/http"
@@ -12,9 +13,9 @@ const (
 )
 
 type MdnItem struct {
-	Syntax   string           `json:"syntax"`
-	Initial  StringMaybeArray `json:"initial"`
-	Computed StringMaybeArray `json:"computed"`
+	Syntax   string                 `json:"syntax"`
+	Initial  utils.StringMaybeArray `json:"initial"`
+	Computed utils.StringMaybeArray `json:"computed"`
 }
 
 func getMdnData() map[string]MdnItem {
