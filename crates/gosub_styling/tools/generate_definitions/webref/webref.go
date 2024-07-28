@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path"
 	"regexp"
 	"strings"
 	"sync"
@@ -97,6 +98,7 @@ func GetWebRefFiles() []utils.DirectoryListItem {
 }
 
 func GetWebRefData() Data {
+	DownloadPatches()
 	fl := patch.GetFileListing()
 	files := GetWebRefFiles()
 
@@ -231,16 +233,21 @@ func GetWebRefData() Data {
 }
 
 func GetFileContent(file *utils.DirectoryListItem, fl patch.FileListing) ([]byte, error) {
-	cachePath := utils.CACHE_DIR + "/" + file.Name
+	cachePath := path.Join(utils.CACHE_DIR, file.Name)
 
+	hash := ""
 	content, err := os.ReadFile(cachePath)
-	if err != nil {
+	unexist := false
+	if os.IsNotExist(err) {
+		content = []byte{}
+		unexist = true
+	} else if err != nil {
 		return nil, err
+	} else {
+		hash = utils.ComputeGitBlobSHA1Content(content)
 	}
 
-	hash := utils.ComputeGitBlobSHA1Content(content)
-
-	if hash != file.Sha && fl.FileNeedsReset(file.Name) {
+	if unexist || hash != file.Sha && fl.FileNeedsReset(file.Name) {
 		log.Println("Cache file is outdated, downloading", file.Path)
 		resp, err := http.Get(file.DownloadUrl)
 		if err != nil {
@@ -272,6 +279,55 @@ func GetFileContent(file *utils.DirectoryListItem, fl patch.FileListing) ([]byte
 	}
 
 	return content, nil
+}
+
+func DownloadPatches() {
+	patchesResp, err := http.Get("https://api.github.com/repos/" + utils.REPO + "/contents/" + utils.PATCH_LOCATION)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	defer patchesResp.Body.Close()
+
+	body, err := io.ReadAll(patchesResp.Body)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	var patches []utils.DirectoryListItem
+	if err := json.Unmarshal(body, &patches); err != nil {
+		log.Fatal(err)
+	}
+
+	for _, p := range patches {
+		if p.Type != "file" || !strings.HasSuffix(p.Name, ".patch") {
+			continue
+		}
+
+		patchPath := path.Join(utils.CACHE_DIR, "patches", p.Name)
+		content, err := os.ReadFile(patchPath)
+		if err == nil {
+			hash := utils.ComputeGitBlobSHA1Content(content)
+			if hash == p.Sha {
+				continue
+			}
+		}
+
+		resp, err := http.Get(p.DownloadUrl)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		if err := os.WriteFile(patchPath, body, 0644); err != nil {
+			log.Fatal(err)
+		}
+	}
 }
 
 func DetectDuplicates(data *Data) {
