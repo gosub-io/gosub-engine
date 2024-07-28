@@ -14,7 +14,14 @@ import (
 
 var (
 	skipList = []string{
-		"css-borders",
+		"css-borders", // not ready for impl
+		"CSS",         // temp fix for duplicate properties
+		"css-flexbox",
+		"SVG",
+		"svg-strokes",
+		"css-position",
+		"css-color-hdr",
+		"css-content",
 	}
 )
 
