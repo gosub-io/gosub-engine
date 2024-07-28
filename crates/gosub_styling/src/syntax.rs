@@ -19,8 +19,8 @@ use crate::syntax_matcher::CssSyntaxTree;
 // When debugging the parser, it's nice to have some additional information ready. This should maybe
 // be inside a cfg setting, but for now (un)commenting the appropriate line is good enough.
 macro_rules! debug_print {
-    ($($x:tt)*) => { println!($($x)*) }
-    // ($($x:tt)*) => {{}};
+    // ($($x:tt)*) => { println!($($x)*) }
+    ($($x:tt)*) => {{}};
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -411,7 +411,7 @@ fn parse_comma_separated_multiplier(input: &str) -> IResult<&str, SyntaxComponen
 
 /// Parses any optional multipliers for a group
 fn parse_multipliers(input: &str) -> IResult<&str, SyntaxComponentMultiplier> {
-    debug_print!("Parsing multipliers: {}", input);
+    debug_print!("Parsing multipliers: '{}'", input);
 
     let (input, multiplier) = opt(alt((
         map(tag("*"), |_| SyntaxComponentMultiplier::ZeroOrMore),
@@ -564,50 +564,73 @@ fn parse_component_doubleampersand_list(input: &str) -> IResult<&str, SyntaxComp
 //     ))
 // }
 
-fn juxtaseparator(input: &str) -> IResult<&str, &str> {
-    // Remove ALL whitespaces
-    println!("Juxtaposition separator check: '{}'", input);
-    let (input, last) = take_while(|c: char| c.is_whitespace())(input)?;
-    println!("Juxtaposition separator check: '{}'", input);
+/// Find a separator for juxtaposition group. Or actually, find a separator that isn't for
+/// a juxtaposition group. If we remove the spaces, then we can check for the next non-space
+/// character. If it's a |, or a &, it's part of another group separator (|, || or &&). OR,
+/// as another case, when we find a ], we are at the end of a group, so that will also be the
+/// end of this juxtaposition group. The only extra check we need to do if we reach the end
+/// of the input. If so, then we are also at the end of the group.
+///
+/// This function will return the input with leading spaces removed, but keeps the next separator
+/// or char for the parser to pick up. Finally, it will return a boolean true if it's not the end
+/// of the juxtaposition group, or false when the end is found.
+fn juxtaseparator(input: &str) -> IResult<&str, bool> {
+    let (input, _) = space0(input)?;
 
-    // Peek the next character
-    if let Some(next) = input.chars().next() {
-        println!("Next char: '{}'", next);
-        // Seems like a non-juxtaposition separator. So fail
-        if next == '&' || next == '|' {
-            println!("Not a juxtaposition separator");
-            return Err(Err::Error(nom::error::Error::new(
-                input,
-                nom::error::ErrorKind::Char,
-            )));
-        }
+    // Special case when there is no more input
+    if input.is_empty() {
+        return Ok((input, false))
     }
 
-    // read last char taken from the input
-    println!("Last char read: '{}'", last);
+    // Any of these chars means we found the end of the juxaposition group
+    let (_, end_of_group) = opt(alt((
+        char(']'),
+        char('|'),
+        char('&'),
+    )))(input)?;
 
-
-    // Last char read was not a space? Then we didn't find a juxtaposition separator
-    let c = last.chars().last();
-    println!("Last char read was a space? '{:?}'", c);
-    if c != Some(' ') {
-        return Err(Err::Error(nom::error::Error::new(
-            input,
-            nom::error::ErrorKind::Char,
-        )));
-    }
-
-    // All is good
-    println!("Juxtaposition separator found");
-    return Ok((input, last));
+    // If we didn't find any of the above chars, we return true, as we seem to have found a
+    // next juxtaposition element.
+    return Ok((input, end_of_group.is_none()));
 }
 
-fn parse_component_juxtaposition_list(input: &str) -> IResult<&str, SyntaxComponent> {
-    debug_print!("Parsing component juxtaposition list: {}", input);
+// We need to use a custom separated_list1 for this, as that function MUST capture a separator
+// (even if it's just a space). Since juxtaposition is only spaces, and we remove them anyway,
+// we cannot use that function (it will fail when the output length is the same as the input length)
+// We might be able to rewrite this function.
+fn juxtaposition_or_separated_list(input: &str) -> IResult<&str, Vec<SyntaxComponent>> {
+    let mut elements = Vec::new();
+    let mut input = input;
 
-    let (input, components) =
-        separated_list1(juxtaseparator, parse_component)(input)?;
-    dbg!(&components);
+    loop {
+        let (next_input, _) = space0(input)?;
+
+        // Parse an element
+        let (next_input, elem) = parse_component(next_input)?;
+        elements.push(elem);
+
+        // Check for a separator
+        let result = juxtaseparator(next_input);
+
+        // If errored, we return what we've got
+        if result.is_err() {
+            return Ok((next_input, elements));
+        }
+
+        // If found, the sep boolean determines if we are done or not.
+        let (next_input, sep) = result.unwrap();
+        if ! sep {
+            return Ok((next_input, elements));
+        }
+
+        input = next_input;
+    }
+}
+
+
+
+fn parse_component_juxtaposition_list(input: &str) -> IResult<&str, SyntaxComponent> {
+    let (input, components) = juxtaposition_or_separated_list(input)?;
     if components.len() == 1 {
         return Ok((input, components[0].clone()));
     }
@@ -724,7 +747,7 @@ fn parse_property(input: &str) -> IResult<&str, SyntaxComponent> {
 }
 
 fn parse_generic_keyword(input: &str) -> IResult<&str, SyntaxComponent> {
-    debug_print!("Parsing generic keyword: {}", input);
+    debug_print!("Parsing generic keyword: '{}'", input);
 
     map(parse_keyword, |s: &str| SyntaxComponent::GenericKeyword {
         keyword: s.to_string(),
@@ -1905,11 +1928,135 @@ mod tests {
 
     #[test]
     fn test_grouping_precedence() {
-        // let c = CssSyntax::new("[ [ left ] | [ right ] [ top ] ]").compile().unwrap();
-        // let c = CssSyntax::new("left right | top bottom").compile().unwrap();
-        // let c = CssSyntax::new("left && right | foo || bar baz").compile().unwrap();
-        // let c = CssSyntax::new("[ [ left | center | right | top | bottom | <length-percentage> ] | [ left | center | right | <length-percentage> ] [ top | center | bottom | <length-percentage> ] | [ center | [ left | right ] <length-percentage>? ] && [ center | [ top | bottom ] <length-percentage>? ] ]").compile().unwrap();
+        let c = CssSyntax::new("left").compile().unwrap();
+        assert_eq!(c, CssSyntaxTree::new(vec![SyntaxComponent::GenericKeyword {
+            keyword: "left".to_string(),
+            multiplier: SyntaxComponentMultiplier::Once,
+        }]));
+
+        let c = CssSyntax::new("left right").compile().unwrap();
+        assert_eq!(c, CssSyntaxTree::new(vec![SyntaxComponent::Group {
+            combinator: GroupCombinators::Juxtaposition,
+            components: vec![
+                SyntaxComponent::GenericKeyword {
+                    keyword: "left".to_string(),
+                    multiplier: SyntaxComponentMultiplier::Once,
+                },
+                SyntaxComponent::GenericKeyword {
+                    keyword: "right".to_string(),
+                    multiplier: SyntaxComponentMultiplier::Once,
+                },
+            ],
+            multiplier: SyntaxComponentMultiplier::Once,
+        }]));
+
+        let c = CssSyntax::new("left right | top bottom").compile().unwrap();
+        assert_eq!(c, CssSyntaxTree::new(vec![SyntaxComponent::Group {
+            combinator: GroupCombinators::ExactlyOne,
+            components: vec![
+                SyntaxComponent::Group {
+                    combinator: GroupCombinators::Juxtaposition,
+                    components: vec![
+                        SyntaxComponent::GenericKeyword {
+                            keyword: "left".to_string(),
+                            multiplier: SyntaxComponentMultiplier::Once,
+                        },
+                        SyntaxComponent::GenericKeyword {
+                            keyword: "right".to_string(),
+                            multiplier: SyntaxComponentMultiplier::Once,
+                        },
+                    ],
+                    multiplier: SyntaxComponentMultiplier::Once,
+                },
+                SyntaxComponent::Group {
+                    combinator: GroupCombinators::Juxtaposition,
+                    components: vec![
+                        SyntaxComponent::GenericKeyword {
+                            keyword: "top".to_string(),
+                            multiplier: SyntaxComponentMultiplier::Once,
+                        },
+                        SyntaxComponent::GenericKeyword {
+                            keyword: "bottom".to_string(),
+                            multiplier: SyntaxComponentMultiplier::Once,
+                        },
+                    ],
+                    multiplier: SyntaxComponentMultiplier::Once,
+                },
+            ],
+            multiplier: SyntaxComponentMultiplier::Once,
+        }]));
+
+        let c = CssSyntax::new("left && right | foo || bar baz").compile().unwrap();
+        assert_eq!(c, CssSyntaxTree::new(vec![SyntaxComponent::Group {
+            combinator: GroupCombinators::AllAnyOrder,
+            components: vec![
+                SyntaxComponent::GenericKeyword {
+                    keyword: "left".to_string(),
+                    multiplier: SyntaxComponentMultiplier::Once,
+                },
+                SyntaxComponent::Group {
+                    combinator: GroupCombinators::ExactlyOne,
+                    components: vec![
+                        SyntaxComponent::GenericKeyword {
+                            keyword: "right".to_string(),
+                            multiplier: SyntaxComponentMultiplier::Once,
+                        },
+                        SyntaxComponent::GenericKeyword {
+                            keyword: "foo".to_string(),
+                            multiplier: SyntaxComponentMultiplier::Once,
+                        },
+                    ],
+                    multiplier: SyntaxComponentMultiplier::Once,
+                },
+                SyntaxComponent::Group {
+                    combinator: GroupCombinators::AtLeastOneAnyOrder,
+                    components: vec![
+                        SyntaxComponent::GenericKeyword {
+                            keyword: "bar".to_string(),
+                            multiplier: SyntaxComponentMultiplier::Once,
+                        },
+                        SyntaxComponent::GenericKeyword {
+                            keyword: "baz".to_string(),
+                            multiplier: SyntaxComponentMultiplier::Once,
+                        },
+                    ],
+                    multiplier: SyntaxComponentMultiplier::Once,
+                },
+            ],
+            multiplier: SyntaxComponentMultiplier::Once,
+        }]));
+
+
+
+        let c = CssSyntax::new("[ left ] [ right ] [ top ]").compile().unwrap();
+        assert_eq!(c, CssSyntaxTree::new(vec![SyntaxComponent::Group {
+            combinator: GroupCombinators::ExactlyOne,
+            components: vec![
+                SyntaxComponent::GenericKeyword {
+                    keyword: "left".to_string(),
+                    multiplier: SyntaxComponentMultiplier::Once,
+                },
+                SyntaxComponent::GenericKeyword {
+                    keyword: "right".to_string(),
+                    multiplier: SyntaxComponentMultiplier::Once,
+                },
+                SyntaxComponent::GenericKeyword {
+                    keyword: "top".to_string(),
+                    multiplier: SyntaxComponentMultiplier::Once,
+                },
+            ],
+            multiplier: SyntaxComponentMultiplier::Once,
+        }]));
+
+
+        let c = CssSyntax::new("[ left right top ]").compile().unwrap();
+        let c = CssSyntax::new("[ [ left ] ]").compile().unwrap();
+        let c = CssSyntax::new("[ left right ]").compile().unwrap();
+        let c = CssSyntax::new("[left right]").compile().unwrap();
+        let c = CssSyntax::new("[ [ left ] ] right ").compile().unwrap();
+        let c = CssSyntax::new("[ [ left ] [ right ] [ top ] ] a").compile().unwrap();
+        let c = CssSyntax::new("[ [ left ] | [ right ] [ top ] ]").compile().unwrap();
+        let c = CssSyntax::new("[ [ left | center | right | top | bottom | <length-percentage> ] | [ left | center | right | <length-percentage> ] [ top | center | bottom | <length-percentage> ] | [ center | [ left | right ] <length-percentage>? ] && [ center | [ top | bottom ] <length-percentage>? ] ]").compile().unwrap();
         let c = CssSyntax::new("[ [ left ] | [ center ] [ top ] | [ center1 ] && [ center2 ] ]").compile().unwrap();
-        dbg!(&c);
     }
 }
