@@ -44,7 +44,7 @@ func GetSpecifications() SpecList {
 
 	specFile, err := GetSpecFileContent()
 	if err != nil {
-		log.Fatal(err)
+		log.Panic(err)
 	}
 
 	var spec struct {
@@ -52,7 +52,7 @@ func GetSpecifications() SpecList {
 	}
 
 	if err := json.Unmarshal(specFile, &spec); err != nil {
-		log.Fatal(err)
+		log.Panic(err)
 	}
 
 	for _, spec := range spec.Results {

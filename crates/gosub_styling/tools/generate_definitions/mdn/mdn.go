@@ -21,20 +21,20 @@ type MdnItem struct {
 func getMdnData() map[string]MdnItem {
 	mdnResp, err := http.Get(MDN_PROPERTIES)
 	if err != nil {
-		log.Fatal(err)
+		log.Panic(err)
 	}
 
 	defer mdnResp.Body.Close()
 
 	body, err := io.ReadAll(mdnResp.Body)
 	if err != nil {
-		log.Fatal(err)
+		log.Panic(err)
 	}
 
 	var mdnData map[string]MdnItem
 
 	if err := json.Unmarshal(body, &mdnData); err != nil {
-		log.Fatal(err)
+		log.Panic(err)
 	}
 
 	return mdnData
