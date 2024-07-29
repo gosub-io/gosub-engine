@@ -145,6 +145,10 @@ func GetWebRefData() Data {
 			log.Panic(file.Path, " ", err)
 		}
 
+		if string(content) == "<deleted>" {
+			continue
+		}
+
 		var fileData Data
 		if err := json.Unmarshal(content, &fileData); err != nil {
 			log.Println("content", string(content))

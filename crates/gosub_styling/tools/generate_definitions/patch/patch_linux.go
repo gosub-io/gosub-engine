@@ -16,6 +16,11 @@ func PatchFile(path string, patchPath string) (string, error) {
 	}
 
 	if _, err := os.Stat(path); os.IsNotExist(err) {
+
+		if os.WriteFile(path, []byte("<deleted>"), 0644) != nil {
+			return "", fmt.Errorf("Failed to create del file %v: %v", path, err)
+		}
+
 		return "<deleted>", nil
 	}
 
