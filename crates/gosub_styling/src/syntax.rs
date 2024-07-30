@@ -127,7 +127,7 @@ pub enum SyntaxComponent {
     /// Functions like color(), length() etc
     Function {
         name: String,
-        arguments: Vec<SyntaxComponent>,
+        arguments: Option<Box<SyntaxComponent>>,
         multiplier: SyntaxComponentMultiplier,
     },
     /// Internal data definition like <length>, <color>, or quoted like <'background-color'>. Can include
@@ -584,9 +584,10 @@ fn juxtaseparator(input: &str) -> IResult<&str, bool> {
 
     // Any of these chars means we found the end of the juxaposition group
     let (_, end_of_group) = opt(alt((
-        char(']'),
-        char('|'),
-        char('&'),
+        char(']'),  // End of a group
+        char(')'),  // End of a function argument list
+        char('|'),  // Start of a separator for non-juxtaposition group
+        char('&'),  // Start of a separator for non-juxtaposition group
     )))(input)?;
 
     // If we didn't find any of the above chars, we return true, as we seem to have found a
@@ -706,16 +707,18 @@ fn parse_function(input: &str) -> IResult<&str, SyntaxComponent> {
     let arglist = delimited(ws(tag("(")), ws(parse_component_singlebar_list), ws(tag(")")));
 
     let (input, name) = parse_keyword(input)?;
-    let (input, arglist) = alt((map(empty_arglist, |_| None), map(arglist, |c| Some(c))))(input)?;
+    let (input, arglist) = alt((
+        map(empty_arglist, |_| None),
+        map(arglist, |c| Some(c))
+    ))(input)?;
 
     match arglist {
-        Some(_arglist) => {
-            // eprintln!("FIXME: Implement function arguments");
+        Some(arglist) => {
             Ok((
                 input,
                 SyntaxComponent::Function {
                     name: name.to_string(),
-                    arguments: vec![],
+                    arguments: Some(Box::new(arglist)),
                     multiplier: SyntaxComponentMultiplier::Once,
                 },
             ))
@@ -724,7 +727,7 @@ fn parse_function(input: &str) -> IResult<&str, SyntaxComponent> {
             input,
             SyntaxComponent::Function {
                 name: name.to_string(),
-                arguments: vec![],
+                arguments: None,
                 multiplier: SyntaxComponentMultiplier::Once,
             },
         )),
@@ -1131,7 +1134,7 @@ mod tests {
             parts.unwrap(),
             CssSyntaxTree::new(vec![SyntaxComponent::Function {
                 name: "length".into(),
-                arguments: vec![],
+                arguments: None,
                 multiplier: SyntaxComponentMultiplier::Between(2, 4),
             }])
         );
@@ -1142,7 +1145,7 @@ mod tests {
             parts.unwrap(),
             CssSyntaxTree::new(vec![SyntaxComponent::Function {
                 name: "color".into(),
-                arguments: vec![],
+                arguments: None,
                 multiplier: SyntaxComponentMultiplier::Once,
             }])
         );
@@ -1153,10 +1156,10 @@ mod tests {
             parts.unwrap(),
             CssSyntaxTree::new(vec![SyntaxComponent::Function {
                 name: "color".into(),
-                arguments: vec![SyntaxComponent::GenericKeyword {
+                arguments: Some(Box::new(SyntaxComponent::GenericKeyword {
                     keyword: "top".into(),
                     multiplier: SyntaxComponentMultiplier::Optional,
-                }],
+                })),
                 multiplier: SyntaxComponentMultiplier::Between(2, 4),
             }])
         );
@@ -1926,9 +1929,43 @@ mod tests {
     }
 
     #[test]
-    fn test_stuff() {
-        let c = CssSyntax::new("foo [ bar | baz]?").compile().unwrap();
-        dbg!(&c);
+    fn test_anchor_with_arguments() {
+        let c = CssSyntax::new("anchor( <anchor-element>? <anchor-side>, <length-percentage>? )").compile().unwrap();
+        assert_eq!(c, CssSyntaxTree::new(vec![SyntaxComponent::Function {
+            name: "anchor".to_string(),
+            arguments: Some(Box::new(SyntaxComponent::Group {
+                combinator: GroupCombinators::Juxtaposition,
+                components: vec![
+                    SyntaxComponent::Definition {
+                        datatype: "anchor-element".to_string(),
+                        quoted: false,
+                        range: RangeType::empty(),
+                        multiplier: SyntaxComponentMultiplier::Optional,
+                    },
+                    SyntaxComponent::Definition {
+                        datatype: "anchor-side".to_string(),
+                        quoted: false,
+                        range: RangeType::empty(),
+                        multiplier: SyntaxComponentMultiplier::Once,
+                    },
+                    SyntaxComponent::Literal{
+                        literal: ",".to_string(),
+                        multiplier: SyntaxComponentMultiplier::Once,
+                    },
+                    SyntaxComponent::Definition {
+                        datatype: "length-percentage".to_string(),
+                        quoted: false,
+                        range: RangeType {
+                            min: NumberOrInfinity::None,
+                            max: NumberOrInfinity::None,
+                        },
+                        multiplier: SyntaxComponentMultiplier::Optional,
+                    }
+                ],
+                multiplier: SyntaxComponentMultiplier::Once,
+            })),
+            multiplier: SyntaxComponentMultiplier::Once,
+        }]));
     }
 
     #[test]

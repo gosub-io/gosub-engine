@@ -33,7 +33,7 @@ impl CssSyntaxTree {
 }
 
 fn match_internal(value: &CssValue, component: &SyntaxComponent) -> Option<CssValue> {
-    println!("Matching: {:?} against {:?}", value, component);
+    // println!("Matching: {:?} against {:?}", value, component);
     match &component {
         SyntaxComponent::GenericKeyword { keyword, .. } => match value {
             CssValue::None if keyword.eq_ignore_ascii_case("none") => return Some(value.clone()),
@@ -211,7 +211,7 @@ struct Matches {
 ///     resolve_group([none, block, block, auto, none], [auto, none, block]) => [1, 2, 2, 0, 1]
 ///
 fn resolve_group(value: &CssValue, components: &Vec<SyntaxComponent>) -> Matches {
-    println!("Resolving group: {:?} against {:?}", value, components);
+    // println!("Resolving group: {:?} against {:?}", value, components);
     let mut values: Vec<isize> = vec![];
 
     let mut subgroup = false;
@@ -262,7 +262,7 @@ fn match_group_exactly_one(
     components: &Vec<SyntaxComponent>,
 ) -> Option<CssValue> {
     let matches = resolve_group(value, components);
-    println!("match_group_exactly_one: {:?}", matches);
+    // println!("match_group_exactly_one: {:?}", matches);
 
     if matches.all != -1 {
         return Some(value.clone());
@@ -288,7 +288,7 @@ fn match_group_at_least_one_any_order(
 ) -> Option<CssValue> {
     // Step: convert to matches
     let matches = resolve_group(value, components);
-    println!("match_group_at_least_one_any_order: {:?}", matches);
+    // println!("match_group_at_least_one_any_order: {:?}", matches);
 
     let len = if let CssValue::List(list) = value {
         list.len()
@@ -335,7 +335,7 @@ fn match_group_all_any_order(
     components: &Vec<SyntaxComponent>,
 ) -> Option<CssValue> {
     let matches = resolve_group(value, components);
-    println!("match_group_all_any_order: {:?}", matches);
+    // println!("match_group_all_any_order: {:?}", matches);
 
     // If we do not the same length in our matches, we definitely don't have a match
     if matches.entries.len() != components.len() {
@@ -363,11 +363,11 @@ fn match_group_juxtaposition(
 ) -> Option<CssValue> {
     // Step: Convert to matches
     let matches = resolve_group(value, components);
-    println!("\n\nmatch_group_juxtaposition: {:?}: {:?} {:?}", matches, value, components);
+    // println!("\n\nmatch_group_juxtaposition: {:?}: {:?} {:?}", matches, value, components);
 
     // Step: Check if there are -1 in the list. If so, we found unknown values, and thus we can return immediately
     if matches.entries.iter().any(|x| *x == -1) {
-        println!("Found -1 in the list, returning None");
+        // println!("Found -1 in the list, returning None");
         return None;
     }
 
@@ -383,11 +383,11 @@ fn match_group_juxtaposition(
             .unwrap_or(&(c_idx, 0))
             .1;
 
-        println!("\n\nChecking component: {:?} with count: {:?}", group_component, value_count);
+        // println!("\n\nChecking component: {:?} with count: {:?}", group_component, value_count);
 
         // Check if this count is correct for the group validator
         if !check_multiplier(group_component, value_count) {
-            println!("Multiplier check failed for component: {:?}", group_component);
+            // println!("Multiplier check failed for component: {:?}", group_component);
             return None;
         }
     }
@@ -398,12 +398,12 @@ fn match_group_juxtaposition(
         if *idx >= last_idx {
             last_idx = *idx;
         } else {
-            println!("Order check failed: {:?} < {:?}", idx, last_idx);
+            // println!("Order check failed: {:?} < {:?}", idx, last_idx);
             return None;
         }
     }
 
-    println!("Returning value: {:?}", value);
+    // println!("Returning value: {:?}", value);
     Some(value.clone())
 }
 
