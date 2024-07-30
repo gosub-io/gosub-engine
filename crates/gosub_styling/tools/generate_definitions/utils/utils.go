@@ -43,3 +43,11 @@ type DirectoryListItem struct {
 	DownloadUrl string `json:"download_url"`
 	Type        string `json:"type"`
 }
+
+func MapToSlice[K comparable, V any](m map[K]V) []V {
+	slice := make([]V, 0, len(m))
+	for _, v := range m {
+		slice = append(slice, v)
+	}
+	return slice
+}

@@ -27,16 +27,12 @@ var (
 	}
 )
 
-type Selector struct {
-	Name string `json:"name"`
-}
-
 type Data struct {
 	Spec       Spec               `json:"spec"`
 	Properties []WebRefProperties `json:"properties"`
 	Values     []WebRefValue      `json:"values"`
 	AtRules    []WebRefAtRule     `json:"atrules"`
-	Selectors  []Selector         `json:"selectors"`
+	Selectors  []utils.Selector   `json:"selectors"`
 }
 
 type Spec struct {
@@ -50,12 +46,12 @@ type WebRefValue struct {
 }
 
 type WebRefProperties struct {
-	Name      string   `json:"name"`
-	Syntax    string   `json:"value"`
-	NewSyntax string   `json:"newValues"`
-	Computed  []string `json:"computed"`
-	//Initial   StringMaybeArray `json:"initial"`
-	Inherited string `json:"inherited"`
+	Name      string                 `json:"name"`
+	Syntax    string                 `json:"value"`
+	NewSyntax string                 `json:"newValues"`
+	Computed  []string               `json:"computed"`
+	Initial   utils.StringMaybeArray `json:"initial"`
+	Inherited string                 `json:"inherited"`
 }
 
 type WebRefAtRule struct {
@@ -101,7 +97,6 @@ func GetWebRefData() Data {
 	DownloadPatches()
 	files := GetWebRefFiles()
 
-	var data Data
 	wg := new(sync.WaitGroup)
 
 	//s := specs.GetSpecifications()
@@ -109,7 +104,7 @@ func GetWebRefData() Data {
 	properties := make(map[string]WebRefProperties)
 	values := make(map[string]WebRefValue)
 	atRules := make(map[string]WebRefAtRule)
-	selectors := make(map[string]Selector)
+	selectors := make(map[string]utils.Selector)
 
 	for _, file := range files {
 		if file.Type != "file" || !strings.HasSuffix(file.Name, ".json") {
@@ -117,7 +112,7 @@ func GetWebRefData() Data {
 		}
 
 		wg.Add(1)
-		func() {
+		go func() {
 			defer wg.Done()
 			DownloadFileContent(&file)
 		}()
@@ -234,7 +229,12 @@ func GetWebRefData() Data {
 		}
 	}
 
-	return data
+	return Data{
+		Properties: utils.MapToSlice(properties),
+		Values:     utils.MapToSlice(values),
+		AtRules:    utils.MapToSlice(atRules),
+		Selectors:  utils.MapToSlice(selectors),
+	}
 }
 
 func GetFileContent(file *utils.DirectoryListItem) ([]byte, error) {
@@ -346,7 +346,7 @@ func DetectDuplicates(data *Data) {
 	properties := make(map[string]WebRefProperties)
 	values := make(map[string]WebRefValue)
 	atRules := make(map[string]WebRefAtRule)
-	selectors := make(map[string]Selector)
+	selectors := make(map[string]utils.Selector)
 
 	for _, property := range data.Properties {
 		if p, ok := properties[property.Name]; ok {

@@ -18,8 +18,8 @@ type MdnItem struct {
 	Computed utils.StringMaybeArray `json:"computed"`
 }
 
-func getMdnData() map[string]MdnItem {
-	mdnResp, err := http.Get(MDN_PROPERTIES)
+func GetMdnData() map[string]MdnItem {
+	mdnResp, err := http.Get(MDN_PROPERTIES) //TODO: this should probably also be cached
 	if err != nil {
 		log.Panic(err)
 	}
