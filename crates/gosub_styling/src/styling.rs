@@ -381,7 +381,7 @@ impl CssProperty {
     pub fn is_shorthand(&self) -> bool {
         let defs = get_mdn_css_definitions();
         match defs.find_property(&self.name) {
-            Some(def) => !def.expanded_properties().is_empty(),
+            Some(def) => def.expanded_properties().len() > 1,
             None => false,
         }
     }
@@ -390,7 +390,14 @@ impl CssProperty {
     pub fn get_props_from_shorthand(&self) -> Vec<String> {
         let defs = get_mdn_css_definitions();
         match defs.find_property(&self.name) {
-            Some(def) => def.expanded_properties(),
+            Some(def) => {
+                let props = def.expanded_properties();
+                if props.len() == 1 {
+                    vec![]
+                } else {
+                    props
+                }
+            },
             None => vec![],
         }
     }
@@ -592,10 +599,10 @@ mod tests {
         assert_eq!(
             prop.get_props_from_shorthand(),
             vec![
-                "border-top-color",
-                "border-right-color",
                 "border-bottom-color",
                 "border-left-color",
+                "border-right-color",
+                "border-top-color",
             ]
         );
 

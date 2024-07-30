@@ -659,7 +659,6 @@ mod tests {
     fn test_background_position() {
         let definitions = parse_mdn_definition_files();
         let def = definitions.find_property("background-position").unwrap();
-        // dbg!(&def);
 
         // assert_none!(def.clone().matches(&CssValue::String("scroll".into())));
         // assert_none!(def.clone().matches(&CssValue::String("fixed".into())));
@@ -667,11 +666,50 @@ mod tests {
         // assert_none!(def
         //     .clone()
         //     .matches(&CssValue::String("rebeccapurple".into())));
+        //
+        // assert_some!(def.clone().matches(&CssValue::Percentage(0.0)));
+        // assert_some!(def.clone().matches(&CssValue::Zero));
+        // assert_some!(def.clone().matches(&CssValue::Unit(12.34, "px".into())));
+        // assert_none!(def.clone().matches(&CssValue::Number(12.34)));
 
-        assert_some!(def.clone().matches(&CssValue::Percentage(0.0)));
-        assert_some!(def.clone().matches(&CssValue::Zero));
-        assert_some!(def.clone().matches(&CssValue::Unit(12.34, "px".into())));
-        assert_none!(def.clone().matches(&CssValue::Number(12.34)));
+
+        /*
+        left
+        center
+        right
+        top
+        bottom
+        10px
+        10%
+
+        left top
+        left center
+        left bottom
+        left 10px
+        left 20%
+        center 20%
+        center center
+        10% center
+        10% 20px
+        10% 20%
+        10px 20px
+        10px 20%
+        center left
+        center left 20%
+        center right 30px
+
+        left 20% right 30px
+        left right
+         */
+
+
+
+
+        // background-position: left 10px;
+        assert_some!(def.clone().matches(&CssValue::List(vec![
+            CssValue::String("left".into()),
+            CssValue::Unit(10.0, "px".into()),
+        ])));
 
         // background-position: left 10px top 20px;
         assert_some!(def.clone().matches(&CssValue::List(vec![
