@@ -27,18 +27,17 @@ impl CssSyntaxTree {
         if self.components.len() != 1 {
             panic!("Syntax tree must have exactly one root component");
         }
-
         match_internal(value, &self.components[0], 0)
     }
 }
 
 fn match_internal(value: &CssValue, component: &SyntaxComponent, depth: usize) -> Option<CssValue> {
-    println!("[{}]{}Matching: {:?} against {:?}", depth, "  ".repeat(depth), value, component);
+    // println!("[{}]{}MATCH_INTERNAL: {:?} against {:?}", depth, "  ".repeat(depth), value, component);
     match &component {
         SyntaxComponent::GenericKeyword { keyword, .. } => match value {
             CssValue::None if keyword.eq_ignore_ascii_case("none") => return Some(value.clone()),
             CssValue::String(v) if v.eq_ignore_ascii_case(keyword) => {
-                println!("double fin.. matching keyword  {} {}", v, keyword);
+                // println!("double fin.. matching keyword  {} {}", v, keyword);
                 return Some(value.clone())
             },
             _ => {
@@ -83,7 +82,7 @@ fn match_internal(value: &CssValue, component: &SyntaxComponent, depth: usize) -
             "length" => match value {
                 CssValue::Zero => return Some(value.clone()),
                 CssValue::Unit(_, u) if LENGTH_UNITS.contains(&u.as_str()) => {
-                    println!("oh fun.. we matched length: {}", value.clone());
+                    // println!("oh fun.. we matched length: {}", value.clone());
                     return Some(value.clone())
                 }
                 _ => {}
@@ -119,7 +118,7 @@ fn match_internal(value: &CssValue, component: &SyntaxComponent, depth: usize) -
                         && *n >= from.unwrap_or(f32min)
                         && *n <= to.unwrap_or(f32max)
                     {
-                        println!("matched the unit");
+                        // println!("matched the unit");
                         return Some(value.clone());
                     }
                 }
@@ -235,7 +234,7 @@ fn resolve_group(value: &CssValue, components: &Vec<SyntaxComponent>, depth: usi
 
             if match_internal(v, component, depth + 1).is_some() {
                 value_in_group_index = c_idx as isize;
-                break;
+                // break;
             }
         }
 
@@ -269,7 +268,8 @@ fn match_group_exactly_one(
     depth: usize
 ) -> Option<CssValue> {
     let matches = resolve_group(value, components, depth);
-    // println!("match_group_exactly_one: {:?}", matches);
+    println!("[{}]{}match_group_exactly_one: {:?} {:?}", depth, "  ".repeat(depth), value, matches);
+    println!("[{}]{}Value to match: {:?}", depth, "  ".repeat(depth), value);
 
     if matches.all != -1 {
         return Some(value.clone());
@@ -296,7 +296,7 @@ fn match_group_at_least_one_any_order(
 ) -> Option<CssValue> {
     // Step: convert to matches
     let matches = resolve_group(value, components, depth);
-    // println!("match_group_at_least_one_any_order: {:?}", matches);
+    println!("[{}]{}match_group_at_least_one_any_order: {:?}", depth, "  ".repeat(depth), matches);
 
     let len = if let CssValue::List(list) = value {
         list.len()
@@ -344,7 +344,7 @@ fn match_group_all_any_order(
     depth: usize,
 ) -> Option<CssValue> {
     let matches = resolve_group(value, components, depth);
-    // println!("match_group_all_any_order: {:?}", matches);
+    println!("[{}]{}match_group_all_any_order: {:?}", depth, "  ".repeat(depth), matches);
 
     // If we do not the same length in our matches, we definitely don't have a match
     if matches.entries.len() != components.len() {
@@ -373,11 +373,11 @@ fn match_group_juxtaposition(
 ) -> Option<CssValue> {
     // Step: Convert to matches
     let matches = resolve_group(value, components, depth);
-    // println!("\n\nmatch_group_juxtaposition: {:?}: {:?} {:?}", matches, value, components);
+    println!("[{}]{}match_group_juxtaposition: {:?}: {:?} {:?}", depth, "  ".repeat(depth), matches, value, components);
 
     // Step: Check if there are -1 in the list. If so, we found unknown values, and thus we can return immediately
     if matches.entries.iter().any(|x| *x == -1) {
-        // println!("Found -1 in the list, returning None");
+        println!("[{}]{}Found -1 in the list, returning None", depth, "  ".repeat(depth));
         return None;
     }
 
@@ -393,11 +393,11 @@ fn match_group_juxtaposition(
             .unwrap_or(&(c_idx, 0))
             .1;
 
-        // println!("\n\nChecking component: {:?} with count: {:?}", group_component, value_count);
+        println!("[{}]{}Checking component: {:?} with count: {:?}", depth, "  ".repeat(depth), group_component, value_count);
 
         // Check if this count is correct for the group validator
         if !check_multiplier(group_component, value_count) {
-            // println!("Multiplier check failed for component: {:?}", group_component);
+            println!("[{}]{}Multiplier check failed for component: {:?}", depth, "  ".repeat(depth), group_component);
             return None;
         }
     }
@@ -408,12 +408,12 @@ fn match_group_juxtaposition(
         if *idx >= last_idx {
             last_idx = *idx;
         } else {
-            // println!("Order check failed: {:?} < {:?}", idx, last_idx);
+            println!("[{}]{}Order check failed: {:?} < {:?}", depth, "  ".repeat(depth), idx, last_idx);
             return None;
         }
     }
 
-    // println!("Returning value: {:?}", value);
+    println!("[{}]{}Returning value: {:?}", depth, "  ".repeat(depth), value);
     Some(value.clone())
 }
 
@@ -465,7 +465,7 @@ fn check_multiplier(component: &SyntaxComponent, count: usize) -> bool {
 #[cfg(test)]
 mod tests {
     use gosub_css3::stylesheet::CssValue;
-
+    use crate::css_definitions::{parse_mdn_definition_files, PropertyDefinition};
     use crate::syntax::CssSyntax;
 
     use super::*;
@@ -1142,5 +1142,156 @@ mod tests {
                 (3, 3),
             ]
         );
+    }
+
+
+    #[test]
+    fn test_matcher() {
+        let mut definitions = parse_mdn_definition_files();
+        definitions.add_property("testprop", PropertyDefinition{
+            name: "testprop".to_string(),
+            computed: vec![],
+            syntax: CssSyntax::new("[ left | right ] <length>? | [ top | bottom ] <length> | [ left | bottom ]").compile().unwrap(),
+            inherited: false,
+            initial_value: None,
+            mdn_url: "".to_string(),
+            resolved: false,
+        });
+
+        let prop = definitions.find_property("testprop").unwrap();
+
+        assert_some!(prop.clone().matches(&CssValue::List(vec![
+            CssValue::String("left".into()),
+            CssValue::Unit(5.0, "px".into()),
+        ])));
+        assert_some!(prop.clone().matches(&CssValue::List(vec![
+            CssValue::String("top".into()),
+            CssValue::Unit(5.0, "px".into()),
+        ])));
+        assert_some!(prop.clone().matches(&CssValue::List(vec![
+            CssValue::String("bottom".into()),
+            CssValue::Unit(5.0, "px".into()),
+        ])));
+        assert_some!(prop.clone().matches(&CssValue::List(vec![
+            CssValue::String("right".into()),
+            CssValue::Unit(5.0, "px".into()),
+        ])));
+        assert_some!(prop.clone().matches(&CssValue::List(vec![
+            CssValue::String("left".into()),
+        ])));
+
+        assert_some!(prop.clone().matches(&CssValue::List(vec![
+            CssValue::String("bottom".into()),
+        ])));
+
+        assert_some!(prop.clone().matches(&CssValue::List(vec![
+            CssValue::String("right".into()),
+        ])));
+
+        assert_none!(prop.clone().matches(&CssValue::List(vec![
+            CssValue::String("top".into()),
+        ])));
+    }
+
+    #[test]
+    fn test_matcher_2() {
+        let mut definitions = parse_mdn_definition_files();
+        definitions.add_property("testprop", PropertyDefinition{
+            name: "testprop".to_string(),
+            computed: vec![],
+            syntax: CssSyntax::new("[ [ left | center | right | top | bottom | <length-percentage> ] | [ left | center | right | <length-percentage> ] [ top | center | bottom | <length-percentage> ] ]").compile().unwrap(),
+            inherited: false,
+            initial_value: None,
+            mdn_url: "".to_string(),
+            resolved: false,
+        });
+        definitions.resolve();
+
+        let prop = definitions.find_property("testprop").unwrap();
+
+        // assert_some!(prop.clone().matches(&CssValue::List(vec![
+        //     CssValue::String("left".into()),
+        // ])));
+        // assert_some!(prop.clone().matches(&CssValue::List(vec![
+        //     CssValue::String("left".into()),
+        //     CssValue::String("top".into()),
+        // ])));
+        // assert_some!(prop.clone().matches(&CssValue::List(vec![
+        //     CssValue::String("center".into()),
+        //     CssValue::String("top".into()),
+        // ])));
+        assert_some!(prop.clone().matches(&CssValue::List(vec![
+            CssValue::String("center".into()),
+            CssValue::String("center".into()),
+        ])));
+        assert_some!(prop.clone().matches(&CssValue::List(vec![
+            CssValue::Percentage(10.0),
+            CssValue::Percentage(20.0),
+        ])));
+        assert_some!(prop.clone().matches(&CssValue::List(vec![
+            CssValue::String("left".into()),
+            CssValue::Percentage(20.0),
+        ])));
+
+        assert_some!(prop.clone().matches(&CssValue::List(vec![
+            CssValue::String("center".into()),
+            CssValue::Percentage(10.0),
+            CssValue::String("top".into()),
+            CssValue::Percentage(20.0),
+        ])));
+
+        assert_some!(prop.clone().matches(&CssValue::List(vec![
+            CssValue::String("top".into()),
+            CssValue::Percentage(10.0),
+            CssValue::String("center".into()),
+            CssValue::Percentage(20.0),
+        ])));
+
+        assert_some!(prop.clone().matches(&CssValue::List(vec![
+            CssValue::String("right".into()),
+        ])));
+
+        assert_none!(prop.clone().matches(&CssValue::List(vec![
+            CssValue::String("top".into()),
+        ])));
+    }
+
+    #[test]
+    fn test_matcher_3() {
+        let mut definitions = parse_mdn_definition_files();
+        definitions.add_property("testprop", PropertyDefinition{
+            name: "testprop".to_string(),
+            computed: vec![],
+            syntax: CssSyntax::new("foo | [ foo [ foo | bar ] ]").compile().unwrap(),
+            inherited: false,
+            initial_value: None,
+            mdn_url: "".to_string(),
+            resolved: false,
+        });
+        definitions.resolve();
+
+        let prop = definitions.find_property("testprop").unwrap();
+
+        // assert_some!(prop.clone().matches(&CssValue::List(vec![
+        //     CssValue::String("foo".into()),
+        // ])));
+
+        assert_some!(prop.clone().matches(&CssValue::List(vec![
+            CssValue::String("foo".into()),
+            CssValue::String("foo".into()),
+        ])));
+
+        // assert_some!(prop.clone().matches(&CssValue::List(vec![
+        //     CssValue::String("foo".into()),
+        //     CssValue::String("bar".into()),
+        // ])));
+        //
+        // assert_none!(prop.clone().matches(&CssValue::List(vec![
+        //     CssValue::String("bar".into()),
+        // ])));
+        // assert_none!(prop.clone().matches(&CssValue::List(vec![
+        //     CssValue::String("bar".into()),
+        //     CssValue::String("foo".into()),
+        // ])));
     }
 }

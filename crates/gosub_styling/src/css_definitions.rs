@@ -40,19 +40,19 @@ const BUILTIN_DATA_TYPES: [&str; 24] = [
 #[derive(Debug, Clone)]
 pub struct PropertyDefinition {
     /// Name of the property (ie: color, background etc)
-    name: String,
+    pub name: String,
     /// List of expanded (computed) properties if this property is a shorthand property
-    computed: Vec<String>,
+    pub computed: Vec<String>,
     /// Syntax tree of the property. This is a tree that describes the valid values for this property.
-    syntax: CssSyntaxTree,
+    pub syntax: CssSyntaxTree,
     /// True when the property inherits from parent nodes if not set
-    inherited: bool,
+    pub inherited: bool,
     /// Initial value of the property, if any
-    initial_value: Option<CssValue>,
+    pub initial_value: Option<CssValue>,
     /// URL to MDN documentation for this property
-    mdn_url: String,
+    pub mdn_url: String,
     // True when this element is resolved
-    resolved: bool
+    pub resolved: bool
 }
 
 #[allow(dead_code)]
@@ -216,7 +216,6 @@ impl CssDefinitions {
         element
     }
 
-    #[allow(dead_code)]
     fn resolve_component(&mut self, component: &SyntaxComponent, prop_name: &str) -> SyntaxComponent {
         // println!("resolve_component: {:?}", component);
 
@@ -674,6 +673,15 @@ mod tests {
 
 
         /*
+
+        [
+            [ left | center | right | top | bottom | <length-percentage> ] |
+            [ left | center | right | <length-percentage> ] [ top | center | bottom | <length-percentage> ] |
+            [ center | [ left | right ] <length-percentage>? ]
+            &&
+            [ center | [ top | bottom ] <length-percentage>? ]
+        ]
+
         left
         center
         right
