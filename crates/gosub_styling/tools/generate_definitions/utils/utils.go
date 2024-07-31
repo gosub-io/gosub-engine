@@ -13,6 +13,7 @@ const (
 	CACHE_DIR        = "crates/gosub_styling/resources/cache"
 	CACHE_INDEX_FILE = CACHE_DIR + "/index/cache_index.json"
 	CUSTOM_PATCH_DIR = "crates/gosub_styling/resources/patches"
+	BRANCH           = "curated"
 )
 
 func ComputeGitBlobSHA1(filePath string) (string, error) {

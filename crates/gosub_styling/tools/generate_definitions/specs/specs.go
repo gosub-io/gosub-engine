@@ -11,7 +11,7 @@ import (
 
 const (
 	SPEC_INDEX = "ed/index.json"
-	CACHE_FILE = utils.CACHE_DIR + "/specs/index.json"
+	CACHE_FILE = utils.CACHE_DIR + "/specs2/index.json"
 )
 
 type W3CSpec struct {

@@ -148,7 +148,7 @@ func ExportData(data any, path string) {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)
-	enc.SetIndent("", "    ")
+	enc.SetIndent("", "  ")
 
 	if err := enc.Encode(data); err != nil {
 		log.Panic(err)

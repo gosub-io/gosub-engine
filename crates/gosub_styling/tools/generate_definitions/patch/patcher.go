@@ -250,7 +250,7 @@ func ApplyPatches(patchedFiles *[]PatchedFile, dir string) error {
 		filePath := path.Join(utils.CACHE_DIR, "patched", forFile)
 
 		{
-			cacheFilePath := path.Join(utils.CACHE_DIR, "specs", forFile)
+			cacheFilePath := path.Join(utils.CACHE_DIR, "specs2", forFile)
 			content, err := os.ReadFile(cacheFilePath)
 			if err != nil {
 				return err
