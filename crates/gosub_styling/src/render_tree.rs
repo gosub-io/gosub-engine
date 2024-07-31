@@ -1,15 +1,15 @@
+use crate::css_definitions::get_css_definitions;
+use crate::styling::{match_selector, CssProperties, CssProperty, DeclarationProperty};
 use gosub_css3::stylesheet::{CssDeclaration, CssSelector, CssStylesheet, CssValue};
-use std::collections::HashMap;
-use std::fmt::Debug;
-use log::warn;
 use gosub_html5::node::data::element::ElementData;
 use gosub_html5::node::{NodeData, NodeId};
 use gosub_html5::parser::document::{DocumentHandle, TreeIterator};
 use gosub_render_backend::{PreRenderText, RenderBackend, FP};
 use gosub_shared::types::Result;
 use gosub_typeface::DEFAULT_FS;
-use crate::css_definitions::get_mdn_css_definitions;
-use crate::styling::{match_selector, CssProperties, CssProperty, DeclarationProperty};
+use log::warn;
+use std::collections::HashMap;
+use std::fmt::Debug;
 
 /// Map of all declared values for all nodes in the document
 #[derive(Default, Debug)]
@@ -152,7 +152,7 @@ impl<B: RenderBackend> RenderTree<B> {
                 .get_node_by_id(current_node_id)
                 .expect("node not found");
 
-            let definitions = get_mdn_css_definitions();
+            let definitions = get_css_definitions();
 
             for sheet in document.get().stylesheets.iter() {
                 for rule in sheet.rules.iter() {
@@ -171,16 +171,16 @@ impl<B: RenderBackend> RenderTree<B> {
                             let definition = definitions.find_property(&declaration.property);
                             // If not found, we skip this declaration
                             if definition.is_none() {
-                                warn!("Definition is not found for property {:?}", declaration.property);
+                                warn!(
+                                    "Definition is not found for property {:?}",
+                                    declaration.property
+                                );
                                 continue;
                             }
 
                             // Check if the declaration matches the definition and return the "expanded" order
                             if definition.unwrap().matches(&declaration.value).is_none() {
-                                warn!(
-                                    "Declaration does not match definition: {:?}",
-                                    declaration
-                                );
+                                warn!("Declaration does not match definition: {:?}", declaration);
                                 continue;
                             }
 

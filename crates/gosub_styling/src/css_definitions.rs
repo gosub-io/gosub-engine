@@ -1,10 +1,10 @@
-use std::collections::HashMap;
+use crate::syntax::GroupCombinators::Juxtaposition;
+use crate::syntax::{CssSyntax, SyntaxComponent};
+use crate::syntax_matcher::CssSyntaxTree;
+use gosub_css3::stylesheet::CssValue;
 use log::warn;
 use memoize::memoize;
-use gosub_css3::stylesheet::CssValue;
-use crate::syntax::{CssSyntax, SyntaxComponent};
-use crate::syntax::GroupCombinators::Juxtaposition;
-use crate::syntax_matcher::CssSyntaxTree;
+use std::collections::HashMap;
 
 /// List of elements that are built-in data types in the CSS specification
 #[allow(dead_code)]
@@ -50,7 +50,7 @@ pub struct PropertyDefinition {
     /// Initial value of the property, if any
     pub initial_value: Option<CssValue>,
     // True when this element is resolved
-    pub resolved: bool
+    pub resolved: bool,
 }
 
 #[allow(dead_code)]
@@ -61,7 +61,7 @@ pub struct SyntaxDefinition {
     /// Actual syntax
     syntax: CssSyntaxTree,
     /// True when the element has already been resolved
-    resolved: bool
+    resolved: bool,
 }
 
 #[allow(dead_code)]
@@ -123,7 +123,7 @@ impl PropertyDefinition {
 #[derive(Debug, Clone)]
 pub struct CssDefinitions {
     pub properties: HashMap<String, PropertyDefinition>,
-    pub functions: HashMap<String, FunctionDefinition>,
+    // pub functions: HashMap<String, FunctionDefinition>,
     pub syntax: HashMap<String, SyntaxDefinition>,
 }
 
@@ -131,14 +131,14 @@ impl CssDefinitions {
     pub fn new() -> Self {
         CssDefinitions {
             properties: HashMap::new(),
-            functions: HashMap::new(),
+            // functions: HashMap::new(),
             syntax: HashMap::new(),
         }
     }
 
     /// Load the CSS definitions resource files
     pub fn load() {
-        parse_mdn_definition_files();
+        parse_definition_files();
     }
 
     /// Add a new property definition
@@ -151,10 +151,10 @@ impl CssDefinitions {
         self.syntax.insert(name.to_string(), syntax);
     }
 
-    /// Add a new function definition
-    pub fn add_function(&mut self, name: &str, function: FunctionDefinition) {
-        self.functions.insert(name.to_string(), function);
-    }
+    // Add a new function definition
+    // pub fn add_function(&mut self, name: &str, function: FunctionDefinition) {
+    //     self.functions.insert(name.to_string(), function);
+    // }
 
     /// Find a specific property
     pub fn find_property(&self, name: &str) -> Option<PropertyDefinition> {
@@ -178,9 +178,8 @@ impl CssDefinitions {
 }
 
 impl CssDefinitions {
-
     /// Resolves all elements in the definitions, syntax and functions
-    pub fn resolve(&mut self){
+    pub fn resolve(&mut self) {
         let mut names = self.properties.keys().cloned().collect::<Vec<String>>();
         names.sort();
 
@@ -193,7 +192,9 @@ impl CssDefinitions {
     fn resolve_property(&mut self, name: &str) -> PropertyDefinition {
         // println!("Resolving property: {:?}", name);
 
-        let mut element = self.find_property(name).expect("Could not find property definition");
+        let mut element = self
+            .find_property(name)
+            .expect("Could not find property definition");
         if !element.resolved {
             // Resolve if not resolved already
             let mut resolved_components = vec![];
@@ -212,11 +213,19 @@ impl CssDefinitions {
         element
     }
 
-    fn resolve_component(&mut self, component: &SyntaxComponent, prop_name: &str) -> SyntaxComponent {
+    fn resolve_component(
+        &mut self,
+        component: &SyntaxComponent,
+        prop_name: &str,
+    ) -> SyntaxComponent {
         // println!("resolve_component: {:?}", component);
 
         match component {
-            SyntaxComponent::Definition { datatype, multiplier, .. } => {
+            SyntaxComponent::Definition {
+                datatype,
+                multiplier,
+                ..
+            } => {
                 // println!("Resolving definition {:?}", datatype);
 
                 // Find the datatype in the syntax definitions
@@ -226,7 +235,8 @@ impl CssDefinitions {
 
                     let mut syntax_element = syntax_element.clone();
                     if !syntax_element.resolved {
-                        syntax_element.syntax = self.resolve_syntax(&syntax_element.syntax, prop_name);
+                        syntax_element.syntax =
+                            self.resolve_syntax(&syntax_element.syntax, prop_name);
                         syntax_element.resolved = true;
                     }
 
@@ -271,13 +281,17 @@ impl CssDefinitions {
                     // Ok, it's a built-in datatype, convert it to a built-in type
                     return SyntaxComponent::Builtin {
                         datatype: datatype.clone(),
-                        multiplier: multiplier.clone()
+                        multiplier: multiplier.clone(),
                     };
                 }
 
                 panic!("Unknown datatype encountered: {:?}", datatype);
             }
-            SyntaxComponent::Group { components, combinator, multiplier } => {
+            SyntaxComponent::Group {
+                components,
+                combinator,
+                multiplier,
+            } => {
                 // Resolve each component from the group
                 let mut resolved_components = vec![];
                 // Resolve all elements in the group
@@ -286,18 +300,17 @@ impl CssDefinitions {
                     resolved_components.push(self.resolve_component(component, prop_name));
                 }
 
-                return SyntaxComponent::Group{
+                return SyntaxComponent::Group {
                     components: resolved_components,
                     combinator: combinator.clone(),
                     multiplier: multiplier.clone(),
-                }
+                };
             }
             _ => {
                 // This component does not need any resolving
-                return component.clone()
+                return component.clone();
             }
         }
-
     }
 
     fn resolve_syntax(&mut self, syntax: &CssSyntaxTree, prop_name: &str) -> CssSyntaxTree {
@@ -308,36 +321,36 @@ impl CssDefinitions {
         }
 
         CssSyntaxTree {
-            components: resolved_components
+            components: resolved_components,
         }
     }
 }
 
 /// Parses the internal CSS definition file
 #[memoize]
-pub fn parse_mdn_definition_files() -> CssDefinitions {
+pub fn parse_definition_files() -> CssDefinitions {
     // First, parse all functions so we can use them in the properties and syntax
-    let contents = include_str!("../resources/mdn_css_functions.json");
-    let json: serde_json::Value =
-        serde_json::from_str(contents).expect("JSON was not well-formatted");
-    let functions = parse_mdn_functions_file(json);
+    // let contents = include_str!("../resources/definitions/definitions_functions.json");
+    // let json: serde_json::Value =
+    //     serde_json::from_str(contents).expect("JSON was not well-formatted");
+    // let functions = parse_functions_file(json);
 
     // parse all syntax so we can use them in the properties
-    let contents = include_str!("../resources/mdn_css_syntax.json");
+    let contents = include_str!("../resources/definitions/definitions_values.json");
     let json: serde_json::Value =
         serde_json::from_str(contents).expect("JSON was not well-formatted");
-    let syntax = parse_mdn_syntax_file(json);
+    let syntax = parse_syntax_file(json);
 
     // Parse property definitions
-    let contents = include_str!("../resources/mdn_css_properties.json");
+    let contents = include_str!("../resources/definitions/definitions_properties.json");
     let json: serde_json::Value =
         serde_json::from_str(contents).expect("JSON was not well-formatted");
-    let properties = parse_mdn_property_file(json);
+    let properties = parse_property_file(json);
 
-    let mut definitions = CssDefinitions{
+    let mut definitions = CssDefinitions {
         properties,
-        functions,
-        syntax
+        // functions,
+        syntax,
     };
 
     // Resolve all syntax and functions inside the definitions
@@ -348,17 +361,19 @@ pub fn parse_mdn_definition_files() -> CssDefinitions {
 
 /// Main function to return the definitions. THis will automatically load the definition files
 /// and caches them if needed.
-pub fn get_mdn_css_definitions() -> CssDefinitions {
-    parse_mdn_definition_files()
+pub fn get_css_definitions() -> CssDefinitions {
+    parse_definition_files()
 }
 
 /// Parses a function JSON import file
-fn parse_mdn_functions_file(json: serde_json::Value) -> HashMap<String, FunctionDefinition> {
+fn parse_functions_file(json: serde_json::Value) -> HashMap<String, FunctionDefinition> {
     let mut functions = HashMap::new();
 
     for obj in json.as_array().unwrap() {
         let syntax = obj.get("syntax").unwrap().as_str().unwrap();
-        let syntax = CssSyntax::new(syntax).compile().expect("Could not compile syntax");
+        let syntax = CssSyntax::new(syntax)
+            .compile()
+            .expect("Could not compile syntax");
         functions.insert(
             obj.get("name").unwrap().to_string(),
             FunctionDefinition {
@@ -372,24 +387,29 @@ fn parse_mdn_functions_file(json: serde_json::Value) -> HashMap<String, Function
 }
 
 /// Parses a syntax JSON import file
-fn parse_mdn_syntax_file(json: serde_json::Value) -> HashMap<String, SyntaxDefinition> {
+fn parse_syntax_file(json: serde_json::Value) -> HashMap<String, SyntaxDefinition> {
     let mut syntaxes = HashMap::new();
 
-    let entries = json.as_object().unwrap();
-    for (name, entry) in entries.iter() {
-        match CssSyntax::new(entry.as_str().unwrap()).compile() {
+    let entries = json.as_array().unwrap();
+    for entry in entries.iter() {
+        match CssSyntax::new(entry.get("syntax").unwrap().as_str().unwrap()).compile() {
             Ok(ast) => {
+                let name = entry.get("name").unwrap().to_string();
                 syntaxes.insert(
                     name.clone(),
                     SyntaxDefinition {
-                        name: name.clone(),
+                        name,
                         syntax: ast.clone(),
                         resolved: false,
                     },
                 );
             }
             Err(e) => {
-                log::warn!("Could not compile syntax for syntax {:?}: {:?}", name, e);
+                log::warn!(
+                    "Could not compile syntax for syntax {:?}: {:?}",
+                    entry.get("name").unwrap().to_string(),
+                    e
+                );
             }
         }
     }
@@ -400,7 +420,7 @@ fn parse_mdn_syntax_file(json: serde_json::Value) -> HashMap<String, SyntaxDefin
 }
 
 /// Parses the JSON input into a CSS property definitions structure
-fn parse_mdn_property_file(json: serde_json::Value) -> HashMap<String, PropertyDefinition> {
+fn parse_property_file(json: serde_json::Value) -> HashMap<String, PropertyDefinition> {
     let mut properties = HashMap::new();
 
     for obj in json.as_array().unwrap() {
@@ -408,7 +428,9 @@ fn parse_mdn_property_file(json: serde_json::Value) -> HashMap<String, PropertyD
 
         // Compile syntax
         let syntax = obj.get("syntax").unwrap().as_str().unwrap();
-        let syntax = CssSyntax::new(syntax).compile().expect(format!("Could not compile syntax: {:?}", syntax).as_str());
+        let syntax = CssSyntax::new(syntax)
+            .compile()
+            .expect(&format!("Could not compile syntax for {name}: {syntax:?}"));
 
         //
         let computed = if obj["computed"].is_array() {
@@ -482,13 +504,13 @@ mod tests {
 
     #[test]
     fn test_parse_definition_file() {
-        let definitions = parse_mdn_definition_files();
+        let definitions = parse_definition_files();
         assert_eq!(definitions.len(), 563);
     }
 
     #[test]
     fn test_prop_border() {
-        let definitions = parse_mdn_definition_files();
+        let definitions = parse_definition_files();
         let prop = definitions.find_property("border").unwrap();
 
         assert_some!(prop.clone().matches(&CssValue::List(vec![
@@ -572,7 +594,7 @@ mod tests {
 
     #[test]
     fn test_azimuth() {
-        let definitions = parse_mdn_definition_files();
+        let definitions = parse_definition_files();
         let def = definitions.find_property("azimuth").unwrap();
 
         assert_some!(def.clone().matches(&CssValue::Unit(361.0, "deg".into())));
@@ -604,7 +626,7 @@ mod tests {
 
     #[test]
     fn test_background_color() {
-        let definitions = parse_mdn_definition_files();
+        let definitions = parse_definition_files();
         let def = definitions.find_property("background-color").unwrap();
 
         // assert_some!(def.clone().matches(&CssValue::Inherit));
@@ -632,7 +654,7 @@ mod tests {
 
     #[test]
     fn test_background_attachments() {
-        let definitions = parse_mdn_definition_files();
+        let definitions = parse_definition_files();
         let def = definitions.find_property("background-attachment").unwrap();
 
         // assert_some!(def.clone().matches(&CssValue::Inherit));
@@ -648,7 +670,7 @@ mod tests {
 
     #[test]
     fn test_background_position() {
-        let definitions = parse_mdn_definition_files();
+        let definitions = parse_definition_files();
         let def = definitions.find_property("background-position").unwrap();
 
         // assert_none!(def.clone().matches(&CssValue::String("scroll".into())));
@@ -662,7 +684,6 @@ mod tests {
         // assert_some!(def.clone().matches(&CssValue::Zero));
         // assert_some!(def.clone().matches(&CssValue::Unit(12.34, "px".into())));
         // assert_none!(def.clone().matches(&CssValue::Number(12.34)));
-
 
         /*
 
@@ -701,9 +722,6 @@ mod tests {
         left 20% right 30px
         left right
          */
-
-
-
 
         // background-position: left 10px;
         assert_some!(def.clone().matches(&CssValue::List(vec![
