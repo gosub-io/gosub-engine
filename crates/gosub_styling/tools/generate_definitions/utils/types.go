@@ -9,7 +9,7 @@ type Data struct {
 
 type Value struct {
 	Name   string `json:"name"`
-	Syntax string `json:"syntax,omitempty"`
+	Syntax string `json:"syntax"`
 }
 
 type Property struct {
@@ -36,7 +36,7 @@ type AtRule struct {
 type AtRuleDescriptor struct {
 	Name    string `json:"name"`
 	Syntax  string `json:"syntax"`
-	Initial string `json:"initial,omitempty"`
+	Initial string `json:"initial"`
 }
 
 type Selector struct {
