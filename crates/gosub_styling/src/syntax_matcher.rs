@@ -503,24 +503,32 @@ fn convert_to_counts(matches: Matches) -> Vec<(usize, usize)> {
 
 /// This function checks if the given component matches the given count of values. For instance, it will return true
 /// when the multiplier is Once, and there is a count of 1, or when the multiplier is OneOrMore if the count is 3.
+/// Note that there can be multiple multipliers.
 fn check_multiplier(component: &SyntaxComponent, count: usize) -> bool {
-    match component.get_multiplier() {
-        SyntaxComponentMultiplier::Once => count == 1,
-        SyntaxComponentMultiplier::ZeroOrMore => {
-            // Zero or more always matches
-            true
-        }
-        SyntaxComponentMultiplier::OneOrMore => count >= 1,
-        SyntaxComponentMultiplier::Optional => count <= 1,
-        SyntaxComponentMultiplier::Between(s, e) => count >= s && count <= e,
-        SyntaxComponentMultiplier::AtLeastOneValue => {
-            // @TODO: What's the difference between this and OneOrMore?
-            count >= 1
-        }
-        SyntaxComponentMultiplier::CommaSeparatedRepeat(_s, _e) => {
-            panic!("CommaSeparatedRepeat not implemented yet");
+    for m in component.get_multipliers() {
+        let res = match m {
+            SyntaxComponentMultiplier::Once => count == 1,
+            SyntaxComponentMultiplier::ZeroOrMore => {
+                // Zero or more always matches
+                true
+            }
+            SyntaxComponentMultiplier::OneOrMore => count >= 1,
+            SyntaxComponentMultiplier::Optional => count <= 1,
+            SyntaxComponentMultiplier::Between(s, e) => count >= s && count <= e,
+            SyntaxComponentMultiplier::AtLeastOneValue => {
+                // @TODO: What's the difference between this and OneOrMore?
+                count >= 1
+            }
+            SyntaxComponentMultiplier::CommaSeparatedRepeat(_s, _e) => {
+                panic!("CommaSeparatedRepeat not implemented yet");
+            }
+        };
+
+        if res {
+            return true;
         }
     }
+    false
 }
 
 #[cfg(test)]
