@@ -25,6 +25,10 @@ gosub_testing = { path = "../gosub_testing" }
 test-case = "3.3.1"
 criterion = { version = "0.5.1", features = ["html_reports"] }
 
+[features]
+debug_parser = []
+debug_parser_verbose = []
+
 
 [[bench]]
 name = "tokenizer"
