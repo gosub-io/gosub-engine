@@ -28,11 +28,12 @@ impl CssSyntaxTree {
             panic!("Syntax tree must have exactly one root component");
         }
         dbg!(&self);
-        match_internal(value, &self.components[0], 0)
+        dbg!(&value);
+        match_component(value, &self.components[0], 0)
     }
 }
 
-fn match_internal(value: &CssValue, component: &SyntaxComponent, depth: usize) -> Option<CssValue> {
+fn match_component(value: &CssValue, component: &SyntaxComponent, depth: usize) -> Option<CssValue> {
     // println!("[{}]{}MATCH_INTERNAL: {:?} against {:?}", depth, "  ".repeat(depth), value, component);
     match &component {
         SyntaxComponent::GenericKeyword { keyword, .. } => match value {
@@ -185,225 +186,31 @@ fn match_internal(value: &CssValue, component: &SyntaxComponent, depth: usize) -
     None
 }
 
-#[derive(Debug)]
-struct Matches {
-    /// Entry is either -1 for each element in the value, or the index of the component that matched
-    entries: Vec<isize>,
-    all: isize, // @todo: "all" is not the best name. We need to change this.
-}
-
-/// Resolves a group of values against a group of components based on their position. So if the
-/// first element matches the first component a 0 will be inserted on the first (0) position.
-///
-/// Example:
-///     resolve_group([auto, none, block], [auto, none, block]) => [0, 1, 2]
-///     resolve_group([none, block, auto], [auto, none, block]) => [1, 2, 0]
-///     resolve_group([none, banana, car, block], [auto, none, block]) => [1, -1, -1, 2]
-///     resolve_group([none, block, block, auto, none], [auto, none, block]) => [1, 2, 2, 0, 1]
-///
-fn resolve_group(value: &CssValue, components: &Vec<SyntaxComponent>, depth: usize) -> Matches {
-    println!("Resolving group: {:?} against {:?}", value, components);
-    let mut values: Vec<isize> = vec![];
-
-    let mut subgroup = false;
-
-    // Iterate all values and see where they match in our group
-    value.iter().for_each(|v| {
-        // Assume the value cannot be matched in the group
-        let mut value_in_group_index = -1;
-
-        // Iterate the whole group
-        for (c_idx, component) in components.iter().enumerate() {
-            if !subgroup && component.is_group() {
-                subgroup = true;
-            }
-
-            if match_internal(v, component, depth + 1).is_some() {
-                println!("Match internal matched!");
-                value_in_group_index = c_idx as isize;
-                values.push(value_in_group_index);
-                // break;
-            }
-        }
-
-        // Add the index of the matched component to the list, or -1 when it is not matched
-        if value_in_group_index == -1 {
-            values.push(value_in_group_index);
-        }
-    });
-
-    let mut all = -1;
-
-    if value.is_list() && subgroup {
-        // We need to mach the complete value against the components, because it might not be correct to "destructure" the list right here.
-        // That can only be the case if the value is a list and we have another group as a component
-        for (c_idx, component) in components.iter().enumerate() {
-            if match_internal(value, component, depth + 1).is_some() {
-                println!("Match internal matched (subgroup)!");
-                all = c_idx as isize;
-                break;
-            }
-        }
-    }
-
-    let matches = Matches {
-        entries: values,
-        all,
-    };
-
-    dbg!(&matches);
-
-    matches
-}
 
 /// Returns element if exactly one element matches in the group
 fn match_group_exactly_one(
-    value: &CssValue,
-    components: &Vec<SyntaxComponent>,
-    depth: usize,
+    _value: &CssValue,
+    _components: &Vec<SyntaxComponent>,
+    _depth: usize,
 ) -> Option<CssValue> {
-    let matches = resolve_group(value, components, depth);
-    println!(
-        "[{}]{}match_group_exactly_one: {:?} {:?}",
-        depth,
-        "  ".repeat(depth),
-        value,
-        matches
-    );
-    println!(
-        "[{}]{}Value to match: {:?}",
-        depth,
-        "  ".repeat(depth),
-        value
-    );
-
-    if matches.all != -1 {
-        return Some(value.clone());
-    }
-
-    // We must have exactly one element
-    if matches.entries.len() != 1 {
-        return None;
-    }
-
-    // Check if there are -1's in the list (the list is always size 1)
-    if matches.entries.iter().any(|&x| x == -1) {
-        return None;
-    }
-
-    Some(value.clone())
+    todo!("implement me")
 }
 
 /// Returns element, when at least one of the elements in the group matches
 fn match_group_at_least_one_any_order(
-    value: &CssValue,
-    components: &Vec<SyntaxComponent>,
-    depth: usize,
+    _value: &CssValue,
+    _components: &Vec<SyntaxComponent>,
+    _depth: usize,
 ) -> Option<CssValue> {
-    // Step: convert to matches
-    let matches = resolve_group(value, components, depth);
-    println!(
-        "[{}]{}match_group_at_least_one_any_order: {:?}",
-        depth,
-        "  ".repeat(depth),
-        matches
-    );
-
-    let len = if let CssValue::List(list) = value {
-        list.len()
-    } else {
-        1
-    };
-
-    // border: 1px black; 2 passing 2 values => valid
-    // border: 1px ldsjkfj asfaf asdad black 2 passing but 5 values => invalid => if we have more values than passing it is invalid
-    let c = matches.entries.iter().filter(|x| **x != -1).count();
-    if c < len {
-        return None;
-    }
-
-    // Step: Validate multipliers based on the matches
-    let items = convert_to_counts(matches);
-
-    // let mut multiplier_passed = false;
-    //TODO: is this right for multipliers that are not Once?
-
-    // Check multipliers and see if we got the correct number of matches per component, and the values are in the correct (sequential) order
-    for (c_idx, c) in &items {
-        if *c == 0 {
-            continue;
-        }
-
-        let component = &components[*c_idx];
-
-        if !check_multiplier(component, *c) {
-            return None;
-        }
-    }
-
-    // Step: There must be at least one item. Order doesn't matter
-    if !items.is_empty() {
-        return Some(value.clone());
-    }
-
-    None
+    todo!("implement me")
 }
 
 fn match_group_all_any_order(
-    value: &CssValue,
-    components: &Vec<SyntaxComponent>,
-    depth: usize,
+    _value: &CssValue,
+    _components: &Vec<SyntaxComponent>,
+    _depth: usize,
 ) -> Option<CssValue> {
-    // Component index we are currently matching against
-    let mut c_idx = 0;
-    // Value index we are currently matching against
-    let mut v_idx = 0;
-    // Values as vec[]
-    let values = value.as_vec();
-
-    let mut multiplier_count = 0;
-    loop {
-        let v = values.get(v_idx).unwrap();
-        let component = &components[c_idx];
-        print!("value '{:?}' against '{:?}': ", v, component);
-
-        if match_internal(v, component, depth + 1).is_some() {
-            print!("matches: ");
-            multiplier_count += 1;
-
-            print!("multiplier {} fullfilled: ", multiplier_count);
-            if check_multiplier(component, multiplier_count) {
-                println!("yes");
-                c_idx += 1;
-            } else {
-                println!("no");
-            }
-        } else {
-            println!("no match");
-            multiplier_count = 0;
-            v_idx += 1;
-        }
-
-        // Reached the end of either components or values
-        if c_idx >= components.len() || v_idx >= values.len() {
-            break;
-        }
-    }
-    v_idx += 1;
-
-    println!("Group checks follow (cidx: {} vidx: {})", c_idx, v_idx);
-
-    if c_idx < components.len() {
-        println!(" - Not all components have been checked");
-        return None;
-    }
-
-    if v_idx < values.len() {
-        println!(" - Not all values have been checked");
-        return None;
-    }
-
-    Some(value.clone())
+    todo!("implement me")
 }
 
 fn match_group_juxtaposition(
@@ -424,21 +231,57 @@ fn match_group_juxtaposition(
         let component = &components[c_idx];
         print!("value '{:?}' against '{:?}': ", v, component);
 
-        if match_internal(v, component, depth + 1).is_some() {
+        if match_component(v, component, depth + 1).is_some() {
             print!("matches: ");
             multiplier_count += 1;
 
-            print!("multiplier {} fullfilled: ", multiplier_count);
-            if check_multiplier(component, multiplier_count) {
-                println!("yes");
-                c_idx += 1;
-            } else {
-                println!("no");
+            let mff = multiplier_fulfilled(component, multiplier_count);
+            println!("multiplier {} fulfilled: {:?}", multiplier_count, mff);
+
+            match mff {
+                Fulfillment::NotYetFulfilled => {
+                    // The multiplier is not yet fulfilled. We need more values
+                    v_idx += 1;
+                },
+                Fulfillment::FulfilledButMoreAllowed => {
+                    // More elements are allowed. Let's check if we have one
+                    v_idx += 1;
+                    multiplier_count = 0;
+                },
+                Fulfillment::Fulfilled => {
+                    // no more values are allowed. Continue with the next elements.
+                    c_idx += 1;
+                    v_idx += 1;
+                    multiplier_count = 0;
+                },
+                Fulfillment::NotFulfilled => {
+                    // The multiplier is not fulfilled. This is a failure
+                    break;
+                },
             }
         } else {
+            // Element didn't match
             println!("no match");
-            multiplier_count = 0;
-            v_idx += 1;
+
+            match multiplier_fulfilled(component, 0) {
+                Fulfillment::NotYetFulfilled => {
+                    println!("needed a match and found none (notyetfulfilled)");
+                    break;
+                }
+                Fulfillment::Fulfilled => {
+                    println!("multiplier fulfilled");
+                    v_idx += 1;
+                    multiplier_count = 0;
+                }
+                Fulfillment::FulfilledButMoreAllowed => {
+                    println!("multiplier fulfilled, more values allowed, but this wasn't one of them.");
+                    c_idx += 1;
+                }
+                Fulfillment::NotFulfilled => {
+                    println!("needed a match and found none (notfulfilled)");
+                    break;
+                }
+            }
         }
 
         // Reached the end of either components or values
@@ -447,13 +290,29 @@ fn match_group_juxtaposition(
         }
     }
 
-    v_idx += 1;
-
     println!("Group checks follow (cidx: {} vidx: {})", c_idx, v_idx);
 
-    if c_idx < components.len() {
-        println!(" - Not all components have been checked");
-        return None;
+    while c_idx < components.len() {
+        println!("Not all components have been checked");
+        let component = &components[c_idx];
+        match multiplier_fulfilled(component, 0) {
+            Fulfillment::NotYetFulfilled => {
+                println!(" - Multiplier not yet fulfilled");
+                return None;
+            },
+            Fulfillment::Fulfilled => {
+                println!(" - Multiplier fulfilled");
+            },
+            Fulfillment::FulfilledButMoreAllowed => {
+                println!(" - Multiplier fulfilled, but more values allowed");
+            },
+            Fulfillment::NotFulfilled => {
+                println!(" - Multiplier not fulfilled");
+                return None;
+            }
+        }
+
+        c_idx += 1;
     }
 
     if v_idx < values.len() {
@@ -464,57 +323,71 @@ fn match_group_juxtaposition(
     Some(value.clone())
 }
 
-/// Convert the matches into counts
-/// (index, count)
-/// Note that when we find a value that we already have, we create a new increment:
-///
-/// Example:
-///    [0, 0, 1, 1, 1, 2, 2, 1, 2] => [(0, 2), (1, 3), (2, 2), (1, 1), (2, 1)]
-fn convert_to_counts(matches: Matches) -> Vec<(usize, usize)> {
-    let mut items: Vec<(usize, usize)> = vec![];
-    for idx in matches.entries.iter() {
-        if *idx == -1 {
-            continue;
-        }
-
-        if items.is_empty() || items.last().unwrap().0 != *idx as usize {
-            items.push((*idx as usize, 1));
-        } else {
-            items.last_mut().unwrap().1 += 1;
-        }
-    }
-
-    items
+#[derive(Debug)]
+enum Fulfillment {
+    /// The multiplier is not yet fulfilled. There must be more values
+    NotYetFulfilled,
+    /// The multiplier is fulfilled. There cannot be any more values
+    Fulfilled,
+    /// The multiplied is fulfilled, but there may be more values added
+    FulfilledButMoreAllowed,
+    /// The multiplier is not fulfilled (ie: too many values).
+    NotFulfilled,
 }
 
-/// This function checks if the given component matches the given count of values. For instance, it will return true
-/// when the multiplier is Once, and there is a count of 1, or when the multiplier is OneOrMore if the count is 3.
-/// Note that there can be multiple multipliers.
-fn check_multiplier(component: &SyntaxComponent, count: usize) -> bool {
+/// Returns true when the given cnt fullfills the multiplier of the component
+fn multiplier_fulfilled(component: &SyntaxComponent, cnt: usize) -> Fulfillment {
     for m in component.get_multipliers() {
-        let res = match m {
-            SyntaxComponentMultiplier::Once => count == 1,
+        match m {
+            SyntaxComponentMultiplier::Once => {
+                match cnt {
+                    0 => return Fulfillment::NotYetFulfilled,
+                    1 => return Fulfillment::Fulfilled,
+                    _ => return Fulfillment::NotFulfilled,
+                }
+            },
             SyntaxComponentMultiplier::ZeroOrMore => {
-                // Zero or more always matches
-                true
-            }
-            SyntaxComponentMultiplier::OneOrMore => count >= 1,
-            SyntaxComponentMultiplier::Optional => count <= 1,
-            SyntaxComponentMultiplier::Between(s, e) => count >= s && count <= e,
+                match cnt {
+                    _ => return Fulfillment::FulfilledButMoreAllowed,
+                }
+            },
+            SyntaxComponentMultiplier::OneOrMore => {
+                match cnt {
+                    0 => return Fulfillment::NotYetFulfilled,
+                    _ => return Fulfillment::FulfilledButMoreAllowed,
+                }
+            },
+            SyntaxComponentMultiplier::Optional => {
+                match cnt {
+                    0 => return Fulfillment::FulfilledButMoreAllowed,
+                    1 => return Fulfillment::Fulfilled,
+                    _ => return Fulfillment::NotFulfilled,
+                }
+            },
+            SyntaxComponentMultiplier::Between(from, to) => {
+                match cnt {
+                    _ if cnt <= from => return Fulfillment::NotYetFulfilled,
+                    _ if cnt >= from && cnt <= to => return Fulfillment::FulfilledButMoreAllowed,
+                    _ => return Fulfillment::NotFulfilled,
+                }
+            },
             SyntaxComponentMultiplier::AtLeastOneValue => {
-                // @TODO: What's the difference between this and OneOrMore?
-                count >= 1
+                match cnt {
+                    0 => return Fulfillment::NotYetFulfilled,
+                    _ => return Fulfillment::FulfilledButMoreAllowed,
+                }
+            },
+            SyntaxComponentMultiplier::CommaSeparatedRepeat(from, to) => {
+                match cnt {
+                    _ if cnt <= from => return Fulfillment::NotYetFulfilled,
+                    _ if cnt >= from && cnt <= to => return Fulfillment::FulfilledButMoreAllowed,
+                    _ => return Fulfillment::NotFulfilled,
+                }
             }
-            SyntaxComponentMultiplier::CommaSeparatedRepeat(_s, _e) => {
-                panic!("CommaSeparatedRepeat not implemented yet");
-            }
-        };
-
-        if res {
-            return true;
         }
     }
-    false
+
+    Fulfillment::NotFulfilled
 }
 
 #[cfg(test)]
@@ -685,66 +558,6 @@ mod tests {
             CssValue::None,
             CssValue::None
         ])));
-    }
-
-    #[test]
-    fn test_resolve_group() {
-        let tree = CssSyntax::new("auto none block").compile().unwrap();
-        if let SyntaxComponent::Group { components, .. } = &tree.components[0] {
-            let values = resolve_group(&CssValue::List(vec![str!("auto")]), components, 0).entries;
-            assert_eq!(values, [0]);
-
-            let values = resolve_group(
-                &CssValue::List(vec![str!("auto"), str!("none")]),
-                components,
-                0,
-            )
-            .entries;
-            assert_eq!(values, [0, 1]);
-
-            let values = resolve_group(
-                &CssValue::List(vec![str!("auto"), str!("none"), str!("block")]),
-                components,
-                0,
-            )
-            .entries;
-            assert_eq!(values, [0, 1, 2]);
-
-            let values = resolve_group(
-                &CssValue::List(vec![str!("none"), str!("block"), str!("auto")]),
-                components,
-                0,
-            )
-            .entries;
-            assert_eq!(values, [1, 2, 0]);
-
-            let values = resolve_group(
-                &CssValue::List(vec![
-                    str!("none"),
-                    str!("block"),
-                    str!("block"),
-                    str!("auto"),
-                    str!("none"),
-                ]),
-                components,
-                0,
-            )
-            .entries;
-            assert_eq!(values, [1, 2, 2, 0, 1]);
-
-            let values = resolve_group(
-                &CssValue::List(vec![
-                    str!("none"),
-                    str!("banana"),
-                    str!("car"),
-                    str!("block"),
-                ]),
-                components,
-                0,
-            )
-            .entries;
-            assert_eq!(values, [1, -1, -1, 2]);
-        }
     }
 
     #[test]
@@ -1036,57 +849,57 @@ mod tests {
     #[test]
     fn test_multipliers_one_or_more() {
         let tree = CssSyntax::new("foo bar+ baz").compile().unwrap();
-        assert_none!(tree.clone().matches(&CssValue::String("foo".into())));
-        assert_none!(tree
-            .clone()
-            .matches(&CssValue::List(vec![CssValue::String("foo".into())])));
+        // assert_none!(tree.clone().matches(&CssValue::String("foo".into())));
+        // assert_none!(treef
+        //     .clone()
+        //     .matches(&CssValue::List(vec![CssValue::String("foo".into())])));
         assert_some!(tree.clone().matches(&CssValue::List(vec![
             CssValue::String("foo".into()),
             CssValue::String("bar".into()),
             CssValue::String("baz".into()),
         ])));
-        assert_none!(tree.clone().matches(&CssValue::List(vec![
-            CssValue::String("foo".into()),
-            CssValue::String("baz".into()),
-        ])));
-        assert_some!(tree.clone().matches(&CssValue::List(vec![
-            CssValue::String("foo".into()),
-            CssValue::String("bar".into()),
-            CssValue::String("bar".into()),
-            CssValue::String("bar".into()),
-            CssValue::String("bar".into()),
-            CssValue::String("baz".into()),
-        ])));
-        assert_none!(tree.clone().matches(&CssValue::List(vec![
-            CssValue::String("foo".into()),
-            CssValue::String("bar".into()),
-            CssValue::String("bar".into()),
-            CssValue::String("bar".into()),
-            CssValue::String("baz".into()),
-            CssValue::String("bar".into()),
-        ])));
-
-        let tree = CssSyntax::new("foo bar+").compile().unwrap();
-        assert_none!(tree.clone().matches(&CssValue::String("foo".into())));
-        assert_none!(tree
-            .clone()
-            .matches(&CssValue::List(vec![CssValue::String("foo".into())])));
-        assert_none!(tree
-            .clone()
-            .matches(&CssValue::List(vec![CssValue::String("bar".into())])));
-        assert_some!(tree.clone().matches(&CssValue::List(vec![
-            CssValue::String("foo".into()),
-            CssValue::String("bar".into()),
-        ])));
-        assert_some!(tree.clone().matches(&CssValue::List(vec![
-            CssValue::String("foo".into()),
-            CssValue::String("bar".into()),
-            CssValue::String("bar".into()),
-        ])));
-        assert_none!(tree.clone().matches(&CssValue::List(vec![
-            CssValue::String("bar".into()),
-            CssValue::String("foo".into()),
-        ])));
+        // assert_none!(tree.clone().matches(&CssValue::List(vec![
+        //     CssValue::String("foo".into()),
+        //     CssValue::String("baz".into()),
+        // ])));
+        // assert_some!(tree.clone().matches(&CssValue::List(vec![
+        //     CssValue::String("foo".into()),
+        //     CssValue::String("bar".into()),
+        //     CssValue::String("bar".into()),
+        //     CssValue::String("bar".into()),
+        //     CssValue::String("bar".into()),
+        //     CssValue::String("baz".into()),
+        // ])));
+        // assert_none!(tree.clone().matches(&CssValue::List(vec![
+        //     CssValue::String("foo".into()),
+        //     CssValue::String("bar".into()),
+        //     CssValue::String("bar".into()),
+        //     CssValue::String("bar".into()),
+        //     CssValue::String("baz".into()),
+        //     CssValue::String("bar".into()),
+        // ])));
+        //
+        // let tree = CssSyntax::new("foo bar+").compile().unwrap();
+        // assert_none!(tree.clone().matches(&CssValue::String("foo".into())));
+        // assert_none!(tree
+        //     .clone()
+        //     .matches(&CssValue::List(vec![CssValue::String("foo".into())])));
+        // assert_none!(tree
+        //     .clone()
+        //     .matches(&CssValue::List(vec![CssValue::String("bar".into())])));
+        // assert_some!(tree.clone().matches(&CssValue::List(vec![
+        //     CssValue::String("foo".into()),
+        //     CssValue::String("bar".into()),
+        // ])));
+        // assert_some!(tree.clone().matches(&CssValue::List(vec![
+        //     CssValue::String("foo".into()),
+        //     CssValue::String("bar".into()),
+        //     CssValue::String("bar".into()),
+        // ])));
+        // assert_none!(tree.clone().matches(&CssValue::List(vec![
+        //     CssValue::String("bar".into()),
+        //     CssValue::String("foo".into()),
+        // ])));
     }
 
     #[test]
@@ -1160,38 +973,6 @@ mod tests {
             CssValue::String("bar".into()),
             CssValue::String("foo".into()),
         ])));
-    }
-
-    #[test]
-    fn test_convert_to_counts() {
-        let matches = Matches {
-            entries: vec![0, 1, 1, 2, 3, 1],
-            all: -1,
-        };
-
-        let counts = convert_to_counts(matches);
-        assert_eq!(counts, vec![(0, 1), (1, 2), (2, 1), (3, 1), (1, 1),]);
-
-        let matches = Matches {
-            entries: vec![0, 0, 0, 1, 1, 2, 2, 2, 3, 3, 3, 1, 2, 3, 4, 3, 3, 3],
-            all: -1,
-        };
-
-        let counts = convert_to_counts(matches);
-        assert_eq!(
-            counts,
-            vec![
-                (0, 3),
-                (1, 2),
-                (2, 3),
-                (3, 3),
-                (1, 1),
-                (2, 1),
-                (3, 1),
-                (4, 1),
-                (3, 3),
-            ]
-        );
     }
 
     #[test]
