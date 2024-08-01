@@ -192,14 +192,15 @@ fn match_group_exactly_one(
     value: &CssValue,
     components: &Vec<SyntaxComponent>,
     depth: usize,
-) -> Option<CssValue> {
+) -> Option<CssValue>
+{
     // Component index we are currently matching against
     let mut c_idx = 0;
     // Value index we are currently matching against
     let mut v_idx = 0;
     // Values as vec[]
     let values = value.as_vec();
-
+    // The values that were matched
     let mut matched_values = vec![];
 
     let mut multiplier_count = 0;
@@ -281,6 +282,15 @@ fn match_group_exactly_one(
     }
 
     println!("Group checks follow (cidx: {} vidx: {})", c_idx, v_idx);
+
+
+    // Do we still have v_idxs? if so, we didn't match everything
+    if v_idx < values.len() {
+        println!("We found at least one value that we couldn't match. This is always an error");
+        return None;
+    }
+
+
     dbg!(&matched_values);
     if matched_values.len() != 1 {
         println!("Matched values is not 1. This means that either none, or too many values matched");
@@ -301,18 +311,132 @@ fn match_group_at_least_one_any_order(
 }
 
 fn match_group_all_any_order(
-    _value: &CssValue,
-    _components: &Vec<SyntaxComponent>,
-    _depth: usize,
-) -> Option<CssValue> {
-    todo!("implement me")
+    value: &CssValue,
+    components: &Vec<SyntaxComponent>,
+    depth: usize,
+) -> Option<CssValue>
+{
+    // Component index we are currently matching against
+    let mut c_idx = 0;
+    // Value index we are currently matching against
+    let mut v_idx = 0;
+    // Values as vec[]
+    let values = value.as_vec();
+    // The values that were matched
+    let mut matched_values = vec![];
+
+    let mut multiplier_count = 0;
+    loop {
+        let v = values.get(v_idx).unwrap();
+        let component = &components[c_idx];
+        print!("value '{:?}' against '{:?}': ", v, component);
+
+        if match_component(v, component, depth + 1).is_some() {
+            print!("matches: ");
+            multiplier_count += 1;
+
+            let mff = multiplier_fulfilled(component, multiplier_count);
+            println!("multiplier {} fulfilled: {:?}", multiplier_count, mff);
+
+            match mff {
+                Fulfillment::NotYetFulfilled => {
+                    // The multiplier is not yet fulfilled. We need more values so check the next
+                    v_idx += 1;
+                },
+                Fulfillment::FulfilledButMoreAllowed => {
+                    // More elements are allowed. Let's check if we have one
+                    v_idx += 1;
+                },
+                Fulfillment::Fulfilled => {
+                    // no more values are allowed. Continue with the next value and element
+                    matched_values.push(v_idx);
+
+                    v_idx += 1;
+
+                    c_idx += 1;
+                    multiplier_count = 0;
+                },
+                Fulfillment::NotFulfilled => {
+                    // The multiplier is not fulfilled. This is a failure
+                    break;
+                },
+            }
+        } else {
+            // Element didn't match. That might be allright depending on the multiplier
+            println!("no match");
+
+            match multiplier_fulfilled(component, multiplier_count) {
+                Fulfillment::NotYetFulfilled => {
+                    println!("needed a match and found none (notyetfulfilled)");
+                    break;
+                }
+                Fulfillment::Fulfilled => {
+                    println!("multiplier fulfilled");
+                    matched_values.push(v_idx);
+
+                    v_idx += 1;
+
+                    c_idx += 1;
+                    multiplier_count = 0;
+                }
+                Fulfillment::FulfilledButMoreAllowed => {
+                    println!("multiplier fulfilled, more values allowed, but this wasn't one of them.");
+                    c_idx += 1;
+                    multiplier_count = 0;
+                }
+                Fulfillment::NotFulfilled => {
+                    println!("needed a match and found none (notfulfilled)");
+                    break;
+                }
+            }
+        }
+
+        // Reached the end of either components or values
+        if c_idx >= components.len() || v_idx >= values.len() {
+            break;
+        }
+    }
+
+    println!("Group checks follow (cidx: {} vidx: {})", c_idx, v_idx);
+
+    while c_idx < components.len() {
+        println!("Not all components have been checked");
+        let component = &components[c_idx];
+        match multiplier_fulfilled(component, multiplier_count) {
+            Fulfillment::NotYetFulfilled => {
+                println!(" - Multiplier not yet fulfilled");
+                return None;
+            },
+            Fulfillment::Fulfilled => {
+                println!(" - Multiplier fulfilled");
+            },
+            Fulfillment::FulfilledButMoreAllowed => {
+                println!(" - Multiplier fulfilled, but more values allowed");
+            },
+            Fulfillment::NotFulfilled => {
+                println!(" - Multiplier not fulfilled");
+                return None;
+            }
+        }
+
+        c_idx += 1;
+        multiplier_count = 0;
+    }
+
+    if v_idx < values.len() {
+        println!(" - Not all values have been matched");
+        return None;
+    }
+
+    Some(value.clone())
 }
 
 fn match_group_juxtaposition(
     value: &CssValue,
     components: &Vec<SyntaxComponent>,
     depth: usize,
-) -> Option<CssValue> {
+) -> Option<CssValue>
+{
     // Component index we are currently matching against
     let mut c_idx = 0;
     // Value index we are currently matching against
@@ -845,6 +969,7 @@ mod tests {
         test_multipliers_between();
         test_fulfillment();
         test_match_group1();
+        test_match_group3();
     }
 
     #[test]
