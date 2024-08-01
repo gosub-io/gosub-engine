@@ -341,10 +341,7 @@ pub fn parse_definition_files() -> CssDefinitions {
         serde_json::from_str(contents).expect("JSON was not well-formatted");
     let properties = parse_property_file(json);
 
-    let mut definitions = CssDefinitions {
-        properties,
-        syntax,
-    };
+    let mut definitions = CssDefinitions { properties, syntax };
 
     // Resolve all syntax and functions inside the definitions
     definitions.resolve();
@@ -366,7 +363,24 @@ fn parse_syntax_file(json: serde_json::Value) -> HashMap<String, SyntaxDefinitio
     for entry in entries.iter() {
         match CssSyntax::new(entry.get("syntax").unwrap().as_str().unwrap()).compile() {
             Ok(ast) => {
-                let name = entry.get("name").unwrap().to_string();
+                let mut name = entry.get("name").unwrap().to_string();
+
+                if name.starts_with('"') {
+                    name = name[1..].to_string();
+                }
+
+                if name.starts_with("<") {
+                    name = name[1..].to_string();
+                }
+
+                if name.ends_with('"') {
+                    name.pop();
+                }
+
+                if name.ends_with(">") {
+                    name.pop();
+                }
+
                 syntaxes.insert(
                     name.clone(),
                     SyntaxDefinition {
