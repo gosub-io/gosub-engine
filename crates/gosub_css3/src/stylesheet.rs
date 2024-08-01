@@ -240,6 +240,13 @@ impl CssValue {
     pub fn is_list(&self) -> bool {
         matches!(self, CssValue::List(_))
     }
+
+    pub fn as_vec(&self) -> Vec<CssValue> {
+        match self {
+            CssValue::List(values) => values.clone(),
+            v => vec!(v.clone()),
+        }
+    }
 }
 
 pub enum CssValueIter<'a> {

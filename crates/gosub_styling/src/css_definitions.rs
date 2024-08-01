@@ -49,8 +49,6 @@ pub struct PropertyDefinition {
     pub inherited: bool,
     /// Initial value of the property, if any
     pub initial_value: Option<CssValue>,
-    /// URL to MDN documentation for this property
-    pub mdn_url: String,
     // True when this element is resolved
     pub resolved: bool
 }
@@ -73,8 +71,6 @@ pub struct FunctionDefinition {
     name: String,
     /// Compiled syntax tree
     syntax: CssSyntaxTree,
-    /// URL to MDN documentation for this function
-    mdn_url: String
 }
 
 impl PropertyDefinition {
@@ -368,7 +364,6 @@ fn parse_mdn_functions_file(json: serde_json::Value) -> HashMap<String, Function
             FunctionDefinition {
                 name: obj.get("name").unwrap().clone().to_string(),
                 syntax,
-                mdn_url: obj.get("mdn_url").unwrap().to_string(),
             },
         );
     }
@@ -460,7 +455,6 @@ fn parse_mdn_property_file(json: serde_json::Value) -> HashMap<String, PropertyD
                 computed,
                 initial_value,
                 inherited: obj["inherited"].as_bool().unwrap(),
-                mdn_url: obj["mdn_url"].as_str().unwrap().to_string(),
                 resolved: false,
             },
         );
@@ -545,7 +539,6 @@ mod tests {
                     .expect("Could not compile syntax"),
                 inherited: false,
                 initial_value: None,
-                mdn_url: "".to_string(),
                 resolved: false,
             },
         );
@@ -569,7 +562,6 @@ mod tests {
                     .expect("Could not compile syntax"),
                 inherited: false,
                 initial_value: Some(CssValue::String("thick".to_string())),
-                mdn_url: "".to_string(),
                 resolved: false,
             },
         );
