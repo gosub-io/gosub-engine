@@ -18,7 +18,7 @@ fn main() -> Result<()> {
         // if file != "math.dat" {
         //     continue;
         // }
-        let fixture = read_fixture_from_path(&fixture_root_path().join(file))?;
+        let fixture = read_fixture_from_path(fixture_root_path().join(file))?;
 
         print!("Test: ({:3}) {} [", fixture.tests.len(), file);
         let _ = std::io::stdout().flush();

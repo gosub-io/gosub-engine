@@ -54,6 +54,7 @@ test-case = "3.3.1"
 [features]
 # Enables extended debugging information during parsing.
 debug_parser = []
+debug_parser_verbose = []
 
 
 
