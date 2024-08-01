@@ -189,11 +189,106 @@ fn match_component(value: &CssValue, component: &SyntaxComponent, depth: usize) 
 
 /// Returns element if exactly one element matches in the group
 fn match_group_exactly_one(
-    _value: &CssValue,
-    _components: &Vec<SyntaxComponent>,
-    _depth: usize,
+    value: &CssValue,
+    components: &Vec<SyntaxComponent>,
+    depth: usize,
 ) -> Option<CssValue> {
-    todo!("implement me")
+    // Component index we are currently matching against
+    let mut c_idx = 0;
+    // Value index we are currently matching against
+    let mut v_idx = 0;
+    // Values as vec[]
+    let values = value.as_vec();
+
+    let mut matched_values = vec![];
+
+    let mut multiplier_count = 0;
+    loop {
+        let v = values.get(v_idx).unwrap();
+        let component = &components[c_idx];
+        print!("value '{:?}' against '{:?}': ", v, component);
+
+        if match_component(v, component, depth + 1).is_some() {
+            print!("matches: ");
+            multiplier_count += 1;
+
+            let mff = multiplier_fulfilled(component, multiplier_count);
+            println!("multiplier {} fulfilled: {:?}", multiplier_count, mff);
+
+            match mff {
+                Fulfillment::NotYetFulfilled => {
+                    // The multiplier is not yet fulfilled. We need more values so check the next
+                    v_idx += 1;
+                },
+                Fulfillment::FulfilledButMoreAllowed => {
+                    // More elements are allowed. Let's check if we have one
+                    v_idx += 1;
+                },
+                Fulfillment::Fulfilled => {
+                    // no more values are allowed. Continue with the next value and element
+                    matched_values.push(v_idx);
+
+                    v_idx += 1;
+
+                    c_idx += 1;
+                    multiplier_count = 0;
+                },
+                Fulfillment::NotFulfilled => {
+                    // The multiplier is not fulfilled. Just continue with the next element
+                    c_idx += 1;
+                    multiplier_count = 0;
+                },
+            }
+        } else {
+            // Element didn't match. That might be allright depending on the multiplier
+            println!("no match");
+
+            match multiplier_fulfilled(component, multiplier_count) {
+                Fulfillment::NotYetFulfilled => {
+                    println!("not yet fulfilled. That's ok. Just check the next element");
+                    c_idx += 1;
+                    multiplier_count = 0;
+                }
+                Fulfillment::Fulfilled => {
+                    println!("multiplier fulfilled");
+                    matched_values.push(v_idx);
+
+                    v_idx += 1;
+
+                    c_idx += 1;
+                    multiplier_count = 0;
+                }
+                Fulfillment::FulfilledButMoreAllowed => {
+                    println!("multiplier fulfilled, more values allowed, but this wasn't one of them.");
+
+                    // matched_values.push(v_idx);
+
+                    c_idx += 1;
+                    multiplier_count = 0;
+                }
+                Fulfillment::NotFulfilled => {
+                    println!("needed a match and found none. That's ok, just check the next element");
+                    c_idx += 1;
+                    multiplier_count = 0;
+                }
+            }
+        }
+
+        // Reached the end of either components or values
+        if c_idx >= components.len() || v_idx >= values.len() {
+            break;
+        }
+    }
+
+    println!("Group checks follow (cidx: {} vidx: {})", c_idx, v_idx);
+    dbg!(&matched_values);
+    if matched_values.len() != 1 {
+        println!("Matched values is not 1. This means that either none, or too many values matched");
+        return None;
+    }
+
+    println!("Matched exactly one value");
+    values.get(matched_values[0]).cloned()
 }
 
 /// Returns element, when at least one of the elements in the group matches
@@ -330,7 +425,9 @@ fn match_group_juxtaposition(
     Some(value.clone())
 }
 
-#[derive(Debug)]
+/// Fulfillment is a result returned by the multiplier_fulfilled function. This is used to determine
+/// if a multiplier is fulfilled or not and how.
+#[derive(Debug, PartialEq)]
 enum Fulfillment {
     /// The multiplier is not yet fulfilled. There must be more values
     NotYetFulfilled,
@@ -342,7 +439,7 @@ enum Fulfillment {
     NotFulfilled,
 }
 
-/// Returns true when the given cnt fullfills the multiplier of the component
+/// Returns fulfillment enum given the cnt and the actual multiplier of the component
 fn multiplier_fulfilled(component: &SyntaxComponent, cnt: usize) -> Fulfillment {
     for m in component.get_multipliers() {
         match m {
@@ -746,6 +843,8 @@ mod tests {
         test_multipliers_zero_or_more();
         test_multipliers_one_or_more();
         test_multipliers_between();
+        test_fulfillment();
+        test_match_group1();
     }
 
     #[test]
@@ -1156,5 +1255,68 @@ mod tests {
         //     CssValue::String("bar".into()),
         //     CssValue::String("foo".into()),
         // ])));
+    }
+
+    #[test]
+    fn test_fulfillment() {
+        assert_eq!(multiplier_fulfilled(&SyntaxComponent::Group {
+            components: vec![],
+            combinator: GroupCombinators::Juxtaposition,
+            multipliers: vec![SyntaxComponentMultiplier::Once],
+        }, 0), Fulfillment::NotYetFulfilled);
+
+        assert_eq!(multiplier_fulfilled(&SyntaxComponent::Group {
+            components: vec![],
+            combinator: GroupCombinators::Juxtaposition,
+            multipliers: vec![SyntaxComponentMultiplier::Once],
+        }, 1), Fulfillment::Fulfilled);
+
+        assert_eq!(multiplier_fulfilled(&SyntaxComponent::Group {
+            components: vec![],
+            combinator: GroupCombinators::Juxtaposition,
+            multipliers: vec![SyntaxComponentMultiplier::Once],
+        }, 2), Fulfillment::NotFulfilled);
+
+        assert_eq!(multiplier_fulfilled(&SyntaxComponent::Group {
+            components: vec![],
+            combinator: GroupCombinators::Juxtaposition,
+            multipliers: vec![SyntaxComponentMultiplier::ZeroOrMore],
+        }, 0), Fulfillment::FulfilledButMoreAllowed);
+
+        assert_eq!(multiplier_fulfilled(&SyntaxComponent::Group {
+            components: vec![],
+            combinator: GroupCombinators::Juxtaposition,
+            multipliers: vec![SyntaxComponentMultiplier::ZeroOrMore],
+        }, 1), Fulfillment::FulfilledButMoreAllowed);
+
+        assert_eq!(multiplier_fulfilled(&SyntaxComponent::Group {
+            components: vec![],
+            combinator: GroupCombinators::Juxtaposition,
+            multipliers: vec![SyntaxComponentMultiplier::ZeroOrMore],
+        }, 2), Fulfillment::FulfilledButMoreAllowed);
+
+        assert_eq!(multiplier_fulfilled(&SyntaxComponent::Group {
+            components: vec![],
+            combinator: GroupCombinators::Juxtaposition,
+            multipliers: vec![SyntaxComponentMultiplier::OneOrMore],
+        }, 0), Fulfillment::NotYetFulfilled);
+
+        assert_eq!(multiplier_fulfilled(&SyntaxComponent::Group {
+            components: vec![],
+            combinator: GroupCombinators::Juxtaposition,
+            multipliers: vec![SyntaxComponentMultiplier::OneOrMore],
+        }, 1), Fulfillment::FulfilledButMoreAllowed);
+
+        assert_eq!(multiplier_fulfilled(&SyntaxComponent::Group {
+            components: vec![],
+            combinator: GroupCombinators::Juxtaposition,
+            multipliers: vec![SyntaxComponentMultiplier::OneOrMore],
+        }, 2), Fulfillment::FulfilledButMoreAllowed);
+
+        assert_eq!(multiplier_fulfilled(&SyntaxComponent::Group {
+            components: vec![],
+            combinator: GroupCombinators::Juxtaposition,
+            multipliers: vec![SyntaxComponentMultiplier::Optional],
+        }, 0), Fulfillment::FulfilledButMoreAllowed);
     }
 }
