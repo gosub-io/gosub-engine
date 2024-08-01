@@ -372,7 +372,7 @@ fn match_group_all_any_order(
             multiplier_count += 1;
 
             print!("multiplier {} fullfilled: ", multiplier_count);
-            if multiplier_fullfilled(component, multiplier_count) {
+            if check_multiplier(component, multiplier_count) {
                 println!("yes");
                 c_idx += 1;
             } else {
@@ -429,7 +429,7 @@ fn match_group_juxtaposition(
             multiplier_count += 1;
 
             print!("multiplier {} fullfilled: ", multiplier_count);
-            if multiplier_fullfilled(component, multiplier_count) {
+            if check_multiplier(component, multiplier_count) {
                 println!("yes");
                 c_idx += 1;
             } else {
@@ -447,7 +447,6 @@ fn match_group_juxtaposition(
         }
     }
 
-
     v_idx += 1;
 
     println!("Group checks follow (cidx: {} vidx: {})", c_idx, v_idx);
@@ -463,19 +462,6 @@ fn match_group_juxtaposition(
     }
 
     Some(value.clone())
-}
-
-/// Returns true when the given cnt fullfills the multiplier of the component
-fn multiplier_fullfilled(component: &SyntaxComponent, cnt: usize) -> bool {
-    match component.get_multiplier() {
-        SyntaxComponentMultiplier::Once => cnt == 1,
-        SyntaxComponentMultiplier::ZeroOrMore => true,
-        SyntaxComponentMultiplier::OneOrMore => cnt >= 1,
-        SyntaxComponentMultiplier::Optional => cnt == 0 || cnt == 1,
-        SyntaxComponentMultiplier::Between(from, to) => cnt >= from && cnt <= to,
-        SyntaxComponentMultiplier::AtLeastOneValue => cnt >= 1,
-        SyntaxComponentMultiplier::CommaSeparatedRepeat(from, to) => cnt >= from && cnt <= to,
-    }
 }
 
 /// Convert the matches into counts
