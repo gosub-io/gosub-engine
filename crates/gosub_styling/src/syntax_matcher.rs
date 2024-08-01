@@ -240,18 +240,18 @@ fn match_group_juxtaposition(
 
             match mff {
                 Fulfillment::NotYetFulfilled => {
-                    // The multiplier is not yet fulfilled. We need more values
+                    // The multiplier is not yet fulfilled. We need more values so check the next
                     v_idx += 1;
                 },
                 Fulfillment::FulfilledButMoreAllowed => {
                     // More elements are allowed. Let's check if we have one
                     v_idx += 1;
-                    multiplier_count = 0;
                 },
                 Fulfillment::Fulfilled => {
-                    // no more values are allowed. Continue with the next elements.
-                    c_idx += 1;
+                    // no more values are allowed. Continue with the next value and element
                     v_idx += 1;
+
+                    c_idx += 1;
                     multiplier_count = 0;
                 },
                 Fulfillment::NotFulfilled => {
@@ -260,22 +260,28 @@ fn match_group_juxtaposition(
                 },
             }
         } else {
-            // Element didn't match
+            // Element didn't match. That might be allright depending on the multiplier
             println!("no match");
 
-            match multiplier_fulfilled(component, 0) {
+            match multiplier_fulfilled(component, multiplier_count) {
                 Fulfillment::NotYetFulfilled => {
                     println!("needed a match and found none (notyetfulfilled)");
                     break;
+                    // v_idx += 1;
+                    // c_idx += 1;
+                    // multiplier_count = 0;
                 }
                 Fulfillment::Fulfilled => {
                     println!("multiplier fulfilled");
                     v_idx += 1;
+
+                    c_idx += 1;
                     multiplier_count = 0;
                 }
                 Fulfillment::FulfilledButMoreAllowed => {
                     println!("multiplier fulfilled, more values allowed, but this wasn't one of them.");
                     c_idx += 1;
+                    multiplier_count = 0;
                 }
                 Fulfillment::NotFulfilled => {
                     println!("needed a match and found none (notfulfilled)");
@@ -295,7 +301,7 @@ fn match_group_juxtaposition(
     while c_idx < components.len() {
         println!("Not all components have been checked");
         let component = &components[c_idx];
-        match multiplier_fulfilled(component, 0) {
+        match multiplier_fulfilled(component, multiplier_count) {
             Fulfillment::NotYetFulfilled => {
                 println!(" - Multiplier not yet fulfilled");
                 return None;
@@ -313,6 +319,7 @@ fn match_group_juxtaposition(
         }
 
         c_idx += 1;
+        multiplier_count = 0;
     }
 
     if v_idx < values.len() {
@@ -366,7 +373,7 @@ fn multiplier_fulfilled(component: &SyntaxComponent, cnt: usize) -> Fulfillment 
             },
             SyntaxComponentMultiplier::Between(from, to) => {
                 match cnt {
-                    _ if cnt <= from => return Fulfillment::NotYetFulfilled,
+                    _ if cnt < from => return Fulfillment::NotYetFulfilled,
                     _ if cnt >= from && cnt <= to => return Fulfillment::FulfilledButMoreAllowed,
                     _ => return Fulfillment::NotFulfilled,
                 }
@@ -731,6 +738,17 @@ mod tests {
     }
 
     #[test]
+    fn combitest() {
+        // @todo: remove this after testing
+        test_match_group_juxtaposition();
+        test_multipliers_one_or_more();
+        test_multipliers_optional();
+        test_multipliers_zero_or_more();
+        test_multipliers_one_or_more();
+        test_multipliers_between();
+    }
+
+    #[test]
     fn test_multipliers_optional() {
         let tree = CssSyntax::new("foo bar baz").compile().unwrap();
         assert_none!(tree.clone().matches(&CssValue::String("foo".into())));
@@ -849,57 +867,57 @@ mod tests {
     #[test]
     fn test_multipliers_one_or_more() {
         let tree = CssSyntax::new("foo bar+ baz").compile().unwrap();
-        // assert_none!(tree.clone().matches(&CssValue::String("foo".into())));
-        // assert_none!(treef
-        //     .clone()
-        //     .matches(&CssValue::List(vec![CssValue::String("foo".into())])));
+        assert_none!(tree.clone().matches(&CssValue::String("foo".into())));
+        assert_none!(tree
+            .clone()
+            .matches(&CssValue::List(vec![CssValue::String("foo".into())])));
         assert_some!(tree.clone().matches(&CssValue::List(vec![
             CssValue::String("foo".into()),
             CssValue::String("bar".into()),
             CssValue::String("baz".into()),
         ])));
-        // assert_none!(tree.clone().matches(&CssValue::List(vec![
-        //     CssValue::String("foo".into()),
-        //     CssValue::String("baz".into()),
-        // ])));
-        // assert_some!(tree.clone().matches(&CssValue::List(vec![
-        //     CssValue::String("foo".into()),
-        //     CssValue::String("bar".into()),
-        //     CssValue::String("bar".into()),
-        //     CssValue::String("bar".into()),
-        //     CssValue::String("bar".into()),
-        //     CssValue::String("baz".into()),
-        // ])));
-        // assert_none!(tree.clone().matches(&CssValue::List(vec![
-        //     CssValue::String("foo".into()),
-        //     CssValue::String("bar".into()),
-        //     CssValue::String("bar".into()),
-        //     CssValue::String("bar".into()),
-        //     CssValue::String("baz".into()),
-        //     CssValue::String("bar".into()),
-        // ])));
-        //
-        // let tree = CssSyntax::new("foo bar+").compile().unwrap();
-        // assert_none!(tree.clone().matches(&CssValue::String("foo".into())));
-        // assert_none!(tree
-        //     .clone()
-        //     .matches(&CssValue::List(vec![CssValue::String("foo".into())])));
-        // assert_none!(tree
-        //     .clone()
-        //     .matches(&CssValue::List(vec![CssValue::String("bar".into())])));
-        // assert_some!(tree.clone().matches(&CssValue::List(vec![
-        //     CssValue::String("foo".into()),
-        //     CssValue::String("bar".into()),
-        // ])));
-        // assert_some!(tree.clone().matches(&CssValue::List(vec![
-        //     CssValue::String("foo".into()),
-        //     CssValue::String("bar".into()),
-        //     CssValue::String("bar".into()),
-        // ])));
-        // assert_none!(tree.clone().matches(&CssValue::List(vec![
-        //     CssValue::String("bar".into()),
-        //     CssValue::String("foo".into()),
-        // ])));
+        assert_none!(tree.clone().matches(&CssValue::List(vec![
+            CssValue::String("foo".into()),
+            CssValue::String("baz".into()),
+        ])));
+        assert_some!(tree.clone().matches(&CssValue::List(vec![
+            CssValue::String("foo".into()),
+            CssValue::String("bar".into()),
+            CssValue::String("bar".into()),
+            CssValue::String("bar".into()),
+            CssValue::String("bar".into()),
+            CssValue::String("baz".into()),
+        ])));
+        assert_none!(tree.clone().matches(&CssValue::List(vec![
+            CssValue::String("foo".into()),
+            CssValue::String("bar".into()),
+            CssValue::String("bar".into()),
+            CssValue::String("bar".into()),
+            CssValue::String("baz".into()),
+            CssValue::String("bar".into()),
+        ])));
+
+        let tree = CssSyntax::new("foo bar+").compile().unwrap();
+        assert_none!(tree.clone().matches(&CssValue::String("foo".into())));
+        assert_none!(tree
+            .clone()
+            .matches(&CssValue::List(vec![CssValue::String("foo".into())])));
+        assert_none!(tree
+            .clone()
+            .matches(&CssValue::List(vec![CssValue::String("bar".into())])));
+        assert_some!(tree.clone().matches(&CssValue::List(vec![
+            CssValue::String("foo".into()),
+            CssValue::String("bar".into()),
+        ])));
+        assert_some!(tree.clone().matches(&CssValue::List(vec![
+            CssValue::String("foo".into()),
+            CssValue::String("bar".into()),
+            CssValue::String("bar".into()),
+        ])));
+        assert_none!(tree.clone().matches(&CssValue::List(vec![
+            CssValue::String("bar".into()),
+            CssValue::String("foo".into()),
+        ])));
     }
 
     #[test]
