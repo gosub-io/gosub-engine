@@ -27,8 +27,8 @@ impl CssSyntaxTree {
         if self.components.len() != 1 {
             panic!("Syntax tree must have exactly one root component");
         }
-        dbg!(&self);
-        dbg!(&value);
+        // dbg!(&self);
+        // dbg!(&value);
         match_component(value, &self.components[0], 0)
     }
 }
@@ -186,7 +186,6 @@ fn match_component(value: &CssValue, component: &SyntaxComponent, depth: usize) 
     None
 }
 
-
 /// Returns element if exactly one element matches in the group
 fn match_group_exactly_one(
     value: &CssValue,
@@ -214,7 +213,7 @@ fn match_group_exactly_one(
             multiplier_count += 1;
 
             let mff = multiplier_fulfilled(component, multiplier_count);
-            println!("multiplier {} fulfilled: {:?}", multiplier_count, mff);
+            // println!("multiplier {} fulfilled: {:?}", multiplier_count, mff);
 
             match mff {
                 Fulfillment::NotYetFulfilled => {
@@ -242,16 +241,16 @@ fn match_group_exactly_one(
             }
         } else {
             // Element didn't match. That might be allright depending on the multiplier
-            println!("no match");
+            // println!("no match");
 
             match multiplier_fulfilled(component, multiplier_count) {
                 Fulfillment::NotYetFulfilled => {
-                    println!("not yet fulfilled. That's ok. Just check the next element");
+                    // println!("not yet fulfilled. That's ok. Just check the next element");
                     c_idx += 1;
                     multiplier_count = 0;
                 }
                 Fulfillment::Fulfilled => {
-                    println!("multiplier fulfilled");
+                    // println!("multiplier fulfilled");
                     matched_values.push(v_idx);
 
                     v_idx += 1;
@@ -260,9 +259,7 @@ fn match_group_exactly_one(
                     multiplier_count = 0;
                 }
                 Fulfillment::FulfilledButMoreAllowed => {
-                    println!("multiplier fulfilled, more values allowed, but this wasn't one of them.");
-
-                    // matched_values.push(v_idx);
+                    // println!("multiplier fulfilled, more values allowed, but this wasn't one of them.");
 
                     c_idx += 1;
                     multiplier_count = 0;
@@ -291,23 +288,109 @@ fn match_group_exactly_one(
     }
 
 
-    dbg!(&matched_values);
+    // dbg!(&matched_values);
     if matched_values.len() != 1 {
         println!("Matched values is not 1. This means that either none, or too many values matched");
         return None;
     }
 
-    println!("Matched exactly one value");
+    // println!("Matched exactly one value");
     values.get(matched_values[0]).cloned()
 }
 
 /// Returns element, when at least one of the elements in the group matches
 fn match_group_at_least_one_any_order(
-    _value: &CssValue,
-    _components: &Vec<SyntaxComponent>,
-    _depth: usize,
-) -> Option<CssValue> {
-    todo!("implement me")
+    value: &CssValue,
+    components: &Vec<SyntaxComponent>,
+    depth: usize,
+) -> Option<CssValue>
+{
+    // Component index we are currently matching against
+    let mut c_idx = 0;
+    // Value index we are currently matching against
+    let mut v_idx = 0;
+    // Values as vec[]
+    let values = value.as_vec();
+    // List of components that are already matched against previous values
+    let mut components_matched = vec![];
+
+    let mut multiplier_count = 0;
+    loop {
+        // Edgecase when there are no values
+        if values.len() <= v_idx {
+            break;
+        }
+
+        let v = values.get(v_idx).unwrap();
+        let component = &components[c_idx];
+        print!("value '{:?}' against '{:?}': ", v, component);
+
+        if match_component(v, component, depth + 1).is_some() {
+            print!("matches: ");
+            multiplier_count += 1;
+
+            let mff = multiplier_fulfilled(component, multiplier_count);
+            // println!("multiplier {} fulfilled: {:?}", multiplier_count, mff);
+
+            match mff {
+                Fulfillment::NotYetFulfilled => {
+                    // The multiplier is not yet fulfilled. We need more values so check the next
+                    v_idx += 1;
+                },
+                Fulfillment::FulfilledButMoreAllowed => {
+                    // More elements are allowed. Let's check if we have one
+                    v_idx += 1;
+                },
+                Fulfillment::Fulfilled => {
+                    // no more values are allowed. Continue with the next value and element
+                    v_idx += 1;
+
+                    // Loop around
+                    // println!("-- loop around");
+                    components_matched.push(c_idx);
+                    c_idx = 0;
+                    while components_matched.contains(&c_idx) {
+                        // println!("component {} has already been matched", c_idx);
+                        c_idx += 1;
+                    }
+
+                    multiplier_count = 0;
+                },
+                Fulfillment::NotFulfilled => {
+                    // The multiplier is not fulfilled. This is a failure
+                    break;
+                },
+            }
+        } else {
+            // Element didn't match. That might be allright depending on the multiplier
+            // println!("no match");
+
+            c_idx += 1;
+            while components_matched.contains(&c_idx) {
+                // println!("component {} has already been matched", c_idx);
+                c_idx += 1;
+            }
+        }
+
+        // Reached the end of either components or values
+        if c_idx >= components.len() || v_idx >= values.len() {
+            break;
+        }
+    }
+
+    // println!("Group checks follow (cidx: {} vidx: {})", c_idx, v_idx);
+
+    if v_idx < values.len() {
+        // println!(" - Not all values have been matched");
+        return None;
+    }
+
+    if components_matched.is_empty() {
+        // println!(" - No components have been matched");
+        return None;
+    }
+
+    Some(value.clone())
 }
 
 fn match_group_all_any_order(
@@ -322,8 +405,8 @@ fn match_group_all_any_order(
     let mut v_idx = 0;
     // Values as vec[]
     let values = value.as_vec();
-    // The values that were matched
-    let mut matched_values = vec![];
+    // List of components that are already matched against previous values
+    let mut components_matched = vec![];
 
     let mut multiplier_count = 0;
     loop {
@@ -336,7 +419,7 @@ fn match_group_all_any_order(
             multiplier_count += 1;
 
             let mff = multiplier_fulfilled(component, multiplier_count);
-            println!("multiplier {} fulfilled: {:?}", multiplier_count, mff);
+            // println!("multiplier {} fulfilled: {:?}", multiplier_count, mff);
 
             match mff {
                 Fulfillment::NotYetFulfilled => {
@@ -349,11 +432,17 @@ fn match_group_all_any_order(
                 },
                 Fulfillment::Fulfilled => {
                     // no more values are allowed. Continue with the next value and element
-                    matched_values.push(v_idx);
-
                     v_idx += 1;
 
-                    c_idx += 1;
+                    // Loop around
+                    // println!("-- loop around");
+                    components_matched.push(c_idx);
+                    c_idx = 0;
+                    while components_matched.contains(&c_idx) {
+                        // println!("component {} has already been matched", c_idx);
+                        c_idx += 1;
+                    }
+
                     multiplier_count = 0;
                 },
                 Fulfillment::NotFulfilled => {
@@ -363,31 +452,12 @@ fn match_group_all_any_order(
             }
         } else {
             // Element didn't match. That might be allright depending on the multiplier
-            println!("no match");
+            // println!("no match");
 
-            match multiplier_fulfilled(component, multiplier_count) {
-                Fulfillment::NotYetFulfilled => {
-                    println!("needed a match and found none (notyetfulfilled)");
-                    break;
-                }
-                Fulfillment::Fulfilled => {
-                    println!("multiplier fulfilled");
-                    matched_values.push(v_idx);
-
-                    v_idx += 1;
-
-                    c_idx += 1;
-                    multiplier_count = 0;
-                }
-                Fulfillment::FulfilledButMoreAllowed => {
-                    println!("multiplier fulfilled, more values allowed, but this wasn't one of them.");
-                    c_idx += 1;
-                    multiplier_count = 0;
-                }
-                Fulfillment::NotFulfilled => {
-                    println!("needed a match and found none (notfulfilled)");
-                    break;
-                }
+            c_idx += 1;
+            while components_matched.contains(&c_idx) {
+                // println!("component {} has already been matched", c_idx);
+                c_idx += 1;
             }
         }
 
@@ -397,24 +467,24 @@ fn match_group_all_any_order(
         }
     }
 
-    println!("Group checks follow (cidx: {} vidx: {})", c_idx, v_idx);
+    // println!("Group checks follow (cidx: {} vidx: {})", c_idx, v_idx);
 
     while c_idx < components.len() {
-        println!("Not all components have been checked");
+        // println!("Not all components have been checked");
         let component = &components[c_idx];
         match multiplier_fulfilled(component, multiplier_count) {
             Fulfillment::NotYetFulfilled => {
-                println!(" - Multiplier not yet fulfilled");
+                // println!(" - Multiplier not yet fulfilled");
                 return None;
             },
             Fulfillment::Fulfilled => {
-                println!(" - Multiplier fulfilled");
+                // println!(" - Multiplier fulfilled");
             },
             Fulfillment::FulfilledButMoreAllowed => {
-                println!(" - Multiplier fulfilled, but more values allowed");
+                // println!(" - Multiplier fulfilled, but more values allowed");
             },
             Fulfillment::NotFulfilled => {
-                println!(" - Multiplier not fulfilled");
+                // println!(" - Multiplier not fulfilled");
                 return None;
             }
         }
@@ -424,7 +494,7 @@ fn match_group_all_any_order(
     }
 
     if v_idx < values.len() {
-        println!(" - Not all values have been matched");
+        // println!(" - Not all values have been matched");
         return None;
     }
 
@@ -455,7 +525,7 @@ fn match_group_juxtaposition(
             multiplier_count += 1;
 
             let mff = multiplier_fulfilled(component, multiplier_count);
-            println!("multiplier {} fulfilled: {:?}", multiplier_count, mff);
+            // println!("multiplier {} fulfilled: {:?}", multiplier_count, mff);
 
             match mff {
                 Fulfillment::NotYetFulfilled => {
@@ -480,30 +550,30 @@ fn match_group_juxtaposition(
             }
         } else {
             // Element didn't match. That might be allright depending on the multiplier
-            println!("no match");
+            // println!("no match");
 
             match multiplier_fulfilled(component, multiplier_count) {
                 Fulfillment::NotYetFulfilled => {
-                    println!("needed a match and found none (notyetfulfilled)");
+                    // println!("needed a match and found none (notyetfulfilled)");
                     break;
                     // v_idx += 1;
                     // c_idx += 1;
                     // multiplier_count = 0;
                 }
                 Fulfillment::Fulfilled => {
-                    println!("multiplier fulfilled");
+                    // println!("multiplier fulfilled");
                     v_idx += 1;
 
                     c_idx += 1;
                     multiplier_count = 0;
                 }
                 Fulfillment::FulfilledButMoreAllowed => {
-                    println!("multiplier fulfilled, more values allowed, but this wasn't one of them.");
+                    // println!("multiplier fulfilled, more values allowed, but this wasn't one of them.");
                     c_idx += 1;
                     multiplier_count = 0;
                 }
                 Fulfillment::NotFulfilled => {
-                    println!("needed a match and found none (notfulfilled)");
+                    // println!("needed a match and found none (notfulfilled)");
                     break;
                 }
             }
@@ -515,24 +585,24 @@ fn match_group_juxtaposition(
         }
     }
 
-    println!("Group checks follow (cidx: {} vidx: {})", c_idx, v_idx);
+    // println!("Group checks follow (cidx: {} vidx: {})", c_idx, v_idx);
 
     while c_idx < components.len() {
-        println!("Not all components have been checked");
+        // println!("Not all components have been checked");
         let component = &components[c_idx];
         match multiplier_fulfilled(component, multiplier_count) {
             Fulfillment::NotYetFulfilled => {
-                println!(" - Multiplier not yet fulfilled");
+                // println!(" - Multiplier not yet fulfilled");
                 return None;
             },
             Fulfillment::Fulfilled => {
-                println!(" - Multiplier fulfilled");
+                // println!(" - Multiplier fulfilled");
             },
             Fulfillment::FulfilledButMoreAllowed => {
-                println!(" - Multiplier fulfilled, but more values allowed");
+                // println!(" - Multiplier fulfilled, but more values allowed");
             },
             Fulfillment::NotFulfilled => {
-                println!(" - Multiplier not fulfilled");
+                // println!(" - Multiplier not fulfilled");
                 return None;
             }
         }
@@ -542,7 +612,7 @@ fn match_group_juxtaposition(
     }
 
     if v_idx < values.len() {
-        println!(" - Not all values have been checked");
+        // println!(" - Not all values have been checked");
         return None;
     }
 
@@ -742,6 +812,14 @@ mod tests {
             str!("block")
         ])));
         assert_none!(tree.matches(&CssValue::List(vec![
+            str!("auto"),
+            str!("block")
+        ])));
+        assert_none!(tree.matches(&CssValue::List(vec![
+            CssValue::None,
+            str!("block")
+        ])));
+        assert_none!(tree.matches(&CssValue::List(vec![
             str!("block"),
             str!("block"),
             CssValue::None,
@@ -756,29 +834,34 @@ mod tests {
         assert_some!(tree.matches(&str!("auto")));
         assert_some!(tree.matches(&CssValue::None));
         assert_some!(tree.matches(&str!("block")));
-        assert_none!(tree.matches(&str!("inline")));
-        assert_none!(tree.matches(&str!("")));
-        assert_none!(tree.matches(&str!("foobar")));
-        // TODO: this might be correct, since we have at least one in any order, thus being `CssValue::None`
-        // assert_none!(tree.matches(&CssValue::List(vec![str!("foo"), CssValue::None])));
-        // assert_none!(tree.matches(&CssValue::List(vec![CssValue::None, str!("foo")])));
         assert_some!(tree.matches(&CssValue::List(vec![str!("auto"), CssValue::None])));
-        // assert_none!(tree.matches(&CssValue::List(vec![
-        //     str!("auto"),
-        //     CssValue::Comma,
-        //     str!("none")
-        // ])));
-        // assert_none!(tree.matches(&CssValue::List(vec![
-        //     str!("auto"),
-        //     CssValue::Comma,
-        //     CssValue::None,
-        //     CssValue::Comma,
-        //     str!("block")
-        // ])));
         assert_some!(tree.matches(&CssValue::List(vec![
             str!("block"),
             str!("auto"),
             CssValue::None
+        ])));
+
+        assert_none!(tree.matches(&str!("inline")));
+        assert_none!(tree.matches(&str!("")));
+        assert_none!(tree.matches(&str!("")));
+        assert_none!(tree.matches(&CssValue::List(vec![])));
+        assert_none!(tree.matches(&CssValue::List(vec![str!("foo"), CssValue::None])));
+        assert_none!(tree.matches(&CssValue::List(vec![CssValue::None, str!("foo")])));
+        assert_none!(tree.matches(&CssValue::List(vec![
+            CssValue::None,
+            CssValue::None,
+        ])));
+        assert_none!(tree.matches(&CssValue::List(vec![
+            str!("auto"),
+            CssValue::Comma,
+            str!("none")
+        ])));
+        assert_none!(tree.matches(&CssValue::List(vec![
+            str!("auto"),
+            CssValue::Comma,
+            CssValue::None,
+            CssValue::Comma,
+            str!("block")
         ])));
         assert_none!(tree.matches(&CssValue::List(vec![
             str!("block"),
@@ -956,20 +1039,6 @@ mod tests {
             );
             assert_none!(res);
         }
-    }
-
-    #[test]
-    fn combitest() {
-        // @todo: remove this after testing
-        test_match_group_juxtaposition();
-        test_multipliers_one_or_more();
-        test_multipliers_optional();
-        test_multipliers_zero_or_more();
-        test_multipliers_one_or_more();
-        test_multipliers_between();
-        test_fulfillment();
-        test_match_group1();
-        test_match_group3();
     }
 
     #[test]
