@@ -49,6 +49,12 @@ type Spec struct {
 type WebRefValue struct {
 	Name   string `json:"name"`
 	Syntax string `json:"value"`
+	Type   string `json:"type"` // Type of the value
+	Values []struct {
+		Name  string `json:"name"`
+		Type  string `json:"type"`
+		Value string `json:"value"`
+	} `json:"values"` // Additional accompanied values
 }
 
 type WebRefProperties struct {
@@ -58,6 +64,11 @@ type WebRefProperties struct {
 	Computed  []string               `json:"computed"`
 	Initial   utils.StringMaybeArray `json:"initial"`
 	Inherited string                 `json:"inherited"`
+	Values    []struct {
+		Name  string `json:"name"`
+		Type  string `json:"type"`
+		Value string `json:"value"`
+	} `json:"values"` // Additional accompanied values for this property
 }
 
 type WebRefAtRule struct {
@@ -131,6 +142,7 @@ func GetWebRefData() Data {
 
 			shortname := strings.TrimSuffix(file.Name, ".json")
 			if matched, err := regexp.Match(`\d+$`, []byte(shortname)); err != nil || matched {
+				log.Println("Not matched our regexp: ", shortname)
 				return
 			}
 
@@ -147,34 +159,6 @@ func GetWebRefData() Data {
 	}
 
 	wg.Wait()
-
-	//if err := patch.PatchFiles(); err != nil {
-	//	log.Panic(err)
-	//}
-
-	//for _, file := range files {
-	//	shortname := strings.TrimSuffix(file.Name, ".json")
-	//	if matched, err := regexp.Match(`\d+$`, []byte(shortname)); err != nil || matched {
-	//		continue
-	//	}
-	//
-	//	if !skip(shortname) {
-	//		log.Println("Skipping non-W3C spec", shortname)
-	//		continue
-	//	}
-	//
-	//	content, err := GetFileContent(&file)
-	//	if err != nil {
-	//		log.Panic(file.Path, " ", err)
-	//	}
-	//
-	//	if string(content) == "<deleted>" {
-	//		continue
-	//	}
-	//
-	//
-	//	DecodeFileContent(content, &parseData)
-	//}
 
 	return Data{
 		Properties: utils.MapToSlice(parseData.Properties),
@@ -339,6 +323,56 @@ func skip(shortname string) bool {
 	return true
 }
 
+// ProcessValue will process a single value (from either root values or propertt values) and add it
+// to the ParseData if possible.
+func ProcessValue(name string, type_ string, syntax string, pd *ParseData) {
+	// If value already exists, update the syntax if possible
+	if v, ok := pd.Values[name]; ok {
+		if v.Syntax == "" {
+			v.Syntax = syntax
+		}
+
+		// Skip built-in values ie: (<integer> has syntax "<integer>", which results in a loop when resolving)
+		if v.Syntax == v.Name {
+			log.Println("name == syntax, skipping as this is an built-in value")
+			return
+		}
+
+		// Not all values have the same syntax. It can change. We ignore this and get the latest one
+		if v.Syntax != "" && syntax != "" && v.Syntax != syntax {
+			log.Println("Different syntax for duplicated value", name)
+			log.Println("Old:", v.Syntax)
+			log.Println("New:", syntax)
+			//log.Panic("Syntax mismatch")
+		}
+
+		pd.Values[name] = v
+		return
+	}
+
+	// Values are always skipped
+	if type_ == "value" {
+		println("value type. Skipping")
+		return
+	}
+
+	// Skip <integer> = syntax("<integer>")
+	if syntax == name {
+		println("value==name. Skipping")
+		return
+	}
+
+	if syntax == "" {
+		log.Println("empty value/syntax")
+		return
+	}
+
+	pd.Values[name] = WebRefValue{
+		Name:   name,
+		Syntax: syntax,
+	}
+}
+
 func DecodeFileContent(content []byte, pd *ParseData) {
 	var fileData Data
 	if err := json.Unmarshal(content, &fileData); err != nil {
@@ -346,6 +380,12 @@ func DecodeFileContent(content []byte, pd *ParseData) {
 	}
 
 	for _, property := range fileData.Properties {
+		log.Println("Processing property: ", property.Name)
+
+		for _, v := range property.Values {
+			ProcessValue(v.Name, v.Type, v.Value, pd)
+		}
+
 		if p, ok := pd.Properties[property.Name]; ok {
 			if p.Syntax == "" {
 				p.Syntax = property.Syntax
@@ -379,22 +419,7 @@ func DecodeFileContent(content []byte, pd *ParseData) {
 	}
 
 	for _, value := range fileData.Values {
-		if v, ok := pd.Values[value.Name]; ok {
-			if v.Syntax == "" {
-				v.Syntax = value.Syntax
-			}
-
-			if v.Syntax != "" && value.Syntax != "" && v.Syntax != value.Syntax {
-				log.Println("Different syntax for duplicated value", value.Name)
-				log.Println("Old:", v.Syntax)
-				log.Println("New:", value.Syntax)
-				//log.Panic("Syntax mismatch")
-			}
-
-			pd.Values[v.Name] = v
-			continue
-		}
-		pd.Values[value.Name] = value
+		ProcessValue(value.Name, value.Type, value.Syntax, pd)
 	}
 
 	for _, atRule := range fileData.AtRules {
