@@ -1529,7 +1529,7 @@ dependencies = [
  "gosub_rendering",
  "gosub_shared",
  "gosub_styling",
-    "gosub_taffy",
+ "gosub_taffy",
  "gosub_testing",
  "gosub_useragent",
  "gosub_v8",
@@ -1686,12 +1686,12 @@ dependencies = [
 name = "gosub_taffy"
 version = "0.1.0"
 dependencies = [
-    "anyhow",
-    "gosub_render_backend",
-    "gosub_shared",
-    "gosub_styling",
-    "regex",
-    "taffy",
+ "anyhow",
+ "gosub_render_backend",
+ "gosub_shared",
+ "gosub_styling",
+ "regex",
+ "taffy",
 ]
 
 [[package]]
