@@ -1,153 +1,96 @@
 [
   {
-    "name": ":disabled"
+    "name": ":only-child"
   },
   {
-    "name": ":read-write"
-  },
-  {
-    "name": ":in-range"
-  },
-  {
-    "name": "||"
-  },
-  {
-    "name": ":nth-last-col()"
+    "name": ":is()"
   },
   {
     "name": ":not()"
   },
   {
-    "name": ":volume-locked"
-  },
-  {
-    "name": ":checked"
-  },
-  {
-    "name": ":invalid"
-  },
-  {
-    "name": "::before"
-  },
-  {
-    "name": "::highlight()"
-  },
-  {
-    "name": ":focus-within"
-  },
-  {
-    "name": ":picture-in-picture"
-  },
-  {
-    "name": ":only-child"
-  },
-  {
-    "name": ":host-context()"
-  },
-  {
-    "name": ":past"
-  },
-  {
-    "name": ":autofill"
-  },
-  {
-    "name": ":nth-last-of-type()"
-  },
-  {
-    "name": "::view-transition"
-  },
-  {
-    "name": ":host()"
-  },
-  {
-    "name": "::cue-region"
-  },
-  {
-    "name": ":current()"
-  },
-  {
-    "name": ":muted"
-  },
-  {
-    "name": "+"
-  },
-  {
-    "name": "::details-content"
-  },
-  {
-    "name": ":current"
-  },
-  {
-    "name": ":first-child"
-  },
-  {
-    "name": ":enabled"
-  },
-  {
-    "name": ":user-invalid"
-  },
-  {
-    "name": ":only-of-type"
-  },
-  {
-    "name": "::view-transition-old()"
-  },
-  {
-    "name": "::cue-region()"
-  },
-  {
-    "name": "::first-line"
-  },
-  {
-    "name": ":hover"
+    "name": ":future"
   },
   {
     "name": ":playing"
   },
   {
-    "name": ":seeking"
-  },
-  {
-    "name": ":valid"
-  },
-  {
-    "name": ">"
-  },
-  {
-    "name": "::view-transition-image-pair()"
-  },
-  {
-    "name": ":visited"
-  },
-  {
-    "name": ":target-within"
-  },
-  {
-    "name": ":blank"
-  },
-  {
-    "name": ":user-valid"
+    "name": ":volume-locked"
   },
   {
     "name": "::file-selector-button"
   },
   {
+    "name": ":local-link"
+  },
+  {
+    "name": ":current"
+  },
+  {
+    "name": ":stalled"
+  },
+  {
+    "name": ":host()"
+  },
+  {
+    "name": ":nth-last-of-type()"
+  },
+  {
+    "name": "+"
+  },
+  {
+    "name": "::before"
+  },
+  {
+    "name": ":disabled"
+  },
+  {
+    "name": ":user-invalid"
+  },
+  {
+    "name": "::marker"
+  },
+  {
+    "name": "::view-transition-image-pair()"
+  },
+  {
+    "name": ":link"
+  },
+  {
+    "name": ":focus-visible"
+  },
+  {
+    "name": "::cue"
+  },
+  {
+    "name": ":lang()"
+  },
+  {
+    "name": ":default"
+  },
+  {
+    "name": ":invalid"
+  },
+  {
+    "name": ":last-child"
+  },
+  {
+    "name": ":visited"
+  },
+  {
     "name": ":active"
   },
   {
-    "name": ":placeholder-shown"
+    "name": ":current()"
   },
   {
-    "name": "::view-transition-group()"
+    "name": ":buffering"
   },
   {
-    "name": ":indeterminate"
+    "name": "::selection"
   },
   {
-    "name": ":root"
-  },
-  {
-    "name": ":read-only"
+    "name": "::placeholder"
   },
   {
     "name": ":host"
@@ -156,142 +99,31 @@
     "name": "::slotted()"
   },
   {
-    "name": "::first-letter"
+    "name": ":enabled"
   },
   {
-    "name": "::selection"
-  },
-  {
-    "name": "::marker"
-  },
-  {
-    "name": ":any-link"
-  },
-  {
-    "name": ":closed"
-  },
-  {
-    "name": ":local-link"
-  },
-  {
-    "name": ":stalled"
-  },
-  {
-    "name": ":open"
-  },
-  {
-    "name": ":out-of-range"
-  },
-  {
-    "name": ":nth-last-child()"
-  },
-  {
-    "name": ":last-child"
-  },
-  {
-    "name": ":is()"
-  },
-  {
-    "name": ":dir()"
-  },
-  {
-    "name": "::view-transition-new()"
-  },
-  {
-    "name": "::cue()"
-  },
-  {
-    "name": "::target-text"
-  },
-  {
-    "name": "::after"
-  },
-  {
-    "name": ":nth()"
-  },
-  {
-    "name": ":first-of-type"
-  },
-  {
-    "name": ":nth-col()"
-  },
-  {
-    "name": "::spelling-error"
-  },
-  {
-    "name": ":focus"
-  },
-  {
-    "name": ":focus-visible"
-  },
-  {
-    "name": ":paused"
-  },
-  {
-    "name": ":required"
-  },
-  {
-    "name": ":optional"
-  },
-  {
-    "name": ":nth-child()"
-  },
-  {
-    "name": ":last-of-type"
-  },
-  {
-    "name": "::placeholder"
-  },
-  {
-    "name": ":link"
-  },
-  {
-    "name": ":future"
-  },
-  {
-    "name": ":default"
-  },
-  {
-    "name": "~"
-  },
-  {
-    "name": "::cue"
-  },
-  {
-    "name": ":matches()"
-  },
-  {
-    "name": ":defined"
-  },
-  {
-    "name": ":scope"
-  },
-  {
-    "name": ":buffering"
-  },
-  {
-    "name": ":fullscreen"
-  },
-  {
-    "name": "::grammar-error"
-  },
-  {
-    "name": "&"
-  },
-  {
-    "name": ":where()"
-  },
-  {
-    "name": ":target"
-  },
-  {
-    "name": ":modal"
+    "name": ":user-valid"
   },
   {
     "name": ":empty"
   },
   {
-    "name": ":nth-of-type()"
+    "name": ":nth-last-child()"
+  },
+  {
+    "name": ":fullscreen"
+  },
+  {
+    "name": ":required"
+  },
+  {
+    "name": "||"
+  },
+  {
+    "name": ":nth-last-col()"
+  },
+  {
+    "name": "&"
   },
   {
     "name": "::part()"
@@ -300,6 +132,174 @@
     "name": ":has()"
   },
   {
-    "name": ":lang()"
+    "name": ":past"
+  },
+  {
+    "name": ":target-within"
+  },
+  {
+    "name": ":modal"
+  },
+  {
+    "name": ":picture-in-picture"
+  },
+  {
+    "name": ":in-range"
+  },
+  {
+    "name": ":nth()"
+  },
+  {
+    "name": "::grammar-error"
+  },
+  {
+    "name": "::view-transition"
+  },
+  {
+    "name": ":dir()"
+  },
+  {
+    "name": ":root"
+  },
+  {
+    "name": ":nth-child()"
+  },
+  {
+    "name": ":nth-of-type()"
+  },
+  {
+    "name": "~"
+  },
+  {
+    "name": ":blank"
+  },
+  {
+    "name": "::cue()"
+  },
+  {
+    "name": "::details-content"
+  },
+  {
+    "name": ":host-context()"
+  },
+  {
+    "name": ":muted"
+  },
+  {
+    "name": ":closed"
+  },
+  {
+    "name": "::cue-region()"
+  },
+  {
+    "name": "::view-transition-old()"
+  },
+  {
+    "name": ":matches()"
+  },
+  {
+    "name": ":valid"
+  },
+  {
+    "name": ":out-of-range"
+  },
+  {
+    "name": ":focus"
+  },
+  {
+    "name": ":paused"
+  },
+  {
+    "name": ":read-write"
+  },
+  {
+    "name": "::first-line"
+  },
+  {
+    "name": "::after"
+  },
+  {
+    "name": "::view-transition-group()"
+  },
+  {
+    "name": ":scope"
+  },
+  {
+    "name": ":optional"
+  },
+  {
+    "name": ":target"
+  },
+  {
+    "name": ":hover"
+  },
+  {
+    "name": ":seeking"
+  },
+  {
+    "name": ":open"
+  },
+  {
+    "name": ":focus-within"
+  },
+  {
+    "name": ":autofill"
+  },
+  {
+    "name": ":first-child"
+  },
+  {
+    "name": ":first-of-type"
+  },
+  {
+    "name": "::first-letter"
+  },
+  {
+    "name": "::target-text"
+  },
+  {
+    "name": ":defined"
+  },
+  {
+    "name": ":any-link"
+  },
+  {
+    "name": ":only-of-type"
+  },
+  {
+    "name": ":nth-col()"
+  },
+  {
+    "name": ":last-of-type"
+  },
+  {
+    "name": "::highlight()"
+  },
+  {
+    "name": ":read-only"
+  },
+  {
+    "name": ":placeholder-shown"
+  },
+  {
+    "name": ":checked"
+  },
+  {
+    "name": ">"
+  },
+  {
+    "name": "::cue-region"
+  },
+  {
+    "name": "::spelling-error"
+  },
+  {
+    "name": "::view-transition-new()"
+  },
+  {
+    "name": ":where()"
+  },
+  {
+    "name": ":indeterminate"
   }
 ]

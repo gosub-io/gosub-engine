@@ -7,32 +7,46 @@ use memoize::memoize;
 use std::collections::HashMap;
 
 /// List of elements that are built-in data types in the CSS specification
-#[allow(dead_code)]
-const BUILTIN_DATA_TYPES: [&str; 24] = [
-    "anchor-element",
+const BUILTIN_DATA_TYPES: [&str; 39] = [
+    "absolute-size",
+    "age",
     "angle",
-    "coord-box",
+    "basic-shape",
+    "calc-size()",
+    "counter-name",
+    "counter-style-name",
     "custom-ident",
     "dashed-ident",
-    "declaration-value",
+    "decibel",
+    "feature-tag-value",
+    "flex",
+    "frequency",
+    "gender",
     "hex-color",
-    "inset-area",
+    "id",
+    "ident",
+    "image-1D",
     "integer",
     "length",
     "number",
-    "offset-path",
+    "named-color",
+    "semitones",
+    "system-color",
+    "outline-line-style",
     "palette-identifier",
     "percentage",
-    "resolution",
-    "single-animation-composition",
+    "relative-size",
     "string",
+    "target-name",
     "time",
-    "try-size",
-    "try-tactic",
-    "url",
-    "white-space-trim",
+    "timeline-range-name",
+    "transform-function",
+    "uri",
+    "url-set",
+    "url-token",
     "x",
     "y",
+    "color()",
 ];
 
 /// A CSS property definition including its type and initial value and optional expanded values if it's a shorthand property
@@ -151,11 +165,6 @@ impl CssDefinitions {
         self.syntax.insert(name.to_string(), syntax);
     }
 
-    // Add a new function definition
-    // pub fn add_function(&mut self, name: &str, function: FunctionDefinition) {
-    //     self.functions.insert(name.to_string(), function);
-    // }
-
     /// Find a specific property
     pub fn find_property(&self, name: &str) -> Option<PropertyDefinition> {
         self.properties.get(name).cloned()
@@ -184,6 +193,7 @@ impl CssDefinitions {
         names.sort();
 
         for name in names {
+            // println!("Resolving property {:?}", &name);
             self.resolve_property(&name);
         }
     }
@@ -491,7 +501,7 @@ mod tests {
     #[test]
     fn test_parse_definition_file() {
         let definitions = parse_definition_files();
-        assert_eq!(definitions.len(), 563);
+        assert_eq!(definitions.len(), 493);
     }
 
     #[test]

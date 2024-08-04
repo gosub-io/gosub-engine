@@ -111,7 +111,7 @@ impl From<&str> for RgbColor {
     }
 }
 
-fn get_hex_color_from_name(color_name: &str) -> Option<&str> {
+pub fn get_hex_color_from_name(color_name: &str) -> Option<&str> {
     for entry in crate::colors::CSS_COLORNAMES.iter() {
         if entry.name == color_name {
             return Some(entry.value);

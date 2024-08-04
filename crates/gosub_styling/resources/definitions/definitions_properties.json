@@ -1,216 +1,21 @@
 [
   {
-    "name": "-webkit-transition-timing-function",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "overscroll-behavior-block",
-    "syntax": "contain | none | auto",
+    "name": "margin-bottom",
+    "syntax": "<length-percentage> | auto",
     "computed": [
-      "asSpecified"
-    ],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "animation-play-state",
-    "syntax": "<single-animation-play-state>#",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "running",
-    "inherited": false
-  },
-  {
-    "name": "grid-column",
-    "syntax": "<grid-line> [ / <grid-line> ]?",
-    "computed": [
-      "grid-column-start",
-      "grid-column-end"
-    ],
-    "initial": [
-      "grid-column-start",
-      "grid-column-end"
-    ],
-    "inherited": false
-  },
-  {
-    "name": "transition-property",
-    "syntax": "none | <single-transition-property>#",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "all",
-    "inherited": false
-  },
-  {
-    "name": "padding-block",
-    "syntax": "<'padding-top'>{1,2}",
-    "computed": [
-      "padding-block-start",
-      "padding-block-end"
-    ],
-    "initial": [
-      "padding-block-start",
-      "padding-block-end"
-    ],
-    "inherited": false
-  },
-  {
-    "name": "-webkit-background-size",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "fill-image",
-    "syntax": "<paint>#",
-    "computed": [],
-    "initial": "none",
-    "inherited": true
-  },
-  {
-    "name": "stroke-dashoffset",
-    "syntax": "<length-percentage> | <number>",
-    "computed": [],
-    "initial": "0",
-    "inherited": true
-  },
-  {
-    "name": "min-block-size",
-    "syntax": "<'min-width'>",
-    "computed": [
-      "sameAsMinWidthAndMinHeight"
+      "percentageAsSpecifiedOrAbsoluteLength"
     ],
     "initial": "0",
     "inherited": false
   },
   {
-    "name": "animation-range-start",
-    "syntax": "[ normal | <length-percentage> | <timeline-range-name> <length-percentage>? ]#",
-    "computed": [
-      "listEachItemConsistingOfNormalLengthPercentageOrNameLengthPercentage"
-    ],
-    "initial": "normal",
-    "inherited": false
-  },
-  {
-    "name": "box-sizing",
-    "syntax": "content-box | border-box",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "content-box",
-    "inherited": false
-  },
-  {
-    "name": "text-orientation",
-    "syntax": "mixed | upright | sideways",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "mixed",
-    "inherited": true
-  },
-  {
-    "name": "grid-template",
-    "syntax": "none | [ <'grid-template-rows'> / <'grid-template-columns'> ] | [ <line-names>? <string> <track-size>? <line-names>? ]+ [ / <explicit-track-list> ]?",
-    "computed": [
-      "grid-template-columns",
-      "grid-template-rows",
-      "grid-template-areas"
-    ],
-    "initial": [
-      "grid-template-columns",
-      "grid-template-rows",
-      "grid-template-areas"
-    ],
-    "inherited": false
-  },
-  {
-    "name": "transform",
-    "syntax": "none | <transform-list>",
-    "computed": [
-      "asSpecifiedRelativeToAbsoluteLengths"
-    ],
-    "initial": "none",
-    "inherited": false
-  },
-  {
-    "name": "speak-as",
-    "syntax": "normal | spell-out || digits || [ literal-punctuation | no-punctuation ]",
-    "computed": [],
-    "initial": "normal",
-    "inherited": true
-  },
-  {
-    "name": "rest-after",
-    "syntax": "<time [0s,∞]> | none | x-weak | weak | medium | strong | x-strong",
-    "computed": [],
-    "initial": "none",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-appearance",
-    "syntax": "",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "noneButOverriddenInUserAgentCSS",
-    "inherited": false
-  },
-  {
-    "name": "line-break",
-    "syntax": "auto | loose | normal | strict | anywhere",
+    "name": "font-synthesis-weight",
+    "syntax": "auto | none",
     "computed": [
       "asSpecified"
     ],
     "initial": "auto",
     "inherited": true
-  },
-  {
-    "name": "clear",
-    "syntax": "inline-start | inline-end | block-start | block-end | left | right | top | bottom | both-inline | both-block | both | none",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "none",
-    "inherited": false
-  },
-  {
-    "name": "scroll-padding-block-end",
-    "syntax": "auto | <length-percentage [0,∞]>",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-flex-flow",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "outline",
-    "syntax": "[ <'outline-width'> || <'outline-style'> || <'outline-color'> ]",
-    "computed": [
-      "outline-color",
-      "outline-width",
-      "outline-style"
-    ],
-    "initial": [
-      "outline-color",
-      "outline-style",
-      "outline-width"
-    ],
-    "inherited": false
   },
   {
     "name": "font-optical-sizing",
@@ -222,26 +27,173 @@
     "inherited": true
   },
   {
-    "name": "justify-content",
-    "syntax": "normal | <content-distribution> | <overflow-position>? [ <content-position> | left | right ]",
+    "name": "grid-auto-rows",
+    "syntax": "<track-size>+",
+    "computed": [
+      "percentageAsSpecifiedOrAbsoluteLength"
+    ],
+    "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "animation-duration",
+    "syntax": "<time [0s,∞]>#",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "0s",
+    "inherited": false
+  },
+  {
+    "name": "overflow-anchor",
+    "syntax": "auto | none",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "grid-auto-flow",
+    "syntax": "[ row | column ] || dense",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "row",
+    "inherited": false
+  },
+  {
+    "name": "voice-duration",
+    "syntax": "auto | <time [0s,∞]>",
+    "computed": [],
+    "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "outline-color",
+    "syntax": "auto | [ <color> | <image-1D> ]",
+    "computed": [
+      "autoForTranslucentColorRGBAOtherwiseRGB"
+    ],
+    "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "-webkit-border-top-right-radius",
+    "syntax": "",
+    "computed": [],
+    "initial": "",
+    "inherited": false
+  },
+  {
+    "name": "mask-border-source",
+    "syntax": "none | <image>",
+    "computed": [
+      "asSpecifiedURLsAbsolute"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "stroke-dash-corner",
+    "syntax": "none | <length>",
+    "computed": [],
+    "initial": "none",
+    "inherited": true
+  },
+  {
+    "name": "filter",
+    "syntax": "none | <filter-value-list>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "-webkit-align-content",
+    "syntax": "",
+    "computed": [],
+    "initial": "",
+    "inherited": false
+  },
+  {
+    "name": "mask-border-repeat",
+    "syntax": "[ stretch | repeat | round | space ]{1,2}",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "stretch",
+    "inherited": false
+  },
+  {
+    "name": "-webkit-backface-visibility",
+    "syntax": "",
+    "computed": [],
+    "initial": "",
+    "inherited": false
+  },
+  {
+    "name": "grid-auto-columns",
+    "syntax": "<track-size>+",
+    "computed": [
+      "percentageAsSpecifiedOrAbsoluteLength"
+    ],
+    "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "voice-pitch",
+    "syntax": "<frequency [0Hz,∞]> && absolute | [[x-low | low | medium | high | x-high] || [<frequency> | <semitones> | <percentage>]]",
+    "computed": [],
+    "initial": "medium",
+    "inherited": true
+  },
+  {
+    "name": "direction",
+    "syntax": "ltr | rtl",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "ltr",
+    "inherited": true
+  },
+  {
+    "name": "font-variant-numeric",
+    "syntax": "normal | [ <numeric-figure-values> || <numeric-spacing-values> || <numeric-fraction-values> || ordinal || slashed-zero ]",
     "computed": [
       "asSpecified"
     ],
     "initial": "normal",
-    "inherited": false
-  },
-  {
-    "name": "voice-family",
-    "syntax": "[[<family-name> | <generic-voice>],]* [<family-name> | <generic-voice>] | preserve",
-    "computed": [],
-    "initial": "implementation-dependent",
     "inherited": true
   },
   {
-    "name": "float-offset",
-    "syntax": "<length> | <percentage>",
+    "name": "text-decoration-style",
+    "syntax": "solid | double | dotted | dashed | wavy",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "solid",
+    "inherited": false
+  },
+  {
+    "name": "fill-size",
+    "syntax": "<bg-size>#",
     "computed": [],
-    "initial": "0",
+    "initial": "auto",
+    "inherited": true
+  },
+  {
+    "name": "position-try",
+    "syntax": "<'position-try-order'>? <'position-try-fallbacks'>",
+    "computed": [
+      "position-try-options",
+      "position-try-order"
+    ],
+    "initial": [
+      "position-try-options",
+      "position-try-order"
+    ],
     "inherited": false
   },
   {
@@ -254,22 +206,13 @@
     "inherited": false
   },
   {
-    "name": "scroll-margin-right",
-    "syntax": "<length>",
+    "name": "scroll-padding-inline-start",
+    "syntax": "auto | <length-percentage [0,∞]>",
     "computed": [
       "asSpecified"
     ],
-    "initial": "0",
+    "initial": "auto",
     "inherited": false
-  },
-  {
-    "name": "hyphens",
-    "syntax": "none | manual | auto",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "manual",
-    "inherited": true
   },
   {
     "name": "text-size-adjust",
@@ -281,147 +224,15 @@
     "inherited": true
   },
   {
-    "name": "resize",
-    "syntax": "none | both | horizontal | vertical | block | inline",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "none",
-    "inherited": false
-  },
-  {
-    "name": "float-defer",
-    "syntax": "<integer> | last | none",
-    "computed": [],
-    "initial": "none",
-    "inherited": false
-  },
-  {
-    "name": "touch-action",
-    "syntax": "auto | none | [ [ pan-x | pan-left | pan-right ] || [ pan-y | pan-up | pan-down ] || pinch-zoom ] | manipulation",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "scrollbar-width",
-    "syntax": "auto | thin | none",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "glyph-orientation-vertical",
-    "syntax": "auto | 0deg | 90deg | 0 | 90",
-    "computed": [],
-    "initial": "n/a",
-    "inherited": false
-  },
-  {
-    "name": "font-variant-numeric",
-    "syntax": "normal | [ <numeric-figure-values> || <numeric-spacing-values> || <numeric-fraction-values> || ordinal || slashed-zero ]",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "normal",
-    "inherited": true
-  },
-  {
-    "name": "-webkit-user-select",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "fill-size",
+    "name": "stroke-size",
     "syntax": "<bg-size>#",
     "computed": [],
     "initial": "auto",
     "inherited": true
   },
   {
-    "name": "stroke-color",
-    "syntax": "<color>#",
-    "computed": [],
-    "initial": "transparent",
-    "inherited": true
-  },
-  {
-    "name": "font-synthesis-weight",
-    "syntax": "auto | none",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "auto",
-    "inherited": true
-  },
-  {
-    "name": "scroll-padding-right",
-    "syntax": "auto | <length-percentage [0,∞]>",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "background-origin",
-    "syntax": "<visual-box>#",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "padding-box",
-    "inherited": false
-  },
-  {
-    "name": "padding-inline-start",
-    "syntax": "<'padding-top'>",
-    "computed": [
-      "asLength"
-    ],
-    "initial": "0",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-align-self",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "nav-left",
-    "syntax": "auto | <id> [ current | root | <target-name> ]?",
-    "computed": [],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "transform-box",
-    "syntax": "content-box | border-box | fill-box | stroke-box | view-box",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "view-box",
-    "inherited": false
-  },
-  {
-    "name": "mix-blend-mode",
-    "syntax": "<blend-mode> | plus-darker | plus-lighter",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "normal",
-    "inherited": false
-  },
-  {
-    "name": "grid-row-gap",
-    "syntax": "",
+    "name": "margin-left",
+    "syntax": "<length-percentage> | auto",
     "computed": [
       "percentageAsSpecifiedOrAbsoluteLength"
     ],
@@ -429,123 +240,35 @@
     "inherited": false
   },
   {
-    "name": "offset-position",
-    "syntax": "normal | auto | <position>",
-    "computed": [
-      "forLengthAbsoluteValueOtherwisePercentage"
-    ],
-    "initial": "normal",
-    "inherited": false
-  },
-  {
-    "name": "margin-block-start",
-    "syntax": "<'margin-top'>",
-    "computed": [
-      "lengthAbsolutePercentageAsSpecifiedOtherwiseAuto"
-    ],
-    "initial": "0",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-border-bottom-left-radius",
+    "name": "-webkit-animation-direction",
     "syntax": "",
     "computed": [],
     "initial": "",
     "inherited": false
   },
   {
-    "name": "-webkit-mask-box-image-slice",
+    "name": "-webkit-mask",
     "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "grid-auto-rows",
-    "syntax": "<track-size>+",
     "computed": [
-      "percentageAsSpecifiedOrAbsoluteLength"
+      "-webkit-mask-image",
+      "-webkit-mask-repeat",
+      "-webkit-mask-attachment",
+      "-webkit-mask-position",
+      "-webkit-mask-origin",
+      "-webkit-mask-clip"
     ],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "zoom",
-    "syntax": "<number [0,∞]> || <percentage [0,∞]>",
-    "computed": [
-      "asSpecified"
+    "initial": [
+      "-webkit-mask-image",
+      "-webkit-mask-repeat",
+      "-webkit-mask-attachment",
+      "-webkit-mask-position",
+      "-webkit-mask-origin",
+      "-webkit-mask-clip"
     ],
-    "initial": "normal",
     "inherited": false
   },
   {
-    "name": "float",
-    "syntax": "block-start | block-end | inline-start | inline-end | snap-block | <snap-block()> | snap-inline | <snap-inline()> | left | right | top | bottom | none | footnote",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "none",
-    "inherited": false
-  },
-  {
-    "name": "text-align-last",
-    "syntax": "auto | start | end | left | right | center | justify | match-parent",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "auto",
-    "inherited": true
-  },
-  {
-    "name": "unicode-bidi",
-    "syntax": "normal | embed | isolate | bidi-override | isolate-override | plaintext",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "normal",
-    "inherited": false
-  },
-  {
-    "name": "column-span",
-    "syntax": "none | all",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "none",
-    "inherited": false
-  },
-  {
-    "name": "flood-color",
-    "syntax": "<color>",
-    "computed": [],
-    "initial": "black",
-    "inherited": false
-  },
-  {
-    "name": "break-after",
-    "syntax": "auto | avoid | always | all | avoid-page | page | left | right | recto | verso | avoid-column | column | avoid-region | region",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-align-content",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-border-top-right-radius",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "grid-row-start",
+    "name": "grid-row-end",
     "syntax": "<grid-line>",
     "computed": [
       "asSpecified"
@@ -554,31 +277,111 @@
     "inherited": false
   },
   {
-    "name": "voice-duration",
-    "syntax": "auto | <time [0s,∞]>",
-    "computed": [],
+    "name": "overscroll-behavior-block",
+    "syntax": "contain | none | auto",
+    "computed": [
+      "asSpecified"
+    ],
     "initial": "auto",
     "inherited": false
   },
   {
-    "name": "text-emphasis",
-    "syntax": "<'text-emphasis-style'> || <'text-emphasis-color'>",
-    "computed": [
-      "text-emphasis-style",
-      "text-emphasis-color"
-    ],
-    "initial": [
-      "text-emphasis-style",
-      "text-emphasis-color"
-    ],
+    "name": "fill-color",
+    "syntax": "<color>",
+    "computed": [],
+    "initial": "currentcolor",
+    "inherited": true
+  },
+  {
+    "name": "-webkit-animation-duration",
+    "syntax": "",
+    "computed": [],
+    "initial": "",
     "inherited": false
   },
   {
-    "name": "flow-into",
-    "syntax": "none | <ident> [element | content]?",
+    "name": "word-spacing",
+    "syntax": "normal | <length>",
+    "computed": [
+      "absoluteLength"
+    ],
+    "initial": "normal",
+    "inherited": true
+  },
+  {
+    "name": "text-justify",
+    "syntax": "auto | none | inter-word | inter-character",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "auto",
+    "inherited": true
+  },
+  {
+    "name": "transform",
+    "syntax": "none | <transform-list>",
+    "computed": [
+      "asSpecifiedRelativeToAbsoluteLengths"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "align-self",
+    "syntax": "auto | normal | stretch | <baseline-position> | <overflow-position>? <self-position> | anchor-center",
+    "computed": [
+      "autoOnAbsolutelyPositionedElementsValueOfAlignItemsOnParent"
+    ],
+    "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "text-box-trim",
+    "syntax": "none | start | end | both",
     "computed": [],
     "initial": "none",
     "inherited": false
+  },
+  {
+    "name": "-webkit-animation-name",
+    "syntax": "",
+    "computed": [],
+    "initial": "",
+    "inherited": false
+  },
+  {
+    "name": "column-rule-style",
+    "syntax": "<line-style>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "pause-before",
+    "syntax": "<time [0s,∞]> | none | x-weak | weak | medium | strong | x-strong",
+    "computed": [],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "mask-origin",
+    "syntax": "<coord-box>#",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "border-box",
+    "inherited": false
+  },
+  {
+    "name": "font-variant-alternates",
+    "syntax": "normal | [ stylistic(<feature-value-name>) || historical-forms || styleset(<feature-value-name>#) || character-variant(<feature-value-name>#) || swash(<feature-value-name>) || ornaments(<feature-value-name>) || annotation(<feature-value-name>) ]",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "normal",
+    "inherited": true
   },
   {
     "name": "grid",
@@ -610,15 +413,17 @@
     "inherited": false
   },
   {
-    "name": "rest",
-    "syntax": "<'rest-before'> <'rest-after'>?",
-    "computed": [],
-    "initial": "N/A (see individual properties)",
+    "name": "column-width",
+    "syntax": "auto | <length [0,∞]> | min-content | max-content | fit-content(<length-percentage>)",
+    "computed": [
+      "absoluteLengthZeroOrLarger"
+    ],
+    "initial": "auto",
     "inherited": false
   },
   {
-    "name": "overscroll-behavior-inline",
-    "syntax": "contain | none | auto",
+    "name": "scroll-padding-right",
+    "syntax": "auto | <length-percentage [0,∞]>",
     "computed": [
       "asSpecified"
     ],
@@ -626,694 +431,30 @@
     "inherited": false
   },
   {
-    "name": "font-synthesis",
-    "syntax": "none | [ weight || style || small-caps || position]",
+    "name": "outline-style",
+    "syntax": "auto | <outline-line-style>",
     "computed": [
       "asSpecified"
     ],
-    "initial": "weight style small-caps position ",
-    "inherited": true
+    "initial": "none",
+    "inherited": false
   },
   {
-    "name": "-webkit-mask-size",
-    "syntax": "",
+    "name": "resize",
+    "syntax": "none | both | horizontal | vertical | block | inline",
     "computed": [
       "asSpecified"
     ],
-    "initial": "auto auto",
+    "initial": "none",
     "inherited": false
   },
   {
-    "name": "grid-row",
-    "syntax": "<grid-line> [ / <grid-line> ]?",
-    "computed": [
-      "grid-row-start",
-      "grid-row-end"
-    ],
-    "initial": [
-      "grid-row-start",
-      "grid-row-end"
-    ],
-    "inherited": false
-  },
-  {
-    "name": "overflow-anchor",
-    "syntax": "auto | none",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "transition-delay",
+    "name": "animation-delay",
     "syntax": "<time>#",
     "computed": [
       "asSpecified"
     ],
     "initial": "0s",
-    "inherited": false
-  },
-  {
-    "name": "font-weight",
-    "syntax": "<font-weight-absolute> | bolder | lighter",
-    "computed": [
-      "keywordOrNumericalValueBolderLighterTransformedToRealValue"
-    ],
-    "initial": "normal",
-    "inherited": true
-  },
-  {
-    "name": "clip",
-    "syntax": "<rect()> | auto",
-    "computed": [
-      "autoOrRectangle"
-    ],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "overflow-clip-margin",
-    "syntax": "<visual-box> || <length [0,∞]>",
-    "computed": [
-      "theComputedLengthAndVisualBox"
-    ],
-    "initial": "0px",
-    "inherited": false
-  },
-  {
-    "name": "font-feature-settings",
-    "syntax": "normal | <feature-tag-value>#",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "normal",
-    "inherited": true
-  },
-  {
-    "name": "mask-composite",
-    "syntax": "<compositing-operator>#",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "add",
-    "inherited": false
-  },
-  {
-    "name": "text-transform",
-    "syntax": "none | [capitalize | uppercase | lowercase ] || full-width || full-size-kana | math-auto",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "none",
-    "inherited": false
-  },
-  {
-    "name": "font-size-adjust",
-    "syntax": "none | <number [0,∞]>",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "none",
-    "inherited": true
-  },
-  {
-    "name": "direction",
-    "syntax": "ltr | rtl",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "ltr",
-    "inherited": true
-  },
-  {
-    "name": "scroll-margin-bottom",
-    "syntax": "<length>",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "0",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-perspective-origin",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "block-step",
-    "syntax": "<'block-step-size'> || <'block-step-insert'> || <'block-step-align'> || <'block-step-round'>",
-    "computed": [],
-    "initial": "see individual properties",
-    "inherited": false
-  },
-  {
-    "name": "float-reference",
-    "syntax": "inline | column | region | page",
-    "computed": [],
-    "initial": "inline",
-    "inherited": false
-  },
-  {
-    "name": "scroll-padding-inline",
-    "syntax": "[ auto | <length-percentage [0,∞]> ]{1,2}",
-    "computed": [
-      "scroll-padding-inline-start",
-      "scroll-padding-inline-end"
-    ],
-    "initial": [
-      "scroll-padding-inline-start",
-      "scroll-padding-inline-end"
-    ],
-    "inherited": false
-  },
-  {
-    "name": "text-indent",
-    "syntax": "[ <length-percentage> ] && hanging? && each-line?",
-    "computed": [
-      "percentageOrAbsoluteLengthPlusKeywords"
-    ],
-    "initial": "0",
-    "inherited": true
-  },
-  {
-    "name": "counter-set",
-    "syntax": "[ <counter-name> <integer>? ]+ | none",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "none",
-    "inherited": false
-  },
-  {
-    "name": "grid-column-gap",
-    "syntax": "",
-    "computed": [
-      "percentageAsSpecifiedOrAbsoluteLength"
-    ],
-    "initial": "0",
-    "inherited": false
-  },
-  {
-    "name": "print-color-adjust",
-    "syntax": "economy | exact",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "economy",
-    "inherited": true
-  },
-  {
-    "name": "max-width",
-    "syntax": "none | <length-percentage [0,∞]> | min-content | max-content | fit-content(<length-percentage [0,∞]>) | <calc-size()>",
-    "computed": [
-      "percentageAsSpecifiedAbsoluteLengthOrNone"
-    ],
-    "initial": "none",
-    "inherited": false
-  },
-  {
-    "name": "scroll-padding-inline-end",
-    "syntax": "auto | <length-percentage [0,∞]>",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "box-decoration-break",
-    "syntax": "slice | clone",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "slice",
-    "inherited": false
-  },
-  {
-    "name": "block-step-align",
-    "syntax": "auto | center | start | end",
-    "computed": [],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "view-timeline",
-    "syntax": "[ <'view-timeline-name'> [ <'view-timeline-axis'> || <'view-timeline-inset'> ]? ]#",
-    "computed": [
-      "view-timeline-name",
-      "view-timeline-axis"
-    ],
-    "initial": [
-      "view-timeline-name",
-      "view-timeline-axis"
-    ],
-    "inherited": false
-  },
-  {
-    "name": "font-language-override",
-    "syntax": "normal | <string>",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "normal",
-    "inherited": true
-  },
-  {
-    "name": "place-self",
-    "syntax": "<'align-self'> <'justify-self'>?",
-    "computed": [
-      "align-self",
-      "justify-self"
-    ],
-    "initial": [
-      "align-self",
-      "justify-self"
-    ],
-    "inherited": false
-  },
-  {
-    "name": "pause-before",
-    "syntax": "<time [0s,∞]> | none | x-weak | weak | medium | strong | x-strong",
-    "computed": [],
-    "initial": "none",
-    "inherited": false
-  },
-  {
-    "name": "block-step-size",
-    "syntax": "none | <length [0,∞]>",
-    "computed": [],
-    "initial": "none",
-    "inherited": false
-  },
-  {
-    "name": "object-fit",
-    "syntax": "fill | contain | cover | none | scale-down",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "fill",
-    "inherited": false
-  },
-  {
-    "name": "footnote-display",
-    "syntax": "block | inline | compact",
-    "computed": [],
-    "initial": "block",
-    "inherited": false
-  },
-  {
-    "name": "timeline-scope",
-    "syntax": "none | all | <dashed-ident>#",
-    "computed": [
-      "noneOrOrderedListOfIdentifiers"
-    ],
-    "initial": "none",
-    "inherited": false
-  },
-  {
-    "name": "mask-position",
-    "syntax": "<position>#",
-    "computed": [
-      "consistsOfTwoKeywordsForOriginAndOffsets"
-    ],
-    "initial": "0% 0%",
-    "inherited": false
-  },
-  {
-    "name": "white-space",
-    "syntax": "normal | pre | nowrap | pre-wrap | break-spaces | pre-line",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "normal",
-    "inherited": true
-  },
-  {
-    "name": "list-style-image",
-    "syntax": "<image> | none",
-    "computed": [
-      "theKeywordListStyleImageNoneOrComputedValue"
-    ],
-    "initial": "none",
-    "inherited": true
-  },
-  {
-    "name": "margin-right",
-    "syntax": "<length-percentage> | auto",
-    "computed": [
-      "percentageAsSpecifiedOrAbsoluteLength"
-    ],
-    "initial": "0",
-    "inherited": false
-  },
-  {
-    "name": "text-emphasis-position",
-    "syntax": "[ over | under ] && [ right | left ]?",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "over right",
-    "inherited": true
-  },
-  {
-    "name": "overscroll-behavior-y",
-    "syntax": "contain | none | auto",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "stroke-align",
-    "syntax": "center | inset | outset",
-    "computed": [],
-    "initial": "center",
-    "inherited": true
-  },
-  {
-    "name": "line-grid",
-    "syntax": "match-parent | create",
-    "computed": [],
-    "initial": "match-parent",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-mask-position",
-    "syntax": "",
-    "computed": [
-      "absoluteLengthOrPercentage"
-    ],
-    "initial": "0% 0%",
-    "inherited": false
-  },
-  {
-    "name": "font-palette",
-    "syntax": "normal | light | dark | <palette-identifier> | <palette-mix()>",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "normal",
-    "inherited": true
-  },
-  {
-    "name": "mask-mode",
-    "syntax": "<masking-mode>#",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "match-source",
-    "inherited": false
-  },
-  {
-    "name": "overflow-y",
-    "syntax": "visible | hidden | clip | scroll | auto",
-    "computed": [
-      "asSpecifiedButVisibleOrClipReplacedToAutoOrHiddenIfOtherValueDifferent"
-    ],
-    "initial": "visible",
-    "inherited": false
-  },
-  {
-    "name": "line-height",
-    "syntax": "normal | <number [0,∞]> | <length-percentage [0,∞]>",
-    "computed": [
-      "absoluteLengthOrAsSpecified"
-    ],
-    "initial": "normal",
-    "inherited": true
-  },
-  {
-    "name": "initial-letter-wrap",
-    "syntax": "none | first | all | grid | <length-percentage>",
-    "computed": [],
-    "initial": "none",
-    "inherited": true
-  },
-  {
-    "name": "position-anchor",
-    "syntax": "auto | <anchor-element>",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "implicit",
-    "inherited": false
-  },
-  {
-    "name": "position-area",
-    "syntax": "none | <position-area>",
-    "computed": [],
-    "initial": "none",
-    "inherited": false
-  },
-  {
-    "name": "position-try-order",
-    "syntax": "normal | <try-size>",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "normal",
-    "inherited": false
-  },
-  {
-    "name": "contain",
-    "syntax": "none | strict | content | [ [size | inline-size] || layout || style || paint ]",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "none",
-    "inherited": false
-  },
-  {
-    "name": "scroll-margin",
-    "syntax": "<length>{1,4}",
-    "computed": [
-      "scroll-margin-bottom",
-      "scroll-margin-left",
-      "scroll-margin-right",
-      "scroll-margin-top"
-    ],
-    "initial": [
-      "scroll-margin-bottom",
-      "scroll-margin-left",
-      "scroll-margin-right",
-      "scroll-margin-top"
-    ],
-    "inherited": false
-  },
-  {
-    "name": "background-position",
-    "syntax": "<bg-position>#",
-    "computed": [
-      "background-position-x",
-      "background-position-y"
-    ],
-    "initial": "0% 0%",
-    "inherited": false
-  },
-  {
-    "name": "row-gap",
-    "syntax": "normal | <length-percentage [0,∞]>",
-    "computed": [
-      "asSpecifiedWithLengthsAbsoluteAndNormalComputingToZeroExceptMultiColumn"
-    ],
-    "initial": "normal",
-    "inherited": false
-  },
-  {
-    "name": "overflow-x",
-    "syntax": "visible | hidden | clip | scroll | auto",
-    "computed": [
-      "asSpecifiedButVisibleOrClipReplacedToAutoOrHiddenIfOtherValueDifferent"
-    ],
-    "initial": "visible",
-    "inherited": false
-  },
-  {
-    "name": "counter-reset",
-    "syntax": "[ <counter-name> <integer>? | <reversed-counter-name> <integer>? ]+ | none",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "none",
-    "inherited": false
-  },
-  {
-    "name": "column-count",
-    "syntax": "auto | <integer [1,∞]>",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-box-shadow",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "word-wrap",
-    "syntax": "normal | break-word | anywhere",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "normal",
-    "inherited": true
-  },
-  {
-    "name": "-webkit-animation-name",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "content",
-    "syntax": "",
-    "computed": [
-      "normalOnElementsForPseudosNoneAbsoluteURIStringOrAsSpecified"
-    ],
-    "initial": "normal",
-    "inherited": false
-  },
-  {
-    "name": "ruby-merge",
-    "syntax": "separate | merge | auto",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "separate",
-    "inherited": true
-  },
-  {
-    "name": "scroll-padding-block-start",
-    "syntax": "auto | <length-percentage [0,∞]>",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "overflow",
-    "syntax": "<'overflow-block'>{1,2}",
-    "computed": [
-      "overflow-x",
-      "overflow-y"
-    ],
-    "initial": "visible",
-    "inherited": false
-  },
-  {
-    "name": "max-block-size",
-    "syntax": "<'max-width'>",
-    "computed": [
-      "sameAsMaxWidthAndMaxHeight"
-    ],
-    "initial": "none",
-    "inherited": false
-  },
-  {
-    "name": "margin-inline-end",
-    "syntax": "<'margin-top'>",
-    "computed": [
-      "lengthAbsolutePercentageAsSpecifiedOtherwiseAuto"
-    ],
-    "initial": "0",
-    "inherited": false
-  },
-  {
-    "name": "scroll-padding-block",
-    "syntax": "[ auto | <length-percentage [0,∞]> ]{1,2}",
-    "computed": [
-      "scroll-padding-block-start",
-      "scroll-padding-block-end"
-    ],
-    "initial": [
-      "scroll-padding-block-start",
-      "scroll-padding-block-end"
-    ],
-    "inherited": false
-  },
-  {
-    "name": "-webkit-text-fill-color",
-    "syntax": "<color>",
-    "computed": [
-      "computedColor"
-    ],
-    "initial": "currentcolor",
-    "inherited": true
-  },
-  {
-    "name": "padding-top",
-    "syntax": "<length-percentage [0,∞]>",
-    "computed": [
-      "percentageAsSpecifiedOrAbsoluteLength"
-    ],
-    "initial": "0",
-    "inherited": false
-  },
-  {
-    "name": "font-variant-caps",
-    "syntax": "normal | small-caps | all-small-caps | petite-caps | all-petite-caps | unicase | titling-caps",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "normal",
-    "inherited": true
-  },
-  {
-    "name": "align-content",
-    "syntax": "normal | <baseline-position> | <content-distribution> | <overflow-position>? <content-position>",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "normal",
-    "inherited": false
-  },
-  {
-    "name": "spatial-navigation-function",
-    "syntax": "normal | grid",
-    "computed": [],
-    "initial": "normal",
-    "inherited": false
-  },
-  {
-    "name": "initial-letter-align",
-    "syntax": "[ border-box? [ alphabetic | ideographic | hanging | leading ]? ]!",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "auto",
-    "inherited": true
-  },
-  {
-    "name": "stroke-image",
-    "syntax": "<paint>#",
-    "computed": [],
-    "initial": "none",
-    "inherited": true
-  },
-  {
-    "name": "writing-mode",
-    "syntax": "horizontal-tb | vertical-rl | vertical-lr | sideways-rl | sideways-lr",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "horizontal-tb",
-    "inherited": true
-  },
-  {
-    "name": "flow-from",
-    "syntax": "<ident> | none",
-    "computed": [],
-    "initial": "none",
     "inherited": false
   },
   {
@@ -1324,841 +465,43 @@
     "inherited": false
   },
   {
-    "name": "vertical-align",
-    "syntax": "[ first | last] || <'alignment-baseline'> || <'baseline-shift'>",
+    "name": "opacity",
+    "syntax": "<opacity-value>",
     "computed": [
-      "absoluteLengthOrKeyword"
+      "specifiedValueNumberClipped0To1"
     ],
-    "initial": "baseline",
+    "initial": "1",
     "inherited": false
   },
   {
-    "name": "cursor",
-    "syntax": "[ [ <url> | <url-set> ] [<x> <y>]? ]#? [ auto | default | none | context-menu | help | pointer | progress | wait | cell | crosshair | text | vertical-text | alias | copy | move | no-drop | not-allowed | grab | grabbing | e-resize | n-resize | ne-resize | nw-resize | s-resize | se-resize | sw-resize | w-resize | ew-resize | ns-resize | nesw-resize | nwse-resize | col-resize | row-resize | all-scroll | zoom-in | zoom-out ]",
-    "computed": [
-      "asSpecifiedURLsAbsolute"
-    ],
-    "initial": "auto",
-    "inherited": true
-  },
-  {
-    "name": "lighting-color",
-    "syntax": "<color>",
-    "computed": [],
-    "initial": "white",
-    "inherited": false
-  },
-  {
-    "name": "mask-image",
-    "syntax": "<mask-reference>#",
-    "computed": [
-      "asSpecifiedURLsAbsolute"
-    ],
-    "initial": "none",
-    "inherited": false
-  },
-  {
-    "name": "inline-size",
-    "syntax": "<'width'>",
-    "computed": [
-      "sameAsWidthAndHeight"
-    ],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-box-ordinal-group",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "scroll-snap-type",
-    "syntax": "none | [ x | y | block | inline | both ] [ mandatory | proximity ]?",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "none",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-animation-timing-function",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "speak",
-    "syntax": "auto | never | always",
-    "computed": [],
-    "initial": "auto",
-    "inherited": true
-  },
-  {
-    "name": "fill-color",
-    "syntax": "<color>",
-    "computed": [],
-    "initial": "currentcolor",
-    "inherited": true
-  },
-  {
-    "name": "cue-after",
-    "syntax": "<uri> <decibel>? | none",
-    "computed": [],
-    "initial": "none",
-    "inherited": false
-  },
-  {
-    "name": "border-spacing",
-    "syntax": "<length>{1,2}",
-    "computed": [
-      "twoAbsoluteLengths"
-    ],
-    "initial": "0",
-    "inherited": true
-  },
-  {
-    "name": "background-blend-mode",
-    "syntax": "<mix-blend-mode>#",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "normal",
-    "inherited": false
-  },
-  {
-    "name": "offset-distance",
-    "syntax": "<length-percentage>",
-    "computed": [
-      "forLengthAbsoluteValueOtherwisePercentage"
-    ],
-    "initial": "0",
-    "inherited": false
-  },
-  {
-    "name": "padding-block-start",
-    "syntax": "<'padding-top'>",
-    "computed": [
-      "asLength"
-    ],
-    "initial": "0",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-order",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "input-security",
-    "syntax": "auto | none",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "font-variant-ligatures",
-    "syntax": "normal | none | [ <common-lig-values> || <discretionary-lig-values> || <historical-lig-values> || <contextual-alt-values> ]",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "normal",
-    "inherited": true
-  },
-  {
-    "name": "place-content",
-    "syntax": "<'align-content'> <'justify-content'>?",
-    "computed": [
-      "align-content",
-      "justify-content"
-    ],
-    "initial": [
-      "align-content",
-      "justify-content"
-    ],
-    "inherited": false
-  },
-  {
-    "name": "baseline-source",
-    "syntax": "auto | first | last",
-    "computed": [],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "user-select",
-    "syntax": "auto | text | none | contain | all",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "word-break",
-    "syntax": "normal | keep-all | break-all | break-word",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "normal",
-    "inherited": true
-  },
-  {
-    "name": "height",
-    "syntax": "auto | <length-percentage [0,∞]> | min-content | max-content | fit-content(<length-percentage [0,∞]>) | <calc-size()>",
-    "computed": [
-      "percentageAutoOrAbsoluteLength"
-    ],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "text-combine-upright",
-    "syntax": "none | all | [ digits <integer [2,4]>? ]",
-    "computed": [
-      "keywordPlusIntegerIfDigits"
-    ],
-    "initial": "none",
-    "inherited": true
-  },
-  {
-    "name": "grid-template-rows",
-    "syntax": "none | <track-list> | <auto-track-list> | subgrid <line-name-list>?",
-    "computed": [
-      "asSpecifiedRelativeToAbsoluteLengths"
-    ],
-    "initial": "none",
-    "inherited": false
-  },
-  {
-    "name": "cue",
-    "syntax": "<'cue-before'> <'cue-after'>?",
-    "computed": [],
-    "initial": "N/A (see individual properties)",
-    "inherited": false
-  },
-  {
-    "name": "caret-color",
-    "syntax": "auto | <color>",
-    "computed": [
-      "asAutoOrColor"
-    ],
-    "initial": "auto",
-    "inherited": true
-  },
-  {
-    "name": "text-underline-position",
-    "syntax": "auto | [ under || [ left | right ] ]",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "auto",
-    "inherited": true
-  },
-  {
-    "name": "font-stretch",
-    "syntax": "",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "normal",
-    "inherited": false
-  },
-  {
-    "name": "mask-repeat",
-    "syntax": "<repeat-style>#",
-    "computed": [
-      "consistsOfTwoDimensionKeywords"
-    ],
-    "initial": "repeat",
-    "inherited": false
-  },
-  {
-    "name": "position-try",
-    "syntax": "<'position-try-order'>? <'position-try-fallbacks'>",
-    "computed": [
-      "position-try-options",
-      "position-try-order"
-    ],
-    "initial": [
-      "position-try-options",
-      "position-try-order"
-    ],
-    "inherited": false
-  },
-  {
-    "name": "scroll-margin-inline-start",
-    "syntax": "<length>",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "0",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-flex-direction",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "nav-down",
-    "syntax": "auto | <id> [ current | root | <target-name> ]?",
-    "computed": [],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "view-timeline-name",
-    "syntax": "[ none | <dashed-ident> ]#",
-    "computed": [
-      "noneOrOrderedListOfIdentifiers"
-    ],
-    "initial": "none",
-    "inherited": false
-  },
-  {
-    "name": "font-synthesis-position",
-    "syntax": "auto | none",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "none",
-    "inherited": true
-  },
-  {
-    "name": "column-gap",
-    "syntax": "normal | <length-percentage [0,∞]>",
-    "computed": [
-      "asSpecifiedWithLengthsAbsoluteAndNormalComputingToZeroExceptMultiColumn"
-    ],
-    "initial": "normal",
-    "inherited": false
-  },
-  {
-    "name": "gap",
-    "syntax": "<'row-gap'> <'column-gap'>?",
-    "computed": [
-      "row-gap",
-      "column-gap"
-    ],
-    "initial": [
-      "row-gap",
-      "column-gap"
-    ],
-    "inherited": false
-  },
-  {
-    "name": "mask-border-slice",
-    "syntax": "[ <number> | <percentage> ]{1,4} fill?",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "0",
-    "inherited": false
-  },
-  {
-    "name": "scroll-padding",
-    "syntax": "[ auto | <length-percentage [0,∞]> ]{1,4}",
-    "computed": [
-      "scroll-padding-bottom",
-      "scroll-padding-left",
-      "scroll-padding-right",
-      "scroll-padding-top"
-    ],
-    "initial": [
-      "scroll-padding-bottom",
-      "scroll-padding-left",
-      "scroll-padding-right",
-      "scroll-padding-top"
-    ],
-    "inherited": false
-  },
-  {
-    "name": "scroll-margin-block",
-    "syntax": "<length>{1,2}",
-    "computed": [
-      "scroll-margin-block-start",
-      "scroll-margin-block-end"
-    ],
-    "initial": [
-      "scroll-margin-block-start",
-      "scroll-margin-block-end"
-    ],
-    "inherited": false
-  },
-  {
-    "name": "position-visibility",
-    "syntax": "always | [ anchors-valid || anchors-visible || no-overflow ]",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "anchors-visible",
-    "inherited": false
-  },
-  {
-    "name": "animation-name",
-    "syntax": "[ none | <keyframes-name> ]#",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "none",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-transition-property",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "outline-width",
-    "syntax": "<line-width>",
-    "computed": [
-      "absoluteLength0ForNone"
-    ],
-    "initial": "medium",
-    "inherited": false
-  },
-  {
-    "name": "caret",
-    "syntax": "<'caret-color'> || <'caret-animation'> || <'caret-shape'>",
-    "computed": [
-      "caret-color",
-      "caret-shape"
-    ],
-    "initial": [
-      "caret-color",
-      "caret-shape"
-    ],
-    "inherited": true
-  },
-  {
-    "name": "font-width",
-    "syntax": "normal | <percentage [0,∞]> | ultra-condensed | extra-condensed | condensed | semi-condensed | semi-expanded | expanded | extra-expanded | ultra-expanded",
-    "computed": [],
-    "initial": "normal",
-    "inherited": true
-  },
-  {
-    "name": "scrollbar-color",
-    "syntax": "auto | <color>{2}",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "auto",
-    "inherited": true
-  },
-  {
-    "name": "position-try-fallbacks",
-    "syntax": "none | [ [<dashed-ident> || <try-tactic>] | <'position-area'> ]#",
-    "computed": [],
-    "initial": "none",
-    "inherited": false
-  },
-  {
-    "name": "offset-anchor",
-    "syntax": "auto | <position>",
-    "computed": [
-      "forLengthAbsoluteValueOtherwisePercentage"
-    ],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-justify-content",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "scroll-margin-left",
-    "syntax": "<length>",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "0",
-    "inherited": false
-  },
-  {
-    "name": "margin-block",
-    "syntax": "<'margin-top'>{1,2}",
-    "computed": [
-      "margin-block-start",
-      "margin-block-end"
-    ],
-    "initial": [
-      "margin-block-start",
-      "margin-block-end"
-    ],
-    "inherited": false
-  },
-  {
-    "name": "-webkit-animation-iteration-count",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "dominant-baseline",
-    "syntax": "auto | text-bottom | alphabetic | ideographic | middle | central | mathematical | hanging | text-top",
-    "computed": [],
-    "initial": "auto",
-    "inherited": true
-  },
-  {
-    "name": "pause-after",
+    "name": "rest-after",
     "syntax": "<time [0s,∞]> | none | x-weak | weak | medium | strong | x-strong",
     "computed": [],
     "initial": "none",
     "inherited": false
   },
   {
-    "name": "counter-increment",
-    "syntax": "[ <counter-name> <integer>? ]+ | none",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "none",
-    "inherited": false
-  },
-  {
-    "name": "background-color",
+    "name": "text-emphasis-color",
     "syntax": "<color>",
     "computed": [
       "computedColor"
     ],
-    "initial": "transparent",
-    "inherited": false
+    "initial": "currentcolor",
+    "inherited": true
   },
   {
-    "name": "break-inside",
-    "syntax": "auto | avoid | avoid-page | avoid-column | avoid-region",
+    "name": "outline",
+    "syntax": "[ <'outline-width'> || <'outline-style'> || <'outline-color'> ]",
     "computed": [
-      "asSpecified"
-    ],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "margin",
-    "syntax": "<'margin-top'>{1,4}",
-    "computed": [
-      "margin-bottom",
-      "margin-left",
-      "margin-right",
-      "margin-top"
+      "outline-color",
+      "outline-width",
+      "outline-style"
     ],
     "initial": [
-      "margin-bottom",
-      "margin-left",
-      "margin-right",
-      "margin-top"
+      "outline-color",
+      "outline-style",
+      "outline-width"
     ],
-    "inherited": false
-  },
-  {
-    "name": "font-variant-east-asian",
-    "syntax": "normal | [ <east-asian-variant-values> || <east-asian-width-values> || ruby ]",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "normal",
-    "inherited": true
-  },
-  {
-    "name": "grid-gap",
-    "syntax": "",
-    "computed": [
-      "grid-row-gap",
-      "grid-column-gap"
-    ],
-    "initial": [
-      "grid-row-gap",
-      "grid-column-gap"
-    ],
-    "inherited": false
-  },
-  {
-    "name": "scroll-margin-block-end",
-    "syntax": "<length>",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "0",
-    "inherited": false
-  },
-  {
-    "name": "border-image-repeat",
-    "syntax": "[ stretch | repeat | round | space ]{1,2}",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "stretch",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-mask",
-    "syntax": "",
-    "computed": [
-      "-webkit-mask-image",
-      "-webkit-mask-repeat",
-      "-webkit-mask-attachment",
-      "-webkit-mask-position",
-      "-webkit-mask-origin",
-      "-webkit-mask-clip"
-    ],
-    "initial": [
-      "-webkit-mask-image",
-      "-webkit-mask-repeat",
-      "-webkit-mask-attachment",
-      "-webkit-mask-position",
-      "-webkit-mask-origin",
-      "-webkit-mask-clip"
-    ],
-    "inherited": false
-  },
-  {
-    "name": "fill-repeat",
-    "syntax": "<repeat-style>#",
-    "computed": [],
-    "initial": "repeat",
-    "inherited": true
-  },
-  {
-    "name": "widows",
-    "syntax": "<integer [1,∞]>",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "2",
-    "inherited": true
-  },
-  {
-    "name": "-webkit-flex-basis",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "content-visibility",
-    "syntax": "visible | auto | hidden",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "visible",
-    "inherited": false
-  },
-  {
-    "name": "marker-side",
-    "syntax": "match-self | match-parent",
-    "computed": [],
-    "initial": "match-self",
-    "inherited": true
-  },
-  {
-    "name": "overflow-block",
-    "syntax": "visible | hidden | clip | scroll | auto",
-    "computed": [
-      "asSpecifiedButVisibleOrClipReplacedToAutoOrHiddenIfOtherValueDifferent"
-    ],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-mask-image",
-    "syntax": "",
-    "computed": [
-      "absoluteURIOrNone"
-    ],
-    "initial": "none",
-    "inherited": false
-  },
-  {
-    "name": "text-decoration-style",
-    "syntax": "solid | double | dotted | dashed | wavy",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "solid",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-mask-box-image-source",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "grid-row-end",
-    "syntax": "<grid-line>",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "voice-pitch",
-    "syntax": "<frequency [0Hz,∞]> && absolute | [[x-low | low | medium | high | x-high] || [<frequency> | <semitones> | <percentage>]]",
-    "computed": [],
-    "initial": "medium",
-    "inherited": true
-  },
-  {
-    "name": "fill-rule",
-    "syntax": "nonzero | evenodd",
-    "computed": [],
-    "initial": "nonzero",
-    "inherited": true
-  },
-  {
-    "name": "font-variant-position",
-    "syntax": "normal | sub | super",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "normal",
-    "inherited": true
-  },
-  {
-    "name": "-webkit-box-flex",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "voice-volume",
-    "syntax": "silent | [[x-soft | soft | medium | loud | x-loud] || <decibel>]",
-    "computed": [],
-    "initial": "medium",
-    "inherited": true
-  },
-  {
-    "name": "scroll-timeline-name",
-    "syntax": "[ none | <dashed-ident> ]#",
-    "computed": [
-      "noneOrOrderedListOfIdentifiers"
-    ],
-    "initial": "none",
-    "inherited": false
-  },
-  {
-    "name": "reading-flow",
-    "syntax": "normal | flex-visual | flex-flow | grid-rows | grid-columns | grid-order",
-    "computed": [],
-    "initial": "normal",
-    "inherited": false
-  },
-  {
-    "name": "border-collapse",
-    "syntax": "separate | collapse",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "separate",
-    "inherited": true
-  },
-  {
-    "name": "isolation",
-    "syntax": "<isolation-mode>",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "mask-border",
-    "syntax": "<'mask-border-source'> || <'mask-border-slice'> [ / <'mask-border-width'>? [ / <'mask-border-outset'> ]? ]? || <'mask-border-repeat'> || <'mask-border-mode'>",
-    "computed": [
-      "mask-border-mode",
-      "mask-border-outset",
-      "mask-border-repeat",
-      "mask-border-slice",
-      "mask-border-source",
-      "mask-border-width"
-    ],
-    "initial": [
-      "mask-border-mode",
-      "mask-border-outset",
-      "mask-border-repeat",
-      "mask-border-slice",
-      "mask-border-source",
-      "mask-border-width"
-    ],
-    "inherited": false
-  },
-  {
-    "name": "animation-iteration-count",
-    "syntax": "<single-animation-iteration-count>#",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "1",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-border-top-left-radius",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-mask-clip",
-    "syntax": "",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "border",
-    "inherited": false
-  },
-  {
-    "name": "tab-size",
-    "syntax": "<number [0,∞]> | <length [0,∞]>",
-    "computed": [
-      "specifiedIntegerOrAbsoluteLength"
-    ],
-    "initial": "8",
-    "inherited": true
-  },
-  {
-    "name": "min-width",
-    "syntax": "auto | <length-percentage [0,∞]> | min-content | max-content | fit-content(<length-percentage [0,∞]>) | <calc-size()>",
-    "computed": [
-      "percentageAsSpecifiedOrAbsoluteLength"
-    ],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "background-attachment",
-    "syntax": "<attachment>#",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "scroll",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-transition-delay",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
     "inherited": false
   },
   {
@@ -2171,42 +514,111 @@
     "inherited": true
   },
   {
-    "name": "fill-opacity",
-    "syntax": "<'opacity'>",
-    "computed": [],
-    "initial": "1",
-    "inherited": true
-  },
-  {
-    "name": "font-synthesis-style",
-    "syntax": "auto | none",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "auto",
-    "inherited": true
-  },
-  {
-    "name": "link-parameters",
-    "syntax": "none | <link-param>+",
-    "computed": [],
-    "initial": "none",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-border-radius",
+    "name": "-webkit-border-bottom-left-radius",
     "syntax": "",
     "computed": [],
     "initial": "",
     "inherited": false
   },
   {
-    "name": "-webkit-mask-repeat",
+    "name": "-webkit-background-clip",
     "syntax": "",
+    "computed": [],
+    "initial": "",
+    "inherited": false
+  },
+  {
+    "name": "overflow-clip-margin",
+    "syntax": "<visual-box> || <length [0,∞]>",
+    "computed": [
+      "theComputedLengthAndVisualBox"
+    ],
+    "initial": "0px",
+    "inherited": false
+  },
+  {
+    "name": "scroll-margin-block-start",
+    "syntax": "<length>",
     "computed": [
       "asSpecified"
     ],
-    "initial": "repeat",
+    "initial": "0",
+    "inherited": false
+  },
+  {
+    "name": "math-style",
+    "syntax": "normal | compact",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "normal",
+    "inherited": true
+  },
+  {
+    "name": "mask-position",
+    "syntax": "<position>#",
+    "computed": [
+      "consistsOfTwoKeywordsForOriginAndOffsets"
+    ],
+    "initial": "0% 0%",
+    "inherited": false
+  },
+  {
+    "name": "baseline-source",
+    "syntax": "auto | first | last",
+    "computed": [],
+    "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "min-inline-size",
+    "syntax": "<'min-width'>",
+    "computed": [
+      "sameAsMinWidthAndMinHeight"
+    ],
+    "initial": "0",
+    "inherited": false
+  },
+  {
+    "name": "region-fragment",
+    "syntax": "auto | break",
+    "computed": [],
+    "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "margin-trim",
+    "syntax": "none | [ block || inline ] | [ block-start || inline-start || block-end || inline-end ]",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "line-height",
+    "syntax": "normal | <number [0,∞]> | <length-percentage [0,∞]>",
+    "computed": [
+      "absoluteLengthOrAsSpecified"
+    ],
+    "initial": "normal",
+    "inherited": true
+  },
+  {
+    "name": "padding",
+    "syntax": "<'padding-top'>{1,4}",
+    "computed": [
+      "padding-bottom",
+      "padding-left",
+      "padding-right",
+      "padding-top"
+    ],
+    "initial": [
+      "padding-bottom",
+      "padding-left",
+      "padding-right",
+      "padding-top"
+    ],
     "inherited": false
   },
   {
@@ -2217,39 +629,10 @@
     "inherited": true
   },
   {
-    "name": "overflow-wrap",
-    "syntax": "normal | break-word | anywhere",
+    "name": "font-weight",
+    "syntax": "<font-weight-absolute> | bolder | lighter",
     "computed": [
-      "asSpecified"
-    ],
-    "initial": "normal",
-    "inherited": true
-  },
-  {
-    "name": "stroke-width",
-    "syntax": "[<length-percentage> | <number>]#",
-    "computed": [],
-    "initial": "1px",
-    "inherited": true
-  },
-  {
-    "name": "columns",
-    "syntax": "<'column-width'> || <'column-count'>",
-    "computed": [
-      "column-width",
-      "column-count"
-    ],
-    "initial": [
-      "column-width",
-      "column-count"
-    ],
-    "inherited": false
-  },
-  {
-    "name": "font-variation-settings",
-    "syntax": "normal | [ <opentype-tag> <number>]#",
-    "computed": [
-      "asSpecified"
+      "keywordOrNumericalValueBolderLighterTransformedToRealValue"
     ],
     "initial": "normal",
     "inherited": true
@@ -2282,12 +665,198 @@
     "inherited": false
   },
   {
-    "name": "offset-path",
-    "syntax": "none | <offset-path> || <coord-box>",
+    "name": "break-before",
+    "syntax": "auto | avoid | always | all | avoid-page | page | left | right | recto | verso | avoid-column | column | avoid-region | region",
     "computed": [
       "asSpecified"
     ],
+    "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "margin-break",
+    "syntax": "auto | keep | discard",
+    "computed": [],
+    "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "font-family",
+    "syntax": "[ <family-name> | <generic-family> ]#",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "dependsOnUserAgent",
+    "inherited": true
+  },
+  {
+    "name": "zoom",
+    "syntax": "<number [0,∞]> || <percentage [0,∞]>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "normal",
+    "inherited": false
+  },
+  {
+    "name": "view-timeline-name",
+    "syntax": "[ none | <dashed-ident> ]#",
+    "computed": [
+      "noneOrOrderedListOfIdentifiers"
+    ],
     "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "position-area",
+    "syntax": "none | <position-area>",
+    "computed": [],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "grid-row",
+    "syntax": "<grid-line> [ / <grid-line> ]?",
+    "computed": [
+      "grid-row-start",
+      "grid-row-end"
+    ],
+    "initial": [
+      "grid-row-start",
+      "grid-row-end"
+    ],
+    "inherited": false
+  },
+  {
+    "name": "speak",
+    "syntax": "auto | never | always",
+    "computed": [],
+    "initial": "auto",
+    "inherited": true
+  },
+  {
+    "name": "grid-row-start",
+    "syntax": "<grid-line>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "mask-type",
+    "syntax": "luminance | alpha",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "luminance",
+    "inherited": false
+  },
+  {
+    "name": "scroll-margin",
+    "syntax": "<length>{1,4}",
+    "computed": [
+      "scroll-margin-bottom",
+      "scroll-margin-left",
+      "scroll-margin-right",
+      "scroll-margin-top"
+    ],
+    "initial": [
+      "scroll-margin-bottom",
+      "scroll-margin-left",
+      "scroll-margin-right",
+      "scroll-margin-top"
+    ],
+    "inherited": false
+  },
+  {
+    "name": "scroll-margin-left",
+    "syntax": "<length>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "0",
+    "inherited": false
+  },
+  {
+    "name": "math-depth",
+    "syntax": "auto-add | add(<integer>) | <integer>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "0",
+    "inherited": true
+  },
+  {
+    "name": "-webkit-flex",
+    "syntax": "",
+    "computed": [],
+    "initial": "",
+    "inherited": false
+  },
+  {
+    "name": "box-snap",
+    "syntax": "none | block-start | block-end | center | baseline | last-baseline",
+    "computed": [],
+    "initial": "none",
+    "inherited": true
+  },
+  {
+    "name": "list-style-type",
+    "syntax": "<counter-style> | <string> | none",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "disc",
+    "inherited": true
+  },
+  {
+    "name": "place-self",
+    "syntax": "<'align-self'> <'justify-self'>?",
+    "computed": [
+      "align-self",
+      "justify-self"
+    ],
+    "initial": [
+      "align-self",
+      "justify-self"
+    ],
+    "inherited": false
+  },
+  {
+    "name": "font-feature-settings",
+    "syntax": "normal | <feature-tag-value>#",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "normal",
+    "inherited": true
+  },
+  {
+    "name": "padding-inline-end",
+    "syntax": "<'padding-top'>",
+    "computed": [
+      "asLength"
+    ],
+    "initial": "0",
+    "inherited": false
+  },
+  {
+    "name": "cursor",
+    "syntax": "[ [ <url> | <url-set> ] [<x> <y>]? ]#? [ auto | default | none | context-menu | help | pointer | progress | wait | cell | crosshair | text | vertical-text | alias | copy | move | no-drop | not-allowed | grab | grabbing | e-resize | n-resize | ne-resize | nw-resize | s-resize | se-resize | sw-resize | w-resize | ew-resize | ns-resize | nesw-resize | nwse-resize | col-resize | row-resize | all-scroll | zoom-in | zoom-out ]",
+    "computed": [
+      "asSpecifiedURLsAbsolute"
+    ],
+    "initial": "auto",
+    "inherited": true
+  },
+  {
+    "name": "-webkit-mask-position",
+    "syntax": "",
+    "computed": [
+      "absoluteLengthOrPercentage"
+    ],
+    "initial": "0% 0%",
     "inherited": false
   },
   {
@@ -2298,6 +867,774 @@
     ],
     "initial": "0",
     "inherited": false
+  },
+  {
+    "name": "spatial-navigation-function",
+    "syntax": "normal | grid",
+    "computed": [],
+    "initial": "normal",
+    "inherited": false
+  },
+  {
+    "name": "scrollbar-width",
+    "syntax": "auto | thin | none",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "stroke-image",
+    "syntax": "<paint>#",
+    "computed": [],
+    "initial": "none",
+    "inherited": true
+  },
+  {
+    "name": "-webkit-animation-timing-function",
+    "syntax": "",
+    "computed": [],
+    "initial": "",
+    "inherited": false
+  },
+  {
+    "name": "float",
+    "syntax": "block-start | block-end | inline-start | inline-end | snap-block | <snap-block()> | snap-inline | <snap-inline()> | left | right | top | bottom | none | footnote",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "scroll-snap-align",
+    "syntax": "[ none | start | end | center ]{1,2}",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "scroll-timeline",
+    "syntax": "[ <'scroll-timeline-name'> <'scroll-timeline-axis'>? ]#",
+    "computed": [
+      "scroll-timeline-name",
+      "scroll-timeline-axis"
+    ],
+    "initial": [
+      "scroll-timeline-name",
+      "scroll-timeline-axis"
+    ],
+    "inherited": false
+  },
+  {
+    "name": "color-scheme",
+    "syntax": "normal | [ light | dark | <custom-ident> ]+ && only?",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "normal",
+    "inherited": true
+  },
+  {
+    "name": "text-align",
+    "syntax": "start | end | left | right | center | justify | match-parent | justify-all",
+    "computed": [
+      "asSpecifiedExceptMatchParent"
+    ],
+    "initial": "startOrNamelessValueIfLTRRightIfRTL",
+    "inherited": true
+  },
+  {
+    "name": "caret-shape",
+    "syntax": "auto | bar | block | underscore",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "auto",
+    "inherited": true
+  },
+  {
+    "name": "visibility",
+    "syntax": "visible | hidden | collapse",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "visible",
+    "inherited": true
+  },
+  {
+    "name": "initial-letter-align",
+    "syntax": "[ border-box? [ alphabetic | ideographic | hanging | leading ]? ]!",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "auto",
+    "inherited": true
+  },
+  {
+    "name": "overscroll-behavior",
+    "syntax": "[ contain | none | auto ]{1,2}",
+    "computed": [
+      "overscroll-behavior-x",
+      "overscroll-behavior-y"
+    ],
+    "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "voice-volume",
+    "syntax": "silent | [[x-soft | soft | medium | loud | x-loud] || <decibel>]",
+    "computed": [],
+    "initial": "medium",
+    "inherited": true
+  },
+  {
+    "name": "object-position",
+    "syntax": "<position>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "50% 50%",
+    "inherited": false
+  },
+  {
+    "name": "print-color-adjust",
+    "syntax": "economy | exact",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "economy",
+    "inherited": true
+  },
+  {
+    "name": "grid-template",
+    "syntax": "none | [ <'grid-template-rows'> / <'grid-template-columns'> ] | [ <line-names>? <string> <track-size>? <line-names>? ]+ [ / <explicit-track-list> ]?",
+    "computed": [
+      "grid-template-columns",
+      "grid-template-rows",
+      "grid-template-areas"
+    ],
+    "initial": [
+      "grid-template-columns",
+      "grid-template-rows",
+      "grid-template-areas"
+    ],
+    "inherited": false
+  },
+  {
+    "name": "animation-play-state",
+    "syntax": "<single-animation-play-state>#",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "running",
+    "inherited": false
+  },
+  {
+    "name": "-webkit-flex-wrap",
+    "syntax": "",
+    "computed": [],
+    "initial": "",
+    "inherited": false
+  },
+  {
+    "name": "scroll-padding-inline-end",
+    "syntax": "auto | <length-percentage [0,∞]>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "shape-margin",
+    "syntax": "<length-percentage [0,∞]>",
+    "computed": [
+      "asSpecifiedRelativeToAbsoluteLengths"
+    ],
+    "initial": "0",
+    "inherited": false
+  },
+  {
+    "name": "-webkit-align-items",
+    "syntax": "",
+    "computed": [],
+    "initial": "",
+    "inherited": false
+  },
+  {
+    "name": "outline-offset",
+    "syntax": "<length>",
+    "computed": [
+      "asSpecifiedRelativeToAbsoluteLengths"
+    ],
+    "initial": "0",
+    "inherited": false
+  },
+  {
+    "name": "margin-block-end",
+    "syntax": "<'margin-top'>",
+    "computed": [
+      "lengthAbsolutePercentageAsSpecifiedOtherwiseAuto"
+    ],
+    "initial": "0",
+    "inherited": false
+  },
+  {
+    "name": "margin-block",
+    "syntax": "<'margin-top'>{1,2}",
+    "computed": [
+      "margin-block-start",
+      "margin-block-end"
+    ],
+    "initial": [
+      "margin-block-start",
+      "margin-block-end"
+    ],
+    "inherited": false
+  },
+  {
+    "name": "-webkit-text-stroke",
+    "syntax": "<line-width> || <color>",
+    "computed": [
+      "-webkit-text-stroke-width",
+      "-webkit-text-stroke-color"
+    ],
+    "initial": [
+      "-webkit-text-stroke-width",
+      "-webkit-text-stroke-color"
+    ],
+    "inherited": true
+  },
+  {
+    "name": "-webkit-mask-size",
+    "syntax": "",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "auto auto",
+    "inherited": false
+  },
+  {
+    "name": "anchor-name",
+    "syntax": "none | <dashed-ident>#",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "list-style-image",
+    "syntax": "<image> | none",
+    "computed": [
+      "theKeywordListStyleImageNoneOrComputedValue"
+    ],
+    "initial": "none",
+    "inherited": true
+  },
+  {
+    "name": "block-step-insert",
+    "syntax": "margin | padding",
+    "computed": [],
+    "initial": "margin",
+    "inherited": false
+  },
+  {
+    "name": "-webkit-filter",
+    "syntax": "",
+    "computed": [],
+    "initial": "",
+    "inherited": false
+  },
+  {
+    "name": "border-image-repeat",
+    "syntax": "[ stretch | repeat | round | space ]{1,2}",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "stretch",
+    "inherited": false
+  },
+  {
+    "name": "font-variant-ligatures",
+    "syntax": "normal | none | [ <common-lig-values> || <discretionary-lig-values> || <historical-lig-values> || <contextual-alt-values> ]",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "normal",
+    "inherited": true
+  },
+  {
+    "name": "font-palette",
+    "syntax": "normal | light | dark | <palette-identifier> | <palette-mix()>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "normal",
+    "inherited": true
+  },
+  {
+    "name": "-webkit-order",
+    "syntax": "",
+    "computed": [],
+    "initial": "",
+    "inherited": false
+  },
+  {
+    "name": "stroke-opacity",
+    "syntax": "<'opacity'>",
+    "computed": [],
+    "initial": "1",
+    "inherited": true
+  },
+  {
+    "name": "font-synthesis-position",
+    "syntax": "auto | none",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "none",
+    "inherited": true
+  },
+  {
+    "name": "-webkit-perspective",
+    "syntax": "",
+    "computed": [],
+    "initial": "",
+    "inherited": false
+  },
+  {
+    "name": "background-image",
+    "syntax": "<bg-image>#",
+    "computed": [
+      "asSpecifiedURLsAbsolute"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "border",
+    "syntax": "<line-width> || <line-style> || <color>",
+    "computed": [
+      "border-width",
+      "border-style",
+      "border-color"
+    ],
+    "initial": [
+      "border-width",
+      "border-style",
+      "border-color"
+    ],
+    "inherited": false
+  },
+  {
+    "name": "-webkit-background-size",
+    "syntax": "",
+    "computed": [],
+    "initial": "",
+    "inherited": false
+  },
+  {
+    "name": "mask-repeat",
+    "syntax": "<repeat-style>#",
+    "computed": [
+      "consistsOfTwoDimensionKeywords"
+    ],
+    "initial": "repeat",
+    "inherited": false
+  },
+  {
+    "name": "mask-clip",
+    "syntax": "[ <coord-box> | no-clip ]#",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "border-box",
+    "inherited": false
+  },
+  {
+    "name": "max-height",
+    "syntax": "none | <length-percentage [0,∞]> | min-content | max-content | fit-content(<length-percentage [0,∞]>) | <calc-size()>",
+    "computed": [
+      "percentageAsSpecifiedAbsoluteLengthOrNone"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "-webkit-mask-box-image-source",
+    "syntax": "",
+    "computed": [],
+    "initial": "",
+    "inherited": false
+  },
+  {
+    "name": "font-synthesis-small-caps",
+    "syntax": "auto | none",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "auto",
+    "inherited": true
+  },
+  {
+    "name": "border-boundary",
+    "syntax": "none | parent | display",
+    "computed": [],
+    "initial": "none",
+    "inherited": true
+  },
+  {
+    "name": "caret",
+    "syntax": "<'caret-color'> || <'caret-animation'> || <'caret-shape'>",
+    "computed": [
+      "caret-color",
+      "caret-shape"
+    ],
+    "initial": [
+      "caret-color",
+      "caret-shape"
+    ],
+    "inherited": true
+  },
+  {
+    "name": "-webkit-flex-flow",
+    "syntax": "",
+    "computed": [],
+    "initial": "",
+    "inherited": false
+  },
+  {
+    "name": "column-span",
+    "syntax": "none | all",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "transform-box",
+    "syntax": "content-box | border-box | fill-box | stroke-box | view-box",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "view-box",
+    "inherited": false
+  },
+  {
+    "name": "animation-fill-mode",
+    "syntax": "<single-animation-fill-mode>#",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "text-align-last",
+    "syntax": "auto | start | end | left | right | center | justify | match-parent",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "auto",
+    "inherited": true
+  },
+  {
+    "name": "counter-increment",
+    "syntax": "[ <counter-name> <integer>? ]+ | none",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "text-combine-upright",
+    "syntax": "none | all | [ digits <integer [2,4]>? ]",
+    "computed": [
+      "keywordPlusIntegerIfDigits"
+    ],
+    "initial": "none",
+    "inherited": true
+  },
+  {
+    "name": "nav-left",
+    "syntax": "auto | <id> [ current | root | <target-name> ]?",
+    "computed": [],
+    "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "font-synthesis-style",
+    "syntax": "auto | none",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "auto",
+    "inherited": true
+  },
+  {
+    "name": "image-rendering",
+    "syntax": "auto | smooth | high-quality | pixelated | crisp-edges",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "auto",
+    "inherited": true
+  },
+  {
+    "name": "max-block-size",
+    "syntax": "<'max-width'>",
+    "computed": [
+      "sameAsMaxWidthAndMaxHeight"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "input-security",
+    "syntax": "auto | none",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "background-color",
+    "syntax": "<color>",
+    "computed": [
+      "computedColor"
+    ],
+    "initial": "transparent",
+    "inherited": false
+  },
+  {
+    "name": "spatial-navigation-contain",
+    "syntax": "auto | contain",
+    "computed": [],
+    "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "overscroll-behavior-inline",
+    "syntax": "contain | none | auto",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "scroll-margin-inline-end",
+    "syntax": "<length>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "0",
+    "inherited": false
+  },
+  {
+    "name": "grid-column-gap",
+    "syntax": "",
+    "computed": [
+      "percentageAsSpecifiedOrAbsoluteLength"
+    ],
+    "initial": "0",
+    "inherited": false
+  },
+  {
+    "name": "clip",
+    "syntax": "<rect()> | auto",
+    "computed": [
+      "autoOrRectangle"
+    ],
+    "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "block-step-round",
+    "syntax": "up | down | nearest",
+    "computed": [],
+    "initial": "up",
+    "inherited": false
+  },
+  {
+    "name": "outline-width",
+    "syntax": "<line-width>",
+    "computed": [
+      "absoluteLength0ForNone"
+    ],
+    "initial": "medium",
+    "inherited": false
+  },
+  {
+    "name": "font-variant-east-asian",
+    "syntax": "normal | [ <east-asian-variant-values> || <east-asian-width-values> || ruby ]",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "normal",
+    "inherited": true
+  },
+  {
+    "name": "voice-rate",
+    "syntax": "[normal | x-slow | slow | medium | fast | x-fast] || <percentage [0,∞]>",
+    "computed": [],
+    "initial": "normal",
+    "inherited": true
+  },
+  {
+    "name": "-webkit-appearance",
+    "syntax": "",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "noneButOverriddenInUserAgentCSS",
+    "inherited": false
+  },
+  {
+    "name": "fill-repeat",
+    "syntax": "<repeat-style>#",
+    "computed": [],
+    "initial": "repeat",
+    "inherited": true
+  },
+  {
+    "name": "border-image-slice",
+    "syntax": "[<number [0,∞]> | <percentage [0,∞]>]{1,4} && fill?",
+    "computed": [
+      "oneToFourPercentagesOrAbsoluteLengthsPlusFill"
+    ],
+    "initial": "100%",
+    "inherited": false
+  },
+  {
+    "name": "font-synthesis",
+    "syntax": "none | [ weight || style || small-caps || position]",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "weight style small-caps position ",
+    "inherited": true
+  },
+  {
+    "name": "font-language-override",
+    "syntax": "normal | <string>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "normal",
+    "inherited": true
+  },
+  {
+    "name": "grid-template-rows",
+    "syntax": "none | <track-list> | <auto-track-list> | subgrid <line-name-list>?",
+    "computed": [
+      "asSpecifiedRelativeToAbsoluteLengths"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "box-sizing",
+    "syntax": "content-box | border-box",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "content-box",
+    "inherited": false
+  },
+  {
+    "name": "anchor-scope",
+    "syntax": "none | all | <dashed-ident>#",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "font-size-adjust",
+    "syntax": "none | <number [0,∞]>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "none",
+    "inherited": true
+  },
+  {
+    "name": "fill-image",
+    "syntax": "<paint>#",
+    "computed": [],
+    "initial": "none",
+    "inherited": true
+  },
+  {
+    "name": "place-content",
+    "syntax": "<'align-content'> <'justify-content'>?",
+    "computed": [
+      "align-content",
+      "justify-content"
+    ],
+    "initial": [
+      "align-content",
+      "justify-content"
+    ],
+    "inherited": false
+  },
+  {
+    "name": "block-step",
+    "syntax": "<'block-step-size'> || <'block-step-insert'> || <'block-step-align'> || <'block-step-round'>",
+    "computed": [],
+    "initial": "see individual properties",
+    "inherited": false
+  },
+  {
+    "name": "cue-before",
+    "syntax": "<uri> <decibel>? | none",
+    "computed": [],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "min-block-size",
+    "syntax": "<'min-width'>",
+    "computed": [
+      "sameAsMinWidthAndMinHeight"
+    ],
+    "initial": "0",
+    "inherited": false
+  },
+  {
+    "name": "isolation",
+    "syntax": "<isolation-mode>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "text-overflow",
+    "syntax": "clip | ellipsis",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "clip",
+    "inherited": false
+  },
+  {
+    "name": "voice-range",
+    "syntax": "<frequency [0Hz,∞]> && absolute | [[x-low | low | medium | high | x-high] || [<frequency> | <semitones> | <percentage>]]",
+    "computed": [],
+    "initial": "medium",
+    "inherited": true
   },
   {
     "name": "transition",
@@ -2319,6 +1656,97 @@
     "inherited": false
   },
   {
+    "name": "fill-origin",
+    "syntax": "match-parent | fill-box | stroke-box | content-box | padding-box | border-box",
+    "computed": [],
+    "initial": "match-parent",
+    "inherited": false
+  },
+  {
+    "name": "-webkit-transition",
+    "syntax": "",
+    "computed": [],
+    "initial": "",
+    "inherited": false
+  },
+  {
+    "name": "padding-block",
+    "syntax": "<'padding-top'>{1,2}",
+    "computed": [
+      "padding-block-start",
+      "padding-block-end"
+    ],
+    "initial": [
+      "padding-block-start",
+      "padding-block-end"
+    ],
+    "inherited": false
+  },
+  {
+    "name": "scroll-padding",
+    "syntax": "[ auto | <length-percentage [0,∞]> ]{1,4}",
+    "computed": [
+      "scroll-padding-bottom",
+      "scroll-padding-left",
+      "scroll-padding-right",
+      "scroll-padding-top"
+    ],
+    "initial": [
+      "scroll-padding-bottom",
+      "scroll-padding-left",
+      "scroll-padding-right",
+      "scroll-padding-top"
+    ],
+    "inherited": false
+  },
+  {
+    "name": "margin-inline",
+    "syntax": "<'margin-top'>{1,2}",
+    "computed": [
+      "margin-inline-start",
+      "margin-inline-end"
+    ],
+    "initial": [
+      "margin-inline-start",
+      "margin-inline-end"
+    ],
+    "inherited": false
+  },
+  {
+    "name": "clip-path",
+    "syntax": "<clip-source> | [ <basic-shape> || <geometry-box> ] | none",
+    "computed": [
+      "asSpecifiedURLsAbsolute"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "overscroll-behavior-y",
+    "syntax": "contain | none | auto",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "block-step-align",
+    "syntax": "auto | center | start | end",
+    "computed": [],
+    "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "scroll-padding-left",
+    "syntax": "auto | <length-percentage [0,∞]>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "auto",
+    "inherited": false
+  },
+  {
     "name": "text-decoration-line",
     "syntax": "none | [ underline || overline || line-through || blink ]",
     "computed": [
@@ -2328,8 +1756,8 @@
     "inherited": false
   },
   {
-    "name": "anchor-scope",
-    "syntax": "none | all | <dashed-ident>#",
+    "name": "offset-path",
+    "syntax": "none | <offset-path> || <coord-box>",
     "computed": [
       "asSpecified"
     ],
@@ -2337,135 +1765,277 @@
     "inherited": false
   },
   {
-    "name": "color",
-    "syntax": "<color>",
-    "computed": [
-      "computedColor"
-    ],
-    "initial": "canvastext",
-    "inherited": true
-  },
-  {
-    "name": "footnote-policy",
-    "syntax": "auto | line | block",
-    "computed": [],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "overscroll-behavior",
-    "syntax": "[ contain | none | auto ]{1,2}",
-    "computed": [
-      "overscroll-behavior-x",
-      "overscroll-behavior-y"
-    ],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "stroke-dash-corner",
-    "syntax": "none | <length>",
-    "computed": [],
-    "initial": "none",
-    "inherited": true
-  },
-  {
-    "name": "column-rule-style",
-    "syntax": "<line-style>",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "none",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-text-stroke-color",
-    "syntax": "<color>",
-    "computed": [
-      "computedColor"
-    ],
-    "initial": "currentcolor",
-    "inherited": true
-  },
-  {
-    "name": "-webkit-animation-play-state",
+    "name": "-webkit-box-sizing",
     "syntax": "",
     "computed": [],
     "initial": "",
     "inherited": false
   },
   {
-    "name": "page",
-    "syntax": "auto | <custom-ident>",
+    "name": "justify-content",
+    "syntax": "normal | <content-distribution> | <overflow-position>? [ <content-position> | left | right ]",
     "computed": [
       "asSpecified"
     ],
-    "initial": "auto",
+    "initial": "normal",
     "inherited": false
   },
   {
-    "name": "visibility",
-    "syntax": "visible | hidden | collapse",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "visible",
-    "inherited": true
-  },
-  {
-    "name": "mask-clip",
-    "syntax": "[ <coord-box> | no-clip ]#",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "border-box",
-    "inherited": false
-  },
-  {
-    "name": "wrap-through",
-    "syntax": "wrap | none",
+    "name": "position-try-fallbacks",
+    "syntax": "none | [ [<dashed-ident> || <try-tactic>] | <'position-area'> ]#",
     "computed": [],
-    "initial": "wrap",
+    "initial": "none",
     "inherited": false
   },
   {
-    "name": "-webkit-flex",
+    "name": "object-fit",
+    "syntax": "fill | contain | cover | none | scale-down",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "fill",
+    "inherited": false
+  },
+  {
+    "name": "padding-block-end",
+    "syntax": "<'padding-top'>",
+    "computed": [
+      "asLength"
+    ],
+    "initial": "0",
+    "inherited": false
+  },
+  {
+    "name": "mask-border-outset",
+    "syntax": "[ <length> | <number> ]{1,4}",
+    "computed": [
+      "asSpecifiedRelativeToAbsoluteLengths"
+    ],
+    "initial": "0",
+    "inherited": false
+  },
+  {
+    "name": "block-step-size",
+    "syntax": "none | <length [0,∞]>",
+    "computed": [],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "pause",
+    "syntax": "<'pause-before'> <'pause-after'>?",
+    "computed": [],
+    "initial": "N/A (see individual properties)",
+    "inherited": false
+  },
+  {
+    "name": "-webkit-animation",
     "syntax": "",
     "computed": [],
     "initial": "",
     "inherited": false
   },
   {
-    "name": "nav-right",
-    "syntax": "auto | <id> [ current | root | <target-name> ]?",
-    "computed": [],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "list-style-type",
-    "syntax": "<counter-style> | <string> | none",
+    "name": "unicode-bidi",
+    "syntax": "normal | embed | isolate | bidi-override | isolate-override | plaintext",
     "computed": [
       "asSpecified"
     ],
-    "initial": "disc",
+    "initial": "normal",
+    "inherited": false
+  },
+  {
+    "name": "fill-break",
+    "syntax": "bounding-box | slice | clone",
+    "computed": [],
+    "initial": "bounding-box",
+    "inherited": false
+  },
+  {
+    "name": "counter-reset",
+    "syntax": "[ <counter-name> <integer>? | <reversed-counter-name> <integer>? ]+ | none",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "transform-origin",
+    "syntax": "[ left | center | right | top | bottom | <length-percentage> ] | [ left | center | right | <length-percentage> ] [ top | center | bottom | <length-percentage> ] <length>? | [[ center | left | right ] && [ center | top | bottom ]] <length>?",
+    "computed": [
+      "forLengthAbsoluteValueOtherwisePercentage"
+    ],
+    "initial": "50% 50% 0",
+    "inherited": false
+  },
+  {
+    "name": "appearance",
+    "syntax": "none | auto | <compat-auto> | <compat-special>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "text-orientation",
+    "syntax": "mixed | upright | sideways",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "mixed",
     "inherited": true
   },
   {
-    "name": "min-height",
-    "syntax": "auto | <length-percentage [0,∞]> | min-content | max-content | fit-content(<length-percentage [0,∞]>) | <calc-size()>",
+    "name": "-webkit-perspective-origin",
+    "syntax": "",
+    "computed": [],
+    "initial": "",
+    "inherited": false
+  },
+  {
+    "name": "overflow-inline",
+    "syntax": "visible | hidden | clip | scroll | auto",
     "computed": [
-      "percentageAsSpecifiedOrAbsoluteLength"
+      "asSpecifiedButVisibleOrClipReplacedToAutoOrHiddenIfOtherValueDifferent"
     ],
     "initial": "auto",
     "inherited": false
   },
   {
-    "name": "stroke-opacity",
+    "name": "empty-cells",
+    "syntax": "show | hide",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "show",
+    "inherited": true
+  },
+  {
+    "name": "letter-spacing",
+    "syntax": "normal | <length>",
+    "computed": [
+      "optimumValueOfAbsoluteLengthOrNormal"
+    ],
+    "initial": "normal",
+    "inherited": true
+  },
+  {
+    "name": "flood-opacity",
     "syntax": "<'opacity'>",
     "computed": [],
     "initial": "1",
+    "inherited": false
+  },
+  {
+    "name": "grid-gap",
+    "syntax": "",
+    "computed": [
+      "grid-row-gap",
+      "grid-column-gap"
+    ],
+    "initial": [
+      "grid-row-gap",
+      "grid-column-gap"
+    ],
+    "inherited": false
+  },
+  {
+    "name": "tab-size",
+    "syntax": "<number [0,∞]> | <length [0,∞]>",
+    "computed": [
+      "specifiedIntegerOrAbsoluteLength"
+    ],
+    "initial": "8",
     "inherited": true
+  },
+  {
+    "name": "content",
+    "syntax": "",
+    "computed": [
+      "normalOnElementsForPseudosNoneAbsoluteURIStringOrAsSpecified"
+    ],
+    "initial": "normal",
+    "inherited": false
+  },
+  {
+    "name": "mask-border",
+    "syntax": "<'mask-border-source'> || <'mask-border-slice'> [ / <'mask-border-width'>? [ / <'mask-border-outset'> ]? ]? || <'mask-border-repeat'> || <'mask-border-mode'>",
+    "computed": [
+      "mask-border-mode",
+      "mask-border-outset",
+      "mask-border-repeat",
+      "mask-border-slice",
+      "mask-border-source",
+      "mask-border-width"
+    ],
+    "initial": [
+      "mask-border-mode",
+      "mask-border-outset",
+      "mask-border-repeat",
+      "mask-border-slice",
+      "mask-border-source",
+      "mask-border-width"
+    ],
+    "inherited": false
+  },
+  {
+    "name": "background-size",
+    "syntax": "<bg-size>#",
+    "computed": [
+      "asSpecifiedRelativeToAbsoluteLengths"
+    ],
+    "initial": "auto auto",
+    "inherited": false
+  },
+  {
+    "name": "font",
+    "syntax": "[ [ <'font-style'> || <font-variant-css2> || <'font-weight'> || <font-width-css3> ]? <'font-size'> [ / <'line-height'> ]? <'font-family'> ] | <system-family-name>",
+    "computed": [
+      "font-style",
+      "font-variant",
+      "font-weight",
+      "font-stretch",
+      "font-size",
+      "line-height",
+      "font-family"
+    ],
+    "initial": [
+      "font-style",
+      "font-variant",
+      "font-weight",
+      "font-stretch",
+      "font-size",
+      "line-height",
+      "font-family"
+    ],
+    "inherited": true
+  },
+  {
+    "name": "inline-sizing",
+    "syntax": "normal | stretch",
+    "computed": [],
+    "initial": "normal",
+    "inherited": true
+  },
+  {
+    "name": "list-style-position",
+    "syntax": "inside | outside",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "outside",
+    "inherited": true
+  },
+  {
+    "name": "mask-image",
+    "syntax": "<mask-reference>#",
+    "computed": [
+      "asSpecifiedURLsAbsolute"
+    ],
+    "initial": "none",
+    "inherited": false
   },
   {
     "name": "mask",
@@ -2493,74 +2063,46 @@
     "inherited": false
   },
   {
-    "name": "-webkit-animation-fill-mode",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
+    "name": "overflow-x",
+    "syntax": "visible | hidden | clip | scroll | auto",
+    "computed": [
+      "asSpecifiedButVisibleOrClipReplacedToAutoOrHiddenIfOtherValueDifferent"
+    ],
+    "initial": "visible",
     "inherited": false
   },
   {
-    "name": "-webkit-flex-shrink",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "grid-column-end",
-    "syntax": "<grid-line>",
+    "name": "line-break",
+    "syntax": "auto | loose | normal | strict | anywhere",
     "computed": [
       "asSpecified"
     ],
     "initial": "auto",
-    "inherited": false
+    "inherited": true
   },
   {
-    "name": "order",
-    "syntax": "<integer>",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "0",
-    "inherited": false
-  },
-  {
-    "name": "stroke-linejoin",
-    "syntax": "[ crop | arcs | miter ] || [ bevel | round | fallback ]",
+    "name": "-webkit-box-ordinal-group",
+    "syntax": "",
     "computed": [],
-    "initial": "miter",
-    "inherited": true
-  },
-  {
-    "name": "math-shift",
-    "syntax": "normal | compact",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "normal",
-    "inherited": true
-  },
-  {
-    "name": "border-image",
-    "syntax": "<'border-image-source'> || <'border-image-slice'> [ / <'border-image-width'> | / <'border-image-width'>? / <'border-image-outset'> ]? || <'border-image-repeat'>",
-    "computed": [
-      "border-image-outset",
-      "border-image-repeat",
-      "border-image-slice",
-      "border-image-source",
-      "border-image-width"
-    ],
-    "initial": [
-      "border-image-source",
-      "border-image-slice",
-      "border-image-width",
-      "border-image-outset",
-      "border-image-repeat"
-    ],
+    "initial": "",
     "inherited": false
   },
   {
-    "name": "padding-inline-end",
+    "name": "stroke-repeat",
+    "syntax": "<repeat-style>#",
+    "computed": [],
+    "initial": "repeat",
+    "inherited": true
+  },
+  {
+    "name": "fill-opacity",
+    "syntax": "<'opacity'>",
+    "computed": [],
+    "initial": "1",
+    "inherited": true
+  },
+  {
+    "name": "padding-block-start",
     "syntax": "<'padding-top'>",
     "computed": [
       "asLength"
@@ -2569,65 +2111,26 @@
     "inherited": false
   },
   {
-    "name": "-webkit-perspective",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "will-change",
-    "syntax": "auto | <animateable-feature>#",
+    "name": "grid-template-areas",
+    "syntax": "none | <string>+",
     "computed": [
       "asSpecified"
     ],
-    "initial": "auto",
+    "initial": "none",
     "inherited": false
   },
   {
-    "name": "ruby-overhang",
-    "syntax": "auto | none",
-    "computed": [],
-    "initial": "auto",
+    "name": "line-height-step",
+    "syntax": "<length [0,∞]>",
+    "computed": [
+      "absoluteLength"
+    ],
+    "initial": "0",
     "inherited": true
   },
   {
-    "name": "mask-size",
-    "syntax": "<bg-size>#",
-    "computed": [
-      "asSpecifiedRelativeToAbsoluteLengths"
-    ],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "scroll-padding-top",
-    "syntax": "auto | <length-percentage [0,∞]>",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "text-box-edge",
-    "syntax": "leading | [ text | cap | ex | ideographic | ideographic-ink ] [ text | alphabetic | ideographic | ideographic-ink ]?",
-    "computed": [],
-    "initial": "leading",
-    "inherited": true
-  },
-  {
-    "name": "font-variant-emoji",
-    "syntax": "normal | text | emoji | unicode",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "normal",
-    "inherited": true
-  },
-  {
-    "name": "padding-left",
-    "syntax": "<length-percentage [0,∞]>",
+    "name": "margin-right",
+    "syntax": "<length-percentage> | auto",
     "computed": [
       "percentageAsSpecifiedOrAbsoluteLength"
     ],
@@ -2635,106 +2138,13 @@
     "inherited": false
   },
   {
-    "name": "fill-break",
-    "syntax": "bounding-box | slice | clone",
-    "computed": [],
-    "initial": "bounding-box",
-    "inherited": false
-  },
-  {
-    "name": "offset-rotate",
-    "syntax": "[ auto | reverse ] || <angle>",
+    "name": "font-variant",
+    "syntax": "normal | none | [ [ <common-lig-values> || <discretionary-lig-values> || <historical-lig-values> || <contextual-alt-values> ] || [ small-caps | all-small-caps | petite-caps | all-petite-caps | unicase | titling-caps ] || [ stylistic(<feature-value-name>) || historical-forms || styleset(<feature-value-name>#) || character-variant(<feature-value-name>#) || swash(<feature-value-name>) || ornaments(<feature-value-name>) || annotation(<feature-value-name>) ] || [ <numeric-figure-values> || <numeric-spacing-values> || <numeric-fraction-values> || ordinal || slashed-zero ] || [ <east-asian-variant-values> || <east-asian-width-values> || ruby ] || [ sub | super ] || [ text | emoji | unicode ] ]",
     "computed": [
       "asSpecified"
     ],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-box-pack",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "animation-range",
-    "syntax": "[ <'animation-range-start'> <'animation-range-end'>? ]#",
-    "computed": [
-      "animation-range-start",
-      "animation-range-end"
-    ],
-    "initial": [
-      "animation-range-start",
-      "animation-range-end"
-    ],
-    "inherited": false
-  },
-  {
-    "name": "overscroll-behavior-x",
-    "syntax": "contain | none | auto",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "fill-position",
-    "syntax": "<position>#",
-    "computed": [],
-    "initial": "0% 0%",
-    "inherited": true
-  },
-  {
-    "name": "mask-border-mode",
-    "syntax": "luminance | alpha",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "alpha",
-    "inherited": false
-  },
-  {
-    "name": "inline-sizing",
-    "syntax": "normal | stretch",
-    "computed": [],
     "initial": "normal",
     "inherited": true
-  },
-  {
-    "name": "nav-up",
-    "syntax": "auto | <id> [ current | root | <target-name> ]?",
-    "computed": [],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "appearance",
-    "syntax": "none | auto | <compat-auto> | <compat-special>",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "none",
-    "inherited": false
-  },
-  {
-    "name": "view-transition-name",
-    "syntax": "none | <custom-ident>",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "none",
-    "inherited": false
-  },
-  {
-    "name": "break-before",
-    "syntax": "auto | avoid | always | all | avoid-page | page | left | right | recto | verso | avoid-column | column | avoid-region | region",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "auto",
-    "inherited": false
   },
   {
     "name": "image-orientation",
@@ -2743,6 +2153,36 @@
       "angleRoundedToNextQuarter"
     ],
     "initial": "from-image",
+    "inherited": true
+  },
+  {
+    "name": "rest",
+    "syntax": "<'rest-before'> <'rest-after'>?",
+    "computed": [],
+    "initial": "N/A (see individual properties)",
+    "inherited": false
+  },
+  {
+    "name": "cue",
+    "syntax": "<'cue-before'> <'cue-after'>?",
+    "computed": [],
+    "initial": "N/A (see individual properties)",
+    "inherited": false
+  },
+  {
+    "name": "-webkit-text-size-adjust",
+    "syntax": "",
+    "computed": [],
+    "initial": "",
+    "inherited": false
+  },
+  {
+    "name": "word-break",
+    "syntax": "normal | keep-all | break-all | break-word",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "normal",
     "inherited": true
   },
   {
@@ -2755,15 +2195,26 @@
     "inherited": true
   },
   {
-    "name": "stroke-size",
-    "syntax": "<bg-size>#",
-    "computed": [],
+    "name": "overflow-block",
+    "syntax": "visible | hidden | clip | scroll | auto",
+    "computed": [
+      "asSpecifiedButVisibleOrClipReplacedToAutoOrHiddenIfOtherValueDifferent"
+    ],
     "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "hanging-punctuation",
+    "syntax": "none | [ first || [ force-end | allow-end ] || last ]",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "none",
     "inherited": true
   },
   {
-    "name": "scroll-margin-block-start",
-    "syntax": "<length>",
+    "name": "order",
+    "syntax": "<integer>",
     "computed": [
       "asSpecified"
     ],
@@ -2771,243 +2222,132 @@
     "inherited": false
   },
   {
-    "name": "opacity",
-    "syntax": "<opacity-value>",
+    "name": "mask-border-width",
+    "syntax": "[ <length-percentage> | <number> | auto ]{1,4}",
     "computed": [
-      "specifiedValueNumberClipped0To1"
-    ],
-    "initial": "1",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-mask-composite",
-    "syntax": "",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "source-over",
-    "inherited": false
-  },
-  {
-    "name": "align-self",
-    "syntax": "auto | normal | stretch | <baseline-position> | <overflow-position>? <self-position> | anchor-center",
-    "computed": [
-      "autoOnAbsolutelyPositionedElementsValueOfAlignItemsOnParent"
+      "asSpecifiedRelativeToAbsoluteLengths"
     ],
     "initial": "auto",
     "inherited": false
   },
   {
-    "name": "animation-direction",
-    "syntax": "<single-animation-direction>#",
+    "name": "padding-top",
+    "syntax": "<length-percentage [0,∞]>",
+    "computed": [
+      "percentageAsSpecifiedOrAbsoluteLength"
+    ],
+    "initial": "0",
+    "inherited": false
+  },
+  {
+    "name": "scroll-timeline-axis",
+    "syntax": "[ block | inline | x | y ]#",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "block",
+    "inherited": false
+  },
+  {
+    "name": "margin",
+    "syntax": "<'margin-top'>{1,4}",
+    "computed": [
+      "margin-bottom",
+      "margin-left",
+      "margin-right",
+      "margin-top"
+    ],
+    "initial": [
+      "margin-bottom",
+      "margin-left",
+      "margin-right",
+      "margin-top"
+    ],
+    "inherited": false
+  },
+  {
+    "name": "font-variant-position",
+    "syntax": "normal | sub | super",
     "computed": [
       "asSpecified"
     ],
     "initial": "normal",
+    "inherited": true
+  },
+  {
+    "name": "grid-column",
+    "syntax": "<grid-line> [ / <grid-line> ]?",
+    "computed": [
+      "grid-column-start",
+      "grid-column-end"
+    ],
+    "initial": [
+      "grid-column-start",
+      "grid-column-end"
+    ],
     "inherited": false
   },
   {
-    "name": "scroll-padding-inline-start",
-    "syntax": "auto | <length-percentage [0,∞]>",
+    "name": "stroke-linejoin",
+    "syntax": "[ crop | arcs | miter ] || [ bevel | round | fallback ]",
+    "computed": [],
+    "initial": "miter",
+    "inherited": true
+  },
+  {
+    "name": "position-anchor",
+    "syntax": "auto | <anchor-element>",
     "computed": [
       "asSpecified"
     ],
-    "initial": "auto",
+    "initial": "implicit",
     "inherited": false
   },
   {
-    "name": "block-step-insert",
-    "syntax": "margin | padding",
-    "computed": [],
-    "initial": "margin",
+    "name": "justify-items",
+    "syntax": "normal | stretch | <baseline-position> | <overflow-position>? [ <self-position> | left | right ] | legacy | legacy && [ left | right | center ] | anchor-center",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "legacy",
     "inherited": false
   },
   {
-    "name": "border-image-width",
-    "syntax": "[ <length-percentage [0,∞]> | <number [0,∞]> | auto ]{1,4}",
+    "name": "font-size",
+    "syntax": "<absolute-size> | <relative-size> | <length-percentage [0,∞]> | math",
     "computed": [
       "asSpecifiedRelativeToAbsoluteLengths"
     ],
-    "initial": "1",
+    "initial": "medium",
+    "inherited": true
+  },
+  {
+    "name": "mask-mode",
+    "syntax": "<masking-mode>#",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "match-source",
     "inherited": false
   },
   {
-    "name": "-webkit-transition-duration",
+    "name": "scroll-padding-block",
+    "syntax": "[ auto | <length-percentage [0,∞]> ]{1,2}",
+    "computed": [
+      "scroll-padding-block-start",
+      "scroll-padding-block-end"
+    ],
+    "initial": [
+      "scroll-padding-block-start",
+      "scroll-padding-block-end"
+    ],
+    "inherited": false
+  },
+  {
+    "name": "-webkit-transform-origin",
     "syntax": "",
     "computed": [],
     "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "border-boundary",
-    "syntax": "none | parent | display",
-    "computed": [],
-    "initial": "none",
-    "inherited": true
-  },
-  {
-    "name": "text-align",
-    "syntax": "start | end | left | right | center | justify | match-parent | justify-all",
-    "computed": [
-      "asSpecifiedExceptMatchParent"
-    ],
-    "initial": "startOrNamelessValueIfLTRRightIfRTL",
-    "inherited": true
-  },
-  {
-    "name": "scroll-timeline",
-    "syntax": "[ <'scroll-timeline-name'> <'scroll-timeline-axis'>? ]#",
-    "computed": [
-      "scroll-timeline-name",
-      "scroll-timeline-axis"
-    ],
-    "initial": [
-      "scroll-timeline-name",
-      "scroll-timeline-axis"
-    ],
-    "inherited": false
-  },
-  {
-    "name": "align-items",
-    "syntax": "normal | stretch | <baseline-position> | [ <overflow-position>? <self-position> ] | anchor-center",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "normal",
-    "inherited": false
-  },
-  {
-    "name": "spatial-navigation-contain",
-    "syntax": "auto | contain",
-    "computed": [],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "grid-template-columns",
-    "syntax": "none | <track-list> | <auto-track-list> | subgrid <line-name-list>?",
-    "computed": [
-      "asSpecifiedRelativeToAbsoluteLengths"
-    ],
-    "initial": "none",
-    "inherited": false
-  },
-  {
-    "name": "voice-stress",
-    "syntax": "normal | strong | moderate | none | reduced",
-    "computed": [],
-    "initial": "normal",
-    "inherited": true
-  },
-  {
-    "name": "box-snap",
-    "syntax": "none | block-start | block-end | center | baseline | last-baseline",
-    "computed": [],
-    "initial": "none",
-    "inherited": true
-  },
-  {
-    "name": "grid-column-start",
-    "syntax": "<grid-line>",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "outline-color",
-    "syntax": "auto | [ <color> | <image-1D> ]",
-    "computed": [
-      "autoForTranslucentColorRGBAOtherwiseRGB"
-    ],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "shape-outside",
-    "syntax": "none | [ <basic-shape> || <shape-box> ] | <image>",
-    "computed": [
-      "asDefinedForBasicShapeWithAbsoluteURIOtherwiseAsSpecified"
-    ],
-    "initial": "none",
-    "inherited": false
-  },
-  {
-    "name": "stroke-origin",
-    "syntax": "match-parent | fill-box | stroke-box | content-box | padding-box | border-box",
-    "computed": [],
-    "initial": "match-parent",
-    "inherited": false
-  },
-  {
-    "name": "text-overflow",
-    "syntax": "clip | ellipsis",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "clip",
-    "inherited": false
-  },
-  {
-    "name": "outline-offset",
-    "syntax": "<length>",
-    "computed": [
-      "asSpecifiedRelativeToAbsoluteLengths"
-    ],
-    "initial": "0",
-    "inherited": false
-  },
-  {
-    "name": "column-rule-width",
-    "syntax": "<line-width>",
-    "computed": [
-      "absoluteLength0IfColumnRuleStyleNoneOrHidden"
-    ],
-    "initial": "medium",
-    "inherited": false
-  },
-  {
-    "name": "font-family",
-    "syntax": "[ <family-name> | <generic-family> ]#",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "dependsOnUserAgent",
-    "inherited": true
-  },
-  {
-    "name": "font-style",
-    "syntax": "normal | italic | oblique <angle [-90deg,90deg]>?",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "normal",
-    "inherited": true
-  },
-  {
-    "name": "mask-type",
-    "syntax": "luminance | alpha",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "luminance",
-    "inherited": false
-  },
-  {
-    "name": "text-emphasis-style",
-    "syntax": "none | [ [ filled | open ] || [ dot | circle | double-circle | triangle | sesame ] ] | <string>",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "none",
-    "inherited": true
-  },
-  {
-    "name": "stroke-break",
-    "syntax": "bounding-box | slice | clone",
-    "computed": [],
-    "initial": "bounding-box",
     "inherited": false
   },
   {
@@ -3020,112 +2360,54 @@
     "inherited": false
   },
   {
-    "name": "mask-border-outset",
-    "syntax": "[ <length> | <number> ]{1,4}",
-    "computed": [
-      "asSpecifiedRelativeToAbsoluteLengths"
-    ],
-    "initial": "0",
-    "inherited": false
-  },
-  {
-    "name": "animation-delay",
-    "syntax": "<time>#",
+    "name": "position",
+    "syntax": "",
     "computed": [
       "asSpecified"
     ],
-    "initial": "0s",
+    "initial": "static",
     "inherited": false
   },
   {
-    "name": "border-style",
-    "syntax": "<line-style>{1,4}",
-    "computed": [
-      "border-bottom-style",
-      "border-left-style",
-      "border-right-style",
-      "border-top-style"
-    ],
-    "initial": [
-      "border-top-style",
-      "border-right-style",
-      "border-bottom-style",
-      "border-left-style"
-    ],
-    "inherited": false
-  },
-  {
-    "name": "overflow-inline",
-    "syntax": "visible | hidden | clip | scroll | auto",
-    "computed": [
-      "asSpecifiedButVisibleOrClipReplacedToAutoOrHiddenIfOtherValueDifferent"
-    ],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-mask-box-image-width",
+    "name": "-webkit-transition-property",
     "syntax": "",
     "computed": [],
     "initial": "",
     "inherited": false
   },
   {
-    "name": "wrap-flow",
-    "syntax": "auto | both | start | end | minimum | maximum | clear",
+    "name": "-webkit-user-select",
+    "syntax": "",
     "computed": [],
-    "initial": "auto",
+    "initial": "",
     "inherited": false
   },
   {
-    "name": "letter-spacing",
-    "syntax": "normal | <length>",
+    "name": "offset",
+    "syntax": "[ <'offset-position'>? [ <'offset-path'> [ <'offset-distance'> || <'offset-rotate'> ]? ]? ]! [ / <'offset-anchor'> ]?",
     "computed": [
-      "optimumValueOfAbsoluteLengthOrNormal"
-    ],
-    "initial": "normal",
-    "inherited": true
-  },
-  {
-    "name": "padding-inline",
-    "syntax": "<'padding-top'>{1,2}",
-    "computed": [
-      "padding-inline-start",
-      "padding-inline-end"
+      "offset-position",
+      "offset-path",
+      "offset-distance",
+      "offset-anchor",
+      "offset-rotate"
     ],
     "initial": [
-      "padding-inline-start",
-      "padding-inline-end"
+      "offset-position",
+      "offset-path",
+      "offset-distance",
+      "offset-anchor",
+      "offset-rotate"
     ],
     "inherited": false
   },
   {
-    "name": "line-snap",
-    "syntax": "none | baseline | contain",
-    "computed": [],
-    "initial": "none",
-    "inherited": true
-  },
-  {
-    "name": "math-style",
-    "syntax": "normal | compact",
+    "name": "margin-inline-end",
+    "syntax": "<'margin-top'>",
     "computed": [
-      "asSpecified"
+      "lengthAbsolutePercentageAsSpecifiedOtherwiseAuto"
     ],
-    "initial": "normal",
-    "inherited": true
-  },
-  {
-    "name": "scroll-margin-inline",
-    "syntax": "<length>{1,2}",
-    "computed": [
-      "scroll-margin-inline-start",
-      "scroll-margin-inline-end"
-    ],
-    "initial": [
-      "scroll-margin-inline-start",
-      "scroll-margin-inline-end"
-    ],
+    "initial": "0",
     "inherited": false
   },
   {
@@ -3154,37 +2436,168 @@
     "inherited": false
   },
   {
-    "name": "-webkit-text-stroke",
-    "syntax": "<line-width> || <color>",
+    "name": "shape-image-threshold",
+    "syntax": "<opacity-value>",
     "computed": [
-      "-webkit-text-stroke-width",
-      "-webkit-text-stroke-color"
+      "specifiedValueNumberClipped0To1"
     ],
-    "initial": [
-      "-webkit-text-stroke-width",
-      "-webkit-text-stroke-color"
-    ],
-    "inherited": true
-  },
-  {
-    "name": "pause",
-    "syntax": "<'pause-before'> <'pause-after'>?",
-    "computed": [],
-    "initial": "N/A (see individual properties)",
+    "initial": "0.0",
     "inherited": false
   },
   {
-    "name": "view-timeline-inset",
-    "syntax": "[ [ auto | <length-percentage> ]{1,2} ]#",
+    "name": "-webkit-mask-image",
+    "syntax": "",
     "computed": [
-      "listEachItemConsistingOfPairsOfAutoOrLengthPercentage"
+      "absoluteURIOrNone"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "color",
+    "syntax": "<color>",
+    "computed": [
+      "computedColor"
+    ],
+    "initial": "canvastext",
+    "inherited": true
+  },
+  {
+    "name": "pause-after",
+    "syntax": "<time [0s,∞]> | none | x-weak | weak | medium | strong | x-strong",
+    "computed": [],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "text-decoration-color",
+    "syntax": "<color>",
+    "computed": [
+      "computedColor"
+    ],
+    "initial": "currentcolor",
+    "inherited": false
+  },
+  {
+    "name": "transition-duration",
+    "syntax": "<time [0s,∞]>#",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "0s",
+    "inherited": false
+  },
+  {
+    "name": "offset-rotate",
+    "syntax": "[ auto | reverse ] || <angle>",
+    "computed": [
+      "asSpecified"
     ],
     "initial": "auto",
     "inherited": false
   },
   {
-    "name": "filter",
-    "syntax": "none | <filter-value-list>",
+    "name": "touch-action",
+    "syntax": "auto | none | [ [ pan-x | pan-left | pan-right ] || [ pan-y | pan-up | pan-down ] || pinch-zoom ] | manipulation",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "border-spacing",
+    "syntax": "<length>{1,2}",
+    "computed": [
+      "twoAbsoluteLengths"
+    ],
+    "initial": "0",
+    "inherited": true
+  },
+  {
+    "name": "nav-right",
+    "syntax": "auto | <id> [ current | root | <target-name> ]?",
+    "computed": [],
+    "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "timeline-scope",
+    "syntax": "none | all | <dashed-ident>#",
+    "computed": [
+      "noneOrOrderedListOfIdentifiers"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "background-position",
+    "syntax": "<bg-position>#",
+    "computed": [
+      "background-position-x",
+      "background-position-y"
+    ],
+    "initial": "0% 0%",
+    "inherited": false
+  },
+  {
+    "name": "-webkit-animation-fill-mode",
+    "syntax": "",
+    "computed": [],
+    "initial": "",
+    "inherited": false
+  },
+  {
+    "name": "-webkit-mask-box-image-width",
+    "syntax": "",
+    "computed": [],
+    "initial": "",
+    "inherited": false
+  },
+  {
+    "name": "-webkit-box-orient",
+    "syntax": "",
+    "computed": [],
+    "initial": "",
+    "inherited": false
+  },
+  {
+    "name": "line-grid",
+    "syntax": "match-parent | create",
+    "computed": [],
+    "initial": "match-parent",
+    "inherited": false
+  },
+  {
+    "name": "-webkit-text-stroke-width",
+    "syntax": "<line-width>",
+    "computed": [
+      "absoluteLength"
+    ],
+    "initial": "0",
+    "inherited": true
+  },
+  {
+    "name": "white-space",
+    "syntax": "normal | pre | nowrap | pre-wrap | break-spaces | pre-line",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "normal",
+    "inherited": true
+  },
+  {
+    "name": "grid-template-columns",
+    "syntax": "none | <track-list> | <auto-track-list> | subgrid <line-name-list>?",
+    "computed": [
+      "asSpecifiedRelativeToAbsoluteLengths"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "scroll-snap-type",
+    "syntax": "none | [ x | y | block | inline | both ] [ mandatory | proximity ]?",
     "computed": [
       "asSpecified"
     ],
@@ -3192,42 +2605,148 @@
     "inherited": false
   },
   {
-    "name": "-webkit-box-align",
+    "name": "scroll-margin-inline",
+    "syntax": "<length>{1,2}",
+    "computed": [
+      "scroll-margin-inline-start",
+      "scroll-margin-inline-end"
+    ],
+    "initial": [
+      "scroll-margin-inline-start",
+      "scroll-margin-inline-end"
+    ],
+    "inherited": false
+  },
+  {
+    "name": "-webkit-border-radius",
     "syntax": "",
     "computed": [],
     "initial": "",
     "inherited": false
   },
   {
-    "name": "grid-auto-columns",
-    "syntax": "<track-size>+",
+    "name": "forced-color-adjust",
+    "syntax": "auto | none | preserve-parent-color",
     "computed": [
-      "percentageAsSpecifiedOrAbsoluteLength"
+      "asSpecified"
+    ],
+    "initial": "auto",
+    "inherited": true
+  },
+  {
+    "name": "ruby-merge",
+    "syntax": "separate | merge | auto",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "separate",
+    "inherited": true
+  },
+  {
+    "name": "height",
+    "syntax": "auto | <length-percentage [0,∞]> | min-content | max-content | fit-content(<length-percentage [0,∞]>) | <calc-size()>",
+    "computed": [
+      "percentageAutoOrAbsoluteLength"
     ],
     "initial": "auto",
     "inherited": false
   },
   {
-    "name": "all",
-    "syntax": "initial | inherit | unset | revert | revert-layer",
+    "name": "user-select",
+    "syntax": "auto | text | none | contain | all",
     "computed": [
-      "asSpecifiedAppliesToEachProperty"
+      "asSpecified"
     ],
-    "initial": "noPracticalInitialValue",
+    "initial": "auto",
     "inherited": false
   },
   {
-    "name": "-webkit-box-sizing",
+    "name": "-webkit-transition-duration",
     "syntax": "",
     "computed": [],
     "initial": "",
     "inherited": false
   },
   {
-    "name": "fill-origin",
-    "syntax": "match-parent | fill-box | stroke-box | content-box | padding-box | border-box",
+    "name": "scroll-padding-block-end",
+    "syntax": "auto | <length-percentage [0,∞]>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "text-indent",
+    "syntax": "[ <length-percentage> ] && hanging? && each-line?",
+    "computed": [
+      "percentageOrAbsoluteLengthPlusKeywords"
+    ],
+    "initial": "0",
+    "inherited": true
+  },
+  {
+    "name": "offset-position",
+    "syntax": "normal | auto | <position>",
+    "computed": [
+      "forLengthAbsoluteValueOtherwisePercentage"
+    ],
+    "initial": "normal",
+    "inherited": false
+  },
+  {
+    "name": "view-timeline",
+    "syntax": "[ <'view-timeline-name'> [ <'view-timeline-axis'> || <'view-timeline-inset'> ]? ]#",
+    "computed": [
+      "view-timeline-name",
+      "view-timeline-axis"
+    ],
+    "initial": [
+      "view-timeline-name",
+      "view-timeline-axis"
+    ],
+    "inherited": false
+  },
+  {
+    "name": "text-box-edge",
+    "syntax": "auto | <text-edge>",
     "computed": [],
-    "initial": "match-parent",
+    "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "padding-inline",
+    "syntax": "<'padding-top'>{1,2}",
+    "computed": [
+      "padding-inline-start",
+      "padding-inline-end"
+    ],
+    "initial": [
+      "padding-inline-start",
+      "padding-inline-end"
+    ],
+    "inherited": false
+  },
+  {
+    "name": "columns",
+    "syntax": "<'column-width'> || <'column-count'>",
+    "computed": [
+      "column-width",
+      "column-count"
+    ],
+    "initial": [
+      "column-width",
+      "column-count"
+    ],
+    "inherited": false
+  },
+  {
+    "name": "scroll-padding-top",
+    "syntax": "auto | <length-percentage [0,∞]>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "auto",
     "inherited": false
   },
   {
@@ -3238,28 +2757,101 @@
     "inherited": true
   },
   {
-    "name": "math-depth",
-    "syntax": "auto-add | add(<integer>) | <integer>",
+    "name": "background-repeat",
+    "syntax": "<repeat-style>#",
+    "computed": [
+      "listEachItemHasTwoKeywordsOnePerDimension"
+    ],
+    "initial": "repeat",
+    "inherited": false
+  },
+  {
+    "name": "mask-border-mode",
+    "syntax": "luminance | alpha",
     "computed": [
       "asSpecified"
     ],
-    "initial": "0",
+    "initial": "alpha",
+    "inherited": false
+  },
+  {
+    "name": "column-fill",
+    "syntax": "auto | balance | balance-all",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "balance",
+    "inherited": false
+  },
+  {
+    "name": "text-align-all",
+    "syntax": "start | end | left | right | center | justify | match-parent",
+    "computed": [],
+    "initial": "start",
     "inherited": true
   },
   {
-    "name": "-webkit-filter",
+    "name": "border-style",
+    "syntax": "<line-style>{1,4}",
+    "computed": [
+      "border-bottom-style",
+      "border-left-style",
+      "border-right-style",
+      "border-top-style"
+    ],
+    "initial": [
+      "border-top-style",
+      "border-right-style",
+      "border-bottom-style",
+      "border-left-style"
+    ],
+    "inherited": false
+  },
+  {
+    "name": "-webkit-background-origin",
     "syntax": "",
     "computed": [],
     "initial": "",
     "inherited": false
   },
   {
-    "name": "outline-style",
-    "syntax": "auto | <outline-line-style>",
+    "name": "scroll-margin-top",
+    "syntax": "<length>",
     "computed": [
       "asSpecified"
     ],
-    "initial": "none",
+    "initial": "0",
+    "inherited": false
+  },
+  {
+    "name": "scrollbar-color",
+    "syntax": "auto | <color>{2}",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "auto",
+    "inherited": true
+  },
+  {
+    "name": "font-variant-emoji",
+    "syntax": "normal | text | emoji | unicode",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "normal",
+    "inherited": true
+  },
+  {
+    "name": "scroll-padding-inline",
+    "syntax": "[ auto | <length-percentage [0,∞]> ]{1,2}",
+    "computed": [
+      "scroll-padding-inline-start",
+      "scroll-padding-inline-end"
+    ],
+    "initial": [
+      "scroll-padding-inline-start",
+      "scroll-padding-inline-end"
+    ],
     "inherited": false
   },
   {
@@ -3272,63 +2864,47 @@
     "inherited": false
   },
   {
-    "name": "-webkit-animation-direction",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-transition",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "anchor-name",
-    "syntax": "none | <dashed-ident>#",
+    "name": "padding-inline-start",
+    "syntax": "<'padding-top'>",
     "computed": [
-      "asSpecified"
+      "asLength"
     ],
+    "initial": "0",
+    "inherited": false
+  },
+  {
+    "name": "flow-from",
+    "syntax": "<ident> | none",
+    "computed": [],
     "initial": "none",
     "inherited": false
   },
   {
-    "name": "column-rule-color",
-    "syntax": "<color>",
+    "name": "min-height",
+    "syntax": "auto | <length-percentage [0,∞]> | min-content | max-content | fit-content(<length-percentage [0,∞]>) | <calc-size()>",
     "computed": [
-      "computedColor"
+      "percentageAsSpecifiedOrAbsoluteLength"
     ],
-    "initial": "currentcolor",
+    "initial": "auto",
     "inherited": false
   },
   {
-    "name": "clip-rule",
-    "syntax": "nonzero | evenodd",
+    "name": "nav-down",
+    "syntax": "auto | <id> [ current | root | <target-name> ]?",
     "computed": [],
-    "initial": "nonzero",
+    "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "stroke-dash-justify",
+    "syntax": "none | [ stretch | compress ] || [ dashes || gaps ]",
+    "computed": [],
+    "initial": "none",
     "inherited": true
   },
   {
-    "name": "max-inline-size",
-    "syntax": "<'max-width'>",
-    "computed": [
-      "sameAsMaxWidthAndMaxHeight"
-    ],
-    "initial": "none",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-backface-visibility",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "color-scheme",
-    "syntax": "normal | [ light | dark | <custom-ident> ]+ && only?",
+    "name": "math-shift",
+    "syntax": "normal | compact",
     "computed": [
       "asSpecified"
     ],
@@ -3336,11 +2912,63 @@
     "inherited": true
   },
   {
-    "name": "-webkit-transform-style",
+    "name": "-webkit-box-flex",
     "syntax": "",
     "computed": [],
     "initial": "",
     "inherited": false
+  },
+  {
+    "name": "margin-block-start",
+    "syntax": "<'margin-top'>",
+    "computed": [
+      "lengthAbsolutePercentageAsSpecifiedOtherwiseAuto"
+    ],
+    "initial": "0",
+    "inherited": false
+  },
+  {
+    "name": "overscroll-behavior-x",
+    "syntax": "contain | none | auto",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "max-width",
+    "syntax": "none | <length-percentage [0,∞]> | min-content | max-content | fit-content(<length-percentage [0,∞]>) | <calc-size()>",
+    "computed": [
+      "percentageAsSpecifiedAbsoluteLengthOrNone"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "glyph-orientation-vertical",
+    "syntax": "auto | 0deg | 90deg | 0 | 90",
+    "computed": [],
+    "initial": "n/a",
+    "inherited": false
+  },
+  {
+    "name": "position-try-order",
+    "syntax": "normal | <try-size>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "normal",
+    "inherited": false
+  },
+  {
+    "name": "text-underline-position",
+    "syntax": "auto | [ under || [ left | right ] ]",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "auto",
+    "inherited": true
   },
   {
     "name": "field-sizing",
@@ -3352,70 +2980,26 @@
     "inherited": false
   },
   {
-    "name": "ruby-align",
-    "syntax": "start | center | space-between | space-around",
+    "name": "mask-composite",
+    "syntax": "<compositing-operator>#",
     "computed": [
       "asSpecified"
     ],
-    "initial": "space-around",
-    "inherited": true
-  },
-  {
-    "name": "region-fragment",
-    "syntax": "auto | break",
-    "computed": [],
-    "initial": "auto",
+    "initial": "add",
     "inherited": false
   },
   {
-    "name": "color-interpolation-filters",
-    "syntax": "auto | sRGB | linearRGB",
-    "computed": [],
-    "initial": "linearRGB",
-    "inherited": true
-  },
-  {
-    "name": "-webkit-mask-box-image-repeat",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "hanging-punctuation",
-    "syntax": "none | [ first || [ force-end | allow-end ] || last ]",
+    "name": "ruby-position",
+    "syntax": "[ alternate || [ over | under ] ] | inter-character",
     "computed": [
       "asSpecified"
     ],
-    "initial": "none",
+    "initial": "alternate",
     "inherited": true
   },
   {
-    "name": "font",
-    "syntax": "[ [ <'font-style'> || <font-variant-css2> || <'font-weight'> || <font-width-css3> ]? <'font-size'> [ / <'line-height'> ]? <'font-family'> ] | <system-family-name>",
-    "computed": [
-      "font-style",
-      "font-variant",
-      "font-weight",
-      "font-stretch",
-      "font-size",
-      "line-height",
-      "font-family"
-    ],
-    "initial": [
-      "font-style",
-      "font-variant",
-      "font-weight",
-      "font-stretch",
-      "font-size",
-      "line-height",
-      "font-family"
-    ],
-    "inherited": true
-  },
-  {
-    "name": "font-variant",
-    "syntax": "normal | none | [ [ <common-lig-values> || <discretionary-lig-values> || <historical-lig-values> || <contextual-alt-values> ] || [ small-caps | all-small-caps | petite-caps | all-petite-caps | unicase | titling-caps ] || [ stylistic(<feature-value-name>) || historical-forms || styleset(<feature-value-name>#) || character-variant(<feature-value-name>#) || swash(<feature-value-name>) || ornaments(<feature-value-name>) || annotation(<feature-value-name>) ] || [ <numeric-figure-values> || <numeric-spacing-values> || <numeric-fraction-values> || ordinal || slashed-zero ] || [ <east-asian-variant-values> || <east-asian-width-values> || ruby ] || [ sub | super ] || [ text | emoji | unicode ] ]",
+    "name": "overflow-wrap",
+    "syntax": "normal | break-word | anywhere",
     "computed": [
       "asSpecified"
     ],
@@ -3423,8 +3007,166 @@
     "inherited": true
   },
   {
-    "name": "scroll-behavior",
-    "syntax": "auto | smooth",
+    "name": "writing-mode",
+    "syntax": "horizontal-tb | vertical-rl | vertical-lr | sideways-rl | sideways-lr",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "horizontal-tb",
+    "inherited": true
+  },
+  {
+    "name": "-webkit-border-top-left-radius",
+    "syntax": "",
+    "computed": [],
+    "initial": "",
+    "inherited": false
+  },
+  {
+    "name": "border-width",
+    "syntax": "<line-width>{1,4}",
+    "computed": [
+      "border-bottom-width",
+      "border-left-width",
+      "border-right-width",
+      "border-top-width"
+    ],
+    "initial": [
+      "border-top-width",
+      "border-right-width",
+      "border-bottom-width",
+      "border-left-width"
+    ],
+    "inherited": false
+  },
+  {
+    "name": "voice-family",
+    "syntax": "[[<family-name> | <generic-voice>],]* [<family-name> | <generic-voice>] | preserve",
+    "computed": [],
+    "initial": "implementation-dependent",
+    "inherited": true
+  },
+  {
+    "name": "word-wrap",
+    "syntax": "normal | break-word | anywhere",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "normal",
+    "inherited": true
+  },
+  {
+    "name": "align-content",
+    "syntax": "normal | <baseline-position> | <content-distribution> | <overflow-position>? <content-position>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "normal",
+    "inherited": false
+  },
+  {
+    "name": "-webkit-box-pack",
+    "syntax": "",
+    "computed": [],
+    "initial": "",
+    "inherited": false
+  },
+  {
+    "name": "animation-timing-function",
+    "syntax": "<easing-function>#",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "ease",
+    "inherited": false
+  },
+  {
+    "name": "scroll-margin-block",
+    "syntax": "<length>{1,2}",
+    "computed": [
+      "scroll-margin-block-start",
+      "scroll-margin-block-end"
+    ],
+    "initial": [
+      "scroll-margin-block-start",
+      "scroll-margin-block-end"
+    ],
+    "inherited": false
+  },
+  {
+    "name": "fill-position",
+    "syntax": "<position>#",
+    "computed": [],
+    "initial": "0% 0%",
+    "inherited": true
+  },
+  {
+    "name": "-webkit-align-self",
+    "syntax": "",
+    "computed": [],
+    "initial": "",
+    "inherited": false
+  },
+  {
+    "name": "font-width",
+    "syntax": "normal | <percentage [0,∞]> | ultra-condensed | extra-condensed | condensed | semi-condensed | semi-expanded | expanded | extra-expanded | ultra-expanded",
+    "computed": [],
+    "initial": "normal",
+    "inherited": true
+  },
+  {
+    "name": "column-rule-color",
+    "syntax": "<color>",
+    "computed": [
+      "computedColor"
+    ],
+    "initial": "currentcolor",
+    "inherited": false
+  },
+  {
+    "name": "wrap-through",
+    "syntax": "wrap | none",
+    "computed": [],
+    "initial": "wrap",
+    "inherited": false
+  },
+  {
+    "name": "width",
+    "syntax": "auto | <length-percentage [0,∞]> | min-content | max-content | fit-content(<length-percentage [0,∞]>) | <calc-size()>",
+    "computed": [
+      "percentageAutoOrAbsoluteLength"
+    ],
+    "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "caret-color",
+    "syntax": "auto | <color>",
+    "computed": [
+      "asAutoOrColor"
+    ],
+    "initial": "auto",
+    "inherited": true
+  },
+  {
+    "name": "stroke-dashoffset",
+    "syntax": "<length-percentage> | <number>",
+    "computed": [],
+    "initial": "0",
+    "inherited": true
+  },
+  {
+    "name": "offset-anchor",
+    "syntax": "auto | <position>",
+    "computed": [
+      "forLengthAbsoluteValueOtherwisePercentage"
+    ],
+    "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "grid-column-start",
+    "syntax": "<grid-line>",
     "computed": [
       "asSpecified"
     ],
@@ -3441,27 +3183,166 @@
     "inherited": false
   },
   {
-    "name": "-webkit-box-orient",
+    "name": "gap",
+    "syntax": "<'row-gap'> <'column-gap'>?",
+    "computed": [
+      "row-gap",
+      "column-gap"
+    ],
+    "initial": [
+      "row-gap",
+      "column-gap"
+    ],
+    "inherited": false
+  },
+  {
+    "name": "border-image-outset",
+    "syntax": "[ <length [0,∞]> | <number [0,∞]> ]{1,4}",
+    "computed": [
+      "asSpecifiedRelativeToAbsoluteLengths"
+    ],
+    "initial": "0",
+    "inherited": false
+  },
+  {
+    "name": "initial-letter",
+    "syntax": "normal | <number [1,∞]> <integer [1,∞]> | <number [1,∞]> && [ drop | raise ]?",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "normal",
+    "inherited": false
+  },
+  {
+    "name": "hyphens",
+    "syntax": "none | manual | auto",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "manual",
+    "inherited": true
+  },
+  {
+    "name": "-webkit-mask-composite",
+    "syntax": "",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "source-over",
+    "inherited": false
+  },
+  {
+    "name": "grid-column-end",
+    "syntax": "<grid-line>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "text-emphasis",
+    "syntax": "<'text-emphasis-style'> || <'text-emphasis-color'>",
+    "computed": [
+      "text-emphasis-style",
+      "text-emphasis-color"
+    ],
+    "initial": [
+      "text-emphasis-style",
+      "text-emphasis-color"
+    ],
+    "inherited": false
+  },
+  {
+    "name": "stroke-break",
+    "syntax": "bounding-box | slice | clone",
+    "computed": [],
+    "initial": "bounding-box",
+    "inherited": false
+  },
+  {
+    "name": "flood-color",
+    "syntax": "<color>",
+    "computed": [],
+    "initial": "black",
+    "inherited": false
+  },
+  {
+    "name": "font-style",
+    "syntax": "normal | italic | oblique <angle [-90deg,90deg]>?",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "normal",
+    "inherited": true
+  },
+  {
+    "name": "grid-row-gap",
+    "syntax": "",
+    "computed": [
+      "percentageAsSpecifiedOrAbsoluteLength"
+    ],
+    "initial": "0",
+    "inherited": false
+  },
+  {
+    "name": "animation-iteration-count",
+    "syntax": "<single-animation-iteration-count>#",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "1",
+    "inherited": false
+  },
+  {
+    "name": "font-stretch",
+    "syntax": "",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "normal",
+    "inherited": false
+  },
+  {
+    "name": "scroll-margin-block-end",
+    "syntax": "<length>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "0",
+    "inherited": false
+  },
+  {
+    "name": "caption-side",
+    "syntax": "top | bottom",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "top",
+    "inherited": true
+  },
+  {
+    "name": "view-timeline-axis",
+    "syntax": "[ block | inline | x | y ]#",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "block",
+    "inherited": false
+  },
+  {
+    "name": "-webkit-transform-style",
     "syntax": "",
     "computed": [],
     "initial": "",
     "inherited": false
   },
   {
-    "name": "text-decoration-color",
-    "syntax": "<color>",
-    "computed": [
-      "computedColor"
-    ],
-    "initial": "currentcolor",
-    "inherited": false
-  },
-  {
-    "name": "stroke-repeat",
-    "syntax": "<repeat-style>#",
+    "name": "footnote-display",
+    "syntax": "block | inline | compact",
     "computed": [],
-    "initial": "repeat",
-    "inherited": true
+    "initial": "block",
+    "inherited": false
   },
   {
     "name": "place-items",
@@ -3477,84 +3358,62 @@
     "inherited": false
   },
   {
-    "name": "clip-path",
-    "syntax": "<clip-source> | [ <basic-shape> || <geometry-box> ] | none",
+    "name": "margin-top",
+    "syntax": "<length-percentage> | auto",
     "computed": [
-      "asSpecifiedURLsAbsolute"
-    ],
-    "initial": "none",
-    "inherited": false
-  },
-  {
-    "name": "scroll-padding-left",
-    "syntax": "auto | <length-percentage [0,∞]>",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "border-image-outset",
-    "syntax": "[ <length [0,∞]> | <number [0,∞]> ]{1,4}",
-    "computed": [
-      "asSpecifiedRelativeToAbsoluteLengths"
+      "percentageAsSpecifiedOrAbsoluteLength"
     ],
     "initial": "0",
     "inherited": false
   },
   {
-    "name": "caret-animation",
-    "syntax": "auto | manual",
-    "computed": [],
-    "initial": "auto",
-    "inherited": true
-  },
-  {
-    "name": "text-justify",
-    "syntax": "auto | none | inter-word | inter-character",
+    "name": "padding-right",
+    "syntax": "<length-percentage [0,∞]>",
     "computed": [
-      "asSpecified"
+      "percentageAsSpecifiedOrAbsoluteLength"
     ],
-    "initial": "auto",
-    "inherited": true
-  },
-  {
-    "name": "justify-items",
-    "syntax": "normal | stretch | <baseline-position> | <overflow-position>? [ <self-position> | left | right ] | legacy | legacy && [ left | right | center ] | anchor-center",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "legacy",
+    "initial": "0",
     "inherited": false
   },
   {
-    "name": "-webkit-animation",
+    "name": "initial-letter-wrap",
+    "syntax": "none | first | all | grid | <length-percentage>",
+    "computed": [],
+    "initial": "none",
+    "inherited": true
+  },
+  {
+    "name": "-webkit-flex-shrink",
     "syntax": "",
     "computed": [],
     "initial": "",
     "inherited": false
   },
   {
-    "name": "rest-before",
-    "syntax": "<time [0s,∞]> | none | x-weak | weak | medium | strong | x-strong",
-    "computed": [],
-    "initial": "none",
+    "name": "animation-direction",
+    "syntax": "<single-animation-direction>#",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "normal",
     "inherited": false
   },
   {
-    "name": "list-style",
-    "syntax": "<'list-style-position'> || <'list-style-image'> || <'list-style-type'>",
+    "name": "vertical-align",
+    "syntax": "[ first | last] || <'alignment-baseline'> || <'baseline-shift'>",
     "computed": [
-      "list-style-image",
-      "list-style-position",
-      "list-style-type"
+      "absoluteLengthOrKeyword"
     ],
-    "initial": [
-      "list-style-type",
-      "list-style-position",
-      "list-style-image"
+    "initial": "baseline",
+    "inherited": false
+  },
+  {
+    "name": "clear",
+    "syntax": "inline-start | inline-end | block-start | block-end | left | right | top | bottom | both-inline | both-block | both | none",
+    "computed": [
+      "asSpecified"
     ],
+    "initial": "none",
     "inherited": false
   },
   {
@@ -3574,37 +3433,508 @@
     "inherited": false
   },
   {
-    "name": "mask-border-source",
-    "syntax": "none | <image>",
+    "name": "text-transform",
+    "syntax": "none | [capitalize | uppercase | lowercase ] || full-width || full-size-kana | math-auto",
     "computed": [
-      "asSpecifiedURLsAbsolute"
+      "asSpecified"
+    ],
+    "initial": "none",
+    "inherited": true
+  },
+  {
+    "name": "-webkit-mask-box-image-slice",
+    "syntax": "",
+    "computed": [],
+    "initial": "",
+    "inherited": false
+  },
+  {
+    "name": "scroll-padding-block-start",
+    "syntax": "auto | <length-percentage [0,∞]>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "contain",
+    "syntax": "none | strict | content | [ [size | inline-size] || layout || style || paint ]",
+    "computed": [
+      "asSpecified"
     ],
     "initial": "none",
     "inherited": false
   },
   {
-    "name": "border",
-    "syntax": "<line-width> || <line-style> || <color>",
-    "computed": [
-      "border-width",
-      "border-style",
-      "border-color"
-    ],
-    "initial": [
-      "border-width",
-      "border-style",
-      "border-color"
-    ],
+    "name": "-webkit-mask-box-image-outset",
+    "syntax": "",
+    "computed": [],
+    "initial": "",
     "inherited": false
   },
   {
-    "name": "image-rendering",
-    "syntax": "auto | smooth | high-quality | pixelated | crisp-edges",
+    "name": "font-variation-settings",
+    "syntax": "normal | [ <opentype-tag> <number>]#",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "normal",
+    "inherited": true
+  },
+  {
+    "name": "transition-delay",
+    "syntax": "<time>#",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "0s",
+    "inherited": false
+  },
+  {
+    "name": "-webkit-text-fill-color",
+    "syntax": "<color>",
+    "computed": [
+      "computedColor"
+    ],
+    "initial": "currentcolor",
+    "inherited": true
+  },
+  {
+    "name": "spatial-navigation-action",
+    "syntax": "auto | focus | scroll",
+    "computed": [],
+    "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "shape-outside",
+    "syntax": "none | [ <basic-shape> || <shape-box> ] | <image>",
+    "computed": [
+      "asDefinedForBasicShapeWithAbsoluteURIOtherwiseAsSpecified"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "min-width",
+    "syntax": "auto | <length-percentage [0,∞]> | min-content | max-content | fit-content(<length-percentage [0,∞]>) | <calc-size()>",
+    "computed": [
+      "percentageAsSpecifiedOrAbsoluteLength"
+    ],
+    "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "text-emphasis-position",
+    "syntax": "[ over | under ] && [ right | left ]?",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "over right",
+    "inherited": true
+  },
+  {
+    "name": "stroke-position",
+    "syntax": "<position>#",
+    "computed": [],
+    "initial": "0% 0%",
+    "inherited": true
+  },
+  {
+    "name": "box-decoration-break",
+    "syntax": "slice | clone",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "slice",
+    "inherited": false
+  },
+  {
+    "name": "mix-blend-mode",
+    "syntax": "<blend-mode> | plus-darker | plus-lighter",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "normal",
+    "inherited": false
+  },
+  {
+    "name": "border-image-source",
+    "syntax": "none | <image>",
+    "computed": [
+      "noneOrImageWithAbsoluteURI"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "wrap-flow",
+    "syntax": "auto | both | start | end | minimum | maximum | clear",
+    "computed": [],
+    "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "text-box",
+    "syntax": "normal | [ start | end | both ] || [ text | cap | ex | ideographic | ideographic-ink ] [ text | alphabetic | ideographic | ideographic-ink ]?",
+    "computed": [],
+    "initial": "normal",
+    "inherited": false
+  },
+  {
+    "name": "ruby-overhang",
+    "syntax": "auto | none",
+    "computed": [],
+    "initial": "auto",
+    "inherited": true
+  },
+  {
+    "name": "-webkit-animation-iteration-count",
+    "syntax": "",
+    "computed": [],
+    "initial": "",
+    "inherited": false
+  },
+  {
+    "name": "transition-property",
+    "syntax": "none | <single-transition-property>#",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "all",
+    "inherited": false
+  },
+  {
+    "name": "content-visibility",
+    "syntax": "visible | auto | hidden",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "visible",
+    "inherited": false
+  },
+  {
+    "name": "animation-range-start",
+    "syntax": "[ normal | <length-percentage> | <timeline-range-name> <length-percentage>? ]#",
+    "computed": [
+      "listEachItemConsistingOfNormalLengthPercentageOrNameLengthPercentage"
+    ],
+    "initial": "normal",
+    "inherited": false
+  },
+  {
+    "name": "block-size",
+    "syntax": "<'width'>",
+    "computed": [
+      "sameAsWidthAndHeight"
+    ],
+    "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "scroll-padding-bottom",
+    "syntax": "auto | <length-percentage [0,∞]>",
     "computed": [
       "asSpecified"
     ],
     "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "view-transition-name",
+    "syntax": "none | <custom-ident>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "color-interpolation-filters",
+    "syntax": "auto | sRGB | linearRGB",
+    "computed": [],
+    "initial": "linearRGB",
     "inherited": true
+  },
+  {
+    "name": "row-gap",
+    "syntax": "normal | <length-percentage [0,∞]>",
+    "computed": [
+      "asSpecifiedWithLengthsAbsoluteAndNormalComputingToZeroExceptMultiColumn"
+    ],
+    "initial": "normal",
+    "inherited": false
+  },
+  {
+    "name": "padding-left",
+    "syntax": "<length-percentage [0,∞]>",
+    "computed": [
+      "percentageAsSpecifiedOrAbsoluteLength"
+    ],
+    "initial": "0",
+    "inherited": false
+  },
+  {
+    "name": "float-reference",
+    "syntax": "inline | column | region | page",
+    "computed": [],
+    "initial": "inline",
+    "inherited": false
+  },
+  {
+    "name": "caret-animation",
+    "syntax": "auto | manual",
+    "computed": [],
+    "initial": "auto",
+    "inherited": true
+  },
+  {
+    "name": "-webkit-mask-clip",
+    "syntax": "",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "border",
+    "inherited": false
+  },
+  {
+    "name": "animation-name",
+    "syntax": "[ none | <keyframes-name> ]#",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "reading-flow",
+    "syntax": "normal | flex-visual | flex-flow | grid-rows | grid-columns | grid-order",
+    "computed": [],
+    "initial": "normal",
+    "inherited": false
+  },
+  {
+    "name": "list-style",
+    "syntax": "<'list-style-position'> || <'list-style-image'> || <'list-style-type'>",
+    "computed": [
+      "list-style-image",
+      "list-style-position",
+      "list-style-type"
+    ],
+    "initial": [
+      "list-style-type",
+      "list-style-position",
+      "list-style-image"
+    ],
+    "inherited": false
+  },
+  {
+    "name": "ruby-align",
+    "syntax": "start | center | space-between | space-around",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "space-around",
+    "inherited": true
+  },
+  {
+    "name": "scroll-snap-stop",
+    "syntax": "normal | always",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "normal",
+    "inherited": false
+  },
+  {
+    "name": "-webkit-flex-direction",
+    "syntax": "",
+    "computed": [],
+    "initial": "",
+    "inherited": false
+  },
+  {
+    "name": "baseline-shift",
+    "syntax": "<length-percentage> | sub | super | top | center | bottom",
+    "computed": [],
+    "initial": "0",
+    "inherited": false
+  },
+  {
+    "name": "inline-size",
+    "syntax": "<'width'>",
+    "computed": [
+      "sameAsWidthAndHeight"
+    ],
+    "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "column-rule",
+    "syntax": "<'column-rule-width'> || <'column-rule-style'> || <'column-rule-color'>",
+    "computed": [
+      "column-rule-color",
+      "column-rule-style",
+      "column-rule-width"
+    ],
+    "initial": [
+      "column-rule-width",
+      "column-rule-style",
+      "column-rule-color"
+    ],
+    "inherited": false
+  },
+  {
+    "name": "scroll-behavior",
+    "syntax": "auto | smooth",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "float-offset",
+    "syntax": "<length> | <percentage>",
+    "computed": [],
+    "initial": "0",
+    "inherited": false
+  },
+  {
+    "name": "break-inside",
+    "syntax": "auto | avoid | avoid-page | avoid-column | avoid-region",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "-webkit-box-align",
+    "syntax": "",
+    "computed": [],
+    "initial": "",
+    "inherited": false
+  },
+  {
+    "name": "background-origin",
+    "syntax": "<visual-box>#",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "padding-box",
+    "inherited": false
+  },
+  {
+    "name": "dominant-baseline",
+    "syntax": "auto | text-bottom | alphabetic | ideographic | middle | central | mathematical | hanging | text-top",
+    "computed": [],
+    "initial": "auto",
+    "inherited": true
+  },
+  {
+    "name": "line-fit-edge",
+    "syntax": "leading | <text-edge>",
+    "computed": [],
+    "initial": "leading",
+    "inherited": true
+  },
+  {
+    "name": "column-count",
+    "syntax": "auto | <integer [1,∞]>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "-webkit-transition-timing-function",
+    "syntax": "",
+    "computed": [],
+    "initial": "",
+    "inherited": false
+  },
+  {
+    "name": "border-collapse",
+    "syntax": "separate | collapse",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "separate",
+    "inherited": true
+  },
+  {
+    "name": "footnote-policy",
+    "syntax": "auto | line | block",
+    "computed": [],
+    "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "-webkit-mask-box-image-repeat",
+    "syntax": "",
+    "computed": [],
+    "initial": "",
+    "inherited": false
+  },
+  {
+    "name": "-webkit-mask-repeat",
+    "syntax": "",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "repeat",
+    "inherited": false
+  },
+  {
+    "name": "page",
+    "syntax": "auto | <custom-ident>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "scroll-timeline-name",
+    "syntax": "[ none | <dashed-ident> ]#",
+    "computed": [
+      "noneOrOrderedListOfIdentifiers"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "-webkit-animation-play-state",
+    "syntax": "",
+    "computed": [],
+    "initial": "",
+    "inherited": false
+  },
+  {
+    "name": "align-items",
+    "syntax": "normal | stretch | <baseline-position> | [ <overflow-position>? <self-position> ] | anchor-center",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "normal",
+    "inherited": false
+  },
+  {
+    "name": "clip-rule",
+    "syntax": "nonzero | evenodd",
+    "computed": [],
+    "initial": "nonzero",
+    "inherited": true
+  },
+  {
+    "name": "flow-into",
+    "syntax": "none | <ident> [element | content]?",
+    "computed": [],
+    "initial": "none",
+    "inherited": false
   },
   {
     "name": "stroke-linecap",
@@ -3614,12 +3944,69 @@
     "inherited": true
   },
   {
-    "name": "mask-border-width",
-    "syntax": "[ <length-percentage> | <number> | auto ]{1,4}",
+    "name": "-webkit-transform",
+    "syntax": "",
+    "computed": [],
+    "initial": "",
+    "inherited": false
+  },
+  {
+    "name": "cue-after",
+    "syntax": "<uri> <decibel>? | none",
+    "computed": [],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "stroke-origin",
+    "syntax": "match-parent | fill-box | stroke-box | content-box | padding-box | border-box",
+    "computed": [],
+    "initial": "match-parent",
+    "inherited": false
+  },
+  {
+    "name": "animation-range",
+    "syntax": "[ <'animation-range-start'> <'animation-range-end'>? ]#",
+    "computed": [
+      "animation-range-start",
+      "animation-range-end"
+    ],
+    "initial": [
+      "animation-range-start",
+      "animation-range-end"
+    ],
+    "inherited": false
+  },
+  {
+    "name": "mask-size",
+    "syntax": "<bg-size>#",
     "computed": [
       "asSpecifiedRelativeToAbsoluteLengths"
     ],
     "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "background-blend-mode",
+    "syntax": "<mix-blend-mode>#",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "normal",
+    "inherited": false
+  },
+  {
+    "name": "alignment-baseline",
+    "syntax": "baseline | text-bottom | alphabetic | ideographic | middle | central | mathematical | text-top",
+    "computed": [],
+    "initial": "baseline",
+    "inherited": false
+  },
+  {
+    "name": "-webkit-mask-box-image",
+    "syntax": "",
+    "computed": [],
+    "initial": "",
     "inherited": false
   },
   {
@@ -3640,53 +4027,31 @@
     "inherited": false
   },
   {
-    "name": "shape-image-threshold",
-    "syntax": "<opacity-value>",
-    "computed": [
-      "specifiedValueNumberClipped0To1"
-    ],
-    "initial": "0.0",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-text-stroke-width",
-    "syntax": "<line-width>",
-    "computed": [
-      "absoluteLength"
-    ],
-    "initial": "0",
-    "inherited": true
-  },
-  {
-    "name": "caption-side",
-    "syntax": "top | bottom",
+    "name": "orphans",
+    "syntax": "<integer [1,∞]>",
     "computed": [
       "asSpecified"
     ],
-    "initial": "top",
+    "initial": "2",
     "inherited": true
   },
   {
-    "name": "spatial-navigation-action",
-    "syntax": "auto | focus | scroll",
-    "computed": [],
-    "initial": "auto",
+    "name": "overflow",
+    "syntax": "<'overflow-block'>{1,2}",
+    "computed": [
+      "overflow-x",
+      "overflow-y"
+    ],
+    "initial": "visible",
     "inherited": false
   },
   {
-    "name": "padding-block-end",
-    "syntax": "<'padding-top'>",
+    "name": "scroll-margin-right",
+    "syntax": "<length>",
     "computed": [
-      "asLength"
+      "asSpecified"
     ],
     "initial": "0",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-mask-box-image-outset",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
     "inherited": false
   },
   {
@@ -3699,159 +4064,28 @@
     "inherited": false
   },
   {
-    "name": "block-size",
-    "syntax": "<'width'>",
+    "name": "will-change",
+    "syntax": "auto | <animateable-feature>#",
     "computed": [
-      "sameAsWidthAndHeight"
+      "asSpecified"
     ],
     "initial": "auto",
     "inherited": false
   },
   {
-    "name": "orphans",
-    "syntax": "<integer [1,∞]>",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "2",
+    "name": "fill-rule",
+    "syntax": "nonzero | evenodd",
+    "computed": [],
+    "initial": "nonzero",
     "inherited": true
   },
   {
-    "name": "-webkit-flex-wrap",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-mask-box-image",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "text-box-trim",
-    "syntax": "none | start | end | both",
-    "computed": [],
-    "initial": "none",
-    "inherited": false
-  },
-  {
-    "name": "text-align-all",
-    "syntax": "start | end | left | right | center | justify | match-parent",
-    "computed": [],
-    "initial": "start",
-    "inherited": true
-  },
-  {
-    "name": "mask-border-repeat",
-    "syntax": "[ stretch | repeat | round | space ]{1,2}",
+    "name": "column-gap",
+    "syntax": "normal | <length-percentage [0,∞]>",
     "computed": [
-      "asSpecified"
-    ],
-    "initial": "stretch",
-    "inherited": false
-  },
-  {
-    "name": "scroll-snap-align",
-    "syntax": "[ none | start | end | center ]{1,2}",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "none",
-    "inherited": false
-  },
-  {
-    "name": "object-position",
-    "syntax": "<position>",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "50% 50%",
-    "inherited": false
-  },
-  {
-    "name": "position",
-    "syntax": "",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "static",
-    "inherited": false
-  },
-  {
-    "name": "margin-left",
-    "syntax": "<length-percentage> | auto",
-    "computed": [
-      "percentageAsSpecifiedOrAbsoluteLength"
-    ],
-    "initial": "0",
-    "inherited": false
-  },
-  {
-    "name": "text-emphasis-color",
-    "syntax": "<color>",
-    "computed": [
-      "computedColor"
-    ],
-    "initial": "currentcolor",
-    "inherited": true
-  },
-  {
-    "name": "baseline-shift",
-    "syntax": "<length-percentage> | sub | super | top | center | bottom",
-    "computed": [],
-    "initial": "0",
-    "inherited": false
-  },
-  {
-    "name": "initial-letter",
-    "syntax": "normal | <number [1,∞]> <integer [1,∞]> | <number [1,∞]> && [ drop | raise ]?",
-    "computed": [
-      "asSpecified"
+      "asSpecifiedWithLengthsAbsoluteAndNormalComputingToZeroExceptMultiColumn"
     ],
     "initial": "normal",
-    "inherited": false
-  },
-  {
-    "name": "caret-shape",
-    "syntax": "auto | bar | block | underscore",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "auto",
-    "inherited": true
-  },
-  {
-    "name": "stroke-miterlimit",
-    "syntax": "<number>",
-    "computed": [],
-    "initial": "4",
-    "inherited": true
-  },
-  {
-    "name": "stroke-position",
-    "syntax": "<position>#",
-    "computed": [],
-    "initial": "0% 0%",
-    "inherited": true
-  },
-  {
-    "name": "border-width",
-    "syntax": "<line-width>{1,4}",
-    "computed": [
-      "border-bottom-width",
-      "border-left-width",
-      "border-right-width",
-      "border-top-width"
-    ],
-    "initial": [
-      "border-top-width",
-      "border-right-width",
-      "border-bottom-width",
-      "border-left-width"
-    ],
     "inherited": false
   },
   {
@@ -3864,54 +4098,18 @@
     "inherited": false
   },
   {
-    "name": "-webkit-flex-grow",
-    "syntax": "",
+    "name": "speak-as",
+    "syntax": "normal | spell-out || digits || [ literal-punctuation | no-punctuation ]",
     "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "scroll-margin-top",
-    "syntax": "<length>",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "0",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-align-items",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "scroll-timeline-axis",
-    "syntax": "[ block | inline | x | y ]#",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "block",
-    "inherited": false
-  },
-  {
-    "name": "font-synthesis-small-caps",
-    "syntax": "auto | none",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "auto",
+    "initial": "normal",
     "inherited": true
   },
   {
-    "name": "animation-fill-mode",
-    "syntax": "<single-animation-fill-mode>#",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "none",
-    "inherited": false
+    "name": "stroke-color",
+    "syntax": "<color>#",
+    "computed": [],
+    "initial": "transparent",
+    "inherited": true
   },
   {
     "name": "color-adjust",
@@ -3921,139 +4119,31 @@
     "inherited": false
   },
   {
-    "name": "column-rule",
-    "syntax": "<'column-rule-width'> || <'column-rule-style'> || <'column-rule-color'>",
-    "computed": [
-      "column-rule-color",
-      "column-rule-style",
-      "column-rule-width"
-    ],
-    "initial": [
-      "column-rule-width",
-      "column-rule-style",
-      "column-rule-color"
-    ],
-    "inherited": false
-  },
-  {
-    "name": "font-kerning",
-    "syntax": "auto | normal | none",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "auto",
-    "inherited": true
-  },
-  {
-    "name": "animation-timing-function",
-    "syntax": "<easing-function>#",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "ease",
-    "inherited": false
-  },
-  {
-    "name": "offset",
-    "syntax": "[ <'offset-position'>? [ <'offset-path'> [ <'offset-distance'> || <'offset-rotate'> ]? ]? ]! [ / <'offset-anchor'> ]?",
-    "computed": [
-      "offset-position",
-      "offset-path",
-      "offset-distance",
-      "offset-anchor",
-      "offset-rotate"
-    ],
-    "initial": [
-      "offset-position",
-      "offset-path",
-      "offset-distance",
-      "offset-anchor",
-      "offset-rotate"
-    ],
-    "inherited": false
-  },
-  {
-    "name": "min-inline-size",
-    "syntax": "<'min-width'>",
-    "computed": [
-      "sameAsMinWidthAndMinHeight"
-    ],
-    "initial": "0",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-background-clip",
+    "name": "-webkit-flex-grow",
     "syntax": "",
     "computed": [],
     "initial": "",
     "inherited": false
   },
   {
-    "name": "margin-inline",
-    "syntax": "<'margin-top'>{1,2}",
-    "computed": [
-      "margin-inline-start",
-      "margin-inline-end"
-    ],
-    "initial": [
-      "margin-inline-start",
-      "margin-inline-end"
-    ],
-    "inherited": false
-  },
-  {
-    "name": "forced-color-adjust",
-    "syntax": "auto | none | preserve-parent-color",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "auto",
-    "inherited": true
-  },
-  {
-    "name": "background-size",
-    "syntax": "<bg-size>#",
-    "computed": [
-      "asSpecifiedRelativeToAbsoluteLengths"
-    ],
-    "initial": "auto auto",
-    "inherited": false
-  },
-  {
-    "name": "border-image-slice",
-    "syntax": "[<number [0,∞]> | <percentage [0,∞]>]{1,4} && fill?",
-    "computed": [
-      "oneToFourPercentagesOrAbsoluteLengthsPlusFill"
-    ],
-    "initial": "100%",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-transform",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "line-height-step",
-    "syntax": "<length [0,∞]>",
-    "computed": [
-      "absoluteLength"
-    ],
-    "initial": "0",
-    "inherited": true
-  },
-  {
-    "name": "margin-break",
-    "syntax": "auto | keep | discard",
+    "name": "nav-up",
+    "syntax": "auto | <id> [ current | root | <target-name> ]?",
     "computed": [],
     "initial": "auto",
     "inherited": false
   },
   {
-    "name": "margin-trim",
-    "syntax": "none | [ block || inline ] | [ block-start || inline-start || block-end || inline-end ]",
+    "name": "max-inline-size",
+    "syntax": "<'max-width'>",
+    "computed": [
+      "sameAsMaxWidthAndMaxHeight"
+    ],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "counter-set",
+    "syntax": "[ <counter-name> <integer>? ]+ | none",
     "computed": [
       "asSpecified"
     ],
@@ -4061,40 +4151,179 @@
     "inherited": false
   },
   {
-    "name": "table-layout",
-    "syntax": "auto | fixed",
+    "name": "overflow-y",
+    "syntax": "visible | hidden | clip | scroll | auto",
     "computed": [
-      "asSpecified"
+      "asSpecifiedButVisibleOrClipReplacedToAutoOrHiddenIfOtherValueDifferent"
     ],
-    "initial": "auto",
+    "initial": "visible",
     "inherited": false
   },
   {
-    "name": "empty-cells",
-    "syntax": "show | hide",
+    "name": "float-defer",
+    "syntax": "<integer> | last | none",
+    "computed": [],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "lighting-color",
+    "syntax": "<color>",
+    "computed": [],
+    "initial": "white",
+    "inherited": false
+  },
+  {
+    "name": "-webkit-box-shadow",
+    "syntax": "",
+    "computed": [],
+    "initial": "",
+    "inherited": false
+  },
+  {
+    "name": "-webkit-transition-delay",
+    "syntax": "",
+    "computed": [],
+    "initial": "",
+    "inherited": false
+  },
+  {
+    "name": "position-visibility",
+    "syntax": "always | [ anchors-valid || anchors-visible || no-overflow ]",
     "computed": [
       "asSpecified"
     ],
-    "initial": "show",
+    "initial": "anchors-visible",
+    "inherited": false
+  },
+  {
+    "name": "border-image-width",
+    "syntax": "[ <length-percentage [0,∞]> | <number [0,∞]> | auto ]{1,4}",
+    "computed": [
+      "asSpecifiedRelativeToAbsoluteLengths"
+    ],
+    "initial": "1",
+    "inherited": false
+  },
+  {
+    "name": "all",
+    "syntax": "initial | inherit | unset | revert | revert-layer",
+    "computed": [
+      "asSpecifiedAppliesToEachProperty"
+    ],
+    "initial": "noPracticalInitialValue",
+    "inherited": false
+  },
+  {
+    "name": "rest-before",
+    "syntax": "<time [0s,∞]> | none | x-weak | weak | medium | strong | x-strong",
+    "computed": [],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "-webkit-justify-content",
+    "syntax": "",
+    "computed": [],
+    "initial": "",
+    "inherited": false
+  },
+  {
+    "name": "stroke-align",
+    "syntax": "center | inset | outset",
+    "computed": [],
+    "initial": "center",
     "inherited": true
   },
   {
-    "name": "shape-margin",
-    "syntax": "<length-percentage [0,∞]>",
+    "name": "background-attachment",
+    "syntax": "<attachment>#",
     "computed": [
-      "asSpecifiedRelativeToAbsoluteLengths"
+      "asSpecified"
+    ],
+    "initial": "scroll",
+    "inherited": false
+  },
+  {
+    "name": "line-snap",
+    "syntax": "none | baseline | contain",
+    "computed": [],
+    "initial": "none",
+    "inherited": true
+  },
+  {
+    "name": "voice-stress",
+    "syntax": "normal | strong | moderate | none | reduced",
+    "computed": [],
+    "initial": "normal",
+    "inherited": true
+  },
+  {
+    "name": "-webkit-flex-basis",
+    "syntax": "",
+    "computed": [],
+    "initial": "",
+    "inherited": false
+  },
+  {
+    "name": "border-image",
+    "syntax": "<'border-image-source'> || <'border-image-slice'> [ / <'border-image-width'> | / <'border-image-width'>? / <'border-image-outset'> ]? || <'border-image-repeat'>",
+    "computed": [
+      "border-image-outset",
+      "border-image-repeat",
+      "border-image-slice",
+      "border-image-source",
+      "border-image-width"
+    ],
+    "initial": [
+      "border-image-source",
+      "border-image-slice",
+      "border-image-width",
+      "border-image-outset",
+      "border-image-repeat"
+    ],
+    "inherited": false
+  },
+  {
+    "name": "font-variant-caps",
+    "syntax": "normal | small-caps | all-small-caps | petite-caps | all-petite-caps | unicase | titling-caps",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "normal",
+    "inherited": true
+  },
+  {
+    "name": "marker-side",
+    "syntax": "match-self | match-parent",
+    "computed": [],
+    "initial": "match-self",
+    "inherited": true
+  },
+  {
+    "name": "stroke-width",
+    "syntax": "[<length-percentage> | <number>]#",
+    "computed": [],
+    "initial": "1px",
+    "inherited": true
+  },
+  {
+    "name": "offset-distance",
+    "syntax": "<length-percentage>",
+    "computed": [
+      "forLengthAbsoluteValueOtherwisePercentage"
     ],
     "initial": "0",
     "inherited": false
   },
   {
-    "name": "border-image-source",
-    "syntax": "none | <image>",
+    "name": "-webkit-text-stroke-color",
+    "syntax": "<color>",
     "computed": [
-      "noneOrImageWithAbsoluteURI"
+      "computedColor"
     ],
-    "initial": "none",
-    "inherited": false
+    "initial": "currentcolor",
+    "inherited": true
   },
   {
     "name": "margin-inline-start",
@@ -4103,289 +4332,6 @@
       "lengthAbsolutePercentageAsSpecifiedOtherwiseAuto"
     ],
     "initial": "0",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-background-origin",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-text-size-adjust",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "grid-template-areas",
-    "syntax": "none | <string>+",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "none",
-    "inherited": false
-  },
-  {
-    "name": "word-spacing",
-    "syntax": "normal | <length>",
-    "computed": [
-      "absoluteLength"
-    ],
-    "initial": "normal",
-    "inherited": true
-  },
-  {
-    "name": "ruby-position",
-    "syntax": "[ alternate || [ over | under ] ] | inter-character",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "alternate",
-    "inherited": true
-  },
-  {
-    "name": "scroll-snap-stop",
-    "syntax": "normal | always",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "normal",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-animation-duration",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "alignment-baseline",
-    "syntax": "baseline | text-bottom | alphabetic | ideographic | middle | central | mathematical | text-top",
-    "computed": [],
-    "initial": "baseline",
-    "inherited": false
-  },
-  {
-    "name": "grid-auto-flow",
-    "syntax": "[ row | column ] || dense",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "row",
-    "inherited": false
-  },
-  {
-    "name": "transform-origin",
-    "syntax": "[ left | center | right | top | bottom | <length-percentage> ] | [ left | center | right | <length-percentage> ] [ top | center | bottom | <length-percentage> ] <length>? | [[ center | left | right ] && [ center | top | bottom ]] <length>?",
-    "computed": [
-      "forLengthAbsoluteValueOtherwisePercentage"
-    ],
-    "initial": "50% 50% 0",
-    "inherited": false
-  },
-  {
-    "name": "margin-bottom",
-    "syntax": "<length-percentage> | auto",
-    "computed": [
-      "percentageAsSpecifiedOrAbsoluteLength"
-    ],
-    "initial": "0",
-    "inherited": false
-  },
-  {
-    "name": "background-image",
-    "syntax": "<bg-image>#",
-    "computed": [
-      "asSpecifiedURLsAbsolute"
-    ],
-    "initial": "none",
-    "inherited": false
-  },
-  {
-    "name": "flood-opacity",
-    "syntax": "<'opacity'>",
-    "computed": [],
-    "initial": "1",
-    "inherited": false
-  },
-  {
-    "name": "margin-block-end",
-    "syntax": "<'margin-top'>",
-    "computed": [
-      "lengthAbsolutePercentageAsSpecifiedOtherwiseAuto"
-    ],
-    "initial": "0",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-animation-delay",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "transition-duration",
-    "syntax": "<time [0s,∞]>#",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "0s",
-    "inherited": false
-  },
-  {
-    "name": "font-size",
-    "syntax": "<absolute-size> | <relative-size> | <length-percentage [0,∞]> | math",
-    "computed": [
-      "asSpecifiedRelativeToAbsoluteLengths"
-    ],
-    "initial": "medium",
-    "inherited": true
-  },
-  {
-    "name": "font-variant-alternates",
-    "syntax": "normal | [ stylistic(<feature-value-name>) || historical-forms || styleset(<feature-value-name>#) || character-variant(<feature-value-name>#) || swash(<feature-value-name>) || ornaments(<feature-value-name>) || annotation(<feature-value-name>) ]",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "normal",
-    "inherited": true
-  },
-  {
-    "name": "block-step-round",
-    "syntax": "up | down | nearest",
-    "computed": [],
-    "initial": "up",
-    "inherited": false
-  },
-  {
-    "name": "max-height",
-    "syntax": "none | <length-percentage [0,∞]> | min-content | max-content | fit-content(<length-percentage [0,∞]>) | <calc-size()>",
-    "computed": [
-      "percentageAsSpecifiedAbsoluteLengthOrNone"
-    ],
-    "initial": "none",
-    "inherited": false
-  },
-  {
-    "name": "padding-right",
-    "syntax": "<length-percentage [0,∞]>",
-    "computed": [
-      "percentageAsSpecifiedOrAbsoluteLength"
-    ],
-    "initial": "0",
-    "inherited": false
-  },
-  {
-    "name": "column-width",
-    "syntax": "auto | <length [0,∞]> | min-content | max-content | fit-content(<length-percentage>)",
-    "computed": [
-      "absoluteLengthZeroOrLarger"
-    ],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "column-fill",
-    "syntax": "auto | balance | balance-all",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "balance",
-    "inherited": false
-  },
-  {
-    "name": "voice-range",
-    "syntax": "<frequency [0Hz,∞]> && absolute | [[x-low | low | medium | high | x-high] || [<frequency> | <semitones> | <percentage>]]",
-    "computed": [],
-    "initial": "medium",
-    "inherited": true
-  },
-  {
-    "name": "width",
-    "syntax": "auto | <length-percentage [0,∞]> | min-content | max-content | fit-content(<length-percentage [0,∞]>) | <calc-size()>",
-    "computed": [
-      "percentageAutoOrAbsoluteLength"
-    ],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "scroll-padding-bottom",
-    "syntax": "auto | <length-percentage [0,∞]>",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "auto",
-    "inherited": false
-  },
-  {
-    "name": "voice-rate",
-    "syntax": "[normal | x-slow | slow | medium | fast | x-fast] || <percentage [0,∞]>",
-    "computed": [],
-    "initial": "normal",
-    "inherited": true
-  },
-  {
-    "name": "padding",
-    "syntax": "<'padding-top'>{1,4}",
-    "computed": [
-      "padding-bottom",
-      "padding-left",
-      "padding-right",
-      "padding-top"
-    ],
-    "initial": [
-      "padding-bottom",
-      "padding-left",
-      "padding-right",
-      "padding-top"
-    ],
-    "inherited": false
-  },
-  {
-    "name": "mask-origin",
-    "syntax": "<coord-box>#",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "border-box",
-    "inherited": false
-  },
-  {
-    "name": "background-repeat",
-    "syntax": "<repeat-style>#",
-    "computed": [
-      "listEachItemHasTwoKeywordsOnePerDimension"
-    ],
-    "initial": "repeat",
-    "inherited": false
-  },
-  {
-    "name": "cue-before",
-    "syntax": "<uri> <decibel>? | none",
-    "computed": [],
-    "initial": "none",
-    "inherited": false
-  },
-  {
-    "name": "-webkit-transform-origin",
-    "syntax": "",
-    "computed": [],
-    "initial": "",
-    "inherited": false
-  },
-  {
-    "name": "view-timeline-axis",
-    "syntax": "[ block | inline | x | y ]#",
-    "computed": [
-      "asSpecified"
-    ],
-    "initial": "block",
     "inherited": false
   },
   {
@@ -4398,23 +4344,41 @@
     "inherited": false
   },
   {
-    "name": "stroke-dash-justify",
-    "syntax": "none | [ stretch | compress ] || [ dashes || gaps ]",
-    "computed": [],
-    "initial": "none",
-    "inherited": true
-  },
-  {
-    "name": "animation-duration",
-    "syntax": "<time [0s,∞]>#",
+    "name": "break-after",
+    "syntax": "auto | avoid | always | all | avoid-page | page | left | right | recto | verso | avoid-column | column | avoid-region | region",
     "computed": [
       "asSpecified"
     ],
-    "initial": "0s",
+    "initial": "auto",
     "inherited": false
   },
   {
-    "name": "scroll-margin-inline-end",
+    "name": "link-parameters",
+    "syntax": "none | <link-param>+",
+    "computed": [],
+    "initial": "none",
+    "inherited": false
+  },
+  {
+    "name": "mask-border-slice",
+    "syntax": "[ <number> | <percentage> ]{1,4} fill?",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "0",
+    "inherited": false
+  },
+  {
+    "name": "column-rule-width",
+    "syntax": "<line-width>",
+    "computed": [
+      "absoluteLength0IfColumnRuleStyleNoneOrHidden"
+    ],
+    "initial": "medium",
+    "inherited": false
+  },
+  {
+    "name": "scroll-margin-bottom",
     "syntax": "<length>",
     "computed": [
       "asSpecified"
@@ -4423,21 +4387,71 @@
     "inherited": false
   },
   {
-    "name": "list-style-position",
-    "syntax": "inside | outside",
+    "name": "table-layout",
+    "syntax": "auto | fixed",
     "computed": [
       "asSpecified"
     ],
-    "initial": "outside",
+    "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "text-emphasis-style",
+    "syntax": "none | [ [ filled | open ] || [ dot | circle | double-circle | triangle | sesame ] ] | <string>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "none",
     "inherited": true
   },
   {
-    "name": "margin-top",
-    "syntax": "<length-percentage> | auto",
+    "name": "view-timeline-inset",
+    "syntax": "[ [ auto | <length-percentage> ]{1,2} ]#",
     "computed": [
-      "percentageAsSpecifiedOrAbsoluteLength"
+      "listEachItemConsistingOfPairsOfAutoOrLengthPercentage"
+    ],
+    "initial": "auto",
+    "inherited": false
+  },
+  {
+    "name": "font-kerning",
+    "syntax": "auto | normal | none",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "auto",
+    "inherited": true
+  },
+  {
+    "name": "widows",
+    "syntax": "<integer [1,∞]>",
+    "computed": [
+      "asSpecified"
+    ],
+    "initial": "2",
+    "inherited": true
+  },
+  {
+    "name": "scroll-margin-inline-start",
+    "syntax": "<length>",
+    "computed": [
+      "asSpecified"
     ],
     "initial": "0",
+    "inherited": false
+  },
+  {
+    "name": "stroke-miterlimit",
+    "syntax": "<number>",
+    "computed": [],
+    "initial": "4",
+    "inherited": true
+  },
+  {
+    "name": "-webkit-animation-delay",
+    "syntax": "",
+    "computed": [],
+    "initial": "",
     "inherited": false
   }
 ]

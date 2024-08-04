@@ -772,9 +772,7 @@ fn parse_unit_range(input: &str) -> IResult<&str, NumberOrInfinity> {
         return Ok((out.0, val));
     }
 
-    dbg!(out);
-
-    panic!("Not implemented");
+    todo!("parse_unit_rang is not implemented for non-values")
 }
 
 /// Parses a range for a type definition  (ie: the square bracket part of: <function [1, 10]>)

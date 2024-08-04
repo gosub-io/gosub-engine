@@ -1,3 +1,4 @@
+use gosub_css3::colors::get_hex_color_from_name;
 use gosub_css3::stylesheet::CssValue;
 
 use crate::syntax::{GroupCombinators, SyntaxComponent, SyntaxComponentMultiplier};
@@ -92,6 +93,25 @@ fn match_component(value: &CssValue, component: &SyntaxComponent, depth: usize) 
                     // println!("oh fun.. we matched length: {}", value.clone());
                     return Some(value.clone());
                 }
+                _ => {}
+            },
+            "system-color" => match value {
+                CssValue::String(v) => {
+                    
+                },
+                _ => {}
+            }
+            "named-color" => match value {
+                CssValue::String(v) => {
+                    if get_hex_color_from_name(v).is_some() {
+                        return Some(value.clone());
+                    }
+                },
+                _ => {}
+            },
+            "color()" => match value {
+                CssValue::Color(_) => return Some(value.clone()),
+                CssValue::String(v) if v.starts_with('#') => return Some(value.clone()),
                 _ => {}
             },
             _ => panic!("Unknown built-in datatype: {:?}", datatype),
@@ -206,10 +226,10 @@ fn match_group_exactly_one(
     loop {
         let v = values.get(v_idx).unwrap();
         let component = &components[c_idx];
-        print!("value '{:?}' against '{:?}': ", v, component);
+        // print!("value '{:?}' against '{:?}': ", v, component);
 
         if match_component(v, component, depth + 1).is_some() {
-            print!("matches: ");
+            // print!("matches: ");
             multiplier_count += 1;
 
             let mff = multiplier_fulfilled(component, multiplier_count);
@@ -265,7 +285,7 @@ fn match_group_exactly_one(
                     multiplier_count = 0;
                 }
                 Fulfillment::NotFulfilled => {
-                    println!("needed a match and found none. That's ok, just check the next element");
+                    // println!("needed a match and found none. That's ok, just check the next element");
                     c_idx += 1;
                     multiplier_count = 0;
                 }
@@ -278,19 +298,19 @@ fn match_group_exactly_one(
         }
     }
 
-    println!("Group checks follow (cidx: {} vidx: {})", c_idx, v_idx);
+    // println!("Group checks follow (cidx: {} vidx: {})", c_idx, v_idx);
 
 
     // Do we still have v_idxs? if so, we didn't match everything
     if v_idx < values.len() {
-        println!("We found at least one value that we couldn't match. This is always an error");
+        // println!("We found at least one value that we couldn't match. This is always an error");
         return None;
     }
 
 
     // dbg!(&matched_values);
     if matched_values.len() != 1 {
-        println!("Matched values is not 1. This means that either none, or too many values matched");
+        // println!("Matched values is not 1. This means that either none, or too many values matched");
         return None;
     }
 
@@ -323,10 +343,10 @@ fn match_group_at_least_one_any_order(
 
         let v = values.get(v_idx).unwrap();
         let component = &components[c_idx];
-        print!("value '{:?}' against '{:?}': ", v, component);
+        // print!("value '{:?}' against '{:?}': ", v, component);
 
         if match_component(v, component, depth + 1).is_some() {
-            print!("matches: ");
+            // print!("matches: ");
             multiplier_count += 1;
 
             let mff = multiplier_fulfilled(component, multiplier_count);
@@ -412,10 +432,10 @@ fn match_group_all_any_order(
     loop {
         let v = values.get(v_idx).unwrap();
         let component = &components[c_idx];
-        print!("value '{:?}' against '{:?}': ", v, component);
+        // print!("value '{:?}' against '{:?}': ", v, component);
 
         if match_component(v, component, depth + 1).is_some() {
-            print!("matches: ");
+            // print!("matches: ");
             multiplier_count += 1;
 
             let mff = multiplier_fulfilled(component, multiplier_count);
@@ -518,10 +538,10 @@ fn match_group_juxtaposition(
     loop {
         let v = values.get(v_idx).unwrap();
         let component = &components[c_idx];
-        print!("value '{:?}' against '{:?}': ", v, component);
+        // print!("value '{:?}' against '{:?}': ", v, component);
 
         if match_component(v, component, depth + 1).is_some() {
-            print!("matches: ");
+            // print!("matches: ");
             multiplier_count += 1;
 
             let mff = multiplier_fulfilled(component, multiplier_count);
