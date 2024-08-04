@@ -88,7 +88,7 @@ mod tests {
         let id = document.arena.register_node(node);
 
         assert_eq!(document.arena.nodes.len(), 1);
-        assert_eq!(document.arena.next_id, 1.into());
+        assert_eq!(document.arena.next_id, 1usize.into());
         assert_eq!(id, NodeId::default());
     }
 

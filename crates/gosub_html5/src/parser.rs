@@ -4561,7 +4561,7 @@ mod test {
         let binding = document.get();
 
         // document -> html -> head -> body -> div
-        let div = binding.get_node_by_id(4.into()).unwrap();
+        let div = binding.get_node_by_id(4usize.into()).unwrap();
 
         let NodeData::Element(element) = &div.data else {
             panic!()
@@ -4593,7 +4593,7 @@ mod test {
         let binding = document.get();
 
         // document -> html -> head -> body -> div
-        let div = binding.get_node_by_id(4.into()).unwrap();
+        let div = binding.get_node_by_id(4usize.into()).unwrap();
 
         let NodeData::Element(element) = &div.data else {
             panic!()
@@ -4643,7 +4643,7 @@ mod test {
         // we are expecting the div (ID: 4) and p would be ignored
         let doc_read = document.get();
         let div = doc_read.get_node_by_named_id("myid").unwrap();
-        assert_eq!(div.id, NodeId::from(4));
+        assert_eq!(div.id, NodeId::from(4usize));
         assert_eq!(div.name, "div");
     }
 }

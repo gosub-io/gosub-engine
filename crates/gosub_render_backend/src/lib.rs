@@ -2,7 +2,7 @@ use std::fmt::Debug;
 use std::ops::{Div, Mul, MulAssign};
 
 use crate::svg::SvgRenderer;
-use geo::{Point, Size, SizeU32, FP};
+pub use geo::*;
 use gosub_shared::types::Result;
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use smallvec::SmallVec;

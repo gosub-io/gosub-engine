@@ -53,7 +53,7 @@ impl<B: RenderBackend, L: Layouter> SceneDrawer<B, L, RenderTree<B, L>> for Tree
 
             // Apply new maximums to the scene transform
             if let Some(scene_transform) = self.scene_transform.as_mut() {
-                let root_size = self.size.unwrap(); //TODO: fix this
+                let root_size = self.tree.get_root().layout.content();
                 let max_x = root_size.width - size.width as f32;
                 let max_y = root_size.height - size.height as f32;
 
@@ -244,7 +244,7 @@ impl<B: RenderBackend, L: Layouter> SceneDrawer<B, L, RenderTree<B, L>> for Tree
         let x = transform.tx() + point.x;
         let y = transform.ty() + point.y;
 
-        let root_size = self.size.unwrap(); //TODO: fix
+        let root_size = self.tree.get_root().layout.content();
         let size = self.size.unwrap_or(SizeU32::ZERO);
 
         let max_x = root_size.width - size.width as f32;
@@ -270,12 +270,12 @@ impl<B: RenderBackend, L: Layouter> SceneDrawer<B, L, RenderTree<B, L>> for Tree
         self.tree_scene = None;
         self.debugger_scene = None;
         self.last_hover = None;
-        self.debugger_changed = true;
+        self.dirty = true;
     }
 
     fn toggle_debug(&mut self) {
         self.debug = !self.debug;
-        self.debugger_changed = true;
+        self.dirty = true;
         self.last_hover = None;
         self.debugger_scene = None;
     }
@@ -309,7 +309,7 @@ impl<B: RenderBackend, L: Layouter> Drawer<'_, '_, B, L> {
     fn render_node_with_children(&mut self, id: NodeId, mut pos: Point) {
         let err = self.render_node(id, &mut pos);
         if let Err(e) = err {
-            eprintln!("Error rendering node: {}", e.to_string());
+            eprintln!("Error rendering node: {}", e);
         }
 
         let Some(children) = self.drawer.tree.children(id) else {
@@ -352,7 +352,7 @@ impl<B: RenderBackend, L: Layouter> Drawer<'_, '_, B, L> {
                     .map(|prop| prop.as_str())
                     .unwrap_or("contain");
 
-                render_image::<B, L>(
+                render_image::<B>(
                     img,
                     self.scene,
                     *pos,
@@ -543,7 +543,7 @@ fn render_bg<B: RenderBackend, L: Layouter>(
             }
         };
 
-        let _ = render_image::<B, L>(img, scene, *pos, node.layout.size(), border_radius, "fill")
+        let _ = render_image::<B>(img, scene, *pos, node.layout.size(), border_radius, "fill")
             .map_err(|e| {
                 eprintln!("Error rendering image: {:?}", e);
             });
@@ -570,7 +570,7 @@ impl Side {
     }
 }
 
-fn render_image<B: RenderBackend, L: Layouter>(
+fn render_image<B: RenderBackend>(
     img: ImageBuffer<B>,
     scene: &mut B::Scene,
     pos: Point,

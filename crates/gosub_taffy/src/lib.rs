@@ -64,6 +64,7 @@ impl TLayout for Layout {
 pub struct TaffyLayouter;
 
 #[derive(Debug, Default)]
+#[allow(unused)]
 enum Display {
     Inline,
     Text,
@@ -72,6 +73,7 @@ enum Display {
 }
 
 #[derive(Default)]
+#[allow(unused)]
 pub struct Cache {
     taffy: TaffyCache,
     style: Style,

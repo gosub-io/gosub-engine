@@ -1058,7 +1058,9 @@ mod tests {
         let node3 = Node::new_element(&document, "div3", HashMap::new(), HTML_NAMESPACE);
         let node3_1 = Node::new_element(&document, "div3_1", HashMap::new(), HTML_NAMESPACE);
 
-        let parent_id = document.get_mut().add_node(parent, NodeId::from(0), None);
+        let parent_id = document
+            .get_mut()
+            .add_node(parent, NodeId::from(0usize), None);
         let node1_id = document.get_mut().add_node(node1, parent_id, None);
         let node2_id = document.get_mut().add_node(node2, parent_id, None);
         let node3_id = document.get_mut().add_node(node3, parent_id, None);
@@ -1142,25 +1144,29 @@ mod tests {
         let node1 = Node::new_element(&document, "div", HashMap::new(), HTML_NAMESPACE);
         let node2 = Node::new_element(&document, "div", HashMap::new(), HTML_NAMESPACE);
 
-        document.get_mut().add_node(node1, NodeId::from(0), None);
-        document.get_mut().add_node(node2, NodeId::from(0), None);
+        document
+            .get_mut()
+            .add_node(node1, NodeId::from(0usize), None);
+        document
+            .get_mut()
+            .add_node(node2, NodeId::from(0usize), None);
 
         let doc_ptr = document.get();
 
-        let get_node1 = doc_ptr.get_node_by_id(NodeId::from(1)).unwrap();
-        let get_node2 = doc_ptr.get_node_by_id(NodeId::from(2)).unwrap();
+        let get_node1 = doc_ptr.get_node_by_id(NodeId::from(1usize)).unwrap();
+        let get_node2 = doc_ptr.get_node_by_id(NodeId::from(2usize)).unwrap();
 
         let NodeData::Element(element1) = &get_node1.data else {
             panic!()
         };
 
-        assert_eq!(element1.node_id, NodeId::from(1));
+        assert_eq!(element1.node_id, NodeId::from(1usize));
 
         let NodeData::Element(element2) = &get_node2.data else {
             panic!()
         };
 
-        assert_eq!(element2.node_id, NodeId::from(2));
+        assert_eq!(element2.node_id, NodeId::from(2usize));
     }
 
     #[test]
@@ -1182,10 +1188,10 @@ mod tests {
 
         // NOTE: only elements return the ID
         let div_id = task_queue.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
-        assert_eq!(div_id, NodeId::from(1));
+        assert_eq!(div_id, NodeId::from(1usize));
 
         let p_id = task_queue.create_element("p", div_id, None, HTML_NAMESPACE);
-        assert_eq!(p_id, NodeId::from(2));
+        assert_eq!(p_id, NodeId::from(2usize));
 
         task_queue.create_comment("comment inside p", p_id);
         task_queue.create_text("hey", p_id);
@@ -1282,13 +1288,13 @@ mod tests {
 
         // NOTE: inserting attribute in task queue always succeeds
         // since it doesn't touch DOM until flush
-        let _ = task_queue.insert_attribute("id", "myid", NodeId::from(1));
-        let _ = task_queue.insert_attribute("id", "myid", NodeId::from(1));
-        let _ = task_queue.insert_attribute("id", "otherid", NodeId::from(2));
-        let _ = task_queue.insert_attribute("id", "dummyid", NodeId::from(42));
-        let _ = task_queue.insert_attribute("id", "my id", NodeId::from(1));
-        let _ = task_queue.insert_attribute("id", "123", NodeId::from(1));
-        let _ = task_queue.insert_attribute("id", "", NodeId::from(1));
+        let _ = task_queue.insert_attribute("id", "myid", NodeId::from(1usize));
+        let _ = task_queue.insert_attribute("id", "myid", NodeId::from(1usize));
+        let _ = task_queue.insert_attribute("id", "otherid", NodeId::from(2usize));
+        let _ = task_queue.insert_attribute("id", "dummyid", NodeId::from(42usize));
+        let _ = task_queue.insert_attribute("id", "my id", NodeId::from(1usize));
+        let _ = task_queue.insert_attribute("id", "123", NodeId::from(1usize));
+        let _ = task_queue.insert_attribute("id", "", NodeId::from(1usize));
         let errors = task_queue.flush();
         for error in &errors {
             println!("{}", error);
@@ -1335,10 +1341,10 @@ mod tests {
 
         // NOTE: only elements return the ID
         let div_id = document.create_element("div", NodeId::root(), None, HTML_NAMESPACE);
-        assert_eq!(div_id, NodeId::from(1));
+        assert_eq!(div_id, NodeId::from(1usize));
 
         let p_id = document.create_element("p", div_id, None, HTML_NAMESPACE);
-        assert_eq!(p_id, NodeId::from(2));
+        assert_eq!(p_id, NodeId::from(2usize));
 
         document.create_comment("comment inside p", p_id);
         document.create_text("hey", p_id);

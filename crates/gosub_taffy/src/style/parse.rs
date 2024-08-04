@@ -6,7 +6,6 @@ use taffy::{
 
 use gosub_render_backend::geo::Size;
 use gosub_render_backend::layout::{CssProperty, Node};
-use gosub_render_backend::{PreRenderText, RenderBackend};
 
 pub fn parse_len(node: &mut impl Node, name: &str) -> LengthPercentage {
     let Some(property) = node.get_property(name) else {
@@ -19,7 +18,7 @@ pub fn parse_len(node: &mut impl Node, name: &str) -> LengthPercentage {
         return LengthPercentage::Percent(percent);
     }
 
-    return LengthPercentage::Length(property.unit_to_px());
+    LengthPercentage::Length(property.unit_to_px())
 }
 
 pub fn parse_len_auto(node: &mut impl Node, name: &str) -> LengthPercentageAuto {
@@ -39,7 +38,7 @@ pub fn parse_len_auto(node: &mut impl Node, name: &str) -> LengthPercentageAuto 
         return LengthPercentageAuto::Percent(percent);
     }
 
-    return LengthPercentageAuto::Length(property.unit_to_px());
+    LengthPercentageAuto::Length(property.unit_to_px())
 }
 
 pub fn parse_dimension(node: &mut impl Node, name: &str) -> Dimension {
@@ -59,7 +58,7 @@ pub fn parse_dimension(node: &mut impl Node, name: &str) -> Dimension {
         return Dimension::Percent(percent);
     }
 
-    return Dimension::Length(property.unit_to_px());
+    Dimension::Length(property.unit_to_px())
 }
 
 pub fn parse_text_dim(size: Size, name: &str) -> Dimension {
@@ -95,9 +94,7 @@ pub fn parse_align_c(node: &mut impl Node, name: &str) -> Option<AlignContent> {
 
     display.compute_value();
 
-    let Some(value) = display.as_string() else {
-        return None;
-    };
+    let value = display.as_string()?;
 
     match value {
         "start" => Some(AlignContent::Start),
@@ -122,7 +119,7 @@ pub fn parse_tracking_sizing_function(
 
     display.compute_value();
 
-    let Some(ref _value) = display.as_string() else {
+    let Some(_value) = display.as_string() else {
         return Vec::new();
     };
 
@@ -144,7 +141,7 @@ pub fn parse_grid_auto(node: &mut impl Node, name: &str) -> Vec<NonRepeatedTrack
 
     display.compute_value();
 
-    let Some(ref _value) = display.as_string() else {
+    let Some(_value) = display.as_string() else {
         return Vec::new();
     };
 

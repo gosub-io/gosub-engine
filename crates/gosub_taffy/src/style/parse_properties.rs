@@ -2,7 +2,7 @@ use regex::Regex;
 use taffy::prelude::*;
 use taffy::{Overflow, Point};
 
-use gosub_render_backend::layout::{CssProperty, Layouter, Node};
+use gosub_render_backend::layout::{CssProperty, Node};
 
 use crate::style::parse::{
     parse_align_c, parse_align_i, parse_dimension, parse_grid_auto, parse_grid_placement,
@@ -47,7 +47,7 @@ pub fn parse_overflow(node: &mut impl Node) -> Point<Overflow> {
     if let Some(display) = node.get_property("overflow-x") {
         display.compute_value();
 
-        if let Some(ref value) = display.as_string() {
+        if let Some(value) = display.as_string() {
             let x = parse(value);
             overflow.x = x;
         };
@@ -56,7 +56,7 @@ pub fn parse_overflow(node: &mut impl Node) -> Point<Overflow> {
     if let Some(display) = node.get_property("overflow-y") {
         display.compute_value();
 
-        if let Some(ref value) = display.as_string() {
+        if let Some(value) = display.as_string() {
             let y = parse(value);
             overflow.y = y;
         };
@@ -203,9 +203,7 @@ pub fn parse_align_items(node: &mut impl Node) -> Option<AlignItems> {
 
     display.compute_value();
 
-    let Some(value) = display.as_string() else {
-        return None;
-    };
+    let value = display.as_string()?;
 
     match value {
         "start" => Some(AlignItems::Start),
