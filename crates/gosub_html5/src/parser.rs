@@ -1,7 +1,7 @@
 use core::cell::RefCell;
 use core::option::Option::Some;
 use std::collections::HashMap;
-#[cfg(feature = "debug_parser")]
+#[cfg(all(feature = "debug_parser", test))]
 use std::io::Write;
 use std::rc::Rc;
 
@@ -454,7 +454,7 @@ impl<'chars> Html5Parser<'chars> {
                 }
             }
 
-            #[cfg(feature = "debug_parser")]
+            #[cfg(all(feature = "debug_parser", test))]
             self.display_debug_info();
         }
 
@@ -2724,7 +2724,7 @@ impl<'chars> Html5Parser<'chars> {
             {
                 self.adoption_agency_algorithm(&self.current_token.clone());
 
-                #[cfg(feature = "debug_parser")]
+                #[cfg(all(feature = "debug_parser", test))]
                 self.display_debug_info();
             }
             Token::StartTag { name, .. }
@@ -3799,7 +3799,7 @@ impl<'chars> Html5Parser<'chars> {
         self.insertion_mode = InsertionMode::Text;
     }
 
-    #[cfg(feature = "debug_parser")]
+    #[cfg(all(feature = "debug_parser", test))]
     fn display_debug_info(&self) {
         println!("-----------------------------------------\n");
         println!("current token   : '{}'", self.current_token);
