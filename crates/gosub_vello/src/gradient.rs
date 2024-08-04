@@ -2,9 +2,9 @@ use vello::peniko::{
     ColorStop as VelloColorStop, ColorStops as VelloColorStops, Gradient as VelloGradient,
 };
 
-use gosub_render_backend::{ColorStop, ColorStops, Gradient as TGradient, Point, FP};
-
 use crate::{Convert, VelloBackend};
+use gosub_render_backend::geo::{Point, FP};
+use gosub_render_backend::{ColorStop, ColorStops, Gradient as TGradient};
 
 pub struct Gradient(pub(crate) VelloGradient);
 

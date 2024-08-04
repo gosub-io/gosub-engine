@@ -1,3 +1,5 @@
+use gosub_render_backend::geo::SizeU32;
+use gosub_render_backend::layout::{LayoutTree, Layouter};
 use winit::event::{MouseScrollDelta, WindowEvent};
 use winit::event_loop::ActiveEventLoop;
 
@@ -7,7 +9,9 @@ use gosub_shared::types::Result;
 
 use crate::window::{Window, WindowState};
 
-impl<D: SceneDrawer<B>, B: RenderBackend> Window<'_, D, B> {
+impl<'a, D: SceneDrawer<B, L, LT>, B: RenderBackend, L: Layouter, LT: LayoutTree<L>>
+    Window<'a, D, B, L, LT>
+{
     pub fn event(
         &mut self,
         el: &ActiveEventLoop,

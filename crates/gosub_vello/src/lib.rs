@@ -9,9 +9,8 @@ use crate::render::{Renderer, RendererOptions};
 pub use border::*;
 pub use brush::*;
 pub use color::*;
-use gosub_render_backend::{
-    Point, RenderBackend, RenderRect, RenderText, Scene as TScene, SizeU32, WindowHandle,
-};
+use gosub_render_backend::geo::{Point, SizeU32};
+use gosub_render_backend::{RenderBackend, RenderRect, RenderText, Scene as TScene, WindowHandle};
 use gosub_shared::types::Result;
 pub use gradient::*;
 pub use image::*;

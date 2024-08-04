@@ -14,7 +14,6 @@ gosub_shared = { path = "../gosub_shared" }
 gosub_styling = { path = "../gosub_styling" }
 gosub_net = { path = "../gosub_net" }
 gosub_render_backend = { path = "../gosub_render_backend" }
-taffy = "0.5.2"
 anyhow = "1.0.86"
 image = "0.25.2"
 url = "2.5.2"

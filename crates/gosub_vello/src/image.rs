@@ -3,7 +3,8 @@ use std::sync::Arc;
 use image::{DynamicImage, GenericImageView};
 use vello::peniko::{Blob, Format, Image as VelloImage};
 
-use gosub_render_backend::{Image as TImage, FP};
+use gosub_render_backend::geo::FP;
+use gosub_render_backend::Image as TImage;
 
 pub struct Image(pub(crate) VelloImage);
 

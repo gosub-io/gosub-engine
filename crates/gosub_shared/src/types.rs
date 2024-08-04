@@ -1,5 +1,7 @@
 //! Error results that can be returned from the engine
+
 use crate::byte_stream::Location;
+use std::ops::Add;
 use thiserror::Error;
 
 /// Parser error that defines an error (message) on the given position
@@ -80,6 +82,20 @@ impl<T: Copy> Point<T> {
 
     pub fn y(&self) -> &T {
         &self.y
+    }
+}
+
+impl<T> Add for Point<T>
+where
+    T: Add<Output = T> + Copy,
+{
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Self {
+            x: self.x + rhs.x,
+            y: self.y + rhs.y,
+        }
     }
 }
 
@@ -257,5 +273,101 @@ impl Size<f64> {
 
     pub fn h32(&self) -> f32 {
         self.height as f32
+    }
+}
+
+/// Represents a Rectangle or a Rectangle edge
+pub struct Rect<T: Copy> {
+    /// top or top-left or origin x
+    pub y1: T,
+    /// right or top-right or origin y
+    pub x1: T,
+    /// bottom or bottom-right or width
+    pub y2: T,
+    /// left or bottom-left or height
+    pub x2: T,
+}
+
+impl<T: Copy> Rect<T> {
+    pub fn new(x1: T, y1: T, x2: T, y2: T) -> Self {
+        Self { x1, y1, x2, y2 }
+    }
+
+    pub fn from_components(origin: Point<T>, size: Size<T>) -> Self {
+        Self {
+            x1: origin.x,
+            y1: origin.y,
+            x2: size.width,
+            y2: size.height,
+        }
+    }
+
+    /// Gets the origin, if x1 and y1 represent the origin of the rect
+    pub fn origin(&self) -> Point<T> {
+        Point::new(self.x1, self.y1)
+    }
+
+    /// Gets the size, if x2 and y2 represent the size of the rect
+    pub fn size(&self) -> Size<T> {
+        Size::new(self.x2, self.y2)
+    }
+}
+
+impl Rect<u32> {
+    pub const ZERO: Self = Self {
+        x1: 0,
+        y1: 0,
+        x2: 0,
+        y2: 0,
+    };
+
+    pub fn f64(&self) -> Rect<f64> {
+        Rect::new(
+            self.x1 as f64,
+            self.y1 as f64,
+            self.x2 as f64,
+            self.y2 as f64,
+        )
+    }
+
+    pub fn f32(&self) -> Rect<f32> {
+        Rect::new(
+            self.x1 as f32,
+            self.y1 as f32,
+            self.x2 as f32,
+            self.y2 as f32,
+        )
+    }
+
+    pub fn x1_f32(&self) -> f32 {
+        self.x1 as f32
+    }
+
+    pub fn y1_f32(&self) -> f32 {
+        self.y1 as f32
+    }
+
+    pub fn x2_f32(&self) -> f32 {
+        self.x2 as f32
+    }
+
+    pub fn y2_f32(&self) -> f32 {
+        self.y2 as f32
+    }
+
+    pub fn x1_f64(&self) -> f64 {
+        self.x1 as f64
+    }
+
+    pub fn y1_f64(&self) -> f64 {
+        self.y1 as f64
+    }
+
+    pub fn x2_f64(&self) -> f64 {
+        self.x2 as f64
+    }
+
+    pub fn y2_f64(&self) -> f64 {
+        self.y2 as f64
     }
 }

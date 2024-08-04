@@ -1,18 +1,19 @@
 use slotmap::{DefaultKey, SlotMap};
 use url::Url;
 
+use gosub_render_backend::layout::{LayoutTree, Layouter};
 use gosub_render_backend::RenderBackend;
 use gosub_renderer::draw::SceneDrawer;
 use gosub_shared::types::Result;
 
-pub struct Tabs<D: SceneDrawer<B>, B: RenderBackend> {
-    pub tabs: SlotMap<DefaultKey, Tab<D, B>>,
+pub struct Tabs<D: SceneDrawer<B, L, LT>, B: RenderBackend, L: Layouter, LT: LayoutTree<L>> {
+    pub tabs: SlotMap<DefaultKey, Tab<D, B, L, LT>>,
     pub active: TabID,
-    _marker: std::marker::PhantomData<B>,
+    _marker: std::marker::PhantomData<(B, L, LT)>,
 }
 
-impl<D: SceneDrawer<B>, B: RenderBackend> Tabs<D, B> {
-    pub fn new(initial: Tab<D, B>) -> Self {
+impl<D: SceneDrawer<B, L, LT>, L: Layouter, LT: LayoutTree<L>, B: RenderBackend> Tabs<D, B, L, LT> {
+    pub fn new(initial: Tab<D, B, L, LT>) -> Self {
         let mut tabs = SlotMap::new();
         let active = TabID(tabs.insert(initial));
 
@@ -23,7 +24,7 @@ impl<D: SceneDrawer<B>, B: RenderBackend> Tabs<D, B> {
         }
     }
 
-    pub fn add_tab(&mut self, tab: Tab<D, B>) -> TabID {
+    pub fn add_tab(&mut self, tab: Tab<D, B, L, LT>) -> TabID {
         TabID(self.tabs.insert(tab))
     }
 
@@ -35,25 +36,25 @@ impl<D: SceneDrawer<B>, B: RenderBackend> Tabs<D, B> {
         self.active = id;
     }
 
-    pub fn get_current_tab(&mut self) -> Option<&mut Tab<D, B>> {
+    pub fn get_current_tab(&mut self) -> Option<&mut Tab<D, B, L, LT>> {
         self.tabs.get_mut(self.active.0)
     }
 
-    pub(crate) fn from_url(url: Url, debug: bool) -> Result<Self> {
-        let tab = Tab::from_url(url, debug)?;
+    pub(crate) fn from_url(url: Url, layouter: L, debug: bool) -> Result<Self> {
+        let tab = Tab::from_url(url, layouter, debug)?;
 
         Ok(Self::new(tab))
     }
 }
 
-pub struct Tab<D: SceneDrawer<B>, B: RenderBackend> {
+pub struct Tab<D: SceneDrawer<B, L, LT>, B: RenderBackend, L: Layouter, LT: LayoutTree<L>> {
     pub title: String,
     pub url: Url,
     pub data: D,
-    _marker: std::marker::PhantomData<B>,
+    _marker: std::marker::PhantomData<(B, L, LT)>,
 }
 
-impl<D: SceneDrawer<B>, B: RenderBackend> Tab<D, B> {
+impl<D: SceneDrawer<B, L, LT>, B: RenderBackend, L: Layouter, LT: LayoutTree<L>> Tab<D, B, L, LT> {
     pub fn new(title: String, url: Url, data: D) -> Self {
         Self {
             title,
@@ -63,8 +64,8 @@ impl<D: SceneDrawer<B>, B: RenderBackend> Tab<D, B> {
         }
     }
 
-    pub fn from_url(url: Url, debug: bool) -> Result<Self> {
-        let data = D::from_url(url.clone(), debug)?;
+    pub fn from_url(url: Url, layouter: L, debug: bool) -> Result<Self> {
+        let data = D::from_url(url.clone(), layouter, debug)?;
 
         Ok(Self {
             title: url.as_str().to_string(),
