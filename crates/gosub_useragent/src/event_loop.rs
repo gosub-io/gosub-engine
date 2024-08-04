@@ -1,8 +1,8 @@
 use gosub_render_backend::geo::SizeU32;
 use gosub_render_backend::layout::{LayoutTree, Layouter};
-use winit::event::{MouseScrollDelta, WindowEvent};
+use winit::event::{ElementState, MouseScrollDelta, WindowEvent};
 use winit::event_loop::ActiveEventLoop;
-
+use winit::keyboard::{KeyCode, PhysicalKey};
 use gosub_render_backend::{Point, RenderBackend, SizeU32, FP};
 use gosub_renderer::draw::SceneDrawer;
 use gosub_shared::types::Result;
@@ -83,6 +83,30 @@ impl<'a, D: SceneDrawer<B, L, LT>, B: RenderBackend, L: Layouter, LT: LayoutTree
                 tab.data.scroll(delta);
 
                 self.window.request_redraw();
+            }
+
+            WindowEvent::KeyboardInput { event, .. } => {
+                if event.repeat || event.state == ElementState::Released {
+                    return Ok(());
+                }
+
+                let Some(tab) = self.tabs.get_current_tab() else {
+                    return Ok(());
+                };
+
+                if let PhysicalKey::Code(code) = event.physical_key {
+                    match code {
+                        KeyCode::KeyD => {
+                            tab.data.toggle_debug();
+                            self.window.request_redraw();
+                        }
+                        KeyCode::KeyC => {
+                            tab.data.clear_buffers();
+                            self.window.request_redraw();
+                        }
+                        _ => {}
+                    }
+                }
             }
 
             _ => {}
