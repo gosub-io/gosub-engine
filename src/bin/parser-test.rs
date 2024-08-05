@@ -62,7 +62,7 @@ fn main() {
 }
 
 fn run_test(test_idx: usize, test: Test, all_results: &mut TotalTestResults) {
-    #[cfg(feature = "debug_parser_verbose")]
+    #[cfg(all(feature = "debug_parser_verbose", test))]
     println!(
         "🧪 Running test #{test_idx}: {}:{}",
         test.file_path, test.line
@@ -75,7 +75,7 @@ fn run_test(test_idx: usize, test: Test, all_results: &mut TotalTestResults) {
         .run_test(test.clone(), false)
         .expect("problem parsing");
 
-    // #[cfg(feature = "debug_parser")]
+    // #[cfg(all(feature = "debug_parser", not(test)))]
     // print_test_result(&result);
 
     for entry in &result.tree_results {
@@ -85,25 +85,25 @@ fn run_test(test_idx: usize, test: Test, all_results: &mut TotalTestResults) {
             ResultStatus::Success => {
                 all_results.succeeded += 1;
 
-                #[cfg(feature = "debug_parser")]
+                #[cfg(all(feature = "debug_parser", test))]
                 println!("✅  {}", entry.actual);
             }
             ResultStatus::Missing => {
                 all_results.failed += 1;
 
-                #[cfg(feature = "debug_parser")]
+                #[cfg(all(feature = "debug_parser", test))]
                 println!("❌ {} (missing)", entry.expected);
             }
             ResultStatus::Additional => {
                 all_results.failed += 1;
 
-                #[cfg(feature = "debug_parser")]
+                #[cfg(all(feature = "debug_parser", test))]
                 println!("❌ {} (unexpected)", entry.actual);
             }
             ResultStatus::Mismatch => {
                 all_results.failed += 1;
 
-                #[cfg(feature = "debug_parser")]
+                #[cfg(all(feature = "debug_parser", test))]
                 println!("❌ {} (wanted: {})", entry.actual, entry.expected);
             }
             ResultStatus::IncorrectPosition => {}
@@ -117,7 +117,7 @@ fn run_test(test_idx: usize, test: Test, all_results: &mut TotalTestResults) {
             ResultStatus::Success => {
                 all_results.succeeded += 1;
 
-                #[cfg(feature = "debug_parser")]
+                #[cfg(all(feature = "debug_parser", test))]
                 println!(
                     "✅  ({}:{}) {}",
                     entry.actual.line, entry.actual.col, entry.actual.message
@@ -126,7 +126,7 @@ fn run_test(test_idx: usize, test: Test, all_results: &mut TotalTestResults) {
             ResultStatus::Missing => {
                 all_results.failed += 1;
 
-                #[cfg(feature = "debug_parser")]
+                #[cfg(all(feature = "debug_parser", test))]
                 println!(
                     "❌ ({}:{}) {} (missing)",
                     entry.expected.line, entry.expected.col, entry.expected.message
@@ -135,7 +135,7 @@ fn run_test(test_idx: usize, test: Test, all_results: &mut TotalTestResults) {
             ResultStatus::Additional => {
                 all_results.failed += 1;
 
-                #[cfg(feature = "debug_parser")]
+                #[cfg(all(feature = "debug_parser", test))]
                 println!(
                     "❌ ({}:{}) {} (unexpected)",
                     entry.actual.line, entry.actual.col, entry.actual.message
@@ -144,7 +144,7 @@ fn run_test(test_idx: usize, test: Test, all_results: &mut TotalTestResults) {
             ResultStatus::Mismatch => {
                 all_results.failed += 1;
 
-                #[cfg(feature = "debug_parser")]
+                #[cfg(all(feature = "debug_parser", test))]
                 println!(
                     "❌ ({}:{}) {} (wanted: {})",
                     entry.actual.line,
@@ -157,7 +157,7 @@ fn run_test(test_idx: usize, test: Test, all_results: &mut TotalTestResults) {
                 all_results.failed += 1;
                 all_results.failed_position += 1;
 
-                #[cfg(feature = "debug_parser")]
+                #[cfg(all(feature = "debug_parser", test))]
                 println!(
                     "❌ ({}:{}) (wanted: ({}::{})) {}",
                     entry.actual.line,
