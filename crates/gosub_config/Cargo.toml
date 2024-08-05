@@ -18,5 +18,5 @@ anyhow = "1.0.86"
 
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-sqlite = "0.36.0"
+sqlite = "0.36.1"
 ureq = "2.10.0"
