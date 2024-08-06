@@ -111,7 +111,7 @@ impl From<&str> for RgbColor {
     }
 }
 
-pub fn get_hex_color_from_name(color_name: &str) -> Option<&str> {
+fn get_hex_color_from_name(color_name: &str) -> Option<&str> {
     for entry in crate::colors::CSS_COLORNAMES.iter() {
         if entry.name == color_name {
             return Some(entry.value);
@@ -783,6 +783,24 @@ lazy_static! {
             value: "#663399",
         },
     ];
+}
+
+pub fn is_system_color(name: &str) -> bool {
+    for entry in CSS_SYSTEM_COLOR_NAMES.iter() {
+        if entry == &name {
+            return true;
+        }
+    }
+    false
+}
+
+pub fn is_named_color(name: &str) -> bool {
+    for entry in CSS_COLORNAMES.iter() {
+        if entry.name == name {
+            return true;
+        }
+    }
+    false
 }
 
 pub const CSS_SYSTEM_COLOR_NAMES: [&str; 42] = [

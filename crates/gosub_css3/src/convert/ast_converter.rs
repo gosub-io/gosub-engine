@@ -182,19 +182,11 @@ pub fn convert_ast_to_stylesheet(
                     continue;
                 }
 
-                if css_values.len() > 1 {
-                    rule.declarations.push(CssDeclaration {
-                        property: property.clone(),
-                        value: CssValue::List(css_values.to_vec()),
-                        important: *important,
-                    });
-                } else {
-                    rule.declarations.push(CssDeclaration {
-                        property: property.clone(),
-                        value: css_values.first().expect("").clone(),
-                        important: *important,
-                    });
-                }
+                rule.declarations.push(CssDeclaration {
+                    property: property.clone(),
+                    value: css_values.to_vec(),
+                    important: *important,
+                });
             }
         }
 

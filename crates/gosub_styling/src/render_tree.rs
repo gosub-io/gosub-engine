@@ -179,7 +179,8 @@ impl<B: RenderBackend> RenderTree<B> {
                             }
 
                             // Check if the declaration matches the definition and return the "expanded" order
-                            if definition.unwrap().matches(&declaration.value).is_none() {
+                            let res = definition.unwrap().matches(declaration.value.clone());
+                            if !res {
                                 warn!("Declaration does not match definition: {:?}", declaration);
                                 continue;
                             }
@@ -311,7 +312,8 @@ fn add_property_to_map(
     }
 
     let declaration = DeclarationProperty {
-        value: declaration.value.clone(),
+        // @todo: this seems wrong. We only get the first values from the declared values
+        value: declaration.value.get(0).unwrap().clone(),
         origin: sheet.origin.clone(),
         important: declaration.important,
         location: sheet.location.clone(),

@@ -4,7 +4,6 @@ use core::fmt::Debug;
 use gosub_shared::types::Result;
 use std::cmp::Ordering;
 use std::fmt::Display;
-use std::slice;
 
 /// Defines a complete stylesheet with all its rules and the location where it was found
 #[derive(Debug, PartialEq, Clone)]
@@ -53,9 +52,8 @@ pub struct CssDeclaration {
     // Css property color
     pub property: String,
     // Raw values of the declaration. It is not calculated or converted in any way (ie: "red", "50px" etc)
-    // There can be multiple values  (ie:   "1px solid black" are split into 3 values, but they are stored inside
-    // a CssValue::List.
-    pub value: CssValue,
+    // There can be multiple values  (ie:   "1px solid black" are split into 3 values)
+    pub value: Vec<CssValue>,
     // ie: !important
     pub important: bool,
 }
@@ -223,46 +221,10 @@ pub enum CssValue {
     String(String),
     Unit(f32, String),
     Function(String, Vec<CssValue>),
-    List(Vec<CssValue>),
     Initial,
     Inherit,
     Comma,
-}
-
-impl CssValue {
-    pub fn iter(&self) -> CssValueIter {
-        match self {
-            CssValue::List(values) => CssValueIter::List(values.iter()),
-            _ => CssValueIter::Single(Some(self)),
-        }
-    }
-
-    pub fn is_list(&self) -> bool {
-        matches!(self, CssValue::List(_))
-    }
-
-    pub fn as_vec(&self) -> Vec<CssValue> {
-        match self {
-            CssValue::List(values) => values.clone(),
-            v => vec!(v.clone()),
-        }
-    }
-}
-
-pub enum CssValueIter<'a> {
-    Single(Option<&'a CssValue>),
-    List(slice::Iter<'a, CssValue>),
-}
-
-impl<'a> Iterator for CssValueIter<'a> {
-    type Item = &'a CssValue;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self {
-            CssValueIter::Single(ref mut value) => value.take(),
-            CssValueIter::List(ref mut iter) => iter.next(),
-        }
-    }
+    List(Vec<CssValue>),
 }
 
 impl Display for CssValue {
@@ -281,15 +243,6 @@ impl Display for CssValue {
             CssValue::Percentage(p) => write!(f, "{}%", p),
             CssValue::String(s) => write!(f, "{}", s),
             CssValue::Unit(val, unit) => write!(f, "{}{}", val, unit),
-            CssValue::List(list) => {
-                for (i, item) in list.iter().enumerate() {
-                    if i > 0 {
-                        write!(f, " ")?;
-                    }
-                    write!(f, "{}", item)?;
-                }
-                Ok(())
-            }
             CssValue::Function(name, args) => {
                 write!(f, "{}(", name)?;
                 for (i, arg) in args.iter().enumerate() {
@@ -303,6 +256,16 @@ impl Display for CssValue {
             CssValue::Initial => write!(f, "initial"),
             CssValue::Inherit => write!(f, "inherit"),
             CssValue::Comma => write!(f, ","),
+            CssValue::List(v) => {
+                write!(f, "List(")?;
+                for (i, value) in v.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", value)?;
+                }
+                write!(f, ")")
+            }
         }
     }
 }

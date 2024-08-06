@@ -113,8 +113,8 @@ impl PropertyDefinition {
     }
 
     /// Matches a list of values against the current definition
-    pub fn matches(self, value: &CssValue) -> Option<CssValue> {
-        self.syntax.matches(value)
+    pub fn matches(self, input: Vec<CssValue>) -> bool {
+        self.syntax.matches(input)
     }
 
     pub fn check_expanded_properties(&self, _values: &[CssValue]) -> bool {
@@ -486,15 +486,27 @@ mod tests {
     use super::*;
     use gosub_css3::colors::RgbColor;
 
-    macro_rules! assert_none {
+    macro_rules! assert_false {
         ($e:expr) => {
-            assert!($e.is_none());
+            assert_eq!(false, $e);
         };
     }
 
-    macro_rules! assert_some {
+    macro_rules! assert_true {
         ($e:expr) => {
-            assert!($e.is_some());
+            assert_eq!(true, $e);
+        };
+    }
+
+    macro_rules! str {
+        ($s:expr) => {
+            CssValue::String($s.to_string())
+        };
+    }
+
+    macro_rules! unit {
+        ($v:expr, $u:expr) => {
+            CssValue::Unit($v, $u.to_string())
         };
     }
 
@@ -509,39 +521,40 @@ mod tests {
         let definitions = parse_definition_files();
         let prop = definitions.find_property("border").unwrap();
 
-        assert_some!(prop.clone().matches(&CssValue::List(vec![
-            CssValue::Unit(1.0, "px".into()),
-            CssValue::String("solid".into()),
+        assert_eq!(true, prop.clone().matches(vec![
+            unit!(1.0, "px"),
+            str!("solid"),
             CssValue::Color(RgbColor::from("black")),
-        ])));
-
-        assert_some!(prop.clone().matches(&CssValue::List(vec![
+        ]));
+        assert_eq!(true, prop.clone().matches(vec![
             CssValue::Color(RgbColor::from("black")),
-            CssValue::String("solid".into()),
-            CssValue::Unit(1.0, "px".into()),
-        ])));
-        assert_some!(prop.clone().matches(&CssValue::List(vec![
-            CssValue::String("solid".into()),
+            str!("solid"),
+            unit!(1.0, "px"),
+        ]));
+        assert_eq!(true, prop.clone().matches(vec![
+            str!("solid"),
             CssValue::Color(RgbColor::from("black")),
-            CssValue::Unit(1.0, "px".into()),
-        ])));
-        assert_some!(prop.clone().matches(&CssValue::Unit(1.0, "px".into())));
-        assert_some!(prop.clone().matches(&CssValue::String("solid".into())));
-        assert_some!(prop.clone().matches(&CssValue::List(vec![
-            CssValue::String("solid".into()),
+            unit!(1.0, "px"),
+        ]));
+        assert_eq!(true, prop.clone().matches(vec![
+            unit!(1.0, "px"),
+        ]));
+        assert_eq!(true, prop.clone().matches(vec![str!("solid")]));
+        assert_eq!(true, prop.clone().matches(vec![
+            str!("solid"),
             CssValue::Color(RgbColor::from("black")),
-        ])));
-        assert_some!(prop.clone().matches(&CssValue::List(vec![
-            CssValue::String("solid".into()),
+        ]));
+        assert_eq!(true, prop.clone().matches(vec![
+            str!("solid"),
             CssValue::Color(RgbColor::from("black")),
-        ])));
-        assert_some!(prop.clone().matches(&CssValue::String("solid".into())));
-        assert_none!(prop.clone().matches(&CssValue::String("not-solid".into())));
-        assert_none!(prop.clone().matches(&CssValue::List(vec![
-            CssValue::String("solid".into()),
-            CssValue::String("solid".into()),
-            CssValue::Unit(1.0, "px".into()),
-        ])));
+        ]));
+        assert_true!(prop.clone().matches(vec![str!("solid")]));
+        assert_false!(prop.clone().matches(vec![str!("not-solid")]));
+        assert_false!(prop.clone().matches(vec![
+            str!("solid"),
+            str!("solid"),
+            unit!(1.0, "px"),
+        ]));
     }
 
     #[test]
@@ -579,7 +592,7 @@ mod tests {
                     .compile()
                     .expect("Could not compile syntax"),
                 inherited: false,
-                initial_value: Some(CssValue::String("thick".to_string())),
+                initial_value: Some(str!("thick".to_string())),
                 resolved: false,
             },
         );
@@ -593,31 +606,31 @@ mod tests {
         let definitions = parse_definition_files();
         let def = definitions.find_property("azimuth").unwrap();
 
-        assert_some!(def.clone().matches(&CssValue::Unit(361.0, "deg".into())));
+        assert_true!(def.clone().matches(vec![unit!(361.0, "deg")]));
 
-        assert_none!(def.clone().matches(&CssValue::Unit(20.0, "blaat".into())));
+        assert_false!(def.clone().matches(vec![unit!(20.0, "blaat")]));
 
-        assert_some!(def
+        assert_true!(def
             .clone()
-            .matches(&CssValue::Unit(std::f32::consts::FRAC_PI_2, "rad".into())));
-        assert_some!(def.clone().matches(&CssValue::Zero));
+            .matches(vec![unit!(std::f32::consts::FRAC_PI_2, "rad")]));
+        assert_true!(def.clone().matches(vec![CssValue::Zero]));
 
-        assert_some!(def.clone().matches(&CssValue::Unit(360.0, "deg".into())));
-        assert_some!(def.clone().matches(&CssValue::Unit(360.0, "grad".into())));
-        assert_some!(def.clone().matches(&CssValue::Unit(2.0, "grad".into())));
-        assert_some!(def.clone().matches(&CssValue::Unit(-360.0, "grad".into())));
+        assert_true!(def.clone().matches(vec![unit!(360.0, "deg")]));
+        assert_true!(def.clone().matches(vec![unit!(360.0, "grad")]));
+        assert_true!(def.clone().matches(vec![unit!(2.0, "grad")]));
+        assert_true!(def.clone().matches(vec![unit!(-360.0, "grad")]));
 
-        assert_none!(def.clone().matches(&CssValue::String("leftside".into())));
+        assert_false!(def.clone().matches(vec![str!("leftside")]));
 
-        assert_some!(def.clone().matches(&CssValue::String("left-side".into())));
-        assert_some!(def.clone().matches(&CssValue::String("left".into())));
-        assert_some!(def.clone().matches(&CssValue::String("center".into())));
-        assert_some!(def.clone().matches(&CssValue::String("rightwards".into())));
-        assert_some!(def.clone().matches(&CssValue::List(vec!(
-            CssValue::String("far-right".into()),
-            CssValue::String("behind".into()),
-        ))));
-        assert_some!(def.clone().matches(&CssValue::String("behind".into())));
+        assert_true!(def.clone().matches(vec![str!("left-side")]));
+        assert_true!(def.clone().matches(vec![str!("left")]));
+        assert_true!(def.clone().matches(vec![str!("center")]));
+        assert_true!(def.clone().matches(vec![str!("rightwards")]));
+        assert_true!(def.clone().matches(vec![
+            str!("far-right"),
+            str!("behind"),
+        ]));
+        assert_true!(def.clone().matches(vec![str!("behind")]));
     }
 
     #[test]
@@ -626,26 +639,26 @@ mod tests {
         let def = definitions.find_property("background-color").unwrap();
 
         // assert_some!(def.clone().matches(&CssValue::Inherit));
-        assert_some!(def.clone().matches(&CssValue::String("transparent".into())));
+        assert_true!(def.clone().matches(vec![str!("transparent")]));
 
-        assert_some!(def.clone().matches(&CssValue::String("red".into())));
+        assert_true!(def.clone().matches(vec![str!("red")]));
         // System colors
-        // assert_some!(def.clone().matches(&CssValue::String("Canvas".into())));
-        // assert_some!(def.clone().matches(&CssValue::String("CanvasText".into())));
-        // assert_some!(def.clone().matches(&CssValue::String("CanvasText".into())));
-        assert_some!(def.clone().matches(&CssValue::String("Menu".into())));
+        // assert_true!(def.clone().matches(vec![str!("Canvas")]));
+        // assert_true!(def.clone().matches(vec![str!("CanvasText")]));
+        // assert_true!(def.clone().matches(vec![str!("CanvasText")]));
+        assert_true!(def.clone().matches(vec![str!("Menu")]));
 
-        assert_some!(def.clone().matches(&CssValue::String("blue".into())));
-        assert_some!(def
+        assert_true!(def.clone().matches(vec![str!("blue")]));
+        assert_true!(def
             .clone()
-            .matches(&CssValue::Color(RgbColor::from("#ff0000"))));
-        assert_some!(def
+            .matches(vec![CssValue::Color(RgbColor::from("#ff0000"))]));
+        assert_true!(def
             .clone()
-            .matches(&CssValue::String("rebeccapurple".into())));
+            .matches(vec![str!("rebeccapurple")]));
 
-        assert_none!(def
+        assert_false!(def
             .clone()
-            .matches(&CssValue::String("thiscolordoesnotexist".into())));
+            .matches(vec![str!("thiscolordoesnotexist")]));
     }
 
     #[test]
@@ -653,15 +666,15 @@ mod tests {
         let definitions = parse_definition_files();
         let def = definitions.find_property("background-attachment").unwrap();
 
-        // assert_some!(def.clone().matches(&CssValue::Inherit));
-        assert_some!(def.clone().matches(&CssValue::String("scroll".into())));
-        assert_some!(def.clone().matches(&CssValue::String("fixed".into())));
+        // assert_true!(def.clone().matches(&CssValue::Inherit));
+        assert_true!(def.clone().matches(vec![str!("scroll")]));
+        assert_true!(def.clone().matches(vec![str!("fixed")]));
 
-        assert_none!(def.clone().matches(&CssValue::String("incorrect".into())));
-        assert_none!(def
+        assert_false!(def.clone().matches(vec![str!("incorrect")]));
+        assert_false!(def
             .clone()
-            .matches(&CssValue::String("rebeccapurple".into())));
-        assert_none!(def.clone().matches(&CssValue::Zero));
+            .matches(vec![str!("rebeccapurple")]));
+        assert_false!(def.clone().matches(vec![CssValue::Zero]));
     }
 
     #[test]
@@ -669,16 +682,16 @@ mod tests {
         let definitions = parse_definition_files();
         let def = definitions.find_property("background-position").unwrap();
 
-        // assert_none!(def.clone().matches(&CssValue::String("scroll".into())));
-        // assert_none!(def.clone().matches(&CssValue::String("fixed".into())));
-        // assert_none!(def.clone().matches(&CssValue::String("incorrect".into())));
+        // assert_none!(def.clone().matches(str!("scroll")));
+        // assert_none!(def.clone().matches(str!("fixed")));
+        // assert_none!(def.clone().matches(str!("incorrect")));
         // assert_none!(def
         //     .clone()
-        //     .matches(&CssValue::String("rebeccapurple".into())));
+        //     .matches(str!("rebeccapurple")));
         //
-        // assert_some!(def.clone().matches(&CssValue::Percentage(0.0)));
-        // assert_some!(def.clone().matches(&CssValue::Zero));
-        // assert_some!(def.clone().matches(&CssValue::Unit(12.34, "px".into())));
+        // assert_true!(def.clone().matches(&CssValue::Percentage(0.0)));
+        // assert_true!(def.clone().matches(&CssValue::Zero));
+        // assert_true!(def.clone().matches(&unit!(12.34, "px")));
         // assert_none!(def.clone().matches(&CssValue::Number(12.34)));
 
         /*
@@ -720,180 +733,180 @@ mod tests {
          */
 
         // background-position: left 10px;
-        assert_some!(def.clone().matches(&CssValue::List(vec![
-            CssValue::String("left".into()),
-            CssValue::Unit(10.0, "px".into()),
-        ])));
+        assert_true!(def.clone().matches(vec![
+            str!("left"),
+            unit!(10.0, "px"),
+        ]));
 
         // background-position: left 10px top 20px;
-        assert_some!(def.clone().matches(&CssValue::List(vec![
-            CssValue::String("left".into()),
-            CssValue::Unit(10.0, "px".into()),
-            CssValue::String("top".into()),
-            CssValue::Unit(20.0, "px".into()),
-        ])));
+        assert_true!(def.clone().matches(vec![
+            str!("left"),
+            unit!(10.0, "px"),
+            str!("top"),
+            unit!(20.0, "px"),
+        ]));
 
         // background-position: right 15% bottom 5%;
-        assert_some!(def.clone().matches(&CssValue::List(vec![
-            CssValue::String("right".into()),
+        assert_true!(def.clone().matches(vec![
+            str!("right"),
             CssValue::Percentage(15.0),
-            CssValue::String("bottom".into()),
+            str!("bottom"),
             CssValue::Percentage(5.0),
-        ])));
+        ]));
 
         // background-position: center center;
-        assert_some!(def.clone().matches(&CssValue::List(vec![
-            CssValue::String("center".into()),
-            CssValue::String("center".into()),
-        ])));
+        assert_true!(def.clone().matches(vec![
+            str!("center"),
+            str!("center"),
+        ]));
 
         // background-position: 75% 50%;
-        assert_some!(def.clone().matches(&CssValue::List(vec![
+        assert_true!(def.clone().matches(vec![
             CssValue::Percentage(75.0),
             CssValue::Percentage(50.0),
-        ])));
+        ]));
 
         // background-position: 75%;
-        assert_some!(def
+        assert_true!(def
             .clone()
-            .matches(&CssValue::List(vec![CssValue::Percentage(75.0),])));
+            .matches(vec![CssValue::Percentage(75.0),]));
 
         // background-position: top 10px center;
-        assert_some!(def.clone().matches(&CssValue::List(vec![
-            CssValue::String("top".into()),
-            CssValue::Unit(10.0, "px".into()),
-            CssValue::String("center".into()),
-        ])));
+        assert_true!(def.clone().matches(vec![
+            str!("top"),
+            unit!(10.0, "px"),
+            str!("center"),
+        ]));
 
         // background-position: bottom 20px right 30px;
-        assert_some!(def.clone().matches(&CssValue::List(vec![
-            CssValue::String("bottom".into()),
-            CssValue::Unit(20.0, "px".into()),
-            CssValue::String("right".into()),
-            CssValue::Unit(30.0, "px".into()),
-        ])));
+        assert_true!(def.clone().matches(vec![
+            str!("bottom"),
+            unit!(20.0, "px"),
+            str!("right"),
+            unit!(30.0, "px"),
+        ]));
 
         // background-position: 20% 80%;
-        assert_some!(def.clone().matches(&CssValue::List(vec![
+        assert_true!(def.clone().matches(vec![
             CssValue::Percentage(20.0),
             CssValue::Percentage(80.0),
-        ])));
+        ]));
 
         // background-position: left 5px bottom 15px, right 10px top 20px;
-        assert_some!(def.clone().matches(&CssValue::List(vec![
-            CssValue::String("left".into()),
-            CssValue::Unit(5.0, "px".into()),
-            CssValue::String("bottom".into()),
-            CssValue::Unit(15.0, "px".into()),
-            CssValue::String("right".into()),
-            CssValue::Unit(10.0, "px".into()),
-            CssValue::String("top".into()),
-            CssValue::Unit(20.0, "px".into()),
-        ])));
+        assert_true!(def.clone().matches(vec![
+            str!("left"),
+            unit!(5.0, "px"),
+            str!("bottom"),
+            unit!(15.0, "px"),
+            str!("right"),
+            unit!(10.0, "px"),
+            str!("top"),
+            unit!(20.0, "px"),
+        ]));
 
         // background-position: center top 35px;
-        assert_some!(def.clone().matches(&CssValue::List(vec![
-            CssValue::String("center".into()),
-            CssValue::String("top".into()),
-            CssValue::Unit(35.0, "px".into()),
-        ])));
+        assert_true!(def.clone().matches(vec![
+            str!("center"),
+            str!("top"),
+            unit!(35.0, "px"),
+        ]));
 
         // background-position: left 45% bottom 25%;
-        assert_some!(def.clone().matches(&CssValue::List(vec![
-            CssValue::String("left".into()),
+        assert_true!(def.clone().matches(vec![
+            str!("left"),
             CssValue::Percentage(45.0),
-            CssValue::String("bottom".into()),
+            str!("bottom"),
             CssValue::Percentage(25.0),
-        ])));
+        ]));
 
         // background-position: right 10% top 50px;
-        assert_some!(def.clone().matches(&CssValue::List(vec![
-            CssValue::String("right".into()),
+        assert_true!(def.clone().matches(vec![
+            str!("right"),
             CssValue::Percentage(10.0),
-            CssValue::String("top".into()),
-            CssValue::Unit(50.0, "px".into()),
-        ])));
+            str!("top"),
+            unit!(50.0, "px"),
+        ]));
 
         // background-position: 0% 0%, 100% 100%;
-        assert_some!(def.clone().matches(&CssValue::List(vec![
+        assert_true!(def.clone().matches(vec![
             CssValue::Percentage(0.0),
             CssValue::Percentage(0.0),
             CssValue::Percentage(100.0),
             CssValue::Percentage(100.0),
-        ])));
+        ]));
 
         // background-position: left top, right bottom;
-        assert_some!(def.clone().matches(&CssValue::List(vec![
-            CssValue::String("left".into()),
-            CssValue::String("top".into()),
-            CssValue::String("right".into()),
-            CssValue::String("bottom".into()),
-        ])));
+        assert_true!(def.clone().matches(vec![
+            str!("left"),
+            str!("top"),
+            str!("right"),
+            str!("bottom"),
+        ]));
 
         // background-position: 100% 0, 0 100%;
-        assert_some!(def.clone().matches(&CssValue::List(vec![
+        assert_true!(def.clone().matches(vec![
             CssValue::Percentage(100.0),
             CssValue::Number(0.0),
             CssValue::Number(0.0),
             CssValue::Percentage(100.0),
-        ])));
+        ]));
 
         // background-position: left 25px bottom, center top;
-        assert_some!(def.clone().matches(&CssValue::List(vec![
-            CssValue::String("left".into()),
-            CssValue::Unit(25.0, "px".into()),
-            CssValue::String("bottom".into()),
-            CssValue::String("center".into()),
-            CssValue::String("top".into()),
-        ])));
+        assert_true!(def.clone().matches(vec![
+            str!("left"),
+            unit!(25.0, "px"),
+            str!("bottom"),
+            str!("center"),
+            str!("top"),
+        ]));
 
         // background-position: top 10% left 20%, bottom 10% right 20%;
-        assert_some!(def.clone().matches(&CssValue::List(vec![
-            CssValue::String("top".into()),
+        assert_true!(def.clone().matches(vec![
+            str!("top"),
             CssValue::Percentage(10.0),
-            CssValue::String("left".into()),
+            str!("left"),
             CssValue::Percentage(20.0),
-            CssValue::String("bottom".into()),
+            str!("bottom"),
             CssValue::Percentage(10.0),
-            CssValue::String("right".into()),
+            str!("right"),
             CssValue::Percentage(20.0),
-        ])));
+        ]));
 
         // background-position: 10px 30px, 90% 10%;
-        assert_some!(def.clone().matches(&CssValue::List(vec![
-            CssValue::Unit(10.0, "px".into()),
-            CssValue::Unit(30.0, "px".into()),
+        assert_true!(def.clone().matches(vec![
+            unit!(10.0, "px"),
+            unit!(30.0, "px"),
             CssValue::Percentage(90.0),
             CssValue::Percentage(10.0),
-        ])));
+        ]));
 
         // background-position: top right, bottom left 15px;
-        assert_some!(def.clone().matches(&CssValue::List(vec![
-            CssValue::String("top".into()),
-            CssValue::String("right".into()),
-            CssValue::String("bottom".into()),
-            CssValue::String("left".into()),
-            CssValue::Unit(15.0, "px".into()),
-        ])));
+        assert_true!(def.clone().matches(vec![
+            str!("top"),
+            str!("right"),
+            str!("bottom"),
+            str!("left"),
+            unit!(15.0, "px"),
+        ]));
 
         // background-position: 50% 25%, 25% 75%;
-        assert_some!(def.clone().matches(&CssValue::List(vec![
+        assert_true!(def.clone().matches(vec![
             CssValue::Percentage(50.0),
             CssValue::Percentage(25.0),
             CssValue::Percentage(25.0),
             CssValue::Percentage(75.0),
-        ])));
+        ]));
 
         // background-position: right 5% bottom 5%, left 5% top 5%;
-        assert_some!(def.clone().matches(&CssValue::List(vec![
-            CssValue::String("right".into()),
+        assert_true!(def.clone().matches(vec![
+            str!("right"),
             CssValue::Percentage(5.0),
-            CssValue::String("bottom".into()),
+            str!("bottom"),
             CssValue::Percentage(5.0),
-            CssValue::String("left".into()),
+            str!("left"),
             CssValue::Percentage(5.0),
-            CssValue::String("top".into()),
+            str!("top"),
             CssValue::Percentage(5.0),
-        ])));
+        ]));
     }
 }

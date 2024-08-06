@@ -193,7 +193,7 @@ fn match_selector_part(
 /// origin, importance, location and specificity of the declaration.
 #[derive(Debug, Clone)]
 pub struct DeclarationProperty {
-    /// The actual value of the property
+    /// The actual value of the property (@todo: should this be a vec? or do we need to (re-)implement CssValue::List?)
     pub value: CssValue,
     /// Origin of the declaration (user stylesheet, author stylesheet etc.)
     pub origin: CssOrigin,
