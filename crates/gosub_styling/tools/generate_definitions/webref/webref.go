@@ -14,16 +14,7 @@ import (
 )
 
 var (
-	skipList = []string{
-		"css-borders", // not ready for impl
-		"CSS",         // temp fix for duplicate properties
-		"css-flexbox",
-		"SVG",
-		"svg-strokes",
-		"css-position",
-		"css-color-hdr",
-		"css-content",
-	}
+	skipList []string
 )
 
 type Data struct {
@@ -111,7 +102,7 @@ func GetWebRefFiles() []utils.DirectoryListItem {
 }
 
 func GetWebRefData() Data {
-	DownloadPatches()
+	//DownloadPatches() This is no longer needed
 	files := GetWebRefFiles()
 
 	wg := new(sync.WaitGroup)

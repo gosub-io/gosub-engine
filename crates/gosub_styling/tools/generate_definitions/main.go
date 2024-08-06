@@ -32,7 +32,7 @@ func main() {
 
 	webref.DetectDuplicates(&webrefData)
 
-	_mdnData := mdn.GetMdnData()
+	mdnData := mdn.GetMdnData()
 
 	var data utils.Data
 
@@ -50,7 +50,7 @@ func main() {
 			Inherited: property.Inherited == "yes",
 		}
 
-		mdnProp, ok := _mdnData[property.Name]
+		mdnProp, ok := mdnData[property.Name]
 		if ok {
 			if len(mdnProp.Computed.Array) == 0 {
 				prop.Computed = []string{mdnProp.Computed.String}
@@ -144,7 +144,6 @@ func ExportMultiFile(data *utils.Data) {
 }
 
 func ExportData(data any, path string) {
-
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)
