@@ -1,3 +1,5 @@
+use std::sync::mpsc::Sender;
+
 use anyhow::anyhow;
 use url::Url;
 
@@ -6,8 +8,8 @@ use gosub_render_backend::geo::{Size, SizeU32, FP};
 use gosub_render_backend::layout::{Layout, LayoutTree, Layouter};
 use gosub_render_backend::svg::SvgRenderer;
 use gosub_render_backend::{
-    Border, BorderSide, BorderStyle, Brush, Color, ImageBuffer, Rect, RenderBackend, RenderBorder,
-    RenderRect, RenderText, Scene as TScene, Text, Transform,
+    Border, BorderSide, BorderStyle, Brush, Color, ImageBuffer, NodeDesc, Rect, RenderBackend,
+    RenderBorder, RenderRect, RenderText, Scene as TScene, Text, Transform,
 };
 use gosub_rendering::position::PositionTree;
 use gosub_shared::types::Result;
@@ -31,6 +33,11 @@ pub trait SceneDrawer<B: RenderBackend, L: Layouter, LT: LayoutTree<L>> {
 
     fn clear_buffers(&mut self);
     fn toggle_debug(&mut self);
+
+    fn select_element(&mut self, id: LT::NodeId);
+    fn unselect_element(&mut self);
+
+    fn send_nodes(&mut self, sender: Sender<NodeDesc>);
 }
 
 const DEBUG_CONTENT_COLOR: (u8, u8, u8) = (0, 192, 255); //rgb(0, 192, 255)
@@ -95,6 +102,12 @@ impl<B: RenderBackend, L: Layouter> SceneDrawer<B, L, RenderTree<B, L>> for Tree
             backend.apply_scene(data, scene, self.scene_transform.clone());
         }
 
+        if self.dirty {
+            if let Some(id) = self.selected_element {
+                self.debug_annotate(id, data);
+            }
+        }
+
         if let Some(scene) = &self.debugger_scene {
             self.dirty = false;
             backend.apply_scene(data, scene, self.scene_transform.clone());
@@ -117,117 +130,7 @@ impl<B: RenderBackend, L: Layouter> SceneDrawer<B, L, RenderTree<B, L>> for Tree
             if self.last_hover != Some(e) {
                 self.last_hover = Some(e);
                 if self.debug {
-                    let mut scene = B::Scene::new(data);
-
-                    let Some(layout) = self.tree.get_layout(e) else {
-                        return false;
-                    };
-                    let size = layout.size();
-                    let padding = layout.padding();
-                    let border_size = layout.border();
-
-                    let Some((x, y)) = self.position.position(e) else {
-                        return false;
-                    };
-
-                    let content_rect = Rect::new(x, y, size.width as FP, size.height as FP);
-
-                    let padding_brush =
-                        B::Brush::color(B::Color::tuple3(DEBUG_PADDING_COLOR).alpha(127));
-                    let content_brush =
-                        B::Brush::color(B::Color::tuple3(DEBUG_CONTENT_COLOR).alpha(127));
-                    // let margin_brush = B::Brush::color(B::Color::tuple3(DEBUG_MARGIN_COLOR).alpha(127));
-                    let border_brush =
-                        B::Brush::color(B::Color::tuple3(DEBUG_BORDER_COLOR).alpha(127));
-
-                    let mut border = B::Border::empty();
-
-                    border.left(BorderSide::new(
-                        padding.x2 as FP,
-                        BorderStyle::Solid,
-                        padding_brush.clone(),
-                    ));
-
-                    border.right(BorderSide::new(
-                        padding.x1 as FP,
-                        BorderStyle::Solid,
-                        padding_brush.clone(),
-                    ));
-
-                    border.top(BorderSide::new(
-                        padding.y1 as FP,
-                        BorderStyle::Solid,
-                        padding_brush.clone(),
-                    ));
-
-                    border.bottom(BorderSide::new(
-                        padding.y2 as FP,
-                        BorderStyle::Solid,
-                        padding_brush,
-                    ));
-
-                    let padding_border = RenderBorder::new(border);
-
-                    let render_rect = RenderRect {
-                        rect: content_rect,
-                        transform: None,
-                        radius: None,
-                        brush: content_brush,
-                        brush_transform: None,
-                        border: Some(padding_border),
-                    };
-
-                    scene.draw_rect(&render_rect);
-
-                    let mut border_border = B::Border::empty();
-
-                    border_border.left(BorderSide::new(
-                        border_size.x2 as FP,
-                        BorderStyle::Solid,
-                        border_brush.clone(),
-                    ));
-
-                    border_border.right(BorderSide::new(
-                        border_size.x1 as FP,
-                        BorderStyle::Solid,
-                        border_brush.clone(),
-                    ));
-
-                    border_border.top(BorderSide::new(
-                        border_size.y1 as FP,
-                        BorderStyle::Solid,
-                        border_brush.clone(),
-                    ));
-
-                    border_border.bottom(BorderSide::new(
-                        border_size.y2 as FP,
-                        BorderStyle::Solid,
-                        border_brush,
-                    ));
-
-                    let border_border = RenderBorder::new(border_border);
-
-                    let border_rect = Rect::new(
-                        x as FP - border_size.x2 as FP - padding.x2 as FP,
-                        y as FP - border_size.y1 as FP - padding.y1 as FP,
-                        (size.width + padding.x2 + padding.x1) as FP,
-                        (size.height + padding.y1 + padding.y2) as FP,
-                    );
-
-                    let render_rect = RenderRect {
-                        rect: border_rect,
-                        transform: None,
-                        radius: None,
-                        brush: Brush::color(Color::TRANSPARENT),
-                        brush_transform: None,
-                        border: Some(border_border),
-                    };
-
-                    scene.draw_rect(&render_rect);
-
-                    self.debugger_scene = Some(scene);
-                    self.dirty = true;
-                    return true;
+                    return self.debug_annotate(e, data);
                 }
             }
             return false;
@@ -278,6 +181,21 @@ impl<B: RenderBackend, L: Layouter> SceneDrawer<B, L, RenderTree<B, L>> for Tree
         self.dirty = true;
         self.last_hover = None;
         self.debugger_scene = None;
+    }
+
+    fn select_element(&mut self, id: NodeId) {
+        self.selected_element = Some(id);
+        self.dirty = true;
+    }
+
+    fn unselect_element(&mut self) {
+        self.selected_element = None;
+        self.debugger_scene = None;
+        self.dirty = true;
+    }
+
+    fn send_nodes(&mut self, sender: Sender<NodeDesc>) {
+        let _ = sender.send(self.tree.desc());
     }
 }
 
@@ -790,4 +708,126 @@ fn get_border_side<B: RenderBackend, L: Layouter>(
     ));
 
     Some(BorderSide::new(width as FP, style, brush))
+}
+
+impl<B: RenderBackend, L: Layouter> TreeDrawer<B, L> {
+    fn debug_annotate(&mut self, e: NodeId, data: &mut B::WindowData<'_>) -> bool {
+        let Some(node) = self.tree.get_node(e) else {
+            return false;
+        };
+
+        let mut scene = B::Scene::new(data);
+
+        let Some(layout) = self.tree.get_layout(e) else {
+            return false;
+        };
+        let size = layout.size();
+
+        let padding = layout.padding();
+        let border_size = layout.border();
+
+        let Some((x, y)) = self.position.position(e) else {
+            return false;
+        };
+
+        println!("Annotating: {:?}", node);
+        println!("At: {:?} size: {size:?}", (x, y));
+
+        let content_rect = Rect::new(x, y, size.width as FP, size.height as FP);
+
+        let padding_brush = B::Brush::color(B::Color::tuple3(DEBUG_PADDING_COLOR).alpha(127));
+        let content_brush = B::Brush::color(B::Color::tuple3(DEBUG_CONTENT_COLOR).alpha(127));
+        // let margin_brush = B::Brush::color(B::Color::tuple3(DEBUG_MARGIN_COLOR).alpha(127));
+        let border_brush = B::Brush::color(B::Color::tuple3(DEBUG_BORDER_COLOR).alpha(127));
+
+        let mut border = B::Border::empty();
+
+        border.left(BorderSide::new(
+            padding.x2 as FP,
+            BorderStyle::Solid,
+            padding_brush.clone(),
+        ));
+
+        border.right(BorderSide::new(
+            padding.x1 as FP,
+            BorderStyle::Solid,
+            padding_brush.clone(),
+        ));
+
+        border.top(BorderSide::new(
+            padding.y1 as FP,
+            BorderStyle::Solid,
+            padding_brush.clone(),
+        ));
+
+        border.bottom(BorderSide::new(
+            padding.y2 as FP,
+            BorderStyle::Solid,
+            padding_brush,
+        ));
+
+        let padding_border = RenderBorder::new(border);
+
+        let render_rect = RenderRect {
+            rect: content_rect,
+            transform: None,
+            radius: None,
+            brush: content_brush,
+            brush_transform: None,
+            border: Some(padding_border),
+        };
+
+        scene.draw_rect(&render_rect);
+
+        let mut border_border = B::Border::empty();
+
+        border_border.left(BorderSide::new(
+            border_size.x2 as FP,
+            BorderStyle::Solid,
+            border_brush.clone(),
+        ));
+
+        border_border.right(BorderSide::new(
+            border_size.x1 as FP,
+            BorderStyle::Solid,
+            border_brush.clone(),
+        ));
+
+        border_border.top(BorderSide::new(
+            border_size.y1 as FP,
+            BorderStyle::Solid,
+            border_brush.clone(),
+        ));
+
+        border_border.bottom(BorderSide::new(
+            border_size.y2 as FP,
+            BorderStyle::Solid,
+            border_brush,
+        ));
+
+        let border_border = RenderBorder::new(border_border);
+
+        let border_rect = Rect::new(
+            x as FP - border_size.x2 as FP - padding.x2 as FP,
+            y as FP - border_size.y1 as FP - padding.y1 as FP,
+            (size.width + padding.x2 + padding.x1) as FP,
+            (size.height + padding.y1 + padding.y2) as FP,
+        );
+
+        let render_rect = RenderRect {
+            rect: border_rect,
+            transform: None,
+            radius: None,
+            brush: Brush::color(Color::TRANSPARENT),
+            brush_transform: None,
+            border: Some(border_border),
+        };
+
+        scene.draw_rect(&render_rect);
+
+        self.debugger_scene = Some(scene);
+        self.dirty = true;
+
+        true
+    }
 }

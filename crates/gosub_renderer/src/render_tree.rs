@@ -26,6 +26,7 @@ pub struct TreeDrawer<B: RenderBackend, L: Layouter> {
     pub(crate) dirty: bool,
     pub(crate) debugger_scene: Option<B::Scene>,
     pub(crate) tree_scene: Option<B::Scene>,
+    pub(crate) selected_element: Option<NodeId>,
     pub(crate) scene_transform: Option<B::Transform>,
 }
 
@@ -42,6 +43,7 @@ impl<B: RenderBackend, L: Layouter> TreeDrawer<B, L> {
             debugger_scene: None,
             dirty: false,
             tree_scene: None,
+            selected_element: None,
             scene_transform: None,
         }
     }
