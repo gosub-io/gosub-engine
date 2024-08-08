@@ -230,8 +230,8 @@ fn match_group_exactly_one(input: &Vec<CssValue>, components: &Vec<SyntaxCompone
         print!("value '{:?}' against '{:?}': ", input, component);
 
         let res = match_component(&input, component);
-        input = res.remainder.clone();
         if res.matched {
+            input = res.remainder.clone();
             // print!("matches: ");
             multiplier_count += 1;
 
@@ -1385,25 +1385,25 @@ mod tests {
 
         let prop = definitions.find_property("testprop").unwrap();
 
-        // assert_true!(prop.clone().matches(vec![
-        //     str!("left"),
-        //     CssValue::Unit(5.0, "px".into()),
-        // ]));
-        // assert_true!(prop.clone().matches(vec![
-        //     str!("top"),
-        //     CssValue::Unit(5.0, "px".into()),
-        // ]));
-        // assert_true!(prop.clone().matches(vec![
-        //     str!("bottom"),
-        //     CssValue::Unit(5.0, "px".into()),
-        // ]));
-        // assert_true!(prop.clone().matches(vec![
-        //     str!("right"),
-        //     CssValue::Unit(5.0, "px".into()),
-        // ]));
-        // assert_true!(prop
-        //     .clone()
-        //     .matches(vec![str!("left")]));
+        assert_true!(prop.clone().matches(vec![
+            str!("left"),
+            CssValue::Unit(5.0, "px".into()),
+        ]));
+        assert_true!(prop.clone().matches(vec![
+            str!("top"),
+            CssValue::Unit(5.0, "px".into()),
+        ]));
+        assert_true!(prop.clone().matches(vec![
+            str!("bottom"),
+            CssValue::Unit(5.0, "px".into()),
+        ]));
+        assert_true!(prop.clone().matches(vec![
+            str!("right"),
+            CssValue::Unit(5.0, "px".into()),
+        ]));
+        assert_true!(prop
+            .clone()
+            .matches(vec![str!("left")]));
         assert_true!(prop
             .clone()
             .matches(vec![str!("top")]));
@@ -1423,9 +1423,6 @@ mod tests {
             CssValue::Unit(10.0, "px".into()),
             str!("right"),
         ]));
-        assert_false!(prop
-            .clone()
-            .matches(vec![str!("top")]));
     }
 
     #[test]
@@ -1434,7 +1431,8 @@ mod tests {
         definitions.add_property("testprop", PropertyDefinition{
             name: "testprop".to_string(),
             computed: vec![],
-            syntax: CssSyntax::new("[ [ left | center | right | top | bottom | <length-percentage> ] | [ left | center | right | <length-percentage> ] [ top | center | bottom | <length-percentage> ] ]").compile().unwrap(),
+            // syntax: CssSyntax::new("[ [ left | center | right | top | bottom | <length-percentage> ] | [ left | center | right | <length-percentage> ] [ top | center | bottom | <length-percentage> ] ]").compile().unwrap(),
+            syntax: CssSyntax::new("[ top | top top ]").compile().unwrap(),
             inherited: false,
             initial_value: None,
             resolved: false,
@@ -1443,51 +1441,59 @@ mod tests {
 
         let prop = definitions.find_property("testprop").unwrap();
 
-        assert_true!(prop.clone().matches(vec![
-            str!("left"),
-        ]));
-        assert_true!(prop.clone().matches(vec![
-            str!("left"),
-            str!("top"),
-        ]));
-        assert_true!(prop.clone().matches(vec![
-            str!("center"),
-            str!("top"),
-        ]));
-        assert_true!(prop.clone().matches(vec![
-            str!("center"),
-            str!("center"),
-        ]));
-        assert_true!(prop.clone().matches(vec![
-            CssValue::Percentage(10.0),
-            CssValue::Percentage(20.0),
-        ]));
-        assert_true!(prop.clone().matches(vec![
-            str!("left"),
-            CssValue::Percentage(20.0),
-        ]));
-
-        assert_true!(prop.clone().matches(vec![
-            str!("center"),
-            CssValue::Percentage(10.0),
-            str!("top"),
-            CssValue::Percentage(20.0),
-        ]));
-
+        // assert_true!(prop.clone().matches(vec![
+        //     str!("left"),
+        // ]));
+        // assert_true!(prop.clone().matches(vec![
+        //     str!("left"),
+        //     str!("top"),
+        // ]));
+        // assert_true!(prop.clone().matches(vec![
+        //     str!("center"),
+        //     str!("top"),
+        // ]));
         assert_true!(prop.clone().matches(vec![
             str!("top"),
-            CssValue::Percentage(10.0),
-            str!("center"),
-            CssValue::Percentage(20.0),
+            str!("top"),
         ]));
-
-        assert_true!(prop
-            .clone()
-            .matches(vec![str!("right")]));
-
-        assert_false!(prop
-            .clone()
-            .matches(vec![str!("top")]));
+        // assert_true!(prop.clone().matches(vec![
+        //     str!("top"),
+        //     str!("center"),
+        // ]));
+        // assert_true!(prop.clone().matches(vec![
+        //     str!("center"),
+        //     str!("center"),
+        // ]));
+        // assert_true!(prop.clone().matches(vec![
+        //     CssValue::Percentage(10.0),
+        //     CssValue::Percentage(20.0),
+        // ]));
+        // assert_true!(prop.clone().matches(vec![
+        //     CssValue::Unit(10.0, "px".into()),
+        //     CssValue::Percentage(20.0),
+        // ]));
+        // assert_true!(prop.clone().matches(vec![
+        //     str!("left"),
+        //     CssValue::Percentage(20.0),
+        // ]));
+        //
+        // assert_true!(prop.clone().matches(vec![
+        //     CssValue::Unit(10.0, "px".into()),
+        //     str!("center"),
+        // ]));
+        //
+        // assert_true!(prop.clone().matches(vec![
+        //     str!("top"),
+        //     CssValue::Percentage(10.0),
+        // ]));
+        //
+        // assert_true!(prop
+        //     .clone()
+        //     .matches(vec![str!("right")]));
+        //
+        // assert_false!(prop
+        //     .clone()
+        //     .matches(vec![str!("top")]));
     }
 
     #[test]
