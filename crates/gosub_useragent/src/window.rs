@@ -1,7 +1,7 @@
-use std::sync::Arc;
-
 use anyhow::anyhow;
 use log::warn;
+use std::sync::mpsc::Sender;
+use std::sync::Arc;
 use url::Url;
 use winit::dpi::LogicalSize;
 use winit::event_loop::ActiveEventLoop;
@@ -9,7 +9,7 @@ use winit::window::{Window as WinitWindow, WindowId};
 
 use gosub_render_backend::geo::SizeU32;
 use gosub_render_backend::layout::{LayoutTree, Layouter};
-use gosub_render_backend::RenderBackend;
+use gosub_render_backend::{NodeDesc, RenderBackend};
 use gosub_renderer::draw::SceneDrawer;
 use gosub_shared::types::Result;
 
@@ -92,6 +92,18 @@ impl<'a, D: SceneDrawer<B, L, LT>, B: RenderBackend, L: Layouter, LT: LayoutTree
             WindowState::Active { .. } => "Active",
             WindowState::Suspended => "Suspended",
         }
+    }
+
+    pub fn select_element(&mut self, id: LT::NodeId) {
+        self.tabs.select_element(id);
+    }
+
+    pub fn send_nodes(&mut self, sender: Sender<NodeDesc>) {
+        self.tabs.send_nodes(sender);
+    }
+
+    pub fn unselect_element(&mut self) {
+        self.tabs.unselect_element();
     }
 }
 

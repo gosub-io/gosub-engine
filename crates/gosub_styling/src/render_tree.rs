@@ -1,3 +1,5 @@
+mod desc;
+
 use std::collections::HashMap;
 use std::fmt::Debug;
 

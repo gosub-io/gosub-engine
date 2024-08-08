@@ -1,8 +1,9 @@
 use slotmap::{DefaultKey, SlotMap};
+use std::sync::mpsc::Sender;
 use url::Url;
 
 use gosub_render_backend::layout::{LayoutTree, Layouter};
-use gosub_render_backend::RenderBackend;
+use gosub_render_backend::{NodeDesc, RenderBackend};
 use gosub_renderer::draw::SceneDrawer;
 use gosub_shared::types::Result;
 
@@ -44,6 +45,24 @@ impl<D: SceneDrawer<B, L, LT>, L: Layouter, LT: LayoutTree<L>, B: RenderBackend>
         let tab = Tab::from_url(url, layouter, debug)?;
 
         Ok(Self::new(tab))
+    }
+
+    pub fn select_element(&mut self, id: LT::NodeId) {
+        if let Some(tab) = self.get_current_tab() {
+            tab.data.select_element(id);
+        }
+    }
+
+    pub fn send_nodes(&mut self, sender: Sender<NodeDesc>) {
+        if let Some(tab) = self.get_current_tab() {
+            tab.data.send_nodes(sender);
+        }
+    }
+
+    pub fn unselect_element(&mut self) {
+        if let Some(tab) = self.get_current_tab() {
+            tab.data.unselect_element();
+        }
     }
 }
 

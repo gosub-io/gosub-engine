@@ -1,4 +1,4 @@
-use std::fmt::Debug;
+use std::fmt::{Debug, Display, Write};
 use std::ops::{Div, Mul, MulAssign};
 
 use crate::svg::SvgRenderer;
@@ -642,5 +642,70 @@ impl<B: RenderBackend> ImageBuffer<B> {
             ImageBuffer::Image(img) => (img.width() as FP, img.height() as FP),
             ImageBuffer::Scene(_, size) => (size.width as FP, size.height as FP),
         }
+    }
+}
+
+pub struct NodeDesc {
+    pub id: u64,
+    pub name: String,
+    pub children: Vec<NodeDesc>,
+    pub attributes: Vec<(String, String)>,
+    pub properties: Vec<(String, String)>,
+    pub text: Option<String>,
+}
+
+impl Display for NodeDesc {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.write(f, 0)
+    }
+}
+
+impl NodeDesc {
+    fn write(&self, f: &mut impl Write, indent: usize) -> std::fmt::Result {
+        if self.name == "<unknown>" || self.name.is_empty() {
+            for child in &self.children {
+                child.write(f, indent)?;
+            }
+            return Ok(());
+        }
+
+        for _ in 0..indent {
+            write!(f, "  ")?;
+        }
+
+        let is_special = self.name.starts_with('#') || self.name.starts_with('!');
+
+        if is_special {
+            write!(f, "{}: {}", self.id, self.name)?;
+        } else {
+            write!(f, "{}: <{}", self.id, self.name)?;
+        }
+
+        if let Some(text) = &self.text {
+            write!(f, " =[{}]", text)?;
+        }
+
+        for (key, value) in &self.attributes {
+            write!(f, " {}=\"{}\"", key, value)?;
+        }
+
+        if !is_special {
+            writeln!(f, ">")?;
+        } else {
+            writeln!(f)?;
+        }
+
+        for child in &self.children {
+            child.write(f, indent + 1)?;
+        }
+
+        if !is_special {
+            for _ in 0..indent {
+                write!(f, "  ")?;
+            }
+            writeln!(f, "{}: </{}>", self.id, self.name)?;
+        }
+
+        Ok(())
     }
 }
