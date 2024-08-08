@@ -1,5 +1,6 @@
 use taffy::Style;
 
+use crate::Display;
 use gosub_render_backend::layout::Node;
 
 mod parse;
@@ -7,9 +8,9 @@ mod parse_properties;
 
 const SCROLLBAR_WIDTH: f32 = 16.0;
 
-pub fn get_style_from_node(node: &mut impl Node) -> Style {
+pub fn get_style_from_node(node: &mut impl Node) -> (Style, Display) {
     //TODO: theoretically we should limit this to the taffy layouter, since it doesn't make any sense otherweise
-    let display = parse_properties::parse_display(node);
+    let (display, disp) = parse_properties::parse_display(node);
     let overflow = parse_properties::parse_overflow(node);
     let position = parse_properties::parse_position(node);
     let inset = parse_properties::parse_inset(node);
@@ -40,37 +41,40 @@ pub fn get_style_from_node(node: &mut impl Node) -> Style {
     let grid_row = parse_properties::parse_grid_row(node);
     let grid_column = parse_properties::parse_grid_column(node);
 
-    Style {
-        display,
-        overflow,
-        scrollbar_width: SCROLLBAR_WIDTH,
-        position,
-        inset,
-        size,
-        min_size,
-        max_size,
-        aspect_ratio,
-        margin,
-        padding,
-        border,
-        align_items,
-        align_self,
-        justify_items,
-        justify_self,
-        align_content,
-        justify_content,
-        gap,
-        flex_direction,
-        flex_wrap,
-        flex_basis,
-        flex_grow,
-        flex_shrink,
-        grid_template_rows,
-        grid_template_columns,
-        grid_auto_rows,
-        grid_auto_columns,
-        grid_auto_flow,
-        grid_row,
-        grid_column,
-    }
+    (
+        Style {
+            display,
+            overflow,
+            scrollbar_width: SCROLLBAR_WIDTH,
+            position,
+            inset,
+            size,
+            min_size,
+            max_size,
+            aspect_ratio,
+            margin,
+            padding,
+            border,
+            align_items,
+            align_self,
+            justify_items,
+            justify_self,
+            align_content,
+            justify_content,
+            gap,
+            flex_direction,
+            flex_wrap,
+            flex_basis,
+            flex_grow,
+            flex_shrink,
+            grid_template_rows,
+            grid_template_columns,
+            grid_auto_rows,
+            grid_auto_columns,
+            grid_auto_flow,
+            grid_row,
+            grid_column,
+        },
+        disp,
+    )
 }

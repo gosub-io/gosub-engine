@@ -7,14 +7,16 @@ use taffy::{
     LayoutPartialTree, NodeId as TaffyId, Style, TraversePartialTree,
 };
 
+use crate::compute::inline::compute_inline_layout;
+use crate::style::get_style_from_node;
 use gosub_render_backend::geo::{Point, Rect, Size, SizeU32};
-use gosub_render_backend::layout::{Layout as TLayout, LayoutTree, Layouter};
+use gosub_render_backend::layout::{Layout as TLayout, LayoutTree, Layouter, Node};
 use gosub_shared::types::Result;
 
-use crate::style::get_style_from_node;
-
+mod compute;
 mod conversions;
 pub mod style;
+
 #[repr(transparent)]
 #[derive(Default, Debug)]
 pub struct Layout(TaffyLayout);
@@ -63,10 +65,9 @@ impl TLayout for Layout {
 #[derive(Clone, Copy)]
 pub struct TaffyLayouter;
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[allow(unused)]
-enum Display {
-    Inline,
+pub enum Display {
     Text,
     #[default]
     Taffy,
@@ -83,6 +84,8 @@ pub struct Cache {
 impl Layouter for TaffyLayouter {
     type Cache = Cache;
     type Layout = Layout;
+
+    const COLLAPSE_INLINE: bool = true;
 
     fn layout<LT: LayoutTree<Self>>(
         &self,
@@ -171,10 +174,11 @@ impl<LT: LayoutTree<TaffyLayouter>> LayoutDocument<'_, LT> {
             return;
         };
 
-        let style = get_style_from_node(node);
+        let (style, display) = get_style_from_node(node);
 
         if let Some(cache) = self.0.get_cache_mut(node_id) {
             cache.style = style;
+            cache.display = display;
         }
     }
 
@@ -214,6 +218,10 @@ impl<LT: LayoutTree<TaffyLayouter>> LayoutPartialTree for LayoutDocument<'_, LT>
 
         let node_id = LT::NodeId::from(node_id.into());
 
+        if self.0.child_count(node_id) == 0 {
+            println!("Setting layout for leaf node: {:?}", layout);
+        }
+
         self.0.set_layout(node_id, layout);
     }
 
@@ -229,19 +237,25 @@ impl<LT: LayoutTree<TaffyLayouter>> LayoutPartialTree for LayoutDocument<'_, LT>
     fn compute_child_layout(&mut self, node_id: TaffyId, inputs: LayoutInput) -> LayoutOutput {
         compute_cached_layout(self, node_id, inputs, |tree, node_id_taffy, inputs| {
             let node_id = LT::NodeId::from(node_id_taffy.into());
-            // if let Some(cache) = tree.0.get_cache(node_id) {
-            //     match cache.display {
-            //         Display::Inline => {
-            //             todo!()
-            //         }
-            //         Display::Text => {
-            //             todo!()
-            //         }
-            //         Display::Taffy => {}
-            //     }
-            // }
 
-            let has_children = tree.0.child_count(node_id) > 0;
+            if let Some(node) = tree.0.get_node(node_id) {
+                if node.is_anon_inline_parent() {
+                    return compute_inline_layout(tree, node_id, inputs);
+                }
+            }
+
+            if let Some(cache) = tree.0.get_cache(node_id) {
+                match cache.display {
+                    Display::Text => {
+                        // We should implement a new way of layouting text. Currently, we just measure how long the text is and don't insert any linebreaks,
+                        // which is obviously not correct. So, if we encounter Display::Text, we need to ask our text-layouter and tell him how much space we have, and it will insert linebreaks
+                        todo!()
+                    }
+                    Display::Taffy => {}
+                }
+            }
+
+            let has_children = tree.0.child_count(node_id) > 0; //TODO: this isn't optimal, since we are now requesting the same node twice (up in get_cache and here)
             let style = tree.get_taffy_style(node_id);
 
             match (style.display, has_children) {

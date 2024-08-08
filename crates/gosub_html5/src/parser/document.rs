@@ -287,6 +287,10 @@ impl Document {
         DocumentHandle(Rc::new(RefCell::new(Self::new(location))))
     }
 
+    pub fn peek_next_id(&self) -> NodeId {
+        self.arena.peek_next_id()
+    }
+
     /// Fast clone of a lightweight reference-counted handle for the document.  This is a shallow
     /// clone, and different handles will see the same underlying document.
     pub fn clone(handle: &DocumentHandle) -> DocumentHandle {
