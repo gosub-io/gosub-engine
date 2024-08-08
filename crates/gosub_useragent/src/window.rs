@@ -2,14 +2,16 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 use log::warn;
+use url::Url;
 use winit::dpi::LogicalSize;
 use winit::event_loop::ActiveEventLoop;
 use winit::window::{Window as WinitWindow, WindowId};
 
-use gosub_render_backend::{RenderBackend, SizeU32};
+use gosub_render_backend::geo::SizeU32;
+use gosub_render_backend::layout::{LayoutTree, Layouter};
+use gosub_render_backend::RenderBackend;
 use gosub_renderer::draw::SceneDrawer;
 use gosub_shared::types::Result;
-use url::Url;
 
 use crate::tabs::Tabs;
 
@@ -19,17 +21,20 @@ pub enum WindowState<'a, B: RenderBackend> {
     Suspended,
 }
 
-pub struct Window<'a, D: SceneDrawer<B>, B: RenderBackend> {
+pub struct Window<'a, D: SceneDrawer<B, L, LT>, B: RenderBackend, L: Layouter, LT: LayoutTree<L>> {
     pub(crate) state: WindowState<'a, B>,
     pub(crate) window: Arc<WinitWindow>,
     pub(crate) renderer_data: B::WindowData<'a>,
-    pub(crate) tabs: Tabs<D, B>,
+    pub(crate) tabs: Tabs<D, B, L, LT>,
 }
 
-impl<'a, D: SceneDrawer<B>, B: RenderBackend> Window<'a, D, B> {
+impl<'a, D: SceneDrawer<B, L, LT>, B: RenderBackend, L: Layouter, LT: LayoutTree<L>>
+    Window<'a, D, B, L, LT>
+{
     pub fn new(
         event_loop: &ActiveEventLoop,
         backend: &mut B,
+        layouter: L,
         default_url: Url,
         debug: bool,
     ) -> Result<Self> {
@@ -41,7 +46,7 @@ impl<'a, D: SceneDrawer<B>, B: RenderBackend> Window<'a, D, B> {
             state: WindowState::Suspended,
             window,
             renderer_data,
-            tabs: Tabs::from_url(default_url, debug)?,
+            tabs: Tabs::from_url(default_url, layouter, debug)?,
         })
     }
 

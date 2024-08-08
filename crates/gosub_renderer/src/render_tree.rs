@@ -1,26 +1,23 @@
 use std::fs;
 
 use anyhow::bail;
-use taffy::{Layout, TaffyTree};
-use taffy::{NodeId as TaffyID, NodeId};
 use url::Url;
 
-use gosub_html5::node::NodeId as GosubID;
+use gosub_html5::node::NodeId;
 use gosub_html5::parser::document::{Document, DocumentBuilder};
 use gosub_html5::parser::Html5Parser;
 use gosub_net::http::ureq;
-use gosub_render_backend::{RenderBackend, SizeU32};
+use gosub_render_backend::geo::SizeU32;
+use gosub_render_backend::layout::Layouter;
+use gosub_render_backend::RenderBackend;
 use gosub_rendering::position::PositionTree;
 use gosub_shared::byte_stream::{ByteStream, Confidence, Encoding};
 use gosub_styling::css_values::CssProperties;
-use gosub_styling::render_tree::{generate_render_tree, RenderNodeData, RenderTree as StyleTree};
+use gosub_styling::render_tree::{generate_render_tree, RenderNodeData, RenderTree};
 
-pub type NodeID = TaffyID;
-
-pub struct TreeDrawer<B: RenderBackend> {
-    pub(crate) style: StyleTree<B>,
-    pub(crate) root: NodeID,
-    pub(crate) taffy: TaffyTree<GosubID>,
+pub struct TreeDrawer<B: RenderBackend, L: Layouter> {
+    pub(crate) tree: RenderTree<B, L>,
+    pub(crate) layouter: L,
     pub(crate) size: Option<SizeU32>,
     pub(crate) url: Url,
     pub(crate) position: PositionTree,
@@ -32,22 +29,14 @@ pub struct TreeDrawer<B: RenderBackend> {
     pub(crate) scene_transform: Option<B::Transform>,
 }
 
-impl<B: RenderBackend> TreeDrawer<B> {
-    pub fn new(
-        style: StyleTree<B>,
-        taffy: TaffyTree<GosubID>,
-        root: TaffyID,
-        url: Url,
-        debug: bool,
-    ) -> Self {
-        let position = PositionTree::from_taffy(&taffy, root);
+impl<B: RenderBackend, L: Layouter> TreeDrawer<B, L> {
+    pub fn new(tree: RenderTree<B, L>, layouter: L, url: Url, debug: bool) -> Self {
         Self {
-            style,
-            root,
-            taffy,
+            tree,
+            layouter,
             size: None,
             url,
-            position,
+            position: PositionTree::default(),
             last_hover: None,
             debug,
             debugger_scene: None,
@@ -59,18 +48,18 @@ impl<B: RenderBackend> TreeDrawer<B> {
 }
 
 pub struct RenderTreeNode<B: RenderBackend> {
-    pub parent: Option<NodeID>,
-    pub children: Vec<NodeID>,
-    pub layout: Layout,
+    pub parent: Option<NodeId>,
+    pub children: Vec<NodeId>,
+    pub layout: i32, //TODO
     pub name: String,
     pub properties: CssProperties,
     pub namespace: Option<String>,
     pub data: RenderNodeData<B>,
 }
 
-pub(crate) fn load_html_rendertree<B: RenderBackend>(
+pub(crate) fn load_html_rendertree<B: RenderBackend, L: Layouter>(
     url: Url,
-) -> gosub_shared::types::Result<StyleTree<B>> {
+) -> gosub_shared::types::Result<RenderTree<B, L>> {
     let html = if url.scheme() == "http" || url.scheme() == "https" {
         // Fetch the html from the url
         let response = ureq::get(url.as_ref()).call()?;

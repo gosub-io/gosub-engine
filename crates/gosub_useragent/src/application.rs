@@ -1,28 +1,36 @@
-use anyhow::anyhow;
 use std::collections::HashMap;
 
+use anyhow::anyhow;
 use url::Url;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
 use winit::window::WindowId;
 
+use gosub_render_backend::layout::{LayoutTree, Layouter};
 use gosub_render_backend::RenderBackend;
 use gosub_renderer::draw::SceneDrawer;
 use gosub_shared::types::Result;
 
 use crate::window::Window;
 
-pub struct Application<'a, D: SceneDrawer<B>, B: RenderBackend> {
+pub struct Application<
+    'a,
+    D: SceneDrawer<B, L, LT>,
+    B: RenderBackend,
+    L: Layouter,
+    LT: LayoutTree<L>,
+> {
     open_windows: Vec<Vec<Url>>, // Vec of Windows, each with a Vec of URLs, representing tabs
-    windows: HashMap<WindowId, Window<'a, D, B>>,
+    windows: HashMap<WindowId, Window<'a, D, B, L, LT>>,
     backend: B,
+    layouter: L,
     proxy: Option<EventLoopProxy<CustomEvent>>,
     debug: bool,
 }
 
-impl<'a, D: SceneDrawer<B>, B: RenderBackend> ApplicationHandler<CustomEvent>
-    for Application<'a, D, B>
+impl<'a, D: SceneDrawer<B, L, LT>, B: RenderBackend, L: Layouter, LT: LayoutTree<L>>
+    ApplicationHandler<CustomEvent> for Application<'a, D, B, L, LT>
 {
     fn resumed(&mut self, _event_loop: &ActiveEventLoop) {
         for window in self.windows.values_mut() {
@@ -35,7 +43,13 @@ impl<'a, D: SceneDrawer<B>, B: RenderBackend> ApplicationHandler<CustomEvent>
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: CustomEvent) {
         match event {
             CustomEvent::OpenWindow(url) => {
-                let mut window = match Window::new(event_loop, &mut self.backend, url, self.debug) {
+                let mut window = match Window::new(
+                    event_loop,
+                    &mut self.backend,
+                    self.layouter.clone(),
+                    url,
+                    self.debug,
+                ) {
                     Ok(window) => window,
                     Err(e) => {
                         eprintln!("Error opening window: {e:?}");
@@ -57,6 +71,7 @@ impl<'a, D: SceneDrawer<B>, B: RenderBackend> ApplicationHandler<CustomEvent>
                     let mut window = match Window::new(
                         event_loop,
                         &mut self.backend,
+                        self.layouter.clone(),
                         urls[0].clone(),
                         self.debug,
                     ) {
@@ -98,11 +113,14 @@ impl<'a, D: SceneDrawer<B>, B: RenderBackend> ApplicationHandler<CustomEvent>
     }
 }
 
-impl<'a, D: SceneDrawer<B>, B: RenderBackend> Application<'a, D, B> {
-    pub fn new(backend: B, debug: bool) -> Self {
+impl<'a, D: SceneDrawer<B, L, LT>, B: RenderBackend, L: Layouter, LT: LayoutTree<L>>
+    Application<'a, D, B, L, LT>
+{
+    pub fn new(backend: B, layouter: L, debug: bool) -> Self {
         Self {
             windows: HashMap::new(),
             backend,
+            layouter,
             proxy: None,
             open_windows: Vec::new(),
             debug,
@@ -117,7 +135,7 @@ impl<'a, D: SceneDrawer<B>, B: RenderBackend> Application<'a, D, B> {
         self.open_windows.append(&mut windows);
     }
 
-    pub fn add_window(&mut self, window: Window<'a, D, B>) {
+    pub fn add_window(&mut self, window: Window<'a, D, B, L, LT>) {
         self.windows.insert(window.window.id(), window);
     }
 

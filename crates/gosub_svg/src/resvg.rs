@@ -3,8 +3,9 @@ use tiny_skia::Pixmap;
 
 use gosub_html5::node::NodeId;
 use gosub_html5::parser::document::DocumentHandle;
+use gosub_render_backend::geo::FP;
 use gosub_render_backend::svg::SvgRenderer;
-use gosub_render_backend::{Image, ImageBuffer, RenderBackend, FP};
+use gosub_render_backend::{Image, ImageBuffer, RenderBackend};
 use gosub_shared::types::Result;
 
 use crate::SVGDocument;

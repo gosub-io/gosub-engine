@@ -1,14 +1,14 @@
 use taffy::Style;
 
-use gosub_render_backend::RenderBackend;
-use gosub_styling::render_tree::RenderTreeNode;
+use gosub_render_backend::layout::Node;
 
 mod parse;
 mod parse_properties;
 
 const SCROLLBAR_WIDTH: f32 = 16.0;
 
-pub fn get_style_from_node<B: RenderBackend>(node: &mut RenderTreeNode<B>) -> Style {
+pub fn get_style_from_node(node: &mut impl Node) -> Style {
+    //TODO: theoretically we should limit this to the taffy layouter, since it doesn't make any sense otherweise
     let display = parse_properties::parse_display(node);
     let overflow = parse_properties::parse_overflow(node);
     let position = parse_properties::parse_position(node);

@@ -1,7 +1,11 @@
 use std::cmp::Ordering;
 
 use rstar::{RTree, RTreeObject, AABB};
-use taffy::{NodeId, PrintTree, TaffyTree};
+
+use gosub_html5::node::NodeId;
+use gosub_render_backend::layout::{Layout, LayoutTree, Layouter};
+use gosub_render_backend::RenderBackend;
+use gosub_styling::render_tree::RenderTree;
 
 #[derive(Debug)]
 pub struct Element {
@@ -23,47 +27,53 @@ impl RTreeObject for Element {
     }
 }
 
+#[derive(Default)]
 pub struct PositionTree {
     tree: RTree<Element>,
 }
 
 impl PositionTree {
-    pub fn from_taffy<T>(taffy: &TaffyTree<T>, root: NodeId) -> Self {
+    pub fn from_tree<B: RenderBackend, L: Layouter>(from_tree: &RenderTree<B, L>) -> Self {
         let mut tree = RTree::new();
 
         //TODO: we somehow need to get the border radius and a potential stacking context of the element here
 
-        Self::add_node_to_tree(taffy, root, 0, &mut tree, (0.0, 0.0));
+        Self::add_node_to_tree(from_tree, from_tree.root, 0, &mut tree, (0.0, 0.0));
 
         Self { tree }
     }
 
-    fn add_node_to_tree<T>(
-        taffy: &TaffyTree<T>,
+    fn add_node_to_tree<B: RenderBackend, L: Layouter>(
+        from_tree: &RenderTree<B, L>,
         id: NodeId,
         z_index: i32,
         tree: &mut RTree<Element>,
         mut pos: (f32, f32),
     ) {
-        let layout = taffy.get_final_layout(id);
+        let Some(layout) = from_tree.get_layout(id) else {
+            return;
+        };
 
-        pos.0 += layout.location.x;
-        pos.1 += layout.location.y;
+        let p = layout.rel_pos();
 
+        pos.0 += p.x;
+        pos.1 += p.y;
+
+        let size = layout.size();
         let element = Element {
             id,
             x: pos.0,
             y: pos.1,
-            width: layout.size.width,
-            height: layout.size.height,
+            width: size.width,
+            height: size.height,
             radius: None, //TODO: border radius
             z_index,
         };
 
         tree.insert(element);
 
-        for child in taffy.children(id).unwrap_or_default() {
-            Self::add_node_to_tree(taffy, child, z_index + 1, tree, pos);
+        for child in from_tree.children(id).unwrap_or_default() {
+            Self::add_node_to_tree(from_tree, child, z_index + 1, tree, pos);
         }
     }
 

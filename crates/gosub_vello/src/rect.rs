@@ -1,4 +1,5 @@
-use gosub_render_backend::{Point, Rect as TRect, Size, FP};
+use gosub_render_backend::geo::{Point, Size, FP};
+use gosub_render_backend::Rect as TRect;
 use vello::kurbo::Rect as VelloRect;
 
 pub struct Rect(pub(crate) VelloRect);

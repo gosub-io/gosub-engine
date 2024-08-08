@@ -1,0 +1,123 @@
+use gosub_shared::types::Result;
+
+use crate::geo::{Point, Rect, Size, SizeU32};
+
+pub trait LayoutTree<L: Layouter>: Sized {
+    type NodeId: Copy + Clone + From<u64> + Into<u64>;
+    type Node: Node;
+
+    fn children(&self, id: Self::NodeId) -> Option<Vec<Self::NodeId>>;
+    fn contains(&self, id: &Self::NodeId) -> bool;
+    fn child_count(&self, id: Self::NodeId) -> usize;
+    fn get_cache(&self, id: Self::NodeId) -> Option<&L::Cache>;
+    fn get_layout(&self, id: Self::NodeId) -> Option<&L::Layout>;
+
+    fn get_cache_mut(&mut self, id: Self::NodeId) -> Option<&mut L::Cache>;
+    fn get_layout_mut(&mut self, id: Self::NodeId) -> Option<&mut L::Layout>;
+    fn set_cache(&mut self, id: Self::NodeId, cache: L::Cache);
+    fn set_layout(&mut self, id: Self::NodeId, layout: L::Layout);
+
+    fn style_dirty(&self, id: Self::NodeId) -> bool;
+
+    fn clean_style(&mut self, id: Self::NodeId);
+
+    fn get_node(&mut self, id: Self::NodeId) -> Option<&mut Self::Node>;
+}
+
+pub trait Layouter: Sized + Clone {
+    type Cache: Default;
+    type Layout: Layout;
+    fn layout<LT: LayoutTree<Self>>(
+        &self,
+        tree: &mut LT,
+        root: LT::NodeId,
+        space: SizeU32,
+    ) -> Result<()>;
+}
+
+pub trait Layout: Default {
+    /// Returns the relative upper left pos of the content box
+    fn rel_pos(&self) -> Point;
+
+    /// Returns the z-index of the element
+    fn z_index(&self) -> u32;
+
+    /// Size of the scroll box (content box without overflow), including scrollbars (if any)
+    fn size(&self) -> Size;
+
+    /// Size of the content box (content without scrollbars, but with overflow)
+    fn content(&self) -> Size;
+    fn content_box(&self) -> Rect {
+        let pos = self.rel_pos();
+        let size = self.size();
+        Rect::from_components(pos, size)
+    }
+
+    /// Additional space taken up by the scrollbar
+    fn scrollbar(&self) -> Size;
+    fn scrollbar_box(&self) -> Rect {
+        let pos = self.rel_pos();
+        let content = self.content();
+        let size = self.scrollbar();
+        Rect::new(
+            pos.x,
+            pos.y,
+            content.width + size.width,
+            content.height + size.height,
+        )
+    }
+
+    fn border(&self) -> Rect;
+    fn border_box(&self) -> Rect {
+        let pos = self.rel_pos();
+        let size = self.size();
+        let border = self.border();
+
+        Rect::new(
+            pos.x - border.x1,
+            pos.y - border.y1,
+            size.width + border.x2,
+            size.height + border.y2,
+        )
+    }
+
+    fn padding(&self) -> Rect;
+    fn padding_box(&self) -> Rect {
+        let pos = self.rel_pos();
+        let border = self.border();
+        Rect::from_components(pos, border.size())
+    }
+
+    fn margin(&self) -> Rect;
+    fn margin_box(&self) -> Rect {
+        let border = self.border_box();
+        let margin = self.margin();
+
+        Rect::new(
+            border.x1 - margin.x1,
+            border.y1 - margin.y1,
+            border.x2 + margin.x2,
+            border.y2 + margin.y2,
+        )
+    }
+}
+
+/// TODO: This struct should be removed and done somehow differently...
+pub trait Node {
+    type Property: CssProperty;
+
+    fn get_property(&mut self, name: &str) -> Option<&mut Self::Property>; //TODO: this needs to be more generic...
+    fn text_size(&mut self) -> Option<Size>;
+}
+
+pub trait CssProperty {
+    fn compute_value(&mut self);
+    fn unit_to_px(&self) -> f32;
+
+    fn as_string(&self) -> Option<&str>;
+    fn as_percentage(&self) -> Option<f32>;
+    fn as_unit(&self) -> Option<(f32, &str)>;
+    fn as_color(&self) -> Option<(f32, f32, f32, f32)>;
+    fn as_number(&self) -> Option<f32>;
+    fn is_none(&self) -> bool;
+}

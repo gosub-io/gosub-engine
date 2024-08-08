@@ -1,18 +1,15 @@
 use std::fmt::Debug;
 use std::ops::{Div, Mul, MulAssign};
 
+use crate::svg::SvgRenderer;
+pub use geo::*;
+use gosub_shared::types::Result;
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use smallvec::SmallVec;
 
-use gosub_shared::types::Result;
-use gosub_shared::types::Size as SizeT;
-
-use crate::svg::SvgRenderer;
-
+pub mod geo;
+pub mod layout;
 pub mod svg;
-
-pub type Size = SizeT<f32>;
-pub type SizeU32 = SizeT<u32>;
 
 pub trait WindowHandle: HasDisplayHandle + HasWindowHandle + Send + Sync + Clone {}
 
@@ -85,9 +82,6 @@ pub trait Scene<B: RenderBackend> {
 
     fn new(data: &mut B::WindowData<'_>) -> Self;
 }
-
-pub type FP = f32;
-pub type Point = gosub_shared::types::Point<FP>;
 
 pub struct RenderRect<B: RenderBackend> {
     pub rect: B::Rect,

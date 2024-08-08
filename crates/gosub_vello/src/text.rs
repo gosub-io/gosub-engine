@@ -4,7 +4,8 @@ use vello::peniko::{Blob, Fill, Font, StyleRef};
 use vello::skrifa::{instance::Size as FSize, FontRef, MetadataProvider};
 use vello::Scene;
 
-use gosub_render_backend::{PreRenderText as TPreRenderText, RenderText, Size, Text as TText, FP};
+use gosub_render_backend::geo::{Size, FP};
+use gosub_render_backend::{PreRenderText as TPreRenderText, RenderText, Text as TText};
 use gosub_typeface::{BACKUP_FONT, DEFAULT_LH, FONT_RENDERER_CACHE};
 
 use crate::VelloBackend;

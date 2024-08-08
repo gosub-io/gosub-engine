@@ -1,0 +1,12 @@
+[package]
+name = "gosub_taffy"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+gosub_shared = { path = "../gosub_shared" }
+gosub_render_backend = { path = "../gosub_render_backend" }
+gosub_styling = { path = "../gosub_styling" }
+taffy = "0.5.2"
+anyhow = "1.0.86"
+regex = "1.10.5"

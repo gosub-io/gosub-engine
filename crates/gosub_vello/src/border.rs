@@ -2,12 +2,12 @@ use smallvec::SmallVec;
 use vello::kurbo::{Arc, BezPath, Cap, Join, RoundedRectRadii, Stroke};
 use vello::Scene;
 
+use crate::{Brush, Rect, Transform, VelloBackend};
+use gosub_render_backend::geo::FP;
 use gosub_render_backend::{
     Border as TBorder, BorderRadius as TBorderRadius, BorderSide as TBorderSide, BorderStyle,
-    Radius, RenderBorder, FP,
+    Radius, RenderBorder,
 };
-
-use crate::{Brush, Rect, Transform, VelloBackend};
 
 pub struct Border {
     pub(crate) left: Option<BorderSide>,

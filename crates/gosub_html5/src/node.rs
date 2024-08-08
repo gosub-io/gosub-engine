@@ -63,6 +63,20 @@ impl From<usize> for NodeId {
     }
 }
 
+impl From<u64> for NodeId {
+    /// Converts a u64 into a NodeId
+    fn from(value: u64) -> Self {
+        Self(value as usize)
+    }
+}
+
+impl From<NodeId> for u64 {
+    /// Converts a NodeId into a u64
+    fn from(value: NodeId) -> Self {
+        value.0 as u64
+    }
+}
+
 impl Default for &NodeId {
     /// Returns the default NodeId, which is 0
     fn default() -> Self {
