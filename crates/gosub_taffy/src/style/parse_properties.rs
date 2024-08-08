@@ -9,23 +9,23 @@ use crate::style::parse::{
     parse_len, parse_len_auto, parse_text_dim, parse_tracking_sizing_function,
 };
 
-pub fn parse_display(node: &mut impl Node) -> Display {
+pub fn parse_display(node: &mut impl Node) -> (Display, crate::Display) {
     let Some(display) = node.get_property("display") else {
-        return Display::Block;
+        return (Display::Block, crate::Display::Taffy);
     };
 
     display.compute_value();
 
     let Some(value) = display.as_string() else {
-        return Display::Block;
+        return (Display::Block, crate::Display::Taffy);
     };
 
     match value {
-        "none" => Display::None,
-        "block" => Display::Block,
-        "flex" => Display::Flex,
-        "grid" => Display::Grid,
-        _ => Display::Block,
+        "none" => (Display::None, crate::Display::Taffy),
+        "block" => (Display::Block, crate::Display::Taffy),
+        "flex" => (Display::Flex, crate::Display::Taffy),
+        "grid" => (Display::Grid, crate::Display::Taffy),
+        _ => (Display::Block, crate::Display::Taffy),
     }
 }
 

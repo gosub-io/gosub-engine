@@ -9,9 +9,9 @@ pub trait LayoutTree<L: Layouter>: Sized {
     fn children(&self, id: Self::NodeId) -> Option<Vec<Self::NodeId>>;
     fn contains(&self, id: &Self::NodeId) -> bool;
     fn child_count(&self, id: Self::NodeId) -> usize;
+    fn parent_id(&self, id: Self::NodeId) -> Option<Self::NodeId>;
     fn get_cache(&self, id: Self::NodeId) -> Option<&L::Cache>;
     fn get_layout(&self, id: Self::NodeId) -> Option<&L::Layout>;
-
     fn get_cache_mut(&mut self, id: Self::NodeId) -> Option<&mut L::Cache>;
     fn get_layout_mut(&mut self, id: Self::NodeId) -> Option<&mut L::Layout>;
     fn set_cache(&mut self, id: Self::NodeId, cache: L::Cache);
@@ -27,6 +27,9 @@ pub trait LayoutTree<L: Layouter>: Sized {
 pub trait Layouter: Sized + Clone {
     type Cache: Default;
     type Layout: Layout;
+
+    const COLLAPSE_INLINE: bool;
+
     fn layout<LT: LayoutTree<Self>>(
         &self,
         tree: &mut LT,
@@ -108,6 +111,10 @@ pub trait Node {
 
     fn get_property(&mut self, name: &str) -> Option<&mut Self::Property>; //TODO: this needs to be more generic...
     fn text_size(&mut self) -> Option<Size>;
+
+    /// This can only return true if the `Layout::COLLAPSE_INLINE` is set true for the layouter
+    ///
+    fn is_anon_inline_parent(&self) -> bool;
 }
 
 pub trait CssProperty {

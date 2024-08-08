@@ -84,7 +84,7 @@ impl<B: RenderBackend, L: Layouter> SceneDrawer<B, L, RenderTree<B, L>> for Tree
             rect: bg,
             transform: None,
             radius: None,
-            brush: Brush::color(Color::MAGENTA),
+            brush: Brush::color(Color::BLACK),
             brush_transform: None,
             border: None,
         };

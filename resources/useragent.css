@@ -45,6 +45,10 @@ p {
 div {
     display: block
 }
+
+span {
+    display: inline
+}
 article, aside, footer, header, hgroup, main, nav, search, section {
     display: block
 }

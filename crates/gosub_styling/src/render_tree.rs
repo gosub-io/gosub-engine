@@ -20,6 +20,7 @@ pub struct RenderTree<B: RenderBackend, L: Layouter> {
     pub nodes: HashMap<NodeId, RenderTreeNode<B, L>>,
     pub root: NodeId,
     pub dirty: bool,
+    next_id: NodeId,
 }
 
 #[allow(unused)]
@@ -38,6 +39,10 @@ impl<B: RenderBackend, L: Layouter> LayoutTree<L> for RenderTree<B, L> {
 
     fn child_count(&self, id: Self::NodeId) -> usize {
         self.child_count(id)
+    }
+
+    fn parent_id(&self, id: Self::NodeId) -> Option<Self::NodeId> {
+        self.get_node(id).and_then(|node| node.parent)
     }
 
     fn get_cache(&self, id: Self::NodeId) -> Option<&L::Cache> {
@@ -90,6 +95,7 @@ impl<B: RenderBackend, L: Layouter> RenderTree<B, L> {
             nodes: HashMap::with_capacity(capacity),
             root: NodeId::root(),
             dirty: false,
+            next_id: NodeId::from(1u64),
         };
 
         tree.insert_node(
@@ -221,7 +227,6 @@ impl<B: RenderBackend, L: Layouter> RenderTree<B, L> {
         let mut render_tree = RenderTree::with_capacity(document.get().count_nodes());
 
         render_tree.generate_from(document);
-        render_tree.remove_unrenderable_nodes();
 
         render_tree
     }
@@ -317,6 +322,16 @@ impl<B: RenderBackend, L: Layouter> RenderTree<B, L> {
 
             self.nodes.insert(current_node_id, render_tree_node);
         }
+
+        self.next_id = document.get().peek_next_id();
+
+        self.remove_unrenderable_nodes();
+
+        if L::COLLAPSE_INLINE {
+            self.collapse_inline(self.root);
+        }
+
+        self.print_tree();
     }
 
     /// Removes all unrenderable nodes from the render tree
@@ -365,6 +380,100 @@ impl<B: RenderBackend, L: Layouter> RenderTree<B, L> {
             self.delete_node(&id);
         }
     }
+
+    /// Collapse all inline elements / wrap inline elements with anonymous boxes
+    fn collapse_inline(&mut self, node_id: NodeId) {
+        let Some(node) = self.nodes.get(&node_id) else {
+            eprintln!("Node not found: {node_id}");
+            return;
+        };
+
+        let mut inline_wrapper = None;
+
+        for child_id in node.children.clone() {
+            let Some(child) = self.nodes.get_mut(&child_id) else {
+                eprintln!("Child not found: {child_id}");
+                continue;
+            };
+
+            if child.is_inline() {
+                if let Some(wrapper_id) = inline_wrapper {
+                    let old_parent = child.parent;
+                    child.parent = Some(wrapper_id);
+
+                    let Some(wrapper) = self.nodes.get_mut(&wrapper_id) else {
+                        eprintln!("Wrapper not found: {wrapper_id}");
+                        continue;
+                    };
+
+                    wrapper.children.push(child_id);
+
+                    if let Some(old_parent) = old_parent {
+                        let Some(old_parent) = self.nodes.get_mut(&old_parent) else {
+                            eprintln!("Old parent not found: {old_parent}");
+                            continue;
+                        };
+
+                        old_parent.children.retain(|id| *id != child_id);
+                    }
+                } else {
+                    let wrapper_node = RenderTreeNode {
+                        id: self.next_id,
+                        properties: CssProperties::new(),
+                        css_dirty: true,
+                        children: vec![child_id],
+                        parent: Some(node_id),
+                        name: "#anonymous".to_string(),
+                        namespace: None,
+                        data: RenderNodeData::AnonymousInline,
+                        cache: L::Cache::default(),
+                        layout: L::Layout::default(),
+                    };
+                    let id = wrapper_node.id;
+
+                    self.next_id = self.next_id.next();
+
+                    let old_parent = child.parent;
+                    child.parent = Some(id);
+                    inline_wrapper = Some(id);
+
+                    self.nodes.insert(id, wrapper_node);
+
+                    if let Some(old_parent) = old_parent {
+                        let Some(old_parent) = self.nodes.get_mut(&old_parent) else {
+                            eprintln!("Old parent not found: {old_parent}");
+                            continue;
+                        };
+
+                        if let Some(pos) = old_parent.children.iter().position(|id| *id == child_id)
+                        {
+                            old_parent.children[pos] = id;
+                        }
+                    }
+                }
+            } else {
+                inline_wrapper = None;
+            }
+
+            self.collapse_inline(child_id)
+        }
+    }
+
+    pub fn print_tree(&self) {
+        self.print_tree_from(self.root, 0);
+    }
+
+    fn print_tree_from(&self, node_id: NodeId, depth: usize) {
+        let Some(node) = self.nodes.get(&node_id) else {
+            return;
+        };
+        let indent = "  ".repeat(depth);
+        println!("{indent}{node_id}: {}", node.name);
+
+        for child_id in &node.children {
+            self.print_tree_from(*child_id, depth + 1);
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -372,6 +481,7 @@ pub enum RenderNodeData<B: RenderBackend> {
     Document,
     Element(Box<ElementData>),
     Text(Box<TextData<B>>),
+    AnonymousInline,
 }
 
 pub struct TextData<B: RenderBackend> {
@@ -498,6 +608,17 @@ impl<B: RenderBackend, L: Layouter> RenderTreeNode<B, L> {
             _ => None,
         }
     }
+
+    pub fn is_inline(&mut self) -> bool {
+        if matches!(self.data, RenderNodeData::Text(_)) {
+            return true;
+        }
+
+        return self
+            .properties
+            .get("display")
+            .map_or(false, |prop| prop.compute_value().to_string() == "inline");
+    }
 }
 
 impl<B: RenderBackend, L: Layouter> Node for RenderTreeNode<B, L> {
@@ -513,6 +634,10 @@ impl<B: RenderBackend, L: Layouter> Node for RenderTreeNode<B, L> {
         } else {
             None
         }
+    }
+
+    fn is_anon_inline_parent(&self) -> bool {
+        matches!(self.data, RenderNodeData::AnonymousInline)
     }
 }
 
