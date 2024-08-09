@@ -422,7 +422,7 @@ mod test {
             }],
             declarations: vec![CssDeclaration {
                 property: "color".to_string(),
-                value: CssValue::String("red".to_string()),
+                value: vec![CssValue::String("red".to_string())],
                 important: false,
             }],
         };
