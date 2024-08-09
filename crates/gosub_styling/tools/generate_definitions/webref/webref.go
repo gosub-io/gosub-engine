@@ -38,14 +38,10 @@ type Spec struct {
 }
 
 type WebRefValue struct {
-	Name   string `json:"name"`
-	Syntax string `json:"value"`
-	Type   string `json:"type"` // Type of the value
-	Values []struct {
-		Name  string `json:"name"`
-		Type  string `json:"type"`
-		Value string `json:"value"`
-	} `json:"values"` // Additional accompanied values
+	Name   string        `json:"name"`
+	Syntax string        `json:"value"`
+	Type   string        `json:"type"`   // Type of the value
+	Values []WebRefValue `json:"values"` // Additional accompanied values
 }
 
 type WebRefProperties struct {
@@ -55,11 +51,7 @@ type WebRefProperties struct {
 	Computed  []string               `json:"computed"`
 	Initial   utils.StringMaybeArray `json:"initial"`
 	Inherited string                 `json:"inherited"`
-	Values    []struct {
-		Name  string `json:"name"`
-		Type  string `json:"type"`
-		Value string `json:"value"`
-	} `json:"values"` // Additional accompanied values for this property
+	Values    []WebRefValue          `json:"values"` // Additional accompanied values for this property
 }
 
 type WebRefAtRule struct {
@@ -317,6 +309,12 @@ func skip(shortname string) bool {
 // ProcessValue will process a single value (from either root values or propertt values) and add it
 // to the ParseData if possible.
 func ProcessValue(name string, type_ string, syntax string, pd *ParseData) {
+	if name == syntax {
+		//log.Println("name == syntax for ", name)
+
+		return
+	}
+
 	// If value already exists, update the syntax if possible
 	if v, ok := pd.Values[name]; ok {
 		if v.Syntax == "" {
@@ -325,7 +323,7 @@ func ProcessValue(name string, type_ string, syntax string, pd *ParseData) {
 
 		// Skip built-in values ie: (<integer> has syntax "<integer>", which results in a loop when resolving)
 		if v.Syntax == v.Name {
-			log.Println("name == syntax, skipping as this is an built-in value")
+			log.Println("name == syntax, skipping as this is an built-in value: ", name)
 			return
 		}
 
@@ -343,18 +341,18 @@ func ProcessValue(name string, type_ string, syntax string, pd *ParseData) {
 
 	// Values are always skipped
 	if type_ == "value" {
-		println("value type. Skipping")
+		println("value type. Skipping: ", name)
 		return
 	}
 
 	// Skip <integer> = syntax("<integer>")
 	if syntax == name {
-		println("value==name. Skipping")
+		println("value==name. Skipping: ", name)
 		return
 	}
 
 	if syntax == "" {
-		log.Println("empty value/syntax")
+		log.Println("empty value/syntax: ", name)
 		return
 	}
 
@@ -371,10 +369,12 @@ func DecodeFileContent(content []byte, pd *ParseData) {
 	}
 
 	for _, property := range fileData.Properties {
-		log.Println("Processing property: ", property.Name)
+		//log.Println("Processing property: ", property.Name)
 
 		for _, v := range property.Values {
-			ProcessValue(v.Name, v.Type, v.Value, pd)
+			ProcessValue(v.Name, v.Type, v.Syntax, pd)
+
+			ProcessExtraValues(v.Values, pd)
 		}
 
 		if p, ok := pd.Properties[property.Name]; ok {
@@ -409,9 +409,7 @@ func DecodeFileContent(content []byte, pd *ParseData) {
 		pd.Properties[property.Name] = property
 	}
 
-	for _, value := range fileData.Values {
-		ProcessValue(value.Name, value.Type, value.Syntax, pd)
-	}
+	ProcessExtraValues(fileData.Values, pd)
 
 	for _, atRule := range fileData.AtRules {
 		if a, ok := pd.AtRules[atRule.Name]; ok {
@@ -437,5 +435,12 @@ func DecodeFileContent(content []byte, pd *ParseData) {
 
 	for _, selector := range fileData.Selectors {
 		pd.Selectors[selector.Name] = selector
+	}
+}
+
+func ProcessExtraValues(values []WebRefValue, pd *ParseData) {
+	for _, value := range values {
+		ProcessValue(value.Name, value.Type, value.Syntax, pd)
+		ProcessExtraValues(value.Values, pd)
 	}
 }
