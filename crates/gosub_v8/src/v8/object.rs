@@ -277,7 +277,7 @@ impl<'a> JSObject for V8Object<'a> {
              _name: Local<Name>,
              value: Local<Value>,
              args: PropertyCallbackArguments,
-             _rv: ReturnValue| {
+             _rv: ReturnValue<()>| {
                 let external = match Local::<External>::try_from(args.data()) {
                     Ok(external) => external,
                     Err(e) => {
