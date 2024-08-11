@@ -22,12 +22,12 @@ const LENGTH_UNITS: [&str; 31] = [
 
 
 macro_rules! debug_print_juxta {
-    ($($x:tt)*) => { println!($($x)*) }
-    // ($($x:tt)*) => {{}};
+    // ($($x:tt)*) => { println!($($x)*) }
+    ($($x:tt)*) => {{}};
 }
 macro_rules! debug_print_exactly {
-    ($($x:tt)*) => { println!($($x)*) }
-    // ($($x:tt)*) => {{}};
+    // ($($x:tt)*) => { println!($($x)*) }
+    ($($x:tt)*) => {{}};
 }
 
 /// A CSS Syntax Tree is a tree sof CSS syntax components that can be used to match against CSS values.
@@ -234,7 +234,7 @@ fn match_group_exactly_one(
     raw_input: &Vec<CssValue>,
     components: &Vec<SyntaxComponent>,
 ) -> MatchResult {
-    let gid = rand::random::<u8>();
+    let _gid = rand::random::<u8>();
 
     let mut input = raw_input.to_vec();
     // Component index we are currently matching against
@@ -341,30 +341,37 @@ fn match_group_exactly_one(
         debug_print_exactly!("[{}] *** relooping with the next component", gid);
     }
 
-    // let _dbg = format!("{:#?}", &components_matched);
-    // dbg!(&components_matched);
-
-    // let component = components_matched
-    //     .into_iter()
-    //     .filter(|c| c.1.is_empty())
-    //     .collect::<Vec<_>>();
-    //
-    // dbg!(&component);
-    if components_matched.len() != 1 {
-        debug_print_exactly!("[{}] *** Matched components is not 1.", gid);
-        dbg!(&components_matched);
+    if components_matched.is_empty() {
+        debug_print_exactly!("[{}] *** no matching components found", gid);
         return no_match(&input);
     }
 
-    debug_print_exactly!("[{}] *** Matched exactly one value", gid);
+    if components_matched.len() > 1 {
+        debug_print_exactly!("[{}] *** Matched components is not 1. Returning most specific match", gid);
 
-    let res = MatchResult {
+        let mut shortest_remainder_idx = 0;
+        let mut shortest_remainder_len = components_matched.first().unwrap().2.len();
+
+        for (idx, (_, _, remainder)) in components_matched.iter().enumerate() {
+            if remainder.len() < shortest_remainder_len {
+                shortest_remainder_len = remainder.len();
+                shortest_remainder_idx = idx;
+            }
+        }
+
+        return MatchResult {
+            remainder: components_matched[shortest_remainder_idx].2.clone(),
+            matched: true,
+            matched_values: components_matched[shortest_remainder_idx].1.clone(),
+        };
+    }
+
+    debug_print_exactly!("[{}] *** Matched exactly one value", gid);
+    MatchResult {
         remainder: components_matched[0].2.clone(),
         matched: true,
         matched_values: components_matched[0].1.clone(),
-    };
-    // dbg!(&res);
-    res
+    }
 }
 
 /// Returns element, when at least one of the elements in the group matches
@@ -449,11 +456,11 @@ fn match_group_at_least_one_any_order(
 
     // println!("Match at least one any order is valid.");
 
-    return MatchResult {
+    MatchResult {
         remainder: input.clone(),
         matched: true,
         matched_values,
-    };
+    }
 }
 
 fn match_group_all_any_order(
@@ -572,7 +579,7 @@ fn match_group_juxtaposition(
     input: &Vec<CssValue>,
     components: &Vec<SyntaxComponent>,
 ) -> MatchResult {
-    let gid = rand::random::<u8>();
+    let _gid = rand::random::<u8>();
     debug_print_juxta!("[{}]+++ Entering Match group juxtaposition", gid);
 
     let mut input = input.to_vec();
@@ -593,8 +600,6 @@ fn match_group_juxtaposition(
         if res.matched {
             debug_print_juxta!("[{}]+++ matches: ", gid);
             multiplier_count += 1;
-
-            dbg!(&res);
 
             // Add matched elements to matched_values
             matched_values.append(&mut res.matched_values.clone());
@@ -686,11 +691,11 @@ fn match_group_juxtaposition(
     }
 
     debug_print_juxta!("[{}]+++ Match juxtaposition is valid. Return value is : {:?}", gid, matched_values);
-    return MatchResult {
+    MatchResult {
         remainder: input.clone(),
         matched: true,
         matched_values,
-    };
+    }
 }
 
 /// Fulfillment is a result returned by the multiplier_fulfilled function. This is used to determine
@@ -750,20 +755,20 @@ fn multiplier_fulfilled(component: &SyntaxComponent, cnt: usize) -> Fulfillment 
 
 /// Helper function to return no matches
 fn no_match(input: &Vec<CssValue>) -> MatchResult {
-    return MatchResult {
+    MatchResult {
         remainder: input.clone(),
         matched: false,
         matched_values: vec![],
-    };
+    }
 }
 
 /// Helper function to return the first element from input in a match result, as we need this a lot
 fn first_match(input: &Vec<CssValue>) -> MatchResult {
-    return MatchResult {
+    MatchResult {
         remainder: input.into_iter().skip(1).cloned().collect(),
         matched: true,
         matched_values: vec![input.get(0).unwrap().clone()],
-    };
+    }
 }
 
 #[cfg(test)]
@@ -1274,31 +1279,31 @@ mod tests {
 
         let prop = definitions.find_property("testprop").unwrap();
 
-        // assert_true!(prop
-        //     .clone()
-        //     .matches(vec![str!("left"), CssValue::Unit(5.0, "px".into()),]));
+        assert_true!(prop
+            .clone()
+            .matches(vec![str!("left"), CssValue::Unit(5.0, "px".into()),]));
         assert_true!(prop
             .clone()
             .matches(vec![str!("top"), CssValue::Unit(5.0, "px".into()),]));
-        // assert_true!(prop
-        //     .clone()
-        //     .matches(vec![str!("bottom"), CssValue::Unit(5.0, "px".into()),]));
-        // assert_true!(prop
-        //     .clone()
-        //     .matches(vec![str!("right"), CssValue::Unit(5.0, "px".into()),]));
-        // assert_true!(prop.clone().matches(vec![str!("left")]));
-        // assert_true!(prop.clone().matches(vec![str!("top")]));
-        // assert_true!(prop.clone().matches(vec![str!("bottom")]));
-        // assert_true!(prop.clone().matches(vec![str!("right")]));
-        //
-        // assert_false!(prop
-        //     .clone()
-        //     .matches(vec![CssValue::Unit(5.0, "px".into()), str!("right"),]));
-        // assert_false!(prop.clone().matches(vec![
-        //     CssValue::Unit(5.0, "px".into()),
-        //     CssValue::Unit(10.0, "px".into()),
-        //     str!("right"),
-        // ]));
+        assert_true!(prop
+            .clone()
+            .matches(vec![str!("bottom"), CssValue::Unit(5.0, "px".into()),]));
+        assert_true!(prop
+            .clone()
+            .matches(vec![str!("right"), CssValue::Unit(5.0, "px".into()),]));
+        assert_true!(prop.clone().matches(vec![str!("left")]));
+        assert_true!(prop.clone().matches(vec![str!("top")]));
+        assert_true!(prop.clone().matches(vec![str!("bottom")]));
+        assert_true!(prop.clone().matches(vec![str!("right")]));
+
+        assert_false!(prop
+            .clone()
+            .matches(vec![CssValue::Unit(5.0, "px".into()), str!("right"),]));
+        assert_false!(prop.clone().matches(vec![
+            CssValue::Unit(5.0, "px".into()),
+            CssValue::Unit(10.0, "px".into()),
+            str!("right"),
+        ]));
     }
 
     #[test]
@@ -1310,9 +1315,6 @@ mod tests {
                 name: "testprop".to_string(),
                 computed: vec![],
                 syntax: CssSyntax::new("[ [ left | center | right | top | bottom | <length-percentage> ] | [ left | center | right | <length-percentage> ] [ top | center | bottom | <length-percentage> ] ]").compile().unwrap(),
-                // syntax: CssSyntax::new("[ [ left | center ] [ top | center ] ]").compile().unwrap(),
-                // syntax: CssSyntax::new("[ top | top top ]").compile().unwrap(),
-                // syntax: CssSyntax::new("top | top top").compile().unwrap(),
                 inherited: false,
                 initial_value: None,
                 resolved: false,
@@ -1333,10 +1335,14 @@ mod tests {
             str!("center"),
             str!("top"),
         ]));
-        assert_true!(prop.clone().matches(vec![str!("top"), str!("top"),]));
-        assert_true!(prop.clone().matches(vec![
+        assert_false!(prop.clone().matches(vec![str!("top"), str!("top"),]));
+        assert_false!(prop.clone().matches(vec![
             str!("top"),
             str!("center"),
+        ]));
+        assert_true!(prop.clone().matches(vec![
+            str!("center"),
+            str!("top"),
         ]));
         assert_true!(prop.clone().matches(vec![
             str!("center"),
@@ -1361,15 +1367,15 @@ mod tests {
         ]));
 
         assert_true!(prop.clone().matches(vec![
-            str!("top"),
             CssValue::Percentage(10.0),
+            str!("top"),
         ]));
 
         assert_true!(prop
             .clone()
             .matches(vec![str!("right")]));
 
-        assert_false!(prop
+        assert_true!(prop
             .clone()
             .matches(vec![str!("top")]));
     }
@@ -1395,15 +1401,7 @@ mod tests {
         let prop = definitions.find_property("testprop").unwrap();
 
         assert_true!(prop.clone().matches(vec![str!("foo"),]));
-
         assert_true!(prop.clone().matches(vec![str!("foo"), str!("foo"),]));
-
-        // assert_true!(prop.clone().matches(vec![
-        //     str!("foo"),
-        //     str!("foo"),
-        //     str!("foo"),
-        // ])); // I don't think this should match?
-
         assert_true!(prop.clone().matches(vec![str!("foo"), str!("bar"),]));
 
         assert_false!(prop.clone().matches(vec![str!("bar"),]));
@@ -1550,8 +1548,8 @@ mod tests {
                 name: "testprop".to_string(),
                 computed: vec![],
                 syntax: CssSyntax::new(
-                    // "[ left | right ] <length>? | [ top | bottom ] <length> | [ top | bottom ]"
-                    "left <length>? | top <length> | top"
+                    "[ left | right ] <length>? | [ top | bottom ] <length> | [ top | bottom ]"
+                    // "left <length>? | top <length> | top"
                 ).compile().unwrap(),
                 inherited: false,
                 initial_value: None,
@@ -1562,37 +1560,36 @@ mod tests {
 
         let prop = definitions.find_property("testprop").unwrap();
 
-        // assert_true!(prop.clone().matches(vec![
-        //     str!("left"),
-        //     CssValue::Unit(10.0, "px".into()),
-        // ]));
-        // assert_true!(prop.clone().matches(vec![
-        //     str!("right"),
-        //     CssValue::Unit(10.0, "px".into()),
-        // ]));
-        // assert_true!(prop.clone().matches(vec![
-        //     str!("left"),
-        // ]));
-        // assert_true!(prop.clone().matches(vec![
-        //     str!("right"),
-        // ]));
+        assert_true!(prop.clone().matches(vec![
+            str!("left"),
+            CssValue::Unit(10.0, "px".into()),
+        ]));
+        assert_true!(prop.clone().matches(vec![
+            str!("right"),
+            CssValue::Unit(10.0, "px".into()),
+        ]));
+        assert_true!(prop.clone().matches(vec![
+            str!("left"),
+        ]));
+        assert_true!(prop.clone().matches(vec![
+            str!("right"),
+        ]));
 
         assert_true!(prop.clone().matches(vec![
             str!("top"),
             CssValue::Unit(10.0, "px".into()),
         ]));
-        // assert_true!(prop.clone().matches(vec![
-        //     str!("bottom"),
-        //     CssValue::Unit(10.0, "px".into()),
-        // ]));
+        assert_true!(prop.clone().matches(vec![
+            str!("bottom"),
+            CssValue::Unit(10.0, "px".into()),
+        ]));
 
-        // assert_true!(prop.clone().matches(vec![
-        //     str!("top"),
-        // ]));
-        // assert_true!(prop.clone().matches(vec![
-        //     str!("bottom"),
-        // ]));
-
+        assert_true!(prop.clone().matches(vec![
+            str!("top"),
+        ]));
+        assert_true!(prop.clone().matches(vec![
+            str!("bottom"),
+        ]));
     }
 
 }

@@ -694,33 +694,6 @@ mod tests {
             [ left | center | right | <length-percentage> ] [ top | center | bottom | <length-percentage> ] |
             [ center | [ left | right ] <length-percentage>? ] && [ center | [ top | bottom ] <length-percentage>? ]
         ]
-
-        left
-        center
-        right
-        top
-        bottom
-        10px
-        10%
-
-        left top
-        left center
-        left bottom
-        left 10px
-        left 20%
-        center 20%
-        center center
-        10% center
-        10% 20px
-        10% 20%
-        10px 20px
-        10px 20%
-        center left
-        center left 20%
-        center right 30px
-
-        left 20% right 30px
-        left right
          */
 
         // background-position: left 10px;
@@ -777,6 +750,7 @@ mod tests {
             unit!(5.0, "px"),
             str!("bottom"),
             unit!(15.0, "px"),
+            CssValue::Comma,
             str!("right"),
             unit!(10.0, "px"),
             str!("top"),
@@ -804,10 +778,11 @@ mod tests {
             unit!(50.0, "px"),
         ]));
 
-        // background-position: 0% 0%, 100% 100%;
+        // // background-position: 0% 0%, 100% 100%;
         assert_true!(def.clone().matches(vec![
             CssValue::Percentage(0.0),
             CssValue::Percentage(0.0),
+            CssValue::Comma,
             CssValue::Percentage(100.0),
             CssValue::Percentage(100.0),
         ]));
@@ -816,6 +791,7 @@ mod tests {
         assert_true!(def.clone().matches(vec![
             str!("left"),
             str!("top"),
+            CssValue::Comma,
             str!("right"),
             str!("bottom"),
         ]));
@@ -824,6 +800,7 @@ mod tests {
         assert_true!(def.clone().matches(vec![
             CssValue::Percentage(100.0),
             CssValue::Number(0.0),
+            CssValue::Comma,
             CssValue::Number(0.0),
             CssValue::Percentage(100.0),
         ]));
@@ -833,6 +810,7 @@ mod tests {
             str!("left"),
             unit!(25.0, "px"),
             str!("bottom"),
+            CssValue::Comma,
             str!("center"),
             str!("top"),
         ]));
@@ -843,6 +821,7 @@ mod tests {
             CssValue::Percentage(10.0),
             str!("left"),
             CssValue::Percentage(20.0),
+            CssValue::Comma,
             str!("bottom"),
             CssValue::Percentage(10.0),
             str!("right"),
@@ -853,6 +832,7 @@ mod tests {
         assert_true!(def.clone().matches(vec![
             unit!(10.0, "px"),
             unit!(30.0, "px"),
+            CssValue::Comma,
             CssValue::Percentage(90.0),
             CssValue::Percentage(10.0),
         ]));
@@ -861,6 +841,7 @@ mod tests {
         assert_true!(def.clone().matches(vec![
             str!("top"),
             str!("right"),
+            CssValue::Comma,
             str!("bottom"),
             str!("left"),
             unit!(15.0, "px"),
@@ -870,6 +851,7 @@ mod tests {
         assert_true!(def.clone().matches(vec![
             CssValue::Percentage(50.0),
             CssValue::Percentage(25.0),
+            CssValue::Comma,
             CssValue::Percentage(25.0),
             CssValue::Percentage(75.0),
         ]));
@@ -880,6 +862,7 @@ mod tests {
             CssValue::Percentage(5.0),
             str!("bottom"),
             CssValue::Percentage(5.0),
+            CssValue::Comma,
             str!("left"),
             CssValue::Percentage(5.0),
             str!("top"),

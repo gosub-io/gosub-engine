@@ -9,9 +9,9 @@ use gosub_css3::stylesheet::{CssOrigin, CssStylesheet};
 use gosub_css3::Css3;
 
 pub mod css_definitions;
-mod errors;
 pub mod render_tree;
 pub mod styling;
+mod errors;
 mod syntax;
 mod syntax_matcher;
 
