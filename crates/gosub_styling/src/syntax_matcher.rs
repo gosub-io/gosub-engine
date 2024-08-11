@@ -71,34 +71,20 @@ impl CssSyntaxTree {
     }
 }
 
-/// Matches a component against the input values. After the match, there might be remaining
-/// elements in the input. This is passed back in the MatchResult structure.
-fn match_component(input: &Vec<CssValue>, component: &SyntaxComponent) -> MatchResult {
+
+fn match_component_inner(raw_input: &Vec<CssValue>, component: &SyntaxComponent) -> MatchResult {
     let gid = rand::random::<u8>();
 
-    // dbg!(&input);
-    // dbg!(&component);
-
-    let mut input = input.clone();
+    let mut input = raw_input.clone();
     let mut matched_values = vec![];
 
-    // // Check if we are working with comma separated values
-    // let mut comma_separated = false;
-    // for multiplier in component.get_multipliers() {
-    //     match multiplier {
-    //         SyntaxComponentMultiplier::CommaSeparatedRepeat(_, _) => {
-    //             comma_separated = true;
-    //         }
-    //         _ => {}
-    //     }
-    // }
-
+    // Loop through the input values and try to match them against the component. It's possible
+    // that we need to loop multiple times in case we have a multiplier that allows this. (ie: 'foo*' or 'foo{1,3}')
     let mut multiplier_count = 0;
-
     loop {
         if input.is_empty() {
             // We don't have anything in the input stream. We do need to check if this component
-            // allows for optional values. If so, that's a match
+            // allows for optional values. If so, the component matches.
             let mff = multiplier_fulfilled(component, 0);
             if mff == Fulfillment::Fulfilled || mff == Fulfillment::FulfilledButMoreAllowed {
                 return MatchResult {
@@ -109,7 +95,7 @@ fn match_component(input: &Vec<CssValue>, component: &SyntaxComponent) -> MatchR
             }
 
             // Seems this component needs at least one value. We don't have any, so it's no match
-            return no_match(&input);
+            return no_match(&raw_input);
         }
 
         // Check either single or group component
@@ -121,7 +107,7 @@ fn match_component(input: &Vec<CssValue>, component: &SyntaxComponent) -> MatchR
         debug_print_comp!("[{}] /// I just did a match against {:?} and res is {:?}", gid, input, res);
 
         if res.matched {
-            // The element matched so we keep track on how many times it did (in case of multiples)
+            // The element matched, so we keep track on how many times it did (in case of multipliers)
             multiplier_count += 1;
 
             matched_values.append(&mut res.matched_values.clone());
@@ -131,9 +117,10 @@ fn match_component(input: &Vec<CssValue>, component: &SyntaxComponent) -> MatchR
             match mff {
                 Fulfillment::NotYetFulfilled => {
                     // The multiplier is not yet fulfilled. Probably a range multiplier, so we need more
-                    // values. Check the next value.
+                    // values. Loop to the next value.
                     debug_print_comp!("[{}] /// and not yet fulfilled", gid);
                     input = res.remainder.clone();
+                    continue;
                 }
                 Fulfillment::FulfilledButMoreAllowed => {
                     // More elements are allowed. Let's check if we have one
@@ -154,37 +141,112 @@ fn match_component(input: &Vec<CssValue>, component: &SyntaxComponent) -> MatchR
                 Fulfillment::NotFulfilled => {
                     // The multiplier is not fulfilled.
                     debug_print_comp!("[{}] /// and not fulfilled.", gid);
-                    return no_match(&input);
+                    return no_match(&raw_input);
                 }
             }
         } else {
             let mff = multiplier_fulfilled(component, multiplier_count);
-            return match mff {
+            match mff {
                 Fulfillment::NotYetFulfilled => {
                     debug_print_comp!("[{}] /// not yet fulfilled. This is ok, as it can be a range", gid);
                     // Don't know about this case
-                    res
+                    return res;
                 }
                 Fulfillment::Fulfilled => {
                     debug_print_comp!("[{}] /// fulfilled. All is good", gid);
-                    res
+                    return res;
                 }
                 Fulfillment::FulfilledButMoreAllowed => {
-                    let res = MatchResult {
+                    debug_print_comp!("[{}] /// we didn't find more matches. So this is a new element", gid);
+                    return MatchResult {
                         remainder: input.clone(),
                         matched: true,
                         matched_values,
                     };
-                    debug_print_comp!("[{}] /// we didn't find more matches. So this is a new element: {:?}", gid, res);
-                    res
                 }
                 Fulfillment::NotFulfilled => {
                     debug_print_comp!("[{}] /// no match, and we haven't fulfilled the component. No match", gid);
-                    no_match(&input)
+                    return no_match(&raw_input);
                 }
             }
         }
     }
+}
+
+/// Matches a component against the input values. After the match, there might be remaining
+/// elements in the input. This is passed back in the MatchResult structure.
+fn match_component(raw_input: &Vec<CssValue>, component: &SyntaxComponent) -> MatchResult {
+    let gid = rand::random::<u8>();
+
+    let mut input = raw_input.clone();
+
+    // Set some additional values when we are dealing with a comma separated lists (the # multiplier)
+    let mut comma_separated = false;
+    let mut csv_cnt = 0;
+    let mut csv_min = 0;
+    let mut csv_max = 0;
+    let mut matched_values = vec![];
+    for multiplier in component.get_multipliers() {
+        match multiplier {
+            SyntaxComponentMultiplier::CommaSeparatedRepeat(min, max) => {
+                comma_separated = true;
+                csv_min = min;
+                csv_max = max;
+            }
+            _ => {}
+        }
+    }
+
+
+    // CSV loop
+    loop {
+        let inner_result = match_component_inner(&input, component);
+        if !comma_separated {
+            // We don't need to check for comma separated values, so just return this result
+            return inner_result;
+        }
+
+        if !inner_result.matched {
+            // Not matched, so break the loop
+            break;
+        }
+
+        csv_cnt += 1;
+        matched_values.append(&mut inner_result.matched_values.clone());
+
+        input = inner_result.remainder.clone();
+
+        // It's the end, do doo doo doo.
+        if input.is_empty() {
+            break;
+        }
+
+        // Make sure the next value from input is a comma
+        if input.get(0) != Some(&CssValue::Comma) {
+            return no_match(&raw_input);
+        }
+
+        // Remove the comma, and continue matching
+        input = input[1..input.len()].to_owned();
+
+        if input.is_empty() {
+            // We have a comma at the end of the input. This is not allowed.
+            return no_match(&raw_input);
+        }
+    }
+
+    debug_print_comp!("[{}] /// out of the CSV loop. Result is: {:?} / {:?}", gid, matched_values, input);
+
+    // If we are in a comma separated list, we need to check if we have the correct amount of values
+    if comma_separated && csv_cnt >= csv_min && csv_cnt <= csv_max {
+        return MatchResult {
+            remainder: input.clone(),
+            matched: true,
+            matched_values,
+        };
+    }
+
+    return no_match(&raw_input);
 }
 
 /// Matches a component group
@@ -612,44 +674,45 @@ enum Fulfillment {
 
 /// Returns fulfillment enum given the cnt and the actual multiplier of the component
 fn multiplier_fulfilled(component: &SyntaxComponent, cnt: usize) -> Fulfillment {
-    for m in component.get_multipliers() {
-        return match m {
-            SyntaxComponentMultiplier::Once => match cnt {
-                0 => Fulfillment::NotYetFulfilled,
-                1 => Fulfillment::Fulfilled,
-                _ => Fulfillment::NotFulfilled,
-            },
-            SyntaxComponentMultiplier::ZeroOrMore => match cnt {
-                _ => Fulfillment::FulfilledButMoreAllowed,
-            },
-            SyntaxComponentMultiplier::OneOrMore => match cnt {
-                0 => Fulfillment::NotYetFulfilled,
-                _ => Fulfillment::FulfilledButMoreAllowed,
-            },
-            SyntaxComponentMultiplier::Optional => match cnt {
-                0 => Fulfillment::FulfilledButMoreAllowed,
-                1 => Fulfillment::Fulfilled,
-                _ => Fulfillment::NotFulfilled,
-            },
-            SyntaxComponentMultiplier::Between(from, to) => match cnt {
-                _ if cnt < from => Fulfillment::NotYetFulfilled,
-                _ if cnt >= from && cnt <= to => Fulfillment::FulfilledButMoreAllowed,
-                _ => Fulfillment::NotFulfilled,
-            },
-            // Even though each element is optional, there must be at least one element in the group
-            SyntaxComponentMultiplier::AtLeastOneValue => match cnt {
-                0 => Fulfillment::NotYetFulfilled,
-                _ => Fulfillment::FulfilledButMoreAllowed,
-            },
-            SyntaxComponentMultiplier::CommaSeparatedRepeat(from, to) => match cnt {
-                _ if cnt <= from => Fulfillment::NotYetFulfilled,
-                _ if cnt >= from && cnt <= to => Fulfillment::FulfilledButMoreAllowed,
-                _ => Fulfillment::NotFulfilled,
-            },
-        };
+
+    // Filter out the multipliers that are not relevant for this check
+    let binding = component.get_multipliers();
+    let mut filtered_multipliers: Vec<_> = binding.iter().filter(|m| match m {
+        SyntaxComponentMultiplier::AtLeastOneValue => false,
+        SyntaxComponentMultiplier::CommaSeparatedRepeat(_, _) => false,
+        _ => true,
+    }).collect();
+
+    // Make sure that whenever we do not find a (primary) multiplier, we use the default "Once".
+    if filtered_multipliers.is_empty() {
+        filtered_multipliers.push(&SyntaxComponentMultiplier::Once);
     }
 
-    Fulfillment::NotFulfilled
+    match filtered_multipliers.first().unwrap() {
+        SyntaxComponentMultiplier::Once => match cnt {
+            0 => Fulfillment::NotYetFulfilled,
+            1 => Fulfillment::Fulfilled,
+            _ => Fulfillment::NotFulfilled,
+        },
+        SyntaxComponentMultiplier::ZeroOrMore => match cnt {
+            _ => Fulfillment::FulfilledButMoreAllowed,
+        },
+        SyntaxComponentMultiplier::OneOrMore => match cnt {
+            0 => Fulfillment::NotYetFulfilled,
+            _ => Fulfillment::FulfilledButMoreAllowed,
+        },
+        SyntaxComponentMultiplier::Optional => match cnt {
+            0 => Fulfillment::FulfilledButMoreAllowed,
+            1 => Fulfillment::Fulfilled,
+            _ => Fulfillment::NotFulfilled,
+        },
+        SyntaxComponentMultiplier::Between(from, to) => match cnt {
+            _ if cnt < *from => Fulfillment::NotYetFulfilled,
+            _ if cnt >= *from && cnt <= *to => Fulfillment::FulfilledButMoreAllowed,
+            _ => Fulfillment::NotFulfilled,
+        },
+        _ => Fulfillment::NotFulfilled
+    }
 }
 
 /// Helper function to return no matches
@@ -1508,6 +1571,8 @@ mod tests {
     fn test_comma_separated() {
         let tree = CssSyntax::new("[foo | bar | baz]#").compile().unwrap();
         assert_true!(tree.matches(vec![str!("foo")]));
+        assert_true!(tree.matches(vec![str!("foo"), CssValue::Comma, str!("foo")]));
+        assert_true!(tree.matches(vec![str!("foo"), CssValue::Comma, str!("foo"), CssValue::Comma, str!("foo")]));
         assert_true!(tree.matches(vec![str!("foo"), CssValue::Comma, str!("bar")]));
         assert_true!(tree.matches(vec![str!("foo"), CssValue::Comma, str!("baz")]));
         assert_true!(tree.matches(vec![str!("foo"), CssValue::Comma, str!("bar"), CssValue::Comma, str!("baz")]));
@@ -1516,5 +1581,4 @@ mod tests {
         assert_false!(tree.matches(vec![str!("foo"), CssValue::Comma, str!("bar"), CssValue::Comma]));
         assert_false!(tree.matches(vec![str!("foo"), CssValue::Comma, CssValue::Comma, str!("bar")]));
     }
-
 }
