@@ -799,9 +799,9 @@ mod tests {
         // background-position: 100% 0, 0 100%;
         assert_true!(def.clone().matches(vec![
             CssValue::Percentage(100.0),
-            CssValue::Number(0.0),
+            CssValue::Zero,
             CssValue::Comma,
-            CssValue::Number(0.0),
+            CssValue::Zero,
             CssValue::Percentage(100.0),
         ]));
 

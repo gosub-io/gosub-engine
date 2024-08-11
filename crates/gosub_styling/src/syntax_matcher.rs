@@ -22,23 +22,23 @@ const LENGTH_UNITS: [&str; 31] = [
 
 
 macro_rules! debug_print_juxta {
-    ($($x:tt)*) => { println!($($x)*) }
-    // ($($x:tt)*) => {{}};
+    // ($($x:tt)*) => { println!($($x)*) }
+    ($($x:tt)*) => {{}};
 }
 
 macro_rules! debug_print_exactly {
-    ($($x:tt)*) => { println!($($x)*) }
-    // ($($x:tt)*) => {{}};
+    // ($($x:tt)*) => { println!($($x)*) }
+    ($($x:tt)*) => {{}};
 }
 
 macro_rules! debug_print_comp {
-    ($($x:tt)*) => { println!($($x)*) }
-    // ($($x:tt)*) => {{}};
+    // ($($x:tt)*) => { println!($($x)*) }
+    ($($x:tt)*) => {{}};
 }
 
 macro_rules! debug_print_allany {
-    ($($x:tt)*) => { println!($($x)*) }
-    // ($($x:tt)*) => {{}};
+    // ($($x:tt)*) => { println!($($x)*) }
+    ($($x:tt)*) => {{}};
 }
 
 macro_rules! debug_print_oneany {
@@ -73,7 +73,7 @@ impl CssSyntaxTree {
 
 
 fn match_component_inner(raw_input: &Vec<CssValue>, component: &SyntaxComponent) -> MatchResult {
-    let gid = rand::random::<u8>();
+    let _gid = rand::random::<u8>();
 
     let mut input = raw_input.clone();
     let mut matched_values = vec![];
@@ -176,7 +176,7 @@ fn match_component_inner(raw_input: &Vec<CssValue>, component: &SyntaxComponent)
 /// Matches a component against the input values. After the match, there might be remaining
 /// elements in the input. This is passed back in the MatchResult structure.
 fn match_component(raw_input: &Vec<CssValue>, component: &SyntaxComponent) -> MatchResult {
-    let gid = rand::random::<u8>();
+    let _gid = rand::random::<u8>();
 
     let mut input = raw_input.clone();
 
@@ -427,7 +427,7 @@ fn match_group_exactly_one(
     raw_input: &Vec<CssValue>,
     components: &Vec<SyntaxComponent>,
 ) -> MatchResult {
-    let gid = rand::random::<u8>();
+    let _gid = rand::random::<u8>();
     debug_print_exactly!("[{}]*** Entering Match group exactly_one", gid);
 
     let input = raw_input.to_vec();
@@ -499,7 +499,7 @@ fn match_group_at_least_one_any_order(
     raw_input: &Vec<CssValue>,
     components: &Vec<SyntaxComponent>,
 ) -> MatchResult {
-    let gid = rand::random::<u8>();
+    let _gid = rand::random::<u8>();
     debug_print_allany!("[{}]^^^ Entering Match group at_least_one_any_order", gid);
 
     let mut input = raw_input.to_vec();
@@ -558,7 +558,7 @@ fn match_group_all_any_order(
     raw_input: &Vec<CssValue>,
     components: &Vec<SyntaxComponent>,
 ) -> MatchResult {
-    let gid = rand::random::<u8>();
+    let _gid = rand::random::<u8>();
     debug_print_allany!("[{}]@@@ Entering Match group all_any_order", gid);
 
     let mut input = raw_input.to_vec();
@@ -616,7 +616,7 @@ fn match_group_juxtaposition(
     raw_input: &Vec<CssValue>,
     components: &Vec<SyntaxComponent>,
 ) -> MatchResult {
-    let gid = rand::random::<u8>();
+    let _gid = rand::random::<u8>();
     debug_print_juxta!("[{}]+++ Entering Match group juxtaposition", gid);
 
     let mut input = raw_input.to_vec();
