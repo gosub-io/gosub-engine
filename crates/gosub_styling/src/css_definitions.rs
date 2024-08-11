@@ -515,7 +515,7 @@ mod tests {
     #[test]
     fn test_parse_definition_file() {
         let definitions = parse_definition_files();
-        assert_eq!(definitions.len(), 493);
+        assert_eq!(definitions.len(), 620);
     }
 
     #[test]
@@ -616,7 +616,6 @@ mod tests {
 
     #[test]
     fn test_azimuth() {
-        return;
         let definitions = parse_definition_files();
         let def = definitions.find_property("azimuth").unwrap();
 
@@ -656,9 +655,9 @@ mod tests {
 
         assert_true!(def.clone().matches(vec![str!("red")]));
         // System colors
-        // assert_true!(def.clone().matches(vec![str!("Canvas")]));
-        // assert_true!(def.clone().matches(vec![str!("CanvasText")]));
-        // assert_true!(def.clone().matches(vec![str!("CanvasText")]));
+        assert_true!(def.clone().matches(vec![str!("Canvas")]));
+        assert_true!(def.clone().matches(vec![str!("CanvasText")]));
+        assert_true!(def.clone().matches(vec![str!("CanvasText")]));
         assert_true!(def.clone().matches(vec![str!("Menu")]));
 
         assert_true!(def.clone().matches(vec![str!("blue")]));
@@ -689,26 +688,11 @@ mod tests {
         let definitions = parse_definition_files();
         let def = definitions.find_property("background-position").unwrap();
 
-        // assert_none!(def.clone().matches(str!("scroll")));
-        // assert_none!(def.clone().matches(str!("fixed")));
-        // assert_none!(def.clone().matches(str!("incorrect")));
-        // assert_none!(def
-        //     .clone()
-        //     .matches(str!("rebeccapurple")));
-        //
-        // assert_true!(def.clone().matches(&CssValue::Percentage(0.0)));
-        // assert_true!(def.clone().matches(&CssValue::Zero));
-        // assert_true!(def.clone().matches(&unit!(12.34, "px")));
-        // assert_none!(def.clone().matches(&CssValue::Number(12.34)));
-
         /*
-
         [
             [ left | center | right | top | bottom | <length-percentage> ] |
             [ left | center | right | <length-percentage> ] [ top | center | bottom | <length-percentage> ] |
-            [ center | [ left | right ] <length-percentage>? ]
-            &&
-            [ center | [ top | bottom ] <length-percentage>? ]
+            [ center | [ left | right ] <length-percentage>? ] && [ center | [ top | bottom ] <length-percentage>? ]
         ]
 
         left

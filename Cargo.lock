@@ -1710,6 +1710,7 @@ dependencies = [
  "log",
  "memoize",
  "nom 7.1.3",
+ "rand 0.9.0-alpha.1",
  "regex",
  "rust-fontconfig",
  "serde",

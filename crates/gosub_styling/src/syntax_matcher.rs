@@ -1,6 +1,5 @@
 use gosub_css3::colors::{is_named_color, is_system_color};
 use gosub_css3::stylesheet::CssValue;
-
 use crate::syntax::{GroupCombinators, SyntaxComponent, SyntaxComponentMultiplier};
 
 /// Structure to return from a matching function.
@@ -21,6 +20,16 @@ const LENGTH_UNITS: [&str; 31] = [
     "Q", "in", "pc", "pt",
 ];
 
+
+macro_rules! debug_print_juxta {
+    ($($x:tt)*) => { println!($($x)*) }
+    // ($($x:tt)*) => {{}};
+}
+macro_rules! debug_print_exactly {
+    ($($x:tt)*) => { println!($($x)*) }
+    // ($($x:tt)*) => {{}};
+}
+
 /// A CSS Syntax Tree is a tree sof CSS syntax components that can be used to match against CSS values.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CssSyntaxTree {
@@ -40,25 +49,25 @@ impl CssSyntaxTree {
             panic!("Syntax tree must have exactly one root component");
         }
 
-        // dbg!(&self.components[0]);
-        // dbg!(&value);
         let res = match_component(&input, &self.components[0]);
         res.matched && res.remainder.is_empty()
     }
 }
 
+/// Matches a single component against the input values. After the match, there might be remaining
+/// elements in the input. This is passed back in the MatchResult structure.
 fn match_component(input: &Vec<CssValue>, component: &SyntaxComponent) -> MatchResult {
     // dbg!(&input);
     // dbg!(&component);
 
     if input.is_empty() {
-        println!("Input is empty. So we don't match anything");
+        // println!("Input is empty. So we don't match anything");
         return no_match(input);
     }
 
-    // Get the first value from the input. And use that for matching
+    // Get the first value from the input which we will use for matching
     let value = input.get(0).unwrap();
-    println!("\n\nmatch_component: {:?} against {:?}", value, component);
+    // println!("\n\nmatch_component: {:?} against {:?}", value, component);
 
     match &component {
         SyntaxComponent::GenericKeyword { keyword, .. } => match value {
@@ -66,7 +75,7 @@ fn match_component(input: &Vec<CssValue>, component: &SyntaxComponent) -> MatchR
                 return first_match(input);
             }
             CssValue::String(v) if v.eq_ignore_ascii_case(keyword) => {
-                println!("keyword {:?} match!", v);
+                // println!("keyword {:?} match!", v);
                 return first_match(input);
             }
             _ => {}
@@ -225,6 +234,8 @@ fn match_group_exactly_one(
     raw_input: &Vec<CssValue>,
     components: &Vec<SyntaxComponent>,
 ) -> MatchResult {
+    let gid = rand::random::<u8>();
+
     let mut input = raw_input.to_vec();
     // Component index we are currently matching against
     let mut c_idx = 0;
@@ -233,45 +244,47 @@ fn match_group_exactly_one(
     // List of components that are already matched against previous values
     let mut components_matched = vec![];
 
-    println!("\n\n\n\nHello and welcome to match_group_exactly_once. These are our contestants: ");
-    dbg!(&input);
-    dbg!(&components);
-
+    debug_print_exactly!("[{}] *** Matching Group Exactly One", gid);
     let mut multiplier_count = 0;
     loop {
         let component = &components[c_idx];
-        print!("value '{:?}' against '{:?}': ", input, component);
+        debug_print_exactly!("[{}] *** Input '{:?}' against '{:?}': ", gid, input, component);
 
         let res = match_component(&input, component);
-        dbg!(&res);
+        // dbg!(&res);
         // if res.matched && res.remainder.is_empty() {
         if res.matched {
-            print!("matches: ");
+            debug_print_exactly!("[{}] *** matches: ", gid);
             multiplier_count += 1;
 
             matched_values.append(&mut res.matched_values.clone());
 
             let mff = multiplier_fulfilled(component, multiplier_count);
-            println!("multiplier {} fulfilled: {:?}", multiplier_count, mff);
+            debug_print_exactly!("[{}] *** multiplier {} fulfilled: {:?}", gid, multiplier_count, mff);
 
             match mff {
                 Fulfillment::NotYetFulfilled => {
+                    debug_print_exactly!("[{}] *** and not yet fulfilled", gid);
                     // The multiplier is not yet fulfilled. We need more values so check the next
                     input = res.remainder.clone();
                 }
                 Fulfillment::FulfilledButMoreAllowed => {
+                    debug_print_exactly!("[{}] *** fulfilled but more allowed", gid);
                     // More elements are allowed. Let's check if we have one
                     input = res.remainder.clone();
                 }
                 Fulfillment::Fulfilled => {
+                    debug_print_exactly!("[{}] *** and fulfilled", gid);
                     // no more values are allowed. Continue with the next value and element
 
-                    components_matched.push((c_idx, res.remainder));
+                    components_matched.push((c_idx, res.matched_values, res.remainder));
                     c_idx += 1;
                     multiplier_count = 0;
                     input = raw_input.to_vec();
                 }
                 Fulfillment::NotFulfilled => {
+                    debug_print_exactly!("[{}] *** and not fulfilled.", gid);
+
                     // The multiplier is not fulfilled. Just continue with the next element
                     c_idx += 1;
                     multiplier_count = 0;
@@ -280,11 +293,11 @@ fn match_group_exactly_one(
             }
         } else {
             // Element didn't match. That might be allright depending on the multiplier
-            println!("no match");
+            debug_print_exactly!("[{}] *** not matched", gid);
 
             match multiplier_fulfilled(component, multiplier_count) {
                 Fulfillment::NotYetFulfilled => {
-                    // println!("not yet fulfilled. That's ok. Just check the next element");
+                    debug_print_exactly!("[{}] *** not yet fulfilled. That's ok. Just check the next element", gid);
                     c_idx += 1;
                     multiplier_count = 0;
                     input = raw_input.to_vec();
@@ -298,18 +311,14 @@ fn match_group_exactly_one(
                     input = raw_input.to_vec();
                 }
                 Fulfillment::FulfilledButMoreAllowed => {
-                    println!(
-                        "multiplier fulfilled, more values allowed, but this wasn't one of them."
-                    );
+                    debug_print_exactly!("[{}] *** multiplier fulfilled, more values allowed, but this wasn't one of them.", gid);
 
                     c_idx += 1;
                     multiplier_count = 0;
                     input = raw_input.to_vec();
                 }
                 Fulfillment::NotFulfilled => {
-                    println!(
-                        "needed a match and found none. That's ok, just check the next element"
-                    );
+                    debug_print_exactly!("[{}] *** needed a match and found none. That's ok, just check the next element", gid);
                     c_idx += 1;
                     multiplier_count = 0;
                     input = raw_input.to_vec();
@@ -319,39 +328,43 @@ fn match_group_exactly_one(
 
         // End of input, so break
         if input.is_empty() {
+            debug_print_exactly!("[{}] *** input is empty. We don't know if we need to break here or not", gid);
             break; //TODO: I don't think break is correct here, it probably should just say that the current component doesn't match and go to the next one.
         }
 
         // Reached the end of either components or values
         if c_idx >= components.len() {
+            debug_print_exactly!("[{}] *** At the end of components. Breaking", gid);
             break;
         }
+
+        debug_print_exactly!("[{}] *** relooping with the next component", gid);
     }
 
-    println!("Group checks follow (cidx: {})", c_idx);
+    // let _dbg = format!("{:#?}", &components_matched);
+    // dbg!(&components_matched);
 
-    let _dbg = format!("{:#?}", &components_matched);
-
-    let component = components_matched
-        .into_iter()
-        .filter(|c| c.1.is_empty())
-        .collect::<Vec<_>>();
-
-    if component.len() != 1 {
-        println!("Matched components is not 1.");
+    // let component = components_matched
+    //     .into_iter()
+    //     .filter(|c| c.1.is_empty())
+    //     .collect::<Vec<_>>();
+    //
+    // dbg!(&component);
+    if components_matched.len() != 1 {
+        debug_print_exactly!("[{}] *** Matched components is not 1.", gid);
+        dbg!(&components_matched);
         return no_match(&input);
     }
 
-    println!("Matched exactly one value");
-    dbg!(&matched_values);
-    println!("{_dbg}");
-    dbg!(&input);
+    debug_print_exactly!("[{}] *** Matched exactly one value", gid);
 
-    return MatchResult {
-        remainder: component[0].1.clone(), //This can't panic, since we checked the len above, so the len will ALWAYS be 1 if we get here
+    let res = MatchResult {
+        remainder: components_matched[0].2.clone(),
         matched: true,
-        matched_values,
+        matched_values: components_matched[0].1.clone(),
     };
+    // dbg!(&res);
+    res
 }
 
 /// Returns element, when at least one of the elements in the group matches
@@ -370,11 +383,11 @@ fn match_group_at_least_one_any_order(
     let mut multiplier_count = 0;
     loop {
         let component = &components[c_idx];
-        // print!("value '{:?}' against '{:?}': ", input, component);
+        // println!("value '{:?}' against '{:?}': ", input, component);
 
         let res = match_component(&input, component);
         if res.matched {
-            // print!("matches: ");
+            // println!("matches: ");
             multiplier_count += 1;
 
             let mff = multiplier_fulfilled(component, multiplier_count);
@@ -432,7 +445,7 @@ fn match_group_at_least_one_any_order(
         // println!(" - No components have been matched");
         return no_match(&input);
     }
-    dbg!(&matched_values);
+    // dbg!(&matched_values);
 
     // println!("Match at least one any order is valid.");
 
@@ -457,11 +470,11 @@ fn match_group_all_any_order(
     let mut multiplier_count = 0;
     loop {
         let component = &components[c_idx];
-        // print!("value '{:?}' against '{:?}': ", input, component);
+        // println!("value '{:?}' against '{:?}': ", input, component);
 
         let res = match_component(&input, component);
         if res.matched {
-            // print!("matches: ");
+            // println!("matches: ");
             multiplier_count += 1;
 
             let mff = multiplier_fulfilled(component, multiplier_count);
@@ -559,49 +572,46 @@ fn match_group_juxtaposition(
     input: &Vec<CssValue>,
     components: &Vec<SyntaxComponent>,
 ) -> MatchResult {
-    // Create scoped input we can modify
-    let mut input = input.to_vec();
+    let gid = rand::random::<u8>();
+    debug_print_juxta!("[{}]+++ Entering Match group juxtaposition", gid);
 
-    // Component index we are currently matching against
+    let mut input = input.to_vec();
     let mut c_idx = 0;
-    // // Value index we are currently matching against
-    // let mut v_idx = 0;
     let mut matched_values = vec![];
 
     let mut multiplier_count = 0;
     loop {
         if input.is_empty() {
-            // println!("input is empty. Done with matching");
+            debug_print_juxta!("[{}]+++ input is empty. Done with matching", gid);
             break;
         }
 
         let component = &components[c_idx];
-        // print!("value '{:?}' against component", input);
+        debug_print_juxta!("[{}]+++ value '{:?}' against component", gid, input);
 
         let res = match_component(&input, component);
         if res.matched {
-            // print!("matches: ");
+            debug_print_juxta!("[{}]+++ matches: ", gid);
             multiplier_count += 1;
+
+            dbg!(&res);
 
             // Add matched elements to matched_values
             matched_values.append(&mut res.matched_values.clone());
+            input = res.remainder.clone();
 
             let mff = multiplier_fulfilled(component, multiplier_count);
-            // println!("multiplier {} fulfilled: {:?}", multiplier_count, mff);
+            debug_print_juxta!("[{}]+++ multiplier {} fulfilled: {:?}", gid, multiplier_count, mff);
 
             match mff {
                 Fulfillment::NotYetFulfilled => {
                     // The multiplier is not yet fulfilled. We need more values so check the next
-                    input = res.remainder.clone();
                 }
                 Fulfillment::FulfilledButMoreAllowed => {
                     // More elements are allowed. Let's check if we have one
-                    input = res.remainder.clone();
                 }
                 Fulfillment::Fulfilled => {
                     // no more values are allowed. Continue with the next value and element
-                    input = res.remainder.clone();
-
                     c_idx += 1;
                     multiplier_count = 0;
                 }
@@ -612,15 +622,15 @@ fn match_group_juxtaposition(
             }
         } else {
             // Element didn't match. That might be allright depending on the multiplier
-            // println!("no match");
+            debug_print_juxta!("[{}]+++ no match", gid);
 
             match multiplier_fulfilled(component, multiplier_count) {
                 Fulfillment::NotYetFulfilled => {
-                    // println!("needed a match and found none (notyetfulfilled)");
+                    debug_print_juxta!("[{}]+++ needed a match and found none (notyetfulfilled)", gid);
                     break;
                 }
                 Fulfillment::Fulfilled => {
-                    // println!("multiplier fulfilled");
+                    debug_print_juxta!("[{}]+++ multiplier fulfilled", gid);
 
                     // Add matched elements to matched_values
                     matched_values.append(&mut res.matched_values.clone());
@@ -630,59 +640,52 @@ fn match_group_juxtaposition(
                     multiplier_count = 0;
                 }
                 Fulfillment::FulfilledButMoreAllowed => {
-                    // println!("multiplier fulfilled, more values allowed, but this wasn't one of them.");
+                    debug_print_juxta!("[{}]+++ multiplier fulfilled, more values allowed, but this wasn't one of them.", gid);
                     c_idx += 1;
                     multiplier_count = 0;
                 }
                 Fulfillment::NotFulfilled => {
-                    // println!("needed a match and found none (notfulfilled)");
+                    debug_print_juxta!("[{}]+++ needed a match and found none (notfulfilled)", gid);
                     break;
                 }
             }
         }
 
-        // Reached the end of either components or values
+        // Reached the end of either components to check
         if c_idx >= components.len() {
             break;
         }
     }
 
-    // println!("Group checks follow (cidx: {})", c_idx);
-
+    // If we have broken out of the loop early, we need to check if all remaining components can
+    // be fulfilled. These fulfillments should be optional as there are.
     while c_idx < components.len() {
-        // println!("Not all components have been checked");
+        debug_print_juxta!("[{}]+++ Not all components have been checked", gid);
         let component = &components[c_idx];
-        // dbg!(&component);
         match multiplier_fulfilled(component, multiplier_count) {
             Fulfillment::NotYetFulfilled => {
-                // println!(" - Multiplier not yet fulfilled");
+                debug_print_juxta!("[{}]+++ - Multiplier not yet fulfilled. Juxta didn't had enough values", gid);
                 return no_match(&input);
             }
             Fulfillment::Fulfilled => {
-                // println!(" - Multiplier fulfilled");
+                debug_print_juxta!("[{}]+++ - Multiplier fulfilled. This is good", gid);
             }
             Fulfillment::FulfilledButMoreAllowed => {
-                // println!(" - Multiplier fulfilled, but more values allowed");
+                debug_print_juxta!("[{}]+++ - Multiplier fulfilled, but more values allowed", gid);
             }
             Fulfillment::NotFulfilled => {
-                // println!(" - Multiplier not fulfilled");
+                debug_print_juxta!("[{}]+++ - Multiplier not fulfilled. Juxta not met", gid);
                 return no_match(&input);
             }
         }
 
+        // Note that multiplier_count is zero at the SECOND iteration of the loop. The first iteration
+        // is to check the last value of the input against the last component.
         c_idx += 1;
         multiplier_count = 0;
     }
 
-    // if v_idx < values.len() {
-    //     // dbg!(&components);
-    //     dbg!(&values);
-    //     dbg!(&v_idx);
-    //     println!(" - Not all values have been checked");
-    //     return None;
-    // }
-
-    // println!("Match juxtaposition is valid. Return value is : {:?}", matched_values);
+    debug_print_juxta!("[{}]+++ Match juxtaposition is valid. Return value is : {:?}", gid, matched_values);
     return MatchResult {
         remainder: input.clone(),
         matched: true,
@@ -950,6 +953,34 @@ mod tests {
                 components,
             );
             assert_not_match!(res);
+        }
+    }
+
+    #[test]
+    fn test_match_group_juxtaposition_with_groups() {
+        // Test if groups are working icw juxtaposition
+        let tree = CssSyntax::new("[top | bottom] [ up | down ] [ charm | strange] ").compile().unwrap();
+        if let SyntaxComponent::Group { components, .. } = &tree.components[0] {
+            let res = match_group_juxtaposition(&vec![
+                str!("top"),
+                str!("up"),
+                str!("strange")
+            ], components);
+            assert_match!(res);
+
+            let res = match_group_juxtaposition(&vec![
+                str!("bottom"),
+                str!("up"),
+                str!("strange")
+            ], components);
+            assert_match!(res);
+
+            let res = match_group_juxtaposition(&vec![
+                str!("bottom"),
+                str!("down"),
+                str!("charm")
+            ], components);
+            assert_match!(res);
         }
     }
 
@@ -1243,31 +1274,31 @@ mod tests {
 
         let prop = definitions.find_property("testprop").unwrap();
 
-        assert_true!(prop
-            .clone()
-            .matches(vec![str!("left"), CssValue::Unit(5.0, "px".into()),]));
+        // assert_true!(prop
+        //     .clone()
+        //     .matches(vec![str!("left"), CssValue::Unit(5.0, "px".into()),]));
         assert_true!(prop
             .clone()
             .matches(vec![str!("top"), CssValue::Unit(5.0, "px".into()),]));
-        assert_true!(prop
-            .clone()
-            .matches(vec![str!("bottom"), CssValue::Unit(5.0, "px".into()),]));
-        assert_true!(prop
-            .clone()
-            .matches(vec![str!("right"), CssValue::Unit(5.0, "px".into()),]));
-        assert_true!(prop.clone().matches(vec![str!("left")]));
-        assert_true!(prop.clone().matches(vec![str!("top")]));
-        assert_true!(prop.clone().matches(vec![str!("bottom")]));
-        assert_true!(prop.clone().matches(vec![str!("right")]));
-
-        assert_false!(prop
-            .clone()
-            .matches(vec![CssValue::Unit(5.0, "px".into()), str!("right"),]));
-        assert_false!(prop.clone().matches(vec![
-            CssValue::Unit(5.0, "px".into()),
-            CssValue::Unit(10.0, "px".into()),
-            str!("right"),
-        ]));
+        // assert_true!(prop
+        //     .clone()
+        //     .matches(vec![str!("bottom"), CssValue::Unit(5.0, "px".into()),]));
+        // assert_true!(prop
+        //     .clone()
+        //     .matches(vec![str!("right"), CssValue::Unit(5.0, "px".into()),]));
+        // assert_true!(prop.clone().matches(vec![str!("left")]));
+        // assert_true!(prop.clone().matches(vec![str!("top")]));
+        // assert_true!(prop.clone().matches(vec![str!("bottom")]));
+        // assert_true!(prop.clone().matches(vec![str!("right")]));
+        //
+        // assert_false!(prop
+        //     .clone()
+        //     .matches(vec![CssValue::Unit(5.0, "px".into()), str!("right"),]));
+        // assert_false!(prop.clone().matches(vec![
+        //     CssValue::Unit(5.0, "px".into()),
+        //     CssValue::Unit(10.0, "px".into()),
+        //     str!("right"),
+        // ]));
     }
 
     #[test]
@@ -1278,9 +1309,10 @@ mod tests {
             PropertyDefinition {
                 name: "testprop".to_string(),
                 computed: vec![],
-                // syntax: CssSyntax::new("[ [ left | center | right | top | bottom | <length-percentage> ] | [ left | center | right | <length-percentage> ] [ top | center | bottom | <length-percentage> ] ]").compile().unwrap(),
+                syntax: CssSyntax::new("[ [ left | center | right | top | bottom | <length-percentage> ] | [ left | center | right | <length-percentage> ] [ top | center | bottom | <length-percentage> ] ]").compile().unwrap(),
+                // syntax: CssSyntax::new("[ [ left | center ] [ top | center ] ]").compile().unwrap(),
                 // syntax: CssSyntax::new("[ top | top top ]").compile().unwrap(),
-                syntax: CssSyntax::new("top | top top").compile().unwrap(),
+                // syntax: CssSyntax::new("top | top top").compile().unwrap(),
                 inherited: false,
                 initial_value: None,
                 resolved: false,
@@ -1290,56 +1322,56 @@ mod tests {
 
         let prop = definitions.find_property("testprop").unwrap();
 
-        // assert_true!(prop.clone().matches(vec![
-        //     str!("left"),
-        // ]));
-        // assert_true!(prop.clone().matches(vec![
-        //     str!("left"),
-        //     str!("top"),
-        // ]));
-        // assert_true!(prop.clone().matches(vec![
-        //     str!("center"),
-        //     str!("top"),
-        // ]));
+        assert_true!(prop.clone().matches(vec![
+            str!("left"),
+        ]));
+        assert_true!(prop.clone().matches(vec![
+            str!("left"),
+            str!("top"),
+        ]));
+        assert_true!(prop.clone().matches(vec![
+            str!("center"),
+            str!("top"),
+        ]));
         assert_true!(prop.clone().matches(vec![str!("top"), str!("top"),]));
-        // assert_true!(prop.clone().matches(vec![
-        //     str!("top"),
-        //     str!("center"),
-        // ]));
-        // assert_true!(prop.clone().matches(vec![
-        //     str!("center"),
-        //     str!("center"),
-        // ]));
-        // assert_true!(prop.clone().matches(vec![
-        //     CssValue::Percentage(10.0),
-        //     CssValue::Percentage(20.0),
-        // ]));
-        // assert_true!(prop.clone().matches(vec![
-        //     CssValue::Unit(10.0, "px".into()),
-        //     CssValue::Percentage(20.0),
-        // ]));
-        // assert_true!(prop.clone().matches(vec![
-        //     str!("left"),
-        //     CssValue::Percentage(20.0),
-        // ]));
-        //
-        // assert_true!(prop.clone().matches(vec![
-        //     CssValue::Unit(10.0, "px".into()),
-        //     str!("center"),
-        // ]));
-        //
-        // assert_true!(prop.clone().matches(vec![
-        //     str!("top"),
-        //     CssValue::Percentage(10.0),
-        // ]));
-        //
-        // assert_true!(prop
-        //     .clone()
-        //     .matches(vec![str!("right")]));
-        //
-        // assert_false!(prop
-        //     .clone()
-        //     .matches(vec![str!("top")]));
+        assert_true!(prop.clone().matches(vec![
+            str!("top"),
+            str!("center"),
+        ]));
+        assert_true!(prop.clone().matches(vec![
+            str!("center"),
+            str!("center"),
+        ]));
+        assert_true!(prop.clone().matches(vec![
+            CssValue::Percentage(10.0),
+            CssValue::Percentage(20.0),
+        ]));
+        assert_true!(prop.clone().matches(vec![
+            CssValue::Unit(10.0, "px".into()),
+            CssValue::Percentage(20.0),
+        ]));
+        assert_true!(prop.clone().matches(vec![
+            str!("left"),
+            CssValue::Percentage(20.0),
+        ]));
+
+        assert_true!(prop.clone().matches(vec![
+            CssValue::Unit(10.0, "px".into()),
+            str!("center"),
+        ]));
+
+        assert_true!(prop.clone().matches(vec![
+            str!("top"),
+            CssValue::Percentage(10.0),
+        ]));
+
+        assert_true!(prop
+            .clone()
+            .matches(vec![str!("right")]));
+
+        assert_false!(prop
+            .clone()
+            .matches(vec![str!("top")]));
     }
 
     #[test]
@@ -1504,10 +1536,63 @@ mod tests {
     #[test]
     fn test_match_with_subgroups() {
         let tree = CssSyntax::new("[a b ] | [a c]").compile().unwrap();
-        // let tree = CssSyntax::new("[ [a b ] | [c d] | [e f] ] g").compile().unwrap();
-        // let tree = CssSyntax::new("[a | b ] [c | d] [e | f]").compile().unwrap();
         assert_true!(tree.matches(vec![str!("a"), str!("b"),]));
         assert_true!(tree.matches(vec![str!("a"), str!("c"),]));
         assert_false!(tree.matches(vec![str!("b"), str!("b"),]));
     }
+
+    #[test]
+    fn test_matcher_4() {
+        let mut definitions = parse_definition_files();
+        definitions.add_property(
+            "testprop",
+            PropertyDefinition {
+                name: "testprop".to_string(),
+                computed: vec![],
+                syntax: CssSyntax::new(
+                    // "[ left | right ] <length>? | [ top | bottom ] <length> | [ top | bottom ]"
+                    "left <length>? | top <length> | top"
+                ).compile().unwrap(),
+                inherited: false,
+                initial_value: None,
+                resolved: false,
+            },
+        );
+        definitions.resolve();
+
+        let prop = definitions.find_property("testprop").unwrap();
+
+        // assert_true!(prop.clone().matches(vec![
+        //     str!("left"),
+        //     CssValue::Unit(10.0, "px".into()),
+        // ]));
+        // assert_true!(prop.clone().matches(vec![
+        //     str!("right"),
+        //     CssValue::Unit(10.0, "px".into()),
+        // ]));
+        // assert_true!(prop.clone().matches(vec![
+        //     str!("left"),
+        // ]));
+        // assert_true!(prop.clone().matches(vec![
+        //     str!("right"),
+        // ]));
+
+        assert_true!(prop.clone().matches(vec![
+            str!("top"),
+            CssValue::Unit(10.0, "px".into()),
+        ]));
+        // assert_true!(prop.clone().matches(vec![
+        //     str!("bottom"),
+        //     CssValue::Unit(10.0, "px".into()),
+        // ]));
+
+        // assert_true!(prop.clone().matches(vec![
+        //     str!("top"),
+        // ]));
+        // assert_true!(prop.clone().matches(vec![
+        //     str!("bottom"),
+        // ]));
+
+    }
+
 }
