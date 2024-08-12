@@ -394,7 +394,7 @@ fn parse_group(input: &str) -> IResult<&str, SyntaxComponent> {
     let (input, components) =
         delimited(ws(tag("[")), parse_component_singlebar_list, ws(tag("]")))(input)?;
 
-    return Ok((input, components));
+    Ok((input, components))
 }
 
 fn parse_component_singlebar_list(input: &str) -> IResult<&str, SyntaxComponent> {
@@ -487,7 +487,7 @@ fn juxtaseparator(input: &str) -> IResult<&str, bool> {
 
     // If we didn't find any of the above chars, we return true, as we seem to have found a
     // next juxtaposition element.
-    return Ok((input, end_of_group.is_none()));
+    Ok((input, end_of_group.is_none()))
 }
 
 // We need to use a custom separated_list1 for this, as that function MUST capture a separator
@@ -604,7 +604,7 @@ fn parse_function(input: &str) -> IResult<&str, SyntaxComponent> {
     );
 
     let (input, name) = parse_keyword(input)?;
-    let (input, arglist) = alt((map(empty_arglist, |_| None), map(arglist, |c| Some(c))))(input)?;
+    let (input, arglist) = alt((map(empty_arglist, |_| None), map(arglist, Some)))(input)?;
 
     match arglist {
         Some(arglist) => Ok((
@@ -1016,7 +1016,10 @@ mod tests {
             parts.unwrap(),
             CssSyntaxTree::new(vec![SyntaxComponent::GenericKeyword {
                 keyword: "color".to_string(),
-                multipliers: vec![SyntaxComponentMultiplier::CommaSeparatedRepeat(1, u32::MAX as usize)],
+                multipliers: vec![SyntaxComponentMultiplier::CommaSeparatedRepeat(
+                    1,
+                    u32::MAX as usize
+                )],
             }])
         );
 
@@ -1216,7 +1219,10 @@ mod tests {
                 datatype: "foo".to_string(),
                 quoted: false,
                 range: RangeType::empty(),
-                multipliers: vec![SyntaxComponentMultiplier::CommaSeparatedRepeat(1, u32::MAX as usize)],
+                multipliers: vec![SyntaxComponentMultiplier::CommaSeparatedRepeat(
+                    1,
+                    u32::MAX as usize
+                )],
             }]
         );
     }
@@ -1877,7 +1883,7 @@ mod tests {
                                 min: NumberOrInfinity::None,
                                 max: NumberOrInfinity::None,
                             },
-                            multipliers: vec![SyntaxComponentMultiplier::Optional ],
+                            multipliers: vec![SyntaxComponentMultiplier::Optional],
                         },
                     ],
                     multipliers: vec![SyntaxComponentMultiplier::Once],
@@ -2306,11 +2312,15 @@ mod tests {
                                                 components: vec![
                                                     SyntaxComponent::GenericKeyword {
                                                         keyword: "left".to_string(),
-                                                        multipliers: vec![SyntaxComponentMultiplier::Once],
+                                                        multipliers: vec![
+                                                            SyntaxComponentMultiplier::Once
+                                                        ],
                                                     },
                                                     SyntaxComponent::GenericKeyword {
                                                         keyword: "right".to_string(),
-                                                        multipliers: vec![SyntaxComponentMultiplier::Once],
+                                                        multipliers: vec![
+                                                            SyntaxComponentMultiplier::Once
+                                                        ],
                                                     },
                                                 ],
                                                 multipliers: vec![SyntaxComponentMultiplier::Once],
@@ -2322,7 +2332,9 @@ mod tests {
                                                     min: NumberOrInfinity::None,
                                                     max: NumberOrInfinity::None,
                                                 },
-                                                multipliers: vec![SyntaxComponentMultiplier::Optional ],
+                                                multipliers: vec![
+                                                    SyntaxComponentMultiplier::Optional
+                                                ],
                                             },
                                         ],
                                         multipliers: vec![SyntaxComponentMultiplier::Once],
@@ -2345,11 +2357,15 @@ mod tests {
                                                 components: vec![
                                                     SyntaxComponent::GenericKeyword {
                                                         keyword: "top".to_string(),
-                                                        multipliers: vec![SyntaxComponentMultiplier::Once],
+                                                        multipliers: vec![
+                                                            SyntaxComponentMultiplier::Once
+                                                        ],
                                                     },
                                                     SyntaxComponent::GenericKeyword {
                                                         keyword: "bottom".to_string(),
-                                                        multipliers: vec![SyntaxComponentMultiplier::Once],
+                                                        multipliers: vec![
+                                                            SyntaxComponentMultiplier::Once
+                                                        ],
                                                     },
                                                 ],
                                                 multipliers: vec![SyntaxComponentMultiplier::Once],
@@ -2361,7 +2377,9 @@ mod tests {
                                                     min: NumberOrInfinity::None,
                                                     max: NumberOrInfinity::None,
                                                 },
-                                                multipliers: vec![SyntaxComponentMultiplier::Optional ],
+                                                multipliers: vec![
+                                                    SyntaxComponentMultiplier::Optional
+                                                ],
                                             },
                                         ],
                                         multipliers: vec![SyntaxComponentMultiplier::Once],
@@ -2400,7 +2418,7 @@ mod tests {
                             },
                             SyntaxComponent::GenericKeyword {
                                 keyword: "top".to_string(),
-                                multipliers: vec![SyntaxComponentMultiplier::Between(1, 3) ],
+                                multipliers: vec![SyntaxComponentMultiplier::Between(1, 3)],
                             },
                         ],
                         multipliers: vec![SyntaxComponentMultiplier::Once],
@@ -2420,7 +2438,7 @@ mod tests {
                         multipliers: vec![SyntaxComponentMultiplier::Once],
                     },
                 ],
-                multipliers: vec![SyntaxComponentMultiplier::ZeroOrMore ],
+                multipliers: vec![SyntaxComponentMultiplier::ZeroOrMore],
             }])
         );
     }

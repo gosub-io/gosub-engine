@@ -48,7 +48,7 @@ const BUILTIN_DATA_TYPES: [&str; 41] = [
     "x",
     "y",
     "color()",
-    "attr()", //TODO: this is not a builtin!
+    "attr()",    //TODO: this is not a builtin!
     "element()", //TODO: this is not a builtin!
 ];
 
@@ -138,6 +138,12 @@ pub struct CssDefinitions {
     pub syntax: HashMap<String, SyntaxDefinition>,
 }
 
+impl Default for CssDefinitions {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CssDefinitions {
     pub fn new() -> Self {
         CssDefinitions {
@@ -191,7 +197,7 @@ impl CssDefinitions {
     fn resolve_property(&mut self, name: &str) {
         if self.resolved_properties.contains_key(name) {
             // Property already resolved
-            return
+            return;
         }
 
         if !self.properties.contains_key(name) {
@@ -334,7 +340,11 @@ pub fn parse_definition_files() -> CssDefinitions {
     let properties = parse_property_file(json);
 
     // Create definition structure, and resolve all definitions
-    let mut definitions = CssDefinitions { resolved_properties: HashMap::new(), properties, syntax };
+    let mut definitions = CssDefinitions {
+        resolved_properties: HashMap::new(),
+        properties,
+        syntax,
+    };
     definitions.resolve();
 
     definitions
@@ -360,7 +370,7 @@ fn parse_syntax_file(json: serde_json::Value) -> HashMap<String, SyntaxDefinitio
                     name = name[1..].to_string();
                 }
 
-                if name.starts_with("<") {
+                if name.starts_with('<') {
                     name = name[1..].to_string();
                 }
 
@@ -368,7 +378,7 @@ fn parse_syntax_file(json: serde_json::Value) -> HashMap<String, SyntaxDefinitio
                     name.pop();
                 }
 
-                if name.ends_with(">") {
+                if name.ends_with('>') {
                     name.pop();
                 }
 
@@ -407,7 +417,7 @@ fn parse_property_file(json: serde_json::Value) -> HashMap<String, PropertyDefin
         let syntax = obj.get("syntax").unwrap().as_str().unwrap();
         let syntax = CssSyntax::new(syntax)
             .compile()
-            .expect(&format!("Could not compile syntax for {name}: {syntax:?}"));
+            .unwrap_or_else(|_| panic!("Could not compile syntax for {name}: {syntax:?}"));
 
         //
         let computed = if obj["computed"].is_array() {
@@ -502,41 +512,36 @@ mod tests {
         let definitions = parse_definition_files();
         let prop = definitions.find_property("border").unwrap();
 
-        assert_eq!(
-            true,
+        assert!(
             prop.clone().matches(vec![
                 unit!(1.0, "px"),
                 str!("solid"),
                 CssValue::Color(RgbColor::from("black")),
             ])
         );
-        assert_eq!(
-            true,
+        assert!(
             prop.clone().matches(vec![
                 CssValue::Color(RgbColor::from("black")),
                 str!("solid"),
                 unit!(1.0, "px"),
             ])
         );
-        assert_eq!(
-            true,
+        assert!(
             prop.clone().matches(vec![
                 str!("solid"),
                 CssValue::Color(RgbColor::from("black")),
                 unit!(1.0, "px"),
             ])
         );
-        assert_eq!(true, prop.clone().matches(vec![unit!(1.0, "px"),]));
-        assert_eq!(true, prop.clone().matches(vec![str!("solid")]));
-        assert_eq!(
-            true,
+        assert!(prop.clone().matches(vec![unit!(1.0, "px"),]));
+        assert!(prop.clone().matches(vec![str!("solid")]));
+        assert!(
             prop.clone().matches(vec![
                 str!("solid"),
                 CssValue::Color(RgbColor::from("black")),
             ])
         );
-        assert_eq!(
-            true,
+        assert!(
             prop.clone().matches(vec![
                 str!("solid"),
                 CssValue::Color(RgbColor::from("black")),

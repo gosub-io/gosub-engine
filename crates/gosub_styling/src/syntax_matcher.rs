@@ -1,6 +1,6 @@
+use crate::syntax::{GroupCombinators, SyntaxComponent, SyntaxComponentMultiplier};
 use gosub_css3::colors::{is_named_color, is_system_color};
 use gosub_css3::stylesheet::CssValue;
-use crate::syntax::{GroupCombinators, SyntaxComponent, SyntaxComponentMultiplier};
 
 /// Structure to return from a matching function.
 #[derive(Debug, Clone)]
@@ -44,7 +44,6 @@ impl CssSyntaxTree {
     }
 }
 
-
 fn match_component_inner(raw_input: &Vec<CssValue>, component: &SyntaxComponent) -> MatchResult {
     let _gid = rand::random::<u8>();
 
@@ -68,7 +67,7 @@ fn match_component_inner(raw_input: &Vec<CssValue>, component: &SyntaxComponent)
             }
 
             // Seems this component needs at least one value. We don't have any, so it's no match
-            return no_match(&raw_input);
+            return no_match(raw_input);
         }
 
         // Check either single or group component
@@ -108,7 +107,7 @@ fn match_component_inner(raw_input: &Vec<CssValue>, component: &SyntaxComponent)
                 }
                 Fulfillment::NotFulfilled => {
                     // The multiplier is not fulfilled.
-                    return no_match(&raw_input);
+                    return no_match(raw_input);
                 }
             }
         } else {
@@ -129,7 +128,7 @@ fn match_component_inner(raw_input: &Vec<CssValue>, component: &SyntaxComponent)
                     };
                 }
                 Fulfillment::NotFulfilled => {
-                    return no_match(&raw_input);
+                    return no_match(raw_input);
                 }
             }
         }
@@ -160,7 +159,6 @@ fn match_component(raw_input: &Vec<CssValue>, component: &SyntaxComponent) -> Ma
         }
     }
 
-
     // CSV loop
     loop {
         let inner_result = match_component_inner(&input, component);
@@ -185,8 +183,8 @@ fn match_component(raw_input: &Vec<CssValue>, component: &SyntaxComponent) -> Ma
         }
 
         // Make sure the next value from input is a comma
-        if input.get(0) != Some(&CssValue::Comma) {
-            return no_match(&raw_input);
+        if input.first() != Some(&CssValue::Comma) {
+            return no_match(raw_input);
         }
 
         // Remove the comma, and continue matching
@@ -194,7 +192,7 @@ fn match_component(raw_input: &Vec<CssValue>, component: &SyntaxComponent) -> Ma
 
         if input.is_empty() {
             // We have a comma at the end of the input. This is not allowed.
-            return no_match(&raw_input);
+            return no_match(raw_input);
         }
     }
 
@@ -207,7 +205,7 @@ fn match_component(raw_input: &Vec<CssValue>, component: &SyntaxComponent) -> Ma
         };
     }
 
-    return no_match(&raw_input);
+    no_match(raw_input)
 }
 
 /// Matches a component group
@@ -220,16 +218,16 @@ fn match_component_group(input: &Vec<CssValue>, component: &SyntaxComponent) -> 
         } => {
             // println!("We need to do a group match on {:?}, our value is: {:?}", combinator, input);
 
-            let result = match combinator {
+            
+
+            match combinator {
                 GroupCombinators::Juxtaposition => match_group_juxtaposition(input, components),
                 GroupCombinators::AllAnyOrder => match_group_all_any_order(input, components),
                 GroupCombinators::AtLeastOneAnyOrder => {
                     match_group_at_least_one_any_order(input, components)
                 }
                 GroupCombinators::ExactlyOne => match_group_exactly_one(input, components),
-            };
-
-            result
+            }
         }
         e => {
             panic!("Unknown syntax component group: {:?}", e);
@@ -240,7 +238,7 @@ fn match_component_group(input: &Vec<CssValue>, component: &SyntaxComponent) -> 
 /// Matches a single component value
 fn match_component_single(input: &Vec<CssValue>, component: &SyntaxComponent) -> MatchResult {
     // Get the first value from the input which we will use for matching
-    let value = input.get(0).unwrap();
+    let value = input.first().unwrap();
 
     // println!("\n\nmatch_component: {:?} against {:?}", value, component);
 
@@ -409,7 +407,6 @@ fn match_group_exactly_one(
             // input = res.remainder.clone();
 
             components_matched.push((c_idx, res.matched_values, res.remainder));
-
         } else {
             // No match. That's all right.
         }
@@ -476,7 +473,6 @@ fn match_group_at_least_one_any_order(
                 c_idx += 1;
             }
         } else {
-
             // Element didn't match. That might be allright, and we continue with the next unmatched component
             c_idx += 1;
             while components_matched.contains(&c_idx) {
@@ -494,7 +490,6 @@ fn match_group_at_least_one_any_order(
         matched: true,
         matched_values,
     }
-
 }
 
 fn match_group_all_any_order(
@@ -596,11 +591,14 @@ enum Fulfillment {
 fn multiplier_fulfilled(component: &SyntaxComponent, cnt: usize) -> Fulfillment {
     // Filter out the multipliers that are not relevant for this check
     let binding = component.get_multipliers();
-    let mut filtered_multipliers: Vec<_> = binding.iter().filter(|m| match m {
-        SyntaxComponentMultiplier::AtLeastOneValue => false,
-        SyntaxComponentMultiplier::CommaSeparatedRepeat(_, _) => false,
-        _ => true,
-    }).collect();
+    let mut filtered_multipliers: Vec<_> = binding
+        .iter()
+        .filter(|m| match m {
+            SyntaxComponentMultiplier::AtLeastOneValue => false,
+            SyntaxComponentMultiplier::CommaSeparatedRepeat(_, _) => false,
+            _ => true,
+        })
+        .collect();
 
     // Make sure that whenever we do not find a (primary) multiplier, we use the default "Once".
     if filtered_multipliers.is_empty() {
@@ -613,9 +611,7 @@ fn multiplier_fulfilled(component: &SyntaxComponent, cnt: usize) -> Fulfillment 
             1 => Fulfillment::Fulfilled,
             _ => Fulfillment::NotFulfilled,
         },
-        SyntaxComponentMultiplier::ZeroOrMore => match cnt {
-            _ => Fulfillment::FulfilledButMoreAllowed,
-        },
+        SyntaxComponentMultiplier::ZeroOrMore => Fulfillment::FulfilledButMoreAllowed,
         SyntaxComponentMultiplier::OneOrMore => match cnt {
             0 => Fulfillment::NotYetFulfilled,
             _ => Fulfillment::FulfilledButMoreAllowed,
@@ -630,7 +626,7 @@ fn multiplier_fulfilled(component: &SyntaxComponent, cnt: usize) -> Fulfillment 
             _ if cnt >= *from && cnt <= *to => Fulfillment::FulfilledButMoreAllowed,
             _ => Fulfillment::NotFulfilled,
         },
-        _ => Fulfillment::NotFulfilled
+        _ => Fulfillment::NotFulfilled,
     }
 }
 
@@ -646,9 +642,9 @@ fn no_match(input: &Vec<CssValue>) -> MatchResult {
 /// Helper function to return the first element from input in a match result, as we need this a lot
 fn first_match(input: &Vec<CssValue>) -> MatchResult {
     MatchResult {
-        remainder: input.into_iter().skip(1).cloned().collect(),
+        remainder: input.iter().skip(1).cloned().collect(),
         matched: true,
-        matched_values: vec![input.get(0).unwrap().clone()],
+        matched_values: vec![input.first().unwrap().clone()],
     }
 }
 
@@ -845,27 +841,26 @@ mod tests {
     #[test]
     fn test_match_group_juxtaposition_with_groups() {
         // Test if groups are working icw juxtaposition
-        let tree = CssSyntax::new("[top | bottom] [ up | down ] [ charm | strange] ").compile().unwrap();
+        let tree = CssSyntax::new("[top | bottom] [ up | down ] [ charm | strange] ")
+            .compile()
+            .unwrap();
         if let SyntaxComponent::Group { components, .. } = &tree.components[0] {
-            let res = match_group_juxtaposition(&vec![
-                str!("top"),
-                str!("up"),
-                str!("strange")
-            ], components);
+            let res = match_group_juxtaposition(
+                &vec![str!("top"), str!("up"), str!("strange")],
+                components,
+            );
             assert_match!(res);
 
-            let res = match_group_juxtaposition(&vec![
-                str!("bottom"),
-                str!("up"),
-                str!("strange")
-            ], components);
+            let res = match_group_juxtaposition(
+                &vec![str!("bottom"), str!("up"), str!("strange")],
+                components,
+            );
             assert_match!(res);
 
-            let res = match_group_juxtaposition(&vec![
-                str!("bottom"),
-                str!("down"),
-                str!("charm")
-            ], components);
+            let res = match_group_juxtaposition(
+                &vec![str!("bottom"), str!("down"), str!("charm")],
+                components,
+            );
             assert_match!(res);
         }
     }
@@ -1080,7 +1075,6 @@ mod tests {
             .matches(vec![str!("foo"), str!("bar"), str!("bar"),]));
         assert_false!(tree.clone().matches(vec![str!("bar"), str!("foo"),]));
 
-
         let tree = CssSyntax::new("foo+ bar+").compile().unwrap();
         assert_false!(tree.clone().matches(vec![str!("foo")]));
         assert_false!(tree.clone().matches(vec![str!("bar")]));
@@ -1088,9 +1082,12 @@ mod tests {
         assert_true!(tree
             .clone()
             .matches(vec![str!("foo"), str!("bar"), str!("bar"),]));
-        assert_true!(tree
-            .clone()
-            .matches(vec![str!("foo"), str!("foo"), str!("bar"), str!("bar"),]));
+        assert_true!(tree.clone().matches(vec![
+            str!("foo"),
+            str!("foo"),
+            str!("bar"),
+            str!("bar"),
+        ]));
 
         assert_false!(tree.clone().matches(vec![str!("bar"), str!("foo"),]));
     }
@@ -1218,60 +1215,35 @@ mod tests {
 
         let prop = definitions.find_property("testprop").unwrap();
 
-        assert_true!(prop.clone().matches(vec![
-            str!("left"),
-        ]));
-        assert_true!(prop.clone().matches(vec![
-            str!("left"),
-            str!("top"),
-        ]));
-        assert_true!(prop.clone().matches(vec![
-            str!("center"),
-            str!("top"),
-        ]));
+        assert_true!(prop.clone().matches(vec![str!("left"),]));
+        assert_true!(prop.clone().matches(vec![str!("left"), str!("top"),]));
+        assert_true!(prop.clone().matches(vec![str!("center"), str!("top"),]));
         assert_false!(prop.clone().matches(vec![str!("top"), str!("top"),]));
-        assert_false!(prop.clone().matches(vec![
-            str!("top"),
-            str!("center"),
-        ]));
-        assert_true!(prop.clone().matches(vec![
-            str!("center"),
-            str!("top"),
-        ]));
-        assert_true!(prop.clone().matches(vec![
-            str!("center"),
-            str!("center"),
-        ]));
-        assert_true!(prop.clone().matches(vec![
-            CssValue::Percentage(10.0),
-            CssValue::Percentage(20.0),
-        ]));
+        assert_false!(prop.clone().matches(vec![str!("top"), str!("center"),]));
+        assert_true!(prop.clone().matches(vec![str!("center"), str!("top"),]));
+        assert_true!(prop.clone().matches(vec![str!("center"), str!("center"),]));
+        assert_true!(prop
+            .clone()
+            .matches(vec![CssValue::Percentage(10.0), CssValue::Percentage(20.0),]));
         assert_true!(prop.clone().matches(vec![
             CssValue::Unit(10.0, "px".into()),
             CssValue::Percentage(20.0),
         ]));
-        assert_true!(prop.clone().matches(vec![
-            str!("left"),
-            CssValue::Percentage(20.0),
-        ]));
-
-        assert_true!(prop.clone().matches(vec![
-            CssValue::Unit(10.0, "px".into()),
-            str!("center"),
-        ]));
-
-        assert_true!(prop.clone().matches(vec![
-            CssValue::Percentage(10.0),
-            str!("top"),
-        ]));
+        assert_true!(prop
+            .clone()
+            .matches(vec![str!("left"), CssValue::Percentage(20.0),]));
 
         assert_true!(prop
             .clone()
-            .matches(vec![str!("right")]));
+            .matches(vec![CssValue::Unit(10.0, "px".into()), str!("center"),]));
 
         assert_true!(prop
             .clone()
-            .matches(vec![str!("top")]));
+            .matches(vec![CssValue::Percentage(10.0), str!("top"),]));
+
+        assert_true!(prop.clone().matches(vec![str!("right")]));
+
+        assert_true!(prop.clone().matches(vec![str!("top")]));
     }
 
     #[test]
@@ -1442,9 +1414,10 @@ mod tests {
                 name: "testprop".to_string(),
                 computed: vec![],
                 syntax: CssSyntax::new(
-                    "[ left | right ] <length>? | [ top | bottom ] <length> | [ top | bottom ]"
-                    // "left <length>? | top <length> | top"
-                ).compile().unwrap(),
+                    "[ left | right ] <length>? | [ top | bottom ] <length> | [ top | bottom ]", // "left <length>? | top <length> | top"
+                )
+                .compile()
+                .unwrap(),
                 inherited: false,
                 initial_value: None,
                 resolved: false,
@@ -1454,36 +1427,24 @@ mod tests {
 
         let prop = definitions.find_property("testprop").unwrap();
 
-        assert_true!(prop.clone().matches(vec![
-            str!("left"),
-            CssValue::Unit(10.0, "px".into()),
-        ]));
-        assert_true!(prop.clone().matches(vec![
-            str!("right"),
-            CssValue::Unit(10.0, "px".into()),
-        ]));
-        assert_true!(prop.clone().matches(vec![
-            str!("left"),
-        ]));
-        assert_true!(prop.clone().matches(vec![
-            str!("right"),
-        ]));
+        assert_true!(prop
+            .clone()
+            .matches(vec![str!("left"), CssValue::Unit(10.0, "px".into()),]));
+        assert_true!(prop
+            .clone()
+            .matches(vec![str!("right"), CssValue::Unit(10.0, "px".into()),]));
+        assert_true!(prop.clone().matches(vec![str!("left"),]));
+        assert_true!(prop.clone().matches(vec![str!("right"),]));
 
-        assert_true!(prop.clone().matches(vec![
-            str!("top"),
-            CssValue::Unit(10.0, "px".into()),
-        ]));
-        assert_true!(prop.clone().matches(vec![
-            str!("bottom"),
-            CssValue::Unit(10.0, "px".into()),
-        ]));
+        assert_true!(prop
+            .clone()
+            .matches(vec![str!("top"), CssValue::Unit(10.0, "px".into()),]));
+        assert_true!(prop
+            .clone()
+            .matches(vec![str!("bottom"), CssValue::Unit(10.0, "px".into()),]));
 
-        assert_true!(prop.clone().matches(vec![
-            str!("top"),
-        ]));
-        assert_true!(prop.clone().matches(vec![
-            str!("bottom"),
-        ]));
+        assert_true!(prop.clone().matches(vec![str!("top"),]));
+        assert_true!(prop.clone().matches(vec![str!("bottom"),]));
     }
 
     #[test]
@@ -1491,13 +1452,35 @@ mod tests {
         let tree = CssSyntax::new("[foo | bar | baz]#").compile().unwrap();
         assert_true!(tree.matches(vec![str!("foo")]));
         assert_true!(tree.matches(vec![str!("foo"), CssValue::Comma, str!("foo")]));
-        assert_true!(tree.matches(vec![str!("foo"), CssValue::Comma, str!("foo"), CssValue::Comma, str!("foo")]));
+        assert_true!(tree.matches(vec![
+            str!("foo"),
+            CssValue::Comma,
+            str!("foo"),
+            CssValue::Comma,
+            str!("foo")
+        ]));
         assert_true!(tree.matches(vec![str!("foo"), CssValue::Comma, str!("bar")]));
         assert_true!(tree.matches(vec![str!("foo"), CssValue::Comma, str!("baz")]));
-        assert_true!(tree.matches(vec![str!("foo"), CssValue::Comma, str!("bar"), CssValue::Comma, str!("baz")]));
+        assert_true!(tree.matches(vec![
+            str!("foo"),
+            CssValue::Comma,
+            str!("bar"),
+            CssValue::Comma,
+            str!("baz")
+        ]));
 
         assert_false!(tree.matches(vec![str!("foo"), CssValue::Comma]));
-        assert_false!(tree.matches(vec![str!("foo"), CssValue::Comma, str!("bar"), CssValue::Comma]));
-        assert_false!(tree.matches(vec![str!("foo"), CssValue::Comma, CssValue::Comma, str!("bar")]));
+        assert_false!(tree.matches(vec![
+            str!("foo"),
+            CssValue::Comma,
+            str!("bar"),
+            CssValue::Comma
+        ]));
+        assert_false!(tree.matches(vec![
+            str!("foo"),
+            CssValue::Comma,
+            CssValue::Comma,
+            str!("bar")
+        ]));
     }
 }

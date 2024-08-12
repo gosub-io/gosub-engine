@@ -313,7 +313,7 @@ fn add_property_to_map(
 
     let declaration = DeclarationProperty {
         // @todo: this seems wrong. We only get the first values from the declared values
-        value: declaration.value.get(0).unwrap().clone(),
+        value: declaration.value.first().unwrap().clone(),
         origin: sheet.origin.clone(),
         important: declaration.important,
         location: sheet.location.clone(),
