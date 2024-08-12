@@ -254,7 +254,7 @@ mod tests {
                 .first()
                 .unwrap()
                 .value,
-            CssValue::String("red".into())
+            vec![CssValue::String("red".into())]
         );
 
         assert_eq!(
@@ -275,11 +275,11 @@ mod tests {
                 .first()
                 .unwrap()
                 .value,
-            CssValue::List(vec![
+            vec![
                 CssValue::Unit(1.0, "px".into()),
                 CssValue::String("solid".into()),
                 CssValue::String("black".into())
-            ])
+            ]
         );
     }
 }
