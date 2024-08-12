@@ -281,19 +281,6 @@ impl CssSyntax {
     }
 }
 
-// /// Converts a list of components into either a single value, or a list if there are multiple values.
-// fn value_or_list(list: Vec<SyntaxComponent>, combinator: GroupCombinators) -> SyntaxComponent {
-//     if list.len() == 1 {
-//         return list.into_iter().next().unwrap();
-//     }
-//
-//     SyntaxComponent::Group {
-//         components: list.clone(),
-//         combinator,
-//         multipliers: SyntaxComponentMultiplier::Once,
-//     }
-// }
-
 /// Parse a unit input
 fn parse_unit(input: &str) -> IResult<&str, SyntaxComponent> {
     let (input, value) = float(input)?;
@@ -471,73 +458,6 @@ fn parse_component_doubleampersand_list(input: &str) -> IResult<&str, SyntaxComp
     debug_print!("<- Remaining input: '{}'", input);
     Ok((input, group))
 }
-
-// fn is_custom_separator(c: char) -> bool {
-//     if c == ',' {
-//         return false;
-//     }
-//
-//     c == '|' || c == '&'
-// }
-
-// fn custom_separated_list_2(input: &str) -> IResult<&str, SyntaxComponent> {
-//     debug_print!("Parsing custom separated list: {}", input);
-//
-//     let mut res = Vec::new();
-//
-//     let mut input = input;
-//
-//     // Parser the first element
-//     match parse_component_doubleampersand_list(input) {
-//         Err(e) => return Err(e),
-//         Ok((input1, o)) => {
-//             res.push(o);
-//             input = input1;
-//         }
-//     }
-//
-//     loop {
-//         if input.is_empty() {
-//             break;
-//         }
-//
-//         // A separator is:
-//         // - a space character followed by a comma
-//         // - a comma
-//         // - a space character followed by a | or & or [ or ]
-//
-//         let (input1, _) = take_while(|c| is_custom_separator(c) || c.is_whitespace())(input)?;
-//         let (input1, _) = take_while(|c: char| c.is_whitespace())(input1)?;
-//
-//         dbg!(&input1);
-//
-//         if input1.is_empty() {
-//             break;
-//         }
-//
-//         match parse_component_doubleampersand_list(input1) {
-//             Err(Err::Error(_)) => break,
-//             Err(e) => return Err(e),
-//             Ok((input2, o)) => {
-//                 res.push(o);
-//                 input = input2;
-//             }
-//         }
-//     }
-//
-//     if res.len() == 1 {
-//         return Ok((input, res[0].clone()));
-//     }
-//
-//     Ok((
-//         input,
-//         SyntaxComponent::Group {
-//             components: res,
-//             combinator: GroupCombinators::Juxtaposition,
-//             multipliers: SyntaxComponentMultiplier::Once,
-//         },
-//     ))
-// }
 
 /// Find a separator for juxtaposition group. Or actually, find a separator that isn't for
 /// a juxtaposition group. If we remove the spaces, then we can check for the next non-space
@@ -906,12 +826,6 @@ fn parse(input: &str) -> IResult<&str, SyntaxComponent> {
     debug_print!("Parsing: {}", input);
     let (input, component) = preceded(multispace0, parse_component_singlebar_list)(input)?;
     debug_print!("<- Parsed: {:#?}", component);
-
-    // let result = SyntaxComponent::Group{
-    //     components: vec!(components),
-    //     combinator: GroupCombinators::Juxtaposition,
-    //     multipliers: vec![SyntaxComponentMultiplier::Once],
-    // };
 
     Ok((input, component))
 }

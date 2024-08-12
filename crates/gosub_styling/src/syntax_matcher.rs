@@ -20,33 +20,6 @@ const LENGTH_UNITS: [&str; 31] = [
     "Q", "in", "pc", "pt",
 ];
 
-
-macro_rules! debug_print_juxta {
-    // ($($x:tt)*) => { println!($($x)*) }
-    ($($x:tt)*) => {{}};
-}
-
-macro_rules! debug_print_exactly {
-    // ($($x:tt)*) => { println!($($x)*) }
-    ($($x:tt)*) => {{}};
-}
-
-macro_rules! debug_print_comp {
-    // ($($x:tt)*) => { println!($($x)*) }
-    ($($x:tt)*) => {{}};
-}
-
-macro_rules! debug_print_allany {
-    // ($($x:tt)*) => { println!($($x)*) }
-    ($($x:tt)*) => {{}};
-}
-
-macro_rules! debug_print_oneany {
-    // ($($x:tt)*) => { println!($($x)*) }
-    ($($x:tt)*) => {{}};
-}
-
-
 /// A CSS Syntax Tree is a tree sof CSS syntax components that can be used to match against CSS values.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CssSyntaxTree {
@@ -104,7 +77,6 @@ fn match_component_inner(raw_input: &Vec<CssValue>, component: &SyntaxComponent)
         } else {
             match_component_single(&input, component)
         };
-        debug_print_comp!("[{}] /// I just did a match against {:?} and res is {:?}", gid, input, res);
 
         if res.matched {
             // The element matched, so we keep track on how many times it did (in case of multipliers)
@@ -118,13 +90,11 @@ fn match_component_inner(raw_input: &Vec<CssValue>, component: &SyntaxComponent)
                 Fulfillment::NotYetFulfilled => {
                     // The multiplier is not yet fulfilled. Probably a range multiplier, so we need more
                     // values. Loop to the next value.
-                    debug_print_comp!("[{}] /// and not yet fulfilled", gid);
                     input = res.remainder.clone();
                     continue;
                 }
                 Fulfillment::FulfilledButMoreAllowed => {
                     // More elements are allowed. Let's check if we have one
-                    debug_print_comp!("[{}] /// fulfilled but more allowed, {:?}", gid, res);
                     input = res.remainder.clone();
 
                     // No more input to check, so we can just return this match
@@ -134,13 +104,10 @@ fn match_component_inner(raw_input: &Vec<CssValue>, component: &SyntaxComponent)
                 }
                 Fulfillment::Fulfilled => {
                     // no more values are allowed.
-                    debug_print_comp!("[{}] /// and fulfilled", gid);
-
                     return res;
                 }
                 Fulfillment::NotFulfilled => {
                     // The multiplier is not fulfilled.
-                    debug_print_comp!("[{}] /// and not fulfilled.", gid);
                     return no_match(&raw_input);
                 }
             }
@@ -148,16 +115,13 @@ fn match_component_inner(raw_input: &Vec<CssValue>, component: &SyntaxComponent)
             let mff = multiplier_fulfilled(component, multiplier_count);
             match mff {
                 Fulfillment::NotYetFulfilled => {
-                    debug_print_comp!("[{}] /// not yet fulfilled. This is ok, as it can be a range", gid);
                     // Don't know about this case
                     return res;
                 }
                 Fulfillment::Fulfilled => {
-                    debug_print_comp!("[{}] /// fulfilled. All is good", gid);
                     return res;
                 }
                 Fulfillment::FulfilledButMoreAllowed => {
-                    debug_print_comp!("[{}] /// we didn't find more matches. So this is a new element", gid);
                     return MatchResult {
                         remainder: input.clone(),
                         matched: true,
@@ -165,7 +129,6 @@ fn match_component_inner(raw_input: &Vec<CssValue>, component: &SyntaxComponent)
                     };
                 }
                 Fulfillment::NotFulfilled => {
-                    debug_print_comp!("[{}] /// no match, and we haven't fulfilled the component. No match", gid);
                     return no_match(&raw_input);
                 }
             }
@@ -234,8 +197,6 @@ fn match_component(raw_input: &Vec<CssValue>, component: &SyntaxComponent) -> Ma
             return no_match(&raw_input);
         }
     }
-
-    debug_print_comp!("[{}] /// out of the CSV loop. Result is: {:?} / {:?}", gid, matched_values, input);
 
     // If we are in a comma separated list, we need to check if we have the correct amount of values
     if comma_separated && csv_cnt >= csv_min && csv_cnt <= csv_max {
@@ -428,26 +389,21 @@ fn match_group_exactly_one(
     components: &Vec<SyntaxComponent>,
 ) -> MatchResult {
     let _gid = rand::random::<u8>();
-    debug_print_exactly!("[{}]*** Entering Match group exactly_one", gid);
 
     let input = raw_input.to_vec();
     let mut matched_values = vec![];
     let mut components_matched = vec![];
 
-    debug_print_exactly!("[{}] *** Matching Group Exactly One", gid);
     let mut c_idx = 0;
     while c_idx < components.len() {
         if input.is_empty() {
-            debug_print_exactly!("[{}] *** input is empty. Done with matching", gid);
             break;
         }
 
         let component = &components[c_idx];
-        debug_print_exactly!("[{}] *** Input '{:?}' against '{:?}': ", gid, input, component);
 
         let res = match_component(&input, component);
         if res.matched {
-            debug_print_exactly!("[{}] *** matched; {:?}", gid, res);
             matched_values.append(&mut res.matched_values.clone());
 
             // input = res.remainder.clone();
@@ -462,13 +418,10 @@ fn match_group_exactly_one(
     }
 
     if components_matched.is_empty() {
-        debug_print_exactly!("[{}] *** no matching components found", gid);
         return no_match(&input);
     }
 
     if components_matched.len() > 1 {
-        debug_print_exactly!("[{}] *** Matched components is not 1. Returning most specific match", gid);
-
         let mut shortest_remainder_idx = 0;
         let mut shortest_remainder_len = components_matched.first().unwrap().2.len();
 
@@ -486,7 +439,6 @@ fn match_group_exactly_one(
         };
     }
 
-    debug_print_exactly!("[{}] *** Matched exactly one value", gid);
     MatchResult {
         remainder: components_matched[0].2.clone(),
         matched: true,
@@ -499,9 +451,6 @@ fn match_group_at_least_one_any_order(
     raw_input: &Vec<CssValue>,
     components: &Vec<SyntaxComponent>,
 ) -> MatchResult {
-    let _gid = rand::random::<u8>();
-    debug_print_allany!("[{}]^^^ Entering Match group at_least_one_any_order", gid);
-
     let mut input = raw_input.to_vec();
     let mut matched_values = vec![];
     let mut components_matched = vec![];
@@ -509,16 +458,13 @@ fn match_group_at_least_one_any_order(
     let mut c_idx = 0;
     while c_idx < components.len() {
         if input.is_empty() {
-            debug_print_oneany!("[{}]^^^ input is empty. Done with matching", gid);
             break;
         }
 
         let component = &components[c_idx];
-        debug_print_oneany!("[{}]^^^ value '{:?}' against component", gid, input);
 
         let res = match_component(&input, component);
         if res.matched {
-            debug_print_oneany!("[{}]^^^ matched; {:?}", gid, res);
             matched_values.append(&mut res.matched_values.clone());
             components_matched.push(c_idx);
 
@@ -530,7 +476,6 @@ fn match_group_at_least_one_any_order(
                 c_idx += 1;
             }
         } else {
-            debug_print_oneany!("[{}]^^^ not matched; {:?}", gid, res);
 
             // Element didn't match. That might be allright, and we continue with the next unmatched component
             c_idx += 1;
@@ -541,11 +486,9 @@ fn match_group_at_least_one_any_order(
     }
 
     if components_matched.is_empty() {
-        debug_print_oneany!("[{}]^^^ No components have been matched", gid);
         return no_match(&input);
     }
 
-    debug_print_oneany!("[{}]^^^ Match juxtaposition is valid. Return value is : {:?}", gid, matched_values);
     MatchResult {
         remainder: input.clone(),
         matched: true,
@@ -558,9 +501,6 @@ fn match_group_all_any_order(
     raw_input: &Vec<CssValue>,
     components: &Vec<SyntaxComponent>,
 ) -> MatchResult {
-    let _gid = rand::random::<u8>();
-    debug_print_allany!("[{}]@@@ Entering Match group all_any_order", gid);
-
     let mut input = raw_input.to_vec();
     let mut matched_values = vec![];
     let mut components_matched = vec![];
@@ -568,16 +508,13 @@ fn match_group_all_any_order(
     let mut c_idx = 0;
     while c_idx < components.len() {
         if input.is_empty() {
-            debug_print_allany!("[{}]@@@ input is empty. Done with matching", gid);
             break;
         }
 
         let component = &components[c_idx];
-        debug_print_allany!("[{}]@@@ value '{:?}' against component", gid, input);
 
         let res = match_component(&input, component);
         if res.matched {
-            debug_print_allany!("[{}]@@@ matched; {:?}", gid, res);
             matched_values.append(&mut res.matched_values.clone());
             components_matched.push(c_idx);
 
@@ -589,8 +526,6 @@ fn match_group_all_any_order(
                 c_idx += 1;
             }
         } else {
-            debug_print_allany!("[{}]@@@ not matched; {:?}", gid, res);
-
             // Element didn't match. That might be allright, and we continue with the next unmatched component
             c_idx += 1;
             while components_matched.contains(&c_idx) {
@@ -600,11 +535,9 @@ fn match_group_all_any_order(
     }
 
     if components_matched.len() != components.len() {
-        debug_print_allany!("[{}]@@@ Not all components have been checked", gid);
         return no_match(&input);
     }
 
-    debug_print_allany!("[{}]@@@ Match juxtaposition is valid. Return value is : {:?}", gid, matched_values);
     MatchResult {
         remainder: input.clone(),
         matched: true,
@@ -616,29 +549,18 @@ fn match_group_juxtaposition(
     raw_input: &Vec<CssValue>,
     components: &Vec<SyntaxComponent>,
 ) -> MatchResult {
-    let _gid = rand::random::<u8>();
-    debug_print_juxta!("[{}]+++ Entering Match group juxtaposition", gid);
-
     let mut input = raw_input.to_vec();
     let mut matched_values = vec![];
 
     let mut c_idx = 0;
     while c_idx < components.len() {
-        // if input.is_empty() {
-        //     debug_print_juxta!("[{}]+++ input is empty. Done with matching", gid);
-        //     break;
-        // }
-
         let component = &components[c_idx];
-        debug_print_juxta!("[{}]+++ value '{:?}' against component", gid, input);
 
         let res = match_component(&input, component);
         if res.matched {
-            debug_print_juxta!("[{}]+++ matched; {:?}", gid, res);
             matched_values.append(&mut res.matched_values.clone());
             input = res.remainder.clone();
         } else {
-            debug_print_juxta!("[{}]+++ not matched; {:?}", gid, res);
             break;
         }
 
@@ -646,11 +568,9 @@ fn match_group_juxtaposition(
     }
 
     if c_idx != components.len() {
-        debug_print_juxta!("[{}]+++ Not all components have been checked", gid);
         return no_match(&input);
     }
 
-    debug_print_juxta!("[{}]+++ Match juxtaposition is valid. Return value is : {:?}", gid, matched_values);
     MatchResult {
         remainder: input.clone(),
         matched: true,
@@ -674,7 +594,6 @@ enum Fulfillment {
 
 /// Returns fulfillment enum given the cnt and the actual multiplier of the component
 fn multiplier_fulfilled(component: &SyntaxComponent, cnt: usize) -> Fulfillment {
-
     // Filter out the multipliers that are not relevant for this check
     let binding = component.get_multipliers();
     let mut filtered_multipliers: Vec<_> = binding.iter().filter(|m| match m {
