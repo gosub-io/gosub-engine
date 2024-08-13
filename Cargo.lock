@@ -677,9 +677,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.5.13"
+version = "4.5.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0fbb260a053428790f3de475e304ff84cdbc4face759ea7a3e64c1edd938a7fc"
+checksum = "11d8838454fda655dafd3accb2b6e2bea645b9e4078abe84a22ceb947235c5cc"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -687,9 +687,9 @@ dependencies = [
 
 [[package]]
 name = "clap_builder"
-version = "4.5.13"
+version = "4.5.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "64b17d7ea74e9f833c7dbf2cbe4fb12ff26783eda4782a8975b72f895c9b4d99"
+checksum = "216aec2b177652e3846684cbfe25c9964d18ec45234f0f5da5157b207ed1aab6"
 dependencies = [
  "anstream",
  "anstyle",
@@ -1788,9 +1788,9 @@ dependencies = [
  "image",
  "raw-window-handle",
  "smallvec",
-    "vello",
+ "vello",
  "vello_svg",
-    "wgpu",
+ "wgpu",
 ]
 
 [[package]]
@@ -1859,7 +1859,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9c08c1f623a8d0b722b8b99f821eb0ba672a1618f0d3b16ddbee1cedd2dd8557"
 dependencies = [
  "bitflags 2.6.0",
-    "gpu-descriptor-types",
+ "gpu-descriptor-types",
  "hashbrown 0.14.5",
 ]
 
@@ -3532,7 +3532,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e8b8af39d1f23869711ad4cea5e7835a20daa987f80232f7f2a2374d648ca64d"
 dependencies = [
  "bytemuck",
-    "font-types",
+ "font-types",
 ]
 
 [[package]]
@@ -3909,7 +3909,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ab45fb68b53576a43d4fc0e9ec8ea64e29a4d2cc7f44506964cb75f288222e9"
 dependencies = [
  "bytemuck",
-    "read-fonts",
+ "read-fonts",
 ]
 
 [[package]]
@@ -4621,12 +4621,12 @@ dependencies = [
  "log",
  "peniko",
  "raw-window-handle",
-    "skrifa",
+ "skrifa",
  "static_assertions",
  "thiserror",
-    "vello_encoding",
+ "vello_encoding",
  "vello_shaders",
-    "wgpu",
+ "wgpu",
 ]
 
 [[package]]
@@ -4638,7 +4638,7 @@ dependencies = [
  "bytemuck",
  "guillotiere",
  "peniko",
-    "skrifa",
+ "skrifa",
  "smallvec",
 ]
 
@@ -4649,9 +4649,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13ab6bcb2b079c3cf57e964d1ba0b1f08901284be1c7f5cba34d3e0e08154bce"
 dependencies = [
  "bytemuck",
-    "naga",
+ "naga",
  "thiserror",
-    "vello_encoding",
+ "vello_encoding",
 ]
 
 [[package]]
@@ -4663,7 +4663,7 @@ dependencies = [
  "image",
  "thiserror",
  "usvg",
-    "vello",
+ "vello",
 ]
 
 [[package]]
@@ -4941,7 +4941,7 @@ dependencies = [
  "document-features",
  "js-sys",
  "log",
-    "naga",
+ "naga",
  "parking_lot",
  "profiling",
  "raw-window-handle",
@@ -4950,9 +4950,9 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
-    "wgpu-core",
-    "wgpu-hal",
-    "wgpu-types",
+ "wgpu-core",
+ "wgpu-hal",
+ "wgpu-types",
 ]
 
 [[package]]
@@ -4969,7 +4969,7 @@ dependencies = [
  "document-features",
  "indexmap",
  "log",
-    "naga",
+ "naga",
  "once_cell",
  "parking_lot",
  "profiling",
@@ -4978,8 +4978,8 @@ dependencies = [
  "smallvec",
  "thiserror",
  "web-sys",
-    "wgpu-hal",
-    "wgpu-types",
+ "wgpu-hal",
+ "wgpu-types",
 ]
 
 [[package]]
@@ -4996,20 +4996,20 @@ dependencies = [
  "block",
  "cfg_aliases 0.1.1",
  "core-graphics-types",
-    "d3d12",
+ "d3d12",
  "glow",
  "glutin_wgl_sys",
  "gpu-alloc",
  "gpu-allocator",
-    "gpu-descriptor",
+ "gpu-descriptor",
  "hassle-rs",
  "js-sys",
  "khronos-egl",
  "libc",
  "libloading 0.8.5",
  "log",
-    "metal",
-    "naga",
+ "metal",
+ "naga",
  "ndk-sys 0.5.0+25.2.9519653",
  "objc",
  "once_cell",
@@ -5023,7 +5023,7 @@ dependencies = [
  "thiserror",
  "wasm-bindgen",
  "web-sys",
-    "wgpu-types",
+ "wgpu-types",
  "winapi",
 ]
 
