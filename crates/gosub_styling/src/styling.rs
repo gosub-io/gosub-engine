@@ -1,15 +1,13 @@
 use core::fmt::Debug;
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::fmt::Display;
 
+use crate::property_definitions::get_css_definitions;
 use gosub_css3::stylesheet::{
-    CssOrigin, CssSelector, CssSelectorPart, CssSelectorType, MatcherType, Specificity,
+    CssOrigin, CssSelector, CssSelectorPart, CssSelectorType, CssValue, MatcherType, Specificity,
 };
 use gosub_html5::node::NodeId;
 use gosub_html5::parser::document::DocumentHandle;
-
-use crate::css_colors::RgbColor;
 
 // Matches a complete selector (all parts) against the given node(id)
 pub(crate) fn match_selector(
@@ -195,7 +193,7 @@ fn match_selector_part(
 /// origin, importance, location and specificity of the declaration.
 #[derive(Debug, Clone)]
 pub struct DeclarationProperty {
-    /// The actual value of the property
+    /// The actual value of the property (@todo: should this be a vec? or do we need to (re-)implement CssValue::List?)
     pub value: CssValue,
     /// Origin of the declaration (user stylesheet, author stylesheet etc.)
     pub origin: CssOrigin,
@@ -370,21 +368,45 @@ impl CssProperty {
         }
     }
 
-    // Returns true when the property is inheritable, false otherwise
+    // // Returns true when the property is inheritable, false otherwise
     fn is_inheritable(&self) -> bool {
-        crate::property_list::PROPERTY_TABLE
-            .iter()
-            .find(|entry| entry.name == self.name)
-            .map(|entry| entry.inheritable)
-            .unwrap_or(false)
+        let defs = get_css_definitions();
+        match defs.find_property(&self.name) {
+            Some(def) => def.inherited(),
+            None => false,
+        }
     }
 
-    // Returns the initial value for the property, if any
+    // /// Returns true if the given property is a shorthand property (ie: border, margin etc)
+    pub fn is_shorthand(&self) -> bool {
+        let defs = get_css_definitions();
+        match defs.find_property(&self.name) {
+            Some(def) => def.expanded_properties().len() > 1,
+            None => false,
+        }
+    }
+
+    /// Returns the list of properties from a shorthand property, or just the property itself if it isn't a shorthand property.
+    pub fn get_props_from_shorthand(&self) -> Vec<String> {
+        let defs = get_css_definitions();
+        match defs.find_property(&self.name) {
+            Some(def) => {
+                let props = def.expanded_properties();
+                if props.len() == 1 {
+                    vec![]
+                } else {
+                    props
+                }
+            }
+            None => vec![],
+        }
+    }
+
+    // // Returns the initial value for the property, if any
     fn get_initial_value(&self) -> Option<CssValue> {
-        crate::property_list::PROPERTY_TABLE
-            .iter()
-            .find(|entry| entry.name == self.name)
-            .map(|entry| entry.initial.clone())
+        let defs = get_css_definitions();
+        defs.find_property(&self.name)
+            .map(|def| def.initial_value())
     }
 }
 
@@ -413,74 +435,72 @@ impl CssProperties {
     }
 }
 
-/// Actual CSS value, can be a color, length, percentage, string or unit. Some relative values will be computed
-/// from other values (ie: Percent(50) will convert to Length(100) when the parent width is 200)
-#[derive(Debug, Clone, PartialEq)]
-pub enum CssValue {
-    None,
-    Color(RgbColor),
-    Number(f32),
-    Percentage(f32),
-    String(String),
-    Unit(f32, String),
-}
-
-impl Display for CssValue {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            CssValue::None => write!(f, "none"),
-            CssValue::Color(col) => {
-                write!(
-                    f,
-                    "#{:02x}{:02x}{:02x}{:02x}",
-                    col.r as u8, col.g as u8, col.b as u8, col.a as u8
-                )
-            }
-            CssValue::Number(num) => write!(f, "{}", num),
-            CssValue::Percentage(p) => write!(f, "{}%", p),
-            CssValue::String(s) => write!(f, "{}", s),
-            CssValue::Unit(val, unit) => write!(f, "{}{}", val, unit),
-        }
-    }
-}
-
-impl CssValue {
-    pub fn to_color(&self) -> Option<RgbColor> {
-        match self {
-            CssValue::Color(col) => Some(*col),
-            CssValue::String(s) => Some(RgbColor::from(s.as_str())),
-            _ => None,
-        }
-    }
-
-    pub fn unit_to_px(&self) -> f32 {
-        //TODO: Implement the rest of the units
-        match self {
-            CssValue::Unit(val, unit) => match unit.as_str() {
-                "px" => *val,
-                "em" => *val * 16.0,
-                "rem" => *val * 16.0,
-                _ => *val,
-            },
-            CssValue::String(value) => {
-                if value.ends_with("px") {
-                    value.trim_end_matches("px").parse::<f32>().unwrap_or(0.0)
-                } else if value.ends_with("rem") {
-                    value.trim_end_matches("rem").parse::<f32>().unwrap_or(0.0) * 16.0
-                } else if value.ends_with("em") {
-                    value.trim_end_matches("em").parse::<f32>().unwrap_or(0.0) * 16.0
-                } else {
-                    0.0
-                }
-            }
-            _ => 0.0,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gosub_css3::colors::RgbColor;
+
+    #[test]
+    fn css_props() {
+        let mut props = CssProperties::new();
+        let prop = CssProperty::new("color");
+        props.properties.insert("color".into(), prop);
+
+        let prop = props.get("color").unwrap();
+        assert_eq!(prop.name, "color");
+
+        let prop = props.get("not-exists");
+        assert!(prop.is_none());
+    }
+
+    #[test]
+    fn border_prop_test() {
+        let mut prop = CssProperty::new("border");
+
+        prop.declared.push(DeclarationProperty {
+            value: CssValue::List(vec![
+                CssValue::Unit(1.0, "px".into()),
+                CssValue::String("solid".into()),
+                CssValue::Color(RgbColor::new(255.0, 0.0, 0.0, 255.0)),
+            ]),
+            origin: CssOrigin::Author,
+            important: false,
+            location: "".into(),
+            specificity: Specificity::new(1, 0, 0),
+        });
+
+        assert_eq!(
+            prop.compute_value(),
+            &CssValue::List(vec![
+                CssValue::Unit(1.0, "px".into()),
+                CssValue::String("solid".into()),
+                CssValue::Color("red".into()),
+            ])
+        );
+        assert!(prop.is_shorthand());
+        assert_eq!(prop.name, "border");
+        assert_eq!(prop.get_initial_value(), Some(CssValue::None));
+        assert!(!prop.is_inheritable());
+    }
+
+    #[test]
+    fn color_prop_test() {
+        let mut prop = CssProperty::new("color");
+
+        prop.declared.push(DeclarationProperty {
+            value: CssValue::String("red".into()),
+            origin: CssOrigin::Author,
+            important: false,
+            location: "".into(),
+            specificity: Specificity::new(1, 0, 0),
+        });
+
+        assert_eq!(prop.compute_value(), &CssValue::String("red".into()));
+        assert!(!prop.is_shorthand());
+        assert_eq!(prop.name, "color");
+        assert_eq!(prop.get_initial_value(), Some(&CssValue::None).cloned());
+        assert!(prop.is_inheritable());
+    }
 
     #[test]
     fn compare_declared() {
@@ -546,5 +566,49 @@ mod tests {
         assert!(c < d);
         assert_eq!(c, c);
         assert_eq!(d, d);
+    }
+
+    #[test]
+    fn is_inheritable() {
+        let prop = CssProperty::new("border");
+        assert!(!prop.is_inheritable());
+
+        let prop = CssProperty::new("color");
+        assert!(prop.is_inheritable());
+
+        let prop = CssProperty::new("font");
+        assert!(prop.is_inheritable());
+
+        let prop = CssProperty::new("border-top-color");
+        assert!(!prop.is_inheritable());
+    }
+
+    #[test]
+    fn shorthand_props() {
+        let prop = CssProperty::new("border");
+        assert!(prop.is_shorthand());
+        assert_eq!(
+            prop.get_props_from_shorthand(),
+            vec!["border-width", "border-style", "border-color"]
+        );
+        let prop = CssProperty::new("window");
+        assert!(!prop.is_shorthand());
+        assert!(prop.get_props_from_shorthand().is_empty());
+
+        let prop = CssProperty::new("border-color");
+        assert!(prop.is_shorthand());
+        assert_eq!(
+            prop.get_props_from_shorthand(),
+            vec![
+                "border-bottom-color",
+                "border-left-color",
+                "border-right-color",
+                "border-top-color",
+            ]
+        );
+
+        let prop = CssProperty::new("border-top-color");
+        assert!(!prop.is_shorthand());
+        assert!(prop.get_props_from_shorthand().is_empty());
     }
 }

@@ -1,0 +1,1438 @@
+[
+  {
+    "name": "<basic-shape-rect>",
+    "syntax": "<inset()> | <rect()> | <xywh()>"
+  },
+  {
+    "name": "<shape-box>",
+    "syntax": "<visual-box> | margin-box"
+  },
+  {
+    "name": "drop-shadow()",
+    "syntax": "drop-shadow( [ <color>? && <length>{2,3} ] )"
+  },
+  {
+    "name": "<try-size>",
+    "syntax": "most-width | most-height | most-block-size | most-inline-size"
+  },
+  {
+    "name": "<color-interpolation-method>",
+    "syntax": "in [ <rectangular-color-space> | <polar-color-space> <hue-interpolation-method>? ]"
+  },
+  {
+    "name": "<color-stop-list>",
+    "syntax": "<linear-color-stop> , [ <linear-color-hint>? , <linear-color-stop> ]#?"
+  },
+  {
+    "name": "<function-name>",
+    "syntax": "<dashed-ident>"
+  },
+  {
+    "name": "<reversed-counter-name>",
+    "syntax": "reversed( <counter-name> )"
+  },
+  {
+    "name": "<color-font-tech>",
+    "syntax": "[color-COLRv0 | color-COLRv1 | color-SVG | color-sbix | color-CBDT ]"
+  },
+  {
+    "name": "<mask-source>",
+    "syntax": "<url>"
+  },
+  {
+    "name": "atan()",
+    "syntax": "atan( <calc-sum> )"
+  },
+  {
+    "name": "<counter>",
+    "syntax": "<counter()> | <counters()>"
+  },
+  {
+    "name": "snap-inline()",
+    "syntax": "snap-inline( <length> , [ left | right | near ]? )"
+  },
+  {
+    "name": "<blend-mode>",
+    "syntax": "normal | multiply | screen | overlay | darken | lighten | color-dodge |color-burn | hard-light | soft-light | difference | exclusion | hue | saturation | color | luminosity"
+  },
+  {
+    "name": "<custom-selector>",
+    "syntax": "<custom-arg>? : <extension-name> [ ( <custom-arg>+#? ) ]? ;"
+  },
+  {
+    "name": "<pseudo-element-selector>",
+    "syntax": "':' <pseudo-class-selector> | <legacy-pseudo-element-selector>"
+  },
+  {
+    "name": "<frequency-percentage>",
+    "syntax": "[ <frequency> | <percentage> ]"
+  },
+  {
+    "name": "rgba()",
+    "syntax": "[ <legacy-rgba-syntax> | <modern-rgba-syntax> ]"
+  },
+  {
+    "name": "hsla()",
+    "syntax": "[ <legacy-hsla-syntax> | <modern-hsla-syntax> ]"
+  },
+  {
+    "name": "sepia()",
+    "syntax": "sepia( [ <number> | <percentage> ]? )"
+  },
+  {
+    "name": "<font-tech>",
+    "syntax": "[<font-features-tech> | <color-font-tech> | variations | palettes | incremental ]"
+  },
+  {
+    "name": "<single-animation-iteration-count>",
+    "syntax": "infinite | <number [0,∞]>"
+  },
+  {
+    "name": "<single-animation-play-state>",
+    "syntax": "running | paused"
+  },
+  {
+    "name": "target-counter()",
+    "syntax": "target-counter( [ <string> | <url> ] , <custom-ident> , <counter-style>? )"
+  },
+  {
+    "name": "rotate()",
+    "syntax": "rotate( [ <angle> | <zero> ] )"
+  },
+  {
+    "name": "<compat-auto>",
+    "syntax": "searchfield | textarea | checkbox | radio | menulist | listbox | meter | progress-bar | button"
+  },
+  {
+    "name": "<composite-mode>",
+    "syntax": "clear | copy | source-over | destination-over | source-in | destination-in | source-out | destination-out | source-atop | destination-atop | xor | lighter | plus-darker | plus-lighter"
+  },
+  {
+    "name": "mod()",
+    "syntax": "mod( <calc-sum>, <calc-sum> )"
+  },
+  {
+    "name": "<wq-name>",
+    "syntax": "<ns-prefix>? <ident-token>"
+  },
+  {
+    "name": "<fixed-size>",
+    "syntax": "<fixed-breadth> | minmax( <fixed-breadth> , <track-breadth> ) | minmax( <inflexible-breadth> , <fixed-breadth> )"
+  },
+  {
+    "name": "<position-area>",
+    "syntax": "[ [ left | center | right | span-left | span-right | x-start | x-end | span-x-start | span-x-end | x-self-start | x-self-end | span-x-self-start | span-x-self-end | span-all ] || [ top | center | bottom | span-top | span-bottom | y-start | y-end | span-y-start | span-y-end | y-self-start | y-self-end | span-y-self-start | span-y-self-end | span-all ] | [ block-start | center | block-end | span-block-start | span-block-end | span-all ] || [ inline-start | center | inline-end | span-inline-start | span-inline-end | span-all ] | [ self-block-start | center | self-block-end | span-self-block-start | span-self-block-end | span-all ] || [ self-inline-start | center | self-inline-end | span-self-inline-start | span-self-inline-end | span-all ] | [ start | center | end | span-start | span-end | span-all ]{1,2} | [ self-start | center | self-end | span-self-start | span-self-end | span-all ]{1,2} ]"
+  },
+  {
+    "name": "<display-outside>",
+    "syntax": "block | inline | run-in"
+  },
+  {
+    "name": "<simple-selector-list>",
+    "syntax": "<simple-selector>#"
+  },
+  {
+    "name": "<ratio>",
+    "syntax": "<number [0,∞]> [ / <number [0,∞]> ]?"
+  },
+  {
+    "name": "min()",
+    "syntax": "min( <calc-sum># )"
+  },
+  {
+    "name": "<legacy-rgba-syntax>",
+    "syntax": "rgba( <percentage>#{3} , <alpha-value>? ) | rgba( <number>#{3} , <alpha-value>? )"
+  },
+  {
+    "name": "<side-or-corner>",
+    "syntax": "[left | right] || [top | bottom]"
+  },
+  {
+    "name": "<contextual-alt-values>",
+    "syntax": "[ contextual | no-contextual ]"
+  },
+  {
+    "name": "<step-position>",
+    "syntax": "jump-start | jump-end | jump-none | jump-both | start | end"
+  },
+  {
+    "name": "<single-animation-fill-mode>",
+    "syntax": "none | forwards | backwards | both"
+  },
+  {
+    "name": "symbols()",
+    "syntax": "symbols( <symbols-type>? [ <string> | <image> ]+ )"
+  },
+  {
+    "name": "<supports-in-parens>",
+    "syntax": "( <supports-condition> ) | <supports-feature> | <general-enclosed>"
+  },
+  {
+    "name": "<compat-special>",
+    "syntax": "textfield | menulist-button"
+  },
+  {
+    "name": "view()",
+    "syntax": "view( [ <axis> || <'view-timeline-inset'> ]? )"
+  },
+  {
+    "name": "<display-listitem>",
+    "syntax": "<display-outside>? && [ flow | flow-root ]? && list-item"
+  },
+  {
+    "name": "fit-content()",
+    "syntax": "fit-content( <length-percentage> )"
+  },
+  {
+    "name": "<relative-real-selector-list>",
+    "syntax": "<relative-real-selector>#"
+  },
+  {
+    "name": "<track-list>",
+    "syntax": "[ <line-names>? [ <track-size> | <track-repeat> ] ]+ <line-names>?"
+  },
+  {
+    "name": "<auto-track-list>",
+    "syntax": "[ <line-names>? [ <fixed-size> | <fixed-repeat> ] ]* <line-names>? <auto-repeat> [ <line-names>? [ <fixed-size> | <fixed-repeat> ] ]* <line-names>?"
+  },
+  {
+    "name": "<symbol>",
+    "syntax": "<string> | <image> | <custom-ident>"
+  },
+  {
+    "name": "scale()",
+    "syntax": "scale( <number> , <number>? )"
+  },
+  {
+    "name": "<shadow>",
+    "syntax": "<color>? && [<length>{2} <length [0,∞]>? <length>?] && inset?"
+  },
+  {
+    "name": "<link-param>",
+    "syntax": "param( <custom-property-name> <declaration-value>? )"
+  },
+  {
+    "name": "<compound-selector-list>",
+    "syntax": "<compound-selector>#"
+  },
+  {
+    "name": "<radial-size>",
+    "syntax": "<radial-extent> | <length [0,∞]> | <length-percentage [0,∞]>{2}"
+  },
+  {
+    "name": "<font-features-tech>",
+    "syntax": "[features-opentype | features-aat | features-graphite]"
+  },
+  {
+    "name": "running()",
+    "syntax": "running( <custom-ident> )"
+  },
+  {
+    "name": "<keyframe-selector>",
+    "syntax": "from | to | <percentage [0,100]>"
+  },
+  {
+    "name": "<linear-gradient-syntax>",
+    "syntax": "[ <angle> | to <side-or-corner> ]? , <color-stop-list>"
+  },
+  {
+    "name": "<anchor-size>",
+    "syntax": "width | height | block | inline | self-block | self-inline"
+  },
+  {
+    "name": "<linear-stop>",
+    "syntax": "<number> && <linear-stop-length>?"
+  },
+  {
+    "name": "<css-type>",
+    "syntax": "<syntax-component> | <type()>"
+  },
+  {
+    "name": "<target>",
+    "syntax": "<target-counter()> | <target-counters()> | <target-text()>"
+  },
+  {
+    "name": "<easing-function>",
+    "syntax": "linear | <linear-easing-function> | <cubic-bezier-easing-function> | <step-easing-function>"
+  },
+  {
+    "name": "<legacy-hsla-syntax>",
+    "syntax": "hsla( <hue>, <percentage>, <percentage>, <alpha-value>? )"
+  },
+  {
+    "name": "<modern-hsla-syntax>",
+    "syntax": "hsla( [<hue> | none] [<percentage> | <number> | none] [<percentage> | <number> | none] [ / [<alpha-value> | none] ]? )"
+  },
+  {
+    "name": "blur()",
+    "syntax": "blur( <length>? )"
+  },
+  {
+    "name": "filter()",
+    "syntax": "filter( [ <image> | <string> ], <filter-value-list> )"
+  },
+  {
+    "name": "<pt-name-selector>",
+    "syntax": "'*' | <custom-ident>"
+  },
+  {
+    "name": "<single-transition-property>",
+    "syntax": "all | <custom-ident>"
+  },
+  {
+    "name": "<visual-box>",
+    "syntax": "content-box | padding-box | border-box"
+  },
+  {
+    "name": "<length-percentage>",
+    "syntax": "[ <length> | <percentage> ]"
+  },
+  {
+    "name": "<spread-shadow>",
+    "syntax": "<'box-shadow-color'>? && [ <'box-shadow-offset'> [ <'box-shadow-blur'> <'box-shadow-spread'>? ]? ] && <'box-shadow-position'>?"
+  },
+  {
+    "name": "<predefined-rgb-params>",
+    "syntax": "<predefined-rgb> [ <number> | <percentage> | none ]{3}"
+  },
+  {
+    "name": "<symbols-type>",
+    "syntax": "cyclic | numeric | alphabetic | symbolic | fixed"
+  },
+  {
+    "name": "<scroller>",
+    "syntax": "root | nearest | self"
+  },
+  {
+    "name": "<generic-complete>",
+    "syntax": "serif | sans-serif | system-ui | cursive | fantasy | math | monospace"
+  },
+  {
+    "name": "<east-asian-width-values>",
+    "syntax": "[ full-width | proportional-width ]"
+  },
+  {
+    "name": "<geometry-box>",
+    "syntax": "<shape-box> | fill-box | stroke-box | view-box"
+  },
+  {
+    "name": "<media-not>",
+    "syntax": "not <media-in-parens>"
+  },
+  {
+    "name": "<opacity-value>",
+    "syntax": "<number> | <percentage>"
+  },
+  {
+    "name": "<hue>",
+    "syntax": "<number> | <angle>"
+  },
+  {
+    "name": "tan()",
+    "syntax": "tan( <calc-sum> )"
+  },
+  {
+    "name": "<boolean>",
+    "syntax": "<bool-not> | <bool-in-parens> [ <bool-and>* | <bool-or>* ]"
+  },
+  {
+    "name": "snap-block()",
+    "syntax": "snap-block( <length> , [ start | end | near ]? )"
+  },
+  {
+    "name": "<paint>",
+    "syntax": "none | <image> | <svg-paint>"
+  },
+  {
+    "name": "<generic-incomplete>",
+    "syntax": "ui-serif | ui-sans-serif | ui-monospace | ui-rounded"
+  },
+  {
+    "name": "exp()",
+    "syntax": "exp( <calc-sum> )"
+  },
+  {
+    "name": "<pseudo-page>",
+    "syntax": "':' [ left | right | first | blank ]"
+  },
+  {
+    "name": "<track-size>",
+    "syntax": "<track-breadth> | minmax( <inflexible-breadth> , <track-breadth> ) | fit-content( <length-percentage [0,∞]> )"
+  },
+  {
+    "name": "<hue-interpolation-method>",
+    "syntax": "[ shorter | longer | increasing | decreasing ] hue"
+  },
+  {
+    "name": "<predefined-rectangular>",
+    "syntax": "jzazbz | ictcp"
+  },
+  {
+    "name": "contrast()",
+    "syntax": "contrast( [ <number> | <percentage> ]? )"
+  },
+  {
+    "name": "<svg-paint>",
+    "syntax": "child | child( <integer> )"
+  },
+  {
+    "name": "<single-animation>",
+    "syntax": "<time [0s,∞]> || <easing-function> || <time> || <single-animation-iteration-count> || <single-animation-direction> || <single-animation-fill-mode> || <single-animation-play-state> || [ none | <keyframes-name> ]"
+  },
+  {
+    "name": "<media-query>",
+    "syntax": "<media-condition> | [ not | only ]? <media-type> [ and <media-condition-without-or> ]?"
+  },
+  {
+    "name": "<display-legacy>",
+    "syntax": "inline-block | inline-table | inline-flex | inline-grid"
+  },
+  {
+    "name": "<complex-real-selector>",
+    "syntax": "<compound-selector> [ <combinator>? <compound-selector> ]*"
+  },
+  {
+    "name": "<generic-voice>",
+    "syntax": "[<age>? <gender> <integer>?]"
+  },
+  {
+    "name": "<points>",
+    "syntax": "[ <number>+ ]#"
+  },
+  {
+    "name": "xywh()",
+    "syntax": "xywh( <length-percentage>{2} <length-percentage [0,∞]>{2} [ round <'border-radius'> ]? )"
+  },
+  {
+    "name": "<historical-lig-values>",
+    "syntax": "[ historical-ligatures | no-historical-ligatures ]"
+  },
+  {
+    "name": "<isolation-mode>",
+    "syntax": "auto | isolate"
+  },
+  {
+    "name": "<bg-size>",
+    "syntax": "[ <length-percentage [0,∞]> | auto ]{1,2} | cover | contain"
+  },
+  {
+    "name": "<bool-not>",
+    "syntax": "not <bool-in-parens>"
+  },
+  {
+    "name": "<color-base>",
+    "syntax": "<hex-color> | <color-function> | <named-color> | transparent"
+  },
+  {
+    "name": "<image>",
+    "syntax": "<url> | <gradient>"
+  },
+  {
+    "name": "skew()",
+    "syntax": "skew( [ <angle> | <zero> ] , [ <angle> | <zero> ]? )"
+  },
+  {
+    "name": "<mf-comparison>",
+    "syntax": "<mf-lt> | <mf-gt> | <mf-eq>"
+  },
+  {
+    "name": "asin()",
+    "syntax": "asin( <calc-sum> )"
+  },
+  {
+    "name": "paint()",
+    "syntax": "paint( <ident>, <declaration-value>? )"
+  },
+  {
+    "name": "<font-format>",
+    "syntax": "[<string> | collection | embedded-opentype | opentype | svg | truetype | woff | woff2 ]"
+  },
+  {
+    "name": "<pseudo-class-selector>",
+    "syntax": "':' <ident-token> | ':' <function-token> <any-value> ')'"
+  },
+  {
+    "name": "minmax()",
+    "syntax": "minmax(min, max)"
+  },
+  {
+    "name": "sign()",
+    "syntax": "sign( <calc-sum> )"
+  },
+  {
+    "name": "<legacy-rgb-syntax>",
+    "syntax": "rgb( <percentage>#{3} , <alpha-value>? ) | rgb( <number>#{3} , <alpha-value>? )"
+  },
+  {
+    "name": "counters()",
+    "syntax": "counters( <counter-name>, <string>, <counter-style>? )"
+  },
+  {
+    "name": "<numeric-spacing-values>",
+    "syntax": "[ proportional-nums | tabular-nums ]"
+  },
+  {
+    "name": "<display-inside>",
+    "syntax": "flow | flow-root | table | flex | grid | ruby"
+  },
+  {
+    "name": "sqrt()",
+    "syntax": "sqrt( <calc-sum> )"
+  },
+  {
+    "name": "<dasharray>",
+    "syntax": "[ [ <length-percentage> | <number> ]+ ]#"
+  },
+  {
+    "name": "<an+b>",
+    "syntax": "odd | even | <integer> | <n-dimension> | '+'? n | -n | <ndashdigit-dimension> | '+'? <ndashdigit-ident> | <dashndashdigit-ident> | <n-dimension> <signed-integer> | '+'? n <signed-integer> | -n <signed-integer> | <ndash-dimension> <signless-integer> | '+'? n- <signless-integer> | -n- <signless-integer> | <n-dimension> ['+' | '-'] <signless-integer> | '+'? n ['+' | '-'] <signless-integer> | -n ['+' | '-'] <signless-integer>"
+  },
+  {
+    "name": "opacity()",
+    "syntax": "opacity( [ <number> | <percentage> ]? )"
+  },
+  {
+    "name": "<attachment>",
+    "syntax": "scroll | fixed | local"
+  },
+  {
+    "name": "<subclass-selector>",
+    "syntax": "<id-selector> | <class-selector> | <attribute-selector> | <pseudo-class-selector>"
+  },
+  {
+    "name": "atan2()",
+    "syntax": "atan2( <calc-sum>, <calc-sum> )"
+  },
+  {
+    "name": "saturate()",
+    "syntax": "saturate( [ <number> | <percentage> ]? )"
+  },
+  {
+    "name": "<filter-function>",
+    "syntax": "<blur()> | <brightness()> | <contrast()> | <drop-shadow()> | <grayscale()> | <hue-rotate()> | <invert()> | <opacity()> | <sepia()> | <saturate()>"
+  },
+  {
+    "name": "<number-optional-number>",
+    "syntax": "<number> <number>?"
+  },
+  {
+    "name": "<discretionary-lig-values>",
+    "syntax": "[ discretionary-ligatures | no-discretionary-ligatures ]"
+  },
+  {
+    "name": "<keyframe-block>",
+    "syntax": "<keyframe-selector># { <declaration-list> }"
+  },
+  {
+    "name": "<mask-layer>",
+    "syntax": "<mask-reference> || <position> [ / <bg-size> ]? || <repeat-style> || <geometry-box> || [ <geometry-box> | no-clip ] || <compositing-operator> || <masking-mode>"
+  },
+  {
+    "name": "<grid-line>",
+    "syntax": "auto | <custom-ident> | [ [ <integer [-∞,-1]> | <integer [1,∞]> ] && <custom-ident>? ] | [ span && [ <integer [1,∞]> || <custom-ident> ] ]"
+  },
+  {
+    "name": "<fixed-repeat>",
+    "syntax": "repeat( [ <integer [1,∞]> ] , [ <line-names>? <fixed-size> ]+ <line-names>? )"
+  },
+  {
+    "name": "lab()",
+    "syntax": "lab( [<percentage> | <number> | none] [ <percentage> | <number> | none] [ <percentage> | <number> | none] [ / [<alpha-value> | none] ]? )"
+  },
+  {
+    "name": "<page-selector-list>",
+    "syntax": "<page-selector>#"
+  },
+  {
+    "name": "hue-rotate()",
+    "syntax": "hue-rotate( [ <angle> | <zero> ]? )"
+  },
+  {
+    "name": "<anchor-element>",
+    "syntax": "<dashed-ident>"
+  },
+  {
+    "name": "linear()",
+    "syntax": "linear(<linear-stop-list>)"
+  },
+  {
+    "name": "<bg-position>",
+    "syntax": "[ [ left | center | right | top | bottom | <length-percentage> ] | [ left | center | right | <length-percentage> ] [ top | center | bottom | <length-percentage> ] | [ center | [ left | right ] <length-percentage>? ] && [ center | [ top | bottom ] <length-percentage>? ] ]"
+  },
+  {
+    "name": "<source-size-list>",
+    "syntax": "<source-size>#? , <source-size-value>"
+  },
+  {
+    "name": "scaleX()",
+    "syntax": "scaleX( <number> )"
+  },
+  {
+    "name": "<transform-list>",
+    "syntax": "<transform-function>+"
+  },
+  {
+    "name": "<media-feature>",
+    "syntax": "[ <mf-plain> | <mf-boolean> | <mf-range> ]"
+  },
+  {
+    "name": "src()",
+    "syntax": "src( <string> <url-modifier>* )"
+  },
+  {
+    "name": "<explicit-track-list>",
+    "syntax": "[ <line-names>? <track-size> ]+ <line-names>?"
+  },
+  {
+    "name": "<inflexible-breadth>",
+    "syntax": "<length-percentage [0,∞]> | min-content | max-content | auto"
+  },
+  {
+    "name": "<step-easing-function>",
+    "syntax": "step-start | step-end | steps(<integer> , <step-position>?)"
+  },
+  {
+    "name": "<id-selector>",
+    "syntax": "<hash-token>"
+  },
+  {
+    "name": "<auto-repeat>",
+    "syntax": "repeat( [ auto-fill | auto-fit ] , [ <line-names>? <fixed-size> ]+ <line-names>? )"
+  },
+  {
+    "name": "target-text()",
+    "syntax": "target-text( [ <string> | <url> ] , [ content | before | after | first-letter ]? )"
+  },
+  {
+    "name": "abs()",
+    "syntax": "abs( <calc-sum> )"
+  },
+  {
+    "name": "<calc-value>",
+    "syntax": "<number> | <dimension> | <percentage> | <calc-keyword> | ( <calc-sum> )"
+  },
+  {
+    "name": "<color-function>",
+    "syntax": "<rgb()> | <rgba()> | <hsl()> | <hsla()> | <hwb()> | <lab()> | <lch()> | <oklab()> | <oklch()> | <color()>"
+  },
+  {
+    "name": "<source-size-value>",
+    "syntax": "<length> | auto"
+  },
+  {
+    "name": "<self-position>",
+    "syntax": "center | start | end | self-start | self-end | flex-start | flex-end"
+  },
+  {
+    "name": "<offset-path>",
+    "syntax": "<ray()> | <url> | <basic-shape>"
+  },
+  {
+    "name": "translate()",
+    "syntax": "translate( <length-percentage> , <length-percentage>? )"
+  },
+  {
+    "name": "<media-or>",
+    "syntax": "or <media-in-parens>"
+  },
+  {
+    "name": "<xyz>",
+    "syntax": "xyz | xyz-d50 | xyz-d65"
+  },
+  {
+    "name": "clamp()",
+    "syntax": "clamp( [ <calc-sum> | none ], <calc-sum>, [ <calc-sum> | none ] )"
+  },
+  {
+    "name": "<general-enclosed>",
+    "syntax": "[ <function-token> <any-value>? ) ] | [ ( <any-value>? ) ]"
+  },
+  {
+    "name": "<repeat-style>",
+    "syntax": "repeat-x | repeat-y | [repeat | space | round | no-repeat]{1,2}"
+  },
+  {
+    "name": "<single-animation-direction>",
+    "syntax": "normal | reverse | alternate | alternate-reverse"
+  },
+  {
+    "name": "<bool-and>",
+    "syntax": "and <bool-in-parens>"
+  },
+  {
+    "name": "target-counters()",
+    "syntax": "target-counters( [ <string> | <url> ] , <custom-ident> , <string> , <counter-style>? )"
+  },
+  {
+    "name": "<legacy-pseudo-element-selector>",
+    "syntax": "':' [before | after | first-line | first-letter]"
+  },
+  {
+    "name": "max()",
+    "syntax": "max( <calc-sum># )"
+  },
+  {
+    "name": "<class-selector>",
+    "syntax": "'.' <ident-token>"
+  },
+  {
+    "name": "<mf-range>",
+    "syntax": "<mf-name> <mf-comparison> <mf-value> | <mf-value> <mf-comparison> <mf-name> | <mf-value> <mf-lt> <mf-name> <mf-lt> <mf-value> | <mf-value> <mf-gt> <mf-name> <mf-gt> <mf-value>"
+  },
+  {
+    "name": "<calc-keyword>",
+    "syntax": "e | pi | infinity | -infinity | NaN"
+  },
+  {
+    "name": "<modern-rgba-syntax>",
+    "syntax": "rgba( [ <number> | <percentage> | none]{3} [ / [<alpha-value> | none] ]? )"
+  },
+  {
+    "name": "lch()",
+    "syntax": "lch( [<percentage> | <number> | none] [ <percentage> | <number> | none] [ <hue> | none] [ / [<alpha-value> | none] ]? )"
+  },
+  {
+    "name": "oklch()",
+    "syntax": "oklch( [ <percentage> | <number> | none] [ <percentage> | <number> | none] [ <hue> | none] [ / [<alpha-value> | none] ]? )"
+  },
+  {
+    "name": "<linear-easing-function>",
+    "syntax": "linear(<linear-stop-list>)"
+  },
+  {
+    "name": "var()",
+    "syntax": "var( <custom-property-name> , <declaration-value>? )"
+  },
+  {
+    "name": "<marker-ref>",
+    "syntax": "<url>"
+  },
+  {
+    "name": "<feature-value-name>",
+    "syntax": "<ident>"
+  },
+  {
+    "name": "skewX()",
+    "syntax": "skewX( [ <angle> | <zero> ] )"
+  },
+  {
+    "name": "<predefined-polar-params>",
+    "syntax": "jzczhz [ <number> | <percentage> | none ]{2} [ <hue> | none]"
+  },
+  {
+    "name": "<linear-color-hint>",
+    "syntax": "<length-percentage>"
+  },
+  {
+    "name": "<predefined-rectangular-params>",
+    "syntax": "<predefined-rectangular> [ <number> | <percentage> | none ]{3}"
+  },
+  {
+    "name": "<quote>",
+    "syntax": "open-quote | close-quote | no-open-quote | no-close-quote"
+  },
+  {
+    "name": "<leader-type>",
+    "syntax": "dotted | solid | space | <string>"
+  },
+  {
+    "name": "<function-parameter-list>",
+    "syntax": "<function-parameter>#"
+  },
+  {
+    "name": "<radial-extent>",
+    "syntax": "closest-corner | closest-side | farthest-corner | farthest-side"
+  },
+  {
+    "name": "<numeric-figure-values>",
+    "syntax": "[ lining-nums | oldstyle-nums ]"
+  },
+  {
+    "name": "<bg-image>",
+    "syntax": "<image> | none"
+  },
+  {
+    "name": "ray()",
+    "syntax": "ray( <angle> && <ray-size>? && contain? && [at <position>]? )"
+  },
+  {
+    "name": "<east-asian-variant-values>",
+    "syntax": "[ jis78 | jis83 | jis90 | jis04 | simplified | traditional ]"
+  },
+  {
+    "name": "rgb()",
+    "syntax": "[ <legacy-rgb-syntax> | <modern-rgb-syntax> ]"
+  },
+  {
+    "name": "<syntax-combinator>",
+    "syntax": "'|'"
+  },
+  {
+    "name": "<namespace-prefix>",
+    "syntax": "<ident>"
+  },
+  {
+    "name": "<page-selector>",
+    "syntax": "[ <ident-token>? <pseudo-page>* ]!"
+  },
+  {
+    "name": "cubic-bezier()",
+    "syntax": "cubic-bezier(<number [0,1]>, <number>, <number [0,1]>, <number>)"
+  },
+  {
+    "name": "<complex-selector-unit>",
+    "syntax": "[ <compound-selector>? <pseudo-compound-selector>* ]!"
+  },
+  {
+    "name": "<media-condition-without-or>",
+    "syntax": "<media-not> | <media-in-parens> <media-and>*"
+  },
+  {
+    "name": "translateX()",
+    "syntax": "translateX( <length-percentage> )"
+  },
+  {
+    "name": "scaleY()",
+    "syntax": "scaleY( <number> )"
+  },
+  {
+    "name": "scroll()",
+    "syntax": "scroll( [ <scroller> || <axis> ]? )"
+  },
+  {
+    "name": "<font-variant-css2>",
+    "syntax": "[normal | small-caps]"
+  },
+  {
+    "name": "env()",
+    "syntax": "env( <custom-ident> <integer [0,∞]>*, <declaration-value>? )"
+  },
+  {
+    "name": "<selector-list>",
+    "syntax": "<complex-selector-list>"
+  },
+  {
+    "name": "<legacy-hsl-syntax>",
+    "syntax": "hsl( <hue>, <percentage>, <percentage>, <alpha-value>? )"
+  },
+  {
+    "name": "<mask-reference>",
+    "syntax": "none | <image> | <mask-source>"
+  },
+  {
+    "name": "<custom-arg>",
+    "syntax": "$ <ident-token> ;"
+  },
+  {
+    "name": "<gradient>",
+    "syntax": "<linear-gradient()> | <repeating-linear-gradient()> | <radial-gradient()> | <repeating-radial-gradient()>"
+  },
+  {
+    "name": "radial-gradient()",
+    "syntax": "radial-gradient( [ <radial-gradient-syntax> ] )"
+  },
+  {
+    "name": "brightness()",
+    "syntax": "brightness( [ <number> | <percentage> ]? )"
+  },
+  {
+    "name": "<family-name>",
+    "syntax": "<string> | <custom-ident>+"
+  },
+  {
+    "name": "steps()",
+    "syntax": "steps(<integer>, <step-position>?)"
+  },
+  {
+    "name": "<function-parameter>",
+    "syntax": "<custom-property-name> <css-type>? [ : <declaration-value> ]?"
+  },
+  {
+    "name": "<mq-boolean>",
+    "syntax": "<integer [0,1]>"
+  },
+  {
+    "name": "hypot()",
+    "syntax": "hypot( <calc-sum># )"
+  },
+  {
+    "name": "oklab()",
+    "syntax": "oklab( [ <percentage> | <number> | none] [ <percentage> | <number> | none] [ <percentage> | <number> | none] [ / [<alpha-value> | none] ]? )"
+  },
+  {
+    "name": "<counter-style>",
+    "syntax": "<counter-style-name> | <symbols()>"
+  },
+  {
+    "name": "<supports-feature>",
+    "syntax": "<supports-decl>"
+  },
+  {
+    "name": "<try-tactic>",
+    "syntax": "flip-block || flip-inline || flip-start"
+  },
+  {
+    "name": "<line-width>",
+    "syntax": "<length [0,∞]> | thin | medium | thick"
+  },
+  {
+    "name": "<media-type>",
+    "syntax": "<ident>"
+  },
+  {
+    "name": "matrix()",
+    "syntax": "matrix( <number>#{6} )"
+  },
+  {
+    "name": "palette-mix()",
+    "syntax": "palette-mix(<color-interpolation-method> , [ [normal | light | dark | <palette-identifier> | <palette-mix()> ] && <percentage [0,100]>? ]#{2})"
+  },
+  {
+    "name": "<complex-real-selector-list>",
+    "syntax": "<complex-real-selector>#"
+  },
+  {
+    "name": "<simple-selector>",
+    "syntax": "<type-selector> | <subclass-selector>"
+  },
+  {
+    "name": "<mf-boolean>",
+    "syntax": "<mf-name>"
+  },
+  {
+    "name": "<rectangular-color-space>",
+    "syntax": "srgb | srgb-linear | display-p3 | a98-rgb | prophoto-rgb | rec2020 | lab | oklab | xyz | xyz-d50 | xyz-d65"
+  },
+  {
+    "name": "dynamic-range-limit-mix()",
+    "syntax": "dynamic-range-limit-mix( [ <ident> && <percentage [0,100]>? ]#{2})"
+  },
+  {
+    "name": "<content-replacement>",
+    "syntax": "<image>"
+  },
+  {
+    "name": "<display-internal>",
+    "syntax": "table-row-group | table-header-group | table-footer-group | table-row | table-cell | table-column-group | table-column | table-caption | ruby-base | ruby-text | ruby-base-container | ruby-text-container"
+  },
+  {
+    "name": "<display-box>",
+    "syntax": "contents | none"
+  },
+  {
+    "name": "anchor()",
+    "syntax": "anchor( <anchor-element>? && <anchor-side>, <length-percentage>? )"
+  },
+  {
+    "name": "string()",
+    "syntax": "string( <custom-ident> , [ first | start | last | first-except ]? )"
+  },
+  {
+    "name": "<syntax-component-name>",
+    "syntax": "'<' <syntax-type> '>' | <custom-ident>"
+  },
+  {
+    "name": "round()",
+    "syntax": "round( <rounding-strategy>?, <calc-sum>, <calc-sum>? )"
+  },
+  {
+    "name": "rem()",
+    "syntax": "rem( <calc-sum>, <calc-sum> )"
+  },
+  {
+    "name": "sin()",
+    "syntax": "sin( <calc-sum> )"
+  },
+  {
+    "name": "<boolean-without-or>",
+    "syntax": "<bool-not> | <bool-in-parens> <bool-and>*"
+  },
+  {
+    "name": "<content-distribution>",
+    "syntax": "space-between | space-around | space-evenly | stretch"
+  },
+  {
+    "name": "<mf-name>",
+    "syntax": "<ident>"
+  },
+  {
+    "name": "ellipse()",
+    "syntax": "ellipse( <radial-size>? [ at <position> ]? )"
+  },
+  {
+    "name": "rect()",
+    "syntax": "rect( <top>, <right>, <bottom>, <left> )"
+  },
+  {
+    "name": "<complex-selector-list>",
+    "syntax": "<complex-selector>#"
+  },
+  {
+    "name": "<type()>",
+    "syntax": "type( <syntax> )"
+  },
+  {
+    "name": "counter()",
+    "syntax": "counter( <counter-name>, <counter-style>? )"
+  },
+  {
+    "name": "anchor-size()",
+    "syntax": "anchor-size( [ <anchor-element> || <anchor-size> ]? , <length-percentage>? )"
+  },
+  {
+    "name": "skewY()",
+    "syntax": "skewY( [ <angle> | <zero> ] )"
+  },
+  {
+    "name": "<content-position>",
+    "syntax": "center | start | end | flex-start | flex-end"
+  },
+  {
+    "name": "<custom-params>",
+    "syntax": "<dashed-ident> [ <number> | <percentage> | none ]+"
+  },
+  {
+    "name": "<content-list>",
+    "syntax": "[ <string> | <counter()> | <counters()> | <content()> | <attr()> ]+"
+  },
+  {
+    "name": "<filter-value-list>",
+    "syntax": "[ <filter-function> | <url> ]+"
+  },
+  {
+    "name": "<font-src>",
+    "syntax": "<url> [ format(<font-format>)]? [ tech( <font-tech>#)]? | local(<family-name>)"
+  },
+  {
+    "name": "<linear-stop-length>",
+    "syntax": "<percentage>{1,2}"
+  },
+  {
+    "name": "<track-repeat>",
+    "syntax": "repeat( [ <integer [1,∞]> ] , [ <line-names>? <track-size> ]+ <line-names>? )"
+  },
+  {
+    "name": "<polar-color-space>",
+    "syntax": "hsl | hwb | lch | oklch"
+  },
+  {
+    "name": "<font-width-css3>",
+    "syntax": "[normal | ultra-condensed | extra-condensed | condensed | semi-condensed | semi-expanded | expanded | extra-expanded | ultra-expanded]"
+  },
+  {
+    "name": "<paint-box>",
+    "syntax": "<visual-box> | fill-box | stroke-box"
+  },
+  {
+    "name": "cos()",
+    "syntax": "cos( <calc-sum> )"
+  },
+  {
+    "name": "<mf-gt>",
+    "syntax": "'>' '='?"
+  },
+  {
+    "name": "<bool-or>",
+    "syntax": "or <bool-in-parens>"
+  },
+  {
+    "name": "<predefined-rgb>",
+    "syntax": "srgb | srgb-linear | display-p3 | a98-rgb | prophoto-rgb | rec2020 | rec2100-pq | rec2100-hlg | rec2100-linear"
+  },
+  {
+    "name": "<overflow-position>",
+    "syntax": "unsafe | safe"
+  },
+  {
+    "name": "<relative-selector-list>",
+    "syntax": "<relative-selector>#"
+  },
+  {
+    "name": "path()",
+    "syntax": "path( <'fill-rule'>? , <string> )"
+  },
+  {
+    "name": "<generic-family>",
+    "syntax": "<generic-script-specific>| <generic-complete> | <generic-incomplete>"
+  },
+  {
+    "name": "<attr-modifier>",
+    "syntax": "i | s"
+  },
+  {
+    "name": "<media-in-parens>",
+    "syntax": "( <media-condition> ) | ( <media-feature> ) | <general-enclosed>"
+  },
+  {
+    "name": "<alpha-value>",
+    "syntax": "<number> | <percentage>"
+  },
+  {
+    "name": "<modern-rgb-syntax>",
+    "syntax": "rgb( [ <number> | <percentage> | none]{3} [ / [<alpha-value> | none] ]? )"
+  },
+  {
+    "name": "<radial-shape>",
+    "syntax": "circle | ellipse"
+  },
+  {
+    "name": "<final-bg-layer>",
+    "syntax": "<bg-image> || <bg-position> [ / <bg-size> ]? || <repeat-style> || <attachment> || <visual-box> || <visual-box> || <'background-color'>"
+  },
+  {
+    "name": "pow()",
+    "syntax": "pow( <calc-sum>, <calc-sum> )"
+  },
+  {
+    "name": "<system-family-name>",
+    "syntax": "caption | icon | menu | message-box | small-caption | status-bar"
+  },
+  {
+    "name": "<complex-selector>",
+    "syntax": "<complex-selector-unit> [ <combinator>? <complex-selector-unit> ]*"
+  },
+  {
+    "name": "<xyz-space>",
+    "syntax": "xyz | xyz-d50 | xyz-d65"
+  },
+  {
+    "name": "polygon()",
+    "syntax": "polygon( <'fill-rule'>? , [<length-percentage> <length-percentage>]# )"
+  },
+  {
+    "name": "<animateable-feature>",
+    "syntax": "scroll-position | contents | <custom-ident>"
+  },
+  {
+    "name": "<layout-box>",
+    "syntax": "<visual-box> | margin-box"
+  },
+  {
+    "name": "<combinator>",
+    "syntax": "'>' | '+' | '~' | [ '|' '|' ]"
+  },
+  {
+    "name": "<track-breadth>",
+    "syntax": "<length-percentage [0,∞]> | <flex [0,∞]> | min-content | max-content | auto"
+  },
+  {
+    "name": "<line-names>",
+    "syntax": "'[' <custom-ident>* ']'"
+  },
+  {
+    "name": "<single-transition>",
+    "syntax": "[ none | <single-transition-property> ] || <time> || <easing-function> || <time>"
+  },
+  {
+    "name": "<numeric-fraction-values>",
+    "syntax": "[ diagonal-fractions | stacked-fractions ]"
+  },
+  {
+    "name": "<cubic-bezier-easing-function>",
+    "syntax": "ease | ease-in | ease-out | ease-in-out | cubic-bezier(<number [0,1]>, <number>, <number [0,1]>, <number>)"
+  },
+  {
+    "name": "<media-and>",
+    "syntax": "and <media-in-parens>"
+  },
+  {
+    "name": "<mf-eq>",
+    "syntax": "'='"
+  },
+  {
+    "name": "<syntax-type>",
+    "syntax": "angle | color | custom-ident | image | integer | length | length-percentage | number | percentage | resolution | string | time | url | transform-function"
+  },
+  {
+    "name": "linear-gradient()",
+    "syntax": "linear-gradient( [ <linear-gradient-syntax> ] )"
+  },
+  {
+    "name": "<attribute-selector>",
+    "syntax": "'[' <wq-name> ']' | '[' <wq-name> <attr-matcher> [ <string-token> | <ident-token> ] <attr-modifier>? ']'"
+  },
+  {
+    "name": "<mf-lt>",
+    "syntax": "'<' '='?"
+  },
+  {
+    "name": "<generic-script-specific>",
+    "syntax": "generic(kai) | generic(fangsong) | generic(nastaliq)"
+  },
+  {
+    "name": "<compound-selector>",
+    "syntax": "[ <type-selector>? <subclass-selector>* ]!"
+  },
+  {
+    "name": "content()",
+    "syntax": "content( [ text | before | after | first-letter | marker ]? )"
+  },
+  {
+    "name": "hwb()",
+    "syntax": "hwb( [<hue> | none] [<percentage> | <number> | none] [<percentage> | <number> | none] [ / [<alpha-value> | none] ]? )"
+  },
+  {
+    "name": "<xyz-params>",
+    "syntax": "<xyz> [ <number> | <percentage> | none ]{3}"
+  },
+  {
+    "name": "<supports-decl>",
+    "syntax": "( <declaration> )"
+  },
+  {
+    "name": "<linear-color-stop>",
+    "syntax": "<color> <length-percentage>?"
+  },
+  {
+    "name": "translateY()",
+    "syntax": "translateY( <length-percentage> )"
+  },
+  {
+    "name": "<type-selector>",
+    "syntax": "<wq-name> | <ns-prefix>? '*'"
+  },
+  {
+    "name": "<angle-percentage>",
+    "syntax": "[ <angle> | <percentage> ]"
+  },
+  {
+    "name": "<modern-hsl-syntax>",
+    "syntax": "hsl( [<hue> | none] [<percentage> | <number> | none] [<percentage> | <number> | none] [ / [<alpha-value> | none] ]? )"
+  },
+  {
+    "name": "<color-space>",
+    "syntax": "<rectangular-color-space> | <polar-color-space>"
+  },
+  {
+    "name": "<text-edge>",
+    "syntax": "[ text | cap | ex | ideographic | ideographic-ink ] [ text | alphabetic | ideographic | ideographic-ink ]?"
+  },
+  {
+    "name": "<function-dependency-list>",
+    "syntax": "<function-parameter>#"
+  },
+  {
+    "name": "<syntax>",
+    "syntax": "'*' | <syntax-component> [ <syntax-combinator> <syntax-component> ]+"
+  },
+  {
+    "name": "<attr-matcher>",
+    "syntax": "[ '~' | '|' | '^' | '$' | '*' ]? '='"
+  },
+  {
+    "name": "<ray-size>",
+    "syntax": "closest-side | closest-corner | farthest-side | farthest-corner | sides"
+  },
+  {
+    "name": "<syntax-component>",
+    "syntax": "<syntax-component-name> <syntax-multiplier>? | '<' transform-list '>'"
+  },
+  {
+    "name": "<opentype-tag>",
+    "syntax": "<string>"
+  },
+  {
+    "name": "<layer-name>",
+    "syntax": "<ident> [ '.' <ident> ]*"
+  },
+  {
+    "name": "<mf-plain>",
+    "syntax": "<mf-name> : <mf-value>"
+  },
+  {
+    "name": "<media-condition>",
+    "syntax": "<media-not> | <media-in-parens> [ <media-and>* | <media-or>* ]"
+  },
+  {
+    "name": "<position>",
+    "syntax": "[ [ left | center | right | top | bottom | <length-percentage> ] | [ left | center | right ] && [ top | center | bottom ] | [ left | center | right | <length-percentage> ] [ top | center | bottom | <length-percentage> ] | [ [ left | right ] <length-percentage> ] && [ [ top | bottom ] <length-percentage> ] ]"
+  },
+  {
+    "name": "<rounding-strategy>",
+    "syntax": "nearest | up | down | to-zero"
+  },
+  {
+    "name": "<coord-box>",
+    "syntax": "<paint-box> | view-box"
+  },
+  {
+    "name": "<import-conditions>",
+    "syntax": "[ supports( [ <supports-condition> | <declaration> ] ) ]? <media-query-list>?"
+  },
+  {
+    "name": "url()",
+    "syntax": "url( <string> <url-modifier>* ) | <url-token>"
+  },
+  {
+    "name": "<fixed-breadth>",
+    "syntax": "<length-percentage [0,∞]>"
+  },
+  {
+    "name": "<color>",
+    "syntax": "<color-base> | currentColor | <system-color>"
+  },
+  {
+    "name": "repeating-linear-gradient()",
+    "syntax": "repeating-linear-gradient( [ <linear-gradient-syntax> ] )"
+  },
+  {
+    "name": "repeating-radial-gradient()",
+    "syntax": "repeating-radial-gradient( [ <radial-gradient-syntax> ] )"
+  },
+  {
+    "name": "inset()",
+    "syntax": "inset( <length-percentage>{1,4} [ round <'border-radius'> ]? )"
+  },
+  {
+    "name": "<keyframes-name>",
+    "syntax": "<custom-ident> | <string>"
+  },
+  {
+    "name": "<ns-prefix>",
+    "syntax": "[ <ident-token> | '*' ]? '|'"
+  },
+  {
+    "name": "<font-weight-absolute>",
+    "syntax": "[normal | bold | <number [1,1000]>]"
+  },
+  {
+    "name": "<common-lig-values>",
+    "syntax": "[ common-ligatures | no-common-ligatures ]"
+  },
+  {
+    "name": "<bool-in-parens>",
+    "syntax": "( <boolean> ) | <bool-test> | <general-enclosed>"
+  },
+  {
+    "name": "<name-repeat>",
+    "syntax": "repeat( [ <integer [1,∞]> | auto-fill ], <line-names>+)"
+  },
+  {
+    "name": "<radial-gradient-syntax>",
+    "syntax": "[ <radial-shape> || <radial-size> ]? [ at <position> ]? , <color-stop-list>"
+  },
+  {
+    "name": "<bg-layer>",
+    "syntax": "<bg-image> || <bg-position> [ / <bg-size> ]? || <repeat-style> || <attachment> || <visual-box> || <visual-box>"
+  },
+  {
+    "name": "acos()",
+    "syntax": "acos( <calc-sum> )"
+  },
+  {
+    "name": "<url>",
+    "syntax": "<url()> | <src()>"
+  },
+  {
+    "name": "log()",
+    "syntax": "log( <calc-sum>, <calc-sum>? )"
+  },
+  {
+    "name": "<calc-sum>",
+    "syntax": "<calc-product> [ [ '+' | '-' ] <calc-product> ]*"
+  },
+  {
+    "name": "<syntax-multiplier>",
+    "syntax": "[ '#' | '+' ]"
+  },
+  {
+    "name": "circle()",
+    "syntax": "circle( <radial-size>? [ at <position> ]? )"
+  },
+  {
+    "name": "grayscale()",
+    "syntax": "grayscale( [ <number> | <percentage> ]? )"
+  },
+  {
+    "name": "<masking-mode>",
+    "syntax": "alpha | luminance | match-source"
+  },
+  {
+    "name": "<mf-value>",
+    "syntax": "<number> | <dimension> | <ident> | <ratio>"
+  },
+  {
+    "name": "<anchor-side>",
+    "syntax": "inside | outside | top | left | right | bottom | start | end | self-start | self-end | <percentage> | center"
+  },
+  {
+    "name": "<time-percentage>",
+    "syntax": "[ <time> | <percentage> ]"
+  },
+  {
+    "name": "<calc-product>",
+    "syntax": "<calc-value> [ [ '*' | '/' ] <calc-value> ]*"
+  },
+  {
+    "name": "<colorspace-params>",
+    "syntax": "[<custom-params> | <predefined-rgb-params> | <predefined-polar-params> | <predefined-rectangular-params> | <xyz-params>]"
+  },
+  {
+    "name": "<supports-condition>",
+    "syntax": "not <supports-in-parens> | <supports-in-parens> [ and <supports-in-parens> ]* | <supports-in-parens> [ or <supports-in-parens> ]*"
+  },
+  {
+    "name": "<relative-selector>",
+    "syntax": "<combinator>? <complex-selector>"
+  },
+  {
+    "name": "<relative-real-selector>",
+    "syntax": "<combinator>? <complex-real-selector>"
+  },
+  {
+    "name": "<baseline-position>",
+    "syntax": "[ first | last ]? && baseline"
+  },
+  {
+    "name": "<pseudo-compound-selector>",
+    "syntax": "<pseudo-element-selector> <pseudo-class-selector>*"
+  },
+  {
+    "name": "<line-name-list>",
+    "syntax": "[ <line-names> | <name-repeat> ]+"
+  },
+  {
+    "name": "hsl()",
+    "syntax": "[ <legacy-hsl-syntax> | <modern-hsl-syntax> ]"
+  },
+  {
+    "name": "leader()",
+    "syntax": "leader( <leader-type> )"
+  },
+  {
+    "name": "<axis>",
+    "syntax": "block | inline | x | y"
+  },
+  {
+    "name": "<line-style>",
+    "syntax": "none | hidden | dotted | dashed | solid | double | groove | ridge | inset | outset"
+  },
+  {
+    "name": "<clip-source>",
+    "syntax": "<url>"
+  },
+  {
+    "name": "calc()",
+    "syntax": "calc( <calc-sum> )"
+  },
+  {
+    "name": "invert()",
+    "syntax": "invert( [ <number> | <percentage> ]? )"
+  },
+  {
+    "name": "color()",
+    "syntax": "color( [from <color>]? <colorspace-params> [ / [ <alpha-value> | none ] ]? )"
+  },
+  {
+    "name": "<source-size>",
+    "syntax": "<media-condition> <source-size-value> | auto"
+  },
+  {
+    "name": "<linear-stop-list>",
+    "syntax": "[ <linear-stop> ]#"
+  },
+  {
+    "name": "<compositing-operator>",
+    "syntax": "add | subtract | intersect | exclude"
+  }
+]

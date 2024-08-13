@@ -3,6 +3,8 @@ use std::sync::mpsc::Sender;
 use anyhow::anyhow;
 use url::Url;
 
+use gosub_css3::colors::RgbColor;
+use gosub_css3::stylesheet::CssValue;
 use gosub_html5::node::NodeId;
 use gosub_render_backend::geo::{Size, SizeU32, FP};
 use gosub_render_backend::layout::{Layout, LayoutTree, Layouter};
@@ -13,8 +15,6 @@ use gosub_render_backend::{
 };
 use gosub_rendering::position::PositionTree;
 use gosub_shared::types::Result;
-use gosub_styling::css_colors::RgbColor;
-use gosub_styling::css_values::CssValue;
 use gosub_styling::render_tree::{RenderNodeData, RenderTree, RenderTreeNode};
 
 use crate::draw::img::request_img;

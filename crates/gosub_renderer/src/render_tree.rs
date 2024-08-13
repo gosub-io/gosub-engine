@@ -12,8 +12,8 @@ use gosub_render_backend::layout::Layouter;
 use gosub_render_backend::RenderBackend;
 use gosub_rendering::position::PositionTree;
 use gosub_shared::byte_stream::{ByteStream, Confidence, Encoding};
-use gosub_styling::css_values::CssProperties;
 use gosub_styling::render_tree::{generate_render_tree, RenderNodeData, RenderTree};
+use gosub_styling::styling::CssProperties;
 
 pub struct TreeDrawer<B: RenderBackend, L: Layouter> {
     pub(crate) tree: RenderTree<B, L>,

@@ -1,0 +1,663 @@
+[
+  {
+    "name": "@layer",
+    "descriptors": [],
+    "Values": null
+  },
+  {
+    "name": "@bottom-right",
+    "descriptors": [],
+    "Values": null
+  },
+  {
+    "name": "@bottom-right-corner",
+    "descriptors": [],
+    "Values": null
+  },
+  {
+    "name": "@page",
+    "descriptors": [
+      {
+        "name": "size",
+        "syntax": "<length [0,∞]>{1,2} | auto | [ <page-size> || [ portrait | landscape ] ]",
+        "initial": "auto"
+      },
+      {
+        "name": "page-orientation",
+        "syntax": "upright | rotate-left | rotate-right",
+        "initial": "upright"
+      },
+      {
+        "name": "marks",
+        "syntax": "none | [ crop || cross ]",
+        "initial": ""
+      },
+      {
+        "name": "bleed",
+        "syntax": "auto | <length>",
+        "initial": "auto"
+      }
+    ],
+    "Values": [
+      {
+        "name": ":left",
+        "value": ":left",
+        "Values": null
+      },
+      {
+        "name": ":right",
+        "value": ":right",
+        "Values": null
+      },
+      {
+        "name": ":first",
+        "value": ":first",
+        "Values": null
+      },
+      {
+        "name": ":blank",
+        "value": ":blank",
+        "Values": null
+      }
+    ]
+  },
+  {
+    "name": "@counter-style",
+    "descriptors": [
+      {
+        "name": "system",
+        "syntax": "cyclic | numeric | alphabetic | symbolic | additive | [fixed <integer>?] | [ extends <counter-style-name> ]",
+        "initial": "symbolic"
+      },
+      {
+        "name": "negative",
+        "syntax": "<symbol> <symbol>?",
+        "initial": "\"-\""
+      },
+      {
+        "name": "prefix",
+        "syntax": "<symbol>",
+        "initial": "\"\""
+      },
+      {
+        "name": "suffix",
+        "syntax": "<symbol>",
+        "initial": "\". \""
+      },
+      {
+        "name": "range",
+        "syntax": "[ [ <integer> | infinite ]{2} ]# | auto",
+        "initial": "auto"
+      },
+      {
+        "name": "pad",
+        "syntax": "<integer [0,∞]> && <symbol>",
+        "initial": "0 \"\""
+      },
+      {
+        "name": "fallback",
+        "syntax": "<counter-style-name>",
+        "initial": "decimal"
+      },
+      {
+        "name": "symbols",
+        "syntax": "<symbol>+",
+        "initial": ""
+      },
+      {
+        "name": "additive-symbols",
+        "syntax": "[ <integer [0,∞]> && <symbol> ]#",
+        "initial": ""
+      },
+      {
+        "name": "speak-as",
+        "syntax": "auto | bullets | numbers | words | spell-out | <counter-style-name>",
+        "initial": "auto"
+      }
+    ],
+    "Values": null
+  },
+  {
+    "name": "@function",
+    "descriptors": [
+      {
+        "name": "result",
+        "syntax": "<declaration-value>?",
+        "initial": ""
+      }
+    ],
+    "Values": null
+  },
+  {
+    "name": "@charset",
+    "descriptors": [],
+    "Values": null
+  },
+  {
+    "name": "@top-center",
+    "descriptors": [],
+    "Values": null
+  },
+  {
+    "name": "@bottom-left",
+    "descriptors": [],
+    "Values": null
+  },
+  {
+    "name": "@left-middle",
+    "descriptors": [],
+    "Values": null
+  },
+  {
+    "name": "@left-bottom",
+    "descriptors": [],
+    "Values": null
+  },
+  {
+    "name": "@right-bottom",
+    "descriptors": [],
+    "Values": null
+  },
+  {
+    "name": "@font-feature-values",
+    "descriptors": [
+      {
+        "name": "font-display",
+        "syntax": "auto | block | swap | fallback | optional",
+        "initial": "auto"
+      },
+      {
+        "name": "@stylistic",
+        "syntax": "@stylistic { <declaration-list> }",
+        "initial": ""
+      },
+      {
+        "name": "@historical-forms",
+        "syntax": "@historical-forms { <declaration-list> }",
+        "initial": ""
+      },
+      {
+        "name": "@styleset",
+        "syntax": "@styleset { <declaration-list> }",
+        "initial": ""
+      },
+      {
+        "name": "@character-variant",
+        "syntax": "@character-variant { <declaration-list> }",
+        "initial": ""
+      },
+      {
+        "name": "@swash",
+        "syntax": "@swash { <declaration-list> }",
+        "initial": ""
+      },
+      {
+        "name": "@ornaments",
+        "syntax": "@ornaments { <declaration-list> }",
+        "initial": ""
+      },
+      {
+        "name": "@annotation",
+        "syntax": "@annotation { <declaration-list> }",
+        "initial": ""
+      }
+    ],
+    "Values": null
+  },
+  {
+    "name": "@font-palette-values",
+    "descriptors": [
+      {
+        "name": "font-family",
+        "syntax": "<family-name>#",
+        "initial": ""
+      },
+      {
+        "name": "base-palette",
+        "syntax": "light | dark | <integer [0,∞]>",
+        "initial": ""
+      },
+      {
+        "name": "override-colors",
+        "syntax": "[ <integer [0,∞]> <color> ]#",
+        "initial": ""
+      }
+    ],
+    "Values": null
+  },
+  {
+    "name": "@keyframes",
+    "descriptors": [],
+    "Values": null
+  },
+  {
+    "name": "@namespace",
+    "descriptors": [],
+    "Values": null
+  },
+  {
+    "name": "@left-top",
+    "descriptors": [],
+    "Values": null
+  },
+  {
+    "name": "@media",
+    "descriptors": [
+      {
+        "name": "width",
+        "syntax": "<length>",
+        "initial": ""
+      },
+      {
+        "name": "height",
+        "syntax": "<length>",
+        "initial": ""
+      },
+      {
+        "name": "aspect-ratio",
+        "syntax": "<ratio>",
+        "initial": ""
+      },
+      {
+        "name": "orientation",
+        "syntax": "portrait | landscape",
+        "initial": ""
+      },
+      {
+        "name": "resolution",
+        "syntax": "<resolution> | infinite",
+        "initial": ""
+      },
+      {
+        "name": "scan",
+        "syntax": "interlace | progressive",
+        "initial": ""
+      },
+      {
+        "name": "grid",
+        "syntax": "<mq-boolean>",
+        "initial": ""
+      },
+      {
+        "name": "update",
+        "syntax": "none | slow | fast",
+        "initial": ""
+      },
+      {
+        "name": "overflow-block",
+        "syntax": "none | scroll | paged",
+        "initial": ""
+      },
+      {
+        "name": "overflow-inline",
+        "syntax": "none | scroll",
+        "initial": ""
+      },
+      {
+        "name": "color",
+        "syntax": "<integer>",
+        "initial": ""
+      },
+      {
+        "name": "color-index",
+        "syntax": "<integer>",
+        "initial": ""
+      },
+      {
+        "name": "monochrome",
+        "syntax": "<integer>",
+        "initial": ""
+      },
+      {
+        "name": "color-gamut",
+        "syntax": "srgb | p3 | rec2020",
+        "initial": ""
+      },
+      {
+        "name": "pointer",
+        "syntax": "none | coarse | fine",
+        "initial": ""
+      },
+      {
+        "name": "hover",
+        "syntax": "none | hover",
+        "initial": ""
+      },
+      {
+        "name": "any-pointer",
+        "syntax": "none | coarse | fine",
+        "initial": ""
+      },
+      {
+        "name": "any-hover",
+        "syntax": "none | hover",
+        "initial": ""
+      },
+      {
+        "name": "device-width",
+        "syntax": "<length>",
+        "initial": ""
+      },
+      {
+        "name": "device-height",
+        "syntax": "<length>",
+        "initial": ""
+      },
+      {
+        "name": "device-aspect-ratio",
+        "syntax": "<ratio>",
+        "initial": ""
+      },
+      {
+        "name": "-webkit-device-pixel-ratio",
+        "syntax": "<number>",
+        "initial": ""
+      },
+      {
+        "name": "-webkit-transform-3d",
+        "syntax": "<mq-boolean>",
+        "initial": ""
+      },
+      {
+        "name": "shape",
+        "syntax": "rect | round",
+        "initial": ""
+      }
+    ],
+    "Values": [
+      {
+        "name": "all",
+        "value": "all",
+        "Values": [
+          {
+            "name": "inherit",
+            "value": "inherit"
+          }
+        ]
+      },
+      {
+        "name": "braille",
+        "value": "braille",
+        "Values": null
+      },
+      {
+        "name": "embossed",
+        "value": "embossed",
+        "Values": null
+      },
+      {
+        "name": "handheld",
+        "value": "handheld",
+        "Values": null
+      },
+      {
+        "name": "print",
+        "value": "print",
+        "Values": null
+      },
+      {
+        "name": "projection",
+        "value": "projection",
+        "Values": null
+      },
+      {
+        "name": "screen",
+        "value": "screen",
+        "Values": null
+      },
+      {
+        "name": "speech",
+        "value": "speech",
+        "Values": null
+      },
+      {
+        "name": "tty",
+        "value": "tty",
+        "Values": null
+      },
+      {
+        "name": "tv",
+        "value": "tv",
+        "Values": null
+      },
+      {
+        "name": "not",
+        "value": "not",
+        "Values": null
+      },
+      {
+        "name": "only",
+        "value": "only",
+        "Values": null
+      },
+      {
+        "name": "all",
+        "value": "all",
+        "Values": null
+      },
+      {
+        "name": "print",
+        "value": "print",
+        "Values": null
+      },
+      {
+        "name": "screen",
+        "value": "screen",
+        "Values": null
+      },
+      {
+        "name": "tty",
+        "value": "tty",
+        "Values": null
+      },
+      {
+        "name": "tv",
+        "value": "tv",
+        "Values": null
+      },
+      {
+        "name": "projection",
+        "value": "projection",
+        "Values": null
+      },
+      {
+        "name": "handheld",
+        "value": "handheld",
+        "Values": null
+      },
+      {
+        "name": "braille",
+        "value": "braille",
+        "Values": null
+      },
+      {
+        "name": "embossed",
+        "value": "embossed",
+        "Values": null
+      },
+      {
+        "name": "aural",
+        "value": "aural",
+        "Values": null
+      },
+      {
+        "name": "speech",
+        "value": "speech",
+        "Values": null
+      }
+    ]
+  },
+  {
+    "name": "@property",
+    "descriptors": [
+      {
+        "name": "syntax",
+        "syntax": "<string>",
+        "initial": ""
+      },
+      {
+        "name": "inherits",
+        "syntax": "true | false",
+        "initial": ""
+      },
+      {
+        "name": "initial-value",
+        "syntax": "<declaration-value>?",
+        "initial": "the guaranteed-invalid value (but see prose)"
+      }
+    ],
+    "Values": null
+  },
+  {
+    "name": "@bottom-left-corner",
+    "descriptors": [],
+    "Values": null
+  },
+  {
+    "name": "@font-face",
+    "descriptors": [
+      {
+        "name": "font-family",
+        "syntax": "<family-name>",
+        "initial": ""
+      },
+      {
+        "name": "src",
+        "syntax": "<font-src-list>",
+        "initial": ""
+      },
+      {
+        "name": "font-style",
+        "syntax": "auto | normal | italic | oblique [ <angle [-90deg,90deg]>{1,2} ]?",
+        "initial": "auto"
+      },
+      {
+        "name": "font-weight",
+        "syntax": "auto | <font-weight-absolute>{1,2}",
+        "initial": "auto"
+      },
+      {
+        "name": "font-width",
+        "syntax": "auto | <'font-width'>{1,2}",
+        "initial": "auto"
+      },
+      {
+        "name": "unicode-range",
+        "syntax": "<urange>#",
+        "initial": "U+0-10FFFF"
+      },
+      {
+        "name": "font-feature-settings",
+        "syntax": "normal | <feature-tag-value>#",
+        "initial": ""
+      },
+      {
+        "name": "font-variation-settings",
+        "syntax": "normal | [ <string> <number>]#",
+        "initial": ""
+      },
+      {
+        "name": "font-named-instance",
+        "syntax": "auto | <string>",
+        "initial": "auto"
+      },
+      {
+        "name": "font-display",
+        "syntax": "auto | block | swap | fallback | optional",
+        "initial": "auto"
+      },
+      {
+        "name": "font-language-override",
+        "syntax": "normal | <string>",
+        "initial": ""
+      },
+      {
+        "name": "ascent-override",
+        "syntax": "normal | <percentage [0,∞]>",
+        "initial": ""
+      },
+      {
+        "name": "descent-override",
+        "syntax": "normal | <percentage [0,∞]>",
+        "initial": ""
+      },
+      {
+        "name": "line-gap-override",
+        "syntax": "normal | <percentage [0,∞]>",
+        "initial": ""
+      }
+    ],
+    "Values": null
+  },
+  {
+    "name": "@-webkit-keyframes",
+    "descriptors": [],
+    "Values": null
+  },
+  {
+    "name": "@position-try",
+    "descriptors": [],
+    "Values": null
+  },
+  {
+    "name": "@right-middle",
+    "descriptors": [],
+    "Values": null
+  },
+  {
+    "name": "@custom-selector",
+    "descriptors": [],
+    "Values": null
+  },
+  {
+    "name": "@supports",
+    "descriptors": [],
+    "Values": null
+  },
+  {
+    "name": "@top-left-corner",
+    "descriptors": [],
+    "Values": null
+  },
+  {
+    "name": "@top-left",
+    "descriptors": [],
+    "Values": null
+  },
+  {
+    "name": "@top-right-corner",
+    "descriptors": [],
+    "Values": null
+  },
+  {
+    "name": "@right-top",
+    "descriptors": [],
+    "Values": null
+  },
+  {
+    "name": "@import",
+    "descriptors": [],
+    "Values": null
+  },
+  {
+    "name": "@viewport",
+    "descriptors": [
+      {
+        "name": "viewport-fit",
+        "syntax": "auto | contain | cover",
+        "initial": "auto"
+      }
+    ],
+    "Values": null
+  },
+  {
+    "name": "@top-right",
+    "descriptors": [],
+    "Values": null
+  },
+  {
+    "name": "@bottom-center",
+    "descriptors": [],
+    "Values": null
+  }
+]
