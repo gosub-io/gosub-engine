@@ -94,7 +94,10 @@ impl<'a> V8Ctx<'a> {
 
         v8_ctx.handle_scope = handle_scope;
 
-        let ctx = v8::Context::new(unsafe { v8_ctx.handle_scope.as_mut() }.get());
+        let ctx = v8::Context::new(
+            unsafe { v8_ctx.handle_scope.as_mut() }.get(),
+            Default::default(),
+        );
 
         let ctx_scope = Box::new(ContextScope::new(
             unsafe { v8_ctx.handle_scope.as_mut() }.get(),
