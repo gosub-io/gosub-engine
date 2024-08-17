@@ -2,6 +2,7 @@ package webref
 
 import (
 	"encoding/json"
+	"errors"
 	"generate_definitions/utils"
 	"io"
 	"log"
@@ -198,6 +199,10 @@ func DownloadFileContent(file *utils.DirectoryListItem) []byte {
 			return nil
 		}
 
+		if err := os.MkdirAll(path.Dir(cachePath), 0755); err != nil {
+			log.Panic("Failed to create cache directory ", path.Dir(cachePath), err)
+		}
+
 		if err := os.WriteFile(cachePath, body, 0644); err != nil {
 			log.Panic("Failed to write cache file ", cachePath, err)
 		}
@@ -306,12 +311,11 @@ func skip(shortname string) bool {
 	return true
 }
 
-// ProcessValue will process a single value (from either root values or propertt values) and add it
+// ProcessValue will process a single value (from either root values or property values) and add it
 // to the ParseData if possible.
 func ProcessValue(name string, type_ string, syntax string, pd *ParseData) {
 	if name == syntax {
-		//log.Println("name == syntax for ", name)
-
+		// log.Println("name == syntax for ", name)
 		return
 	}
 
@@ -369,11 +373,13 @@ func DecodeFileContent(content []byte, pd *ParseData) {
 	}
 
 	for _, property := range fileData.Properties {
-		//log.Println("Processing property: ", property.Name)
+		if property.Name == "stop-color" || property.Name == "stop-opacity" {
+			// Some hardcoded skips
+			return
+		}
 
 		for _, v := range property.Values {
 			ProcessValue(v.Name, v.Type, v.Syntax, pd)
-
 			ProcessExtraValues(v.Values, pd)
 		}
 
@@ -443,4 +449,84 @@ func ProcessExtraValues(values []WebRefValue, pd *ParseData) {
 		ProcessValue(value.Name, value.Type, value.Syntax, pd)
 		ProcessExtraValues(value.Values, pd)
 	}
+}
+
+var PropertyAliasTable = map[string]string{
+	"-webkit-align-content":              "align-content",
+	"-webkit-align-items":                "align-items",
+	"-webkit-align-self":                 "align-self",
+	"-webkit-animation":                  "animation",
+	"-webkit-animation-delay":            "animation-delay",
+	"-webkit-animation-direction":        "animation-direction",
+	"-webkit-animation-duration":         "animation-duration",
+	"-webkit-animation-fill-mode":        "animation-fill-mode",
+	"-webkit-animation-iteration-count":  "animation-iteration-count",
+	"-webkit-animation-name":             "animation-name",
+	"-webkit-animation-play-state":       "animation-play-state",
+	"-webkit-animation-timing-function":  "animation-timing-function",
+	"-webkit-appearance":                 "appearance",
+	"-webkit-backface-visibility":        "backface-visibility",
+	"-webkit-background-clip":            "background-clip",
+	"-webkit-background-origin":          "background-origin",
+	"-webkit-background-size":            "background-size",
+	"-webkit-border-bottom-left-radius":  "border-bottom-left-radius",
+	"-webkit-border-bottom-right-radius": "border-bottom-right-radius",
+	"-webkit-border-radius":              "border-radius",
+	"-webkit-border-top-left-radius":     "border-top-left-radius",
+	"-webkit-border-top-right-radius":    "border-top-right-radius",
+	"-webkit-box-align":                  "box-align",
+	"-webkit-box-flex":                   "box-flex",
+	"-webkit-box-ordinal-group":          "box-ordinal-group",
+	"-webkit-box-orient":                 "box-orient",
+	"-webkit-box-pack":                   "box-pack",
+	"-webkit-box-shadow":                 "box-shadow",
+	"-webkit-box-sizing":                 "box-sizing",
+	"-webkit-filter":                     "filter",
+	"-webkit-flex":                       "flex",
+	"-webkit-flex-basis":                 "flex-basis",
+	"-webkit-flex-direction":             "flex-direction",
+	"-webkit-flex-flow":                  "flex-flow",
+	"-webkit-flex-grow":                  "flex-grow",
+	"-webkit-flex-shrink":                "flex-shrink",
+	"-webkit-flex-wrap":                  "flex-wrap",
+	"-webkit-justify-content":            "justify-content",
+	"-webkit-mask":                       "mask",
+	"-webkit-mask-box-image":             "mask-border",
+	"-webkit-mask-box-image-outset":      "mask-border-outset",
+	"-webkit-mask-box-image-repeat":      "mask-border-repeat",
+	"-webkit-mask-box-image-slice":       "mask-border-slice",
+	"-webkit-mask-box-image-source":      "mask-border-source",
+	"-webkit-mask-box-image-width":       "mask-border-width",
+	"-webkit-mask-clip":                  "mask-clip",
+	"-webkit-mask-composite":             "mask-composite",
+	"-webkit-mask-image":                 "mask-image",
+	"-webkit-mask-origin":                "mask-origin",
+	"-webkit-mask-position":              "mask-position",
+	"-webkit-mask-repeat":                "mask-repeat",
+	"-webkit-mask-size":                  "mask-size",
+	"-webkit-order":                      "order",
+	"-webkit-perspective":                "perspective",
+	"-webkit-perspective-origin":         "perspective-origin",
+	"-webkit-text-size-adjust":           "text-size-adjust",
+	"-webkit-transform":                  "transform",
+	"-webkit-transform-origin":           "transform-origin",
+	"-webkit-transform-style":            "transform-style",
+	"-webkit-transition":                 "transition",
+	"-webkit-transition-delay":           "transition-delay",
+	"-webkit-transition-duration":        "transition-duration",
+	"-webkit-transition-property":        "transition-property",
+	"-webkit-transition-timing-function": "transition-timing-function",
+	"-webkit-user-select":                "user-select",
+	"font-stretch":                       "font-width",
+	"grid-column-gap":                    "column-gap",
+	"grid-gap":                           "gap",
+	"grid-row-gap":                       "row-gap",
+}
+
+func GetAlias(propName string) (string, error) {
+	if PropertyAliasTable[propName] == "" {
+		return "", errors.New("No alias syntax for property: " + propName)
+	}
+
+	return PropertyAliasTable[propName], nil
 }

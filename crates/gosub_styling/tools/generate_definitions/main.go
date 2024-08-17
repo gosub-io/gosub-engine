@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"path"
+	"sort"
 )
 
 type ExportType int
@@ -21,7 +22,7 @@ const (
 
 const (
 	exportType      = Both
-	ResourcePath    = "crates/gosub_styling/resources/definitions"
+	ResourcePath    = ".output"
 	SingleFilePath  = ResourcePath + "/definitions.json"
 	MultiFileDir    = ResourcePath
 	MultiFilePrefix = "definitions_"
@@ -41,7 +42,30 @@ func main() {
 		len(webrefData.Properties), len(webrefData.Values), len(webrefData.AtRules), len(webrefData.Selectors),
 	)
 
+	sort.Slice(webrefData.Properties, func(i, j int) bool {
+		return webrefData.Properties[i].Name < webrefData.Properties[j].Name
+	})
+
 	for _, property := range webrefData.Properties {
+
+		if property.Syntax == "" {
+			alias, err := webref.GetAlias(property.Name)
+			if err != nil {
+				log.Panic("failed to get alias syntax for property: " + property.Name)
+			}
+
+			for wdp := range webrefData.Properties {
+				if webrefData.Properties[wdp].Name == alias {
+					property.Syntax = webrefData.Properties[wdp].Syntax
+					break
+				}
+			}
+
+			if property.Syntax == "" {
+				log.Panic("failed to get alias syntax for property: " + property.Name)
+			}
+		}
+
 		prop := utils.Property{
 			Name:      property.Name,
 			Syntax:    property.Syntax,

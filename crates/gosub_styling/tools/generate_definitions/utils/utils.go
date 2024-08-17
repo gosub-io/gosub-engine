@@ -10,7 +10,7 @@ const (
 	REPO             = "w3c/webref"
 	LOCATION         = "ed/css"
 	PATCH_LOCATION   = "ed/csspatches"
-	CACHE_DIR        = "crates/gosub_styling/resources/cache"
+	CACHE_DIR        = ".cache"
 	CACHE_INDEX_FILE = CACHE_DIR + "/index/cache_index.json"
 	CUSTOM_PATCH_DIR = "crates/gosub_styling/resources/patches"
 	BRANCH           = "curated"
