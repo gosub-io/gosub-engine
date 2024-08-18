@@ -47,23 +47,9 @@ func main() {
 	})
 
 	for _, property := range webrefData.Properties {
-
 		if property.Syntax == "" {
-			alias, err := webref.GetAlias(property.Name)
-			if err != nil {
-				log.Panic("failed to get alias syntax for property: " + property.Name)
-			}
-
-			for wdp := range webrefData.Properties {
-				if webrefData.Properties[wdp].Name == alias {
-					property.Syntax = webrefData.Properties[wdp].Syntax
-					break
-				}
-			}
-
-			if property.Syntax == "" {
-				log.Panic("failed to get alias syntax for property: " + property.Name)
-			}
+			// Skip any empty syntax, as they will be filled later with alias table
+			continue
 		}
 
 		prop := utils.Property{
@@ -124,6 +110,23 @@ func main() {
 			Descriptors: descriptors,
 			Values:      atRule.Values,
 		})
+
+		for _, property := range webrefData.Properties {
+			if property.Syntax != "" {
+				// Skip properties with syntax
+				continue
+			}
+
+			alias, err := webref.GetAlias(property.Name)
+			if err != nil {
+				log.Panic("failed to get alias syntax for property: " + property.Name)
+			}
+
+			data.PropAliases = append(data.PropAliases, utils.PropAlias{
+				Name: property.Name,
+				For:  alias,
+			})
+		}
 	}
 
 	data.Selectors = webrefData.Selectors
@@ -164,6 +167,7 @@ func ExportMultiFile(data *utils.Data) {
 	ExportData(data.Values, path.Join(MultiFileDir, MultiFilePrefix+"values.json"))
 	ExportData(data.AtRules, path.Join(MultiFileDir, MultiFilePrefix+"at-rules.json"))
 	ExportData(data.Selectors, path.Join(MultiFileDir, MultiFilePrefix+"selectors.json"))
+	ExportData(data.PropAliases, path.Join(MultiFileDir, MultiFilePrefix+"prop-aliases.json"))
 
 }
 

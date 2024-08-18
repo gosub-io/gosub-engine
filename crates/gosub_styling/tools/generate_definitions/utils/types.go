@@ -1,10 +1,16 @@
 package utils
 
 type Data struct {
-	Properties []Property `json:"properties"`
-	Values     []Value    `json:"values"`
-	AtRules    []AtRule   `json:"atrules"`
-	Selectors  []Selector `json:"selectors"`
+	Properties  []Property  `json:"properties"`
+	Values      []Value     `json:"values"`
+	AtRules     []AtRule    `json:"atrules"`
+	Selectors   []Selector  `json:"selectors"`
+	PropAliases []PropAlias `json:"propAliases"`
+}
+
+type PropAlias struct {
+	Name string `json:"name"`
+	For  string `json:"for"`
 }
 
 type Value struct {
