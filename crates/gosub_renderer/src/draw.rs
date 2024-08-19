@@ -6,6 +6,7 @@ use url::Url;
 use gosub_css3::colors::RgbColor;
 use gosub_css3::stylesheet::CssValue;
 use gosub_html5::node::NodeId;
+use gosub_net::http::fetcher::Fetcher;
 use gosub_render_backend::geo::{Size, SizeU32, FP};
 use gosub_render_backend::layout::{Layout, LayoutTree, Layouter};
 use gosub_render_backend::svg::SvgRenderer;
@@ -251,7 +252,7 @@ impl<B: RenderBackend, L: Layouter> Drawer<'_, '_, B, L> {
         pos.x += p.x as FP;
         pos.y += p.y as FP;
 
-        let border_radius = render_bg(node, self.scene, pos, &self.drawer.url, &mut self.svg);
+        let border_radius = render_bg(node, self.scene, pos, &mut self.svg, &self.drawer.fetcher);
 
         if let RenderNodeData::Element(element) = &node.data {
             if element.name() == "img" {
@@ -260,24 +261,19 @@ impl<B: RenderBackend, L: Layouter> Drawer<'_, '_, B, L> {
                     .get("src")
                     .ok_or(anyhow!("Image element has no src attribute"))?;
 
-                let url =
-                    Url::parse(src.as_str()).or_else(|_| self.drawer.url.join(src.as_str()))?;
+                let url = src.as_str();
 
-                let img = request_img(&mut self.svg, &url)?;
+                let size = node.layout.size();
+
+                let img = request_img(&self.drawer.fetcher, &mut self.svg, url, size.u32())?;
+
                 let fit = element
                     .attributes
                     .get("object-fit")
                     .map(|prop| prop.as_str())
                     .unwrap_or("contain");
 
-                render_image::<B>(
-                    img,
-                    self.scene,
-                    *pos,
-                    node.layout.size(),
-                    border_radius,
-                    fit,
-                )?;
+                render_image::<B>(img, self.scene, *pos, size, border_radius, fit)?;
             }
         }
 
@@ -305,7 +301,7 @@ fn render_text<B: RenderBackend, L: Layouter>(
                 }
             })
             .map(|color| Color::rgba(color.r as u8, color.g as u8, color.b as u8, color.a as u8))
-            .unwrap_or(Color::BLACK);
+            .unwrap_or(Color::WHITE);
 
         let text = Text::new(&mut text.prerender);
 
@@ -334,8 +330,8 @@ fn render_bg<B: RenderBackend, L: Layouter>(
     node: &mut RenderTreeNode<B, L>,
     scene: &mut B::Scene,
     pos: &Point,
-    root_url: &Url,
     svg: &mut B::SVGRenderer,
+    fetcher: &Fetcher,
 ) -> (FP, FP, FP, FP) {
     let bg_color = node
         .properties
@@ -448,12 +444,7 @@ fn render_bg<B: RenderBackend, L: Layouter>(
     });
 
     if let Some(url) = background_image {
-        let Ok(url) = Url::parse(url).or_else(|_| root_url.join(url)) else {
-            eprintln!("TODO: Add Image not found Image");
-            return border_radius;
-        };
-
-        let img = match request_img(svg, &url) {
+        let img = match request_img(fetcher, svg, url, node.layout.size().u32()) {
             Ok(img) => img,
             Err(e) => {
                 eprintln!("Error loading image: {:?}", e);

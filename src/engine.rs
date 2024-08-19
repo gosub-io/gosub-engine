@@ -110,7 +110,7 @@ fn fetch_url(
             fetch_response.response.version = format!("{:?}", resp.http_version());
             for key in &resp.headers_names() {
                 for value in resp.all(key) {
-                    fetch_response.response.headers.set(key.as_str(), value);
+                    fetch_response.response.headers.set_str(key.as_str(), value);
                 }
             }
             // TODO: cookies
@@ -167,7 +167,7 @@ mod tests {
     fn test_fetch_url() {
         let url = "https://gosub.io/";
         let mut headers = Headers::new();
-        headers.set("User-Agent", USER_AGENT);
+        headers.set_str("User-Agent", USER_AGENT);
         let cookies = CookieJar::new();
 
         let resp = fetch_url("GET", url, headers, cookies);

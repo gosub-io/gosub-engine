@@ -2,7 +2,7 @@ use gosub_html5::node::NodeId;
 use gosub_html5::parser::document::DocumentHandle;
 use gosub_render_backend::svg::SvgRenderer;
 use gosub_render_backend::ImageBuffer;
-use gosub_shared::types::Result;
+use gosub_shared::types::{Result, Size};
 
 use crate::render::window::WindowData;
 use crate::VelloBackend;
@@ -29,5 +29,13 @@ impl SvgRenderer<VelloBackend> for VelloSVG {
         // vello_svg::render_tree(scene.inner(), &doc.tree); //TODO: too old versions that vello_svg uses
 
         todo!();
+    }
+
+    fn render_with_size(
+        &mut self,
+        _doc: &Self::SvgDocument,
+        _size: Size<u32>,
+    ) -> gosub_shared::types::Result<ImageBuffer<VelloBackend>> {
+        todo!()
     }
 }

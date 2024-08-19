@@ -1,35 +1,27 @@
-use std::fs;
+use anyhow::anyhow;
+use gosub_net::http::fetcher::Fetcher;
+use gosub_render_backend::svg::SvgRenderer;
+use gosub_render_backend::{Image as _, ImageBuffer, RenderBackend, SizeU32};
+use gosub_shared::types::Result;
 use std::io::Cursor;
 
-use url::Url;
-
-use gosub_render_backend::svg::SvgRenderer;
-use gosub_render_backend::{Image as _, ImageBuffer, RenderBackend};
-use gosub_shared::types::Result;
-
 pub fn request_img<B: RenderBackend>(
+    fetcher: &Fetcher,
     svg_renderer: &mut B::SVGRenderer,
-    url: &Url,
+    url: &str,
+    size: SizeU32,
 ) -> Result<ImageBuffer<B>> {
-    let img = if url.scheme() == "file" {
-        let path = url.as_str().trim_start_matches("file://");
+    println!("getting image from url: {}", url);
 
-        println!("Loading image from: {:?}", path);
+    let res = fetcher.get(url)?;
 
-        fs::read(path)?
-    } else {
-        let res = gosub_net::http::ureq::get(url.as_str()).call()?;
+    println!("got response from url: {}", res.status);
 
-        let mut img = Vec::with_capacity(
-            res.header("Content-Length")
-                .and_then(|x| x.parse::<usize>().ok())
-                .unwrap_or(1024),
-        );
+    if !res.is_ok() {
+        return Err(anyhow!("Could not get url. Status code {}", res.status));
+    }
 
-        res.into_reader().read_to_end(&mut img)?;
-
-        img
-    };
+    let img = res.body;
 
     let is_svg = img.starts_with(b"<?xml") || img.starts_with(b"<svg");
 
@@ -38,7 +30,7 @@ pub fn request_img<B: RenderBackend>(
 
         let svg = <B::SVGRenderer as SvgRenderer<B>>::parse_external(svg)?;
 
-        svg_renderer.render(&svg)?
+        svg_renderer.render_with_size(&svg, size)?
     } else {
         let format = image::guess_format(&img)?;
         let img = image::load(Cursor::new(img), format)?; //In that way we don't need to copy the image data
