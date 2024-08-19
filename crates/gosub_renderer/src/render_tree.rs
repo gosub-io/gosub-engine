@@ -6,6 +6,7 @@ use url::Url;
 use gosub_html5::node::NodeId;
 use gosub_html5::parser::document::{Document, DocumentBuilder};
 use gosub_html5::parser::Html5Parser;
+use gosub_net::http::fetcher::Fetcher;
 use gosub_net::http::ureq;
 use gosub_render_backend::geo::SizeU32;
 use gosub_render_backend::layout::Layouter;
@@ -16,10 +17,10 @@ use gosub_styling::render_tree::{generate_render_tree, RenderNodeData, RenderTre
 use gosub_styling::styling::CssProperties;
 
 pub struct TreeDrawer<B: RenderBackend, L: Layouter> {
+    pub(crate) fetcher: Fetcher,
     pub(crate) tree: RenderTree<B, L>,
     pub(crate) layouter: L,
     pub(crate) size: Option<SizeU32>,
-    pub(crate) url: Url,
     pub(crate) position: PositionTree,
     pub(crate) last_hover: Option<NodeId>,
     pub(crate) debug: bool,
@@ -36,7 +37,6 @@ impl<B: RenderBackend, L: Layouter> TreeDrawer<B, L> {
             tree,
             layouter,
             size: None,
-            url,
             position: PositionTree::default(),
             last_hover: None,
             debug,
@@ -45,6 +45,7 @@ impl<B: RenderBackend, L: Layouter> TreeDrawer<B, L> {
             tree_scene: None,
             selected_element: None,
             scene_transform: None,
+            fetcher: Fetcher::new(url),
         }
     }
 }
