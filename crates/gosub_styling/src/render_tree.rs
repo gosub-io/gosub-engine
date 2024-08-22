@@ -1,7 +1,8 @@
-mod desc;
+use std::collections::HashMap;
+use std::fmt::Debug;
 
-use crate::property_definitions::get_css_definitions;
-use crate::styling::{match_selector, CssProperties, CssProperty, DeclarationProperty};
+use log::warn;
+
 use gosub_css3::stylesheet::{CssDeclaration, CssSelector, CssStylesheet, CssValue};
 use gosub_html5::node::data::element::ElementData;
 use gosub_html5::node::{NodeData, NodeId};
@@ -11,9 +12,11 @@ use gosub_render_backend::layout::{LayoutTree, Layouter, Node};
 use gosub_render_backend::{PreRenderText, RenderBackend};
 use gosub_shared::types::Result;
 use gosub_typeface::DEFAULT_FS;
-use log::warn;
-use std::collections::HashMap;
-use std::fmt::Debug;
+
+use crate::property_definitions::get_css_definitions;
+use crate::styling::{match_selector, CssProperties, CssProperty, DeclarationProperty};
+
+mod desc;
 
 /// Map of all declared values for all nodes in the document
 #[derive(Debug)]
@@ -270,7 +273,7 @@ impl<B: RenderBackend, L: Layouter> RenderTree<B, L> {
                             }
 
                             // Check if the declaration matches the definition and return the "expanded" order
-                            let res = definition.unwrap().matches(declaration.value.clone());
+                            let res = definition.unwrap().matches(&declaration.value);
                             if !res {
                                 warn!("Declaration does not match definition: {:?}", declaration);
                                 continue;

@@ -1,6 +1,7 @@
-use crate::syntax::{GroupCombinators, SyntaxComponent, SyntaxComponentMultiplier};
 use gosub_css3::colors::{is_named_color, is_system_color};
 use gosub_css3::stylesheet::CssValue;
+
+use crate::syntax::{GroupCombinators, SyntaxComponent, SyntaxComponentMultiplier};
 
 /// Structure to return from a matching function.
 #[derive(Debug, Clone)]
@@ -34,12 +35,12 @@ impl CssSyntaxTree {
     }
 
     /// Matches a CSS value (or set of values) against the syntax tree. Will return a normalized version of the value(s) if it matches.
-    pub fn matches(&self, input: Vec<CssValue>) -> bool {
+    pub fn matches(&self, input: &[CssValue]) -> bool {
         if self.components.len() != 1 {
             panic!("Syntax tree must have exactly one root component");
         }
 
-        let res = match_component(&input, &self.components[0]);
+        let res = match_component(input, &self.components[0]);
         res.matched && res.remainder.is_empty()
     }
 }
@@ -304,7 +305,11 @@ fn match_component_single<'a>(
                 CssValue::String(v) if v.starts_with('#') => return first_match(input),
                 _ => {}
             },
-            _ => panic!("Unknown built-in datatype: {:?}", datatype),
+            _ => {
+                println!("unknown datatype: {datatype:?}");
+
+                return first_match(input);
+            } // _ => panic!("Unknown built-in datatype: {:?}", datatype),
         },
         SyntaxComponent::Inherit { .. } => match value {
             CssValue::Inherit => return first_match(input),
@@ -648,7 +653,7 @@ fn first_match(input: &[CssValue]) -> MatchResult {
 mod tests {
     use gosub_css3::stylesheet::CssValue;
 
-    use crate::property_definitions::{parse_definition_files, PropertyDefinition};
+    use crate::property_definitions::{get_css_definitions, PropertyDefinition};
     use crate::syntax::CssSyntax;
 
     use super::*;
@@ -695,17 +700,17 @@ mod tests {
     fn test_match_group1() {
         // Exactly one
         let tree = CssSyntax::new("auto | none | block").compile().unwrap();
-        assert_true!(tree.matches(vec![str!("auto")]));
-        assert_true!(tree.matches(vec![CssValue::None]));
-        assert_true!(tree.matches(vec![str!("block")]));
-        assert_false!(tree.matches(vec![str!("inline")]));
-        assert_false!(tree.matches(vec![str!("")]));
-        assert_false!(tree.matches(vec![str!("foobar")]));
-        assert_false!(tree.matches(vec![str!("foo"), CssValue::None]));
-        assert_false!(tree.matches(vec![CssValue::None, str!("foo")]));
-        assert_false!(tree.matches(vec![str!("auto"), CssValue::None]));
-        assert_false!(tree.matches(vec![str!("auto"), CssValue::Comma, str!("none"),]));
-        assert_false!(tree.matches(vec![
+        assert_true!(tree.matches(&[str!("auto")]));
+        assert_true!(tree.matches(&[CssValue::None]));
+        assert_true!(tree.matches(&[str!("block")]));
+        assert_false!(tree.matches(&[str!("inline")]));
+        assert_false!(tree.matches(&[str!("")]));
+        assert_false!(tree.matches(&[str!("foobar")]));
+        assert_false!(tree.matches(&[str!("foo"), CssValue::None]));
+        assert_false!(tree.matches(&[CssValue::None, str!("foo")]));
+        assert_false!(tree.matches(&[str!("auto"), CssValue::None]));
+        assert_false!(tree.matches(&[str!("auto"), CssValue::Comma, str!("none"),]));
+        assert_false!(tree.matches(&[
             str!("auto"),
             CssValue::Comma,
             CssValue::None,
@@ -718,42 +723,42 @@ mod tests {
     fn test_match_group2() {
         // juxtaposition
         let tree = CssSyntax::new("auto none block").compile().unwrap();
-        assert_false!(tree.matches(vec![str!("auto")]));
-        assert_false!(tree.matches(vec![CssValue::None]));
-        assert_false!(tree.matches(vec![str!("block")]));
-        assert_true!(tree.matches(vec![str!("auto"), CssValue::None, str!("block"),]));
-        assert_false!(tree.matches(vec![str!("block"), CssValue::None, str!("block"),]));
-        assert_false!(tree.matches(vec![str!("auto"), CssValue::None, str!("auto"),]));
+        assert_false!(tree.matches(&[str!("auto")]));
+        assert_false!(tree.matches(&[CssValue::None]));
+        assert_false!(tree.matches(&[str!("block")]));
+        assert_true!(tree.matches(&[str!("auto"), CssValue::None, str!("block"),]));
+        assert_false!(tree.matches(&[str!("block"), CssValue::None, str!("block"),]));
+        assert_false!(tree.matches(&[str!("auto"), CssValue::None, str!("auto"),]));
     }
 
     #[test]
     fn test_match_group3() {
         // all any order
         let tree = CssSyntax::new("auto && none && block").compile().unwrap();
-        assert_false!(tree.matches(vec![str!("auto")]));
-        assert_false!(tree.matches(vec![CssValue::None]));
-        assert_false!(tree.matches(vec![str!("block")]));
-        assert_false!(tree.matches(vec![str!("inline")]));
-        assert_false!(tree.matches(vec![str!("")]));
-        assert_false!(tree.matches(vec![str!("foobar")]));
-        assert_false!(tree.matches(vec![str!("foo"), CssValue::None]));
-        assert_false!(tree.matches(vec![CssValue::None, str!("foo")]));
-        assert_false!(tree.matches(vec![str!("auto"), CssValue::None]));
-        assert_false!(tree.matches(vec![str!("auto"), CssValue::Comma, str!("none")]));
-        assert_false!(tree.matches(vec![
+        assert_false!(tree.matches(&[str!("auto")]));
+        assert_false!(tree.matches(&[CssValue::None]));
+        assert_false!(tree.matches(&[str!("block")]));
+        assert_false!(tree.matches(&[str!("inline")]));
+        assert_false!(tree.matches(&[str!("")]));
+        assert_false!(tree.matches(&[str!("foobar")]));
+        assert_false!(tree.matches(&[str!("foo"), CssValue::None]));
+        assert_false!(tree.matches(&[CssValue::None, str!("foo")]));
+        assert_false!(tree.matches(&[str!("auto"), CssValue::None]));
+        assert_false!(tree.matches(&[str!("auto"), CssValue::Comma, str!("none")]));
+        assert_false!(tree.matches(&[
             str!("auto"),
             CssValue::Comma,
             CssValue::None,
             CssValue::Comma,
             str!("block")
         ]));
-        assert_true!(tree.matches(vec![str!("block"), str!("auto"), CssValue::None]));
-        assert_true!(tree.matches(vec![str!("auto"), str!("block"), CssValue::None]));
-        assert_true!(tree.matches(vec![str!("block"), CssValue::None, str!("auto")]));
-        assert_true!(tree.matches(vec![CssValue::None, str!("auto"), str!("block")]));
-        assert_false!(tree.matches(vec![str!("auto"), str!("block")]));
-        assert_false!(tree.matches(vec![CssValue::None, str!("block")]));
-        assert_false!(tree.matches(vec![
+        assert_true!(tree.matches(&[str!("block"), str!("auto"), CssValue::None]));
+        assert_true!(tree.matches(&[str!("auto"), str!("block"), CssValue::None]));
+        assert_true!(tree.matches(&[str!("block"), CssValue::None, str!("auto")]));
+        assert_true!(tree.matches(&[CssValue::None, str!("auto"), str!("block")]));
+        assert_false!(tree.matches(&[str!("auto"), str!("block")]));
+        assert_false!(tree.matches(&[CssValue::None, str!("block")]));
+        assert_false!(tree.matches(&[
             str!("block"),
             str!("block"),
             CssValue::None,
@@ -765,26 +770,26 @@ mod tests {
     fn test_match_group4() {
         // At least one in any order
         let tree = CssSyntax::new("auto || none || block").compile().unwrap();
-        assert_true!(tree.matches(vec![str!("auto")]));
-        assert_true!(tree.matches(vec![CssValue::None]));
-        assert_true!(tree.matches(vec![str!("block")]));
-        assert_true!(tree.matches(vec![str!("auto"), CssValue::None]));
-        assert_true!(tree.matches(vec![str!("block"), str!("auto"), CssValue::None,]));
+        assert_true!(tree.matches(&[str!("auto")]));
+        assert_true!(tree.matches(&[CssValue::None]));
+        assert_true!(tree.matches(&[str!("block")]));
+        assert_true!(tree.matches(&[str!("auto"), CssValue::None]));
+        assert_true!(tree.matches(&[str!("block"), str!("auto"), CssValue::None,]));
 
-        assert_false!(tree.matches(vec![str!("inline")]));
-        assert_false!(tree.matches(vec![str!("")]));
-        assert_false!(tree.matches(vec![str!("foo"), CssValue::None]));
-        assert_false!(tree.matches(vec![CssValue::None, str!("foo")]));
-        assert_false!(tree.matches(vec![CssValue::None, CssValue::None,]));
-        assert_false!(tree.matches(vec![str!("auto"), CssValue::Comma, str!("none"),]));
-        assert_false!(tree.matches(vec![
+        assert_false!(tree.matches(&[str!("inline")]));
+        assert_false!(tree.matches(&[str!("")]));
+        assert_false!(tree.matches(&[str!("foo"), CssValue::None]));
+        assert_false!(tree.matches(&[CssValue::None, str!("foo")]));
+        assert_false!(tree.matches(&[CssValue::None, CssValue::None,]));
+        assert_false!(tree.matches(&[str!("auto"), CssValue::Comma, str!("none"),]));
+        assert_false!(tree.matches(&[
             str!("auto"),
             CssValue::Comma,
             CssValue::None,
             CssValue::Comma,
             str!("block"),
         ]));
-        assert_false!(tree.matches(vec![
+        assert_false!(tree.matches(&[
             str!("block"),
             str!("block"),
             CssValue::None,
@@ -941,54 +946,48 @@ mod tests {
     #[test]
     fn test_multipliers_optional() {
         let tree = CssSyntax::new("foo bar baz").compile().unwrap();
-        assert_false!(tree.clone().matches(vec![str!("foo")]));
-        assert_false!(tree.clone().matches(vec![str!("foo")]));
+        assert_false!(tree.clone().matches(&[str!("foo")]));
+        assert_false!(tree.clone().matches(&[str!("foo")]));
         assert_true!(tree
             .clone()
-            .matches(vec![str!("foo"), str!("bar"), str!("baz"),]));
-        assert_false!(tree.clone().matches(vec![str!("foo"), str!("baz"),]));
+            .matches(&[str!("foo"), str!("bar"), str!("baz"),]));
+        assert_false!(tree.clone().matches(&[str!("foo"), str!("baz"),]));
 
         let tree = CssSyntax::new("foo bar?").compile().unwrap();
         dbg!(&tree);
-        assert_true!(tree.clone().matches(vec![str!("foo")]));
-        assert_true!(tree.clone().matches(vec![str!("foo"), str!("bar"),]));
+        assert_true!(tree.clone().matches(&[str!("foo")]));
+        assert_true!(tree.clone().matches(&[str!("foo"), str!("bar"),]));
         assert_false!(tree
             .clone()
-            .matches(vec![str!("foo"), str!("bar"), str!("bar"),]));
-        assert_false!(tree.clone().matches(vec![str!("bar"), str!("foo"),]));
+            .matches(&[str!("foo"), str!("bar"), str!("bar"),]));
+        assert_false!(tree.clone().matches(&[str!("bar"), str!("foo"),]));
 
         let tree = CssSyntax::new("foo bar? baz").compile().unwrap();
-        assert_false!(tree.clone().matches(vec![str!("foo")]));
-        assert_true!(tree.clone().matches(vec![str!("foo"), str!("baz"),]));
+        assert_false!(tree.clone().matches(&[str!("foo")]));
+        assert_true!(tree.clone().matches(&[str!("foo"), str!("baz"),]));
         assert_true!(tree
             .clone()
-            .matches(vec![str!("foo"), str!("bar"), str!("baz"),]));
+            .matches(&[str!("foo"), str!("bar"), str!("baz"),]));
 
-        assert_false!(tree.clone().matches(vec![
-            str!("foo"),
-            str!("bar"),
-            str!("bar"),
-            str!("baz"),
-        ]));
+        assert_false!(tree
+            .clone()
+            .matches(&[str!("foo"), str!("bar"), str!("bar"), str!("baz"),]));
 
-        assert_false!(tree.clone().matches(vec![
-            str!("foo"),
-            str!("bar"),
-            str!("baz"),
-            str!("baz"),
-        ]));
+        assert_false!(tree
+            .clone()
+            .matches(&[str!("foo"), str!("bar"), str!("baz"), str!("baz"),]));
     }
 
     #[test]
     fn test_multipliers_zero_or_more() {
         let tree = CssSyntax::new("foo bar* baz").compile().unwrap();
-        assert_false!(tree.clone().matches(vec![str!("foo")]));
-        assert_false!(tree.clone().matches(vec![str!("foo")]));
+        assert_false!(tree.clone().matches(&[str!("foo")]));
+        assert_false!(tree.clone().matches(&[str!("foo")]));
         assert_true!(tree
             .clone()
-            .matches(vec![str!("foo"), str!("bar"), str!("baz"),]));
-        assert_true!(tree.clone().matches(vec![str!("foo"), str!("baz"),]));
-        assert_true!(tree.clone().matches(vec![
+            .matches(&[str!("foo"), str!("bar"), str!("baz"),]));
+        assert_true!(tree.clone().matches(&[str!("foo"), str!("baz"),]));
+        assert_true!(tree.clone().matches(&[
             str!("foo"),
             str!("bar"),
             str!("bar"),
@@ -996,7 +995,7 @@ mod tests {
             str!("bar"),
             str!("baz"),
         ]));
-        assert_false!(tree.clone().matches(vec![
+        assert_false!(tree.clone().matches(&[
             str!("foo"),
             str!("bar"),
             str!("bar"),
@@ -1006,25 +1005,25 @@ mod tests {
         ]));
 
         let tree = CssSyntax::new("foo bar*").compile().unwrap();
-        assert_true!(tree.clone().matches(vec![str!("foo")]));
-        assert_true!(tree.clone().matches(vec![str!("foo")]));
-        assert_true!(tree.clone().matches(vec![str!("foo"), str!("bar"),]));
+        assert_true!(tree.clone().matches(&[str!("foo")]));
+        assert_true!(tree.clone().matches(&[str!("foo")]));
+        assert_true!(tree.clone().matches(&[str!("foo"), str!("bar"),]));
         assert_true!(tree
             .clone()
-            .matches(vec![str!("foo"), str!("bar"), str!("bar"),]));
-        assert_false!(tree.clone().matches(vec![str!("bar"), str!("foo"),]));
+            .matches(&[str!("foo"), str!("bar"), str!("bar"),]));
+        assert_false!(tree.clone().matches(&[str!("bar"), str!("foo"),]));
     }
 
     #[test]
     fn test_multipliers_one_or_more() {
         let tree = CssSyntax::new("foo bar+ baz").compile().unwrap();
-        assert_false!(tree.clone().matches(vec![str!("foo")]));
-        assert_false!(tree.clone().matches(vec![str!("foo")]));
+        assert_false!(tree.clone().matches(&[str!("foo")]));
+        assert_false!(tree.clone().matches(&[str!("foo")]));
         assert_true!(tree
             .clone()
-            .matches(vec![str!("foo"), str!("bar"), str!("baz"),]));
-        assert_false!(tree.clone().matches(vec![str!("foo"), str!("baz"),]));
-        assert_true!(tree.clone().matches(vec![
+            .matches(&[str!("foo"), str!("bar"), str!("baz"),]));
+        assert_false!(tree.clone().matches(&[str!("foo"), str!("baz"),]));
+        assert_true!(tree.clone().matches(&[
             str!("foo"),
             str!("bar"),
             str!("bar"),
@@ -1032,7 +1031,7 @@ mod tests {
             str!("bar"),
             str!("baz"),
         ]));
-        assert_false!(tree.clone().matches(vec![
+        assert_false!(tree.clone().matches(&[
             str!("foo"),
             str!("bar"),
             str!("bar"),
@@ -1042,54 +1041,48 @@ mod tests {
         ]));
 
         let tree = CssSyntax::new("foo bar+").compile().unwrap();
-        assert_false!(tree.clone().matches(vec![str!("foo")]));
-        assert_false!(tree.clone().matches(vec![str!("bar")]));
-        assert_true!(tree.clone().matches(vec![str!("foo"), str!("bar"),]));
+        assert_false!(tree.clone().matches(&[str!("foo")]));
+        assert_false!(tree.clone().matches(&[str!("bar")]));
+        assert_true!(tree.clone().matches(&[str!("foo"), str!("bar"),]));
         assert_true!(tree
             .clone()
-            .matches(vec![str!("foo"), str!("bar"), str!("bar"),]));
-        assert_false!(tree.clone().matches(vec![str!("bar"), str!("foo"),]));
+            .matches(&[str!("foo"), str!("bar"), str!("bar"),]));
+        assert_false!(tree.clone().matches(&[str!("bar"), str!("foo"),]));
 
         let tree = CssSyntax::new("foo+ bar+").compile().unwrap();
-        assert_false!(tree.clone().matches(vec![str!("foo")]));
-        assert_false!(tree.clone().matches(vec![str!("bar")]));
-        assert_true!(tree.clone().matches(vec![str!("foo"), str!("bar"),]));
+        assert_false!(tree.clone().matches(&[str!("foo")]));
+        assert_false!(tree.clone().matches(&[str!("bar")]));
+        assert_true!(tree.clone().matches(&[str!("foo"), str!("bar"),]));
         assert_true!(tree
             .clone()
-            .matches(vec![str!("foo"), str!("bar"), str!("bar"),]));
-        assert_true!(tree.clone().matches(vec![
-            str!("foo"),
-            str!("foo"),
-            str!("bar"),
-            str!("bar"),
-        ]));
+            .matches(&[str!("foo"), str!("bar"), str!("bar"),]));
+        assert_true!(tree
+            .clone()
+            .matches(&[str!("foo"), str!("foo"), str!("bar"), str!("bar"),]));
 
-        assert_false!(tree.clone().matches(vec![str!("bar"), str!("foo"),]));
+        assert_false!(tree.clone().matches(&[str!("bar"), str!("foo"),]));
     }
 
     #[test]
     fn test_multipliers_between() {
         let tree = CssSyntax::new("foo bar{1,3} baz").compile().unwrap();
-        assert_false!(tree.clone().matches(vec![str!("foo")]));
-        assert_false!(tree.clone().matches(vec![str!("foo")]));
+        assert_false!(tree.clone().matches(&[str!("foo")]));
+        assert_false!(tree.clone().matches(&[str!("foo")]));
         assert_true!(tree
             .clone()
-            .matches(vec![str!("foo"), str!("bar"), str!("baz"),]));
-        assert_false!(tree.clone().matches(vec![str!("foo"), str!("baz"),]));
-        assert_true!(tree.clone().matches(vec![
-            str!("foo"),
-            str!("bar"),
-            str!("bar"),
-            str!("baz"),
-        ]));
-        assert_true!(tree.clone().matches(vec![
+            .matches(&[str!("foo"), str!("bar"), str!("baz"),]));
+        assert_false!(tree.clone().matches(&[str!("foo"), str!("baz"),]));
+        assert_true!(tree
+            .clone()
+            .matches(&[str!("foo"), str!("bar"), str!("bar"), str!("baz"),]));
+        assert_true!(tree.clone().matches(&[
             str!("foo"),
             str!("bar"),
             str!("bar"),
             str!("bar"),
             str!("baz"),
         ]));
-        assert_false!(tree.clone().matches(vec![
+        assert_false!(tree.clone().matches(&[
             str!("foo"),
             str!("bar"),
             str!("bar"),
@@ -1097,7 +1090,7 @@ mod tests {
             str!("bar"),
             str!("baz"),
         ]));
-        assert_false!(tree.clone().matches(vec![
+        assert_false!(tree.clone().matches(&[
             str!("foo"),
             str!("bar"),
             str!("bar"),
@@ -1107,25 +1100,25 @@ mod tests {
         ]));
 
         let tree = CssSyntax::new("foo bar{0,3}").compile().unwrap();
-        assert_true!(tree.clone().matches(vec![str!("foo")]));
-        assert_true!(tree.clone().matches(vec![str!("foo")]));
-        assert_true!(tree.clone().matches(vec![str!("foo"), str!("bar"),]));
+        assert_true!(tree.clone().matches(&[str!("foo")]));
+        assert_true!(tree.clone().matches(&[str!("foo")]));
+        assert_true!(tree.clone().matches(&[str!("foo"), str!("bar"),]));
         assert_true!(tree
             .clone()
-            .matches(vec![str!("foo"), str!("bar"), str!("bar"),]));
-        assert_false!(tree.clone().matches(vec![
+            .matches(&[str!("foo"), str!("bar"), str!("bar"),]));
+        assert_false!(tree.clone().matches(&[
             str!("foo"),
             str!("bar"),
             str!("bar"),
             str!("bar"),
             str!("bar"),
         ]));
-        assert_false!(tree.clone().matches(vec![str!("bar"), str!("foo"),]));
+        assert_false!(tree.clone().matches(&[str!("bar"), str!("foo"),]));
     }
 
     #[test]
     fn test_matcher() {
-        let mut definitions = parse_definition_files();
+        let mut definitions = get_css_definitions().clone();
         definitions.add_property(
             "testprop",
             PropertyDefinition {
@@ -1147,25 +1140,25 @@ mod tests {
 
         assert_true!(prop
             .clone()
-            .matches(vec![str!("left"), CssValue::Unit(5.0, "px".into()),]));
+            .matches(&[str!("left"), CssValue::Unit(5.0, "px".into()),]));
         assert_true!(prop
             .clone()
-            .matches(vec![str!("top"), CssValue::Unit(5.0, "px".into()),]));
+            .matches(&[str!("top"), CssValue::Unit(5.0, "px".into()),]));
         assert_true!(prop
             .clone()
-            .matches(vec![str!("bottom"), CssValue::Unit(5.0, "px".into()),]));
+            .matches(&[str!("bottom"), CssValue::Unit(5.0, "px".into()),]));
         assert_true!(prop
             .clone()
-            .matches(vec![str!("right"), CssValue::Unit(5.0, "px".into()),]));
-        assert_true!(prop.clone().matches(vec![str!("left")]));
-        assert_true!(prop.clone().matches(vec![str!("top")]));
-        assert_true!(prop.clone().matches(vec![str!("bottom")]));
-        assert_true!(prop.clone().matches(vec![str!("right")]));
+            .matches(&[str!("right"), CssValue::Unit(5.0, "px".into()),]));
+        assert_true!(prop.clone().matches(&[str!("left")]));
+        assert_true!(prop.clone().matches(&[str!("top")]));
+        assert_true!(prop.clone().matches(&[str!("bottom")]));
+        assert_true!(prop.clone().matches(&[str!("right")]));
 
         assert_false!(prop
             .clone()
-            .matches(vec![CssValue::Unit(5.0, "px".into()), str!("right"),]));
-        assert_false!(prop.clone().matches(vec![
+            .matches(&[CssValue::Unit(5.0, "px".into()), str!("right"),]));
+        assert_false!(prop.clone().matches(&[
             CssValue::Unit(5.0, "px".into()),
             CssValue::Unit(10.0, "px".into()),
             str!("right"),
@@ -1174,7 +1167,7 @@ mod tests {
 
     #[test]
     fn test_matcher_2() {
-        let mut definitions = parse_definition_files();
+        let mut definitions = get_css_definitions().clone();
         definitions.add_property(
             "testprop",
             PropertyDefinition {
@@ -1190,40 +1183,40 @@ mod tests {
 
         let prop = definitions.find_property("testprop").unwrap();
 
-        assert_true!(prop.clone().matches(vec![str!("left"),]));
-        assert_true!(prop.clone().matches(vec![str!("left"), str!("top"),]));
-        assert_true!(prop.clone().matches(vec![str!("center"), str!("top"),]));
-        assert_false!(prop.clone().matches(vec![str!("top"), str!("top"),]));
-        assert_false!(prop.clone().matches(vec![str!("top"), str!("center"),]));
-        assert_true!(prop.clone().matches(vec![str!("center"), str!("top"),]));
-        assert_true!(prop.clone().matches(vec![str!("center"), str!("center"),]));
+        assert_true!(prop.clone().matches(&[str!("left"),]));
+        assert_true!(prop.clone().matches(&[str!("left"), str!("top"),]));
+        assert_true!(prop.clone().matches(&[str!("center"), str!("top"),]));
+        assert_false!(prop.clone().matches(&[str!("top"), str!("top"),]));
+        assert_false!(prop.clone().matches(&[str!("top"), str!("center"),]));
+        assert_true!(prop.clone().matches(&[str!("center"), str!("top"),]));
+        assert_true!(prop.clone().matches(&[str!("center"), str!("center"),]));
         assert_true!(prop
             .clone()
-            .matches(vec![CssValue::Percentage(10.0), CssValue::Percentage(20.0),]));
-        assert_true!(prop.clone().matches(vec![
+            .matches(&[CssValue::Percentage(10.0), CssValue::Percentage(20.0),]));
+        assert_true!(prop.clone().matches(&[
             CssValue::Unit(10.0, "px".into()),
             CssValue::Percentage(20.0),
         ]));
         assert_true!(prop
             .clone()
-            .matches(vec![str!("left"), CssValue::Percentage(20.0),]));
+            .matches(&[str!("left"), CssValue::Percentage(20.0),]));
 
         assert_true!(prop
             .clone()
-            .matches(vec![CssValue::Unit(10.0, "px".into()), str!("center"),]));
+            .matches(&[CssValue::Unit(10.0, "px".into()), str!("center"),]));
 
         assert_true!(prop
             .clone()
-            .matches(vec![CssValue::Percentage(10.0), str!("top"),]));
+            .matches(&[CssValue::Percentage(10.0), str!("top"),]));
 
-        assert_true!(prop.clone().matches(vec![str!("right")]));
+        assert_true!(prop.clone().matches(&[str!("right")]));
 
-        assert_true!(prop.clone().matches(vec![str!("top")]));
+        assert_true!(prop.clone().matches(&[str!("top")]));
     }
 
     #[test]
     fn test_matcher_3() {
-        let mut definitions = parse_definition_files();
+        let mut definitions = get_css_definitions().clone();
         definitions.add_property(
             "testprop",
             PropertyDefinition {
@@ -1241,12 +1234,12 @@ mod tests {
 
         let prop = definitions.find_property("testprop").unwrap();
 
-        assert_true!(prop.clone().matches(vec![str!("foo"),]));
-        assert_true!(prop.clone().matches(vec![str!("foo"), str!("foo"),]));
-        assert_true!(prop.clone().matches(vec![str!("foo"), str!("bar"),]));
+        assert_true!(prop.clone().matches(&[str!("foo"),]));
+        assert_true!(prop.clone().matches(&[str!("foo"), str!("foo"),]));
+        assert_true!(prop.clone().matches(&[str!("foo"), str!("bar"),]));
 
-        assert_false!(prop.clone().matches(vec![str!("bar"),]));
-        assert_false!(prop.clone().matches(vec![str!("bar"), str!("foo"),]));
+        assert_false!(prop.clone().matches(&[str!("bar"),]));
+        assert_false!(prop.clone().matches(&[str!("bar"), str!("foo"),]));
     }
 
     #[test]
@@ -1375,14 +1368,14 @@ mod tests {
     #[test]
     fn test_match_with_subgroups() {
         let tree = CssSyntax::new("[a b ] | [a c]").compile().unwrap();
-        assert_true!(tree.matches(vec![str!("a"), str!("b"),]));
-        assert_true!(tree.matches(vec![str!("a"), str!("c"),]));
-        assert_false!(tree.matches(vec![str!("b"), str!("b"),]));
+        assert_true!(tree.matches(&[str!("a"), str!("b"),]));
+        assert_true!(tree.matches(&[str!("a"), str!("c"),]));
+        assert_false!(tree.matches(&[str!("b"), str!("b"),]));
     }
 
     #[test]
     fn test_matcher_4() {
-        let mut definitions = parse_definition_files();
+        let mut definitions = get_css_definitions().clone();
         definitions.add_property(
             "testprop",
             PropertyDefinition {
@@ -1404,39 +1397,39 @@ mod tests {
 
         assert_true!(prop
             .clone()
-            .matches(vec![str!("left"), CssValue::Unit(10.0, "px".into()),]));
+            .matches(&[str!("left"), CssValue::Unit(10.0, "px".into()),]));
         assert_true!(prop
             .clone()
-            .matches(vec![str!("right"), CssValue::Unit(10.0, "px".into()),]));
-        assert_true!(prop.clone().matches(vec![str!("left"),]));
-        assert_true!(prop.clone().matches(vec![str!("right"),]));
+            .matches(&[str!("right"), CssValue::Unit(10.0, "px".into()),]));
+        assert_true!(prop.clone().matches(&[str!("left"),]));
+        assert_true!(prop.clone().matches(&[str!("right"),]));
 
         assert_true!(prop
             .clone()
-            .matches(vec![str!("top"), CssValue::Unit(10.0, "px".into()),]));
+            .matches(&[str!("top"), CssValue::Unit(10.0, "px".into()),]));
         assert_true!(prop
             .clone()
-            .matches(vec![str!("bottom"), CssValue::Unit(10.0, "px".into()),]));
+            .matches(&[str!("bottom"), CssValue::Unit(10.0, "px".into()),]));
 
-        assert_true!(prop.clone().matches(vec![str!("top"),]));
-        assert_true!(prop.clone().matches(vec![str!("bottom"),]));
+        assert_true!(prop.clone().matches(&[str!("top"),]));
+        assert_true!(prop.clone().matches(&[str!("bottom"),]));
     }
 
     #[test]
     fn test_comma_separated() {
         let tree = CssSyntax::new("[foo | bar | baz]#").compile().unwrap();
-        assert_true!(tree.matches(vec![str!("foo")]));
-        assert_true!(tree.matches(vec![str!("foo"), CssValue::Comma, str!("foo")]));
-        assert_true!(tree.matches(vec![
+        assert_true!(tree.matches(&[str!("foo")]));
+        assert_true!(tree.matches(&[str!("foo"), CssValue::Comma, str!("foo")]));
+        assert_true!(tree.matches(&[
             str!("foo"),
             CssValue::Comma,
             str!("foo"),
             CssValue::Comma,
             str!("foo")
         ]));
-        assert_true!(tree.matches(vec![str!("foo"), CssValue::Comma, str!("bar")]));
-        assert_true!(tree.matches(vec![str!("foo"), CssValue::Comma, str!("baz")]));
-        assert_true!(tree.matches(vec![
+        assert_true!(tree.matches(&[str!("foo"), CssValue::Comma, str!("bar")]));
+        assert_true!(tree.matches(&[str!("foo"), CssValue::Comma, str!("baz")]));
+        assert_true!(tree.matches(&[
             str!("foo"),
             CssValue::Comma,
             str!("bar"),
@@ -1444,18 +1437,8 @@ mod tests {
             str!("baz")
         ]));
 
-        assert_false!(tree.matches(vec![str!("foo"), CssValue::Comma]));
-        assert_false!(tree.matches(vec![
-            str!("foo"),
-            CssValue::Comma,
-            str!("bar"),
-            CssValue::Comma
-        ]));
-        assert_false!(tree.matches(vec![
-            str!("foo"),
-            CssValue::Comma,
-            CssValue::Comma,
-            str!("bar")
-        ]));
+        assert_false!(tree.matches(&[str!("foo"), CssValue::Comma]));
+        assert_false!(tree.matches(&[str!("foo"), CssValue::Comma, str!("bar"), CssValue::Comma]));
+        assert_false!(tree.matches(&[str!("foo"), CssValue::Comma, CssValue::Comma, str!("bar")]));
     }
 }
