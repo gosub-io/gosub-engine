@@ -161,7 +161,7 @@ mod tests {
 
     #[test]
     fn test_quirks_mode() {
-        let stream = &mut ByteStream::new();
+        let stream = &mut ByteStream::new(None);
         let parser = Html5Parser::new_parser(stream);
 
         assert_eq!(
@@ -247,7 +247,7 @@ mod tests {
 
     #[test]
     fn test_quirks_mode_force() {
-        let stream = &mut ByteStream::new();
+        let stream = &mut ByteStream::new(None);
         let parser = Html5Parser::new_parser(stream);
 
         assert_eq!(
@@ -321,7 +321,7 @@ mod tests {
 
     #[test]
     fn test_quirks_mode_sys() {
-        let stream = &mut ByteStream::new();
+        let stream = &mut ByteStream::new(None);
         let parser = Html5Parser::new_parser(stream);
 
         assert_eq!(
@@ -346,7 +346,7 @@ mod tests {
 
     #[test]
     fn test_quirks_mode_sys_missing() {
-        let stream = &mut ByteStream::new();
+        let stream = &mut ByteStream::new(None);
         let parser = Html5Parser::new_parser(stream);
 
         assert_eq!(

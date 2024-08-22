@@ -7,7 +7,7 @@ impl Css3<'_> {
 
         Ok(Node::new(
             NodeType::FeatureFunction,
-            self.tokenizer.current_location().clone(),
+            self.tokenizer.current_location(),
         ))
     }
 }

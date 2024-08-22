@@ -4,9 +4,29 @@ use crate::tokenizer::TokenType;
 use crate::{Css3, Error};
 
 impl Css3<'_> {
-    pub fn parse_rule(&mut self) -> Result<Node, Error> {
+
+    // Either the rule parsing succeeds as a whole, or not. When not a valid rule is found, we
+    // return None if the config.ignore_errors is set to true, otherwise this will return an Err
+    // and is handled by the caller
+    pub fn parse_rule(&mut self) -> Result<Option<Node>, Error> {
         log::trace!("parse_rule");
-        let loc = self.tokenizer.current_location().clone();
+
+        let result = self.parse_rule_internal();
+        if result.is_err() && self.config.ignore_errors {
+            self.parse_until_rule_end();
+            log::warn!("Ignoring error in parse_rule: {:?}", result);
+            return Ok(None);
+        }
+
+        if let Ok(rule_node) = result {
+            return Ok(Some(rule_node));
+        }
+
+        Ok(None)
+    }
+
+    fn parse_rule_internal(&mut self) -> Result<Node, Error> {
+        let loc = self.tokenizer.current_location();
 
         let prelude = self.parse_selector_list()?;
 
@@ -34,7 +54,7 @@ mod tests {
 
     macro_rules! test {
         ($func:ident, $input:expr, $expected:expr) => {
-            let mut stream = ByteStream::new();
+            let mut stream = ByteStream::new(None);
             stream.read_from_str($input, Some(Encoding::UTF8));
             stream.close();
 

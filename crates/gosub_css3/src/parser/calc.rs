@@ -6,7 +6,7 @@ impl Css3<'_> {
     pub fn parse_calc(&mut self) -> Result<Node, Error> {
         log::trace!("parse_calc");
 
-        let loc = self.tokenizer.current_location().clone();
+        let loc = self.tokenizer.current_location();
 
         let expr = self.parse_calc_expr()?;
 
@@ -16,7 +16,7 @@ impl Css3<'_> {
     fn parse_calc_expr(&mut self) -> Result<Node, Error> {
         log::trace!("parse_calc_expr");
 
-        let loc = self.tokenizer.current_location().clone();
+        let loc = self.tokenizer.current_location();
 
         let start = self.tokenizer.tell();
 

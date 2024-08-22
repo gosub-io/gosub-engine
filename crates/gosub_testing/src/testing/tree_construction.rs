@@ -87,7 +87,7 @@ impl Harness {
     /// Run the html5 parser and return the document tree and errors
     fn do_parse(&mut self, scripting_enabled: bool) -> Result<(DocumentHandle, Vec<ParseError>)> {
         let options = Html5ParserOptions { scripting_enabled };
-        let mut stream = ByteStream::new();
+        let mut stream = ByteStream::new(None);
         stream.read_from_str(self.test.spec_data(), None);
         stream.close();
 

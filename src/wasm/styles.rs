@@ -44,7 +44,7 @@ pub fn styles_parser(input: &str, opts: StylesOptions) -> StylesOutput {
     let url = Url::parse(&opts.url).ok();
     let doc = DocumentBuilder::new_document(url);
 
-    let mut stream = ByteStream::new();
+    let mut stream = ByteStream::new(None);
     stream.read_from_str(&input, Some(Encoding::UTF8));
     stream.set_confidence(Confidence::Certain);
     stream.close();

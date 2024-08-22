@@ -2296,7 +2296,6 @@ impl<'stream> Tokenizer<'stream> {
             return;
         }
 
-        self.location_handler.dec();
         self.stream.prev();
     }
 

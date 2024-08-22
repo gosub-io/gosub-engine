@@ -6,7 +6,7 @@ use url::Url;
 use gosub_html5::parser::document::Document;
 use gosub_html5::parser::document::DocumentBuilder;
 use gosub_html5::parser::Html5Parser;
-use gosub_shared::byte_stream::{ByteStream, Confidence, Encoding};
+use gosub_shared::byte_stream::{ByteStream, Encoding};
 
 // struct TextVisitor {
 //     color: String,
@@ -118,9 +118,8 @@ fn main() -> Result<()> {
         bail!("Unsupported url scheme: {}", url.scheme());
     };
 
-    let mut stream = ByteStream::new();
+    let mut stream = ByteStream::new(None);
     stream.read_from_str(&html, Some(Encoding::UTF8));
-    stream.set_confidence(Confidence::Certain);
     stream.close();
 
     let doc_handle = DocumentBuilder::new_document(Some(url));

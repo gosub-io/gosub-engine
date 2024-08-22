@@ -185,7 +185,7 @@ impl TestSpec {
         }
 
         for state in states {
-            let mut stream = ByteStream::new();
+            let mut stream = ByteStream::new(None);
             let input = if self.double_escaped {
                 from_utf16_lossy(&self.input)
             } else {

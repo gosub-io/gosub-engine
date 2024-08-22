@@ -5,7 +5,7 @@ impl Css3<'_> {
     pub fn parse_at_rule_supports_prelude(&mut self) -> Result<Node, Error> {
         log::trace!("parse_at_rule_supports_prelude");
 
-        let loc = self.tokenizer.current_location().clone();
+        let loc = self.tokenizer.current_location();
 
         // @todo: parse supports condition
         let value = self.consume_raw_condition()?;
@@ -21,7 +21,7 @@ mod tests {
 
     #[test]
     fn test_parse_at_rule_supports_prelude() {
-        let mut stream = ByteStream::new();
+        let mut stream = ByteStream::new(None);
         stream.read_from_str("(display: flex)", Some(Encoding::UTF8));
         stream.close();
 

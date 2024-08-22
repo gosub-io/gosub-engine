@@ -4319,7 +4319,7 @@ mod test {
 
     #[test]
     fn is_in_scope() {
-        let stream = &mut ByteStream::new();
+        let stream = &mut ByteStream::new(None);
         let mut parser = Html5Parser::new_parser(stream);
 
         node_create!(parser, "html");
@@ -4334,7 +4334,7 @@ mod test {
 
     #[test]
     fn is_in_scope_empty_stack() {
-        let stream = &mut ByteStream::new();
+        let stream = &mut ByteStream::new(None);
         let mut parser = Html5Parser::new_parser(stream);
 
         parser.open_elements.clear();
@@ -4346,7 +4346,7 @@ mod test {
 
     #[test]
     fn is_in_scope_non_existing_node() {
-        let stream = &mut ByteStream::new();
+        let stream = &mut ByteStream::new(None);
         let mut parser = Html5Parser::new_parser(stream);
 
         node_create!(parser, "html");
@@ -4362,7 +4362,7 @@ mod test {
 
     #[test]
     fn is_in_scope_1() {
-        let stream = &mut ByteStream::new();
+        let stream = &mut ByteStream::new(None);
         let mut parser = Html5Parser::new_parser(stream);
 
         node_create!(parser, "html");
@@ -4400,7 +4400,7 @@ mod test {
 
     #[test]
     fn is_in_scope_2() {
-        let stream = &mut ByteStream::new();
+        let stream = &mut ByteStream::new(None);
         let mut parser = Html5Parser::new_parser(stream);
 
         node_create!(parser, "html");
@@ -4419,7 +4419,7 @@ mod test {
 
     #[test]
     fn is_in_scope_3() {
-        let stream = &mut ByteStream::new();
+        let stream = &mut ByteStream::new(None);
         let mut parser = Html5Parser::new_parser(stream);
 
         node_create!(parser, "html");
@@ -4438,7 +4438,7 @@ mod test {
 
     #[test]
     fn is_in_scope_4() {
-        let stream = &mut ByteStream::new();
+        let stream = &mut ByteStream::new(None);
         let mut parser = Html5Parser::new_parser(stream);
 
         node_create!(parser, "html");
@@ -4459,7 +4459,7 @@ mod test {
 
     #[test]
     fn is_in_scope_5() {
-        let stream = &mut ByteStream::new();
+        let stream = &mut ByteStream::new(None);
         let mut parser = Html5Parser::new_parser(stream);
 
         node_create!(parser, "html");
@@ -4479,7 +4479,7 @@ mod test {
 
     #[test]
     fn is_in_scope_6() {
-        let stream = &mut ByteStream::new();
+        let stream = &mut ByteStream::new(None);
         let mut parser = Html5Parser::new_parser(stream);
 
         node_create!(parser, "html");
@@ -4499,7 +4499,7 @@ mod test {
 
     #[test]
     fn is_in_scope_7() {
-        let stream = &mut ByteStream::new();
+        let stream = &mut ByteStream::new(None);
         let mut parser = Html5Parser::new_parser(stream);
 
         node_create!(parser, "html");
@@ -4518,7 +4518,7 @@ mod test {
 
     #[test]
     fn is_in_scope_8() {
-        let stream = &mut ByteStream::new();
+        let stream = &mut ByteStream::new(None);
         let mut parser = Html5Parser::new_parser(stream);
 
         node_create!(parser, "html");
@@ -4536,7 +4536,7 @@ mod test {
 
     #[test]
     fn reconstruct_formatting() {
-        let mut stream = ByteStream::new();
+        let mut stream = ByteStream::new(None);
         stream.read_from_str(
             "<p><b>bold<i>bold and italic</b>italic</i></p>",
             Some(Encoding::UTF8),
@@ -4551,7 +4551,7 @@ mod test {
 
     #[test]
     fn element_with_classes() {
-        let mut stream = ByteStream::new();
+        let mut stream = ByteStream::new(None);
         stream.read_from_str("<div class=\"one two three\"></div>", Some(Encoding::UTF8));
         stream.close();
 
@@ -4580,7 +4580,7 @@ mod test {
 
     #[test]
     fn element_with_classes_extra_whitespace() {
-        let mut stream = ByteStream::new();
+        let mut stream = ByteStream::new(None);
         stream.read_from_str(
             "<div class=\" one    two     three   \"></div>",
             Some(Encoding::UTF8),
@@ -4612,7 +4612,7 @@ mod test {
 
     #[test]
     fn element_with_invalid_named_id() {
-        let mut stream = ByteStream::new();
+        let mut stream = ByteStream::new(None);
         stream.read_from_str(
             "<div id=\"my id\"></div> \
              <div id=\"\"></div>",
@@ -4629,7 +4629,7 @@ mod test {
 
     #[test]
     fn element_with_named_id() {
-        let mut stream = ByteStream::new();
+        let mut stream = ByteStream::new(None);
         stream.read_from_str(
             "<div id=\"myid\"></div> \
              <p id=\"myid\"></p>",

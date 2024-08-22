@@ -1,4 +1,4 @@
-use crate::node::Node;
+use crate::node::{Node, NodeType};
 use crate::parser_config::{Context, ParserConfig};
 use crate::tokenizer::Tokenizer;
 use gosub_shared::byte_stream::{ByteStream, Encoding, Location};
@@ -46,16 +46,20 @@ impl<'stream> Css3<'stream> {
     pub fn parse(data: &str, config: ParserConfig) -> Result<Node, Error> {
         let t_id = timing_start!("css3.parse", config.source.as_deref().unwrap_or(""));
 
-        let mut stream = ByteStream::new();
+        let mut stream = ByteStream::new(None);
         stream.read_from_str(data, Some(Encoding::UTF8));
         stream.close();
 
         let mut parser = Css3::new(&mut stream);
-        let ret = parser.parse_internal(config);
+        let result = parser.parse_internal(config);
 
         timing_stop!(t_id);
 
-        ret
+        match result {
+            Ok(Some(node)) => Ok(node),
+            Ok(None) => Ok(Node::new(NodeType::StyleSheet { children: Vec::new() }, Location::default())),
+            Err(e) => Err(e),
+        }
     }
 
     /// Create a new parser with the given bytestream
@@ -68,7 +72,7 @@ impl<'stream> Css3<'stream> {
     }
 
     /// Actual parser implementation
-    fn parse_internal(&mut self, config: ParserConfig) -> Result<Node, Error> {
+    fn parse_internal(&mut self, config: ParserConfig) -> Result<Option<Node>, Error> {
         self.config = config;
 
         match self.config.context {

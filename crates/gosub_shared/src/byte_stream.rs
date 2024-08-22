@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::io::Read;
 use std::{fmt, io};
@@ -13,15 +12,6 @@ pub enum Encoding {
     UTF8,
     /// Stream consists of 8-bit ASCII characters
     ASCII,
-}
-
-/// The confidence decides how confident we are that the input stream is of this encoding
-#[derive(PartialEq)]
-pub enum Confidence {
-    /// This encoding might be the one we need
-    Tentative,
-    /// We are certain to use this encoding
-    Certain,
 }
 
 /// Defines a single character/element in the stream. This is either a UTF8 character, or
@@ -65,7 +55,7 @@ impl From<Character> for char {
 }
 
 impl fmt::Display for Character {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Ch(ch) => write!(f, "{ch}"),
             Surrogate(surrogate) => write!(f, "U+{surrogate:04X}"),
@@ -92,11 +82,24 @@ impl Character {
     }
 }
 
-pub struct ByteStream {
+pub struct Config {
     /// Current encoding
     pub encoding: Encoding,
-    /// How confident are we that this is the correct encoding?
-    pub confidence: Confidence,
+    /// Treat any CRLF pairs as a single LF
+    pub cr_lf_as_one: bool
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            encoding: Encoding::UTF8,
+            cr_lf_as_one: true,
+        }
+    }
+}
+
+pub struct ByteStream {
+    config: Config,
     /// Reference to the actual buffer stream in characters
     buffer: Vec<Character>,
     /// Current position in the stream, when it is the same as buffer length, we are at the end and no more can be read
@@ -147,7 +150,7 @@ pub trait Stream {
 
 impl Default for ByteStream {
     fn default() -> Self {
-        Self::new()
+        Self::new(None)
     }
 }
 
@@ -172,16 +175,6 @@ impl Stream for ByteStream {
 
         self.next();
         c
-    }
-
-    /// Seeks to a specific position in the stream
-    fn seek(&mut self, pos: usize) {
-        if pos >= self.buffer.len() {
-            self.buffer_pos = self.buffer.len();
-            return;
-        }
-
-        self.buffer_pos = pos;
     }
 
     /// Looks ahead in the stream, can use an optional index if we want to seek further
@@ -232,6 +225,16 @@ impl Stream for ByteStream {
         } else {
             self.buffer_pos -= n;
         }
+    }
+
+    /// Seeks to a specific position in the stream
+    fn seek(&mut self, pos: usize) {
+        if pos >= self.buffer.len() {
+            self.buffer_pos = self.buffer.len();
+            return;
+        }
+
+        self.buffer_pos = pos;
     }
 
     /// Retrieves a slice of the buffer
@@ -293,10 +296,9 @@ impl Stream for ByteStream {
 impl ByteStream {
     /// Create a new default empty input stream
     #[must_use]
-    pub fn new() -> Self {
+    pub fn new(config: Option<Config>) -> Self {
         Self {
-            encoding: Encoding::UTF8,
-            confidence: Confidence::Tentative,
+            config: config.unwrap_or(Config::default()),
             buffer: Vec::new(),
             buffer_pos: 0,
             u8_buffer: Vec::new(),
@@ -372,25 +374,15 @@ impl ByteStream {
 }
 
 impl ByteStream {
-    /// Returns true when the encoding encountered is defined as certain
-    pub fn is_certain_encoding(&self) -> bool {
-        self.confidence == Confidence::Certain
-    }
-
     /// Detect the given encoding from stream analysis
     pub fn detect_encoding(&self) {
-        todo!()
-    }
-
-    /// Set the given confidence of the input stream encoding
-    pub fn set_confidence(&mut self, c: Confidence) {
-        self.confidence = c;
+        panic!("Not implemented");
     }
 
     /// Changes the encoding and if necessary, decodes the u8 buffer into the correct encoding
     pub fn set_encoding(&mut self, e: Encoding) {
         // Don't convert if the encoding is the same as it already is
-        if self.encoding == e {
+        if self.config.encoding == e {
             return;
         }
 
@@ -412,7 +404,7 @@ impl ByteStream {
                         .replace('\u{000D}', "\u{000A}")
                 };
 
-                // Convert the utf8 string into characters so we can use easy indexing
+                // Convert the utf8 string into characters, so we can use easy indexing
                 self.buffer = str_buf
                     .chars()
                     .map(|c| {
@@ -428,7 +420,7 @@ impl ByteStream {
                         // }
 
                         if (0xD800..=0xDFFF).contains(&(c as u32)) {
-                            Character::Surrogate(c as u16)
+                            Surrogate(c as u16)
                         } else {
                             Ch(c)
                         }
@@ -436,12 +428,12 @@ impl ByteStream {
                     .collect::<Vec<_>>();
             }
             Encoding::ASCII => {
-                // Convert the string into characters so we can use easy indexing. Any non-ascii chars (> 0x7F) are converted to '?'
+                // Convert the string into characters, so we can use easy indexing. Any non-ascii chars (> 0x7F) are converted to '?'
                 self.buffer = self.normalize_newlines_and_ascii(&self.u8_buffer);
             }
         }
 
-        self.encoding = e;
+        self.config.encoding = e;
     }
 }
 
@@ -475,16 +467,17 @@ impl Location {
 }
 
 impl Debug for Location {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "({}:{})", self.line, self.column)
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "({}:{}:{})", self.line, self.column, self.offset)
     }
 }
 
 /// LocationHandler is a wrapper that will deal with line/column locations in the stream
 pub struct LocationHandler {
+    /// The start offset of the location. Normally this is 0:0, but can be different in case of inline streams
     pub start_location: Location,
+    /// The current location of the stream
     pub cur_location: Location,
-    pub line_columns: HashMap<usize, usize>,
 }
 
 impl LocationHandler {
@@ -494,16 +487,19 @@ impl LocationHandler {
         Self {
             start_location,
             cur_location: Location::default(),
-            line_columns: HashMap::new(),
         }
     }
 
+    /// Sets the current location to the given location. This is useful when we want to
+    /// return back into the stream to a certain location.
+    pub fn set(&mut self, loc: Location) {
+        self.cur_location = loc;
+    }
+
+    /// Will increase the current location based on the given character
     pub fn inc(&mut self, ch: Character) {
         match ch {
             Ch(CHAR_LF) => {
-                self.line_columns
-                    .insert(self.cur_location.line, self.cur_location.column);
-
                 self.cur_location.line += 1;
                 self.cur_location.column = 1;
                 self.cur_location.offset += 1;
@@ -516,22 +512,6 @@ impl LocationHandler {
             _ => {}
         }
     }
-
-    pub fn dec(&mut self) {
-        if self.cur_location.offset == 0 {
-            return;
-        }
-
-        if self.cur_location.column == 1 {
-            self.cur_location.line -= 1;
-            self.cur_location.column =
-                *self.line_columns.get(&self.cur_location.line).unwrap_or(&1);
-        } else {
-            self.cur_location.column -= 1;
-        }
-
-        self.cur_location.offset -= 1;
-    }
 }
 
 #[cfg(test)]
@@ -540,7 +520,7 @@ mod test {
 
     #[test]
     fn test_stream() {
-        let mut stream = ByteStream::new();
+        let mut stream = ByteStream::new(None);
         assert!(stream.exhausted());
         assert!(!stream.eof());
 
@@ -605,20 +585,8 @@ mod test {
     }
 
     #[test]
-    fn test_certainty() {
-        let mut stream = ByteStream::new();
-        assert!(!stream.is_certain_encoding());
-
-        stream.set_confidence(Confidence::Certain);
-        assert!(stream.is_certain_encoding());
-
-        stream.set_confidence(Confidence::Tentative);
-        assert!(!stream.is_certain_encoding());
-    }
-
-    #[test]
     fn test_eof() {
-        let mut stream = ByteStream::new();
+        let mut stream = ByteStream::new(None);
         stream.read_from_str("abc", Some(Encoding::UTF8));
         stream.close();
         assert_eq!(stream.length(), 3);
@@ -669,7 +637,7 @@ mod test {
 
     #[test]
     fn stream_closing() {
-        let mut stream = ByteStream::new();
+        let mut stream = ByteStream::new(None);
         stream.read_from_str("abc", Some(Encoding::UTF8));
         assert_eq!(stream.length(), 3);
         assert_eq!(stream.chars_left(), 3);
@@ -700,7 +668,7 @@ mod test {
 
     #[test]
     fn advance() {
-        let mut stream = ByteStream::new();
+        let mut stream = ByteStream::new(None);
         stream.read_from_str("abc", Some(Encoding::UTF8));
         stream.close();
         assert_eq!(stream.length(), 3);

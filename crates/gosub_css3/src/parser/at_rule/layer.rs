@@ -17,7 +17,7 @@ impl Css3<'_> {
     pub fn parse_at_rule_layer_prelude(&mut self) -> Result<Node, Error> {
         log::trace!("parse_at_rule_layer_prelude");
 
-        let loc = self.tokenizer.current_location().clone();
+        let loc = self.tokenizer.current_location();
 
         self.consume_whitespace_comments();
 

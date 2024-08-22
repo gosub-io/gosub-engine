@@ -3,10 +3,10 @@ use crate::tokenizer::TokenType;
 use crate::{Css3, Error};
 
 impl Css3<'_> {
-    pub fn parse_stylesheet(&mut self) -> Result<Node, Error> {
+    pub fn parse_stylesheet(&mut self) -> Result<Option<Node>, Error> {
         log::trace!("parse_stylesheet");
 
-        let loc = self.tokenizer.current_location().clone();
+        let loc = self.tokenizer.current_location();
 
         let mut children = Vec::new();
 
@@ -15,7 +15,7 @@ impl Css3<'_> {
 
             match t.token_type {
                 TokenType::Eof => {}
-                TokenType::Whitespace => {}
+                TokenType::Whitespace(_) => {}
                 TokenType::Comment(comment) => {
                     if comment.chars().nth(2) == Some('!') {
                         children.push(Node::new(
@@ -32,17 +32,37 @@ impl Css3<'_> {
                 }
                 TokenType::AtKeyword(_keyword) => {
                     self.tokenizer.reconsume();
+
                     let at_rule = self.parse_at_rule(false)?;
-                    children.push(at_rule);
+                    match at_rule {
+                        Some(at_rule_node) => {
+                            children.push(at_rule_node);
+                        }
+                        None => {}  // No valid at-rule found. Ok since we are ignoring errors here
+                    }
                 }
                 _ => {
                     self.tokenizer.reconsume();
+
                     let rule = self.parse_rule()?;
-                    children.push(rule);
+                    match rule {
+                        Some(rule_node) => {
+                            children.push(rule_node);
+                        }
+                        None => {}  // No valid rule found. Ok since we are ignoring errors here
+                    }
                 }
             }
         }
 
-        Ok(Node::new(NodeType::StyleSheet { children }, loc))
+        for t in self.tokenizer.get_tokens() {
+            log::trace!("{:?}", t);
+        }
+        
+        if children.is_empty() {
+            return Ok(None);
+        }
+
+        Ok(Some(Node::new(NodeType::StyleSheet { children }, loc)))
     }
 }

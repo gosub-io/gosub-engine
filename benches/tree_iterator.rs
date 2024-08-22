@@ -14,7 +14,7 @@ fn wikipedia_main_page(c: &mut Criterion) {
     group.significance_level(0.1).sample_size(500);
 
     let html_file = File::open("tests/data/tree_iterator/wikipedia_main.html").unwrap();
-    let mut stream = ByteStream::new();
+    let mut stream = ByteStream::new(None);
     let _ = stream.read_from_file(html_file, Some(gosub_shared::byte_stream::Encoding::UTF8));
     stream.set_confidence(gosub_shared::byte_stream::Confidence::Certain);
 
@@ -41,7 +41,7 @@ fn stackoverflow_home(c: &mut Criterion) {
 
     // using the main page of (english) wikipedia as a rough estimate of traversing a decently sized website
     let html_file = File::open("tests/data/tree_iterator/stackoverflow.html").unwrap();
-    let mut bytestream = ByteStream::new();
+    let mut bytestream = ByteStream::new(None);
     let _ = bytestream.read_from_file(html_file, Some(gosub_shared::byte_stream::Encoding::UTF8));
     bytestream.set_confidence(gosub_shared::byte_stream::Confidence::Certain);
 

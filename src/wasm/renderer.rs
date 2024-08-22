@@ -87,7 +87,7 @@ async fn renderer_internal(opts: RendererOptions) -> Result<()> {
 }
 
 fn load_html_rendertree(input: &str, url: Url) -> Result<StyleTree> {
-    let mut stream = ByteStream::new();
+    let mut stream = ByteStream::new(None);
     stream.read_from_str(&input, Some(Encoding::UTF8));
     stream.set_confidence(Confidence::Certain);
     stream.close();

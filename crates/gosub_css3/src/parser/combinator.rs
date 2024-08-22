@@ -8,7 +8,7 @@ impl Css3<'_> {
         let t = self.consume_any()?;
 
         let name = match t.token_type {
-            TokenType::Whitespace => " ".to_string(),
+            TokenType::Whitespace(_) => " ".to_string(),
             TokenType::Delim('+') => t.to_string(),
             TokenType::Delim('>') => t.to_string(),
             TokenType::Delim('~') => t.to_string(),
@@ -22,14 +22,14 @@ impl Css3<'_> {
                 } else {
                     return Err(Error::new(
                         format!("Unexpected token {:?}", tn1),
-                        self.tokenizer.current_location().clone(),
+                        self.tokenizer.current_location(),
                     ));
                 }
             }
             _ => {
                 return Err(Error::new(
                     format!("Unexpected token {:?}", t),
-                    self.tokenizer.current_location().clone(),
+                    self.tokenizer.current_location(),
                 ));
             }
         };

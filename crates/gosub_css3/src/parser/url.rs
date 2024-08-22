@@ -6,13 +6,13 @@ impl Css3<'_> {
     pub fn parse_url(&mut self) -> Result<Node, Error> {
         log::trace!("parse_url");
 
-        let loc = self.tokenizer.current_location().clone();
+        let loc = self.tokenizer.current_location();
 
         let name = self.consume_function()?;
         if name.to_ascii_lowercase() != "url" {
             return Err(Error::new(
                 format!("Expected url, got {:?}", name),
-                self.tokenizer.current_location().clone(),
+                self.tokenizer.current_location(),
             ));
         }
 
@@ -22,7 +22,7 @@ impl Css3<'_> {
             _ => {
                 return Err(Error::new(
                     format!("Expected url, got {:?}", t),
-                    self.tokenizer.current_location().clone(),
+                    self.tokenizer.current_location(),
                 ))
             }
         };
@@ -40,7 +40,7 @@ mod tests {
 
     macro_rules! test {
         ($func:ident, $input:expr, $expected:expr) => {
-            let mut stream = ByteStream::new();
+            let mut stream = ByteStream::new(None);
             stream.read_from_str($input, Some(Encoding::UTF8));
             stream.close();
 
@@ -54,7 +54,7 @@ mod tests {
 
     macro_rules! test_err {
         ($func:ident, $input:expr, $expected:expr) => {
-            let mut stream = ByteStream::new();
+            let mut stream = ByteStream::new(None);
             stream.read_from_str($input, Some(Encoding::UTF8));
             stream.close();
 

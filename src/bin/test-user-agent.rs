@@ -1,7 +1,7 @@
 use gosub_html5::node::{Node, NodeData};
 use gosub_html5::parser::document::DocumentBuilder;
 use gosub_html5::parser::{document::Document, Html5Parser};
-use gosub_shared::byte_stream::{ByteStream, Confidence, Encoding};
+use gosub_shared::byte_stream::{ByteStream, Encoding};
 use gosub_shared::types::Result;
 use std::process::exit;
 
@@ -22,15 +22,9 @@ fn main() -> Result<()> {
     }
     let html = response.into_string()?;
 
-    let mut stream = ByteStream::new();
+    let mut stream = ByteStream::new(None);
     stream.read_from_str(&html, Some(Encoding::UTF8));
-    stream.set_confidence(Confidence::Certain);
     stream.close();
-
-    // If the encoding confidence is not Confidence::Certain, we should detect the encoding.
-    if !stream.is_certain_encoding() {
-        stream.detect_encoding()
-    }
 
     let document = DocumentBuilder::new_document(None);
     let parse_errors = Html5Parser::parse_document(&mut stream, Document::clone(&document), None)?;

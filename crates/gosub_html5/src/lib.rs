@@ -19,7 +19,7 @@ pub mod writer;
 
 /// Parses the given HTML string and returns a handle to the resulting DOM tree.
 pub fn html_compile(html: &str) -> DocumentHandle {
-    let mut stream = ByteStream::new();
+    let mut stream = ByteStream::new(None);
     stream.read_from_str(html, Some(Encoding::UTF8));
     stream.close();
 

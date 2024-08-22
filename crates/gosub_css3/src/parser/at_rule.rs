@@ -133,9 +133,27 @@ impl Css3<'_> {
         Ok(node)
     }
 
-    pub fn parse_at_rule(&mut self, is_declaration: bool) -> Result<Node, Error> {
+    // Either the at_rule parsing succeeds as a whole, or not. When not a valid at_rule is found, we
+    // return None if the config.ignore_errors is set to true, otherwise this will return an Err
+    // and is handled by the caller
+    pub fn parse_at_rule(&mut self, is_declaration: bool) -> Result<Option<Node>, Error> {
         log::trace!("parse_at_rule");
 
+        let result = self.parse_at_rule_internal(is_declaration);
+        if result.is_err() && self.config.ignore_errors {
+            self.parse_until_rule_end();
+            log::warn!("Ignoring error in parse_at_rule: {:?}", result);
+            return Ok(None);
+        }
+
+        if let Ok(at_rule_node) = result {
+            return Ok(Some(at_rule_node));
+        }
+
+        Ok(None)
+    }
+
+    fn parse_at_rule_internal(&mut self, is_declaration: bool) -> Result<Node, Error> {
         let name;
 
         let t = self.consume_any()?;

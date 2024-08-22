@@ -417,7 +417,7 @@ mod tests {
                 fn $name() {
                     let (input, expected) = $value;
 
-                    let mut stream = ByteStream::new();
+                    let mut stream = ByteStream::new(None);
                     stream.read_from_str(input, None);
                     stream.close();
 
