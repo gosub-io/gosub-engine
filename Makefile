@@ -14,9 +14,11 @@ build: ## Build the project
 	section "Cargo build" ;\
 	cargo build --all
 
-format:  ## Fix formatting and clippy errors
+fix-format:  ## Fix formatting and clippy errors
 	cargo fmt --all
 	cargo clippy --all --fix --allow-dirty --allow-staged
+
+check-format: test_clippy test_fmt ## Check the project for clippy and formatting errors
 
 test_unit:
 	source test-utils.sh ;\

@@ -71,11 +71,10 @@ impl Css3<'_> {
 
                 TokenType::AtKeyword(_) => {
                     self.tokenizer.reconsume();
-                    match self.parse_at_rule(mode == BlockParseMode::StyleBlock)? {
-                        Some(at_rule_node) => {
-                            children.push(at_rule_node);
-                        }
-                        None => {} // No valid at-rule found. Ok since we are ignoring errors here
+                    if let Some(at_rule_node) =
+                        self.parse_at_rule(mode == BlockParseMode::StyleBlock)?
+                    {
+                        children.push(at_rule_node);
                     }
                     semicolon_seperated = false;
                     continue;
@@ -95,19 +94,13 @@ impl Css3<'_> {
                         self.tokenizer.reconsume();
                         if t.is_delim('&') {
                             let rule = self.parse_consume_rule()?;
-                            match rule {
-                                Some(rule_node) => {
-                                    children.push(rule_node);
-                                }
-                                None => {} // No valid rule found. Ok since we are ignoring errors here
+                            if let Some(rule_node) = rule {
+                                children.push(rule_node);
                             }
                         } else {
                             let declaration = self.parse_consume_declaration()?;
-                            match declaration {
-                                Some(declaration_node) => {
-                                    children.push(declaration_node);
-                                }
-                                None => {} // No valid declaration found. Ok since we are ignoring errors here
+                            if let Some(declaration_node) = declaration {
+                                children.push(declaration_node);
                             }
                         }
 
@@ -126,11 +119,8 @@ impl Css3<'_> {
                     BlockParseMode::RegularBlock => {
                         self.tokenizer.reconsume();
 
-                        match self.parse_consume_rule()? {
-                            Some(rule_node) => {
-                                children.push(rule_node);
-                            }
-                            None => {} // No valid rule found. Ok since we are ignoring errors here
+                        if let Some(rule_node) = self.parse_consume_rule()? {
+                            children.push(rule_node);
                         }
 
                         semicolon_seperated = false;

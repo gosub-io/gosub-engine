@@ -60,12 +60,10 @@ impl Css3<'_> {
                 let node = Node::new(NodeType::Operator(",".into()), t.location);
                 Ok(Some(node))
             }
-            TokenType::LBracket => {
-                Err(Error::new(
-                    "Unexpected token [".to_string(),
-                    self.tokenizer.current_location(),
-                ))
-            }
+            TokenType::LBracket => Err(Error::new(
+                "Unexpected token [".to_string(),
+                self.tokenizer.current_location(),
+            )),
             TokenType::QuotedString(value) => {
                 let node = Node::new(NodeType::String { value }, t.location);
                 Ok(Some(node))

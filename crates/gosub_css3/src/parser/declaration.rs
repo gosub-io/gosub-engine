@@ -50,7 +50,6 @@ impl Css3<'_> {
         Ok(None)
     }
 
-
     fn parse_declaration_internal(&mut self) -> Result<Node, Error> {
         let loc = self.tokenizer.current_location();
 
@@ -97,7 +96,10 @@ impl Css3<'_> {
     }
 
     fn parse_until_declaration_end(&mut self) {
-        log::trace!("parse_until_declaration_end, now at: {:?}", self.tokenizer.current_location());
+        log::trace!(
+            "parse_until_declaration_end, now at: {:?}",
+            self.tokenizer.current_location()
+        );
         loop {
             let t = self.consume_any();
             if t.is_err() {
@@ -122,4 +124,3 @@ impl Css3<'_> {
         }
     }
 }
-

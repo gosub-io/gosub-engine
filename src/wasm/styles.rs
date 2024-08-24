@@ -46,7 +46,6 @@ pub fn styles_parser(input: &str, opts: StylesOptions) -> StylesOutput {
 
     let mut stream = ByteStream::new(None);
     stream.read_from_str(&input, Some(Encoding::UTF8));
-    stream.set_confidence(Confidence::Certain);
     stream.close();
 
     let mut errors = String::new();

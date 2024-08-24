@@ -85,7 +85,11 @@ fn main() -> Result<()> {
     let now = Instant::now();
     let result = Css3::parse(css.as_str(), config);
     let elapsed_time = now.elapsed();
-    println!("Running css3 parser of ({}) took {} ms.", byte_size(css.len() as u64), elapsed_time.as_millis());
+    println!(
+        "Running css3 parser of ({}) took {} ms.",
+        byte_size(css.len() as u64),
+        elapsed_time.as_millis()
+    );
 
     if result.is_err() {
         let err = result.err().unwrap();
@@ -156,7 +160,6 @@ fn print_tokens(css: String) {
     }
 }
 
-
 /// Returns a human-readable byte size
 fn byte_size(bytes: u64) -> String {
     let sizes = ["B", "KB", "MB", "GB", "TB"];
@@ -164,5 +167,9 @@ fn byte_size(bytes: u64) -> String {
         return "0 B".to_string();
     }
     let i = (bytes as f64).log2().floor() as i32 / 10;
-    format!("{:.2} {}", bytes as f64 / 2_f64.powi(i * 10), sizes[i as usize])
+    format!(
+        "{:.2} {}",
+        bytes as f64 / 2_f64.powi(i * 10),
+        sizes[i as usize]
+    )
 }

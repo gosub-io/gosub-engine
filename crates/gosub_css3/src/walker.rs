@@ -273,7 +273,13 @@ fn inner_walk(node: &Node, depth: usize, f: &mut dyn Write) -> Result<(), std::i
         }
         NodeType::Cdo => {}
         NodeType::Cdc => {}
-        NodeType::Range { left, left_comparison, middle, right_comparison, right } => {
+        NodeType::Range {
+            left,
+            left_comparison,
+            middle,
+            right_comparison,
+            right,
+        } => {
             writeln!(f, "{}[Range]", prefix)?;
             inner_walk(left, depth + 1, f)?;
             inner_walk(left_comparison, depth + 1, f)?;

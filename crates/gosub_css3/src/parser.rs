@@ -133,7 +133,6 @@ impl Css3<'_> {
     pub fn consume_any_ident(&mut self) -> Result<String, Error> {
         let t = self.tokenizer.consume();
 
-
         match t.token_type {
             TokenType::Delim('.') => {
                 let t = self.tokenizer.consume();

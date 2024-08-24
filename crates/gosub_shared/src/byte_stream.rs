@@ -86,7 +86,7 @@ pub struct Config {
     /// Current encoding
     pub encoding: Encoding,
     /// Treat any CRLF pairs as a single LF
-    pub cr_lf_as_one: bool
+    pub cr_lf_as_one: bool,
 }
 
 impl Default for Config {
@@ -298,7 +298,7 @@ impl ByteStream {
     #[must_use]
     pub fn new(config: Option<Config>) -> Self {
         Self {
-            config: config.unwrap_or(Config::default()),
+            config: config.unwrap_or_default(),
             buffer: Vec::new(),
             buffer_pos: 0,
             u8_buffer: Vec::new(),

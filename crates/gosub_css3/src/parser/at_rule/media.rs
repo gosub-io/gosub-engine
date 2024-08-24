@@ -3,7 +3,6 @@ use crate::tokenizer::TokenType;
 use crate::{Css3, Error};
 
 impl Css3<'_> {
-
     fn parse_media_read_term(&mut self) -> Result<Node, Error> {
         self.consume_whitespace_comments();
 
@@ -11,34 +10,28 @@ impl Css3<'_> {
 
         let t = self.consume_any()?;
         match t.token_type {
-            TokenType::Ident(ident) => {
-                return Ok(Node::new(NodeType::Ident { value: ident }, loc));
-            }
-            TokenType::Number(value) => {
-                return Ok(Node::new(NodeType::Number { value }, loc));
-            }
+            TokenType::Ident(ident) => Ok(Node::new(NodeType::Ident { value: ident }, loc)),
+            TokenType::Number(value) => Ok(Node::new(NodeType::Number { value }, loc)),
             TokenType::Dimension { value, unit } => {
-                return Ok(Node::new(NodeType::Dimension { value, unit }, loc));
+                Ok(Node::new(NodeType::Dimension { value, unit }, loc))
             }
             TokenType::Function(name) => {
                 let name = name.to_lowercase();
                 let args = self.parse_pseudo_function(name.as_str())?;
                 self.consume(TokenType::RParen)?;
 
-                return Ok(Node::new(
+                Ok(Node::new(
                     NodeType::Function {
                         name,
                         arguments: vec![args],
                     },
                     loc,
-                ));
+                ))
             }
-            _ => {
-                return Err(Error::new(
-                    "Expected identifier, number, dimension, or ratio".to_string(),
-                    loc,
-                ));
-            }
+            _ => Err(Error::new(
+                "Expected identifier, number, dimension, or ratio".to_string(),
+                loc,
+            )),
         }
     }
 
@@ -175,8 +168,8 @@ impl Css3<'_> {
 
         self.consume_whitespace_comments();
         self.consume_delim(')')?;
-        
-        return Ok(Node::new(
+
+        Ok(Node::new(
             NodeType::Range {
                 left,
                 left_comparison,
@@ -185,7 +178,7 @@ impl Css3<'_> {
                 right,
             },
             loc,
-        ));
+        ))
     }
 
     pub fn parse_media_feature_or_range(&mut self, kind: FeatureKind) -> Result<Node, Error> {

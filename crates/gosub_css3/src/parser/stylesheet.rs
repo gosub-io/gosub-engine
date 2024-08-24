@@ -34,22 +34,16 @@ impl Css3<'_> {
                     self.tokenizer.reconsume();
 
                     let at_rule = self.parse_at_rule(false)?;
-                    match at_rule {
-                        Some(at_rule_node) => {
-                            children.push(at_rule_node);
-                        }
-                        None => {}  // No valid at-rule found. Ok since we are ignoring errors here
+                    if let Some(at_rule_node) = at_rule {
+                        children.push(at_rule_node);
                     }
                 }
                 _ => {
                     self.tokenizer.reconsume();
 
                     let rule = self.parse_rule()?;
-                    match rule {
-                        Some(rule_node) => {
-                            children.push(rule_node);
-                        }
-                        None => {}  // No valid rule found. Ok since we are ignoring errors here
+                    if let Some(rule_node) = rule {
+                        children.push(rule_node);
                     }
                 }
             }
@@ -58,7 +52,7 @@ impl Css3<'_> {
         for t in self.tokenizer.get_tokens() {
             log::trace!("{:?}", t);
         }
-        
+
         if children.is_empty() {
             return Ok(None);
         }

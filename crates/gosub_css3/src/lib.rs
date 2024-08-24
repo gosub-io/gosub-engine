@@ -57,7 +57,12 @@ impl<'stream> Css3<'stream> {
 
         match result {
             Ok(Some(node)) => Ok(node),
-            Ok(None) => Ok(Node::new(NodeType::StyleSheet { children: Vec::new() }, Location::default())),
+            Ok(None) => Ok(Node::new(
+                NodeType::StyleSheet {
+                    children: Vec::new(),
+                },
+                Location::default(),
+            )),
             Err(e) => Err(e),
         }
     }

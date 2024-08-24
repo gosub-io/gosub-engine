@@ -89,7 +89,7 @@ impl Debug for Token {
                 "\r" => write!(f, "CR at {:?}", self.location),
                 "\n" => write!(f, "LF at {:?}", self.location),
                 _ => write!(f, "{:?} at {:?}", self.token_type, self.location),
-            }
+            };
         } else {
             write!(f, "{:?} at {:?}", self.token_type, self.location)
         }

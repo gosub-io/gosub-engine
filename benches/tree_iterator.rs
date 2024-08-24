@@ -16,7 +16,6 @@ fn wikipedia_main_page(c: &mut Criterion) {
     let html_file = File::open("tests/data/tree_iterator/wikipedia_main.html").unwrap();
     let mut stream = ByteStream::new(None);
     let _ = stream.read_from_file(html_file, Some(gosub_shared::byte_stream::Encoding::UTF8));
-    stream.set_confidence(gosub_shared::byte_stream::Confidence::Certain);
 
     let main_document = DocumentBuilder::new_document(None);
     let document = Document::clone(&main_document);
@@ -43,7 +42,6 @@ fn stackoverflow_home(c: &mut Criterion) {
     let html_file = File::open("tests/data/tree_iterator/stackoverflow.html").unwrap();
     let mut bytestream = ByteStream::new(None);
     let _ = bytestream.read_from_file(html_file, Some(gosub_shared::byte_stream::Encoding::UTF8));
-    bytestream.set_confidence(gosub_shared::byte_stream::Confidence::Certain);
 
     let main_document = DocumentBuilder::new_document(None);
     let document = Document::clone(&main_document);
