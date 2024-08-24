@@ -4,7 +4,7 @@ SHELL=/usr/bin/env bash -O globstar
 
 all: help
 
-test: test_commands test_unit test_clippy test_fmt ## Runs tests
+test: test_unit test_clippy test_fmt test_commands ## Runs tests
 
 bench: ## Benchmark the project
 	cargo bench
