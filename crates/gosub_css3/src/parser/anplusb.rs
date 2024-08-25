@@ -254,7 +254,7 @@ mod test {
 
     macro_rules! test {
         ($func:ident, $input:expr, $expected:expr) => {
-            let mut stream = ByteStream::new(None);
+            let mut stream = ByteStream::new(Encoding::UTF8, None);
             stream.read_from_str($input, Some(Encoding::UTF8));
             stream.close();
 

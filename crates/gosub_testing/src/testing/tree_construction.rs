@@ -10,7 +10,7 @@ use gosub_html5::parser::document::DocumentBuilder;
 use gosub_html5::parser::document::{Document, DocumentHandle};
 use gosub_html5::parser::tree_builder::TreeBuilder;
 use gosub_html5::parser::{Html5Parser, Html5ParserOptions};
-use gosub_shared::byte_stream::{ByteStream, Location};
+use gosub_shared::byte_stream::{ByteStream, Encoding, Location};
 use gosub_shared::types::{ParseError, Result};
 use parser::{ScriptMode, TestSpec};
 use result::TestResult;
@@ -40,11 +40,11 @@ impl Test {
     }
 
     pub fn document_as_str(&self) -> &str {
-        return self.spec.document.as_str();
+        self.spec.document.as_str()
     }
 
     pub fn spec_data(&self) -> &str {
-        return self.spec.data.as_str();
+        self.spec.data.as_str()
     }
 }
 
@@ -87,7 +87,7 @@ impl Harness {
     /// Run the html5 parser and return the document tree and errors
     fn do_parse(&mut self, scripting_enabled: bool) -> Result<(DocumentHandle, Vec<ParseError>)> {
         let options = Html5ParserOptions { scripting_enabled };
-        let mut stream = ByteStream::new(None);
+        let mut stream = ByteStream::new(Encoding::UTF8, None);
         stream.read_from_str(self.test.spec_data(), None);
         stream.close();
 
@@ -180,7 +180,7 @@ impl Harness {
                 line = tmp;
             }
 
-            // Only break if we're in a multi-line text and we found the ending double-quote
+            // Only break if we're in a multi-line text, and we found the ending double-quote
             if is_multi_line_text && line.ends_with('\"') {
                 break;
             }

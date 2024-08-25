@@ -924,9 +924,9 @@ impl<'stream> Tokenizer<'stream> {
 
         // todo: this is not efficient
         let mut s = String::with_capacity(end - start);
-        for c in self.stream.get_slice(end - start) {
-            if let Ch(c) = c {
-                s.push(*c);
+        for _ in start..end {
+            if let Ch(c) = self.stream.read_and_next() {
+                s.push(c);
             }
         }
 
@@ -968,7 +968,7 @@ mod test {
 
     #[test]
     fn parse_comment() {
-        let mut stream = ByteStream::new(None);
+        let mut stream = ByteStream::new(Encoding::UTF8, None);
         stream.read_from_str("/* css comment */", Some(Encoding::UTF8));
         stream.close();
 
@@ -980,7 +980,7 @@ mod test {
 
     #[test]
     fn parse_numbers() {
-        let mut chars = ByteStream::new(None);
+        let mut chars = ByteStream::new(Encoding::UTF8, None);
 
         let num_tokens = vec![
             // ("12", 12.0),
@@ -1007,7 +1007,7 @@ mod test {
     // todo: add more tests for the `<ident-token>`
     #[test]
     fn parse_ident_tokens() {
-        let mut chars = ByteStream::new(None);
+        let mut chars = ByteStream::new(Encoding::UTF8, None);
 
         let ident_tokens = vec![
             ("-ident", "-ident"),
@@ -1030,7 +1030,7 @@ mod test {
     #[test]
     fn parse_escaped_tokens() {
         {
-            let mut chars = ByteStream::new(None);
+            let mut chars = ByteStream::new(Encoding::UTF8, None);
 
             let escaped_chars = vec![
                 ("\\005F ", get_unicode_char(&UnicodeChar::LowLine)),
@@ -1062,7 +1062,7 @@ mod test {
 
     #[test]
     fn parse_urls() {
-        let mut chars = ByteStream::new(None);
+        let mut chars = ByteStream::new(Encoding::UTF8, None);
 
         let urls = vec![
             (
@@ -1099,7 +1099,7 @@ mod test {
 
     #[test]
     fn parse_function_tokens() {
-        let mut chars = ByteStream::new(None);
+        let mut chars = ByteStream::new(Encoding::UTF8, None);
 
         let functions = vec![
             ("url(\"", Token::new_function("url", Location::default())),
@@ -1155,7 +1155,7 @@ mod test {
 
     #[test]
     fn parser_numeric_token() {
-        let mut chars = ByteStream::new(None);
+        let mut chars = ByteStream::new(Encoding::UTF8, None);
 
         let numeric_tokens = vec![
             (
@@ -1183,7 +1183,7 @@ mod test {
 
     #[test]
     fn parse_string_tokens() {
-        let mut stream = ByteStream::new(None);
+        let mut stream = ByteStream::new(Encoding::UTF8, None);
 
         let string_tokens = vec![
             (
@@ -1223,7 +1223,7 @@ mod test {
 
     #[test]
     fn produce_stream_of_double_quoted_strings() {
-        let mut stream = ByteStream::new(None);
+        let mut stream = ByteStream::new(Encoding::UTF8, None);
 
         stream.read_from_str(
             "\"\" \"Lorem 'îpsum'\" \"a\\\nb\" \"a\nb \"eof",
@@ -1258,7 +1258,7 @@ mod test {
 
     #[test]
     fn procude_stream_of_single_quoted_strings() {
-        let mut stream = ByteStream::new(None);
+        let mut stream = ByteStream::new(Encoding::UTF8, None);
 
         stream.read_from_str(
             "'' 'Lorem \"îpsum\"' 'a\\\nb' 'a\nb 'eof",
@@ -1293,7 +1293,7 @@ mod test {
 
     #[test]
     fn parse_urls_with_strings() {
-        let mut stream = ByteStream::new(None);
+        let mut stream = ByteStream::new(Encoding::UTF8, None);
 
         stream.read_from_str(
             "url( '') url('Lorem \"îpsum\"'\n) url('a\\\nb' ) url('a\nb) url('eof",
@@ -1341,7 +1341,7 @@ mod test {
 
     #[test]
     fn produce_valid_stream_of_css_tokens() {
-        let mut stream = ByteStream::new(None);
+        let mut stream = ByteStream::new(Encoding::UTF8, None);
 
         stream.read_from_str(
             "
@@ -1416,7 +1416,7 @@ mod test {
 
     #[test]
     fn parse_rgba_expr() {
-        let mut stream = ByteStream::new(None);
+        let mut stream = ByteStream::new(Encoding::UTF8, None);
 
         stream.read_from_str(
             "
@@ -1451,7 +1451,7 @@ mod test {
 
     #[test]
     fn parse_cdo_and_cdc() {
-        let mut stream = ByteStream::new(None);
+        let mut stream = ByteStream::new(Encoding::UTF8, None);
 
         stream.read_from_str(
             "/* CDO/CDC are not special */ <!-- --> {}",
@@ -1477,7 +1477,7 @@ mod test {
 
     #[test]
     fn parse_spaced_comments() {
-        let mut stream = ByteStream::new(None);
+        let mut stream = ByteStream::new(Encoding::UTF8, None);
 
         stream.read_from_str("/*/*///** /* **/*//* ", Some(Encoding::UTF8));
         stream.close();
@@ -1500,7 +1500,7 @@ mod test {
 
     #[test]
     fn parse_all_whitespaces() {
-        let mut stream = ByteStream::new(None);
+        let mut stream = ByteStream::new(Encoding::UTF8, None);
 
         stream.read_from_str("  \t\t\r\n\nRed ", Some(Encoding::UTF8));
         stream.close();
@@ -1522,7 +1522,7 @@ mod test {
 
     #[test]
     fn parse_at_keywords() {
-        let mut stream = ByteStream::new(None);
+        let mut stream = ByteStream::new(Encoding::UTF8, None);
 
         stream.read_from_str(
             "@media0 @-Media @--media @0media @-0media @_media @.media @medİa @\\30 media\\",
@@ -1571,7 +1571,7 @@ mod test {
 
     #[test]
     fn parse_id_selectors() {
-        let mut stream = ByteStream::new(None);
+        let mut stream = ByteStream::new(Encoding::UTF8, None);
 
         stream.read_from_str(
             "#red0 #-Red #--red #-\\-red #0red #-0red #_Red #.red #rêd #êrd #\\.red\\",
@@ -1624,7 +1624,7 @@ mod test {
 
     #[test]
     fn parse_dimension_tokens() {
-        let mut stream = ByteStream::new(None);
+        let mut stream = ByteStream::new(Encoding::UTF8, None);
 
         stream.read_from_str(
             "12red0 12.0-red 12--red 12-\\-red 120red 12-0red 12\\0000red 12_Red 12.red 12rêd",
@@ -1677,7 +1677,7 @@ mod test {
 
     #[test]
     fn parse_dimension_tokens_2() {
-        let mut stream = ByteStream::new(None);
+        let mut stream = ByteStream::new(Encoding::UTF8, None);
 
         stream.read_from_str(
             "12e2px +34e+1px -45E-0px .68e+3px +.79e-1px -.01E2px 2.3E+1px +45.0e6px -0.67e0px",
@@ -1725,7 +1725,7 @@ mod test {
 
     #[test]
     fn parse_percentage() {
-        let mut stream = ByteStream::new(None);
+        let mut stream = ByteStream::new(Encoding::UTF8, None);
 
         stream.read_from_str(
             "12e2% +34e+1% -45E-0% .68e+3% +.79e-1% -.01E2% 2.3E+1% +45.0e6% -0.67e0%",
@@ -1773,7 +1773,7 @@ mod test {
 
     #[test]
     fn parse_css_seq_1() {
-        let mut stream = ByteStream::new(None);
+        let mut stream = ByteStream::new(Encoding::UTF8, None);
 
         stream.read_from_str(
             "a:not([href^=http\\:],  [href ^=\t'https\\:'\n]) { color: rgba(0%, 100%, 50%); }",
@@ -1833,7 +1833,7 @@ mod test {
 
     #[test]
     fn parse_css_seq_2() {
-        let mut stream = ByteStream::new(None);
+        let mut stream = ByteStream::new(Encoding::UTF8, None);
 
         stream.read_from_str("red-->/* Not CDC */", Some(Encoding::UTF8));
         stream.close();
@@ -1862,7 +1862,7 @@ mod test {
 
     #[test]
     fn parse_css_seq_3() {
-        let mut stream = ByteStream::new(None);
+        let mut stream = ByteStream::new(Encoding::UTF8, None);
 
         stream.read_from_str("\\- red0 -red --red -\\-red\\ blue 0red -0red \\0000red _Red .red rêd r\\êd \\007F\\0080\\0081", Some(Encoding::UTF8));
         stream.close();
@@ -1919,7 +1919,7 @@ mod test {
 
     #[test]
     fn parse_css_seq_4() {
-        let mut stream = ByteStream::new(None);
+        let mut stream = ByteStream::new(Encoding::UTF8, None);
 
         stream.read_from_str(
             "p[example=\"\\\nfoo(int x) {\\\n   this.x = x;\\\n}\\\n\"]",
@@ -1946,7 +1946,7 @@ mod test {
 
     #[test]
     fn consume_tokenizer_as_stream_of_tokens() {
-        let mut stream = ByteStream::new(None);
+        let mut stream = ByteStream::new(Encoding::UTF8, None);
         stream.read_from_str("[][]", Some(Encoding::UTF8));
         stream.close();
 
@@ -1978,7 +1978,7 @@ mod test {
 
     #[test]
     fn parse_css_seq_5() {
-        let mut stream = ByteStream::new(None);
+        let mut stream = ByteStream::new(Encoding::UTF8, None);
 
         stream.read_from_str(
             "test { color: #123; background-color: #11223344 }",
@@ -2015,7 +2015,7 @@ mod test {
 
     #[test]
     fn location() {
-        let mut stream = ByteStream::new(None);
+        let mut stream = ByteStream::new(Encoding::UTF8, None);
 
         stream.read_from_str(
             "test { color: #123; background-color: #11223344 }",
@@ -2053,7 +2053,7 @@ mod test {
 
     #[test]
     fn location_multiline() {
-        let mut stream = ByteStream::new(None);
+        let mut stream = ByteStream::new(Encoding::UTF8, None);
 
         stream.read_from_str(
             "test {\n    color: #123;\n    background-color: #11223344\n}",

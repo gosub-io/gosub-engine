@@ -46,7 +46,7 @@ impl<'stream> Css3<'stream> {
     pub fn parse(data: &str, config: ParserConfig) -> Result<Node, Error> {
         let t_id = timing_start!("css3.parse", config.source.as_deref().unwrap_or(""));
 
-        let mut stream = ByteStream::new(None);
+        let mut stream = ByteStream::new(Encoding::UTF8, None);
         stream.read_from_str(data, Some(Encoding::UTF8));
         stream.close();
 

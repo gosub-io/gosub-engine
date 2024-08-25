@@ -138,8 +138,8 @@ fn fetch_url(
 
     let t_id = timing_start!("html.parse", parts.as_str());
 
-    let mut stream = ByteStream::new(None);
-    let _ = stream.read_from_bytes(&fetch_response.response.body, Some(Encoding::UTF8));
+    let mut stream = ByteStream::new(Encoding::UTF8, None);
+    let _ = stream.read_from_bytes(&fetch_response.response.body);
     fetch_response.document = DocumentBuilder::new_document(Some(parts));
 
     match Html5Parser::parse_document(&mut stream, Document::clone(&fetch_response.document), None)

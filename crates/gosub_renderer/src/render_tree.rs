@@ -78,7 +78,7 @@ pub(crate) fn load_html_rendertree<B: RenderBackend, L: Layouter>(
         bail!("Unsupported url scheme: {}", url.scheme());
     };
 
-    let mut stream = ByteStream::new(None);
+    let mut stream = ByteStream::new(Encoding::UTF8, None);
     stream.read_from_str(&html, Some(Encoding::UTF8));
     stream.close();
 

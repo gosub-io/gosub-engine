@@ -22,6 +22,10 @@ name = "html5-parser"
 name = "tree_iterator"
 harness = false
 
+[[bench]]
+name = "bytestream"
+harness = false
+
 [dependencies]
 gosub_shared = { path = "./crates/gosub_shared", features = [] }
 gosub_config = { path = "./crates/gosub_config", features = [] }

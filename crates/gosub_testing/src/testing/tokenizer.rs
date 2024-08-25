@@ -8,7 +8,7 @@ use gosub_html5::{
         {Options, Tokenizer},
     },
 };
-use gosub_shared::byte_stream::{ByteStream, Location};
+use gosub_shared::byte_stream::{ByteStream, Encoding, Location};
 use gosub_shared::types::Result;
 use lazy_static::lazy_static;
 use regex::{Captures, Regex};
@@ -127,7 +127,7 @@ where
                     loc: Location::default(),
                 },
                 _ => {
-                    return Err(D::Error::invalid_value(
+                    return Err(Error::invalid_value(
                         Unexpected::Str(kind),
                         &"Character, Comment or EndTag",
                     ))
@@ -141,7 +141,7 @@ where
                     is_self_closing: false,
                     loc: Location::default(),
                 },
-                _ => return Err(D::Error::invalid_value(Unexpected::Str(kind), &"StartTag")),
+                _ => return Err(Error::invalid_value(Unexpected::Str(kind), &"StartTag")),
             },
 
             4 => match kind {
@@ -151,7 +151,7 @@ where
                     is_self_closing: values[3].as_bool().unwrap_or_default(),
                     loc: Location::default(),
                 },
-                _ => return Err(D::Error::invalid_value(Unexpected::Str(kind), &"StartTag")),
+                _ => return Err(Error::invalid_value(Unexpected::Str(kind), &"StartTag")),
             },
 
             5 => match kind {
@@ -162,11 +162,11 @@ where
                     force_quirks: !values[4].as_bool().unwrap_or_default(),
                     loc: Location::default(),
                 },
-                _ => return Err(D::Error::invalid_value(Unexpected::Str(kind), &"DOCTYPE")),
+                _ => return Err(Error::invalid_value(Unexpected::Str(kind), &"DOCTYPE")),
             },
 
             _ => {
-                return Err(D::Error::invalid_length(
+                return Err(Error::invalid_length(
                     values.len(),
                     &"an array of length 2, 3, 4 or 5",
                 ))
@@ -190,7 +190,7 @@ impl TestSpec {
         }
 
         for state in states {
-            let mut stream = ByteStream::new(None);
+            let mut stream = ByteStream::new(Encoding::UTF8, None);
             let input = if self.double_escaped {
                 from_utf16_lossy(&self.input)
             } else {
@@ -266,7 +266,7 @@ impl TestSpec {
         }
 
         // Try and find an error that matches the code, but has a different line/pos. Even though
-        // it's not always correct, it might be a off-by-one position.
+        // it's not always correct, it might be an off-by-one position.
         for actual in tokenizer.get_error_logger().get_errors() {
             if actual.message == expected.code
                 && (actual.location.line != expected.line || actual.location.column != expected.col)
@@ -381,7 +381,7 @@ pub fn fixture_from_path<P>(path: &P) -> Result<FixtureFile>
 where
     P: AsRef<Path>,
 {
-    let contents = fs::read_to_string(path).unwrap();
+    let contents = fs::read_to_string(path)?;
     Ok(serde_json::from_str(&contents)?)
 }
 
@@ -420,6 +420,7 @@ mod tests {
                 name: "h".into(),
                 attributes: HashMap::from([("a".into(), "&noti;".into())]),
                 is_self_closing: false,
+                loc: Location::default(),
             }],
         );
     }

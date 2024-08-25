@@ -22,7 +22,7 @@ fn main() -> Result<()> {
     }
     let html = response.into_string()?;
 
-    let mut stream = ByteStream::new(None);
+    let mut stream = ByteStream::new(Encoding::UTF8, None);
     stream.read_from_str(&html, Some(Encoding::UTF8));
     stream.close();
 

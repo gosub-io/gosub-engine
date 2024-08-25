@@ -30,7 +30,7 @@ pub unsafe extern "C" fn gosub_rendertree_init(html: *const c_char) -> *mut Rend
             return ptr::null_mut();
         }
     };
-    let mut stream = ByteStream::new(None);
+    let mut stream = ByteStream::new(Encoding::UTF8, None);
     stream.read_from_str(html_str, Some(Encoding::UTF8));
     stream.close();
 

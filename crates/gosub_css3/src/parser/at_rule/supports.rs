@@ -21,7 +21,7 @@ mod tests {
 
     #[test]
     fn test_parse_at_rule_supports_prelude() {
-        let mut stream = ByteStream::new(None);
+        let mut stream = ByteStream::new(Encoding::UTF8, None);
         stream.read_from_str("(display: flex)", Some(Encoding::UTF8));
         stream.close();
 
