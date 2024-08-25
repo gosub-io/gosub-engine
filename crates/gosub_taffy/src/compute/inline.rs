@@ -80,9 +80,6 @@ pub fn compute_inline_layout<LT: LayoutTree<TaffyLayouter>>(
         size.height = size.height.min(height);
     }
 
-    dbg!(size);
-    dbg!(content_size);
-
     LayoutOutput {
         size,
         content_size,

@@ -1,9 +1,12 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 
+use crate::property_definitions::get_css_definitions;
+use crate::shorthands::FixList;
+use crate::styling::{match_selector, CssProperties, CssProperty, DeclarationProperty};
 use log::warn;
 
-use gosub_css3::stylesheet::{CssDeclaration, CssSelector, CssStylesheet, CssValue};
+use gosub_css3::stylesheet::{CssDeclaration, CssOrigin, CssSelector, CssStylesheet, CssValue};
 use gosub_html5::node::data::element::ElementData;
 use gosub_html5::node::{NodeData, NodeId};
 use gosub_html5::parser::document::{DocumentHandle, TreeIterator};
@@ -12,9 +15,6 @@ use gosub_render_backend::layout::{LayoutTree, Layouter, Node};
 use gosub_render_backend::{PreRenderText, RenderBackend};
 use gosub_shared::types::Result;
 use gosub_typeface::DEFAULT_FS;
-
-use crate::property_definitions::get_css_definitions;
-use crate::styling::{match_selector, CssProperties, CssProperty, DeclarationProperty};
 
 mod desc;
 
@@ -238,6 +238,18 @@ impl<B: RenderBackend, L: Layouter> RenderTree<B, L> {
     fn generate_from(&mut self, document: DocumentHandle) {
         // Iterate the complete document tree
         let tree_iterator = TreeIterator::new(&document);
+
+        {
+            let doc = document.get();
+
+            println!("Stylesheets: {:?}", doc.stylesheets.len());
+
+            for stylesheet in &doc.stylesheets {
+                println!("   {:?}", stylesheet.location);
+                println!("   {:?}", stylesheet.origin);
+            }
+        }
+
         for current_node_id in tree_iterator {
             let mut css_map_entry = CssProperties::new();
 
@@ -248,7 +260,13 @@ impl<B: RenderBackend, L: Layouter> RenderTree<B, L> {
 
             let definitions = get_css_definitions();
 
+            let mut fix_list = FixList::new();
+
             for sheet in document.get().stylesheets.iter() {
+                if sheet.origin == CssOrigin::UserAgent {
+                    continue;
+                }
+
                 for rule in sheet.rules.iter() {
                     for selector in rule.selectors().iter() {
                         if !match_selector(
@@ -262,18 +280,19 @@ impl<B: RenderBackend, L: Layouter> RenderTree<B, L> {
                         // Selector matched, so we add all declared values to the map
                         for declaration in rule.declarations().iter() {
                             // Step 1: find the property in our CSS definition list
-                            let definition = definitions.find_property(&declaration.property);
-                            // If not found, we skip this declaration
-                            if definition.is_none() {
+                            let Some(definition) = definitions.find_property(&declaration.property)
+                            else {
+                                // If not found, we skip this declaration
                                 warn!(
                                     "Definition is not found for property {:?}",
                                     declaration.property
                                 );
                                 continue;
-                            }
+                            };
 
                             // Check if the declaration matches the definition and return the "expanded" order
-                            let res = definition.unwrap().matches(&declaration.value);
+                            let res = definition
+                                .matches_and_shorthands(&declaration.value, &mut fix_list);
                             if !res {
                                 warn!("Declaration does not match definition: {:?}", declaration);
                                 continue;
@@ -292,6 +311,10 @@ impl<B: RenderBackend, L: Layouter> RenderTree<B, L> {
                     }
                 }
             }
+
+            fix_list.resolve_nested(definitions);
+
+            fix_list.apply(&mut css_map_entry);
 
             let binding = document.get();
             let current_node = binding.get_node_by_id(current_node_id).unwrap();
@@ -490,29 +513,29 @@ impl<B: RenderBackend, L: Layouter> RenderTree<B, L> {
 }
 
 // Generates a declaration property and adds it to the css_map_entry
-fn add_property_to_map(
+pub fn add_property_to_map(
     css_map_entry: &mut CssProperties,
     sheet: &CssStylesheet,
     selector: &CssSelector,
     declaration: &CssDeclaration,
 ) {
     let property_name = declaration.property.clone();
-    let entry = CssProperty::new(property_name.as_str());
+    // let entry = CssProperty::new(property_name.as_str());
 
     // If the property is a shorthand css property, we need fetch the individual properties
     // It's possible that need to recurse here as these individual properties can be shorthand as well
-    if entry.is_shorthand() {
-        for property_name in entry.get_props_from_shorthand() {
-            let decl = CssDeclaration {
-                property: property_name.to_string(),
-                value: declaration.value.clone(),
-                important: declaration.important,
-            };
-
-            add_property_to_map(css_map_entry, sheet, selector, &decl);
-        }
-    }
-
+    // if entry.is_shorthand() {
+    //     for property_name in entry.get_props_from_shorthand() {
+    //         let decl = CssDeclaration {
+    //             property: property_name.to_string(),
+    //             value: declaration.value.clone(),
+    //             important: declaration.important,
+    //         };
+    //
+    //         add_property_to_map(css_map_entry, sheet, selector, &decl);
+    //     }
+    // }
+    //
     let declaration = DeclarationProperty {
         // @todo: this seems wrong. We only get the first values from the declared values
         value: declaration.value.first().unwrap().clone(),
@@ -674,10 +697,21 @@ impl<B: RenderBackend, L: Layouter> RenderTreeNode<B, L> {
             return true;
         }
 
-        return self
-            .properties
+        let tag_name = self.name.to_lowercase();
+
+        const INLINE_ELEMENTS: [&str; 31] = [
+            "a", "abbr", "acronym", "b", "bdo", "big", "br", "button", "cite", "code", "dfn", "em",
+            "i", "img", "input", "kbd", "label", "map", "object", "q", "samp", "script", "select",
+            "small", "span", "strong", "sub", "sup", "textarea", "tt", "var",
+        ];
+
+        if INLINE_ELEMENTS.contains(&tag_name.as_str()) {
+            return true;
+        }
+
+        self.properties
             .get("display")
-            .map_or(false, |prop| prop.compute_value().to_string() == "inline");
+            .map_or(false, |prop| prop.compute_value().to_string() == "inline")
     }
 }
 

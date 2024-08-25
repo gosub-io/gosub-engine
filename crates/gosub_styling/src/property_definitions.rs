@@ -1,9 +1,11 @@
 use std::collections::HashMap;
-use std::sync::LazyLock;
 
 use log::warn;
 
 use gosub_css3::stylesheet::CssValue;
+
+use crate::shorthands::{FixList, Shorthands};
+use std::sync::LazyLock;
 
 use crate::syntax::GroupCombinators::Juxtaposition;
 use crate::syntax::{CssSyntax, SyntaxComponent};
@@ -70,6 +72,8 @@ pub struct PropertyDefinition {
     pub initial_value: Option<CssValue>,
     // True when this element is resolved
     pub resolved: bool,
+    /// Shorthand resolver, used to expand computed values
+    pub shorthands: Option<Shorthands>,
 }
 
 impl PropertyDefinition {
@@ -104,6 +108,16 @@ impl PropertyDefinition {
         self.syntax.matches(input)
     }
 
+    pub fn matches_and_shorthands(&self, input: &[CssValue], fix_list: &mut FixList) -> bool {
+        if let Some(shorthands) = &self.shorthands {
+            let resolver = shorthands.get_resolver(fix_list);
+
+            self.syntax.matches_and_shorthands(input, resolver)
+        } else {
+            self.syntax.matches(input)
+        }
+    }
+
     pub fn check_expanded_properties(&self, _values: &[CssValue]) -> bool {
         // if values.len() != self.expanded_properties.len() {
         //     return false;
@@ -119,13 +133,17 @@ impl PropertyDefinition {
 
         true
     }
+
+    pub fn is_shorthand(&self) -> bool {
+        self.computed.len() > 1
+    }
 }
 
 /// A syntax definition that can be used to resolve a property definition
 #[derive(Debug, Clone)]
 pub struct SyntaxDefinition {
     /// Actual syntax
-    syntax: CssSyntaxTree,
+    pub syntax: CssSyntaxTree,
     /// True when the element has already been resolved
     resolved: bool,
 }
@@ -222,7 +240,7 @@ impl CssDefinitions {
     }
 
     /// Resolve a syntax component
-    fn resolve_component(
+    pub fn resolve_component(
         &mut self,
         component: &SyntaxComponent,
         prop_name: &str,
@@ -267,9 +285,12 @@ impl CssDefinitions {
                         // If the resolved syntax is just a single element (be it a group, or a single element),
                         // return that component.
                         if resolved_prop.syntax.components.len() == 1 {
-                            return resolved_prop.syntax.components[0].clone();
-                        }
+                            let mut component = resolved_prop.syntax.components[0].clone();
 
+                            component.update_multipliers(multipliers.clone());
+
+                            return component;
+                        }
                         // Otherwise, we return a group with the components
                         return SyntaxComponent::Group {
                             components: resolved_prop.syntax.components.clone(),
@@ -352,6 +373,8 @@ fn pars_definition_files() -> CssDefinitions {
         properties,
         syntax,
     };
+
+    definitions.index_shorthands();
     definitions.resolve();
 
     definitions
@@ -472,6 +495,7 @@ fn parse_property_file(json: serde_json::Value) -> HashMap<String, PropertyDefin
                 initial_value,
                 inherited: obj["inherited"].as_bool().unwrap(),
                 resolved: false,
+                shorthands: None,
             },
         );
     }
@@ -563,6 +587,7 @@ mod tests {
                 inherited: false,
                 initial_value: None,
                 resolved: false,
+                shorthands: None,
             },
         );
         definitions.resolve();
@@ -587,6 +612,7 @@ mod tests {
                 inherited: false,
                 initial_value: Some(str!("thick".to_string())),
                 resolved: false,
+                shorthands: None,
             },
         );
 
@@ -843,6 +869,29 @@ mod tests {
             CssValue::Percentage(5.0),
             str!("top"),
             CssValue::Percentage(5.0),
+        ]));
+    }
+
+    #[test]
+    fn test_margin() {
+        let definitions = get_css_definitions();
+        let def = definitions.find_property("margin").unwrap();
+
+        println!("margin def: {:?}", def.syntax);
+
+        assert!(def.clone().matches(&[unit!(1.0, "px")]));
+
+        assert!(def.clone().matches(&[unit!(1.0, "px"), unit!(2.0, "px")]));
+
+        assert!(def
+            .clone()
+            .matches(&[unit!(1.0, "px"), unit!(2.0, "px"), unit!(3.0, "px")]));
+
+        assert!(def.clone().matches(&[
+            unit!(1.0, "px"),
+            unit!(2.0, "px"),
+            unit!(3.0, "px"),
+            unit!(4.0, "px"),
         ]));
     }
 }

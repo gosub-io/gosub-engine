@@ -1,6 +1,7 @@
 use gosub_css3::colors::{is_named_color, is_system_color};
 use gosub_css3::stylesheet::CssValue;
 
+use crate::shorthands::{copy_resolver, ShorthandResolver};
 use crate::syntax::{GroupCombinators, SyntaxComponent, SyntaxComponentMultiplier};
 
 /// Structure to return from a matching function.
@@ -40,7 +41,16 @@ impl CssSyntaxTree {
             panic!("Syntax tree must have exactly one root component");
         }
 
-        let res = match_component(input, &self.components[0]);
+        let res = match_component(input, &self.components[0], None);
+        res.matched && res.remainder.is_empty()
+    }
+
+    pub fn matches_and_shorthands(&self, input: &[CssValue], resolver: ShorthandResolver) -> bool {
+        if self.components.len() != 1 {
+            panic!("Syntax tree must have exactly one root component");
+        }
+
+        let res = match_component(input, &self.components[0], Some(resolver));
         res.matched && res.remainder.is_empty()
     }
 }
@@ -48,6 +58,7 @@ impl CssSyntaxTree {
 fn match_component_inner<'a>(
     raw_input: &'a [CssValue],
     component: &SyntaxComponent,
+    mut shorthand_resolver: Option<ShorthandResolver>,
 ) -> MatchResult<'a> {
     let mut input = raw_input;
     let mut matched_values = vec![];
@@ -74,7 +85,7 @@ fn match_component_inner<'a>(
 
         // Check either single or group component
         let res = if component.is_group() {
-            match_component_group(input, component)
+            match_component_group(input, component, copy_resolver(&mut shorthand_resolver))
         } else {
             match_component_single(input, component)
         };
@@ -134,7 +145,11 @@ fn match_component_inner<'a>(
 
 /// Matches a component against the input values. After the match, there might be remaining
 /// elements in the input. This is passed back in the MatchResult structure.
-fn match_component<'a>(raw_input: &'a [CssValue], component: &SyntaxComponent) -> MatchResult<'a> {
+fn match_component<'a>(
+    raw_input: &'a [CssValue],
+    component: &SyntaxComponent,
+    mut shorthand_resolver: Option<ShorthandResolver>,
+) -> MatchResult<'a> {
     let _gid = rand::random::<u8>();
 
     let mut input = raw_input;
@@ -155,7 +170,8 @@ fn match_component<'a>(raw_input: &'a [CssValue], component: &SyntaxComponent) -
 
     // CSV loop
     loop {
-        let inner_result = match_component_inner(input, component);
+        let inner_result =
+            match_component_inner(input, component, copy_resolver(&mut shorthand_resolver));
         if !comma_separated {
             // We don't need to check for comma separated values, so just return this result
             return inner_result;
@@ -206,6 +222,7 @@ fn match_component<'a>(raw_input: &'a [CssValue], component: &SyntaxComponent) -
 fn match_component_group<'a>(
     input: &'a [CssValue],
     component: &SyntaxComponent,
+    shorthand_resolver: Option<ShorthandResolver>,
 ) -> MatchResult<'a> {
     match &component {
         SyntaxComponent::Group {
@@ -216,12 +233,18 @@ fn match_component_group<'a>(
             // println!("We need to do a group match on {:?}, our value is: {:?}", combinator, input);
 
             match combinator {
-                GroupCombinators::Juxtaposition => match_group_juxtaposition(input, components),
-                GroupCombinators::AllAnyOrder => match_group_all_any_order(input, components),
-                GroupCombinators::AtLeastOneAnyOrder => {
-                    match_group_at_least_one_any_order(input, components)
+                GroupCombinators::Juxtaposition => {
+                    match_group_juxtaposition(input, components, shorthand_resolver)
                 }
-                GroupCombinators::ExactlyOne => match_group_exactly_one(input, components),
+                GroupCombinators::AllAnyOrder => {
+                    match_group_all_any_order(input, components, shorthand_resolver)
+                }
+                GroupCombinators::AtLeastOneAnyOrder => {
+                    match_group_at_least_one_any_order(input, components, shorthand_resolver)
+                }
+                GroupCombinators::ExactlyOne => {
+                    match_group_exactly_one(input, components, shorthand_resolver)
+                }
             }
         }
         e => {
@@ -363,7 +386,7 @@ fn match_component_single<'a>(
                 return first_match(input);
             }
 
-            todo!("Function not implemented yet. We must match the arguments");
+            // todo!("Function not implemented yet. We must match the arguments");
             // let list = CssValue::List(c_args.clone());
             // return match_internal(&list, arguments);
         }
@@ -386,6 +409,7 @@ fn match_component_single<'a>(
 fn match_group_exactly_one<'a>(
     raw_input: &'a [CssValue],
     components: &[SyntaxComponent],
+    mut shorthand_resolver: Option<ShorthandResolver>,
 ) -> MatchResult<'a> {
     let input = raw_input;
     let mut matched_values = vec![];
@@ -397,19 +421,48 @@ fn match_group_exactly_one<'a>(
             break;
         }
 
-        let component = &components[c_idx];
+        if let Some(mut resolver) = copy_resolver(&mut shorthand_resolver) {
+            let step = resolver.step(c_idx);
 
-        let res = match_component(input, component);
-        if res.matched {
-            matched_values.append(&mut res.matched_values.clone());
+            let mut complete = None;
+            let mut resolver = None;
 
-            // input = res.remainder.clone();
+            match step {
+                Ok(Some(r)) => resolver = Some(r),
+                Ok(None) => {}
+                Err(c) => complete = Some(c),
+            }
 
-            components_matched.push((c_idx, res.matched_values, res.remainder));
+            let component = &components[c_idx];
+
+            let res = match_component(input, component, resolver);
+            if res.matched {
+                matched_values.append(&mut res.matched_values.clone());
+
+                // input = res.remainder.clone();
+
+                components_matched.push((c_idx, res.matched_values.clone(), res.remainder));
+
+                if let Some(complete) = complete {
+                    complete.complete(res.matched_values);
+                }
+            } else {
+                // No match. That's all right.
+            }
         } else {
-            // No match. That's all right.
-        }
+            let component = &components[c_idx];
 
+            let res = match_component(input, component, None);
+            if res.matched {
+                matched_values.append(&mut res.matched_values.clone());
+
+                // input = res.remainder.clone();
+
+                components_matched.push((c_idx, res.matched_values, res.remainder));
+            } else {
+                // No match. That's all right.
+            }
+        }
         c_idx += 1;
     }
 
@@ -446,6 +499,7 @@ fn match_group_exactly_one<'a>(
 fn match_group_at_least_one_any_order<'a>(
     raw_input: &'a [CssValue],
     components: &[SyntaxComponent],
+    mut shorthand_resolver: Option<ShorthandResolver>,
 ) -> MatchResult<'a> {
     let mut input = raw_input;
     let mut matched_values = vec![];
@@ -457,25 +511,64 @@ fn match_group_at_least_one_any_order<'a>(
             break;
         }
 
-        let component = &components[c_idx];
+        if let Some(mut resolver) = copy_resolver(&mut shorthand_resolver) {
+            let step = resolver.step(c_idx);
 
-        let res = match_component(input, component);
-        if res.matched {
-            matched_values.append(&mut res.matched_values.clone());
-            components_matched.push(c_idx);
+            let mut complete = None;
+            let mut resolver = None;
 
-            input = res.remainder;
+            match step {
+                Ok(Some(r)) => resolver = Some(r),
+                Ok(None) => {}
+                Err(c) => complete = Some(c),
+            }
 
-            // Found a match, so loop around for new matches
-            c_idx = 0;
-            while components_matched.contains(&c_idx) {
+            let component = &components[c_idx];
+
+            let res = match_component(input, component, resolver);
+            if res.matched {
+                matched_values.append(&mut res.matched_values.clone());
+                components_matched.push(c_idx);
+
+                input = res.remainder;
+
+                // Found a match, so loop around for new matches
+                c_idx = 0;
+                while components_matched.contains(&c_idx) {
+                    c_idx += 1;
+                }
+
+                if let Some(complete) = complete {
+                    complete.complete(res.matched_values);
+                }
+            } else {
+                // Element didn't match. That might be alright, and we continue with the next unmatched component
                 c_idx += 1;
+                while components_matched.contains(&c_idx) {
+                    c_idx += 1;
+                }
             }
         } else {
-            // Element didn't match. That might be alright, and we continue with the next unmatched component
-            c_idx += 1;
-            while components_matched.contains(&c_idx) {
+            let component = &components[c_idx];
+
+            let res = match_component(input, component, None);
+            if res.matched {
+                matched_values.append(&mut res.matched_values.clone());
+                components_matched.push(c_idx);
+
+                input = res.remainder;
+
+                // Found a match, so loop around for new matches
+                c_idx = 0;
+                while components_matched.contains(&c_idx) {
+                    c_idx += 1;
+                }
+            } else {
+                // Element didn't match. That might be alright, and we continue with the next unmatched component
                 c_idx += 1;
+                while components_matched.contains(&c_idx) {
+                    c_idx += 1;
+                }
             }
         }
     }
@@ -494,6 +587,7 @@ fn match_group_at_least_one_any_order<'a>(
 fn match_group_all_any_order<'a>(
     raw_input: &'a [CssValue],
     components: &[SyntaxComponent],
+    mut shorthand_resolver: Option<ShorthandResolver>,
 ) -> MatchResult<'a> {
     let mut input = raw_input;
     let mut matched_values = vec![];
@@ -505,25 +599,63 @@ fn match_group_all_any_order<'a>(
             break;
         }
 
-        let component = &components[c_idx];
+        if let Some(mut resolver) = copy_resolver(&mut shorthand_resolver) {
+            let step = resolver.step(c_idx);
 
-        let res = match_component(input, component);
-        if res.matched {
-            matched_values.append(&mut res.matched_values.clone());
-            components_matched.push(c_idx);
+            let mut complete = None;
+            let mut resolver = None;
 
-            input = res.remainder;
+            match step {
+                Ok(Some(r)) => resolver = Some(r),
+                Ok(None) => {}
+                Err(c) => complete = Some(c),
+            }
+            let component = &components[c_idx];
 
-            // Found a match, so loop around for new matches
-            c_idx = 0;
-            while components_matched.contains(&c_idx) {
+            let res = match_component(input, component, resolver);
+            if res.matched {
+                matched_values.append(&mut res.matched_values.clone());
+                components_matched.push(c_idx);
+
+                input = res.remainder;
+
+                // Found a match, so loop around for new matches
+                c_idx = 0;
+                while components_matched.contains(&c_idx) {
+                    c_idx += 1;
+                }
+
+                if let Some(complete) = complete {
+                    complete.complete(res.matched_values);
+                }
+            } else {
+                // Element didn't match. That might be alright, and we continue with the next unmatched component
                 c_idx += 1;
+                while components_matched.contains(&c_idx) {
+                    c_idx += 1;
+                }
             }
         } else {
-            // Element didn't match. That might be alright, and we continue with the next unmatched component
-            c_idx += 1;
-            while components_matched.contains(&c_idx) {
+            let component = &components[c_idx];
+
+            let res = match_component(input, component, None);
+            if res.matched {
+                matched_values.append(&mut res.matched_values.clone());
+                components_matched.push(c_idx);
+
+                input = res.remainder;
+
+                // Found a match, so loop around for new matches
+                c_idx = 0;
+                while components_matched.contains(&c_idx) {
+                    c_idx += 1;
+                }
+            } else {
+                // Element didn't match. That might be alright, and we continue with the next unmatched component
                 c_idx += 1;
+                while components_matched.contains(&c_idx) {
+                    c_idx += 1;
+                }
             }
         }
     }
@@ -542,20 +674,47 @@ fn match_group_all_any_order<'a>(
 fn match_group_juxtaposition<'a>(
     raw_input: &'a [CssValue],
     components: &[SyntaxComponent],
+    mut shorthand_resolver: Option<ShorthandResolver>,
 ) -> MatchResult<'a> {
     let mut input = raw_input;
     let mut matched_values = vec![];
 
     let mut c_idx = 0;
     while c_idx < components.len() {
-        let component = &components[c_idx];
+        if let Some(mut resolver) = copy_resolver(&mut shorthand_resolver) {
+            let step = resolver.step(c_idx);
 
-        let res = match_component(input, component);
-        if res.matched {
-            matched_values.append(&mut res.matched_values.clone());
-            input = res.remainder;
+            let mut complete = None;
+            let mut resolver = None;
+
+            match step {
+                Ok(Some(r)) => resolver = Some(r),
+                Ok(None) => {}
+                Err(c) => complete = Some(c),
+            }
+            let component = &components[c_idx];
+
+            let res = match_component(input, component, resolver);
+            if res.matched {
+                matched_values.append(&mut res.matched_values.clone());
+                input = res.remainder;
+
+                if let Some(complete) = complete {
+                    complete.complete(res.matched_values);
+                }
+            } else {
+                break;
+            }
         } else {
-            break;
+            let component = &components[c_idx];
+
+            let res = match_component(input, component, None);
+            if res.matched {
+                matched_values.append(&mut res.matched_values.clone());
+                input = res.remainder;
+            } else {
+                break;
+            }
         }
 
         c_idx += 1;
@@ -802,19 +961,19 @@ mod tests {
         let tree = CssSyntax::new("auto none block").compile().unwrap();
         if let SyntaxComponent::Group { components, .. } = &tree.components[0] {
             let input = [str!("auto")];
-            let res = match_group_juxtaposition(&input, components);
+            let res = match_group_juxtaposition(&input, components, None);
             assert_not_match!(res);
 
             let input = [str!("auto"), str!("none")];
-            let res = match_group_juxtaposition(&input, components);
+            let res = match_group_juxtaposition(&input, components, None);
             assert_not_match!(res);
 
             let input = [str!("auto"), str!("none"), str!("block")];
-            let res = match_group_juxtaposition(&input, components);
+            let res = match_group_juxtaposition(&input, components, None);
             assert_match!(res);
 
             let input = [str!("none"), str!("block"), str!("auto")];
-            let res = match_group_juxtaposition(&input, components);
+            let res = match_group_juxtaposition(&input, components, None);
             assert_not_match!(res);
 
             let input = [
@@ -824,12 +983,12 @@ mod tests {
                 str!("auto"),
                 str!("none"),
             ];
-            let res = match_group_juxtaposition(&input, components);
+            let res = match_group_juxtaposition(&input, components, None);
             assert_not_match!(res);
 
             let input = [str!("none"), str!("banana"), str!("car"), str!("block")];
 
-            let res = match_group_juxtaposition(&input, components);
+            let res = match_group_juxtaposition(&input, components, None);
             assert_not_match!(res);
         }
     }
@@ -842,15 +1001,15 @@ mod tests {
             .unwrap();
         if let SyntaxComponent::Group { components, .. } = &tree.components[0] {
             let input = [str!("top"), str!("up"), str!("strange")];
-            let res = match_group_juxtaposition(&input, components);
+            let res = match_group_juxtaposition(&input, components, None);
             assert_match!(res);
 
             let input = [str!("bottom"), str!("up"), str!("strange")];
-            let res = match_group_juxtaposition(&input, components);
+            let res = match_group_juxtaposition(&input, components, None);
             assert_match!(res);
 
             let input = [str!("bottom"), str!("down"), str!("charm")];
-            let res = match_group_juxtaposition(&input, components);
+            let res = match_group_juxtaposition(&input, components, None);
             assert_match!(res);
         }
     }
@@ -861,20 +1020,20 @@ mod tests {
         if let SyntaxComponent::Group { components, .. } = &tree.components[0] {
             let input = [str!("auto")];
 
-            let res = match_group_all_any_order(&input, components);
+            let res = match_group_all_any_order(&input, components, None);
             assert_not_match!(res);
 
             let input = [str!("auto"), str!("none")];
-            let res = match_group_all_any_order(&input, components);
+            let res = match_group_all_any_order(&input, components, None);
             assert_not_match!(res);
 
             let input = [str!("auto"), str!("none"), str!("block")];
-            let res = match_group_all_any_order(&input, components);
+            let res = match_group_all_any_order(&input, components, None);
             assert_match!(res);
 
             let input = [str!("none"), str!("block"), str!("auto")];
 
-            let res = match_group_all_any_order(&input, components);
+            let res = match_group_all_any_order(&input, components, None);
             assert_match!(res);
 
             let input = [
@@ -885,12 +1044,12 @@ mod tests {
                 str!("none"),
             ];
 
-            let res = match_group_all_any_order(&input, components);
+            let res = match_group_all_any_order(&input, components, None);
             assert_not_match!(res);
 
             let input = [str!("none"), str!("banana"), str!("car"), str!("block")];
 
-            let res = match_group_all_any_order(&input, components);
+            let res = match_group_all_any_order(&input, components, None);
             assert_not_match!(res);
         }
     }
@@ -900,23 +1059,23 @@ mod tests {
         let tree = CssSyntax::new("auto none block").compile().unwrap();
         if let SyntaxComponent::Group { components, .. } = &tree.components[0] {
             let input = [str!("auto")];
-            let res = match_group_at_least_one_any_order(&input, components);
+            let res = match_group_at_least_one_any_order(&input, components, None);
             assert_match!(res);
 
             let input = [str!("auto"), str!("none")];
-            let res = match_group_at_least_one_any_order(&input, components);
+            let res = match_group_at_least_one_any_order(&input, components, None);
             assert_match!(res);
 
             let input = [str!("auto"), str!("none"), str!("block")];
-            let res = match_group_at_least_one_any_order(&input, components);
+            let res = match_group_at_least_one_any_order(&input, components, None);
             assert_match!(res);
 
             let input = [str!("none"), str!("block"), str!("auto")];
-            let res = match_group_at_least_one_any_order(&input, components);
+            let res = match_group_at_least_one_any_order(&input, components, None);
             assert_match!(res);
 
             let input = [str!("none"), str!("block"), str!("auto")];
-            let res = match_group_at_least_one_any_order(&input, components);
+            let res = match_group_at_least_one_any_order(&input, components, None);
             assert_match!(res);
 
             let input = [
@@ -928,17 +1087,17 @@ mod tests {
                 str!("none"),
             ];
 
-            let res = match_group_at_least_one_any_order(&input, components);
+            let res = match_group_at_least_one_any_order(&input, components, None);
             assert_match!(res);
             assert_eq!(vec![str!("none"), str!("block")], res.matched_values);
 
             let input = [str!("none"), str!("block"), str!("banana"), str!("auto")];
-            let res = match_group_at_least_one_any_order(&input, components);
+            let res = match_group_at_least_one_any_order(&input, components, None);
             assert_match!(res);
             assert_eq!(vec![str!("none"), str!("block")], res.matched_values);
             assert_eq!(vec![str!("banana"), str!("auto")], res.remainder);
 
-            let res = match_group_at_least_one_any_order(&[], components);
+            let res = match_group_at_least_one_any_order(&[], components, None);
             assert_not_match!(res);
         }
     }
@@ -1132,6 +1291,7 @@ mod tests {
                 inherited: false,
                 initial_value: None,
                 resolved: false,
+                shorthands: None,
             },
         );
         definitions.resolve();
@@ -1177,6 +1337,7 @@ mod tests {
                 inherited: false,
                 initial_value: None,
                 resolved: false,
+                shorthands: None,
             },
         );
         definitions.resolve();
@@ -1228,6 +1389,7 @@ mod tests {
                 inherited: false,
                 initial_value: None,
                 resolved: false,
+                shorthands: None,
             },
         );
         definitions.resolve();
@@ -1251,7 +1413,7 @@ mod tests {
                     combinator: GroupCombinators::Juxtaposition,
                     multipliers: vec![SyntaxComponentMultiplier::Once],
                 },
-                0
+                0,
             ),
             Fulfillment::NotYetFulfilled
         );
@@ -1263,7 +1425,7 @@ mod tests {
                     combinator: GroupCombinators::Juxtaposition,
                     multipliers: vec![SyntaxComponentMultiplier::Once],
                 },
-                1
+                1,
             ),
             Fulfillment::Fulfilled
         );
@@ -1275,7 +1437,7 @@ mod tests {
                     combinator: GroupCombinators::Juxtaposition,
                     multipliers: vec![SyntaxComponentMultiplier::Once],
                 },
-                2
+                2,
             ),
             Fulfillment::NotFulfilled
         );
@@ -1287,7 +1449,7 @@ mod tests {
                     combinator: GroupCombinators::Juxtaposition,
                     multipliers: vec![SyntaxComponentMultiplier::ZeroOrMore],
                 },
-                0
+                0,
             ),
             Fulfillment::FulfilledButMoreAllowed
         );
@@ -1299,7 +1461,7 @@ mod tests {
                     combinator: GroupCombinators::Juxtaposition,
                     multipliers: vec![SyntaxComponentMultiplier::ZeroOrMore],
                 },
-                1
+                1,
             ),
             Fulfillment::FulfilledButMoreAllowed
         );
@@ -1311,7 +1473,7 @@ mod tests {
                     combinator: GroupCombinators::Juxtaposition,
                     multipliers: vec![SyntaxComponentMultiplier::ZeroOrMore],
                 },
-                2
+                2,
             ),
             Fulfillment::FulfilledButMoreAllowed
         );
@@ -1323,7 +1485,7 @@ mod tests {
                     combinator: GroupCombinators::Juxtaposition,
                     multipliers: vec![SyntaxComponentMultiplier::OneOrMore],
                 },
-                0
+                0,
             ),
             Fulfillment::NotYetFulfilled
         );
@@ -1335,7 +1497,7 @@ mod tests {
                     combinator: GroupCombinators::Juxtaposition,
                     multipliers: vec![SyntaxComponentMultiplier::OneOrMore],
                 },
-                1
+                1,
             ),
             Fulfillment::FulfilledButMoreAllowed
         );
@@ -1347,7 +1509,7 @@ mod tests {
                     combinator: GroupCombinators::Juxtaposition,
                     multipliers: vec![SyntaxComponentMultiplier::OneOrMore],
                 },
-                2
+                2,
             ),
             Fulfillment::FulfilledButMoreAllowed
         );
@@ -1359,7 +1521,7 @@ mod tests {
                     combinator: GroupCombinators::Juxtaposition,
                     multipliers: vec![SyntaxComponentMultiplier::Optional],
                 },
-                0
+                0,
             ),
             Fulfillment::FulfilledButMoreAllowed
         );
@@ -1389,6 +1551,7 @@ mod tests {
                 inherited: false,
                 initial_value: None,
                 resolved: false,
+                shorthands: None,
             },
         );
         definitions.resolve();
