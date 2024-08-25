@@ -66,3 +66,13 @@ fn tokenization(filename: &str) {
         test.assert_valid();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tokenization() {
+        tokenization("test1.test");
+    }
+}

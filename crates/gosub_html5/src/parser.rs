@@ -12,7 +12,7 @@ use gosub_css3::convert::ast_converter::convert_ast_to_stylesheet;
 use gosub_css3::parser_config::ParserConfig;
 use gosub_css3::stylesheet::{CssOrigin, CssStylesheet};
 use gosub_css3::Css3;
-use gosub_shared::byte_stream::ByteStream;
+use gosub_shared::byte_stream::{ByteStream, Location};
 use gosub_shared::types::{ParseError, Result};
 use gosub_shared::{timing_start, timing_stop};
 
@@ -64,41 +64,6 @@ enum InsertionMode {
     AfterAfterBody,
     AfterAfterFrameset,
 }
-
-// /// Additional extensions to the Vec type so we can do some stack operations
-// trait VecExtensions<T> {
-//     fn pop_until<F>(&mut self, f: F)
-//     where
-//         F: FnMut(&T) -> bool;
-//     fn pop_check<F>(&mut self, f: F) -> bool
-//     where
-//         F: FnMut(&T) -> bool;
-// }
-//
-// impl VecExtensions<NodeId> for Vec<NodeId> {
-//     fn pop_until<F>(&mut self, mut f: F)
-//     where
-//         F: FnMut(&NodeId) -> bool,
-//     {
-//         while let Some(top) = self.last() {
-//             if f(top) {
-//                 break;
-//             }
-//             self.pop();
-//         }
-//     }
-//
-//     fn pop_check<F>(&mut self, mut f: F) -> bool
-//     where
-//         F: FnMut(&NodeId) -> bool,
-//     {
-//         match self.pop() {
-//             Some(popped_value) => f(&popped_value),
-//             None => false,
-//         }
-//     }
-// }
-//TODO: are these still needed?
 
 macro_rules! get_node_by_id {
     ($doc_handle:expr, $id:expr) => {
@@ -254,7 +219,7 @@ impl<'chars> Html5Parser<'chars> {
             original_insertion_mode: InsertionMode::Initial,
             template_insertion_mode: vec![],
             parser_cannot_change_mode: false,
-            current_token: Token::Eof,
+            current_token: Token::Eof{loc: Location::default()},
             reprocess_token: false,
             open_elements: Vec::new(),
             head_element: None,
@@ -282,10 +247,10 @@ impl<'chars> Html5Parser<'chars> {
 
     /// Creates a new parser with a dummy document and dummy tokenizer. This is ONLY used for testing purposes.
     /// Regular users should use the parse_document() and parse_fragment() functions instead.
-    pub fn new_parser(stream: &'chars mut ByteStream) -> Self {
+    pub fn new_parser(stream: &'chars mut ByteStream, start_location: Location) -> Self {
         let doc = DocumentBuilder::new_document(None);
         let error_logger = Rc::new(RefCell::new(ErrorLogger::new()));
-        let tokenizer = Tokenizer::new(stream, None, error_logger.clone());
+        let tokenizer = Tokenizer::new(stream, None, error_logger.clone(), start_location);
 
         Self {
             tokenizer,
@@ -293,7 +258,7 @@ impl<'chars> Html5Parser<'chars> {
             original_insertion_mode: InsertionMode::Initial,
             template_insertion_mode: vec![],
             parser_cannot_change_mode: false,
-            current_token: Token::Eof,
+            current_token: Token::Eof{loc: Location::default()},
             reprocess_token: false,
             open_elements: Vec::new(),
             head_element: None,
@@ -326,6 +291,7 @@ impl<'chars> Html5Parser<'chars> {
         mut document: DocumentHandle,
         context_node: &Node,
         options: Option<Html5ParserOptions>,
+        start_location: Location,
     ) -> Result<Vec<ParseError>> {
         // https://html.spec.whatwg.org/multipage/parsing.html#parsing-html-fragments
 
@@ -341,7 +307,7 @@ impl<'chars> Html5Parser<'chars> {
         // 3.
         let error_logger = Rc::new(RefCell::new(ErrorLogger::new()));
 
-        let tokenizer = Tokenizer::new(stream, None, error_logger.clone());
+        let tokenizer = Tokenizer::new(stream, None, error_logger.clone(), start_location.clone());
         let mut parser =
             Html5Parser::init(tokenizer, Document::clone(&document), error_logger, options);
 
@@ -349,7 +315,7 @@ impl<'chars> Html5Parser<'chars> {
         parser.initialize_fragment_case(context_node);
 
         // 5. / 6.
-        // Not needed, as the document should have been created with DocumentBuilder::document_fragment(), and already got a HTML root node.
+        // Not needed, as the document should have been created with DocumentBuilder::document_fragment(), and already got an HTML root node.
 
         // 7.
         parser.open_elements.push(NodeId::root());
@@ -371,6 +337,7 @@ impl<'chars> Html5Parser<'chars> {
                     name: context_node.name.clone(),
                     is_self_closing: false,
                     attributes: node_attributes,
+                    loc: start_location.clone(),
                 }
             }
             _ => panic!("not an element"),
@@ -414,7 +381,7 @@ impl<'chars> Html5Parser<'chars> {
             Some(location) => timing_start!("html5.parse", location),
             None => timing_start!("html5.parse", "unknown"),
         };
-        let tokenizer = Tokenizer::new(stream, None, error_logger.clone());
+        let tokenizer = Tokenizer::new(stream, None, error_logger.clone(), Location::default());
         let mut parser = Html5Parser::init(tokenizer, document, error_logger, options);
 
         let ret = parser.do_parse();
@@ -467,27 +434,27 @@ impl<'chars> Html5Parser<'chars> {
         let mut handle_as_script_endtag = false;
 
         match &self.current_token.clone() {
-            Token::Text(value) if self.current_token.is_mixed() => {
+            Token::Text{text: value, ..} if self.current_token.is_mixed() => {
                 let tokens = self.split_mixed_token(value);
                 self.tokenizer.insert_tokens_at_queue_start(&tokens);
                 return;
             }
-            Token::Text(..) if self.current_token.is_null() => {
+            Token::Text{..} if self.current_token.is_null() => {
                 self.parse_error("null character not allowed in foreign content");
-                self.insert_text_element(&Token::Text(CHAR_REPLACEMENT.to_string()));
+                self.insert_text_element(&Token::Text{text: CHAR_REPLACEMENT.to_string(), loc: self.tokenizer.get_location()});
             }
-            Token::Text(..) if self.current_token.is_empty_or_white() => {
+            Token::Text{..} if self.current_token.is_empty_or_white() => {
                 self.insert_text_element(&self.current_token.clone());
             }
-            Token::Text(..) => {
+            Token::Text{..} => {
                 self.insert_text_element(&self.current_token.clone());
 
                 self.frameset_ok = false;
             }
-            Token::Comment(..) => {
+            Token::Comment{..} => {
                 self.insert_comment_element(&self.current_token.clone(), None);
             }
-            Token::DocType { .. } => {
+            Token::DocType{..} => {
                 self.parse_error("doctype not allowed in foreign content");
                 // ignore token
             }
@@ -630,7 +597,7 @@ impl<'chars> Html5Parser<'chars> {
                     break;
                 }
             }
-            Token::Eof => {
+            Token::Eof{..} => {
                 panic!("eof is not expected here");
             }
         }
@@ -657,10 +624,10 @@ impl<'chars> Html5Parser<'chars> {
     /// Process a token in HTML content
     fn process_html_content(&mut self) {
         if self.ignore_lf {
-            if let Token::Text(value) = &self.current_token {
+            if let Token::Text{text: value, ..} = &self.current_token {
                 if value.starts_with('\n') {
                     // We don't need to skip 1 char, but we can skip 1 byte, as we just checked for \n
-                    self.current_token = Token::Text(value.chars().skip(1).collect::<String>());
+                    self.current_token = Token::Text{text: value.chars().skip(1).collect::<String>(), loc: self.tokenizer.get_location()};
                 }
             }
             self.ignore_lf = false;
@@ -671,15 +638,15 @@ impl<'chars> Html5Parser<'chars> {
                 let mut anything_else = false;
 
                 match &self.current_token.clone() {
-                    Token::Text(value) if self.current_token.is_mixed() => {
+                    Token::Text{text: value, .. } if self.current_token.is_mixed() => {
                         let tokens = self.split_mixed_token(value);
                         self.tokenizer.insert_tokens_at_queue_start(&tokens);
                         return;
                     }
-                    Token::Text(..) if self.current_token.is_empty_or_white() => {
+                    Token::Text{..} if self.current_token.is_empty_or_white() => {
                         // ignore token
                     }
-                    Token::Comment(..) => {
+                    Token::Comment{..} => {
                         self.insert_comment_element(
                             &self.current_token.clone(),
                             Some(NodeId::root()),
@@ -690,6 +657,7 @@ impl<'chars> Html5Parser<'chars> {
                         pub_identifier,
                         sys_identifier,
                         force_quirks,
+                        ..
                     } => {
                         if name.is_some() && name.as_ref().unwrap() != "html"
                             || pub_identifier.is_some()
@@ -724,13 +692,13 @@ impl<'chars> Html5Parser<'chars> {
                         }
                         anything_else = true;
                     }
-                    Token::Text(..) => {
+                    Token::Text{..} => {
                         if !self.is_iframesrcdoc() {
                             self.parse_error(ParserError::ExpectedDocTypeButGotChars.as_str());
                         }
                         anything_else = true;
                     }
-                    Token::Eof => anything_else = true,
+                    Token::Eof{..} => anything_else = true,
                 }
 
                 if anything_else {
@@ -749,18 +717,18 @@ impl<'chars> Html5Parser<'chars> {
                     Token::DocType { .. } => {
                         self.parse_error("doctype not allowed in before html insertion mode");
                     }
-                    Token::Comment(..) => {
+                    Token::Comment{..} => {
                         self.insert_comment_element(
                             &self.current_token.clone(),
                             Some(NodeId::root()),
                         );
                     }
-                    Token::Text(value) if self.current_token.is_mixed() => {
+                    Token::Text{text: value, .. } if self.current_token.is_mixed() => {
                         let tokens = self.split_mixed_token(value);
                         self.tokenizer.insert_tokens_at_queue_start(&tokens);
                         return;
                     }
-                    Token::Text(..) if self.current_token.is_empty_or_white() => {
+                    Token::Text{..} if self.current_token.is_empty_or_white() => {
                         // ignore token
                     }
                     Token::StartTag { name, .. } if name == "html" => {
@@ -786,6 +754,7 @@ impl<'chars> Html5Parser<'chars> {
                         name: "html".to_string(),
                         is_self_closing: false,
                         attributes: HashMap::new(),
+                        loc: self.tokenizer.get_location(),
                     };
                     self.insert_document_element(&token);
 
@@ -797,15 +766,15 @@ impl<'chars> Html5Parser<'chars> {
                 let mut anything_else = false;
 
                 match &self.current_token {
-                    Token::Text(value) if self.current_token.is_mixed() => {
+                    Token::Text{text: value, .. } if self.current_token.is_mixed() => {
                         let tokens = self.split_mixed_token(value);
                         self.tokenizer.insert_tokens_at_queue_start(&tokens);
                         return;
                     }
-                    Token::Text(..) if self.current_token.is_empty_or_white() => {
+                    Token::Text{..} if self.current_token.is_empty_or_white() => {
                         // ignore token
                     }
-                    Token::Comment(..) => {
+                    Token::Comment{..} => {
                         self.insert_comment_element(&self.current_token.clone(), None);
                     }
                     Token::DocType { .. } => {
@@ -838,6 +807,7 @@ impl<'chars> Html5Parser<'chars> {
                         name: "head".to_string(),
                         is_self_closing: false,
                         attributes: HashMap::new(),
+                        loc: self.tokenizer.get_location(),
                     };
                     let node_id = self.insert_html_element(&token);
                     self.head_element = Some(node_id);
@@ -863,15 +833,15 @@ impl<'chars> Html5Parser<'chars> {
                         self.check_last_element("head");
                         self.insertion_mode = InsertionMode::InHead;
                     }
-                    Token::Text(value) if self.current_token.is_mixed() => {
+                    Token::Text{text: value, .. } if self.current_token.is_mixed() => {
                         let tokens = self.split_mixed_token(value);
                         self.tokenizer.insert_tokens_at_queue_start(&tokens);
                         return;
                     }
-                    Token::Text(..) if self.current_token.is_empty_or_white() => {
+                    Token::Text{..} if self.current_token.is_empty_or_white() => {
                         self.handle_in_head();
                     }
-                    Token::Comment(..) => {
+                    Token::Comment{..} => {
                         self.handle_in_head();
                     }
                     Token::StartTag { name, .. }
@@ -915,15 +885,15 @@ impl<'chars> Html5Parser<'chars> {
                 let mut anything_else = false;
 
                 match &self.current_token {
-                    Token::Text(value) if self.current_token.is_mixed() => {
+                    Token::Text{text: value, .. } if self.current_token.is_mixed() => {
                         let tokens = self.split_mixed_token(value);
                         self.tokenizer.insert_tokens_at_queue_start(&tokens);
                         return;
                     }
-                    Token::Text(..) if self.current_token.is_empty_or_white() => {
+                    Token::Text{..} if self.current_token.is_empty_or_white() => {
                         self.insert_text_element(&self.current_token.clone());
                     }
-                    Token::Comment(..) => {
+                    Token::Comment{..} => {
                         self.insert_comment_element(&self.current_token.clone(), None);
                     }
                     Token::DocType { .. } => {
@@ -995,6 +965,7 @@ impl<'chars> Html5Parser<'chars> {
                         name: "body".to_string(),
                         is_self_closing: false,
                         attributes: HashMap::new(),
+                        loc: self.tokenizer.get_location(),
                     };
                     self.insert_html_element(&token);
 
@@ -1005,10 +976,10 @@ impl<'chars> Html5Parser<'chars> {
             InsertionMode::InBody => self.handle_in_body(),
             InsertionMode::Text => {
                 match &self.current_token {
-                    Token::Text(..) => {
+                    Token::Text{..} => {
                         self.insert_text_element(&self.current_token.clone());
                     }
-                    Token::Eof => {
+                    Token::Eof{..} => {
                         self.parse_error("eof not allowed in text insertion mode");
 
                         if current_node!(self).name == "script" {
@@ -1077,17 +1048,17 @@ impl<'chars> Html5Parser<'chars> {
             InsertionMode::InTable => self.handle_in_table(),
             InsertionMode::InTableText => {
                 match &self.current_token {
-                    Token::Text(value) if self.current_token.is_mixed() => {
+                    Token::Text{text: value, .. } if self.current_token.is_mixed() => {
                         let tokens = self.split_mixed_token(value);
                         self.tokenizer.insert_tokens_at_queue_start(&tokens);
                     }
-                    Token::Text(..) if self.current_token.is_null() => {
+                    Token::Text{..} if self.current_token.is_null() => {
                         self.parse_error(
                             "null character not allowed in in table text insertion mode",
                         );
                         // ignore token
                     }
-                    Token::Text(value) => {
+                    Token::Text{text: value, .. } => {
                         self.pending_table_character_tokens.push_str(value);
                     }
                     _ => {
@@ -1118,7 +1089,7 @@ impl<'chars> Html5Parser<'chars> {
                             self.foster_parenting = false;
                             self.current_token = tmp;
                         } else {
-                            self.insert_text_element(&Token::Text(pending_chars));
+                            self.insert_text_element(&Token::Text{text: pending_chars, loc: self.tokenizer.get_location()});
                         }
 
                         self.pending_table_character_tokens.clear();
@@ -1192,14 +1163,14 @@ impl<'chars> Html5Parser<'chars> {
             }
             InsertionMode::InColumnGroup => {
                 match &self.current_token {
-                    Token::Text(value) if self.current_token.is_mixed() => {
+                    Token::Text{text: value, .. } if self.current_token.is_mixed() => {
                         let tokens = self.split_mixed_token(value);
                         self.tokenizer.insert_tokens_at_queue_start(&tokens);
                     }
-                    Token::Text(..) if self.current_token.is_empty_or_white() => {
+                    Token::Text{..} if self.current_token.is_empty_or_white() => {
                         self.insert_text_element(&self.current_token.clone());
                     }
-                    Token::Comment(..) => {
+                    Token::Comment{..} => {
                         self.insert_comment_element(&self.current_token.clone(), None);
                     }
                     Token::DocType { .. } => {
@@ -1225,7 +1196,7 @@ impl<'chars> Html5Parser<'chars> {
                     Token::EndTag { name, .. } if name == "template" => {
                         self.handle_in_head();
                     }
-                    Token::Eof => {
+                    Token::Eof{..} => {
                         self.handle_in_body();
                     }
                     Token::EndTag { name, .. } if name == "colgroup" => {
@@ -1275,6 +1246,7 @@ impl<'chars> Html5Parser<'chars> {
                             name: "tr".to_string(),
                             is_self_closing: false,
                             attributes: HashMap::new(),
+                            loc: self.tokenizer.get_location(),
                         };
                         self.insert_html_element(&token);
 
@@ -1549,14 +1521,14 @@ impl<'chars> Html5Parser<'chars> {
             InsertionMode::InTemplate => self.handle_in_template(),
             InsertionMode::AfterBody => {
                 match &self.current_token {
-                    Token::Text(value) if self.current_token.is_mixed() => {
+                    Token::Text{text: value, .. } if self.current_token.is_mixed() => {
                         let tokens = self.split_mixed_token(value);
                         self.tokenizer.insert_tokens_at_queue_start(&tokens);
                     }
-                    Token::Text(..) if self.current_token.is_empty_or_white() => {
+                    Token::Text{..} if self.current_token.is_empty_or_white() => {
                         self.handle_in_body();
                     }
-                    Token::Comment(..) => {
+                    Token::Comment{..} => {
                         let html_node_id = self.open_elements.first().unwrap_or_default();
                         self.insert_comment_element(
                             &self.current_token.clone(),
@@ -1581,7 +1553,7 @@ impl<'chars> Html5Parser<'chars> {
                         }
                         self.insertion_mode = InsertionMode::AfterAfterBody;
                     }
-                    Token::Eof => {
+                    Token::Eof{..} => {
                         self.stop_parsing();
                     }
                     _ => {
@@ -1593,14 +1565,14 @@ impl<'chars> Html5Parser<'chars> {
             }
             InsertionMode::InFrameset => {
                 match &self.current_token {
-                    Token::Text(value) if self.current_token.is_mixed() => {
+                    Token::Text{text: value, .. } if self.current_token.is_mixed() => {
                         let tokens = self.split_mixed_token(value);
                         self.tokenizer.insert_tokens_at_queue_start(&tokens);
                     }
-                    Token::Text(..) if self.current_token.is_empty_or_white() => {
+                    Token::Text{..} if self.current_token.is_empty_or_white() => {
                         self.insert_text_element(&self.current_token.clone());
                     }
-                    Token::Comment(..) => {
+                    Token::Comment{..} => {
                         self.insert_comment_element(&self.current_token.clone(), None);
                     }
                     Token::DocType { .. } => {
@@ -1641,7 +1613,7 @@ impl<'chars> Html5Parser<'chars> {
                     Token::StartTag { name, .. } if name == "noframes" => {
                         self.handle_in_head();
                     }
-                    Token::Eof => {
+                    Token::Eof{..} => {
                         if current_node!(self).name != "html" {
                             self.parse_error("eof not allowed in frameset insertion mode");
                         }
@@ -1655,14 +1627,14 @@ impl<'chars> Html5Parser<'chars> {
             }
             InsertionMode::AfterFrameset => {
                 match &self.current_token {
-                    Token::Text(value) if self.current_token.is_mixed() => {
+                    Token::Text{text: value, .. } if self.current_token.is_mixed() => {
                         let tokens = self.split_mixed_token(value);
                         self.tokenizer.insert_tokens_at_queue_start(&tokens);
                     }
-                    Token::Text(..) if self.current_token.is_empty_or_white() => {
+                    Token::Text{..} if self.current_token.is_empty_or_white() => {
                         self.insert_text_element(&self.current_token.clone());
                     }
-                    Token::Comment(..) => {
+                    Token::Comment{..} => {
                         self.insert_comment_element(&self.current_token.clone(), None);
                     }
                     Token::DocType { .. } => {
@@ -1678,7 +1650,7 @@ impl<'chars> Html5Parser<'chars> {
                     Token::StartTag { name, .. } if name == "noframes" => {
                         self.handle_in_head();
                     }
-                    Token::Eof => {
+                    Token::Eof{..} => {
                         self.stop_parsing();
                     }
                     _ => {
@@ -1690,23 +1662,23 @@ impl<'chars> Html5Parser<'chars> {
                 }
             }
             InsertionMode::AfterAfterBody => match &self.current_token {
-                Token::Comment(..) => {
+                Token::Comment{..} => {
                     self.insert_comment_element(&self.current_token.clone(), Some(NodeId::root()));
                 }
                 Token::DocType { .. } => {
                     self.handle_in_body();
                 }
-                Token::Text(value) if self.current_token.is_mixed() => {
+                Token::Text{text: value, .. } if self.current_token.is_mixed() => {
                     let tokens = self.split_mixed_token(value);
                     self.tokenizer.insert_tokens_at_queue_start(&tokens);
                 }
-                Token::Text(..) if self.current_token.is_empty_or_white() => {
+                Token::Text{..} if self.current_token.is_empty_or_white() => {
                     self.handle_in_body();
                 }
                 Token::StartTag { name, .. } if name == "html" => {
                     self.handle_in_body();
                 }
-                Token::Eof => {
+                Token::Eof{..} => {
                     self.stop_parsing();
                 }
                 _ => {
@@ -1719,7 +1691,7 @@ impl<'chars> Html5Parser<'chars> {
             },
             InsertionMode::AfterAfterFrameset => {
                 match &self.current_token {
-                    Token::Comment(..) => {
+                    Token::Comment{..} => {
                         self.insert_comment_element(
                             &self.current_token.clone(),
                             Some(NodeId::root()),
@@ -1728,17 +1700,17 @@ impl<'chars> Html5Parser<'chars> {
                     Token::DocType { .. } => {
                         self.handle_in_body();
                     }
-                    Token::Text(value) if self.current_token.is_mixed() => {
+                    Token::Text{text: value, .. } if self.current_token.is_mixed() => {
                         let tokens = self.split_mixed_token(value);
                         self.tokenizer.insert_tokens_at_queue_start(&tokens);
                     }
-                    Token::Text(..) if self.current_token.is_empty_or_white() => {
+                    Token::Text{..} if self.current_token.is_empty_or_white() => {
                         self.handle_in_body();
                     }
                     Token::StartTag { name, .. } if name == "html" => {
                         self.handle_in_body();
                     }
-                    Token::Eof => {
+                    Token::Eof{..} => {
                         self.stop_parsing();
                     }
                     Token::StartTag { name, .. } if name == "noframes" => {
@@ -1849,7 +1821,7 @@ impl<'chars> Html5Parser<'chars> {
         );
     }
 
-    /// Returns true when the open elements has $name
+    /// Returns true when the open elements have $name
     fn open_elements_has(&self, name: &str) -> bool {
         self.open_elements.iter().rev().any(|node_id| {
             self.document
@@ -1893,9 +1865,9 @@ impl<'chars> Html5Parser<'chars> {
             Token::EndTag { name, .. } => {
                 Node::new_element(&self.document, name, HashMap::new(), namespace)
             }
-            Token::Comment(value) => Node::new_comment(&self.document, value),
-            Token::Text(value) => Node::new_text(&self.document, value.to_string().as_str()),
-            Token::Eof => {
+            Token::Comment{comment: value, ..} => Node::new_comment(&self.document, value),
+            Token::Text{text: value, .. } => Node::new_text(&self.document, value.to_string().as_str()),
+            Token::Eof{..} => {
                 panic!("EOF token not allowed");
             }
         }
@@ -2174,15 +2146,15 @@ impl<'chars> Html5Parser<'chars> {
     /// Handle insertion mode "in_body"
     fn handle_in_body(&mut self) {
         match &self.current_token.clone() {
-            Token::Text(value) if self.current_token.is_mixed_null() => {
+            Token::Text{text: value, .. } if self.current_token.is_mixed_null() => {
                 let tokens = self.split_mixed_token_null(value);
                 self.tokenizer.insert_tokens_at_queue_start(&tokens);
             }
-            Token::Text(..) if self.current_token.is_null() => {
+            Token::Text{..} if self.current_token.is_null() => {
                 self.parse_error("null character not allowed in in body insertion mode");
                 // ignore token
             }
-            Token::Text(..) => {
+            Token::Text{..} => {
                 self.reconstruct_formatting();
 
                 self.insert_text_element(&self.current_token.clone());
@@ -2192,14 +2164,14 @@ impl<'chars> Html5Parser<'chars> {
                     self.frameset_ok = false;
                 }
             }
-            Token::Comment(..) => {
+            Token::Comment{..} => {
                 self.insert_comment_element(&self.current_token.clone(), None);
             }
-            Token::DocType { .. } => {
+            Token::DocType{..} => {
                 self.parse_error("doctype not allowed in in body insertion mode");
                 // ignore token
             }
-            Token::StartTag {
+            Token::StartTag{
                 name, attributes, ..
             } if name == "html" => {
                 self.parse_error("html tag not allowed in in body insertion mode");
@@ -2307,7 +2279,7 @@ impl<'chars> Html5Parser<'chars> {
 
                 self.insertion_mode = InsertionMode::InFrameset;
             }
-            Token::Eof => {
+            Token::Eof{..} => {
                 if self.template_insertion_mode.is_empty() {
                     // @TODO: do stuff
                     self.stop_parsing();
@@ -2595,6 +2567,7 @@ impl<'chars> Html5Parser<'chars> {
                         name: "p".to_string(),
                         is_self_closing: false,
                         attributes: HashMap::new(),
+                        loc: self.tokenizer.get_location(),
                     };
                     self.insert_html_element(&token);
                 }
@@ -2810,6 +2783,7 @@ impl<'chars> Html5Parser<'chars> {
                 name,
                 is_self_closing,
                 attributes,
+                ..
             } if name == "input" => {
                 self.reconstruct_formatting();
 
@@ -2853,12 +2827,14 @@ impl<'chars> Html5Parser<'chars> {
                 name,
                 is_self_closing,
                 attributes,
+                ..
             } if name == "image" => {
                 self.parse_error("image tag not allowed");
                 self.current_token = Token::StartTag {
                     name: "img".to_string(),
                     attributes: attributes.clone(),
                     is_self_closing: *is_self_closing,
+                    loc: self.tokenizer.get_location(),
                 };
                 self.reprocess_token = true;
             }
@@ -2944,6 +2920,7 @@ impl<'chars> Html5Parser<'chars> {
                 name,
                 is_self_closing,
                 attributes,
+                ..
             } if name == "math" => {
                 self.reconstruct_formatting();
 
@@ -2951,6 +2928,7 @@ impl<'chars> Html5Parser<'chars> {
                     name: name.clone(),
                     attributes: attributes.clone(),
                     is_self_closing: *is_self_closing,
+                    loc: self.tokenizer.get_location(),
                 };
                 self.adjust_mathml_attributes(&mut token);
                 self.adjust_foreign_attributes(&mut token);
@@ -2966,6 +2944,7 @@ impl<'chars> Html5Parser<'chars> {
                 name,
                 is_self_closing,
                 attributes,
+                ..
             } if name == "svg" => {
                 self.reconstruct_formatting();
 
@@ -2973,6 +2952,7 @@ impl<'chars> Html5Parser<'chars> {
                     name: name.clone(),
                     attributes: attributes.clone(),
                     is_self_closing: *is_self_closing,
+                    loc: self.tokenizer.get_location(),
                 };
 
                 self.adjust_svg_attributes(&mut token);
@@ -3017,15 +2997,15 @@ impl<'chars> Html5Parser<'chars> {
         let token = self.current_token.clone();
 
         match &token {
-            Token::Text(value) if token.is_mixed() => {
+            Token::Text{text: value, .. } if token.is_mixed() => {
                 let tokens = self.split_mixed_token(value);
                 self.tokenizer.insert_tokens_at_queue_start(&tokens);
                 return;
             }
-            Token::Text(..) if token.is_empty_or_white() => {
+            Token::Text{..} if token.is_empty_or_white() => {
                 self.insert_text_element(&token.clone());
             }
-            Token::Comment(..) => {
+            Token::Comment{..} => {
                 self.insert_comment_element(&token.clone(), None);
             }
             Token::DocType { .. } => {
@@ -3039,6 +3019,7 @@ impl<'chars> Html5Parser<'chars> {
                 name,
                 is_self_closing,
                 attributes,
+                ..
             } if name == "base" || name == "basefont" || name == "bgsound" || name == "link" => {
                 if name == "link" {
                     // Handle link elements, as it depends on rel/itemprop attributes and other factors
@@ -3180,7 +3161,7 @@ impl<'chars> Html5Parser<'chars> {
     /// Handle insertion mode "in_template"
     fn handle_in_template(&mut self) {
         match &self.current_token {
-            Token::Text(..) | Token::Comment(..) | Token::DocType { .. } => {
+            Token::Text{..} | Token::Comment{..} | Token::DocType { .. } => {
                 self.handle_in_body();
             }
             Token::StartTag { name, .. }
@@ -3243,7 +3224,7 @@ impl<'chars> Html5Parser<'chars> {
                 self.parse_error("end tag not allowed in in template insertion mode");
                 // ignore token
             }
-            Token::Eof => {
+            Token::Eof{..} => {
                 if !self.open_elements_has("template") {
                     // fragment case
                     self.stop_parsing();
@@ -3266,7 +3247,7 @@ impl<'chars> Html5Parser<'chars> {
         let mut anything_else = false;
 
         match &self.current_token {
-            Token::Text(..)
+            Token::Text{..}
                 if ["table", "tbody", "template", "tfoot", "tr"]
                     .iter()
                     .any(|&node| node == current_node!(self).name) =>
@@ -3276,7 +3257,7 @@ impl<'chars> Html5Parser<'chars> {
                 self.insertion_mode = InsertionMode::InTableText;
                 self.reprocess_token = true;
             }
-            Token::Comment(..) => {
+            Token::Comment{..} => {
                 self.insert_comment_element(&self.current_token.clone(), None);
             }
             Token::DocType { .. } => {
@@ -3301,6 +3282,7 @@ impl<'chars> Html5Parser<'chars> {
                     name: "colgroup".to_string(),
                     is_self_closing: false,
                     attributes: HashMap::new(),
+                    loc: self.tokenizer.get_location(),
                 };
                 self.insert_html_element(&token);
 
@@ -3323,6 +3305,7 @@ impl<'chars> Html5Parser<'chars> {
                     name: "tbody".to_string(),
                     is_self_closing: false,
                     attributes: HashMap::new(),
+                    loc: self.tokenizer.get_location(),
                 };
                 self.insert_html_element(&token);
 
@@ -3380,6 +3363,7 @@ impl<'chars> Html5Parser<'chars> {
                 name,
                 is_self_closing,
                 attributes,
+                ..
             } if name == "input" => {
                 if !attributes.contains_key("type")
                     || attributes.get("type").unwrap().to_lowercase() != *"hidden"
@@ -3407,7 +3391,7 @@ impl<'chars> Html5Parser<'chars> {
 
                 self.pop_check("form");
             }
-            Token::Eof => {
+            Token::Eof{..} => {
                 self.handle_in_body();
             }
             _ => anything_else = true,
@@ -3425,18 +3409,18 @@ impl<'chars> Html5Parser<'chars> {
     /// Handle insertion mode "in_select"
     fn handle_in_select(&mut self) {
         match &self.current_token {
-            Token::Text(value) if self.current_token.is_mixed() => {
+            Token::Text{text: value, .. } if self.current_token.is_mixed() => {
                 let tokens = self.split_mixed_token(value);
                 self.tokenizer.insert_tokens_at_queue_start(&tokens);
             }
-            Token::Text(..) if self.current_token.is_null() => {
+            Token::Text{..} if self.current_token.is_null() => {
                 self.parse_error("null character not allowed in in select insertion mode");
                 // ignore token
             }
-            Token::Text(..) => {
+            Token::Text{..} => {
                 self.insert_text_element(&self.current_token.clone());
             }
-            Token::Comment(..) => {
+            Token::Comment{..} => {
                 self.insert_comment_element(&self.current_token.clone(), None);
             }
             Token::DocType { .. } => {
@@ -3552,7 +3536,7 @@ impl<'chars> Html5Parser<'chars> {
             Token::EndTag { name, .. } if name == "template" => {
                 self.handle_in_head();
             }
-            Token::Eof => {
+            Token::Eof{..} => {
                 self.handle_in_body();
             }
             _ => {
@@ -3898,8 +3882,8 @@ impl<'chars> Html5Parser<'chars> {
                 .next_token(self.parser_data())
                 .expect("tokenizer error");
 
-            if let Token::Text(value) = token {
-                self.token_queue.push(Token::Text(value));
+            if let Token::Text{text: value, .. } = token {
+                self.token_queue.push(Token::Text{text: value, loc: self.tokenizer.get_location() });
                 // for c in value.chars() {
                 //     self.token_queue.push(Token::Text(c.to_string()));
                 // }
@@ -4031,7 +4015,7 @@ impl<'chars> Html5Parser<'chars> {
 
     /// Splits a regular text token with mixed characters into tokens of 3 groups:
     /// null-characters, (ascii) whitespaces, and regular (rest) characters.
-    /// These tokens are then inserted into the token buffer queue so they can get parsed
+    /// These tokens are then inserted into the token buffer queue, so they can get parsed
     /// correctly.
     ///
     /// example:
@@ -4047,7 +4031,7 @@ impl<'chars> Html5Parser<'chars> {
     ///   Token::Text("\0")  // null
     ///   Token::Text("  ")  // whitespace
     ///
-    /// This is needed because the tokenizer does not know about the context of the text it is
+    /// This is needed because the tokenizer does not know about the context of the text it is,
     /// so it will always try to tokenize as greedy as possible. But sometimes we need this split
     /// to happen where a differentation between whitespaces, null and regular characters are needed.
     /// Only in those cases, this function is called, and the token will be split into multiple
@@ -4071,7 +4055,7 @@ impl<'chars> Html5Parser<'chars> {
             };
 
             if last_group != group && !found.is_empty() {
-                tokens.push(Token::Text(found.clone()));
+                tokens.push(Token::Text{text: found.clone(), loc: self.tokenizer.get_location()});
                 found.clear();
             }
 
@@ -4080,7 +4064,7 @@ impl<'chars> Html5Parser<'chars> {
         }
 
         if !found.is_empty() {
-            tokens.push(Token::Text(found.clone()));
+            tokens.push(Token::Text{text: found.clone(), loc: self.tokenizer.get_location()});
         }
 
         tokens
@@ -4098,7 +4082,7 @@ impl<'chars> Html5Parser<'chars> {
             let group = if ch == '\0' { '0' } else { 'r' };
 
             if last_group != group && !found.is_empty() {
-                tokens.push(Token::Text(found.clone()));
+                tokens.push(Token::Text{text: found.clone(), loc: self.tokenizer.get_location()});
                 found.clear();
             }
 
@@ -4107,7 +4091,7 @@ impl<'chars> Html5Parser<'chars> {
         }
 
         if !found.is_empty() {
-            tokens.push(Token::Text(found.clone()));
+            tokens.push(Token::Text{text: found.clone(), loc: self.tokenizer.get_location()});
         }
 
         tokens
@@ -4320,7 +4304,7 @@ mod test {
     #[test]
     fn is_in_scope() {
         let stream = &mut ByteStream::new(None);
-        let mut parser = Html5Parser::new_parser(stream);
+        let mut parser = Html5Parser::new_parser(stream, Location::default());
 
         node_create!(parser, "html");
         node_create!(parser, "div");
@@ -4335,7 +4319,7 @@ mod test {
     #[test]
     fn is_in_scope_empty_stack() {
         let stream = &mut ByteStream::new(None);
-        let mut parser = Html5Parser::new_parser(stream);
+        let mut parser = Html5Parser::new_parser(stream, Location::default());
 
         parser.open_elements.clear();
         assert!(!parser.is_in_scope("p", HTML_NAMESPACE, Scope::Regular));
@@ -4347,7 +4331,7 @@ mod test {
     #[test]
     fn is_in_scope_non_existing_node() {
         let stream = &mut ByteStream::new(None);
-        let mut parser = Html5Parser::new_parser(stream);
+        let mut parser = Html5Parser::new_parser(stream, Location::default());
 
         node_create!(parser, "html");
         node_create!(parser, "div");
@@ -4363,7 +4347,7 @@ mod test {
     #[test]
     fn is_in_scope_1() {
         let stream = &mut ByteStream::new(None);
-        let mut parser = Html5Parser::new_parser(stream);
+        let mut parser = Html5Parser::new_parser(stream, Location::default());
 
         node_create!(parser, "html");
         node_create!(parser, "div");
@@ -4401,7 +4385,7 @@ mod test {
     #[test]
     fn is_in_scope_2() {
         let stream = &mut ByteStream::new(None);
-        let mut parser = Html5Parser::new_parser(stream);
+        let mut parser = Html5Parser::new_parser(stream, Location::default());
 
         node_create!(parser, "html");
         node_create!(parser, "body");
@@ -4420,7 +4404,7 @@ mod test {
     #[test]
     fn is_in_scope_3() {
         let stream = &mut ByteStream::new(None);
-        let mut parser = Html5Parser::new_parser(stream);
+        let mut parser = Html5Parser::new_parser(stream, Location::default());
 
         node_create!(parser, "html");
         node_create!(parser, "body");
@@ -4439,7 +4423,7 @@ mod test {
     #[test]
     fn is_in_scope_4() {
         let stream = &mut ByteStream::new(None);
-        let mut parser = Html5Parser::new_parser(stream);
+        let mut parser = Html5Parser::new_parser(stream, Location::default());
 
         node_create!(parser, "html");
         node_create!(parser, "body");
@@ -4460,7 +4444,7 @@ mod test {
     #[test]
     fn is_in_scope_5() {
         let stream = &mut ByteStream::new(None);
-        let mut parser = Html5Parser::new_parser(stream);
+        let mut parser = Html5Parser::new_parser(stream, Location::default());
 
         node_create!(parser, "html");
         node_create!(parser, "body");
@@ -4480,7 +4464,7 @@ mod test {
     #[test]
     fn is_in_scope_6() {
         let stream = &mut ByteStream::new(None);
-        let mut parser = Html5Parser::new_parser(stream);
+        let mut parser = Html5Parser::new_parser(stream, Location::default());
 
         node_create!(parser, "html");
         node_create!(parser, "body");
@@ -4500,7 +4484,7 @@ mod test {
     #[test]
     fn is_in_scope_7() {
         let stream = &mut ByteStream::new(None);
-        let mut parser = Html5Parser::new_parser(stream);
+        let mut parser = Html5Parser::new_parser(stream, Location::default());
 
         node_create!(parser, "html");
         node_create!(parser, "body");
@@ -4519,7 +4503,7 @@ mod test {
     #[test]
     fn is_in_scope_8() {
         let stream = &mut ByteStream::new(None);
-        let mut parser = Html5Parser::new_parser(stream);
+        let mut parser = Html5Parser::new_parser(stream, Location::default());
 
         node_create!(parser, "html");
         node_create!(parser, "body");

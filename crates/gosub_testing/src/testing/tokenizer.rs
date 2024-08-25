@@ -8,7 +8,7 @@ use gosub_html5::{
         {Options, Tokenizer},
     },
 };
-use gosub_shared::byte_stream::ByteStream;
+use gosub_shared::byte_stream::{ByteStream, Location};
 use gosub_shared::types::Result;
 use lazy_static::lazy_static;
 use regex::{Captures, Regex};
@@ -39,6 +39,7 @@ impl TokenizerBuilder {
                 last_start_tag: self.last_start_tag.clone().unwrap_or_default(),
             }),
             error_logger.clone(),
+            Location::default(),
         )
     }
 }
@@ -118,11 +119,12 @@ where
 
         let token = match values.len() {
             2 => match kind {
-                "Character" => Token::Text(values[1].as_str().unwrap().to_owned()),
-                "Comment" => Token::Comment(values[1].as_str().unwrap().to_owned()),
+                "Character" => Token::Text{text: values[1].as_str().unwrap().to_owned(), loc: Location::default()},
+                "Comment" => Token::Comment{comment: values[1].as_str().unwrap().to_owned(), loc: Location::default()},
                 "EndTag" => Token::EndTag {
                     name: values[1].as_str().unwrap().to_owned(),
                     is_self_closing: false,
+                    loc: Location::default(),
                 },
                 _ => {
                     return Err(D::Error::invalid_value(
@@ -137,6 +139,7 @@ where
                     name: values[1].as_str().unwrap().to_owned(),
                     attributes: attributes(&values[2]),
                     is_self_closing: false,
+                    loc: Location::default(),
                 },
                 _ => return Err(D::Error::invalid_value(Unexpected::Str(kind), &"StartTag")),
             },
@@ -146,6 +149,7 @@ where
                     name: values[1].as_str().unwrap().to_owned(),
                     attributes: attributes(&values[2]),
                     is_self_closing: values[3].as_bool().unwrap_or_default(),
+                    loc: Location::default(),
                 },
                 _ => return Err(D::Error::invalid_value(Unexpected::Str(kind), &"StartTag")),
             },
@@ -156,6 +160,7 @@ where
                     pub_identifier: values[2].as_str().map(str::to_owned),
                     sys_identifier: values[3].as_str().map(str::to_owned),
                     force_quirks: !values[4].as_bool().unwrap_or_default(),
+                    loc: Location::default(),
                 },
                 _ => return Err(D::Error::invalid_value(Unexpected::Str(kind), &"DOCTYPE")),
             },
@@ -287,41 +292,50 @@ impl TestSpec {
         }
 
         match token {
-            Token::Comment(value) => Token::Comment(escape(value)),
+            Token::Comment{comment: value, loc} => Token::Comment{
+                comment: escape(value), 
+                loc: loc.clone(),
+            },
 
             Token::DocType {
                 name,
                 force_quirks,
                 pub_identifier,
                 sys_identifier,
+                loc
             } => Token::DocType {
                 name: name.as_ref().map(|name| escape(name)),
                 force_quirks: *force_quirks,
                 pub_identifier: pub_identifier.as_ref().map(Into::into),
                 sys_identifier: sys_identifier.as_ref().map(Into::into),
+                loc: loc.clone(),
             },
 
             Token::EndTag {
                 name,
                 is_self_closing,
+                loc,
             } => Token::EndTag {
                 name: escape(name),
                 is_self_closing: *is_self_closing,
+                loc: loc.clone(),
             },
 
-            Token::Eof => Token::Eof,
+            Token::Eof{loc} => Token::Eof{loc: loc.clone()},
 
             Token::StartTag {
                 name,
                 is_self_closing,
                 attributes,
+                loc
             } => Token::StartTag {
                 name: escape(name),
                 is_self_closing: *is_self_closing,
                 attributes: attributes.clone(),
+                loc: loc.clone(),
             },
 
-            Token::Text(value) => Token::Text(escape(value)),
+            Token::Text{text: value, loc} => Token::Text{text: escape(value), loc: loc.clone()},
         }
     }
 }

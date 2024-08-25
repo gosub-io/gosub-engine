@@ -107,16 +107,17 @@ macro_rules! to_lowercase {
 }
 
 impl<'stream> Tokenizer<'stream> {
-    /// Creates a new tokenizer with the given inputstream and additional options if any
+    /// Creates a new tokenizer with the given input stream and additional options if any
     #[must_use]
     pub fn new(
         stream: &'stream mut ByteStream,
         opts: Option<Options>,
         error_logger: Rc<RefCell<ErrorLogger>>,
+        start_location: Location
     ) -> Self {
-        return Self {
+        Self {
             stream,
-            location_handler: LocationHandler::new(Location::default()),
+            location_handler: LocationHandler::new(start_location),
             state: opts.as_ref().map_or(State::Data, |o| o.initial_state),
             last_start_token: opts.map_or(String::new(), |o| o.last_start_tag),
             consumed: String::new(),
@@ -128,7 +129,7 @@ impl<'stream> Tokenizer<'stream> {
             temporary_buffer: String::new(),
             last_char: StreamEnd,
             error_logger,
-        };
+        }
     }
 
     /// Returns the current location in the stream (with line/col number and byte offset)
@@ -142,7 +143,7 @@ impl<'stream> Tokenizer<'stream> {
         self.consume_stream(parser_data)?;
 
         if self.token_queue.is_empty() {
-            return Ok(Token::Eof);
+            return Ok(Token::Eof{loc: self.get_location()});
         }
 
         Ok(self.token_queue.remove(0))
@@ -177,7 +178,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.consume(c.into());
                             self.parse_error(ParserError::UnexpectedNullCharacter, loc);
                         }
-                        StreamEnd => self.emit_token(Token::Eof),
+                        StreamEnd => self.emit_token(Token::Eof{loc: self.get_location()}),
                         _ => self.consume(c.into()),
                     }
                 }
@@ -191,7 +192,7 @@ impl<'stream> Tokenizer<'stream> {
                     match c {
                         Ch('&') => self.state = State::CharacterReferenceInRcData,
                         Ch('<') => self.state = State::RCDATALessThanSign,
-                        StreamEnd => self.emit_token(Token::Eof),
+                        StreamEnd => self.emit_token(Token::Eof{loc: self.get_location()}),
                         Ch(CHAR_NUL) => {
                             self.consume(CHAR_REPLACEMENT);
                             self.parse_error(ParserError::UnexpectedNullCharacter, loc);
@@ -213,7 +214,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.consume(CHAR_REPLACEMENT);
                             self.parse_error(ParserError::UnexpectedNullCharacter, loc);
                         }
-                        StreamEnd => self.emit_token(Token::Eof),
+                        StreamEnd => self.emit_token(Token::Eof{loc: self.get_location()}),
                         _ => self.consume(c.into()),
                     }
                 }
@@ -226,7 +227,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.parse_error(ParserError::UnexpectedNullCharacter, loc);
                             self.consume(CHAR_REPLACEMENT);
                         }
-                        StreamEnd => self.emit_token(Token::Eof),
+                        StreamEnd => self.emit_token(Token::Eof{loc: self.get_location()}),
                         _ => self.consume(c.into()),
                     }
                 }
@@ -238,7 +239,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.parse_error(ParserError::UnexpectedNullCharacter, loc);
                             self.consume(CHAR_REPLACEMENT);
                         }
-                        StreamEnd => self.emit_token(Token::Eof),
+                        StreamEnd => self.emit_token(Token::Eof{loc: self.get_location()}),
                         _ => self.consume(c.into()),
                     }
                 }
@@ -253,12 +254,13 @@ impl<'stream> Tokenizer<'stream> {
                                 name: String::new(),
                                 is_self_closing: false,
                                 attributes: HashMap::new(),
+                                loc: self.get_location(),
                             });
                             self.stream_prev();
                             self.state = State::TagName;
                         }
                         Ch('?') => {
-                            self.current_token = Some(Token::Comment(String::new()));
+                            self.current_token = Some(Token::Comment{comment: String::new(), loc: self.get_location()});
                             self.parse_error(
                                 ParserError::UnexpectedQuestionMarkInsteadOfTagName,
                                 loc,
@@ -287,6 +289,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.current_token = Some(Token::EndTag {
                                 name: String::new(),
                                 is_self_closing: false,
+                                loc: self.get_location(),
                             });
                             self.stream_prev();
                             self.state = State::TagName;
@@ -303,7 +306,7 @@ impl<'stream> Tokenizer<'stream> {
                         }
                         _ => {
                             self.parse_error(ParserError::InvalidFirstCharacterOfTagName, loc);
-                            self.current_token = Some(Token::Comment(String::new()));
+                            self.current_token = Some(Token::Comment{comment: String::new(), loc: self.get_location()});
                             self.stream_prev();
                             self.state = State::BogusComment;
                         }
@@ -351,6 +354,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.current_token = Some(Token::EndTag {
                                 name: String::new(),
                                 is_self_closing: false,
+                                loc: self.get_location(),
                             });
                             self.stream_prev();
                             self.state = State::RCDATAEndTagName;
@@ -437,6 +441,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.current_token = Some(Token::EndTag {
                                 name: String::new(),
                                 is_self_closing: false,
+                                loc: self.get_location(),
                             });
                             self.stream_prev();
                             self.state = State::RAWTEXTEndTagName;
@@ -531,6 +536,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.current_token = Some(Token::EndTag {
                                 name: format!("{}", to_lowercase!(ch)),
                                 is_self_closing: false,
+                                loc: self.get_location(),
                             });
 
                             self.temporary_buffer.push(ch);
@@ -728,6 +734,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.current_token = Some(Token::EndTag {
                                 name: String::new(),
                                 is_self_closing: false,
+                                loc: self.get_location(),
                             });
 
                             self.stream_prev();
@@ -1199,7 +1206,7 @@ impl<'stream> Tokenizer<'stream> {
                 }
                 State::MarkupDeclarationOpen => {
                     if Character::slice_to_string(self.stream.get_slice(2)) == "--" {
-                        self.current_token = Some(Token::Comment(String::new()));
+                        self.current_token = Some(Token::Comment{comment: String::new(), loc: self.get_location()});
 
                         // Skip the two -- signs
                         self.stream_next_n(2);
@@ -1227,14 +1234,14 @@ impl<'stream> Tokenizer<'stream> {
                         }
 
                         self.parse_error(ParserError::CdataInHtmlContent, loc);
-                        self.current_token = Some(Token::Comment("[CDATA[".into()));
+                        self.current_token = Some(Token::Comment{comment: "[CDATA[".into(), loc: self.get_location()});
 
                         self.state = State::BogusComment;
                         continue;
                     }
 
                     self.parse_error(ParserError::IncorrectlyOpenedComment, self.get_location());
-                    self.current_token = Some(Token::Comment(String::new()));
+                    self.current_token = Some(Token::Comment{comment: String::new(), loc: self.get_location()});
 
                     self.state = State::BogusComment;
                 }
@@ -1446,6 +1453,7 @@ impl<'stream> Tokenizer<'stream> {
                                 force_quirks: true,
                                 pub_identifier: None,
                                 sys_identifier: None,
+                                loc: self.get_location(),
                             });
 
                             self.state = State::Data;
@@ -1470,6 +1478,7 @@ impl<'stream> Tokenizer<'stream> {
                                 force_quirks: false,
                                 pub_identifier: None,
                                 sys_identifier: None,
+                                loc: self.get_location(),
                             });
 
                             self.add_to_token_name(to_lowercase!(ch));
@@ -1482,6 +1491,7 @@ impl<'stream> Tokenizer<'stream> {
                                 force_quirks: false,
                                 pub_identifier: None,
                                 sys_identifier: None,
+                                loc: self.get_location(),
                             });
 
                             self.add_to_token_name(CHAR_REPLACEMENT);
@@ -1494,6 +1504,7 @@ impl<'stream> Tokenizer<'stream> {
                                 force_quirks: true,
                                 pub_identifier: None,
                                 sys_identifier: None,
+                                loc: self.get_location(),
                             });
 
                             self.state = State::Data;
@@ -1507,6 +1518,7 @@ impl<'stream> Tokenizer<'stream> {
                                 force_quirks: true,
                                 pub_identifier: None,
                                 sys_identifier: None,
+                                loc: self.get_location(),
                             });
 
                             self.state = State::Data;
@@ -1517,6 +1529,7 @@ impl<'stream> Tokenizer<'stream> {
                                 force_quirks: false,
                                 pub_identifier: None,
                                 sys_identifier: None,
+                                loc: self.get_location(),
                             });
 
                             self.add_to_token_name(c.into());
@@ -2052,7 +2065,7 @@ impl<'stream> Tokenizer<'stream> {
 
     /// Adds the given character to the current token's value (if applicable)
     fn add_to_token_value(&mut self, c: char) {
-        if let Some(Token::Comment(value)) = &mut self.current_token {
+        if let Some(Token::Comment{comment: value, ..}) = &mut self.current_token {
             value.push(c);
         }
     }
@@ -2128,7 +2141,7 @@ impl<'stream> Tokenizer<'stream> {
         if self.has_consumed_data() {
             let value = self.get_consumed_str().to_string();
 
-            self.token_queue.push(Token::Text(value.to_string()));
+            self.token_queue.push(Token::Text{text: value.to_string(), loc: self.get_location()});
 
             self.clear_consume_buffer();
         }
@@ -2142,7 +2155,7 @@ impl<'stream> Tokenizer<'stream> {
         self.consumed.push(c);
     }
 
-    /// Pushes a end-tag and changes to the given state
+    /// Pushes an end-tag and changes to the given state
     fn transition_to(&mut self, state: State) {
         self.consumed.push_str("</");
         self.consumed.push_str(&self.temporary_buffer);

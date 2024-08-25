@@ -10,7 +10,7 @@ use gosub_html5::parser::document::DocumentBuilder;
 use gosub_html5::parser::document::{Document, DocumentHandle};
 use gosub_html5::parser::tree_builder::TreeBuilder;
 use gosub_html5::parser::{Html5Parser, Html5ParserOptions};
-use gosub_shared::byte_stream::ByteStream;
+use gosub_shared::byte_stream::{ByteStream, Location};
 use gosub_shared::types::{ParseError, Result};
 use parser::{ScriptMode, TestSpec};
 use result::TestResult;
@@ -93,7 +93,7 @@ impl Harness {
 
         let (document, parse_errors) =
             if let Some(fragment) = self.test.spec.document_fragment.clone() {
-                self.parse_fragment(fragment, stream, options)?
+                self.parse_fragment(fragment, stream, options, Location::default())?
             } else {
                 let document = DocumentBuilder::new_document(None);
                 let parser_errors = Html5Parser::parse_document(
@@ -112,6 +112,7 @@ impl Harness {
         fragment: String,
         mut stream: ByteStream,
         options: Html5ParserOptions,
+        start_location: Location,
     ) -> Result<(DocumentHandle, Vec<ParseError>)> {
         // First, create a (fake) main document that contains only the fragment as node
         let main_document = DocumentBuilder::new_document(None);
@@ -146,6 +147,7 @@ impl Harness {
             Document::clone(&document),
             &context_node,
             Some(options),
+            start_location,
         )?;
 
         Ok((document, parser_errors))
