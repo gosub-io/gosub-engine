@@ -1,8 +1,8 @@
+use std::cell::RefCell;
+use std::char::REPLACEMENT_CHARACTER;
 use std::fmt::{Debug, Formatter};
 use std::io::Read;
 use std::{fmt, io};
-use std::cell::RefCell;
-use std::char::REPLACEMENT_CHARACTER;
 
 pub const CHAR_LF: char = '\u{000A}';
 pub const CHAR_CR: char = '\u{000D}';
@@ -10,7 +10,7 @@ pub const CHAR_CR: char = '\u{000D}';
 /// Encoding defines the way the buffer stream is read, as what defines a "character".
 #[derive(PartialEq)]
 pub enum Encoding {
-    /// Unknown encoding
+    /// Unknown encoding. Won't read anything from the stream until the encoding is set
     UNKNOWN,
     /// Stream is of single byte ASCII chars (0-255)
     ASCII,
@@ -23,7 +23,9 @@ pub enum Encoding {
 }
 
 /// Defines a single character/element in the stream. This is either a UTF8 character, or
-/// a surrogate characters since these cannot be stored in a single char.
+/// a surrogate characters since these cannot be stored in a single char. Note that characters
+/// are not the same as bytes, since a single character can be multiple bytes in UTF8 or UTF16.
+///
 /// Eof is denoted as a separate element, so is Empty to indicate that the buffer is empty but
 /// not yet closed.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -90,6 +92,7 @@ impl Character {
     }
 }
 
+/// Configuration structure for a bytestream.
 pub struct Config {
     /// Treat any CRLF pairs as a single LF
     pub cr_lf_as_one: bool,
@@ -113,7 +116,7 @@ pub struct ByteStream {
     buffer_pos: RefCell<usize>,
     /// True when the buffer is empty and not yet have a closed stream
     closed: bool,
-    /// Current detected encoding
+    /// Current encoding
     encoding: Encoding,
     // Configuration for the stream
     config: Config,
@@ -170,8 +173,16 @@ impl Stream for ByteStream {
     fn read_and_next(&self) -> Character {
         let (ch, len) = self.read_with_length();
 
-        let mut pos = self.buffer_pos.borrow_mut();
-        *pos += len;
+        {
+            let mut pos = self.buffer_pos.borrow_mut();
+            *pos += len;
+        }
+
+        // Make sure we skip the CR if it is followed by a LF
+        if self.config.cr_lf_as_one && ch == Ch(CHAR_CR) && self.read() == Ch(CHAR_LF) {
+            self.next();
+            return Ch(CHAR_LF);
+        }
 
         ch
     }
@@ -217,41 +228,22 @@ impl Stream for ByteStream {
 
     /// Unread n characters
     fn prev_n(&self, n: usize) {
-        let mut pos = self.buffer_pos.borrow_mut();
+        // No need for extra checks, so we can just move back n characters
+        if !self.config.cr_lf_as_one {
+            self.move_back(n);
+            return;
+        }
 
-        match self.encoding {
-            Encoding::ASCII => {
-                if *pos > n {
-                    *pos -= n;
-                } else {
-                    *pos = 0;
-                }
-            }
-            Encoding::UTF8 => {
-                let mut n = n;
-                while n > 0 && *pos > 0 {
-                    *pos -= 1;
+        // We need to loop n times, as we might encounter CR/LF pairs we need to take into account
+        for _ in 0..n {
+            self.move_back(1);
 
-                    if self.buffer[*pos] & 0b1100_0000 != 0b1000_0000 {
-                        n -= 1;
-                    }
-                }
+            if self.config.cr_lf_as_one
+                && self.read() == Ch(CHAR_CR)
+                && self.look_ahead(1) == Ch(CHAR_LF)
+            {
+                self.move_back(1);
             }
-            Encoding::UTF16LE => {
-                if *pos > n * 2 {
-                    *pos -= n * 2;
-                } else {
-                    *pos = 0;
-                }
-            }
-            Encoding::UTF16BE => {
-                if *pos > n * 2 {
-                    *pos -= n * 2;
-                } else {
-                    *pos = 0;
-                }
-            }
-            _ => {}
         }
     }
 
@@ -360,43 +352,59 @@ impl ByteStream {
 
                 let ch = match width {
                     1 => first_byte as u32,
-                    2 => ((first_byte as u32 & 0x1F) << 6)
-                        | (self.buffer[*buf_pos + 1] as u32 & 0x3F),
-                    3 => ((first_byte as u32 & 0x0F) << 12)
-                        | ((self.buffer[*buf_pos + 1] as u32 & 0x3F) << 6)
-                        | (self.buffer[*buf_pos + 2] as u32 & 0x3F),
-                    4 => ((first_byte as u32 & 0x07) << 18)
-                        | ((self.buffer[*buf_pos + 1] as u32 & 0x3F) << 12)
-                        | ((self.buffer[*buf_pos + 2] as u32 & 0x3F) << 6)
-                        | (self.buffer[*buf_pos + 3] as u32 & 0x3F),
+                    2 => {
+                        ((first_byte as u32 & 0x1F) << 6)
+                            | (self.buffer[*buf_pos + 1] as u32 & 0x3F)
+                    }
+                    3 => {
+                        ((first_byte as u32 & 0x0F) << 12)
+                            | ((self.buffer[*buf_pos + 1] as u32 & 0x3F) << 6)
+                            | (self.buffer[*buf_pos + 2] as u32 & 0x3F)
+                    }
+                    4 => {
+                        ((first_byte as u32 & 0x07) << 18)
+                            | ((self.buffer[*buf_pos + 1] as u32 & 0x3F) << 12)
+                            | ((self.buffer[*buf_pos + 2] as u32 & 0x3F) << 6)
+                            | (self.buffer[*buf_pos + 3] as u32 & 0x3F)
+                    }
                     _ => 0xFFFD, // Invalid UTF-8 byte sequence
                 };
 
                 if ch > 0x10FFFF || (ch > 0xD800 && ch <= 0xDFFF) {
                     (Surrogate(ch as u16), width)
                 } else {
-                    (char::from_u32(ch).map_or(Ch(REPLACEMENT_CHARACTER), Ch), width)
+                    (
+                        char::from_u32(ch).map_or(Ch(REPLACEMENT_CHARACTER), Ch),
+                        width,
+                    )
                 }
             }
             Encoding::UTF16LE => {
                 if *buf_pos + 1 < self.buffer.len() {
-                    let code_unit = u16::from_le_bytes([self.buffer[*buf_pos], self.buffer[*buf_pos + 1]]);
-                    (char::from_u32(u32::from(code_unit)).map_or(Ch(REPLACEMENT_CHARACTER), Ch), 2)
+                    let code_unit =
+                        u16::from_le_bytes([self.buffer[*buf_pos], self.buffer[*buf_pos + 1]]);
+                    (
+                        char::from_u32(u32::from(code_unit)).map_or(Ch(REPLACEMENT_CHARACTER), Ch),
+                        2,
+                    )
                 } else {
                     (StreamEmpty, 1)
                 }
             }
             Encoding::UTF16BE => {
                 if *buf_pos + 1 < self.buffer.len() {
-                    let code_unit = u16::from_be_bytes([self.buffer[*buf_pos], self.buffer[*buf_pos + 1]]);
-                    (char::from_u32(u32::from(code_unit)).map_or(Ch(REPLACEMENT_CHARACTER), Ch), 2)
+                    let code_unit =
+                        u16::from_be_bytes([self.buffer[*buf_pos], self.buffer[*buf_pos + 1]]);
+                    (
+                        char::from_u32(u32::from(code_unit)).map_or(Ch(REPLACEMENT_CHARACTER), Ch),
+                        2,
+                    )
                 } else {
                     (StreamEmpty, 1)
                 }
             }
         }
     }
-
 
     /// Populates the current buffer with the contents of given file f
     pub fn read_from_file(&mut self, mut f: impl Read) -> io::Result<()> {
@@ -435,6 +443,46 @@ impl ByteStream {
     fn chars_left(&self) -> usize {
         self.buffer.len() - *self.buffer_pos.borrow()
     }
+
+    // Moves back n characters in the stream
+    fn move_back(&self, n: usize) {
+        let mut pos = self.buffer_pos.borrow_mut();
+
+        match self.encoding {
+            Encoding::ASCII => {
+                if *pos > n {
+                    *pos -= n;
+                } else {
+                    *pos = 0;
+                }
+            }
+            Encoding::UTF8 => {
+                let mut n = n;
+                while n > 0 && *pos > 0 {
+                    *pos -= 1;
+
+                    if self.buffer[*pos] & 0b1100_0000 != 0b1000_0000 {
+                        n -= 1;
+                    }
+                }
+            }
+            Encoding::UTF16LE => {
+                if *pos > n * 2 {
+                    *pos -= n * 2;
+                } else {
+                    *pos = 0;
+                }
+            }
+            Encoding::UTF16BE => {
+                if *pos > n * 2 {
+                    *pos -= n * 2;
+                } else {
+                    *pos = 0;
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 impl ByteStream {
@@ -450,7 +498,6 @@ impl ByteStream {
         } else if buf.starts_with(b"\xFE\xFF") {
             return Encoding::UTF16BE;
         }
-
 
         // Cap the buffer size we will check to max 64KB
         const MAX_BUF_SIZE: usize = 64 * 1024;
@@ -582,10 +629,13 @@ mod test {
 
     #[test]
     fn test_stream() {
-        let mut stream = ByteStream::new(Encoding::UTF8, Some(Config{
-            cr_lf_as_one: true,
-            replace_high_ascii: true,
-        }));
+        let mut stream = ByteStream::new(
+            Encoding::UTF8,
+            Some(Config {
+                cr_lf_as_one: true,
+                replace_high_ascii: true,
+            }),
+        );
         assert!(stream.exhausted());
         assert!(!stream.eof());
 
@@ -744,13 +794,15 @@ mod test {
         assert_eq!(stream.read(), Ch('c'));
     }
 
-
     #[test]
     fn test_prev_with_utf8() {
-        let mut stream = ByteStream::new(Encoding::UTF8, Some(Config{
-            cr_lf_as_one: true,
-            replace_high_ascii: true,
-        }));
+        let mut stream = ByteStream::new(
+            Encoding::UTF8,
+            Some(Config {
+                cr_lf_as_one: true,
+                replace_high_ascii: true,
+            }),
+        );
         stream.read_from_str("a👽b", Some(Encoding::UTF8));
         stream.close();
 
@@ -768,10 +820,13 @@ mod test {
 
     #[test]
     fn test_switch_encoding() {
-        let mut stream = ByteStream::new(Encoding::UTF8, Some(Config {
-            cr_lf_as_one: true,
-            replace_high_ascii: true,
-        }));
+        let mut stream = ByteStream::new(
+            Encoding::UTF8,
+            Some(Config {
+                cr_lf_as_one: true,
+                replace_high_ascii: true,
+            }),
+        );
         stream.read_from_str("a👽b", Some(Encoding::UTF8));
         stream.close();
 
@@ -781,7 +836,6 @@ mod test {
         assert_eq!(stream.read_and_next(), Ch('?'));
         assert_eq!(stream.read_and_next(), Ch('b'));
     }
-
 
     #[test]
     fn test_character() {
@@ -806,17 +860,110 @@ mod test {
         let ch = Ch('\t');
         assert!(ch.is_whitespace());
     }
-    
+
     #[test]
     fn test_slice() {
-        let v = vec![
-            Ch('a'),
-            Ch('b'),
-            Ch('c'),
-            Ch('d'),
-            Ch('e'),
-        ];
-        
+        let v = vec![Ch('a'), Ch('b'), Ch('c'), Ch('d'), Ch('e')];
+
         assert_eq!(Character::slice_to_string(v), "abcde");
+    }
+
+    #[test]
+    fn test_utf16le() {
+        let mut stream = ByteStream::new(
+            Encoding::UTF16BE,
+            Some(Config {
+                cr_lf_as_one: true,
+                replace_high_ascii: false,
+            }),
+        );
+
+        // Quizdeltagerne spiste jordbær med fløde, mens cirkusklovnen Wolther spillede på xylofon.
+        let _ = stream.read_from_bytes(&[
+            0x00, 0x51, 0x00, 0x75, 0x00, 0x69, 0x00, 0x7a, 0x00, 0x64, 0x00, 0x65, 0x00, 0x6c,
+            0x00, 0x74, 0x00, 0x61, 0x00, 0x67, 0x00, 0x65, 0x00, 0x72, 0x00, 0x6e, 0x00, 0x65,
+            0x00, 0x20, 0x00, 0x73, 0x00, 0x70, 0x00, 0x69, 0x00, 0x73, 0x00, 0x74, 0x00, 0x65,
+            0x00, 0x20, 0x00, 0x6a, 0x00, 0x6f, 0x00, 0x72, 0x00, 0x64, 0x00, 0x62, 0x00, 0xe6,
+            0x00, 0x72, 0x00, 0x20, 0x00, 0x6d, 0x00, 0x65, 0x00, 0x64, 0x00, 0x20, 0x00, 0x66,
+            0x00, 0x6c, 0x00, 0xf8, 0x00, 0x64, 0x00, 0x65, 0x00, 0x2c, 0x00, 0x20, 0x00, 0x6d,
+            0x00, 0x65, 0x00, 0x6e, 0x00, 0x73, 0x00, 0x20, 0x00, 0x63, 0x00, 0x69, 0x00, 0x72,
+            0x00, 0x6b, 0x00, 0x75, 0x00, 0x73, 0x00, 0x6b, 0x00, 0x6c, 0x00, 0x6f, 0x00, 0x76,
+            0x00, 0x6e, 0x00, 0x65, 0x00, 0x6e, 0x00, 0x20, 0x00, 0x57, 0x00, 0x6f, 0x00, 0x6c,
+            0x00, 0x74, 0x00, 0x68, 0x00, 0x65, 0x00, 0x72, 0x00, 0x20, 0x00, 0x73, 0x00, 0x70,
+            0x00, 0x69, 0x00, 0x6c, 0x00, 0x6c, 0x00, 0x65, 0x00, 0x64, 0x00, 0x65, 0x00, 0x20,
+            0x00, 0x70, 0x00, 0xe5, 0x00, 0x20, 0x00, 0x78, 0x00, 0x79, 0x00, 0x6c, 0x00, 0x6f,
+            0x00, 0x66, 0x00, 0x6f, 0x00, 0x6e, 0x00, 0x2e,
+        ]);
+        stream.close();
+
+        assert_eq!(stream.read_and_next(), Ch('Q'));
+        assert_eq!(stream.read_and_next(), Ch('u'));
+        assert_eq!(stream.read_and_next(), Ch('i'));
+        assert_eq!(stream.read_and_next(), Ch('z'));
+
+        stream.seek(25);
+        assert_eq!(stream.read_and_next(), Ch('d'));
+        assert_eq!(stream.read_and_next(), Ch('b'));
+        assert_eq!(stream.read_and_next(), Ch('æ'));
+        assert_eq!(stream.read_and_next(), Ch('r'));
+        assert_eq!(stream.read_and_next(), Ch(' '));
+
+        stream.prev_n(4);
+        assert_eq!(stream.read_and_next(), Ch('b'));
+        assert_eq!(stream.read_and_next(), Ch('æ'));
+        assert_eq!(stream.read_and_next(), Ch('r'));
+
+        // Now do UTF on the same bytestream
+        stream.reset_stream();
+        stream.set_encoding(Encoding::UTF8);
+        assert_eq!(stream.read_and_next(), Ch('\0'));
+        assert_eq!(stream.read_and_next(), Ch('Q'));
+        assert_eq!(stream.read_and_next(), Ch('\0'));
+        assert_eq!(stream.read_and_next(), Ch('u'));
+    }
+
+    #[test]
+    fn test_crlf() {
+        let mut stream = ByteStream::new(
+            Encoding::UTF8,
+            Some(Config {
+                cr_lf_as_one: true,
+                replace_high_ascii: false,
+            }),
+        );
+        stream.read_from_str("a\r\nb\nc\r\nd\r\r\n\ne", Some(Encoding::UTF8));
+        stream.close();
+
+        assert_eq!(stream.read_and_next(), Ch('a'));
+        assert_eq!(stream.read_and_next(), Ch('\n'));
+        assert_eq!(stream.read_and_next(), Ch('b'));
+        assert_eq!(stream.read_and_next(), Ch('\n'));
+        assert_eq!(stream.read_and_next(), Ch('c'));
+
+        stream.prev_n(2);
+        assert_eq!(stream.read_and_next(), Ch('\n'));
+        assert_eq!(stream.read_and_next(), Ch('c'));
+
+        stream.prev_n(4);
+        assert_eq!(stream.read_and_next(), Ch('\n'));
+        assert_eq!(stream.read_and_next(), Ch('b'));
+        assert_eq!(stream.read_and_next(), Ch('\n'));
+        assert_eq!(stream.read_and_next(), Ch('c'));
+
+        assert_eq!(stream.read_and_next(), Ch('\n'));
+        assert_eq!(stream.read_and_next(), Ch('d'));
+        assert_eq!(stream.read_and_next(), Ch('\r'));
+        assert_eq!(stream.read_and_next(), Ch('\n'));
+        assert_eq!(stream.read_and_next(), Ch('\n'));
+        assert_eq!(stream.read_and_next(), Ch('e'));
+        assert!(matches!(stream.read_and_next(), StreamEnd));
+
+        stream.prev_n(4);
+        assert_eq!(stream.read_and_next(), Ch('\r'));
+        stream.prev_n(2);
+        assert_eq!(stream.read_and_next(), Ch('d'));
+        assert_eq!(stream.read_and_next(), Ch('\r'));
+        stream.prev_n(4);
+        assert_eq!(stream.read_and_next(), Ch('c'));
     }
 }

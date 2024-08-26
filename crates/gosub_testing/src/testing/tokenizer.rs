@@ -119,8 +119,14 @@ where
 
         let token = match values.len() {
             2 => match kind {
-                "Character" => Token::Text{text: values[1].as_str().unwrap().to_owned(), loc: Location::default()},
-                "Comment" => Token::Comment{comment: values[1].as_str().unwrap().to_owned(), loc: Location::default()},
+                "Character" => Token::Text {
+                    text: values[1].as_str().unwrap().to_owned(),
+                    loc: Location::default(),
+                },
+                "Comment" => Token::Comment {
+                    comment: values[1].as_str().unwrap().to_owned(),
+                    loc: Location::default(),
+                },
                 "EndTag" => Token::EndTag {
                     name: values[1].as_str().unwrap().to_owned(),
                     is_self_closing: false,
@@ -292,8 +298,11 @@ impl TestSpec {
         }
 
         match token {
-            Token::Comment{comment: value, loc} => Token::Comment{
-                comment: escape(value), 
+            Token::Comment {
+                comment: value,
+                loc,
+            } => Token::Comment {
+                comment: escape(value),
                 loc: loc.clone(),
             },
 
@@ -302,7 +311,7 @@ impl TestSpec {
                 force_quirks,
                 pub_identifier,
                 sys_identifier,
-                loc
+                loc,
             } => Token::DocType {
                 name: name.as_ref().map(|name| escape(name)),
                 force_quirks: *force_quirks,
@@ -321,13 +330,13 @@ impl TestSpec {
                 loc: loc.clone(),
             },
 
-            Token::Eof{loc} => Token::Eof{loc: loc.clone()},
+            Token::Eof { loc } => Token::Eof { loc: loc.clone() },
 
             Token::StartTag {
                 name,
                 is_self_closing,
                 attributes,
-                loc
+                loc,
             } => Token::StartTag {
                 name: escape(name),
                 is_self_closing: *is_self_closing,
@@ -335,7 +344,10 @@ impl TestSpec {
                 loc: loc.clone(),
             },
 
-            Token::Text{text: value, loc} => Token::Text{text: escape(value), loc: loc.clone()},
+            Token::Text { text: value, loc } => Token::Text {
+                text: escape(value),
+                loc: loc.clone(),
+            },
         }
     }
 }

@@ -113,7 +113,7 @@ impl<'stream> Tokenizer<'stream> {
         stream: &'stream mut ByteStream,
         opts: Option<Options>,
         error_logger: Rc<RefCell<ErrorLogger>>,
-        start_location: Location
+        start_location: Location,
     ) -> Self {
         Self {
             stream,
@@ -143,7 +143,9 @@ impl<'stream> Tokenizer<'stream> {
         self.consume_stream(parser_data)?;
 
         if self.token_queue.is_empty() {
-            return Ok(Token::Eof{loc: self.get_location()});
+            return Ok(Token::Eof {
+                loc: self.get_location(),
+            });
         }
 
         Ok(self.token_queue.remove(0))
@@ -178,7 +180,9 @@ impl<'stream> Tokenizer<'stream> {
                             self.consume(c.into());
                             self.parse_error(ParserError::UnexpectedNullCharacter, loc);
                         }
-                        StreamEnd => self.emit_token(Token::Eof{loc: self.get_location()}),
+                        StreamEnd => self.emit_token(Token::Eof {
+                            loc: self.get_location(),
+                        }),
                         _ => self.consume(c.into()),
                     }
                 }
@@ -192,7 +196,9 @@ impl<'stream> Tokenizer<'stream> {
                     match c {
                         Ch('&') => self.state = State::CharacterReferenceInRcData,
                         Ch('<') => self.state = State::RCDATALessThanSign,
-                        StreamEnd => self.emit_token(Token::Eof{loc: self.get_location()}),
+                        StreamEnd => self.emit_token(Token::Eof {
+                            loc: self.get_location(),
+                        }),
                         Ch(CHAR_NUL) => {
                             self.consume(CHAR_REPLACEMENT);
                             self.parse_error(ParserError::UnexpectedNullCharacter, loc);
@@ -214,7 +220,9 @@ impl<'stream> Tokenizer<'stream> {
                             self.consume(CHAR_REPLACEMENT);
                             self.parse_error(ParserError::UnexpectedNullCharacter, loc);
                         }
-                        StreamEnd => self.emit_token(Token::Eof{loc: self.get_location()}),
+                        StreamEnd => self.emit_token(Token::Eof {
+                            loc: self.get_location(),
+                        }),
                         _ => self.consume(c.into()),
                     }
                 }
@@ -227,7 +235,9 @@ impl<'stream> Tokenizer<'stream> {
                             self.parse_error(ParserError::UnexpectedNullCharacter, loc);
                             self.consume(CHAR_REPLACEMENT);
                         }
-                        StreamEnd => self.emit_token(Token::Eof{loc: self.get_location()}),
+                        StreamEnd => self.emit_token(Token::Eof {
+                            loc: self.get_location(),
+                        }),
                         _ => self.consume(c.into()),
                     }
                 }
@@ -239,7 +249,9 @@ impl<'stream> Tokenizer<'stream> {
                             self.parse_error(ParserError::UnexpectedNullCharacter, loc);
                             self.consume(CHAR_REPLACEMENT);
                         }
-                        StreamEnd => self.emit_token(Token::Eof{loc: self.get_location()}),
+                        StreamEnd => self.emit_token(Token::Eof {
+                            loc: self.get_location(),
+                        }),
                         _ => self.consume(c.into()),
                     }
                 }
@@ -260,7 +272,10 @@ impl<'stream> Tokenizer<'stream> {
                             self.state = State::TagName;
                         }
                         Ch('?') => {
-                            self.current_token = Some(Token::Comment{comment: String::new(), loc: self.get_location()});
+                            self.current_token = Some(Token::Comment {
+                                comment: String::new(),
+                                loc: self.get_location(),
+                            });
                             self.parse_error(
                                 ParserError::UnexpectedQuestionMarkInsteadOfTagName,
                                 loc,
@@ -306,7 +321,10 @@ impl<'stream> Tokenizer<'stream> {
                         }
                         _ => {
                             self.parse_error(ParserError::InvalidFirstCharacterOfTagName, loc);
-                            self.current_token = Some(Token::Comment{comment: String::new(), loc: self.get_location()});
+                            self.current_token = Some(Token::Comment {
+                                comment: String::new(),
+                                loc: self.get_location(),
+                            });
                             self.stream_prev();
                             self.state = State::BogusComment;
                         }
@@ -1206,7 +1224,10 @@ impl<'stream> Tokenizer<'stream> {
                 }
                 State::MarkupDeclarationOpen => {
                     if Character::slice_to_string(self.stream.get_slice(2)) == "--" {
-                        self.current_token = Some(Token::Comment{comment: String::new(), loc: self.get_location()});
+                        self.current_token = Some(Token::Comment {
+                            comment: String::new(),
+                            loc: self.get_location(),
+                        });
 
                         // Skip the two -- signs
                         self.stream_next_n(2);
@@ -1234,14 +1255,20 @@ impl<'stream> Tokenizer<'stream> {
                         }
 
                         self.parse_error(ParserError::CdataInHtmlContent, loc);
-                        self.current_token = Some(Token::Comment{comment: "[CDATA[".into(), loc: self.get_location()});
+                        self.current_token = Some(Token::Comment {
+                            comment: "[CDATA[".into(),
+                            loc: self.get_location(),
+                        });
 
                         self.state = State::BogusComment;
                         continue;
                     }
 
                     self.parse_error(ParserError::IncorrectlyOpenedComment, self.get_location());
-                    self.current_token = Some(Token::Comment{comment: String::new(), loc: self.get_location()});
+                    self.current_token = Some(Token::Comment {
+                        comment: String::new(),
+                        loc: self.get_location(),
+                    });
 
                     self.state = State::BogusComment;
                 }
@@ -2065,7 +2092,7 @@ impl<'stream> Tokenizer<'stream> {
 
     /// Adds the given character to the current token's value (if applicable)
     fn add_to_token_value(&mut self, c: char) {
-        if let Some(Token::Comment{comment: value, ..}) = &mut self.current_token {
+        if let Some(Token::Comment { comment: value, .. }) = &mut self.current_token {
             value.push(c);
         }
     }
@@ -2141,7 +2168,10 @@ impl<'stream> Tokenizer<'stream> {
         if self.has_consumed_data() {
             let value = self.get_consumed_str().to_string();
 
-            self.token_queue.push(Token::Text{text: value.to_string(), loc: self.get_location()});
+            self.token_queue.push(Token::Text {
+                text: value.to_string(),
+                loc: self.get_location(),
+            });
 
             self.clear_consume_buffer();
         }

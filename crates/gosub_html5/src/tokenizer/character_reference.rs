@@ -406,7 +406,7 @@ lazy_static! {
 mod tests {
     use crate::error_logger::ErrorLogger;
     use crate::tokenizer::{ParserData, Tokenizer};
-    use gosub_shared::byte_stream::{ByteStream, Location};
+    use gosub_shared::byte_stream::{ByteStream, Encoding, Location};
     use std::cell::RefCell;
     use std::rc::Rc;
 

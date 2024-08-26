@@ -238,7 +238,7 @@ impl Html5Parser<'_> {
 
     pub fn insert_text_element(&mut self, token: &Token) {
         // Skip empty text nodes
-        if let Token::Text{text, ..} = token {
+        if let Token::Text { text, .. } = token {
             if text.is_empty() {
                 return;
             }

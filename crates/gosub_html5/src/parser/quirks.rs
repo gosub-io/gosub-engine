@@ -157,8 +157,7 @@ static LIMITED_QUIRKS_PUB_IDENTIFIER_PREFIX_NOT_MISSING_SYS: &[&str] = &[
 mod tests {
     use crate::parser::Html5Parser;
     use crate::parser::QuirksMode;
-    use gosub_shared::byte_stream::ByteStream;
-    use gosub_shared::byte_stream::Location;
+    use gosub_shared::byte_stream::{ByteStream, Encoding, Location};
 
     #[test]
     fn test_quirks_mode() {

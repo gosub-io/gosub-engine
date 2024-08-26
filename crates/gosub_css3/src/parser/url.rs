@@ -52,21 +52,21 @@ mod tests {
         };
     }
 
-    macro_rules! test_err {
-        ($func:ident, $input:expr, $expected:expr) => {
-            let mut stream = ByteStream::new(Encoding::UTF8, None);
-            stream.read_from_str($input, Some(Encoding::UTF8));
-            stream.close();
-
-            let mut parser = crate::Css3::new(&mut stream);
-            let result = parser.$func();
-
-            assert_eq!(true, result.is_err());
-            let err = result.unwrap_err();
-
-            assert_eq!(true, err.message.contains($expected));
-        };
-    }
+    // macro_rules! test_err {
+    //     ($func:ident, $input:expr, $expected:expr) => {
+    //         let mut stream = ByteStream::new(Encoding::UTF8, None);
+    //         stream.read_from_str($input, Some(Encoding::UTF8));
+    //         stream.close();
+    //
+    //         let mut parser = crate::Css3::new(&mut stream);
+    //         let result = parser.$func();
+    //
+    //         assert_eq!(true, result.is_err());
+    //         let err = result.unwrap_err();
+    //
+    //         assert_eq!(true, err.message.contains($expected));
+    //     };
+    // }
 
     #[test]
     fn test_parse_url() {
