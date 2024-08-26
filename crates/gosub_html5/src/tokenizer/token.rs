@@ -16,31 +16,32 @@ pub enum Token {
         force_quirks: bool,
         pub_identifier: Option<String>,
         sys_identifier: Option<String>,
-        loc: Location,
+        location: Location,
     },
     StartTag {
         name: String,
         is_self_closing: bool,
         attributes: HashMap<String, String>,
-        loc: Location,
+        location: Location,
     },
     EndTag {
         name: String,
         is_self_closing: bool,
-        loc: Location,
+        location: Location,
     },
     Comment {
         comment: String,
-        loc: Location,
+        location: Location,
     },
     Text {
         text: String,
-        loc: Location,
+        location: Location,
     },
     Eof {
-        loc: Location,
+        location: Location,
     },
 }
+
 
 impl Token {
     /// Returns true when there is a mixture of white and non-white and \0 characters in the token
@@ -76,9 +77,18 @@ impl Token {
             false
         }
     }
-}
 
-impl Token {
+    pub fn get_location(&self) -> Location {
+        match self {
+            Token::DocType { location, .. } => location.clone(),
+            Token::StartTag { location, .. } => location.clone(),
+            Token::EndTag { location, .. } => location.clone(),
+            Token::Comment { location, .. } => location.clone(),
+            Token::Text { location, .. } => location.clone(),
+            Token::Eof { location, .. } => location.clone(),
+        }
+    }
+
     /// Returns true when any of the characters in the token are null
     pub fn is_null(&self) -> bool {
         if let Token::Text { text: value, .. } = self {
@@ -179,7 +189,7 @@ mod tests {
     fn test_token_is_null() {
         let token = Token::Text {
             text: "Hello\0World".to_string(),
-            loc: Location::default(),
+            location: Location::default(),
         };
         assert!(token.is_null());
     }
@@ -187,7 +197,7 @@ mod tests {
     #[test]
     fn test_token_is_eof() {
         let token = Token::Eof {
-            loc: Location::default(),
+            location:  Location::default(),
         };
         assert!(token.is_eof());
     }
@@ -196,7 +206,7 @@ mod tests {
     fn test_token_is_empty_or_white() {
         let token = Token::Text {
             text: " ".to_string(),
-            loc: Location::default(),
+            location:  Location::default(),
         };
         assert!(token.is_empty_or_white());
     }
@@ -208,7 +218,7 @@ mod tests {
             force_quirks: false,
             pub_identifier: None,
             sys_identifier: None,
-            loc: Location::default(),
+            location:  Location::default(),
         };
         assert_eq!(format!("{token}"), "<!DOCTYPE html />");
 
@@ -217,7 +227,7 @@ mod tests {
             force_quirks: false,
             pub_identifier: Some("foo".to_string()),
             sys_identifier: Some("bar".to_string()),
-            loc: Location::default(),
+            location:  Location::default(),
         };
         assert_eq!(
             format!("{token}"),
@@ -229,7 +239,7 @@ mod tests {
     fn test_token_display_comment() {
         let token = Token::Comment {
             comment: "Hello World".to_string(),
-            loc: Location::default(),
+            location:  Location::default(),
         };
         assert_eq!(format!("{token}"), "<!-- Hello World -->");
     }
@@ -238,7 +248,7 @@ mod tests {
     fn test_token_display_comment_with_html() {
         let token = Token::Comment {
             comment: "<p>Hello world</p>".to_string(),
-            loc: Location::default(),
+            location:  Location::default(),
         };
         assert_eq!(format!("{token}"), "<!-- <p>Hello world</p> -->");
     }
@@ -247,7 +257,7 @@ mod tests {
     fn test_token_display_text() {
         let token = Token::Text {
             text: "Hello World".to_string(),
-            loc: Location::default(),
+            location:  Location::default(),
         };
         assert_eq!(format!("{token}"), "Hello World");
     }
@@ -258,7 +268,7 @@ mod tests {
             name: "html".to_string(),
             is_self_closing: false,
             attributes: HashMap::new(),
-            loc: Location::default(),
+            location:  Location::default(),
         };
         assert_eq!(format!("{token}"), "<html>");
 
@@ -269,7 +279,7 @@ mod tests {
             name: "html".to_string(),
             is_self_closing: false,
             attributes,
-            loc: Location::default(),
+            location:  Location::default(),
         };
         assert_eq!(format!("{token}"), r#"<html foo="bar">"#);
 
@@ -277,7 +287,7 @@ mod tests {
             name: "br".to_string(),
             is_self_closing: true,
             attributes: HashMap::new(),
-            loc: Location::default(),
+            location:  Location::default(),
         };
         assert_eq!(format!("{token}"), "<br />");
     }
@@ -287,7 +297,7 @@ mod tests {
         let token = Token::EndTag {
             name: "html".to_string(),
             is_self_closing: false,
-            loc: Location::default(),
+            location:  Location::default(),
         };
         assert_eq!(format!("{token}"), "</html>");
     }
@@ -295,7 +305,7 @@ mod tests {
     #[test]
     fn test_token_display_eof() {
         let token = Token::Eof {
-            loc: Location::default(),
+            location:  Location::default(),
         };
         assert_eq!(format!("{token}"), "EOF");
     }
@@ -306,7 +316,7 @@ mod tests {
             name: "div".to_string(),
             is_self_closing: false,
             attributes: HashMap::new(),
-            loc: Location::default(),
+            location:  Location::default(),
         };
         assert!(token.is_start_tag("div"));
         assert!(!token.is_start_tag("span"));
@@ -318,11 +328,11 @@ mod tests {
             name: "div".to_string(),
             is_self_closing: false,
             attributes: HashMap::new(),
-            loc: Location::default(),
+            location:  Location::default(),
         };
         let other_tag = Token::Text {
             text: "TestingText".to_string(),
-            loc: Location::default(),
+            location:  Location::default(),
         };
         assert!(start_tag.is_any_start_tag());
         assert!(!other_tag.is_any_start_tag());
@@ -332,13 +342,13 @@ mod tests {
     fn test_is_text_token() {
         let text_token = Token::Text {
             text: "TestingText".to_string(),
-            loc: Location::default(),
+            location:  Location::default(),
         };
         let other_token = Token::StartTag {
             name: "div".to_string(),
             is_self_closing: false,
             attributes: HashMap::new(),
-            loc: Location::default(),
+            location:  Location::default(),
         };
         assert!(text_token.is_text_token());
         assert!(!other_token.is_text_token());

@@ -133,7 +133,7 @@ impl Harness {
 
         // Add context node
         let context_node_id =
-            main_document.create_element(element.as_str(), NodeId::root(), None, namespace);
+            main_document.create_element(element.as_str(), NodeId::root(), None, namespace, start_location.clone());
         let context_node = main_document
             .get()
             .get_node_by_id(context_node_id)

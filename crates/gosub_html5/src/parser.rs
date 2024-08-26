@@ -220,7 +220,7 @@ impl<'chars> Html5Parser<'chars> {
             template_insertion_mode: vec![],
             parser_cannot_change_mode: false,
             current_token: Token::Eof {
-                loc: Location::default(),
+                location: Location::default(),
             },
             reprocess_token: false,
             open_elements: Vec::new(),
@@ -261,7 +261,7 @@ impl<'chars> Html5Parser<'chars> {
             template_insertion_mode: vec![],
             parser_cannot_change_mode: false,
             current_token: Token::Eof {
-                loc: Location::default(),
+                location: Location::default(),
             },
             reprocess_token: false,
             open_elements: Vec::new(),
@@ -341,7 +341,7 @@ impl<'chars> Html5Parser<'chars> {
                     name: context_node.name.clone(),
                     is_self_closing: false,
                     attributes: node_attributes,
-                    loc: start_location.clone(),
+                    location: start_location.clone(),
                 }
             }
             _ => panic!("not an element"),
@@ -447,7 +447,7 @@ impl<'chars> Html5Parser<'chars> {
                 self.parse_error("null character not allowed in foreign content");
                 self.insert_text_element(&Token::Text {
                     text: CHAR_REPLACEMENT.to_string(),
-                    loc: self.tokenizer.get_location(),
+                    location: self.tokenizer.get_location(),
                 });
             }
             Token::Text { .. } if self.current_token.is_empty_or_white() => {
@@ -631,12 +631,12 @@ impl<'chars> Html5Parser<'chars> {
     /// Process a token in HTML content
     fn process_html_content(&mut self) {
         if self.ignore_lf {
-            if let Token::Text { text: value, .. } = &self.current_token {
+            if let Token::Text { text: value, location } = &self.current_token {
                 if value.starts_with('\n') {
                     // We don't need to skip 1 char, but we can skip 1 byte, as we just checked for \n
                     self.current_token = Token::Text {
                         text: value.chars().skip(1).collect::<String>(),
-                        loc: self.tokenizer.get_location(),
+                        location: location.clone(),
                     };
                 }
             }
@@ -764,7 +764,7 @@ impl<'chars> Html5Parser<'chars> {
                         name: "html".to_string(),
                         is_self_closing: false,
                         attributes: HashMap::new(),
-                        loc: self.tokenizer.get_location(),
+                        location: self.current_token.get_location(),
                     };
                     self.insert_document_element(&token);
 
@@ -817,7 +817,7 @@ impl<'chars> Html5Parser<'chars> {
                         name: "head".to_string(),
                         is_self_closing: false,
                         attributes: HashMap::new(),
-                        loc: self.tokenizer.get_location(),
+                        location: self.current_token.get_location(),
                     };
                     let node_id = self.insert_html_element(&token);
                     self.head_element = Some(node_id);
@@ -975,7 +975,7 @@ impl<'chars> Html5Parser<'chars> {
                         name: "body".to_string(),
                         is_self_closing: false,
                         attributes: HashMap::new(),
-                        loc: self.tokenizer.get_location(),
+                        location: self.current_token.get_location(),
                     };
                     self.insert_html_element(&token);
 
@@ -1101,7 +1101,7 @@ impl<'chars> Html5Parser<'chars> {
                         } else {
                             self.insert_text_element(&Token::Text {
                                 text: pending_chars,
-                                loc: self.tokenizer.get_location(),
+                                location: self.tokenizer.get_location(),
                             });
                         }
 
@@ -1259,7 +1259,7 @@ impl<'chars> Html5Parser<'chars> {
                             name: "tr".to_string(),
                             is_self_closing: false,
                             attributes: HashMap::new(),
-                            loc: self.tokenizer.get_location(),
+                            location: self.current_token.get_location(),
                         };
                         self.insert_html_element(&token);
 
@@ -1855,7 +1855,7 @@ impl<'chars> Html5Parser<'chars> {
     fn parse_error(&self, message: &str) {
         self.error_logger
             .borrow_mut()
-            .add_error(self.tokenizer.get_location(), message);
+            .add_error(self.current_token.get_location(), message);
     }
 
     /// Create a new node that is not connected or attached to the document arena
@@ -1863,24 +1863,26 @@ impl<'chars> Html5Parser<'chars> {
         match token {
             Token::DocType {
                 name,
+                force_quirks: _,
                 pub_identifier,
                 sys_identifier,
-                ..
+                location,
             } => Node::new_doctype(
                 &self.document,
                 &name.clone().unwrap_or_default(),
                 &pub_identifier.clone().unwrap_or_default(),
                 &sys_identifier.clone().unwrap_or_default(),
+                location.clone()
             ),
             Token::StartTag {
-                name, attributes, ..
-            } => Node::new_element(&self.document, name, attributes.clone(), namespace),
-            Token::EndTag { name, .. } => {
-                Node::new_element(&self.document, name, HashMap::new(), namespace)
+                name, attributes, location, ..
+            } => Node::new_element(&self.document, name, attributes.clone(), namespace, location.clone()),
+            Token::EndTag { name, location, .. } => {
+                Node::new_element(&self.document, name, HashMap::new(), namespace, location.clone())
             }
-            Token::Comment { comment: value, .. } => Node::new_comment(&self.document, value),
-            Token::Text { text: value, .. } => {
-                Node::new_text(&self.document, value.to_string().as_str())
+            Token::Comment { comment: value, location, .. } => Node::new_comment(&self.document, location.clone(), value),
+            Token::Text { text: value, location, .. } => {
+                Node::new_text(&self.document, location.clone(), value.to_string().as_str())
             }
             Token::Eof { .. } => {
                 panic!("EOF token not allowed");
@@ -2582,7 +2584,7 @@ impl<'chars> Html5Parser<'chars> {
                         name: "p".to_string(),
                         is_self_closing: false,
                         attributes: HashMap::new(),
-                        loc: self.tokenizer.get_location(),
+                        location: self.current_token.get_location(),
                     };
                     self.insert_html_element(&token);
                 }
@@ -2849,7 +2851,7 @@ impl<'chars> Html5Parser<'chars> {
                     name: "img".to_string(),
                     attributes: attributes.clone(),
                     is_self_closing: *is_self_closing,
-                    loc: self.tokenizer.get_location(),
+                    location: self.current_token.get_location(),
                 };
                 self.reprocess_token = true;
             }
@@ -2943,7 +2945,7 @@ impl<'chars> Html5Parser<'chars> {
                     name: name.clone(),
                     attributes: attributes.clone(),
                     is_self_closing: *is_self_closing,
-                    loc: self.tokenizer.get_location(),
+                    location: self.current_token.get_location(),
                 };
                 self.adjust_mathml_attributes(&mut token);
                 self.adjust_foreign_attributes(&mut token);
@@ -2967,7 +2969,7 @@ impl<'chars> Html5Parser<'chars> {
                     name: name.clone(),
                     attributes: attributes.clone(),
                     is_self_closing: *is_self_closing,
-                    loc: self.tokenizer.get_location(),
+                    location: self.current_token.get_location(),
                 };
 
                 self.adjust_svg_attributes(&mut token);
@@ -3297,7 +3299,7 @@ impl<'chars> Html5Parser<'chars> {
                     name: "colgroup".to_string(),
                     is_self_closing: false,
                     attributes: HashMap::new(),
-                    loc: self.tokenizer.get_location(),
+                    location: self.current_token.get_location(),
                 };
                 self.insert_html_element(&token);
 
@@ -3320,7 +3322,7 @@ impl<'chars> Html5Parser<'chars> {
                     name: "tbody".to_string(),
                     is_self_closing: false,
                     attributes: HashMap::new(),
-                    loc: self.tokenizer.get_location(),
+                    location: self.current_token.get_location(),
                 };
                 self.insert_html_element(&token);
 
@@ -3897,10 +3899,10 @@ impl<'chars> Html5Parser<'chars> {
                 .next_token(self.parser_data())
                 .expect("tokenizer error");
 
-            if let Token::Text { text: value, .. } = token {
+            if let Token::Text { text: value, location } = token {
                 self.token_queue.push(Token::Text {
                     text: value,
-                    loc: self.tokenizer.get_location(),
+                    location: location.clone(),
                 });
                 // for c in value.chars() {
                 //     self.token_queue.push(Token::Text(c.to_string()));
@@ -4075,7 +4077,7 @@ impl<'chars> Html5Parser<'chars> {
             if last_group != group && !found.is_empty() {
                 tokens.push(Token::Text {
                     text: found.clone(),
-                    loc: self.tokenizer.get_location(),
+                    location: self.tokenizer.get_location(),
                 });
                 found.clear();
             }
@@ -4087,7 +4089,7 @@ impl<'chars> Html5Parser<'chars> {
         if !found.is_empty() {
             tokens.push(Token::Text {
                 text: found.clone(),
-                loc: self.tokenizer.get_location(),
+                location: self.tokenizer.get_location(),
             });
         }
 
@@ -4108,7 +4110,7 @@ impl<'chars> Html5Parser<'chars> {
             if last_group != group && !found.is_empty() {
                 tokens.push(Token::Text {
                     text: found.clone(),
-                    loc: self.tokenizer.get_location(),
+                    location: self.tokenizer.get_location(),
                 });
                 found.clear();
             }
@@ -4120,7 +4122,7 @@ impl<'chars> Html5Parser<'chars> {
         if !found.is_empty() {
             tokens.push(Token::Text {
                 text: found.clone(),
-                loc: self.tokenizer.get_location(),
+                location: self.tokenizer.get_location(),
             });
         }
 
@@ -4322,7 +4324,7 @@ mod test {
 
     macro_rules! node_create {
         ($self:expr, $name:expr) => {{
-            let node = Node::new_element(&$self.document, $name, HashMap::new(), HTML_NAMESPACE);
+            let node = Node::new_element(&$self.document, $name, HashMap::new(), HTML_NAMESPACE, Location::default());
             let node_id = $self
                 .document
                 .get_mut()

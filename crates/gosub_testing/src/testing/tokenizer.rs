@@ -121,16 +121,16 @@ where
             2 => match kind {
                 "Character" => Token::Text {
                     text: values[1].as_str().unwrap().to_owned(),
-                    loc: Location::default(),
+                    location: Location::default(),
                 },
                 "Comment" => Token::Comment {
                     comment: values[1].as_str().unwrap().to_owned(),
-                    loc: Location::default(),
+                    location: Location::default(),
                 },
                 "EndTag" => Token::EndTag {
                     name: values[1].as_str().unwrap().to_owned(),
                     is_self_closing: false,
-                    loc: Location::default(),
+                    location: Location::default(),
                 },
                 _ => {
                     return Err(Error::invalid_value(
@@ -145,7 +145,7 @@ where
                     name: values[1].as_str().unwrap().to_owned(),
                     attributes: attributes(&values[2]),
                     is_self_closing: false,
-                    loc: Location::default(),
+                    location: Location::default(),
                 },
                 _ => return Err(Error::invalid_value(Unexpected::Str(kind), &"StartTag")),
             },
@@ -155,7 +155,7 @@ where
                     name: values[1].as_str().unwrap().to_owned(),
                     attributes: attributes(&values[2]),
                     is_self_closing: values[3].as_bool().unwrap_or_default(),
-                    loc: Location::default(),
+                    location: Location::default(),
                 },
                 _ => return Err(Error::invalid_value(Unexpected::Str(kind), &"StartTag")),
             },
@@ -166,7 +166,7 @@ where
                     pub_identifier: values[2].as_str().map(str::to_owned),
                     sys_identifier: values[3].as_str().map(str::to_owned),
                     force_quirks: !values[4].as_bool().unwrap_or_default(),
-                    loc: Location::default(),
+                    location: Location::default(),
                 },
                 _ => return Err(Error::invalid_value(Unexpected::Str(kind), &"DOCTYPE")),
             },
@@ -300,10 +300,10 @@ impl TestSpec {
         match token {
             Token::Comment {
                 comment: value,
-                loc,
+                location,
             } => Token::Comment {
                 comment: escape(value),
-                loc: loc.clone(),
+                location: location.clone(),
             },
 
             Token::DocType {
@@ -311,42 +311,42 @@ impl TestSpec {
                 force_quirks,
                 pub_identifier,
                 sys_identifier,
-                loc,
+                location,
             } => Token::DocType {
                 name: name.as_ref().map(|name| escape(name)),
                 force_quirks: *force_quirks,
                 pub_identifier: pub_identifier.as_ref().map(Into::into),
                 sys_identifier: sys_identifier.as_ref().map(Into::into),
-                loc: loc.clone(),
+                location: location.clone(),
             },
 
             Token::EndTag {
                 name,
                 is_self_closing,
-                loc,
+                location,
             } => Token::EndTag {
                 name: escape(name),
                 is_self_closing: *is_self_closing,
-                loc: loc.clone(),
+                location: location.clone(),
             },
 
-            Token::Eof { loc } => Token::Eof { loc: loc.clone() },
+            Token::Eof { location } => Token::Eof { location: location.clone() },
 
             Token::StartTag {
                 name,
                 is_self_closing,
                 attributes,
-                loc,
+                location,
             } => Token::StartTag {
                 name: escape(name),
                 is_self_closing: *is_self_closing,
                 attributes: attributes.clone(),
-                loc: loc.clone(),
+                location: location.clone(),
             },
 
-            Token::Text { text: value, loc } => Token::Text {
+            Token::Text { text: value, location } => Token::Text {
                 text: escape(value),
-                loc: loc.clone(),
+                location: location.clone(),
             },
         }
     }
@@ -432,7 +432,7 @@ mod tests {
                 name: "h".into(),
                 attributes: HashMap::from([("a".into(), "&noti;".into())]),
                 is_self_closing: false,
-                loc: Location::default(),
+                location: Location::default(),
             }],
         );
     }

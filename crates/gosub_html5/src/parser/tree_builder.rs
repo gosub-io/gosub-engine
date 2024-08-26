@@ -1,3 +1,4 @@
+use gosub_shared::byte_stream::Location;
 use crate::parser::NodeId;
 use gosub_shared::types::Result;
 
@@ -14,16 +15,17 @@ pub trait TreeBuilder {
         parent_id: NodeId,
         position: Option<usize>,
         namespace: &str,
+        location: Location,
     ) -> NodeId;
 
     /// Create a new text node with the given content and append it to a parent.
-    fn create_text(&mut self, content: &str, parent_id: NodeId) -> NodeId;
+    fn create_text(&mut self, content: &str, parent_id: NodeId, location: Location) -> NodeId;
 
     /// Create a new comment node with the given content and append it to a parent.
-    fn create_comment(&mut self, content: &str, parent_id: NodeId) -> NodeId;
+    fn create_comment(&mut self, content: &str, parent_id: NodeId, location: Location) -> NodeId;
 
     /// Insert/update an attribute for an element node.
-    fn insert_attribute(&mut self, key: &str, value: &str, element_id: NodeId) -> Result<()>;
+    fn insert_attribute(&mut self, key: &str, value: &str, element_id: NodeId, location: Location) -> Result<()>;
 }
 
 #[cfg(test)]
