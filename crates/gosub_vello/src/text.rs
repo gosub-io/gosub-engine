@@ -1,3 +1,4 @@
+use futures::future::ok;
 use vello::glyph::Glyph;
 use vello::kurbo::Affine;
 use vello::peniko::{Blob, Fill, Font, StyleRef};
@@ -61,7 +62,7 @@ impl TPreRenderText for PreRenderText {
         let font = get_fonts_from_family(font);
 
         let mut this = PreRenderText {
-            text,
+            text: Self::pre_transform_text(text),
             font,
             line_height: DEFAULT_LH,
             size: Size::ZERO,
@@ -78,7 +79,7 @@ impl TPreRenderText for PreRenderText {
         let font = get_fonts_from_family(font);
 
         let mut this = PreRenderText {
-            text,
+            text: Self::pre_transform_text(text),
             font,
             line_height,
             size: Size::ZERO,
@@ -109,21 +110,17 @@ impl TPreRenderText for PreRenderText {
         self.glyphs = self
             .text
             .chars()
-            .filter_map(|c| {
-                if c == '\n' {
-                    return None;
-                }
-
+            .map(|c| {
                 let gid = char_map.map(c).unwrap_or_default(); //TODO: here we need to use the next font if the glyph is not found
                 let advance = glyph_metrics.advance_width(gid).unwrap_or_default();
                 let x = pen_x;
                 pen_x += advance;
 
-                Some(Glyph {
+                Glyph {
                     id: gid.to_u16() as u32,
                     x,
                     y: 0.0,
-                })
+                }
             })
             .collect();
 
@@ -166,6 +163,27 @@ impl Text {
             .glyph_transform(brush_transform)
             .brush(brush)
             .draw(style, render.text.glyphs.iter().copied());
+    }
+}
+
+impl PreRenderText {
+    fn pre_transform_text(text: String) -> String {
+        let mut new_text = String::with_capacity(text.len());
+
+        let mut last_was_ws = false;
+        for c in text.chars() {
+            if c.is_whitespace() {
+                if !last_was_ws {
+                    new_text.push(' ');
+                    last_was_ws = true;
+                }
+            } else {
+                new_text.push(c);
+                last_was_ws = false;
+            }
+        }
+
+        new_text
     }
 }
 
