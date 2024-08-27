@@ -218,10 +218,6 @@ impl<LT: LayoutTree<TaffyLayouter>> LayoutPartialTree for LayoutDocument<'_, LT>
 
         let node_id = LT::NodeId::from(node_id.into());
 
-        if self.0.child_count(node_id) == 0 {
-            println!("Setting layout for leaf node: {:?}", layout);
-        }
-
         self.0.set_layout(node_id, layout);
     }
 
