@@ -481,7 +481,7 @@ impl Html5Parser<'_> {
                 &format_elem_node.name,
                 format_elem_attributes,
                 HTML_NAMESPACE,
-                format_elem_node.location.clone()
+                format_elem_node.location.clone(),
             );
 
             // step 4.16

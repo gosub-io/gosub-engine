@@ -5,7 +5,7 @@ mod character_reference;
 mod replacement_tables;
 
 #[cfg(test)]
-mod tests;
+mod test_cases;
 
 use crate::error_logger::{ErrorLogger, ParserError};
 use crate::errors::Error;
@@ -178,10 +178,12 @@ impl<'stream> Tokenizer<'stream> {
                     let c = self.read_char();
                     match c {
                         Ch('&') => self.state = State::CharacterReferenceInData,
-                        Ch('<') => self.state = {
-                            self.last_token_location = loc.clone();
-                            State::TagOpen
-                        },
+                        Ch('<') => {
+                            self.state = {
+                                self.last_token_location = loc.clone();
+                                State::TagOpen
+                            }
+                        }
                         Ch(CHAR_NUL) => {
                             self.consume(c.into());
                             self.parse_error(ParserError::UnexpectedNullCharacter, loc);
@@ -262,6 +264,7 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::TagOpen => {
+                    let loc = self.get_location();
                     let c = self.read_char();
                     match c {
                         Ch('!') => self.state = State::MarkupDeclarationOpen,
@@ -283,18 +286,18 @@ impl<'stream> Tokenizer<'stream> {
                             });
                             self.parse_error(
                                 ParserError::UnexpectedQuestionMarkInsteadOfTagName,
-                                self.last_token_location.clone(),
+                                loc,
                             );
                             self.stream_prev();
                             self.state = State::BogusComment;
                         }
                         StreamEnd => {
-                            self.parse_error(ParserError::EofBeforeTagName, self.last_token_location.clone());
+                            self.parse_error(ParserError::EofBeforeTagName, loc);
                             self.consume('<');
                             self.state = State::Data;
                         }
                         _ => {
-                            self.parse_error(ParserError::InvalidFirstCharacterOfTagName, self.last_token_location.clone());
+                            self.parse_error(ParserError::InvalidFirstCharacterOfTagName, loc);
                             self.consume('<');
                             self.stream_prev();
                             self.state = State::Data;
@@ -302,6 +305,7 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::EndTagOpen => {
+                    let loc = self.get_location();
                     let c = self.read_char();
                     match c {
                         Ch(ch) if ch.is_ascii_alphabetic() => {
@@ -314,20 +318,20 @@ impl<'stream> Tokenizer<'stream> {
                             self.state = State::TagName;
                         }
                         Ch('>') => {
-                            self.parse_error(ParserError::MissingEndTagName, self.get_location());
+                            self.parse_error(ParserError::MissingEndTagName, loc);
                             self.state = State::Data;
                         }
                         StreamEnd => {
-                            self.parse_error(ParserError::EofBeforeTagName, self.get_location());
+                            self.parse_error(ParserError::EofBeforeTagName, loc);
                             self.consume('<');
                             self.consume('/');
                             self.state = State::Data;
                         }
                         _ => {
-                            self.parse_error(ParserError::InvalidFirstCharacterOfTagName, self.get_location());
+                            self.parse_error(ParserError::InvalidFirstCharacterOfTagName, loc);
                             self.current_token = Some(Token::Comment {
                                 comment: String::new(),
-                                location: self.get_location(),
+                                location: self.last_token_location.clone(),
                             });
                             self.stream_prev();
                             self.state = State::BogusComment;
@@ -376,7 +380,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.current_token = Some(Token::EndTag {
                                 name: String::new(),
                                 is_self_closing: false,
-                                location: self.get_location(),
+                                location: self.last_token_location.clone(),
                             });
                             self.stream_prev();
                             self.state = State::RCDATAEndTagName;
@@ -463,7 +467,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.current_token = Some(Token::EndTag {
                                 name: String::new(),
                                 is_self_closing: false,
-                                location: self.get_location(),
+                                location: self.last_token_location.clone(),
                             });
                             self.stream_prev();
                             self.state = State::RAWTEXTEndTagName;
@@ -558,7 +562,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.current_token = Some(Token::EndTag {
                                 name: format!("{}", to_lowercase!(ch)),
                                 is_self_closing: false,
-                                location: self.get_location(),
+                                location: self.last_token_location.clone(),
                             });
 
                             self.temporary_buffer.push(ch);
@@ -756,7 +760,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.current_token = Some(Token::EndTag {
                                 name: String::new(),
                                 is_self_closing: false,
-                                location: self.get_location(),
+                                location: self.last_token_location.clone(),
                             });
 
                             self.stream_prev();
@@ -1268,7 +1272,7 @@ impl<'stream> Tokenizer<'stream> {
                         continue;
                     }
 
-                    self.parse_error(ParserError::IncorrectlyOpenedComment, self.last_token_location.clone());
+                    self.parse_error(ParserError::IncorrectlyOpenedComment, self.get_location());
                     self.current_token = Some(Token::Comment {
                         comment: String::new(),
                         location: self.last_token_location.clone(),
@@ -2174,7 +2178,7 @@ impl<'stream> Tokenizer<'stream> {
 
             self.token_queue.push(Token::Text {
                 text: value.to_string(),
-                location: self.get_location(),
+                location: self.last_token_location.clone(),
             });
 
             self.clear_consume_buffer();
@@ -2343,6 +2347,7 @@ impl<'stream> Tokenizer<'stream> {
             return;
         }
 
+        self.location_handler.dec();
         self.stream.prev();
     }
 

@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::char::REPLACEMENT_CHARACTER;
+use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::io::Read;
 use std::{fmt, io};
@@ -96,6 +97,8 @@ impl Character {
 pub struct Config {
     /// Treat any CRLF pairs as a single LF
     pub cr_lf_as_one: bool,
+    /// Replace any CR (without a pairing LF) with LF
+    pub replace_cr_as_lf: bool,
     /// Are high ascii characters read as-is or converted to a replacement character
     pub replace_high_ascii: bool,
 }
@@ -104,6 +107,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             cr_lf_as_one: true,
+            replace_cr_as_lf: false,
             replace_high_ascii: false,
         }
     }
@@ -181,6 +185,11 @@ impl Stream for ByteStream {
         // Make sure we skip the CR if it is followed by a LF
         if self.config.cr_lf_as_one && ch == Ch(CHAR_CR) && self.read() == Ch(CHAR_LF) {
             self.next();
+            return Ch(CHAR_LF);
+        }
+
+        // Replace CR with LF if it is not followed by a LF
+        if self.config.replace_cr_as_lf && ch == Ch(CHAR_CR) && self.read() != Ch(CHAR_LF) {
             return Ch(CHAR_LF);
         }
 
@@ -570,6 +579,8 @@ pub struct LocationHandler {
     pub start_location: Location,
     /// The current location of the stream
     pub cur_location: Location,
+    /// List of all line number -> col size mappings
+    line_endings: HashMap<usize, usize>,
 }
 
 impl LocationHandler {
@@ -579,6 +590,7 @@ impl LocationHandler {
         Self {
             start_location,
             cur_location: Location::default(),
+            line_endings: HashMap::new(),
         }
     }
 
@@ -588,10 +600,28 @@ impl LocationHandler {
         self.cur_location = loc;
     }
 
+    /// Will decrease the current location based on the current character
+    pub fn dec(&mut self) {
+        if self.cur_location.column > 1 {
+            self.cur_location.column -= 1;
+            self.cur_location.offset -= 1;
+            return;
+        }
+
+        if self.cur_location.line > 1 {
+            self.cur_location.line -= 1;
+            self.cur_location.column = self.line_endings[&self.cur_location.line];
+            self.cur_location.offset -= 1;
+        }
+    }
+
     /// Will increase the current location based on the given character
     pub fn inc(&mut self, ch: Character) {
         match ch {
             Ch(CHAR_LF) => {
+                self.line_endings
+                    .insert(self.cur_location.line, self.cur_location.column);
+
                 self.cur_location.line += 1;
                 self.cur_location.column = 1;
                 self.cur_location.offset += 1;
@@ -633,6 +663,7 @@ mod test {
             Encoding::UTF8,
             Some(Config {
                 cr_lf_as_one: true,
+                replace_cr_as_lf: false,
                 replace_high_ascii: true,
             }),
         );
@@ -800,6 +831,7 @@ mod test {
             Encoding::UTF8,
             Some(Config {
                 cr_lf_as_one: true,
+                replace_cr_as_lf: false,
                 replace_high_ascii: true,
             }),
         );
@@ -824,6 +856,7 @@ mod test {
             Encoding::UTF8,
             Some(Config {
                 cr_lf_as_one: true,
+                replace_cr_as_lf: false,
                 replace_high_ascii: true,
             }),
         );
@@ -874,6 +907,7 @@ mod test {
             Encoding::UTF16BE,
             Some(Config {
                 cr_lf_as_one: true,
+                replace_cr_as_lf: false,
                 replace_high_ascii: false,
             }),
         );
@@ -928,6 +962,7 @@ mod test {
             Encoding::UTF8,
             Some(Config {
                 cr_lf_as_one: true,
+                replace_cr_as_lf: false,
                 replace_high_ascii: false,
             }),
         );

@@ -89,7 +89,7 @@ mod tests {
             "test",
             HashMap::new(),
             HTML_NAMESPACE,
-            Location::default()
+            Location::default(),
         );
         let mut document = doc.get_mut();
         let id = document.arena.register_node(node);
@@ -104,7 +104,13 @@ mod tests {
     fn register_node_twice() {
         let mut doc = Document::shared(None);
 
-        let node = Node::new_element(&doc, "test", HashMap::new(), HTML_NAMESPACE, Location::default());
+        let node = Node::new_element(
+            &doc,
+            "test",
+            HashMap::new(),
+            HTML_NAMESPACE,
+            Location::default(),
+        );
         let mut document = doc.get_mut();
         document.arena.register_node(node);
 
@@ -115,7 +121,13 @@ mod tests {
     #[test]
     fn get_node() {
         let mut doc = Document::shared(None);
-        let node = Node::new_element(&doc, "test", HashMap::new(), HTML_NAMESPACE, Location::default());
+        let node = Node::new_element(
+            &doc,
+            "test",
+            HashMap::new(),
+            HTML_NAMESPACE,
+            Location::default(),
+        );
 
         let mut document = doc.get_mut();
         let id = document.arena.register_node(node);
@@ -127,7 +139,13 @@ mod tests {
     #[test]
     fn get_node_mut() {
         let mut doc = Document::shared(None);
-        let node = Node::new_element(&doc, "test", HashMap::new(), HTML_NAMESPACE, Location::default());
+        let node = Node::new_element(
+            &doc,
+            "test",
+            HashMap::new(),
+            HTML_NAMESPACE,
+            Location::default(),
+        );
 
         let mut document = doc.get_mut();
 
@@ -141,8 +159,20 @@ mod tests {
     fn register_node_through_document() {
         let mut doc = Document::shared(None);
 
-        let parent = Node::new_element(&doc, "parent", HashMap::new(), HTML_NAMESPACE, Location::default());
-        let child = Node::new_element(&doc, "child", HashMap::new(), HTML_NAMESPACE, Location::default());
+        let parent = Node::new_element(
+            &doc,
+            "parent",
+            HashMap::new(),
+            HTML_NAMESPACE,
+            Location::default(),
+        );
+        let child = Node::new_element(
+            &doc,
+            "child",
+            HashMap::new(),
+            HTML_NAMESPACE,
+            Location::default(),
+        );
 
         let mut document = doc.get_mut();
         let parent_id = document.arena.register_node(parent);

@@ -631,7 +631,11 @@ impl<'chars> Html5Parser<'chars> {
     /// Process a token in HTML content
     fn process_html_content(&mut self) {
         if self.ignore_lf {
-            if let Token::Text { text: value, location } = &self.current_token {
+            if let Token::Text {
+                text: value,
+                location,
+            } = &self.current_token
+            {
                 if value.starts_with('\n') {
                     // We don't need to skip 1 char, but we can skip 1 byte, as we just checked for \n
                     self.current_token = Token::Text {
@@ -1872,18 +1876,37 @@ impl<'chars> Html5Parser<'chars> {
                 &name.clone().unwrap_or_default(),
                 &pub_identifier.clone().unwrap_or_default(),
                 &sys_identifier.clone().unwrap_or_default(),
-                location.clone()
+                location.clone(),
             ),
             Token::StartTag {
-                name, attributes, location, ..
-            } => Node::new_element(&self.document, name, attributes.clone(), namespace, location.clone()),
-            Token::EndTag { name, location, .. } => {
-                Node::new_element(&self.document, name, HashMap::new(), namespace, location.clone())
-            }
-            Token::Comment { comment: value, location, .. } => Node::new_comment(&self.document, location.clone(), value),
-            Token::Text { text: value, location, .. } => {
-                Node::new_text(&self.document, location.clone(), value.to_string().as_str())
-            }
+                name,
+                attributes,
+                location,
+                ..
+            } => Node::new_element(
+                &self.document,
+                name,
+                attributes.clone(),
+                namespace,
+                location.clone(),
+            ),
+            Token::EndTag { name, location, .. } => Node::new_element(
+                &self.document,
+                name,
+                HashMap::new(),
+                namespace,
+                location.clone(),
+            ),
+            Token::Comment {
+                comment: value,
+                location,
+                ..
+            } => Node::new_comment(&self.document, location.clone(), value),
+            Token::Text {
+                text: value,
+                location,
+                ..
+            } => Node::new_text(&self.document, location.clone(), value.to_string().as_str()),
             Token::Eof { .. } => {
                 panic!("EOF token not allowed");
             }
@@ -3899,7 +3922,11 @@ impl<'chars> Html5Parser<'chars> {
                 .next_token(self.parser_data())
                 .expect("tokenizer error");
 
-            if let Token::Text { text: value, location } = token {
+            if let Token::Text {
+                text: value,
+                location,
+            } = token
+            {
                 self.token_queue.push(Token::Text {
                     text: value,
                     location: location.clone(),
@@ -4324,7 +4351,13 @@ mod test {
 
     macro_rules! node_create {
         ($self:expr, $name:expr) => {{
-            let node = Node::new_element(&$self.document, $name, HashMap::new(), HTML_NAMESPACE, Location::default());
+            let node = Node::new_element(
+                &$self.document,
+                $name,
+                HashMap::new(),
+                HTML_NAMESPACE,
+                Location::default(),
+            );
             let node_id = $self
                 .document
                 .get_mut()

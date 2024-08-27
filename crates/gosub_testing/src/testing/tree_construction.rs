@@ -10,7 +10,7 @@ use gosub_html5::parser::document::DocumentBuilder;
 use gosub_html5::parser::document::{Document, DocumentHandle};
 use gosub_html5::parser::tree_builder::TreeBuilder;
 use gosub_html5::parser::{Html5Parser, Html5ParserOptions};
-use gosub_shared::byte_stream::{ByteStream, Encoding, Location};
+use gosub_shared::byte_stream::{ByteStream, Config, Encoding, Location};
 use gosub_shared::types::{ParseError, Result};
 use parser::{ScriptMode, TestSpec};
 use result::TestResult;
@@ -87,7 +87,14 @@ impl Harness {
     /// Run the html5 parser and return the document tree and errors
     fn do_parse(&mut self, scripting_enabled: bool) -> Result<(DocumentHandle, Vec<ParseError>)> {
         let options = Html5ParserOptions { scripting_enabled };
-        let mut stream = ByteStream::new(Encoding::UTF8, None);
+        let mut stream = ByteStream::new(
+            Encoding::UTF8,
+            Some(Config {
+                cr_lf_as_one: true,
+                replace_cr_as_lf: true,
+                replace_high_ascii: false,
+            }),
+        );
         stream.read_from_str(self.test.spec_data(), None);
         stream.close();
 
@@ -132,8 +139,13 @@ impl Harness {
         };
 
         // Add context node
-        let context_node_id =
-            main_document.create_element(element.as_str(), NodeId::root(), None, namespace, start_location.clone());
+        let context_node_id = main_document.create_element(
+            element.as_str(),
+            NodeId::root(),
+            None,
+            namespace,
+            start_location.clone(),
+        );
         let context_node = main_document
             .get()
             .get_node_by_id(context_node_id)

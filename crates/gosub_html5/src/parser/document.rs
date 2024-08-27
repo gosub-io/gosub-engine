@@ -152,22 +152,40 @@ impl DocumentTaskQueue {
                     namespace,
                     location,
                 } => {
+                    self.document.create_element(
+                        name,
+                        *parent_id,
+                        *position,
+                        namespace,
+                        location.clone(),
+                    );
+                }
+                DocumentTask::CreateText {
+                    content,
+                    parent_id,
+                    location,
+                } => {
                     self.document
-                        .create_element(name, *parent_id, *position, namespace, location.clone());
+                        .create_text(content, *parent_id, location.clone());
                 }
-                DocumentTask::CreateText { content, parent_id, location } => {
-                    self.document.create_text(content, *parent_id, location.clone());
-                }
-                DocumentTask::CreateComment { content, parent_id, location } => {
-                    self.document.create_comment(content, *parent_id, location.clone());
+                DocumentTask::CreateComment {
+                    content,
+                    parent_id,
+                    location,
+                } => {
+                    self.document
+                        .create_comment(content, *parent_id, location.clone());
                 }
                 DocumentTask::InsertAttribute {
                     key,
                     value,
                     element_id,
-                    location
+                    location,
                 } => {
-                    if let Err(err) = self.document.insert_attribute(key, value, *element_id, location.clone()) {
+                    if let Err(err) =
+                        self.document
+                            .insert_attribute(key, value, *element_id, location.clone())
+                    {
                         errors.push(err.to_string());
                     }
                 }
@@ -229,7 +247,13 @@ impl TreeBuilder for DocumentTaskQueue {
         new_id
     }
 
-    fn insert_attribute(&mut self, key: &str, value: &str, element_id: NodeId, location: Location) -> Result<()> {
+    fn insert_attribute(
+        &mut self,
+        key: &str,
+        value: &str,
+        element_id: NodeId,
+        location: Location,
+    ) -> Result<()> {
         let attribute = DocumentTask::InsertAttribute {
             key: key.to_owned(),
             value: value.to_owned(),
@@ -743,7 +767,12 @@ impl DocumentHandle {
         self.get().has_cyclic_reference(node_id, parent_id)
     }
 
-    fn insert_id_attribute(&mut self, value: &str, element_id: NodeId, _location: Location) -> Result<()> {
+    fn insert_id_attribute(
+        &mut self,
+        value: &str,
+        element_id: NodeId,
+        _location: Location,
+    ) -> Result<()> {
         if !is_valid_id_attribute_value(value) {
             return Err(Error::DocumentTask(format!(
                 "Attribute value '{value}' did not pass validation",
@@ -781,7 +810,12 @@ impl DocumentHandle {
         Ok(())
     }
 
-    fn insert_class_attribute(&mut self, value: &str, element_id: NodeId, _location: Location) -> Result<()> {
+    fn insert_class_attribute(
+        &mut self,
+        value: &str,
+        element_id: NodeId,
+        _location: Location,
+    ) -> Result<()> {
         let mut doc = self.get_mut();
         let node = doc
             .get_node_by_id_mut(element_id)
@@ -804,7 +838,7 @@ impl DocumentHandle {
         key: &str,
         value: &str,
         element_id: NodeId,
-        _location: Location
+        _location: Location,
     ) -> Result<()> {
         let mut doc = self.get_mut();
         let node = doc
@@ -958,7 +992,13 @@ impl TreeBuilder for DocumentHandle {
 
     /// Inserts an attribute to an element node.
     /// If node is not an element or if passing an invalid attribute value, returns an Err()
-    fn insert_attribute(&mut self, key: &str, value: &str, element_id: NodeId, location: Location) -> Result<()> {
+    fn insert_attribute(
+        &mut self,
+        key: &str,
+        value: &str,
+        element_id: NodeId,
+        location: Location,
+    ) -> Result<()> {
         match key {
             "id" => self.insert_id_attribute(value, element_id, location),
             "class" => self.insert_class_attribute(value, element_id, location),
@@ -1003,7 +1043,13 @@ impl DocumentBuilder {
 
         // @TODO: Set tokenizer state based on context element
 
-        let html_node = Node::new_element(&doc, "html", HashMap::new(), HTML_NAMESPACE, context.location.clone());
+        let html_node = Node::new_element(
+            &doc,
+            "html",
+            HashMap::new(),
+            HTML_NAMESPACE,
+            context.location.clone(),
+        );
         // doc.get_mut().arena.register_node(html_node);
         doc.add_node(html_node, NodeId::root(), None);
 
@@ -1058,23 +1104,53 @@ impl Iterator for TreeIterator {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-    use gosub_shared::byte_stream::Location;
     use crate::node::{NodeTrait, NodeType, HTML_NAMESPACE};
     use crate::parser::document::{DocumentBuilder, DocumentTaskQueue, TreeIterator};
     use crate::parser::query::Query;
     use crate::parser::tree_builder::TreeBuilder;
     use crate::parser::{Node, NodeData, NodeId};
+    use gosub_shared::byte_stream::Location;
+    use std::collections::HashMap;
 
     #[test]
     fn relocate() {
         let mut document = DocumentBuilder::new_document(None);
 
-        let parent = Node::new_element(&document, "parent", HashMap::new(), HTML_NAMESPACE, Location::default());
-        let node1 = Node::new_element(&document, "div1", HashMap::new(), HTML_NAMESPACE, Location::default());
-        let node2 = Node::new_element(&document, "div2", HashMap::new(), HTML_NAMESPACE, Location::default());
-        let node3 = Node::new_element(&document, "div3", HashMap::new(), HTML_NAMESPACE, Location::default());
-        let node3_1 = Node::new_element(&document, "div3_1", HashMap::new(), HTML_NAMESPACE, Location::default());
+        let parent = Node::new_element(
+            &document,
+            "parent",
+            HashMap::new(),
+            HTML_NAMESPACE,
+            Location::default(),
+        );
+        let node1 = Node::new_element(
+            &document,
+            "div1",
+            HashMap::new(),
+            HTML_NAMESPACE,
+            Location::default(),
+        );
+        let node2 = Node::new_element(
+            &document,
+            "div2",
+            HashMap::new(),
+            HTML_NAMESPACE,
+            Location::default(),
+        );
+        let node3 = Node::new_element(
+            &document,
+            "div3",
+            HashMap::new(),
+            HTML_NAMESPACE,
+            Location::default(),
+        );
+        let node3_1 = Node::new_element(
+            &document,
+            "div3_1",
+            HashMap::new(),
+            HTML_NAMESPACE,
+            Location::default(),
+        );
 
         let parent_id = document
             .get_mut()
@@ -1124,8 +1200,20 @@ mod tests {
     fn duplicate_named_id_elements() {
         let mut document = DocumentBuilder::new_document(None);
 
-        let div_1 = document.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
-        let div_2 = document.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        let div_1 = document.create_element(
+            "div",
+            NodeId::root(),
+            None,
+            HTML_NAMESPACE,
+            Location::default(),
+        );
+        let div_2 = document.create_element(
+            "div",
+            NodeId::root(),
+            None,
+            HTML_NAMESPACE,
+            Location::default(),
+        );
 
         // when adding duplicate IDs, our current implementation will prevent duplicates.
         let mut res = document.insert_attribute("id", "myid", div_1, Location::default());
@@ -1159,8 +1247,20 @@ mod tests {
     fn verify_node_ids_in_element_data() {
         let mut document = DocumentBuilder::new_document(None);
 
-        let node1 = Node::new_element(&document, "div", HashMap::new(), HTML_NAMESPACE, Location::default());
-        let node2 = Node::new_element(&document, "div", HashMap::new(), HTML_NAMESPACE, Location::default());
+        let node1 = Node::new_element(
+            &document,
+            "div",
+            HashMap::new(),
+            HTML_NAMESPACE,
+            Location::default(),
+        );
+        let node2 = Node::new_element(
+            &document,
+            "div",
+            HashMap::new(),
+            HTML_NAMESPACE,
+            Location::default(),
+        );
 
         document
             .get_mut()
@@ -1205,10 +1305,17 @@ mod tests {
         let mut task_queue = DocumentTaskQueue::new(&document);
 
         // NOTE: only elements return the ID
-        let div_id = task_queue.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        let div_id = task_queue.create_element(
+            "div",
+            NodeId::root(),
+            None,
+            HTML_NAMESPACE,
+            Location::default(),
+        );
         assert_eq!(div_id, NodeId::from(1usize));
 
-        let p_id = task_queue.create_element("p", div_id, None, HTML_NAMESPACE, Location::default());
+        let p_id =
+            task_queue.create_element("p", div_id, None, HTML_NAMESPACE, Location::default());
         assert_eq!(p_id, NodeId::from(2usize));
 
         task_queue.create_comment("comment inside p", p_id, Location::default());
@@ -1300,17 +1407,32 @@ mod tests {
         let document = DocumentBuilder::new_document(None);
 
         let mut task_queue = DocumentTaskQueue::new(&document);
-        let div_id = task_queue.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        let div_id = task_queue.create_element(
+            "div",
+            NodeId::root(),
+            None,
+            HTML_NAMESPACE,
+            Location::default(),
+        );
         task_queue.create_comment("content", div_id, Location::default()); // this is NodeId::from(2)
         task_queue.flush();
 
         // NOTE: inserting attribute in task queue always succeeds
         // since it doesn't touch DOM until flush
-        let _ = task_queue.insert_attribute("id", "myid", NodeId::from(1usize), Location::default());
-        let _ = task_queue.insert_attribute("id", "myid", NodeId::from(1usize), Location::default());
-        let _ = task_queue.insert_attribute("id", "otherid", NodeId::from(2usize), Location::default());
-        let _ = task_queue.insert_attribute("id", "dummyid", NodeId::from(42usize), Location::default());
-        let _ = task_queue.insert_attribute("id", "my id", NodeId::from(1usize), Location::default());
+        let _ =
+            task_queue.insert_attribute("id", "myid", NodeId::from(1usize), Location::default());
+        let _ =
+            task_queue.insert_attribute("id", "myid", NodeId::from(1usize), Location::default());
+        let _ =
+            task_queue.insert_attribute("id", "otherid", NodeId::from(2usize), Location::default());
+        let _ = task_queue.insert_attribute(
+            "id",
+            "dummyid",
+            NodeId::from(42usize),
+            Location::default(),
+        );
+        let _ =
+            task_queue.insert_attribute("id", "my id", NodeId::from(1usize), Location::default());
         let _ = task_queue.insert_attribute("id", "123", NodeId::from(1usize), Location::default());
         let _ = task_queue.insert_attribute("id", "", NodeId::from(1usize), Location::default());
         let errors = task_queue.flush();
@@ -1358,7 +1480,13 @@ mod tests {
         // </div>
 
         // NOTE: only elements return the ID
-        let div_id = document.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        let div_id = document.create_element(
+            "div",
+            NodeId::root(),
+            None,
+            HTML_NAMESPACE,
+            Location::default(),
+        );
         assert_eq!(div_id, NodeId::from(1usize));
 
         let p_id = document.create_element("p", div_id, None, HTML_NAMESPACE, Location::default());
@@ -1429,7 +1557,13 @@ mod tests {
     #[test]
     fn insert_generic_attribute() {
         let mut doc = DocumentBuilder::new_document(None);
-        let div_id = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        let div_id = doc.create_element(
+            "div",
+            NodeId::root(),
+            None,
+            HTML_NAMESPACE,
+            Location::default(),
+        );
         let res = doc.insert_attribute("key", "value", div_id, Location::default());
         assert!(res.is_ok());
         let doc_read = doc.get();
@@ -1443,7 +1577,13 @@ mod tests {
     fn task_queue_insert_generic_attribute() {
         let doc = DocumentBuilder::new_document(None);
         let mut task_queue = DocumentTaskQueue::new(&doc);
-        let div_id = task_queue.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        let div_id = task_queue.create_element(
+            "div",
+            NodeId::root(),
+            None,
+            HTML_NAMESPACE,
+            Location::default(),
+        );
         let _ = task_queue.insert_attribute("key", "value", div_id, Location::default());
         let errors = task_queue.flush();
         assert!(errors.is_empty());
@@ -1457,7 +1597,13 @@ mod tests {
     #[test]
     fn insert_class_attribute() {
         let mut doc = DocumentBuilder::new_document(None);
-        let div_id = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        let div_id = doc.create_element(
+            "div",
+            NodeId::root(),
+            None,
+            HTML_NAMESPACE,
+            Location::default(),
+        );
         let res = doc.insert_attribute("class", "one two three", div_id, Location::default());
         assert!(res.is_ok());
         let doc_read = doc.get();
@@ -1473,7 +1619,13 @@ mod tests {
     fn task_queue_insert_class_attribute() {
         let doc = DocumentBuilder::new_document(None);
         let mut task_queue = DocumentTaskQueue::new(&doc);
-        let div_id = task_queue.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        let div_id = task_queue.create_element(
+            "div",
+            NodeId::root(),
+            None,
+            HTML_NAMESPACE,
+            Location::default(),
+        );
         let _ = task_queue.insert_attribute("class", "one two three", div_id, Location::default());
         let errors = task_queue.flush();
         assert!(errors.is_empty());
@@ -1513,15 +1665,33 @@ mod tests {
         // <p>
         let mut doc = DocumentBuilder::new_document(None);
 
-        let div_id = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        let div_id = doc.create_element(
+            "div",
+            NodeId::root(),
+            None,
+            HTML_NAMESPACE,
+            Location::default(),
+        );
         let div_id_2 = doc.create_element("div", div_id, None, HTML_NAMESPACE, Location::default());
         let p_id = doc.create_element("p", div_id_2, None, HTML_NAMESPACE, Location::default());
         let _ = doc.create_element("p", div_id, None, HTML_NAMESPACE, Location::default());
 
-        let div_id_3 = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        let div_id_3 = doc.create_element(
+            "div",
+            NodeId::root(),
+            None,
+            HTML_NAMESPACE,
+            Location::default(),
+        );
         let _ = doc.create_element("p", div_id_3, None, HTML_NAMESPACE, Location::default());
 
-        let _ = doc.create_element("p", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        let _ = doc.create_element(
+            "p",
+            NodeId::root(),
+            None,
+            HTML_NAMESPACE,
+            Location::default(),
+        );
 
         let query = Query::new().equals_tag("p").find_first();
         let found_ids = doc.query(&query).unwrap();
@@ -1540,15 +1710,33 @@ mod tests {
         // <p>
         let mut doc = DocumentBuilder::new_document(None);
 
-        let div_id = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        let div_id = doc.create_element(
+            "div",
+            NodeId::root(),
+            None,
+            HTML_NAMESPACE,
+            Location::default(),
+        );
         let div_id_2 = doc.create_element("div", div_id, None, HTML_NAMESPACE, Location::default());
         let p_id = doc.create_element("p", div_id_2, None, HTML_NAMESPACE, Location::default());
         let p_id_2 = doc.create_element("p", div_id, None, HTML_NAMESPACE, Location::default());
 
-        let div_id_3 = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        let div_id_3 = doc.create_element(
+            "div",
+            NodeId::root(),
+            None,
+            HTML_NAMESPACE,
+            Location::default(),
+        );
         let p_id_3 = doc.create_element("p", div_id_3, None, HTML_NAMESPACE, Location::default());
 
-        let p_id_4 = doc.create_element("p", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        let p_id_4 = doc.create_element(
+            "p",
+            NodeId::root(),
+            None,
+            HTML_NAMESPACE,
+            Location::default(),
+        );
 
         let query = Query::new().equals_tag("p").find_all();
         let found_ids = doc.query(&query).unwrap();
@@ -1567,17 +1755,35 @@ mod tests {
         // <p>
         let mut doc = DocumentBuilder::new_document(None);
 
-        let div_id = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        let div_id = doc.create_element(
+            "div",
+            NodeId::root(),
+            None,
+            HTML_NAMESPACE,
+            Location::default(),
+        );
         let div_id_2 = doc.create_element("div", div_id, None, HTML_NAMESPACE, Location::default());
         let _ = doc.create_element("p", div_id_2, None, HTML_NAMESPACE, Location::default());
         let p_id_2 = doc.create_element("p", div_id, None, HTML_NAMESPACE, Location::default());
         let res = doc.insert_attribute("id", "myid", p_id_2, Location::default());
         assert!(res.is_ok());
 
-        let div_id_3 = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        let div_id_3 = doc.create_element(
+            "div",
+            NodeId::root(),
+            None,
+            HTML_NAMESPACE,
+            Location::default(),
+        );
         let _ = doc.create_element("p", div_id_3, None, HTML_NAMESPACE, Location::default());
 
-        let _ = doc.create_element("p", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        let _ = doc.create_element(
+            "p",
+            NodeId::root(),
+            None,
+            HTML_NAMESPACE,
+            Location::default(),
+        );
 
         let query = Query::new().equals_id("myid").find_first();
         let found_ids = doc.query(&query).unwrap();
@@ -1596,7 +1802,13 @@ mod tests {
         // <p class="three">
         let mut doc = DocumentBuilder::new_document(None);
 
-        let div_id = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        let div_id = doc.create_element(
+            "div",
+            NodeId::root(),
+            None,
+            HTML_NAMESPACE,
+            Location::default(),
+        );
         let div_id_2 = doc.create_element("div", div_id, None, HTML_NAMESPACE, Location::default());
         let p_id = doc.create_element("p", div_id_2, None, HTML_NAMESPACE, Location::default());
         let mut res = doc.insert_attribute("class", "one two", p_id, Location::default());
@@ -1607,12 +1819,24 @@ mod tests {
         res = doc.insert_attribute("id", "myid", p_id_2, Location::default());
         assert!(res.is_ok());
 
-        let div_id_3 = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        let div_id_3 = doc.create_element(
+            "div",
+            NodeId::root(),
+            None,
+            HTML_NAMESPACE,
+            Location::default(),
+        );
         let p_id_3 = doc.create_element("p", div_id_3, None, HTML_NAMESPACE, Location::default());
         res = doc.insert_attribute("class", "two three", p_id_3, Location::default());
         assert!(res.is_ok());
 
-        let p_id_4 = doc.create_element("p", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        let p_id_4 = doc.create_element(
+            "p",
+            NodeId::root(),
+            None,
+            HTML_NAMESPACE,
+            Location::default(),
+        );
         res = doc.insert_attribute("class", "three", p_id_4, Location::default());
         assert!(res.is_ok());
 
@@ -1633,7 +1857,13 @@ mod tests {
         // <p class="three">
         let mut doc = DocumentBuilder::new_document(None);
 
-        let div_id = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        let div_id = doc.create_element(
+            "div",
+            NodeId::root(),
+            None,
+            HTML_NAMESPACE,
+            Location::default(),
+        );
         let div_id_2 = doc.create_element("div", div_id, None, HTML_NAMESPACE, Location::default());
         let p_id = doc.create_element("p", div_id_2, None, HTML_NAMESPACE, Location::default());
         let mut res = doc.insert_attribute("class", "one two", p_id, Location::default());
@@ -1644,12 +1874,24 @@ mod tests {
         res = doc.insert_attribute("id", "myid", p_id_2, Location::default());
         assert!(res.is_ok());
 
-        let div_id_3 = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        let div_id_3 = doc.create_element(
+            "div",
+            NodeId::root(),
+            None,
+            HTML_NAMESPACE,
+            Location::default(),
+        );
         let p_id_3 = doc.create_element("p", div_id_3, None, HTML_NAMESPACE, Location::default());
         res = doc.insert_attribute("class", "two three", p_id_3, Location::default());
         assert!(res.is_ok());
 
-        let p_id_4 = doc.create_element("p", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        let p_id_4 = doc.create_element(
+            "p",
+            NodeId::root(),
+            None,
+            HTML_NAMESPACE,
+            Location::default(),
+        );
         res = doc.insert_attribute("class", "three", p_id_4, Location::default());
         assert!(res.is_ok());
 
@@ -1670,7 +1912,13 @@ mod tests {
         // <p title="yo" style="cat">
         let mut doc = DocumentBuilder::new_document(None);
 
-        let div_id = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        let div_id = doc.create_element(
+            "div",
+            NodeId::root(),
+            None,
+            HTML_NAMESPACE,
+            Location::default(),
+        );
         let div_id_2 = doc.create_element("div", div_id, None, HTML_NAMESPACE, Location::default());
         let mut res = doc.insert_attribute("id", "myid", div_id_2, Location::default());
         assert!(res.is_ok());
@@ -1681,14 +1929,26 @@ mod tests {
         assert!(res.is_ok());
         let _ = doc.create_element("p", div_id, None, HTML_NAMESPACE, Location::default());
 
-        let div_id_3 = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        let div_id_3 = doc.create_element(
+            "div",
+            NodeId::root(),
+            None,
+            HTML_NAMESPACE,
+            Location::default(),
+        );
         res = doc.insert_attribute("style", "otherstyle", div_id_3, Location::default());
         assert!(res.is_ok());
         res = doc.insert_attribute("id", "otherid", div_id_3, Location::default());
         assert!(res.is_ok());
         let _ = doc.create_element("p", div_id_3, None, HTML_NAMESPACE, Location::default());
 
-        let p_id_4 = doc.create_element("p", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        let p_id_4 = doc.create_element(
+            "p",
+            NodeId::root(),
+            None,
+            HTML_NAMESPACE,
+            Location::default(),
+        );
         res = doc.insert_attribute("title", "yo", p_id_4, Location::default());
         assert!(res.is_ok());
         res = doc.insert_attribute("style", "cat", p_id_4, Location::default());
@@ -1711,7 +1971,13 @@ mod tests {
         // <p title="yo" style="cat">
         let mut doc = DocumentBuilder::new_document(None);
 
-        let div_id = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        let div_id = doc.create_element(
+            "div",
+            NodeId::root(),
+            None,
+            HTML_NAMESPACE,
+            Location::default(),
+        );
         let div_id_2 = doc.create_element("div", div_id, None, HTML_NAMESPACE, Location::default());
         let mut res = doc.insert_attribute("id", "myid", div_id_2, Location::default());
         assert!(res.is_ok());
@@ -1722,14 +1988,26 @@ mod tests {
         assert!(res.is_ok());
         let _ = doc.create_element("p", div_id, None, HTML_NAMESPACE, Location::default());
 
-        let div_id_3 = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        let div_id_3 = doc.create_element(
+            "div",
+            NodeId::root(),
+            None,
+            HTML_NAMESPACE,
+            Location::default(),
+        );
         res = doc.insert_attribute("style", "otherstyle", div_id_3, Location::default());
         assert!(res.is_ok());
         res = doc.insert_attribute("id", "otherid", div_id_3, Location::default());
         assert!(res.is_ok());
         let _ = doc.create_element("p", div_id_3, None, HTML_NAMESPACE, Location::default());
 
-        let p_id_4 = doc.create_element("p", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        let p_id_4 = doc.create_element(
+            "p",
+            NodeId::root(),
+            None,
+            HTML_NAMESPACE,
+            Location::default(),
+        );
         res = doc.insert_attribute("title", "yo", p_id_4, Location::default());
         assert!(res.is_ok());
         res = doc.insert_attribute("style", "cat", p_id_4, Location::default());
@@ -1752,15 +2030,33 @@ mod tests {
         // <p>
         let mut doc = DocumentBuilder::new_document(None);
 
-        let div_id = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        let div_id = doc.create_element(
+            "div",
+            NodeId::root(),
+            None,
+            HTML_NAMESPACE,
+            Location::default(),
+        );
         let div_id_2 = doc.create_element("div", div_id, None, HTML_NAMESPACE, Location::default());
         let _ = doc.create_element("p", div_id_2, None, HTML_NAMESPACE, Location::default());
         let _ = doc.create_element("p", div_id, None, HTML_NAMESPACE, Location::default());
 
-        let div_id_3 = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        let div_id_3 = doc.create_element(
+            "div",
+            NodeId::root(),
+            None,
+            HTML_NAMESPACE,
+            Location::default(),
+        );
         let _ = doc.create_element("p", div_id_3, None, HTML_NAMESPACE, Location::default());
 
-        let _ = doc.create_element("p", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        let _ = doc.create_element(
+            "p",
+            NodeId::root(),
+            None,
+            HTML_NAMESPACE,
+            Location::default(),
+        );
 
         let query = Query::new().contains_child_tag("p").find_first();
         let found_ids = doc.query(&query).unwrap();
@@ -1779,15 +2075,33 @@ mod tests {
         // <p>
         let mut doc = DocumentBuilder::new_document(None);
 
-        let div_id = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        let div_id = doc.create_element(
+            "div",
+            NodeId::root(),
+            None,
+            HTML_NAMESPACE,
+            Location::default(),
+        );
         let div_id_2 = doc.create_element("div", div_id, None, HTML_NAMESPACE, Location::default());
         let _ = doc.create_element("p", div_id_2, None, HTML_NAMESPACE, Location::default());
         let _ = doc.create_element("p", div_id, None, HTML_NAMESPACE, Location::default());
 
-        let div_id_3 = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        let div_id_3 = doc.create_element(
+            "div",
+            NodeId::root(),
+            None,
+            HTML_NAMESPACE,
+            Location::default(),
+        );
         let _ = doc.create_element("p", div_id_3, None, HTML_NAMESPACE, Location::default());
 
-        let _ = doc.create_element("p", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        let _ = doc.create_element(
+            "p",
+            NodeId::root(),
+            None,
+            HTML_NAMESPACE,
+            Location::default(),
+        );
 
         let query = Query::new().contains_child_tag("p").find_all();
         let found_ids = doc.query(&query).unwrap();
@@ -1806,15 +2120,33 @@ mod tests {
         // <p>
         let mut doc = DocumentBuilder::new_document(None);
 
-        let div_id = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        let div_id = doc.create_element(
+            "div",
+            NodeId::root(),
+            None,
+            HTML_NAMESPACE,
+            Location::default(),
+        );
         let div_id_2 = doc.create_element("div", div_id, None, HTML_NAMESPACE, Location::default());
         let _ = doc.create_element("p", div_id_2, None, HTML_NAMESPACE, Location::default());
         let _ = doc.create_element("p", div_id, None, HTML_NAMESPACE, Location::default());
 
-        let div_id_3 = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        let div_id_3 = doc.create_element(
+            "div",
+            NodeId::root(),
+            None,
+            HTML_NAMESPACE,
+            Location::default(),
+        );
         let _ = doc.create_element("p", div_id_3, None, HTML_NAMESPACE, Location::default());
 
-        let _ = doc.create_element("p", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        let _ = doc.create_element(
+            "p",
+            NodeId::root(),
+            None,
+            HTML_NAMESPACE,
+            Location::default(),
+        );
 
         let query = Query::new().has_parent_tag("div").find_first();
         let found_ids = doc.query(&query).unwrap();
@@ -1833,15 +2165,33 @@ mod tests {
         // <p>
         let mut doc = DocumentBuilder::new_document(None);
 
-        let div_id = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        let div_id = doc.create_element(
+            "div",
+            NodeId::root(),
+            None,
+            HTML_NAMESPACE,
+            Location::default(),
+        );
         let div_id_2 = doc.create_element("div", div_id, None, HTML_NAMESPACE, Location::default());
         let p_id = doc.create_element("p", div_id_2, None, HTML_NAMESPACE, Location::default());
         let p_id_2 = doc.create_element("p", div_id, None, HTML_NAMESPACE, Location::default());
 
-        let div_id_3 = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        let div_id_3 = doc.create_element(
+            "div",
+            NodeId::root(),
+            None,
+            HTML_NAMESPACE,
+            Location::default(),
+        );
         let p_id_3 = doc.create_element("p", div_id_3, None, HTML_NAMESPACE, Location::default());
 
-        let _ = doc.create_element("p", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        let _ = doc.create_element(
+            "p",
+            NodeId::root(),
+            None,
+            HTML_NAMESPACE,
+            Location::default(),
+        );
 
         let query = Query::new().has_parent_tag("div").find_all();
         let found_ids = doc.query(&query).unwrap();
@@ -1858,7 +2208,13 @@ mod tests {
         //         <p>first p tag
         //         <p>second p tag
         //     <p>third p tag
-        let div_id = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        let div_id = doc.create_element(
+            "div",
+            NodeId::root(),
+            None,
+            HTML_NAMESPACE,
+            Location::default(),
+        );
         let div_id_2 = doc.create_element("div", div_id, None, HTML_NAMESPACE, Location::default());
         let p_id = doc.create_element("p", div_id_2, None, HTML_NAMESPACE, Location::default());
         let text_id = doc.create_text("first p tag", p_id, Location::default());
@@ -1892,7 +2248,13 @@ mod tests {
     #[test]
     fn tree_iterator_mutation() {
         let mut doc = DocumentBuilder::new_document(None);
-        let div_id = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        let div_id = doc.create_element(
+            "div",
+            NodeId::root(),
+            None,
+            HTML_NAMESPACE,
+            Location::default(),
+        );
 
         let mut tree_iterator = TreeIterator::new(&doc);
         let mut current_node_id;
@@ -1901,7 +2263,13 @@ mod tests {
         assert_eq!(current_node_id.unwrap(), NodeId::root());
 
         // we mutate the tree while the iterator is still "open"
-        let div_id_2 = doc.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
+        let div_id_2 = doc.create_element(
+            "div",
+            NodeId::root(),
+            None,
+            HTML_NAMESPACE,
+            Location::default(),
+        );
         current_node_id = tree_iterator.next();
         assert_eq!(current_node_id.unwrap(), div_id);
 

@@ -8,7 +8,7 @@ use gosub_html5::{
         {Options, Tokenizer},
     },
 };
-use gosub_shared::byte_stream::{ByteStream, Encoding, Location};
+use gosub_shared::byte_stream::{ByteStream, Config, Encoding, Location};
 use gosub_shared::types::Result;
 use lazy_static::lazy_static;
 use regex::{Captures, Regex};
@@ -196,7 +196,14 @@ impl TestSpec {
         }
 
         for state in states {
-            let mut stream = ByteStream::new(Encoding::UTF8, None);
+            let mut stream = ByteStream::new(
+                Encoding::UTF8,
+                Some(Config {
+                    cr_lf_as_one: true,
+                    replace_cr_as_lf: true,
+                    replace_high_ascii: false,
+                }),
+            );
             let input = if self.double_escaped {
                 from_utf16_lossy(&self.input)
             } else {
@@ -218,6 +225,8 @@ impl TestSpec {
     }
 
     pub fn assert_valid(&self) {
+        println!("Test: {}", self.description);
+
         for mut builder in self.builders() {
             let mut tokenizer = builder.build();
 
@@ -229,7 +238,10 @@ impl TestSpec {
 
             // There can be multiple tokens to match. Make sure we match all of them
             for expected in &self.output {
-                let actual = tokenizer.next_token(ParserData::default()).unwrap();
+                let mut actual = tokenizer.next_token(ParserData::default()).unwrap();
+
+                // Even though the tokenizer sets the location, we don't care about it in the tests
+                actual.set_location(Location::default());
                 assert_eq!(
                     self.escape(&actual),
                     self.escape(expected),
@@ -330,7 +342,9 @@ impl TestSpec {
                 location: location.clone(),
             },
 
-            Token::Eof { location } => Token::Eof { location: location.clone() },
+            Token::Eof { location } => Token::Eof {
+                location: location.clone(),
+            },
 
             Token::StartTag {
                 name,
@@ -344,7 +358,10 @@ impl TestSpec {
                 location: location.clone(),
             },
 
-            Token::Text { text: value, location } => Token::Text {
+            Token::Text {
+                text: value,
+                location,
+            } => Token::Text {
                 text: escape(value),
                 location: location.clone(),
             },

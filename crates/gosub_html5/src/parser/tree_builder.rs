@@ -1,5 +1,5 @@
-use gosub_shared::byte_stream::Location;
 use crate::parser::NodeId;
+use gosub_shared::byte_stream::Location;
 use gosub_shared::types::Result;
 
 /// TreeBuilder is an interface to abstract DOM tree modifications.
@@ -25,7 +25,13 @@ pub trait TreeBuilder {
     fn create_comment(&mut self, content: &str, parent_id: NodeId, location: Location) -> NodeId;
 
     /// Insert/update an attribute for an element node.
-    fn insert_attribute(&mut self, key: &str, value: &str, element_id: NodeId, location: Location) -> Result<()>;
+    fn insert_attribute(
+        &mut self,
+        key: &str,
+        value: &str,
+        element_id: NodeId,
+        location: Location,
+    ) -> Result<()>;
 }
 
 #[cfg(test)]
