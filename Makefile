@@ -23,7 +23,7 @@ check-format: test_clippy test_fmt ## Check the project for clippy and formattin
 test_unit:
 	source test-utils.sh ;\
 	section "Cargo test" ;\
-	cargo test --verbose --all --no-fail-fast --all-features --all-targets
+	cargo test --all --no-fail-fast --all-features --all-targets
 
 test_clippy:
 	source test-utils.sh ;\

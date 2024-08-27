@@ -142,9 +142,11 @@ pub trait Stream {
     fn prev(&self);
     /// Unread n characters
     fn prev_n(&self, n: usize);
-    // Seek to a specific position
-    fn seek(&self, pos: usize);
-    // Returns a slice
+    // Seek to a specific position in bytes!
+    fn seek_bytes(&self, offset: usize);
+    // Tell the current position in bytes
+    fn tell_bytes(&self) -> usize;
+    /// Retrieves a slice of the buffer
     fn get_slice(&self, len: usize) -> Vec<Character>;
     /// Resets the stream back to the start position
     fn reset_stream(&self);
@@ -156,8 +158,6 @@ pub trait Stream {
     fn exhausted(&self) -> bool;
     /// Returns true when the stream is closed and empty
     fn eof(&self) -> bool;
-    /// Offset into the BYTE stream
-    fn offset(&self) -> usize;
 }
 
 impl Default for ByteStream {
@@ -203,11 +203,13 @@ impl Stream for ByteStream {
             return StreamEnd;
         }
 
-        let current_pos = *self.buffer_pos.borrow();
+        let original_pos = *self.buffer_pos.borrow();
 
         self.next_n(offset);
         let ch = self.read();
-        self.seek(current_pos);
+
+        let mut pos = self.buffer_pos.borrow_mut();
+        *pos = original_pos;
 
         ch
     }
@@ -257,21 +259,25 @@ impl Stream for ByteStream {
     }
 
     /// Seeks to a specific position in the stream
-    fn seek(&self, offset: usize) {
-        self.reset_stream();
-        self.next_n(offset);
+    fn seek_bytes(&self, offset: usize) {
+        let mut pos = self.buffer_pos.borrow_mut();
+        *pos = offset;
+    }
+
+    fn tell_bytes(&self) -> usize {
+        *self.buffer_pos.borrow()
     }
 
     /// Retrieves a slice of the buffer
     fn get_slice(&self, len: usize) -> Vec<Character> {
-        let current_pos = *self.buffer_pos.borrow();
+        let current_pos = self.tell_bytes();
 
         let mut slice = Vec::with_capacity(len);
         for _ in 0..len {
             slice.push(self.read_and_next());
         }
 
-        self.seek(current_pos);
+        self.seek_bytes(current_pos);
 
         slice.clone()
     }
@@ -302,10 +308,6 @@ impl Stream for ByteStream {
     /// Returns true when the stream is closed and all the bytes have been read
     fn eof(&self) -> bool {
         self.closed() && self.exhausted()
-    }
-
-    fn offset(&self) -> usize {
-        *self.buffer_pos.borrow()
     }
 }
 
@@ -864,7 +866,7 @@ mod test {
         stream.close();
 
         stream.set_encoding(Encoding::ASCII);
-        stream.seek(3);
+        stream.seek_bytes(3);
         assert_eq!(stream.read_and_next(), Ch('?'));
         assert_eq!(stream.read_and_next(), Ch('?'));
         assert_eq!(stream.read_and_next(), Ch('b'));
@@ -935,7 +937,7 @@ mod test {
         assert_eq!(stream.read_and_next(), Ch('i'));
         assert_eq!(stream.read_and_next(), Ch('z'));
 
-        stream.seek(25);
+        stream.seek_bytes(50);
         assert_eq!(stream.read_and_next(), Ch('d'));
         assert_eq!(stream.read_and_next(), Ch('b'));
         assert_eq!(stream.read_and_next(), Ch('æ'));

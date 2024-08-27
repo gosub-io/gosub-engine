@@ -783,9 +783,11 @@ impl<'stream> Tokenizer<'stream> {
         let mut value = String::new();
 
         loop {
+            let cc = self.current_char();
+
             // TIMP: confirmation needed
             // according to css tests `-\\-` should parsed to `--`
-            if self.current_char() == Ch('\\')
+            if cc == Ch('\\')
                 && !matches!(self.stream.look_ahead(1), Ch(c) if c.is_ascii_hexdigit())
                 && !matches!(self.stream.look_ahead(1), Character::StreamEnd)
             {
@@ -802,11 +804,12 @@ impl<'stream> Tokenizer<'stream> {
                 continue;
             }
 
-            if !self.is_ident_char(self.current_char().into()) {
+            if !self.is_ident_char(cc.into()) {
                 break;
             }
 
-            value.push(self.next_char().into());
+            value.push(cc.into());
+            self.next_char();
         }
 
         value
@@ -911,16 +914,18 @@ impl<'stream> Tokenizer<'stream> {
     }
 
     fn current_char(&self) -> Character {
-        self.stream.look_ahead(0)
+        self.stream.read()
     }
 
     pub fn tell(&self) -> usize {
-        self.stream.offset()
+        self.stream.tell_bytes()
     }
 
+    // This is not correct. We are looking for char positions, not byte positions
     pub fn slice(&mut self, start: usize, end: usize) -> String {
-        let old_pos = self.stream.offset();
-        self.stream.seek(start);
+        let old_pos = self.stream.tell_bytes();
+        // @TODO: this is not correct. We are looking for char positions, not byte positions
+        self.stream.seek_bytes(start);
 
         // todo: this is not efficient
         let mut s = String::with_capacity(end - start);
@@ -930,7 +935,7 @@ impl<'stream> Tokenizer<'stream> {
             }
         }
 
-        self.stream.seek(old_pos);
+        self.stream.seek_bytes(old_pos);
 
         s
     }
