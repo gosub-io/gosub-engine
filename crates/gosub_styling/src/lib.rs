@@ -11,6 +11,7 @@ use gosub_css3::Css3;
 mod errors;
 pub mod property_definitions;
 pub mod render_tree;
+mod shorthands;
 pub mod styling;
 mod syntax;
 mod syntax_matcher;

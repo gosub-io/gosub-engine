@@ -164,7 +164,7 @@ impl RenderBackend for VelloBackend {
                 &window_data.scene.0,
                 &surface_texture,
                 &RenderParams {
-                    base_color: VelloColor::BLACK,
+                    base_color: VelloColor::WHITE,
                     width,
                     height,
                     antialiasing_method: AaConfig::Msaa16,
