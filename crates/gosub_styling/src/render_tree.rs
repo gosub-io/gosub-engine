@@ -11,7 +11,7 @@ use gosub_html5::node::data::element::ElementData;
 use gosub_html5::node::{NodeData, NodeId};
 use gosub_html5::parser::document::{DocumentHandle, TreeIterator};
 use gosub_render_backend::geo::{Size, FP};
-use gosub_render_backend::layout::{LayoutTree, Layouter, Node};
+use gosub_render_backend::layout::{Layout, LayoutTree, Layouter, Node};
 use gosub_render_backend::{PreRenderText, RenderBackend};
 use gosub_shared::types::Result;
 use gosub_typeface::DEFAULT_FS;
@@ -157,7 +157,7 @@ impl<B: RenderBackend, L: Layouter> RenderTree<B, L> {
 
     /// Deletes the node with the given id from the render tree
     pub fn delete_node(&mut self, id: &NodeId) -> Option<(NodeId, RenderTreeNode<B, L>)> {
-        println!("Deleting node: {id:?}");
+        // println!("Deleting node: {id:?}");
 
         if let Some(n) = self.nodes.get(id) {
             let parent = n.parent;
@@ -367,7 +367,7 @@ impl<B: RenderBackend, L: Layouter> RenderTree<B, L> {
             self.collapse_inline(self.root);
         }
 
-        self.print_tree();
+        // self.print_tree();
     }
 
     /// Removes all unrenderable nodes from the render tree
@@ -504,7 +504,16 @@ impl<B: RenderBackend, L: Layouter> RenderTree<B, L> {
             return;
         };
         let indent = "  ".repeat(depth);
-        println!("{indent}{node_id}: {}", node.name);
+
+        let size = node.layout.size();
+        let w = size.width;
+        let h = size.height;
+
+        let pos = node.layout.rel_pos();
+        let x = pos.x;
+        let y = pos.y;
+
+        println!("{indent}{node_id}: {} @ ({x}:{y}) [{w}x{h}]", node.name);
 
         for child_id in &node.children {
             self.print_tree_from(*child_id, depth + 1);

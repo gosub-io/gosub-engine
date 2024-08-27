@@ -1,7 +1,8 @@
 use crate::render_tree::{RenderNodeData, RenderTree};
 use gosub_html5::node::NodeId;
-use gosub_render_backend::layout::Layouter;
-use gosub_render_backend::{NodeDesc, PreRenderText, RenderBackend};
+use gosub_render_backend::layout::{Layout, Layouter};
+use gosub_render_backend::{NodeDesc, Point, PreRenderText, RenderBackend, Size};
+
 impl<B: RenderBackend, L: Layouter> RenderTree<B, L> {
     pub fn desc(&self) -> NodeDesc {
         self.desc_node(self.root)
@@ -16,6 +17,8 @@ impl<B: RenderBackend, L: Layouter> RenderTree<B, L> {
                 attributes: vec![],
                 properties: vec![],
                 text: None,
+                pos: Point::ZERO,
+                size: Size::ZERO,
             };
         };
 
@@ -50,6 +53,8 @@ impl<B: RenderBackend, L: Layouter> RenderTree<B, L> {
                 .map(|(k, v)| (k.clone(), v.actual.to_string()))
                 .collect(),
             text,
+            pos: node.layout.rel_pos(),
+            size: node.layout.size(),
         }
     }
 }

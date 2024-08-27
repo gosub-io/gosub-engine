@@ -651,6 +651,8 @@ pub struct NodeDesc {
     pub children: Vec<NodeDesc>,
     pub attributes: Vec<(String, String)>,
     pub properties: Vec<(String, String)>,
+    pub pos: Point,
+    pub size: Size,
     pub text: Option<String>,
 }
 
@@ -690,10 +692,14 @@ impl NodeDesc {
         }
 
         if !is_special {
-            writeln!(f, ">")?;
-        } else {
-            writeln!(f)?;
+            write!(f, ">")?;
         }
+
+        writeln!(
+            f,
+            " @ ({}x{}) [{}x{}]",
+            self.pos.x, self.pos.y, self.size.width, self.size.height
+        )?;
 
         for child in &self.children {
             child.write(f, indent + 1)?;
