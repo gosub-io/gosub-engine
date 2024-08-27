@@ -6,7 +6,7 @@ impl Css3<'_> {
     pub fn parse_operator(&mut self) -> Result<Node, Error> {
         log::trace!("parse_operator");
 
-        let loc = self.tokenizer.current_location().clone();
+        let loc = self.tokenizer.current_location();
 
         let operator = self.consume_any()?;
         if let TokenType::Delim(c) = operator.token_type {
@@ -20,7 +20,7 @@ impl Css3<'_> {
 
         Err(Error::new(
             format!("Expected operator, got {:?}", operator),
-            self.tokenizer.current_location().clone(),
+            self.tokenizer.current_location(),
         ))
     }
 }

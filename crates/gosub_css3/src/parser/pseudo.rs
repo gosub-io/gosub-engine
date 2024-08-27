@@ -17,7 +17,7 @@ impl Css3<'_> {
     fn parse_pseudo_function_ident_list(&mut self) -> Result<Node, Error> {
         log::trace!("parse_pseudo_function_ident_list");
 
-        let loc = self.tokenizer.current_location().clone();
+        let loc = self.tokenizer.current_location();
 
         let value = self.consume_any_ident()?;
 
@@ -29,7 +29,7 @@ impl Css3<'_> {
 
         self.consume_whitespace_comments();
 
-        let loc = self.tokenizer.current_location().clone();
+        let loc = self.tokenizer.current_location();
 
         let mut selector = None;
 
@@ -60,7 +60,7 @@ impl Css3<'_> {
             _ => {
                 return Err(Error::new(
                     format!("Unexpected token {:?}", self.tokenizer.lookahead(0)),
-                    self.tokenizer.current_location().clone(),
+                    self.tokenizer.current_location(),
                 ));
             }
         };
@@ -100,7 +100,7 @@ impl Css3<'_> {
             "host-context" => self.parse_pseudo_function_selector(),
             _ => Err(Error::new(
                 format!("Unexpected pseudo function {:?}", name),
-                self.tokenizer.current_location().clone(),
+                self.tokenizer.current_location(),
             )),
         }
     }

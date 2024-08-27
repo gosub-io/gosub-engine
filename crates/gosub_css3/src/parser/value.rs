@@ -14,7 +14,7 @@ impl Css3<'_> {
                 TokenType::Comment(_) => {
                     // eat token
                 }
-                TokenType::Whitespace => {
+                TokenType::Whitespace(_) => {
                     // eat token
                 }
                 _ => {
@@ -60,9 +60,10 @@ impl Css3<'_> {
                 let node = Node::new(NodeType::Operator(",".into()), t.location);
                 Ok(Some(node))
             }
-            TokenType::LBracket => {
-                todo!();
-            }
+            TokenType::LBracket => Err(Error::new(
+                "Unexpected token [".to_string(),
+                self.tokenizer.current_location(),
+            )),
             TokenType::QuotedString(value) => {
                 let node = Node::new(NodeType::String { value }, t.location);
                 Ok(Some(node))
@@ -142,7 +143,7 @@ impl Css3<'_> {
                         _ => {
                             return Err(Error::new(
                                 format!("Expected number or ident, got {:?}", t),
-                                self.tokenizer.current_location().clone(),
+                                self.tokenizer.current_location(),
                             ))
                         }
                     };
@@ -166,14 +167,13 @@ impl Css3<'_> {
                 }
                 '#' => Err(Error::new(
                     format!("Unexpected token {:?}", t),
-                    self.tokenizer.current_location().clone(),
+                    self.tokenizer.current_location(),
                 )),
                 _ => {
                     self.tokenizer.reconsume();
                     Ok(None)
                 }
             },
-
             _ => {
                 self.tokenizer.reconsume();
                 Ok(None)

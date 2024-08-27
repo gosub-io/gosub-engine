@@ -6,7 +6,7 @@ First, we need to fetch the actual HTML content. This can be done by a simple HT
 passed to the byte streamer so it can be converted to tokens without worrying about the encoding:
 
 ```rust
-    let stream = &mut ByteStream::new();
+    let stream = &mut ByteStream::new(Encoding::UTF8, None);
 ```
 
 Here, the `stream` points to a string containing the HTML content. The `ByteStream` will take care of converting the bytes to characters, and handle the encoding.

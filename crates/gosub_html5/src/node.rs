@@ -6,6 +6,7 @@ use crate::node::data::text::TextData;
 use crate::parser::document::{Document, DocumentHandle};
 use core::fmt::Debug;
 use derive_more::Display;
+use gosub_shared::byte_stream::Location;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Weak;
@@ -142,6 +143,8 @@ pub struct Node {
     pub document: Weak<RefCell<Document>>,
     // Returns true when the given node is registered into an arena
     pub is_registered: bool,
+    // Location of the node in the source code
+    pub location: Location,
 }
 
 impl Node {
@@ -189,6 +192,7 @@ impl Clone for Node {
             data: self.data.clone(),
             document: Weak::clone(&self.document),
             is_registered: self.is_registered,
+            location: self.location.clone(),
         }
     }
 }
@@ -196,7 +200,7 @@ impl Clone for Node {
 impl Node {
     /// create a new `Node`
     #[must_use]
-    pub fn new(data: NodeData, document: &DocumentHandle) -> Self {
+    pub fn new(data: NodeData, document: &DocumentHandle, location: Location) -> Self {
         let (id, parent, children, name, namespace, is_registered) = <_>::default();
         Self {
             id,
@@ -207,13 +211,14 @@ impl Node {
             namespace,
             document: document.to_weak(),
             is_registered,
+            location,
         }
     }
 
     /// Create a new document node
     #[must_use]
-    pub fn new_document(document: &DocumentHandle) -> Self {
-        Self::new(NodeData::Document(DocumentData::new()), document)
+    pub fn new_document(document: &DocumentHandle, location: Location) -> Self {
+        Self::new(NodeData::Document(DocumentData::new()), document, location)
     }
 
     #[must_use]
@@ -222,10 +227,12 @@ impl Node {
         name: &str,
         pub_identifier: &str,
         sys_identifier: &str,
+        loc: Location,
     ) -> Self {
         Self::new(
             NodeData::DocType(DocTypeData::new(name, pub_identifier, sys_identifier)),
             document,
+            loc,
         )
     }
 
@@ -236,6 +243,7 @@ impl Node {
         name: &str,
         attributes: HashMap<String, String>,
         namespace: &str,
+        location: Location,
     ) -> Self {
         Self {
             name: name.to_owned(),
@@ -247,20 +255,29 @@ impl Node {
                     attributes,
                 ))),
                 document,
+                location,
             )
         }
     }
 
     /// Creates a new comment node
     #[must_use]
-    pub fn new_comment(document: &DocumentHandle, value: &str) -> Self {
-        Self::new(NodeData::Comment(CommentData::with_value(value)), document)
+    pub fn new_comment(document: &DocumentHandle, location: Location, value: &str) -> Self {
+        Self::new(
+            NodeData::Comment(CommentData::with_value(value)),
+            document,
+            location,
+        )
     }
 
     /// Creates a new text node
     #[must_use]
-    pub fn new_text(document: &DocumentHandle, value: &str) -> Self {
-        Self::new(NodeData::Text(TextData::with_value(value)), document)
+    pub fn new_text(document: &DocumentHandle, location: Location, value: &str) -> Self {
+        Self::new(
+            NodeData::Text(TextData::with_value(value)),
+            document,
+            location,
+        )
     }
 
     /// Returns true if the given node is a "formatting" node
@@ -544,7 +561,7 @@ mod tests {
     #[test]
     fn new_document() {
         let document = Document::shared(None);
-        let node = Node::new_document(&document);
+        let node = Node::new_document(&document, Location::default());
         assert_eq!(node.id, NodeId::default());
         assert_eq!(node.parent, None);
         assert!(node.children.is_empty());
@@ -561,7 +578,13 @@ mod tests {
         let mut attributes = HashMap::new();
         attributes.insert("id".to_string(), "test".to_string());
         let document = Document::shared(None);
-        let node = Node::new_element(&document, "div", attributes.clone(), HTML_NAMESPACE);
+        let node = Node::new_element(
+            &document,
+            "div",
+            attributes.clone(),
+            HTML_NAMESPACE,
+            Location::default(),
+        );
         assert_eq!(node.id, NodeId::default());
         assert_eq!(node.parent, None);
         assert!(node.children.is_empty());
@@ -578,7 +601,7 @@ mod tests {
     #[test]
     fn new_comment() {
         let document = Document::shared(None);
-        let node = Node::new_comment(&document, "test");
+        let node = Node::new_comment(&document, Location::default(), "test");
         assert_eq!(node.id, NodeId::default());
         assert_eq!(node.parent, None);
         assert!(node.children.is_empty());
@@ -593,7 +616,7 @@ mod tests {
     #[test]
     fn new_text() {
         let document = Document::shared(None);
-        let node = Node::new_text(&document, "test");
+        let node = Node::new_text(&document, Location::default(), "test");
         assert_eq!(node.id, NodeId::default());
         assert_eq!(node.parent, None);
         assert!(node.children.is_empty());
@@ -610,22 +633,34 @@ mod tests {
         let mut attributes = HashMap::new();
         attributes.insert("id".to_string(), "test".to_string());
         let document = Document::shared(None);
-        let node = Node::new_element(&document, "div", attributes, HTML_NAMESPACE);
+        let node = Node::new_element(
+            &document,
+            "div",
+            attributes,
+            HTML_NAMESPACE,
+            Location::default(),
+        );
         assert!(node.is_special());
     }
 
     #[test]
     fn type_of() {
         let document = Document::shared(None);
-        let node = Node::new_document(&document);
+        let node = Node::new_document(&document, Location::default());
         assert_eq!(node.type_of(), NodeType::Document);
-        let node = Node::new_text(&document, "test");
+        let node = Node::new_text(&document, Location::default(), "test");
         assert_eq!(node.type_of(), NodeType::Text);
-        let node = Node::new_comment(&document, "test");
+        let node = Node::new_comment(&document, Location::default(), "test");
         assert_eq!(node.type_of(), NodeType::Comment);
         let mut attributes = HashMap::new();
         attributes.insert("id".to_string(), "test".to_string());
-        let node = Node::new_element(&document, "div", attributes, HTML_NAMESPACE);
+        let node = Node::new_element(
+            &document,
+            "div",
+            attributes,
+            HTML_NAMESPACE,
+            Location::default(),
+        );
         assert_eq!(node.type_of(), NodeType::Element);
     }
 
@@ -635,7 +670,13 @@ mod tests {
         for element in SPECIAL_HTML_ELEMENTS.iter() {
             let mut attributes = HashMap::new();
             attributes.insert("id".to_string(), "test".to_string());
-            let node = Node::new_element(&document, element, attributes, HTML_NAMESPACE);
+            let node = Node::new_element(
+                &document,
+                element,
+                attributes,
+                HTML_NAMESPACE,
+                Location::default(),
+            );
             assert!(node.is_special());
         }
     }
@@ -646,7 +687,13 @@ mod tests {
         for element in SPECIAL_MATHML_ELEMENTS.iter() {
             let mut attributes = HashMap::new();
             attributes.insert("id".to_string(), "test".to_string());
-            let node = Node::new_element(&document, element, attributes, MATHML_NAMESPACE);
+            let node = Node::new_element(
+                &document,
+                element,
+                attributes,
+                MATHML_NAMESPACE,
+                Location::default(),
+            );
             assert!(node.is_special());
         }
     }
@@ -657,7 +704,13 @@ mod tests {
         for element in SPECIAL_SVG_ELEMENTS.iter() {
             let mut attributes = HashMap::new();
             attributes.insert("id".to_string(), "test".to_string());
-            let node = Node::new_element(&document, element, attributes, SVG_NAMESPACE);
+            let node = Node::new_element(
+                &document,
+                element,
+                attributes,
+                SVG_NAMESPACE,
+                Location::default(),
+            );
             assert!(node.is_special());
         }
     }
@@ -665,15 +718,21 @@ mod tests {
     #[test]
     fn type_of_node() {
         let document = Document::shared(None);
-        let node = Node::new_document(&document);
+        let node = Node::new_document(&document, Location::default());
         assert_eq!(node.type_of(), NodeType::Document);
-        let node = Node::new_text(&document, "test");
+        let node = Node::new_text(&document, Location::default(), "test");
         assert_eq!(node.type_of(), NodeType::Text);
-        let node = Node::new_comment(&document, "test");
+        let node = Node::new_comment(&document, Location::default(), "test");
         assert_eq!(node.type_of(), NodeType::Comment);
         let mut attributes = HashMap::new();
         attributes.insert("id".to_string(), "test".to_string());
-        let node = Node::new_element(&document, "div", attributes, HTML_NAMESPACE);
+        let node = Node::new_element(
+            &document,
+            "div",
+            attributes,
+            HTML_NAMESPACE,
+            Location::default(),
+        );
         assert_eq!(node.type_of(), NodeType::Element);
     }
 }

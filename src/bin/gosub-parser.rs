@@ -1,7 +1,7 @@
 use anyhow::bail;
 use gosub_html5::parser::document::{Document, DocumentBuilder};
 use gosub_html5::parser::Html5Parser;
-use gosub_shared::byte_stream::{ByteStream, Confidence, Encoding};
+use gosub_shared::byte_stream::{ByteStream, Encoding};
 use gosub_shared::timing::Scale;
 use gosub_shared::timing_display;
 use gosub_shared::types::Result;
@@ -50,15 +50,9 @@ fn main() -> Result<()> {
         bail("Invalid url scheme");
     };
 
-    let mut stream = ByteStream::new();
+    let mut stream = ByteStream::new(Encoding::UTF8, None);
     stream.read_from_str(&html, Some(Encoding::UTF8));
-    stream.set_confidence(Confidence::Certain);
     stream.close();
-
-    // If the encoding confidence is not Confidence::Certain, we should detect the encoding.
-    if !stream.is_certain_encoding() {
-        stream.detect_encoding();
-    }
 
     // SimpleLogger::new().init().unwrap();
 

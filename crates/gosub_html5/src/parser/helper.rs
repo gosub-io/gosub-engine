@@ -238,7 +238,7 @@ impl Html5Parser<'_> {
 
     pub fn insert_text_element(&mut self, token: &Token) {
         // Skip empty text nodes
-        if let Token::Text(text) = token {
+        if let Token::Text { text, .. } = token {
             if text.is_empty() {
                 return;
             }
@@ -441,6 +441,7 @@ impl Html5Parser<'_> {
                     &element.name,
                     node_attributes,
                     HTML_NAMESPACE,
+                    element.location.clone(),
                 );
                 let replace_node_id = self.document.get_mut().add_new_node(replacement_node);
 
@@ -480,6 +481,7 @@ impl Html5Parser<'_> {
                 &format_elem_node.name,
                 format_elem_attributes,
                 HTML_NAMESPACE,
+                format_elem_node.location.clone(),
             );
 
             // step 4.16

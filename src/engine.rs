@@ -1,4 +1,4 @@
-use gosub_shared::byte_stream::{ByteStream, Confidence, Encoding};
+use gosub_shared::byte_stream::{ByteStream, Encoding};
 #[cfg(not(target_arch = "wasm32"))]
 use {
     cookie::CookieJar,
@@ -138,9 +138,8 @@ fn fetch_url(
 
     let t_id = timing_start!("html.parse", parts.as_str());
 
-    let mut stream = ByteStream::new();
-    let _ = stream.read_from_bytes(&fetch_response.response.body, Some(Encoding::UTF8));
-    stream.set_confidence(Confidence::Certain);
+    let mut stream = ByteStream::new(Encoding::UTF8, None);
+    let _ = stream.read_from_bytes(&fetch_response.response.body);
     fetch_response.document = DocumentBuilder::new_document(Some(parts));
 
     match Html5Parser::parse_document(&mut stream, Document::clone(&fetch_response.document), None)

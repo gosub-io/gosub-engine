@@ -4,7 +4,7 @@ SHELL=/usr/bin/env bash -O globstar
 
 all: help
 
-test: test_commands test_unit test_clippy test_fmt ## Runs tests
+test: test_unit test_clippy test_fmt test_commands ## Runs tests
 
 bench: ## Benchmark the project
 	cargo bench
@@ -14,14 +14,16 @@ build: ## Build the project
 	section "Cargo build" ;\
 	cargo build --all
 
-format:  ## Fix formatting and clippy errors
+fix-format:  ## Fix formatting and clippy errors
 	cargo fmt --all
 	cargo clippy --all --fix --allow-dirty --allow-staged
+
+check-format: test_clippy test_fmt ## Check the project for clippy and formatting errors
 
 test_unit:
 	source test-utils.sh ;\
 	section "Cargo test" ;\
-	cargo test --verbose --all --no-fail-fast --all-features --all-targets
+	cargo test --all --no-fail-fast --all-features --all-targets
 
 test_clippy:
 	source test-utils.sh ;\

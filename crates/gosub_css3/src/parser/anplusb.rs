@@ -15,7 +15,7 @@ impl Css3<'_> {
         if unit.chars().nth(0).unwrap().to_lowercase().to_string() != "n" {
             return Err(Error::new(
                 format!("Expected n, found {}", unit).to_string(),
-                self.tokenizer.current_location().clone(),
+                self.tokenizer.current_location(),
             ));
         }
         Ok(if unit.len() == 1 {
@@ -43,7 +43,7 @@ impl Css3<'_> {
             if !allow_sign {
                 return Err(Error::new(
                     format!("Unexpected sign {}", sign).to_string(),
-                    self.tokenizer.current_location().clone(),
+                    self.tokenizer.current_location(),
                 ));
             }
             pos += 1;
@@ -68,7 +68,7 @@ impl Css3<'_> {
         if nval != c {
             return Err(Error::new(
                 format!("Expected {}", c).to_string(),
-                self.tokenizer.current_location().clone(),
+                self.tokenizer.current_location(),
             ));
         }
 
@@ -113,7 +113,7 @@ impl Css3<'_> {
                         self.tokenizer.lookahead(0).token_type
                     )
                     .to_string(),
-                    self.tokenizer.current_location().clone(),
+                    self.tokenizer.current_location(),
                 ));
             }
         };
@@ -199,7 +199,7 @@ impl Css3<'_> {
     pub fn parse_anplusb(&mut self) -> Result<Node, Error> {
         log::trace!("parse_anplusb");
 
-        let loc = self.tokenizer.current_location().clone();
+        let loc = self.tokenizer.current_location();
 
         let mut a = String::from("1");
         let mut b;
@@ -230,7 +230,7 @@ impl Css3<'_> {
                 self.tokenizer.reconsume();
                 return Err(Error::new(
                     "Expected anplusb".to_string(),
-                    self.tokenizer.current_location().clone(),
+                    self.tokenizer.current_location(),
                 ));
             }
         }
@@ -254,7 +254,7 @@ mod test {
 
     macro_rules! test {
         ($func:ident, $input:expr, $expected:expr) => {
-            let mut stream = ByteStream::new();
+            let mut stream = ByteStream::new(Encoding::UTF8, None);
             stream.read_from_str($input, Some(Encoding::UTF8));
             stream.close();
 

@@ -5,7 +5,7 @@ impl Css3<'_> {
     pub fn parse_at_rule_page_prelude(&mut self) -> Result<Node, Error> {
         log::trace!("parse_at_rule_page_prelude");
 
-        let loc = self.tokenizer.current_location().clone();
+        let loc = self.tokenizer.current_location();
 
         let mut selectors = vec![];
 

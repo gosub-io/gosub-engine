@@ -8,7 +8,7 @@ use gosub_html5::{
         {Options, Tokenizer},
     },
 };
-use gosub_shared::byte_stream::ByteStream;
+use gosub_shared::byte_stream::{ByteStream, Config, Encoding, Location};
 use gosub_shared::types::Result;
 use lazy_static::lazy_static;
 use regex::{Captures, Regex};
@@ -39,6 +39,7 @@ impl TokenizerBuilder {
                 last_start_tag: self.last_start_tag.clone().unwrap_or_default(),
             }),
             error_logger.clone(),
+            Location::default(),
         )
     }
 }
@@ -118,14 +119,21 @@ where
 
         let token = match values.len() {
             2 => match kind {
-                "Character" => Token::Text(values[1].as_str().unwrap().to_owned()),
-                "Comment" => Token::Comment(values[1].as_str().unwrap().to_owned()),
+                "Character" => Token::Text {
+                    text: values[1].as_str().unwrap().to_owned(),
+                    location: Location::default(),
+                },
+                "Comment" => Token::Comment {
+                    comment: values[1].as_str().unwrap().to_owned(),
+                    location: Location::default(),
+                },
                 "EndTag" => Token::EndTag {
                     name: values[1].as_str().unwrap().to_owned(),
                     is_self_closing: false,
+                    location: Location::default(),
                 },
                 _ => {
-                    return Err(D::Error::invalid_value(
+                    return Err(Error::invalid_value(
                         Unexpected::Str(kind),
                         &"Character, Comment or EndTag",
                     ))
@@ -137,8 +145,9 @@ where
                     name: values[1].as_str().unwrap().to_owned(),
                     attributes: attributes(&values[2]),
                     is_self_closing: false,
+                    location: Location::default(),
                 },
-                _ => return Err(D::Error::invalid_value(Unexpected::Str(kind), &"StartTag")),
+                _ => return Err(Error::invalid_value(Unexpected::Str(kind), &"StartTag")),
             },
 
             4 => match kind {
@@ -146,8 +155,9 @@ where
                     name: values[1].as_str().unwrap().to_owned(),
                     attributes: attributes(&values[2]),
                     is_self_closing: values[3].as_bool().unwrap_or_default(),
+                    location: Location::default(),
                 },
-                _ => return Err(D::Error::invalid_value(Unexpected::Str(kind), &"StartTag")),
+                _ => return Err(Error::invalid_value(Unexpected::Str(kind), &"StartTag")),
             },
 
             5 => match kind {
@@ -156,12 +166,13 @@ where
                     pub_identifier: values[2].as_str().map(str::to_owned),
                     sys_identifier: values[3].as_str().map(str::to_owned),
                     force_quirks: !values[4].as_bool().unwrap_or_default(),
+                    location: Location::default(),
                 },
-                _ => return Err(D::Error::invalid_value(Unexpected::Str(kind), &"DOCTYPE")),
+                _ => return Err(Error::invalid_value(Unexpected::Str(kind), &"DOCTYPE")),
             },
 
             _ => {
-                return Err(D::Error::invalid_length(
+                return Err(Error::invalid_length(
                     values.len(),
                     &"an array of length 2, 3, 4 or 5",
                 ))
@@ -185,7 +196,14 @@ impl TestSpec {
         }
 
         for state in states {
-            let mut stream = ByteStream::new();
+            let mut stream = ByteStream::new(
+                Encoding::UTF8,
+                Some(Config {
+                    cr_lf_as_one: true,
+                    replace_cr_as_lf: true,
+                    replace_high_ascii: false,
+                }),
+            );
             let input = if self.double_escaped {
                 from_utf16_lossy(&self.input)
             } else {
@@ -207,6 +225,8 @@ impl TestSpec {
     }
 
     pub fn assert_valid(&self) {
+        println!("Test: {}", self.description);
+
         for mut builder in self.builders() {
             let mut tokenizer = builder.build();
 
@@ -218,7 +238,10 @@ impl TestSpec {
 
             // There can be multiple tokens to match. Make sure we match all of them
             for expected in &self.output {
-                let actual = tokenizer.next_token(ParserData::default()).unwrap();
+                let mut actual = tokenizer.next_token(ParserData::default()).unwrap();
+
+                // Even though the tokenizer sets the location, we don't care about it in the tests
+                actual.set_location(Location::default());
                 assert_eq!(
                     self.escape(&actual),
                     self.escape(expected),
@@ -261,7 +284,7 @@ impl TestSpec {
         }
 
         // Try and find an error that matches the code, but has a different line/pos. Even though
-        // it's not always correct, it might be a off-by-one position.
+        // it's not always correct, it might be an off-by-one position.
         for actual in tokenizer.get_error_logger().get_errors() {
             if actual.message == expected.code
                 && (actual.location.line != expected.line || actual.location.column != expected.col)
@@ -287,41 +310,61 @@ impl TestSpec {
         }
 
         match token {
-            Token::Comment(value) => Token::Comment(escape(value)),
+            Token::Comment {
+                comment: value,
+                location,
+            } => Token::Comment {
+                comment: escape(value),
+                location: location.clone(),
+            },
 
             Token::DocType {
                 name,
                 force_quirks,
                 pub_identifier,
                 sys_identifier,
+                location,
             } => Token::DocType {
                 name: name.as_ref().map(|name| escape(name)),
                 force_quirks: *force_quirks,
                 pub_identifier: pub_identifier.as_ref().map(Into::into),
                 sys_identifier: sys_identifier.as_ref().map(Into::into),
+                location: location.clone(),
             },
 
             Token::EndTag {
                 name,
                 is_self_closing,
+                location,
             } => Token::EndTag {
                 name: escape(name),
                 is_self_closing: *is_self_closing,
+                location: location.clone(),
             },
 
-            Token::Eof => Token::Eof,
+            Token::Eof { location } => Token::Eof {
+                location: location.clone(),
+            },
 
             Token::StartTag {
                 name,
                 is_self_closing,
                 attributes,
+                location,
             } => Token::StartTag {
                 name: escape(name),
                 is_self_closing: *is_self_closing,
                 attributes: attributes.clone(),
+                location: location.clone(),
             },
 
-            Token::Text(value) => Token::Text(escape(value)),
+            Token::Text {
+                text: value,
+                location,
+            } => Token::Text {
+                text: escape(value),
+                location: location.clone(),
+            },
         }
     }
 }
@@ -367,7 +410,7 @@ pub fn fixture_from_path<P>(path: &P) -> Result<FixtureFile>
 where
     P: AsRef<Path>,
 {
-    let contents = fs::read_to_string(path).unwrap();
+    let contents = fs::read_to_string(path)?;
     Ok(serde_json::from_str(&contents)?)
 }
 
@@ -406,6 +449,7 @@ mod tests {
                 name: "h".into(),
                 attributes: HashMap::from([("a".into(), "&noti;".into())]),
                 is_self_closing: false,
+                location: Location::default(),
             }],
         );
     }

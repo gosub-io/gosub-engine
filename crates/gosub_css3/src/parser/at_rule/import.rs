@@ -8,7 +8,7 @@ impl Css3<'_> {
 
         let mut children = Vec::new();
 
-        let loc = self.tokenizer.current_location().clone();
+        let loc = self.tokenizer.current_location();
 
         let t = self.consume_any()?;
         match t.token_type {

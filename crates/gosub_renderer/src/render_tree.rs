@@ -12,7 +12,7 @@ use gosub_render_backend::geo::SizeU32;
 use gosub_render_backend::layout::Layouter;
 use gosub_render_backend::RenderBackend;
 use gosub_rendering::position::PositionTree;
-use gosub_shared::byte_stream::{ByteStream, Confidence, Encoding};
+use gosub_shared::byte_stream::{ByteStream, Encoding};
 use gosub_styling::render_tree::{generate_render_tree, RenderNodeData, RenderTree};
 use gosub_styling::styling::CssProperties;
 
@@ -79,9 +79,8 @@ pub(crate) fn load_html_rendertree<B: RenderBackend, L: Layouter>(
         bail!("Unsupported url scheme: {}", url.scheme());
     };
 
-    let mut stream = ByteStream::new();
+    let mut stream = ByteStream::new(Encoding::UTF8, None);
     stream.read_from_str(&html, Some(Encoding::UTF8));
-    stream.set_confidence(Confidence::Certain);
     stream.close();
 
     let mut doc_handle = DocumentBuilder::new_document(Some(url));

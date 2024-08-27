@@ -66,3 +66,25 @@ fn tokenization(filename: &str) {
         test.assert_valid();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tokenization() {
+        tokenization("test1.test");
+        tokenization("test2.test");
+        tokenization("test3.test");
+        tokenization("test4.test");
+
+        tokenization("contentModelFlags.test");
+        tokenization("domjs.test");
+        tokenization("entities.test");
+        tokenization("escapeFlag.test");
+        tokenization("namedEntities.test");
+        tokenization("numericEntities.test");
+        tokenization("pendingSpecChanges.test");
+        tokenization("unicodeChars.test");
+    }
+}

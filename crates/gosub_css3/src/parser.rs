@@ -26,7 +26,7 @@ impl Css3<'_> {
         if t.token_type != token_type {
             return Err(Error::new(
                 format!("Expected {:?}, got {:?}", token_type, t),
-                self.tokenizer.current_location().clone(),
+                self.tokenizer.current_location(),
             ));
         }
 
@@ -44,7 +44,7 @@ impl Css3<'_> {
             TokenType::Function(name) => Ok(name),
             _ => Err(Error::new(
                 format!("Expected function, got {:?}", t),
-                self.tokenizer.current_location().clone(),
+                self.tokenizer.current_location(),
             )),
         }
     }
@@ -55,7 +55,7 @@ impl Css3<'_> {
             TokenType::Number(value) => Ok(value),
             _ => Err(Error::new(
                 format!("Expected number, got {:?}", t),
-                self.tokenizer.current_location().clone(),
+                self.tokenizer.current_location(),
             )),
         }
     }
@@ -66,7 +66,7 @@ impl Css3<'_> {
             TokenType::Delim(c) => Ok(c),
             _ => Err(Error::new(
                 format!("Expected delimiter, got {:?}", t),
-                self.tokenizer.current_location().clone(),
+                self.tokenizer.current_location(),
             )),
         }
     }
@@ -77,7 +77,7 @@ impl Css3<'_> {
             TokenType::QuotedString(s) => Ok(s),
             _ => Err(Error::new(
                 format!("Expected string, got {:?}", t),
-                self.tokenizer.current_location().clone(),
+                self.tokenizer.current_location(),
             )),
         }
     }
@@ -88,7 +88,7 @@ impl Css3<'_> {
             TokenType::Delim(c) if c == delimiter => Ok(c),
             _ => Err(Error::new(
                 format!("Expected delimiter '{}', got {:?}", delimiter, t),
-                self.tokenizer.current_location().clone(),
+                self.tokenizer.current_location(),
             )),
         }
     }
@@ -97,7 +97,7 @@ impl Css3<'_> {
         loop {
             let t = self.tokenizer.consume();
             match t.token_type {
-                TokenType::Whitespace | TokenType::Comment(_) => {
+                TokenType::Whitespace(_) | TokenType::Comment(_) => {
                     // just eat it
                 }
                 _ => {
@@ -114,7 +114,7 @@ impl Css3<'_> {
             TokenType::Ident(s) if s.eq_ignore_ascii_case(ident) => Ok(s),
             _ => Err(Error::new(
                 format!("Expected ident, got {:?}", t),
-                self.tokenizer.current_location().clone(),
+                self.tokenizer.current_location(),
             )),
         }
     }
@@ -125,18 +125,29 @@ impl Css3<'_> {
             TokenType::Ident(s) if s == ident => Ok(s),
             _ => Err(Error::new(
                 format!("Expected ident, got {:?}", t),
-                self.tokenizer.current_location().clone(),
+                self.tokenizer.current_location(),
             )),
         }
     }
 
     pub fn consume_any_ident(&mut self) -> Result<String, Error> {
         let t = self.tokenizer.consume();
+
         match t.token_type {
+            TokenType::Delim('.') => {
+                let t = self.tokenizer.consume();
+                match t.token_type {
+                    TokenType::Ident(s) => Ok(format!(".{}", s)),
+                    _ => Err(Error::new(
+                        format!("Expected ident, got {:?}", t),
+                        self.tokenizer.current_location(),
+                    )),
+                }
+            }
             TokenType::Ident(s) => Ok(s),
             _ => Err(Error::new(
                 format!("Expected ident, got {:?}", t),
-                self.tokenizer.current_location().clone(),
+                self.tokenizer.current_location(),
             )),
         }
     }

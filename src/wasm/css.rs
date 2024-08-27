@@ -112,7 +112,7 @@ fn display_snippet(css: &str, err: Error) -> String {
 }
 
 fn print_tokens(css: &str) -> String {
-    let mut stream = ByteStream::new();
+    let mut stream = ByteStream::new(Encoding::UTF8, None);
     stream.read_from_str(css, Some(Encoding::UTF8));
     stream.close();
 

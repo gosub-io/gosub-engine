@@ -5,6 +5,7 @@ use gosub_css3::{walker, Css3, Error};
 use gosub_shared::byte_stream::{ByteStream, Encoding, Location};
 use simple_logger::SimpleLogger;
 use std::fs;
+use std::time::Instant;
 
 fn main() -> Result<()> {
     let matches = clap::Command::new("Gosub CSS3 parser")
@@ -81,11 +82,20 @@ fn main() -> Result<()> {
         SimpleLogger::new().init().unwrap();
     }
 
+    let now = Instant::now();
     let result = Css3::parse(css.as_str(), config);
+    let elapsed_time = now.elapsed();
+    println!(
+        "Running css3 parser of ({}) took {} ms.",
+        byte_size(css.len() as u64),
+        elapsed_time.as_millis()
+    );
+
     if result.is_err() {
         let err = result.err().unwrap();
         let message = err.message.clone();
         display_snippet(&css, err);
+
         return Err(anyhow!(message));
     }
 
@@ -135,7 +145,7 @@ fn display_snippet(css: &str, err: Error) {
 }
 
 fn print_tokens(css: String) {
-    let mut stream = ByteStream::new();
+    let mut stream = ByteStream::new(Encoding::UTF8, None);
     stream.read_from_str(&css, Some(Encoding::UTF8));
     stream.close();
 
@@ -148,4 +158,18 @@ fn print_tokens(css: String) {
             break;
         }
     }
+}
+
+/// Returns a human-readable byte size
+fn byte_size(bytes: u64) -> String {
+    let sizes = ["B", "KB", "MB", "GB", "TB"];
+    if bytes == 0 {
+        return "0 B".to_string();
+    }
+    let i = (bytes as f64).log2().floor() as i32 / 10;
+    format!(
+        "{:.2} {}",
+        bytes as f64 / 2_f64.powi(i * 10),
+        sizes[i as usize]
+    )
 }

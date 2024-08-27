@@ -6,14 +6,14 @@ impl Css3<'_> {
     pub fn parse_condition(&mut self, kind: FeatureKind) -> Result<Node, Error> {
         log::trace!("parse_condition");
 
-        let loc = self.tokenizer.current_location().clone();
+        let loc = self.tokenizer.current_location();
 
         let mut list = Vec::new();
 
         loop {
             let t = self.consume_any()?;
             match t.token_type {
-                TokenType::Comment(_) | TokenType::Whitespace => {
+                TokenType::Comment(_) | TokenType::Whitespace(_) => {
                     // skip
                     continue;
                 }

@@ -3,10 +3,10 @@ use crate::tokenizer::TokenType;
 use crate::{Css3, Error};
 
 impl Css3<'_> {
-    pub fn parse_stylesheet(&mut self) -> Result<Node, Error> {
+    pub fn parse_stylesheet(&mut self) -> Result<Option<Node>, Error> {
         log::trace!("parse_stylesheet");
 
-        let loc = self.tokenizer.current_location().clone();
+        let loc = self.tokenizer.current_location();
 
         let mut children = Vec::new();
 
@@ -15,7 +15,7 @@ impl Css3<'_> {
 
             match t.token_type {
                 TokenType::Eof => {}
-                TokenType::Whitespace => {}
+                TokenType::Whitespace(_) => {}
                 TokenType::Comment(comment) => {
                     if comment.chars().nth(2) == Some('!') {
                         children.push(Node::new(
@@ -32,17 +32,31 @@ impl Css3<'_> {
                 }
                 TokenType::AtKeyword(_keyword) => {
                     self.tokenizer.reconsume();
+
                     let at_rule = self.parse_at_rule(false)?;
-                    children.push(at_rule);
+                    if let Some(at_rule_node) = at_rule {
+                        children.push(at_rule_node);
+                    }
                 }
                 _ => {
                     self.tokenizer.reconsume();
+
                     let rule = self.parse_rule()?;
-                    children.push(rule);
+                    if let Some(rule_node) = rule {
+                        children.push(rule_node);
+                    }
                 }
             }
         }
 
-        Ok(Node::new(NodeType::StyleSheet { children }, loc))
+        for t in self.tokenizer.get_tokens() {
+            log::trace!("{:?}", t);
+        }
+
+        if children.is_empty() {
+            return Ok(None);
+        }
+
+        Ok(Some(Node::new(NodeType::StyleSheet { children }, loc)))
     }
 }

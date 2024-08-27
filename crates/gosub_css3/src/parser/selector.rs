@@ -7,7 +7,7 @@ impl Css3<'_> {
         log::trace!("parse_attribute_operator");
 
         let mut value = String::new();
-        let loc = self.tokenizer.current_location().clone();
+        let loc = self.tokenizer.current_location();
 
         let c = self.consume_any_delim()?;
         match &c {
@@ -35,7 +35,7 @@ impl Css3<'_> {
     fn parse_class_selector(&mut self) -> Result<Node, Error> {
         log::trace!("parse_class_selector");
 
-        let loc = self.tokenizer.current_location().clone();
+        let loc = self.tokenizer.current_location();
 
         self.consume(TokenType::Delim('.'))?;
 
@@ -47,7 +47,7 @@ impl Css3<'_> {
     fn parse_nesting_selector(&mut self) -> Result<Node, Error> {
         log::trace!("parse_nesting_selector");
 
-        let loc = self.tokenizer.current_location().clone();
+        let loc = self.tokenizer.current_location();
 
         self.consume(TokenType::Delim('&'))?;
 
@@ -67,7 +67,7 @@ impl Css3<'_> {
             }
             _ => Err(Error::new(
                 format!("Unexpected token {:?}", t),
-                self.tokenizer.current_location().clone(),
+                self.tokenizer.current_location(),
             )),
         }
     }
@@ -75,7 +75,7 @@ impl Css3<'_> {
     fn parse_type_selector(&mut self) -> Result<Node, Error> {
         log::trace!("parse_type_selector");
 
-        let loc = self.tokenizer.current_location().clone();
+        let loc = self.tokenizer.current_location();
         let mut value = String::new();
 
         let t = self.tokenizer.current();
@@ -111,7 +111,7 @@ impl Css3<'_> {
     fn parse_attribute_selector(&mut self) -> Result<Node, Error> {
         log::trace!("parse_attribute_selector");
 
-        let loc = self.tokenizer.current_location().clone();
+        let loc = self.tokenizer.current_location();
 
         let mut flags = String::new();
         let mut matcher = None;
@@ -139,7 +139,7 @@ impl Css3<'_> {
                 } else {
                     return Err(Error::new(
                         format!("Unexpected token {:?}", t),
-                        self.tokenizer.current_location().clone(),
+                        self.tokenizer.current_location(),
                     ));
                 }
             }
@@ -170,7 +170,7 @@ impl Css3<'_> {
     fn parse_id_selector(&mut self) -> Result<Node, Error> {
         log::trace!("parse_id_selector");
 
-        let loc = self.tokenizer.current_location().clone();
+        let loc = self.tokenizer.current_location();
 
         self.consume(TokenType::Delim('#'))?;
 
@@ -180,7 +180,7 @@ impl Css3<'_> {
             _ => {
                 return Err(Error::new(
                     format!("Unexpected token {:?}", t),
-                    self.tokenizer.current_location().clone(),
+                    self.tokenizer.current_location(),
                 ));
             }
         };
@@ -191,7 +191,7 @@ impl Css3<'_> {
     fn parse_pseudo_element_selector(&mut self) -> Result<Node, Error> {
         log::trace!("parse_pseudo_element_selector");
 
-        let loc = self.tokenizer.current_location().clone();
+        let loc = self.tokenizer.current_location();
 
         self.consume(TokenType::Colon)?;
         self.consume(TokenType::Colon)?;
@@ -202,7 +202,7 @@ impl Css3<'_> {
         } else {
             return Err(Error::new(
                 format!("Unexpected token {:?}", t),
-                self.tokenizer.current_location().clone(),
+                self.tokenizer.current_location(),
             ));
         };
 
@@ -212,7 +212,7 @@ impl Css3<'_> {
     fn parse_pseudo_selector(&mut self) -> Result<Node, Error> {
         log::trace!("parse_pseudo_selector");
 
-        let loc = self.tokenizer.current_location().clone();
+        let loc = self.tokenizer.current_location();
 
         self.consume(TokenType::Colon)?;
 
@@ -235,7 +235,7 @@ impl Css3<'_> {
             _ => {
                 return Err(Error::new(
                     format!("Unexpected token {:?}", t),
-                    self.tokenizer.current_location().clone(),
+                    self.tokenizer.current_location(),
                 ));
             }
         };
@@ -246,7 +246,8 @@ impl Css3<'_> {
     pub fn parse_selector(&mut self) -> Result<Node, Error> {
         log::trace!("parse_selector");
 
-        let loc = self.tokenizer.current_location().clone();
+        let loc = self.tokenizer.current_location();
+        log::trace!("loc: {:?}", loc);
 
         let mut children = vec![];
 

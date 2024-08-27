@@ -406,7 +406,7 @@ lazy_static! {
 mod tests {
     use crate::error_logger::ErrorLogger;
     use crate::tokenizer::{ParserData, Tokenizer};
-    use gosub_shared::byte_stream::ByteStream;
+    use gosub_shared::byte_stream::{ByteStream, Encoding, Location};
     use std::cell::RefCell;
     use std::rc::Rc;
 
@@ -417,12 +417,12 @@ mod tests {
                 fn $name() {
                     let (input, expected) = $value;
 
-                    let mut stream = ByteStream::new();
+                    let mut stream = ByteStream::new(Encoding::UTF8, None);
                     stream.read_from_str(input, None);
                     stream.close();
 
                     let error_logger = Rc::new(RefCell::new(ErrorLogger::new()));
-                    let mut tokenizer = Tokenizer::new(&mut stream, None, error_logger.clone());
+                    let mut tokenizer = Tokenizer::new(&mut stream, None, error_logger.clone(), Location::default());
 
                     let token = tokenizer.next_token(ParserData::default()).unwrap();
                     assert_eq!(expected, token.to_string());

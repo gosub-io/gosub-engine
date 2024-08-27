@@ -4,7 +4,7 @@ use gosub_shared::byte_stream::{ByteStream, Encoding};
 
 fn main() {
     // Creates an input stream
-    let mut stream = ByteStream::new();
+    let mut stream = ByteStream::new(Encoding::UTF8, None);
     stream.read_from_str("<p>Hello<b>world</b></p>", Some(Encoding::UTF8));
     stream.close();
 

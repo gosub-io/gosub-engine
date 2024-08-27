@@ -156,6 +156,13 @@ pub enum NodeType {
     Container {
         children: Vec<Node>,
     },
+    Range {
+        left: Node,
+        left_comparison: Node,
+        middle: Node,
+        right_comparison: Option<Node>,
+        right: Option<Node>,
+    },
 }
 
 /// A node is a single element in the AST

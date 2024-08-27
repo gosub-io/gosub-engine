@@ -2,26 +2,29 @@ use crate::node::{Node, NodeType};
 use crate::tokenizer::TokenType;
 use crate::{Css3, Error};
 
+#[derive(Debug, PartialEq)]
 pub enum BlockParseMode {
     StyleBlock,
     RegularBlock,
 }
 
 impl Css3<'_> {
-    fn parse_consume_rule(&mut self) -> Result<Node, Error> {
+    fn parse_consume_rule(&mut self) -> Result<Option<Node>, Error> {
         log::trace!("parse_consume_rule");
         self.parse_rule()
     }
 
-    fn parse_consume_declaration(&mut self) -> Result<Node, Error> {
+    fn parse_consume_declaration(&mut self) -> Result<Option<Node>, Error> {
         log::trace!("parse_consume_declaration");
-        let declaration = self.parse_declaration()?;
 
-        Ok(declaration)
+        match self.parse_declaration()? {
+            Some(declaration) => Ok(Some(declaration)),
+            None => Ok(None),
+        }
     }
 
     /// Reads until the end of a declaration or rule (or end of the block), in case there is a syntax error
-    fn parse_until_rule_end(&mut self) {
+    pub(crate) fn parse_until_rule_end(&mut self) {
         loop {
             let t = self.consume_any();
             if t.is_err() {
@@ -46,9 +49,9 @@ impl Css3<'_> {
     }
 
     pub fn parse_block(&mut self, mode: BlockParseMode) -> Result<Node, Error> {
-        log::trace!("parse_block");
+        log::trace!("parse_block with parse mode: {:?}", mode);
 
-        let loc = self.tokenizer.current_location().clone();
+        let loc = self.tokenizer.current_location();
         let mut children: Vec<Node> = Vec::new();
         let mut semicolon_seperated = true;
 
@@ -62,13 +65,17 @@ impl Css3<'_> {
                     let n = Node::new(NodeType::Block { children }, t.location.clone());
                     return Ok(n);
                 }
-                TokenType::Whitespace | TokenType::Comment(_) => {
+                TokenType::Whitespace(_) | TokenType::Comment(_) => {
                     // just eat the token
                 }
 
                 TokenType::AtKeyword(_) => {
                     self.tokenizer.reconsume();
-                    children.push(self.parse_at_rule(true)?);
+                    if let Some(at_rule_node) =
+                        self.parse_at_rule(mode == BlockParseMode::StyleBlock)?
+                    {
+                        children.push(at_rule_node);
+                    }
                     semicolon_seperated = false;
                     continue;
                 }
@@ -80,34 +87,21 @@ impl Css3<'_> {
                         if !semicolon_seperated {
                             return Err(Error::new(
                                 format!("Expected a ; got {:?}", t),
-                                self.tokenizer.current_location().clone(),
+                                self.tokenizer.current_location(),
                             ));
                         }
 
                         self.tokenizer.reconsume();
                         if t.is_delim('&') {
-                            let rule = self.parse_consume_rule();
-                            if rule.is_err() {
-                                self.parse_until_rule_end();
-                                if self.config.ignore_errors {
-                                    continue;
-                                } else {
-                                    return rule;
-                                }
+                            let rule = self.parse_consume_rule()?;
+                            if let Some(rule_node) = rule {
+                                children.push(rule_node);
                             }
-                            children.push(rule.unwrap());
                         } else {
-                            let declaration = self.parse_consume_declaration();
-                            if declaration.is_err() {
-                                self.parse_until_rule_end();
-                                if self.config.ignore_errors {
-                                    continue;
-                                } else {
-                                    return declaration;
-                                }
+                            let declaration = self.parse_consume_declaration()?;
+                            if let Some(declaration_node) = declaration {
+                                children.push(declaration_node);
                             }
-
-                            children.push(declaration.unwrap());
                         }
 
                         // // check for either semicolon, eof, or rcurly
@@ -125,16 +119,9 @@ impl Css3<'_> {
                     BlockParseMode::RegularBlock => {
                         self.tokenizer.reconsume();
 
-                        let rule = self.parse_consume_rule();
-                        if rule.is_err() {
-                            self.parse_until_rule_end();
-                            if self.config.ignore_errors {
-                                continue;
-                            } else {
-                                return rule;
-                            }
+                        if let Some(rule_node) = self.parse_consume_rule()? {
+                            children.push(rule_node);
                         }
-                        children.push(rule.unwrap());
 
                         semicolon_seperated = false;
                     }

@@ -10,7 +10,7 @@ use gosub_html5::parser::document::DocumentBuilder;
 use gosub_html5::parser::document::{Document, DocumentHandle};
 use gosub_html5::parser::tree_builder::TreeBuilder;
 use gosub_html5::parser::{Html5Parser, Html5ParserOptions};
-use gosub_shared::byte_stream::ByteStream;
+use gosub_shared::byte_stream::{ByteStream, Config, Encoding, Location};
 use gosub_shared::types::{ParseError, Result};
 use parser::{ScriptMode, TestSpec};
 use result::TestResult;
@@ -40,11 +40,11 @@ impl Test {
     }
 
     pub fn document_as_str(&self) -> &str {
-        return self.spec.document.as_str();
+        self.spec.document.as_str()
     }
 
     pub fn spec_data(&self) -> &str {
-        return self.spec.data.as_str();
+        self.spec.data.as_str()
     }
 }
 
@@ -87,13 +87,20 @@ impl Harness {
     /// Run the html5 parser and return the document tree and errors
     fn do_parse(&mut self, scripting_enabled: bool) -> Result<(DocumentHandle, Vec<ParseError>)> {
         let options = Html5ParserOptions { scripting_enabled };
-        let mut stream = ByteStream::new();
+        let mut stream = ByteStream::new(
+            Encoding::UTF8,
+            Some(Config {
+                cr_lf_as_one: true,
+                replace_cr_as_lf: true,
+                replace_high_ascii: false,
+            }),
+        );
         stream.read_from_str(self.test.spec_data(), None);
         stream.close();
 
         let (document, parse_errors) =
             if let Some(fragment) = self.test.spec.document_fragment.clone() {
-                self.parse_fragment(fragment, stream, options)?
+                self.parse_fragment(fragment, stream, options, Location::default())?
             } else {
                 let document = DocumentBuilder::new_document(None);
                 let parser_errors = Html5Parser::parse_document(
@@ -112,6 +119,7 @@ impl Harness {
         fragment: String,
         mut stream: ByteStream,
         options: Html5ParserOptions,
+        start_location: Location,
     ) -> Result<(DocumentHandle, Vec<ParseError>)> {
         // First, create a (fake) main document that contains only the fragment as node
         let main_document = DocumentBuilder::new_document(None);
@@ -131,8 +139,13 @@ impl Harness {
         };
 
         // Add context node
-        let context_node_id =
-            main_document.create_element(element.as_str(), NodeId::root(), None, namespace);
+        let context_node_id = main_document.create_element(
+            element.as_str(),
+            NodeId::root(),
+            None,
+            namespace,
+            start_location.clone(),
+        );
         let context_node = main_document
             .get()
             .get_node_by_id(context_node_id)
@@ -146,6 +159,7 @@ impl Harness {
             Document::clone(&document),
             &context_node,
             Some(options),
+            start_location,
         )?;
 
         Ok((document, parser_errors))
@@ -178,7 +192,7 @@ impl Harness {
                 line = tmp;
             }
 
-            // Only break if we're in a multi-line text and we found the ending double-quote
+            // Only break if we're in a multi-line text, and we found the ending double-quote
             if is_multi_line_text && line.ends_with('\"') {
                 break;
             }

@@ -5,7 +5,7 @@ impl Css3<'_> {
     pub fn parse_selector_list(&mut self) -> Result<Node, Error> {
         log::trace!("parse_selector_list");
 
-        let loc = self.tokenizer.current_location().clone();
+        let loc = self.tokenizer.current_location();
 
         let mut selectors = vec![];
 
