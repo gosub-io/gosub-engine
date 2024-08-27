@@ -15,7 +15,7 @@ pub fn parse_len(node: &mut impl Node, name: &str) -> LengthPercentage {
     property.compute_value();
 
     if let Some(percent) = property.as_percentage() {
-        return LengthPercentage::Percent(percent);
+        return LengthPercentage::Percent(percent / 100.0);
     }
 
     LengthPercentage::Length(property.unit_to_px())
@@ -35,7 +35,7 @@ pub fn parse_len_auto(node: &mut impl Node, name: &str) -> LengthPercentageAuto 
     }
 
     if let Some(percent) = property.as_percentage() {
-        return LengthPercentageAuto::Percent(percent);
+        return LengthPercentageAuto::Percent(percent / 100.0);
     }
 
     LengthPercentageAuto::Length(property.unit_to_px())
@@ -55,7 +55,7 @@ pub fn parse_dimension(node: &mut impl Node, name: &str) -> Dimension {
     }
 
     if let Some(percent) = property.as_percentage() {
-        return Dimension::Percent(percent);
+        return Dimension::Percent(percent / 100.0);
     }
 
     Dimension::Length(property.unit_to_px())
