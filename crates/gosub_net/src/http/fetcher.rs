@@ -25,7 +25,8 @@ impl Fetcher {
 
             response.try_into()?
         } else if scheme == "file" {
-            let path = url.path();
+            let path = &url.as_str()[7..];
+
             let body = std::fs::read(path)?;
 
             Response::from(body)
