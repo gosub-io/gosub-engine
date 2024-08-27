@@ -18,7 +18,7 @@ log = { version = "0.4.22", features = [] }
 
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-ureq = "2.10.0"
+ureq = "2.10.1"
 
 [dev-dependencies]
 gosub_testing = { path = "../gosub_testing" }
