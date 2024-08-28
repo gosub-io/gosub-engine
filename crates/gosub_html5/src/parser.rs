@@ -4199,47 +4199,67 @@ impl<'chars> Html5Parser<'chars> {
 
     #[cfg(not(target_arch = "wasm32"))]
     fn load_external_stylesheet(&self, origin: CssOrigin, url: Url) -> Option<CssStylesheet> {
-        if url.scheme() != "http" && url.scheme() != "https" {
-            // Only load http and https
-            return None;
-        }
-
-        // Fetch the html from the url
-        let response = ureq::get(url.as_ref()).call();
-        if response.is_err() {
-            warn!(
-                "Could not load external stylesheet from {}. Error: {}",
-                url,
-                response.unwrap_err()
-            );
-            return None;
-        }
-        let response = response.expect("result");
-
-        if response.status() != 200 {
-            warn!(
-                "Could not load external stylesheet from {}. Status code {} ",
-                url,
-                response.status()
-            );
-            return None;
-        }
-        if response.content_type() != "text/css" {
-            warn!(
-                "External stylesheet has no text/css content type: {} ",
-                response.content_type()
-            );
-        }
-
-        let css = match response.into_string() {
-            Ok(css) => css,
-            Err(err) => {
+        let css = if url.scheme() == "http" && url.scheme() == "https" {
+            // Fetch the html from the url
+            let response = ureq::get(url.as_ref()).call();
+            if response.is_err() {
                 warn!(
                     "Could not load external stylesheet from {}. Error: {}",
-                    url, err
+                    url,
+                    response.unwrap_err()
                 );
+
                 return None;
             }
+            let response = response.expect("result");
+
+            if response.status() != 200 {
+                warn!(
+                    "Could not load external stylesheet from {}. Status code {} ",
+                    url,
+                    response.status()
+                );
+
+                return None;
+            }
+            if response.content_type() != "text/css" {
+                warn!(
+                    "External stylesheet has no text/css content type: {} ",
+                    response.content_type()
+                );
+            }
+
+            match response.into_string() {
+                Ok(css) => css,
+                Err(err) => {
+                    warn!(
+                        "Could not load external stylesheet from {}. Error: {}",
+                        url, err
+                    );
+
+                    return None;
+                }
+            }
+        } else if url.scheme() == "file" {
+            let path = &url.as_str()[7..];
+
+            match std::fs::read_to_string(path) {
+                Ok(css) => css,
+                Err(err) => {
+                    warn!(
+                        "Could not load external stylesheet from {}. Error: {}",
+                        url, err
+                    );
+
+                    return None;
+                }
+            }
+        } else {
+            warn!(
+                "Unsupported URL scheme for external stylesheet: {}",
+                url.scheme()
+            );
+            return None;
         };
 
         let config = ParserConfig {
@@ -4325,11 +4345,14 @@ impl<'chars> Html5Parser<'chars> {
                         }
                     }
                 };
-                // println!("loading external stylesheet: {}", css_url);
+                println!("loading external stylesheet: {}", css_url);
 
                 if let Some(stylesheet) = self.load_external_stylesheet(CssOrigin::Author, css_url)
                 {
+                    println!("success: loaded external stylesheet");
                     self.document.get_mut().stylesheets.push(stylesheet);
+                } else {
+                    println!("failed loading stylesheet")
                 }
             }
             _ => {
