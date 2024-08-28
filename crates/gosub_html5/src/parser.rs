@@ -4199,7 +4199,7 @@ impl<'chars> Html5Parser<'chars> {
 
     #[cfg(not(target_arch = "wasm32"))]
     fn load_external_stylesheet(&self, origin: CssOrigin, url: Url) -> Option<CssStylesheet> {
-        let css = if url.scheme() == "http" && url.scheme() == "https" {
+        let css = if url.scheme() == "http" || url.scheme() == "https" {
             // Fetch the html from the url
             let response = ureq::get(url.as_ref()).call();
             if response.is_err() {
