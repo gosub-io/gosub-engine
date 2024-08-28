@@ -9,7 +9,7 @@ fn main() -> Result<()> {
     let url = std::env::args()
         .nth(1)
         .or_else(|| {
-            println!("Usage: gosub-browser <url>");
+            println!("Usage: display-text-tree <url>");
             exit(1);
         })
         .unwrap();
@@ -29,55 +29,13 @@ fn main() -> Result<()> {
     let document = DocumentBuilder::new_document(None);
     let parse_errors = Html5Parser::parse_document(&mut stream, Document::clone(&document), None)?;
 
-    match get_node_by_path(&document.get(), vec!["html", "body"]) {
-        None => {
-            println!("[No Body Found]");
-        }
-        Some(node) => display_node(&document.get(), node),
-    }
-
     for e in parse_errors {
         println!("Parse Error: {}", e.message);
     }
 
+    display_node(&document.get(), document.get().get_root());
+
     Ok(())
-}
-
-fn get_node<'a>(document: &'a Document, parent: &'a Node, name: &'a str) -> Option<&'a Node> {
-    for id in &parent.children {
-        match document.get_node_by_id(*id) {
-            None => {}
-            Some(node) => {
-                if node.name.eq(name) {
-                    return Some(node);
-                }
-            }
-        }
-    }
-    None
-}
-
-fn get_node_by_path<'a>(document: &'a Document, path: Vec<&'a str>) -> Option<&'a Node> {
-    let mut node = document.get_root();
-    match document.get_node_by_id(node.children[0]) {
-        None => {
-            return None;
-        }
-        Some(child) => {
-            node = child;
-        }
-    }
-    for name in path {
-        match get_node(document, node, name) {
-            Some(new_node) => {
-                node = new_node;
-            }
-            None => {
-                return None;
-            }
-        }
-    }
-    Some(node)
 }
 
 fn display_node(document: &Document, node: &Node) {

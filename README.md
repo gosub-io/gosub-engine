@@ -7,23 +7,12 @@ Join us at our development [Zulip chat](https://chat.developer.gosub.io)!
 
 For more general information you can also join our [Discord server](https://chat.gosub.io).
 
-If you are interested in contributing to Gosub, please checkout the [contribution guide](CONTRIBUTING.md)!
+If you are interested in contributing to Gosub, please check out the [contribution guide](CONTRIBUTING.md)!
 
-```
-                       _
-                      | |
-  __ _  ___  ___ _   _| |__
- / _` |/ _ \/ __| | | | '_ \
-| (_| | (_) \__ \ |_| | |_) |
- \__, |\___/|___/\__,_|_.__/
-  __/ |  The Gateway to
- |___/   Optimized Searching and
-         Unlimited Browsing
-```
 
 ## About
 
-This repository is part of the Gosub browser project. This is the main engine that holds the following components:
+This repository is part of the Gosub browser engine project. This is the main engine that holds the following components:
 
 - HTML5 tokenizer / parser
 - CSS3 tokenizer / parser
@@ -35,24 +24,24 @@ This repository is part of the Gosub browser project. This is the main engine th
 - JS bridge
 - C Bindings
 
-The idea is that this engine will receive some kind of stream of bytes (most likely from a socket or file) and parse
-this into a valid HTML5 document tree.
+More will follow as the engine grows. The idea is that this engine will receive some kind of stream of bytes (most likely 
+from a socket or file) and parse this into a valid HTML5 document tree and CSS stylesheets.
 From that point, it can be fed to a renderer engine that will render the document tree into a window, or it can be fed
-to a more simplistic engine that will render it in a terminal.
-JS can be executed on the document tree and the document tree can be modified by JS.
+to a more simplistic engine that will render it in a terminal. JS can be executed on the document tree and the document 
+tree can be modified by JS.
+
 
 ## Status
 
 > This project is in its infancy. There is no usable browser yet. However, you can look at simple html pages and parse
 > them into a document tree.
 
-We can parse html5 and css3 files into a document tree or the respective css tree.
-This tree can be shown in the terminal or be rendered in a very unfinished renderer. Our renderer cannot render
-everything yet, but it can render simple html pages.
+We can parse HTML5 and CSS3 files into a document tree or the respective css tree. This tree can be shown in the terminal 
+or be rendered in a very unfinished renderer. Our renderer cannot render everything yet, but it can render simple html 
+pages, sort of.
 
 We already implemented other parts of the engine, for a JS engine, networking stack, a configuration store and other
-things however these aren't integrated yet.
-You can try these out by running the respective binary.
+things however these aren't integrated yet. You can try these out by running the respective binary.
 
 We can render a part for our own [site](https://gosub.io):
 
@@ -60,6 +49,7 @@ We can render a part for our own [site](https://gosub.io):
 
 Note: the borders are broken because of an issue with taffy (the layout engine we use). This will be fixed in the
 future.
+
 
 ## How to run
 
@@ -89,22 +79,19 @@ You can run the following binaries:
 
 | Command                                | Type | Description                                                                                                                                                     |
 |----------------------------------------|------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `cargo run -r --bin gosub-parser`      | bin  | The actual html5 parser/tokenizer that allows you to convert html5 into a document tree.               <br/>                                                    |
-| `cargo run -r --bin parser-test`       | test | A test suite for the parser that tests specific tests. This will be removed as soon as the parser is completely finished as this tool is for developement only. |
-| `cargo run -r --bin html5-parser-test` | test | A test suite that tests all html5lib tests for the treebuilding                                                                                                 |
-| `cargo run -r --bin test-user-agent`   | bin  | A simple placeholder user agent for testing purposes                                                                                                            |
 | `cargo run -r --bin config-store`      | bin  | A simple test application of the config store for testing purposes                                                                                              |
 | `cargo run -r --bin css3-parser`       | bin  | Show the parsed css tree                                                                                                                                        |
+| `cargo run -r --bin display-text-tree` | bin  | A simple parser that will try and return a textual presentation of the website                                                                                  |
+| `cargo run -r --bin gosub-parser`      | bin  | The actual html5 parser/tokenizer that allows you to convert html5 into a document tree.                                                                        |
+| `cargo run -r --bin html5-parser-test` | test | A test suite that tests all html5lib tests for the treebuilding                                                                                                 |
+| `cargo run -r --bin parser-test`       | test | A test suite for the parser that tests specific tests. This will be removed as soon as the parser is completely finished as this tool is for developement only. |
 | `cargo run -r --bin renderer`          | bin  | Render a html page (WIP)                                                                                                                                        |
 | `cargo run -r --bin run-js`            | bin  | Run a JS file (Note: console and event loop are not yet implemented)                                                                                            |
-| `cargo run -r --bin style-parser`      | bin  | Display the html page's text with basic styles in the terminal                                                                                                  |
 
-You can then run the binaries like so:
+For running the binaries, take a look at a quick introduction at [/docs/binaries.md](/docs/binaries.md)
 
-```bash
-cargo run -r --bin renderer file://src/bin/resources/gosub.html
-```
 
+## Benchmark and test suites
 
 To run the tests and benchmark suite, do:
 
@@ -124,6 +111,7 @@ wasm-pack build
 ```
 
 ![Browser in browser](resources/images/browser-in-browser.png)
+
 
 ## Contributing to the project
 
