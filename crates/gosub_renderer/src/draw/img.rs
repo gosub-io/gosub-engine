@@ -11,11 +11,7 @@ pub fn request_img<B: RenderBackend>(
     url: &str,
     size: SizeU32,
 ) -> Result<ImageBuffer<B>> {
-    println!("getting image from url: {}", url);
-
     let res = fetcher.get(url)?;
-
-    println!("got response from url: {}", res.status);
 
     if !res.is_ok() {
         return Err(anyhow!("Could not get url. Status code {}", res.status));
