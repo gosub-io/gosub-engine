@@ -1769,6 +1769,7 @@ dependencies = [
  "gosub_render_backend",
  "gosub_renderer",
  "gosub_shared",
+ "image",
  "log",
  "slotmap",
  "url",
