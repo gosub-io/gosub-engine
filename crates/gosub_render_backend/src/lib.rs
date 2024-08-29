@@ -501,7 +501,7 @@ pub trait PreRenderText {
 }
 
 pub trait Text<B: RenderBackend> {
-    fn new(pre: &mut B::PreRenderText) -> Self;
+    fn new(props: ) -> Self;
 }
 
 pub struct ColorStop<B: RenderBackend> {

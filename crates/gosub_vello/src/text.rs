@@ -166,26 +166,7 @@ impl Text {
     }
 }
 
-impl PreRenderText {
-    fn pre_transform_text(text: String) -> String {
-        let mut new_text = String::with_capacity(text.len());
-
-        let mut last_was_ws = false;
-        for c in text.chars() {
-            if c.is_whitespace() {
-                if !last_was_ws {
-                    new_text.push(' ');
-                    last_was_ws = true;
-                }
-            } else {
-                new_text.push(c);
-                last_was_ws = false;
-            }
-        }
-
-        new_text
-    }
-}
+impl PreRenderText {}
 
 fn to_font_ref(font: &Font) -> Option<FontRef<'_>> {
     use vello::skrifa::raw::FileRef;

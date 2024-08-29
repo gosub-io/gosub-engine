@@ -10,3 +10,4 @@ gosub_styling = { path = "../gosub_styling" }
 taffy = "0.5.2"
 anyhow = "1.0.86"
 regex = "1.10.5"
+parley = { git = "https://github.com/linebender/parley", rev = "14070d5" }

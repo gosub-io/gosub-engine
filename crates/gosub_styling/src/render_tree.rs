@@ -320,18 +320,7 @@ impl<B: RenderBackend, L: Layouter> RenderTree<B, L> {
             let current_node = binding.get_node_by_id(current_node_id).unwrap();
 
             let mut data = || {
-                if let Some(parent_id) = current_node.parent {
-                    if let Some(parent) = self.nodes.get_mut(&parent_id) {
-                        let parent_props = Some(&mut parent.properties);
-
-                        return RenderNodeData::from_node_data(
-                            current_node.data.clone(),
-                            parent_props,
-                        );
-                    };
-                };
-
-                RenderNodeData::from_node_data(current_node.data.clone(), None)
+                return RenderNodeData::from_node_data(current_node.data.clone());
             };
 
             let data = match data() {
@@ -382,21 +371,6 @@ impl<B: RenderBackend, L: Layouter> RenderTree<B, L> {
                 if removable_elements.contains(&element.name.as_str()) {
                     println!("removing: {:?}({id})", element.name);
                     delete_list.append(&mut self.get_child_node_ids(*id));
-                    delete_list.push(*id);
-                    continue;
-                }
-            }
-
-            if let RenderNodeData::Text(t) = &node.data {
-                let mut remove = true;
-                for c in t.prerender.value().chars() {
-                    if !c.is_ascii_whitespace() {
-                        remove = false;
-                        break;
-                    }
-                }
-
-                if remove {
                     delete_list.push(*id);
                     continue;
                 }
@@ -569,22 +543,23 @@ pub fn add_property_to_map(
 }
 
 #[derive(Debug)]
-pub enum RenderNodeData<B: RenderBackend> {
+pub enum RenderNodeData<L: Layouter> {
     Document,
     Element(Box<ElementData>),
-    Text(Box<TextData<B>>),
+    Text(Box<TextData<L>>),
     AnonymousInline,
 }
 
-pub struct TextData<B: RenderBackend> {
-    pub prerender: B::PreRenderText,
+pub struct TextData<L: Layouter> {
+    pub text: String,
+    pub layout: Option<L::TextLayout>,
 }
 
-impl<B: RenderBackend> Debug for TextData<B> {
+impl<L: Layouter> Debug for TextData<L> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("TextData")
-            .field("text", &self.prerender.value())
-            .field("fs", &self.prerender.fs())
+            .field("text", &self.text)
+            .field("layout", self.layout.as_ref().map(|x| x.layout_dbg()))
             .finish()
     }
 }
@@ -596,57 +571,37 @@ pub enum ControlFlow<T> {
 }
 
 impl<B: RenderBackend> RenderNodeData<B> {
-    pub fn from_node_data(node: NodeData, props: Option<&mut CssProperties>) -> ControlFlow<Self> {
+    pub fn from_node_data(node: NodeData) -> ControlFlow<Self> {
         ControlFlow::Ok(match node {
             NodeData::Element(data) => RenderNodeData::Element(data),
             NodeData::Text(data) => {
-                let text = data.value.trim();
-                let text = text.replace('\n', "");
-                let text = text.replace('\r', "");
+                let text = pre_transform_text(data.value);
 
-                let Some(props) = props else {
-                    return ControlFlow::Error(anyhow::anyhow!("No properties found"));
-                };
-
-                let font = props.get("font-family").and_then(|prop| {
-                    prop.compute_value();
-
-                    if let CssValue::String(font_family) = &prop.actual {
-                        return Some(
-                            font_family
-                                .trim()
-                                .split(',')
-                                .map(|ff| ff.to_string())
-                                .collect::<Vec<String>>(),
-                        );
-                    }
-
-                    None
-                });
-
-                let fs = props
-                    .get("font-size")
-                    .and_then(|prop| {
-                        prop.compute_value();
-                        if let CssValue::String(fs) = &prop.actual {
-                            if fs.ends_with("px") {
-                                return fs[..fs.len() - 2].parse::<f32>().ok();
-                            }
-                        }
-                        None
-                    })
-                    .unwrap_or(DEFAULT_FS) as FP;
-
-                let prerender = PreRenderText::new(text, font, fs);
-
-                let text = TextData { prerender };
-
-                RenderNodeData::Text(Box::new(text))
+                RenderNodeData::Text(Box::new(TextData { text, layout: None }))
             }
             NodeData::Document(_) => RenderNodeData::Document,
             _ => return ControlFlow::Drop,
         })
     }
+}
+
+fn pre_transform_text(text: String) -> String {
+    let mut new_text = String::with_capacity(text.len());
+
+    let mut last_was_ws = false;
+    for c in text.chars() {
+        if c.is_whitespace() {
+            if !last_was_ws {
+                new_text.push(' ');
+                last_was_ws = true;
+            }
+        } else {
+            new_text.push(c);
+            last_was_ws = false;
+        }
+    }
+
+    new_text
 }
 
 pub struct RenderTreeNode<B: RenderBackend, L: Layouter> {
@@ -718,9 +673,11 @@ impl<B: RenderBackend, L: Layouter> RenderTreeNode<B, L> {
             return true;
         }
 
-        self.properties
-            .get("display")
-            .map_or(false, |prop| prop.compute_value().to_string() == "inline")
+        self.properties.get("display").map_or(false, |prop| {
+            let val = prop.compute_value().to_string();
+
+            val == "inline" || val == "inline-block"
+        })
     }
 }
 
@@ -731,9 +688,9 @@ impl<B: RenderBackend, L: Layouter> Node for RenderTreeNode<B, L> {
         self.properties.properties.get_mut(name)
     }
 
-    fn text_size(&mut self) -> Option<Size> {
-        if let RenderNodeData::Text(text) = &mut self.data {
-            Some(text.prerender.prerender())
+    fn text_data(&self) -> Option<&str> {
+        if let RenderNodeData::Text(text) = &self.data {
+            Some(&text.text)
         } else {
             None
         }

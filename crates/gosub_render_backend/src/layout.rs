@@ -28,6 +28,8 @@ pub trait Layouter: Sized + Clone {
     type Cache: Default;
     type Layout: Layout;
 
+    type TextLayout: TextLayout;
+
     const COLLAPSE_INLINE: bool;
 
     fn layout<LT: LayoutTree<Self>>(
@@ -110,7 +112,8 @@ pub trait Node {
     type Property: CssProperty;
 
     fn get_property(&mut self, name: &str) -> Option<&mut Self::Property>; //TODO: this needs to be more generic...
-    fn text_size(&mut self) -> Option<Size>;
+
+    fn text_data(&self) -> Option<&str>;
 
     /// This can only return true if the `Layout::COLLAPSE_INLINE` is set true for the layouter
     ///
@@ -128,3 +131,5 @@ pub trait CssProperty {
     fn as_number(&self) -> Option<f32>;
     fn is_none(&self) -> bool;
 }
+
+pub trait TextLayout {}
