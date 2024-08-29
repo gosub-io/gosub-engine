@@ -1,11 +1,15 @@
 use anyhow::anyhow;
+use image::imageops::FilterType;
+use image::GenericImageView;
 use log::warn;
+use std::cell::LazyCell;
+use std::ops::Deref;
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
 use url::Url;
 use winit::dpi::LogicalSize;
 use winit::event_loop::ActiveEventLoop;
-use winit::window::{Window as WinitWindow, WindowId};
+use winit::window::{Icon, Window as WinitWindow, WindowId};
 
 use gosub_render_backend::geo::SizeU32;
 use gosub_render_backend::layout::{LayoutTree, Layouter};
@@ -19,6 +23,30 @@ use crate::tabs::Tabs;
 pub enum WindowState<'a, B: RenderBackend> {
     Active { surface: B::ActiveWindowData<'a> },
     Suspended,
+}
+
+thread_local! {
+static ICON: LazyCell<Icon> = LazyCell::new(|| {
+        let bytes = include_bytes!("../../../resources/gosub-logo.png");
+
+        let Ok(img) = image::load_from_memory(bytes) else {
+            return Icon::from_rgba(vec![], 0, 0).unwrap();
+        };
+
+
+        println!("size: {:?}", img.dimensions());
+        let height = img.height() / (img.width() / 256);
+
+        let rgba = img.resize_exact(256, height, FilterType::Nearest).to_rgba8();
+
+        println!("size: {:?}", rgba.dimensions());
+
+
+        Icon::from_rgba(rgba.to_vec(), rgba.width(), rgba.height()).unwrap_or(
+            Icon::from_rgba(vec![], 0, 0).unwrap()
+        )
+
+});
 }
 
 pub struct Window<'a, D: SceneDrawer<B, L, LT>, B: RenderBackend, L: Layouter, LT: LayoutTree<L>> {
@@ -110,7 +138,10 @@ impl<'a, D: SceneDrawer<B, L, LT>, B: RenderBackend, L: Layouter, LT: LayoutTree
 fn create_window(event_loop: &ActiveEventLoop) -> Result<Arc<WinitWindow>> {
     let attributes = WinitWindow::default_attributes()
         .with_title("Gosub Browser")
+        .with_window_icon(Some(ICON.with(|icon| icon.deref().clone())))
         .with_inner_size(LogicalSize::new(1920, 1080));
+
+    println!("icon: {:?}", attributes.window_icon.is_some());
 
     event_loop
         .create_window(attributes)

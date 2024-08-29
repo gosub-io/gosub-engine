@@ -74,8 +74,6 @@ pub enum Multiplier {
 
 impl Multiplier {
     fn get_names(self, completed: Vec<&str>, multi: usize) -> Option<Vec<&str>> {
-        println!("get names: {completed:?}, {multi}");
-
         match self {
             Multiplier::NextProp => Some(vec![completed.get(multi)?]),
 
@@ -386,17 +384,11 @@ impl FixList {
 
             match props.properties.entry(name.clone()) {
                 Entry::Occupied(mut entry) => {
-                    println!("Entry occupied");
                     let prop = entry.get_mut();
 
-                    dbg!(&prop);
-
                     prop.declared.push(decl);
-                    dbg!(&prop);
                 }
                 Entry::Vacant(entry) => {
-                    println!("Entry vacant");
-
                     let mut prop = CssProperty::new(name);
 
                     prop.declared.push(decl);
