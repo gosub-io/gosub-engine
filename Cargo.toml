@@ -42,7 +42,7 @@ gosub_useragent = { path = "./crates/gosub_useragent", features = [] }
 gosub_taffy = { path = "./crates/gosub_taffy", features = [] }
 serde = { version = "1.0", features = ["derive"] }
 serde_derive = "1.0"
-derive_more = "0.99"
+derive_more = { version = "1", features = ["from"] }
 lazy_static = "1.5"
 regex = "1"
 anyhow = "1.0.86"
