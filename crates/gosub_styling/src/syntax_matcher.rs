@@ -37,6 +37,10 @@ impl CssSyntaxTree {
 
     /// Matches a CSS value (or set of values) against the syntax tree. Will return a normalized version of the value(s) if it matches.
     pub fn matches(&self, input: &[CssValue]) -> bool {
+        if self.components.is_empty() {
+            return false;
+        }
+
         if self.components.len() != 1 {
             panic!("Syntax tree must have exactly one root component");
         }
@@ -46,6 +50,10 @@ impl CssSyntaxTree {
     }
 
     pub fn matches_and_shorthands(&self, input: &[CssValue], resolver: ShorthandResolver) -> bool {
+        if self.components.is_empty() {
+            return false;
+        }
+
         if self.components.len() != 1 {
             panic!("Syntax tree must have exactly one root component");
         }
