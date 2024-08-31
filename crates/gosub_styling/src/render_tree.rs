@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::fmt::Debug;
+use std::fmt::{Debug, Formatter};
 
 use crate::property_definitions::get_css_definitions;
 use crate::shorthands::FixList;
@@ -10,28 +10,26 @@ use gosub_css3::stylesheet::{CssDeclaration, CssOrigin, CssSelector, CssStyleshe
 use gosub_html5::node::data::element::ElementData;
 use gosub_html5::node::{NodeData, NodeId};
 use gosub_html5::parser::document::{DocumentHandle, TreeIterator};
-use gosub_render_backend::geo::{Size, FP};
-use gosub_render_backend::layout::{Layout, LayoutTree, Layouter, Node};
-use gosub_render_backend::{PreRenderText, RenderBackend};
+use gosub_render_backend::geo::Size;
+use gosub_render_backend::layout::{Layout, LayoutTree, Layouter, Node, TextLayout};
 use gosub_shared::types::Result;
-use gosub_typeface::DEFAULT_FS;
 
 mod desc;
 
 /// Map of all declared values for all nodes in the document
 #[derive(Debug)]
-pub struct RenderTree<B: RenderBackend, L: Layouter> {
-    pub nodes: HashMap<NodeId, RenderTreeNode<B, L>>,
+pub struct RenderTree<L: Layouter> {
+    pub nodes: HashMap<NodeId, RenderTreeNode<L>>,
     pub root: NodeId,
     pub dirty: bool,
     next_id: NodeId,
 }
 
 #[allow(unused)]
-impl<B: RenderBackend, L: Layouter> LayoutTree<L> for RenderTree<B, L> {
+impl<L: Layouter> LayoutTree<L> for RenderTree<L> {
     type NodeId = NodeId;
 
-    type Node = RenderTreeNode<B, L>;
+    type Node = RenderTreeNode<L>;
 
     fn children(&self, id: Self::NodeId) -> Option<Vec<Self::NodeId>> {
         self.get_children(id).cloned()
@@ -92,7 +90,7 @@ impl<B: RenderBackend, L: Layouter> LayoutTree<L> for RenderTree<B, L> {
     }
 }
 
-impl<B: RenderBackend, L: Layouter> RenderTree<B, L> {
+impl<L: Layouter> RenderTree<L> {
     // Generates a new render tree with a root node
     pub fn with_capacity(capacity: usize) -> Self {
         let mut tree = Self {
@@ -122,17 +120,17 @@ impl<B: RenderBackend, L: Layouter> RenderTree<B, L> {
     }
 
     /// Returns the root node of the render tree
-    pub fn get_root(&self) -> &RenderTreeNode<B, L> {
+    pub fn get_root(&self) -> &RenderTreeNode<L> {
         self.nodes.get(&self.root).expect("root node")
     }
 
     /// Returns the node with the given id
-    pub fn get_node(&self, id: NodeId) -> Option<&RenderTreeNode<B, L>> {
+    pub fn get_node(&self, id: NodeId) -> Option<&RenderTreeNode<L>> {
         self.nodes.get(&id)
     }
 
     /// Returns a mutable reference to the node with the given id
-    pub fn get_node_mut(&mut self, id: NodeId) -> Option<&mut RenderTreeNode<B, L>> {
+    pub fn get_node_mut(&mut self, id: NodeId) -> Option<&mut RenderTreeNode<L>> {
         self.nodes.get_mut(&id)
     }
 
@@ -151,12 +149,12 @@ impl<B: RenderBackend, L: Layouter> RenderTree<B, L> {
 
     /// Inserts a new node into the render tree, note that you are responsible for the node id
     /// and the children of the node
-    pub fn insert_node(&mut self, id: NodeId, node: RenderTreeNode<B, L>) {
+    pub fn insert_node(&mut self, id: NodeId, node: RenderTreeNode<L>) {
         self.nodes.insert(id, node);
     }
 
     /// Deletes the node with the given id from the render tree
-    pub fn delete_node(&mut self, id: &NodeId) -> Option<(NodeId, RenderTreeNode<B, L>)> {
+    pub fn delete_node(&mut self, id: &NodeId) -> Option<(NodeId, RenderTreeNode<L>)> {
         // println!("Deleting node: {id:?}");
 
         if let Some(n) = self.nodes.get(id) {
@@ -319,9 +317,7 @@ impl<B: RenderBackend, L: Layouter> RenderTree<B, L> {
             let binding = document.get();
             let current_node = binding.get_node_by_id(current_node_id).unwrap();
 
-            let mut data = || {
-                return RenderNodeData::from_node_data(current_node.data.clone());
-            };
+            let data = || RenderNodeData::from_node_data(current_node.data.clone());
 
             let data = match data() {
                 ControlFlow::Ok(data) => data,
@@ -542,12 +538,24 @@ pub fn add_property_to_map(
     }
 }
 
-#[derive(Debug)]
 pub enum RenderNodeData<L: Layouter> {
     Document,
     Element(Box<ElementData>),
     Text(Box<TextData<L>>),
     AnonymousInline,
+}
+
+impl<L: Layouter> Debug for RenderNodeData<L> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RenderNodeData::Document => f.write_str("Document"),
+            RenderNodeData::Element(data) => {
+                f.debug_struct("ElementData").field("data", data).finish()
+            }
+            RenderNodeData::Text(data) => f.debug_struct("TextData").field("data", data).finish(),
+            RenderNodeData::AnonymousInline => f.write_str("AnonymousInline"),
+        }
+    }
 }
 
 pub struct TextData<L: Layouter> {
@@ -556,10 +564,10 @@ pub struct TextData<L: Layouter> {
 }
 
 impl<L: Layouter> Debug for TextData<L> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("TextData")
             .field("text", &self.text)
-            .field("layout", self.layout.as_ref().map(|x| x.layout_dbg()))
+            .field("layout", &self.layout.as_ref().map(|x| x.dbg_layout()))
             .finish()
     }
 }
@@ -570,7 +578,7 @@ pub enum ControlFlow<T> {
     Error(anyhow::Error),
 }
 
-impl<B: RenderBackend> RenderNodeData<B> {
+impl<L: Layouter> RenderNodeData<L> {
     pub fn from_node_data(node: NodeData) -> ControlFlow<Self> {
         ControlFlow::Ok(match node {
             NodeData::Element(data) => RenderNodeData::Element(data),
@@ -604,7 +612,7 @@ fn pre_transform_text(text: String) -> String {
     new_text
 }
 
-pub struct RenderTreeNode<B: RenderBackend, L: Layouter> {
+pub struct RenderTreeNode<L: Layouter> {
     pub id: NodeId,
     pub properties: CssProperties,
     pub css_dirty: bool,
@@ -612,12 +620,12 @@ pub struct RenderTreeNode<B: RenderBackend, L: Layouter> {
     pub parent: Option<NodeId>,
     pub name: String,
     pub namespace: Option<String>,
-    pub data: RenderNodeData<B>,
+    pub data: RenderNodeData<L>,
     pub cache: L::Cache,
     pub layout: L::Layout,
 }
 
-impl<B: RenderBackend, L: Layouter> Debug for RenderTreeNode<B, L> {
+impl<L: Layouter> Debug for RenderTreeNode<L> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RenderTreeNode")
             .field("id", &self.id)
@@ -632,7 +640,7 @@ impl<B: RenderBackend, L: Layouter> Debug for RenderTreeNode<B, L> {
     }
 }
 
-impl<B: RenderBackend, L: Layouter> RenderTreeNode<B, L> {
+impl<L: Layouter> RenderTreeNode<L> {
     /// Returns true if the node is an element node
     pub fn is_element(&self) -> bool {
         matches!(self.data, RenderNodeData::Element(_))
@@ -681,7 +689,7 @@ impl<B: RenderBackend, L: Layouter> RenderTreeNode<B, L> {
     }
 }
 
-impl<B: RenderBackend, L: Layouter> Node for RenderTreeNode<B, L> {
+impl<L: Layouter> Node for RenderTreeNode<L> {
     type Property = CssProperty;
 
     fn get_property(&mut self, name: &str) -> Option<&mut Self::Property> {
@@ -691,6 +699,14 @@ impl<B: RenderBackend, L: Layouter> Node for RenderTreeNode<B, L> {
     fn text_data(&self) -> Option<&str> {
         if let RenderNodeData::Text(text) = &self.data {
             Some(&text.text)
+        } else {
+            None
+        }
+    }
+
+    fn text_size(&self) -> Option<Size> {
+        if let RenderNodeData::Text(text) = &self.data {
+            text.layout.as_ref().map(|layout| layout.size())
         } else {
             None
         }
@@ -756,9 +772,7 @@ impl gosub_render_backend::layout::CssProperty for CssProperty {
 }
 
 /// Generates a render tree for the given document based on its loaded stylesheets
-pub fn generate_render_tree<B: RenderBackend, L: Layouter>(
-    document: DocumentHandle,
-) -> Result<RenderTree<B, L>> {
+pub fn generate_render_tree<L: Layouter>(document: DocumentHandle) -> Result<RenderTree<L>> {
     let render_tree = RenderTree::from_document(document);
 
     Ok(render_tree)

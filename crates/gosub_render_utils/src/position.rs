@@ -33,7 +33,7 @@ pub struct PositionTree {
 }
 
 impl PositionTree {
-    pub fn from_tree<B: RenderBackend, L: Layouter>(from_tree: &RenderTree<B, L>) -> Self {
+    pub fn from_tree<B: RenderBackend, L: Layouter>(from_tree: &RenderTree<L>) -> Self {
         let mut tree = RTree::new();
 
         //TODO: we somehow need to get the border radius and a potential stacking context of the element here
@@ -43,8 +43,8 @@ impl PositionTree {
         Self { tree }
     }
 
-    fn add_node_to_tree<B: RenderBackend, L: Layouter>(
-        from_tree: &RenderTree<B, L>,
+    fn add_node_to_tree<L: Layouter>(
+        from_tree: &RenderTree<L>,
         id: NodeId,
         z_index: i32,
         tree: &mut RTree<Element>,

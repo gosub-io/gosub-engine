@@ -1,9 +1,9 @@
 use crate::render_tree::{RenderNodeData, RenderTree};
 use gosub_html5::node::NodeId;
 use gosub_render_backend::layout::{Layout, Layouter};
-use gosub_render_backend::{NodeDesc, Point, PreRenderText, RenderBackend, Size};
+use gosub_render_backend::{NodeDesc, Point, Size};
 
-impl<B: RenderBackend, L: Layouter> RenderTree<B, L> {
+impl<L: Layouter> RenderTree<L> {
     pub fn desc(&self) -> NodeDesc {
         self.desc_node(self.root)
     }
@@ -32,7 +32,7 @@ impl<B: RenderBackend, L: Layouter> RenderTree<B, L> {
         };
 
         let (name, text) = if let RenderNodeData::Text(t) = &node.data {
-            ("#text".into(), Some(t.prerender.value().into()))
+            ("#text".into(), Some(t.text.clone()))
         } else {
             (node.name.clone(), None)
         };

@@ -9,6 +9,7 @@ use taffy::{
 
 use crate::compute::inline::compute_inline_layout;
 use crate::style::get_style_from_node;
+use crate::text::TextLayout;
 use gosub_render_backend::geo::{Point, Rect, Size, SizeU32};
 use gosub_render_backend::layout::{Layout as TLayout, LayoutTree, Layouter, Node};
 use gosub_shared::types::Result;
@@ -16,6 +17,7 @@ use gosub_shared::types::Result;
 mod compute;
 mod conversions;
 pub mod style;
+mod text;
 
 #[repr(transparent)]
 #[derive(Default, Debug)]
@@ -84,6 +86,7 @@ pub struct Cache {
 impl Layouter for TaffyLayouter {
     type Cache = Cache;
     type Layout = Layout;
+    type TextLayout = TextLayout;
 
     const COLLAPSE_INLINE: bool = true;
 

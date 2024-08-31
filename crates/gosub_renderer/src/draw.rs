@@ -3,12 +3,14 @@ use std::sync::mpsc::Sender;
 use anyhow::anyhow;
 use url::Url;
 
+use crate::draw::img::request_img;
+use crate::render_tree::{load_html_rendertree, TreeDrawer};
 use gosub_css3::colors::RgbColor;
 use gosub_css3::stylesheet::CssValue;
 use gosub_html5::node::NodeId;
 use gosub_net::http::fetcher::Fetcher;
 use gosub_render_backend::geo::{Size, SizeU32, FP};
-use gosub_render_backend::layout::{Layout, LayoutTree, Layouter};
+use gosub_render_backend::layout::{Layout, LayoutTree, Layouter, TextLayout};
 use gosub_render_backend::svg::SvgRenderer;
 use gosub_render_backend::{
     Border, BorderSide, BorderStyle, Brush, Color, ImageBuffer, NodeDesc, Rect, RenderBackend,
@@ -17,9 +19,7 @@ use gosub_render_backend::{
 use gosub_rendering::position::PositionTree;
 use gosub_shared::types::Result;
 use gosub_styling::render_tree::{RenderNodeData, RenderTree, RenderTreeNode};
-
-use crate::draw::img::request_img;
-use crate::render_tree::{load_html_rendertree, TreeDrawer};
+use log::warn;
 
 mod img;
 
@@ -48,7 +48,11 @@ const DEBUG_BORDER_COLOR: (u8, u8, u8) = (255, 72, 72); //rgb(255, 72, 72)
 
 type Point = gosub_shared::types::Point<FP>;
 
-impl<B: RenderBackend, L: Layouter> SceneDrawer<B, L, RenderTree<B, L>> for TreeDrawer<B, L> {
+impl<B: RenderBackend, L: Layouter> SceneDrawer<B, L, RenderTree<L>> for TreeDrawer<B, L>
+where
+    <<B as RenderBackend>::Text as Text>::Font:
+        From<<<L as Layouter>::TextLayout as TextLayout>::Font>,
+{
     fn draw(&mut self, backend: &mut B, data: &mut B::WindowData<'_>, size: SizeU32) {
         if !self.dirty && self.size == Some(size) {
             return;
@@ -206,7 +210,11 @@ struct Drawer<'s, 't, B: RenderBackend, L: Layouter> {
     svg: B::SVGRenderer,
 }
 
-impl<B: RenderBackend, L: Layouter> Drawer<'_, '_, B, L> {
+impl<B: RenderBackend, L: Layouter> Drawer<'_, '_, B, L>
+where
+    <<B as RenderBackend>::Text as Text>::Font:
+        From<<<L as Layouter>::TextLayout as TextLayout>::Font>,
+{
     pub(crate) fn render(&mut self, size: SizeU32) {
         let root = self.drawer.tree.root;
         if let Err(e) = self
@@ -220,7 +228,7 @@ impl<B: RenderBackend, L: Layouter> Drawer<'_, '_, B, L> {
 
         // print_tree(&self.taffy, self.root, &self.style);
 
-        self.drawer.position = PositionTree::from_tree(&self.drawer.tree);
+        self.drawer.position = PositionTree::from_tree::<B, L>(&self.drawer.tree);
 
         self.render_node_with_children(self.drawer.tree.root, Point::ZERO);
     }
@@ -252,7 +260,8 @@ impl<B: RenderBackend, L: Layouter> Drawer<'_, '_, B, L> {
         pos.x += p.x as FP;
         pos.y += p.y as FP;
 
-        let border_radius = render_bg(node, self.scene, pos, &mut self.svg, &self.drawer.fetcher);
+        let border_radius =
+            render_bg::<B, L>(node, self.scene, pos, &mut self.svg, &self.drawer.fetcher);
 
         if let RenderNodeData::Element(element) = &node.data {
             if element.name() == "img" {
@@ -277,16 +286,19 @@ impl<B: RenderBackend, L: Layouter> Drawer<'_, '_, B, L> {
             }
         }
 
-        render_text(node, self.scene, pos);
+        render_text::<B, L>(node, self.scene, pos);
         Ok(())
     }
 }
 
 fn render_text<B: RenderBackend, L: Layouter>(
-    node: &mut RenderTreeNode<B, L>,
+    node: &mut RenderTreeNode<L>,
     scene: &mut B::Scene,
     pos: &Point,
-) {
+) where
+    <<B as RenderBackend>::Text as Text>::Font:
+        From<<<L as Layouter>::TextLayout as TextLayout>::Font>,
+{
     if let RenderNodeData::Text(text) = &mut node.data {
         let color = node
             .properties
@@ -303,7 +315,12 @@ fn render_text<B: RenderBackend, L: Layouter>(
             .map(|color| Color::rgba(color.r as u8, color.g as u8, color.b as u8, color.a as u8))
             .unwrap_or(Color::WHITE);
 
-        let text = Text::new(&mut text.prerender);
+        let Some(layout) = text.layout.as_ref() else {
+            warn!("No layout for text node");
+            return;
+        };
+
+        let text = Text::new::<L::TextLayout>(layout);
 
         let size = node.layout.size();
 
@@ -327,7 +344,7 @@ fn render_text<B: RenderBackend, L: Layouter>(
 }
 
 fn render_bg<B: RenderBackend, L: Layouter>(
-    node: &mut RenderTreeNode<B, L>,
+    node: &mut RenderTreeNode<L>,
     scene: &mut B::Scene,
     pos: &Point,
     svg: &mut B::SVGRenderer,
@@ -390,7 +407,7 @@ fn render_bg<B: RenderBackend, L: Layouter>(
         border_radius_left as FP,
     );
 
-    let border = get_border(node).map(|border| RenderBorder::new(border));
+    let border = get_border::<B, L>(node).map(|border| RenderBorder::new(border));
 
     if let Some(bg_color) = bg_color {
         let size = node.layout.size();
@@ -624,11 +641,11 @@ pub fn print_tree<B: RenderBackend, L: Layouter>(
 }
 */
 
-fn get_border<B: RenderBackend, L: Layouter>(node: &mut RenderTreeNode<B, L>) -> Option<B::Border> {
-    let left = get_border_side(node, Side::Left);
-    let right = get_border_side(node, Side::Right);
-    let top = get_border_side(node, Side::Top);
-    let bottom = get_border_side(node, Side::Bottom);
+fn get_border<B: RenderBackend, L: Layouter>(node: &mut RenderTreeNode<L>) -> Option<B::Border> {
+    let left = get_border_side::<B, L>(node, Side::Left);
+    let right = get_border_side::<B, L>(node, Side::Right);
+    let top = get_border_side::<B, L>(node, Side::Top);
+    let bottom = get_border_side::<B, L>(node, Side::Bottom);
 
     if left.is_none() && right.is_none() && top.is_none() && bottom.is_none() {
         return None;
@@ -656,7 +673,7 @@ fn get_border<B: RenderBackend, L: Layouter>(node: &mut RenderTreeNode<B, L>) ->
 }
 
 fn get_border_side<B: RenderBackend, L: Layouter>(
-    node: &mut RenderTreeNode<B, L>,
+    node: &mut RenderTreeNode<L>,
     side: Side,
 ) -> Option<B::BorderSide> {
     let width = node

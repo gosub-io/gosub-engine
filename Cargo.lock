@@ -1735,6 +1735,7 @@ version = "0.1.0"
 dependencies = [
  "gosub_html5",
  "gosub_shared",
+    "gosub_typeface",
  "image",
  "raw-window-handle",
  "smallvec",
@@ -1753,6 +1754,7 @@ dependencies = [
  "gosub_shared",
  "gosub_styling",
  "image",
+    "log",
  "url",
  "wasm-bindgen-futures",
  "web-sys",
@@ -1836,6 +1838,7 @@ dependencies = [
  "gosub_render_backend",
  "gosub_shared",
  "gosub_styling",
+    "gosub_typeface",
  "parley",
  "regex",
  "taffy",

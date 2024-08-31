@@ -1,4 +1,5 @@
 use gosub_shared::types::Result;
+use gosub_typeface::font::{Font, Glyph};
 
 use crate::geo::{Point, Rect, Size, SizeU32};
 
@@ -115,6 +116,8 @@ pub trait Node {
 
     fn text_data(&self) -> Option<&str>;
 
+    fn text_size(&self) -> Option<Size>;
+
     /// This can only return true if the `Layout::COLLAPSE_INLINE` is set true for the layouter
     ///
     fn is_anon_inline_parent(&self) -> bool;
@@ -132,4 +135,15 @@ pub trait CssProperty {
     fn is_none(&self) -> bool;
 }
 
-pub trait TextLayout {}
+pub trait TextLayout {
+    type Font: Font;
+    fn dbg_layout(&self) -> String;
+
+    fn size(&self) -> Size;
+
+    fn glyphs(&self) -> &[Glyph];
+
+    fn font(&self) -> &Self::Font;
+
+    fn font_size(&self) -> f32;
+}
