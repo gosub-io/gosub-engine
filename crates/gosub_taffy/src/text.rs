@@ -1,11 +1,11 @@
-use gosub_render_backend::layout::TextLayout as TLayout;
+use gosub_render_backend::layout::{Axis, TextLayout as TLayout};
 use gosub_render_backend::Size;
 use gosub_typeface::font::Font as TFont;
 use gosub_typeface::font::Glyph;
 use parley::Font as PFont;
 
 #[derive(Debug, Clone)]
-pub struct Font(PFont);
+pub struct Font(pub PFont);
 
 impl TFont for Font {
     fn to_bytes(&self) -> &[u8] {
@@ -21,10 +21,11 @@ impl From<Font> for PFont {
 
 #[derive(Debug)]
 pub struct TextLayout {
-    glyphs: Vec<Glyph>,
-    font: Font,
-    font_size: f32,
-    size: Size,
+    pub glyphs: Vec<Glyph>,
+    pub font: Font,
+    pub font_size: f32,
+    pub size: Size,
+    pub axes: Vec<Axis>,
 }
 
 impl TLayout for TextLayout {
@@ -48,5 +49,9 @@ impl TLayout for TextLayout {
 
     fn font_size(&self) -> f32 {
         self.font_size
+    }
+
+    fn axes(&self) -> &[Axis] {
+        &self.axes
     }
 }

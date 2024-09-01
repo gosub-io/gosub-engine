@@ -11,7 +11,7 @@ use gosub_html5::node::data::element::ElementData;
 use gosub_html5::node::{NodeData, NodeId};
 use gosub_html5::parser::document::{DocumentHandle, TreeIterator};
 use gosub_render_backend::geo::Size;
-use gosub_render_backend::layout::{Layout, LayoutTree, Layouter, Node, TextLayout};
+use gosub_render_backend::layout::{HasTextLayout, Layout, LayoutTree, Layouter, Node, TextLayout};
 use gosub_shared::types::Result;
 
 mod desc;
@@ -689,13 +689,20 @@ impl<L: Layouter> RenderTreeNode<L> {
     }
 }
 
+impl<L: Layouter> HasTextLayout<L> for RenderTreeNode<L> {
+    fn set_text_layout(&mut self, layout: L::TextLayout) {
+        if let RenderNodeData::Text(text) = &mut self.data {
+            text.layout = Some(layout);
+        }
+    }
+}
+
 impl<L: Layouter> Node for RenderTreeNode<L> {
     type Property = CssProperty;
 
     fn get_property(&mut self, name: &str) -> Option<&mut Self::Property> {
         self.properties.properties.get_mut(name)
     }
-
     fn text_data(&self) -> Option<&str> {
         if let RenderNodeData::Text(text) = &self.data {
             Some(&text.text)

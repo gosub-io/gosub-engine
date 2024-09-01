@@ -1839,6 +1839,7 @@ dependencies = [
  "gosub_shared",
  "gosub_styling",
     "gosub_typeface",
+    "log",
  "parley",
  "regex",
  "taffy",

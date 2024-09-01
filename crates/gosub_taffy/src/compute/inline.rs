@@ -1,14 +1,21 @@
+use std::cell::LazyCell;
+use std::sync::{LazyLock, Mutex};
 use taffy::{
     AvailableSpace, CollapsibleMarginSet, Layout, LayoutInput, LayoutOutput, LayoutPartialTree,
-    NodeId, Point, ResolveOrZero, RunMode, Size,
+    NodeId, Point, Rect, RunMode, Size,
 };
 
+use crate::text::{Font, TextLayout};
 use crate::{LayoutDocument, TaffyLayouter};
-use gosub_render_backend::layout::{CssProperty, LayoutTree, Node};
-use parley::layout::{Alignment, GlyphRun};
+use gosub_render_backend::geo;
+use gosub_render_backend::layout::{CssProperty, HasTextLayout, LayoutTree, Node};
+use gosub_typeface::font::Glyph;
+use log::warn;
+use parley::layout::{Alignment, PositionedLayoutItem};
 use parley::style::{FontSettings, FontStack, FontStyle, FontVariation, FontWeight, StyleProperty};
-use parley::swash::scale::ScaleContext;
 use parley::{FontContext, InlineBox, LayoutContext};
+
+static FONT_CX: LazyLock<Mutex<FontContext>> = LazyLock::new(|| Mutex::new(FontContext::default()));
 
 pub fn compute_inline_layout<LT: LayoutTree<TaffyLayouter>>(
     tree: &mut LayoutDocument<LT>,
@@ -67,18 +74,18 @@ pub fn compute_inline_layout<LT: LayoutTree<TaffyLayouter>>(
 
             let line_height = node
                 .get_property("line-height")
-                .map(|s| s.unit_to_px())
+                .and_then(|s| s.as_number())
                 .unwrap_or(font_size * 1.2);
 
             let word_spacing = node
                 .get_property("word-spacing")
                 .map(|s| s.unit_to_px())
-                .unwrap_or(0.0);
+                .unwrap_or(1.0);
 
             let letter_spacing = node
                 .get_property("letter-spacing")
                 .map(|s| s.unit_to_px())
-                .unwrap_or(0.0);
+                .unwrap_or(1.0);
 
             text_node_data.push(TextNodeData {
                 font_family,
@@ -92,6 +99,7 @@ pub fn compute_inline_layout<LT: LayoutTree<TaffyLayouter>>(
                 var_axes,
 
                 to: str_buf.len(),
+                id: node_id.into(),
             });
         } else {
             let out = tree.compute_child_layout(node_id, layout_input);
@@ -104,9 +112,6 @@ pub fn compute_inline_layout<LT: LayoutTree<TaffyLayouter>>(
         }
     }
 
-    println!("str_buf: {:?}", str_buf);
-    println!("inline boxes: {:?}", inline_boxes.len());
-
     if inline_boxes.is_empty() && str_buf.is_empty() {
         return LayoutOutput::HIDDEN;
     }
@@ -114,14 +119,20 @@ pub fn compute_inline_layout<LT: LayoutTree<TaffyLayouter>>(
     if !inline_boxes.is_empty() && str_buf.is_empty() {
         str_buf.push(0 as char);
     }
-    let mut font_cx = FontContext::default();
+
     let mut layout_cx: LayoutContext<()> = LayoutContext::new();
     // let mut scale_cx = ScaleContext::new();
 
-    let mut builder = layout_cx.ranged_builder(&mut font_cx, &str_buf, 1.0);
+    let Ok(mut lock) = FONT_CX.lock() else {
+        warn!("Failed to get font context");
+        return LayoutOutput::HIDDEN;
+    };
+    let mut builder = layout_cx.ranged_builder(&mut *lock, &str_buf, 1.0);
     let mut align = Alignment::default();
 
     if let Some(default) = text_node_data.first() {
+        println!("default: {:?}", default);
+
         builder.push_default(&StyleProperty::FontStack(FontStack::Source(
             &default.font_family,
         )));
@@ -193,9 +204,6 @@ pub fn compute_inline_layout<LT: LayoutTree<TaffyLayouter>>(
 
     layout.align(max_width, align);
 
-    let width = layout.width();
-    let height = layout.height();
-
     //
     // for (child, out) in children.into_iter().zip(outputs.into_iter()) {
 
@@ -227,20 +235,151 @@ pub fn compute_inline_layout<LT: LayoutTree<TaffyLayouter>>(
     //     );
     // }
 
-    let content_size = Size { width, height };
+    println!(
+        "size: height: {} width: {}",
+        layout.height().ceil(),
+        layout.width().ceil()
+    );
+    println!("text: {}", str_buf);
+    // println!("fs: {}", layout.styles().first().unwrap();
 
-    let mut size = content_size;
+    let mut content_size = Size::ZERO;
+
+    if let Some(first) = text_node_data.first() {
+        let mut current_node_idx = 0;
+        let mut current_node_id = LT::NodeId::from(first.id.into());
+        let mut current_to = first.to;
+
+        let mut current_glyph_idx = 0;
+
+        'lines: for line in layout.lines() {
+            let metrics = line.metrics();
+
+            let height = metrics.line_height;
+            println!("line height: {}", height);
+
+            let baseline = metrics.baseline;
+
+            println!("baseline: {}", baseline);
+
+            content_size.height += baseline;
+            if content_size.width < metrics.advance {
+                content_size.width = metrics.advance;
+            }
+
+            for item in line.items() {
+                match item {
+                    PositionedLayoutItem::GlyphRun(run) => {
+                        let glyphs = run
+                            .positioned_glyphs()
+                            .map(|g| Glyph {
+                                id: g.id,
+                                x: g.x,
+                                y: g.y,
+                            })
+                            .collect::<Vec<_>>();
+
+                        let run_y = run.baseline();
+
+                        println!("run_y: {}", run_y);
+
+                        current_glyph_idx += glyphs.len();
+
+                        if current_glyph_idx > current_to {
+                            current_node_idx += 1;
+
+                            if let Some(next) = text_node_data.get(current_node_idx) {
+                                current_to = next.to;
+                                current_node_id = LT::NodeId::from(next.id.into());
+                            } else {
+                                break 'lines;
+                            }
+                        }
+
+                        let size = geo::Size {
+                            width: run.advance(),
+                            height,
+                        };
+
+                        let grun = run.run();
+
+                        let text_layout = TextLayout {
+                            size,
+                            font_size: grun.font_size(),
+                            font: Font(grun.font().clone()),
+                            glyphs,
+                            axes: Vec::new(),
+                        };
+
+                        let Some(node) = tree.0.get_node(current_node_id) else {
+                            continue;
+                        };
+
+                        node.set_text_layout(text_layout);
+
+                        let size = Size {
+                            width: size.width,
+                            height: size.height,
+                        };
+
+                        tree.set_unrounded_layout(
+                            NodeId::new(current_node_id.into()),
+                            &Layout {
+                                size,
+                                content_size: size,
+                                scrollbar_size: Size::ZERO,
+                                border: Rect::ZERO,
+                                location: Point {
+                                    x: run.offset(),
+                                    y: run_y,
+                                },
+                                order: 0,
+                                padding: Rect::ZERO,
+                            },
+                        );
+                    }
+                    PositionedLayoutItem::InlineBox(inline_box) => {
+                        let id = NodeId::from(inline_box.id);
+
+                        let size = Size {
+                            width: inline_box.width,
+                            height: inline_box.height,
+                        };
+
+                        tree.set_unrounded_layout(
+                            id,
+                            &Layout {
+                                size,
+                                content_size: size,
+                                scrollbar_size: Size::ZERO,
+                                border: Rect::ZERO,
+                                location: Point {
+                                    x: inline_box.x,
+                                    y: inline_box.y,
+                                },
+                                order: 0,
+                                padding: Rect::ZERO,
+                            },
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    println!("content_size: {:?}", content_size);
+    println!("layout h: {:?} w {:?}", layout.height(), layout.width());
 
     if let AvailableSpace::Definite(width) = layout_input.available_space.width {
-        size.width = size.width.min(width);
+        content_size.width = content_size.width.min(width);
     }
 
     if let AvailableSpace::Definite(height) = layout_input.available_space.height {
-        size.height = size.height.min(height);
+        content_size.height = content_size.height.min(height);
     }
 
     LayoutOutput {
-        size,
+        size: content_size,
         content_size,
         first_baselines: Point::NONE,
         top_margin: CollapsibleMarginSet::ZERO,
@@ -249,6 +388,7 @@ pub fn compute_inline_layout<LT: LayoutTree<TaffyLayouter>>(
     }
 }
 
+#[derive(Debug)]
 struct TextNodeData {
     font_family: String,
     font_size: f32,
@@ -261,6 +401,7 @@ struct TextNodeData {
     var_axes: Vec<FontVariation>,
 
     to: usize,
+    id: NodeId,
 }
 
 fn parse_alignment(node: &mut impl Node) -> Alignment {
