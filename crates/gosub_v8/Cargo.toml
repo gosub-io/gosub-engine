@@ -13,4 +13,4 @@ gosub_webexecutor = { path = "../gosub_webexecutor" }
 thiserror = "1.0.61"
 v8 = "0.103.0"
 anyhow = "1.0.86"
-serde_json = "1.0.125"
+serde_json = "1.0.127"
