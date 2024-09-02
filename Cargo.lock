@@ -1702,7 +1702,7 @@ dependencies = [
  "gosub_render_backend",
  "gosub_shared",
  "gosub_typeface",
- "itertools 0.10.5",
+ "itertools 0.12.1",
  "lazy_static",
  "log",
  "memoize",
