@@ -26,6 +26,8 @@ pub struct TextLayout {
     pub font_size: f32,
     pub size: Size,
     pub axes: Vec<Axis>,
+    pub coords: Vec<i16>,
+    pub text: String,
 }
 
 impl TLayout for TextLayout {
@@ -53,5 +55,13 @@ impl TLayout for TextLayout {
 
     fn axes(&self) -> &[Axis] {
         &self.axes
+    }
+
+    fn coords(&self) -> &[i16] {
+        &self.coords
+    }
+
+    fn text(&self) -> &str {
+        &self.text
     }
 }

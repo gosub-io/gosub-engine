@@ -328,13 +328,21 @@ fn render_text<B: RenderBackend, L: Layouter>(
     <<B as RenderBackend>::Text as Text>::Font:
         From<<<L as Layouter>::TextLayout as TextLayout>::Font>,
 {
+    // if u64::from(node.id) < 204 && u64::from(node.id) > 202 {
+    //     return;
+    // }
+
+    // if u64::from(node.id) == 203 {
+    //     return;
+    // }
+
     if let RenderNodeData::Text(ref text) = node.data {
         let Some(layout) = text.layout.as_ref() else {
             warn!("No layout for text node");
             return;
         };
 
-        let text = Text::new::<L::TextLayout>(layout);
+        let text: B::Text = Text::new::<L::TextLayout>(layout);
 
         let size = node.layout.size();
 
@@ -344,6 +352,12 @@ fn render_text<B: RenderBackend, L: Layouter>(
             size.width as FP,
             size.height as FP,
         );
+
+        if [158u64, 160].contains(&u64::from(node.id)) {
+            println!("IDaaaaa: {:?}", node.id);
+            println!("Text: {:?}", text.text());
+            println!("position: {:?}", (pos.x, pos.y));
+        }
 
         let render_text = RenderText {
             text,

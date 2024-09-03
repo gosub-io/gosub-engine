@@ -494,6 +494,8 @@ pub trait Text {
     fn new<TL: TextLayout>(node: &TL) -> Self
     where
         TL::Font: Into<Self::Font>;
+
+    fn text(&self) -> &str;
 }
 
 pub struct ColorStop<B: RenderBackend> {

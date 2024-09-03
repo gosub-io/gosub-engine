@@ -160,4 +160,8 @@ pub trait TextLayout {
     fn font_size(&self) -> f32;
 
     fn axes(&self) -> &[Axis];
+
+    fn coords(&self) -> &[i16];
+
+    fn text(&self) -> &str;
 }
