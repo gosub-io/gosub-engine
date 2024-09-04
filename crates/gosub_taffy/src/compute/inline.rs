@@ -298,7 +298,7 @@ pub fn compute_inline_layout<LT: LayoutTree<TaffyLayouter>>(
                                 let gl = Glyph {
                                     id: g.id,
                                     x: g.x + offset,
-                                    y: g.y + fs,
+                                    y: g.y,
                                 };
 
                                 offset += g.advance;
@@ -381,7 +381,7 @@ pub fn compute_inline_layout<LT: LayoutTree<TaffyLayouter>>(
                                 border: Rect::ZERO,
                                 location: Point {
                                     x: run.offset(),
-                                    y: 0.0,
+                                    y: run_y,
                                 },
                                 order: 0,
                                 padding: Rect::ZERO,
