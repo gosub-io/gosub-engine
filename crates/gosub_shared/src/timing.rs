@@ -23,6 +23,7 @@ pub enum Scale {
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[allow(dead_code)]
 struct Duration {
     duration: u64,
     suffix: String,
