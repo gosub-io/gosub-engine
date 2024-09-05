@@ -1,12 +1,11 @@
 use crate::VelloBackend;
 use gosub_render_backend::geo::FP;
-use gosub_render_backend::layout::{Layouter, TextLayout};
+use gosub_render_backend::layout::TextLayout;
 use gosub_render_backend::{RenderText, Text as TText};
 use vello::glyph::Glyph;
 use vello::kurbo::Affine;
 use vello::peniko::{Fill, Font, StyleRef};
 use vello::skrifa::instance::NormalizedCoord;
-use vello::skrifa::FontRef;
 use vello::Scene;
 
 pub struct Text {
@@ -14,7 +13,6 @@ pub struct Text {
     font: Font,
     fs: FP,
     coords: Vec<NormalizedCoord>,
-    text: String,
 }
 
 impl TText for Text {
@@ -42,19 +40,12 @@ impl TText for Text {
             .map(|c| NormalizedCoord::from_bits(*c))
             .collect();
 
-        let text = layout.text().to_string();
-
         Self {
             glyphs,
             font,
             fs,
             coords,
-            text,
         }
-    }
-
-    fn text(&self) -> &str {
-        &self.text
     }
 }
 
@@ -71,13 +62,6 @@ impl Text {
 
         let transform = transform.with_translation((x, y).into());
 
-        let x_offset = render.text.glyphs.get(0);
-        let y_offset = render.text.glyphs.get(4);
-
-        println!("Text: {}", render.text.text());
-        println!("position: {:?}", (x, y));
-        println!("offset: {:?}", (x_offset, y_offset));
-
         scene
             .draw_glyphs(&render.text.font)
             .font_size(render.text.fs)
@@ -86,14 +70,5 @@ impl Text {
             .normalized_coords(&render.text.coords)
             .brush(brush)
             .draw(style, render.text.glyphs.iter().copied());
-    }
-}
-
-fn to_font_ref(font: &Font) -> Option<FontRef<'_>> {
-    use vello::skrifa::raw::FileRef;
-    let file_ref = FileRef::new(font.data.as_ref()).ok()?;
-    match file_ref {
-        FileRef::Font(font) => Some(font),
-        FileRef::Collection(collection) => collection.get(font.index).ok(),
     }
 }

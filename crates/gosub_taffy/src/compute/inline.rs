@@ -1,4 +1,3 @@
-use std::cell::LazyCell;
 use std::sync::{LazyLock, Mutex};
 use taffy::{
     AvailableSpace, CollapsibleMarginSet, Layout, LayoutInput, LayoutOutput, LayoutPartialTree,
@@ -54,8 +53,6 @@ pub fn compute_inline_layout<LT: LayoutTree<TaffyLayouter>>(
             str_buf.push(' ');
             str_buf.push_str(text);
 
-            let text = text.to_string();
-
             let font_family = node
                 .get_property("font-family")
                 .and_then(|s| s.as_string())
@@ -91,10 +88,9 @@ pub fn compute_inline_layout<LT: LayoutTree<TaffyLayouter>>(
                 font_weight,
                 font_style,
                 var_axes,
-                text,
 
                 to: str_buf.len(),
-                id: node_id.into(),
+                id: node_id,
             });
         } else {
             if u64::from(node_id) == 162u64 {
@@ -126,7 +122,7 @@ pub fn compute_inline_layout<LT: LayoutTree<TaffyLayouter>>(
         warn!("Failed to get font context");
         return LayoutOutput::HIDDEN;
     };
-    let mut builder = layout_cx.ranged_builder(&mut *lock, &str_buf, 1.0);
+    let mut builder = layout_cx.ranged_builder(&mut lock, &str_buf, 1.0);
     let mut align = Alignment::default();
 
     if let Some(default) = text_node_data.first() {
@@ -336,16 +332,12 @@ pub fn compute_inline_layout<LT: LayoutTree<TaffyLayouter>>(
 
                         let coords = grun.normalized_coords().to_owned();
 
-                        let text = text_node_data[current_node_idx].text.clone();
-
                         let text_layout = TextLayout {
                             size,
                             font_size: fs,
                             font: Font(grun.font().clone()),
                             glyphs,
-                            axes: Vec::new(),
                             coords,
-                            text,
                         };
 
                         let Some(node) = tree.0.get_node(current_node_id) else {
@@ -458,7 +450,6 @@ struct TextNodeData {
 
     to: usize,
     id: NodeId,
-    text: String,
 }
 
 fn parse_alignment(node: &mut impl Node) -> Alignment {

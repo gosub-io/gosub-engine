@@ -19,7 +19,6 @@ use gosub_render_backend::{
 use gosub_rendering::position::PositionTree;
 use gosub_shared::types::Result;
 use gosub_styling::render_tree::{RenderNodeData, RenderTree, RenderTreeNode};
-use gosub_styling::styling::CssProperties;
 use log::warn;
 
 mod img;
@@ -352,12 +351,6 @@ fn render_text<B: RenderBackend, L: Layouter>(
             size.width as FP,
             size.height as FP,
         );
-
-        if [158u64, 160].contains(&u64::from(node.id)) {
-            println!("IDaaaaa: {:?}", node.id);
-            println!("Text: {:?}", text.text());
-            println!("position: {:?}", (pos.x, pos.y));
-        }
 
         let render_text = RenderText {
             text,

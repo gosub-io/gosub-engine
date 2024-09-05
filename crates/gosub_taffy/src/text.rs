@@ -1,4 +1,4 @@
-use gosub_render_backend::layout::{Axis, TextLayout as TLayout};
+use gosub_render_backend::layout::TextLayout as TLayout;
 use gosub_render_backend::Size;
 use gosub_typeface::font::Font as TFont;
 use gosub_typeface::font::Glyph;
@@ -25,9 +25,7 @@ pub struct TextLayout {
     pub font: Font,
     pub font_size: f32,
     pub size: Size,
-    pub axes: Vec<Axis>,
     pub coords: Vec<i16>,
-    pub text: String,
 }
 
 impl TLayout for TextLayout {
@@ -53,15 +51,7 @@ impl TLayout for TextLayout {
         self.font_size
     }
 
-    fn axes(&self) -> &[Axis] {
-        &self.axes
-    }
-
     fn coords(&self) -> &[i16] {
         &self.coords
-    }
-
-    fn text(&self) -> &str {
-        &self.text
     }
 }

@@ -139,14 +139,6 @@ pub trait CssProperty: Debug {
     fn is_none(&self) -> bool;
 }
 
-pub type AxisName = [u8; 4];
-
-#[derive(Debug, Clone)]
-pub struct Axis {
-    name: AxisName,
-    value: f32,
-}
-
 pub trait TextLayout {
     type Font: Font;
     fn dbg_layout(&self) -> String;
@@ -159,9 +151,5 @@ pub trait TextLayout {
 
     fn font_size(&self) -> f32;
 
-    fn axes(&self) -> &[Axis];
-
     fn coords(&self) -> &[i16];
-
-    fn text(&self) -> &str;
 }
