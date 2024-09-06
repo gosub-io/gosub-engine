@@ -305,8 +305,6 @@ pub fn compute_inline_layout<LT: LayoutTree<TaffyLayouter>>(
 
                         let run_y = run.baseline();
 
-                        println!("run_y: {}", run_y);
-
                         if current_node_id.into() == 161 || current_node_id.into() == 163 {
                             println!("current_node_id: {:?}", current_node_id.into());
                             println!("first glyph: {:?}", glyphs.get(2));

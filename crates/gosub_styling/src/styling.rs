@@ -273,6 +273,7 @@ pub struct CssProperty {
     pub used: CssValue,
     // Actual value used in the rendering (after rounding, clipping etc.)
     pub actual: CssValue,
+    pub inherited: CssValue,
 }
 
 impl CssProperty {
@@ -286,6 +287,7 @@ impl CssProperty {
             computed: CssValue::None,
             used: CssValue::None,
             actual: CssValue::None,
+            inherited: CssValue::None,
         }
     }
 
@@ -342,13 +344,8 @@ impl CssProperty {
             return self.specified.clone();
         }
 
-        if self.is_inheritable() {
-            todo!("inheritable properties")
-            // while let Some(parent) = self.get_parent() {
-            //     if let Some(parent_value) = parent {
-            //         return parent_value.find_computed_value();
-            //     }
-            // }
+        if self.inherited != CssValue::None {
+            return self.inherited.clone();
         }
 
         self.get_initial_value().unwrap_or(CssValue::None)
@@ -365,15 +362,6 @@ impl CssProperty {
             CssValue::Percentage(perc) => CssValue::Percentage(perc.round()),
             CssValue::Unit(value, unit) => CssValue::Unit(value.round(), unit.clone()),
             _ => self.used.clone(),
-        }
-    }
-
-    // // Returns true when the property is inheritable, false otherwise
-    fn is_inheritable(&self) -> bool {
-        let defs = get_css_definitions();
-        match defs.find_property(&self.name) {
-            Some(def) => def.inherited(),
-            None => false,
         }
     }
 
