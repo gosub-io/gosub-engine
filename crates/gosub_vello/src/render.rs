@@ -200,6 +200,7 @@ impl Renderer {
                     label: None,
                     required_features: Default::default(),
                     required_limits: Default::default(),
+                    memory_hints: Default::default(),
                 },
                 None,
             )
