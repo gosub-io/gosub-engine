@@ -18,6 +18,7 @@ gosub_render_backend = { path = "../gosub_render_backend" }
 anyhow = "1.0.86"
 image = "0.25.2"
 url = "2.5.2"
+log = "0.4.22"
 
 
 

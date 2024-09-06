@@ -1,6 +1,7 @@
 use std::fmt::{Debug, Display, Write};
 use std::ops::{Div, Mul, MulAssign};
 
+use crate::layout::TextLayout;
 use crate::svg::SvgRenderer;
 pub use geo::*;
 use gosub_shared::types::Result;
@@ -21,8 +22,7 @@ pub trait RenderBackend: Sized + Debug {
     type BorderSide: BorderSide<Self>;
     type BorderRadius: BorderRadius;
     type Transform: Transform;
-    type PreRenderText: PreRenderText;
-    type Text: Text<Self>;
+    type Text: Text;
     type Gradient: Gradient<Self>;
     type Color: Color;
     type Image: Image;
@@ -488,20 +488,12 @@ pub trait Transform: Sized + Mul<Self> + MulAssign + Clone {
     }
 }
 
-pub trait PreRenderText {
-    fn new(text: String, font: Option<Vec<String>>, size: FP) -> Self;
+pub trait Text {
+    type Font;
 
-    fn with_lh(text: String, font: Option<Vec<String>>, size: FP, line_height: FP) -> Self;
-
-    fn prerender(&mut self) -> Size;
-    fn value(&self) -> &str;
-    fn fs(&self) -> FP;
-
-    //TODO: Who should be responsible for line breaking if the text is too long?
-}
-
-pub trait Text<B: RenderBackend> {
-    fn new(pre: &mut B::PreRenderText) -> Self;
+    fn new<TL: TextLayout>(node: &TL) -> Self
+    where
+        TL::Font: Into<Self::Font>;
 }
 
 pub struct ColorStop<B: RenderBackend> {

@@ -294,11 +294,7 @@ pub fn parse_flex_grow(node: &mut impl Node) -> f32 {
 
     property.compute_value();
 
-    if let Some(value) = property.as_number() {
-        value
-    } else {
-        0.0
-    }
+    property.as_number().unwrap_or(0.0)
 }
 
 pub fn parse_flex_shrink(node: &mut impl Node) -> f32 {
@@ -308,11 +304,7 @@ pub fn parse_flex_shrink(node: &mut impl Node) -> f32 {
 
     property.compute_value();
 
-    if let Some(value) = property.as_number() {
-        value
-    } else {
-        1.0
-    }
+    property.as_number().unwrap_or(1.0)
 }
 
 pub fn parse_grid_template_rows(node: &mut impl Node) -> Vec<TrackSizingFunction> {

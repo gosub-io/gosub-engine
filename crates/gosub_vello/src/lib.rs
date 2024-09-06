@@ -48,7 +48,6 @@ impl RenderBackend for VelloBackend {
     type BorderSide = BorderSide;
     type BorderRadius = BorderRadius;
     type Transform = Transform;
-    type PreRenderText = PreRenderText;
     type Text = Text;
     type Gradient = Gradient;
     type Color = Color;

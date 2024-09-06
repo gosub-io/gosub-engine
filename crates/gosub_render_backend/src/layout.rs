@@ -1,10 +1,12 @@
 use gosub_shared::types::Result;
+use gosub_typeface::font::{Font, Glyph};
+use std::fmt::Debug;
 
 use crate::geo::{Point, Rect, Size, SizeU32};
 
 pub trait LayoutTree<L: Layouter>: Sized {
     type NodeId: Copy + Clone + From<u64> + Into<u64>;
-    type Node: Node;
+    type Node: Node + HasTextLayout<L>;
 
     fn children(&self, id: Self::NodeId) -> Option<Vec<Self::NodeId>>;
     fn contains(&self, id: &Self::NodeId) -> bool;
@@ -27,6 +29,8 @@ pub trait LayoutTree<L: Layouter>: Sized {
 pub trait Layouter: Sized + Clone {
     type Cache: Default;
     type Layout: Layout;
+
+    type TextLayout: TextLayout;
 
     const COLLAPSE_INLINE: bool;
 
@@ -109,15 +113,21 @@ pub trait Layout: Default {
 pub trait Node {
     type Property: CssProperty;
 
-    fn get_property(&mut self, name: &str) -> Option<&mut Self::Property>; //TODO: this needs to be more generic...
-    fn text_size(&mut self) -> Option<Size>;
+    fn get_property(&mut self, name: &str) -> Option<&mut Self::Property>;
+    fn text_data(&self) -> Option<&str>;
+
+    fn text_size(&self) -> Option<Size>;
 
     /// This can only return true if the `Layout::COLLAPSE_INLINE` is set true for the layouter
     ///
     fn is_anon_inline_parent(&self) -> bool;
 }
 
-pub trait CssProperty {
+pub trait HasTextLayout<L: Layouter> {
+    fn set_text_layout(&mut self, layout: L::TextLayout);
+}
+
+pub trait CssProperty: Debug {
     fn compute_value(&mut self);
     fn unit_to_px(&self) -> f32;
 
@@ -127,4 +137,19 @@ pub trait CssProperty {
     fn as_color(&self) -> Option<(f32, f32, f32, f32)>;
     fn as_number(&self) -> Option<f32>;
     fn is_none(&self) -> bool;
+}
+
+pub trait TextLayout {
+    type Font: Font;
+    fn dbg_layout(&self) -> String;
+
+    fn size(&self) -> Size;
+
+    fn glyphs(&self) -> &[Glyph];
+
+    fn font(&self) -> &Self::Font;
+
+    fn font_size(&self) -> f32;
+
+    fn coords(&self) -> &[i16];
 }

@@ -51,6 +51,10 @@ impl TScene<VelloBackend> for Scene {
         scene: &<VelloBackend as RenderBackend>::Scene,
         transform: Option<Transform>,
     ) {
+        // let enc = self.0.encoding();
+        //
+        // enc.
+
         self.0.append(&scene.0, transform.map(|t| t.0));
     }
 

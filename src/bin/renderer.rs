@@ -14,7 +14,7 @@ use gosub_vello::VelloBackend;
 type Backend = VelloBackend;
 type Layouter = TaffyLayouter;
 type Drawer = TreeDrawer<Backend, Layouter>;
-type Tree = RenderTree<Backend, Layouter>;
+type Tree = RenderTree<Layouter>;
 
 fn main() -> Result<()> {
     let matches = clap::Command::new("Gosub Renderer")

@@ -18,7 +18,7 @@ use gosub_styling::styling::CssProperties;
 
 pub struct TreeDrawer<B: RenderBackend, L: Layouter> {
     pub(crate) fetcher: Fetcher,
-    pub(crate) tree: RenderTree<B, L>,
+    pub(crate) tree: RenderTree<L>,
     pub(crate) layouter: L,
     pub(crate) size: Option<SizeU32>,
     pub(crate) position: PositionTree,
@@ -32,7 +32,7 @@ pub struct TreeDrawer<B: RenderBackend, L: Layouter> {
 }
 
 impl<B: RenderBackend, L: Layouter> TreeDrawer<B, L> {
-    pub fn new(tree: RenderTree<B, L>, layouter: L, url: Url, debug: bool) -> Self {
+    pub fn new(tree: RenderTree<L>, layouter: L, url: Url, debug: bool) -> Self {
         Self {
             tree,
             layouter,
@@ -50,19 +50,19 @@ impl<B: RenderBackend, L: Layouter> TreeDrawer<B, L> {
     }
 }
 
-pub struct RenderTreeNode<B: RenderBackend> {
+pub struct RenderTreeNode<L: Layouter> {
     pub parent: Option<NodeId>,
     pub children: Vec<NodeId>,
     pub layout: i32, //TODO
     pub name: String,
     pub properties: CssProperties,
     pub namespace: Option<String>,
-    pub data: RenderNodeData<B>,
+    pub data: RenderNodeData<L>,
 }
 
-pub(crate) fn load_html_rendertree<B: RenderBackend, L: Layouter>(
+pub(crate) fn load_html_rendertree<L: Layouter>(
     url: Url,
-) -> gosub_shared::types::Result<RenderTree<B, L>> {
+) -> gosub_shared::types::Result<RenderTree<L>> {
     let html = if url.scheme() == "http" || url.scheme() == "https" {
         // Fetch the html from the url
         let response = ureq::get(url.as_ref()).call()?;
