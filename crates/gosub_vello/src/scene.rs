@@ -2,8 +2,9 @@ use vello::kurbo::RoundedRect;
 use vello::peniko::Fill;
 use vello::Scene as VelloScene;
 
-use gosub_render_backend::{RenderBackend, RenderRect, RenderText, Scene as TScene};
+use gosub_render_backend::{Point, RenderBackend, RenderRect, RenderText, Scene as TScene, FP};
 
+use crate::debug::text::render_text_simple;
 use crate::{Border, BorderRenderOptions, Text, Transform, VelloBackend};
 
 pub struct Scene(pub(crate) VelloScene);
@@ -11,6 +12,10 @@ pub struct Scene(pub(crate) VelloScene);
 impl Scene {
     pub fn inner(&mut self) -> &mut VelloScene {
         &mut self.0
+    }
+
+    pub fn create() -> Self {
+        Self(VelloScene::new())
     }
 }
 
@@ -46,6 +51,10 @@ impl TScene<VelloBackend> for Scene {
         Text::show(&mut self.0, text)
     }
 
+    fn debug_draw_simple_text(&mut self, text: &str, pos: Point, size: FP) {
+        render_text_simple(self, text, pos, size)
+    }
+
     fn apply_scene(
         &mut self,
         scene: &<VelloBackend as RenderBackend>::Scene,
@@ -62,7 +71,7 @@ impl TScene<VelloBackend> for Scene {
         self.0.reset()
     }
 
-    fn new(_data: &mut <VelloBackend as RenderBackend>::WindowData<'_>) -> Self {
+    fn new() -> Self {
         VelloScene::new().into()
     }
 }

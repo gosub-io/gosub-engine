@@ -13,7 +13,7 @@ pub struct VelloSVG;
 impl SvgRenderer<VelloBackend> for VelloSVG {
     type SvgDocument = SVGDocument;
 
-    fn new(_: &mut WindowData) -> Self {
+    fn new() -> Self {
         Self
     }
 

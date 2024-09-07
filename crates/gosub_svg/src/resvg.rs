@@ -15,7 +15,7 @@ pub struct Resvg;
 impl<B: RenderBackend> SvgRenderer<B> for Resvg {
     type SvgDocument = SVGDocument;
 
-    fn new(_: &mut B::WindowData<'_>) -> Self {
+    fn new() -> Self {
         Self
     }
 

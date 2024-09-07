@@ -57,12 +57,10 @@ impl<'a, D: SceneDrawer<B, L, LT>, B: RenderBackend, L: Layouter, LT: LayoutTree
                     return Ok(());
                 };
 
-                if tab.data.mouse_move(
-                    backend,
-                    &mut self.renderer_data,
-                    position.x as FP,
-                    position.y as FP,
-                ) {
+                if tab
+                    .data
+                    .mouse_move(backend, position.x as FP, position.y as FP)
+                {
                     self.window.request_redraw();
                 }
             }

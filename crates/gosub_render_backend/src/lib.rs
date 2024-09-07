@@ -77,10 +77,12 @@ pub trait RenderBackend: Sized + Debug {
 pub trait Scene<B: RenderBackend> {
     fn draw_rect(&mut self, rect: &RenderRect<B>);
     fn draw_text(&mut self, text: &RenderText<B>);
+
+    fn debug_draw_simple_text(&mut self, text: &str, pos: Point, size: FP);
     fn apply_scene(&mut self, scene: &B::Scene, transform: Option<B::Transform>);
     fn reset(&mut self);
 
-    fn new(data: &mut B::WindowData<'_>) -> Self;
+    fn new() -> Self;
 }
 
 pub struct RenderRect<B: RenderBackend> {

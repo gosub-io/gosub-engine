@@ -308,3 +308,5 @@
 // }
 
 pub mod font;
+
+pub const ROBOTO_FONT: &[u8] = include_bytes!("../../../resources/fonts/Roboto-Regular.ttf");

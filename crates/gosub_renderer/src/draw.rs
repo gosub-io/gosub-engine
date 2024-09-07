@@ -3,6 +3,7 @@ use std::sync::mpsc::Sender;
 use anyhow::anyhow;
 use url::Url;
 
+use crate::debug::scale::px_scale;
 use crate::draw::img::request_img;
 use crate::render_tree::{load_html_rendertree, TreeDrawer};
 use gosub_css3::colors::RgbColor;
@@ -25,7 +26,7 @@ mod img;
 
 pub trait SceneDrawer<B: RenderBackend, L: Layouter, LT: LayoutTree<L>> {
     fn draw(&mut self, backend: &mut B, data: &mut B::WindowData<'_>, size: SizeU32);
-    fn mouse_move(&mut self, backend: &mut B, data: &mut B::WindowData<'_>, x: FP, y: FP) -> bool;
+    fn mouse_move(&mut self, backend: &mut B, x: FP, y: FP) -> bool;
 
     fn scroll(&mut self, point: Point);
     fn from_url(url: Url, layouter: L, debug: bool) -> Result<Self>
@@ -61,7 +62,7 @@ where
         if self.tree_scene.is_none() || self.size != Some(size) {
             self.size = Some(size);
 
-            let mut scene = B::Scene::new(data);
+            let mut scene = B::Scene::new();
 
             // Apply new maximums to the scene transform
             if let Some(scene_transform) = self.scene_transform.as_mut() {
@@ -78,7 +79,7 @@ where
             let mut drawer = Drawer {
                 scene: &mut scene,
                 drawer: self,
-                svg: B::SVGRenderer::new(data),
+                svg: B::SVGRenderer::new(),
             };
 
             drawer.render(size);
@@ -109,7 +110,7 @@ where
 
         if self.dirty {
             if let Some(id) = self.selected_element {
-                self.debug_annotate(id, data);
+                self.debug_annotate(id);
             }
         }
 
@@ -117,9 +118,25 @@ where
             self.dirty = false;
             backend.apply_scene(data, scene, self.scene_transform.clone());
         }
+
+        if self.debug {
+            let pos = self
+                .scene_transform
+                .as_ref()
+                .map(|x| Point::new(x.tx(), x.ty()))
+                .unwrap_or(Point::ZERO);
+
+            let scale = px_scale::<B>(
+                size,
+                pos,
+                self.size.as_ref().map(|x| x.width as f32).unwrap_or(0.0),
+            );
+
+            backend.apply_scene(data, &scale, None);
+        }
     }
 
-    fn mouse_move(&mut self, _backend: &mut B, data: &mut B::WindowData<'_>, x: FP, y: FP) -> bool {
+    fn mouse_move(&mut self, _backend: &mut B, x: FP, y: FP) -> bool {
         let x = x - self
             .scene_transform
             .clone()
@@ -135,7 +152,7 @@ where
             if self.last_hover != Some(e) {
                 self.last_hover = Some(e);
                 if self.debug {
-                    return self.debug_annotate(e, data);
+                    return self.debug_annotate(e);
                 }
             }
             return false;
@@ -740,12 +757,12 @@ fn get_border_side<B: RenderBackend, L: Layouter>(
 }
 
 impl<B: RenderBackend, L: Layouter> TreeDrawer<B, L> {
-    fn debug_annotate(&mut self, e: NodeId, data: &mut B::WindowData<'_>) -> bool {
+    fn debug_annotate(&mut self, e: NodeId) -> bool {
         let Some(node) = self.tree.get_node(e) else {
             return false;
         };
 
-        let mut scene = B::Scene::new(data);
+        let mut scene = B::Scene::new();
 
         let Some(layout) = self.tree.get_layout(e) else {
             return false;

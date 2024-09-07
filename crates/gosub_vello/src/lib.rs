@@ -32,8 +32,10 @@ mod scene;
 mod text;
 mod transform;
 
+mod debug;
 #[cfg(feature = "vello_svg")]
 mod vello_svg;
+
 pub struct VelloBackend;
 
 impl Debug for VelloBackend {

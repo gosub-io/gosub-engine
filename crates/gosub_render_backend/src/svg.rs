@@ -7,7 +7,7 @@ use crate::{ImageBuffer, RenderBackend};
 pub trait SvgRenderer<B: RenderBackend> {
     type SvgDocument;
 
-    fn new(wd: &mut B::WindowData<'_>) -> Self;
+    fn new() -> Self;
 
     fn parse_external(data: String) -> Result<Self::SvgDocument>;
     fn parse_internal(tree: DocumentHandle, id: NodeId) -> Result<Self::SvgDocument>;
