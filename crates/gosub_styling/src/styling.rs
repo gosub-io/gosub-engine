@@ -2,7 +2,7 @@ use core::fmt::Debug;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
-use crate::property_definitions::get_css_definitions;
+use crate::property_definitions::{get_css_definitions, CSS_DEFINITIONS};
 use gosub_css3::stylesheet::{
     CssOrigin, CssSelector, CssSelectorPart, CssSelectorType, CssValue, MatcherType, Specificity,
 };
@@ -423,6 +423,13 @@ impl CssProperties {
     }
 }
 
+pub fn prop_is_inherit(name: &str) -> bool {
+    CSS_DEFINITIONS
+        .find_property(name)
+        .map(|def| def.inherited)
+        .unwrap_or(false)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -468,7 +475,7 @@ mod tests {
         assert!(prop.is_shorthand());
         assert_eq!(prop.name, "border");
         assert_eq!(prop.get_initial_value(), Some(CssValue::None));
-        assert!(!prop.is_inheritable());
+        assert!(!prop_is_inherit(&prop.name));
     }
 
     #[test]
@@ -487,7 +494,7 @@ mod tests {
         assert!(!prop.is_shorthand());
         assert_eq!(prop.name, "color");
         assert_eq!(prop.get_initial_value(), Some(&CssValue::None).cloned());
-        assert!(prop.is_inheritable());
+        assert!(prop_is_inherit(&prop.name));
     }
 
     #[test]
@@ -559,16 +566,16 @@ mod tests {
     #[test]
     fn is_inheritable() {
         let prop = CssProperty::new("border");
-        assert!(!prop.is_inheritable());
+        assert!(!prop_is_inherit(&prop.name));
 
         let prop = CssProperty::new("color");
-        assert!(prop.is_inheritable());
+        assert!(prop_is_inherit(&prop.name));
 
         let prop = CssProperty::new("font");
-        assert!(prop.is_inheritable());
+        assert!(prop_is_inherit(&prop.name));
 
         let prop = CssProperty::new("border-top-color");
-        assert!(!prop.is_inheritable());
+        assert!(!prop_is_inherit(&prop.name));
     }
 
     #[test]

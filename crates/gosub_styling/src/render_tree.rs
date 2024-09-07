@@ -1,9 +1,11 @@
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 
-use crate::property_definitions::{get_css_definitions, CSS_DEFINITIONS};
+use crate::property_definitions::get_css_definitions;
 use crate::shorthands::FixList;
-use crate::styling::{match_selector, CssProperties, CssProperty, DeclarationProperty};
+use crate::styling::{
+    match_selector, prop_is_inherit, CssProperties, CssProperty, DeclarationProperty,
+};
 use log::warn;
 
 use gosub_css3::stylesheet::{CssDeclaration, CssOrigin, CssSelector, CssStylesheet, CssValue};
@@ -538,13 +540,6 @@ impl<L: Layouter> RenderTree<L> {
             self.print_tree_from(*child_id, depth + 1);
         }
     }
-}
-
-fn prop_is_inherit(name: &str) -> bool {
-    CSS_DEFINITIONS
-        .find_property(name)
-        .map(|def| def.inherited)
-        .unwrap_or(false)
 }
 
 // Generates a declaration property and adds it to the css_map_entry
