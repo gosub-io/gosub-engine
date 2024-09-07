@@ -18,6 +18,12 @@ use gosub_shared::types::Result;
 
 mod desc;
 
+const INLINE_ELEMENTS: [&str; 31] = [
+    "a", "abbr", "acronym", "b", "bdo", "big", "br", "button", "cite", "code", "dfn", "em", "i",
+    "img", "input", "kbd", "label", "map", "object", "q", "samp", "script", "select", "small",
+    "span", "strong", "sub", "sup", "textarea", "tt", "var",
+];
+
 /// Map of all declared values for all nodes in the document
 #[derive(Debug)]
 pub struct RenderTree<L: Layouter> {
@@ -720,23 +726,32 @@ impl<L: Layouter> RenderTreeNode<L> {
             return true;
         }
 
-        let tag_name = self.name.to_lowercase();
+        if let Some(d) = self.properties.get("display").and_then(|prop| {
+            let CssValue::String(val) = &prop.actual else {
+                return None;
+            };
 
-        const INLINE_ELEMENTS: [&str; 31] = [
-            "a", "abbr", "acronym", "b", "bdo", "big", "br", "button", "cite", "code", "dfn", "em",
-            "i", "img", "input", "kbd", "label", "map", "object", "q", "samp", "script", "select",
-            "small", "span", "strong", "sub", "sup", "textarea", "tt", "var",
-        ];
+            // const NON_INLINE_DISPLAYS: [&str; 6] = ["block", "flex", "grid", "table", "list-item", "none"];
+            // if NON_INLINE_DISPLAYS.contains(&val.as_str()) {
+            //     return Some(false);
+            // } //TODO: somehow this causes problems with the inline elements
 
-        if INLINE_ELEMENTS.contains(&tag_name.as_str()) {
-            return true;
+            if val == "inline"
+                || val == "inline-block"
+                || val == "inline-table"
+                || val == "inline-flex"
+            {
+                return Some(true);
+            }
+
+            None
+        }) {
+            return d;
         }
 
-        self.properties.get("display").map_or(false, |prop| {
-            let val = prop.compute_value().to_string();
+        let tag_name = self.name.to_lowercase();
 
-            val == "inline" || val == "inline-block"
-        })
+        INLINE_ELEMENTS.contains(&tag_name.as_str())
     }
 }
 

@@ -25,6 +25,9 @@ pub fn parse_display(node: &mut impl Node) -> (Display, crate::Display) {
         "block" => (Display::Block, crate::Display::Taffy),
         "flex" => (Display::Flex, crate::Display::Taffy),
         "grid" => (Display::Grid, crate::Display::Taffy),
+        "inline-block" => (Display::Block, crate::Display::InlineBlock),
+        "inline" => (Display::Block, crate::Display::Inline),
+        "table" => (Display::Block, crate::Display::Table),
         _ => (Display::Block, crate::Display::Taffy),
     }
 }

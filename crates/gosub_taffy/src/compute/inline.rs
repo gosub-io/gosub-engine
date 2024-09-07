@@ -5,7 +5,7 @@ use taffy::{
 };
 
 use crate::text::{Font, TextLayout};
-use crate::{LayoutDocument, TaffyLayouter};
+use crate::{Display, LayoutDocument, TaffyLayouter};
 use gosub_render_backend::geo;
 use gosub_render_backend::layout::{CssProperty, HasTextLayout, LayoutTree, Node};
 use gosub_typeface::font::Glyph;
@@ -93,16 +93,31 @@ pub fn compute_inline_layout<LT: LayoutTree<TaffyLayouter>>(
                 id: node_id,
             });
         } else {
-            if u64::from(node_id) == 162u64 {
+            if u64::from(node_id) == 477u64 {
                 println!("inline_box <a>: {:?}", node_id);
             }
 
             let out = tree.compute_child_layout(node_id, layout_input);
+
+            tree.update_style(*child);
+
+            let size = if let Some(cache) = tree.0.get_cache(*child) {
+                if cache.display == Display::InlineBlock {
+                    //TODO: handle margins here
+
+                    out.size
+                } else {
+                    out.content_size
+                }
+            } else {
+                out.content_size
+            };
+
             inline_boxes.push(InlineBox {
                 id: node_id.into(),
                 index: str_buf.len(),
-                height: out.size.height, //TODO: handle inline-block => add margin & padding
-                width: out.size.width,
+                height: size.height,
+                width: size.width,
             });
         }
     }
@@ -213,17 +228,6 @@ pub fn compute_inline_layout<LT: LayoutTree<TaffyLayouter>>(
     println!("num_lines: {:?}", num_lines);
 
     layout.align(max_width, align);
-
-    if nod_id.into() == 989 {
-        for line in layout.lines() {
-            println!("advance: {:?}", line.metrics().advance);
-
-            let t_range = line.text_range();
-
-            println!("text: {:?}", &str_buf[t_range.clone()]);
-            println!("full metrics: {:?}", line.metrics());
-        }
-    }
 
     //
     // for (child, out) in children.into_iter().zip(outputs.into_iter()) {

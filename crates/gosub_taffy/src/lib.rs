@@ -70,7 +70,9 @@ pub struct TaffyLayouter;
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[allow(unused)]
 pub enum Display {
-    Text,
+    Inline,
+    InlineBlock,
+    Table,
     #[default]
     Taffy,
 }
@@ -240,17 +242,6 @@ impl<LT: LayoutTree<TaffyLayouter>> LayoutPartialTree for LayoutDocument<'_, LT>
             if let Some(node) = tree.0.get_node(node_id) {
                 if node.is_anon_inline_parent() {
                     return compute_inline_layout(tree, node_id, inputs);
-                }
-            }
-
-            if let Some(cache) = tree.0.get_cache(node_id) {
-                match cache.display {
-                    Display::Text => {
-                        // We should implement a new way of layouting text. Currently, we just measure how long the text is and don't insert any linebreaks,
-                        // which is obviously not correct. So, if we encounter Display::Text, we need to ask our text-layouter and tell him how much space we have, and it will insert linebreaks
-                        todo!()
-                    }
-                    Display::Taffy => {}
                 }
             }
 
