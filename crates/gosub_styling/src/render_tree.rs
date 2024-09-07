@@ -3,7 +3,9 @@ use std::fmt::{Debug, Formatter};
 
 use crate::property_definitions::get_css_definitions;
 use crate::shorthands::FixList;
-use crate::styling::{match_selector, CssProperties, CssProperty, DeclarationProperty};
+use crate::styling::{
+    match_selector, prop_is_inherit, CssProperties, CssProperty, DeclarationProperty,
+};
 use log::warn;
 
 use gosub_css3::stylesheet::{CssDeclaration, CssOrigin, CssSelector, CssStylesheet, CssValue};
@@ -348,11 +350,60 @@ impl<L: Layouter> RenderTree<L> {
 
         self.remove_unrenderable_nodes();
 
+        self.resolve_inheritance(self.root, &Vec::new());
+
         if L::COLLAPSE_INLINE {
             self.collapse_inline(self.root);
         }
 
         // self.print_tree();
+    }
+
+    fn resolve_inheritance(&mut self, node_id: NodeId, inherit_props: &Vec<(String, CssValue)>) {
+        let Some(current_node) = self.get_node(node_id) else {
+            return;
+        };
+
+        for prop in inherit_props {
+            current_node
+                .properties
+                .properties
+                .entry(prop.0.clone())
+                .or_insert_with(|| {
+                    let mut p = CssProperty::new(prop.0.as_str());
+
+                    p.inherited = prop.1.clone();
+
+                    p
+                });
+        }
+
+        let mut inherit_props = inherit_props.clone();
+
+        'props: for (name, prop) in &mut current_node.properties.properties {
+            prop.compute_value();
+
+            let value = prop.actual.clone();
+
+            if prop_is_inherit(name) {
+                for (k, v) in &mut inherit_props {
+                    if k == name {
+                        *v = value;
+                        continue 'props;
+                    }
+                }
+
+                inherit_props.push((name.clone(), value));
+            }
+        }
+
+        let Some(children) = self.get_children(node_id) else {
+            return;
+        };
+
+        for child in children.clone() {
+            self.resolve_inheritance(child, &inherit_props);
+        }
     }
 
     /// Removes all unrenderable nodes from the render tree

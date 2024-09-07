@@ -250,33 +250,6 @@ where
     }
 
     fn render_node(&mut self, id: NodeId, pos: &mut Point) -> anyhow::Result<()> {
-        let parent = self.drawer.tree.parent_id(id).unwrap_or(id);
-
-        let parent_color = self
-            .drawer
-            .tree
-            .get_node_mut(parent)
-            .ok_or(anyhow!("Node {id} not found"))?
-            .properties
-            .get("color")
-            .and_then(|prop| {
-                prop.compute_value();
-
-                match &prop.actual {
-                    CssValue::Color(color) => Some(*color),
-                    CssValue::String(color) => Some(RgbColor::from(color.as_str())),
-                    _ => None,
-                }
-            })
-            .unwrap_or(RgbColor::default()); //HACK: this needs to be removed
-
-        let parent_color = B::Color::rgba(
-            parent_color.r as u8,
-            parent_color.g as u8,
-            parent_color.b as u8,
-            parent_color.a as u8,
-        );
-
         let node = self
             .drawer
             .tree
@@ -313,14 +286,13 @@ where
             }
         }
 
-        render_text::<B, L>(node, parent_color, self.scene, pos);
+        render_text::<B, L>(node, self.scene, pos);
         Ok(())
     }
 }
 
 fn render_text<B: RenderBackend, L: Layouter>(
-    node: &RenderTreeNode<L>,
-    color: B::Color,
+    node: &mut RenderTreeNode<L>,
     scene: &mut B::Scene,
     pos: &Point,
 ) where
@@ -334,6 +306,21 @@ fn render_text<B: RenderBackend, L: Layouter>(
     // if u64::from(node.id) == 203 {
     //     return;
     // }
+
+    let color = node
+        .properties
+        .get("color")
+        .and_then(|prop| {
+            prop.compute_value();
+
+            match &prop.actual {
+                CssValue::Color(color) => Some(*color),
+                CssValue::String(color) => Some(RgbColor::from(color.as_str())),
+                _ => None,
+            }
+        })
+        .map(|color| Color::rgba(color.r as u8, color.g as u8, color.b as u8, color.a as u8))
+        .unwrap_or(Color::BLACK);
 
     if let RenderNodeData::Text(ref text) = node.data {
         let Some(layout) = text.layout.as_ref() else {
