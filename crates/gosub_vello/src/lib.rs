@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use anyhow::anyhow;
 use vello::kurbo::Point as VelloPoint;
 use vello::peniko::Color as VelloColor;
-use vello::{AaConfig, RenderParams, Scene as VelloScene};
+use vello::{AaConfig, DebugLayers, RenderParams, Scene as VelloScene};
 
 use crate::render::{Renderer, RendererOptions};
 pub use border::*;
@@ -167,6 +167,7 @@ impl RenderBackend for VelloBackend {
                     width,
                     height,
                     antialiasing_method: AaConfig::Msaa16,
+                    debug: DebugLayers::none(),
                 },
             )
             .map_err(|e| anyhow!(e.to_string()))?;
