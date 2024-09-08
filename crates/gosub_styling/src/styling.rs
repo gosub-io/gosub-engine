@@ -222,17 +222,6 @@ fn match_selector_part<'a>(
                     match_selector_part(&last, parent, doc, next_node, parts)
                 }
                 Combinator::NextSibling => {
-                    // let Some(parent) = current_node.parent else {
-                    //     return false;
-                    // };
-                    //
-
-                    let is_debug = u64::from(current_node.id) == 32;
-
-                    if is_debug {
-                        println!("current_node: {:?}", current_node);
-                    }
-
                     let Some(children) = doc.parent_node(current_node).map(|p| &p.children) else {
                         return false;
                     };
@@ -263,18 +252,30 @@ fn match_selector_part<'a>(
 
                     *next_node = Some(prev);
 
-                    if is_debug {
-                        dbg!(prev);
-                        dbg!(last);
-                        dbg!(&parts);
-
-                        println!("DEBUG 3333");
-                    }
-
                     match_selector_part(last, prev, doc, next_node, parts)
                 }
                 Combinator::SubsequentSibling => {
-                    // We need to match the previous siblings of the current node
+                    let Some(children) = doc.parent_node(current_node).map(|p| &p.children) else {
+                        return false;
+                    };
+
+                    let Some(last) = consume(parts) else {
+                        return false;
+                    };
+
+                    for child in children {
+                        if *child == current_node.id {
+                            break;
+                        }
+
+                        let Some(child) = doc.get_node_by_id(*child) else {
+                            continue;
+                        };
+
+                        if match_selector_part(&last, child, doc, next_node, parts) {
+                            return true;
+                        }
+                    }
 
                     false
                 }
