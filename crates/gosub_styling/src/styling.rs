@@ -50,7 +50,7 @@ fn match_selector_parts(
         }
 
         if !match_selector_part(
-            &part,
+            part,
             current_node,
             &binding,
             &mut next_current_node,
@@ -90,7 +90,7 @@ fn match_selector_part<'a>(
             if !current_node.is_element() {
                 return false;
             }
-            current_node.as_element().classes.contains(&name)
+            current_node.as_element().classes.contains(name)
         }
         CssSelectorPart::Id(name) => {
             if !current_node.is_element() {
@@ -106,25 +106,25 @@ fn match_selector_part<'a>(
         CssSelectorPart::Attribute(attr) => {
             let wanted_attr_name = &attr.name;
 
-            if !current_node.has_attribute(&wanted_attr_name) {
+            if !current_node.has_attribute(wanted_attr_name) {
                 return false;
             }
 
             let mut wanted_attr_value = &attr.value;
             let mut got_attr_value = current_node
-                .get_attribute(&wanted_attr_name)
+                .get_attribute(wanted_attr_name)
                 .map(|v| v.as_str())
                 .unwrap_or("");
 
-            let mut wanted_buf = String::new(); //Two buffers, so we don't need to clone the value if we match case-sensitive
-            let mut got_buf = String::new();
+            let mut _wanted_buf = String::new(); //Two buffers, so we don't need to clone the value if we match case-sensitive
+            let mut _got_buf = String::new();
             // If we need to match case-insensitive, just convert everything to lowercase for comparison
             if attr.case_insensitive {
-                wanted_buf = wanted_attr_name.to_lowercase();
-                got_buf = got_attr_value.to_lowercase();
+                _wanted_buf = wanted_attr_name.to_lowercase();
+                _got_buf = got_attr_value.to_lowercase();
 
-                wanted_attr_value = &wanted_buf;
-                got_attr_value = &got_buf;
+                wanted_attr_value = &_wanted_buf;
+                got_attr_value = &_got_buf;
             };
 
             match attr.matcher {
@@ -161,11 +161,11 @@ fn match_selector_part<'a>(
                 }
             }
         }
-        CssSelectorPart::PseudoClass(name) => {
+        CssSelectorPart::PseudoClass(_name) => {
             // @Todo: implement pseudo classes
             false
         }
-        CssSelectorPart::PseudoElement(name) => {
+        CssSelectorPart::PseudoElement(_name) => {
             // @Todo: implement pseudo elements
             false
         }
@@ -190,7 +190,7 @@ fn match_selector_part<'a>(
 
                         *next_node = Some(parent);
 
-                        if match_selector_part(&last, parent, doc, next_node, parts) {
+                        if match_selector_part(last, parent, doc, next_node, parts) {
                             return true;
                         }
 
@@ -219,7 +219,7 @@ fn match_selector_part<'a>(
 
                     *next_node = Some(parent);
 
-                    match_selector_part(&last, parent, doc, next_node, parts)
+                    match_selector_part(last, parent, doc, next_node, parts)
                 }
                 Combinator::NextSibling => {
                     let Some(children) = doc.parent_node(current_node).map(|p| &p.children) else {
@@ -272,7 +272,7 @@ fn match_selector_part<'a>(
                             continue;
                         };
 
-                        if match_selector_part(&last, child, doc, next_node, parts) {
+                        if match_selector_part(last, child, doc, next_node, parts) {
                             return true;
                         }
                     }
@@ -298,7 +298,7 @@ fn match_selector_part<'a>(
                         return false;
                     };
 
-                    current_node.is_namespace(&namespace)
+                    current_node.is_namespace(namespace)
                 }
                 Combinator::Column => {
                     //TODO

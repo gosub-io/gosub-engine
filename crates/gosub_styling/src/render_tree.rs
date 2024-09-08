@@ -253,7 +253,7 @@ impl<L: Layouter> RenderTree<L> {
         for current_node_id in tree_iterator {
             let mut css_map_entry = CssProperties::new();
 
-            let mut doc = document.get();
+            let doc = document.get();
             let node = doc.get_node_by_id(current_node_id).expect("node not found");
 
             if node_is_undernderable(node) {
@@ -425,11 +425,9 @@ impl<L: Layouter> RenderTree<L> {
     /// Removes all unrenderable nodes from the render tree
     fn remove_unrenderable_nodes(&mut self) {
         // There are more elements that are not renderable, but for now we only remove the most common ones
-
-        const REMOVABLE_ELEMENTS: [&str; 5] = ["head", "script", "style", "svg", "noscript"];
         let mut delete_list = Vec::new();
 
-        for (id, node) in &self.nodes {
+        for id in self.nodes.keys() {
             // Check CSS styles and remove if not renderable
             if let Some(mut prop) = self.get_property(*id, "display") {
                 if prop.compute_value().to_string() == "none" {
