@@ -1,13 +1,13 @@
-use core::fmt::Debug;
-use std::cmp::Ordering;
-use std::collections::HashMap;
-
 use crate::property_definitions::{get_css_definitions, CSS_DEFINITIONS};
+use core::fmt::Debug;
 use gosub_css3::stylesheet::{
     Combinator, CssOrigin, CssSelector, CssSelectorPart, CssValue, MatcherType, Specificity,
 };
 use gosub_html5::node::{Node, NodeId};
 use gosub_html5::parser::document::{Document, DocumentHandle};
+use itertools::Itertools;
+use std::cmp::Ordering;
+use std::collections::HashMap;
 
 // Matches a complete selector (all parts) against the given node(id)
 pub(crate) fn match_selector(
@@ -222,9 +222,56 @@ fn match_selector_part<'a>(
                     match_selector_part(&last, parent, doc, next_node, parts)
                 }
                 Combinator::NextSibling => {
-                    // We need to match the previous sibling of the current node
+                    // let Some(parent) = current_node.parent else {
+                    //     return false;
+                    // };
+                    //
 
-                    false
+                    let is_debug = u64::from(current_node.id) == 32;
+
+                    if is_debug {
+                        println!("current_node: {:?}", current_node);
+                    }
+
+                    let Some(children) = doc.parent_node(current_node).map(|p| &p.children) else {
+                        return false;
+                    };
+
+                    let Some(my_index) = children
+                        .iter()
+                        .find_position(|c| **c == current_node.id)
+                        .map(|(i, _)| i)
+                    else {
+                        return false;
+                    };
+
+                    if my_index == 0 {
+                        return false;
+                    }
+
+                    let Some(prev_id) = children.get(my_index - 1).copied() else {
+                        return false;
+                    };
+
+                    let Some(last) = consume(parts) else {
+                        return false;
+                    };
+
+                    let Some(prev) = doc.get_node_by_id(prev_id) else {
+                        return false;
+                    };
+
+                    *next_node = Some(prev);
+
+                    if is_debug {
+                        dbg!(prev);
+                        dbg!(last);
+                        dbg!(&parts);
+
+                        println!("DEBUG 3333");
+                    }
+
+                    match_selector_part(last, prev, doc, next_node, parts)
                 }
                 Combinator::SubsequentSibling => {
                     // We need to match the previous siblings of the current node
