@@ -71,14 +71,14 @@ impl CssSelector {
         let mut class_count = 0;
         let mut element_count = 0;
         for part in &self.parts {
-            match part.type_ {
-                CssSelectorType::Id => {
+            match part {
+                CssSelectorPart::Id(_) => {
                     id_count += 1;
                 }
-                CssSelectorType::Class => {
+                CssSelectorPart::Class(_) => {
                     class_count += 1;
                 }
-                CssSelectorType::Type => {
+                CssSelectorPart::Type(_) => {
                     element_count += 1;
                 }
                 _ => {}
@@ -88,47 +88,81 @@ impl CssSelector {
     }
 }
 
-/// @todo: it would be nicer to have a struct for each type of selector part, but for now we'll keep it simple
 /// Represents a CSS selector part, which has a type and value (e.g. type=Class, class="my-class")
 #[derive(PartialEq, Clone, Default)]
-pub struct CssSelectorPart {
-    pub type_: CssSelectorType,
-    pub value: String,
-    pub matcher: MatcherType,
+pub enum CssSelectorPart {
+    #[default]
+    Universal,
+    Attribute(Box<AttributeSelector>),
+    Class(String),
+    Id(String),
+    PseudoClass(String),
+    PseudoElement(String),
+    Combinator(Combinator),
+    Type(String),
+}
+
+#[derive(PartialEq, Clone, Default)]
+pub struct AttributeSelector {
     pub name: String,
-    pub flags: String,
+    pub matcher: MatcherType,
+    pub value: String,
+    pub case_insensitive: bool,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum Combinator {
+    Descendant,
+    Child,
+    NextSibling,
+    SubsequentSibling,
+    Column,
+    Namespace,
+}
+
+impl Display for Combinator {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Combinator::Descendant => write!(f, " "),
+            Combinator::Child => write!(f, ">"),
+            Combinator::NextSibling => write!(f, "+"),
+            Combinator::SubsequentSibling => write!(f, "~"),
+            Combinator::Column => write!(f, "||"),
+            Combinator::Namespace => write!(f, "|"),
+        }
+    }
 }
 
 impl Debug for CssSelectorPart {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.type_ {
-            CssSelectorType::Universal => {
+        match self {
+            CssSelectorPart::Universal => {
                 write!(f, "*")
             }
-            CssSelectorType::Attribute => {
+            CssSelectorPart::Attribute(selector) => {
                 write!(
                     f,
                     "[{} {} {} {}]",
-                    self.name, self.matcher, self.value, self.flags
+                    selector.name, selector.matcher, selector.value, selector.case_insensitive
                 )
             }
-            CssSelectorType::Class => {
-                write!(f, ".{}", self.value)
+            CssSelectorPart::Class(name) => {
+                write!(f, ".{}", name)
             }
-            CssSelectorType::Id => {
-                write!(f, "#{}", self.value)
+            CssSelectorPart::Id(name) => {
+                write!(f, "#{}", name)
             }
-            CssSelectorType::PseudoClass => {
-                write!(f, ":{}", self.value)
+            CssSelectorPart::PseudoClass(name) => {
+                write!(f, ":{}", name)
             }
-            CssSelectorType::PseudoElement => {
-                write!(f, "::{}", self.value)
+            CssSelectorPart::PseudoElement(name) => {
+                write!(f, "::{}", name)
             }
-            CssSelectorType::Combinator => {
-                write!(f, "'{}'", self.value)
+            CssSelectorPart::Combinator(combinator) => {
+                write!(f, "'{}'", combinator)
             }
-            CssSelectorType::Type => {
-                write!(f, "{}", self.value)
+            CssSelectorPart::Type(name) => {
+                write!(f, "{}", name)
             }
         }
     }
@@ -414,11 +448,7 @@ mod test {
     fn test_css_rule() {
         let rule = CssRule {
             selectors: vec![CssSelector {
-                parts: vec![CssSelectorPart {
-                    type_: CssSelectorType::Type,
-                    value: "h1".to_string(),
-                    ..Default::default()
-                }],
+                parts: vec![CssSelectorPart::Type("h1".to_string())],
             }],
             declarations: vec![CssDeclaration {
                 property: "color".to_string(),
@@ -428,16 +458,9 @@ mod test {
         };
 
         assert_eq!(rule.selectors().len(), 1);
-        assert_eq!(
-            rule.selectors()
-                .first()
-                .unwrap()
-                .parts
-                .first()
-                .unwrap()
-                .value,
-            "h1"
-        );
+        let part = rule.selectors().first().unwrap().parts.first().unwrap();
+
+        assert_eq!(part, &CssSelectorPart::Type("h1".to_string()));
         assert_eq!(rule.declarations().len(), 1);
         assert_eq!(rule.declarations().first().unwrap().property, "color");
     }
@@ -446,21 +469,9 @@ mod test {
     fn test_specificity() {
         let selector = CssSelector {
             parts: vec![
-                CssSelectorPart {
-                    type_: CssSelectorType::Type,
-                    value: "h1".to_string(),
-                    ..Default::default()
-                },
-                CssSelectorPart {
-                    type_: CssSelectorType::Class,
-                    value: "myclass".to_string(),
-                    ..Default::default()
-                },
-                CssSelectorPart {
-                    type_: CssSelectorType::Id,
-                    value: "myid".to_string(),
-                    ..Default::default()
-                },
+                CssSelectorPart::Type("h1".to_string()),
+                CssSelectorPart::Class("myclass".to_string()),
+                CssSelectorPart::Id("myid".to_string()),
             ],
         };
 
@@ -469,16 +480,8 @@ mod test {
 
         let selector = CssSelector {
             parts: vec![
-                CssSelectorPart {
-                    type_: CssSelectorType::Type,
-                    value: "h1".to_string(),
-                    ..Default::default()
-                },
-                CssSelectorPart {
-                    type_: CssSelectorType::Class,
-                    value: "myclass".to_string(),
-                    ..Default::default()
-                },
+                CssSelectorPart::Type("h1".to_string()),
+                CssSelectorPart::Class("myclass".to_string()),
             ],
         };
 
@@ -486,11 +489,7 @@ mod test {
         assert_eq!(specificity, Specificity::new(0, 1, 1));
 
         let selector = CssSelector {
-            parts: vec![CssSelectorPart {
-                type_: CssSelectorType::Type,
-                value: "h1".to_string(),
-                ..Default::default()
-            }],
+            parts: vec![CssSelectorPart::Type("h1".to_string())],
         };
 
         let specificity = selector.specificity();
@@ -498,16 +497,8 @@ mod test {
 
         let selector = CssSelector {
             parts: vec![
-                CssSelectorPart {
-                    type_: CssSelectorType::Class,
-                    value: "myclass".to_string(),
-                    ..Default::default()
-                },
-                CssSelectorPart {
-                    type_: CssSelectorType::Class,
-                    value: "otherclass".to_string(),
-                    ..Default::default()
-                },
+                CssSelectorPart::Class("myclass".to_string()),
+                CssSelectorPart::Class("otherclass".to_string()),
             ],
         };
 

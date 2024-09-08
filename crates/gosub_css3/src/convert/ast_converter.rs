@@ -1,7 +1,7 @@
 use crate::node::{Node as CssNode, NodeType};
 use crate::stylesheet::{
-    CssDeclaration, CssOrigin, CssRule, CssSelector, CssSelectorPart, CssSelectorType,
-    CssStylesheet, CssValue, MatcherType,
+    AttributeSelector, Combinator, CssDeclaration, CssOrigin, CssRule, CssSelector,
+    CssSelectorPart, CssStylesheet, CssValue, MatcherType,
 };
 use anyhow::anyhow;
 use gosub_shared::types::Result;
@@ -98,57 +98,44 @@ pub fn convert_ast_to_stylesheet(
 
                 for node in node.as_selector() {
                     let part = match &*node.node_type {
-                        NodeType::Ident { value } => CssSelectorPart {
-                            type_: CssSelectorType::Type,
-                            value: value.clone(),
-                            ..Default::default()
-                        },
-                        NodeType::ClassSelector { value } => CssSelectorPart {
-                            type_: CssSelectorType::Class,
-                            value: value.clone(),
-                            ..Default::default()
-                        },
-                        NodeType::Combinator { value } => CssSelectorPart {
-                            type_: CssSelectorType::Combinator,
-                            value: value.clone(),
-                            ..Default::default()
-                        },
-                        NodeType::IdSelector { value } => CssSelectorPart {
-                            type_: CssSelectorType::Id,
-                            value: value.clone(),
-                            ..Default::default()
-                        },
-                        NodeType::TypeSelector { value, .. } if value == "*" => CssSelectorPart {
-                            type_: CssSelectorType::Universal,
-                            value: "*".to_string(),
-                            ..Default::default()
-                        },
-                        NodeType::PseudoClassSelector { value, .. } => CssSelectorPart {
-                            type_: CssSelectorType::PseudoClass,
-                            value: value.to_string(),
-                            ..Default::default()
-                        },
-                        NodeType::PseudoElementSelector { value, .. } => CssSelectorPart {
-                            type_: CssSelectorType::PseudoElement,
-                            value: value.clone(),
-                            ..Default::default()
-                        },
-                        NodeType::TypeSelector { value, .. } => CssSelectorPart {
-                            type_: CssSelectorType::Type,
-                            value: value.clone(),
-                            ..Default::default()
-                        },
+                        NodeType::Ident { value } => CssSelectorPart::Type(value.clone()),
+                        NodeType::ClassSelector { value } => CssSelectorPart::Class(value.clone()),
+                        NodeType::Combinator { value } => {
+                            let combinator = match value.as_str() {
+                                ">" => Combinator::Child,
+                                "+" => Combinator::NextSibling,
+                                "~" => Combinator::SubsequentSibling,
+                                " " => Combinator::Descendant,
+                                "||" => Combinator::Column,
+                                "|" => Combinator::Namespace,
+                                _ => return Err(anyhow!("Unknown combinator: {}", value)),
+                            };
+
+                            CssSelectorPart::Combinator(combinator)
+                        }
+                        NodeType::IdSelector { value } => CssSelectorPart::Id(value.clone()),
+                        NodeType::TypeSelector { value, .. } if value == "*" => {
+                            CssSelectorPart::Universal
+                        }
+                        NodeType::PseudoClassSelector { value, .. } => {
+                            CssSelectorPart::PseudoClass(value.to_string())
+                        }
+                        NodeType::PseudoElementSelector { value, .. } => {
+                            CssSelectorPart::PseudoElement(value.to_string())
+                        }
+                        NodeType::TypeSelector { value, .. } => {
+                            CssSelectorPart::Type(value.clone())
+                        }
                         NodeType::AttributeSelector {
                             name, value, flags, ..
-                        } => CssSelectorPart {
-                            type_: CssSelectorType::Attribute,
+                        } => CssSelectorPart::Attribute(Box::new(AttributeSelector {
                             name: name.clone(),
                             matcher: MatcherType::Equals, // @todo: this needs to be parsed
                             value: value.clone(),
-                            flags: flags.clone(),
-                        },
+                            case_insensitive: flags.eq_ignore_ascii_case("i"),
+                        })),
                         _ => {
-                            panic!("Unknown selector type: {:?}", node);
+                            return Err(anyhow!("Unsupported selector part: {:?}", node.node_type))
                         }
                     };
                     selector.parts.push(part);
