@@ -23,7 +23,7 @@ pub fn parse_len(node: &mut impl Node, name: &str) -> LengthPercentage {
 
 pub fn parse_len_auto(node: &mut impl Node, name: &str) -> LengthPercentageAuto {
     let Some(property) = node.get_property(name) else {
-        return LengthPercentageAuto::Auto;
+        return LengthPercentageAuto::Length(0.0);
     };
 
     property.compute_value();
