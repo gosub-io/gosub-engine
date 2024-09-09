@@ -45,22 +45,22 @@ pub struct Size<T: Copy> {
 }
 
 impl<T: Copy> Size<T> {
-    pub fn new(width: T, height: T) -> Self {
+    pub const fn new(width: T, height: T) -> Self {
         Self { width, height }
     }
 
-    pub fn uniform(size: T) -> Self {
+    pub const fn uniform(size: T) -> Self {
         Self {
             width: size,
             height: size,
         }
     }
 
-    pub fn width(&self) -> &T {
+    pub const fn width(&self) -> &T {
         &self.width
     }
 
-    pub fn height(&self) -> &T {
+    pub const fn height(&self) -> &T {
         &self.height
     }
 }
@@ -72,15 +72,15 @@ pub struct Point<T: Copy> {
 }
 
 impl<T: Copy> Point<T> {
-    pub fn new(x: T, y: T) -> Self {
+    pub const fn new(x: T, y: T) -> Self {
         Self { x, y }
     }
 
-    pub fn x(&self) -> &T {
+    pub const fn x(&self) -> &T {
         &self.x
     }
 
-    pub fn y(&self) -> &T {
+    pub const fn y(&self) -> &T {
         &self.y
     }
 }

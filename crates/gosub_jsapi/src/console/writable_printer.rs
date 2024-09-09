@@ -20,7 +20,7 @@ pub struct WritablePrinter<W: Write> {
 impl<W: Write> WritablePrinter<W> {
     /// Creates a new writable printer
     #[allow(dead_code)]
-    pub fn new(writer: Rc<RefCell<W>>) -> Self {
+    pub const fn new(writer: Rc<RefCell<W>>) -> Self {
         Self {
             writer,
             groups: vec![],

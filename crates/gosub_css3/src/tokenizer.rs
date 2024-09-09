@@ -1038,20 +1038,11 @@ mod test {
             let mut chars = ByteStream::new(Encoding::UTF8, None);
 
             let escaped_chars = vec![
-                ("\\005F ", get_unicode_char(&UnicodeChar::LowLine)),
+                ("\\005F ", UnicodeChar::LOW_LINE),
                 ("\\2A", '*'),
-                (
-                    "\\000000 ",
-                    get_unicode_char(&UnicodeChar::ReplacementCharacter),
-                ),
-                (
-                    "\\FFFFFF ",
-                    get_unicode_char(&UnicodeChar::ReplacementCharacter),
-                ),
-                (
-                    "\\10FFFF ",
-                    get_unicode_char(&UnicodeChar::ReplacementCharacter),
-                ),
+                ("\\000000 ", UnicodeChar::REPLACEMENT_CHARACTER),
+                ("\\FFFFFF ", UnicodeChar::REPLACEMENT_CHARACTER),
+                ("\\10FFFF ", UnicodeChar::REPLACEMENT_CHARACTER),
             ];
 
             let mut tokenizer = Tokenizer::new(&mut chars, Location::default());

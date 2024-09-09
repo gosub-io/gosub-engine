@@ -11,3 +11,6 @@ gosub_shared = { path = "../gosub_shared" }
 gosub_html5 = { path = "../gosub_html5" }
 gosub_typeface = { path = "../gosub_typeface" }
 
+
+[lints]
+workspace = true

@@ -23,3 +23,6 @@ gosub_html5 = { path = "../gosub_html5", optional = true }
 default = ["resvg"]
 resvg = ["gosub_svg/resvg"]
 vello_svg = ["dep:vello_svg", "dep:gosub_html5"] # resvg has higher priority, so if both are enabled, resvg will be used
+
+[lints]
+workspace = true

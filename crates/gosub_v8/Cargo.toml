@@ -14,3 +14,6 @@ thiserror = "1.0.61"
 v8 = "0.105.0"
 anyhow = "1.0.86"
 serde_json = "1.0.127"
+
+[lints]
+workspace = true

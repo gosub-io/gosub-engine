@@ -6,3 +6,6 @@ edition = "2021"
 [dependencies]
 lazy_static = "1.5.0"
 fontique = "0.1.0"
+
+[lints]
+workspace = true

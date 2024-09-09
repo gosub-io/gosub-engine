@@ -41,7 +41,7 @@ pub enum Character {
     StreamEmpty,
 }
 
-use Character::*;
+use Character::{Ch, StreamEmpty, StreamEnd, Surrogate};
 
 /// Converts the given character to a char. This is only valid for UTF8 characters. Surrogate
 /// and EOF characters are converted to 0x0000
@@ -420,7 +420,7 @@ impl ByteStream {
     /// Populates the current buffer with the contents of given file f
     pub fn read_from_file(&mut self, mut f: impl Read) -> io::Result<()> {
         // First we read the u8 bytes into a buffer
-        f.read_to_end(&mut self.buffer).expect("uh oh");
+        f.read_to_end(&mut self.buffer)?;
         self.close();
         self.reset_stream();
         self.close();
@@ -541,7 +541,7 @@ impl ByteStream {
 }
 
 /// Location holds the start position of the given element in the data source
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Location {
     /// Line number, starting with 1
     pub line: usize,
@@ -877,10 +877,10 @@ mod test {
         let ch = Ch('a');
         assert_eq!(char::from(&ch), 'a');
         assert_eq!(char::from(ch), 'a');
-        assert_eq!(format!("{}", ch), "a");
+        assert_eq!(format!("{ch}"), "a");
 
         let ch = Surrogate(0xDFA9);
-        assert_eq!(format!("{}", ch), "U+DFA9");
+        assert_eq!(format!("{ch}"), "U+DFA9");
         assert!(!ch.is_numeric());
         assert!(!ch.is_whitespace());
 

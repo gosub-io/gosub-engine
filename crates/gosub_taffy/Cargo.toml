@@ -13,3 +13,7 @@ anyhow = "1.0.86"
 regex = "1.10.5"
 parley = { git = "https://github.com/linebender/parley", rev = "14070d5" }
 log = "0.4.22"
+
+
+[lints]
+workspace = true

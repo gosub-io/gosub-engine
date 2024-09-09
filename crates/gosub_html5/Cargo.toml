@@ -37,3 +37,6 @@ harness = false
 [[bench]]
 name = "tree_construction"
 harness = false
+
+[lints]
+workspace = true
