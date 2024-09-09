@@ -10,7 +10,7 @@ gosub_shared = { path = "../gosub_shared" }
 gosub_html5 = { path = "../gosub_html5" }
 gosub_render_backend = { path = "../gosub_render_backend" }
 resvg = { version = "0.42.0", optional = true }
-anyhow = "1.0.86"
+anyhow = "1.0.87"
 
 
 

@@ -11,7 +11,7 @@ gosub_config = { path = "../gosub_config", features = [] }
 derive_more = { version = "1", features = ["from"] }
 thiserror = "1.0.61"
 ureq = "2.10.1"
-anyhow = "1.0.86"
+anyhow = "1.0.87"
 log = "0.4.22"
 domain-lookup-tree = "0.1"
 hickory-resolver = "0.24.1"
