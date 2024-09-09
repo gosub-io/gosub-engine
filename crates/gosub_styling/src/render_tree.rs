@@ -235,7 +235,7 @@ impl<L: Layouter> RenderTree<L> {
         render_tree
     }
 
-    fn generate_from(&mut self, document: DocumentHandle) {
+    fn generate_from(&mut self, mut document: DocumentHandle) {
         // Iterate the complete document tree
         let tree_iterator = TreeIterator::new(&document);
 
@@ -253,10 +253,26 @@ impl<L: Layouter> RenderTree<L> {
         for current_node_id in tree_iterator {
             let mut css_map_entry = CssProperties::new();
 
-            let binding = document.get();
-            let node = binding
-                .get_node_by_id(current_node_id)
-                .expect("node not found");
+            let doc = document.get();
+            let node = doc.get_node_by_id(current_node_id).expect("node not found");
+
+            if node_is_undernderable(node) {
+                if let Some(parent) = node.parent {
+                    if let Some(parent) = self.get_node_mut(parent) {
+                        parent.children.retain(|id| *id != current_node_id);
+                        // continue
+                        //TODO: somehow we still can't continue here, I don't know why
+                    }
+                }
+
+                drop(doc);
+
+                let mut doc = document.get_mut();
+
+                doc.detach_node_from_parent(current_node_id);
+
+                continue;
+            }
 
             let definitions = get_css_definitions();
 
@@ -409,20 +425,9 @@ impl<L: Layouter> RenderTree<L> {
     /// Removes all unrenderable nodes from the render tree
     fn remove_unrenderable_nodes(&mut self) {
         // There are more elements that are not renderable, but for now we only remove the most common ones
-        let removable_elements = ["head", "script", "style", "svg", "noscript"];
-
         let mut delete_list = Vec::new();
 
-        for (id, node) in &self.nodes {
-            if let RenderNodeData::Element(element) = &node.data {
-                if removable_elements.contains(&element.name.as_str()) {
-                    println!("removing: {:?}({id})", element.name);
-                    delete_list.append(&mut self.get_child_node_ids(*id));
-                    delete_list.push(*id);
-                    continue;
-                }
-            }
-
+        for id in self.nodes.keys() {
             // Check CSS styles and remove if not renderable
             if let Some(mut prop) = self.get_property(*id, "display") {
                 if prop.compute_value().to_string() == "none" {
@@ -834,6 +839,26 @@ pub fn generate_render_tree<L: Layouter>(document: DocumentHandle) -> Result<Ren
     let render_tree = RenderTree::from_document(document);
 
     Ok(render_tree)
+}
+
+pub fn node_is_undernderable(node: &gosub_html5::node::Node) -> bool {
+    // There are more elements that are not renderable, but for now we only remove the most common ones
+
+    const REMOVABLE_ELEMENTS: [&str; 5] = ["head", "script", "style", "svg", "noscript"];
+
+    if let NodeData::Element(element) = &node.data {
+        if REMOVABLE_ELEMENTS.contains(&element.name.as_str()) {
+            return true;
+        }
+    }
+
+    if let NodeData::Text(text) = &node.data {
+        if text.value.chars().all(|c| c.is_whitespace()) {
+            return true;
+        }
+    }
+
+    false
 }
 
 // pub fn walk_render_tree(tree: &RenderTree, visitor: &mut Box<dyn TreeVisitor<RenderTreeNode>>) {
