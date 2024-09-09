@@ -10,6 +10,6 @@ gosub_html5 = { path = "../gosub_html5" }
 gosub_styling = { path = "../gosub_styling" }
 gosub_css3 = { path = "../gosub_css3" }
 gosub_render_backend = { path = "../gosub_render_backend" }
-anyhow = "1.0.86"
+anyhow = "1.0.87"
 regex = "1.10.6"
 rstar = "0.12.0"
