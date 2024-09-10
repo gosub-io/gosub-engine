@@ -255,11 +255,22 @@ impl Css3<'_> {
         let mut space = false;
         let mut whitespace_location = loc.clone();
 
+        let mut skip_space = false;
+
         while !self.tokenizer.eof() {
             let t = self.consume_any()?;
             if t.is_comment() {
                 continue;
             }
+
+            if skip_space {
+                if t.is_whitespace() {
+                    continue;
+                } else {
+                    skip_space = false;
+                }
+            }
+
             if t.is_whitespace() {
                 // on whitespace for selector
                 whitespace_location = t.location.clone();
@@ -323,6 +334,11 @@ impl Css3<'_> {
                 TokenType::Delim('&') => {
                     self.tokenizer.reconsume();
                     self.parse_nesting_selector()?
+                }
+                TokenType::Comma => {
+                    skip_space = true;
+
+                    Node::new(NodeType::Comma, t.location)
                 }
                 _ => {
                     self.tokenizer.reconsume();

@@ -14,8 +14,14 @@ pub(crate) fn match_selector(
     document: DocumentHandle,
     node_id: NodeId,
     selector: &CssSelector,
-) -> bool {
-    match_selector_parts(document, node_id, &selector.parts)
+) -> (bool, Specificity) {
+    for part in &selector.parts {
+        if match_selector_parts(DocumentHandle::clone(&document), node_id, part) {
+            return (true, Specificity::from(part.as_slice()));
+        }
+    }
+
+    (false, Specificity::new(0, 0, 0))
 }
 
 fn consume<'a, T>(this: &mut &'a [T]) -> Option<&'a T> {
