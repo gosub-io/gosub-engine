@@ -1,22 +1,21 @@
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 
-use crate::property_definitions::get_css_definitions;
-use crate::shorthands::FixList;
-use crate::styling::{
-    match_selector, prop_is_inherit, CssProperties, CssProperty, DeclarationProperty,
-};
 use log::warn;
 
-use gosub_css3::stylesheet::{
-    CssDeclaration, CssOrigin, CssSelector, CssStylesheet, CssValue, Specificity,
-};
+use gosub_css3::stylesheet::{CssDeclaration, CssOrigin, CssStylesheet, CssValue, Specificity};
 use gosub_html5::node::data::element::ElementData;
 use gosub_html5::node::{NodeData, NodeId};
 use gosub_html5::parser::document::{DocumentHandle, TreeIterator};
 use gosub_render_backend::geo::Size;
 use gosub_render_backend::layout::{HasTextLayout, Layout, LayoutTree, Layouter, Node, TextLayout};
 use gosub_shared::types::Result;
+
+use crate::property_definitions::get_css_definitions;
+use crate::shorthands::FixList;
+use crate::styling::{
+    match_selector, prop_is_inherit, CssProperties, CssProperty, DeclarationProperty,
+};
 
 mod desc;
 
