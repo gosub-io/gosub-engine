@@ -43,15 +43,6 @@ impl Css3<'_> {
 
         let t = self.consume_any()?;
         match t.token_type {
-            TokenType::IDHash(value) => {
-                let node = Node::new(
-                    NodeType::Ident {
-                        value: format!("#{}", value),
-                    },
-                    t.location,
-                );
-                Ok(Some(node))
-            }
             TokenType::Hash(value) => {
                 let node = Node::new(NodeType::Hash { value }, t.location);
                 Ok(Some(node))

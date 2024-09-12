@@ -1,9 +1,11 @@
-use crate::unicode::{get_unicode_char, UnicodeChar};
+use std::fmt;
+use std::fmt::Debug;
+
 use gosub_shared::byte_stream::Character::Ch;
 use gosub_shared::byte_stream::{ByteStream, Character};
 use gosub_shared::byte_stream::{Location, LocationHandler, Stream};
-use std::fmt;
-use std::fmt::Debug;
+
+use crate::unicode::{get_unicode_char, UnicodeChar};
 
 pub type Number = f32;
 
@@ -33,16 +35,10 @@ pub enum TokenType {
     BadString(String),
     /// A [`<whitespace-token>`](https://drafts.csswg.org/css-syntax/#whitespace-token-diagram)
     Whitespace(String),
-    /// A [`<hash-token>`](https://drafts.csswg.org/css-syntax/#hash-token-diagram) with the type flag set to "unrestricted"
+    /// A [`<hash-token>`](https://drafts.csswg.org/css-syntax/#hash-token-diagram) (with the type flag set to "unrestricted")
     ///
     /// The value does not include the `#` marker.
     Hash(String),
-    /// A [`<hash-token>`](https://drafts.csswg.org/css-syntax/#hash-token-diagram) with the type flag set to "id"
-    ///
-    /// The value does not include the `#` marker.
-    ///
-    /// Hash that is a valid ID selector.
-    IDHash(String),
     /// A `<delim-token>`
     Delim(char),
     /// A `<{-token>`
@@ -107,10 +103,6 @@ impl Token {
 
     fn new_delim(c: char, location: Location) -> Token {
         Token::new(TokenType::Delim(c), location)
-    }
-
-    fn new_id_hash(value: &str, location: Location) -> Token {
-        Token::new(TokenType::IDHash(value.to_string()), location)
     }
 
     fn new_hash(value: &str, location: Location) -> Token {
@@ -204,7 +196,6 @@ impl fmt::Display for Token {
             | TokenType::Comment(val)
             | TokenType::BadUrl(val)
             | TokenType::Hash(val)
-            | TokenType::IDHash(val)
             | TokenType::Ident(val)
             | TokenType::Function(val)
             | TokenType::QuotedString(val)
@@ -384,11 +375,7 @@ impl<'stream> Tokenizer<'stream> {
                 self.next_char();
 
                 if self.is_ident_char(self.current_char().into()) || self.is_start_of_escape(0) {
-                    return if self.is_next_3_points_starts_ident_seq(0) {
-                        Token::new_id_hash(self.consume_ident().as_str(), loc)
-                    } else {
-                        Token::new_hash(self.consume_ident().as_str(), loc)
-                    };
+                    return Token::new_hash(self.consume_ident().as_str(), loc);
                 }
 
                 Token::new_delim(c, loc)
@@ -962,8 +949,9 @@ impl<'stream> Tokenizer<'stream> {
 
 #[cfg(test)]
 mod test {
-    use super::*;
     use gosub_shared::byte_stream::Encoding;
+
+    use super::*;
 
     macro_rules! assert_token_eq {
         ($t1:expr, $t2:expr) => {
@@ -1368,7 +1356,7 @@ mod test {
         let tokens = vec![
             // 1st css rule
             Token::new(TokenType::Whitespace("\n".into()), Location::default()),
-            Token::new_id_hash("header", Location::default()),
+            Token::new_hash("header", Location::default()),
             Token::new(TokenType::Whitespace(" ".into()), Location::default()),
             Token::new_delim('.', Location::default()),
             Token::new_ident("nav", Location::default()),
@@ -1585,14 +1573,14 @@ mod test {
         stream.close();
 
         let tokens = vec![
-            Token::new_id_hash("red0", Location::default()),
+            Token::new_hash("red0", Location::default()),
             Token::new(TokenType::Whitespace(" ".into()), Location::default()),
-            Token::new_id_hash("-Red", Location::default()),
+            Token::new_hash("-Red", Location::default()),
             Token::new(TokenType::Whitespace(" ".into()), Location::default()),
-            Token::new_id_hash("--red", Location::default()),
+            Token::new_hash("--red", Location::default()),
             Token::new(TokenType::Whitespace(" ".into()), Location::default()),
             // `#--\\red`
-            Token::new_id_hash("--red", Location::default()),
+            Token::new_hash("--red", Location::default()),
             Token::new(TokenType::Whitespace(" ".into()), Location::default()),
             // `#0red` => 0red
             Token::new_hash("0red", Location::default()),
@@ -1601,7 +1589,7 @@ mod test {
             Token::new_hash("-0red", Location::default()),
             Token::new(TokenType::Whitespace(" ".into()), Location::default()),
             // `#_Red`
-            Token::new_id_hash("_Red", Location::default()),
+            Token::new_hash("_Red", Location::default()),
             Token::new(TokenType::Whitespace(" ".into()), Location::default()),
             // `#.red` => [#, ., red]
             Token::new_delim('#', Location::default()),
@@ -1609,13 +1597,13 @@ mod test {
             Token::new_ident("red", Location::default()),
             Token::new(TokenType::Whitespace(" ".into()), Location::default()),
             // `#rêd`
-            Token::new_id_hash("rêd", Location::default()),
+            Token::new_hash("rêd", Location::default()),
             Token::new(TokenType::Whitespace(" ".into()), Location::default()),
             // `#êrd`
-            Token::new_id_hash("êrd", Location::default()),
+            Token::new_hash("êrd", Location::default()),
             Token::new(TokenType::Whitespace(" ".into()), Location::default()),
             // `#\\.red\\`
-            Token::new_id_hash(".red\u{FFFD}", Location::default()),
+            Token::new_hash(".red\u{FFFD}", Location::default()),
             Token::new(TokenType::Eof, Location::default()),
         ];
         let mut tokenizer = Tokenizer::new(&mut stream, Location::default());
