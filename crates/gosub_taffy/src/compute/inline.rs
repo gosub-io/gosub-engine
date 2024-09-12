@@ -1,18 +1,20 @@
 use std::sync::{LazyLock, Mutex};
-use taffy::{
-    AvailableSpace, CollapsibleMarginSet, Layout, LayoutInput, LayoutOutput, LayoutPartialTree,
-    NodeId, Point, Rect, RunMode, Size, SizingMode,
-};
 
-use crate::text::{Font, TextLayout};
-use crate::{Display, LayoutDocument, TaffyLayouter};
-use gosub_render_backend::geo;
-use gosub_render_backend::layout::{CssProperty, HasTextLayout, LayoutTree, Node};
-use gosub_typeface::font::Glyph;
 use log::warn;
 use parley::layout::{Alignment, PositionedLayoutItem};
 use parley::style::{FontSettings, FontStack, FontStyle, FontVariation, FontWeight, StyleProperty};
 use parley::{FontContext, InlineBox, LayoutContext};
+use taffy::{
+    AvailableSpace, CollapsibleMarginSet, Layout, LayoutInput, LayoutOutput, LayoutPartialTree,
+    NodeId, Point, Rect, RunMode, Size,
+};
+
+use gosub_render_backend::geo;
+use gosub_render_backend::layout::{CssProperty, HasTextLayout, LayoutTree, Node};
+use gosub_typeface::font::Glyph;
+
+use crate::text::{Font, TextLayout};
+use crate::{Display, LayoutDocument, TaffyLayouter};
 
 static FONT_CX: LazyLock<Mutex<FontContext>> = LazyLock::new(|| Mutex::new(FontContext::default()));
 
@@ -23,7 +25,7 @@ pub fn compute_inline_layout<LT: LayoutTree<TaffyLayouter>>(
 ) -> LayoutOutput {
     layout_input.known_dimensions = Size::NONE;
     layout_input.run_mode = RunMode::PerformLayout; //TODO: We should respect the run mode
-    layout_input.sizing_mode = SizingMode::ContentSize;
+                                                    // layout_input.sizing_mode = SizingMode::ContentSize;
 
     let Some(children) = tree.0.children(nod_id) else {
         return LayoutOutput::HIDDEN;
@@ -93,7 +95,7 @@ pub fn compute_inline_layout<LT: LayoutTree<TaffyLayouter>>(
                 id: node_id,
             });
         } else {
-            if u64::from(node_id) == 477u64 {
+            if u64::from(node_id) == 22u64 {
                 println!("inline_box <a>: {:?}", node_id);
             }
 
@@ -105,9 +107,9 @@ pub fn compute_inline_layout<LT: LayoutTree<TaffyLayouter>>(
                 if cache.display == Display::InlineBlock {
                     //TODO: handle margins here
 
-                    out.size
-                } else {
                     out.content_size
+                } else {
+                    out.size
                 }
             } else {
                 out.content_size
@@ -126,7 +128,7 @@ pub fn compute_inline_layout<LT: LayoutTree<TaffyLayouter>>(
         return LayoutOutput::HIDDEN;
     }
 
-    if !inline_boxes.is_empty() && str_buf.is_empty() {
+    if str_buf.is_empty() {
         str_buf.push(0 as char);
     }
 
