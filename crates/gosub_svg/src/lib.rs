@@ -1,3 +1,5 @@
+use ::resvg::usvg;
+
 use gosub_html5::{node::NodeId, parser::document::DocumentHandle};
 use gosub_shared::types::Result;
 
