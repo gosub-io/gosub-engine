@@ -2,17 +2,18 @@ use std::vec::IntoIter;
 
 use taffy::{
     compute_block_layout, compute_cached_layout, compute_flexbox_layout, compute_grid_layout,
-    compute_hidden_layout, compute_leaf_layout, compute_root_layout, AvailableSpace,
-    Cache as TaffyCache, Display as TaffyDisplay, Layout as TaffyLayout, LayoutInput, LayoutOutput,
-    LayoutPartialTree, NodeId as TaffyId, Style, TraversePartialTree,
+    compute_hidden_layout, compute_root_layout, AvailableSpace, Cache as TaffyCache,
+    Display as TaffyDisplay, Layout as TaffyLayout, LayoutInput, LayoutOutput, LayoutPartialTree,
+    NodeId as TaffyId, Style, TraversePartialTree,
 };
+
+use gosub_render_backend::geo::{Point, Rect, Size, SizeU32};
+use gosub_render_backend::layout::{Layout as TLayout, LayoutTree, Layouter, Node};
+use gosub_shared::types::Result;
 
 use crate::compute::inline::compute_inline_layout;
 use crate::style::get_style_from_node;
 use crate::text::TextLayout;
-use gosub_render_backend::geo::{Point, Rect, Size, SizeU32};
-use gosub_render_backend::layout::{Layout as TLayout, LayoutTree, Layouter, Node};
-use gosub_shared::types::Result;
 
 mod compute;
 mod conversions;
@@ -37,6 +38,29 @@ impl TLayout for Layout {
     fn size(&self) -> Size {
         let size = self.0.size;
         Size::new(size.width, size.height)
+    }
+
+    fn size_or(&self) -> Option<Size> {
+        let size = self.0.size;
+        if size.width == 0.0 && size.height == 0.0 {
+            None //Temporary hack to indicate that the size is not set
+        } else {
+            Some(Size::new(size.width, size.height))
+        }
+    }
+
+    fn set_size(&mut self, size: SizeU32) {
+        self.0.size = taffy::Size {
+            width: size.width as f32,
+            height: size.height as f32,
+        };
+    }
+
+    fn set_content(&mut self, size: SizeU32) {
+        self.0.content_size = taffy::Size {
+            width: size.width as f32,
+            height: size.height as f32,
+        };
     }
 
     fn content(&self) -> Size {
@@ -245,15 +269,14 @@ impl<LT: LayoutTree<TaffyLayouter>> LayoutPartialTree for LayoutDocument<'_, LT>
                 }
             }
 
-            let has_children = tree.0.child_count(node_id) > 0; //TODO: this isn't optimal, since we are now requesting the same node twice (up in get_cache and here)
+            // let has_children = tree.0.child_count(node_id) > 0; //TODO: this isn't optimal, since we are now requesting the same node twice (up in get_cache and here)
             let style = tree.get_taffy_style(node_id);
 
-            match (style.display, has_children) {
-                (TaffyDisplay::None, _) => compute_hidden_layout(tree, node_id_taffy),
-                (TaffyDisplay::Block, true) => compute_block_layout(tree, node_id_taffy, inputs),
-                (TaffyDisplay::Flex, true) => compute_flexbox_layout(tree, node_id_taffy, inputs),
-                (TaffyDisplay::Grid, true) => compute_grid_layout(tree, node_id_taffy, inputs),
-                (_, false) => compute_leaf_layout(inputs, style, |_, _| taffy::Size::ZERO),
+            match style.display {
+                TaffyDisplay::None => compute_hidden_layout(tree, node_id_taffy),
+                TaffyDisplay::Block => compute_block_layout(tree, node_id_taffy, inputs),
+                TaffyDisplay::Flex => compute_flexbox_layout(tree, node_id_taffy, inputs),
+                TaffyDisplay::Grid => compute_grid_layout(tree, node_id_taffy, inputs),
             }
         })
     }

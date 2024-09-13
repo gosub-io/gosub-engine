@@ -1,11 +1,9 @@
 use std::sync::mpsc::Sender;
 
 use anyhow::anyhow;
+use log::warn;
 use url::Url;
 
-use crate::debug::scale::px_scale;
-use crate::draw::img::request_img;
-use crate::render_tree::{load_html_rendertree, TreeDrawer};
 use gosub_css3::colors::RgbColor;
 use gosub_css3::stylesheet::CssValue;
 use gosub_html5::node::NodeId;
@@ -20,12 +18,15 @@ use gosub_render_backend::{
 use gosub_rendering::position::PositionTree;
 use gosub_shared::types::Result;
 use gosub_styling::render_tree::{RenderNodeData, RenderTree, RenderTreeNode};
-use log::warn;
+
+use crate::debug::scale::px_scale;
+use crate::draw::img::request_img;
+use crate::render_tree::{load_html_rendertree, TreeDrawer};
 
 mod img;
 
 pub trait SceneDrawer<B: RenderBackend, L: Layouter, LT: LayoutTree<L>> {
-    fn draw(&mut self, backend: &mut B, data: &mut B::WindowData<'_>, size: SizeU32);
+    fn draw(&mut self, backend: &mut B, data: &mut B::WindowData<'_>, size: SizeU32) -> bool;
     fn mouse_move(&mut self, backend: &mut B, x: FP, y: FP) -> bool;
 
     fn scroll(&mut self, point: Point);
@@ -40,6 +41,8 @@ pub trait SceneDrawer<B: RenderBackend, L: Layouter, LT: LayoutTree<L>> {
     fn unselect_element(&mut self);
 
     fn send_nodes(&mut self, sender: Sender<NodeDesc>);
+
+    fn set_needs_redraw(&mut self);
 }
 
 const DEBUG_CONTENT_COLOR: (u8, u8, u8) = (0, 192, 255); //rgb(0, 192, 255)
@@ -54,9 +57,9 @@ where
     <<B as RenderBackend>::Text as Text>::Font:
         From<<<L as Layouter>::TextLayout as TextLayout>::Font>,
 {
-    fn draw(&mut self, backend: &mut B, data: &mut B::WindowData<'_>, size: SizeU32) {
+    fn draw(&mut self, backend: &mut B, data: &mut B::WindowData<'_>, size: SizeU32) -> bool {
         if !self.dirty && self.size == Some(size) {
-            return;
+            return false;
         }
 
         if self.tree_scene.is_none() || self.size != Some(size) {
@@ -134,6 +137,14 @@ where
 
             backend.apply_scene(data, &scale, None);
         }
+
+        if self.dirty {
+            self.dirty = false;
+
+            return true;
+        }
+
+        false
     }
 
     fn mouse_move(&mut self, _backend: &mut B, x: FP, y: FP) -> bool {
@@ -219,6 +230,10 @@ where
     fn send_nodes(&mut self, sender: Sender<NodeDesc>) {
         let _ = sender.send(self.tree.desc());
     }
+
+    fn set_needs_redraw(&mut self) {
+        self.dirty = true;
+    }
 }
 
 struct Drawer<'s, 't, B: RenderBackend, L: Layouter> {
@@ -267,6 +282,8 @@ where
     }
 
     fn render_node(&mut self, id: NodeId, pos: &mut Point) -> anyhow::Result<()> {
+        let mut needs_redraw = false;
+
         let node = self
             .drawer
             .tree
@@ -277,8 +294,10 @@ where
         pos.x += p.x as FP;
         pos.y += p.y as FP;
 
-        let border_radius =
+        let (border_radius, redraw) =
             render_bg::<B, L>(node, self.scene, pos, &mut self.svg, &self.drawer.fetcher);
+
+        needs_redraw |= redraw;
 
         if let RenderNodeData::Element(element) = &node.data {
             if element.name() == "img" {
@@ -289,9 +308,14 @@ where
 
                 let url = src.as_str();
 
-                let size = node.layout.size();
+                let size = node.layout.size_or().map(|x| x.u32());
 
-                let img = request_img(&self.drawer.fetcher, &mut self.svg, url, size.u32())?;
+                let img = request_img(&self.drawer.fetcher, &mut self.svg, url, size)?;
+
+                if size.is_none() {
+                    node.layout.set_size_and_content(img.size());
+                    needs_redraw |= true;
+                }
 
                 let fit = element
                     .attributes
@@ -299,11 +323,18 @@ where
                     .map(|prop| prop.as_str())
                     .unwrap_or("contain");
 
+                let size = size.unwrap_or(img.size()).f32();
+
                 render_image::<B>(img, self.scene, *pos, size, border_radius, fit)?;
             }
         }
 
         render_text::<B, L>(node, self.scene, pos);
+
+        if needs_redraw {
+            self.drawer.set_needs_redraw()
+        }
+
         Ok(())
     }
 }
@@ -374,7 +405,7 @@ fn render_bg<B: RenderBackend, L: Layouter>(
     pos: &Point,
     svg: &mut B::SVGRenderer,
     fetcher: &Fetcher,
-) -> (FP, FP, FP, FP) {
+) -> ((FP, FP, FP, FP), bool) {
     let bg_color = node
         .properties
         .get("background-color")
@@ -485,14 +516,24 @@ fn render_bg<B: RenderBackend, L: Layouter>(
         }
     });
 
+    let mut redraw = false;
+
     if let Some(url) = background_image {
-        let img = match request_img(fetcher, svg, url, node.layout.size().u32()) {
+        let size = node.layout.size_or().map(|x| x.u32());
+
+        let img = match request_img(fetcher, svg, url, size) {
             Ok(img) => img,
             Err(e) => {
                 eprintln!("Error loading image: {:?}", e);
-                return border_radius;
+                return (border_radius, false);
             }
         };
+
+        if size.is_none() {
+            node.layout.set_size_and_content(img.size());
+
+            redraw = true;
+        }
 
         let _ = render_image::<B>(img, scene, *pos, node.layout.size(), border_radius, "fill")
             .map_err(|e| {
@@ -500,7 +541,7 @@ fn render_bg<B: RenderBackend, L: Layouter>(
             });
     }
 
-    border_radius
+    (border_radius, redraw)
 }
 
 enum Side {

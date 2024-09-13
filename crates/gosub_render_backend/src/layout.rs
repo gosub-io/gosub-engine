@@ -1,6 +1,7 @@
+use std::fmt::Debug;
+
 use gosub_shared::types::Result;
 use gosub_typeface::font::{Font, Glyph};
-use std::fmt::Debug;
 
 use crate::geo::{Point, Rect, Size, SizeU32};
 
@@ -51,6 +52,17 @@ pub trait Layout: Default {
 
     /// Size of the scroll box (content box without overflow), including scrollbars (if any)
     fn size(&self) -> Size;
+
+    fn size_or(&self) -> Option<Size>;
+
+    fn set_size_and_content(&mut self, size: SizeU32) {
+        self.set_size(size);
+        self.set_content(size);
+    }
+
+    fn set_size(&mut self, size: SizeU32);
+
+    fn set_content(&mut self, size: SizeU32);
 
     /// Size of the content box (content without scrollbars, but with overflow)
     fn content(&self) -> Size;

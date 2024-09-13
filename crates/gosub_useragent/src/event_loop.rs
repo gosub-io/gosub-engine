@@ -1,10 +1,11 @@
+use winit::event::{ElementState, MouseScrollDelta, WindowEvent};
+use winit::event_loop::ActiveEventLoop;
+use winit::keyboard::{KeyCode, PhysicalKey};
+
 use gosub_render_backend::layout::{LayoutTree, Layouter};
 use gosub_render_backend::{Point, RenderBackend, SizeU32, FP};
 use gosub_renderer::draw::SceneDrawer;
 use gosub_shared::types::Result;
-use winit::event::{ElementState, MouseScrollDelta, WindowEvent};
-use winit::event_loop::ActiveEventLoop;
-use winit::keyboard::{KeyCode, PhysicalKey};
 
 use crate::window::{Window, WindowState};
 
@@ -47,9 +48,13 @@ impl<'a, D: SceneDrawer<B, L, LT>, B: RenderBackend, L: Layouter, LT: LayoutTree
                     return Ok(());
                 };
 
-                tab.data.draw(backend, &mut self.renderer_data, size);
+                let redraw = tab.data.draw(backend, &mut self.renderer_data, size);
 
                 backend.render(&mut self.renderer_data, active_window_data)?;
+
+                if redraw {
+                    self.request_redraw();
+                }
             }
 
             WindowEvent::CursorMoved { position, .. } => {
