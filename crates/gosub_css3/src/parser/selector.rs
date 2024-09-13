@@ -284,7 +284,6 @@ impl Css3<'_> {
                     self.tokenizer.reconsume();
                     self.parse_attribute_selector()?
                 }
-                TokenType::IDHash(value) => Node::new(NodeType::IdSelector { value }, t.location),
                 TokenType::Hash(value) => Node::new(NodeType::IdSelector { value }, t.location),
                 TokenType::Colon => {
                     let nt = self.tokenizer.lookahead(0);

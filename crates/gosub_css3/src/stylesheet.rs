@@ -1,9 +1,12 @@
-use crate::colors::RgbColor;
-use anyhow::anyhow;
 use core::fmt::Debug;
-use gosub_shared::types::Result;
 use std::cmp::Ordering;
 use std::fmt::Display;
+
+use anyhow::anyhow;
+
+use gosub_shared::types::Result;
+
+use crate::colors::RgbColor;
 
 /// Defines a complete stylesheet with all its rules and the location where it was found
 #[derive(Debug, PartialEq, Clone)]
@@ -362,7 +365,11 @@ impl CssValue {
             crate::node::NodeType::Percentage { value } => Ok(CssValue::Percentage(value)),
             crate::node::NodeType::Dimension { value, unit } => Ok(CssValue::Unit(value, unit)),
             crate::node::NodeType::String { value } => Ok(CssValue::String(value)),
-            crate::node::NodeType::Hash { value } => Ok(CssValue::String(value)),
+            crate::node::NodeType::Hash { mut value } => {
+                value.insert(0, '#');
+
+                Ok(CssValue::String(value))
+            }
             crate::node::NodeType::Operator(_) => Ok(CssValue::None),
             crate::node::NodeType::Calc { .. } => {
                 Ok(CssValue::Function("calc".to_string(), vec![]))
@@ -437,6 +444,8 @@ impl CssValue {
 
 #[cfg(test)]
 mod test {
+    use std::vec;
+
     use super::*;
     use std::vec;
 
