@@ -1,10 +1,10 @@
 use crate::VelloBackend;
 use gosub_render_backend::geo::FP;
-use gosub_render_backend::layout::TextLayout;
+use gosub_render_backend::layout::{Decoration, TextLayout};
 use gosub_render_backend::{RenderText, Text as TText};
 use vello::glyph::Glyph;
-use vello::kurbo::Affine;
-use vello::peniko::{Fill, Font, StyleRef};
+use vello::kurbo::{Affine, Line, Stroke};
+use vello::peniko::{Brush, Color, Fill, Font, StyleRef};
 use vello::skrifa::instance::NormalizedCoord;
 use vello::Scene;
 
@@ -13,6 +13,7 @@ pub struct Text {
     font: Font,
     fs: FP,
     coords: Vec<NormalizedCoord>,
+    decoration: Decoration,
 }
 
 impl TText for Text {
@@ -45,6 +46,7 @@ impl TText for Text {
             font,
             fs,
             coords,
+            decoration: layout.decorations().clone(),
         }
     }
 }
@@ -70,5 +72,41 @@ impl Text {
             .normalized_coords(&render.text.coords)
             .brush(brush)
             .draw(style, render.text.glyphs.iter().copied());
+
+        {
+            let decoration = &render.text.decoration;
+
+            let stroke = Stroke::new(decoration.width as f64);
+
+            let c = decoration.color;
+
+            let brush = Brush::Solid(Color::rgba(c.0 as f64, c.1 as f64, c.2 as f64, c.3 as f64));
+
+            let offset = decoration.x_offset as f64;
+
+            if decoration.underline {
+                let y = y + decoration.underline_offset as f64;
+
+                let line = Line::new((x + offset, y), (x + render.rect.0.width(), y));
+
+                scene.stroke(&stroke, Affine::IDENTITY, &brush, None, &line);
+            }
+
+            if decoration.overline {
+                let y = y - render.rect.0.height();
+
+                let line = Line::new((x + offset, y), (x + render.rect.0.width(), y));
+
+                scene.stroke(&stroke, Affine::IDENTITY, &brush, None, &line);
+            }
+
+            if decoration.line_through {
+                let y = y - render.rect.0.height() / 2.0;
+
+                let line = Line::new((x + offset, y), (x + render.rect.0.width(), y));
+
+                scene.stroke(&stroke, Affine::IDENTITY, &brush, None, &line);
+            }
+        }
     }
 }
