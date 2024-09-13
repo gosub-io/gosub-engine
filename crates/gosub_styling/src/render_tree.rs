@@ -3,15 +3,15 @@ use std::fmt::{Debug, Formatter};
 
 use log::warn;
 
-use gosub_css3::stylesheet::{CssDeclaration, CssOrigin, CssStylesheet, CssValue, Specificity};
+use gosub_css3::stylesheet::{CssDeclaration, CssStylesheet, CssValue, Specificity};
 use gosub_html5::node::data::element::ElementData;
 use gosub_html5::node::{NodeData, NodeId};
-use gosub_html5::parser::document::{DocumentHandle, TreeIterator};
+use gosub_html5::parser::document::{Document, DocumentHandle, TreeIterator};
 use gosub_render_backend::geo::Size;
 use gosub_render_backend::layout::{HasTextLayout, Layout, LayoutTree, Layouter, Node, TextLayout};
 use gosub_shared::types::Result;
 
-use crate::functions::{resolve_attr, resolve_calc};
+use crate::functions::{resolve_attr, resolve_calc, resolve_var};
 use crate::property_definitions::get_css_definitions;
 use crate::shorthands::FixList;
 use crate::styling::{
@@ -316,7 +316,7 @@ impl<L: Layouter> RenderTree<L> {
                                 continue;
                             };
 
-                            let value = resolve_functions(&declaration.value, node);
+                            let value = resolve_functions(&declaration.value, node, &doc);
 
                             // Check if the declaration matches the definition and return the "expanded" order
                             let res = definition.matches_and_shorthands(&value, &mut fix_list);
@@ -886,7 +886,11 @@ pub fn node_is_undernderable(node: &gosub_html5::node::Node) -> bool {
     false
 }
 
-pub fn resolve_functions(value: &[CssValue], node: &gosub_html5::node::Node) -> Vec<CssValue> {
+pub fn resolve_functions(
+    value: &[CssValue],
+    node: &gosub_html5::node::Node,
+    doc: &Document,
+) -> Vec<CssValue> {
     let mut result = Vec::with_capacity(value.len()); //TODO: we could give it a &mut Vec and reuse the allocation
 
     for val in value {
@@ -895,7 +899,7 @@ pub fn resolve_functions(value: &[CssValue], node: &gosub_html5::node::Node) -> 
                 let resolved = match func.as_str() {
                     "calc" => resolve_calc(values),
                     "attr" => resolve_attr(values, node),
-                    // "var" => resolve_var(func, node),
+                    "var" => resolve_var(values, doc, node),
                     _ => vec![val.clone()],
                 };
 
