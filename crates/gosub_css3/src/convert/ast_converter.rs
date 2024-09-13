@@ -90,7 +90,9 @@ pub fn convert_ast_to_stylesheet(
                 continue;
             }
 
-            let mut selector = CssSelector { parts: vec![] };
+            let mut selector = CssSelector {
+                parts: vec![vec![]],
+            };
             for node in node.as_selector_list().iter() {
                 if !node.is_selector() {
                     continue;
@@ -134,11 +136,19 @@ pub fn convert_ast_to_stylesheet(
                             value: value.clone(),
                             case_insensitive: flags.eq_ignore_ascii_case("i"),
                         })),
+                        NodeType::Comma => {
+                            selector.parts.push(vec![]);
+                            continue;
+                        }
                         _ => {
                             return Err(anyhow!("Unsupported selector part: {:?}", node.node_type))
                         }
                     };
-                    selector.parts.push(part);
+                    if let Some(x) = selector.parts.last_mut() {
+                        x.push(part)
+                    } else {
+                        selector.parts.push(vec![part]); //unreachable, but still, we handle it
+                    }
                 }
             }
             rule.selectors.push(selector);

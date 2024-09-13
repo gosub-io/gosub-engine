@@ -1,20 +1,21 @@
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 
-use crate::property_definitions::get_css_definitions;
-use crate::shorthands::FixList;
-use crate::styling::{
-    match_selector, prop_is_inherit, CssProperties, CssProperty, DeclarationProperty,
-};
 use log::warn;
 
-use gosub_css3::stylesheet::{CssDeclaration, CssOrigin, CssSelector, CssStylesheet, CssValue};
+use gosub_css3::stylesheet::{CssDeclaration, CssOrigin, CssStylesheet, CssValue, Specificity};
 use gosub_html5::node::data::element::ElementData;
 use gosub_html5::node::{NodeData, NodeId};
 use gosub_html5::parser::document::{DocumentHandle, TreeIterator};
 use gosub_render_backend::geo::Size;
 use gosub_render_backend::layout::{HasTextLayout, Layout, LayoutTree, Layouter, Node, TextLayout};
 use gosub_shared::types::Result;
+
+use crate::property_definitions::get_css_definitions;
+use crate::shorthands::FixList;
+use crate::styling::{
+    match_selector, prop_is_inherit, CssProperties, CssProperty, DeclarationProperty,
+};
 
 mod desc;
 
@@ -291,11 +292,13 @@ impl<L: Layouter> RenderTree<L> {
 
                 for rule in sheet.rules.iter() {
                     for selector in rule.selectors().iter() {
-                        if !match_selector(
+                        let (matched, specificity) = match_selector(
                             DocumentHandle::clone(&document),
                             current_node_id,
                             selector,
-                        ) {
+                        );
+
+                        if !matched {
                             continue;
                         }
 
@@ -328,7 +331,12 @@ impl<L: Layouter> RenderTree<L> {
                                 important: declaration.important,
                             };
 
-                            add_property_to_map(&mut css_map_entry, sheet, selector, &decl);
+                            add_property_to_map(
+                                &mut css_map_entry,
+                                sheet,
+                                specificity.clone(),
+                                &decl,
+                            );
                         }
                     }
                 }
@@ -557,7 +565,7 @@ impl<L: Layouter> RenderTree<L> {
 pub fn add_property_to_map(
     css_map_entry: &mut CssProperties,
     sheet: &CssStylesheet,
-    selector: &CssSelector,
+    specificity: Specificity,
     declaration: &CssDeclaration,
 ) {
     let property_name = declaration.property.clone();
@@ -583,7 +591,7 @@ pub fn add_property_to_map(
         origin: sheet.origin.clone(),
         important: declaration.important,
         location: sheet.location.clone(),
-        specificity: selector.specificity(),
+        specificity,
     };
 
     if let std::collections::hash_map::Entry::Vacant(e) =
