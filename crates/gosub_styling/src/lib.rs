@@ -9,6 +9,7 @@ use gosub_css3::stylesheet::{CssOrigin, CssStylesheet};
 use gosub_css3::Css3;
 
 mod errors;
+mod functions;
 pub mod property_definitions;
 pub mod render_tree;
 mod shorthands;

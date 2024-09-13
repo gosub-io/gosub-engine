@@ -11,6 +11,7 @@ use gosub_render_backend::geo::Size;
 use gosub_render_backend::layout::{HasTextLayout, Layout, LayoutTree, Layouter, Node, TextLayout};
 use gosub_shared::types::Result;
 
+use crate::functions::{resolve_attr, resolve_calc};
 use crate::property_definitions::get_css_definitions;
 use crate::shorthands::FixList;
 use crate::styling::{
@@ -315,9 +316,10 @@ impl<L: Layouter> RenderTree<L> {
                                 continue;
                             };
 
+                            let value = resolve_functions(&declaration.value, node);
+
                             // Check if the declaration matches the definition and return the "expanded" order
-                            let res = definition
-                                .matches_and_shorthands(&declaration.value, &mut fix_list);
+                            let res = definition.matches_and_shorthands(&value, &mut fix_list);
                             if !res {
                                 warn!("Declaration does not match definition: {:?}", declaration);
                                 continue;
@@ -327,7 +329,7 @@ impl<L: Layouter> RenderTree<L> {
                             let property_name = declaration.property.clone();
                             let decl = CssDeclaration {
                                 property: property_name.to_string(),
-                                value: declaration.value.clone(),
+                                value,
                                 important: declaration.important,
                             };
 
@@ -882,6 +884,28 @@ pub fn node_is_undernderable(node: &gosub_html5::node::Node) -> bool {
     }
 
     false
+}
+
+pub fn resolve_functions(value: &[CssValue], node: &gosub_html5::node::Node) -> Vec<CssValue> {
+    let mut result = Vec::with_capacity(value.len()); //TODO: we could give it a &mut Vec and reuse the allocation
+
+    for val in value {
+        match val {
+            CssValue::Function(func, values) => {
+                let resolved = match func.as_str() {
+                    "calc" => resolve_calc(values),
+                    "attr" => resolve_attr(values, node),
+                    // "var" => resolve_var(func, node),
+                    _ => vec![val.clone()],
+                };
+
+                result.extend(resolved);
+            }
+            _ => result.push(val.clone()),
+        }
+    }
+
+    result
 }
 
 // pub fn walk_render_tree(tree: &RenderTree, visitor: &mut Box<dyn TreeVisitor<RenderTreeNode>>) {
