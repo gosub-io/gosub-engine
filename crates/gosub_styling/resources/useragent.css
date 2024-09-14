@@ -1306,3 +1306,9 @@ html::grammar-error {
     text-decoration: -internal-grammar-error-color grammar-error;
 }
 /* noscript is handled internally, as it depends on settings. */
+
+
+[bgcolor] {
+    background-color: attr(bgcolor);
+}
+
