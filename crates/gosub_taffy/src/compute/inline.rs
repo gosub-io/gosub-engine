@@ -355,7 +355,7 @@ pub fn compute_inline_layout<LT: LayoutTree<TaffyLayouter>>(
                             border: Rect::ZERO,
                             location: Point {
                                 x: inline_box.x,
-                                y: 0.0,
+                                y: inline_box.y,
                             },
                             order: 0,
                             padding: Rect::ZERO,
