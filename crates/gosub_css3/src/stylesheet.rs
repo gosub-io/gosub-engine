@@ -341,6 +341,8 @@ impl CssValue {
                     value.trim_end_matches("rem").parse::<f32>().unwrap() * 16.0
                 } else if value.ends_with("em") {
                     value.trim_end_matches("em").parse::<f32>().unwrap() * 16.0
+                } else if value.ends_with("__qem") {
+                    value.trim_end_matches("__qem").parse::<f32>().unwrap() * 16.0
                 } else {
                     0.0
                 }
