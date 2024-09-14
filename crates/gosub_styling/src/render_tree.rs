@@ -287,10 +287,6 @@ impl<L: Layouter> RenderTree<L> {
             let mut fix_list = FixList::new();
 
             for sheet in document.get().stylesheets.iter() {
-                if sheet.origin == CssOrigin::UserAgent {
-                    continue;
-                }
-
                 for rule in sheet.rules.iter() {
                     for selector in rule.selectors().iter() {
                         let (matched, specificity) = match_selector(
