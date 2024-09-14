@@ -91,7 +91,7 @@ pub enum CssSelectorPart {
     Type(String),
 }
 
-#[derive(PartialEq, Clone, Default)]
+#[derive(PartialEq, Clone, Default, Debug)]
 pub struct AttributeSelector {
     pub name: String,
     pub matcher: MatcherType,
@@ -172,7 +172,7 @@ pub enum CssSelectorType {
 }
 
 /// Represents which type of matcher is used (in case of an attribute selector type)
-#[derive(Default, PartialEq, Clone)]
+#[derive(Default, PartialEq, Clone, Debug)]
 pub enum MatcherType {
     #[default]
     None, // No matcher
@@ -447,7 +447,6 @@ mod test {
     use std::vec;
 
     use super::*;
-    use std::vec;
 
     // #[test]
     // fn test_css_value_to_color() {
