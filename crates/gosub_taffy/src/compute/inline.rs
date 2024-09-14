@@ -514,9 +514,9 @@ pub fn compute_inline_layout<LT: LayoutTree<TaffyLayouter>>(
                             Some(0) => {}
 
                             Some(i) => {
-                                glyphs.get(i).map(|g| {
+                                if let Some(g) = glyphs.get(i) {
                                     decoration.x_offset = g.x;
-                                });
+                                }
                             }
                         }
                     }

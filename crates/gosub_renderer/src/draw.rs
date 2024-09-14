@@ -100,7 +100,7 @@ where
             rect: bg,
             transform: None,
             radius: None,
-            brush: Brush::color(Color::BLACK),
+            brush: Brush::color(Color::WHITE),
             brush_transform: None,
             border: None,
         };

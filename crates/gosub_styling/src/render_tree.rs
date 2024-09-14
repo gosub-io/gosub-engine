@@ -846,11 +846,9 @@ impl gosub_render_backend::layout::CssProperty for CssProperty {
     }
 
     fn parse_color(&self) -> Option<(f32, f32, f32, f32)> {
-        if let Some(color) = self.actual.to_color() {
-            Some((color.r, color.g, color.b, color.a))
-        } else {
-            None
-        }
+        self.actual
+            .to_color()
+            .map(|color| (color.r, color.g, color.b, color.a))
     }
 
     fn as_number(&self) -> Option<f32> {
@@ -932,9 +930,9 @@ impl gosub_render_backend::layout::CssValue for Value {
     }
 }
 
-impl Into<Value> for CssValue {
-    fn into(self) -> Value {
-        Value(self)
+impl From<CssValue> for Value {
+    fn from(val: CssValue) -> Self {
+        Value(val)
     }
 }
 
