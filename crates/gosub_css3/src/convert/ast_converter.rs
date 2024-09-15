@@ -5,6 +5,7 @@ use crate::stylesheet::{
 };
 use anyhow::anyhow;
 use gosub_shared::types::Result;
+use log::warn;
 
 /*
 
@@ -129,13 +130,41 @@ pub fn convert_ast_to_stylesheet(
                             CssSelectorPart::Type(value.clone())
                         }
                         NodeType::AttributeSelector {
-                            name, value, flags, ..
-                        } => CssSelectorPart::Attribute(Box::new(AttributeSelector {
-                            name: name.clone(),
-                            matcher: MatcherType::Equals, // @todo: this needs to be parsed
-                            value: value.clone(),
-                            case_insensitive: flags.eq_ignore_ascii_case("i"),
-                        })),
+                            name,
+                            value,
+                            flags,
+                            matcher,
+                        } => {
+                            let matcher = match matcher {
+                                None => MatcherType::None,
+
+                                Some(matcher) => match &*matcher.node_type {
+                                    NodeType::Operator(op) => match op.as_str() {
+                                        "=" => MatcherType::Equals,
+                                        "~=" => MatcherType::Includes,
+                                        "|=" => MatcherType::DashMatch,
+                                        "^=" => MatcherType::PrefixMatch,
+                                        "$=" => MatcherType::SuffixMatch,
+                                        "*=" => MatcherType::SubstringMatch,
+                                        _ => {
+                                            warn!("Unsupported matcher: {:?}", matcher);
+                                            MatcherType::Equals
+                                        }
+                                    },
+                                    _ => {
+                                        warn!("Unsupported matcher: {:?}", matcher);
+                                        MatcherType::Equals
+                                    }
+                                },
+                            };
+
+                            CssSelectorPart::Attribute(Box::new(AttributeSelector {
+                                name: name.clone(),
+                                matcher,
+                                value: value.clone(),
+                                case_insensitive: flags.eq_ignore_ascii_case("i"),
+                            }))
+                        }
                         NodeType::Comma => {
                             selector.parts.push(vec![]);
                             continue;
