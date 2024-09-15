@@ -801,11 +801,14 @@ impl<L: Layouter> Node for RenderTreeNode<L> {
     }
 }
 
+pub struct Value(pub CssValue);
+
 impl gosub_render_backend::layout::CssProperty for CssProperty {
+    type Value = Value;
+
     fn compute_value(&mut self) {
         self.compute_value();
     }
-
     fn unit_to_px(&self) -> f32 {
         self.actual.unit_to_px()
     }
@@ -842,6 +845,12 @@ impl gosub_render_backend::layout::CssProperty for CssProperty {
         }
     }
 
+    fn parse_color(&self) -> Option<(f32, f32, f32, f32)> {
+        self.actual
+            .to_color()
+            .map(|color| (color.r, color.g, color.b, color.a))
+    }
+
     fn as_number(&self) -> Option<f32> {
         if let CssValue::Number(num) = &self.actual {
             Some(*num)
@@ -850,8 +859,80 @@ impl gosub_render_backend::layout::CssProperty for CssProperty {
         }
     }
 
+    fn as_list(&self) -> Option<Vec<Self::Value>> {
+        if let CssValue::List(list) = &self.actual {
+            Some(list.iter().map(|v| v.clone().into()).collect())
+        } else {
+            None
+        }
+    }
+
     fn is_none(&self) -> bool {
         matches!(self.actual, CssValue::None)
+    }
+}
+
+impl gosub_render_backend::layout::CssValue for Value {
+    fn unit_to_px(&self) -> f32 {
+        self.0.unit_to_px()
+    }
+
+    fn as_string(&self) -> Option<&str> {
+        if let CssValue::String(str) = &self.0 {
+            Some(str)
+        } else {
+            None
+        }
+    }
+
+    fn as_percentage(&self) -> Option<f32> {
+        if let CssValue::Percentage(percent) = &self.0 {
+            Some(*percent)
+        } else {
+            None
+        }
+    }
+
+    fn as_unit(&self) -> Option<(f32, &str)> {
+        if let CssValue::Unit(value, unit) = &self.0 {
+            Some((*value, unit))
+        } else {
+            None
+        }
+    }
+
+    fn as_color(&self) -> Option<(f32, f32, f32, f32)> {
+        if let CssValue::Color(color) = &self.0 {
+            Some((color.r, color.g, color.b, color.a))
+        } else {
+            None
+        }
+    }
+
+    fn as_number(&self) -> Option<f32> {
+        if let CssValue::Number(num) = &self.0 {
+            Some(*num)
+        } else {
+            None
+        }
+    }
+
+    fn as_list(&self) -> Option<Vec<Self>> {
+        if let CssValue::List(list) = &self.0 {
+            Some(list.iter().map(|v| v.clone().into()).collect())
+        } else {
+            None
+        }
+    }
+
+    fn is_none(&self) -> bool {
+        matches!(self.0, CssValue::None)
+    }
+}
+
+impl From<CssValue> for Value {
+    fn from(val: CssValue) -> Self {
+        Value(val)
     }
 }
 
@@ -865,7 +946,7 @@ pub fn generate_render_tree<L: Layouter>(document: DocumentHandle) -> Result<Ren
 pub fn node_is_undernderable(node: &gosub_html5::node::Node) -> bool {
     // There are more elements that are not renderable, but for now we only remove the most common ones
 
-    const REMOVABLE_ELEMENTS: [&str; 5] = ["head", "script", "style", "svg", "noscript"];
+    const REMOVABLE_ELEMENTS: [&str; 6] = ["head", "script", "style", "svg", "noscript", "title"];
 
     if let NodeData::Element(element) = &node.data {
         if REMOVABLE_ELEMENTS.contains(&element.name.as_str()) {

@@ -139,8 +139,27 @@ pub trait HasTextLayout<L: Layouter> {
     fn set_text_layout(&mut self, layout: L::TextLayout);
 }
 
-pub trait CssProperty: Debug {
+pub trait CssProperty: Debug + Sized {
+    type Value: CssValue;
+
     fn compute_value(&mut self);
+
+    fn unit_to_px(&self) -> f32;
+
+    fn as_string(&self) -> Option<&str>;
+    fn as_percentage(&self) -> Option<f32>;
+    fn as_unit(&self) -> Option<(f32, &str)>;
+    fn as_color(&self) -> Option<(f32, f32, f32, f32)>;
+
+    fn parse_color(&self) -> Option<(f32, f32, f32, f32)>;
+
+    fn as_number(&self) -> Option<f32>;
+    fn as_list(&self) -> Option<Vec<Self::Value>>;
+
+    fn is_none(&self) -> bool;
+}
+
+pub trait CssValue: Sized {
     fn unit_to_px(&self) -> f32;
 
     fn as_string(&self) -> Option<&str>;
@@ -148,6 +167,8 @@ pub trait CssProperty: Debug {
     fn as_unit(&self) -> Option<(f32, &str)>;
     fn as_color(&self) -> Option<(f32, f32, f32, f32)>;
     fn as_number(&self) -> Option<f32>;
+    fn as_list(&self) -> Option<Vec<Self>>;
+
     fn is_none(&self) -> bool;
 }
 
@@ -164,4 +185,31 @@ pub trait TextLayout {
     fn font_size(&self) -> f32;
 
     fn coords(&self) -> &[i16];
+
+    fn decorations(&self) -> &Decoration;
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Decoration {
+    pub underline: bool,
+    pub overline: bool,
+    pub line_through: bool,
+
+    pub color: (f32, f32, f32, f32),
+    pub style: DecorationStyle,
+    pub width: f32,
+
+    pub underline_offset: f32,
+
+    pub x_offset: f32,
+}
+
+#[derive(Debug, Clone, Default)]
+pub enum DecorationStyle {
+    #[default]
+    Solid,
+    Double,
+    Dotted,
+    Dashed,
+    Wavy,
 }

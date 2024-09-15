@@ -1312,3 +1312,15 @@ html::grammar-error {
     background-color: attr(bgcolor);
 }
 
+
+
+
+a {
+    color: #0000EEFF;
+    text-decoration-line: underline;
+}
+
+
+dd {
+    margin-left: 40px;
+}

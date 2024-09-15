@@ -1,4 +1,4 @@
-use gosub_render_backend::layout::TextLayout as TLayout;
+use gosub_render_backend::layout::{Decoration, TextLayout as TLayout};
 use gosub_render_backend::Size;
 use gosub_typeface::font::Font as TFont;
 use gosub_typeface::font::Glyph;
@@ -26,6 +26,7 @@ pub struct TextLayout {
     pub font_size: f32,
     pub size: Size,
     pub coords: Vec<i16>,
+    pub decoration: Decoration,
 }
 
 impl TLayout for TextLayout {
@@ -53,5 +54,9 @@ impl TLayout for TextLayout {
 
     fn coords(&self) -> &[i16] {
         &self.coords
+    }
+
+    fn decorations(&self) -> &Decoration {
+        &self.decoration
     }
 }
