@@ -95,16 +95,12 @@ pub fn compute_inline_layout<LT: LayoutTree<TaffyLayouter>>(
                 id: node_id,
             });
         } else {
-            if u64::from(node_id) == 22u64 {
-                println!("inline_box <a>: {:?}", node_id);
-            }
-
             let out = tree.compute_child_layout(node_id, layout_input);
 
             tree.update_style(*child);
 
             let size = if let Some(cache) = tree.0.get_cache(*child) {
-                if cache.display == Display::InlineBlock {
+                if cache.display == Display::Inline {
                     //TODO: handle margins here
 
                     out.content_size
@@ -143,8 +139,6 @@ pub fn compute_inline_layout<LT: LayoutTree<TaffyLayouter>>(
     let mut align = Alignment::default();
 
     if let Some(default) = text_node_data.first() {
-        println!("default: {:?}", default);
-
         builder.push_default(&StyleProperty::FontStack(FontStack::Source(
             &default.font_family,
         )));
@@ -221,53 +215,9 @@ pub fn compute_inline_layout<LT: LayoutTree<TaffyLayouter>>(
         AvailableSpace::MaxContent => None,
     };
 
-    println!("max_width: {:?}, ID: {:?}", max_width, nod_id.into());
-
     layout.break_all_lines(max_width);
 
-    let num_lines = layout.lines().count();
-
-    println!("num_lines: {:?}", num_lines);
-
     layout.align(max_width, align);
-
-    //
-    // for (child, out) in children.into_iter().zip(outputs.into_iter()) {
-
-    //     let node_id = NodeId::from(child.into());
-    //
-    //     let style = tree.get_style(node_id);
-    //
-    //     let location = Point {
-    //         x: width,
-    //         y: height - out.size.height,
-    //     };
-    //
-    //     let border = style.border.resolve_or_zero(layout_input.parent_size);
-    //     let padding = style.padding.resolve_or_zero(layout_input.parent_size);
-    //
-    //     width += out.size.width + border.left + border.right + padding.left + padding.right;
-    //
-    //     tree.set_unrounded_layout(
-    //         node_id,
-    //         &Layout {
-    //             size: out.size,
-    //             content_size: out.content_size,
-    //             order: 0,
-    //             location,
-    //             border,
-    //             padding,
-    //             scrollbar_size: Size::ZERO, //TODO
-    //         },
-    //     );
-    // }
-
-    println!(
-        "size: height: {} width: {}",
-        layout.height().ceil(),
-        layout.width().ceil()
-    );
-    println!("text: {}", str_buf);
 
     let content_size = Size {
         width: layout.width().ceil(),
@@ -391,10 +341,6 @@ pub fn compute_inline_layout<LT: LayoutTree<TaffyLayouter>>(
                 PositionedLayoutItem::InlineBox(inline_box) => {
                     let id = NodeId::from(inline_box.id);
 
-                    if inline_box.id == 162 {
-                        println!("inline_box: {:?}", inline_box);
-                    }
-
                     let size = Size {
                         width: inline_box.width,
                         height: inline_box.height,
@@ -409,7 +355,7 @@ pub fn compute_inline_layout<LT: LayoutTree<TaffyLayouter>>(
                             border: Rect::ZERO,
                             location: Point {
                                 x: inline_box.x,
-                                y: 0.0,
+                                y: inline_box.y,
                             },
                             order: 0,
                             padding: Rect::ZERO,
@@ -419,9 +365,6 @@ pub fn compute_inline_layout<LT: LayoutTree<TaffyLayouter>>(
             }
         }
     }
-
-    println!("content_size: {:?}", content_size);
-    println!("layout h: {:?} w {:?}", layout.height(), layout.width());
 
     let mut size = content_size;
 
