@@ -148,16 +148,6 @@ impl Renderer {
             chosen_adapter
         });
 
-        {
-            let instance = Instance::new(Default::default());
-
-            let adapters = instance.enumerate_adapters(Backends::all());
-
-            for adapter in adapters {
-                println!("Adapter: {:?}", adapter.get_info());
-            }
-        }
-
         #[cfg(target_arch = "wasm32")]
         let mut adapter = None;
 

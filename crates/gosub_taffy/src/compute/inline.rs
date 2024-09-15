@@ -265,11 +265,6 @@ pub fn compute_inline_layout<LT: LayoutTree<TaffyLayouter>>(
 
                     let run_y = run.baseline();
 
-                    if current_node_id.into() == 161 || current_node_id.into() == 163 {
-                        println!("current_node_id: {:?}", current_node_id.into());
-                        println!("first glyph: {:?}", glyphs.get(2));
-                    }
-
                     current_glyph_idx += glyphs.len();
 
                     if current_glyph_idx > current_to {
@@ -308,20 +303,6 @@ pub fn compute_inline_layout<LT: LayoutTree<TaffyLayouter>>(
                         width: size.width,
                         height: size.height,
                     };
-
-                    if current_node_id.into() == 160 {
-                        println!("current_node_id: {:?}", current_node_id.into());
-                        println!("size: {:?}", size);
-
-                        println!(
-                            "location: {:?}",
-                            Point {
-                                x: run.offset(),
-                                y: run_y,
-                            }
-                        );
-                    }
-
                     tree.set_unrounded_layout(
                         NodeId::new(current_node_id.into()),
                         &Layout {

@@ -122,8 +122,6 @@ impl Layouter for TaffyLayouter {
         root: LT::NodeId,
         space: SizeU32,
     ) -> Result<()> {
-        println!("space: {:?}", space);
-
         let size = taffy::Size {
             width: AvailableSpace::Definite(space.width as f32),
             height: AvailableSpace::Definite(space.height as f32),

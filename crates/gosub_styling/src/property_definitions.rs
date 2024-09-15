@@ -353,8 +353,6 @@ pub static CSS_DEFINITIONS: LazyLock<CssDefinitions, fn() -> CssDefinitions> =
 
 /// Parses the internal CSS definition file
 fn pars_definition_files() -> CssDefinitions {
-    println!("parse_definition_files");
-
     // parse all syntax, so we can use them in the properties
     let contents = include_str!("../resources/definitions/definitions_values.json");
     let json: serde_json::Value =

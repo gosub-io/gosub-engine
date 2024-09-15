@@ -4345,11 +4345,8 @@ impl<'chars> Html5Parser<'chars> {
                         }
                     }
                 };
-                println!("loading external stylesheet: {}", css_url);
-
                 if let Some(stylesheet) = self.load_external_stylesheet(CssOrigin::Author, css_url)
                 {
-                    println!("success: loaded external stylesheet");
                     self.document.get_mut().stylesheets.push(stylesheet);
                 } else {
                     println!("failed loading stylesheet")
