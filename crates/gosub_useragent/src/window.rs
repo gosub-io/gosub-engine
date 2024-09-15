@@ -1,6 +1,5 @@
 use anyhow::anyhow;
 use image::imageops::FilterType;
-use image::GenericImageView;
 use log::warn;
 use std::cell::LazyCell;
 use std::ops::Deref;
@@ -34,12 +33,9 @@ static ICON: LazyCell<Icon> = LazyCell::new(|| {
         };
 
 
-        println!("size: {:?}", img.dimensions());
         let height = img.height() / (img.width() / 256);
 
         let rgba = img.resize_exact(256, height, FilterType::Nearest).to_rgba8();
-
-        println!("size: {:?}", rgba.dimensions());
 
 
         Icon::from_rgba(rgba.to_vec(), rgba.width(), rgba.height()).unwrap_or(
@@ -79,11 +75,9 @@ impl<'a, D: SceneDrawer<B, L, LT>, B: RenderBackend, L: Layouter, LT: LayoutTree
     }
 
     pub fn resumed(&mut self, backend: &mut B) -> Result<()> {
-        println!("Resuming window...");
         if !matches!(self.state, WindowState::Suspended) {
             return Ok(());
         };
-        println!("Resuming window");
 
         let size = self.window.inner_size();
         let size = SizeU32::new(size.width, size.height);
@@ -140,8 +134,6 @@ fn create_window(event_loop: &ActiveEventLoop) -> Result<Arc<WinitWindow>> {
         .with_title("Gosub Browser")
         .with_window_icon(Some(ICON.with(|icon| icon.deref().clone())))
         .with_inner_size(LogicalSize::new(1920, 1080));
-
-    println!("icon: {:?}", attributes.window_icon.is_some());
 
     event_loop
         .create_window(attributes)
