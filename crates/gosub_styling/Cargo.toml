@@ -15,7 +15,7 @@ lazy_static = "1.5"
 anyhow = "1.0.87"
 regex = "1.10.6"
 colors-transform = "0.2.11"
-backtrace = "0.3.71"
+backtrace = "0.3.74"
 log = "0.4.21"
 rand = "0.9.0-alpha.1"
 
