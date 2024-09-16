@@ -24,4 +24,4 @@ log = "0.4.22"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen-futures = "0.4.42"
-web-sys = "0.3.55"
+web-sys = "0.3.70"
