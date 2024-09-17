@@ -1,5 +1,5 @@
-use std::sync::mpsc;
 use std::{io, thread};
+use std::sync::mpsc;
 
 use clap::ArgAction;
 use gosub_css3::system::Css3System;
@@ -9,7 +9,7 @@ use gosub_renderer::render_tree::TreeDrawer;
 use gosub_rendering::render_tree::RenderTree;
 use gosub_shared::types::Result;
 use gosub_taffy::TaffyLayouter;
-use gosub_useragent::application::{Application, CustomEvent};
+use gosub_useragent::application::{Application, CustomEventInternal, WindowOptions};
 use gosub_vello::VelloBackend;
 use url::Url;
 
@@ -26,6 +26,9 @@ type Drawer = TreeDrawer<Backend, Layouter, Document, CssSystem>;
 type Tree = RenderTree<Layouter, Document, CssSystem>;
 
 fn main() -> Result<()> {
+    // simple_logger::init_with_level(log::Level::Info)?;
+
+
     let matches = clap::Command::new("Gosub Renderer")
         .arg(
             clap::Arg::new("url")
@@ -51,7 +54,7 @@ fn main() -> Result<()> {
     let mut application: Application<Drawer, Backend, Layouter, Tree, Document, CssSystem, HtmlParser> =
         Application::new(VelloBackend::new(), TaffyLayouter, debug);
 
-    application.initial_tab(Url::parse(&url)?);
+    application.initial_tab(Url::parse(&url)?, WindowOptions::default());
 
     //this will initialize the application
     let p = application.proxy()?;
@@ -69,7 +72,7 @@ fn main() -> Result<()> {
             "list" => {
                 let (sender, receiver) = mpsc::channel();
 
-                if let Err(e) = p.send_event(CustomEvent::SendNodes(sender)) {
+                if let Err(e) = p.send_event(CustomEventInternal::SendNodes(sender)) {
                     eprintln!("Error sending event: {e:?}");
                     continue;
                 }
@@ -86,7 +89,7 @@ fn main() -> Result<()> {
             }
 
             "unselect" => {
-                if let Err(e) = p.send_event(CustomEvent::Unselect) {
+                if let Err(e) = p.send_event(CustomEventInternal::Unselect) {
                     eprintln!("Error sending event: {e:?}");
                 }
             }
@@ -101,7 +104,7 @@ fn main() -> Result<()> {
                 continue;
             };
 
-            if let Err(e) = p.send_event(CustomEvent::Select(id)) {
+            if let Err(e) = p.send_event(CustomEventInternal::Select(id)) {
                 eprintln!("Error sending event: {e:?}");
             }
         }

@@ -7,4 +7,4 @@ license = "MIT"
 
 [dependencies]
 lazy_static = "1.5.0"
-fontique = "0.1.0"
+#fontique = "0.1.0"

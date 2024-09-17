@@ -2,16 +2,17 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use anyhow::anyhow;
-use gosub_render_backend::WindowHandle;
 use vello::{AaSupport, Renderer as VelloRenderer, RendererOptions as VelloRendererOptions};
-use wgpu::util::{
-    backend_bits_from_env, dx12_shader_compiler_from_env, gles_minor_version_from_env, power_preference_from_env,
-};
 use wgpu::{
     Adapter, Backends, CompositeAlphaMode, Device, Dx12Compiler, Gles3MinorVersion, Instance, InstanceDescriptor,
     PowerPreference, Queue, Surface, SurfaceConfiguration, TextureFormat,
 };
+use wgpu::util::{
+    backend_bits_from_env, dx12_shader_compiler_from_env, gles_minor_version_from_env,
+    power_preference_from_env,
+};
 
+use gosub_render_backend::WindowHandle;
 use gosub_shared::types::Result;
 
 pub mod window;
@@ -36,10 +37,12 @@ pub const RENDERER_CONF: VelloRendererOptions = VelloRendererOptions {
     num_init_threads: NonZeroUsize::new(1),
 };
 
+#[derive(Clone, Debug)]
 pub struct Renderer {
     pub instance_adapter: Arc<InstanceAdapter>,
 }
 
+#[derive(Debug)]
 pub struct InstanceAdapter {
     pub instance: Instance,
     pub adapter: Adapter,

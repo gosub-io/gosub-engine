@@ -1,9 +1,10 @@
+use wasm_bindgen::prelude::wasm_bindgen;
+
 use gosub_css3::parser_config::ParserConfig;
 use gosub_css3::tokenizer::{TokenType, Tokenizer};
 use gosub_css3::walker::Walker;
 use gosub_css3::{Css3, Error};
-use gosub_shared::byte_stream::{ByteStream, Encoding};
-use wasm_bindgen::prelude::wasm_bindgen;
+use gosub_shared::byte_stream::{ByteStream, Encoding, Location};
 
 #[wasm_bindgen]
 pub struct CssOptions {
@@ -93,7 +94,7 @@ fn display_snippet(css: &str, err: Error) -> String {
 
     // Print the next 5 lines
     for n in line_nr + 1..line_nr + 6 {
-        if n > lines.len() as u32 - 1 {
+        if n > lines.len() - 1 {
             continue;
         }
         out.push_str(&format!("{:<5}|{}\n", n + 1, lines[n as usize]));

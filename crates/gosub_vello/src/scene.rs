@@ -1,3 +1,4 @@
+use std::fmt::{Debug, Formatter};
 use vello::kurbo::RoundedRect;
 use vello::peniko::Fill;
 use vello::Scene as VelloScene;
@@ -7,7 +8,15 @@ use gosub_render_backend::{Point, RenderBackend, RenderRect, RenderText, Scene a
 use crate::debug::text::render_text_simple;
 use crate::{Border, BorderRenderOptions, Text, Transform, VelloBackend};
 
+#[derive(Clone)]
 pub struct Scene(pub(crate) VelloScene);
+
+impl Debug for Scene {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Scene").finish()
+    }
+    
+}
 
 impl Scene {
     pub fn inner(&mut self) -> &mut VelloScene {

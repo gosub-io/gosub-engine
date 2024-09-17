@@ -1,10 +1,10 @@
+#[cfg(not(target_arch = "wasm32"))]
 use gosub_shared::byte_stream::{ByteStream, Encoding};
 use gosub_shared::document::DocumentHandle;
 use gosub_shared::traits::css3::CssSystem;
 use gosub_shared::traits::document::{Document, DocumentBuilder};
 use gosub_shared::traits::html5::Html5Parser as Html5ParserT;
 
-#[cfg(not(target_arch = "wasm32"))]
 use {
     cookie::CookieJar,
     core::fmt::Debug,
@@ -12,8 +12,9 @@ use {
         dns::{Dns, ResolveType},
         http::{headers::Headers, request::Request, response::Response},
     },
-    gosub_shared::types::{Error, ParseError, Result},
     gosub_shared::{timing_start, timing_stop},
+    gosub_shared::byte_stream::{ByteStream, Encoding},
+    gosub_shared::types::{Error, ParseError, Result},
     std::io::Read,
     url::Url,
 };
@@ -165,6 +166,7 @@ mod tests {
     use gosub_css3::system::Css3System;
     use gosub_html5::document::document_impl::DocumentImpl;
     use gosub_html5::parser::Html5Parser;
+    use cookie::CookieJar:
 
     #[cfg(not(target_arch = "wasm32"))]
     #[test]

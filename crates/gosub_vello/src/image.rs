@@ -6,6 +6,7 @@ use vello::peniko::{Blob, Format, Image as VelloImage};
 use gosub_render_backend::geo::FP;
 use gosub_render_backend::Image as TImage;
 
+#[derive(Clone)]
 pub struct Image(pub(crate) VelloImage);
 
 impl From<VelloImage> for Image {

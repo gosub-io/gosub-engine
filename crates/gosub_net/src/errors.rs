@@ -5,7 +5,7 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 pub enum Error {
     #[error("ureq error")]
-    Request(#[from] Box<ureq::Error>),
+    Request(#[from] Box<crate::http::HttpError>),
 
     #[error("io error: {0}")]
     IO(#[from] std::io::Error),

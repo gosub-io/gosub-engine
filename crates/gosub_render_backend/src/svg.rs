@@ -6,7 +6,7 @@ use gosub_shared::types::{Result, Size};
 
 use crate::{ImageBuffer, RenderBackend};
 
-pub trait SvgRenderer<B: RenderBackend> {
+pub trait SvgRenderer<B: RenderBackend>: Send {
     type SvgDocument;
 
     fn new() -> Self;

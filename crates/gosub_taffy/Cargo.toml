@@ -12,5 +12,12 @@ gosub_typeface = { path = "../gosub_typeface" }
 taffy = "0.5.2"
 anyhow = "1.0.89"
 regex = "1.10.5"
-parley = { git = "https://github.com/linebender/parley", rev = "14070d5" }
 log = "0.4.22"
+
+
+
+#[target.'cfg(target_arch = "wasm32")'.dependencies]
+parley = { git = "https://github.com/linebender/parley", rev = "14070d5", default-features = false, features = ["std"] }
+
+#[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+#parley = { git = "https://github.com/linebender/parley", rev = "14070d5"}

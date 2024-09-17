@@ -5,9 +5,9 @@
 //! requests, parsing the response and returning the result to the caller.
 //!
 //! It also contains additional networking components like the DNS resolver.
+
+extern crate gosub_config;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod dns;
 pub mod errors;
 pub mod http;
-
-#[macro_use]
-extern crate gosub_config;

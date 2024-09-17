@@ -1,10 +1,11 @@
 use std::borrow::Borrow;
 
 use url::Url;
+use wasm_bindgen::prelude::wasm_bindgen;
 
 use gosub_html5::parser::document::{Document, DocumentBuilder};
 use gosub_html5::parser::Html5Parser;
-use wasm_bindgen::prelude::wasm_bindgen;
+use gosub_shared::byte_stream::{ByteStream, Encoding};
 
 #[wasm_bindgen]
 pub struct HTMLOptions {
@@ -54,7 +55,7 @@ pub fn html_parser(input: &str, opts: HTMLOptions) -> HTMLOutput {
     match Html5Parser::parse_document(&mut stream, Document::clone(&doc), None) {
         Ok(errs) => {
             for e in errs {
-                errors.push_str(&format!("{}@{}:{}\n", e.message, e.line, e.col));
+                errors.push_str(&format!("{}@{:?}\n", e.message, e.location));
             }
         }
         Err(e) => {

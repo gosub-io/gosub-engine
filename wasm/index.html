@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+
+    <script type="module">
+        import init, {renderer, RendererOptions} from "../pkg";
+
+        
+        await init()
+
+
+        let opts = new RendererOptions("canvas", "canvas-wrapper", "https://news.ycombinator.com/", true);
+
+
+        renderer(opts)
+    </script>
+    
+    <style>
+        
+        #canvas {
+            width: 80vw;
+            height: 80vh;
+            background-color: #000;
+            margin-top: 2rem;
+            border-radius: 1rem;
+            border: cyan solid 2px;
+        }
+
+        #canvas-wrapper {
+            margin: 0 auto;
+            width: fit-content;
+            height: fit-content;
+        }
+        
+        
+    </style>
+</head>
+<body>
+
+
+<div id="canvas-wrapper"></div>
+
+</body>
+</html>

@@ -1,0 +1,19 @@
+{
+  "name": "wasm",
+  "module": "index.html",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite"
+  },
+  "type": "module",
+  "devDependencies": {
+    "@types/bun": "latest",
+    "vite": "^5.4.7"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "vite-plugin-wasm": "^3.3.0"
+  }
+}

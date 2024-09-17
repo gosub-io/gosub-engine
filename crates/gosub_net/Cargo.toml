@@ -9,13 +9,22 @@ license = "MIT"
 gosub_shared = { path = "../gosub_shared", features = [] }
 gosub_config = { path = "../gosub_config", features = [] }
 derive_more = { version = "1", features = ["from", "display"] }
-thiserror = "1.0.64"
-ureq = "2.10.1"
-anyhow = "1.0.89"
+thiserror = "1.0.61"
+anyhow = "1.0.87"
 log = "0.4.22"
 domain-lookup-tree = "0.1"
-hickory-resolver = "0.24.1"
-simple_logger = "5.0.0"
 cookie = { version = "0.18.1", features = ["secure", "private"] }
 http = "1.0.0"
 url = "2.5.2"
+
+
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+hickory-resolver = "0.24.1"
+ureq = "2.10.1"
+
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+web-sys = { version = "0.3.70", features = ["Headers", "Request", "RequestInit", "RequestMode", "Response", "Window"] }
+js-sys = "0.3.70"
+wasm-bindgen-futures = "0.4.43"
