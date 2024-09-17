@@ -1,4 +1,4 @@
-use crate::errors::Error;
+use crate::errors::ConfigError;
 use core::fmt::Display;
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -149,7 +149,7 @@ impl Display for Setting {
 }
 
 impl FromStr for Setting {
-    type Err = Error;
+    type Err = ConfigError;
 
     // first element is the type:
     //   b:true
@@ -159,36 +159,33 @@ impl FromStr for Setting {
     //   m:foo,bar,baz
 
     /// Converts a string to a setting or None when the string is invalid
-    fn from_str(key: &str) -> Result<Self, crate::errors::Error> {
-        let (key_type, key_value) = key.split_once(':').expect("");
+    fn from_str(key: &str) -> Result<Self, crate::errors::ConfigError> {
+        let (key_type, key_value) = key
+            .split_once(':')
+            .ok_or(ConfigError::Config("invalid setting".to_owned()))?;
 
-        let setting = match key_type {
-            "b" => Self::Bool(
-                key_value
-                    .parse::<bool>()
-                    .map_err(|err| Error::Config(format!("error parsing {key_value}: {err}")))?,
-            ),
-            "i" => Self::SInt(
-                key_value
-                    .parse::<isize>()
-                    .map_err(|err| Error::Config(format!("error parsing {key_value}: {err}")))?,
-            ),
-            "u" => Self::UInt(
-                key_value
-                    .parse::<usize>()
-                    .map_err(|err| Error::Config(format!("error parsing {key_value}: {err}")))?,
-            ),
-            "s" => Self::String(key_value.to_string()),
+        let setting =
+            match key_type {
+                "b" => Self::Bool(key_value.parse::<bool>().map_err(|err| {
+                    ConfigError::Config(format!("error parsing {key_value}: {err}"))
+                })?),
+                "i" => Self::SInt(key_value.parse::<isize>().map_err(|err| {
+                    ConfigError::Config(format!("error parsing {key_value}: {err}"))
+                })?),
+                "u" => Self::UInt(key_value.parse::<usize>().map_err(|err| {
+                    ConfigError::Config(format!("error parsing {key_value}: {err}"))
+                })?),
+                "s" => Self::String(key_value.to_string()),
 
-            "m" => {
-                let mut values = Vec::new();
-                for value in key_value.split(',') {
-                    values.push(value.to_string());
+                "m" => {
+                    let mut values = Vec::new();
+                    for value in key_value.split(',') {
+                        values.push(value.to_string());
+                    }
+                    Self::Map(values)
                 }
-                Self::Map(values)
-            }
-            _ => return Err(Error::Config(format!("unknown setting: {key_value}"))),
-        };
+                _ => return Err(ConfigError::Config(format!("unknown setting: {key_value}"))),
+            };
 
         Ok(setting)
     }
@@ -257,16 +254,16 @@ mod test {
         assert_eq!(vec!["foo", "bar", "baz"], s.to_map());
 
         let s = Setting::from_str("notexist:true");
-        assert!(matches!(s, Err(Error::Config(_))));
+        assert!(matches!(s, Err(ConfigError::Config(_))));
 
         let s = Setting::from_str("b:foobar");
-        assert!(matches!(s, Err(Error::Config(_))));
+        assert!(matches!(s, Err(ConfigError::Config(_))));
 
         let s = Setting::from_str("i:foobar");
-        assert!(matches!(s, Err(Error::Config(_))));
+        assert!(matches!(s, Err(ConfigError::Config(_))));
 
         let s = Setting::from_str("u:-1");
-        assert!(matches!(s, Err(Error::Config(_))));
+        assert!(matches!(s, Err(ConfigError::Config(_))));
 
         let s = Setting::from_str("s:true").unwrap();
         assert!(s.to_bool());

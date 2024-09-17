@@ -16,7 +16,7 @@ pub struct ParseError {
 
 /// Serious errors and errors from third-party libraries
 #[derive(Debug, Error)]
-pub enum Error {
+pub enum ConfigError {
     #[error("config error: {0}")]
     Config(String),
 

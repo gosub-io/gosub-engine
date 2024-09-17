@@ -1,4 +1,4 @@
-use crate::unicode::{get_unicode_char, UnicodeChar};
+use crate::unicode::UnicodeChar;
 use gosub_shared::byte_stream::Character::Ch;
 use gosub_shared::byte_stream::{ByteStream, Character};
 use gosub_shared::byte_stream::{Location, LocationHandler, Stream};
@@ -738,7 +738,7 @@ impl<'stream> Tokenizer<'stream> {
 
         let mut value = String::new();
 
-        let default_char = get_unicode_char(&UnicodeChar::ReplacementCharacter);
+        let default_char = UnicodeChar::REPLACEMENT_CHARACTER;
         // eof: parser error
         if self.stream.eof() {
             return default_char;
@@ -760,9 +760,7 @@ impl<'stream> Tokenizer<'stream> {
 
         // todo: look for better implementation
         if let Some(char) = char::from_u32(as_u32) {
-            if char == get_unicode_char(&UnicodeChar::Null)
-                || char >= get_unicode_char(&UnicodeChar::MaxAllowed)
-            {
+            if char == UnicodeChar::NULL || char >= UnicodeChar::MAX_ALLOWED {
                 return default_char;
             }
 
@@ -855,12 +853,11 @@ impl<'stream> Tokenizer<'stream> {
     /// def: [non-printable code point](https://www.w3.org/TR/css-syntax-3/#non-printable-code-point)
     fn is_non_printable_char(&self) -> bool {
         if let Ch(char) = self.current_char() {
-            (char >= get_unicode_char(&UnicodeChar::Null)
-                && char <= get_unicode_char(&UnicodeChar::Backspace))
-                || (char >= get_unicode_char(&UnicodeChar::ShiftOut)
-                    && char <= get_unicode_char(&UnicodeChar::InformationSeparatorOne))
-                || char == get_unicode_char(&UnicodeChar::Tab)
-                || char == get_unicode_char(&UnicodeChar::Delete)
+            char >= UnicodeChar::NULL && char <= UnicodeChar::BACKSPACE
+                || (char >= UnicodeChar::SHIFT_OUT
+                    && char <= UnicodeChar::INFORMATION_SEPARATOR_ONE
+                    || char == UnicodeChar::TAB
+                    || char == UnicodeChar::DELETE)
         } else {
             false
         }

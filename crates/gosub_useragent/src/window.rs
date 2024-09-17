@@ -68,7 +68,7 @@ impl<'a, D: SceneDrawer<B, L, LT>, B: RenderBackend, L: Layouter, LT: LayoutTree
     ) -> Result<Self> {
         let window = create_window(event_loop)?;
 
-        let renderer_data = backend.create_window_data(window.clone())?;
+        let renderer_data = backend.create_window_data(Arc::clone(&window))?;
 
         Ok(Self {
             state: WindowState::Suspended,
@@ -88,7 +88,8 @@ impl<'a, D: SceneDrawer<B, L, LT>, B: RenderBackend, L: Layouter, LT: LayoutTree
         let size = self.window.inner_size();
         let size = SizeU32::new(size.width, size.height);
 
-        let data = backend.activate_window(self.window.clone(), &mut self.renderer_data, size)?;
+        let data =
+            backend.activate_window(Arc::clone(&self.window), &mut self.renderer_data, size)?;
 
         self.state = WindowState::Active { surface: data };
 
@@ -100,7 +101,9 @@ impl<'a, D: SceneDrawer<B, L, LT>, B: RenderBackend, L: Layouter, LT: LayoutTree
             return;
         };
 
-        if let Err(e) = backend.suspend_window(self.window.clone(), data, &mut self.renderer_data) {
+        if let Err(e) =
+            backend.suspend_window(Arc::clone(&self.window), data, &mut self.renderer_data)
+        {
             warn!("Failed to suspend window: {}", e);
         }
 

@@ -343,11 +343,7 @@ impl JSInterop for Test2 {
                 };
 
                 #[allow(clippy::unit_arg)]
-                let ret = s
-                    .borrow_mut()
-                    .add(arg0 as i32)
-                    .to_js_value(ctx)
-                    .unwrap();
+                let ret = s.borrow_mut().add(arg0 as i32).to_js_value(ctx).unwrap();
 
                 cb.ret(ret);
             })?
@@ -403,11 +399,7 @@ impl JSInterop for Test2 {
                     return;
                 };
 
-                let ret = s
-                    .borrow()
-                    .takes_ref(&arg0)
-                    .to_js_value(ctx)
-                    .unwrap();
+                let ret = s.borrow().takes_ref(&arg0).to_js_value(ctx).unwrap();
 
                 cb.ret(ret);
             })?
@@ -486,11 +478,7 @@ impl JSInterop for Test2 {
                             return;
                         };
 
-                        let ret = s
-                            .borrow()
-                            .generic(arg0, arg1)
-                            .to_js_value(ctx)
-                            .unwrap();
+                        let ret = s.borrow().generic(arg0, arg1).to_js_value(ctx).unwrap();
 
                         cb.ret(ret);
 
@@ -503,11 +491,7 @@ impl JSInterop for Test2 {
                             return;
                         };
 
-                        let ret = s
-                            .borrow()
-                            .generic(arg0, arg1)
-                            .to_js_value(ctx)
-                            .unwrap();
+                        let ret = s.borrow().generic(arg0, arg1).to_js_value(ctx).unwrap();
 
                         cb.ret(ret);
                     }
@@ -531,7 +515,7 @@ fn manual_js_interop() {
         other_field: "Hello, ".to_string(),
     }));
 
-    Test2::implement::<V8Engine>(t2.clone(), context.clone()).unwrap();
+    Test2::implement::<V8Engine>(Rc::clone(&t2), context.clone()).unwrap();
 
     let out = context
         .run(

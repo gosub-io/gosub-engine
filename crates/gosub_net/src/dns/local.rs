@@ -1,5 +1,5 @@
 use crate::dns::{DnsCache, DnsEntry, DnsResolver, ResolveType};
-use crate::errors::Error;
+use crate::errors::NetError;
 use core::fmt;
 use domain_lookup_tree::DomainLookupTree;
 use gosub_shared::types::Result;
@@ -27,7 +27,7 @@ impl DnsResolver for LocalTableResolver {
     fn resolve(&mut self, domain: &str, _resolve_type: ResolveType) -> Result<DnsEntry> {
         let Some(domain_entry) = self.tree.lookup(domain) else {
             trace!("{domain}: not found in local table");
-            return Err(Error::DnsDomainNotFound.into());
+            return Err(NetError::DnsDomainNotFound.into());
         };
 
         trace!("{domain_entry}: found in local tree");
@@ -39,7 +39,7 @@ impl DnsResolver for LocalTableResolver {
         }
 
         trace!("{domain}: not found in local table");
-        Err(Error::DnsDomainNotFound.into())
+        Err(NetError::DnsDomainNotFound.into())
     }
 
     fn name(&self) -> &'static str {

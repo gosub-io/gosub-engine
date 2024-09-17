@@ -1,5 +1,5 @@
 use crate::dns::{DnsEntry, DnsResolver, ResolveType};
-use crate::errors::Error;
+use crate::errors::NetError;
 use core::str::FromStr;
 use gosub_shared::types::Result;
 use hickory_resolver::config::Protocol::Udp;
@@ -65,7 +65,7 @@ impl DnsResolver for RemoteResolver {
         }
 
         if !entry.has_ipv4 && !entry.has_ipv6 {
-            return Err(Error::DnsNoIpAddressFound.into());
+            return Err(NetError::DnsNoIpAddressFound.into());
         }
 
         Ok(entry)

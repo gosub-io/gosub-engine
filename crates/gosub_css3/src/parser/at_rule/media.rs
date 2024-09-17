@@ -18,7 +18,7 @@ impl Css3<'_> {
             TokenType::Function(name) => {
                 let name = name.to_lowercase();
                 let args = self.parse_pseudo_function(name.as_str())?;
-                self.consume(TokenType::RParen)?;
+                self.consume(&TokenType::RParen)?;
 
                 Ok(Node::new(
                     NodeType::Function {
@@ -153,7 +153,7 @@ impl Css3<'_> {
         let loc = self.tokenizer.current_location();
 
         self.consume_whitespace_comments();
-        self.consume(TokenType::LParen)?;
+        self.consume(&TokenType::LParen)?;
 
         let left = self.parse_media_read_term()?;
         let left_comparison = self.parse_media_read_comparison()?;

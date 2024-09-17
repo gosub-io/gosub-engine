@@ -3,7 +3,7 @@ use thiserror::Error;
 
 /// Serious errors and errors from third-party libraries
 #[derive(Debug, Error)]
-pub enum Error {
+pub enum NetError {
     #[error("ureq error")]
     Request(#[from] Box<ureq::Error>),
 

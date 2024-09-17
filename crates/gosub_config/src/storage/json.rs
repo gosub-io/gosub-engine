@@ -21,15 +21,11 @@ impl TryFrom<&String> for JsonStorageAdapter {
         let _ = if let Ok(metadata) = fs::metadata(path) {
             assert!(metadata.is_file(), "json file is not a regular file");
 
-            File::options()
-                .read(true)
-                .write(true)
-                .open(path)
-                .expect("failed to open json file")
+            File::options().read(true).write(true).open(path)?
         } else {
             let json = "{}";
 
-            let mut file = File::create(path).expect("cannot create json file");
+            let mut file = File::create(path)?;
             file.write_all(json.as_bytes())?;
 
             file
@@ -97,17 +93,17 @@ impl JsonStorageAdapter {
     /// Write the self.elements hashmap back to the file by truncating the file and writing the
     /// data again.
     #[allow(dead_code)]
-    fn write_file(&mut self) {
+    fn write_file(&mut self) -> std::io::Result<()> {
         // @TODO: We need some kind of OS lock file here. We should protect against concurrent threads but also
         // against concurrent processes.
-        let mut file = File::open(&self.path).expect("failed to open json file");
+        let mut file = File::open(&self.path)?;
 
-        let json = serde_json::to_string_pretty(&self.elements).expect("failed to serialize");
+        let json = serde_json::to_string_pretty(&self.elements)?;
 
-        file.set_len(0).expect("failed to truncate file");
-        file.seek(std::io::SeekFrom::Start(0))
-            .expect("failed to seek");
-        file.write_all(json.as_bytes())
-            .expect("failed to write file");
+        file.set_len(0)?;
+        file.seek(std::io::SeekFrom::Start(0))?;
+        file.write_all(json.as_bytes())?;
+
+        Ok(())
     }
 }

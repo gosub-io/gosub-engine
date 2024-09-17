@@ -14,7 +14,7 @@ impl TryFrom<&String> for SqliteStorageAdapter {
     type Error = anyhow::Error;
 
     fn try_from(path: &String) -> Result<Self> {
-        let conn = sqlite::open(path).expect("cannot open db file");
+        let conn = sqlite::open(path)?;
 
         let query = "CREATE TABLE IF NOT EXISTS settings (
             id INTEGER PRIMARY KEY,

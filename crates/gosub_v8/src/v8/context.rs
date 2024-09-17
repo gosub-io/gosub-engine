@@ -1,3 +1,4 @@
+use std::fmt::Write;
 use std::ptr::NonNull;
 
 use v8::{
@@ -151,7 +152,7 @@ impl<'a> V8Ctx<'a> {
             err.push_str(&m.get(try_catch).to_rust_string_lossy(try_catch));
             if let Some(stacktrace) = m.get_stack_trace(try_catch) {
                 let st = Self::handle_stack_trace(try_catch, stacktrace);
-                err.push_str(&format!("\nStacktrace:\n{st}"))
+                err.write_fmt(format_args!("\nStacktrace: {st}")).unwrap();
             } else {
                 err.push_str("\nStacktrace: <missing information>");
             };

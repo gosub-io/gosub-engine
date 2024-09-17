@@ -6,7 +6,7 @@ use std::cmp::Ordering;
 use std::fmt::Display;
 
 /// Defines a complete stylesheet with all its rules and the location where it was found
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Clone)]
 #[allow(clippy::module_name_repetitions)]
 pub struct CssStylesheet {
     /// List of rules found in this stylesheet
@@ -29,7 +29,7 @@ pub enum CssOrigin {
 }
 
 /// A CSS rule, which contains a list of selectors and a list of declarations
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct CssRule {
     /// Selectors that must match for the declarations to apply
     pub selectors: Vec<CssSelector>,
@@ -50,7 +50,7 @@ impl CssRule {
 }
 
 /// A CSS declaration, which contains a property, value and a flag for !important
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct CssDeclaration {
     // Css property color
     pub property: String,
