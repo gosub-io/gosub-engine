@@ -1,3 +1,5 @@
+use log::warn;
+
 use crate::node::{Node as CssNode, NodeType};
 use crate::stylesheet::{
     AttributeSelector, Combinator, CssDeclaration, CssRule, CssSelector, CssSelectorPart, CssStylesheet, CssValue,
@@ -5,7 +7,6 @@ use crate::stylesheet::{
 };
 use gosub_shared::errors::{CssError, CssResult};
 use gosub_shared::traits::css3::CssOrigin;
-use log::warn;
 
 /*
 
@@ -199,9 +200,15 @@ pub fn convert_ast_to_stylesheet(css_ast: &CssNode, origin: CssOrigin, url: &str
                     continue;
                 }
 
+                let value = if css_values.len() == 1 {
+                    css_values.pop().expect("unreachable")
+                } else {
+                    CssValue::List(css_values)
+                };
+
                 rule.declarations.push(CssDeclaration {
                     property: property.clone(),
-                    value: css_values.to_vec(),
+                    value,
                     important: *important,
                 });
             }
@@ -259,7 +266,7 @@ mod tests {
         );
         assert_eq!(
             stylesheet.rules.first().unwrap().declarations.first().unwrap().value,
-            vec![CssValue::String("red".into())]
+            CssValue::String("red".into())
         );
 
         assert_eq!(
@@ -268,11 +275,11 @@ mod tests {
         );
         assert_eq!(
             stylesheet.rules.get(1).unwrap().declarations.first().unwrap().value,
-            vec![
+            CssValue::List(vec![
                 CssValue::Unit(1.0, "px".into()),
                 CssValue::String("solid".into()),
                 CssValue::String("black".into())
-            ]
+            ])
         );
     }
 }

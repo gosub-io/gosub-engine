@@ -15,6 +15,7 @@ use gosub_shared::traits::node::{ElementDataType, Node, TextDataType};
 use gosub_shared::traits::render_tree::{RenderTree, RenderTreeNode};
 use gosub_shared::traits::ParserConfig;
 use log::warn;
+use std::slice;
 
 #[derive(Debug, Clone)]
 pub struct Css3System;
@@ -66,8 +67,14 @@ impl CssSystem for Css3System {
 
                         let value = resolve_functions(&declaration.value, node, handle.clone());
 
+                        let match_value = if let CssValue::List(value) = &value {
+                            &**value
+                        } else {
+                            slice::from_ref(&value)
+                        };
+
                         // Check if the declaration matches the definition and return the "expanded" order
-                        let res = definition.matches_and_shorthands(&value, &mut fix_list);
+                        let res = definition.matches_and_shorthands(match_value, &mut fix_list);
                         if !res {
                             warn!("Declaration does not match definition: {:?}", declaration);
                             continue;
@@ -182,7 +189,7 @@ pub fn add_property_to_map(
     //
     let declaration = DeclarationProperty {
         // @todo: this seems wrong. We only get the first values from the declared values
-        value: declaration.value.first().unwrap().clone(),
+        value: declaration.value.clone(),
         origin: sheet.origin,
         important: declaration.important,
         location: sheet.url.clone(),
@@ -222,27 +229,32 @@ pub fn node_is_unrenderable<D: Document<C>, C: CssSystem>(node: &D::Node) -> boo
 }
 
 pub fn resolve_functions<D: Document<C>, C: CssSystem>(
-    value: &[CssValue],
+    value: &CssValue,
     node: &D::Node,
     handle: DocumentHandle<D, C>,
-) -> Vec<CssValue> {
-    let mut result = Vec::with_capacity(value.len()); //TODO: we could give it a &mut Vec and reuse the allocation
-
-    for val in value {
+) -> CssValue {
+    fn resolve<D: Document<C>, C: CssSystem>(val: &CssValue, node: &D::Node, doc: &D) -> CssValue {
         match val {
             CssValue::Function(func, values) => {
                 let resolved = match func.as_str() {
                     "calc" => resolve_calc(values),
                     "attr" => resolve_attr(values, node),
-                    "var" => resolve_var(values, &*handle.get(), node),
+                    "var" => resolve_var(values, doc, node),
                     _ => vec![val.clone()],
                 };
 
-                result.extend(resolved);
+                CssValue::List(resolved)
             }
-            _ => result.push(val.clone()),
+            _ => val.clone(),
         }
     }
 
-    result
+    let doc = handle.get();
+
+    if let CssValue::List(list) = value {
+        let resolved = list.iter().map(|val| resolve(val, node, &*doc)).collect();
+        CssValue::List(resolved)
+    } else {
+        resolve(value, node, &*doc)
+    }
 }

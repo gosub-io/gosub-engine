@@ -858,4 +858,22 @@ mod tests {
             .clone()
             .matches(&[unit!(1.0, "px"), unit!(2.0, "px"), unit!(3.0, "px"), unit!(4.0, "px"),]));
     }
+
+    #[test]
+    fn test_font_var() {
+        let definitions = get_css_definitions();
+        let def = definitions.find_property("font-variation-settings").unwrap();
+
+        assert_true!(def.matches(&[str!("normal")]));
+
+        assert_true!(def.matches(&[str!("wgth"), CssValue::Number(100.0)]));
+
+        assert_true!(def.matches(&[
+            str!("wgth"),
+            CssValue::Number(100.0),
+            CssValue::Comma,
+            str!("ital"),
+            CssValue::Number(100.0)
+        ]));
+    }
 }
