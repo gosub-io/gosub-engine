@@ -12,7 +12,7 @@ gosub_html5 = { path = "../gosub_html5" }
 gosub_render_backend = { path = "../gosub_render_backend" }
 gosub_typeface = { path = "../gosub_typeface" }
 lazy_static = "1.5"
-anyhow = "1.0.87"
+anyhow = "1.0.89"
 regex = "1.10.6"
 colors-transform = "0.2.11"
 backtrace = "0.3.74"

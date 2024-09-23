@@ -11,7 +11,7 @@ gosub_svg = { path = "../gosub_svg" }
 vello = { git = "https://github.com/linebender/vello", rev = "f08c2a828848e75db144d6a082c5a0818b84f561" }
 image = "0.25.2"
 smallvec = "1.13.2"
-anyhow = "1.0.87"
+anyhow = "1.0.89"
 wgpu = "22.1.0"
 raw-window-handle = "0.6.2"
 futures = "0.3.30"
