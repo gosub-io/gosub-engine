@@ -7,7 +7,7 @@ license = "MIT"
 
 [dependencies]
 chardet = "0.2.4"
-thiserror = "1.0.61"
+thiserror = "1.0.64"
 url = "2.5.2"
 anyhow = "1.0.89"
 lazy_static = "1.5.0"
