@@ -45,10 +45,7 @@ impl Type {
             }
             syn::Type::Array(a) => Ok(Type {
                 reference: Reference::None,
-                ty: TypeT::Array(
-                    Box::new(Self::parse(&a.elem, allow_ref)?),
-                    Some(a.len.clone()),
-                ),
+                ty: TypeT::Array(Box::new(Self::parse(&a.elem, allow_ref)?), Some(a.len.clone())),
             }),
             syn::Type::Slice(s) => Ok(Type {
                 reference: Reference::None,

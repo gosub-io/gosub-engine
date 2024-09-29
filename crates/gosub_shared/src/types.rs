@@ -184,10 +184,7 @@ impl Point<f64> {
 }
 
 impl Size<u32> {
-    pub const ZERO: Self = Self {
-        width: 0,
-        height: 0,
-    };
+    pub const ZERO: Self = Self { width: 0, height: 0 };
 
     pub fn f64(&self) -> Size<f64> {
         Size::new(self.width as f64, self.height as f64)
@@ -322,21 +319,11 @@ impl Rect<u32> {
     };
 
     pub fn f64(&self) -> Rect<f64> {
-        Rect::new(
-            self.x1 as f64,
-            self.y1 as f64,
-            self.x2 as f64,
-            self.y2 as f64,
-        )
+        Rect::new(self.x1 as f64, self.y1 as f64, self.x2 as f64, self.y2 as f64)
     }
 
     pub fn f32(&self) -> Rect<f32> {
-        Rect::new(
-            self.x1 as f32,
-            self.y1 as f32,
-            self.x2 as f32,
-            self.y2 as f32,
-        )
+        Rect::new(self.x1 as f32, self.y1 as f32, self.x2 as f32, self.y2 as f32)
     }
 
     pub fn x1_f32(&self) -> f32 {

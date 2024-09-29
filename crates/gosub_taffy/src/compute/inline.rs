@@ -5,14 +5,13 @@ use parley::layout::{Alignment, PositionedLayoutItem};
 use parley::style::{FontSettings, FontStack, FontStyle, FontVariation, FontWeight, StyleProperty};
 use parley::{FontContext, InlineBox, LayoutContext};
 use taffy::{
-    AvailableSpace, CollapsibleMarginSet, Layout, LayoutInput, LayoutOutput, LayoutPartialTree,
-    NodeId, Point, Rect, RunMode, Size,
+    AvailableSpace, CollapsibleMarginSet, Layout, LayoutInput, LayoutOutput, LayoutPartialTree, NodeId, Point, Rect,
+    RunMode, Size,
 };
 
 use gosub_render_backend::geo;
-use gosub_render_backend::layout::{
-    CssProperty, CssValue, Decoration, DecorationStyle, HasTextLayout, LayoutTree, Node,
-};
+use gosub_render_backend::layout::{Decoration, DecorationStyle, HasTextLayout, LayoutTree, Node};
+use gosub_shared::traits::css3::{CssProperty, CssValue};
 use gosub_typeface::font::Glyph;
 
 use crate::text::{Font, TextLayout};
@@ -63,10 +62,7 @@ pub fn compute_inline_layout<LT: LayoutTree<TaffyLayouter>>(
                 .map(|s| s.to_string())
                 .unwrap_or("sans-serif".to_string());
 
-            let font_size = node
-                .get_property("font-size")
-                .map(|s| s.unit_to_px())
-                .unwrap_or(16.0);
+            let font_size = node.get_property("font-size").map(|s| s.unit_to_px()).unwrap_or(16.0);
 
             let alignment = parse_alignment(node);
 
@@ -142,10 +138,7 @@ pub fn compute_inline_layout<LT: LayoutTree<TaffyLayouter>>(
                         decoration_color = c;
                     }
 
-                    if let Some(o) = node
-                        .get_property("text-underline-offset")
-                        .map(|s| s.unit_to_px())
-                    {
+                    if let Some(o) = node.get_property("text-underline-offset").map(|s| s.unit_to_px()) {
                         underline_offset = o;
                     }
                 }
@@ -221,9 +214,7 @@ pub fn compute_inline_layout<LT: LayoutTree<TaffyLayouter>>(
     let mut align = Alignment::default();
 
     if let Some(default) = text_node_data.first() {
-        builder.push_default(&StyleProperty::FontStack(FontStack::Source(
-            &default.font_family,
-        )));
+        builder.push_default(&StyleProperty::FontStack(FontStack::Source(&default.font_family)));
         builder.push_default(&StyleProperty::FontSize(default.font_size));
         if let Some(line_height) = default.line_height {
             builder.push_default(&StyleProperty::LineHeight(line_height));
@@ -236,31 +227,23 @@ pub fn compute_inline_layout<LT: LayoutTree<TaffyLayouter>>(
         }
         builder.push_default(&StyleProperty::FontWeight(default.font_weight));
         builder.push_default(&StyleProperty::FontStyle(default.font_style));
-        builder.push_default(&StyleProperty::FontVariations(FontSettings::List(
-            &default.var_axes,
-        )));
+        builder.push_default(&StyleProperty::FontVariations(FontSettings::List(&default.var_axes)));
 
         if default.decoration.overline && default.decoration.underline {
             builder.push_default(&StyleProperty::Underline(true));
 
-            builder.push_default(&StyleProperty::UnderlineSize(Some(
-                default.decoration.width * 2.0,
-            )));
+            builder.push_default(&StyleProperty::UnderlineSize(Some(default.decoration.width * 2.0)));
             builder.push_default(&StyleProperty::UnderlineOffset(Some(
                 default.decoration.underline_offset,
             )));
         } else if default.decoration.overline {
             builder.push_default(&StyleProperty::Underline(true));
 
-            builder.push_default(&StyleProperty::UnderlineSize(Some(
-                default.decoration.width,
-            )));
+            builder.push_default(&StyleProperty::UnderlineSize(Some(default.decoration.width)));
         } else if default.decoration.underline {
             builder.push_default(&StyleProperty::Underline(true));
 
-            builder.push_default(&StyleProperty::UnderlineSize(Some(
-                default.decoration.width,
-            )));
+            builder.push_default(&StyleProperty::UnderlineSize(Some(default.decoration.width)));
             builder.push_default(&StyleProperty::UnderlineOffset(Some(
                 default.decoration.underline_offset,
             )));
@@ -272,43 +255,23 @@ pub fn compute_inline_layout<LT: LayoutTree<TaffyLayouter>>(
 
         let mut from = default.to;
 
-        for (idx, text_node) in text_node_data
-            .get(1..)
-            .unwrap_or_default()
-            .iter()
-            .enumerate()
-        {
+        for (idx, text_node) in text_node_data.get(1..).unwrap_or_default().iter().enumerate() {
             builder.push(
                 &StyleProperty::FontStack(FontStack::Source(&text_node.font_family)),
                 from..text_node.to,
             );
-            builder.push(
-                &StyleProperty::FontSize(text_node.font_size),
-                from..text_node.to,
-            );
+            builder.push(&StyleProperty::FontSize(text_node.font_size), from..text_node.to);
             if let Some(line_height) = text_node.line_height {
                 builder.push(&StyleProperty::LineHeight(line_height), from..text_node.to);
             }
             if let Some(word_spacing) = text_node.word_spacing {
-                builder.push(
-                    &StyleProperty::WordSpacing(word_spacing),
-                    from..text_node.to,
-                );
+                builder.push(&StyleProperty::WordSpacing(word_spacing), from..text_node.to);
             }
             if let Some(letter_spacing) = text_node.letter_spacing {
-                builder.push(
-                    &StyleProperty::LetterSpacing(letter_spacing),
-                    from..text_node.to,
-                );
+                builder.push(&StyleProperty::LetterSpacing(letter_spacing), from..text_node.to);
             }
-            builder.push(
-                &StyleProperty::FontWeight(text_node.font_weight),
-                from..text_node.to,
-            );
-            builder.push(
-                &StyleProperty::FontStyle(text_node.font_style),
-                from..text_node.to,
-            );
+            builder.push(&StyleProperty::FontWeight(text_node.font_weight), from..text_node.to);
+            builder.push(&StyleProperty::FontStyle(text_node.font_style), from..text_node.to);
             builder.push(
                 &StyleProperty::FontVariations(FontSettings::List(&text_node.var_axes)),
                 from..text_node.to,
@@ -324,9 +287,7 @@ pub fn compute_inline_layout<LT: LayoutTree<TaffyLayouter>>(
                     from..text_node.to,
                 );
                 builder.push(
-                    &StyleProperty::UnderlineOffset(Some(
-                        default.decoration.underline_offset + 4.0,
-                    )),
+                    &StyleProperty::UnderlineOffset(Some(default.decoration.underline_offset + 4.0)),
                     from..text_node.to,
                 );
             } else if default.decoration.overline {
@@ -336,10 +297,7 @@ pub fn compute_inline_layout<LT: LayoutTree<TaffyLayouter>>(
                     &StyleProperty::UnderlineSize(Some(default.decoration.width)),
                     from..text_node.to,
                 );
-                builder.push(
-                    &StyleProperty::UnderlineOffset(Some(4.0)),
-                    from..text_node.to,
-                );
+                builder.push(&StyleProperty::UnderlineOffset(Some(4.0)), from..text_node.to);
             } else if default.decoration.underline {
                 builder.push(&StyleProperty::Underline(true), from..text_node.to);
 
@@ -354,9 +312,7 @@ pub fn compute_inline_layout<LT: LayoutTree<TaffyLayouter>>(
             }
 
             builder.push(
-                &StyleProperty::Underline(
-                    default.decoration.underline || default.decoration.overline,
-                ),
+                &StyleProperty::Underline(default.decoration.underline || default.decoration.overline),
                 from..text_node.to,
             );
 

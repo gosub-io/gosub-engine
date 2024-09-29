@@ -14,8 +14,8 @@ impl Primitive {
     pub(crate) fn get(ty: &str) -> Self {
         let ty = ty.replace('&', "");
         match &*ty {
-            "i8" | "u8" | "i16" | "u16" | "i32" | "u32" | "i64" | "u64" | "i128" | "u128"
-            | "isize" | "usize" | "f32" | "f64" => Primitive::Number,
+            "i8" | "u8" | "i16" | "u16" | "i32" | "u32" | "i64" | "u64" | "i128" | "u128" | "isize" | "usize"
+            | "f32" | "f64" => Primitive::Number,
             "String" | "&str" => Primitive::String,
             "bool" => Primitive::Boolean,
             "()" => Primitive::UndefinedNull,

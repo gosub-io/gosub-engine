@@ -61,12 +61,7 @@ impl std::str::FromStr for Engine {
 struct GlobalOpts {
     #[clap(short = 'e', long = "engine", global = true, default_value = "sqlite")]
     engine: Engine,
-    #[clap(
-        short = 'p',
-        long = "path",
-        global = true,
-        default_value = "settings.db"
-    )]
+    #[clap(short = 'p', long = "path", global = true, default_value = "settings.db")]
     path: String,
 }
 

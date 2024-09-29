@@ -5,16 +5,34 @@ use url::Url;
 use gosub_render_backend::layout::{LayoutTree, Layouter};
 use gosub_render_backend::{NodeDesc, RenderBackend};
 use gosub_renderer::draw::SceneDrawer;
+use gosub_shared::traits::css3::CssSystem;
+use gosub_shared::traits::document::Document;
+use gosub_shared::traits::html5::Html5Parser;
 use gosub_shared::types::Result;
 
-pub struct Tabs<D: SceneDrawer<B, L, LT>, B: RenderBackend, L: Layouter, LT: LayoutTree<L>> {
-    pub tabs: SlotMap<DefaultKey, Tab<D, B, L, LT>>,
+pub struct Tabs<
+    D: SceneDrawer<B, L, LT, Doc, C>,
+    B: RenderBackend,
+    L: Layouter,
+    LT: LayoutTree<L>,
+    Doc: Document<C>,
+    C: CssSystem,
+> {
+    pub tabs: SlotMap<DefaultKey, Tab<D, B, L, LT, Doc, C>>,
     pub active: TabID,
     _marker: std::marker::PhantomData<(B, L, LT)>,
 }
 
-impl<D: SceneDrawer<B, L, LT>, L: Layouter, LT: LayoutTree<L>, B: RenderBackend> Tabs<D, B, L, LT> {
-    pub fn new(initial: Tab<D, B, L, LT>) -> Self {
+impl<
+        D: SceneDrawer<B, L, LT, Doc, C>,
+        L: Layouter,
+        LT: LayoutTree<L>,
+        B: RenderBackend,
+        Doc: Document<C>,
+        C: CssSystem,
+    > Tabs<D, B, L, LT, Doc, C>
+{
+    pub fn new(initial: Tab<D, B, L, LT, Doc, C>) -> Self {
         let mut tabs = SlotMap::new();
         let active = TabID(tabs.insert(initial));
 
@@ -25,7 +43,7 @@ impl<D: SceneDrawer<B, L, LT>, L: Layouter, LT: LayoutTree<L>, B: RenderBackend>
         }
     }
 
-    pub fn add_tab(&mut self, tab: Tab<D, B, L, LT>) -> TabID {
+    pub fn add_tab(&mut self, tab: Tab<D, B, L, LT, Doc, C>) -> TabID {
         TabID(self.tabs.insert(tab))
     }
 
@@ -37,12 +55,12 @@ impl<D: SceneDrawer<B, L, LT>, L: Layouter, LT: LayoutTree<L>, B: RenderBackend>
         self.active = id;
     }
 
-    pub fn get_current_tab(&mut self) -> Option<&mut Tab<D, B, L, LT>> {
+    pub fn get_current_tab(&mut self) -> Option<&mut Tab<D, B, L, LT, Doc, C>> {
         self.tabs.get_mut(self.active.0)
     }
 
-    pub(crate) fn from_url(url: Url, layouter: L, debug: bool) -> Result<Self> {
-        let tab = Tab::from_url(url, layouter, debug)?;
+    pub(crate) fn from_url<P: Html5Parser<C, Document = Doc>>(url: Url, layouter: L, debug: bool) -> Result<Self> {
+        let tab = Tab::from_url::<P>(url, layouter, debug)?;
 
         Ok(Self::new(tab))
     }
@@ -66,14 +84,29 @@ impl<D: SceneDrawer<B, L, LT>, L: Layouter, LT: LayoutTree<L>, B: RenderBackend>
     }
 }
 
-pub struct Tab<D: SceneDrawer<B, L, LT>, B: RenderBackend, L: Layouter, LT: LayoutTree<L>> {
+pub struct Tab<
+    D: SceneDrawer<B, L, LT, Doc, C>,
+    B: RenderBackend,
+    L: Layouter,
+    LT: LayoutTree<L>,
+    Doc: Document<C>,
+    C: CssSystem,
+> {
     pub title: String,
     pub url: Url,
     pub data: D,
-    _marker: std::marker::PhantomData<(B, L, LT)>,
+    _marker: std::marker::PhantomData<(B, L, LT, Doc, C)>,
 }
 
-impl<D: SceneDrawer<B, L, LT>, B: RenderBackend, L: Layouter, LT: LayoutTree<L>> Tab<D, B, L, LT> {
+impl<
+        D: SceneDrawer<B, L, LT, Doc, C>,
+        B: RenderBackend,
+        L: Layouter,
+        LT: LayoutTree<L>,
+        Doc: Document<C>,
+        C: CssSystem,
+    > Tab<D, B, L, LT, Doc, C>
+{
     pub fn new(title: String, url: Url, data: D) -> Self {
         Self {
             title,
@@ -83,8 +116,8 @@ impl<D: SceneDrawer<B, L, LT>, B: RenderBackend, L: Layouter, LT: LayoutTree<L>>
         }
     }
 
-    pub fn from_url(url: Url, layouter: L, debug: bool) -> Result<Self> {
-        let data = D::from_url(url.clone(), layouter, debug)?;
+    pub fn from_url<P: Html5Parser<C, Document = Doc>>(url: Url, layouter: L, debug: bool) -> Result<Self> {
+        let data = D::from_url::<P>(url.clone(), layouter, debug)?;
 
         Ok(Self {
             title: url.as_str().to_string(),

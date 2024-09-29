@@ -1,9 +1,10 @@
 use crate::node::{Node, NodeType};
 use crate::tokenizer::TokenType;
-use crate::{Css3, Error};
+use crate::Css3;
+use gosub_shared::errors::{CssError, CssResult};
 
 impl Css3<'_> {
-    pub fn parse_at_rule_import_prelude(&mut self) -> Result<Node, Error> {
+    pub fn parse_at_rule_import_prelude(&mut self) -> CssResult<Node> {
         log::trace!("parse_at_rule_import");
 
         let mut children = Vec::new();
@@ -13,19 +14,19 @@ impl Css3<'_> {
         let t = self.consume_any()?;
         match t.token_type {
             TokenType::QuotedString(value) => {
-                children.push(Node::new(NodeType::String { value }, loc.clone()));
+                children.push(Node::new(NodeType::String { value }, loc));
             }
             TokenType::Url(url) => {
-                children.push(Node::new(NodeType::Url { url }, loc.clone()));
+                children.push(Node::new(NodeType::Url { url }, loc));
             }
             TokenType::Function(name) if name.eq_ignore_ascii_case("url") => {
                 self.tokenizer.reconsume();
                 children.push(self.parse_url()?);
             }
             _ => {
-                return Err(Error::new(
-                    "Expected string or url()".to_string(),
-                    t.location.clone(),
+                return Err(CssError::with_location(
+                    "Expected string or url()",
+                    self.tokenizer.current_location(),
                 ));
             }
         }
@@ -35,7 +36,7 @@ impl Css3<'_> {
         let t = self.tokenizer.lookahead_sc(0);
         match t.token_type {
             TokenType::Ident(value) if value.eq_ignore_ascii_case("layer") => {
-                children.push(Node::new(NodeType::Ident { value }, t.location.clone()));
+                children.push(Node::new(NodeType::Ident { value }, t.location));
             }
             TokenType::Function(name) if name.eq_ignore_ascii_case("layer") => {
                 children.push(self.parse_function()?);
@@ -69,6 +70,6 @@ impl Css3<'_> {
         //     _ => {}
         // }
 
-        Ok(Node::new(NodeType::ImportList { children }, loc.clone()))
+        Ok(Node::new(NodeType::ImportList { children }, loc))
     }
 }

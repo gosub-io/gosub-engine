@@ -1,14 +1,15 @@
 use crate::node::{Node, NodeType};
 use crate::tokenizer::TokenType;
-use crate::{Css3, Error};
+use crate::Css3;
+use gosub_shared::errors::CssResult;
 
 impl Css3<'_> {
-    fn parse_function_arguments(&mut self) -> Result<Vec<Node>, Error> {
+    fn parse_function_arguments(&mut self) -> CssResult<Vec<Node>> {
         log::trace!("parse_function_arguments");
         self.parse_value_sequence()
     }
 
-    pub fn parse_function(&mut self) -> Result<Node, Error> {
+    pub fn parse_function(&mut self) -> CssResult<Node> {
         log::trace!("parse_function");
 
         let loc = self.tokenizer.current_location();

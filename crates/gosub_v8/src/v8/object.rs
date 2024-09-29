@@ -2,19 +2,14 @@ use core::fmt::Display;
 use std::ffi::c_void;
 
 use v8::{
-    AccessorConfiguration, External, HandleScope, Local, Name, Object, PropertyCallbackArguments,
-    ReturnValue, Value,
+    AccessorConfiguration, External, HandleScope, Local, Name, Object, PropertyCallbackArguments, ReturnValue, Value,
 };
 
 use gosub_shared::types::Result;
-use gosub_webexecutor::js::{
-    JSError, JSGetterCallback, JSObject, JSRuntime, JSSetterCallback, JSValue,
-};
+use gosub_webexecutor::js::{JSError, JSGetterCallback, JSObject, JSRuntime, JSSetterCallback, JSValue};
 use gosub_webexecutor::Error;
 
-use crate::{
-    ctx_from, FromContext, V8Context, V8Ctx, V8Engine, V8Function, V8FunctionVariadic, V8Value,
-};
+use crate::{ctx_from, FromContext, V8Context, V8Ctx, V8Engine, V8Function, V8FunctionVariadic, V8Value};
 
 pub struct V8Object<'a> {
     pub ctx: V8Context<'a>,
@@ -85,15 +80,8 @@ impl<'a> JSObject for V8Object<'a> {
             return Err(Error::JS(JSError::Generic("failed to create a string".to_owned())).into());
         };
 
-        if self
-            .value
-            .set(self.ctx.scope(), name.into(), value.value)
-            .is_none()
-        {
-            Err(Error::JS(JSError::Generic(
-                "failed to set a property in an object".to_owned(),
-            ))
-            .into())
+        if self.value.set(self.ctx.scope(), name.into(), value.value).is_none() {
+            Err(Error::JS(JSError::Generic("failed to set a property in an object".to_owned())).into())
         } else {
             Ok(())
         }
@@ -108,12 +96,7 @@ impl<'a> JSObject for V8Object<'a> {
 
         self.value
             .get(scope, name.into())
-            .ok_or_else(|| {
-                Error::JS(JSError::Generic(
-                    "failed to get a property from an object".to_owned(),
-                ))
-                .into()
-            })
+            .ok_or_else(|| Error::JS(JSError::Generic("failed to get a property from an object".to_owned())).into())
             .map(|value| V8Value::from_value(self.ctx.clone(), value))
     }
 
@@ -125,9 +108,7 @@ impl<'a> JSObject for V8Object<'a> {
         let func = self.get_property(name)?.value;
 
         if !func.is_function() {
-            return Err(
-                Error::JS(JSError::Generic("property is not a function".to_owned())).into(),
-            );
+            return Err(Error::JS(JSError::Generic("property is not a function".to_owned())).into());
         }
 
         let function = Local::<v8::Function>::try_from(func).unwrap();
@@ -152,9 +133,7 @@ impl<'a> JSObject for V8Object<'a> {
         };
 
         if !func.function.is_function() {
-            return Err(
-                Error::JS(JSError::Generic("property is not a function".to_owned())).into(),
-            );
+            return Err(Error::JS(JSError::Generic("property is not a function".to_owned())).into());
         }
 
         if self
@@ -162,10 +141,7 @@ impl<'a> JSObject for V8Object<'a> {
             .set(self.ctx.scope(), name.into(), func.function.into())
             .is_none()
         {
-            Err(Error::JS(JSError::Generic(
-                "failed to set a property in an object".to_owned(),
-            ))
-            .into())
+            Err(Error::JS(JSError::Generic("failed to set a property in an object".to_owned())).into())
         } else {
             Ok(())
         }
@@ -177,9 +153,7 @@ impl<'a> JSObject for V8Object<'a> {
         };
 
         if !func.function.is_function() {
-            return Err(
-                Error::JS(JSError::Generic("property is not a function".to_owned())).into(),
-            );
+            return Err(Error::JS(JSError::Generic("property is not a function".to_owned())).into());
         }
 
         if self
@@ -187,10 +161,7 @@ impl<'a> JSObject for V8Object<'a> {
             .set(self.ctx.scope(), name.into(), func.function.into())
             .is_none()
         {
-            Err(Error::JS(JSError::Generic(
-                "failed to set a property in an object".to_owned(),
-            ))
-            .into())
+            Err(Error::JS(JSError::Generic("failed to set a property in an object".to_owned())).into())
         } else {
             Ok(())
         }
@@ -216,10 +187,7 @@ impl<'a> JSObject for V8Object<'a> {
         let data = External::new(scope, Box::into_raw(gs) as *mut c_void);
 
         let config = AccessorConfiguration::new(
-            |scope: &mut HandleScope,
-             _name: Local<Name>,
-             args: PropertyCallbackArguments,
-             mut rv: ReturnValue| {
+            |scope: &mut HandleScope, _name: Local<Name>, args: PropertyCallbackArguments, mut rv: ReturnValue| {
                 let external = match Local::<External>::try_from(args.data()) {
                     Ok(external) => external,
                     Err(e) => {
@@ -322,8 +290,7 @@ impl<'a> JSObject for V8Object<'a> {
         )
         .data(Local::from(data));
 
-        self.value
-            .set_accessor_with_configuration(scope, name.into(), config);
+        self.value.set_accessor_with_configuration(scope, name.into(), config);
 
         Ok(())
     }
@@ -343,8 +310,8 @@ mod tests {
     use serde_json::to_string;
 
     use gosub_webexecutor::js::{
-        IntoJSValue, JSFunction, JSFunctionCallBack, JSFunctionCallBackVariadic,
-        JSFunctionVariadic, VariadicArgsInternal,
+        IntoJSValue, JSFunction, JSFunctionCallBack, JSFunctionCallBackVariadic, JSFunctionVariadic,
+        VariadicArgsInternal,
     };
 
     use crate::v8::{V8FunctionCallBack, V8FunctionCallBackVariadic};

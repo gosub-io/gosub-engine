@@ -58,11 +58,7 @@ impl DnsEntry {
 
     /// Returns true if the dns entry has expired
     pub fn expired(&self) -> bool {
-        self.expires
-            < SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs()
+        self.expires < SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()
     }
 
     #[allow(dead_code)]

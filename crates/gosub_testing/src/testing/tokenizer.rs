@@ -1,12 +1,10 @@
 use super::FIXTURE_ROOT;
+use gosub_html5::parser::errors::ErrorLogger;
 use gosub_html5::tokenizer::ParserData;
-use gosub_html5::{
-    error_logger::ErrorLogger,
-    tokenizer::{
-        state::State as TokenState,
-        token::Token,
-        {Options, Tokenizer},
-    },
+use gosub_html5::tokenizer::{
+    state::State as TokenState,
+    token::Token,
+    {Options, Tokenizer},
 };
 use gosub_shared::byte_stream::{ByteStream, Config, Encoding, Location};
 use gosub_shared::types::Result;
@@ -171,12 +169,7 @@ where
                 _ => return Err(Error::invalid_value(Unexpected::Str(kind), &"DOCTYPE")),
             },
 
-            _ => {
-                return Err(Error::invalid_length(
-                    values.len(),
-                    &"an array of length 2, 3, 4 or 5",
-                ))
-            }
+            _ => return Err(Error::invalid_length(values.len(), &"an array of length 2, 3, 4 or 5")),
         };
 
         output.push(token);
@@ -225,8 +218,6 @@ impl TestSpec {
     }
 
     pub fn assert_valid(&self) {
-        println!("Test: {}", self.description);
-
         for mut builder in self.builders() {
             let mut tokenizer = builder.build();
 
@@ -289,10 +280,7 @@ impl TestSpec {
             if actual.message == expected.code
                 && (actual.location.line != expected.line || actual.location.column != expected.col)
             {
-                panic!(
-                    "[{}]: wanted {:?}, got {:?}",
-                    self.description, expected, actual
-                );
+                panic!("[{}]: wanted {:?}, got {:?}", self.description, expected, actual);
             }
         }
 
@@ -315,7 +303,7 @@ impl TestSpec {
                 location,
             } => Token::Comment {
                 comment: escape(value),
-                location: location.clone(),
+                location: *location,
             },
 
             Token::DocType {
@@ -329,7 +317,7 @@ impl TestSpec {
                 force_quirks: *force_quirks,
                 pub_identifier: pub_identifier.as_ref().map(Into::into),
                 sys_identifier: sys_identifier.as_ref().map(Into::into),
-                location: location.clone(),
+                location: *location,
             },
 
             Token::EndTag {
@@ -339,12 +327,10 @@ impl TestSpec {
             } => Token::EndTag {
                 name: escape(name),
                 is_self_closing: *is_self_closing,
-                location: location.clone(),
+                location: *location,
             },
 
-            Token::Eof { location } => Token::Eof {
-                location: location.clone(),
-            },
+            Token::Eof { location } => Token::Eof { location: *location },
 
             Token::StartTag {
                 name,
@@ -355,15 +341,12 @@ impl TestSpec {
                 name: escape(name),
                 is_self_closing: *is_self_closing,
                 attributes: attributes.clone(),
-                location: location.clone(),
+                location: *location,
             },
 
-            Token::Text {
-                text: value,
-                location,
-            } => Token::Text {
+            Token::Text { text: value, location } => Token::Text {
                 text: escape(value),
-                location: location.clone(),
+                location: *location,
             },
         }
     }
@@ -394,9 +377,7 @@ pub fn from_utf16_lossy(input: &str) -> String {
         let n = u16::from_str_radix(&cap[1], 16).unwrap();
         // There are UTF-16 characters that the following will not decode into UTF-8, so we might
         // be dropping characters when a DecodeUtf16Error error is encountered.
-        std::char::decode_utf16([n])
-            .filter_map(|r| r.ok())
-            .collect::<String>()
+        std::char::decode_utf16([n]).filter_map(|r| r.ok()).collect::<String>()
     })
     .to_string()
 }

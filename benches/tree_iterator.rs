@@ -1,10 +1,13 @@
 use std::fs::File;
 
 use criterion::{criterion_group, criterion_main, Criterion};
-use gosub_html5::node::NodeId;
-use gosub_html5::parser::document::{Document, DocumentBuilder, TreeIterator};
+use gosub_css3::system::Css3System;
+use gosub_html5::document::builder::DocumentBuilderImpl;
+use gosub_html5::document::document_impl::TreeIterator;
 use gosub_html5::parser::Html5Parser;
 use gosub_shared::byte_stream::{ByteStream, Encoding};
+use gosub_shared::node::NodeId;
+use gosub_shared::traits::document::DocumentBuilder;
 
 fn wikipedia_main_page(c: &mut Criterion) {
     // Criterion can report inconsistent results from run to run in some cases.  We attempt to
@@ -17,13 +20,12 @@ fn wikipedia_main_page(c: &mut Criterion) {
     let mut stream = ByteStream::new(Encoding::UTF8, None);
     let _ = stream.read_from_file(html_file);
 
-    let main_document = DocumentBuilder::new_document(None);
-    let document = Document::clone(&main_document);
-    let _ = Html5Parser::parse_document(&mut stream, document, None);
+    let doc_handle = <DocumentBuilderImpl as DocumentBuilder<Css3System>>::new_document(None);
+    let _ = Html5Parser::parse_document(&mut stream, doc_handle.clone(), None);
 
     group.bench_function("wikipedia main page", |b| {
         b.iter(|| {
-            let tree_iterator = TreeIterator::new(&main_document);
+            let tree_iterator = TreeIterator::new(doc_handle.clone());
             let _ = tree_iterator.collect::<Vec<NodeId>>();
         })
     });
@@ -43,13 +45,12 @@ fn stackoverflow_home(c: &mut Criterion) {
     let mut bytestream = ByteStream::new(Encoding::UTF8, None);
     let _ = bytestream.read_from_file(html_file);
 
-    let main_document = DocumentBuilder::new_document(None);
-    let document = Document::clone(&main_document);
-    let _ = Html5Parser::parse_document(&mut bytestream, document, None);
+    let doc_handle = <DocumentBuilderImpl as DocumentBuilder<Css3System>>::new_document(None);
+    let _ = Html5Parser::parse_document(&mut bytestream, doc_handle.clone(), None);
 
     group.bench_function("stackoverflow home", |b| {
         b.iter(|| {
-            let tree_iterator = TreeIterator::new(&main_document);
+            let tree_iterator = TreeIterator::new(doc_handle.clone());
             let _ = tree_iterator.collect::<Vec<NodeId>>();
         })
     });

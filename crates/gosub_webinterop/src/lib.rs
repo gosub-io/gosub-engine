@@ -37,9 +37,7 @@ pub fn web_interop(_: TokenStream, item: TokenStream) -> TokenStream {
     for field in &mut input.fields {
         if let Some(property) = FieldProperty::parse(&mut field.attrs) {
             let f = Field {
-                name: property
-                    .rename
-                    .unwrap_or(field.ident.as_ref().unwrap().to_string()),
+                name: property.rename.unwrap_or(field.ident.as_ref().unwrap().to_string()),
                 executor: property.executor,
                 ty: field.ty.clone(),
                 ident: field.ident.as_ref().unwrap().clone(),
@@ -82,8 +80,7 @@ pub fn web_fns(attr: TokenStream, item: TokenStream) -> TokenStream {
                 name,
                 arguments: Vec::with_capacity(args.len()), // we don't know if the first is self, so no args.len() - 1
                 self_type: SelfType::NoSelf,
-                return_type: ReturnType::parse(&method.sig.output)
-                    .expect("failed to parse return type"),
+                return_type: ReturnType::parse(&method.sig.output).expect("failed to parse return type"),
                 executor: property.executor,
                 generics: GenericsMatcher::get_matchers(property.generics, method),
                 func_generics: method.sig.generics.clone(),
@@ -105,8 +102,7 @@ pub fn web_fns(attr: TokenStream, item: TokenStream) -> TokenStream {
             let mut index = 0;
             for arg in args {
                 if let FnArg::Typed(arg) = arg {
-                    let arg =
-                        Arg::parse(&arg.ty, index, &func.generics).expect("failed to parse arg");
+                    let arg = Arg::parse(&arg.ty, index, &func.generics).expect("failed to parse arg");
                     if arg.variant == ArgVariant::Variadic {
                         func.variadic = true;
                     } else if arg.variant == ArgVariant::Context {
@@ -148,10 +144,7 @@ pub fn web_fns(attr: TokenStream, item: TokenStream) -> TokenStream {
         }
     }
 
-    let name = Ident::new(
-        &input.self_ty.to_token_stream().to_string(),
-        input.self_ty.span(),
-    );
+    let name = Ident::new(&input.self_ty.to_token_stream().to_string(), input.self_ty.span());
 
     let options = parse_attrs(attr);
 

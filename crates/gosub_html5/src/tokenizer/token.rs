@@ -55,10 +55,7 @@ impl Token {
             if value.chars().any(|ch| ch == '\0') {
                 found += 1;
             }
-            if value
-                .chars()
-                .any(|ch| !ch.is_ascii_whitespace() && ch != '\0')
-            {
+            if value.chars().any(|ch| !ch.is_ascii_whitespace() && ch != '\0') {
                 found += 1;
             }
             found > 1
@@ -79,12 +76,12 @@ impl Token {
 
     pub fn get_location(&self) -> Location {
         match self {
-            Token::DocType { location, .. } => location.clone(),
-            Token::StartTag { location, .. } => location.clone(),
-            Token::EndTag { location, .. } => location.clone(),
-            Token::Comment { location, .. } => location.clone(),
-            Token::Text { location, .. } => location.clone(),
-            Token::Eof { location, .. } => location.clone(),
+            Token::DocType { location, .. } => *location,
+            Token::StartTag { location, .. } => *location,
+            Token::EndTag { location, .. } => *location,
+            Token::Comment { location, .. } => *location,
+            Token::Text { location, .. } => *location,
+            Token::Eof { location, .. } => *location,
         }
     }
 
@@ -182,9 +179,7 @@ impl std::fmt::Display for Token {
                 write!(f, "{result}")
             }
             Token::EndTag {
-                name,
-                is_self_closing,
-                ..
+                name, is_self_closing, ..
             } => write!(f, "</{}{}>", name, if *is_self_closing { "/" } else { "" }),
             Token::Eof { .. } => write!(f, "EOF"),
         }
@@ -239,10 +234,7 @@ mod tests {
             sys_identifier: Some("bar".to_string()),
             location: Location::default(),
         };
-        assert_eq!(
-            format!("{token}"),
-            r#"<!DOCTYPE html PUBLIC "foo" SYSTEM "bar" />"#
-        );
+        assert_eq!(format!("{token}"), r#"<!DOCTYPE html PUBLIC "foo" SYSTEM "bar" />"#);
     }
 
     #[test]

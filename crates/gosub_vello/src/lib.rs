@@ -92,12 +92,9 @@ impl RenderBackend for VelloBackend {
         data: &mut Self::WindowData<'_>,
         size: SizeU32,
     ) -> Result<Self::ActiveWindowData<'a>> {
-        let surface = data.adapter.create_surface(
-            handle,
-            size.width,
-            size.height,
-            wgpu::PresentMode::AutoVsync,
-        )?;
+        let surface = data
+            .adapter
+            .create_surface(handle, size.width, size.height, wgpu::PresentMode::AutoVsync)?;
 
         let renderer = data.adapter.create_renderer(Some(surface.config.format))?;
 
@@ -115,10 +112,7 @@ impl RenderBackend for VelloBackend {
         Ok(())
     }
 
-    fn create_window_data<'a>(
-        &mut self,
-        _handle: impl WindowHandle,
-    ) -> Result<Self::WindowData<'a>> {
+    fn create_window_data<'a>(&mut self, _handle: impl WindowHandle) -> Result<Self::WindowData<'a>> {
         let renderer = futures::executor::block_on(Renderer::new(RendererOptions::default()))?;
 
         let adapter = renderer.instance_adapter;
@@ -138,11 +132,9 @@ impl RenderBackend for VelloBackend {
         active_window_data: &mut Self::ActiveWindowData<'a>,
         size: SizeU32,
     ) -> Result<()> {
-        window_data.adapter.resize_surface(
-            &mut active_window_data.surface,
-            size.width,
-            size.height,
-        );
+        window_data
+            .adapter
+            .resize_surface(&mut active_window_data.surface, size.width, size.height);
 
         Ok(())
     }

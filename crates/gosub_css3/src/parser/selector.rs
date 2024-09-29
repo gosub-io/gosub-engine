@@ -1,9 +1,11 @@
 use crate::node::{Node, NodeType};
 use crate::tokenizer::TokenType;
-use crate::{Css3, Error};
+use crate::Css3;
+use gosub_shared::errors::CssError;
+use gosub_shared::errors::CssResult;
 
 impl Css3<'_> {
-    fn parse_attribute_operator(&mut self) -> Result<Node, Error> {
+    fn parse_attribute_operator(&mut self) -> CssResult<Node> {
         log::trace!("parse_attribute_operator");
 
         let mut value = String::new();
@@ -17,8 +19,8 @@ impl Css3<'_> {
             _ => {
                 self.tokenizer.reconsume();
 
-                return Err(Error::new(
-                    format!("Expected attribute operator, got {:?}", c),
+                return Err(CssError::with_location(
+                    format!("Expected attribute operator, got {:?}", c).as_str(),
                     loc,
                 ));
             }
@@ -32,7 +34,7 @@ impl Css3<'_> {
         Ok(Node::new(NodeType::Operator(value), loc))
     }
 
-    fn parse_class_selector(&mut self) -> Result<Node, Error> {
+    fn parse_class_selector(&mut self) -> CssResult<Node> {
         log::trace!("parse_class_selector");
 
         let loc = self.tokenizer.current_location();
@@ -44,7 +46,7 @@ impl Css3<'_> {
         Ok(Node::new(NodeType::ClassSelector { value }, loc))
     }
 
-    fn parse_nesting_selector(&mut self) -> Result<Node, Error> {
+    fn parse_nesting_selector(&mut self) -> CssResult<Node> {
         log::trace!("parse_nesting_selector");
 
         let loc = self.tokenizer.current_location();
@@ -54,7 +56,7 @@ impl Css3<'_> {
         Ok(Node::new(NodeType::NestingSelector, loc))
     }
 
-    fn parse_type_selector_ident_or_asterisk(&mut self) -> Result<String, Error> {
+    fn parse_type_selector_ident_or_asterisk(&mut self) -> CssResult<String> {
         let t = self.tokenizer.lookahead(0);
         match t.token_type {
             TokenType::Ident(value) => {
@@ -65,14 +67,14 @@ impl Css3<'_> {
                 self.tokenizer.consume();
                 Ok("*".to_string())
             }
-            _ => Err(Error::new(
-                format!("Unexpected token {:?}", t),
+            _ => Err(CssError::with_location(
+                format!("Unexpected token {:?}", t).as_str(),
                 self.tokenizer.current_location(),
             )),
         }
     }
 
-    fn parse_type_selector(&mut self) -> Result<Node, Error> {
+    fn parse_type_selector(&mut self) -> CssResult<Node> {
         log::trace!("parse_type_selector");
 
         let loc = self.tokenizer.current_location();
@@ -108,7 +110,7 @@ impl Css3<'_> {
         ))
     }
 
-    fn parse_attribute_selector(&mut self) -> Result<Node, Error> {
+    fn parse_attribute_selector(&mut self) -> CssResult<Node> {
         log::trace!("parse_attribute_selector");
 
         let loc = self.tokenizer.current_location();
@@ -137,8 +139,8 @@ impl Css3<'_> {
                 } else if t.is_ident() {
                     value = self.consume_any_ident()?;
                 } else {
-                    return Err(Error::new(
-                        format!("Unexpected token {:?}", t),
+                    return Err(CssError::with_location(
+                        format!("Unexpected token {:?}", t).as_str(),
                         self.tokenizer.current_location(),
                     ));
                 }
@@ -167,7 +169,7 @@ impl Css3<'_> {
         ))
     }
 
-    fn parse_id_selector(&mut self) -> Result<Node, Error> {
+    fn parse_id_selector(&mut self) -> CssResult<Node> {
         log::trace!("parse_id_selector");
 
         let loc = self.tokenizer.current_location();
@@ -178,8 +180,8 @@ impl Css3<'_> {
         let value = match t.token_type {
             TokenType::Ident(s) => s,
             _ => {
-                return Err(Error::new(
-                    format!("Unexpected token {:?}", t),
+                return Err(CssError::with_location(
+                    format!("Unexpected token {:?}", t).as_str(),
                     self.tokenizer.current_location(),
                 ));
             }
@@ -188,7 +190,7 @@ impl Css3<'_> {
         Ok(Node::new(NodeType::IdSelector { value }, loc))
     }
 
-    fn parse_pseudo_element_selector(&mut self) -> Result<Node, Error> {
+    fn parse_pseudo_element_selector(&mut self) -> CssResult<Node> {
         log::trace!("parse_pseudo_element_selector");
 
         let loc = self.tokenizer.current_location();
@@ -200,8 +202,8 @@ impl Css3<'_> {
         let value = if t.is_ident() {
             self.consume_any_ident()?
         } else {
-            return Err(Error::new(
-                format!("Unexpected token {:?}", t),
+            return Err(CssError::with_location(
+                format!("Unexpected token {:?}", t).as_str(),
                 self.tokenizer.current_location(),
             ));
         };
@@ -209,7 +211,7 @@ impl Css3<'_> {
         Ok(Node::new(NodeType::PseudoElementSelector { value }, loc))
     }
 
-    fn parse_pseudo_selector(&mut self) -> Result<Node, Error> {
+    fn parse_pseudo_selector(&mut self) -> CssResult<Node> {
         log::trace!("parse_pseudo_selector");
 
         let loc = self.tokenizer.current_location();
@@ -233,8 +235,8 @@ impl Css3<'_> {
                 )
             }
             _ => {
-                return Err(Error::new(
-                    format!("Unexpected token {:?}", t),
+                return Err(CssError::with_location(
+                    format!("Unexpected token {:?}", t).as_str(),
                     self.tokenizer.current_location(),
                 ));
             }
@@ -243,7 +245,7 @@ impl Css3<'_> {
         Ok(Node::new(NodeType::PseudoClassSelector { value }, loc))
     }
 
-    pub fn parse_selector(&mut self) -> Result<Node, Error> {
+    pub fn parse_selector(&mut self) -> CssResult<Node> {
         log::trace!("parse_selector");
 
         let loc = self.tokenizer.current_location();
@@ -253,7 +255,7 @@ impl Css3<'_> {
 
         // When true, we have encountered a space which means we need to emit a descendant combinator
         let mut space = false;
-        let mut whitespace_location = loc.clone();
+        let mut whitespace_location = loc;
 
         let mut skip_space = false;
 
@@ -273,7 +275,7 @@ impl Css3<'_> {
 
             if t.is_whitespace() {
                 // on whitespace for selector
-                whitespace_location = t.location.clone();
+                whitespace_location = t.location;
                 space = true;
                 continue;
             }
@@ -299,18 +301,11 @@ impl Css3<'_> {
 
                 TokenType::Number(value) => Node::new(NodeType::Number { value }, t.location),
 
-                TokenType::Percentage(value) => {
-                    Node::new(NodeType::Percentage { value }, t.location)
-                }
+                TokenType::Percentage(value) => Node::new(NodeType::Percentage { value }, t.location),
 
-                TokenType::Dimension { value, unit } => {
-                    Node::new(NodeType::Dimension { value, unit }, t.location)
-                }
+                TokenType::Dimension { value, unit } => Node::new(NodeType::Dimension { value, unit }, t.location),
 
-                TokenType::Delim('+')
-                | TokenType::Delim('>')
-                | TokenType::Delim('~')
-                | TokenType::Delim('/') => {
+                TokenType::Delim('+') | TokenType::Delim('>') | TokenType::Delim('~') | TokenType::Delim('/') => {
                     // Dont add descendant combinator since we are now adding another one
                     space = false;
 
@@ -347,12 +342,7 @@ impl Css3<'_> {
 
             if space {
                 // Detected a space previously, so we need to emit a descendant combinator
-                let node = Node::new(
-                    NodeType::Combinator {
-                        value: " ".to_string(),
-                    },
-                    whitespace_location.clone(),
-                );
+                let node = Node::new(NodeType::Combinator { value: " ".to_string() }, whitespace_location);
                 // insert before the last added node
                 children.push(node);
                 space = false;

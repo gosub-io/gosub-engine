@@ -18,12 +18,7 @@ impl TImage for Image {
     fn new(size: (FP, FP), data: Vec<u8>) -> Self {
         let blob = Blob::new(Arc::new(data));
 
-        Image(VelloImage::new(
-            blob,
-            Format::Rgba8,
-            size.0 as u32,
-            size.1 as u32,
-        ))
+        Image(VelloImage::new(blob, Format::Rgba8, size.0 as u32, size.1 as u32))
     }
 
     fn from_img(img: DynamicImage) -> Self {

@@ -1,6 +1,4 @@
-use vello::peniko::{
-    ColorStop as VelloColorStop, ColorStops as VelloColorStops, Gradient as VelloGradient,
-};
+use vello::peniko::{ColorStop as VelloColorStop, ColorStops as VelloColorStops, Gradient as VelloGradient};
 
 use crate::{Convert, VelloBackend};
 use gosub_render_backend::geo::{Point, FP};
@@ -29,12 +27,8 @@ impl TGradient<VelloBackend> for Gradient {
         end_radius: FP,
         stops: ColorStops<VelloBackend>,
     ) -> Self {
-        let mut gradient = VelloGradient::new_two_point_radial(
-            start_center.convert(),
-            start_radius,
-            end_center.convert(),
-            end_radius,
-        );
+        let mut gradient =
+            VelloGradient::new_two_point_radial(start_center.convert(), start_radius, end_center.convert(), end_radius);
 
         gradient.stops = stops.convert();
 
@@ -51,12 +45,7 @@ impl TGradient<VelloBackend> for Gradient {
         Gradient(gradient)
     }
 
-    fn new_sweep(
-        center: Point,
-        start_angle: FP,
-        end_angle: FP,
-        stops: ColorStops<VelloBackend>,
-    ) -> Self {
+    fn new_sweep(center: Point, start_angle: FP, end_angle: FP, stops: ColorStops<VelloBackend>) -> Self {
         let mut gradient = VelloGradient::new_sweep(center.convert(), start_angle, end_angle);
         gradient.stops = stops.convert();
 

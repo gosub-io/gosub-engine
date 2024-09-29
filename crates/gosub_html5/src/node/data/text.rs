@@ -1,4 +1,7 @@
+use gosub_shared::traits::node::TextDataType;
+
 #[derive(Clone, Debug, PartialEq)]
+
 /// Data structure for text nodes
 pub struct TextData {
     /// Actual text
@@ -13,19 +16,27 @@ impl Default for TextData {
 
 impl TextData {
     #[must_use]
-    pub(crate) fn new() -> Self {
-        Self {
-            value: String::new(),
-        }
+    pub fn new() -> Self {
+        Self { value: String::new() }
     }
 
-    pub(crate) fn with_value(value: &str) -> Self {
+    pub fn with_value(value: &str) -> Self {
         Self {
             value: value.to_owned(),
         }
     }
+}
 
-    pub fn value(&self) -> &str {
+impl TextDataType for TextData {
+    fn value(&self) -> &str {
         &self.value
+    }
+
+    fn string_value(&self) -> String {
+        self.value.clone()
+    }
+
+    fn value_mut(&mut self) -> &mut String {
+        &mut self.value
     }
 }

@@ -1,9 +1,10 @@
 use crate::node::{Node, NodeType};
 use crate::tokenizer::TokenType;
-use crate::{Css3, Error};
+use crate::Css3;
+use gosub_shared::errors::CssResult;
 
 impl Css3<'_> {
-    pub fn parse_stylesheet(&mut self) -> Result<Option<Node>, Error> {
+    pub fn parse_stylesheet_internal(&mut self) -> CssResult<Option<Node>> {
         log::trace!("parse_stylesheet");
 
         let loc = self.tokenizer.current_location();
@@ -18,17 +19,14 @@ impl Css3<'_> {
                 TokenType::Whitespace(_) => {}
                 TokenType::Comment(comment) => {
                     if comment.chars().nth(2) == Some('!') {
-                        children.push(Node::new(
-                            NodeType::Comment { value: comment },
-                            t.location.clone(),
-                        ));
+                        children.push(Node::new(NodeType::Comment { value: comment }, t.location));
                     }
                 }
                 TokenType::Cdo => {
-                    children.push(Node::new(NodeType::Cdo, t.location.clone()));
+                    children.push(Node::new(NodeType::Cdo, t.location));
                 }
                 TokenType::Cdc => {
-                    children.push(Node::new(NodeType::Cdc, t.location.clone()));
+                    children.push(Node::new(NodeType::Cdc, t.location));
                 }
                 TokenType::AtKeyword(_keyword) => {
                     self.tokenizer.reconsume();

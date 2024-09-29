@@ -1,5 +1,5 @@
-use crate::parser::NodeId;
 use gosub_shared::byte_stream::Location;
+use gosub_shared::node::NodeId;
 use gosub_shared::types::Result;
 
 /// TreeBuilder is an interface to abstract DOM tree modifications.
@@ -25,20 +25,15 @@ pub trait TreeBuilder {
     fn create_comment(&mut self, content: &str, parent_id: NodeId, location: Location) -> NodeId;
 
     /// Insert/update an attribute for an element node.
-    fn insert_attribute(
-        &mut self,
-        key: &str,
-        value: &str,
-        element_id: NodeId,
-        location: Location,
-    ) -> Result<()>;
+    fn insert_attribute(&mut self, key: &str, value: &str, element_id: NodeId, location: Location) -> Result<()>;
 }
 
 #[cfg(test)]
 mod tests {
-    use gosub_testing::testing::tree_construction::fixture::{
-        fixture_root_path, read_fixture_from_path,
-    };
+    use crate::document::document_impl::DocumentImpl;
+    use crate::parser::Html5Parser;
+    use gosub_css3::system::Css3System;
+    use gosub_testing::testing::tree_construction::fixture::{fixture_root_path, read_fixture_from_path};
     use gosub_testing::testing::tree_construction::Harness;
     use test_case::test_case;
 
@@ -105,8 +100,7 @@ mod tests {
     #[test_case("webkit01.dat")]
     #[test_case("webkit02.dat")]
     fn tree_construction(filename: &str) {
-        let fixture_file =
-            read_fixture_from_path(fixture_root_path().join(filename)).expect("fixture");
+        let fixture_file = read_fixture_from_path(fixture_root_path().join(filename)).expect("fixture");
         let mut harness = Harness::new();
 
         for test in fixture_file.tests {
@@ -118,15 +112,22 @@ mod tests {
             // for each test, run it with and without scripting enabled based on the test file
             for &scripting_enabled in test.script_modes() {
                 let result = harness
-                    .run_test(test.clone(), scripting_enabled)
+                    .run_test::<Html5Parser<DocumentImpl<Css3System>, Css3System>, Css3System>(
+                        test.clone(),
+                        scripting_enabled,
+                    )
                     .expect("problem parsing");
 
-                println!(
-                    "tree construction: {}:{}\n{}",
-                    test.file_path,
-                    test.line,
-                    test.document_as_str()
-                );
+                // println!(
+                //     "tree construction: {}:{}\n{}",
+                //     test.file_path,
+                //     test.line,
+                //     test.document_as_str()
+                // );
+                if !result.is_success() {
+                    println!("tree construction failed: {:#?}", result);
+                }
+                // println!("{:?}\n", result);
                 assert!(result.is_success());
             }
         }

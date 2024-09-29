@@ -1,10 +1,9 @@
 use std::vec::IntoIter;
 
 use taffy::{
-    compute_block_layout, compute_cached_layout, compute_flexbox_layout, compute_grid_layout,
-    compute_hidden_layout, compute_root_layout, AvailableSpace, Cache as TaffyCache,
-    Display as TaffyDisplay, Layout as TaffyLayout, LayoutInput, LayoutOutput, LayoutPartialTree,
-    NodeId as TaffyId, Style, TraversePartialTree,
+    compute_block_layout, compute_cached_layout, compute_flexbox_layout, compute_grid_layout, compute_hidden_layout,
+    compute_root_layout, AvailableSpace, Cache as TaffyCache, Display as TaffyDisplay, Layout as TaffyLayout,
+    LayoutInput, LayoutOutput, LayoutPartialTree, NodeId as TaffyId, Style, TraversePartialTree,
 };
 
 use gosub_render_backend::geo::{Point, Rect, Size, SizeU32};
@@ -116,12 +115,7 @@ impl Layouter for TaffyLayouter {
 
     const COLLAPSE_INLINE: bool = true;
 
-    fn layout<LT: LayoutTree<Self>>(
-        &self,
-        tree: &mut LT,
-        root: LT::NodeId,
-        space: SizeU32,
-    ) -> Result<()> {
+    fn layout<LT: LayoutTree<Self>>(&self, tree: &mut LT, root: LT::NodeId, space: SizeU32) -> Result<()> {
         let size = taffy::Size {
             width: AvailableSpace::Definite(space.width as f32),
             height: AvailableSpace::Definite(space.height as f32),

@@ -1,9 +1,10 @@
 use crate::node::{Node, NodeType};
 use crate::tokenizer::TokenType;
-use crate::{Css3, Error};
+use crate::Css3;
+use gosub_shared::errors::CssResult;
 
 impl Css3<'_> {
-    pub fn parse_at_rule_scope_prelude(&mut self) -> Result<Node, Error> {
+    pub fn parse_at_rule_scope_prelude(&mut self) -> CssResult<Node> {
         log::trace!("parse_at_rule_scope_prelude");
 
         let mut root = None;

@@ -1,9 +1,8 @@
 use gosub_shared::types::Result;
 
 use crate::js::{
-    Args, JSArray, JSCompiled, JSContext, JSFunction, JSFunctionCallBack,
-    JSFunctionCallBackVariadic, JSFunctionVariadic, JSGetterCallback, JSObject, JSSetterCallback,
-    JSValue, VariadicArgs, VariadicArgsInternal,
+    Args, JSArray, JSCompiled, JSContext, JSFunction, JSFunctionCallBack, JSFunctionCallBackVariadic,
+    JSFunctionVariadic, JSGetterCallback, JSObject, JSSetterCallback, JSValue, VariadicArgs, VariadicArgsInternal,
 };
 
 //trait around the main JS engine (e.g V8, SpiderMonkey, JSC, etc.)

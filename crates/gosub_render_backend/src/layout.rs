@@ -1,3 +1,4 @@
+use gosub_shared::traits::css3::CssProperty;
 use std::fmt::Debug;
 
 use gosub_shared::types::Result;
@@ -35,12 +36,7 @@ pub trait Layouter: Sized + Clone {
 
     const COLLAPSE_INLINE: bool;
 
-    fn layout<LT: LayoutTree<Self>>(
-        &self,
-        tree: &mut LT,
-        root: LT::NodeId,
-        space: SizeU32,
-    ) -> Result<()>;
+    fn layout<LT: LayoutTree<Self>>(&self, tree: &mut LT, root: LT::NodeId, space: SizeU32) -> Result<()>;
 }
 
 pub trait Layout: Default {
@@ -78,12 +74,7 @@ pub trait Layout: Default {
         let pos = self.rel_pos();
         let content = self.content();
         let size = self.scrollbar();
-        Rect::new(
-            pos.x,
-            pos.y,
-            content.width + size.width,
-            content.height + size.height,
-        )
+        Rect::new(pos.x, pos.y, content.width + size.width, content.height + size.height)
     }
 
     fn border(&self) -> Rect;
@@ -121,11 +112,10 @@ pub trait Layout: Default {
     }
 }
 
-/// TODO: This struct should be removed and done somehow differently...
 pub trait Node {
     type Property: CssProperty;
 
-    fn get_property(&mut self, name: &str) -> Option<&mut Self::Property>;
+    fn get_property(&self, name: &str) -> Option<&Self::Property>;
     fn text_data(&self) -> Option<&str>;
 
     fn text_size(&self) -> Option<Size>;
@@ -137,39 +127,6 @@ pub trait Node {
 
 pub trait HasTextLayout<L: Layouter> {
     fn set_text_layout(&mut self, layout: L::TextLayout);
-}
-
-pub trait CssProperty: Debug + Sized {
-    type Value: CssValue;
-
-    fn compute_value(&mut self);
-
-    fn unit_to_px(&self) -> f32;
-
-    fn as_string(&self) -> Option<&str>;
-    fn as_percentage(&self) -> Option<f32>;
-    fn as_unit(&self) -> Option<(f32, &str)>;
-    fn as_color(&self) -> Option<(f32, f32, f32, f32)>;
-
-    fn parse_color(&self) -> Option<(f32, f32, f32, f32)>;
-
-    fn as_number(&self) -> Option<f32>;
-    fn as_list(&self) -> Option<Vec<Self::Value>>;
-
-    fn is_none(&self) -> bool;
-}
-
-pub trait CssValue: Sized {
-    fn unit_to_px(&self) -> f32;
-
-    fn as_string(&self) -> Option<&str>;
-    fn as_percentage(&self) -> Option<f32>;
-    fn as_unit(&self) -> Option<(f32, &str)>;
-    fn as_color(&self) -> Option<(f32, f32, f32, f32)>;
-    fn as_number(&self) -> Option<f32>;
-    fn as_list(&self) -> Option<Vec<Self>>;
-
-    fn is_none(&self) -> bool;
 }
 
 pub trait TextLayout {

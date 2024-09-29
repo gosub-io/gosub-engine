@@ -2,19 +2,17 @@ use regex::Regex;
 use taffy::prelude::*;
 use taffy::{Overflow, Point};
 
-use gosub_render_backend::layout::{CssProperty, Node};
-
 use crate::style::parse::{
-    parse_align_c, parse_align_i, parse_dimension, parse_grid_auto, parse_grid_placement,
-    parse_len, parse_len_auto, parse_text_dim, parse_tracking_sizing_function,
+    parse_align_c, parse_align_i, parse_dimension, parse_grid_auto, parse_grid_placement, parse_len, parse_len_auto,
+    parse_text_dim, parse_tracking_sizing_function,
 };
+use gosub_render_backend::layout::Node;
+use gosub_shared::traits::css3::CssProperty;
 
 pub fn parse_display(node: &mut impl Node) -> (Display, crate::Display) {
     let Some(display) = node.get_property("display") else {
         return (Display::Block, crate::Display::Taffy);
     };
-
-    display.compute_value();
 
     let Some(value) = display.as_string() else {
         return (Display::Block, crate::Display::Taffy);
@@ -48,8 +46,6 @@ pub fn parse_overflow(node: &mut impl Node) -> Point<Overflow> {
     };
 
     if let Some(display) = node.get_property("overflow-x") {
-        display.compute_value();
-
         if let Some(value) = display.as_string() {
             let x = parse(value);
             overflow.x = x;
@@ -57,8 +53,6 @@ pub fn parse_overflow(node: &mut impl Node) -> Point<Overflow> {
     };
 
     if let Some(display) = node.get_property("overflow-y") {
-        display.compute_value();
-
         if let Some(value) = display.as_string() {
             let y = parse(value);
             overflow.y = y;
@@ -72,8 +66,6 @@ pub fn parse_position(node: &mut impl Node) -> Position {
     let Some(position) = node.get_property("position") else {
         return Position::Relative;
     };
-
-    position.compute_value();
 
     let Some(value) = position.as_string() else {
         return Position::Relative;
@@ -140,8 +132,6 @@ pub fn parse_max_size(node: &mut impl Node) -> Size<Dimension> {
 pub fn parse_aspect_ratio(node: &mut impl Node) -> Option<f32> {
     let aspect_ratio = node.get_property("aspect-ratio")?;
 
-    aspect_ratio.compute_value();
-
     if let Some(value) = aspect_ratio.as_number() {
         return Some(value);
     }
@@ -204,8 +194,6 @@ pub fn parse_border(node: &mut impl Node) -> Rect<LengthPercentage> {
 pub fn parse_align_items(node: &mut impl Node) -> Option<AlignItems> {
     let display = node.get_property("align-items")?;
 
-    display.compute_value();
-
     let value = display.as_string()?;
 
     match value {
@@ -252,8 +240,6 @@ pub fn parse_flex_direction(node: &mut impl Node) -> FlexDirection {
         return FlexDirection::Row;
     };
 
-    property.compute_value();
-
     if let Some(value) = property.as_string() {
         match value {
             "row" => FlexDirection::Row,
@@ -271,8 +257,6 @@ pub fn parse_flex_wrap(node: &mut impl Node) -> FlexWrap {
     let Some(property) = node.get_property("flex-wrap") else {
         return FlexWrap::NoWrap;
     };
-
-    property.compute_value();
 
     if let Some(value) = property.as_string() {
         match value {
@@ -295,8 +279,6 @@ pub fn parse_flex_grow(node: &mut impl Node) -> f32 {
         return 0.0;
     };
 
-    property.compute_value();
-
     property.as_number().unwrap_or(0.0)
 }
 
@@ -304,8 +286,6 @@ pub fn parse_flex_shrink(node: &mut impl Node) -> f32 {
     let Some(property) = node.get_property("flex-shrink") else {
         return 1.0;
     };
-
-    property.compute_value();
 
     property.as_number().unwrap_or(1.0)
 }
@@ -330,8 +310,6 @@ pub fn parse_grid_auto_flow(node: &mut impl Node) -> GridAutoFlow {
     let Some(property) = node.get_property("grid-auto-flow") else {
         return GridAutoFlow::Row;
     };
-
-    property.compute_value();
 
     if let Some(value) = property.as_string() {
         match value {

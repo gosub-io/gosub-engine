@@ -52,9 +52,7 @@ impl StorageAdapter for SqliteStorageAdapter {
         let query = "INSERT OR REPLACE INTO settings (key, value) VALUES (:key, :value)";
         let mut statement = db_lock.prepare(query).unwrap();
         statement.bind((":key", key)).unwrap();
-        statement
-            .bind((":value", value.to_string().as_str()))
-            .unwrap();
+        statement.bind((":value", value.to_string().as_str())).unwrap();
 
         statement.next().unwrap();
     }

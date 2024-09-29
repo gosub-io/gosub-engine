@@ -105,9 +105,7 @@ impl JsonStorageAdapter {
         let json = serde_json::to_string_pretty(&self.elements).expect("failed to serialize");
 
         file.set_len(0).expect("failed to truncate file");
-        file.seek(std::io::SeekFrom::Start(0))
-            .expect("failed to seek");
-        file.write_all(json.as_bytes())
-            .expect("failed to write file");
+        file.seek(std::io::SeekFrom::Start(0)).expect("failed to seek");
+        file.write_all(json.as_bytes()).expect("failed to write file");
     }
 }

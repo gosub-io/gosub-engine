@@ -35,12 +35,7 @@ pub trait RenderBackend: Sized + Debug {
 
     fn draw_rect(&mut self, data: &mut Self::WindowData<'_>, rect: &RenderRect<Self>);
     fn draw_text(&mut self, data: &mut Self::WindowData<'_>, text: &RenderText<Self>);
-    fn apply_scene(
-        &mut self,
-        data: &mut Self::WindowData<'_>,
-        scene: &Self::Scene,
-        transform: Option<Self::Transform>,
-    );
+    fn apply_scene(&mut self, data: &mut Self::WindowData<'_>, scene: &Self::Scene, transform: Option<Self::Transform>);
     fn reset(&mut self, data: &mut Self::WindowData<'_>);
     // fn layer_push(&mut self, data: &mut Self::WindowData<'_>);
     // fn layer_pop(&mut self, data: &mut Self::WindowData<'_>);
@@ -58,8 +53,7 @@ pub trait RenderBackend: Sized + Debug {
         window_data: &mut Self::WindowData<'_>,
     ) -> Result<()>;
 
-    fn create_window_data<'a>(&mut self, handle: impl WindowHandle)
-        -> Result<Self::WindowData<'a>>;
+    fn create_window_data<'a>(&mut self, handle: impl WindowHandle) -> Result<Self::WindowData<'a>>;
 
     fn resize_window(
         &mut self,
@@ -191,12 +185,7 @@ pub trait Border<B: RenderBackend> {
 
     fn empty() -> Self;
 
-    fn all(
-        left: B::BorderSide,
-        right: B::BorderSide,
-        top: B::BorderSide,
-        bottom: B::BorderSide,
-    ) -> Self;
+    fn all(left: B::BorderSide, right: B::BorderSide, top: B::BorderSide, bottom: B::BorderSide) -> Self;
 
     fn left(&mut self, side: B::BorderSide);
 

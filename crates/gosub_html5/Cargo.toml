@@ -15,8 +15,6 @@ thiserror = "1.0.64"
 url = { version = "2.5.2", features = [] }
 log = { version = "0.4.22", features = [] }
 
-
-
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 ureq = "2.10.1"
 

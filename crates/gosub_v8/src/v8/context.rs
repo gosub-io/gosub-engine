@@ -1,8 +1,8 @@
 use std::ptr::NonNull;
 
 use v8::{
-    CallbackScope, ContextScope, CreateParams, HandleScope, Isolate, Local, Object, OwnedIsolate,
-    StackFrame, StackTrace, TryCatch,
+    CallbackScope, ContextScope, CreateParams, HandleScope, Isolate, Local, Object, OwnedIsolate, StackFrame,
+    StackTrace, TryCatch,
 };
 
 use gosub_shared::types::Result;
@@ -87,22 +87,14 @@ impl<'a> V8Ctx<'a> {
         let handle_scope = Box::new(HandleScopeType::new(unsafe { v8_ctx.isolate.as_mut() }));
 
         let Some(handle_scope) = NonNull::new(Box::into_raw(handle_scope)) else {
-            return Err(
-                Error::JS(JSError::Compile("Failed to create handle scope".to_owned())).into(),
-            );
+            return Err(Error::JS(JSError::Compile("Failed to create handle scope".to_owned())).into());
         };
 
         v8_ctx.handle_scope = handle_scope;
 
-        let ctx = v8::Context::new(
-            unsafe { v8_ctx.handle_scope.as_mut() }.get(),
-            Default::default(),
-        );
+        let ctx = v8::Context::new(unsafe { v8_ctx.handle_scope.as_mut() }.get(), Default::default());
 
-        let ctx_scope = Box::new(ContextScope::new(
-            unsafe { v8_ctx.handle_scope.as_mut() }.get(),
-            ctx,
-        ));
+        let ctx_scope = Box::new(ContextScope::new(unsafe { v8_ctx.handle_scope.as_mut() }.get(), ctx));
 
         let Some(ctx) = NonNull::new(Box::into_raw(Box::new(ctx))) else {
             return Err(Error::JS(JSError::Compile("Failed to create context".to_owned())).into());
@@ -111,10 +103,7 @@ impl<'a> V8Ctx<'a> {
         v8_ctx.ctx = ctx;
 
         let Some(ctx_scope) = NonNull::new(Box::into_raw(ctx_scope)) else {
-            return Err(Error::JS(JSError::Compile(
-                "Failed to create context scope".to_owned(),
-            ))
-            .into());
+            return Err(Error::JS(JSError::Compile("Failed to create context scope".to_owned())).into());
         };
 
         v8_ctx.context_scope = ctx_scope;
@@ -174,9 +163,7 @@ impl<'a> V8Ctx<'a> {
 
     fn handle_stack_frame(ctx: &mut HandleScope, frame: Local<StackFrame>) -> Option<String> {
         let function = frame.get_function_name(ctx)?.to_rust_string_lossy(ctx);
-        let script = frame
-            .get_script_name_or_source_url(ctx)?
-            .to_rust_string_lossy(ctx);
+        let script = frame.get_script_name_or_source_url(ctx)?.to_rust_string_lossy(ctx);
         let line = frame.get_line_number();
         let column = frame.get_column();
 
@@ -238,9 +225,7 @@ pub fn ctx_from_scope_isolate<'a>(
 
         return Err((
             *scope,
-            Error::JS(JSError::Compile(
-                "Failed to create context scope".to_owned(),
-            )),
+            Error::JS(JSError::Compile("Failed to create context scope".to_owned())),
         ));
     };
 

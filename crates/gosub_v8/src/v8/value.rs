@@ -3,9 +3,7 @@ use v8::{Array, Local, Value};
 use gosub_shared::types::Result;
 
 use crate::{FromContext, IntoContext, V8Array, V8Context, V8Engine, V8Object};
-use gosub_webexecutor::js::{
-    ArrayConversion, AsArray, IntoJSValue, JSArray, JSError, JSRuntime, JSType, JSValue, Ref,
-};
+use gosub_webexecutor::js::{ArrayConversion, AsArray, IntoJSValue, JSArray, JSError, JSRuntime, JSType, JSValue, Ref};
 use gosub_webexecutor::Error;
 
 pub struct V8Value<'a> {
@@ -15,10 +13,7 @@ pub struct V8Value<'a> {
 
 impl<'a> V8Value<'a> {
     pub fn from_value(ctx: V8Context<'a>, value: Local<'a, Value>) -> Self {
-        Self {
-            context: ctx,
-            value,
-        }
+        Self { context: ctx, value }
     }
 }
 
@@ -67,10 +62,7 @@ impl<'a> JSValue for V8Value<'a> {
         if let Some(value) = self.value.number_value(self.context.scope()) {
             Ok(value)
         } else {
-            Err(Error::JS(JSError::Conversion(
-                "could not convert to number".to_owned(),
-            ))
-            .into())
+            Err(Error::JS(JSError::Conversion("could not convert to number".to_owned())).into())
         }
     }
 
@@ -82,10 +74,7 @@ impl<'a> JSValue for V8Value<'a> {
         if let Some(value) = self.value.to_object(self.context.scope()) {
             Ok(V8Object::from_ctx(V8Context::clone(&self.context), value))
         } else {
-            Err(Error::JS(JSError::Conversion(
-                "could not convert to number".to_owned(),
-            ))
-            .into())
+            Err(Error::JS(JSError::Conversion("could not convert to number".to_owned())).into())
         }
     }
 
@@ -134,9 +123,7 @@ impl<'a> JSValue for V8Value<'a> {
         }
     }
 
-    fn new_object(
-        ctx: <Self::RT as JSRuntime>::Context,
-    ) -> Result<<Self::RT as JSRuntime>::Object> {
+    fn new_object(ctx: <Self::RT as JSRuntime>::Context) -> Result<<Self::RT as JSRuntime>::Object> {
         V8Object::new(ctx)
     }
 
@@ -147,9 +134,7 @@ impl<'a> JSValue for V8Value<'a> {
         value.to_js_array(ctx)
     }
 
-    fn new_empty_array(
-        ctx: <Self::RT as JSRuntime>::Context,
-    ) -> Result<<Self::RT as JSRuntime>::Array> {
+    fn new_empty_array(ctx: <Self::RT as JSRuntime>::Context) -> Result<<Self::RT as JSRuntime>::Array> {
         V8Array::new(ctx, 0)
     }
 
@@ -160,10 +145,7 @@ impl<'a> JSValue for V8Value<'a> {
                 value: Local::from(value),
             })
         } else {
-            Err(Error::JS(JSError::Conversion(
-                "could not convert to string".to_owned(),
-            ))
-            .into())
+            Err(Error::JS(JSError::Conversion("could not convert to string".to_owned())).into())
         }
     }
 

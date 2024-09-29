@@ -109,14 +109,8 @@ mod test {
     fn test_cache() {
         let mut cache = CacheResolver::new(3);
 
-        cache.announce(
-            "example.com",
-            &DnsEntry::new("example.com", vec!["127.0.0.1"]),
-        );
-        cache.announce(
-            "example.org",
-            &DnsEntry::new("example.org", vec!["127.0.0.1"]),
-        );
+        cache.announce("example.com", &DnsEntry::new("example.com", vec!["127.0.0.1"]));
+        cache.announce("example.org", &DnsEntry::new("example.org", vec!["127.0.0.1"]));
 
         assert_eq!(cache.values.len(), 2);
         assert_eq!(cache.lru.len(), 2);
@@ -124,10 +118,7 @@ mod test {
         assert_eq!(cache.lru[0], "example.com");
         assert_eq!(cache.lru[1], "example.org");
 
-        cache.announce(
-            "example.net",
-            &DnsEntry::new("example.net", vec!["127.0.0.1"]),
-        );
+        cache.announce("example.net", &DnsEntry::new("example.net", vec!["127.0.0.1"]));
         assert_eq!(cache.values.len(), 3);
         assert_eq!(cache.lru.len(), 3);
         assert_eq!(cache.lru[0], "example.com");
@@ -141,10 +132,7 @@ mod test {
         assert_eq!(cache.lru[1], "example.net");
         assert_eq!(cache.lru[2], "example.org");
 
-        cache.announce(
-            "example.net",
-            &DnsEntry::new("example.net", vec!["127.0.0.1"]),
-        );
+        cache.announce("example.net", &DnsEntry::new("example.net", vec!["127.0.0.1"]));
         assert_eq!(cache.values.len(), 3);
         assert_eq!(cache.lru.len(), 3);
         assert_eq!(cache.lru[0], "example.com");

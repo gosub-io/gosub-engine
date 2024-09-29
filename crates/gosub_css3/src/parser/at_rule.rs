@@ -12,7 +12,8 @@ mod supports;
 use crate::node::{Node, NodeType};
 use crate::parser::block::BlockParseMode;
 use crate::tokenizer::TokenType;
-use crate::{Css3, Error};
+use crate::Css3;
+use gosub_shared::errors::{CssError, CssResult};
 
 impl Css3<'_> {
     fn declaration_block_at_rule(&mut self) -> BlockParseMode {
@@ -41,10 +42,10 @@ impl Css3<'_> {
         }
     }
 
-    fn read_sequence_at_rule_prelude(&mut self) -> Result<Node, Error> {
+    fn read_sequence_at_rule_prelude(&mut self) -> CssResult<Node> {
         log::trace!("read_sequence_at_rule_prelude");
 
-        let loc = self.tokenizer.lookahead(0).location.clone();
+        let loc = self.tokenizer.lookahead(0).location;
 
         Ok(Node::new(
             NodeType::Container {
@@ -54,7 +55,7 @@ impl Css3<'_> {
         ))
     }
 
-    fn parse_at_rule_prelude(&mut self, name: String) -> Result<Option<Node>, Error> {
+    fn parse_at_rule_prelude(&mut self, name: String) -> CssResult<Option<Node>> {
         log::trace!("parse_at_rule_prelude");
 
         self.consume_whitespace_comments();
@@ -75,24 +76,17 @@ impl Css3<'_> {
         self.consume_whitespace_comments();
 
         let t = self.tokenizer.lookahead(0);
-        if !self.tokenizer.eof()
-            && t.token_type != TokenType::Semicolon
-            && t.token_type != TokenType::LCurly
-        {
-            return Err(Error::new(
-                "Expected semicolon or left curly brace".to_string(),
-                t.location.clone(),
+        if !self.tokenizer.eof() && t.token_type != TokenType::Semicolon && t.token_type != TokenType::LCurly {
+            return Err(CssError::with_location(
+                "Expected semicolon or left curly brace",
+                t.location,
             ));
         }
 
         Ok(node)
     }
 
-    fn parse_at_rule_block(
-        &mut self,
-        name: String,
-        is_declaration: bool,
-    ) -> Result<Option<Node>, Error> {
+    fn parse_at_rule_block(&mut self, name: String, is_declaration: bool) -> CssResult<Option<Node>> {
         log::trace!("parse_at_rule_block");
 
         let t = self.tokenizer.consume();
@@ -136,7 +130,7 @@ impl Css3<'_> {
     // Either the at_rule parsing succeeds as a whole, or not. When not a valid at_rule is found, we
     // return None if the config.ignore_errors is set to true, otherwise this will return an Err
     // and is handled by the caller
-    pub fn parse_at_rule(&mut self, is_declaration: bool) -> Result<Option<Node>, Error> {
+    pub fn parse_at_rule(&mut self, is_declaration: bool) -> CssResult<Option<Node>> {
         log::trace!("parse_at_rule");
 
         let result = self.parse_at_rule_internal(is_declaration);
@@ -153,14 +147,14 @@ impl Css3<'_> {
         Ok(None)
     }
 
-    fn parse_at_rule_internal(&mut self, is_declaration: bool) -> Result<Node, Error> {
+    fn parse_at_rule_internal(&mut self, is_declaration: bool) -> CssResult<Node> {
         let name;
 
         let t = self.consume_any()?;
         if let TokenType::AtKeyword(keyword) = t.token_type {
             name = keyword;
         } else {
-            return Err(Error::new("Expected at keyword".to_string(), t.location));
+            return Err(CssError::with_location("Expected at keyword", t.location));
         }
         self.consume_whitespace_comments();
 
@@ -176,7 +170,7 @@ impl Css3<'_> {
                 prelude,
                 block,
             },
-            t.location.clone(),
+            t.location,
         ))
     }
 }

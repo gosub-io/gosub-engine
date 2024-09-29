@@ -12,13 +12,7 @@ impl From<VelloRect> for Rect {
 
 impl TRect for Rect {
     fn new(x: FP, y: FP, width: FP, height: FP) -> Self {
-        VelloRect::new(
-            x as f64,
-            y as f64,
-            x as f64 + width as f64,
-            y as f64 + height as f64,
-        )
-        .into()
+        VelloRect::new(x as f64, y as f64, x as f64 + width as f64, y as f64 + height as f64).into()
     }
 
     fn from_point(point: Point, size: Size) -> Self {

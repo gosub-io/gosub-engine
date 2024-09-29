@@ -35,11 +35,7 @@ impl TText for Text {
             })
             .collect();
 
-        let coords = layout
-            .coords()
-            .iter()
-            .map(|c| NormalizedCoord::from_bits(*c))
-            .collect();
+        let coords = layout.coords().iter().map(|c| NormalizedCoord::from_bits(*c)).collect();
 
         Self {
             glyphs,

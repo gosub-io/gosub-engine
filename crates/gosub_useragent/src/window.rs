@@ -14,6 +14,9 @@ use gosub_render_backend::geo::SizeU32;
 use gosub_render_backend::layout::{LayoutTree, Layouter};
 use gosub_render_backend::{NodeDesc, RenderBackend};
 use gosub_renderer::draw::SceneDrawer;
+use gosub_shared::traits::css3::CssSystem;
+use gosub_shared::traits::document::Document;
+use gosub_shared::traits::html5::Html5Parser;
 use gosub_shared::types::Result;
 
 use crate::tabs::Tabs;
@@ -45,17 +48,32 @@ static ICON: LazyCell<Icon> = LazyCell::new(|| {
 });
 }
 
-pub struct Window<'a, D: SceneDrawer<B, L, LT>, B: RenderBackend, L: Layouter, LT: LayoutTree<L>> {
+pub struct Window<
+    'a,
+    D: SceneDrawer<B, L, LT, Doc, C>,
+    B: RenderBackend,
+    L: Layouter,
+    LT: LayoutTree<L>,
+    Doc: Document<C>,
+    C: CssSystem,
+> {
     pub(crate) state: WindowState<'a, B>,
     pub(crate) window: Arc<WinitWindow>,
     pub(crate) renderer_data: B::WindowData<'a>,
-    pub(crate) tabs: Tabs<D, B, L, LT>,
+    pub(crate) tabs: Tabs<D, B, L, LT, Doc, C>,
 }
 
-impl<'a, D: SceneDrawer<B, L, LT>, B: RenderBackend, L: Layouter, LT: LayoutTree<L>>
-    Window<'a, D, B, L, LT>
+impl<
+        'a,
+        D: SceneDrawer<B, L, LT, Doc, C>,
+        B: RenderBackend,
+        L: Layouter,
+        LT: LayoutTree<L>,
+        Doc: Document<C>,
+        C: CssSystem,
+    > Window<'a, D, B, L, LT, Doc, C>
 {
-    pub fn new(
+    pub fn new<P: Html5Parser<C, Document = Doc>>(
         event_loop: &ActiveEventLoop,
         backend: &mut B,
         layouter: L,
@@ -70,7 +88,7 @@ impl<'a, D: SceneDrawer<B, L, LT>, B: RenderBackend, L: Layouter, LT: LayoutTree
             state: WindowState::Suspended,
             window,
             renderer_data,
-            tabs: Tabs::from_url(default_url, layouter, debug)?,
+            tabs: Tabs::from_url::<P>(default_url, layouter, debug)?,
         })
     }
 

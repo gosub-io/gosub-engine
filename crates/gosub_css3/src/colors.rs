@@ -76,12 +76,7 @@ impl From<&str> for RgbColor {
                 return RgbColor::default();
             }
             let rgb = rgb.unwrap();
-            return RgbColor::new(
-                rgb.get_red(),
-                rgb.get_green(),
-                rgb.get_blue(),
-                rgb.get_alpha(),
-            );
+            return RgbColor::new(rgb.get_red(), rgb.get_green(), rgb.get_blue(), rgb.get_alpha());
         }
         if value.starts_with("hsl(") {
             let hsl = Hsl::from_str(value);
@@ -99,12 +94,7 @@ impl From<&str> for RgbColor {
                 return RgbColor::default();
             }
             let rgb: Rgb = hsl.unwrap().to_rgb();
-            return RgbColor::new(
-                rgb.get_red(),
-                rgb.get_green(),
-                rgb.get_blue(),
-                rgb.get_alpha(),
-            );
+            return RgbColor::new(rgb.get_red(), rgb.get_green(), rgb.get_blue(), rgb.get_alpha());
         }
 
         return get_hex_color_from_name(value).map_or(RgbColor::default(), parse_hex);
@@ -146,12 +136,7 @@ fn parse_hex(value: &str) -> RgbColor {
         let r = i32::from_str_radix(&value[1..2], 16).unwrap();
         let g = i32::from_str_radix(&value[2..3], 16).unwrap();
         let b = i32::from_str_radix(&value[3..4], 16).unwrap();
-        return RgbColor::new(
-            (r * 16 + r) as f32,
-            (g * 16 + g) as f32,
-            (b * 16 + b) as f32,
-            255.0,
-        );
+        return RgbColor::new((r * 16 + r) as f32, (g * 16 + g) as f32, (b * 16 + b) as f32, 255.0);
     }
 
     // 4 hex digits (RGBA)

@@ -21,9 +21,7 @@ impl Arg {
 
         let conv = handle_slice_conv(&self.ty, &arg_name);
 
-        let mutability = &self
-            .ty
-            .mutability(conv.to_string() == TokenStream::new().to_string());
+        let mutability = &self.ty.mutability(conv.to_string() == TokenStream::new().to_string());
 
         let get_args = if index == 0 {
             quote! {
@@ -94,11 +92,7 @@ pub(crate) enum ArgVariant {
 }
 
 impl Arg {
-    pub(crate) fn parse(
-        arg: &syn::Type,
-        index: usize,
-        generics: &[Generics],
-    ) -> Result<Arg, &'static str> {
+    pub(crate) fn parse(arg: &syn::Type, index: usize, generics: &[Generics]) -> Result<Arg, &'static str> {
         let ty = Type::parse(arg, true)?;
         let mut variant = ArgVariant::Normal;
 
@@ -110,10 +104,10 @@ impl Arg {
                     } else if s.ident == "VariadicArgs" {
                         variant = ArgVariant::Variadic;
                     }
-                    if generics.iter().any(|gen| {
-                        gen.matcher
-                            .is_match(&p.to_token_stream().to_string(), index)
-                    }) {
+                    if generics
+                        .iter()
+                        .any(|gen| gen.matcher.is_match(&p.to_token_stream().to_string(), index))
+                    {
                         variant = ArgVariant::Generic;
                     }
                 }
@@ -160,9 +154,7 @@ impl ReturnType {
     }
 }
 
-pub(crate) fn parse_impl(
-    bounds: &Punctuated<TypeParamBound, Token![+]>,
-) -> Result<Vec<Path>, &'static str> {
+pub(crate) fn parse_impl(bounds: &Punctuated<TypeParamBound, Token![+]>) -> Result<Vec<Path>, &'static str> {
     let mut out = Vec::with_capacity(bounds.len());
 
     for bound in bounds {

@@ -1,3 +1,5 @@
+use gosub_shared::traits::node::CommentDataType;
+
 #[derive(Debug, PartialEq, Clone)]
 /// Data structure for comment nodes
 pub struct CommentData {
@@ -13,10 +15,8 @@ impl Default for CommentData {
 
 impl CommentData {
     #[must_use]
-    pub(crate) fn new() -> Self {
-        Self {
-            value: String::new(),
-        }
+    fn new() -> Self {
+        Self { value: String::new() }
     }
 
     pub(crate) fn with_value(value: &str) -> Self {
@@ -24,8 +24,10 @@ impl CommentData {
             value: value.to_owned(),
         }
     }
+}
 
-    pub fn value(&self) -> &str {
+impl CommentDataType for CommentData {
+    fn value(&self) -> &str {
         &self.value
     }
 }

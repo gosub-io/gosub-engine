@@ -119,9 +119,7 @@ mod tests {
 
         response.status = 200;
         response.headers.set_str("Content-Type", "application/json");
-        response
-            .cookies
-            .insert("session".to_string(), "1234567890".to_string());
+        response.cookies.insert("session".to_string(), "1234567890".to_string());
         response.body = b"Hello, world!".to_vec();
 
         let s = format!("{}", response);

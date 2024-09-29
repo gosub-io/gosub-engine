@@ -1,18 +1,21 @@
 use crate::parser::Html5Parser;
+use gosub_shared::traits::css3::CssSystem;
+use gosub_shared::traits::document::{Document, DocumentFragment};
+use gosub_shared::traits::node::{ElementDataType, Node, QuirksMode};
 
-#[derive(PartialEq, Debug, Copy, Clone)]
-pub enum QuirksMode {
-    Quirks,
-    LimitedQuirks,
-    NoQuirks,
-}
-
-impl Html5Parser<'_> {
+impl<'chars, D, C> Html5Parser<'chars, D, C>
+where
+    C: CssSystem,
+    D: Document<C>,
+    <<D as Document<C>>::Node as Node<C>>::ElementData: ElementDataType<C, Document = D>,
+    <<<D as Document<C>>::Node as Node<C>>::ElementData as ElementDataType<C>>::DocumentFragment:
+        DocumentFragment<C, Document = D>,
+{
     // returns the correct quirk mode for the given doctype
     pub(crate) fn identify_quirks_mode(
         &self,
         name: &Option<String>,
-        pub_identifer: Option<String>,
+        pub_identifier: Option<String>,
         sys_identifier: Option<String>,
         force_quirks: bool,
     ) -> QuirksMode {
@@ -20,7 +23,7 @@ impl Html5Parser<'_> {
             return QuirksMode::Quirks;
         }
 
-        if let Some(value) = pub_identifer {
+        if let Some(value) = pub_identifier {
             let pub_id = value.to_lowercase();
             if QUIRKS_PUB_IDENTIFIER_EQ.contains(&pub_id.as_str()) {
                 return QuirksMode::Quirks;
@@ -140,8 +143,7 @@ static QUIRKS_PUB_IDENTIFIER_PREFIX_MISSING_SYS: &[&str] = &[
     "-//w3c//dtd html 4.01 transitional//",
 ];
 
-static QUIRKS_SYS_IDENTIFIER_EQ: &[&str] =
-    &["http://www.ibm.com/data/dtd/v11/ibmxhtml1-transitional.dtd"];
+static QUIRKS_SYS_IDENTIFIER_EQ: &[&str] = &["http://www.ibm.com/data/dtd/v11/ibmxhtml1-transitional.dtd"];
 
 static LIMITED_QUIRKS_PUB_IDENTIFIER_PREFIX: &[&str] = &[
     "-//w3c//dtd xhtml 1.0 frameset//",
@@ -155,14 +157,16 @@ static LIMITED_QUIRKS_PUB_IDENTIFIER_PREFIX_NOT_MISSING_SYS: &[&str] = &[
 
 #[cfg(test)]
 mod tests {
+    use crate::document::document_impl::DocumentImpl;
     use crate::parser::Html5Parser;
     use crate::parser::QuirksMode;
+    use gosub_css3::system::Css3System;
     use gosub_shared::byte_stream::{ByteStream, Encoding, Location};
 
     #[test]
     fn test_quirks_mode() {
         let stream = &mut ByteStream::new(Encoding::UTF8, None);
-        let parser = Html5Parser::new_parser(stream, Location::default());
+        let parser = Html5Parser::<DocumentImpl<Css3System>, Css3System>::new_parser(stream, Location::default());
 
         assert_eq!(
             parser.identify_quirks_mode(&None, None, None, false),
@@ -248,7 +252,7 @@ mod tests {
     #[test]
     fn test_quirks_mode_force() {
         let stream = &mut ByteStream::new(Encoding::UTF8, None);
-        let parser = Html5Parser::new_parser(stream, Location::default());
+        let parser = Html5Parser::<DocumentImpl<Css3System>, Css3System>::new_parser(stream, Location::default());
 
         assert_eq!(
             parser.identify_quirks_mode(&Some("html".to_string()), None, None, true),
@@ -322,7 +326,7 @@ mod tests {
     #[test]
     fn test_quirks_mode_sys() {
         let stream = &mut ByteStream::new(Encoding::UTF8, None);
-        let parser = Html5Parser::new_parser(stream, Location::default());
+        let parser = Html5Parser::<DocumentImpl<Css3System>, Css3System>::new_parser(stream, Location::default());
 
         assert_eq!(
             parser.identify_quirks_mode(
@@ -347,7 +351,7 @@ mod tests {
     #[test]
     fn test_quirks_mode_sys_missing() {
         let stream = &mut ByteStream::new(Encoding::UTF8, None);
-        let parser = Html5Parser::new_parser(stream, Location::default());
+        let parser = Html5Parser::<DocumentImpl<Css3System>, Css3System>::new_parser(stream, Location::default());
 
         assert_eq!(
             parser.identify_quirks_mode(

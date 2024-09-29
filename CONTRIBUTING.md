@@ -38,10 +38,6 @@ In the root directory, run `make format` to have clippy automatically fix some o
 ### Running Benchmarks
 In the root directory, run `make bench` to run the benchmarks.
 
-### Building C API Bindings
-In the `crates/gosub_bindings` directory, run `make bindings` to build the C static libraries. For more information on this, see the [README](crates/gosub-bindings/README.md).
-
-Can also run `make test` in the same directory to build and run the tests for the C bindings.
 
 ## Code Style
 We use cargo's built-in formatter. When running `make test`, the formatter will also run (after all the tests) and display any issues in a `git diff`-like output in the terminal. Please resolve these formatting issues prior to pushing any code! This is validated in our CI when creating a pull request.

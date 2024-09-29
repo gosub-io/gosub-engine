@@ -21,10 +21,7 @@ impl<W: Write> WritablePrinter<W> {
     /// Creates a new writable printer
     #[allow(dead_code)]
     pub fn new(writer: Rc<RefCell<W>>) -> Self {
-        Self {
-            writer,
-            groups: vec![],
-        }
+        Self { writer, groups: vec![] }
     }
 
     /// Returns a reference to the writer
@@ -70,11 +67,7 @@ impl<W: Write> Printer for WritablePrinter<W> {
         let mut writer = self.writer.borrow_mut();
 
         let _ = match log_level {
-            LogLevel::Info
-            | LogLevel::Warn
-            | LogLevel::Error
-            | LogLevel::Log
-            | LogLevel::Assert => {
+            LogLevel::Info | LogLevel::Warn | LogLevel::Error | LogLevel::Log | LogLevel::Assert => {
                 writeln!(writer, "{group_prefix}[{log_level}] {data}")
             }
             LogLevel::Group => writeln!(writer, "{group_prefix}Expanded group: {data}"),
@@ -110,10 +103,7 @@ mod tests {
 
         printer.print(LogLevel::Log, &[&"Hello", &"World"], &[]);
         assert_eq!(
-            buffer
-                .borrow_mut()
-                .try_to_string()
-                .expect("failed to convert"),
+            buffer.borrow_mut().try_to_string().expect("failed to convert"),
             "[log] Hello World\n"
         );
 
@@ -123,10 +113,7 @@ mod tests {
         printer.print(LogLevel::Warn, &[&"a", &"b"], &[]);
         printer.print(LogLevel::Error, &[], &[]);
         assert_eq!(
-            buffer
-                .borrow_mut()
-                .try_to_string()
-                .expect("failed to convert"),
+            buffer.borrow_mut().try_to_string().expect("failed to convert"),
             "[info] Foo 2 false\n[warn] a b\n"
         );
     }
