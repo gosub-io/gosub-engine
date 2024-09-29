@@ -5,7 +5,7 @@ use crate::matcher::property_definitions::get_css_definitions;
 use crate::matcher::shorthands::FixList;
 use crate::matcher::styling::{match_selector, CssProperties, CssProperty, DeclarationProperty};
 use crate::stylesheet::{CssDeclaration, CssValue, Specificity};
-use crate::Css3;
+use crate::{load_default_useragent_stylesheet, Css3};
 use gosub_shared::document::DocumentHandle;
 use gosub_shared::errors::CssResult;
 use gosub_shared::node::NodeId;
@@ -96,6 +96,10 @@ impl CssSystem for Css3System {
 
     fn inheritance<T: RenderTree<Self>>(tree: &mut T) {
         Self::resolve_inheritance(tree, tree.root(), &Vec::new());
+    }
+
+    fn load_default_useragent_stylesheet() -> Self::Stylesheet {
+        load_default_useragent_stylesheet()
     }
 }
 

@@ -39,6 +39,8 @@ pub trait CssSystem: Clone {
     ) -> Option<Self::PropertyMap>;
 
     fn inheritance<T: RenderTree<Self>>(tree: &mut T);
+
+    fn load_default_useragent_stylesheet() -> Self::Stylesheet;
 }
 
 pub trait CssStylesheet: PartialEq {

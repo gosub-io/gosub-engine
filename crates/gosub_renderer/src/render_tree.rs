@@ -87,11 +87,11 @@ pub(crate) fn load_html_rendertree<L: Layouter, P: Html5Parser<C>, C: CssSystem>
         eprintln!("Parse error: {:?}", error);
     }
 
-    _ = doc_handle.get_mut();
+    let mut doc = doc_handle.get_mut();
 
-    // doc.add_stylesheet(C::load_default_useragent_stylesheet()?);
+    doc.add_stylesheet(C::load_default_useragent_stylesheet());
 
-    // drop(doc);
+    drop(doc);
 
     generate_render_tree(DocumentHandle::clone(&doc_handle))
 }

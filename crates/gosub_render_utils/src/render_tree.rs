@@ -237,7 +237,9 @@ impl<L: Layouter, D: Document<C>, C: CssSystem> RenderTree<L, D, C> {
             else {
                 //we need to remove it  from the parent in the render tree and from the document
 
-                todo!("unrenderable node");
+                // todo!("unrenderable node");
+
+                continue;
             };
 
             let data = node.data();
