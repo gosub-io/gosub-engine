@@ -211,8 +211,7 @@ impl Console {
             label: group_label.clone(),
         };
 
-        self.printer
-            .print(LogLevel::GroupCollapsed, &[&group.label], &[]);
+        self.printer.print(LogLevel::GroupCollapsed, &[&group.label], &[]);
 
         self.group_stacks.push(group);
     }
@@ -295,8 +294,7 @@ impl Console {
             return;
         }
 
-        self.printer
-            .print(log_level, &[&self.formatter.format(args)], &[]);
+        self.printer.print(log_level, &[&self.formatter.format(args)], &[]);
     }
 }
 

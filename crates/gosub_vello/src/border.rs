@@ -5,8 +5,7 @@ use vello::Scene;
 use crate::{Brush, Rect, Transform, VelloBackend};
 use gosub_render_backend::geo::FP;
 use gosub_render_backend::{
-    Border as TBorder, BorderRadius as TBorderRadius, BorderSide as TBorderSide, BorderStyle,
-    Radius, RenderBorder,
+    Border as TBorder, BorderRadius as TBorderRadius, BorderSide as TBorderSide, BorderStyle, Radius, RenderBorder,
 };
 
 pub struct Border {
@@ -133,16 +132,10 @@ impl Border {
                         let offset_left = left.offset();
                         let offset_right = right.offset();
 
-                        path.move_to((
-                            pos.x - offset_left.width as f64,
-                            pos.y - offset_left.height as f64,
-                        ));
+                        path.move_to((pos.x - offset_left.width as f64, pos.y - offset_left.height as f64));
 
                         let arc = Arc::new(
-                            (
-                                pos.x + offset_left.width as f64,
-                                pos.y - offset_left.height as f64,
-                            ),
+                            (pos.x + offset_left.width as f64, pos.y - offset_left.height as f64),
                             left.radii_f64(),
                             -std::f64::consts::PI * 3.0 / 4.0,
                             std::f64::consts::PI / 4.0,
@@ -159,10 +152,7 @@ impl Border {
                         ));
 
                         let arc = Arc::new(
-                            (
-                                pos.x + width - right.radi_x() as f64,
-                                pos.y + right.radi_y() as f64,
-                            ),
+                            (pos.x + width - right.radi_x() as f64, pos.y + right.radi_y() as f64),
                             right.radii_f64(),
                             0.0,
                             std::f64::consts::PI / 4.0,
@@ -254,16 +244,10 @@ impl Border {
                         path.curve_to(p1, p2, p3);
                     });
 
-                    path.line_to((
-                        pos.x + left.radi_x() as f64,
-                        pos.y + height - offset_left.height as f64,
-                    ));
+                    path.line_to((pos.x + left.radi_x() as f64, pos.y + height - offset_left.height as f64));
 
                     let arc = Arc::new(
-                        (
-                            pos.x + left.radi_x() as f64,
-                            pos.y + height - offset_left.height as f64,
-                        ),
+                        (pos.x + left.radi_x() as f64, pos.y + height - offset_left.height as f64),
                         left.radii_f64(),
                         -std::f64::consts::PI * 3.0 / 2.0,
                         std::f64::consts::PI / 4.0,
@@ -304,16 +288,10 @@ impl Border {
                         path.curve_to(p1, p2, p3);
                     });
 
-                    path.line_to((
-                        pos.x + offset_bottom.width as f64,
-                        pos.y + bottom.radi_y() as f64,
-                    ));
+                    path.line_to((pos.x + offset_bottom.width as f64, pos.y + bottom.radi_y() as f64));
 
                     let arc = Arc::new(
-                        (
-                            pos.x + offset_bottom.width as f64,
-                            pos.y + bottom.radi_y() as f64,
-                        ),
+                        (pos.x + offset_bottom.width as f64, pos.y + bottom.radi_y() as f64),
                         bottom.radii_f64(),
                         -std::f64::consts::PI,
                         std::f64::consts::PI / 4.0,
@@ -425,11 +403,7 @@ pub struct BorderSide {
 
 impl TBorderSide<VelloBackend> for BorderSide {
     fn new(width: FP, style: BorderStyle, brush: Brush) -> Self {
-        Self {
-            width,
-            style,
-            brush,
-        }
+        Self { width, style, brush }
     }
 }
 

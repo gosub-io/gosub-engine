@@ -118,8 +118,7 @@ impl<'de> Deserialize<'de> for Setting {
         D: Deserializer<'de>,
     {
         let value = String::deserialize(deserializer)?;
-        Setting::from_str(&value)
-            .map_err(|err| serde::de::Error::custom(format!("cannot deserialize: {err}")))
+        Setting::from_str(&value).map_err(|err| serde::de::Error::custom(format!("cannot deserialize: {err}")))
     }
 }
 
@@ -241,10 +240,7 @@ mod test {
         assert_eq!(vec!("hello world"), s.to_map());
 
         let s = Setting::from_str("m:foo,bar,baz").unwrap();
-        assert_eq!(
-            s,
-            Setting::Map(vec!["foo".into(), "bar".into(), "baz".into()])
-        );
+        assert_eq!(s, Setting::Map(vec!["foo".into(), "bar".into(), "baz".into()]));
         assert!(s.to_bool());
         assert_eq!(3, s.to_sint());
         assert_eq!(3, s.to_uint());

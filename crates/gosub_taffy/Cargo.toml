@@ -2,11 +2,12 @@
 name = "gosub_taffy"
 version = "0.1.0"
 edition = "2021"
+authors = ["Gosub Community <info@gosub.io>"]
+license = "MIT"
 
 [dependencies]
 gosub_shared = { path = "../gosub_shared" }
 gosub_render_backend = { path = "../gosub_render_backend" }
-gosub_styling = { path = "../gosub_styling" }
 gosub_typeface = { path = "../gosub_typeface" }
 taffy = "0.5.2"
 anyhow = "1.0.89"

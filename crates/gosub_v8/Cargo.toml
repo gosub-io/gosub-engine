@@ -5,8 +5,6 @@ edition = "2021"
 authors = ["Gosub Community <info@gosub.io>"]
 license = "MIT"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 gosub_shared = { path = "../gosub_shared" }
 gosub_webexecutor = { path = "../gosub_webexecutor" }

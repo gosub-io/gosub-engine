@@ -1,24 +1,24 @@
 use std::fs;
 
 use anyhow::bail;
-use url::Url;
-
-use gosub_html5::node::NodeId;
-use gosub_html5::parser::document::{Document, DocumentBuilder};
-use gosub_html5::parser::Html5Parser;
 use gosub_net::http::fetcher::Fetcher;
 use gosub_net::http::ureq;
 use gosub_render_backend::geo::SizeU32;
 use gosub_render_backend::layout::Layouter;
 use gosub_render_backend::RenderBackend;
 use gosub_rendering::position::PositionTree;
+use gosub_rendering::render_tree::{generate_render_tree, RenderTree};
 use gosub_shared::byte_stream::{ByteStream, Encoding};
-use gosub_styling::render_tree::{generate_render_tree, RenderNodeData, RenderTree};
-use gosub_styling::styling::CssProperties;
+use gosub_shared::document::DocumentHandle;
+use gosub_shared::node::NodeId;
+use gosub_shared::traits::css3::CssSystem;
+use gosub_shared::traits::document::{Document, DocumentBuilder};
+use gosub_shared::traits::html5::Html5Parser;
+use url::Url;
 
-pub struct TreeDrawer<B: RenderBackend, L: Layouter> {
+pub struct TreeDrawer<B: RenderBackend, L: Layouter, D: Document<C>, C: CssSystem> {
     pub(crate) fetcher: Fetcher,
-    pub(crate) tree: RenderTree<L>,
+    pub(crate) tree: RenderTree<L, D, C>,
     pub(crate) layouter: L,
     pub(crate) size: Option<SizeU32>,
     pub(crate) position: PositionTree,
@@ -31,8 +31,8 @@ pub struct TreeDrawer<B: RenderBackend, L: Layouter> {
     pub(crate) scene_transform: Option<B::Transform>,
 }
 
-impl<B: RenderBackend, L: Layouter> TreeDrawer<B, L> {
-    pub fn new(tree: RenderTree<L>, layouter: L, url: Url, debug: bool) -> Self {
+impl<B: RenderBackend, L: Layouter, D: Document<C>, C: CssSystem> TreeDrawer<B, L, D, C> {
+    pub fn new(tree: RenderTree<L, D, C>, layouter: L, url: Url, debug: bool) -> Self {
         Self {
             tree,
             layouter,
@@ -50,27 +50,24 @@ impl<B: RenderBackend, L: Layouter> TreeDrawer<B, L> {
     }
 }
 
-pub struct RenderTreeNode<L: Layouter> {
-    pub parent: Option<NodeId>,
-    pub children: Vec<NodeId>,
-    pub layout: i32, //TODO
-    pub name: String,
-    pub properties: CssProperties,
-    pub namespace: Option<String>,
-    pub data: RenderNodeData<L>,
-}
+// pub struct RenderTreeNode<L: Layouter> {
+//     pub parent: Option<NodeId>,
+//     pub children: Vec<NodeId>,
+//     pub layout: i32, //TODO
+//     pub name: String,
+//     pub properties: CssProperties,
+//     pub namespace: Option<String>,
+//     pub data: RenderNodeData<L>,
+// }
 
-pub(crate) fn load_html_rendertree<L: Layouter>(
+pub(crate) fn load_html_rendertree<L: Layouter, P: Html5Parser<C>, C: CssSystem>(
     url: Url,
-) -> gosub_shared::types::Result<RenderTree<L>> {
+) -> gosub_shared::types::Result<RenderTree<L, P::Document, C>> {
     let html = if url.scheme() == "http" || url.scheme() == "https" {
         // Fetch the html from the url
         let response = ureq::get(url.as_ref()).call()?;
         if response.status() != 200 {
-            bail!(format!(
-                "Could not get url. Status code {}",
-                response.status()
-            ));
+            bail!(format!("Could not get url. Status code {}", response.status()));
         }
         response.into_string()?
     } else if url.scheme() == "file" {
@@ -83,19 +80,18 @@ pub(crate) fn load_html_rendertree<L: Layouter>(
     stream.read_from_str(&html, Some(Encoding::UTF8));
     stream.close();
 
-    let mut doc_handle = DocumentBuilder::new_document(Some(url));
-    let parse_errors =
-        Html5Parser::parse_document(&mut stream, Document::clone(&doc_handle), None)?;
+    let mut doc_handle = <P::Document as Document<C>>::Builder::new_document(Some(url));
+    let parse_errors = P::parse(&mut stream, DocumentHandle::clone(&doc_handle), None)?;
 
     for error in parse_errors {
         eprintln!("Parse error: {:?}", error);
     }
 
-    let mut doc = doc_handle.get_mut();
-    doc.stylesheets
-        .push(gosub_styling::load_default_useragent_stylesheet()?);
+    _ = doc_handle.get_mut();
 
-    drop(doc);
+    // doc.add_stylesheet(C::load_default_useragent_stylesheet()?);
 
-    generate_render_tree(Document::clone(&doc_handle))
+    // drop(doc);
+
+    generate_render_tree(DocumentHandle::clone(&doc_handle))
 }

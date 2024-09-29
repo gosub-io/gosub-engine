@@ -52,10 +52,7 @@ impl GenericsMatcher {
         GenericsMatcher::Trait(generic)
     }
 
-    pub(crate) fn get_matchers(
-        generics: Vec<GenericProperty>,
-        func: &syn::ImplItemFn,
-    ) -> Vec<Generics> {
+    pub(crate) fn get_matchers(generics: Vec<GenericProperty>, func: &syn::ImplItemFn) -> Vec<Generics> {
         let mut gen = Vec::new();
 
         for generic in generics {

@@ -1,33 +1,120 @@
 use core::fmt::Debug;
+use gosub_shared::byte_stream::Location;
+use gosub_shared::errors::CssError;
+use gosub_shared::errors::CssResult;
+use gosub_shared::traits::css3::CssOrigin;
 use std::cmp::Ordering;
 use std::fmt::Display;
 
-use anyhow::anyhow;
-
-use gosub_shared::types::Result;
-
 use crate::colors::RgbColor;
 
+/// Severity of a CSS error
+#[derive(Debug, PartialEq)]
+pub enum Severity {
+    /// A critical error that will prevent the stylesheet from being applied
+    Error,
+    /// A warning that will be displayed but will not prevent the stylesheet from being applied
+    Warning,
+    /// An information message that can be displayed to the user
+    Info,
+}
+
+impl Display for Severity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Severity::Error => write!(f, "Error"),
+            Severity::Warning => write!(f, "Warning"),
+            Severity::Info => write!(f, "Info"),
+        }
+    }
+}
+
+/// Defines a CSS log during
+#[derive(PartialEq)]
+pub struct CssLog {
+    /// Severity of the error
+    pub severity: Severity,
+    /// Error message
+    pub message: String,
+    /// Location of the error
+    pub location: Location,
+}
+
+impl CssLog {
+    pub fn log(severity: Severity, message: &str, location: Location) -> Self {
+        Self {
+            severity,
+            message: message.to_string(),
+            location,
+        }
+    }
+
+    pub fn error(message: &str, location: Location) -> Self {
+        Self {
+            severity: Severity::Error,
+            message: message.to_string(),
+            location,
+        }
+    }
+
+    pub fn warn(message: &str, location: Location) -> Self {
+        Self {
+            severity: Severity::Warning,
+            message: message.to_string(),
+            location,
+        }
+    }
+
+    pub fn info(message: &str, location: Location) -> Self {
+        Self {
+            severity: Severity::Info,
+            message: message.to_string(),
+            location,
+        }
+    }
+}
+
+impl Display for CssLog {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "[{}] ({}:{}): {}",
+            self.severity, self.location.line, self.location.column, self.message
+        )
+    }
+}
+
+impl Debug for CssLog {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "[{}] ({}:{}): {}",
+            self.severity, self.location.line, self.location.column, self.message
+        )
+    }
+}
+
 /// Defines a complete stylesheet with all its rules and the location where it was found
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq)]
 pub struct CssStylesheet {
     /// List of rules found in this stylesheet
     pub rules: Vec<CssRule>,
     /// Origin of the stylesheet (user agent, author, user)
     pub origin: CssOrigin,
     /// Url or file path where the stylesheet was found
-    pub location: String,
+    pub url: String,
+    /// Any issues during parsing of the stylesheet
+    pub parse_log: Vec<CssLog>,
 }
 
-/// Defines the origin of the stylesheet (or declaration)
-#[derive(Debug, PartialEq, Clone)]
-pub enum CssOrigin {
-    /// Browser/user agent defined stylesheets
-    UserAgent,
-    /// Author defined stylesheets that are linked or embedded in the HTML files
-    Author,
-    /// User defined stylesheets that will override the author and user agent stylesheets (for instance, custom user styles or extensions)
-    User,
+impl gosub_shared::traits::css3::CssStylesheet for CssStylesheet {
+    fn origin(&self) -> CssOrigin {
+        self.origin
+    }
+
+    fn url(&self) -> &str {
+        &self.url
+    }
 }
 
 /// A CSS rule, which contains a list of selectors and a list of declarations
@@ -54,7 +141,7 @@ impl CssRule {
 pub struct CssDeclaration {
     // Css property color
     pub property: String,
-    // Raw values of the declaration. It is not calculated or converted in any way (ie: "red", "50px" etc)
+    // Raw values of the declaration. It is not calculated or converted in any way (ie: "red", "50px" etc.)
     // There can be multiple values  (ie:   "1px solid black" are split into 3 values)
     pub value: Vec<CssValue>,
     // ie: !important
@@ -352,7 +439,7 @@ impl CssValue {
     }
 
     /// Converts a CSS AST node to a CSS value
-    pub fn parse_ast_node(node: &crate::node::Node) -> Result<CssValue> {
+    pub fn parse_ast_node(node: &crate::node::Node) -> CssResult<CssValue> {
         match *node.node_type.clone() {
             crate::node::NodeType::Ident { value } => Ok(CssValue::String(value)),
             crate::node::NodeType::Number { value } => {
@@ -373,13 +460,10 @@ impl CssValue {
                 Ok(CssValue::String(value))
             }
             crate::node::NodeType::Operator(_) => Ok(CssValue::None),
-            crate::node::NodeType::Calc { .. } => {
-                Ok(CssValue::Function("calc".to_string(), vec![]))
+            crate::node::NodeType::Calc { .. } => Ok(CssValue::Function("calc".to_string(), vec![])),
+            crate::node::NodeType::Url { url } => {
+                Ok(CssValue::Function("url".to_string(), vec![CssValue::String(url)]))
             }
-            crate::node::NodeType::Url { url } => Ok(CssValue::Function(
-                "url".to_string(),
-                vec![CssValue::String(url)],
-            )),
             crate::node::NodeType::Function { name, arguments } => {
                 let mut list = vec![];
                 for node in arguments.iter() {
@@ -390,15 +474,14 @@ impl CssValue {
                 }
                 Ok(CssValue::Function(name, list))
             }
-            _ => Err(anyhow!(format!(
-                "Cannot convert node to CssValue: {:?}",
-                node
-            ))),
+            _ => Err(CssError::new(
+                format!("Cannot convert node to CssValue: {:?}", node).as_str(),
+            )),
         }
     }
 
     /// Parses a string into a CSS value or list of css values
-    pub fn parse_str(value: &str) -> Result<CssValue> {
+    pub fn parse_str(value: &str) -> CssResult<CssValue> {
         match value {
             "initial" => return Ok(CssValue::Initial),
             "inherit" => return Ok(CssValue::Inherit),
@@ -441,6 +524,64 @@ impl CssValue {
         }
 
         Ok(CssValue::String(value.to_string()))
+    }
+}
+
+impl gosub_shared::traits::css3::CssValue for CssValue {
+    fn unit_to_px(&self) -> f32 {
+        self.unit_to_px()
+    }
+
+    fn as_string(&self) -> Option<&str> {
+        if let CssValue::String(str) = &self {
+            Some(str)
+        } else {
+            None
+        }
+    }
+
+    fn as_percentage(&self) -> Option<f32> {
+        if let CssValue::Percentage(percent) = &self {
+            Some(*percent)
+        } else {
+            None
+        }
+    }
+
+    fn as_unit(&self) -> Option<(f32, &str)> {
+        if let CssValue::Unit(value, unit) = &self {
+            Some((*value, unit))
+        } else {
+            None
+        }
+    }
+
+    fn as_color(&self) -> Option<(f32, f32, f32, f32)> {
+        if let CssValue::Color(color) = &self {
+            Some((color.r, color.g, color.b, color.a))
+        } else {
+            None
+        }
+    }
+
+    fn as_number(&self) -> Option<f32> {
+        if let CssValue::Number(num) = &self {
+            Some(*num)
+        } else {
+            None
+        }
+    }
+
+    fn as_list(&self) -> Option<Vec<Self>> {
+        if let CssValue::List(list) = &self {
+            Some(list.to_vec())
+        } else {
+            None
+        }
+    }
+
+    fn is_none(&self) -> bool {
+        matches!(self, CssValue::None)
     }
 }
 

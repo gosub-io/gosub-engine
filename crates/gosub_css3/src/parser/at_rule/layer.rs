@@ -1,20 +1,21 @@
 use crate::node::{Node, NodeType};
-use crate::{Css3, Error};
+use crate::Css3;
+use gosub_shared::errors::CssResult;
 
 impl Css3<'_> {
     #[allow(dead_code)]
-    fn parse_at_rule_layer_list(&mut self) -> Result<Node, Error> {
+    fn parse_at_rule_layer_list(&mut self) -> CssResult<Node> {
         let _children: Vec<Node> = Vec::new();
 
         todo!();
     }
 
-    fn parse_layer_query(&mut self) -> Result<Node, Error> {
+    fn parse_layer_query(&mut self) -> CssResult<Node> {
         let _children: Vec<Node> = Vec::new();
         todo!();
     }
 
-    pub fn parse_at_rule_layer_prelude(&mut self) -> Result<Node, Error> {
+    pub fn parse_at_rule_layer_prelude(&mut self) -> CssResult<Node> {
         log::trace!("parse_at_rule_layer_prelude");
 
         let loc = self.tokenizer.current_location();

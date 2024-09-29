@@ -5,13 +5,10 @@ edition = "2021"
 authors = ["Gosub Community <info@gosub.io>"]
 license = "MIT"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 gosub_rendering = { path = "../gosub_render_utils" }
 gosub_html5 = { path = "../gosub_html5" }
 gosub_shared = { path = "../gosub_shared" }
-gosub_styling = { path = "../gosub_styling" }
 gosub_css3 = { path = "../gosub_css3" }
 gosub_net = { path = "../gosub_net" }
 gosub_render_backend = { path = "../gosub_render_backend" }
@@ -19,8 +16,6 @@ anyhow = "1.0.89"
 image = "0.25.2"
 url = "2.5.2"
 log = "0.4.22"
-
-
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen-futures = "0.4.42"

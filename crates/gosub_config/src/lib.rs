@@ -166,11 +166,7 @@ impl ConfigStore {
         // Find all keys, and add them to the configuration store
         if let Ok(all_settings) = self.storage.all() {
             for (key, value) in all_settings {
-                self.settings
-                    .lock()
-                    .unwrap()
-                    .borrow_mut()
-                    .insert(key, value);
+                self.settings.lock().unwrap().borrow_mut().insert(key, value);
             }
         }
     }
@@ -258,14 +254,12 @@ impl ConfigStore {
 
     /// Populates the settings in the storage from the settings.json file
     fn populate_default_settings(&mut self) -> Result<()> {
-        let json_data: Value =
-            serde_json::from_str(SETTINGS_JSON).expect("Failed to parse settings.json");
+        let json_data: Value = serde_json::from_str(SETTINGS_JSON).expect("Failed to parse settings.json");
 
         if let Value::Object(data) = json_data {
             for (section_prefix, section_entries) in &data {
                 let section_entries: Vec<JsonEntry> =
-                    serde_json::from_value(section_entries.clone())
-                        .expect("Failed to parse settings.json");
+                    serde_json::from_value(section_entries.clone()).expect("Failed to parse settings.json");
 
                 for entry in section_entries {
                     let key = format!("{}.{}", section_prefix, entry.key);
@@ -317,10 +311,7 @@ mod test {
             assert_eq!(captured_logs.len(), 0);
         });
 
-        config_store_write().set(
-            "dns.local.enabled",
-            Setting::String("wont accept strings".into()),
-        );
+        config_store_write().set("dns.local.enabled", Setting::String("wont accept strings".into()));
 
         testing_logger::validate(|captured_logs| {
             assert_eq!(captured_logs.len(), 1);

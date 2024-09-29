@@ -1,14 +1,14 @@
 use core::fmt::Display;
 
 use v8::{
-    undefined, CallbackScope, External, Function, FunctionBuilder, FunctionCallbackArguments,
-    FunctionCallbackInfo, Local, ReturnValue, TryCatch,
+    undefined, CallbackScope, External, Function, FunctionBuilder, FunctionCallbackArguments, FunctionCallbackInfo,
+    Local, ReturnValue, TryCatch,
 };
 
 use gosub_shared::types::Result;
 use gosub_webexecutor::js::{
-    Args, IntoRustValue, JSError, JSFunction, JSFunctionCallBack, JSFunctionCallBackVariadic,
-    JSFunctionVariadic, JSRuntime, VariadicArgs, VariadicArgsInternal,
+    Args, IntoRustValue, JSError, JSFunction, JSFunctionCallBack, JSFunctionCallBackVariadic, JSFunctionVariadic,
+    JSRuntime, VariadicArgs, VariadicArgsInternal,
 };
 use gosub_webexecutor::Error;
 
@@ -48,11 +48,7 @@ impl<'a> Iterator for V8Args<'a> {
 impl<'a> Args for V8Args<'a> {
     type RT = V8Engine<'a>;
 
-    fn get(
-        &self,
-        index: usize,
-        ctx: <Self::RT as JSRuntime>::Context,
-    ) -> Option<<Self::RT as JSRuntime>::Value> {
+    fn get(&self, index: usize, ctx: <Self::RT as JSRuntime>::Context) -> Option<<Self::RT as JSRuntime>::Value> {
         if index < self.args.len() {
             Some(V8Value {
                 context: V8Context::clone(&ctx),
@@ -198,14 +194,8 @@ struct CallbackWrapper<'a> {
 
 impl<'a> CallbackWrapper<'a> {
     #[allow(clippy::new_ret_no_self)]
-    fn new(
-        ctx: V8Context<'a>,
-        f: impl Fn(&mut V8FunctionCallBack<'a>) + 'static,
-    ) -> *mut std::ffi::c_void {
-        let data = Box::new(Self {
-            ctx,
-            f: Box::new(f),
-        });
+    fn new(ctx: V8Context<'a>, f: impl Fn(&mut V8FunctionCallBack<'a>) + 'static) -> *mut std::ffi::c_void {
+        let data = Box::new(Self { ctx, f: Box::new(f) });
 
         Box::into_raw(data) as *mut std::ffi::c_void
     }
@@ -234,10 +224,7 @@ impl<'a> JSFunction for V8Function<'a> {
         }
     }
 
-    fn call(
-        &mut self,
-        args: &[<Self::RT as JSRuntime>::Value],
-    ) -> Result<<Self::RT as JSRuntime>::Value> {
+    fn call(&mut self, args: &[<Self::RT as JSRuntime>::Value]) -> Result<<Self::RT as JSRuntime>::Value> {
         let scope = &mut TryCatch::new(self.ctx.scope());
 
         let recv = Local::from(v8::undefined(scope));
@@ -295,11 +282,7 @@ impl<'a> Iterator for V8VariadicArgsInternal<'a> {
 impl<'a> VariadicArgsInternal for V8VariadicArgsInternal<'a> {
     type RT = V8Engine<'a>;
 
-    fn get(
-        &self,
-        index: usize,
-        ctx: <Self::RT as JSRuntime>::Context,
-    ) -> Option<<Self::RT as JSRuntime>::Value> {
+    fn get(&self, index: usize, ctx: <Self::RT as JSRuntime>::Context) -> Option<<Self::RT as JSRuntime>::Value> {
         if index < self.args.len() {
             Some(V8Value {
                 context: V8Context::clone(&ctx),
@@ -330,13 +313,8 @@ impl<'a> VariadicArgsInternal for V8VariadicArgsInternal<'a> {
         a
     }
 
-    fn variadic(
-        &self,
-        ctx: <Self::RT as JSRuntime>::Context,
-    ) -> <Self::RT as JSRuntime>::VariadicArgs {
-        V8VariadicArgs {
-            args: self.as_vec(ctx),
-        }
+    fn variadic(&self, ctx: <Self::RT as JSRuntime>::Context) -> <Self::RT as JSRuntime>::VariadicArgs {
+        V8VariadicArgs { args: self.as_vec(ctx) }
     }
 
     fn variadic_start(
@@ -379,10 +357,7 @@ impl<'a> VariadicArgs for V8VariadicArgs<'a> {
     where
         <Self::RT as JSRuntime>::Value: IntoRustValue<T>,
     {
-        self.args
-            .iter()
-            .map(|x| x.to_rust_value().unwrap())
-            .collect()
+        self.args.iter().map(|x| x.to_rust_value().unwrap()).collect()
     }
 
     fn get_as<T>(&self, index: usize) -> Option<T>
@@ -509,14 +484,8 @@ struct CallbackWrapperVariadic<'a> {
 
 impl<'a> CallbackWrapperVariadic<'a> {
     #[allow(clippy::new_ret_no_self)]
-    fn new(
-        ctx: V8Context<'a>,
-        f: impl Fn(&mut V8FunctionCallBackVariadic<'a>) + 'static,
-    ) -> *mut std::ffi::c_void {
-        let data = Box::new(Self {
-            ctx,
-            f: Box::new(f),
-        });
+    fn new(ctx: V8Context<'a>, f: impl Fn(&mut V8FunctionCallBackVariadic<'a>) + 'static) -> *mut std::ffi::c_void {
+        let data = Box::new(Self { ctx, f: Box::new(f) });
 
         Box::into_raw(data) as *mut _ as *mut std::ffi::c_void
     }
@@ -544,10 +513,7 @@ impl<'a> JSFunctionVariadic for V8FunctionVariadic<'a> {
         }
     }
 
-    fn call(
-        &mut self,
-        args: &[<Self::RT as JSRuntime>::Value],
-    ) -> Result<<Self::RT as JSRuntime>::Value> {
+    fn call(&mut self, args: &[<Self::RT as JSRuntime>::Value]) -> Result<<Self::RT as JSRuntime>::Value> {
         let scope = &mut v8::TryCatch::new(self.ctx.scope());
         let recv = Local::from(v8::undefined(scope));
         let ret = self.function.call(

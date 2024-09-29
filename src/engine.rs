@@ -1,10 +1,13 @@
 use gosub_shared::byte_stream::{ByteStream, Encoding};
+use gosub_shared::document::DocumentHandle;
+use gosub_shared::traits::css3::CssSystem;
+use gosub_shared::traits::document::{Document, DocumentBuilder};
+use gosub_shared::traits::html5::Html5Parser as Html5ParserT;
+
 #[cfg(not(target_arch = "wasm32"))]
 use {
     cookie::CookieJar,
     core::fmt::Debug,
-    gosub_html5::parser::document::{Document, DocumentBuilder, DocumentHandle},
-    gosub_html5::parser::Html5Parser,
     gosub_net::{
         dns::{Dns, ResolveType},
         http::{headers::Headers, request::Request, response::Response},
@@ -23,13 +26,13 @@ const MAX_BYTES: u64 = 10_000_000;
 
 /// Response that is returned from the fetch function
 #[cfg(not(target_arch = "wasm32"))]
-pub struct FetchResponse {
+pub struct FetchResponse<D: Document<C>, C: CssSystem> {
     /// Request that has been send
     pub request: Request,
     /// Response that has been received
     pub response: Response,
     /// Document tree that is made from the response
-    pub document: DocumentHandle,
+    pub document: DocumentHandle<D, C>,
     /// Parse errors that occurred while parsing the document tree
     pub parse_errors: Vec<ParseError>,
     /// Rendertree that is generated from the document tree and css tree
@@ -37,14 +40,14 @@ pub struct FetchResponse {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-impl Debug for FetchResponse {
+impl<D: Document<C> + Debug, C: CssSystem> Debug for FetchResponse<D, C> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         writeln!(f, "Request:")?;
         writeln!(f, "{}", self.request)?;
         writeln!(f, "Response:")?;
         writeln!(f, "{}", self.response)?;
         writeln!(f, "Document tree:")?;
-        writeln!(f, "{}", self.document)?;
+        writeln!(f, "{:?}", self.document)?;
         writeln!(f, "Parse errors:")?;
         for error in &self.parse_errors {
             writeln!(
@@ -62,12 +65,12 @@ impl Debug for FetchResponse {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[allow(dead_code)]
-fn fetch_url(
+fn fetch_url<P: Html5ParserT<C>, C: CssSystem>(
     method: &str,
     url: &str,
     headers: Headers,
     cookies: CookieJar,
-) -> Result<FetchResponse> {
+) -> Result<FetchResponse<P::Document, C>> {
     let mut http_req = Request::new(method, url, "HTTP/1.1");
     http_req.headers = headers.clone();
     http_req.cookies = cookies.clone();
@@ -77,7 +80,7 @@ fn fetch_url(
     let mut fetch_response = FetchResponse {
         request: http_req,
         response: Response::new(),
-        document: DocumentBuilder::new_document(Some(parts.clone())),
+        document: <P::Document as Document<C>>::Builder::new_document(Some(parts.clone())),
         parse_errors: vec![],
         render_tree: String::new(),
     };
@@ -140,10 +143,9 @@ fn fetch_url(
 
     let mut stream = ByteStream::new(Encoding::UTF8, None);
     let _ = stream.read_from_bytes(&fetch_response.response.body);
-    fetch_response.document = DocumentBuilder::new_document(Some(parts));
+    fetch_response.document = <P::Document as Document<C>>::Builder::new_document(Some(parts));
 
-    match Html5Parser::parse_document(&mut stream, Document::clone(&fetch_response.document), None)
-    {
+    match P::parse(&mut stream, DocumentHandle::clone(&fetch_response.document), None) {
         Ok(parse_errors) => {
             fetch_response.parse_errors = parse_errors;
         }
@@ -160,6 +162,9 @@ fn fetch_url(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gosub_css3::system::Css3System;
+    use gosub_html5::document::document_impl::DocumentImpl;
+    use gosub_html5::parser::Html5Parser;
 
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
@@ -169,7 +174,8 @@ mod tests {
         headers.set_str("User-Agent", USER_AGENT);
         let cookies = CookieJar::new();
 
-        let resp = fetch_url("GET", url, headers, cookies);
+        let resp =
+            fetch_url::<Html5Parser<DocumentImpl<Css3System>, Css3System>, Css3System>("GET", url, headers, cookies);
         assert!(resp.is_ok());
     }
 }

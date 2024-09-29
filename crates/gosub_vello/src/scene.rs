@@ -28,11 +28,9 @@ impl TScene<VelloBackend> for Scene {
 
         if let Some(radius) = &rect.radius {
             let shape = RoundedRect::from_rect(rect.rect.0, radius.clone());
-            self.0
-                .fill(Fill::NonZero, affine, brush, brush_transform, &shape)
+            self.0.fill(Fill::NonZero, affine, brush, brush_transform, &shape)
         } else {
-            self.0
-                .fill(Fill::NonZero, affine, brush, brush_transform, &rect.rect.0)
+            self.0.fill(Fill::NonZero, affine, brush, brush_transform, &rect.rect.0)
         }
 
         if let Some(border) = &rect.border {
@@ -55,11 +53,7 @@ impl TScene<VelloBackend> for Scene {
         render_text_simple(self, text, pos, size)
     }
 
-    fn apply_scene(
-        &mut self,
-        scene: &<VelloBackend as RenderBackend>::Scene,
-        transform: Option<Transform>,
-    ) {
+    fn apply_scene(&mut self, scene: &<VelloBackend as RenderBackend>::Scene, transform: Option<Transform>) {
         // let enc = self.0.encoding();
         //
         // enc.

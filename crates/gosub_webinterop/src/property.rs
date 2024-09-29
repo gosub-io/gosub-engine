@@ -81,10 +81,7 @@ impl FieldProperty {
                                     }
                                     property.as_mut().unwrap().executor = Executor::None;
                                 }
-                                _ => Err(syn::Error::new_spanned(
-                                    attr,
-                                    "Unknown attribute in property attribute",
-                                ))?,
+                                _ => Err(syn::Error::new_spanned(attr, "Unknown attribute in property attribute"))?,
                             }
 
                             Ok(())

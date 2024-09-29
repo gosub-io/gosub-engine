@@ -1,7 +1,8 @@
+use gosub_css3::system::Css3System;
+use gosub_html5::document::document_impl::DocumentImpl;
+use gosub_html5::parser::Html5Parser;
 use gosub_shared::types::Result;
-use gosub_testing::testing::tree_construction::fixture::{
-    fixture_root_path, read_fixture_from_path,
-};
+use gosub_testing::testing::tree_construction::fixture::{fixture_root_path, read_fixture_from_path};
 use gosub_testing::testing::tree_construction::Harness;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -29,7 +30,10 @@ fn main() -> Result<()> {
         for test in &fixture.tests {
             for &scripting_enabled in test.script_modes() {
                 let result = harness
-                    .run_test(test.clone(), scripting_enabled)
+                    .run_test::<Html5Parser<DocumentImpl<Css3System>, Css3System>, Css3System>(
+                        test.clone(),
+                        scripting_enabled,
+                    )
                     .expect("problem parsing");
 
                 total += 1;
@@ -60,11 +64,7 @@ fn main() -> Result<()> {
 fn get_files_from_path(dir: PathBuf) -> Vec<String> {
     let mut files = Vec::new();
 
-    for entry in WalkDir::new(dir.clone())
-        .follow_links(true)
-        .into_iter()
-        .flatten()
-    {
+    for entry in WalkDir::new(dir.clone()).follow_links(true).into_iter().flatten() {
         if entry.file_type().is_file() {
             if let Some(extension) = entry.path().extension() {
                 if extension == "dat" {

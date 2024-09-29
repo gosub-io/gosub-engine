@@ -1,4 +1,5 @@
 use core::fmt::{Debug, Formatter};
+use gosub_shared::traits::node::DocTypeDataType;
 use std::fmt;
 
 #[derive(PartialEq, Clone)]
@@ -24,11 +25,25 @@ impl Debug for DocTypeData {
 
 impl DocTypeData {
     #[must_use]
-    pub(crate) fn new(name: &str, pub_identifier: &str, sys_identifier: &str) -> Self {
+    pub fn new(name: &str, pub_identifier: &str, sys_identifier: &str) -> Self {
         Self {
             name: name.to_owned(),
             pub_identifier: pub_identifier.to_owned(),
             sys_identifier: sys_identifier.to_owned(),
         }
+    }
+}
+
+impl DocTypeDataType for DocTypeData {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn pub_identifier(&self) -> &str {
+        &self.pub_identifier
+    }
+
+    fn sys_identifier(&self) -> &str {
+        &self.sys_identifier
     }
 }

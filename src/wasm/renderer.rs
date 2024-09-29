@@ -2,13 +2,13 @@ use js_sys::Promise;
 use url::Url;
 use wasm_bindgen::prelude::*;
 
+use gobub_css3::render_tree::generate_render_tree;
+use gobub_css3::render_tree::RenderTree as StyleTree;
 use gosub_html5::parser::document::{Document, DocumentBuilder};
 use gosub_html5::parser::Html5Parser;
 use gosub_renderer::render_tree::TreeDrawer;
 use gosub_renderer::renderer::{Renderer, RendererOptions as GRendererOptions};
 use gosub_shared::types::Result;
-use gosub_styling::render_tree::generate_render_tree;
-use gosub_styling::render_tree::RenderTree as StyleTree;
 use gosub_taffy::layout::generate_taffy_tree;
 
 #[wasm_bindgen]
@@ -92,8 +92,7 @@ fn load_html_rendertree(input: &str, url: Url) -> Result<StyleTree> {
     stream.close();
 
     let doc_handle = DocumentBuilder::new_document(Some(url));
-    let _parse_errors =
-        Html5Parser::parse_document(&mut stream, Document::clone(&doc_handle), None)?;
+    let _parse_errors = Html5Parser::parse_document(&mut stream, Document::clone(&doc_handle), None)?;
 
     generate_render_tree(Document::clone(&doc_handle))
 }

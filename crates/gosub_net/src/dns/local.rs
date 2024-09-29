@@ -115,40 +115,20 @@ mod test {
 
         // Simple resolve
         let e = table.resolve("example.com", ResolveType::Ipv4).unwrap();
-        assert_eq!(
-            &IpAddr::from_str("1.2.3.4").unwrap(),
-            e.ips.first().unwrap()
-        );
+        assert_eq!(&IpAddr::from_str("1.2.3.4").unwrap(), e.ips.first().unwrap());
         assert!(table.resolve("xample.com", ResolveType::Ipv4).is_err());
         assert!(table.resolve("com", ResolveType::Ipv4).is_err());
         assert!(table.resolve("example", ResolveType::Ipv4).is_err());
 
         // Wildcard
-        let e = table
-            .resolve("specific.wildcard.com", ResolveType::Ipv4)
-            .unwrap();
-        assert_eq!(
-            &IpAddr::from_str("8.8.8.8").unwrap(),
-            e.ips.first().unwrap()
-        );
-        let e = table
-            .resolve("something.wildcard.com", ResolveType::Ipv4)
-            .unwrap();
-        assert_eq!(
-            &IpAddr::from_str("6.6.6.6").unwrap(),
-            e.ips.first().unwrap()
-        );
-        let e = table
-            .resolve("foobar.wildcard.com", ResolveType::Ipv4)
-            .unwrap();
-        assert_eq!(
-            &IpAddr::from_str("6.6.6.6").unwrap(),
-            e.ips.first().unwrap()
-        );
+        let e = table.resolve("specific.wildcard.com", ResolveType::Ipv4).unwrap();
+        assert_eq!(&IpAddr::from_str("8.8.8.8").unwrap(), e.ips.first().unwrap());
+        let e = table.resolve("something.wildcard.com", ResolveType::Ipv4).unwrap();
+        assert_eq!(&IpAddr::from_str("6.6.6.6").unwrap(), e.ips.first().unwrap());
+        let e = table.resolve("foobar.wildcard.com", ResolveType::Ipv4).unwrap();
+        assert_eq!(&IpAddr::from_str("6.6.6.6").unwrap(), e.ips.first().unwrap());
         assert!(table.resolve("foo.custom.com", ResolveType::Ipv4).is_err());
-        assert!(table
-            .resolve("too.specific.wildcard.com", ResolveType::Ipv4)
-            .is_err());
+        assert!(table.resolve("too.specific.wildcard.com", ResolveType::Ipv4).is_err());
         assert!(table.resolve("custom.com", ResolveType::Ipv4).is_err());
 
         // round robin on both ipv4 and ipv6

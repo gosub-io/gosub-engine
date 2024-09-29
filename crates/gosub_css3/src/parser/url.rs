@@ -1,17 +1,19 @@
 use crate::node::{Node, NodeType};
 use crate::tokenizer::TokenType;
-use crate::{Css3, Error};
+use crate::Css3;
+use gosub_shared::errors::CssError;
+use gosub_shared::errors::CssResult;
 
 impl Css3<'_> {
-    pub fn parse_url(&mut self) -> Result<Node, Error> {
+    pub fn parse_url(&mut self) -> CssResult<Node> {
         log::trace!("parse_url");
 
         let loc = self.tokenizer.current_location();
 
         let name = self.consume_function()?;
         if name.to_ascii_lowercase() != "url" {
-            return Err(Error::new(
-                format!("Expected url, got {:?}", name),
+            return Err(CssError::with_location(
+                format!("Expected url, got {:?}", name).as_str(),
                 self.tokenizer.current_location(),
             ));
         }
@@ -20,10 +22,10 @@ impl Css3<'_> {
         let url = match t.token_type {
             TokenType::QuotedString(url) => url,
             _ => {
-                return Err(Error::new(
-                    format!("Expected url, got {:?}", t),
+                return Err(CssError::with_location(
+                    format!("Expected url, got {:?}", t).as_str(),
                     self.tokenizer.current_location(),
-                ))
+                ));
             }
         };
 
@@ -36,6 +38,7 @@ impl Css3<'_> {
 #[cfg(test)]
 mod tests {
     use crate::walker::Walker;
+    use crate::{CssOrigin, ParserConfig};
     use gosub_shared::byte_stream::{ByteStream, Encoding};
 
     macro_rules! test {
@@ -44,7 +47,7 @@ mod tests {
             stream.read_from_str($input, Some(Encoding::UTF8));
             stream.close();
 
-            let mut parser = crate::Css3::new(&mut stream);
+            let mut parser = crate::Css3::new(&mut stream, ParserConfig::default(), CssOrigin::User, "");
             let result = parser.$func().unwrap();
 
             let w = Walker::new(&result);
@@ -58,7 +61,7 @@ mod tests {
     //         stream.read_from_str($input, Some(Encoding::UTF8));
     //         stream.close();
     //
-    //         let mut parser = crate::Css3::new(&mut stream);
+    //         let mut parser = crate::Css3::new(&mut stream, Default::default(), Default::default(), "");
     //         let result = parser.$func();
     //
     //         assert_eq!(true, result.is_err());

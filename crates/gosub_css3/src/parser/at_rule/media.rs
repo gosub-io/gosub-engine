@@ -1,9 +1,10 @@
 use crate::node::{FeatureKind, Node, NodeType};
 use crate::tokenizer::TokenType;
-use crate::{Css3, Error};
+use crate::Css3;
+use gosub_shared::errors::{CssError, CssResult};
 
 impl Css3<'_> {
-    fn parse_media_read_term(&mut self) -> Result<Node, Error> {
+    fn parse_media_read_term(&mut self) -> CssResult<Node> {
         self.consume_whitespace_comments();
 
         let loc = self.tokenizer.current_location();
@@ -12,9 +13,7 @@ impl Css3<'_> {
         match t.token_type {
             TokenType::Ident(ident) => Ok(Node::new(NodeType::Ident { value: ident }, loc)),
             TokenType::Number(value) => Ok(Node::new(NodeType::Number { value }, loc)),
-            TokenType::Dimension { value, unit } => {
-                Ok(Node::new(NodeType::Dimension { value, unit }, loc))
-            }
+            TokenType::Dimension { value, unit } => Ok(Node::new(NodeType::Dimension { value, unit }, loc)),
             TokenType::Function(name) => {
                 let name = name.to_lowercase();
                 let args = self.parse_pseudo_function(name.as_str())?;
@@ -28,14 +27,14 @@ impl Css3<'_> {
                     loc,
                 ))
             }
-            _ => Err(Error::new(
-                "Expected identifier, number, dimension, or ratio".to_string(),
+            _ => Err(CssError::with_location(
+                "Expected identifier, number, dimension, or ratio",
                 loc,
             )),
         }
     }
 
-    fn parse_media_read_comparison(&mut self) -> Result<Node, Error> {
+    fn parse_media_read_comparison(&mut self) -> CssResult<Node> {
         self.consume_whitespace_comments();
 
         let loc = self.tokenizer.current_location();
@@ -55,10 +54,10 @@ impl Css3<'_> {
             return Ok(Node::new(NodeType::Operator(format!("{}", delim)), loc));
         }
 
-        Err(Error::new("Expected comparison operator".to_string(), loc))
+        Err(CssError::with_location("Expected comparison operator", loc))
     }
 
-    pub fn parse_media_query_list(&mut self) -> Result<Node, Error> {
+    pub fn parse_media_query_list(&mut self) -> CssResult<Node> {
         log::trace!("parse_media_query_list");
 
         let loc = self.tokenizer.current_location();
@@ -78,15 +77,10 @@ impl Css3<'_> {
             }
         }
 
-        Ok(Node::new(
-            NodeType::MediaQueryList {
-                media_queries: queries,
-            },
-            loc,
-        ))
+        Ok(Node::new(NodeType::MediaQueryList { media_queries: queries }, loc))
     }
 
-    fn parse_media_feature_feature(&mut self, kind: FeatureKind) -> Result<Node, Error> {
+    fn parse_media_feature_feature(&mut self, kind: FeatureKind) -> CssResult<Node> {
         log::trace!("parse_media_feature_feature");
 
         let loc = self.tokenizer.current_location();
@@ -105,7 +99,7 @@ impl Css3<'_> {
 
         if t.token_type != TokenType::RParen {
             if !t.is_colon() {
-                return Err(Error::new("Expected colon".to_string(), t.location));
+                return Err(CssError::with_location("Expected colon", t.location));
             }
             self.consume_whitespace_comments();
 
@@ -130,8 +124,8 @@ impl Css3<'_> {
                     ))
                 }
                 _ => {
-                    return Err(Error::new(
-                        "Expected identifier, number, dimension, or ratio".to_string(),
+                    return Err(CssError::with_location(
+                        "Expected identifier, number, dimension, or ratio",
                         t.location,
                     ));
                 }
@@ -147,7 +141,7 @@ impl Css3<'_> {
         Ok(Node::new(NodeType::Feature { kind, name, value }, loc))
     }
 
-    fn parse_media_feature_range(&mut self, _kind: FeatureKind) -> Result<Node, Error> {
+    fn parse_media_feature_range(&mut self, _kind: FeatureKind) -> CssResult<Node> {
         log::trace!("parse_media_feature_range");
 
         let loc = self.tokenizer.current_location();
@@ -181,7 +175,7 @@ impl Css3<'_> {
         ))
     }
 
-    pub fn parse_media_feature_or_range(&mut self, kind: FeatureKind) -> Result<Node, Error> {
+    pub fn parse_media_feature_or_range(&mut self, kind: FeatureKind) -> CssResult<Node> {
         log::trace!("parse_media_feature_or_range");
 
         let t = self.tokenizer.lookahead_sc(1);
@@ -195,7 +189,7 @@ impl Css3<'_> {
         self.parse_media_feature_range(kind)
     }
 
-    pub fn parse_media_query(&mut self) -> Result<Node, Error> {
+    pub fn parse_media_query(&mut self) -> CssResult<Node> {
         log::trace!("parse_media_query");
 
         let loc = self.tokenizer.current_location();
@@ -228,7 +222,7 @@ impl Css3<'_> {
             match nt.token_type {
                 TokenType::Ident(s) => {
                     if s != "and" {
-                        return Err(Error::new("Expected 'and'".to_string(), nt.location));
+                        return Err(CssError::with_location("Expected 'and'", t.location));
                     }
 
                     self.consume_ident("and")?;
@@ -238,8 +232,8 @@ impl Css3<'_> {
                     // skip;
                 }
                 _ => {
-                    return Err(Error::new(
-                        "Expected identifier or parenthesis".to_string(),
+                    return Err(CssError::with_location(
+                        "Expected identifier or parenthesis",
                         t.location,
                     ));
                 }
@@ -255,8 +249,8 @@ impl Css3<'_> {
                     // skip
                 }
                 _ => {
-                    return Err(Error::new(
-                        "Expected identifier or parenthesis".to_string(),
+                    return Err(CssError::with_location(
+                        "Expected identifier or parenthesis",
                         t.location,
                     ));
                 }
@@ -273,7 +267,7 @@ impl Css3<'_> {
         ))
     }
 
-    pub fn parse_at_rule_media_prelude(&mut self) -> Result<Node, Error> {
+    pub fn parse_at_rule_media_prelude(&mut self) -> CssResult<Node> {
         log::trace!("parse_at_rule_media_prelude");
 
         self.parse_media_query_list()

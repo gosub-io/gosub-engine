@@ -3,7 +3,7 @@ use phf::phf_map;
 /// These are token replacements as defined by
 /// https://dev.w3.org/html5/spec-LC/tokenization.html#consume-a-character-reference
 /// If a character (#0x80; for instance) is found, it must be replaced by the given character
-pub static TOKEN_REPLACEMENTS: phf::Map<u32, char> = phf::phf_map! {
+pub static TOKEN_REPLACEMENTS: phf::Map<u32, char> = phf_map! {
     // REPLACEMENT CHARACTER
     0x00_u32 => '\u{FFFD}',
     // CARRIAGE RETURN (CR)

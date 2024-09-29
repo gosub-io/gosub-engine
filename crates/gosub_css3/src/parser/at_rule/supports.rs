@@ -1,8 +1,9 @@
 use crate::node::{Node, NodeType};
-use crate::{Css3, Error};
+use crate::Css3;
+use gosub_shared::errors::CssResult;
 
 impl Css3<'_> {
-    pub fn parse_at_rule_supports_prelude(&mut self) -> Result<Node, Error> {
+    pub fn parse_at_rule_supports_prelude(&mut self) -> CssResult<Node> {
         log::trace!("parse_at_rule_supports_prelude");
 
         let loc = self.tokenizer.current_location();
@@ -17,6 +18,7 @@ impl Css3<'_> {
 #[cfg(test)]
 mod tests {
     use crate::walker::Walker;
+    use crate::{CssOrigin, ParserConfig};
     use gosub_shared::byte_stream::{ByteStream, Encoding};
 
     #[test]
@@ -25,7 +27,7 @@ mod tests {
         stream.read_from_str("(display: flex)", Some(Encoding::UTF8));
         stream.close();
 
-        let mut parser = crate::Css3::new(&mut stream);
+        let mut parser = crate::Css3::new(&mut stream, ParserConfig::default(), CssOrigin::User, "");
         let node = parser.parse_at_rule_supports_prelude().unwrap();
 
         let w = Walker::new(&node);

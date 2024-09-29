@@ -1,3 +1,6 @@
+use gosub_css3::system::Css3System;
+use gosub_html5::document::document_impl::DocumentImpl;
+use gosub_html5::parser::Html5Parser;
 use gosub_testing::testing::tree_construction::fixture::read_fixtures;
 use gosub_testing::testing::tree_construction::result::ResultStatus;
 use gosub_testing::testing::tree_construction::Harness;
@@ -44,11 +47,7 @@ fn main() {
         println!(
             "\
     🏁 Tests completed: Ran {} tests, {} assertions, {} succeeded, {} failed ({} position failures)\n",
-            results.tests,
-            results.assertions,
-            results.succeeded,
-            results.failed,
-            results.failed_position
+            results.tests, results.assertions, results.succeeded, results.failed, results.failed_position
         );
     }
 
@@ -63,16 +62,13 @@ fn main() {
 
 fn run_test(test_idx: usize, test: Test, all_results: &mut TotalTestResults) {
     #[cfg(all(feature = "debug_parser_verbose", test))]
-    println!(
-        "🧪 Running test #{test_idx}: {}:{}",
-        test.file_path, test.line
-    );
+    println!("🧪 Running test #{test_idx}: {}:{}", test.file_path, test.line);
 
     all_results.tests += 1;
 
     let mut harness = Harness::new();
     let result = harness
-        .run_test(test.clone(), false)
+        .run_test::<Html5Parser<DocumentImpl<Css3System>, Css3System>, Css3System>(test.clone(), false)
         .expect("problem parsing");
 
     // #[cfg(all(feature = "debug_parser", not(test)))]
@@ -147,10 +143,7 @@ fn run_test(test_idx: usize, test: Test, all_results: &mut TotalTestResults) {
                 #[cfg(all(feature = "debug_parser", test))]
                 println!(
                     "❌ ({}:{}) {} (wanted: {})",
-                    entry.actual.line,
-                    entry.actual.col,
-                    entry.actual.message,
-                    entry.expected.message
+                    entry.actual.line, entry.actual.col, entry.actual.message, entry.expected.message
                 );
             }
             ResultStatus::IncorrectPosition => {

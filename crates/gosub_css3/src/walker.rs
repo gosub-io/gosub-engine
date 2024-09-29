@@ -46,11 +46,7 @@ fn inner_walk(node: &Node, depth: usize, f: &mut dyn Write) -> Result<(), std::i
             // writeln!(f, "{}  - block: ", prefix)?;
             inner_walk(block.as_ref().unwrap(), depth + 1, f)?;
         }
-        NodeType::AtRule {
-            name,
-            prelude,
-            block,
-        } => {
+        NodeType::AtRule { name, prelude, block } => {
             writeln!(f, "{}[AtRule] name: {}", prefix, name)?;
             if prelude.is_some() {
                 inner_walk(prelude.as_ref().unwrap(), depth + 1, f)?;
@@ -219,10 +215,7 @@ fn inner_walk(node: &Node, depth: usize, f: &mut dyn Write) -> Result<(), std::i
             writeln!(f, "{}[MSFunction]", prefix)?;
             inner_walk(func, depth + 1, f)?;
         }
-        NodeType::MSIdent {
-            value,
-            default_value,
-        } => {
+        NodeType::MSIdent { value, default_value } => {
             writeln!(
                 f,
                 "{}[MSIdent] value: {} default_value: {}",

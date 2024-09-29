@@ -151,10 +151,7 @@ impl Function {
             .generics
             .iter()
             .filter_map(|matcher| {
-                if matcher
-                    .matcher
-                    .is_match(&arg.ty.ty.generics().unwrap(), arg.index)
-                {
+                if matcher.matcher.is_match(&arg.ty.ty.generics().unwrap(), arg.index) {
                     Some(matcher.types.clone())
                 } else {
                     None

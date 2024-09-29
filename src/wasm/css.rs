@@ -15,10 +15,7 @@ pub struct CssOptions {
 impl CssOptions {
     #[wasm_bindgen(constructor)]
     pub fn new(tokens: bool, ignore_errors: bool) -> Self {
-        Self {
-            tokens,
-            ignore_errors,
-        }
+        Self { tokens, ignore_errors }
     }
 }
 
@@ -64,10 +61,7 @@ pub fn css3_parser(input: &str, opts: CssOptions) -> CssOutput {
         }
         Err(err) => {
             let snippet = display_snippet(&input, err);
-            CssOutput {
-                tokens,
-                out: snippet,
-            }
+            CssOutput { tokens, out: snippet }
         }
     }
 }

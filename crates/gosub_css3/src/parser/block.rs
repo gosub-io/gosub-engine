@@ -1,6 +1,7 @@
 use crate::node::{Node, NodeType};
 use crate::tokenizer::TokenType;
-use crate::{Css3, Error};
+use crate::Css3;
+use gosub_shared::errors::{CssError, CssResult};
 
 #[derive(Debug, PartialEq)]
 pub enum BlockParseMode {
@@ -9,12 +10,12 @@ pub enum BlockParseMode {
 }
 
 impl Css3<'_> {
-    fn parse_consume_rule(&mut self) -> Result<Option<Node>, Error> {
+    fn parse_consume_rule(&mut self) -> CssResult<Option<Node>> {
         log::trace!("parse_consume_rule");
         self.parse_rule()
     }
 
-    fn parse_consume_declaration(&mut self) -> Result<Option<Node>, Error> {
+    fn parse_consume_declaration(&mut self) -> CssResult<Option<Node>> {
         log::trace!("parse_consume_declaration");
 
         match self.parse_declaration()? {
@@ -48,7 +49,7 @@ impl Css3<'_> {
         }
     }
 
-    pub fn parse_block(&mut self, mode: BlockParseMode) -> Result<Node, Error> {
+    pub fn parse_block(&mut self, mode: BlockParseMode) -> CssResult<Node> {
         log::trace!("parse_block with parse mode: {:?}", mode);
 
         let loc = self.tokenizer.current_location();
@@ -62,7 +63,7 @@ impl Css3<'_> {
                     // End the block
                     self.tokenizer.reconsume();
 
-                    let n = Node::new(NodeType::Block { children }, t.location.clone());
+                    let n = Node::new(NodeType::Block { children }, t.location);
                     return Ok(n);
                 }
                 TokenType::Whitespace(_) | TokenType::Comment(_) => {
@@ -71,9 +72,7 @@ impl Css3<'_> {
 
                 TokenType::AtKeyword(_) => {
                     self.tokenizer.reconsume();
-                    if let Some(at_rule_node) =
-                        self.parse_at_rule(mode == BlockParseMode::StyleBlock)?
-                    {
+                    if let Some(at_rule_node) = self.parse_at_rule(mode == BlockParseMode::StyleBlock)? {
                         children.push(at_rule_node);
                     }
                     semicolon_seperated = false;
@@ -85,8 +84,8 @@ impl Css3<'_> {
                 _ => match mode {
                     BlockParseMode::StyleBlock => {
                         if !semicolon_seperated {
-                            return Err(Error::new(
-                                format!("Expected a ; got {:?}", t),
+                            return Err(CssError::with_location(
+                                format!("Expected a ; got {:?}", t).as_str(),
                                 self.tokenizer.current_location(),
                             ));
                         }

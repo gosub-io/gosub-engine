@@ -4,9 +4,9 @@ use std::rc::Rc;
 use gosub_shared::types::Result;
 use gosub_v8::V8Engine;
 use gosub_webexecutor::js::{
-    Args, IntoJSValue, IntoRustValue, JSContext, JSFunction, JSFunctionCallBack,
-    JSFunctionCallBackVariadic, JSFunctionVariadic, JSGetterCallback, JSInterop, JSObject,
-    JSRuntime, JSSetterCallback, JSValue, VariadicArgs, VariadicArgsInternal,
+    Args, IntoJSValue, IntoRustValue, JSContext, JSFunction, JSFunctionCallBack, JSFunctionCallBackVariadic,
+    JSFunctionVariadic, JSGetterCallback, JSInterop, JSObject, JSRuntime, JSSetterCallback, JSValue, VariadicArgs,
+    VariadicArgsInternal,
 };
 use gosub_webinterop::{web_fns, web_interop};
 
@@ -99,10 +99,7 @@ impl T1 for String {}
 
 #[test]
 fn macro_interop() {
-    let test_struct = TestStruct {
-        field: 14,
-        field2: 14,
-    };
+    let test_struct = TestStruct { field: 14, field2: 14 };
 
     let mut engine = V8Engine::new();
     let mut context = engine.new_context().unwrap();
@@ -132,7 +129,9 @@ fn macro_interop() {
         calls.push([TestStruct.generic2(1, 2), TestStruct.field, TestStruct.field2])
         
         calls
-        "#).expect("failed to run");
+        "#,
+        )
+        .expect("failed to run");
 
     let mut expected = vec![
         "17,14,14",
@@ -154,9 +153,7 @@ fn macro_interop() {
         ",17,14",
     ];
 
-    let arr = out
-        .as_array()
-        .expect("failed to get array from run ret value");
+    let arr = out.as_array().expect("failed to get array from run ret value");
 
     for v in arr {
         assert_eq!(v.as_string().unwrap(), expected.remove(0));
@@ -343,11 +340,7 @@ impl JSInterop for Test2 {
                 };
 
                 #[allow(clippy::unit_arg)]
-                let ret = s
-                    .borrow_mut()
-                    .add(arg0 as i32)
-                    .to_js_value(ctx.clone())
-                    .unwrap();
+                let ret = s.borrow_mut().add(arg0 as i32).to_js_value(ctx.clone()).unwrap();
 
                 cb.ret(ret);
             })?
@@ -403,11 +396,7 @@ impl JSInterop for Test2 {
                     return;
                 };
 
-                let ret = s
-                    .borrow()
-                    .takes_ref(&arg0)
-                    .to_js_value(ctx.clone())
-                    .unwrap();
+                let ret = s.borrow().takes_ref(&arg0).to_js_value(ctx.clone()).unwrap();
 
                 cb.ret(ret);
             })?
@@ -464,11 +453,7 @@ impl JSInterop for Test2 {
                             return;
                         };
 
-                        let ret = s
-                            .borrow()
-                            .generic(arg0, arg1)
-                            .to_js_value(ctx.clone())
-                            .unwrap();
+                        let ret = s.borrow().generic(arg0, arg1).to_js_value(ctx.clone()).unwrap();
 
                         cb.ret(ret);
                     }
@@ -486,11 +471,7 @@ impl JSInterop for Test2 {
                             return;
                         };
 
-                        let ret = s
-                            .borrow()
-                            .generic(arg0, arg1)
-                            .to_js_value(ctx.clone())
-                            .unwrap();
+                        let ret = s.borrow().generic(arg0, arg1).to_js_value(ctx.clone()).unwrap();
 
                         cb.ret(ret);
 
@@ -503,11 +484,7 @@ impl JSInterop for Test2 {
                             return;
                         };
 
-                        let ret = s
-                            .borrow()
-                            .generic(arg0, arg1)
-                            .to_js_value(ctx.clone())
-                            .unwrap();
+                        let ret = s.borrow().generic(arg0, arg1).to_js_value(ctx.clone()).unwrap();
 
                         cb.ret(ret);
                     }

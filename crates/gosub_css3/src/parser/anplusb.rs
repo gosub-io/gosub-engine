@@ -1,20 +1,17 @@
 use crate::node::{Node, NodeType};
 use crate::tokenizer::{Number, TokenType};
-use crate::{Css3, Error};
+use crate::Css3;
+use gosub_shared::errors::{CssError, CssResult};
 
 impl Css3<'_> {
-    fn do_dimension_block(
-        &mut self,
-        value: Number,
-        unit: String,
-    ) -> Result<(String, String), Error> {
+    fn do_dimension_block(&mut self, value: Number, unit: String) -> CssResult<(String, String)> {
         log::trace!("do_dimension_block");
 
         let value = value.to_string();
 
         if unit.chars().nth(0).unwrap().to_lowercase().to_string() != "n" {
-            return Err(Error::new(
-                format!("Expected n, found {}", unit).to_string(),
+            return Err(CssError::with_location(
+                format!("Expected n, found {}", unit).as_str(),
                 self.tokenizer.current_location(),
             ));
         }
@@ -25,24 +22,14 @@ impl Css3<'_> {
         })
     }
 
-    fn check_integer(
-        &mut self,
-        value: &str,
-        offset: usize,
-        allow_sign: bool,
-    ) -> Result<bool, Error> {
-        let sign = value
-            .chars()
-            .nth(offset)
-            .unwrap_or(' ')
-            .to_lowercase()
-            .to_string();
+    fn check_integer(&mut self, value: &str, offset: usize, allow_sign: bool) -> CssResult<bool> {
+        let sign = value.chars().nth(offset).unwrap_or(' ').to_lowercase().to_string();
         let mut pos = offset;
 
         if sign == "+" || sign == "-" {
             if !allow_sign {
-                return Err(Error::new(
-                    format!("Unexpected sign {}", sign).to_string(),
+                return Err(CssError::with_location(
+                    format!("Unexpected sign {}", sign).as_str(),
                     self.tokenizer.current_location(),
                 ));
             }
@@ -58,16 +45,11 @@ impl Css3<'_> {
         Ok(true)
     }
 
-    fn expect_char(&mut self, value: &str, c: &str, offset: usize) -> Result<bool, Error> {
-        let nval = value
-            .chars()
-            .nth(offset)
-            .unwrap_or(' ')
-            .to_lowercase()
-            .to_string();
+    fn expect_char(&mut self, value: &str, c: &str, offset: usize) -> CssResult<bool> {
+        let nval = value.chars().nth(offset).unwrap_or(' ').to_lowercase().to_string();
         if nval != c {
-            return Err(Error::new(
-                format!("Expected {}", c).to_string(),
+            return Err(CssError::with_location(
+                format!("Expected {}", c).as_str(),
                 self.tokenizer.current_location(),
             ));
         }
@@ -75,7 +57,7 @@ impl Css3<'_> {
         Ok(true)
     }
 
-    fn parse_anplusb_b(&mut self) -> Result<String, Error> {
+    fn parse_anplusb_b(&mut self) -> CssResult<String> {
         log::trace!("parse_anplusb_b");
 
         self.consume_whitespace_comments();
@@ -107,12 +89,12 @@ impl Css3<'_> {
                 false
             }
             _ => {
-                return Err(Error::new(
+                return Err(CssError::with_location(
                     format!(
                         "Expected +, - or number, found {:?}",
                         self.tokenizer.lookahead(0).token_type
                     )
-                    .to_string(),
+                    .as_str(),
                     self.tokenizer.current_location(),
                 ));
             }
@@ -128,7 +110,7 @@ impl Css3<'_> {
         Ok(val.to_string())
     }
 
-    fn do_negative_block(&mut self, value: &str) -> Result<(String, String), Error> {
+    fn do_negative_block(&mut self, value: &str) -> CssResult<(String, String)> {
         log::trace!("do_negative_block");
 
         let a = String::from("-1");
@@ -162,7 +144,7 @@ impl Css3<'_> {
         Ok((a, b))
     }
 
-    fn do_plus_block(&mut self, value: &str) -> Result<(String, String), Error> {
+    fn do_plus_block(&mut self, value: &str) -> CssResult<(String, String)> {
         log::trace!("do_plus_block");
 
         let a = String::from("1");
@@ -196,7 +178,7 @@ impl Css3<'_> {
         Ok((a, b))
     }
 
-    pub fn parse_anplusb(&mut self) -> Result<Node, Error> {
+    pub fn parse_anplusb(&mut self) -> CssResult<Node> {
         log::trace!("parse_anplusb");
 
         let loc = self.tokenizer.current_location();
@@ -228,8 +210,8 @@ impl Css3<'_> {
             }
             _ => {
                 self.tokenizer.reconsume();
-                return Err(Error::new(
-                    "Expected anplusb".to_string(),
+                return Err(CssError::with_location(
+                    "Expected anplusb",
                     self.tokenizer.current_location(),
                 ));
             }
@@ -251,6 +233,8 @@ impl Css3<'_> {
 mod test {
     use super::*;
     use gosub_shared::byte_stream::{ByteStream, Encoding};
+    use gosub_shared::traits::css3::CssOrigin;
+    use gosub_shared::traits::ParserConfig;
 
     macro_rules! test {
         ($func:ident, $input:expr, $expected:expr) => {
@@ -258,7 +242,7 @@ mod test {
             stream.read_from_str($input, Some(Encoding::UTF8));
             stream.close();
 
-            let mut parser = crate::Css3::new(&mut stream);
+            let mut parser = crate::Css3::new(&mut stream, ParserConfig::default(), CssOrigin::User, "");
             let result = parser.$func().unwrap();
 
             assert_eq!(result.node_type, $expected);

@@ -1,6 +1,6 @@
 extern crate lazy_static;
 
-use crate::error_logger::ParserError;
+use crate::parser::errors::ParserError;
 use crate::tokenizer::replacement_tables::{TOKEN_NAMED_CHARS, TOKEN_REPLACEMENTS};
 use crate::tokenizer::{Tokenizer, CHAR_REPLACEMENT};
 use gosub_shared::byte_stream::Character::Ch;
@@ -25,11 +25,7 @@ impl Tokenizer<'_> {
     /// ref: 8.2.4.69 Tokenizing character references
     ///
     /// @TODO: fix additional allowed char
-    pub fn consume_character_reference(
-        &mut self,
-        _additional_allowed_char: Option<Character>,
-        as_attribute: bool,
-    ) {
+    pub fn consume_character_reference(&mut self, _additional_allowed_char: Option<Character>, as_attribute: bool) {
         let mut ccr_state = CcrState::CharacterReference;
         let mut char_ref_code: Option<u32> = Some(0);
 
@@ -117,10 +113,7 @@ impl Tokenizer<'_> {
                         }
                         Ch(';') => {
                             self.stream_prev();
-                            self.parse_error(
-                                ParserError::UnknownNamedCharacterReference,
-                                self.get_location(),
-                            );
+                            self.parse_error(ParserError::UnknownNamedCharacterReference, self.get_location());
                             return;
                         }
                         Character::StreamEnd => {
@@ -162,18 +155,12 @@ impl Tokenizer<'_> {
                             ccr_state = CcrState::HexadecimalCharacterReference;
                         }
                         Character::StreamEnd => {
-                            self.parse_error(
-                                ParserError::AbsenceOfDigitsInNumericCharacterReference,
-                                loc,
-                            );
+                            self.parse_error(ParserError::AbsenceOfDigitsInNumericCharacterReference, loc);
                             self.consume_temp_buffer(as_attribute);
                             return;
                         }
                         _ => {
-                            self.parse_error(
-                                ParserError::AbsenceOfDigitsInNumericCharacterReference,
-                                loc,
-                            );
+                            self.parse_error(ParserError::AbsenceOfDigitsInNumericCharacterReference, loc);
                             self.consume_temp_buffer(as_attribute);
 
                             self.stream_prev();
@@ -190,18 +177,12 @@ impl Tokenizer<'_> {
                             ccr_state = CcrState::DecimalCharacterReference;
                         }
                         Character::StreamEnd => {
-                            self.parse_error(
-                                ParserError::AbsenceOfDigitsInNumericCharacterReference,
-                                loc,
-                            );
+                            self.parse_error(ParserError::AbsenceOfDigitsInNumericCharacterReference, loc);
                             self.consume_temp_buffer(as_attribute);
                             return;
                         }
                         _ => {
-                            self.parse_error(
-                                ParserError::AbsenceOfDigitsInNumericCharacterReference,
-                                loc,
-                            );
+                            self.parse_error(ParserError::AbsenceOfDigitsInNumericCharacterReference, loc);
                             self.consume_temp_buffer(as_attribute);
 
                             self.stream_prev();
@@ -217,42 +198,30 @@ impl Tokenizer<'_> {
                         Ch(c @ '0'..='9') => {
                             let i = c as u32 - 0x30;
                             if let Some(value) = char_ref_code {
-                                char_ref_code = value
-                                    .checked_mul(16)
-                                    .and_then(|mul_result| mul_result.checked_add(i));
+                                char_ref_code = value.checked_mul(16).and_then(|mul_result| mul_result.checked_add(i));
                             }
                         }
                         Ch(c @ 'A'..='F') => {
                             let i = c as u32 - 0x37;
                             if let Some(value) = char_ref_code {
-                                char_ref_code = value
-                                    .checked_mul(16)
-                                    .and_then(|mul_result| mul_result.checked_add(i));
+                                char_ref_code = value.checked_mul(16).and_then(|mul_result| mul_result.checked_add(i));
                             }
                         }
                         Ch(c @ 'a'..='f') => {
                             let i = c as u32 - 0x57;
                             if let Some(value) = char_ref_code {
-                                char_ref_code = value
-                                    .checked_mul(16)
-                                    .and_then(|mul_result| mul_result.checked_add(i));
+                                char_ref_code = value.checked_mul(16).and_then(|mul_result| mul_result.checked_add(i));
                             }
                         }
                         Ch(';') => {
                             ccr_state = CcrState::NumericalCharacterReferenceEnd;
                         }
                         Character::StreamEnd => {
-                            self.parse_error(
-                                ParserError::MissingSemicolonAfterCharacterReference,
-                                loc,
-                            );
+                            self.parse_error(ParserError::MissingSemicolonAfterCharacterReference, loc);
                             ccr_state = CcrState::NumericalCharacterReferenceEnd;
                         }
                         _ => {
-                            self.parse_error(
-                                ParserError::MissingSemicolonAfterCharacterReference,
-                                loc,
-                            );
+                            self.parse_error(ParserError::MissingSemicolonAfterCharacterReference, loc);
                             self.stream_prev();
                             ccr_state = CcrState::NumericalCharacterReferenceEnd;
                         }
@@ -266,26 +235,18 @@ impl Tokenizer<'_> {
                         Ch(c @ '0'..='9') => {
                             let i = c as u32 - 0x30;
                             if let Some(value) = char_ref_code {
-                                char_ref_code = value
-                                    .checked_mul(10)
-                                    .and_then(|mul_result| mul_result.checked_add(i));
+                                char_ref_code = value.checked_mul(10).and_then(|mul_result| mul_result.checked_add(i));
                             }
                         }
                         Ch(';') => {
                             ccr_state = CcrState::NumericalCharacterReferenceEnd;
                         }
                         Character::StreamEnd => {
-                            self.parse_error(
-                                ParserError::MissingSemicolonAfterCharacterReference,
-                                loc,
-                            );
+                            self.parse_error(ParserError::MissingSemicolonAfterCharacterReference, loc);
                             ccr_state = CcrState::NumericalCharacterReferenceEnd;
                         }
                         _ => {
-                            self.parse_error(
-                                ParserError::MissingSemicolonAfterCharacterReference,
-                                loc,
-                            );
+                            self.parse_error(ParserError::MissingSemicolonAfterCharacterReference, loc);
                             ccr_state = CcrState::NumericalCharacterReferenceEnd;
                             self.stream_prev();
                         }
@@ -301,32 +262,20 @@ impl Tokenizer<'_> {
                     }
 
                     if char_ref_code > 0x10FFFF || overflow {
-                        self.parse_error(
-                            ParserError::CharacterReferenceOutsideUnicodeRange,
-                            self.get_location(),
-                        );
+                        self.parse_error(ParserError::CharacterReferenceOutsideUnicodeRange, self.get_location());
                         char_ref_code = CHAR_REPLACEMENT as u32;
                     }
 
                     if self.is_surrogate(char_ref_code) {
-                        self.parse_error(
-                            ParserError::SurrogateCharacterReference,
-                            self.get_location(),
-                        );
+                        self.parse_error(ParserError::SurrogateCharacterReference, self.get_location());
                         char_ref_code = CHAR_REPLACEMENT as u32;
                     }
                     if self.is_noncharacter(char_ref_code) {
-                        self.parse_error(
-                            ParserError::NoncharacterCharacterReference,
-                            self.get_location(),
-                        );
+                        self.parse_error(ParserError::NoncharacterCharacterReference, self.get_location());
                         // char_ref_code = CHAR_REPLACEMENT as u32;
                     }
                     if self.is_control_char(char_ref_code) || char_ref_code == 0x0D {
-                        self.parse_error(
-                            ParserError::ControlCharacterReference,
-                            self.get_location(),
-                        );
+                        self.parse_error(ParserError::ControlCharacterReference, self.get_location());
 
                         if TOKEN_REPLACEMENTS.contains_key(&char_ref_code) {
                             char_ref_code = *TOKEN_REPLACEMENTS.get(&char_ref_code).unwrap() as u32;
@@ -360,10 +309,10 @@ impl Tokenizer<'_> {
     pub(crate) fn is_noncharacter(&self, num: u32) -> bool {
         (0xFDD0..=0xFDEF).contains(&num)
             || [
-                0xFFFE, 0xFFFF, 0x1FFFE, 0x1FFFF, 0x2FFFE, 0x2FFFF, 0x3FFFE, 0x3FFFF, 0x4FFFE,
-                0x4FFFF, 0x5FFFE, 0x5FFFF, 0x6FFFE, 0x6FFFF, 0x7FFFE, 0x7FFFF, 0x8FFFE, 0x8FFFF,
-                0x9FFFE, 0x9FFFF, 0xAFFFE, 0xAFFFF, 0xBFFFE, 0xBFFFF, 0xCFFFE, 0xCFFFF, 0xDFFFE,
-                0xDFFFF, 0xEFFFE, 0xEFFFF, 0xFFFFE, 0xFFFFF, 0x10FFFE, 0x10FFFF,
+                0xFFFE, 0xFFFF, 0x1FFFE, 0x1FFFF, 0x2FFFE, 0x2FFFF, 0x3FFFE, 0x3FFFF, 0x4FFFE, 0x4FFFF, 0x5FFFE,
+                0x5FFFF, 0x6FFFE, 0x6FFFF, 0x7FFFE, 0x7FFFF, 0x8FFFE, 0x8FFFF, 0x9FFFE, 0x9FFFF, 0xAFFFE, 0xAFFFF,
+                0xBFFFE, 0xBFFFF, 0xCFFFE, 0xCFFFF, 0xDFFFE, 0xDFFFF, 0xEFFFE, 0xEFFFF, 0xFFFFE, 0xFFFFF, 0x10FFFE,
+                0x10FFFF,
             ]
             .contains(&num)
     }
@@ -404,7 +353,7 @@ lazy_static! {
 
 #[cfg(test)]
 mod tests {
-    use crate::error_logger::ErrorLogger;
+    use crate::tokenizer::ErrorLogger;
     use crate::tokenizer::{ParserData, Tokenizer};
     use gosub_shared::byte_stream::{ByteStream, Encoding, Location};
     use std::cell::RefCell;

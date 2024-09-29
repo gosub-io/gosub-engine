@@ -41,9 +41,7 @@ impl DnsResolver for RemoteResolver {
                     }
                     e.unwrap().iter().for_each(|ip| {
                         trace!("{domain}: found ipv4 address {ip}");
-                        entry
-                            .ips
-                            .push(IpAddr::from_str(ip.to_string().as_str()).unwrap());
+                        entry.ips.push(IpAddr::from_str(ip.to_string().as_str()).unwrap());
                         entry.has_ipv4 = true;
                     });
                 }
@@ -54,9 +52,7 @@ impl DnsResolver for RemoteResolver {
                     }
                     e.unwrap().iter().for_each(|ip| {
                         trace!("{domain}: found ipv6 address {ip}");
-                        entry
-                            .ips
-                            .push(IpAddr::from_str(ip.to_string().as_str()).unwrap());
+                        entry.ips.push(IpAddr::from_str(ip.to_string().as_str()).unwrap());
                         entry.has_ipv6 = true;
                     });
                 }

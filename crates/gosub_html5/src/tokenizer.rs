@@ -7,9 +7,9 @@ mod replacement_tables;
 #[cfg(test)]
 mod test_cases;
 
-use crate::error_logger::{ErrorLogger, ParserError};
 use crate::errors::Error;
 use crate::node::HTML_NAMESPACE;
+use crate::parser::errors::{ErrorLogger, ParserError};
 use crate::tokenizer::state::State;
 use crate::tokenizer::token::Token;
 use gosub_shared::byte_stream::Character::{Ch, StreamEnd};
@@ -138,7 +138,7 @@ impl<'stream> Tokenizer<'stream> {
     /// Returns the current location in the stream (with line/col number and byte offset)
     #[inline]
     pub(crate) fn get_location(&self) -> Location {
-        self.location_handler.cur_location.clone()
+        self.location_handler.cur_location
     }
 
     /// Retrieves the next token from the input stream or Token::EOF when the end is reached
@@ -180,7 +180,7 @@ impl<'stream> Tokenizer<'stream> {
                         Ch('&') => self.state = State::CharacterReferenceInData,
                         Ch('<') => {
                             self.state = {
-                                self.last_token_location = loc.clone();
+                                self.last_token_location = loc;
                                 State::TagOpen
                             }
                         }
@@ -274,7 +274,7 @@ impl<'stream> Tokenizer<'stream> {
                                 name: String::new(),
                                 is_self_closing: false,
                                 attributes: HashMap::new(),
-                                location: self.last_token_location.clone(),
+                                location: self.last_token_location,
                             });
                             self.stream_prev();
                             self.state = State::TagName;
@@ -282,12 +282,9 @@ impl<'stream> Tokenizer<'stream> {
                         Ch('?') => {
                             self.current_token = Some(Token::Comment {
                                 comment: String::new(),
-                                location: self.last_token_location.clone(),
+                                location: self.last_token_location,
                             });
-                            self.parse_error(
-                                ParserError::UnexpectedQuestionMarkInsteadOfTagName,
-                                loc,
-                            );
+                            self.parse_error(ParserError::UnexpectedQuestionMarkInsteadOfTagName, loc);
                             self.stream_prev();
                             self.state = State::BogusComment;
                         }
@@ -312,7 +309,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.current_token = Some(Token::EndTag {
                                 name: String::new(),
                                 is_self_closing: false,
-                                location: self.last_token_location.clone(),
+                                location: self.last_token_location,
                             });
                             self.stream_prev();
                             self.state = State::TagName;
@@ -331,7 +328,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.parse_error(ParserError::InvalidFirstCharacterOfTagName, loc);
                             self.current_token = Some(Token::Comment {
                                 comment: String::new(),
-                                location: self.last_token_location.clone(),
+                                location: self.last_token_location,
                             });
                             self.stream_prev();
                             self.state = State::BogusComment;
@@ -380,7 +377,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.current_token = Some(Token::EndTag {
                                 name: String::new(),
                                 is_self_closing: false,
-                                location: self.last_token_location.clone(),
+                                location: self.last_token_location,
                             });
                             self.stream_prev();
                             self.state = State::RCDATAEndTagName;
@@ -467,7 +464,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.current_token = Some(Token::EndTag {
                                 name: String::new(),
                                 is_self_closing: false,
-                                location: self.last_token_location.clone(),
+                                location: self.last_token_location,
                             });
                             self.stream_prev();
                             self.state = State::RAWTEXTEndTagName;
@@ -562,7 +559,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.current_token = Some(Token::EndTag {
                                 name: format!("{}", to_lowercase!(ch)),
                                 is_self_closing: false,
-                                location: self.last_token_location.clone(),
+                                location: self.last_token_location,
                             });
 
                             self.temporary_buffer.push(ch);
@@ -760,7 +757,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.current_token = Some(Token::EndTag {
                                 name: String::new(),
                                 is_self_closing: false,
-                                location: self.last_token_location.clone(),
+                                location: self.last_token_location,
                             });
 
                             self.stream_prev();
@@ -973,10 +970,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.state = State::AfterAttributeName;
                         }
                         Ch('=') => {
-                            self.parse_error(
-                                ParserError::UnexpectedEqualsSignBeforeAttributeName,
-                                loc,
-                            );
+                            self.parse_error(ParserError::UnexpectedEqualsSignBeforeAttributeName, loc);
 
                             self.store_and_clear_current_attribute();
                             self.current_attr_name.push(c.into());
@@ -1148,10 +1142,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.current_attr_value.push(CHAR_REPLACEMENT);
                         }
                         Ch('"' | '\'' | '<' | '=' | '`') => {
-                            self.parse_error(
-                                ParserError::UnexpectedCharacterInUnquotedAttributeValue,
-                                loc,
-                            );
+                            self.parse_error(ParserError::UnexpectedCharacterInUnquotedAttributeValue, loc);
                             self.current_attr_value.push(c.into());
                         }
                         StreamEnd => {
@@ -1244,9 +1235,7 @@ impl<'stream> Tokenizer<'stream> {
                         continue;
                     }
 
-                    if Character::slice_to_string(self.stream.get_slice(7)).to_uppercase()
-                        == "DOCTYPE"
-                    {
+                    if Character::slice_to_string(self.stream.get_slice(7)).to_uppercase() == "DOCTYPE" {
                         self.stream_next_n(7);
                         self.state = State::DOCTYPE;
                         continue;
@@ -1275,7 +1264,7 @@ impl<'stream> Tokenizer<'stream> {
                     self.parse_error(ParserError::IncorrectlyOpenedComment, self.get_location());
                     self.current_token = Some(Token::Comment {
                         comment: String::new(),
-                        location: self.last_token_location.clone(),
+                        location: self.last_token_location,
                     });
 
                     self.state = State::BogusComment;
@@ -1513,7 +1502,7 @@ impl<'stream> Tokenizer<'stream> {
                                 force_quirks: false,
                                 pub_identifier: None,
                                 sys_identifier: None,
-                                location: self.last_token_location.clone(),
+                                location: self.last_token_location,
                             });
 
                             self.add_to_token_name(to_lowercase!(ch));
@@ -1526,7 +1515,7 @@ impl<'stream> Tokenizer<'stream> {
                                 force_quirks: false,
                                 pub_identifier: None,
                                 sys_identifier: None,
-                                location: self.last_token_location.clone(),
+                                location: self.last_token_location,
                             });
 
                             self.add_to_token_name(CHAR_REPLACEMENT);
@@ -1539,7 +1528,7 @@ impl<'stream> Tokenizer<'stream> {
                                 force_quirks: true,
                                 pub_identifier: None,
                                 sys_identifier: None,
-                                location: self.last_token_location.clone(),
+                                location: self.last_token_location,
                             });
 
                             self.state = State::Data;
@@ -1553,7 +1542,7 @@ impl<'stream> Tokenizer<'stream> {
                                 force_quirks: true,
                                 pub_identifier: None,
                                 sys_identifier: None,
-                                location: self.last_token_location.clone(),
+                                location: self.last_token_location,
                             });
 
                             self.state = State::Data;
@@ -1564,7 +1553,7 @@ impl<'stream> Tokenizer<'stream> {
                                 force_quirks: false,
                                 pub_identifier: None,
                                 sys_identifier: None,
-                                location: self.last_token_location.clone(),
+                                location: self.last_token_location,
                             });
 
                             self.add_to_token_name(c.into());
@@ -1616,16 +1605,12 @@ impl<'stream> Tokenizer<'stream> {
                         }
                         _ => {
                             self.stream_prev();
-                            if Character::slice_to_string(self.stream.get_slice(6)).to_uppercase()
-                                == "PUBLIC"
-                            {
+                            if Character::slice_to_string(self.stream.get_slice(6)).to_uppercase() == "PUBLIC" {
                                 self.stream_next_n(6);
                                 self.state = State::AfterDOCTYPEPublicKeyword;
                                 continue;
                             }
-                            if Character::slice_to_string(self.stream.get_slice(6)).to_uppercase()
-                                == "SYSTEM"
-                            {
+                            if Character::slice_to_string(self.stream.get_slice(6)).to_uppercase() == "SYSTEM" {
                                 self.stream_next_n(6);
                                 self.state = State::AfterDOCTYPESystemKeyword;
                                 continue;
@@ -1634,10 +1619,7 @@ impl<'stream> Tokenizer<'stream> {
                             // unread the character
                             let loc = self.get_location();
                             self.stream_next_n(1);
-                            self.parse_error(
-                                ParserError::InvalidCharacterSequenceAfterDoctypeName,
-                                loc,
-                            );
+                            self.parse_error(ParserError::InvalidCharacterSequenceAfterDoctypeName, loc);
                             self.stream_prev();
                             self.set_quirks_mode(true);
                             self.stream_prev();
@@ -1653,18 +1635,12 @@ impl<'stream> Tokenizer<'stream> {
                             self.state = State::BeforeDOCTYPEPublicIdentifier;
                         }
                         Ch('"') => {
-                            self.parse_error(
-                                ParserError::MissingWhitespaceAfterDoctypePublicKeyword,
-                                loc,
-                            );
+                            self.parse_error(ParserError::MissingWhitespaceAfterDoctypePublicKeyword, loc);
                             self.set_public_identifier(String::new());
                             self.state = State::DOCTYPEPublicIdentifierDoubleQuoted;
                         }
                         Ch('\'') => {
-                            self.parse_error(
-                                ParserError::MissingWhitespaceAfterDoctypePublicKeyword,
-                                loc,
-                            );
+                            self.parse_error(ParserError::MissingWhitespaceAfterDoctypePublicKeyword, loc);
                             self.set_public_identifier(String::new());
                             self.state = State::DOCTYPEPublicIdentifierSingleQuoted;
                         }
@@ -1681,10 +1657,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.state = State::Data;
                         }
                         _ => {
-                            self.parse_error(
-                                ParserError::MissingQuoteBeforeDoctypePublicIdentifier,
-                                loc,
-                            );
+                            self.parse_error(ParserError::MissingQuoteBeforeDoctypePublicIdentifier, loc);
                             self.stream_prev();
                             self.set_quirks_mode(true);
                             self.state = State::BogusDOCTYPE;
@@ -1720,10 +1693,7 @@ impl<'stream> Tokenizer<'stream> {
                         }
                         _ => {
                             self.stream_prev();
-                            self.parse_error(
-                                ParserError::MissingQuoteBeforeDoctypePublicIdentifier,
-                                loc,
-                            );
+                            self.parse_error(ParserError::MissingQuoteBeforeDoctypePublicIdentifier, loc);
                             self.set_quirks_mode(true);
                             self.state = State::BogusDOCTYPE;
                         }
@@ -1789,12 +1759,18 @@ impl<'stream> Tokenizer<'stream> {
                             self.state = State::Data;
                         }
                         Ch('"') => {
-                            self.parse_error(ParserError::MissingWhitespaceBetweenDoctypePublicAndSystemIdentifiers, loc);
+                            self.parse_error(
+                                ParserError::MissingWhitespaceBetweenDoctypePublicAndSystemIdentifiers,
+                                loc,
+                            );
                             self.set_system_identifier(String::new());
                             self.state = State::DOCTYPESystemIdentifierDoubleQuoted;
                         }
                         Ch('\'') => {
-                            self.parse_error(ParserError::MissingWhitespaceBetweenDoctypePublicAndSystemIdentifiers, loc);
+                            self.parse_error(
+                                ParserError::MissingWhitespaceBetweenDoctypePublicAndSystemIdentifiers,
+                                loc,
+                            );
                             self.set_system_identifier(String::new());
                             self.state = State::DOCTYPESystemIdentifierSingleQuoted;
                         }
@@ -1805,10 +1781,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.state = State::Data;
                         }
                         _ => {
-                            self.parse_error(
-                                ParserError::MissingQuoteBeforeDoctypeSystemIdentifier,
-                                loc,
-                            );
+                            self.parse_error(ParserError::MissingQuoteBeforeDoctypeSystemIdentifier, loc);
                             self.stream_prev();
                             self.set_quirks_mode(true);
                             self.state = State::BogusDOCTYPE;
@@ -1841,10 +1814,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.state = State::Data;
                         }
                         _ => {
-                            self.parse_error(
-                                ParserError::MissingQuoteBeforeDoctypeSystemIdentifier,
-                                loc,
-                            );
+                            self.parse_error(ParserError::MissingQuoteBeforeDoctypeSystemIdentifier, loc);
                             self.stream_prev();
                             self.set_quirks_mode(true);
                             self.state = State::BogusDOCTYPE;
@@ -1859,18 +1829,12 @@ impl<'stream> Tokenizer<'stream> {
                             self.state = State::BeforeDOCTYPESystemIdentifier;
                         }
                         Ch('"') => {
-                            self.parse_error(
-                                ParserError::MissingWhitespaceAfterDoctypeSystemKeyword,
-                                loc,
-                            );
+                            self.parse_error(ParserError::MissingWhitespaceAfterDoctypeSystemKeyword, loc);
                             self.set_system_identifier(String::new());
                             self.state = State::DOCTYPESystemIdentifierDoubleQuoted;
                         }
                         Ch('\'') => {
-                            self.parse_error(
-                                ParserError::MissingWhitespaceAfterDoctypeSystemKeyword,
-                                loc,
-                            );
+                            self.parse_error(ParserError::MissingWhitespaceAfterDoctypeSystemKeyword, loc);
                             self.set_system_identifier(String::new());
                             self.state = State::DOCTYPESystemIdentifierSingleQuoted;
                         }
@@ -1887,10 +1851,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.state = State::Data;
                         }
                         _ => {
-                            self.parse_error(
-                                ParserError::MissingQuoteBeforeDoctypeSystemIdentifier,
-                                loc,
-                            );
+                            self.parse_error(ParserError::MissingQuoteBeforeDoctypeSystemIdentifier, loc);
                             self.stream_prev();
                             self.set_quirks_mode(true);
                             self.state = State::BogusDOCTYPE;
@@ -1925,10 +1886,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.state = State::Data;
                         }
                         _ => {
-                            self.parse_error(
-                                ParserError::MissingQuoteBeforeDoctypeSystemIdentifier,
-                                loc,
-                            );
+                            self.parse_error(ParserError::MissingQuoteBeforeDoctypeSystemIdentifier, loc);
                             self.stream_prev();
                             self.set_quirks_mode(true);
                             self.state = State::BogusDOCTYPE;
@@ -2001,10 +1959,7 @@ impl<'stream> Tokenizer<'stream> {
                             self.state = State::Data;
                         }
                         _ => {
-                            self.parse_error(
-                                ParserError::UnexpectedCharacterAfterDoctypeSystemIdentifier,
-                                loc,
-                            );
+                            self.parse_error(ParserError::UnexpectedCharacterAfterDoctypeSystemIdentifier, loc);
                             self.stream_prev();
                             self.state = State::BogusDOCTYPE;
                         }
@@ -2178,7 +2133,7 @@ impl<'stream> Tokenizer<'stream> {
 
             self.token_queue.push(Token::Text {
                 text: value.to_string(),
-                location: self.last_token_location.clone(),
+                location: self.last_token_location,
             });
 
             self.clear_consume_buffer();
@@ -2232,9 +2187,7 @@ impl<'stream> Tokenizer<'stream> {
 
     /// Creates a parser log error message
     pub(crate) fn parse_error(&mut self, message: ParserError, location: Location) {
-        self.error_logger
-            .borrow_mut()
-            .add_error(location, message.as_str());
+        self.error_logger.borrow_mut().add_error(location, message.as_str());
     }
 
     /// Set is_closing_tag in current token
@@ -2245,9 +2198,7 @@ impl<'stream> Tokenizer<'stream> {
                 self.parse_error(ParserError::EndTagWithTrailingSolidus, self.get_location());
                 self.stream_next_n(1);
             }
-            Token::StartTag {
-                is_self_closing, ..
-            } => {
+            Token::StartTag { is_self_closing, .. } => {
                 *is_self_closing = is_closing;
             }
             _ => {}
@@ -2278,12 +2229,7 @@ impl<'stream> Tokenizer<'stream> {
             Token::StartTag { name, .. } | Token::EndTag { name, .. } => {
                 *name = new_name;
             }
-            _ => {
-                return Err(Error::Parse(
-                    "trying to set the name of a non start/end tag token".into(),
-                )
-                .into())
-            }
+            _ => return Err(Error::Parse("trying to set the name of a non start/end tag token".into()).into()),
         }
 
         Ok(())
@@ -2296,13 +2242,9 @@ impl<'stream> Tokenizer<'stream> {
 
     /// Saves the current attribute name and value onto the current_attrs stack, if there is anything to store
     fn store_and_clear_current_attribute(&mut self) {
-        if !self.current_attr_name.is_empty()
-            && !self.current_attrs.contains_key(&self.current_attr_name)
-        {
-            self.current_attrs.insert(
-                self.current_attr_name.clone(),
-                self.current_attr_value.clone(),
-            );
+        if !self.current_attr_name.is_empty() && !self.current_attrs.contains_key(&self.current_attr_name) {
+            self.current_attrs
+                .insert(self.current_attr_name.clone(), self.current_attr_value.clone());
         }
 
         self.current_attr_name = String::new();

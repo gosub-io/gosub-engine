@@ -2,6 +2,8 @@
 name = "gosub_typeface"
 version = "0.1.0"
 edition = "2021"
+authors = ["Gosub Community <info@gosub.io>"]
+license = "MIT"
 
 [dependencies]
 lazy_static = "1.5.0"

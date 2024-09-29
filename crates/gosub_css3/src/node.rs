@@ -395,11 +395,7 @@ impl Display for Node {
                 .map(|s| s.to_string())
                 .collect::<Vec<String>>()
                 .join(", "),
-            NodeType::Selector { children } => children
-                .iter()
-                .map(|s| s.to_string())
-                .collect::<Vec<String>>()
-                .join(""),
+            NodeType::Selector { children } => children.iter().map(|s| s.to_string()).collect::<Vec<String>>().join(""),
             NodeType::IdSelector { value } => value.clone(),
             NodeType::Ident { value } => value.clone(),
             NodeType::Number { value } => value.to_string(),
@@ -422,10 +418,7 @@ impl Display for Node {
                 value,
                 flags,
             } => {
-                let matcher = matcher
-                    .as_ref()
-                    .map(|m| m.to_string())
-                    .unwrap_or("".to_string());
+                let matcher = matcher.as_ref().map(|m| m.to_string()).unwrap_or("".to_string());
                 format!("[{}{}{}{}]", name, matcher, value, flags)
             }
             NodeType::PseudoClassSelector { value } => format!(":{}", value),
@@ -441,10 +434,7 @@ impl Display for Node {
             }
             NodeType::Combinator { value } => value.clone(),
             NodeType::Nth { nth, selector } => {
-                let sel = selector
-                    .as_ref()
-                    .map(|s| s.to_string())
-                    .unwrap_or("".to_string());
+                let sel = selector.as_ref().map(|s| s.to_string()).unwrap_or("".to_string());
                 format!("{}{}", nth, sel)
             }
             NodeType::AnPlusB { a, b } => format!("{}n+{}", a, b),

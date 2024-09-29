@@ -2,9 +2,7 @@ use gosub_shared::types::Result;
 
 use crate::js::{AsArray, JSRuntime};
 
-pub trait JSArray:
-    Iterator + Into<<Self::RT as JSRuntime>::Value> + AsArray<Runtime = Self::RT>
-{
+pub trait JSArray: Iterator + Into<<Self::RT as JSRuntime>::Value> + AsArray<Runtime = Self::RT> {
     type RT: JSRuntime<Array = Self>;
 
     fn get(&self, index: usize) -> Result<<Self::RT as JSRuntime>::Value>;
@@ -25,10 +23,7 @@ pub trait JSArray:
     where
         Self: Sized;
 
-    fn new_with_data(
-        ctx: <Self::RT as JSRuntime>::Context,
-        data: &[<Self::RT as JSRuntime>::Value],
-    ) -> Result<Self>
+    fn new_with_data(ctx: <Self::RT as JSRuntime>::Context, data: &[<Self::RT as JSRuntime>::Value]) -> Result<Self>
     where
         Self: Sized;
 

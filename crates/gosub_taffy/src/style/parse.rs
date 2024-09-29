@@ -5,14 +5,13 @@ use taffy::{
 };
 
 use gosub_render_backend::geo::Size;
-use gosub_render_backend::layout::{CssProperty, Node};
+use gosub_render_backend::layout::Node;
+use gosub_shared::traits::css3::CssProperty;
 
 pub fn parse_len(node: &mut impl Node, name: &str) -> LengthPercentage {
     let Some(property) = node.get_property(name) else {
         return LengthPercentage::Length(0.0);
     };
-
-    property.compute_value();
 
     if let Some(percent) = property.as_percentage() {
         return LengthPercentage::Percent(percent / 100.0);
@@ -25,8 +24,6 @@ pub fn parse_len_auto(node: &mut impl Node, name: &str) -> LengthPercentageAuto 
     let Some(property) = node.get_property(name) else {
         return LengthPercentageAuto::Length(0.0);
     };
-
-    property.compute_value();
 
     if let Some(str) = property.as_string() {
         if str == "auto" {
@@ -45,8 +42,6 @@ pub fn parse_dimension(node: &mut impl Node, name: &str) -> Dimension {
     let Some(property) = node.get_property(name) else {
         return Dimension::Auto;
     };
-
-    property.compute_value();
 
     if let Some(str) = property.as_string() {
         if str == "auto" {
@@ -73,8 +68,6 @@ pub fn parse_text_dim(size: Size, name: &str) -> Dimension {
 
 pub fn parse_align_i(node: &mut impl Node, name: &str) -> Option<AlignItems> {
     let display = node.get_property(name)?;
-    display.compute_value();
-
     let value = display.as_string()?;
 
     match value {
@@ -92,8 +85,6 @@ pub fn parse_align_i(node: &mut impl Node, name: &str) -> Option<AlignItems> {
 pub fn parse_align_c(node: &mut impl Node, name: &str) -> Option<AlignContent> {
     let display = node.get_property(name)?;
 
-    display.compute_value();
-
     let value = display.as_string()?;
 
     match value {
@@ -109,15 +100,10 @@ pub fn parse_align_c(node: &mut impl Node, name: &str) -> Option<AlignContent> {
     }
 }
 
-pub fn parse_tracking_sizing_function(
-    node: &mut impl Node,
-    name: &str,
-) -> Vec<TrackSizingFunction> {
+pub fn parse_tracking_sizing_function(node: &mut impl Node, name: &str) -> Vec<TrackSizingFunction> {
     let Some(display) = node.get_property(name) else {
         return Vec::new();
     };
-
-    display.compute_value();
 
     let Some(_value) = display.as_string() else {
         return Vec::new();
@@ -139,8 +125,6 @@ pub fn parse_grid_auto(node: &mut impl Node, name: &str) -> Vec<NonRepeatedTrack
         return Vec::new();
     };
 
-    display.compute_value();
-
     let Some(_value) = display.as_string() else {
         return Vec::new();
     };
@@ -152,8 +136,6 @@ pub fn parse_grid_placement(node: &mut impl Node, name: &str) -> GridPlacement {
     let Some(display) = node.get_property(name) else {
         return GridPlacement::Auto;
     };
-
-    display.compute_value();
 
     if let Some(value) = &display.as_string() {
         return if value.starts_with("span") {
@@ -172,7 +154,7 @@ pub fn parse_grid_placement(node: &mut impl Node, name: &str) -> GridPlacement {
     }
 
     if let Some(value) = display.as_number() {
-        return GridPlacement::from_line_index((value) as i16);
+        return GridPlacement::from_line_index(value as i16);
     }
     GridPlacement::Auto
 }

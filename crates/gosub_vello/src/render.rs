@@ -5,12 +5,11 @@ use anyhow::anyhow;
 use gosub_render_backend::WindowHandle;
 use vello::{AaSupport, Renderer as VelloRenderer, RendererOptions as VelloRendererOptions};
 use wgpu::util::{
-    backend_bits_from_env, dx12_shader_compiler_from_env, gles_minor_version_from_env,
-    power_preference_from_env,
+    backend_bits_from_env, dx12_shader_compiler_from_env, gles_minor_version_from_env, power_preference_from_env,
 };
 use wgpu::{
-    Adapter, Backends, CompositeAlphaMode, Device, Dx12Compiler, Gles3MinorVersion, Instance,
-    InstanceDescriptor, PowerPreference, Queue, Surface, SurfaceConfiguration, TextureFormat,
+    Adapter, Backends, CompositeAlphaMode, Device, Dx12Compiler, Gles3MinorVersion, Instance, InstanceDescriptor,
+    PowerPreference, Queue, Surface, SurfaceConfiguration, TextureFormat,
 };
 
 use gosub_shared::types::Result;

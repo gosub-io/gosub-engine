@@ -19,11 +19,7 @@ pub trait JSObject: Into<<Self::RT as JSRuntime>::Value> {
 
     fn set_method(&self, name: &str, func: &<Self::RT as JSRuntime>::Function) -> Result<()>;
 
-    fn set_method_variadic(
-        &self,
-        name: &str,
-        func: &<Self::RT as JSRuntime>::FunctionVariadic,
-    ) -> Result<()>;
+    fn set_method_variadic(&self, name: &str, func: &<Self::RT as JSRuntime>::FunctionVariadic) -> Result<()>;
 
     #[allow(clippy::type_complexity)]
     fn set_property_accessor(

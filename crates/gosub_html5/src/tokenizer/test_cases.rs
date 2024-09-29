@@ -29,10 +29,7 @@ const DISABLED_CASES: &[&str] = &[
 ];
 
 lazy_static! {
-    static ref DISABLED: HashSet<String> = DISABLED_CASES
-        .iter()
-        .map(|s| s.to_string())
-        .collect::<HashSet<_>>();
+    static ref DISABLED: HashSet<String> = DISABLED_CASES.iter().map(|s| s.to_string()).collect::<HashSet<_>>();
 }
 
 #[test_case("contentModelFlags.test")]

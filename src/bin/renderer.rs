@@ -2,19 +2,28 @@ use std::sync::mpsc;
 use std::{io, thread};
 
 use clap::ArgAction;
-use url::Url;
-
+use gosub_css3::system::Css3System;
+use gosub_html5::document::document_impl::DocumentImpl;
+use gosub_html5::parser::Html5Parser;
 use gosub_renderer::render_tree::TreeDrawer;
+use gosub_rendering::render_tree::RenderTree;
 use gosub_shared::types::Result;
-use gosub_styling::render_tree::RenderTree;
 use gosub_taffy::TaffyLayouter;
 use gosub_useragent::application::{Application, CustomEvent};
 use gosub_vello::VelloBackend;
+use url::Url;
 
 type Backend = VelloBackend;
 type Layouter = TaffyLayouter;
-type Drawer = TreeDrawer<Backend, Layouter>;
-type Tree = RenderTree<Layouter>;
+
+type CssSystem = Css3System;
+
+type Document = DocumentImpl<CssSystem>;
+
+type HtmlParser<'a> = Html5Parser<'a, Document, CssSystem>;
+
+type Drawer = TreeDrawer<Backend, Layouter, Document, CssSystem>;
+type Tree = RenderTree<Layouter, Document, CssSystem>;
 
 fn main() -> Result<()> {
     let matches = clap::Command::new("Gosub Renderer")
@@ -39,7 +48,7 @@ fn main() -> Result<()> {
 
     // let mut rt = load_html_rendertree(&url)?;
     //
-    let mut application: Application<Drawer, Backend, Layouter, Tree> =
+    let mut application: Application<Drawer, Backend, Layouter, Tree, Document, CssSystem, HtmlParser> =
         Application::new(VelloBackend::new(), TaffyLayouter, debug);
 
     application.initial_tab(Url::parse(&url)?);

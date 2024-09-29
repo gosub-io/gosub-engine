@@ -14,11 +14,7 @@ pub struct V8Array<'a> {
 
 impl<'a> FromContext<'a, Local<'a, Array>> for V8Array<'a> {
     fn from_ctx(ctx: V8Context<'a>, value: Local<'a, Array>) -> Self {
-        Self {
-            value,
-            ctx,
-            next: 0,
-        }
+        Self { value, ctx, next: 0 }
     }
 }
 
@@ -49,25 +45,16 @@ impl<'a> JSArray for V8Array<'a> {
 
     fn get(&self, index: usize) -> Result<<Self::RT as JSRuntime>::Value> {
         let Some(value) = self.value.get_index(self.ctx.scope(), index as u32) else {
-            return Err(Error::JS(JSError::Generic(
-                "failed to get a value from an array".to_owned(),
-            ))
-            .into());
+            return Err(Error::JS(JSError::Generic("failed to get a value from an array".to_owned())).into());
         };
 
         Ok(V8Value::from_value(self.ctx.clone(), value))
     }
 
     fn set(&self, index: usize, value: &V8Value) -> Result<()> {
-        match self
-            .value
-            .set_index(self.ctx.scope(), index as u32, value.value)
-        {
+        match self.value.set_index(self.ctx.scope(), index as u32, value.value) {
             Some(_) => Ok(()),
-            None => Err(Error::JS(JSError::Conversion(
-                "failed to set a value in an array".to_owned(),
-            ))
-            .into()),
+            None => Err(Error::JS(JSError::Conversion("failed to set a value in an array".to_owned())).into()),
         }
     }
 
@@ -76,9 +63,7 @@ impl<'a> JSArray for V8Array<'a> {
 
         match self.value.set_index(self.ctx.scope(), index, value.value) {
             Some(_) => Ok(()),
-            None => {
-                Err(Error::JS(JSError::Conversion("failed to push to an array".to_owned())).into())
-            }
+            None => Err(Error::JS(JSError::Conversion("failed to push to an array".to_owned())).into()),
         }
     }
 
@@ -86,32 +71,19 @@ impl<'a> JSArray for V8Array<'a> {
         let index = self.value.length() - 1;
 
         let Some(value) = self.value.get_index(self.ctx.scope(), index) else {
-            return Err(Error::JS(JSError::Generic(
-                "failed to get a value from an array".to_owned(),
-            ))
-            .into());
+            return Err(Error::JS(JSError::Generic("failed to get a value from an array".to_owned())).into());
         };
 
         if self.value.delete_index(self.ctx.scope(), index).is_none() {
-            return Err(Error::JS(JSError::Generic(
-                "failed to delete a value from an array".to_owned(),
-            ))
-            .into());
+            return Err(Error::JS(JSError::Generic("failed to delete a value from an array".to_owned())).into());
         }
 
         Ok(V8Value::from_value(self.ctx.clone(), value))
     }
 
     fn remove(&self, index: usize) -> Result<()> {
-        if self
-            .value
-            .delete_index(self.ctx.scope(), index as u32)
-            .is_none()
-        {
-            return Err(Error::JS(JSError::Generic(
-                "failed to delete a value from an array".to_owned(),
-            ))
-            .into());
+        if self.value.delete_index(self.ctx.scope(), index as u32).is_none() {
+            return Err(Error::JS(JSError::Generic("failed to delete a value from an array".to_owned())).into());
         }
 
         Ok(())
@@ -162,8 +134,7 @@ impl<'a> JSArray for V8Array<'a> {
 #[cfg(test)]
 mod tests {
     use gosub_webexecutor::js::{
-        ArrayConversion, IntoJSValue, IntoRustValue, JSArray, JSContext, JSObject, JSRuntime,
-        JSValue,
+        ArrayConversion, IntoJSValue, IntoRustValue, JSArray, JSContext, JSObject, JSRuntime, JSValue,
     };
 
     use crate::v8::{V8Array, V8Engine, V8Value};
@@ -174,12 +145,8 @@ mod tests {
         let context = engine.new_context().unwrap();
 
         let array = V8Array::new(context.clone(), 2).unwrap();
-        array
-            .set(0, &1234.0.to_js_value(context.clone()).unwrap())
-            .unwrap();
-        array
-            .set(1, &"Hello World!".to_js_value(context).unwrap())
-            .unwrap();
+        array.set(0, &1234.0.to_js_value(context.clone()).unwrap()).unwrap();
+        array.set(1, &"Hello World!".to_js_value(context).unwrap()).unwrap();
 
         assert_eq!(array.len(), 2);
     }
@@ -191,12 +158,8 @@ mod tests {
 
         let array = V8Array::new(context.clone(), 2).unwrap();
 
-        array
-            .set(0, &1234.0.to_js_value(context.clone()).unwrap())
-            .unwrap();
-        array
-            .set(1, &"Hello World!".to_js_value(context).unwrap())
-            .unwrap();
+        array.set(0, &1234.0.to_js_value(context.clone()).unwrap()).unwrap();
+        array.set(1, &"Hello World!".to_js_value(context).unwrap()).unwrap();
 
         assert_eq!(array.get(0).unwrap().as_number().unwrap(), 1234.0);
         assert_eq!(array.get(1).unwrap().as_string().unwrap(), "Hello World!");
@@ -209,12 +172,8 @@ mod tests {
 
         let array = V8Array::new(context.clone(), 2).unwrap();
 
-        array
-            .push(1234.0.to_js_value(context.clone()).unwrap())
-            .unwrap();
-        array
-            .push("Hello World!".to_js_value(context).unwrap())
-            .unwrap();
+        array.push(1234.0.to_js_value(context.clone()).unwrap()).unwrap();
+        array.push("Hello World!".to_js_value(context).unwrap()).unwrap();
 
         assert_eq!(array.len(), 4);
     }
@@ -226,12 +185,8 @@ mod tests {
 
         let array = V8Array::new(context.clone(), 2).unwrap();
 
-        array
-            .set(0, &1234.0.to_js_value(context.clone()).unwrap())
-            .unwrap();
-        array
-            .set(1, &"Hello World!".to_js_value(context).unwrap())
-            .unwrap();
+        array.set(0, &1234.0.to_js_value(context.clone()).unwrap()).unwrap();
+        array.set(1, &"Hello World!".to_js_value(context).unwrap()).unwrap();
 
         assert!(array.get(2).unwrap().is_undefined());
     }
@@ -243,12 +198,8 @@ mod tests {
 
         let array = V8Array::new(context.clone(), 2).unwrap();
 
-        array
-            .set(0, &1234.0.to_js_value(context.clone()).unwrap())
-            .unwrap();
-        array
-            .set(1, &"Hello World!".to_js_value(context).unwrap())
-            .unwrap();
+        array.set(0, &1234.0.to_js_value(context.clone()).unwrap()).unwrap();
+        array.set(1, &"Hello World!".to_js_value(context).unwrap()).unwrap();
 
         assert_eq!(array.pop().unwrap().as_string().unwrap(), "Hello World!");
         assert_eq!(array.get(0).unwrap().as_number().unwrap(), 1234.0);
@@ -262,15 +213,11 @@ mod tests {
 
         let array = V8Array::new(context.clone(), 2).unwrap();
 
-        array
-            .set(0, &1234.0.to_js_value(context.clone()).unwrap())
-            .unwrap();
+        array.set(0, &1234.0.to_js_value(context.clone()).unwrap()).unwrap();
         array
             .set(1, &"Hello World!".to_js_value(context.clone()).unwrap())
             .unwrap();
-        array
-            .set(2, &1234.0.to_js_value(context.clone()).unwrap())
-            .unwrap();
+        array.set(2, &1234.0.to_js_value(context.clone()).unwrap()).unwrap();
         array
             .set(3, &"Hello World!".to_js_value(context.clone()).unwrap())
             .unwrap();

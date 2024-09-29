@@ -16,10 +16,7 @@ pub trait JSFunction {
     where
         Self: Sized;
 
-    fn call(
-        &mut self,
-        args: &[<Self::RT as JSRuntime>::Value],
-    ) -> Result<<Self::RT as JSRuntime>::Value>;
+    fn call(&mut self, args: &[<Self::RT as JSRuntime>::Value]) -> Result<<Self::RT as JSRuntime>::Value>;
 }
 
 pub trait JSFunctionCallBack {
@@ -43,11 +40,7 @@ pub trait JSFunctionCallBack {
 pub trait Args: Iterator {
     type RT: JSRuntime<Args = Self>;
 
-    fn get(
-        &self,
-        index: usize,
-        ctx: <Self::RT as JSRuntime>::Context,
-    ) -> Option<<Self::RT as JSRuntime>::Value>;
+    fn get(&self, index: usize, ctx: <Self::RT as JSRuntime>::Context) -> Option<<Self::RT as JSRuntime>::Value>;
 
     fn len(&self) -> usize;
 
@@ -68,10 +61,7 @@ pub trait JSFunctionVariadic {
     where
         Self: Sized;
 
-    fn call(
-        &mut self,
-        args: &[<Self::RT as JSRuntime>::Value],
-    ) -> Result<<Self::RT as JSRuntime>::Value>;
+    fn call(&mut self, args: &[<Self::RT as JSRuntime>::Value]) -> Result<<Self::RT as JSRuntime>::Value>;
 }
 
 pub trait JSFunctionCallBackVariadic {
@@ -95,11 +85,7 @@ pub trait JSFunctionCallBackVariadic {
 pub trait VariadicArgsInternal: Iterator {
     type RT: JSRuntime<VariadicArgsInternal = Self>;
 
-    fn get(
-        &self,
-        index: usize,
-        ctx: <Self::RT as JSRuntime>::Context,
-    ) -> Option<<Self::RT as JSRuntime>::Value>;
+    fn get(&self, index: usize, ctx: <Self::RT as JSRuntime>::Context) -> Option<<Self::RT as JSRuntime>::Value>;
 
     fn len(&self) -> usize;
 
@@ -109,10 +95,7 @@ pub trait VariadicArgsInternal: Iterator {
 
     fn as_vec(&self, ctx: <Self::RT as JSRuntime>::Context) -> Vec<<Self::RT as JSRuntime>::Value>;
 
-    fn variadic(
-        &self,
-        ctx: <Self::RT as JSRuntime>::Context,
-    ) -> <Self::RT as JSRuntime>::VariadicArgs;
+    fn variadic(&self, ctx: <Self::RT as JSRuntime>::Context) -> <Self::RT as JSRuntime>::VariadicArgs;
 
     fn variadic_start(
         &self,

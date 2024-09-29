@@ -1,13 +1,14 @@
 use crate::node::{Node, NodeType};
 use crate::parser::block::BlockParseMode;
 use crate::tokenizer::TokenType;
-use crate::{Css3, Error};
+use crate::Css3;
+use gosub_shared::errors::CssResult;
 
 impl Css3<'_> {
     // Either the rule parsing succeeds as a whole, or not. When not a valid rule is found, we
     // return None if the config.ignore_errors is set to true, otherwise this will return an Err
     // and is handled by the caller
-    pub fn parse_rule(&mut self) -> Result<Option<Node>, Error> {
+    pub fn parse_rule(&mut self) -> CssResult<Option<Node>> {
         log::trace!("parse_rule");
 
         let result = self.parse_rule_internal();
@@ -24,7 +25,7 @@ impl Css3<'_> {
         Ok(None)
     }
 
-    fn parse_rule_internal(&mut self) -> Result<Node, Error> {
+    fn parse_rule_internal(&mut self) -> CssResult<Node> {
         let loc = self.tokenizer.current_location();
 
         let prelude = self.parse_selector_list()?;
@@ -49,6 +50,7 @@ impl Css3<'_> {
 #[cfg(test)]
 mod tests {
     use crate::walker::Walker;
+    use crate::{CssOrigin, ParserConfig};
     use gosub_shared::byte_stream::{ByteStream, Encoding};
 
     macro_rules! test {
@@ -57,7 +59,7 @@ mod tests {
             stream.read_from_str($input, Some(Encoding::UTF8));
             stream.close();
 
-            let mut parser = crate::Css3::new(&mut stream);
+            let mut parser = crate::Css3::new(&mut stream, ParserConfig::default(), CssOrigin::User, "");
             let result = parser.$func().unwrap().unwrap();
 
             let w = Walker::new(&result);

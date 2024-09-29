@@ -127,11 +127,7 @@ fn error_2(i: Span) -> IResult<Span, ErrorSpec> {
 
 fn error_3(i: Span) -> IResult<Span, ErrorSpec> {
     let location = map(
-        tuple((
-            nom::character::complete::u64,
-            tag(":"),
-            nom::character::complete::u64,
-        )),
+        tuple((nom::character::complete::u64, tag(":"), nom::character::complete::u64)),
         |(line, _, col): (u64, Span, u64)| (line as usize, col as usize),
     );
 
@@ -189,17 +185,7 @@ fn error_6(i: Span) -> IResult<Span, ErrorSpec> {
             nom::character::complete::u64,
             tag(")"),
         )),
-        |(_, line1, _, col1, _, line2, _, col2, _): (
-            Span,
-            u64,
-            Span,
-            u64,
-            Span,
-            u64,
-            Span,
-            u64,
-            Span,
-        )| {
+        |(_, line1, _, col1, _, line2, _, col2, _): (Span, u64, Span, u64, Span, u64, Span, u64, Span)| {
             (
                 Position {
                     line: line1 as _,
@@ -225,10 +211,7 @@ fn error_6(i: Span) -> IResult<Span, ErrorSpec> {
 
 fn error_messages(i: Span) -> IResult<Span, Vec<ErrorSpec>> {
     map(take_until1("#"), |string: Span| {
-        string
-            .lines()
-            .map(|s| ErrorSpec::Message(s.into()))
-            .collect::<Vec<_>>()
+        string.lines().map(|s| ErrorSpec::Message(s.into())).collect::<Vec<_>>()
     })(i)
 }
 
@@ -377,10 +360,7 @@ mod tests {
             .into(),
         )
         .unwrap();
-        assert_eq!(
-            doc.to_string(),
-            "| <html>\n|   <head>\n|   <body>\n|     \"Test\""
-        );
+        assert_eq!(doc.to_string(), "| <html>\n|   <head>\n|   <body>\n|     \"Test\"");
     }
 
     #[test]
@@ -408,10 +388,7 @@ Test
                 message: "expected-doctype-but-got-chars".into(),
             }]
         );
-        assert_eq!(
-            test.document,
-            "| <html>\n|   <head>\n|   <body>\n|     \"Test\""
-        );
+        assert_eq!(test.document, "| <html>\n|   <head>\n|   <body>\n|     \"Test\"");
     }
 
     #[test]
@@ -736,8 +713,7 @@ x"
 
     #[test]
     fn parse_error_5() {
-        let (_, error) =
-            error_5("52: End of file seen and there were open elements.\n".into()).unwrap();
+        let (_, error) = error_5("52: End of file seen and there were open elements.\n".into()).unwrap();
 
         assert_eq!(
             error,
@@ -750,9 +726,7 @@ x"
 
     #[test]
     fn parse_error_6() {
-        let (_, error) =
-            error_6("(1:44-1:49) non-void-html-element-start-tag-with-trailing-solidus\n".into())
-                .unwrap();
+        let (_, error) = error_6("(1:44-1:49) non-void-html-element-start-tag-with-trailing-solidus\n".into()).unwrap();
 
         assert_eq!(
             error,

@@ -68,10 +68,7 @@ impl TimingTable {
     pub fn start_timer(&mut self, namespace: &str, context: Option<String>) -> TimerId {
         let timer = Timer::new(context);
         self.timers.insert(timer.id, timer.clone());
-        self.namespaces
-            .entry(namespace.to_string())
-            .or_default()
-            .push(timer.id);
+        self.namespaces.entry(namespace.to_string()).or_default().push(timer.id);
 
         timer.id
     }
@@ -140,16 +137,18 @@ impl TimingTable {
         println!("----------------------------------------------------------------------------------------------------------------------------------------");
         for (namespace, timers) in &self.namespaces {
             let stats = self.get_stats(timers);
-            println!("{:20} | {:>8} | {:>10} | {:>10} | {:>10} | {:>10} | {:>10} | {:>10} | {:>10} | {:>10}", namespace,
-                     stats.count,
-                     self.scale(stats.total, scale.clone()),
-                     self.scale(stats.min, scale.clone()),
-                     self.scale(stats.max, scale.clone()),
-                     self.scale(stats.avg, scale.clone()),
-                     self.scale(stats.p50, scale.clone()),
-                     self.scale(stats.p75, scale.clone()),
-                     self.scale(stats.p95, scale.clone()),
-                     self.scale(stats.p99, scale.clone()),
+            println!(
+                "{:20} | {:>8} | {:>10} | {:>10} | {:>10} | {:>10} | {:>10} | {:>10} | {:>10} | {:>10}",
+                namespace,
+                stats.count,
+                self.scale(stats.total, scale.clone()),
+                self.scale(stats.min, scale.clone()),
+                self.scale(stats.max, scale.clone()),
+                self.scale(stats.avg, scale.clone()),
+                self.scale(stats.p50, scale.clone()),
+                self.scale(stats.p75, scale.clone()),
+                self.scale(stats.p95, scale.clone()),
+                self.scale(stats.p99, scale.clone()),
             );
 
             if show_details {
@@ -203,10 +202,7 @@ macro_rules! timing_start {
 #[macro_export]
 macro_rules! timing_stop {
     ($timer_id:expr) => {{
-        $crate::timing::TIMING_TABLE
-            .lock()
-            .unwrap()
-            .stop_timer($timer_id);
+        $crate::timing::TIMING_TABLE.lock().unwrap().stop_timer($timer_id);
     }};
 }
 
@@ -294,10 +290,7 @@ impl Timer {
     #[cfg(target_arch = "wasm32")]
     pub fn end(&mut self) {
         self.end = window().and_then(|w| w.performance()).map(|p| p.now());
-        self.duration_us = self
-            .end
-            .map(|e| (e - self.start) * 1000.0)
-            .unwrap_or(f64::NAN) as u64;
+        self.duration_us = self.end.map(|e| (e - self.start) * 1000.0).unwrap_or(f64::NAN) as u64;
     }
 
     pub(crate) fn has_finished(&self) -> bool {
@@ -323,8 +316,7 @@ mod tests {
     #[cfg(target_arch = "wasm32")]
     use {
         js_sys::wasm_bindgen::closure::Closure, std::sync::atomic::AtomicBool, std::sync::Arc,
-        wasm_bindgen_test::wasm_bindgen_test_configure, wasm_bindgen_test::*,
-        web_sys::wasm_bindgen::JsCast,
+        wasm_bindgen_test::wasm_bindgen_test_configure, wasm_bindgen_test::*, web_sys::wasm_bindgen::JsCast,
     };
 
     use super::*;
@@ -361,10 +353,7 @@ mod tests {
         sleep(Duration::from_millis(20));
         timing_stop!(t);
 
-        TIMING_TABLE
-            .lock()
-            .unwrap()
-            .print_timings(true, Scale::Auto);
+        TIMING_TABLE.lock().unwrap().print_timings(true, Scale::Auto);
     }
 
     #[wasm_bindgen_test]
@@ -398,10 +387,7 @@ mod tests {
         sleep(window, Duration::from_millis(20));
         timing_stop!(t);
 
-        TIMING_TABLE
-            .lock()
-            .unwrap()
-            .print_timings(true, Scale::Auto);
+        TIMING_TABLE.lock().unwrap().print_timings(true, Scale::Auto);
     }
 
     //This should only be used for testing purposes
