@@ -40,28 +40,28 @@ This crate contains Javascript api's that are usable in the browser. For instanc
 This crate contains the network stack that is used to fetch resources from the web. It can fetch resources from the web, but also from the local filesystem. Currently hosting a DNS system that we can use for resolving domain names over different kind of protocols.
 
 ## gosub_render_backend
-TBD
+This crate contains trait definitions of the render backend and some more layout.
 
 ## gosub_render_utils
-TBD
+This crate contains implementations of the render tree and some other utilities, for instance for resolving mouse positions back to elements.
 
 ## gosub_renderer
-TBD
+This crate contains the actual renderer. It uses the traits defined in the `gosub_render_backend` crate to render a html document.
 
 ## gosub_shared
 Some of the code and data structures that will be used throughout different crates are stored here. It also holds the traits that are used to implement the different parts of the engine.
 
 ## gosub_svg
-TBD
+Implementation of the SVG Document for `usvg` and optionally the `resvg` crates, used for SVG rendering.
 
 ## gosub_taffy
-TBD
+Implementation of layout traits for the `taffy` layouting system.
 
 ## gosub_testing
 A dedicated crate for testing some of the engine. This will allow to easily test the different parts of the engine, most notably the html5 tokenizer and parser.
 
 ## gosub_typeface
-TBD
+Currently doesn't do much, but it is used to store fallback fonts and the `Font` trait
 
 ## gosub_useragent
 This crate keeps a simple application with event loop renders html5 documents. It can be seen as a very simple browser. Ultimately, this crate will be removed in favor of an external application that will use the engine. 
@@ -70,10 +70,10 @@ This crate keeps a simple application with event loop renders html5 documents. I
 Gosub bindings to the V8 javascript engine.
 
 ## gosub_vello
-TBD
+Implementation of a RenderBackend for the `vello` crate
 
 ## gosub_webexecutor
 System to execute javascript. This could also be used for executing other languages in the future, like lua.
 
 ## gosub_webinterop
-TBD
+Proc macro to easily pass functions and define APIs to javascript, wasm or lua and others.
