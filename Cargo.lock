@@ -779,12 +779,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "convert_case"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6245d59a3e82a7fc217c5828a6692dbc6dfb63a0c8c90495621f7b9d79704a0e"
-
-[[package]]
 name = "cookie"
 version = "0.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1003,19 +997,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b42b6fa04a440b495c8b04d0e71b707c585f83cb9cb28cf8cd0d976c315e31b4"
 dependencies = [
  "powerfmt",
-]
-
-[[package]]
-name = "derive_more"
-version = "0.99.18"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5f33878137e4dafd7fa914ad4e259e18a4e8e532b9617a2d0150262bf53abfce"
-dependencies = [
- "convert_case",
- "proc-macro2",
- "quote",
- "rustc_version",
- "syn 2.0.79",
 ]
 
 [[package]]
@@ -1624,7 +1605,7 @@ dependencies = [
  "console_log",
  "cookie",
  "criterion",
- "derive_more 1.0.0",
+ "derive_more",
  "futures",
  "getrandom",
  "gosub_config",
@@ -1664,7 +1645,7 @@ name = "gosub_html5"
 version = "0.1.0"
 dependencies = [
  "criterion",
- "derive_more 1.0.0",
+ "derive_more",
  "gosub_css3",
  "gosub_shared",
  "gosub_testing",
@@ -1692,7 +1673,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "cookie",
- "derive_more 1.0.0",
+ "derive_more",
  "domain-lookup-tree",
  "gosub_config",
  "gosub_shared",
@@ -1759,7 +1740,7 @@ dependencies = [
  "anyhow",
  "chardet",
  "chardetng",
- "derive_more 0.99.18",
+ "derive_more",
  "encoding_rs",
  "getrandom",
  "js-sys",
@@ -1873,7 +1854,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "colored",
- "derive_more 1.0.0",
+ "derive_more",
  "gosub_shared",
  "gosub_v8",
  "gosub_webinterop",
@@ -3818,15 +3799,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "08d43f7aa6b08d49f382cde6a7982047c3426db949b1424bc4b7ec9ae12c6ce2"
 
 [[package]]
-name = "rustc_version"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cfcb3a22ef46e85b45de6ee7e79d063319ebb6594faafcf1c225ea92ab6e9b92"
-dependencies = [
- "semver",
-]
-
-[[package]]
 name = "rustix"
 version = "0.38.37"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3944,12 +3916,6 @@ dependencies = [
  "smithay-client-toolkit",
  "tiny-skia",
 ]
-
-[[package]]
-name = "semver"
-version = "1.0.23"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61697e0a1c7e512e84a621326239844a24d8207b4669b41bc18b32ea5cbf988b"
 
 [[package]]
 name = "serde"
