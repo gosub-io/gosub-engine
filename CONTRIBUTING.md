@@ -6,8 +6,6 @@ This is an initial (but not fully complete) contribution guide.
 **Useful Links for Developers:**
 * [Developer Chat](https://chat.developer.gosub.io/)
 * [Wiki](https://wiki.developer.gosub.io/)
-* [API Docs](https://docs.developer.gosub.io/)
-* [Benchmarks](https://bench.developer.gosub.io/)
 
 ## Contents
 * [Introduction to the Makefiles](#introduction-to-the-makefiles)
@@ -103,7 +101,7 @@ At this point, there are a few main paths:
 * Study the codebase
     * If you're not exactly sure what to do, it might be a good opportunity to spend some time sifting through the codebase and understanding how things are structured.
 * Issue tackling
-    * We don't have a high volume of issues at the moment, but there may be some that a new contributer can pick up!
+    * We don't have a high volume of issues at the moment, but there may be some that a new contributor can pick up!
 * Specification compliance
     * We are not completely in compliance with certain specifications (CSS, DOM) and could likely use some help there.
 * Write tests

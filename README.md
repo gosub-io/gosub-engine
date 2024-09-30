@@ -22,7 +22,6 @@ This repository is part of the Gosub browser engine project. This is the main en
 - Networking stack
 - Rendering engine
 - JS bridge
-- C Bindings
 
 More will follow as the engine grows. The idea is that this engine will receive some kind of stream of bytes (most likely 
 from a socket or file) and parse this into a valid HTML5 document tree and CSS stylesheets.
@@ -34,7 +33,7 @@ tree can be modified by JS.
 ## Status
 
 > This project is in its infancy. There is no usable browser yet. However, you can look at simple html pages and parse
-> them into a document tree.
+> them into a document tree and do some initial rendering.
 
 We can parse HTML5 and CSS3 files into a document tree or the respective css tree. This tree can be shown in the terminal 
 or be rendered in a very unfinished renderer. Our renderer cannot render everything yet, but it can render simple html 
