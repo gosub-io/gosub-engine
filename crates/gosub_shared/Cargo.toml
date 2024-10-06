@@ -15,7 +15,7 @@ uuid = { version = "1.10.0", features = ["v4"] }
 rand = "0.9.0-alpha.1"
 chardetng = "0.1.17"
 encoding_rs = "0.8.34"
-derive_more = "1.0"
+derive_more = {version = "1.0.0", features = ["display"]}
 
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
