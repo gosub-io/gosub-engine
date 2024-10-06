@@ -588,10 +588,60 @@ fn parse_font_style(node: &mut impl Node) -> FontStyle {
     }
 }
 
-fn parse_font_axes(p: &mut impl Node) -> Vec<FontVariation> {
-    _ = p;
+fn parse_font_axes(n: &mut impl Node) -> Vec<FontVariation> {
+    let prop = n.get_property("font-variation-settings");
 
-    //TODO
+    let Some(s) = prop else {
+        return Vec::new();
+    };
 
-    Vec::new()
+    dbg!(&s);
+
+    // we don't need to care about things other than a list, since you always need two values for a variation
+    let Some(vars) = s.as_list() else {
+        return Vec::new();
+    };
+
+    let mut slice = vars.as_slice();
+
+    let mut vars = Vec::with_capacity((slice.len() as f32 / 3.0).ceil() as usize);
+
+    loop {
+        let Some((candidates, new_slice)) = slice.split_at_checked(2) else {
+            break;
+        };
+
+        let axis = &candidates[0];
+
+        if axis.is_comma() {
+            slice = &slice[1..]; // we can guarantee that this won't panic since we know that we have at least 2 elements because of the first check
+            continue;
+        }
+
+        let value = &candidates[1];
+
+        slice = new_slice; // we can now update the slice, since no matter if we have a comma or not, we need to move to the next pair
+
+        if value.is_comma() {
+            continue;
+        }
+
+        let Some(axis) = axis.as_string() else {
+            continue;
+        };
+
+        let Ok(tag_bytes): Result<[u8; 4], _> = axis.as_bytes().try_into() else {
+            continue;
+        };
+
+        let tag = u32::from_be_bytes(tag_bytes);
+
+        let Some(value) = value.as_number() else {
+            continue;
+        };
+
+        vars.push(FontVariation { tag, value });
+    }
+
+    vars
 }
