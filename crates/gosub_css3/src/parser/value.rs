@@ -50,7 +50,7 @@ impl Css3<'_> {
                 Ok(Some(node))
             }
             TokenType::Comma => {
-                let node = Node::new(NodeType::Operator(",".into()), t.location);
+                let node = Node::new(NodeType::Comma, t.location);
                 Ok(Some(node))
             }
             TokenType::LBracket => Err(CssError::with_location(

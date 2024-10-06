@@ -474,6 +474,9 @@ impl CssValue {
                 }
                 Ok(CssValue::Function(name, list))
             }
+
+            crate::node::NodeType::Comma => Ok(CssValue::Comma),
+
             _ => Err(CssError::new(
                 format!("Cannot convert node to CssValue: {:?}", node).as_str(),
             )),
@@ -578,6 +581,10 @@ impl gosub_shared::traits::css3::CssValue for CssValue {
         } else {
             None
         }
+    }
+
+    fn is_comma(&self) -> bool {
+        matches!(self, CssValue::Comma)
     }
 
     fn is_none(&self) -> bool {

@@ -99,5 +99,7 @@ pub trait CssValue: Sized {
     fn as_number(&self) -> Option<f32>;
     fn as_list(&self) -> Option<Vec<Self>>;
 
+    fn is_comma(&self) -> bool;
+
     fn is_none(&self) -> bool;
 }
