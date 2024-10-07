@@ -79,7 +79,7 @@ gosub_v8 = { path = "./crates/gosub_v8", features = [] }
 gosub_webexecutor = { path = "./crates/gosub_webexecutor", features = [] }
 gosub_net = { path = "./crates/gosub_net", features = [] }
 ureq = "2.10.1"
-futures = "0.3.30"
+futures = "0.3.31"
 
 [profile.release]
 lto = "fat"
