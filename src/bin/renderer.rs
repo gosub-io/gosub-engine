@@ -1,5 +1,5 @@
-use std::{io, thread};
 use std::sync::mpsc;
+use std::{io, thread};
 
 use clap::ArgAction;
 use gosub_css3::system::Css3System;
@@ -23,11 +23,10 @@ type Document = DocumentImpl<CssSystem>;
 type HtmlParser<'a> = Html5Parser<'a, Document, CssSystem>;
 
 type Drawer = TreeDrawer<Backend, Layouter, Document, CssSystem>;
-type Tree = RenderTree<Layouter, Document, CssSystem>;
+type Tree = RenderTree<Layouter, CssSystem>;
 
 fn main() -> Result<()> {
     // simple_logger::init_with_level(log::Level::Info)?;
-
 
     let matches = clap::Command::new("Gosub Renderer")
         .arg(

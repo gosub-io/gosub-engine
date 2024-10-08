@@ -21,11 +21,10 @@ use crate::{Display, LayoutDocument, TaffyLayouter};
 static FONT_CX: LazyLock<Mutex<FontContext>> = LazyLock::new(|| {
     let mut ctx = FontContext::default();
 
-
     let fonts = ctx.collection.register_fonts(gosub_typeface::ROBOTO_FONT.to_vec());
 
-
-    ctx.collection.append_fallbacks(FallbackKey::new(Script::from("Latn"), None), fonts.iter().map(|f| f.0));
+    ctx.collection
+        .append_fallbacks(FallbackKey::new(Script::from("Latn"), None), fonts.iter().map(|f| f.0));
 
     Mutex::new(ctx)
 });
@@ -37,7 +36,7 @@ pub fn compute_inline_layout<LT: LayoutTree<TaffyLayouter>>(
 ) -> LayoutOutput {
     layout_input.known_dimensions = Size::NONE;
     layout_input.run_mode = RunMode::PerformLayout; //TODO: We should respect the run mode
-    // layout_input.sizing_mode = SizingMode::ContentSize;
+                                                    // layout_input.sizing_mode = SizingMode::ContentSize;
 
     let Some(children) = tree.0.children(nod_id) else {
         return LayoutOutput::HIDDEN;

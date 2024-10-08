@@ -35,7 +35,7 @@ pub trait DocumentFragment<C: CssSystem>: Sized {
     fn new(handle: DocumentHandle<Self::Document, C>, node_id: NodeId) -> Self;
 }
 
-pub trait Document<C: CssSystem>: Sized + Display {
+pub trait Document<C: CssSystem>: Sized + Display + 'static {
     type Node: Node<C, Document = Self>;
     type Fragment: DocumentFragment<C, Document = Self>;
     type Builder: DocumentBuilder<C, Document = Self>;

@@ -614,7 +614,6 @@ impl<B: RenderBackend> Clone for ImageBuffer<B> {
             ImageBuffer::Scene(scene, size) => ImageBuffer::Scene(scene.clone(), *size),
         }
     }
-    
 }
 
 impl<B: RenderBackend> ImageBuffer<B> {
@@ -659,13 +658,12 @@ pub trait ImgCache<B: RenderBackend>: Sized + Send {
     }
 
     fn with_capacity(capacity: usize) -> Self;
-    
+
     fn add(&mut self, url: String, img: ImageBuffer<B>, size: Option<SizeU32>);
-    
+
     fn add_pending(&mut self, url: String);
-    
+
     fn get(&self, url: &str) -> ImageCacheEntry<B>;
-    
 }
 
 pub struct NodeDesc {

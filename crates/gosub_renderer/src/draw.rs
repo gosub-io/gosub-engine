@@ -1,7 +1,7 @@
 use std::future::Future;
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::Sender;
+use std::sync::{Arc, Mutex};
 
 use anyhow::anyhow;
 use log::warn;
@@ -11,15 +11,17 @@ use gosub_net::http::fetcher::Fetcher;
 use gosub_render_backend::geo::{Size, SizeU32, FP};
 use gosub_render_backend::layout::{Layout, LayoutTree, Layouter, TextLayout};
 use gosub_render_backend::svg::SvgRenderer;
-use gosub_render_backend::{Border, BorderSide, BorderStyle, Brush, Color, ImageBuffer, ImgCache, NodeDesc, Rect, RenderBackend, RenderBorder,
-    RenderRect, RenderText, Scene as TScene, Text, Transform};
+use gosub_render_backend::{
+    Border, BorderSide, BorderStyle, Brush, Color, ImageBuffer, ImgCache, NodeDesc, Rect, RenderBackend, RenderBorder,
+    RenderRect, RenderText, Scene as TScene, Text, Transform,
+};
 use gosub_rendering::position::PositionTree;
 use gosub_rendering::render_tree::{RenderNodeData, RenderTree, RenderTreeNode};
+use gosub_shared::async_executor::WasmNotSend;
 use gosub_shared::node::NodeId;
 use gosub_shared::traits::css3::{CssProperty, CssPropertyMap, CssSystem};
 use gosub_shared::traits::document::Document;
 use gosub_shared::traits::html5::Html5Parser;
-use gosub_shared::traits::node::{ElementDataType, Node};
 use gosub_shared::types::Result;
 
 use crate::debug::scale::px_scale;
@@ -30,14 +32,22 @@ use crate::render_tree::{load_html_rendertree, TreeDrawer};
 mod img;
 pub mod img_cache;
 
-pub trait SceneDrawer<B: RenderBackend, L: Layouter, LT: LayoutTree<L>, D: Document<C>, C: CssSystem>: Send  + 'static {
+pub trait SceneDrawer<B: RenderBackend, L: Layouter, LT: LayoutTree<L>, D: Document<C>, C: CssSystem>:
+    WasmNotSend + 'static
+{
     type ImgCache: ImgCache<B>;
 
-    fn draw(&mut self, backend: &mut B, data: &mut B::WindowData<'_>, size: SizeU32, rerender: impl Fn() + Send + Sync + 'static) -> bool;
+    fn draw(
+        &mut self,
+        backend: &mut B,
+        data: &mut B::WindowData<'_>,
+        size: SizeU32,
+        rerender: impl Fn() + Send + Sync + 'static,
+    ) -> bool;
     fn mouse_move(&mut self, backend: &mut B, x: FP, y: FP) -> bool;
 
     fn scroll(&mut self, point: Point);
-    fn from_url<P>(url: Url, layouter: L, debug: bool) -> impl Future<Output = Result<Self>> + Send
+    fn from_url<P>(url: Url, layouter: L, debug: bool) -> impl Future<Output = Result<Self>> + WasmNotSend
     where
         Self: Sized,
         P: Html5Parser<C, Document = D>;
@@ -62,14 +72,20 @@ const DEBUG_BORDER_COLOR: (u8, u8, u8) = (255, 72, 72); //rgb(255, 72, 72)
 
 type Point = gosub_shared::types::Point<FP>;
 
-impl<B: RenderBackend, L: Layouter, D: Document<C>, C: CssSystem> SceneDrawer<B, L, RenderTree<L, D, C>, D, C>
+impl<B: RenderBackend, L: Layouter, D: Document<C>, C: CssSystem> SceneDrawer<B, L, RenderTree<L, C>, D, C>
     for TreeDrawer<B, L, D, C>
 where
     <<B as RenderBackend>::Text as Text>::Font: From<<<L as Layouter>::TextLayout as TextLayout>::Font>,
 {
     type ImgCache = ImageCache<B>;
 
-    fn draw(&mut self, backend: &mut B, data: &mut B::WindowData<'_>, size: SizeU32, rerender: impl Fn() + Send + Sync + 'static) -> bool {
+    fn draw(
+        &mut self,
+        backend: &mut B,
+        data: &mut B::WindowData<'_>,
+        size: SizeU32,
+        rerender: impl Fn() + Send + Sync + 'static,
+    ) -> bool {
         let dirty = self.dirty.load(Ordering::Relaxed);
 
         if !dirty && self.size == Some(size) {
@@ -109,7 +125,6 @@ where
                 image_cache,
             };
 
-            println!("Rendering tree");
             drawer.render(size);
 
             self.tree_scene = Some(scene);
@@ -136,7 +151,7 @@ where
             backend.apply_scene(data, scene, self.scene_transform.clone());
         }
 
-        if self.dirty.load(Ordering::Relaxed)  {
+        if self.dirty.load(Ordering::Relaxed) {
             if let Some(id) = self.selected_element {
                 self.debug_annotate(id);
             }
@@ -258,8 +273,7 @@ struct Drawer<'s, 't, B: RenderBackend, L: Layouter, D: Document<C>, C: CssSyste
     drawer: &'t mut TreeDrawer<B, L, D, C>,
     svg: Arc<Mutex<B::SVGRenderer>>,
     rerender: Arc<dyn Fn() + Send + Sync>,
-    image_cache: Arc<Mutex<ImageCache<B>>>
-
+    image_cache: Arc<Mutex<ImageCache<B>>>,
 }
 
 impl<B: RenderBackend, L: Layouter, D: Document<C>, C: CssSystem> Drawer<'_, '_, B, L, D, C>
@@ -303,43 +317,49 @@ where
         pos.x += p.x as FP;
         pos.y += p.y as FP;
 
-
-        let (border_radius, new_size) =
-            render_bg::<B, L, C>(node, self.scene, pos, self.svg.clone(), self.drawer.fetcher.clone(), self.image_cache.clone(), self.rerender.clone());
+        let (border_radius, new_size) = render_bg::<B, L, C>(
+            node,
+            self.scene,
+            pos,
+            self.svg.clone(),
+            self.drawer.fetcher.clone(),
+            self.image_cache.clone(),
+            self.rerender.clone(),
+        );
 
         let mut size_change = new_size;
 
-        if let RenderNodeData::Element(element) = &node.data {
-            if element.name == "img" {
-                
-                
-                println!("element is image");
-                
-                let src = element
-                    .attribute("src")
-                .ok_or(anyhow!("Image element has no src attribute"))?;
+        if node.name == "img" {
+            if let RenderNodeData::Element { attributes } = &node.data {
+                let url: &str = attributes
+                    .get("src")
+                    .ok_or(anyhow!("Image element has no src attribute"))?;
 
-            let url = src.as_str();
+                let size = node.layout.size_or().map(|x| x.u32());
 
-            let size = node.layout.size_or().map(|x| x.u32());
-
-            let img = request_img::<B>(self.drawer.fetcher.clone(), self.svg.clone(), url, size, self.image_cache.clone(), self.rerender.clone())?;
-
-                println!("got img {url}: {:?}", img.size());
+                let img = request_img::<B>(
+                    self.drawer.fetcher.clone(),
+                    self.svg.clone(),
+                    url,
+                    size,
+                    self.image_cache.clone(),
+                    self.rerender.clone(),
+                )?;
 
                 if size.is_none() {
                     size_change = Some(img.size());
+                }
+
+                let fit = node
+                    .properties
+                    .get("object-fit")
+                    .and_then(|prop| prop.as_string())
+                    .unwrap_or("contain");
+
+                let size = size.unwrap_or(img.size()).f32();
+
+                render_image::<B>(img, self.scene, *pos, size, border_radius, fit)?;
             }
-
-            let fit = node
-                .properties
-                .get("object-fit")
-                .and_then(|prop| prop.as_string())
-                .unwrap_or("contain");
-
-            let size = size.unwrap_or(img.size()).f32();
-
-            render_image::<B>(img, self.scene, *pos, size, border_radius, fit)?;
         }
 
         render_text::<B, L, C>(node, self.scene, pos);
@@ -406,7 +426,7 @@ fn render_text<B: RenderBackend, L: Layouter, C: CssSystem>(
     }
 }
 
-fn render_bg<B: RenderBackend,  L: Layouter, C: CssSystem>(
+fn render_bg<B: RenderBackend, L: Layouter, C: CssSystem>(
     node: &RenderTreeNode<L, C>,
     scene: &mut B::Scene,
     pos: &Point,

@@ -184,9 +184,8 @@ impl Dns {
 
 #[cfg(test)]
 mod test {
+    use crate::dns::{Dns, ResolveType};
     use std::time::Instant;
-    use crate::dns::{ResolveType, Dns};
-
 
     #[test]
     fn resolver() {

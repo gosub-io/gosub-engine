@@ -31,10 +31,6 @@ impl WasmWorker {
         
         
         
-        let undefined = JsValue::UNDEFINED;
-        
-        
-
         let worker = Worker::new_with_options("worker.js", &opts)
             .map_err(|e| anyhow!("{:?}", e))?;
 

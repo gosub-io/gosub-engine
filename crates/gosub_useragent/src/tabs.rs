@@ -1,7 +1,3 @@
-use slotmap::{DefaultKey, SlotMap};
-use std::sync::mpsc::Sender;
-use log::info;
-use url::Url;
 use gosub_render_backend::layout::{LayoutTree, Layouter};
 use gosub_render_backend::{NodeDesc, RenderBackend};
 use gosub_renderer::draw::SceneDrawer;
@@ -9,6 +5,10 @@ use gosub_shared::traits::css3::CssSystem;
 use gosub_shared::traits::document::Document;
 use gosub_shared::traits::html5::Html5Parser;
 use gosub_shared::types::Result;
+use log::info;
+use slotmap::{DefaultKey, SlotMap};
+use std::sync::mpsc::Sender;
+use url::Url;
 
 pub struct Tabs<
     D: SceneDrawer<B, L, LT, Doc, C>,
@@ -23,7 +23,15 @@ pub struct Tabs<
     _marker: std::marker::PhantomData<(B, L, LT)>,
 }
 
-impl<D: SceneDrawer<B, L, LT>, L: Layouter, LT: LayoutTree<L>, B: RenderBackend> Default for Tabs<D, B, L, LT> {
+impl<
+        D: SceneDrawer<B, L, LT, Doc, C>,
+        L: Layouter,
+        LT: LayoutTree<L>,
+        B: RenderBackend,
+        Doc: Document<C>,
+        C: CssSystem,
+    > Default for Tabs<D, B, L, LT, Doc, C>
+{
     fn default() -> Self {
         Self {
             tabs: SlotMap::new(),
@@ -70,7 +78,11 @@ impl<
     }
 
     #[allow(unused)]
-    pub(crate) async fn from_url<P: Html5Parser<C, Document = Doc>>(url: Url, layouter: L, debug: bool) -> Result<Self> {
+    pub(crate) async fn from_url<P: Html5Parser<C, Document = Doc>>(
+        url: Url,
+        layouter: L,
+        debug: bool,
+    ) -> Result<Self> {
         let tab = Tab::from_url::<P>(url, layouter, debug).await?;
         Ok(Self::new(tab))
     }
@@ -106,6 +118,7 @@ pub struct Tab<
     pub title: String,
     pub url: Url,
     pub data: D,
+    #[allow(clippy::type_complexity)]
     _marker: std::marker::PhantomData<fn(B, L, LT, Doc, C)>,
 }
 

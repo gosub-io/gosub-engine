@@ -6,7 +6,7 @@ use gosub_typeface::font::{Font, Glyph};
 
 use crate::geo::{Point, Rect, Size, SizeU32};
 
-pub trait LayoutTree<L: Layouter>: Sized + 'static{
+pub trait LayoutTree<L: Layouter>: Sized + 'static {
     type NodeId: Copy + Clone + From<u64> + Into<u64>;
     type Node: Node + HasTextLayout<L>;
 

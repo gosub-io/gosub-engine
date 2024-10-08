@@ -5,9 +5,6 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::rc::Rc;
 
-use log::warn;
-use url::Url;
-
 use crate::node::{HTML_NAMESPACE, MATHML_NAMESPACE, SVG_NAMESPACE};
 use crate::parser::attr_replacements::{
     MATHML_ADJUSTMENTS, SVG_ADJUSTMENTS_ATTRIBUTES, SVG_ADJUSTMENTS_TAGS, XML_ADJUSTMENTS,
@@ -27,6 +24,8 @@ use gosub_shared::traits::node::{ElementDataType, Node, QuirksMode};
 use gosub_shared::traits::{Context, ParserConfig};
 use gosub_shared::types::{ParseError, Result};
 use gosub_shared::{timing_start, timing_stop};
+use log::warn;
+use url::Url;
 
 mod attr_replacements;
 pub mod errors;
@@ -4130,7 +4129,7 @@ where
 
     /// Load and parse an external stylesheet by URL
     #[cfg(target_arch = "wasm32")]
-    fn load_external_stylesheet(&self, _origin: CssOrigin, _url: Url) -> Option<CssStylesheet> {
+    fn load_external_stylesheet(&self, _origin: CssOrigin, _url: Url) -> Option<C::Stylesheet> {
         None
     }
 

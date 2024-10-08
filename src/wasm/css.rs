@@ -1,10 +1,11 @@
-use wasm_bindgen::prelude::wasm_bindgen;
-
-use gosub_css3::parser_config::ParserConfig;
 use gosub_css3::tokenizer::{TokenType, Tokenizer};
-use gosub_css3::walker::Walker;
-use gosub_css3::{Css3, Error};
+use gosub_css3::Css3;
 use gosub_shared::byte_stream::{ByteStream, Encoding, Location};
+use gosub_shared::errors::CssError;
+use gosub_shared::traits::css3::CssOrigin;
+use gosub_shared::traits::ParserConfig;
+use std::string::ToString;
+use wasm_bindgen::prelude::wasm_bindgen;
 
 #[wasm_bindgen]
 pub struct CssOptions {
@@ -55,10 +56,13 @@ pub fn css3_parser(input: &str, opts: CssOptions) -> CssOutput {
         ..Default::default()
     };
 
-    match Css3::parse(input, config) {
-        Ok(parsed) => {
-            let out = Walker::new(&parsed).walk_to_string();
-            CssOutput { tokens, out }
+    match Css3::parse_str(input, config, CssOrigin::User, "#web") {
+        Ok(_parsed) => {
+            // let out = Walker::new(&parsed).walk_to_string();
+            CssOutput {
+                tokens,
+                out: "todo".to_string(),
+            }
         }
         Err(err) => {
             let snippet = display_snippet(&input, err);
@@ -67,8 +71,11 @@ pub fn css3_parser(input: &str, opts: CssOptions) -> CssOutput {
     }
 }
 
-fn display_snippet(css: &str, err: Error) -> String {
-    let loc = err.location.clone();
+fn display_snippet(css: &str, err: CssError) -> String {
+    let loc = match err.location.clone() {
+        Some(l) => l,
+        None => return format!("Error: {}", err.message),
+    };
     let lines: Vec<&str> = css.split('\n').collect();
     let line_nr = loc.line - 1;
     let col_nr = if loc.column < 2 { 0 } else { loc.column - 2 };

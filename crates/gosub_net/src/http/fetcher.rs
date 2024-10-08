@@ -1,7 +1,7 @@
+use anyhow::bail;
 use std::error::Error;
 use std::fmt::Debug;
 use std::future::Future;
-use anyhow::bail;
 use url::{ParseError, Url};
 
 use gosub_shared::types::Result;

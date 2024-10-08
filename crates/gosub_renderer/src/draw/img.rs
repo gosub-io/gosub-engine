@@ -5,11 +5,11 @@ use anyhow::anyhow;
 use image::DynamicImage;
 use log::error;
 
-use gosub_net::http::fetcher::Fetcher;
-use gosub_render_backend::{Image as _, ImageBuffer, ImageCacheEntry, ImgCache, RenderBackend, SizeU32};
-use gosub_render_backend::svg::SvgRenderer;
-use gosub_shared::types::Result;
 use crate::draw::img_cache::ImageCache;
+use gosub_net::http::fetcher::Fetcher;
+use gosub_render_backend::svg::SvgRenderer;
+use gosub_render_backend::{Image as _, ImageBuffer, ImageCacheEntry, ImgCache, RenderBackend, SizeU32};
+use gosub_shared::types::Result;
 
 pub fn request_img<B: RenderBackend>(
     fetcher: Arc<Fetcher>,
@@ -19,16 +19,13 @@ pub fn request_img<B: RenderBackend>(
     img_cache: Arc<Mutex<ImageCache<B>>>,
     rerender: Arc<dyn Fn() + Send + Sync>,
 ) -> Result<ImageBuffer<B>> {
-    let mut cache = img_cache.lock()
-        .map_err(|_| anyhow!("Could not lock img cache"))?;
+    let mut cache = img_cache.lock().map_err(|_| anyhow!("Could not lock img cache"))?;
 
     let img = cache.get(url);
 
     Ok(match img {
         ImageCacheEntry::Image(img) => img.clone(),
-        ImageCacheEntry::Pending => {
-            ImageBuffer::Image(B::Image::from_img(image::DynamicImage::new_rgba8(1, 1)))
-        }
+        ImageCacheEntry::Pending => ImageBuffer::Image(B::Image::from_img(image::DynamicImage::new_rgba8(0, 0))),
         ImageCacheEntry::None => {
             cache.add_pending(url.to_string());
 
@@ -58,17 +55,18 @@ pub fn request_img<B: RenderBackend>(
                         }
                     };
 
-
-                    cache.add(url.to_string(), ImageBuffer::Image(B::Image::from_img(INVALID_IMG.clone())), size);
+                    cache.add(
+                        url.to_string(),
+                        ImageBuffer::Image(B::Image::from_img(INVALID_IMG.clone())),
+                        size,
+                    );
                 }
             });
 
-
-            ImageBuffer::Image(B::Image::from_img(DynamicImage::new_rgba8(1, 1)))
+            ImageBuffer::Image(B::Image::from_img(DynamicImage::new_rgba8(0, 0)))
         }
     })
 }
-
 
 async fn load_img<B: RenderBackend>(
     url: &str,
@@ -90,7 +88,8 @@ async fn load_img<B: RenderBackend>(
 
         let svg = <B::SVGRenderer as SvgRenderer<B>>::parse_external(svg)?;
 
-        let mut svg_renderer = svg_renderer.lock()
+        let mut svg_renderer = svg_renderer
+            .lock()
             .map_err(|_| anyhow!("Could not lock svg renderer"))?;
 
         if let Some(size) = size {
@@ -108,9 +107,7 @@ async fn load_img<B: RenderBackend>(
     })
 }
 
-
 const INVALID_IMG_BYTES: &[u8] = include_bytes!("../../../../resources/test_img.png");
 
-static INVALID_IMG: LazyLock<DynamicImage> = LazyLock::new(|| {
-    image::load_from_memory(INVALID_IMG_BYTES).unwrap_or(DynamicImage::new_rgba8(1, 1))
-});
+static INVALID_IMG: LazyLock<DynamicImage> =
+    LazyLock::new(|| image::load_from_memory(INVALID_IMG_BYTES).unwrap_or(DynamicImage::new_rgba8(0, 0)));

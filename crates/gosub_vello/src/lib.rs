@@ -2,15 +2,15 @@ use std::fmt::Debug;
 
 use anyhow::anyhow;
 use log::info;
-use vello::{AaConfig, DebugLayers, RenderParams, Scene as VelloScene};
 use vello::kurbo::Point as VelloPoint;
 use vello::peniko::Color as VelloColor;
+use vello::{AaConfig, DebugLayers, RenderParams, Scene as VelloScene};
 
 pub use border::*;
 pub use brush::*;
 pub use color::*;
-use gosub_render_backend::{RenderBackend, RenderRect, RenderText, Scene as TScene, WindowHandle};
 use gosub_render_backend::geo::{Point, SizeU32};
+use gosub_render_backend::{RenderBackend, RenderRect, RenderText, Scene as TScene, WindowHandle};
 use gosub_shared::types::Result;
 pub use gradient::*;
 pub use image::*;
@@ -19,8 +19,8 @@ pub use scene::*;
 pub use text::*;
 pub use transform::*;
 
-use crate::render::{Renderer, RendererOptions};
 use crate::render::window::{ActiveWindowData, WindowData};
+use crate::render::{Renderer, RendererOptions};
 
 mod border;
 mod brush;
@@ -38,7 +38,8 @@ mod debug;
 mod vello_svg;
 
 pub struct VelloBackend {
-    #[cfg(target_arch = "wasm32")] renderer: Renderer,
+    #[cfg(target_arch = "wasm32")]
+    renderer: Renderer,
 }
 
 impl Debug for VelloBackend {

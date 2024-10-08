@@ -1,26 +1,28 @@
-use js_sys::Promise;
-use log::{error, info};
-use url::Url;
-use wasm_bindgen::prelude::*;
-use web_sys::console::info;
-
-use gobub_css3::render_tree::generate_render_tree;
-use gobub_css3::render_tree::RenderTree as StyleTree;
-use gosub_html5::parser::document::{Document, DocumentBuilder};
+use gosub_css3::system::Css3System;
+use gosub_html5::document::document_impl::DocumentImpl;
 use gosub_html5::parser::Html5Parser;
 use gosub_renderer::render_tree::TreeDrawer;
+use gosub_rendering::render_tree::RenderTree;
 use gosub_shared::types::Result;
-use gosub_shared::worker::WasmWorker;
-use gosub_styling::render_tree::RenderTree;
 use gosub_taffy::TaffyLayouter;
 use gosub_useragent::application::{Application, WindowOptions};
 use gosub_vello::VelloBackend;
+use js_sys::Promise;
+use log::info;
+use url::Url;
+use wasm_bindgen::prelude::*;
 
 type Backend = VelloBackend;
 type Layouter = TaffyLayouter;
-type Drawer = TreeDrawer<Backend, Layouter>;
-type Tree = RenderTree<Layouter>;
-use gosub_taffy::layout::generate_taffy_tree;
+
+type CssSystem = Css3System;
+
+type Document = DocumentImpl<CssSystem>;
+
+type HtmlParser<'a> = Html5Parser<'a, Document, CssSystem>;
+
+type Drawer = TreeDrawer<Backend, Layouter, Document, CssSystem>;
+type Tree = RenderTree<Layouter, CssSystem>;
 
 #[wasm_bindgen]
 pub struct RendererOptions {
@@ -88,17 +90,18 @@ pub fn renderer(opts: RendererOptions) -> RendererOutput {
 }
 
 async fn renderer_internal(opts: RendererOptions) -> Result<()> {
-    let mut application: Application<Drawer, Backend, Layouter, Tree> =
+    let mut application: Application<Drawer, Backend, Layouter, Tree, Document, CssSystem, HtmlParser> =
         Application::new(VelloBackend::new().await?, TaffyLayouter, opts.debug);
-
 
     info!("created application");
 
-
-    application.initial_tab(Url::parse(&opts.url)?, WindowOptions {
-        id: opts.id,
-        parent_id: opts.parent_id,
-    });
+    application.initial_tab(
+        Url::parse(&opts.url)?,
+        WindowOptions {
+            id: opts.id,
+            parent_id: opts.parent_id,
+        },
+    );
 
     application.initialize()?;
 

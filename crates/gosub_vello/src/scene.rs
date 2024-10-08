@@ -15,7 +15,6 @@ impl Debug for Scene {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Scene").finish()
     }
-    
 }
 
 impl Scene {

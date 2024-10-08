@@ -1,20 +1,14 @@
-use std::collections::HashMap;
 use gosub_render_backend::{ImageBuffer, ImageCacheEntry, ImgCache, RenderBackend, SizeU32};
-
-
-
+use std::collections::HashMap;
 
 #[derive(Debug)]
 pub struct ImageCache<B: RenderBackend> {
     cache: HashMap<String, Entry<B>>,
 }
 
-
 impl<B: RenderBackend> ImgCache<B> for ImageCache<B> {
     fn new() -> Self {
-        Self {
-            cache: HashMap::new(),
-        }
+        Self { cache: HashMap::new() }
     }
     fn with_capacity(capacity: usize) -> Self {
         Self {
@@ -48,10 +42,9 @@ enum Entry<B: RenderBackend> {
     SizedImg(SizeU32, ImageBuffer<B>),
 }
 
-
 impl<B: RenderBackend> Entry<B> {
     fn new(img: ImageBuffer<B>, size: Option<SizeU32>) -> Self {
-        if let Some(size)  = size {
+        if let Some(size) = size {
             Self::SizedImg(size, img)
         } else {
             Self::Image(img)

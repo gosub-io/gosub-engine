@@ -1,11 +1,14 @@
-use std::borrow::Borrow;
-
+use gosub_css3::system::Css3System;
+use gosub_html5::document::builder::DocumentBuilderImpl;
+use gosub_html5::document::document_impl::DocumentImpl;
+use gosub_html5::parser::Html5Parser;
+use gosub_html5::writer::DocumentWriter;
+use gosub_shared::byte_stream::{ByteStream, Encoding};
+use gosub_shared::document::DocumentHandle;
+use gosub_shared::node::NodeId;
+use gosub_shared::traits::document::DocumentBuilder;
 use url::Url;
 use wasm_bindgen::prelude::wasm_bindgen;
-
-use gosub_html5::parser::document::{Document, DocumentBuilder};
-use gosub_html5::parser::Html5Parser;
-use gosub_shared::byte_stream::{ByteStream, Encoding};
 
 #[wasm_bindgen]
 pub struct HTMLOptions {
@@ -44,7 +47,7 @@ impl HTMLOutput {
 #[wasm_bindgen]
 pub fn html_parser(input: &str, opts: HTMLOptions) -> HTMLOutput {
     let url = Url::parse(&opts.url).ok();
-    let doc = DocumentBuilder::new_document(url);
+    let doc: DocumentHandle<DocumentImpl<Css3System>, Css3System> = DocumentBuilderImpl::new_document(url);
 
     let mut stream = ByteStream::new(Encoding::UTF8, None);
     stream.read_from_str(&input, Some(Encoding::UTF8));
@@ -52,7 +55,7 @@ pub fn html_parser(input: &str, opts: HTMLOptions) -> HTMLOutput {
 
     let mut errors = String::new();
 
-    match Html5Parser::parse_document(&mut stream, Document::clone(&doc), None) {
+    match Html5Parser::parse_document(&mut stream, DocumentHandle::clone(&doc), None) {
         Ok(errs) => {
             for e in errs {
                 errors.push_str(&format!("{}@{:?}\n", e.message, e.location));
@@ -63,7 +66,7 @@ pub fn html_parser(input: &str, opts: HTMLOptions) -> HTMLOutput {
         }
     }
 
-    let out = doc.borrow().to_string();
+    let out = DocumentWriter::write_from_node(NodeId::root(), doc);
 
     HTMLOutput { out, errors }
 }
