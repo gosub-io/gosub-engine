@@ -80,6 +80,16 @@ impl CssSystem for Css3System {
                             continue;
                         }
 
+                        let value = if let CssValue::List(mut value) = value {
+                            if value.len() == 1 {
+                                value.pop().expect("unreachable")
+                            } else {
+                                CssValue::List(value)
+                            }
+                        } else {
+                            value
+                        };
+
                         // create property for the given values
                         let property_name = declaration.property.clone();
                         let decl = CssDeclaration {
