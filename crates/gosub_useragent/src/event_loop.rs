@@ -1,5 +1,3 @@
-use std::sync::Arc;
-use log::info;
 use winit::event::{ElementState, MouseScrollDelta, WindowEvent};
 use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::{KeyCode, PhysicalKey};
@@ -53,20 +51,19 @@ impl<
                 let Some(tab) = self.tabs.get_current_tab() else {
                     return Ok(());
                 };
-                
+
+
                 let w = window.clone();
 
-                let redraw = tab.data.draw(backend, &mut self.renderer_data, size, Arc::new(move || {
+                let redraw = tab.data.draw(backend, &mut self.renderer_data, size, move || {
                     w.request_redraw();
-                }));
+                });
                 
                 backend.render(&mut self.renderer_data, active_window_data)?;
                 
                 if redraw {
                     self.request_redraw();
                 }
-
-                info!("Redraw requested");
             }
 
             WindowEvent::CursorMoved { position, .. } => {
