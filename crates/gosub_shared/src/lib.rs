@@ -5,6 +5,7 @@
 
 extern crate core;
 
+pub mod async_executor;
 pub mod byte_stream;
 pub mod document;
 pub mod errors;

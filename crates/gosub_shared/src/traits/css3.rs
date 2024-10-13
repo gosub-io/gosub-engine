@@ -1,3 +1,4 @@
+use crate::async_executor::WasmNotSend;
 use crate::document::DocumentHandle;
 use crate::errors::CssResult;
 use crate::node::NodeId;
@@ -19,7 +20,7 @@ pub enum CssOrigin {
 
 /// The CssSystem trait is a trait that defines all things CSS3 that are used by other non-css3 crates. This is the main trait that
 /// is used to parse CSS3 files. It contains sub elements like the Stylesheet trait that is used in for instance the Document trait.
-pub trait CssSystem: Clone {
+pub trait CssSystem: Clone + 'static {
     type Stylesheet: CssStylesheet;
 
     type PropertyMap: CssPropertyMap<Property = Self::Property>;
@@ -51,7 +52,7 @@ pub trait CssStylesheet: PartialEq {
     fn url(&self) -> &str;
 }
 
-pub trait CssPropertyMap: Default + Debug {
+pub trait CssPropertyMap: Default + Debug + WasmNotSend {
     type Property: CssProperty;
 
     fn insert_inherited(&mut self, name: &str, value: Self::Property);

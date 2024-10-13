@@ -1,11 +1,9 @@
-use std::fs;
-
+use crate::draw::img_cache::ImageCache;
 use anyhow::bail;
 use gosub_net::http::fetcher::Fetcher;
-use gosub_net::http::ureq;
 use gosub_render_backend::geo::SizeU32;
 use gosub_render_backend::layout::Layouter;
-use gosub_render_backend::RenderBackend;
+use gosub_render_backend::{ImgCache, RenderBackend};
 use gosub_rendering::position::PositionTree;
 use gosub_rendering::render_tree::{generate_render_tree, RenderTree};
 use gosub_shared::byte_stream::{ByteStream, Encoding};
@@ -14,38 +12,47 @@ use gosub_shared::node::NodeId;
 use gosub_shared::traits::css3::CssSystem;
 use gosub_shared::traits::document::{Document, DocumentBuilder};
 use gosub_shared::traits::html5::Html5Parser;
+use std::fs;
+use std::marker::PhantomData;
+use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, Mutex};
 use url::Url;
 
+#[derive(Debug)]
 pub struct TreeDrawer<B: RenderBackend, L: Layouter, D: Document<C>, C: CssSystem> {
-    pub(crate) fetcher: Fetcher,
-    pub(crate) tree: RenderTree<L, D, C>,
+    pub(crate) tree: RenderTree<L, C>,
+    pub(crate) fetcher: Arc<Fetcher>,
     pub(crate) layouter: L,
     pub(crate) size: Option<SizeU32>,
     pub(crate) position: PositionTree,
     pub(crate) last_hover: Option<NodeId>,
     pub(crate) debug: bool,
-    pub(crate) dirty: bool,
+    pub(crate) dirty: Arc<AtomicBool>,
     pub(crate) debugger_scene: Option<B::Scene>,
     pub(crate) tree_scene: Option<B::Scene>,
     pub(crate) selected_element: Option<NodeId>,
     pub(crate) scene_transform: Option<B::Transform>,
+    pub(crate) img_cache: Arc<Mutex<ImageCache<B>>>,
+    _marker: PhantomData<fn(D)>,
 }
 
 impl<B: RenderBackend, L: Layouter, D: Document<C>, C: CssSystem> TreeDrawer<B, L, D, C> {
-    pub fn new(tree: RenderTree<L, D, C>, layouter: L, url: Url, debug: bool) -> Self {
+    pub fn new(tree: RenderTree<L, C>, layouter: L, fetcher: Fetcher, debug: bool) -> Self {
         Self {
             tree,
+            fetcher: Arc::new(fetcher),
             layouter,
             size: None,
             position: PositionTree::default(),
             last_hover: None,
             debug,
             debugger_scene: None,
-            dirty: false,
+            dirty: Arc::new(AtomicBool::new(false)),
             tree_scene: None,
             selected_element: None,
             scene_transform: None,
-            fetcher: Fetcher::new(url),
+            img_cache: Arc::new(Mutex::new(ImageCache::new())),
+            _marker: PhantomData,
         }
     }
 }
@@ -60,16 +67,18 @@ impl<B: RenderBackend, L: Layouter, D: Document<C>, C: CssSystem> TreeDrawer<B, 
 //     pub data: RenderNodeData<L>,
 // }
 
-pub(crate) fn load_html_rendertree<L: Layouter, P: Html5Parser<C>, C: CssSystem>(
+pub(crate) async fn load_html_rendertree<L: Layouter, P: Html5Parser<C>, C: CssSystem>(
     url: Url,
-) -> gosub_shared::types::Result<RenderTree<L, P::Document, C>> {
+) -> gosub_shared::types::Result<(RenderTree<L, C>, Fetcher)> {
+    let fetcher = Fetcher::new(url.clone());
     let html = if url.scheme() == "http" || url.scheme() == "https" {
         // Fetch the html from the url
-        let response = ureq::get(url.as_ref()).call()?;
-        if response.status() != 200 {
-            bail!(format!("Could not get url. Status code {}", response.status()));
+        let response = fetcher.get(url.as_ref()).await?;
+        if response.status != 200 {
+            bail!(format!("Could not get url. Status code {}", response.status));
         }
-        response.into_string()?
+
+        String::from_utf8(response.body.clone())?
     } else if url.scheme() == "file" {
         fs::read_to_string(url.as_str().trim_start_matches("file://"))?
     } else {
@@ -93,5 +102,5 @@ pub(crate) fn load_html_rendertree<L: Layouter, P: Html5Parser<C>, C: CssSystem>
 
     drop(doc);
 
-    generate_render_tree(DocumentHandle::clone(&doc_handle))
+    Ok((generate_render_tree(DocumentHandle::clone(&doc_handle))?, fetcher))
 }

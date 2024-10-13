@@ -52,7 +52,11 @@ impl<
                     return Ok(());
                 };
 
-                let redraw = tab.data.draw(backend, &mut self.renderer_data, size);
+                let w = window.clone();
+
+                let redraw = tab.data.draw(backend, &mut self.renderer_data, size, move || {
+                    w.request_redraw();
+                });
 
                 backend.render(&mut self.renderer_data, active_window_data)?;
 

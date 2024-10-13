@@ -16,12 +16,18 @@ rand = "0.9.0-alpha.1"
 chardetng = "0.1.17"
 encoding_rs = "0.8.34"
 derive_more = {version = "1.0.0", features = ["display"]}
+log = "0.4.22"
 
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 js-sys = "0.3.70"
 getrandom = { version = "0.2.15", features = ["js"] }
-web-sys = { version = "0.3.70", features = ["Performance", "Window"] }
+web-sys = { version = "0.3.70", features = ["Performance", "Window", "Worker", "WorkerOptions", "WorkerType"] }
+wasm-bindgen-futures = "0.4.43"
+wasm-bindgen = "0.2.93"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+futures = "0.3.31"
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3.43"

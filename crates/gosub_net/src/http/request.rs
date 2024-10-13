@@ -2,6 +2,7 @@ use crate::http::headers::Headers;
 use cookie::CookieJar;
 use core::fmt::{Display, Formatter};
 
+#[derive(Debug, Default, Clone)]
 pub struct Request {
     pub method: String,
     pub uri: String,

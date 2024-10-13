@@ -1,11 +1,11 @@
 use std::fmt::Debug;
 
 use anyhow::anyhow;
+use log::info;
 use vello::kurbo::Point as VelloPoint;
 use vello::peniko::Color as VelloColor;
 use vello::{AaConfig, DebugLayers, RenderParams, Scene as VelloScene};
 
-use crate::render::{Renderer, RendererOptions};
 pub use border::*;
 pub use brush::*;
 pub use color::*;
@@ -20,6 +20,7 @@ pub use text::*;
 pub use transform::*;
 
 use crate::render::window::{ActiveWindowData, WindowData};
+use crate::render::{Renderer, RendererOptions};
 
 mod border;
 mod brush;
@@ -36,7 +37,10 @@ mod debug;
 #[cfg(feature = "vello_svg")]
 mod vello_svg;
 
-pub struct VelloBackend;
+pub struct VelloBackend {
+    #[cfg(target_arch = "wasm32")]
+    renderer: Renderer,
+}
 
 impl Debug for VelloBackend {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -113,11 +117,19 @@ impl RenderBackend for VelloBackend {
     }
 
     fn create_window_data<'a>(&mut self, _handle: impl WindowHandle) -> Result<Self::WindowData<'a>> {
+        info!("Creating window data");
+
+        #[cfg(target_arch = "wasm32")]
+        let renderer = self.renderer.clone();
+
+        #[cfg(not(target_arch = "wasm32"))]
         let renderer = futures::executor::block_on(Renderer::new(RendererOptions::default()))?;
 
         let adapter = renderer.instance_adapter;
 
         let renderer = adapter.create_renderer(None)?;
+
+        info!("Created renderer");
 
         Ok(WindowData {
             adapter,
@@ -173,11 +185,20 @@ impl RenderBackend for VelloBackend {
 }
 
 impl VelloBackend {
+    #[cfg(target_arch = "wasm32")]
+    pub async fn new() -> Result<Self> {
+        let renderer = Renderer::new(RendererOptions::default()).await?;
+
+        Ok(Self { renderer })
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn new() -> Self {
-        Self
+        Self {}
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl Default for VelloBackend {
     fn default() -> Self {
         Self::new()

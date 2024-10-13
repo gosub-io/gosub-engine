@@ -1,10 +1,11 @@
-use anyhow::anyhow;
-use image::imageops::FilterType;
-use log::warn;
 use std::cell::LazyCell;
 use std::ops::Deref;
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
+
+use anyhow::anyhow;
+use image::imageops::FilterType;
+use log::warn;
 use url::Url;
 use winit::dpi::LogicalSize;
 use winit::event_loop::ActiveEventLoop;
@@ -19,7 +20,8 @@ use gosub_shared::traits::document::Document;
 use gosub_shared::traits::html5::Html5Parser;
 use gosub_shared::types::Result;
 
-use crate::tabs::Tabs;
+use crate::application::WindowOptions;
+use crate::tabs::{Tab, TabID, Tabs};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WindowState<'a, B: RenderBackend> {
@@ -76,11 +78,35 @@ impl<
     pub fn new<P: Html5Parser<C, Document = Doc>>(
         event_loop: &ActiveEventLoop,
         backend: &mut B,
-        layouter: L,
-        default_url: Url,
-        debug: bool,
+        opts: WindowOptions,
     ) -> Result<Self> {
         let window = create_window(event_loop)?;
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            use winit::platform::web::WindowExtWebSys;
+            let canvas = window.canvas().ok_or(anyhow!("Failed to get canvas"))?;
+            let size = window.inner_size();
+            canvas.set_id(&opts.id);
+
+            canvas.set_height(size.height.max(400));
+            canvas.set_width(size.width.max(600));
+
+            web_sys::window()
+                .and_then(|win| win.document())
+                .and_then(|doc| {
+                    if !opts.parent_id.is_empty() {
+                        doc.get_element_by_id(&opts.parent_id)
+                            .and_then(|el| el.append_child(&canvas).ok())
+                    } else {
+                        doc.body().and_then(|body| body.append_child(&canvas).ok())
+                    }
+                })
+                .ok_or(anyhow!("Failed to append canvas to body"))?;
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        let _ = opts;
 
         let renderer_data = backend.create_window_data(window.clone())?;
 
@@ -88,8 +114,29 @@ impl<
             state: WindowState::Suspended,
             window,
             renderer_data,
-            tabs: Tabs::from_url::<P>(default_url, layouter, debug)?,
+            tabs: Tabs::default(),
         })
+    }
+
+    pub async fn open_tab<P: Html5Parser<C, Document = Doc>>(
+        &mut self,
+        url: Url,
+        layouter: L,
+        debug: bool,
+    ) -> Result<()> {
+        let tab = Tab::from_url::<P>(url, layouter, debug).await?;
+        self.tabs.add_tab(tab);
+        Ok(())
+    }
+
+    pub fn add_tab(&mut self, tab: Tab<D, B, L, LT, Doc, C>) {
+        let id = self.tabs.add_tab(tab);
+
+        if self.tabs.active == TabID::default() {
+            self.tabs.activate_tab(id);
+        }
+
+        self.window.request_redraw();
     }
 
     pub fn resumed(&mut self, backend: &mut B) -> Result<()> {
@@ -103,6 +150,9 @@ impl<
         let data = backend.activate_window(self.window.clone(), &mut self.renderer_data, size)?;
 
         self.state = WindowState::Active { surface: data };
+
+        // #[cfg(target_arch = "wasm32")]
+        // self.request_redraw();
 
         Ok(())
     }

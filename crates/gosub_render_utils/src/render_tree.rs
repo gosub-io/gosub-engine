@@ -21,16 +21,15 @@ const INLINE_ELEMENTS: [&str; 31] = [
 
 /// Map of all declared values for all nodes in the document
 #[derive(Debug)]
-pub struct RenderTree<L: Layouter, D: Document<C>, C: CssSystem> {
+pub struct RenderTree<L: Layouter, C: CssSystem> {
     pub nodes: HashMap<NodeId, RenderTreeNode<L, C>>,
     pub root: NodeId,
     pub dirty: bool,
     next_id: NodeId,
-    pub handle: Option<DocumentHandle<D, C>>,
 }
 
 #[allow(unused)]
-impl<L: Layouter, D: Document<C>, C: CssSystem> LayoutTree<L> for RenderTree<L, D, C> {
+impl<L: Layouter, C: CssSystem> LayoutTree<L> for RenderTree<L, C> {
     type NodeId = NodeId;
     type Node = RenderTreeNode<L, C>;
 
@@ -93,7 +92,7 @@ impl<L: Layouter, D: Document<C>, C: CssSystem> LayoutTree<L> for RenderTree<L, 
     }
 }
 
-impl<L: Layouter, D: Document<C>, C: CssSystem> RenderTree<L, D, C> {
+impl<L: Layouter, C: CssSystem> RenderTree<L, C> {
     // Generates a new render tree with a root node
     pub fn with_capacity(capacity: usize) -> Self {
         let mut tree = Self {
@@ -101,7 +100,6 @@ impl<L: Layouter, D: Document<C>, C: CssSystem> RenderTree<L, D, C> {
             root: NodeId::root(),
             dirty: false,
             next_id: NodeId::from(1u64),
-            handle: None,
         };
 
         tree.insert_node(
@@ -215,7 +213,7 @@ impl<L: Layouter, D: Document<C>, C: CssSystem> RenderTree<L, D, C> {
     }
 
     /// Generate a render tree from the given document
-    pub fn from_document(document: DocumentHandle<D, C>) -> Self {
+    pub fn from_document<D: Document<C>>(document: DocumentHandle<D, C>) -> Self {
         let mut render_tree = RenderTree::with_capacity(document.get().node_count());
 
         render_tree.generate_from(document);
@@ -223,7 +221,7 @@ impl<L: Layouter, D: Document<C>, C: CssSystem> RenderTree<L, D, C> {
         render_tree
     }
 
-    fn generate_from(&mut self, handle: DocumentHandle<D, C>) {
+    fn generate_from<D: Document<C>>(&mut self, handle: DocumentHandle<D, C>) {
         // Iterate the complete document tree
 
         let iter_handle = DocumentHandle::clone(&handle);
@@ -416,9 +414,7 @@ impl<L: Layouter, D: Document<C>, C: CssSystem> RenderTree<L, D, C> {
     }
 }
 
-impl<L: Layouter, D: Document<C>, C: CssSystem> gosub_shared::traits::render_tree::RenderTree<C>
-    for RenderTree<L, D, C>
-{
+impl<L: Layouter, C: CssSystem> gosub_shared::traits::render_tree::RenderTree<C> for RenderTree<L, C> {
     type NodeId = NodeId;
     type Node = RenderTreeNode<L, C>;
 
@@ -453,7 +449,7 @@ impl<L: Layouter, C: CssSystem> gosub_shared::traits::render_tree::RenderTreeNod
 
 pub enum RenderNodeData<L: Layouter> {
     Document,
-    Element,
+    Element { attributes: HashMap<String, String> },
     Text(Box<TextData<L>>),
     AnonymousInline,
 }
@@ -462,7 +458,9 @@ impl<L: Layouter> Debug for RenderNodeData<L> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             RenderNodeData::Document => f.write_str("Document"),
-            RenderNodeData::Element => f.write_str("Element"),
+            RenderNodeData::Element { attributes } => {
+                f.debug_struct("Element").field("attributes", attributes).finish()
+            }
             RenderNodeData::Text(data) => f.debug_struct("TextData").field("data", data).finish(),
             RenderNodeData::AnonymousInline => f.write_str("AnonymousInline"),
         }
@@ -506,7 +504,9 @@ pub enum ControlFlow<T> {
 impl<L: Layouter> RenderNodeData<L> {
     pub fn from_node_data<N: DocumentNode<C>, C: CssSystem>(node: NodeData<C, N>) -> ControlFlow<Self> {
         ControlFlow::Ok(match node {
-            NodeData::Element(_) => RenderNodeData::Element,
+            NodeData::Element(d) => RenderNodeData::Element {
+                attributes: d.attributes().clone(),
+            },
             NodeData::Text(data) => {
                 let text = pre_transform_text(data.string_value());
 
@@ -566,7 +566,7 @@ impl<L: Layouter, C: CssSystem> Debug for RenderTreeNode<L, C> {
 impl<L: Layouter, C: CssSystem> RenderTreeNode<L, C> {
     /// Returns true if the node is an element node
     pub fn is_element(&self) -> bool {
-        matches!(self.data, RenderNodeData::Element)
+        matches!(self.data, RenderNodeData::Element { .. })
     }
 
     /// Returns true if the node is a text node
@@ -645,7 +645,7 @@ impl<L: Layouter, C: CssSystem> layout::Node for RenderTreeNode<L, C> {
 /// Generates a render tree for the given document based on its loaded stylesheets
 pub fn generate_render_tree<L: Layouter, D: Document<C>, C: CssSystem>(
     document: DocumentHandle<D, C>,
-) -> Result<RenderTree<L, D, C>> {
+) -> Result<RenderTree<L, C>> {
     let render_tree = RenderTree::from_document(document);
 
     Ok(render_tree)

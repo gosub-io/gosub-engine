@@ -29,26 +29,26 @@ impl RTreeObject for Element {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct PositionTree {
     tree: RTree<Element>,
 }
 
 impl PositionTree {
     pub fn from_tree<B: RenderBackend, L: Layouter, D: Document<C>, C: CssSystem>(
-        from_tree: &RenderTree<L, D, C>,
+        from_tree: &RenderTree<L, C>,
     ) -> Self {
         let mut tree = RTree::new();
 
         //TODO: we somehow need to get the border radius and a potential stacking context of the element here
 
-        Self::add_node_to_tree(from_tree, from_tree.root, 0, &mut tree, (0.0, 0.0));
+        Self::add_node_to_tree::<L, D, C>(from_tree, from_tree.root, 0, &mut tree, (0.0, 0.0));
 
         Self { tree }
     }
 
     fn add_node_to_tree<L: Layouter, D: Document<C>, C: CssSystem>(
-        from_tree: &RenderTree<L, D, C>,
+        from_tree: &RenderTree<L, C>,
         id: NodeId,
         z_index: i32,
         tree: &mut RTree<Element>,
@@ -77,7 +77,7 @@ impl PositionTree {
         tree.insert(element);
 
         for child in from_tree.children(id).unwrap_or_default() {
-            Self::add_node_to_tree(from_tree, child, z_index + 1, tree, pos);
+            Self::add_node_to_tree::<L, D, C>(from_tree, child, z_index + 1, tree, pos);
         }
     }
 

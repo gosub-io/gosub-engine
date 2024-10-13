@@ -1,28 +1,47 @@
+use gosub_css3::system::Css3System;
+use gosub_html5::document::document_impl::DocumentImpl;
+use gosub_html5::parser::Html5Parser;
+use gosub_renderer::render_tree::TreeDrawer;
+use gosub_rendering::render_tree::RenderTree;
+use gosub_shared::types::Result;
+use gosub_taffy::TaffyLayouter;
+use gosub_useragent::application::{Application, WindowOptions};
+use gosub_vello::VelloBackend;
 use js_sys::Promise;
+use log::info;
 use url::Url;
 use wasm_bindgen::prelude::*;
 
-use gobub_css3::render_tree::generate_render_tree;
-use gobub_css3::render_tree::RenderTree as StyleTree;
-use gosub_html5::parser::document::{Document, DocumentBuilder};
-use gosub_html5::parser::Html5Parser;
-use gosub_renderer::render_tree::TreeDrawer;
-use gosub_renderer::renderer::{Renderer, RendererOptions as GRendererOptions};
-use gosub_shared::types::Result;
-use gosub_taffy::layout::generate_taffy_tree;
+type Backend = VelloBackend;
+type Layouter = TaffyLayouter;
+
+type CssSystem = Css3System;
+
+type Document = DocumentImpl<CssSystem>;
+
+type HtmlParser<'a> = Html5Parser<'a, Document, CssSystem>;
+
+type Drawer = TreeDrawer<Backend, Layouter, Document, CssSystem>;
+type Tree = RenderTree<Layouter, CssSystem>;
 
 #[wasm_bindgen]
 pub struct RendererOptions {
     id: String,
-    html: String,
+    parent_id: String,
     url: String,
+    debug: bool,
 }
 
 #[wasm_bindgen]
 impl RendererOptions {
     #[wasm_bindgen(constructor)]
-    pub fn new(id: String, html: String, url: String) -> Self {
-        Self { id, html, url }
+    pub fn new(id: String, parent_id: String, url: String, debug: bool) -> Self {
+        Self {
+            id,
+            parent_id,
+            url,
+            debug,
+        }
     }
 }
 
@@ -71,28 +90,22 @@ pub fn renderer(opts: RendererOptions) -> RendererOutput {
 }
 
 async fn renderer_internal(opts: RendererOptions) -> Result<()> {
-    let url = Url::parse(&opts.url)?;
+    let mut application: Application<Drawer, Backend, Layouter, Tree, Document, CssSystem, HtmlParser> =
+        Application::new(VelloBackend::new().await?, TaffyLayouter, opts.debug);
 
-    let mut rt = load_html_rendertree(&opts.html, url)?;
+    info!("created application");
 
-    let (taffy_tree, root) = generate_taffy_tree(&mut rt)?;
+    application.initial_tab(
+        Url::parse(&opts.url)?,
+        WindowOptions {
+            id: opts.id,
+            parent_id: opts.parent_id,
+        },
+    );
 
-    let render_tree = TreeDrawer::new(rt, taffy_tree, root, opts.debug);
+    application.initialize()?;
 
-    let render_tree = render_tree;
+    application.run()?;
 
-    let renderer = Renderer::new(GRendererOptions::default()).await?;
-
-    renderer.start(render_tree, Some(opts.id))
-}
-
-fn load_html_rendertree(input: &str, url: Url) -> Result<StyleTree> {
-    let mut stream = ByteStream::new(Encoding::UTF8, None);
-    stream.read_from_str(&input, Some(Encoding::UTF8));
-    stream.close();
-
-    let doc_handle = DocumentBuilder::new_document(Some(url));
-    let _parse_errors = Html5Parser::parse_document(&mut stream, Document::clone(&doc_handle), None)?;
-
-    generate_render_tree(Document::clone(&doc_handle))
+    Ok(())
 }

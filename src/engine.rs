@@ -1,18 +1,18 @@
-use gosub_shared::byte_stream::{ByteStream, Encoding};
-use gosub_shared::document::DocumentHandle;
-use gosub_shared::traits::css3::CssSystem;
-use gosub_shared::traits::document::{Document, DocumentBuilder};
-use gosub_shared::traits::html5::Html5Parser as Html5ParserT;
-
 #[cfg(not(target_arch = "wasm32"))]
 use {
     cookie::CookieJar,
     core::fmt::Debug,
-    gosub_net::{
-        dns::{Dns, ResolveType},
-        http::{headers::Headers, request::Request, response::Response},
-    },
-    gosub_shared::types::{Error, ParseError, Result},
+    gosub_net::dns::{Dns, ResolveType},
+    gosub_net::errors::Error,
+    gosub_net::http::headers::Headers,
+    gosub_net::http::request::Request,
+    gosub_net::http::response::Response,
+    gosub_shared::byte_stream::{ByteStream, Encoding},
+    gosub_shared::document::DocumentHandle,
+    gosub_shared::traits::css3::CssSystem,
+    gosub_shared::traits::document::{Document, DocumentBuilder},
+    gosub_shared::traits::html5::Html5Parser as Html5ParserT,
+    gosub_shared::types::{ParseError, Result},
     gosub_shared::{timing_start, timing_stop},
     std::io::Read,
     url::Url,
@@ -159,14 +159,14 @@ fn fetch_url<P: Html5ParserT<C>, C: CssSystem>(
     Ok(fetch_response)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
+    use cookie::CookieJar;
     use gosub_css3::system::Css3System;
     use gosub_html5::document::document_impl::DocumentImpl;
     use gosub_html5::parser::Html5Parser;
 
-    #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn test_fetch_url() {
         let url = "https://gosub.io/";

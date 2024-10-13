@@ -6,7 +6,7 @@ use gosub_typeface::font::{Font, Glyph};
 
 use crate::geo::{Point, Rect, Size, SizeU32};
 
-pub trait LayoutTree<L: Layouter>: Sized {
+pub trait LayoutTree<L: Layouter>: Sized + 'static {
     type NodeId: Copy + Clone + From<u64> + Into<u64>;
     type Node: Node + HasTextLayout<L>;
 
@@ -28,11 +28,11 @@ pub trait LayoutTree<L: Layouter>: Sized {
     fn get_node(&mut self, id: Self::NodeId) -> Option<&mut Self::Node>;
 }
 
-pub trait Layouter: Sized + Clone {
-    type Cache: Default;
-    type Layout: Layout;
+pub trait Layouter: Sized + Clone + Send + 'static {
+    type Cache: Default + Send;
+    type Layout: Layout + Send;
 
-    type TextLayout: TextLayout;
+    type TextLayout: TextLayout + Send;
 
     const COLLAPSE_INLINE: bool;
 

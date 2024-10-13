@@ -39,6 +39,7 @@ gosub_render_backend = { path = "./crates/gosub_render_backend", features = [] }
 gosub_vello = { path = "./crates/gosub_vello", features = [] }
 gosub_useragent = { path = "./crates/gosub_useragent", features = [] }
 gosub_taffy = { path = "./crates/gosub_taffy", features = [] }
+gosub_net = { path = "./crates/gosub_net", features = [] }
 serde = { version = "1.0", features = ["derive"] }
 serde_derive = "1.0"
 derive_more = { version = "1", features = ["from"] }
@@ -52,6 +53,7 @@ cookie = { version = "0.18.1", features = ["secure", "private"] }
 url = "2.5.2"
 nom = "7.1.3"
 nom-trace = "0.2.1"
+log = "0.4.22"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
@@ -77,7 +79,6 @@ getrandom = { version = "0.2.15", features = ["js"] }
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 gosub_v8 = { path = "./crates/gosub_v8", features = [] }
 gosub_webexecutor = { path = "./crates/gosub_webexecutor", features = [] }
-gosub_net = { path = "./crates/gosub_net", features = [] }
 ureq = "2.10.1"
 futures = "0.3.31"
 
@@ -94,3 +95,6 @@ codegen-units = 1
 
 [lib]
 crate-type = ["staticlib", "cdylib", "rlib"]
+
+[package.metadata.wasm-pack.profile.dev.wasm-bindgen]
+dwarf-debug-info = true

@@ -16,7 +16,7 @@ pub trait WindowHandle: HasDisplayHandle + HasWindowHandle + Send + Sync + Clone
 
 impl<T> WindowHandle for T where T: HasDisplayHandle + HasWindowHandle + Send + Sync + Clone {}
 
-pub trait RenderBackend: Sized + Debug {
+pub trait RenderBackend: Sized + Debug + 'static {
     type Rect: Rect;
     type Border: Border<Self>;
     type BorderSide: BorderSide<Self>;
@@ -27,7 +27,7 @@ pub trait RenderBackend: Sized + Debug {
     type Color: Color;
     type Image: Image;
     type Brush: Brush<Self>;
-    type Scene: Scene<Self>;
+    type Scene: Scene<Self> + Send;
     type SVGRenderer: SvgRenderer<Self>;
 
     type ActiveWindowData<'a>;
@@ -68,7 +68,7 @@ pub trait RenderBackend: Sized + Debug {
     ) -> Result<()>;
 }
 
-pub trait Scene<B: RenderBackend> {
+pub trait Scene<B: RenderBackend>: Clone + Debug {
     fn draw_rect(&mut self, rect: &RenderRect<B>);
     fn draw_text(&mut self, text: &RenderText<B>);
 
@@ -413,7 +413,7 @@ pub trait BorderRadius:
     fn bottom_right_radius(&mut self, radius: Radius);
 }
 
-pub trait Transform: Sized + Mul<Self> + MulAssign + Clone {
+pub trait Transform: Sized + Mul<Self> + MulAssign + Clone + Send {
     const IDENTITY: Self;
     const FLIP_X: Self;
     const FLIP_Y: Self;
@@ -576,7 +576,7 @@ pub trait Color {
     const TRANSPARENT: Self;
 }
 
-pub trait Image {
+pub trait Image: Clone + Send {
     fn new(size: (FP, FP), data: Vec<u8>) -> Self;
 
     fn from_img(img: image::DynamicImage) -> Self;
@@ -596,6 +596,24 @@ pub trait Brush<B: RenderBackend>: Clone {
 pub enum ImageBuffer<B: RenderBackend> {
     Image(B::Image),
     Scene(B::Scene, SizeU32),
+}
+
+impl<B: RenderBackend> Debug for ImageBuffer<B> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ImageBuffer::Image(_) => write!(f, "ImageBuffer::Image"),
+            ImageBuffer::Scene(_, size) => write!(f, "ImageBuffer::Scene({:?})", size),
+        }
+    }
+}
+
+impl<B: RenderBackend> Clone for ImageBuffer<B> {
+    fn clone(&self) -> Self {
+        match self {
+            ImageBuffer::Image(img) => ImageBuffer::Image(img.clone()),
+            ImageBuffer::Scene(scene, size) => ImageBuffer::Scene(scene.clone(), *size),
+        }
+    }
 }
 
 impl<B: RenderBackend> ImageBuffer<B> {
@@ -626,6 +644,26 @@ impl<B: RenderBackend> ImageBuffer<B> {
             ImageBuffer::Scene(_, size) => (size.width as FP, size.height as FP),
         }
     }
+}
+
+pub enum ImageCacheEntry<'a, B: RenderBackend> {
+    Image(&'a ImageBuffer<B>),
+    Pending,
+    None,
+}
+
+pub trait ImgCache<B: RenderBackend>: Sized + Send {
+    fn new() -> Self {
+        Self::with_capacity(0)
+    }
+
+    fn with_capacity(capacity: usize) -> Self;
+
+    fn add(&mut self, url: String, img: ImageBuffer<B>, size: Option<SizeU32>);
+
+    fn add_pending(&mut self, url: String);
+
+    fn get(&self, url: &str) -> ImageCacheEntry<B>;
 }
 
 pub struct NodeDesc {

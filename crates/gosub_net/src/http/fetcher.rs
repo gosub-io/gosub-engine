@@ -1,29 +1,45 @@
-use super::response::Response;
-use crate::http::request::Request;
 use anyhow::bail;
-use gosub_shared::types::Result;
+use std::error::Error;
+use std::fmt::Debug;
+use std::future::Future;
 use url::{ParseError, Url};
 
+use gosub_shared::types::Result;
+
+use crate::http::request::Request;
+use crate::http::request_impl::RequestImpl;
+
+use super::response::Response;
+
+pub trait RequestAgent: Debug {
+    type Error: Error;
+
+    fn new() -> Self;
+
+    fn get(&self, url: &str) -> impl Future<Output = Result<Response>>;
+
+    fn get_req(&self, req: &Request) -> impl Future<Output = Result<Response>>;
+}
+
+#[derive(Debug)]
 pub struct Fetcher {
     base_url: Url,
-    client: ureq::Agent,
+    client: RequestImpl,
 }
 
 impl Fetcher {
     pub fn new(base: Url) -> Self {
         Self {
             base_url: base,
-            client: ureq::Agent::new(),
+            client: RequestImpl::new(),
         }
     }
 
-    pub fn get_url(&self, url: &Url) -> Result<Response> {
+    pub async fn get_url(&self, url: &Url) -> Result<Response> {
         let scheme = url.scheme();
 
         let resp = if scheme == "http" || scheme == "https" {
-            let response = self.client.get(url.as_str()).call()?;
-
-            response.try_into()?
+            self.client.get(url.as_str()).await?
         } else if scheme == "file" {
             let path = &url.as_str()[7..];
 
@@ -37,10 +53,10 @@ impl Fetcher {
         Ok(resp)
     }
 
-    pub fn get(&self, url: &str) -> Result<Response> {
+    pub async fn get(&self, url: &str) -> Result<Response> {
         let url = self.parse_url(url)?;
 
-        self.get_url(&url)
+        self.get_url(&url).await
     }
 
     pub fn get_req(&self, _url: &Request) {

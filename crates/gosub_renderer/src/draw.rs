@@ -1,4 +1,7 @@
+use std::future::Future;
+use std::sync::atomic::Ordering;
 use std::sync::mpsc::Sender;
+use std::sync::{Arc, Mutex};
 
 use anyhow::anyhow;
 use log::warn;
@@ -9,31 +12,42 @@ use gosub_render_backend::geo::{Size, SizeU32, FP};
 use gosub_render_backend::layout::{Layout, LayoutTree, Layouter, TextLayout};
 use gosub_render_backend::svg::SvgRenderer;
 use gosub_render_backend::{
-    Border, BorderSide, BorderStyle, Brush, Color, ImageBuffer, NodeDesc, Rect, RenderBackend, RenderBorder,
+    Border, BorderSide, BorderStyle, Brush, Color, ImageBuffer, ImgCache, NodeDesc, Rect, RenderBackend, RenderBorder,
     RenderRect, RenderText, Scene as TScene, Text, Transform,
 };
-
 use gosub_rendering::position::PositionTree;
 use gosub_rendering::render_tree::{RenderNodeData, RenderTree, RenderTreeNode};
+use gosub_shared::async_executor::WasmNotSend;
 use gosub_shared::node::NodeId;
 use gosub_shared::traits::css3::{CssProperty, CssPropertyMap, CssSystem};
 use gosub_shared::traits::document::Document;
 use gosub_shared::traits::html5::Html5Parser;
-use gosub_shared::traits::node::{ElementDataType, Node};
 use gosub_shared::types::Result;
 
 use crate::debug::scale::px_scale;
 use crate::draw::img::request_img;
+use crate::draw::img_cache::ImageCache;
 use crate::render_tree::{load_html_rendertree, TreeDrawer};
 
 mod img;
+pub mod img_cache;
 
-pub trait SceneDrawer<B: RenderBackend, L: Layouter, LT: LayoutTree<L>, D: Document<C>, C: CssSystem> {
-    fn draw(&mut self, backend: &mut B, data: &mut B::WindowData<'_>, size: SizeU32) -> bool;
+pub trait SceneDrawer<B: RenderBackend, L: Layouter, LT: LayoutTree<L>, D: Document<C>, C: CssSystem>:
+    WasmNotSend + 'static
+{
+    type ImgCache: ImgCache<B>;
+
+    fn draw(
+        &mut self,
+        backend: &mut B,
+        data: &mut B::WindowData<'_>,
+        size: SizeU32,
+        rerender: impl Fn() + Send + Sync + 'static,
+    ) -> bool;
     fn mouse_move(&mut self, backend: &mut B, x: FP, y: FP) -> bool;
 
     fn scroll(&mut self, point: Point);
-    fn from_url<P>(url: Url, layouter: L, debug: bool) -> Result<Self>
+    fn from_url<P>(url: Url, layouter: L, debug: bool) -> impl Future<Output = Result<Self>> + WasmNotSend
     where
         Self: Sized,
         P: Html5Parser<C, Document = D>;
@@ -47,6 +61,8 @@ pub trait SceneDrawer<B: RenderBackend, L: Layouter, LT: LayoutTree<L>, D: Docum
     fn send_nodes(&mut self, sender: Sender<NodeDesc>);
 
     fn set_needs_redraw(&mut self);
+
+    fn get_img_cache(&self) -> Arc<Mutex<Self::ImgCache>>;
 }
 
 const DEBUG_CONTENT_COLOR: (u8, u8, u8) = (0, 192, 255); //rgb(0, 192, 255)
@@ -56,17 +72,27 @@ const DEBUG_BORDER_COLOR: (u8, u8, u8) = (255, 72, 72); //rgb(255, 72, 72)
 
 type Point = gosub_shared::types::Point<FP>;
 
-impl<B: RenderBackend, L: Layouter, D: Document<C>, C: CssSystem> SceneDrawer<B, L, RenderTree<L, D, C>, D, C>
+impl<B: RenderBackend, L: Layouter, D: Document<C>, C: CssSystem> SceneDrawer<B, L, RenderTree<L, C>, D, C>
     for TreeDrawer<B, L, D, C>
 where
     <<B as RenderBackend>::Text as Text>::Font: From<<<L as Layouter>::TextLayout as TextLayout>::Font>,
 {
-    fn draw(&mut self, backend: &mut B, data: &mut B::WindowData<'_>, size: SizeU32) -> bool {
-        if !self.dirty && self.size == Some(size) {
+    type ImgCache = ImageCache<B>;
+
+    fn draw(
+        &mut self,
+        backend: &mut B,
+        data: &mut B::WindowData<'_>,
+        size: SizeU32,
+        rerender: impl Fn() + Send + Sync + 'static,
+    ) -> bool {
+        let dirty = self.dirty.load(Ordering::Relaxed);
+
+        if !dirty && self.size == Some(size) {
             return false;
         }
 
-        if self.tree_scene.is_none() || self.size != Some(size) {
+        if self.tree_scene.is_none() || self.size != Some(size) || dirty {
             self.size = Some(size);
 
             let mut scene = B::Scene::new();
@@ -83,10 +109,20 @@ where
                 scene_transform.set_xy(x, y);
             }
 
+            let image_cache = self.img_cache.clone();
+
+            let dirty = self.dirty.clone();
+
             let mut drawer = Drawer {
                 scene: &mut scene,
                 drawer: self,
-                svg: B::SVGRenderer::new(),
+                svg: Arc::new(Mutex::new(B::SVGRenderer::new())),
+                rerender: Arc::new(move || {
+                    dirty.store(true, Ordering::Relaxed);
+
+                    rerender();
+                }),
+                image_cache,
             };
 
             drawer.render(size);
@@ -115,14 +151,14 @@ where
             backend.apply_scene(data, scene, self.scene_transform.clone());
         }
 
-        if self.dirty {
+        if self.dirty.load(Ordering::Relaxed) {
             if let Some(id) = self.selected_element {
                 self.debug_annotate(id);
             }
         }
 
         if let Some(scene) = &self.debugger_scene {
-            self.dirty = false;
+            self.dirty.store(false, Ordering::Relaxed);
             backend.apply_scene(data, scene, self.scene_transform.clone());
         }
 
@@ -138,8 +174,8 @@ where
             backend.apply_scene(data, &scale, None);
         }
 
-        if self.dirty {
-            self.dirty = false;
+        if self.dirty.load(Ordering::Relaxed) {
+            self.dirty.store(false, Ordering::Relaxed);
 
             return true;
         }
@@ -182,41 +218,41 @@ where
 
         self.scene_transform = Some(transform);
 
-        self.dirty = true;
+        self.dirty.store(true, Ordering::Relaxed);
     }
 
-    fn from_url<P>(url: Url, layouter: L, debug: bool) -> Result<Self>
+    async fn from_url<P>(url: Url, layouter: L, debug: bool) -> Result<Self>
     where
         P: Html5Parser<C, Document = D>,
     {
-        let rt = load_html_rendertree::<L, P, C>(url.clone())?;
+        let (rt, fetcher) = load_html_rendertree::<L, P, C>(url.clone()).await?;
 
-        Ok(Self::new(rt, layouter, url, debug))
+        Ok(Self::new(rt, layouter, fetcher, debug))
     }
 
     fn clear_buffers(&mut self) {
         self.tree_scene = None;
         self.debugger_scene = None;
         self.last_hover = None;
-        self.dirty = true;
+        self.dirty.store(true, Ordering::Relaxed);
     }
 
     fn toggle_debug(&mut self) {
         self.debug = !self.debug;
-        self.dirty = true;
+        self.dirty.store(true, Ordering::Relaxed);
         self.last_hover = None;
         self.debugger_scene = None;
     }
 
     fn select_element(&mut self, id: NodeId) {
         self.selected_element = Some(id);
-        self.dirty = true;
+        self.dirty.store(true, Ordering::Relaxed);
     }
 
     fn unselect_element(&mut self) {
         self.selected_element = None;
         self.debugger_scene = None;
-        self.dirty = true;
+        self.dirty.store(true, Ordering::Relaxed);
     }
 
     fn send_nodes(&mut self, sender: Sender<NodeDesc>) {
@@ -224,14 +260,20 @@ where
     }
 
     fn set_needs_redraw(&mut self) {
-        self.dirty = true;
+        self.dirty.store(true, Ordering::Relaxed);
+    }
+
+    fn get_img_cache(&self) -> Arc<Mutex<Self::ImgCache>> {
+        self.img_cache.clone()
     }
 }
 
 struct Drawer<'s, 't, B: RenderBackend, L: Layouter, D: Document<C>, C: CssSystem> {
     scene: &'s mut B::Scene,
     drawer: &'t mut TreeDrawer<B, L, D, C>,
-    svg: B::SVGRenderer,
+    svg: Arc<Mutex<B::SVGRenderer>>,
+    rerender: Arc<dyn Fn() + Send + Sync>,
+    image_cache: Arc<Mutex<ImageCache<B>>>,
 }
 
 impl<B: RenderBackend, L: Layouter, D: Document<C>, C: CssSystem> Drawer<'_, '_, B, L, D, C>
@@ -268,52 +310,56 @@ where
         }
     }
 
-    fn render_node(&mut self, id: NodeId, pos: &mut Point) -> anyhow::Result<()> {
+    fn render_node(&mut self, id: NodeId, pos: &mut Point) -> Result<()> {
         let node = self.drawer.tree.get_node(id).ok_or(anyhow!("Node {id} not found"))?;
 
         let p = node.layout.rel_pos();
         pos.x += p.x as FP;
         pos.y += p.y as FP;
 
-        let (border_radius, new_size) =
-            render_bg::<B, L, C>(node, self.scene, pos, &mut self.svg, &self.drawer.fetcher);
+        let (border_radius, new_size) = render_bg::<B, L, C>(
+            node,
+            self.scene,
+            pos,
+            self.svg.clone(),
+            self.drawer.fetcher.clone(),
+            self.image_cache.clone(),
+            self.rerender.clone(),
+        );
 
         let mut size_change = new_size;
 
         if node.name == "img" {
-            let Some(handle) = self.drawer.tree.handle.as_ref() else {
-                return Err(anyhow!("No document handle"));
-            };
+            if let RenderNodeData::Element { attributes } = &node.data {
+                let url: &str = attributes
+                    .get("src")
+                    .ok_or(anyhow!("Image element has no src attribute"))?;
 
-            let doc = handle.get();
+                let size = node.layout.size_or().map(|x| x.u32());
 
-            let dom_node = doc.node_by_id(id).ok_or(anyhow!("Node not found"))?;
+                let img = request_img::<B>(
+                    self.drawer.fetcher.clone(),
+                    self.svg.clone(),
+                    url,
+                    size,
+                    self.image_cache.clone(),
+                    self.rerender.clone(),
+                )?;
 
-            let element = dom_node.get_element_data().ok_or(anyhow!("Node is not an element"))?;
+                if size.is_none() {
+                    size_change = Some(img.size());
+                }
 
-            let src = element
-                .attribute("src")
-                .ok_or(anyhow!("Image element has no src attribute"))?;
+                let fit = node
+                    .properties
+                    .get("object-fit")
+                    .and_then(|prop| prop.as_string())
+                    .unwrap_or("contain");
 
-            let url = src.as_str();
+                let size = size.unwrap_or(img.size()).f32();
 
-            let size = node.layout.size_or().map(|x| x.u32());
-
-            let img = request_img(&self.drawer.fetcher, &mut self.svg, url, size)?;
-
-            if size.is_none() {
-                size_change = Some(img.size());
+                render_image::<B>(img, self.scene, *pos, size, border_radius, fit)?;
             }
-
-            let fit = node
-                .properties
-                .get("object-fit")
-                .and_then(|prop| prop.as_string())
-                .unwrap_or("contain");
-
-            let size = size.unwrap_or(img.size()).f32();
-
-            render_image::<B>(img, self.scene, *pos, size, border_radius, fit)?;
         }
 
         render_text::<B, L, C>(node, self.scene, pos);
@@ -384,8 +430,10 @@ fn render_bg<B: RenderBackend, L: Layouter, C: CssSystem>(
     node: &RenderTreeNode<L, C>,
     scene: &mut B::Scene,
     pos: &Point,
-    svg: &mut B::SVGRenderer,
-    fetcher: &Fetcher,
+    svg: Arc<Mutex<B::SVGRenderer>>,
+    fetcher: Arc<Fetcher>,
+    img_cache: Arc<Mutex<ImageCache<B>>>,
+    rerender: Arc<dyn Fn() + Send + Sync>,
 ) -> ((FP, FP, FP, FP), Option<SizeU32>) {
     let bg_color = node
         .properties
@@ -468,7 +516,7 @@ fn render_bg<B: RenderBackend, L: Layouter, C: CssSystem>(
     if let Some(url) = background_image {
         let size = node.layout.size_or().map(|x| x.u32());
 
-        let img = match request_img(fetcher, svg, url, size) {
+        let img = match request_img::<B>(fetcher.clone(), svg.clone(), url, size, img_cache, rerender) {
             Ok(img) => img,
             Err(e) => {
                 eprintln!("Error loading image: {:?}", e);
@@ -817,7 +865,7 @@ impl<B: RenderBackend, L: Layouter, D: Document<C>, C: CssSystem> TreeDrawer<B, 
         scene.draw_rect(&render_rect);
 
         self.debugger_scene = Some(scene);
-        self.dirty = true;
+        self.dirty.store(true, Ordering::Relaxed);
 
         true
     }
