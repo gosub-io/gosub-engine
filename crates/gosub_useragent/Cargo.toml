@@ -19,4 +19,4 @@ image = "0.25.2"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 web-sys = "0.3.70"
-wasm-bindgen-futures = "0.4.43"
+wasm-bindgen-futures = "0.4.45"
