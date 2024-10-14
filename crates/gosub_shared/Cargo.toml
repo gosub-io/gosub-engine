@@ -22,7 +22,7 @@ log = "0.4.22"
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 js-sys = "0.3.70"
 getrandom = { version = "0.2.15", features = ["js"] }
-web-sys = { version = "0.3.70", features = ["Performance", "Window", "Worker", "WorkerOptions", "WorkerType"] }
+web-sys = { version = "0.3.72", features = ["Performance", "Window", "Worker", "WorkerOptions", "WorkerType"] }
 wasm-bindgen-futures = "0.4.43"
 wasm-bindgen = "0.2.93"
 

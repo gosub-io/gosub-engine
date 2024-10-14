@@ -67,7 +67,7 @@ debug_parser_verbose = []
 
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-web-sys = "0.3.70"
+web-sys = "0.3.72"
 js-sys = "0.3.70"
 console_log = "1.0.0"
 console_error_panic_hook = "0.1.7"
