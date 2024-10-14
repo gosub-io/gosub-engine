@@ -46,9 +46,6 @@ We can render a part for our own [site](https://gosub.io):
 
 ![Gosub.io](resources/images/current_progress.png)
 
-Note: the borders are broken because of an issue with taffy (the layout engine we use). This will be fixed in the
-future.
-
 
 ## How to run
 
@@ -106,10 +103,27 @@ index.html
 Our engine can also be compiled to WebAssembly. You need to use WasmPack for this. To build the Wasm version, run:
 
 ```bash
-wasm-pack build
+wasm-pack build --target web
 ```
 
-![Browser in browser](resources/images/browser-in-browser.png)
+Afterwards you need to serve the small useragent around the wasm version in the `wasm/` directory. You can do this by
+
+```bash
+cd wasm
+npm run dev  # you can also use `bun run dev`
+ ```
+
+To use this demo, you need to enable webgpu in chromium and disable the same origin policy.
+
+```bash
+chromium --disable-web-security --enable-features=Vulkan --enable-unsafe-webgpu --user-data-dir=/tmp/chromium-temp-profile 
+``` 
+
+This command works on Linux only, if someone uses Windows or macOS, please open an PR!
+
+And then you have it! A browser in a browser:
+
+![Browser in browser](resources/images/browser-wasm-hackernews.png)
 
 
 ## Contributing to the project
