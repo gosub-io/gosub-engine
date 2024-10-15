@@ -2,11 +2,11 @@ use crate::VelloBackend;
 use gosub_render_backend::geo::FP;
 use gosub_render_backend::layout::{Decoration, TextLayout};
 use gosub_render_backend::{RenderText, Text as TText};
-use vello::glyph::Glyph;
 use vello::kurbo::{Affine, Line, Stroke};
 use vello::peniko::{Brush, Color, Fill, Font, StyleRef};
 use vello::skrifa::instance::NormalizedCoord;
 use vello::Scene;
+use vello_encoding::Glyph;
 
 pub struct Text {
     glyphs: Vec<Glyph>,

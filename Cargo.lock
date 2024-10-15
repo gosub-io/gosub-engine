@@ -1816,7 +1816,7 @@ dependencies = [
  "log",
  "raw-window-handle",
  "smallvec",
- "vello 0.2.0",
+ "vello",
  "vello_svg",
  "wgpu",
 ]
@@ -4615,25 +4615,6 @@ dependencies = [
 
 [[package]]
 name = "vello"
-version = "0.2.0"
-source = "git+https://github.com/linebender/vello?rev=f08c2a828848e75db144d6a082c5a0818b84f561#f08c2a828848e75db144d6a082c5a0818b84f561"
-dependencies = [
- "bytemuck",
- "futures-intrusive",
- "log",
- "peniko 0.1.1",
- "png",
- "raw-window-handle",
- "skrifa 0.19.3",
- "static_assertions",
- "thiserror",
- "vello_encoding 0.2.0",
- "vello_shaders 0.2.0",
- "wgpu",
-]
-
-[[package]]
-name = "vello"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc44dd4eb9af6a41551b9a82c93d068bd832693d6f78ab118ad19780d8e1202e"
@@ -4647,20 +4628,9 @@ dependencies = [
  "skrifa 0.22.3",
  "static_assertions",
  "thiserror",
- "vello_encoding 0.3.0",
- "vello_shaders 0.3.0",
-]
-
-[[package]]
-name = "vello_encoding"
-version = "0.2.0"
-source = "git+https://github.com/linebender/vello?rev=f08c2a828848e75db144d6a082c5a0818b84f561#f08c2a828848e75db144d6a082c5a0818b84f561"
-dependencies = [
- "bytemuck",
- "guillotiere",
- "peniko 0.1.1",
- "skrifa 0.19.3",
- "smallvec",
+ "vello_encoding",
+ "vello_shaders",
+ "wgpu",
 ]
 
 [[package]]
@@ -4678,17 +4648,6 @@ dependencies = [
 
 [[package]]
 name = "vello_shaders"
-version = "0.2.0"
-source = "git+https://github.com/linebender/vello?rev=f08c2a828848e75db144d6a082c5a0818b84f561#f08c2a828848e75db144d6a082c5a0818b84f561"
-dependencies = [
- "bytemuck",
- "naga",
- "thiserror",
- "vello_encoding 0.2.0",
-]
-
-[[package]]
-name = "vello_shaders"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "07cad02d6f29f2212a6ee382a8fec6f9977d0cceefacf07f8e361607ffe3988d"
@@ -4696,7 +4655,7 @@ dependencies = [
  "bytemuck",
  "naga",
  "thiserror",
- "vello_encoding 0.3.0",
+ "vello_encoding",
 ]
 
 [[package]]
@@ -4708,7 +4667,7 @@ dependencies = [
  "image",
  "thiserror",
  "usvg 0.43.0",
- "vello 0.3.0",
+ "vello",
 ]
 
 [[package]]
