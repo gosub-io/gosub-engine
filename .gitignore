@@ -13,3 +13,6 @@ settings.db
 
 # C API tests (ignore everything but source files)
 *.dSYM
+
+#ignore jetbrains ide folders
+.idea
