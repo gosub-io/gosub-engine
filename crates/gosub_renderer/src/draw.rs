@@ -103,6 +103,10 @@ where
                 let max_x = root_size.width - size.width as f32;
                 let max_y = root_size.height - size.height as f32;
 
+                // If the root size is smaller than the size, max_x/max_y should be 0
+                let max_x = if max_x < 0.0 { 0.0 } else { max_x };
+                let max_y = if max_y < 0.0 { 0.0 } else { max_y };
+
                 let x = scene_transform.tx().min(0.0).max(-max_x);
                 let y = scene_transform.ty().min(0.0).max(-max_y);
 
