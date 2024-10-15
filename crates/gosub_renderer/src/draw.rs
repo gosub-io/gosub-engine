@@ -100,8 +100,9 @@ where
             // Apply new maximums to the scene transform
             if let Some(scene_transform) = self.scene_transform.as_mut() {
                 let root_size = self.tree.get_root().layout.content();
-                let max_x = root_size.width - size.width as f32;
-                let max_y = root_size.height - size.height as f32;
+                // Calculate max_x and max_y, ensuring they are not negative cause if the root size is smaller than the size, max_x/max_y should be 0
+                let max_x = (root_size.width - size.width as f32).max(0.0);
+                let max_y = (root_size.height - size.height as f32).max(0.0);
 
                 let x = scene_transform.tx().min(0.0).max(-max_x);
                 let y = scene_transform.ty().min(0.0).max(-max_y);
