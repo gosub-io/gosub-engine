@@ -5,7 +5,6 @@ use std::str::FromStr;
 use colors_transform::Color;
 use colors_transform::{AlphaColor, Hsl, Rgb};
 use lazy_static::lazy_static;
-
 // Values for this table is taken from https://www.w3.org/TR/CSS21/propidx.html
 // Probably not the complete list, but it will do for now
 
@@ -97,17 +96,17 @@ impl From<&str> for RgbColor {
             return RgbColor::new(rgb.get_red(), rgb.get_green(), rgb.get_blue(), rgb.get_alpha());
         }
 
-        return get_hex_color_from_name(value).map_or(RgbColor::default(), parse_hex);
+        get_hex_color_from_name(value).map_or(RgbColor::default(), parse_hex)
     }
 }
 
 fn get_hex_color_from_name(color_name: &str) -> Option<&str> {
-    for entry in crate::colors::CSS_COLORNAMES.iter() {
-        if entry.name == color_name {
-            return Some(entry.value);
-        }
-    }
-    None
+    Some(
+        crate::colors::CSS_COLORNAMES
+            .iter()
+            .find(|entry| entry.name == color_name)?
+            .value,
+    )
 }
 
 fn is_hex(value: &str) -> bool {
@@ -117,34 +116,46 @@ fn is_hex(value: &str) -> bool {
     }
 
     // Check if all characters after '#' are hexadecimal digits
-    for c in value.chars().skip(1) {
-        if !c.is_ascii_hexdigit() {
-            return false;
-        }
-    }
-
-    true
+    value.chars().skip(1).all(|c| c.is_ascii_hexdigit())
 }
 
 fn parse_hex(value: &str) -> RgbColor {
+    const R: usize = 0;
+    const G: usize = 1;
+    const B: usize = 2;
+    const A: usize = 3;
+    const DEFAULT_A_VALUE: f32 = 255.0;
+
     if !is_hex(value) {
         return RgbColor::default();
     }
 
     // 3 hex digits (RGB)
     if value.len() == 4 {
-        let r = i32::from_str_radix(&value[1..2], 16).unwrap();
-        let g = i32::from_str_radix(&value[2..3], 16).unwrap();
-        let b = i32::from_str_radix(&value[3..4], 16).unwrap();
-        return RgbColor::new((r * 16 + r) as f32, (g * 16 + g) as f32, (b * 16 + b) as f32, 255.0);
+        let hex_size = 1;
+        let number_array = convert_from_hex_str_to_vec_of_ints(value, hex_size);
+
+        let r = number_array[R];
+        let g = number_array[G];
+        let b = number_array[B];
+        return RgbColor::new(
+            (r * 16 + r) as f32,
+            (g * 16 + g) as f32,
+            (b * 16 + b) as f32,
+            DEFAULT_A_VALUE,
+        );
     }
 
     // 4 hex digits (RGBA)
     if value.len() == 5 {
-        let r = i32::from_str_radix(&value[1..2], 16).unwrap();
-        let g = i32::from_str_radix(&value[2..3], 16).unwrap();
-        let b = i32::from_str_radix(&value[3..4], 16).unwrap();
-        let a = i32::from_str_radix(&value[4..5], 16).unwrap();
+        let hex_size = 1;
+        let number_array = convert_from_hex_str_to_vec_of_ints(value, hex_size);
+
+        let r = number_array[R];
+        let g = number_array[G];
+        let b = number_array[B];
+        let a = number_array[A];
+
         return RgbColor::new(
             (r * 16 + r) as f32,
             (g * 16 + g) as f32,
@@ -155,22 +166,65 @@ fn parse_hex(value: &str) -> RgbColor {
 
     // 6 hex digits (RRGGBB)
     if value.len() == 7 {
-        let r = i32::from_str_radix(&value[1..3], 16).unwrap();
-        let g = i32::from_str_radix(&value[3..5], 16).unwrap();
-        let b = i32::from_str_radix(&value[5..7], 16).unwrap();
-        return RgbColor::new(r as f32, g as f32, b as f32, 255.0);
+        let hex_size = 2;
+        let number_array = convert_from_hex_str_to_vec_of_ints(value, hex_size);
+        let r = number_array[R];
+        let g = number_array[G];
+        let b = number_array[B];
+
+        return RgbColor::new(r as f32, g as f32, b as f32, DEFAULT_A_VALUE);
     }
 
     // 8 hex digits (RRGGBBAA)
     if value.len() == 9 {
-        let r = i32::from_str_radix(&value[1..3], 16).unwrap();
-        let g = i32::from_str_radix(&value[3..5], 16).unwrap();
-        let b = i32::from_str_radix(&value[5..7], 16).unwrap();
-        let a = i32::from_str_radix(&value[7..9], 16).unwrap();
+        let hex_size = 2;
+        let number_array = convert_from_hex_str_to_vec_of_ints(value, hex_size);
+
+        let r = number_array[R];
+        let g = number_array[G];
+        let b = number_array[B];
+        let a = number_array[A];
+
         return RgbColor::new(r as f32, g as f32, b as f32, a as f32);
     }
 
     RgbColor::default()
+}
+
+fn convert_from_hex_str_to_vec_of_ints(hex_value: &str, hex_size: usize) -> Vec<i32> {
+    const HEX_RADIX: u32 = 16;
+    const LINES_TO_SKIP: usize = 1;
+    const EXPECT_MESSAGE: &str = "is_hex has failed us";
+    // Get the individual chars from the hex then convert from hex -> decimal
+    match hex_size {
+        // if each hex char is only 1 char long
+        1 => {
+            hex_value
+                .chars()
+                .skip(LINES_TO_SKIP) // Skip the # at the front
+                .map(|char| i32::from_str_radix(char.to_string().as_str(), HEX_RADIX).expect(EXPECT_MESSAGE)) // Can parse with an unwrap because is_hex made sure it's digits
+                .collect::<Vec<i32>>()
+        }
+        // if each hex char is 2 char long
+        2 => {
+            // If we're doing a hex value without an `a` value
+            let size_without_a = 7;
+
+            let hex_vec = if hex_value.len() == size_without_a {
+                vec![&hex_value[1..3], &hex_value[3..5], &hex_value[5..7]]
+            } else {
+                vec![&hex_value[1..3], &hex_value[3..5], &hex_value[5..7], &hex_value[7..9]]
+            };
+
+            hex_vec
+                .iter()
+                .map(|str| i32::from_str_radix(str, HEX_RADIX).expect(EXPECT_MESSAGE))
+                .collect::<Vec<i32>>()
+        }
+        _ => {
+            vec![]
+        }
+    }
 }
 
 lazy_static! {
@@ -835,6 +889,73 @@ pub const CSS_SYSTEM_COLOR_NAMES: [&str; 42] = [
 
 #[cfg(test)]
 mod tests {
+    use crate::colors::{convert_from_hex_str_to_vec_of_ints, is_hex};
+
+    #[test]
+    fn test_is_hex_good() {
+        // Given a good hex value
+        let good_hex = "#fffafa";
+        // When we see if it is a legit hex value
+        let result = is_hex(good_hex);
+        // Then we should get true back
+        let expected_result = true;
+        assert_eq!(result, expected_result);
+    }
+    #[test]
+    fn test_is_hex_bad_no_pound() {
+        // Given a bad hex value
+        let bad_hex = "hana";
+        // When we see if it is a legit hex value
+        let result = is_hex(bad_hex);
+        // Then we should get false back
+        let expected_result = false;
+        assert_eq!(result, expected_result);
+    }
+
+    #[test]
+    fn test_is_hex_bad_not_digit() {
+        // Given a bad hex value with a pound
+        let bad_hex = "#hana";
+        // When we see if it is a legit hex value
+        let result = is_hex(bad_hex);
+        // Then we should get false back
+        let expected_result = false;
+        assert_eq!(result, expected_result);
+    }
+
+    #[test]
+    fn test_is_hex_bad_empty() {
+        // Given an empty hex value
+        let bad_hex = "";
+        // When we see if it is a legit hex value
+        let result = is_hex(bad_hex);
+        // Then we should get false back
+        let expected_result = false;
+        assert_eq!(result, expected_result);
+    }
+
+    #[test]
+    fn convert_hex_test() {
+        // Given a valid hex str of length 3
+        let hex_str = "#c5f";
+        // When we convert to its individual parts
+        let conversion = convert_from_hex_str_to_vec_of_ints(hex_str, 1);
+        // Then we should get an expected Vec
+        let expected_vec = vec![12, 5, 15];
+        assert_eq!(expected_vec, conversion)
+    }
+
+    #[test]
+    fn convert_hex_test_4_digit() {
+        // Given a valid hex str of length 4
+        let hex_str = "#abcd";
+        // When we convert to its individual parts
+        let conversion = convert_from_hex_str_to_vec_of_ints(hex_str, 1);
+        // Then we should get an expected Vec
+        let expected_vec = vec![10, 11, 12, 13];
+        assert_eq!(expected_vec, conversion)
+    }
+
     #[test]
     fn test_css_color() {
         let color = super::RgbColor::from("#ff0000");
