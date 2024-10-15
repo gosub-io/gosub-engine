@@ -24,6 +24,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.rust_version }}
+      - name: Install dependencies
+        run: sudo apt update -y && sudo apt install sqlite3 libsqlite3-dev -y
       - name: Cache cargo
         uses: actions/cache@v4
         with:
@@ -59,6 +61,8 @@ jobs:
       - name: Print CPU info
         run: lscpu
       - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: sudo apt update -y && sudo apt install sqlite3 libsqlite3-dev -y
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.rust_version }}
