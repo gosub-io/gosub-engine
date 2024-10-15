@@ -11,19 +11,21 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
         rust_version: [ stable, nightly, 1.73.0 ]
-        os: [ ubuntu-latest ]
+        os: [ ubuntu-24.04 ]
 #        rust_version: [ stable, beta, nightly, 1.73.0, "stable minus 1 release", "stable minus 2 releases" ]
-#        os: [ ubuntu-latest, windows-latest, macos-latest ]
+#        os: [ ubuntu-24.04, windows-latest, macos-latest ]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.rust_version }}
+      - name: Install dependencies
+        run: sudo apt update -y && sudo apt install sqlite3 libsqlite3-dev -y
       - name: Cache cargo
         uses: actions/cache@v4
         with:
@@ -47,18 +49,20 @@ jobs:
           cargo sweep --time 7
 
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
         rust_version: [ stable, nightly, 1.73.0 ]
-        os: [ ubuntu-latest ]
+        os: [ ubuntu-24.04 ]
 #        rust_version: [ stable, beta, nightly, 1.73.0, "stable minus 1 release", "stable minus 2 releases" ]
-#        os: [ ubuntu-latest, windows-latest, macos-latest ]
+#        os: [ ubuntu-24.04, windows-latest, macos-latest ]
     steps:
       - name: Print CPU info
         run: lscpu
       - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: sudo apt update -y && sudo apt install sqlite3 libsqlite3-dev -y
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.rust_version }}
@@ -80,14 +84,14 @@ jobs:
         run: cargo test --verbose --all --no-fail-fast --all-features --all-targets
 
   clippy:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
         rust_version: [ stable, nightly ]
-        os: [ ubuntu-latest ]
+        os: [ ubuntu-24.04 ]
 #        rust_version: [ stable, beta, nightly, 1.73.0, "stable minus 1 release", "stable minus 2 releases" ]
-#        os: [ ubuntu-latest, windows-latest, macos-latest ]
+#        os: [ ubuntu-24.04, windows-latest, macos-latest ]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
@@ -111,7 +115,7 @@ jobs:
         run: cargo clippy --all --tests -- -D warnings
 
   fmt:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
