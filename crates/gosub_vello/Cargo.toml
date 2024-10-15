@@ -11,6 +11,7 @@ gosub_render_backend = { path = "../gosub_render_backend" }
 gosub_typeface = { path = "../gosub_typeface" }
 gosub_svg = { path = "../gosub_svg" }
 vello = "0.3.0"
+vello_encoding = "0.3.0"
 image = "0.25.2"
 smallvec = "1.13.2"
 anyhow = "1.0.89"

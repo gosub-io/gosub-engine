@@ -1070,20 +1070,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f25c0e292a7ca6d6498557ff1df68f32c99850012b6ea401cf8daf771f22ff53"
 
 [[package]]
-name = "dwrote"
-version = "0.11.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "70182709525a3632b2ba96b6569225467b18ecb4a77f46d255f713a6bebf05fd"
-dependencies = [
- "lazy_static",
- "libc",
- "serde",
- "serde_derive",
- "winapi",
- "wio",
-]
-
-[[package]]
 name = "either"
 version = "1.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1193,15 +1179,6 @@ checksum = "3f9eec918d3f24069decb9af1554cad7c880e2da24a9afd88aca000531ab82c1"
 
 [[package]]
 name = "font-types"
-version = "0.5.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34fd7136aca682873d859ef34494ab1a7d3f57ecd485ed40eb6437ee8c85aa29"
-dependencies = [
- "bytemuck",
-]
-
-[[package]]
-name = "font-types"
 version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dda6e36206148f69fc6ecb1bb6c0dedd7ee469f3db1d0dc2045beea28430ca43"
@@ -1258,24 +1235,24 @@ dependencies = [
 
 [[package]]
 name = "fontique"
-version = "0.1.0"
-source = "git+https://github.com/linebender/parley?rev=14070d5#14070d547913e407abf8c7cad2d5ca7fcd00cb59"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3b008f3607a8e8935b2607eef514164b8223020614c8ad684434a0cd668d280c"
 dependencies = [
  "core-foundation",
  "core-text",
- "dwrote",
  "fontconfig-cache-parser",
  "hashbrown 0.14.5",
  "icu_locid",
  "memmap2",
  "objc2",
  "objc2-foundation",
- "peniko 0.1.1",
+ "peniko",
  "roxmltree 0.19.0",
- "skrifa 0.19.3",
+ "skrifa",
  "smallvec",
- "winapi",
- "wio",
+ "windows 0.58.0",
+ "windows-core 0.58.0",
 ]
 
 [[package]]
@@ -1817,6 +1794,7 @@ dependencies = [
  "raw-window-handle",
  "smallvec",
  "vello",
+ "vello_encoding",
  "vello_svg",
  "wgpu",
 ]
@@ -1877,7 +1855,7 @@ dependencies = [
  "presser",
  "thiserror",
  "winapi",
- "windows",
+ "windows 0.52.0",
 ]
 
 [[package]]
@@ -3067,12 +3045,13 @@ dependencies = [
 
 [[package]]
 name = "parley"
-version = "0.1.0"
-source = "git+https://github.com/linebender/parley?rev=14070d5#14070d547913e407abf8c7cad2d5ca7fcd00cb59"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3a67bad26b7aca3f1046305d0d7edba9a77b14e74a9ff9136968178c8e6c8e61"
 dependencies = [
  "fontique",
- "peniko 0.1.1",
- "skrifa 0.19.3",
+ "peniko",
+ "skrifa",
  "swash",
 ]
 
@@ -3081,16 +3060,6 @@ name = "paste"
 version = "1.0.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
-
-[[package]]
-name = "peniko"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3c28d7294093837856bb80ad191cc46a2fcec8a30b43b7a3b0285325f0a917a9"
-dependencies = [
- "kurbo",
- "smallvec",
-]
 
 [[package]]
 name = "peniko"
@@ -3513,22 +3482,12 @@ dependencies = [
 
 [[package]]
 name = "read-fonts"
-version = "0.19.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e8b8af39d1f23869711ad4cea5e7835a20daa987f80232f7f2a2374d648ca64d"
-dependencies = [
- "bytemuck",
- "font-types 0.5.5",
-]
-
-[[package]]
-name = "read-fonts"
 version = "0.22.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fb94d9ac780fdcf9b6b252253f7d8f221379b84bd3573131139b383df69f85e1"
 dependencies = [
  "bytemuck",
- "font-types 0.7.2",
+ "font-types",
 ]
 
 [[package]]
@@ -3882,22 +3841,12 @@ checksum = "56199f7ddabf13fe5074ce809e7d3f42b42ae711800501b5b16ea82ad029c39d"
 
 [[package]]
 name = "skrifa"
-version = "0.19.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0ab45fb68b53576a43d4fc0e9ec8ea64e29a4d2cc7f44506964cb75f288222e9"
-dependencies = [
- "bytemuck",
- "read-fonts 0.19.3",
-]
-
-[[package]]
-name = "skrifa"
 version = "0.22.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8e1c44ad1f6c5bdd4eefed8326711b7dbda9ea45dfd36068c427d332aa382cbe"
 dependencies = [
  "bytemuck",
- "read-fonts 0.22.3",
+ "read-fonts",
 ]
 
 [[package]]
@@ -4069,9 +4018,7 @@ version = "0.1.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cbd59f3f359ddd2c95af4758c18270eddd9c730dde98598023cdabff472c2ca2"
 dependencies = [
- "skrifa 0.22.3",
- "yazi",
- "zeno",
+ "skrifa",
 ]
 
 [[package]]
@@ -4622,10 +4569,10 @@ dependencies = [
  "bytemuck",
  "futures-intrusive",
  "log",
- "peniko 0.2.0",
+ "peniko",
  "png",
  "raw-window-handle",
- "skrifa 0.22.3",
+ "skrifa",
  "static_assertions",
  "thiserror",
  "vello_encoding",
@@ -4641,8 +4588,8 @@ checksum = "8110c14702a4e17f9200f6e3c4fe05dda5a22bf031ae4feafed4a61429f66fb2"
 dependencies = [
  "bytemuck",
  "guillotiere",
- "peniko 0.2.0",
- "skrifa 0.22.3",
+ "peniko",
+ "skrifa",
  "smallvec",
 ]
 
@@ -5114,7 +5061,17 @@ version = "0.52.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e48a53791691ab099e5e2ad123536d0fff50652600abaf43bbf952894110d0be"
 dependencies = [
- "windows-core",
+ "windows-core 0.52.0",
+ "windows-targets 0.52.6",
+]
+
+[[package]]
+name = "windows"
+version = "0.58.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dd04d41d93c4992d421894c18c8b43496aa748dd4c081bac0dc93eb0489272b6"
+dependencies = [
+ "windows-core 0.58.0",
  "windows-targets 0.52.6",
 ]
 
@@ -5124,6 +5081,60 @@ version = "0.52.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "33ab640c8d7e35bf8ba19b884ba838ceb4fba93a4e8c65a9059d08afcfc683d9"
 dependencies = [
+ "windows-targets 0.52.6",
+]
+
+[[package]]
+name = "windows-core"
+version = "0.58.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6ba6d44ec8c2591c134257ce647b7ea6b20335bf6379a27dac5f1641fcf59f99"
+dependencies = [
+ "windows-implement",
+ "windows-interface",
+ "windows-result",
+ "windows-strings",
+ "windows-targets 0.52.6",
+]
+
+[[package]]
+name = "windows-implement"
+version = "0.58.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2bbd5b46c938e506ecbce286b6628a02171d56153ba733b6c741fc627ec9579b"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.79",
+]
+
+[[package]]
+name = "windows-interface"
+version = "0.58.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "053c4c462dc91d3b1504c6fe5a726dd15e216ba718e84a0e46a88fbe5ded3515"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.79",
+]
+
+[[package]]
+name = "windows-result"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1d1043d8214f791817bab27572aaa8af63732e11bf84aa21a45a78d6c317ae0e"
+dependencies = [
+ "windows-targets 0.52.6",
+]
+
+[[package]]
+name = "windows-strings"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4cd9b125c486025df0eabcb585e62173c6c9eddcec5d117d3b6e8c30e2ee4d10"
+dependencies = [
+ "windows-result",
  "windows-targets 0.52.6",
 ]
 
@@ -5419,15 +5430,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d135d17ab770252ad95e9a872d365cf3090e3be864a34ab46f48555993efc904"
 
 [[package]]
-name = "wio"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5d129932f4644ac2396cb456385cbf9e63b5b30c6e8dc4820bdca4eb082037a5"
-dependencies = [
- "winapi",
-]
-
-[[package]]
 name = "writeable"
 version = "0.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5501,18 +5503,6 @@ name = "xmlwriter"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec7a2a501ed189703dba8b08142f057e887dfc4b2cc4db2d343ac6376ba3e0b9"
-
-[[package]]
-name = "yazi"
-version = "0.1.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c94451ac9513335b5e23d7a8a2b61a7102398b8cca5160829d313e84c9d98be1"
-
-[[package]]
-name = "zeno"
-version = "0.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dd15f8e0dbb966fd9245e7498c7e9e5055d9e5c8b676b95bd67091cd11a1e697"
 
 [[package]]
 name = "zerocopy"
