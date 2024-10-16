@@ -2,7 +2,7 @@ use std::convert::From;
 use std::fmt::Debug;
 use std::str::FromStr;
 
-use colors_transform::Color;
+use colors_transform::{Color};
 use colors_transform::{AlphaColor, Hsl, Rgb};
 use lazy_static::lazy_static;
 
@@ -49,55 +49,57 @@ impl Default for RgbColor {
 
 impl From<&str> for RgbColor {
     fn from(value: &str) -> Self {
-        if value.is_empty() {
-            return RgbColor::default();
-        }
-        if value == "currentcolor" {
-            // @todo: implement currentcolor
-            return RgbColor::default();
-        }
-
-        if value.starts_with('#') {
-            return parse_hex(value);
-        }
-        if value.starts_with("rgb(") {
-            // Rgb function
-            let rgb = Rgb::from_str(value);
-            if rgb.is_err() {
-                return RgbColor::default();
+        match value {
+            value if value.is_empty() => {
+                RgbColor::default()
             }
-            let rgb = rgb.unwrap();
-            return RgbColor::new(rgb.get_red(), rgb.get_green(), rgb.get_blue(), 255.0);
-        }
-        if value.starts_with("rgba(") {
-            // Rgba function
-            let rgb = Rgb::from_str(value);
-            if rgb.is_err() {
-                return RgbColor::default();
+            "currentcolor" => {
+                // @todo: implement currentcolor
+                RgbColor::default()
             }
-            let rgb = rgb.unwrap();
-            return RgbColor::new(rgb.get_red(), rgb.get_green(), rgb.get_blue(), rgb.get_alpha());
-        }
-        if value.starts_with("hsl(") {
-            let hsl = Hsl::from_str(value);
-            if hsl.is_err() {
-                return RgbColor::default();
+            value if value.starts_with('#') => {
+                parse_hex(value)
             }
-            let rgb: Rgb = hsl.unwrap().to_rgb();
-            return RgbColor::new(rgb.get_red(), rgb.get_green(), rgb.get_blue(), 255.0);
-        }
-        if value.starts_with("hsla(") {
-            // @TODO: hsla() does not work properly
-            // HSLA function
-            let hsl = Hsl::from_str(value);
-            if hsl.is_err() {
-                return RgbColor::default();
+            value if value.starts_with("rgb(") => {
+                // Rgb function
+                let rgb_result = Rgb::from_str(value);
+                let rgb = match rgb_result {
+                    Ok(r) => {r}
+                    Err(_) => {return RgbColor::default()}
+                };
+                RgbColor::new(rgb.get_red(), rgb.get_green(), rgb.get_blue(), 255.0)
             }
-            let rgb: Rgb = hsl.unwrap().to_rgb();
-            return RgbColor::new(rgb.get_red(), rgb.get_green(), rgb.get_blue(), rgb.get_alpha());
+            value if value.starts_with("rgba(") => {
+                // Rgb function
+                let rgb_result = Rgb::from_str(value);
+                let rgb = match rgb_result {
+                    Ok(r) => {r}
+                    Err(_) => {return RgbColor::default()}
+                };
+                RgbColor::new(rgb.get_red(), rgb.get_green(), rgb.get_blue(), rgb.get_alpha())
+            }
+            value if value.starts_with("hsl(") => {
+                let hsl_result = Hsl::from_str(value);
+                let rgb = match hsl_result {
+                    Ok(h) => {h.to_rgb()}
+                    Err(_) => {return RgbColor::default()}
+                };
+                RgbColor::new(rgb.get_red(), rgb.get_green(), rgb.get_blue(), 255.0)
+            }
+            value if value.starts_with("hsla(") => {
+                // @TODO: hsla() does not work properly
+                // HSLA function
+                let hsl_result = Hsl::from_str(value);
+                let rgb = match hsl_result {
+                    Ok(h) => {h.to_rgb()}
+                    Err(_) => {return RgbColor::default()}
+                };
+                RgbColor::new(rgb.get_red(), rgb.get_green(), rgb.get_blue(), rgb.get_alpha())
+            }
+            &_ => {
+                get_hex_color_from_name(value).map_or(RgbColor::default(), parse_hex)
+            }
         }
-
-        return get_hex_color_from_name(value).map_or(RgbColor::default(), parse_hex);
     }
 }
 

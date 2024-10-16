@@ -20,18 +20,18 @@ impl MemoryStorageAdapter {
 
 impl StorageAdapter for MemoryStorageAdapter {
     fn get(&self, key: &str) -> Option<Setting> {
-        let lock = self.settings.lock().unwrap();
+        let lock = self.settings.lock().expect("Poisoned");
         let v = lock.get(key);
         v.cloned()
     }
 
     fn set(&self, key: &str, value: Setting) {
-        let mut lock = self.settings.lock().unwrap();
+        let mut lock = self.settings.lock().expect("Poisoned");
         lock.insert(key.to_owned(), value);
     }
 
     fn all(&self) -> Result<HashMap<String, Setting>> {
-        let lock = self.settings.lock().unwrap();
+        let lock = self.settings.lock().expect("Poisoned");
         Ok(lock.clone())
     }
 }

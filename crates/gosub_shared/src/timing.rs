@@ -202,7 +202,7 @@ macro_rules! timing_start {
 #[macro_export]
 macro_rules! timing_stop {
     ($timer_id:expr) => {{
-        $crate::timing::TIMING_TABLE.lock().unwrap().stop_timer($timer_id);
+        $crate::timing::TIMING_TABLE.lock().expect("Poisoned").stop_timer($timer_id);
     }};
 }
 
@@ -353,7 +353,7 @@ mod tests {
         sleep(Duration::from_millis(20));
         timing_stop!(t);
 
-        TIMING_TABLE.lock().unwrap().print_timings(true, Scale::Auto);
+        TIMING_TABLE.lock().expect("Poisoned").print_timings(true, Scale::Auto);
     }
 
     #[wasm_bindgen_test]
@@ -387,7 +387,7 @@ mod tests {
         sleep(window, Duration::from_millis(20));
         timing_stop!(t);
 
-        TIMING_TABLE.lock().unwrap().print_timings(true, Scale::Auto);
+        TIMING_TABLE.lock().expect("Poisoned").print_timings(true, Scale::Auto);
     }
 
     //This should only be used for testing purposes

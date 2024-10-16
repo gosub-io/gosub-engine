@@ -48,19 +48,19 @@ impl TryFrom<&String> for JsonStorageAdapter {
 
 impl StorageAdapter for JsonStorageAdapter {
     fn get(&self, key: &str) -> Option<Setting> {
-        let lock = self.elements.lock().unwrap();
+        let lock = self.elements.lock().expect("Poisoned");
         lock.get(key).cloned()
     }
 
     fn set(&self, key: &str, value: Setting) {
-        let mut lock = self.elements.lock().unwrap();
+        let mut lock = self.elements.lock().expect("Poisoned");
         lock.insert(key.to_owned(), value);
 
         // self.write_file()
     }
 
     fn all(&self) -> Result<HashMap<String, Setting>> {
-        let lock = self.elements.lock().unwrap();
+        let lock = self.elements.lock().expect("Poisoned");
 
         Ok(lock.clone())
     }
@@ -73,14 +73,14 @@ impl JsonStorageAdapter {
         let mut file = File::open(&self.path).expect("failed to open json file");
 
         let mut buf = String::new();
-        _ = file.read_to_string(&mut buf);
+        let _ = file.read_to_string(&mut buf);
 
         let parsed_json: Value = serde_json::from_str(&buf).expect("Failed to parse json");
 
         if let Value::Object(settings) = parsed_json {
             self.elements = Mutex::new(HashMap::new());
 
-            let mut lock = self.elements.lock().unwrap();
+            let mut lock = self.elements.lock().expect("Poisoned");
             for (key, value) in &settings {
                 match serde_json::from_value(value.clone()) {
                     Ok(setting) => {

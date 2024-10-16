@@ -6,7 +6,7 @@ use crate::settings::{Setting, SettingInfo};
 use crate::storage::MemoryStorageAdapter;
 use gosub_shared::types::Result;
 use lazy_static::lazy_static;
-use log::warn;
+use log::{error, warn};
 use serde_derive::Deserialize;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -46,11 +46,11 @@ lazy_static! {
 /// Returns a reference to the config store, which is locked by a mutex.
 /// Any callers of the config store can just do  config::config_store().get("dns.local.enabled")
 pub fn config_store() -> std::sync::RwLockReadGuard<'static, ConfigStore> {
-    CONFIG_STORE.read().unwrap()
+    CONFIG_STORE.read().expect("Failed to read from config store")
 }
 
 pub fn config_store_write() -> std::sync::RwLockWriteGuard<'static, ConfigStore> {
-    CONFIG_STORE.write().unwrap()
+    CONFIG_STORE.write().expect("Failed to write to config store")
 }
 
 /// These macro's can be used to simplify the calls to the config store. You can simply do:
@@ -165,15 +165,13 @@ impl ConfigStore {
 
         // Find all keys, and add them to the configuration store
         if let Ok(all_settings) = self.storage.all() {
-            for (key, value) in all_settings {
-                self.settings.lock().unwrap().borrow_mut().insert(key, value);
-            }
+            self.settings.lock().expect("Poisoned").borrow_mut().extend(all_settings);
         }
     }
 
     /// Returns true when the storage knows about the given key
     pub fn has(&self, key: &str) -> bool {
-        self.settings.lock().unwrap().borrow().contains_key(key)
+        self.settings.lock().expect("Poisoned").borrow().contains_key(key)
     }
 
     /// Returns a list of keys that matches the given search string (can use ? and *) for search
@@ -181,15 +179,7 @@ impl ConfigStore {
     pub fn find(&self, search: &str) -> Vec<String> {
         let search = WildMatch::new(search);
 
-        let mut keys = Vec::new();
-        for key in &self.setting_keys {
-            if search.matches(key) {
-                let key = key.clone();
-                keys.push(key);
-            }
-        }
-
-        keys
+        self.setting_keys.iter().filter(|key| search.matches(key)).map(String::clone).collect::<Vec<String>>()
     }
 
     /// Retrieves information about the given key, or returns None when key is unknown
@@ -202,7 +192,7 @@ impl ConfigStore {
     /// return the default value for the given key. Note that if the key is not found and no
     /// default value is specified, this function will panic.
     pub fn get(&self, key: &str) -> Option<Setting> {
-        if let Some(setting) = self.settings.lock().unwrap().borrow().get(key) {
+        if let Some(setting) = self.settings.lock().expect("Poisoned").borrow().get(key) {
             return Some(setting.clone());
         }
 
@@ -210,7 +200,7 @@ impl ConfigStore {
         if let Some(setting) = self.storage.get(key) {
             self.settings
                 .lock()
-                .unwrap()
+                .expect("Poisoned")
                 .borrow_mut()
                 .insert(key.to_string(), setting.clone());
             return Some(setting.clone());
@@ -222,8 +212,9 @@ impl ConfigStore {
         }
 
         // At this point we haven't found the key in the store, we haven't found it in storage, and we
-        // don't have a default value. This is a programming error, so we panic.
-        panic!("config: Setting {} is not known", key);
+        // don't have a default value. This is a programming error
+        error!("config: Setting {} is not known", key);
+        None
     }
 
     /// Sets the given setting to the given value. Will persist the setting to the
@@ -245,7 +236,7 @@ impl ConfigStore {
 
         self.settings
             .lock()
-            .unwrap()
+            .expect("Poisoned")
             .borrow_mut()
             .insert(key.to_owned(), value.clone());
 
@@ -290,6 +281,17 @@ impl ConfigStore {
 mod test {
     use super::*;
     use storage::MemoryStorageAdapter;
+
+    #[test]
+    fn test_find() {
+        // Given a storage with the default settingd
+        let store = config_store();
+        // When we try to find all keys
+        let found_vec = store.find("*");
+        // Then it should have a length of 15
+        let expected_length = 15;
+        assert_eq!(found_vec.len(), expected_length);
+    }
 
     #[test]
     fn test_config_store() {
