@@ -3,10 +3,10 @@ use gosub_render_backend::{Brush as _, Color as _, Transform as _};
 use gosub_shared::types::Point;
 use gosub_typeface::ROBOTO_FONT;
 use std::sync::{Arc, LazyLock};
-use vello::glyph::Glyph;
 use vello::peniko::{Blob, BrushRef, Fill, Font, Style, StyleRef};
 use vello::skrifa;
 use vello::skrifa::{FontRef, MetadataProvider};
+use vello_encoding::Glyph;
 
 static FONT: LazyLock<Font> = LazyLock::new(|| Font::new(Blob::new(Arc::new(ROBOTO_FONT)), 0));
 
@@ -96,7 +96,7 @@ pub fn render_text_var<'a>(
                 let x = pen_x;
                 pen_x += advance;
                 Some(Glyph {
-                    id: gid.to_u16() as u32,
+                    id: gid.to_u32(),
                     x,
                     y: pen_y,
                 })
