@@ -221,7 +221,7 @@ impl<L: Layouter, C: CssSystem> RenderTree<L, C> {
         render_tree
     }
 
-    fn generate_from<D: Document<C>>(&mut self, handle: DocumentHandle<D, C>) {
+    fn generate_from<D: Document<C>>(&mut self, mut handle: DocumentHandle<D, C>) {
         // Iterate the complete document tree
 
         let iter_handle = DocumentHandle::clone(&handle);
@@ -233,9 +233,17 @@ impl<L: Layouter, C: CssSystem> RenderTree<L, C> {
 
             let Some(properties) = C::properties_from_node(node, doc.stylesheets(), handle.clone(), current_node_id)
             else {
-                //we need to remove it  from the parent in the render tree and from the document
+                if let Some(parent) = node.parent_id() {
+                    if let Some(parent) = self.get_node_mut(parent) {
+                        parent.children.retain(|id| *id != current_node_id)
+                    }
+                }
 
-                // todo!("unrenderable node");
+                drop(doc);
+
+                let mut doc = handle.get_mut();
+
+                doc.detach_node(current_node_id);
 
                 continue;
             };
