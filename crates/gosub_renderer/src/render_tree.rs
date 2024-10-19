@@ -27,12 +27,12 @@ pub struct TreeDrawer<B: RenderBackend, L: Layouter, D: Document<C>, C: CssSyste
     pub(crate) position: PositionTree,
     pub(crate) last_hover: Option<NodeId>,
     pub(crate) debug: bool,
-    pub(crate) dirty: Arc<AtomicBool>,
+    pub(crate) dirty: bool,
     pub(crate) debugger_scene: Option<B::Scene>,
     pub(crate) tree_scene: Option<B::Scene>,
     pub(crate) selected_element: Option<NodeId>,
     pub(crate) scene_transform: Option<B::Transform>,
-    pub(crate) img_cache: Arc<Mutex<ImageCache<B>>>,
+    pub(crate) img_cache: ImageCache<B>,
     _marker: PhantomData<fn(D)>,
 }
 
@@ -47,11 +47,11 @@ impl<B: RenderBackend, L: Layouter, D: Document<C>, C: CssSystem> TreeDrawer<B, 
             last_hover: None,
             debug,
             debugger_scene: None,
-            dirty: Arc::new(AtomicBool::new(false)),
+            dirty: false,
             tree_scene: None,
             selected_element: None,
             scene_transform: None,
-            img_cache: Arc::new(Mutex::new(ImageCache::new())),
+            img_cache: ImageCache::new(),
             _marker: PhantomData,
         }
     }

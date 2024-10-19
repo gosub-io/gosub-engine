@@ -4,17 +4,11 @@ use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 
 use anyhow::anyhow;
-use log::warn;
-use url::Url;
-
 use gosub_net::http::fetcher::Fetcher;
 use gosub_render_backend::geo::{Size, SizeU32, FP};
 use gosub_render_backend::layout::{Layout, LayoutTree, Layouter, TextLayout};
 use gosub_render_backend::svg::SvgRenderer;
-use gosub_render_backend::{
-    Border, BorderSide, BorderStyle, Brush, Color, ImageBuffer, ImgCache, NodeDesc, Rect, RenderBackend, RenderBorder,
-    RenderRect, RenderText, Scene as TScene, Text, Transform,
-};
+use gosub_render_backend::{Border, BorderSide, BorderStyle, Brush, Color, WindowedEventLoop, ImageBuffer, ImgCache, NodeDesc, Rect, RenderBackend, RenderBorder, RenderRect, RenderText, Scene as TScene, Text, Transform};
 use gosub_rendering::position::PositionTree;
 use gosub_rendering::render_tree::{RenderNodeData, RenderTree, RenderTreeNode};
 use gosub_shared::async_executor::WasmNotSend;
@@ -23,6 +17,8 @@ use gosub_shared::traits::css3::{CssProperty, CssPropertyMap, CssSystem};
 use gosub_shared::traits::document::Document;
 use gosub_shared::traits::html5::Html5Parser;
 use gosub_shared::types::Result;
+use log::warn;
+use url::Url;
 
 use crate::debug::scale::px_scale;
 use crate::draw::img::request_img;
@@ -33,7 +29,7 @@ mod img;
 pub mod img_cache;
 
 pub trait SceneDrawer<B: RenderBackend, L: Layouter, LT: LayoutTree<L>, D: Document<C>, C: CssSystem>:
-    WasmNotSend + 'static
+WasmNotSend + 'static
 {
     type ImgCache: ImgCache<B>;
 
@@ -42,15 +38,15 @@ pub trait SceneDrawer<B: RenderBackend, L: Layouter, LT: LayoutTree<L>, D: Docum
         backend: &mut B,
         data: &mut B::WindowData<'_>,
         size: SizeU32,
-        rerender: impl Fn() + Send + Sync + 'static,
+        el: &impl WindowedEventLoop<B>,
     ) -> bool;
     fn mouse_move(&mut self, backend: &mut B, x: FP, y: FP) -> bool;
 
     fn scroll(&mut self, point: Point);
-    fn from_url<P>(url: Url, layouter: L, debug: bool) -> impl Future<Output = Result<Self>> + WasmNotSend
+    fn from_url<P>(url: Url, layouter: L, debug: bool) -> impl Future<Output=Result<Self>> + WasmNotSend
     where
         Self: Sized,
-        P: Html5Parser<C, Document = D>;
+        P: Html5Parser<C, Document=D>;
 
     fn clear_buffers(&mut self);
     fn toggle_debug(&mut self);
@@ -62,18 +58,20 @@ pub trait SceneDrawer<B: RenderBackend, L: Layouter, LT: LayoutTree<L>, D: Docum
 
     fn set_needs_redraw(&mut self);
 
-    fn get_img_cache(&self) -> Arc<Mutex<Self::ImgCache>>;
+    fn get_img_cache(&mut self) -> &mut Self::ImgCache;
+    
+    fn make_dirty(&mut self);
 }
 
 const DEBUG_CONTENT_COLOR: (u8, u8, u8) = (0, 192, 255); //rgb(0, 192, 255)
 const DEBUG_PADDING_COLOR: (u8, u8, u8) = (0, 255, 192); //rgb(0, 255, 192)
 const DEBUG_BORDER_COLOR: (u8, u8, u8) = (255, 72, 72); //rgb(255, 72, 72)
-                                                        // const DEBUG_MARGIN_COLOR: (u8, u8, u8) = (255, 192, 0);
+// const DEBUG_MARGIN_COLOR: (u8, u8, u8) = (255, 192, 0);
 
 type Point = gosub_shared::types::Point<FP>;
 
 impl<B: RenderBackend, L: Layouter, D: Document<C>, C: CssSystem> SceneDrawer<B, L, RenderTree<L, C>, D, C>
-    for TreeDrawer<B, L, D, C>
+for TreeDrawer<B, L, D, C>
 where
     <<B as RenderBackend>::Text as Text>::Font: From<<<L as Layouter>::TextLayout as TextLayout>::Font>,
 {
@@ -84,15 +82,13 @@ where
         backend: &mut B,
         data: &mut B::WindowData<'_>,
         size: SizeU32,
-        rerender: impl Fn() + Send + Sync + 'static,
+        el: &impl WindowedEventLoop<B>,
     ) -> bool {
-        let dirty = self.dirty.load(Ordering::Relaxed);
-
-        if !dirty && self.size == Some(size) {
+        if !self.dirty && self.size == Some(size) {
             return false;
         }
 
-        if self.tree_scene.is_none() || self.size != Some(size) || dirty {
+        if self.tree_scene.is_none() || self.size != Some(size) || self.dirty {
             self.size = Some(size);
 
             let mut scene = B::Scene::new();
@@ -110,20 +106,12 @@ where
                 scene_transform.set_xy(x, y);
             }
 
-            let image_cache = self.img_cache.clone();
-
-            let dirty = self.dirty.clone();
 
             let mut drawer = Drawer {
                 scene: &mut scene,
                 drawer: self,
                 svg: Arc::new(Mutex::new(B::SVGRenderer::new())),
-                rerender: Arc::new(move || {
-                    dirty.store(true, Ordering::Relaxed);
-
-                    rerender();
-                }),
-                image_cache,
+                el,
             };
 
             drawer.render(size);
@@ -152,14 +140,14 @@ where
             backend.apply_scene(data, scene, self.scene_transform.clone());
         }
 
-        if self.dirty.load(Ordering::Relaxed) {
+        if self.dirty {
             if let Some(id) = self.selected_element {
                 self.debug_annotate(id);
             }
         }
 
         if let Some(scene) = &self.debugger_scene {
-            self.dirty.store(false, Ordering::Relaxed);
+            self.dirty = false;
             backend.apply_scene(data, scene, self.scene_transform.clone());
         }
 
@@ -175,8 +163,8 @@ where
             backend.apply_scene(data, &scale, None);
         }
 
-        if self.dirty.load(Ordering::Relaxed) {
-            self.dirty.store(false, Ordering::Relaxed);
+        if self.dirty {
+            self.dirty = false;
 
             return true;
         }
@@ -219,12 +207,12 @@ where
 
         self.scene_transform = Some(transform);
 
-        self.dirty.store(true, Ordering::Relaxed);
+        self.dirty = true;
     }
 
     async fn from_url<P>(url: Url, layouter: L, debug: bool) -> Result<Self>
     where
-        P: Html5Parser<C, Document = D>,
+        P: Html5Parser<C, Document=D>,
     {
         let (rt, fetcher) = load_html_rendertree::<L, P, C>(url.clone()).await?;
 
@@ -235,25 +223,25 @@ where
         self.tree_scene = None;
         self.debugger_scene = None;
         self.last_hover = None;
-        self.dirty.store(true, Ordering::Relaxed);
+        self.dirty = true;
     }
 
     fn toggle_debug(&mut self) {
         self.debug = !self.debug;
-        self.dirty.store(true, Ordering::Relaxed);
+        self.dirty = true;
         self.last_hover = None;
         self.debugger_scene = None;
     }
 
     fn select_element(&mut self, id: NodeId) {
         self.selected_element = Some(id);
-        self.dirty.store(true, Ordering::Relaxed);
+        self.dirty = true;
     }
 
     fn unselect_element(&mut self) {
         self.selected_element = None;
         self.debugger_scene = None;
-        self.dirty.store(true, Ordering::Relaxed);
+        self.dirty = true
     }
 
     fn send_nodes(&mut self, sender: Sender<NodeDesc>) {
@@ -261,23 +249,26 @@ where
     }
 
     fn set_needs_redraw(&mut self) {
-        self.dirty.store(true, Ordering::Relaxed);
+        self.dirty = true;
     }
 
-    fn get_img_cache(&self) -> Arc<Mutex<Self::ImgCache>> {
-        self.img_cache.clone()
+    fn get_img_cache(&mut self) -> &mut Self::ImgCache {
+        &mut self.img_cache
+    }
+
+    fn make_dirty(&mut self) {
+        self.dirty = true;
     }
 }
 
-struct Drawer<'s, 't, B: RenderBackend, L: Layouter, D: Document<C>, C: CssSystem> {
+struct Drawer<'s, 't, B: RenderBackend, L: Layouter, D: Document<C>, C: CssSystem, EL: WindowedEventLoop<B>> {
     scene: &'s mut B::Scene,
     drawer: &'t mut TreeDrawer<B, L, D, C>,
     svg: Arc<Mutex<B::SVGRenderer>>,
-    rerender: Arc<dyn Fn() + Send + Sync>,
-    image_cache: Arc<Mutex<ImageCache<B>>>,
+    el: &'t EL,
 }
 
-impl<B: RenderBackend, L: Layouter, D: Document<C>, C: CssSystem> Drawer<'_, '_, B, L, D, C>
+impl<B: RenderBackend, L: Layouter, D: Document<C>, C: CssSystem, EL: WindowedEventLoop<B>> Drawer<'_, '_, B, L, D, C, EL>
 where
     <<B as RenderBackend>::Text as Text>::Font: From<<<L as Layouter>::TextLayout as TextLayout>::Font>,
 {
@@ -292,7 +283,7 @@ where
 
         self.drawer.position = PositionTree::from_tree::<B, L, D, C>(&self.drawer.tree);
 
-        self.render_node_with_children(self.drawer.tree.root, Point::ZERO);
+        self.render_node_with_children(self.drawer.tree.root, Point::ZERO, );
     }
 
     fn render_node_with_children(&mut self, id: NodeId, mut pos: Point) {
@@ -324,8 +315,8 @@ where
             pos,
             self.svg.clone(),
             self.drawer.fetcher.clone(),
-            self.image_cache.clone(),
-            self.rerender.clone(),
+            &mut self.drawer.img_cache,
+            self.el,
         );
 
         let mut size_change = new_size;
@@ -343,8 +334,8 @@ where
                     self.svg.clone(),
                     url,
                     size,
-                    self.image_cache.clone(),
-                    self.rerender.clone(),
+                    &mut self.drawer.img_cache,
+                    self.el,
                 )?;
 
                 if size.is_none() {
@@ -359,11 +350,11 @@ where
 
                 let size = size.unwrap_or(img.size()).f32();
 
-                render_image::<B>(img, self.scene, *pos, size, border_radius, fit)?;
+                render_image::<B, L, C>(img, *pos, size, border_radius, fit, self.scene)?;
             }
         }
 
-        render_text::<B, L, C>(node, self.scene, pos);
+        render_text::<B, L, C>(node, pos, self.scene);
 
         if let Some(new) = size_change {
             let node = self
@@ -383,8 +374,8 @@ where
 
 fn render_text<B: RenderBackend, L: Layouter, C: CssSystem>(
     node: &RenderTreeNode<L, C>,
-    scene: &mut B::Scene,
     pos: &Point,
+    scene: &mut B::Scene,
 ) where
     <<B as RenderBackend>::Text as Text>::Font: From<<<L as Layouter>::TextLayout as TextLayout>::Font>,
 {
@@ -427,141 +418,13 @@ fn render_text<B: RenderBackend, L: Layouter, C: CssSystem>(
     }
 }
 
-fn render_bg<B: RenderBackend, L: Layouter, C: CssSystem>(
-    node: &RenderTreeNode<L, C>,
-    scene: &mut B::Scene,
-    pos: &Point,
-    svg: Arc<Mutex<B::SVGRenderer>>,
-    fetcher: Arc<Fetcher>,
-    img_cache: Arc<Mutex<ImageCache<B>>>,
-    rerender: Arc<dyn Fn() + Send + Sync>,
-) -> ((FP, FP, FP, FP), Option<SizeU32>) {
-    let bg_color = node
-        .properties
-        .get("background-color")
-        .and_then(|prop| prop.parse_color())
-        .map(|color| Color::rgba(color.0 as u8, color.1 as u8, color.2 as u8, color.3 as u8));
-
-    let border_radius_left = node
-        .properties
-        .get("border-radius-left")
-        .map(|prop| prop.unit_to_px() as f64)
-        .unwrap_or(0.0);
-
-    let border_radius_right = node
-        .properties
-        .get("border-radius-right")
-        .map(|prop| prop.unit_to_px() as f64)
-        .unwrap_or(0.0);
-
-    let border_radius_top = node
-        .properties
-        .get("border-radius-top")
-        .map(|prop| prop.unit_to_px() as f64)
-        .unwrap_or(0.0);
-
-    let border_radius_bottom = node
-        .properties
-        .get("border-radius-bottom")
-        .map(|prop| prop.unit_to_px() as f64)
-        .unwrap_or(0.0);
-
-    let border_radius = (
-        border_radius_top as FP,
-        border_radius_right as FP,
-        border_radius_bottom as FP,
-        border_radius_left as FP,
-    );
-
-    let border = get_border::<B, L, C>(node).map(|border| RenderBorder::new(border));
-
-    if let Some(bg_color) = bg_color {
-        let size = node.layout.size();
-
-        let rect = Rect::new(pos.x as FP, pos.y as FP, size.width as FP, size.height as FP);
-
-        let rect = RenderRect {
-            rect,
-            transform: None,
-            radius: Some(B::BorderRadius::from(border_radius)),
-            brush: Brush::color(bg_color),
-            brush_transform: None,
-            border,
-        };
-
-        scene.draw_rect(&rect);
-    } else if let Some(border) = border {
-        let size = node.layout.size();
-
-        let rect = Rect::new(pos.x as FP, pos.y as FP, size.width as FP, size.height as FP);
-
-        let rect = RenderRect {
-            rect,
-            transform: None,
-            radius: Some(B::BorderRadius::from(border_radius)),
-            brush: Brush::color(Color::TRANSPARENT),
-            brush_transform: None,
-            border: Some(border),
-        };
-
-        scene.draw_rect(&rect);
-    }
-
-    let background_image = node
-        .properties
-        .get("background-image")
-        .and_then(|prop| prop.as_string());
-
-    let mut img_size = None;
-
-    if let Some(url) = background_image {
-        let size = node.layout.size_or().map(|x| x.u32());
-
-        let img = match request_img::<B>(fetcher.clone(), svg.clone(), url, size, img_cache, rerender) {
-            Ok(img) => img,
-            Err(e) => {
-                eprintln!("Error loading image: {:?}", e);
-                return (border_radius, None);
-            }
-        };
-
-        if size.is_none() {
-            img_size = Some(img.size());
-        }
-
-        let _ = render_image::<B>(img, scene, *pos, node.layout.size(), border_radius, "fill").map_err(|e| {
-            eprintln!("Error rendering image: {:?}", e);
-        });
-    }
-
-    (border_radius, img_size)
-}
-
-enum Side {
-    Top,
-    Right,
-    Bottom,
-    Left,
-}
-
-impl Side {
-    fn to_str(&self) -> &'static str {
-        match self {
-            Side::Top => "top",
-            Side::Right => "right",
-            Side::Bottom => "bottom",
-            Side::Left => "left",
-        }
-    }
-}
-
-fn render_image<B: RenderBackend>(
+fn render_image<B: RenderBackend, L: Layouter, C: CssSystem>(
     img: ImageBuffer<B>,
-    scene: &mut B::Scene,
     pos: Point,
     size: Size,
     radii: (FP, FP, FP, FP),
     fit: &str,
+    scene: &mut B::Scene,
 ) -> anyhow::Result<()> {
     let width = size.width as FP;
     let height = size.height as FP;
@@ -700,6 +563,117 @@ pub fn print_tree<B: RenderBackend, L: Layouter>(
 }
 */
 
+fn render_bg<B: RenderBackend, L: Layouter, C: CssSystem>(
+    node: &RenderTreeNode<L, C>,
+    scene: &mut B::Scene,
+    pos: &Point,
+    svg: Arc<Mutex<B::SVGRenderer>>,
+    fetcher: Arc<Fetcher>,
+    img_cache: &mut ImageCache<B>,
+    el: &impl WindowedEventLoop<B>,
+) -> ((FP, FP, FP, FP), Option<SizeU32>) {
+    let bg_color = node
+        .properties
+        .get("background-color")
+        .and_then(|prop| prop.parse_color())
+        .map(|color| Color::rgba(color.0 as u8, color.1 as u8, color.2 as u8, color.3 as u8));
+
+    let border_radius_left = node
+        .properties
+        .get("border-radius-left")
+        .map(|prop| prop.unit_to_px() as f64)
+        .unwrap_or(0.0);
+
+    let border_radius_right = node
+        .properties
+        .get("border-radius-right")
+        .map(|prop| prop.unit_to_px() as f64)
+        .unwrap_or(0.0);
+
+    let border_radius_top = node
+        .properties
+        .get("border-radius-top")
+        .map(|prop| prop.unit_to_px() as f64)
+        .unwrap_or(0.0);
+
+    let border_radius_bottom = node
+        .properties
+        .get("border-radius-bottom")
+        .map(|prop| prop.unit_to_px() as f64)
+        .unwrap_or(0.0);
+
+    let border_radius = (
+        border_radius_top as FP,
+        border_radius_right as FP,
+        border_radius_bottom as FP,
+        border_radius_left as FP,
+    );
+
+    let border = get_border::<B, L, C>(node).map(|border| RenderBorder::new(border));
+
+    if let Some(bg_color) = bg_color {
+        let size = node.layout.size();
+
+        let rect = Rect::new(pos.x as FP, pos.y as FP, size.width as FP, size.height as FP);
+
+        let rect = RenderRect {
+            rect,
+            transform: None,
+            radius: Some(B::BorderRadius::from(border_radius)),
+            brush: Brush::color(bg_color),
+            brush_transform: None,
+            border,
+        };
+
+        scene.draw_rect(&rect);
+    } else if let Some(border) = border {
+        let size = node.layout.size();
+
+        let rect = Rect::new(pos.x as FP, pos.y as FP, size.width as FP, size.height as FP);
+
+        let rect = RenderRect {
+            rect,
+            transform: None,
+            radius: Some(B::BorderRadius::from(border_radius)),
+            brush: Brush::color(Color::TRANSPARENT),
+            brush_transform: None,
+            border: Some(border),
+        };
+
+        scene.draw_rect(&rect);
+    }
+
+    let background_image = node
+        .properties
+        .get("background-image")
+        .and_then(|prop| prop.as_string());
+
+    let mut img_size = None;
+
+    if let Some(url) = background_image {
+        let size = node.layout.size_or().map(|x| x.u32());
+
+        let img = match request_img::<B>(fetcher.clone(), svg.clone(), url, size, img_cache, el) {
+            Ok(img) => img,
+            Err(e) => {
+                eprintln!("Error loading image: {:?}", e);
+                return (border_radius, None);
+            }
+        };
+
+        if size.is_none() {
+            img_size = Some(img.size());
+        }
+
+        let _ = render_image::<B, L, C>(img, *pos, node.layout.size(), border_radius, "fill", scene).map_err(|e| {
+            eprintln!("Error rendering image: {:?}", e);
+        });
+    }
+
+    (border_radius, img_size)
+}
+
+
 fn get_border<B: RenderBackend, L: Layouter, C: CssSystem>(node: &RenderTreeNode<L, C>) -> Option<B::Border> {
     let left = get_border_side::<B, L, C>(node, Side::Left);
     let right = get_border_side::<B, L, C>(node, Side::Right);
@@ -756,6 +730,24 @@ fn get_border_side<B: RenderBackend, L: Layouter, C: CssSystem>(
     let brush = Brush::color(Color::rgba(color.0 as u8, color.1 as u8, color.2 as u8, color.3 as u8));
 
     Some(BorderSide::new(width as FP, style, brush))
+}
+
+enum Side {
+    Top,
+    Right,
+    Bottom,
+    Left,
+}
+
+impl Side {
+    fn to_str(&self) -> &'static str {
+        match self {
+            Side::Top => "top",
+            Side::Right => "right",
+            Side::Bottom => "bottom",
+            Side::Left => "left",
+        }
+    }
 }
 
 impl<B: RenderBackend, L: Layouter, D: Document<C>, C: CssSystem> TreeDrawer<B, L, D, C> {
@@ -866,7 +858,7 @@ impl<B: RenderBackend, L: Layouter, D: Document<C>, C: CssSystem> TreeDrawer<B, 
         scene.draw_rect(&render_rect);
 
         self.debugger_scene = Some(scene);
-        self.dirty.store(true, Ordering::Relaxed);
+        self.dirty = true;
 
         true
     }
