@@ -609,8 +609,6 @@ fn parse_font_axes(n: &mut impl Node) -> Vec<FontVariation> {
         return Vec::new();
     };
 
-    dbg!(&s);
-
     // we don't need to care about things other than a list, since you always need two values for a variation
     let Some(vars) = s.as_list() else {
         return Vec::new();
