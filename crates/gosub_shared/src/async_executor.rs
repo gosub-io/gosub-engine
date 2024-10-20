@@ -26,7 +26,6 @@ impl<T> WasmNotSync for T {}
 
 pub trait WasmNotSendSync: WasmNotSend + WasmNotSync {}
 
-
 impl<T: WasmNotSync + WasmNotSend> WasmNotSendSync for T {}
 
 pub fn spawn<F: Future<Output = ()> + WasmNotSend + 'static>(f: F) {

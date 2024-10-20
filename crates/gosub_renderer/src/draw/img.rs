@@ -3,15 +3,14 @@ use std::sync::{Arc, LazyLock, Mutex};
 
 use anyhow::anyhow;
 use image::DynamicImage;
-use log::error;
 
 use crate::draw::img_cache::ImageCache;
 use gosub_net::http::fetcher::Fetcher;
 use gosub_render_backend::svg::SvgRenderer;
-use gosub_render_backend::{WindowedEventLoop, Image as _, ImageBuffer, ImageCacheEntry, ImgCache, RenderBackend, SizeU32};
+use gosub_render_backend::{
+    Image as _, ImageBuffer, ImageCacheEntry, ImgCache, RenderBackend, SizeU32, WindowedEventLoop,
+};
 use gosub_shared::types::Result;
-
-
 
 pub fn request_img<B: RenderBackend>(
     fetcher: Arc<Fetcher>,
@@ -21,7 +20,6 @@ pub fn request_img<B: RenderBackend>(
     img_cache: &mut ImageCache<B>,
     el: &impl WindowedEventLoop<B>,
 ) -> Result<ImageBuffer<B>> {
-
     let img = img_cache.get(url);
 
     Ok(match img {
@@ -30,18 +28,13 @@ pub fn request_img<B: RenderBackend>(
         ImageCacheEntry::None => {
             img_cache.add_pending(url.to_string());
 
-
             let url = url.to_string();
-            
+
             let mut el = el.clone();
 
             gosub_shared::async_executor::spawn(async move {
                 if let Ok(img) = load_img::<B>(&url, fetcher, svg_renderer, size).await {
-                    
-                    
-                    
                     el.add_img_cache(url.to_string(), img, size);
-                    
                 } else {
                     el.add_img_cache(
                         url.to_string(),

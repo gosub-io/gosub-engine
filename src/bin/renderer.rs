@@ -26,7 +26,7 @@ type Drawer = TreeDrawer<Backend, Layouter, Document, CssSystem>;
 type Tree = RenderTree<Layouter, CssSystem>;
 
 fn main() -> Result<()> {
-    // simple_logger::init_with_level(log::Level::Info)?;
+    simple_logger::init_with_level(log::Level::Info)?;
 
     let matches = clap::Command::new("Gosub Renderer")
         .arg(

@@ -4,10 +4,10 @@ use std::ops::{Div, Mul, MulAssign};
 use crate::layout::TextLayout;
 use crate::svg::SvgRenderer;
 pub use geo::*;
+use gosub_shared::async_executor::WasmNotSendSync;
 use gosub_shared::types::Result;
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use smallvec::SmallVec;
-use gosub_shared::async_executor::WasmNotSendSync;
 
 pub mod geo;
 pub mod layout;
@@ -17,15 +17,11 @@ pub trait WindowHandle: HasDisplayHandle + HasWindowHandle + Send + Sync + Clone
 
 impl<T> WindowHandle for T where T: HasDisplayHandle + HasWindowHandle + Send + Sync + Clone {}
 
-
-
-
-pub trait WindowedEventLoop<B: RenderBackend>: WasmNotSendSync + Clone  + 'static {
+pub trait WindowedEventLoop<B: RenderBackend>: WasmNotSendSync + Clone + 'static {
     fn redraw(&mut self);
-    
+
     fn add_img_cache(&mut self, url: String, buf: ImageBuffer<B>, size: Option<SizeU32>);
 }
-
 
 pub trait RenderBackend: Sized + Debug + 'static {
     type Rect: Rect;

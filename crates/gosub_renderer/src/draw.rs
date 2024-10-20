@@ -1,14 +1,16 @@
-use std::future::Future;
-use std::sync::atomic::Ordering;
-use std::sync::mpsc::Sender;
-use std::sync::{Arc, Mutex};
-
+use crate::debug::scale::px_scale;
+use crate::draw::img::request_img;
+use crate::draw::img_cache::ImageCache;
+use crate::render_tree::{load_html_rendertree, TreeDrawer};
 use anyhow::anyhow;
 use gosub_net::http::fetcher::Fetcher;
 use gosub_render_backend::geo::{Size, SizeU32, FP};
 use gosub_render_backend::layout::{Layout, LayoutTree, Layouter, TextLayout};
 use gosub_render_backend::svg::SvgRenderer;
-use gosub_render_backend::{Border, BorderSide, BorderStyle, Brush, Color, WindowedEventLoop, ImageBuffer, ImgCache, NodeDesc, Rect, RenderBackend, RenderBorder, RenderRect, RenderText, Scene as TScene, Text, Transform};
+use gosub_render_backend::{
+    Border, BorderSide, BorderStyle, Brush, Color, ImageBuffer, ImgCache, NodeDesc, Rect, RenderBackend, RenderBorder,
+    RenderRect, RenderText, Scene as TScene, Text, Transform, WindowedEventLoop,
+};
 use gosub_rendering::position::PositionTree;
 use gosub_rendering::render_tree::{RenderNodeData, RenderTree, RenderTreeNode};
 use gosub_shared::async_executor::WasmNotSend;
@@ -18,18 +20,16 @@ use gosub_shared::traits::document::Document;
 use gosub_shared::traits::html5::Html5Parser;
 use gosub_shared::types::Result;
 use log::warn;
+use std::future::Future;
+use std::sync::mpsc::Sender;
+use std::sync::{Arc, Mutex};
 use url::Url;
-
-use crate::debug::scale::px_scale;
-use crate::draw::img::request_img;
-use crate::draw::img_cache::ImageCache;
-use crate::render_tree::{load_html_rendertree, TreeDrawer};
 
 mod img;
 pub mod img_cache;
 
 pub trait SceneDrawer<B: RenderBackend, L: Layouter, LT: LayoutTree<L>, D: Document<C>, C: CssSystem>:
-WasmNotSend + 'static
+    WasmNotSend + 'static
 {
     type ImgCache: ImgCache<B>;
 
@@ -43,10 +43,10 @@ WasmNotSend + 'static
     fn mouse_move(&mut self, backend: &mut B, x: FP, y: FP) -> bool;
 
     fn scroll(&mut self, point: Point);
-    fn from_url<P>(url: Url, layouter: L, debug: bool) -> impl Future<Output=Result<Self>> + WasmNotSend
+    fn from_url<P>(url: Url, layouter: L, debug: bool) -> impl Future<Output = Result<Self>> + WasmNotSend
     where
         Self: Sized,
-        P: Html5Parser<C, Document=D>;
+        P: Html5Parser<C, Document = D>;
 
     fn clear_buffers(&mut self);
     fn toggle_debug(&mut self);
@@ -59,19 +59,21 @@ WasmNotSend + 'static
     fn set_needs_redraw(&mut self);
 
     fn get_img_cache(&mut self) -> &mut Self::ImgCache;
-    
+
     fn make_dirty(&mut self);
+
+    fn delete_scene(&mut self);
 }
 
 const DEBUG_CONTENT_COLOR: (u8, u8, u8) = (0, 192, 255); //rgb(0, 192, 255)
 const DEBUG_PADDING_COLOR: (u8, u8, u8) = (0, 255, 192); //rgb(0, 255, 192)
 const DEBUG_BORDER_COLOR: (u8, u8, u8) = (255, 72, 72); //rgb(255, 72, 72)
-// const DEBUG_MARGIN_COLOR: (u8, u8, u8) = (255, 192, 0);
+                                                        // const DEBUG_MARGIN_COLOR: (u8, u8, u8) = (255, 192, 0);
 
 type Point = gosub_shared::types::Point<FP>;
 
 impl<B: RenderBackend, L: Layouter, D: Document<C>, C: CssSystem> SceneDrawer<B, L, RenderTree<L, C>, D, C>
-for TreeDrawer<B, L, D, C>
+    for TreeDrawer<B, L, D, C>
 where
     <<B as RenderBackend>::Text as Text>::Font: From<<<L as Layouter>::TextLayout as TextLayout>::Font>,
 {
@@ -88,7 +90,7 @@ where
             return false;
         }
 
-        if self.tree_scene.is_none() || self.size != Some(size) || self.dirty {
+        if self.tree_scene.is_none() || self.size != Some(size) {
             self.size = Some(size);
 
             let mut scene = B::Scene::new();
@@ -105,7 +107,6 @@ where
 
                 scene_transform.set_xy(x, y);
             }
-
 
             let mut drawer = Drawer {
                 scene: &mut scene,
@@ -133,7 +134,7 @@ where
             brush_transform: None,
             border: None,
         };
-        //
+
         backend.draw_rect(data, &rect);
 
         if let Some(scene) = &self.tree_scene {
@@ -212,7 +213,7 @@ where
 
     async fn from_url<P>(url: Url, layouter: L, debug: bool) -> Result<Self>
     where
-        P: Html5Parser<C, Document=D>,
+        P: Html5Parser<C, Document = D>,
     {
         let (rt, fetcher) = load_html_rendertree::<L, P, C>(url.clone()).await?;
 
@@ -259,6 +260,11 @@ where
     fn make_dirty(&mut self) {
         self.dirty = true;
     }
+
+    fn delete_scene(&mut self) {
+        self.tree_scene = None;
+        self.debugger_scene = None;
+    }
 }
 
 struct Drawer<'s, 't, B: RenderBackend, L: Layouter, D: Document<C>, C: CssSystem, EL: WindowedEventLoop<B>> {
@@ -268,7 +274,8 @@ struct Drawer<'s, 't, B: RenderBackend, L: Layouter, D: Document<C>, C: CssSyste
     el: &'t EL,
 }
 
-impl<B: RenderBackend, L: Layouter, D: Document<C>, C: CssSystem, EL: WindowedEventLoop<B>> Drawer<'_, '_, B, L, D, C, EL>
+impl<B: RenderBackend, L: Layouter, D: Document<C>, C: CssSystem, EL: WindowedEventLoop<B>>
+    Drawer<'_, '_, B, L, D, C, EL>
 where
     <<B as RenderBackend>::Text as Text>::Font: From<<<L as Layouter>::TextLayout as TextLayout>::Font>,
 {
@@ -283,7 +290,7 @@ where
 
         self.drawer.position = PositionTree::from_tree::<B, L, D, C>(&self.drawer.tree);
 
-        self.render_node_with_children(self.drawer.tree.root, Point::ZERO, );
+        self.render_node_with_children(self.drawer.tree.root, Point::ZERO);
     }
 
     fn render_node_with_children(&mut self, id: NodeId, mut pos: Point) {
@@ -350,7 +357,7 @@ where
 
                 let size = size.unwrap_or(img.size()).f32();
 
-                render_image::<B, L, C>(img, *pos, size, border_radius, fit, self.scene)?;
+                render_image::<B>(img, *pos, size, border_radius, fit, self.scene)?;
             }
         }
 
@@ -418,7 +425,7 @@ fn render_text<B: RenderBackend, L: Layouter, C: CssSystem>(
     }
 }
 
-fn render_image<B: RenderBackend, L: Layouter, C: CssSystem>(
+fn render_image<B: RenderBackend>(
     img: ImageBuffer<B>,
     pos: Point,
     size: Size,
@@ -665,14 +672,13 @@ fn render_bg<B: RenderBackend, L: Layouter, C: CssSystem>(
             img_size = Some(img.size());
         }
 
-        let _ = render_image::<B, L, C>(img, *pos, node.layout.size(), border_radius, "fill", scene).map_err(|e| {
+        let _ = render_image::<B>(img, *pos, node.layout.size(), border_radius, "fill", scene).map_err(|e| {
             eprintln!("Error rendering image: {:?}", e);
         });
     }
 
     (border_radius, img_size)
 }
-
 
 fn get_border<B: RenderBackend, L: Layouter, C: CssSystem>(node: &RenderTreeNode<L, C>) -> Option<B::Border> {
     let left = get_border_side::<B, L, C>(node, Side::Left);

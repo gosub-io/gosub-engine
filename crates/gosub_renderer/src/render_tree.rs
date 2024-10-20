@@ -14,8 +14,7 @@ use gosub_shared::traits::document::{Document, DocumentBuilder};
 use gosub_shared::traits::html5::Html5Parser;
 use std::fs;
 use std::marker::PhantomData;
-use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use url::Url;
 
 #[derive(Debug)]
