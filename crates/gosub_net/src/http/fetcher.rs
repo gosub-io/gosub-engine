@@ -35,6 +35,10 @@ impl Fetcher {
         }
     }
 
+    pub fn base(&self) -> &Url {
+        &self.base_url
+    }
+
     pub async fn get_url(&self, url: &Url) -> Result<Response> {
         let scheme = url.scheme();
 

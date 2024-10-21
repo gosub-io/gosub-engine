@@ -70,6 +70,16 @@ pub(crate) async fn load_html_rendertree<L: Layouter, P: Html5Parser<C>, C: CssS
     url: Url,
 ) -> gosub_shared::types::Result<(RenderTree<L, C>, Fetcher)> {
     let fetcher = Fetcher::new(url.clone());
+
+    let rt = load_html_rendertree_fetcher::<L, P, C>(url, &fetcher).await?;
+
+    Ok((rt, fetcher))
+}
+
+pub(crate) async fn load_html_rendertree_fetcher<L: Layouter, P: Html5Parser<C>, C: CssSystem>(
+    url: Url,
+    fetcher: &Fetcher,
+) -> gosub_shared::types::Result<RenderTree<L, C>> {
     let html = if url.scheme() == "http" || url.scheme() == "https" {
         // Fetch the html from the url
         let response = fetcher.get(url.as_ref()).await?;
@@ -101,5 +111,5 @@ pub(crate) async fn load_html_rendertree<L: Layouter, P: Html5Parser<C>, C: CssS
 
     drop(doc);
 
-    Ok((generate_render_tree(DocumentHandle::clone(&doc_handle))?, fetcher))
+    generate_render_tree(DocumentHandle::clone(&doc_handle))
 }

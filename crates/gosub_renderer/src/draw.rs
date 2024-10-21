@@ -1,7 +1,7 @@
 use crate::debug::scale::px_scale;
 use crate::draw::img::request_img;
 use crate::draw::img_cache::ImageCache;
-use crate::render_tree::{load_html_rendertree, TreeDrawer};
+use crate::render_tree::{load_html_rendertree, load_html_rendertree_fetcher, TreeDrawer};
 use anyhow::anyhow;
 use gosub_net::http::fetcher::Fetcher;
 use gosub_render_backend::geo::{Size, SizeU32, FP};
@@ -18,9 +18,11 @@ use gosub_shared::node::NodeId;
 use gosub_shared::traits::css3::{CssProperty, CssPropertyMap, CssSystem};
 use gosub_shared::traits::document::Document;
 use gosub_shared::traits::html5::Html5Parser;
+use gosub_shared::traits::render_tree;
 use gosub_shared::types::Result;
-use log::warn;
+use log::{error, info, warn};
 use std::future::Future;
+use std::marker::PhantomData;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 use url::Url;
@@ -28,8 +30,14 @@ use url::Url;
 mod img;
 pub mod img_cache;
 
-pub trait SceneDrawer<B: RenderBackend, L: Layouter, LT: LayoutTree<L>, D: Document<C>, C: CssSystem>:
-    WasmNotSend + 'static
+pub trait SceneDrawer<
+    B: RenderBackend,
+    L: Layouter,
+    LT: LayoutTree<L>,
+    D: Document<C>,
+    C: CssSystem,
+    RT: render_tree::RenderTree<C>,
+>: WasmNotSend + 'static
 {
     type ImgCache: ImgCache<B>;
 
@@ -38,7 +46,7 @@ pub trait SceneDrawer<B: RenderBackend, L: Layouter, LT: LayoutTree<L>, D: Docum
         backend: &mut B,
         data: &mut B::WindowData<'_>,
         size: SizeU32,
-        el: &impl WindowedEventLoop<B>,
+        el: &impl WindowedEventLoop<B, RT, C>,
     ) -> bool;
     fn mouse_move(&mut self, backend: &mut B, x: FP, y: FP) -> bool;
 
@@ -63,6 +71,10 @@ pub trait SceneDrawer<B: RenderBackend, L: Layouter, LT: LayoutTree<L>, D: Docum
     fn make_dirty(&mut self);
 
     fn delete_scene(&mut self);
+
+    fn reload<P: Html5Parser<C, Document = D>>(&mut self, el: impl WindowedEventLoop<B, RT, C>);
+
+    fn reload_from(&mut self, tree: RT);
 }
 
 const DEBUG_CONTENT_COLOR: (u8, u8, u8) = (0, 192, 255); //rgb(0, 192, 255)
@@ -72,8 +84,8 @@ const DEBUG_BORDER_COLOR: (u8, u8, u8) = (255, 72, 72); //rgb(255, 72, 72)
 
 type Point = gosub_shared::types::Point<FP>;
 
-impl<B: RenderBackend, L: Layouter, D: Document<C>, C: CssSystem> SceneDrawer<B, L, RenderTree<L, C>, D, C>
-    for TreeDrawer<B, L, D, C>
+impl<B: RenderBackend, L: Layouter, D: Document<C>, C: CssSystem>
+    SceneDrawer<B, L, RenderTree<L, C>, D, C, RenderTree<L, C>> for TreeDrawer<B, L, D, C>
 where
     <<B as RenderBackend>::Text as Text>::Font: From<<<L as Layouter>::TextLayout as TextLayout>::Font>,
 {
@@ -84,7 +96,7 @@ where
         backend: &mut B,
         data: &mut B::WindowData<'_>,
         size: SizeU32,
-        el: &impl WindowedEventLoop<B>,
+        el: &impl WindowedEventLoop<B, RenderTree<L, C>, C>,
     ) -> bool {
         if !self.dirty && self.size == Some(size) {
             return false;
@@ -113,6 +125,7 @@ where
                 drawer: self,
                 svg: Arc::new(Mutex::new(B::SVGRenderer::new())),
                 el,
+                _marker: PhantomData,
             };
 
             drawer.render(size);
@@ -265,17 +278,63 @@ where
         self.tree_scene = None;
         self.debugger_scene = None;
     }
+
+    fn reload<P: Html5Parser<C, Document = D>>(&mut self, mut el: impl WindowedEventLoop<B, RenderTree<L, C>, C>) {
+        let fetcher = self.fetcher.clone();
+
+        gosub_shared::async_executor::spawn(async move {
+            info!("Reloading tab");
+
+            let rt = match load_html_rendertree_fetcher::<L, P, C>(fetcher.base().clone(), &fetcher).await {
+                Ok(rt) => rt,
+                Err(e) => {
+                    error!("Failed to reload tab: {e}");
+                    return;
+                }
+            };
+
+            el.reload_from(rt);
+        })
+    }
+
+    fn reload_from(&mut self, tree: RenderTree<L, C>) {
+        self.tree = tree;
+        self.size = None;
+        self.position = PositionTree::default();
+        self.last_hover = None;
+        self.debugger_scene = None;
+        self.dirty = false;
+        self.tree_scene = None;
+        self.selected_element = None;
+        self.scene_transform = None;
+    }
 }
 
-struct Drawer<'s, 't, B: RenderBackend, L: Layouter, D: Document<C>, C: CssSystem, EL: WindowedEventLoop<B>> {
+struct Drawer<
+    's,
+    't,
+    B: RenderBackend,
+    L: Layouter,
+    D: Document<C>,
+    C: CssSystem,
+    EL: WindowedEventLoop<B, RT, C>,
+    RT: render_tree::RenderTree<C>,
+> {
     scene: &'s mut B::Scene,
     drawer: &'t mut TreeDrawer<B, L, D, C>,
     svg: Arc<Mutex<B::SVGRenderer>>,
     el: &'t EL,
+    _marker: PhantomData<fn(RT)>,
 }
 
-impl<B: RenderBackend, L: Layouter, D: Document<C>, C: CssSystem, EL: WindowedEventLoop<B>>
-    Drawer<'_, '_, B, L, D, C, EL>
+impl<
+        B: RenderBackend,
+        L: Layouter,
+        D: Document<C>,
+        C: CssSystem,
+        EL: WindowedEventLoop<B, RT, C>,
+        RT: render_tree::RenderTree<C>,
+    > Drawer<'_, '_, B, L, D, C, EL, RT>
 where
     <<B as RenderBackend>::Text as Text>::Font: From<<<L as Layouter>::TextLayout as TextLayout>::Font>,
 {
@@ -316,7 +375,7 @@ where
         pos.x += p.x as FP;
         pos.y += p.y as FP;
 
-        let (border_radius, new_size) = render_bg::<B, L, C>(
+        let (border_radius, new_size) = render_bg::<B, L, C, RT>(
             node,
             self.scene,
             pos,
@@ -336,7 +395,7 @@ where
 
                 let size = node.layout.size_or().map(|x| x.u32());
 
-                let img = request_img::<B>(
+                let img = request_img::<B, RT, C>(
                     self.drawer.fetcher.clone(),
                     self.svg.clone(),
                     url,
@@ -570,14 +629,14 @@ pub fn print_tree<B: RenderBackend, L: Layouter>(
 }
 */
 
-fn render_bg<B: RenderBackend, L: Layouter, C: CssSystem>(
+fn render_bg<B: RenderBackend, L: Layouter, C: CssSystem, RT: render_tree::RenderTree<C>>(
     node: &RenderTreeNode<L, C>,
     scene: &mut B::Scene,
     pos: &Point,
     svg: Arc<Mutex<B::SVGRenderer>>,
     fetcher: Arc<Fetcher>,
     img_cache: &mut ImageCache<B>,
-    el: &impl WindowedEventLoop<B>,
+    el: &impl WindowedEventLoop<B, RT, C>,
 ) -> ((FP, FP, FP, FP), Option<SizeU32>) {
     let bg_color = node
         .properties
@@ -660,7 +719,7 @@ fn render_bg<B: RenderBackend, L: Layouter, C: CssSystem>(
     if let Some(url) = background_image {
         let size = node.layout.size_or().map(|x| x.u32());
 
-        let img = match request_img::<B>(fetcher.clone(), svg.clone(), url, size, img_cache, el) {
+        let img = match request_img::<B, RT, C>(fetcher.clone(), svg.clone(), url, size, img_cache, el) {
             Ok(img) => img,
             Err(e) => {
                 eprintln!("Error loading image: {:?}", e);

@@ -18,6 +18,7 @@ use gosub_renderer::draw::SceneDrawer;
 use gosub_shared::traits::css3::CssSystem;
 use gosub_shared::traits::document::Document;
 use gosub_shared::traits::html5::Html5Parser;
+use gosub_shared::traits::render_tree::RenderTree;
 use gosub_shared::types::Result;
 
 use crate::application::{CustomEventInternal, WindowOptions};
@@ -52,35 +53,37 @@ static ICON: LazyCell<Icon> = LazyCell::new(|| {
 
 pub struct Window<
     'a,
-    D: SceneDrawer<B, L, LT, Doc, C>,
+    D: SceneDrawer<B, L, LT, Doc, C, RT>,
     B: RenderBackend,
     L: Layouter,
     LT: LayoutTree<L>,
     Doc: Document<C>,
     C: CssSystem,
+    RT: RenderTree<C>,
 > {
     pub(crate) state: WindowState<'a, B>,
     pub(crate) window: Arc<WinitWindow>,
     pub(crate) renderer_data: B::WindowData<'a>,
-    pub(crate) tabs: Tabs<D, B, L, LT, Doc, C>,
-    pub(crate) el: WindowEventLoop<D, B, L, LT, Doc, C>,
+    pub(crate) tabs: Tabs<D, B, L, LT, Doc, C, RT>,
+    pub(crate) el: WindowEventLoop<D, B, L, LT, Doc, C, RT>,
 }
 
 impl<
         'a,
-        D: SceneDrawer<B, L, LT, Doc, C>,
+        D: SceneDrawer<B, L, LT, Doc, C, RT>,
         B: RenderBackend,
         L: Layouter,
         LT: LayoutTree<L>,
         Doc: Document<C>,
         C: CssSystem,
-    > Window<'a, D, B, L, LT, Doc, C>
+        RT: RenderTree<C>,
+    > Window<'a, D, B, L, LT, Doc, C, RT>
 {
     pub fn new<P: Html5Parser<C, Document = Doc>>(
         event_loop: &ActiveEventLoop,
         backend: &mut B,
         opts: WindowOptions,
-        el: EventLoopProxy<CustomEventInternal<D, B, L, LT, Doc, C>>,
+        el: EventLoopProxy<CustomEventInternal<D, B, L, LT, Doc, C, RT>>,
     ) -> Result<Self> {
         let window = create_window(event_loop)?;
 
@@ -137,7 +140,7 @@ impl<
         Ok(())
     }
 
-    pub fn add_tab(&mut self, tab: Tab<D, B, L, LT, Doc, C>) {
+    pub fn add_tab(&mut self, tab: Tab<D, B, L, LT, Doc, C, RT>) {
         let id = self.tabs.add_tab(tab);
 
         if self.tabs.active == TabID::default() {
@@ -218,25 +221,27 @@ fn create_window(event_loop: &ActiveEventLoop) -> Result<Arc<WinitWindow>> {
 }
 
 pub(crate) struct WindowEventLoop<
-    D: SceneDrawer<B, L, LT, Doc, C>,
+    D: SceneDrawer<B, L, LT, Doc, C, RT>,
     B: RenderBackend,
     L: Layouter,
     LT: LayoutTree<L>,
     Doc: Document<C>,
     C: CssSystem,
+    RT: RenderTree<C>,
 > {
-    proxy: EventLoopProxy<CustomEventInternal<D, B, L, LT, Doc, C>>,
+    proxy: EventLoopProxy<CustomEventInternal<D, B, L, LT, Doc, C, RT>>,
     id: WindowId,
 }
 
 impl<
-        D: SceneDrawer<B, L, LT, Doc, C>,
+        D: SceneDrawer<B, L, LT, Doc, C, RT>,
         B: RenderBackend,
         L: Layouter,
         LT: LayoutTree<L>,
         Doc: Document<C>,
         C: CssSystem,
-    > Clone for WindowEventLoop<D, B, L, LT, Doc, C>
+        RT: RenderTree<C>,
+    > Clone for WindowEventLoop<D, B, L, LT, Doc, C, RT>
 {
     fn clone(&self) -> Self {
         Self {
@@ -247,13 +252,14 @@ impl<
 }
 
 impl<
-        D: SceneDrawer<B, L, LT, Doc, C>,
+        D: SceneDrawer<B, L, LT, Doc, C, RT>,
         B: RenderBackend,
         L: Layouter,
         LT: LayoutTree<L>,
         Doc: Document<C>,
         C: CssSystem,
-    > WindowedEventLoop<B> for WindowEventLoop<D, B, L, LT, Doc, C>
+        RT: RenderTree<C>,
+    > WindowedEventLoop<B, RT, C> for WindowEventLoop<D, B, L, LT, Doc, C, RT>
 {
     fn redraw(&mut self) {
         if let Err(e) = self.proxy.send_event(CustomEventInternal::Redraw(self.id)) {
@@ -266,6 +272,12 @@ impl<
             .proxy
             .send_event(CustomEventInternal::AddImg(url, buf, size, self.id))
         {
+            error!("Failed to send event {e}");
+        }
+    }
+
+    fn reload_from(&mut self, rt: RT) {
+        if let Err(e) = self.proxy.send_event(CustomEventInternal::ReloadFrom(rt, self.id)) {
             error!("Failed to send event {e}");
         }
     }

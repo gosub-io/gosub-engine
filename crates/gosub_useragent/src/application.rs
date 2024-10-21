@@ -16,6 +16,7 @@ use gosub_renderer::draw::SceneDrawer;
 use gosub_shared::traits::css3::CssSystem;
 use gosub_shared::traits::document::Document;
 use gosub_shared::traits::html5::Html5Parser;
+use gosub_shared::traits::render_tree::RenderTree;
 use gosub_shared::types::Result;
 
 use crate::tabs::Tab;
@@ -39,38 +40,41 @@ impl WindowOptions {
     }
 }
 
+#[allow(clippy::type_complexity)]
 pub struct Application<
     'a,
-    D: SceneDrawer<B, L, LT, Doc, C>,
+    D: SceneDrawer<B, L, LT, Doc, C, RT>,
     B: RenderBackend,
     L: Layouter,
     LT: LayoutTree<L>,
     Doc: Document<C>,
     C: CssSystem,
     P: Html5Parser<C, Document = Doc>,
+    RT: RenderTree<C>,
 > {
     open_windows: Vec<(Vec<Url>, WindowOptions)>, // Vec of Windows, each with a Vec of URLs, representing tabs
-    windows: HashMap<WindowId, Window<'a, D, B, L, LT, Doc, C>>,
+    windows: HashMap<WindowId, Window<'a, D, B, L, LT, Doc, C, RT>>,
     backend: B,
     layouter: L,
     #[allow(clippy::type_complexity)]
-    proxy: Option<EventLoopProxy<CustomEventInternal<D, B, L, LT, Doc, C>>>,
+    proxy: Option<EventLoopProxy<CustomEventInternal<D, B, L, LT, Doc, C, RT>>>,
     #[allow(clippy::type_complexity)]
-    event_loop: Option<EventLoop<CustomEventInternal<D, B, L, LT, Doc, C>>>,
+    event_loop: Option<EventLoop<CustomEventInternal<D, B, L, LT, Doc, C, RT>>>,
     debug: bool,
     _marker: std::marker::PhantomData<&'a P>,
 }
 
 impl<
         'a,
-        D: SceneDrawer<B, L, LT, Doc, C>,
+        D: SceneDrawer<B, L, LT, Doc, C, RT>,
         B: RenderBackend,
         L: Layouter,
         LT: LayoutTree<L>,
         Doc: Document<C>,
         C: CssSystem,
         P: Html5Parser<C, Document = Doc>,
-    > ApplicationHandler<CustomEventInternal<D, B, L, LT, Doc, C>> for Application<'a, D, B, L, LT, Doc, C, P>
+        RT: RenderTree<C>,
+    > ApplicationHandler<CustomEventInternal<D, B, L, LT, Doc, C, RT>> for Application<'a, D, B, L, LT, Doc, C, P, RT>
 {
     fn resumed(&mut self, _event_loop: &ActiveEventLoop) {
         info!("Resumed");
@@ -81,7 +85,7 @@ impl<
         }
     }
 
-    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: CustomEventInternal<D, B, L, LT, Doc, C>) {
+    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: CustomEventInternal<D, B, L, LT, Doc, C, RT>) {
         match event {
             CustomEventInternal::OpenWindow(url, id) => {
                 info!("Opening window with URL: {url}");
@@ -247,12 +251,21 @@ impl<
                     }
                 }
             }
+            CustomEventInternal::ReloadFrom(rt, id) => {
+                if let Some(window) = self.windows.get_mut(&id) {
+                    if let Some(tab) = window.tabs.get_current_tab() {
+                        tab.reload_from(rt);
+
+                        window.request_redraw();
+                    }
+                }
+            }
         }
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, window_id: WindowId, event: WindowEvent) {
         if let Some(window) = self.windows.get_mut(&window_id) {
-            if let Err(e) = window.event(event_loop, &mut self.backend, event) {
+            if let Err(e) = window.event::<P>(event_loop, &mut self.backend, event) {
                 eprintln!("Error handling window event: {e:?}");
             };
         }
@@ -267,14 +280,15 @@ impl<
 
 impl<
         'a,
-        D: SceneDrawer<B, L, LT, Doc, C>,
+        D: SceneDrawer<B, L, LT, Doc, C, RT>,
         B: RenderBackend,
         L: Layouter,
         LT: LayoutTree<L>,
         Doc: Document<C>,
         C: CssSystem,
         P: Html5Parser<C, Document = Doc>,
-    > Application<'a, D, B, L, LT, Doc, C, P>
+        RT: RenderTree<C>,
+    > Application<'a, D, B, L, LT, Doc, C, P, RT>
 {
     pub fn new(backend: B, layouter: L, debug: bool) -> Self {
         Self {
@@ -297,7 +311,7 @@ impl<
         self.open_windows.append(&mut windows);
     }
 
-    pub fn add_window(&mut self, window: Window<'a, D, B, L, LT, Doc, C>) {
+    pub fn add_window(&mut self, window: Window<'a, D, B, L, LT, Doc, C, RT>) {
         self.windows.insert(window.window.id(), window);
     }
 
@@ -336,7 +350,7 @@ impl<
     }
 
     #[allow(clippy::type_complexity)]
-    pub fn proxy(&mut self) -> Result<EventLoopProxy<CustomEventInternal<D, B, L, LT, Doc, C>>> {
+    pub fn proxy(&mut self) -> Result<EventLoopProxy<CustomEventInternal<D, B, L, LT, Doc, C, RT>>> {
         if self.proxy.is_none() {
             self.initialize()?;
         }
@@ -362,16 +376,17 @@ pub enum CustomEvent {
     Unselect,
 }
 pub enum CustomEventInternal<
-    D: SceneDrawer<B, L, LT, Doc, C>,
+    D: SceneDrawer<B, L, LT, Doc, C, RT>,
     B: RenderBackend,
     L: Layouter,
     LT: LayoutTree<L>,
     Doc: Document<C>,
     C: CssSystem,
+    RT: RenderTree<C>,
 > {
     OpenWindow(Url, WindowOptions),
     OpenTab(Url, WindowId),
-    AddTab(Tab<D, B, L, LT, Doc, C>, WindowId),
+    AddTab(Tab<D, B, L, LT, Doc, C, RT>, WindowId),
     CloseWindow(WindowId),
     OpenInitial,
     Select(u64),
@@ -379,16 +394,18 @@ pub enum CustomEventInternal<
     Unselect,
     Redraw(WindowId),
     AddImg(String, ImageBuffer<B>, Option<SizeU32>, WindowId),
+    ReloadFrom(RT, WindowId),
 }
 
 impl<
-        D: SceneDrawer<B, L, LT, Doc, C>,
+        D: SceneDrawer<B, L, LT, Doc, C, RT>,
         B: RenderBackend,
         L: Layouter,
         LT: LayoutTree<L>,
         Doc: Document<C>,
         C: CssSystem,
-    > Debug for CustomEventInternal<D, B, L, LT, Doc, C>
+        RT: RenderTree<C>,
+    > Debug for CustomEventInternal<D, B, L, LT, Doc, C, RT>
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -402,6 +419,7 @@ impl<
             Self::Unselect => f.write_str("Unselect"),
             Self::Redraw(_) => f.write_str("Redraw"),
             Self::AddImg(..) => f.write_str("AddImg"),
+            Self::ReloadFrom(..) => f.write_str("ReloadFrom"),
         }
     }
 }
