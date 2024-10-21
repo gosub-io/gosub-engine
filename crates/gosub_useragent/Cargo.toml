@@ -12,7 +12,7 @@ gosub_renderer = { path = "../gosub_renderer" }
 winit = "0.30.5"
 slotmap = "1.0.7"
 log = "0.4.22"
-anyhow = "1.0.89"
+anyhow = "1.0.90"
 url = "2.5.2"
 image = "0.25.2"
 
