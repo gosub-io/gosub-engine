@@ -1,6 +1,6 @@
 use crate::traits::css3::CssSystem;
 
-pub trait RenderTree<C: CssSystem> {
+pub trait RenderTree<C: CssSystem>: Send + 'static {
     type NodeId: Copy;
 
     type Node: RenderTreeNode<C>;

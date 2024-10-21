@@ -50,7 +50,7 @@ fn main() -> Result<()> {
 
     // let mut rt = load_html_rendertree(&url)?;
     //
-    let mut application: Application<Drawer, Backend, Layouter, Tree, Document, CssSystem, HtmlParser> =
+    let mut application: Application<Drawer, Backend, Layouter, Tree, Document, CssSystem, HtmlParser, Tree> =
         Application::new(VelloBackend::new(), TaffyLayouter, debug);
 
     application.initial_tab(Url::parse(&url)?, WindowOptions::default());

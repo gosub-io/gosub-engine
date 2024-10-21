@@ -10,15 +10,17 @@ use gosub_render_backend::svg::SvgRenderer;
 use gosub_render_backend::{
     Image as _, ImageBuffer, ImageCacheEntry, ImgCache, RenderBackend, SizeU32, WindowedEventLoop,
 };
+use gosub_shared::traits::css3::CssSystem;
+use gosub_shared::traits::render_tree::RenderTree;
 use gosub_shared::types::Result;
 
-pub fn request_img<B: RenderBackend>(
+pub fn request_img<B: RenderBackend, RT: RenderTree<C>, C: CssSystem>(
     fetcher: Arc<Fetcher>,
     svg_renderer: Arc<Mutex<B::SVGRenderer>>,
     url: &str,
     size: Option<SizeU32>,
     img_cache: &mut ImageCache<B>,
-    el: &impl WindowedEventLoop<B>,
+    el: &impl WindowedEventLoop<B, RT, C>,
 ) -> Result<ImageBuffer<B>> {
     let img = img_cache.get(url);
 
