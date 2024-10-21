@@ -10,7 +10,7 @@ gosub_shared = { path = "../gosub_shared" }
 gosub_render_backend = { path = "../gosub_render_backend" }
 gosub_typeface = { path = "../gosub_typeface" }
 taffy = "0.5.2"
-anyhow = "1.0.89"
+anyhow = "1.0.90"
 regex = "1.10.5"
 log = "0.4.22"
 parley = { version = "0.2.0", default-features = false, features = ["std"] }
