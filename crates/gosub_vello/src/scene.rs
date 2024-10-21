@@ -1,9 +1,8 @@
+use gosub_render_backend::{Point, RenderBackend, RenderRect, RenderText, Scene as TScene, FP};
 use std::fmt::{Debug, Formatter};
 use vello::kurbo::RoundedRect;
 use vello::peniko::Fill;
 use vello::Scene as VelloScene;
-
-use gosub_render_backend::{Point, RenderBackend, RenderRect, RenderText, Scene as TScene, FP};
 
 use crate::debug::text::render_text_simple;
 use crate::{Border, BorderRenderOptions, Text, Transform, VelloBackend};

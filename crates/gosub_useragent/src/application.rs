@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt::{Debug, Formatter};
 use std::sync::mpsc;
 
 use anyhow::anyhow;
@@ -10,7 +11,7 @@ use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
 use winit::window::WindowId;
 
 use gosub_render_backend::layout::{LayoutTree, Layouter};
-use gosub_render_backend::{NodeDesc, RenderBackend};
+use gosub_render_backend::{ImageBuffer, ImgCache, NodeDesc, RenderBackend, SizeU32};
 use gosub_renderer::draw::SceneDrawer;
 use gosub_shared::traits::css3::CssSystem;
 use gosub_shared::traits::document::Document;
@@ -85,7 +86,12 @@ impl<
             CustomEventInternal::OpenWindow(url, id) => {
                 info!("Opening window with URL: {url}");
 
-                let mut window = match Window::new::<P>(event_loop, &mut self.backend, id) {
+                let mut window = match Window::new::<P>(
+                    event_loop,
+                    &mut self.backend,
+                    id,
+                    self.proxy.clone().expect("unreachable"),
+                ) {
                     Ok(window) => window,
                     Err(e) => {
                         error!("Error opening window: {e:?}");
@@ -161,17 +167,18 @@ impl<
                 info!("Opening initial windows");
 
                 for (urls, opts) in self.open_windows.drain(..) {
-                    let mut window = match Window::new::<P>(event_loop, &mut self.backend, opts) {
-                        Ok(window) => window,
-                        Err(e) => {
-                            error!("Error opening window: {e:?}");
-                            if self.windows.is_empty() {
-                                info!("No more windows; exiting event loop");
-                                event_loop.exit();
+                    let mut window =
+                        match Window::new::<P>(event_loop, &mut self.backend, opts, self.proxy.clone().unwrap()) {
+                            Ok(window) => window,
+                            Err(e) => {
+                                error!("Error opening window: {e:?}");
+                                if self.windows.is_empty() {
+                                    info!("No more windows; exiting event loop");
+                                    event_loop.exit();
+                                }
+                                return;
                             }
-                            return;
-                        }
-                    };
+                        };
 
                     if let Err(e) = window.resumed(&mut self.backend) {
                         error!("Error resuming window: {e:?}");
@@ -214,6 +221,30 @@ impl<
                 if let Some(window) = self.windows.values_mut().next() {
                     window.unselect_element();
                     window.request_redraw();
+                }
+            }
+
+            CustomEventInternal::Redraw(id) => {
+                if let Some(window) = self.windows.get_mut(&id) {
+                    window.request_redraw();
+                }
+            }
+
+            CustomEventInternal::AddImg(url, img, size, id) => {
+                if let Some(window) = self.windows.get_mut(&id) {
+                    if let Some(tab) = window.tabs.get_current_tab() {
+                        info!("Add img {url} {size:?}");
+
+                        info!("size  {:?}", img.size());
+
+                        tab.data.get_img_cache().add(url, img, size);
+
+                        tab.data.make_dirty();
+
+                        tab.data.delete_scene();
+
+                        window.request_redraw();
+                    }
                 }
             }
         }
@@ -330,7 +361,6 @@ pub enum CustomEvent {
     SendNodes(mpsc::Sender<NodeDesc>),
     Unselect,
 }
-#[derive(Debug)]
 pub enum CustomEventInternal<
     D: SceneDrawer<B, L, LT, Doc, C>,
     B: RenderBackend,
@@ -347,4 +377,31 @@ pub enum CustomEventInternal<
     Select(u64),
     SendNodes(mpsc::Sender<NodeDesc>),
     Unselect,
+    Redraw(WindowId),
+    AddImg(String, ImageBuffer<B>, Option<SizeU32>, WindowId),
+}
+
+impl<
+        D: SceneDrawer<B, L, LT, Doc, C>,
+        B: RenderBackend,
+        L: Layouter,
+        LT: LayoutTree<L>,
+        Doc: Document<C>,
+        C: CssSystem,
+    > Debug for CustomEventInternal<D, B, L, LT, Doc, C>
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::OpenWindow(..) => f.write_str("OpenWindow"),
+            Self::OpenTab(..) => f.write_str("OpenTab"),
+            Self::AddTab(..) => f.write_str("AddTab"),
+            Self::CloseWindow(_) => f.write_str("CloseWindow"),
+            Self::OpenInitial => f.write_str("OpenInitial"),
+            Self::Select(_) => f.write_str("Select"),
+            Self::SendNodes(_) => f.write_str("SendNodes"),
+            Self::Unselect => f.write_str("Unselect"),
+            Self::Redraw(_) => f.write_str("Redraw"),
+            Self::AddImg(..) => f.write_str("AddImg"),
+        }
+    }
 }

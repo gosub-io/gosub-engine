@@ -3,12 +3,13 @@ use std::sync::{Arc, LazyLock, Mutex};
 
 use anyhow::anyhow;
 use image::DynamicImage;
-use log::error;
 
 use crate::draw::img_cache::ImageCache;
 use gosub_net::http::fetcher::Fetcher;
 use gosub_render_backend::svg::SvgRenderer;
-use gosub_render_backend::{Image as _, ImageBuffer, ImageCacheEntry, ImgCache, RenderBackend, SizeU32};
+use gosub_render_backend::{
+    Image as _, ImageBuffer, ImageCacheEntry, ImgCache, RenderBackend, SizeU32, WindowedEventLoop,
+};
 use gosub_shared::types::Result;
 
 pub fn request_img<B: RenderBackend>(
@@ -16,46 +17,26 @@ pub fn request_img<B: RenderBackend>(
     svg_renderer: Arc<Mutex<B::SVGRenderer>>,
     url: &str,
     size: Option<SizeU32>,
-    img_cache: Arc<Mutex<ImageCache<B>>>,
-    rerender: Arc<dyn Fn() + Send + Sync>,
+    img_cache: &mut ImageCache<B>,
+    el: &impl WindowedEventLoop<B>,
 ) -> Result<ImageBuffer<B>> {
-    let mut cache = img_cache.lock().map_err(|_| anyhow!("Could not lock img cache"))?;
-
-    let img = cache.get(url);
+    let img = img_cache.get(url);
 
     Ok(match img {
         ImageCacheEntry::Image(img) => img.clone(),
         ImageCacheEntry::Pending => ImageBuffer::Image(B::Image::from_img(image::DynamicImage::new_rgba8(0, 0))),
         ImageCacheEntry::None => {
-            cache.add_pending(url.to_string());
-
-            drop(cache);
+            img_cache.add_pending(url.to_string());
 
             let url = url.to_string();
 
+            let mut el = el.clone();
+
             gosub_shared::async_executor::spawn(async move {
                 if let Ok(img) = load_img::<B>(&url, fetcher, svg_renderer, size).await {
-                    let mut cache = match img_cache.lock() {
-                        Ok(cache) => cache,
-                        Err(e) => {
-                            error!("Could not lock img cache: {}", e);
-                            return;
-                        }
-                    };
-
-                    cache.add(url.to_string(), img.clone(), size);
-
-                    rerender();
+                    el.add_img_cache(url.to_string(), img, size);
                 } else {
-                    let mut cache = match img_cache.lock() {
-                        Ok(cache) => cache,
-                        Err(e) => {
-                            error!("Could not lock img cache: {}", e);
-                            return;
-                        }
-                    };
-
-                    cache.add(
+                    el.add_img_cache(
                         url.to_string(),
                         ImageBuffer::Image(B::Image::from_img(INVALID_IMG.clone())),
                         size,
