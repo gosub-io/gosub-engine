@@ -6,7 +6,7 @@ authors = ["Gosub Community <info@gosub.io>"]
 license = "MIT"
 
 [dependencies]
-syn = { version = "2.0.77", features = ["full", "extra-traits"] }
+syn = { version = "2.0.82", features = ["full", "extra-traits"] }
 quote = { version = "1.0.37", features = [] }
 proc-macro2 = "1.0.86"
 serde = { version = "1.0.210", features = ["derive"] }
