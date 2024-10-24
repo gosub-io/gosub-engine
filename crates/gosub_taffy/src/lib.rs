@@ -1,9 +1,11 @@
+use std::ops::{Deref, DerefMut};
 use std::vec::IntoIter;
 
 use taffy::{
     compute_block_layout, compute_cached_layout, compute_flexbox_layout, compute_grid_layout, compute_hidden_layout,
     compute_root_layout, AvailableSpace, Cache as TaffyCache, Display as TaffyDisplay, Layout as TaffyLayout,
-    LayoutInput, LayoutOutput, LayoutPartialTree, NodeId as TaffyId, Style, TraversePartialTree,
+    LayoutBlockContainer, LayoutFlexboxContainer, LayoutGridContainer, LayoutInput, LayoutOutput, LayoutPartialTree,
+    NodeId as TaffyId, Style, TraversePartialTree,
 };
 
 use gosub_render_backend::geo::{Point, Rect, Size, SizeU32};
@@ -106,6 +108,20 @@ pub struct Cache {
     taffy: TaffyCache,
     style: Style,
     display: Display,
+}
+
+impl Deref for Cache {
+    type Target = TaffyCache;
+
+    fn deref(&self) -> &Self::Target {
+        &self.taffy
+    }
+}
+
+impl DerefMut for Cache {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.taffy
+    }
 }
 
 impl Layouter for TaffyLayouter {
@@ -230,7 +246,14 @@ impl<LT: LayoutTree<TaffyLayouter>> LayoutDocument<'_, LT> {
 }
 
 impl<LT: LayoutTree<TaffyLayouter>> LayoutPartialTree for LayoutDocument<'_, LT> {
-    fn get_style(&self, node_id: TaffyId) -> &Style {
+    type CoreContainerStyle<'a> = &'a Style
+    where
+        Self: 'a;
+    type CacheMut<'b> = &'b mut TaffyCache
+    where
+        Self: 'b;
+
+    fn get_core_container_style(&self, node_id: TaffyId) -> Self::CoreContainerStyle<'_> {
         self.get_taffy_style_no_update(LT::NodeId::from(node_id.into()))
     }
 
@@ -271,5 +294,56 @@ impl<LT: LayoutTree<TaffyLayouter>> LayoutPartialTree for LayoutDocument<'_, LT>
                 TaffyDisplay::Grid => compute_grid_layout(tree, node_id_taffy, inputs),
             }
         })
+    }
+}
+
+impl<LT: LayoutTree<TaffyLayouter>> LayoutBlockContainer for LayoutDocument<'_, LT> {
+    type BlockContainerStyle<'a> = &'a Style
+    where
+        Self: 'a;
+    type BlockItemStyle<'a> = &'a Style
+    where
+        Self: 'a;
+
+    fn get_block_container_style(&self, node_id: TaffyId) -> Self::BlockContainerStyle<'_> {
+        self.get_taffy_style_no_update(LT::NodeId::from(node_id.into()))
+    }
+
+    fn get_block_child_style(&self, child_node_id: TaffyId) -> Self::BlockItemStyle<'_> {
+        self.get_taffy_style_no_update(LT::NodeId::from(child_node_id.into()))
+    }
+}
+
+impl<LT: LayoutTree<TaffyLayouter>> LayoutFlexboxContainer for LayoutDocument<'_, LT> {
+    type FlexboxContainerStyle<'a> = &'a Style
+    where
+        Self: 'a;
+    type FlexboxItemStyle<'a> = &'a Style
+    where
+        Self: 'a;
+
+    fn get_flexbox_container_style(&self, node_id: TaffyId) -> Self::FlexboxContainerStyle<'_> {
+        self.get_taffy_style_no_update(LT::NodeId::from(node_id.into()))
+    }
+
+    fn get_flexbox_child_style(&self, child_node_id: TaffyId) -> Self::FlexboxItemStyle<'_> {
+        self.get_taffy_style_no_update(LT::NodeId::from(child_node_id.into()))
+    }
+}
+
+impl<LT: LayoutTree<TaffyLayouter>> LayoutGridContainer for LayoutDocument<'_, LT> {
+    type GridContainerStyle<'a> = &'a Style
+    where
+        Self: 'a;
+    type GridItemStyle<'a> = &'a Style
+    where
+        Self: 'a;
+
+    fn get_grid_container_style(&self, node_id: TaffyId) -> Self::GridContainerStyle<'_> {
+        self.get_taffy_style_no_update(LT::NodeId::from(node_id.into()))
+    }
+
+    fn get_grid_child_style(&self, child_node_id: TaffyId) -> Self::GridItemStyle<'_> {
+        self.get_taffy_style_no_update(LT::NodeId::from(child_node_id.into()))
     }
 }
