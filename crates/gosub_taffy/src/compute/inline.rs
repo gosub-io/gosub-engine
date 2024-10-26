@@ -468,6 +468,7 @@ pub fn compute_inline_layout<LT: LayoutTree<TaffyLayouter>>(
                             },
                             order: 0,
                             padding: Rect::ZERO,
+                            margin: Rect::ZERO,
                         },
                     );
                 }
@@ -492,6 +493,7 @@ pub fn compute_inline_layout<LT: LayoutTree<TaffyLayouter>>(
                             },
                             order: 0,
                             padding: Rect::ZERO,
+                            margin: Rect::ZERO, //TODO: we currently handle margins in the text layout, but we should handle them here
                         },
                     );
                 }

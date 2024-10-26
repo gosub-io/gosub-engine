@@ -1,6 +1,6 @@
 use regex::Regex;
 use taffy::prelude::*;
-use taffy::{Overflow, Point};
+use taffy::{Overflow, Point, TextAlign};
 
 use crate::style::parse::{
     parse_align_c, parse_align_i, parse_dimension, parse_grid_auto, parse_grid_placement, parse_len, parse_len_auto,
@@ -335,5 +335,38 @@ pub fn parse_grid_column(node: &mut impl Node) -> Line<GridPlacement> {
     Line {
         start: parse_grid_placement(node, "grid-column-start"),
         end: parse_grid_placement(node, "grid-column-end"),
+    }
+}
+
+pub fn parse_box_sizing(node: &mut impl Node) -> BoxSizing {
+    let Some(property) = node.get_property("box-sizing") else {
+        return BoxSizing::ContentBox;
+    };
+
+    if let Some(value) = property.as_string() {
+        match value {
+            "content-box" => BoxSizing::ContentBox,
+            "border-box" => BoxSizing::BorderBox,
+            _ => BoxSizing::ContentBox,
+        }
+    } else {
+        BoxSizing::ContentBox
+    }
+}
+
+pub fn parse_text_align(node: &mut impl Node) -> TextAlign {
+    let Some(property) = node.get_property("text-align") else {
+        return TextAlign::Auto;
+    };
+
+    if let Some(value) = property.as_string() {
+        match value {
+            "-webkit-left" | "-moz-left" => TextAlign::LegacyLeft,
+            "-webkit-right" | "-moz-right" => TextAlign::LegacyRight,
+            "-webkit-center" | "-moz-center" => TextAlign::LegacyCenter,
+            _ => TextAlign::Auto,
+        }
+    } else {
+        TextAlign::Auto
     }
 }

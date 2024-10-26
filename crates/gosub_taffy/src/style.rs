@@ -40,6 +40,8 @@ pub fn get_style_from_node(node: &mut impl Node) -> (Style, Display) {
     let grid_auto_flow = parse_properties::parse_grid_auto_flow(node);
     let grid_row = parse_properties::parse_grid_row(node);
     let grid_column = parse_properties::parse_grid_column(node);
+    let box_sizing = parse_properties::parse_box_sizing(node);
+    let text_align = parse_properties::parse_text_align(node);
 
     (
         Style {
@@ -74,6 +76,10 @@ pub fn get_style_from_node(node: &mut impl Node) -> (Style, Display) {
             grid_auto_flow,
             grid_row,
             grid_column,
+            // item_is_table: disp == Display::Table,
+            item_is_table: false,
+            box_sizing,
+            text_align,
         },
         disp,
     )
