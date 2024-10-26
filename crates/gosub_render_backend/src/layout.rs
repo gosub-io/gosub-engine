@@ -29,7 +29,7 @@ pub trait LayoutTree<L: Layouter>: Sized + 'static {
 }
 
 pub trait Layouter: Sized + Clone + Send + 'static {
-    type Cache: Default + Send;
+    type Cache: LayoutCache;
     type Layout: Layout + Send;
 
     type TextLayout: TextLayout + Send;
@@ -37,6 +37,10 @@ pub trait Layouter: Sized + Clone + Send + 'static {
     const COLLAPSE_INLINE: bool;
 
     fn layout<LT: LayoutTree<Self>>(&self, tree: &mut LT, root: LT::NodeId, space: SizeU32) -> Result<()>;
+}
+
+pub trait LayoutCache: Default + Send {
+    fn invalidate(&mut self);
 }
 
 pub trait Layout: Default {

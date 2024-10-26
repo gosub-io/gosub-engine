@@ -1,6 +1,6 @@
+use log::info;
 use std::ops::{Deref, DerefMut};
 use std::vec::IntoIter;
-
 use taffy::{
     compute_block_layout, compute_cached_layout, compute_flexbox_layout, compute_grid_layout, compute_hidden_layout,
     compute_root_layout, AvailableSpace, Cache as TaffyCache, Display as TaffyDisplay, Layout as TaffyLayout,
@@ -9,7 +9,7 @@ use taffy::{
 };
 
 use gosub_render_backend::geo::{Point, Rect, Size, SizeU32};
-use gosub_render_backend::layout::{Layout as TLayout, LayoutTree, Layouter, Node};
+use gosub_render_backend::layout::{Layout as TLayout, LayoutCache, LayoutTree, Layouter, Node};
 use gosub_shared::types::Result;
 
 use crate::compute::inline::compute_inline_layout;
@@ -121,6 +121,12 @@ impl Deref for Cache {
 impl DerefMut for Cache {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.taffy
+    }
+}
+
+impl LayoutCache for Cache {
+    fn invalidate(&mut self) {
+        self.taffy.clear();
     }
 }
 
@@ -275,7 +281,10 @@ impl<LT: LayoutTree<TaffyLayouter>> LayoutPartialTree for LayoutDocument<'_, LT>
     }
 
     fn compute_child_layout(&mut self, node_id: TaffyId, inputs: LayoutInput) -> LayoutOutput {
+        info!("Layout {node_id:?}");
+
         compute_cached_layout(self, node_id, inputs, |tree, node_id_taffy, inputs| {
+            info!("actually Layout {node_id:?}");
             let node_id = LT::NodeId::from(node_id_taffy.into());
 
             if let Some(node) = tree.0.get_node(node_id) {
@@ -287,12 +296,16 @@ impl<LT: LayoutTree<TaffyLayouter>> LayoutPartialTree for LayoutDocument<'_, LT>
             // let has_children = tree.0.child_count(node_id) > 0; //TODO: this isn't optimal, since we are now requesting the same node twice (up in get_cache and here)
             let style = tree.get_taffy_style(node_id);
 
-            match style.display {
+            let x = match style.display {
                 TaffyDisplay::None => compute_hidden_layout(tree, node_id_taffy),
                 TaffyDisplay::Block => compute_block_layout(tree, node_id_taffy, inputs),
                 TaffyDisplay::Flex => compute_flexbox_layout(tree, node_id_taffy, inputs),
                 TaffyDisplay::Grid => compute_grid_layout(tree, node_id_taffy, inputs),
-            }
+            };
+
+            info!("Output id = {node_id_taffy:?} = {x:?}");
+
+            x
         })
     }
 }

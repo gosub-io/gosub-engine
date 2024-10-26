@@ -1,4 +1,9 @@
 use core::fmt::Debug;
+use std::cmp::Ordering;
+use std::collections::HashMap;
+
+use itertools::Itertools;
+
 use gosub_shared::document::DocumentHandle;
 use gosub_shared::node::NodeId;
 use gosub_shared::traits::css3::{CssOrigin, CssPropertyMap, CssSystem};
@@ -6,9 +11,6 @@ use gosub_shared::traits::document::Document;
 use gosub_shared::traits::node::ClassList;
 use gosub_shared::traits::node::ElementDataType;
 use gosub_shared::traits::node::Node;
-use itertools::Itertools;
-use std::cmp::Ordering;
-use std::collections::HashMap;
 
 use crate::matcher::property_definitions::get_css_definitions;
 use crate::stylesheet::{Combinator, CssSelector, CssSelectorPart, CssValue, MatcherType, Specificity};
@@ -523,6 +525,24 @@ impl CssProperty {
     }
 }
 
+impl From<CssValue> for CssProperty {
+    fn from(value: CssValue) -> Self {
+        let mut this = Self::new("unknown");
+
+        this.declared = vec![DeclarationProperty {
+            location: "".into(),
+            important: false,
+            value,
+            origin: CssOrigin::Author,
+            specificity: Specificity::new(0, 0, 0),
+        }];
+
+        this.calculate_value();
+
+        this
+    }
+}
+
 impl gosub_shared::traits::css3::CssProperty for CssProperty {
     type Value = CssValue;
 
@@ -624,6 +644,10 @@ impl CssPropertyMap for CssProperties {
         self.properties.entry(name.to_string()).or_insert(value);
     }
 
+    fn insert(&mut self, name: &str, value: Self::Property) {
+        self.properties.insert(name.to_string(), value);
+    }
+
     fn get(&self, name: &str) -> Option<&Self::Property> {
         self.properties.get(name)
     }
@@ -655,9 +679,10 @@ impl CssPropertyMap for CssProperties {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::colors::RgbColor;
     use crate::system::prop_is_inherit;
+
+    use super::*;
 
     #[test]
     fn css_props() {

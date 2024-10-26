@@ -531,6 +531,30 @@ impl CssValue {
 }
 
 impl gosub_shared::traits::css3::CssValue for CssValue {
+    fn new_string(value: &str) -> Self {
+        CssValue::String(value.to_string())
+    }
+
+    fn new_percentage(value: f32) -> Self {
+        CssValue::Percentage(value)
+    }
+
+    fn new_unit(value: f32, unit: String) -> Self {
+        CssValue::Unit(value, unit)
+    }
+
+    fn new_color(r: f32, g: f32, b: f32, a: f32) -> Self {
+        CssValue::Color(RgbColor::new(r, g, b, a))
+    }
+
+    fn new_number(value: f32) -> Self {
+        CssValue::Number(value)
+    }
+
+    fn new_list(value: Vec<Self>) -> Self {
+        CssValue::List(value)
+    }
+
     fn unit_to_px(&self) -> f32 {
         self.unit_to_px()
     }
