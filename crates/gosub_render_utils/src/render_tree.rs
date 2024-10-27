@@ -1,5 +1,5 @@
 use gosub_html5::document::document_impl::TreeIterator;
-use gosub_render_backend::layout::{HasTextLayout, Layout, LayoutTree, Layouter, TextLayout};
+use gosub_render_backend::layout::{HasTextLayout, Layout, LayoutCache, LayoutTree, Layouter, TextLayout};
 use gosub_render_backend::{layout, Size};
 use gosub_shared::document::DocumentHandle;
 use gosub_shared::node::NodeId;
@@ -8,6 +8,7 @@ use gosub_shared::traits::document::Document;
 use gosub_shared::traits::node::NodeData;
 use gosub_shared::traits::node::{ElementDataType, Node as DocumentNode, TextDataType};
 use gosub_shared::types::Result;
+use log::info;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 
@@ -118,6 +119,79 @@ impl<L: Layouter, C: CssSystem> RenderTree<L, C> {
         );
 
         tree
+    }
+
+    pub fn reserve_id(&mut self) -> NodeId {
+        let id = self.next_id;
+        self.next_id = self.next_id.next();
+        id
+    }
+
+    pub fn insert_element(
+        &mut self,
+        parent: NodeId,
+        name: String,
+        namespace: Option<String>,
+        properties: C::PropertyMap,
+    ) -> NodeId {
+        let id = self.reserve_id();
+
+        let node = RenderTreeNode {
+            id,
+            properties,
+            children: Vec::new(),
+            parent: Some(parent),
+            name,
+            namespace,
+            data: RenderNodeData::Element {
+                attributes: HashMap::new(),
+            },
+            cache: L::Cache::default(),
+            layout: L::Layout::default(),
+        };
+
+        self.attach_node(node);
+
+        id
+    }
+
+    pub fn insert_node_data(
+        &mut self,
+        parent: NodeId,
+        name: String,
+        data: RenderNodeData<L>,
+        properties: C::PropertyMap,
+    ) -> NodeId {
+        let id = self.reserve_id();
+
+        let node = RenderTreeNode {
+            id,
+            properties,
+            children: Vec::new(),
+            parent: Some(parent),
+            name,
+            namespace: None,
+            data,
+            cache: L::Cache::default(),
+            layout: L::Layout::default(),
+        };
+
+        self.attach_node(node);
+
+        id
+    }
+
+    pub fn attach_node(&mut self, node: RenderTreeNode<L, C>) {
+        let parent = node.parent;
+        let id = node.id;
+
+        self.insert_node(id, node);
+
+        if let Some(parent) = parent {
+            if let Some(parent) = self.get_node_mut(parent) {
+                parent.children.push(id);
+            }
+        }
     }
 
     /// Returns the root node of the render tree
@@ -418,6 +492,31 @@ impl<L: Layouter, C: CssSystem> RenderTree<L, C> {
 
         for child_id in &node.children {
             self.print_tree_from(*child_id, depth + 1);
+        }
+    }
+
+    pub fn layout_dirty_from(&mut self, from: NodeId) {
+        let mut next_node = Some(from);
+
+        while let Some(id) = next_node {
+            let Some(node) = self.get_node_mut(id) else {
+                break;
+            };
+
+            info!("invalidating {id}");
+
+            node.cache.invalidate();
+
+            let children = node.children.clone();
+            next_node = node.parent;
+
+            for child in children {
+                let Some(node) = self.get_node_mut(child) else {
+                    break;
+                };
+
+                node.cache.invalidate();
+            }
         }
     }
 }

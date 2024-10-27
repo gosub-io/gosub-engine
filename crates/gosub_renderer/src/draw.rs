@@ -1,6 +1,7 @@
 use crate::debug::scale::px_scale;
 use crate::draw::img::request_img;
 use crate::draw::img_cache::ImageCache;
+use crate::draw::testing::{test_add_element, test_restyle_element};
 use crate::render_tree::{load_html_rendertree, load_html_rendertree_fetcher, TreeDrawer};
 use anyhow::anyhow;
 use gosub_net::http::fetcher::Fetcher;
@@ -29,6 +30,7 @@ use url::Url;
 
 mod img;
 pub mod img_cache;
+mod testing;
 
 pub trait SceneDrawer<
     B: RenderBackend,
@@ -248,6 +250,16 @@ where
     }
 
     fn select_element(&mut self, id: NodeId) {
+        if id.as_usize() == u64::MAX as usize {
+            test_add_element(self);
+            return;
+        }
+
+        if id.as_usize() == u64::MAX as usize - 1 {
+            test_restyle_element(self);
+            return;
+        }
+
         self.selected_element = Some(id);
         self.dirty = true;
     }

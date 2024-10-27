@@ -87,6 +87,11 @@ fn main() -> Result<()> {
                 println!("{}", node);
             }
 
+            "add" => {
+                if let Err(e) = p.send_event(CustomEventInternal::Select(u64::MAX)) {
+                    eprintln!("Error sending event: {e:?}");
+                }
+            }
             "unselect" => {
                 if let Err(e) = p.send_event(CustomEventInternal::Unselect) {
                     eprintln!("Error sending event: {e:?}");

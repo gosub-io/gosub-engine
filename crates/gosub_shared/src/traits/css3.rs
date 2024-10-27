@@ -57,6 +57,8 @@ pub trait CssPropertyMap: Default + Debug + WasmNotSend {
 
     fn insert_inherited(&mut self, name: &str, value: Self::Property);
 
+    fn insert(&mut self, name: &str, value: Self::Property);
+
     fn get(&self, name: &str) -> Option<&Self::Property>;
 
     fn get_mut(&mut self, name: &str) -> Option<&mut Self::Property>;
@@ -70,7 +72,7 @@ pub trait CssPropertyMap: Default + Debug + WasmNotSend {
     fn make_clean(&mut self);
     fn is_dirty(&self) -> bool;
 }
-pub trait CssProperty: Debug + Sized {
+pub trait CssProperty: Debug + Sized + From<Self::Value> {
     type Value: CssValue;
 
     fn compute_value(&mut self); // this should probably be removed
@@ -91,6 +93,13 @@ pub trait CssProperty: Debug + Sized {
 }
 
 pub trait CssValue: Sized {
+    fn new_string(value: &str) -> Self;
+    fn new_percentage(value: f32) -> Self;
+    fn new_unit(value: f32, unit: String) -> Self;
+    fn new_color(r: f32, g: f32, b: f32, a: f32) -> Self;
+    fn new_number(value: f32) -> Self;
+    fn new_list(value: Vec<Self>) -> Self;
+
     fn unit_to_px(&self) -> f32;
 
     fn as_string(&self) -> Option<&str>;
