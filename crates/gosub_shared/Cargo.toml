@@ -9,7 +9,7 @@ license = "MIT"
 chardet = "0.2.4"
 thiserror = "1.0.65"
 url = "2.5.2"
-anyhow = "1.0.90"
+anyhow = "1.0.91"
 lazy_static = "1.5.0"
 uuid = { version = "1.11.0", features = ["v4"] }
 rand = "0.9.0-alpha.1"
