@@ -9,7 +9,7 @@ license = "MIT"
 gosub_shared = { path = "../gosub_shared", features = [] }
 gosub_config = { path = "../gosub_config", features = [] }
 derive_more = { version = "1", features = ["from", "display"] }
-thiserror = "1.0.61"
+thiserror = "1.0.65"
 anyhow = "1.0.90"
 log = "0.4.22"
 domain-lookup-tree = "0.1"
