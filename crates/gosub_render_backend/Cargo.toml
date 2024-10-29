@@ -14,5 +14,5 @@ smallvec = "1.13.2"
 image = "0.25.2"
 raw-window-handle = "0.6.2"
 log = "0.4.14"
-anyhow = "1.0.90"
+anyhow = "1.0.91"
 
