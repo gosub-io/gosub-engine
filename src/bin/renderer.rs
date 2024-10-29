@@ -10,6 +10,7 @@ use gosub_rendering::render_tree::RenderTree;
 use gosub_shared::types::Result;
 use gosub_taffy::TaffyLayouter;
 use gosub_useragent::application::{Application, CustomEventInternal, WindowOptions};
+use gosub_useragent::winit::window::WindowId;
 use gosub_vello::VelloBackend;
 use url::Url;
 
@@ -58,58 +59,89 @@ fn main() -> Result<()> {
     //this will initialize the application
     let p = application.proxy()?;
 
-    thread::spawn(move || loop {
-        let mut input = String::new();
-        if let Err(e) = io::stdin().read_line(&mut input) {
-            eprintln!("Error reading input: {e:?}");
-            continue;
-        };
+    thread::spawn(move || {
+        let mut window = None;
 
-        let input = input.trim();
-
-        match input {
-            "list" => {
-                let (sender, receiver) = mpsc::channel();
-
-                if let Err(e) = p.send_event(CustomEventInternal::SendNodes(sender)) {
-                    eprintln!("Error sending event: {e:?}");
-                    continue;
-                }
-
-                let node = match receiver.recv() {
-                    Ok(node) => node,
-                    Err(e) => {
-                        eprintln!("Error receiving node: {e:?}");
-                        continue;
-                    }
-                };
-
-                println!("{}", node);
-            }
-
-            "add" => {
-                if let Err(e) = p.send_event(CustomEventInternal::Select(u64::MAX)) {
-                    eprintln!("Error sending event: {e:?}");
-                }
-            }
-            "unselect" => {
-                if let Err(e) = p.send_event(CustomEventInternal::Unselect) {
-                    eprintln!("Error sending event: {e:?}");
-                }
-            }
-
-            _ => {}
-        }
-
-        if input.starts_with("select ") {
-            let id = input.trim_start_matches("select ");
-            let Ok(id) = id.parse::<u64>() else {
-                eprintln!("Invalid id: {id}");
+        loop {
+            let mut input = String::new();
+            if let Err(e) = io::stdin().read_line(&mut input) {
+                eprintln!("Error reading input: {e:?}");
                 continue;
             };
 
-            if let Err(e) = p.send_event(CustomEventInternal::Select(id)) {
-                eprintln!("Error sending event: {e:?}");
+            let input = input.trim();
+
+            match input {
+                "list" => {
+                    let (sender, receiver) = mpsc::channel();
+
+                    if let Err(e) = p.send_event(CustomEventInternal::SendNodes(sender)) {
+                        eprintln!("Error sending event: {e:?}");
+                        continue;
+                    }
+
+                    let node = match receiver.recv() {
+                        Ok(node) => node,
+                        Err(e) => {
+                            eprintln!("Error receiving node: {e:?}");
+                            continue;
+                        }
+                    };
+
+                    println!("{}", node);
+                }
+
+                "add" => {
+                    if let Err(e) = p.send_event(CustomEventInternal::Select(u64::MAX)) {
+                        eprintln!("Error sending event: {e:?}");
+                    }
+                }
+                "unselect" => {
+                    if let Err(e) = p.send_event(CustomEventInternal::Unselect) {
+                        eprintln!("Error sending event: {e:?}");
+                    }
+                }
+
+                _ => {}
+            }
+
+            if input.starts_with("select ") {
+                let id = input.trim_start_matches("select ");
+                let Ok(id) = id.parse::<u64>() else {
+                    eprintln!("Invalid id: {id}");
+                    continue;
+                };
+
+                if let Err(e) = p.send_event(CustomEventInternal::Select(id)) {
+                    eprintln!("Error sending event: {e:?}");
+                }
+            }
+
+            if input.starts_with("window ") {
+                let id = input.trim_start_matches("window ");
+                let Ok(id) = id.parse::<u64>() else {
+                    eprintln!("Invalid window id: {id}");
+                    continue;
+                };
+
+                window = Some(WindowId::from(id));
+            }
+
+            if input.starts_with("open ") {
+                let url = input.trim_start_matches("open ");
+                let Ok(url) = Url::parse(url) else {
+                    eprintln!("Invalid url: {url}");
+                    continue;
+                };
+
+                let Some(id) = window else {
+                    eprintln!("No window set!");
+                    continue;
+                };
+
+                if let Err(e) = p.send_event(CustomEventInternal::OpenTab(url, id)) {
+                    eprintln!("Error sending event: {e:?}");
+                }
             }
         }
     });

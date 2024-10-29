@@ -109,6 +109,32 @@ impl<
             tab.data.unselect_element();
         }
     }
+
+    pub fn next_tab(&mut self) {
+        if let Some(next_tab_id) = self.tabs.keys().skip_while(|key| *key != self.active.0).nth(1) {
+            self.active = TabID(next_tab_id);
+        }
+    }
+
+    pub fn previous_tab(&mut self) {
+        if let Some(prev_tab_id) = self
+            .tabs
+            .keys()
+            .collect::<Vec<_>>()
+            .iter()
+            .rev()
+            .skip_while(|key| **key != self.active.0)
+            .nth(1)
+        {
+            self.active = TabID(*prev_tab_id);
+        }
+    }
+
+    pub fn activate_idx(&mut self, idx: usize) {
+        if let Some(id) = self.tabs.keys().nth(idx) {
+            self.active = TabID(id);
+        }
+    }
 }
 
 #[derive(Debug)]

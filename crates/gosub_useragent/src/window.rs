@@ -8,6 +8,7 @@ use image::imageops::FilterType;
 use log::{error, warn};
 use url::Url;
 use winit::dpi::LogicalSize;
+use winit::event::Modifiers;
 use winit::event_loop::{ActiveEventLoop, EventLoopProxy};
 use winit::window::{Icon, Window as WinitWindow, WindowId};
 
@@ -66,6 +67,7 @@ pub struct Window<
     pub(crate) renderer_data: B::WindowData<'a>,
     pub(crate) tabs: Tabs<D, B, L, LT, Doc, C, RT>,
     pub(crate) el: WindowEventLoop<D, B, L, LT, Doc, C, RT>,
+    pub(crate) mods: Modifiers,
 }
 
 impl<
@@ -86,6 +88,8 @@ impl<
         el: EventLoopProxy<CustomEventInternal<D, B, L, LT, Doc, C, RT>>,
     ) -> Result<Self> {
         let window = create_window(event_loop)?;
+
+        println!("Created window with id: {:?}", window.id());
 
         #[cfg(target_arch = "wasm32")]
         {
@@ -126,6 +130,7 @@ impl<
             renderer_data,
             tabs: Tabs::default(),
             el,
+            mods: Modifiers::default(),
         })
     }
 
@@ -241,6 +246,24 @@ impl<
         Doc: Document<C>,
         C: CssSystem,
         RT: RenderTree<C>,
+    > WindowEventLoop<D, B, L, LT, Doc, C, RT>
+{
+    #[allow(unused)]
+    pub fn send(&mut self, event: CustomEventInternal<D, B, L, LT, Doc, C, RT>) {
+        if let Err(e) = self.proxy.send_event(event) {
+            error!("Failed to send event {e}");
+        }
+    }
+}
+
+impl<
+        D: SceneDrawer<B, L, LT, Doc, C, RT>,
+        B: RenderBackend,
+        L: Layouter,
+        LT: LayoutTree<L>,
+        Doc: Document<C>,
+        C: CssSystem,
+        RT: RenderTree<C>,
     > Clone for WindowEventLoop<D, B, L, LT, Doc, C, RT>
 {
     fn clone(&self) -> Self {
@@ -278,6 +301,12 @@ impl<
 
     fn reload_from(&mut self, rt: RT) {
         if let Err(e) = self.proxy.send_event(CustomEventInternal::ReloadFrom(rt, self.id)) {
+            error!("Failed to send event {e}");
+        }
+    }
+
+    fn open_tab(&mut self, url: Url) {
+        if let Err(e) = self.proxy.send_event(CustomEventInternal::OpenTab(url, self.id)) {
             error!("Failed to send event {e}");
         }
     }

@@ -10,6 +10,7 @@ use gosub_shared::traits::render_tree::RenderTree;
 use gosub_shared::types::Result;
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use smallvec::SmallVec;
+use url::Url;
 
 pub mod geo;
 pub mod layout;
@@ -27,6 +28,8 @@ pub trait WindowedEventLoop<B: RenderBackend, RT: RenderTree<C>, C: CssSystem>:
     fn add_img_cache(&mut self, url: String, buf: ImageBuffer<B>, size: Option<SizeU32>);
 
     fn reload_from(&mut self, rt: RT);
+
+    fn open_tab(&mut self, url: Url);
 }
 
 pub trait RenderBackend: Sized + Debug + 'static {
