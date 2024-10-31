@@ -100,11 +100,7 @@ where
         size: SizeU32,
         el: &impl WindowedEventLoop<B, RenderTree<L, C>, C>,
     ) -> bool {
-        if !self.dirty && self.size == Some(size) {
-            return false;
-        }
-
-        if self.tree_scene.is_none() || self.size != Some(size) {
+        if self.tree_scene.is_none() || self.size != Some(size) || !self.dirty {
             self.size = Some(size);
 
             let mut scene = B::Scene::new();

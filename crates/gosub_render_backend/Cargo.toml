@@ -15,4 +15,5 @@ image = "0.25.2"
 raw-window-handle = "0.6.2"
 log = "0.4.14"
 anyhow = "1.0.91"
+url = "2.5.2"
 
