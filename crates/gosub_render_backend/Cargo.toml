@@ -11,7 +11,7 @@ gosub_html5 = { path = "../gosub_html5" }
 gosub_css3 = { path = "../gosub_css3" }
 gosub_typeface = { path = "../gosub_typeface" }
 smallvec = "1.13.2"
-image = "0.25.2"
+image = "0.25.4"
 raw-window-handle = "0.6.2"
 log = "0.4.14"
 anyhow = "1.0.91"
