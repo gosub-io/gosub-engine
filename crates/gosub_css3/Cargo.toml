@@ -14,7 +14,7 @@ anyhow = { version = "1.0.91", features = [] }
 colors-transform = "0.2.11"
 rand = "0.8.5"
 itertools = "0.13.0"
-serde = { version = "1.0.210", features = ["derive"] }
+serde = { version = "1.0.214", features = ["derive"] }
 serde_json = "1.0.128"
 thiserror = "1.0.67"
 nom = "7.1.3"
