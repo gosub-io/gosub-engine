@@ -45,7 +45,7 @@ serde_derive = "1.0"
 derive_more = { version = "1", features = ["from"] }
 lazy_static = "1.5"
 regex = "1"
-anyhow = "1.0.91"
+anyhow = "1.0.92"
 walkdir = "2.5"
 clap = { version = "4.5.19", features = ["derive"] }
 simple_logger = "5.0.0"
