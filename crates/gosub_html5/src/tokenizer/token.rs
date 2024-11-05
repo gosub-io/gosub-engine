@@ -191,6 +191,136 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_is_mixed() {
+        let token = Token::Text {
+            text: "foo\0".to_string(),
+            location: Location::default(),
+        };
+        assert!(token.is_mixed());
+        let token = Token::Text {
+            text: "foo ".to_string(),
+            location: Location::default(),
+        };
+        assert!(token.is_mixed());
+        let token = Token::Text {
+            text: "foo".to_string(),
+            location: Location::default(),
+        };
+        assert!(!token.is_mixed());
+        let token = Token::Eof {
+            location: Location::default(),
+        };
+        assert!(!token.is_mixed());
+    }
+
+    #[test]
+    fn test_is_mixed_null() {
+        let token = Token::Text {
+            text: "foo\0".to_string(),
+            location: Location::default(),
+        };
+        assert!(token.is_mixed_null());
+        let token = Token::Text {
+            text: "foo".to_string(),
+            location: Location::default(),
+        };
+        assert!(!token.is_mixed_null());
+        let token = Token::Text {
+            text: "\0".to_string(),
+            location: Location::default(),
+        };
+        assert!(!token.is_mixed_null());
+        let token = Token::Eof {
+            location: Location::default(),
+        };
+        assert!(!token.is_mixed_null());
+    }
+
+    #[test]
+    fn test_get_location() {
+        let token = Token::DocType {
+            name: None,
+            force_quirks: false,
+            pub_identifier: None,
+            sys_identifier: None,
+            location: Location::new(1, 2, 1),
+        };
+        assert_eq!(token.get_location(), Location::new(1, 2, 1));
+        let token = Token::StartTag {
+            name: "html".to_string(),
+            is_self_closing: false,
+            attributes: HashMap::new(),
+            location: Location::new(2, 4, 10),
+        };
+        assert_eq!(token.get_location(), Location::new(2, 4, 10));
+        let token = Token::EndTag {
+            name: "html".to_string(),
+            is_self_closing: false,
+            location: Location::new(3, 6, 17),
+        };
+        assert_eq!(token.get_location(), Location::new(3, 6, 17));
+        let token = Token::Comment {
+            comment: "foo".to_string(),
+            location: Location::new(4, 3, 11),
+        };
+        assert_eq!(token.get_location(), Location::new(4, 3, 11));
+        let token = Token::Text {
+            text: "foo".to_string(),
+            location: Location::new(5, 8, 20),
+        };
+        assert_eq!(token.get_location(), Location::new(5, 8, 20));
+        let token = Token::Eof {
+            location: Location::new(6, 2, 10),
+        };
+        assert_eq!(token.get_location(), Location::new(6, 2, 10));
+    }
+
+    #[test]
+    fn test_set_location() {
+        let mut token = Token::DocType {
+            name: None,
+            force_quirks: false,
+            pub_identifier: None,
+            sys_identifier: None,
+            location: Location::default(),
+        };
+        token.set_location(Location::new(1, 2, 1));
+        assert_eq!(token.get_location(), Location::new(1, 2, 1));
+        let mut token = Token::StartTag {
+            name: "html".to_string(),
+            is_self_closing: false,
+            attributes: HashMap::new(),
+            location: Location::default(),
+        };
+        token.set_location(Location::new(2, 4, 10));
+        assert_eq!(token.get_location(), Location::new(2, 4, 10));
+        let mut token = Token::EndTag {
+            name: "html".to_string(),
+            is_self_closing: false,
+            location: Location::default(),
+        };
+        token.set_location(Location::new(3, 6, 17));
+        assert_eq!(token.get_location(), Location::new(3, 6, 17));
+        let mut token = Token::Comment {
+            comment: "foo".to_string(),
+            location: Location::default(),
+        };
+        token.set_location(Location::new(4, 3, 11));
+        assert_eq!(token.get_location(), Location::new(4, 3, 11));
+        let mut token = Token::Text {
+            text: "foo".to_string(),
+            location: Location::default(),
+        };
+        token.set_location(Location::new(5, 8, 20));
+        assert_eq!(token.get_location(), Location::new(5, 8, 20));
+        let mut token = Token::Eof {
+            location: Location::default(),
+        };
+        token.set_location(Location::new(6, 2, 10));
+        assert_eq!(token.get_location(), Location::new(6, 2, 10));
+    }
+
+    #[test]
     fn test_token_is_null() {
         let token = Token::Text {
             text: "Hello\0World".to_string(),
