@@ -39,11 +39,11 @@ pub trait Layouter: Sized + Clone + Send + 'static {
     fn layout<LT: LayoutTree<Self>>(&self, tree: &mut LT, root: LT::NodeId, space: SizeU32) -> Result<()>;
 }
 
-pub trait LayoutCache: Default + Send {
+pub trait LayoutCache: Default + Send + Debug {
     fn invalidate(&mut self);
 }
 
-pub trait Layout: Default {
+pub trait Layout: Default + Debug {
     /// Returns the relative upper left pos of the content box
     fn rel_pos(&self) -> Point;
 
