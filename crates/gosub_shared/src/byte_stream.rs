@@ -985,4 +985,33 @@ mod test {
         stream.prev_n(4);
         assert_eq!(stream.read_and_next(), Ch('c'));
     }
+
+    #[test]
+    fn test_set() {
+        let mut handler = LocationHandler::new(Location::default());
+        handler.set(Location::new(1, 5, 4));
+        assert_eq!(handler.cur_location, Location::new(1, 5, 4));
+    }
+
+    #[test]
+    fn test_dec() {
+        let mut handler = LocationHandler::new(Location::default());
+        handler.cur_location = Location::new(2, 2, 4);
+        handler.column_stack = vec![3];
+        handler.dec();
+        assert_eq!(handler.cur_location, Location::new(2, 1, 3));
+        handler.dec();
+        assert_eq!(handler.cur_location, Location::new(1, 3, 2));
+        assert_eq!(handler.column_stack, vec![]);
+    }
+
+    #[test]
+    fn test_inc() {
+        let mut handler = LocationHandler::new(Location::default());
+        handler.inc(Character::Ch('A'));
+        assert_eq!(handler.cur_location, Location::new(1, 2, 1));
+        handler.inc(Character::Ch('\n'));
+        assert_eq!(handler.cur_location, Location::new(2, 1, 2));
+        assert_eq!(handler.column_stack, vec![2]);
+    }
 }
