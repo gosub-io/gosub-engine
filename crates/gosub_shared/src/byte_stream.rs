@@ -599,7 +599,7 @@ impl LocationHandler {
             self.cur_location.offset -= 1;
         } else if self.cur_location.line > 1 {
             self.cur_location.line -= 1;
-            self.cur_location.column = self.column_stack.pop().expect("column_stack is empty");
+            self.cur_location.column = self.column_stack.pop().unwrap_or(1);
             self.cur_location.offset -= 1;
         }
     }
