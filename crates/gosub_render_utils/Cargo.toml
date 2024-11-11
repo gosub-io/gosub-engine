@@ -12,5 +12,5 @@ gosub_shared = { path = "../gosub_shared" }
 gosub_render_backend = { path = "../gosub_render_backend" }
 anyhow = "1.0.92"
 regex = "1.11.1"
-rstar = "0.12.0"
+rstar = "0.12.2"
 log = "0.4.14"
