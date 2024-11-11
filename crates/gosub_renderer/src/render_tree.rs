@@ -87,16 +87,23 @@ pub(crate) async fn load_html_rendertree_fetcher<L: Layouter, P: Html5Parser<C>,
             bail!(format!("Could not get url. Status code {}", response.status));
         }
 
-        String::from_utf8(response.body.clone())?
+        response.body
     } else if url.scheme() == "file" {
-        fs::read_to_string(url.as_str().trim_start_matches("file://"))?
+        fs::read(url.as_str().trim_start_matches("file://"))?
     } else {
         bail!("Unsupported url scheme: {}", url.scheme());
     };
 
-    let mut stream = ByteStream::new(Encoding::UTF8, None);
-    stream.read_from_str(&html, Some(Encoding::UTF8));
+    let mut stream = ByteStream::new(Encoding::UNKNOWN, None);
+
+
+
+    stream.read_from_bytes(&html)?;
+    stream.set_encoding(stream.detect_encoding());
+    
     stream.close();
+
+
 
     let mut doc_handle = <P::Document as Document<C>>::Builder::new_document(Some(url));
     let parse_errors = P::parse(&mut stream, DocumentHandle::clone(&doc_handle), None)?;
