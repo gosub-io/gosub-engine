@@ -12,7 +12,7 @@ derive_more = { version = "1", features = ["from", "display"] }
 phf = { version = "0.11.2", features = ["macros"] }
 lazy_static = "1.5"
 thiserror = "2.0.3"
-url = { version = "2.5.2", features = [] }
+url = { version = "2.5.3", features = [] }
 log = { version = "0.4.22", features = [] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
