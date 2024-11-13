@@ -612,11 +612,9 @@ fn parse_font_axes(n: &mut impl Node) -> Vec<FontVariation> {
     };
 
     // we don't need to care about things other than a list, since you always need two values for a variation
-    let Some(vars) = s.as_list() else {
+    let Some(mut slice) = s.as_list() else {
         return Vec::new();
     };
-
-    let mut slice = vars.as_slice();
 
     let mut vars = Vec::with_capacity((slice.len() as f32 / 3.0).ceil() as usize);
 

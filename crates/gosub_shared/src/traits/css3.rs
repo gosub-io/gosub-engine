@@ -87,7 +87,7 @@ pub trait CssProperty: Debug + Sized + From<Self::Value> {
     fn parse_color(&self) -> Option<(f32, f32, f32, f32)>;
 
     fn as_number(&self) -> Option<f32>;
-    fn as_list(&self) -> Option<Vec<Self::Value>>;
+    fn as_list(&self) -> Option<&[Self::Value]>;
     
     fn as_function(&self) -> Option<(&str, &[Self::Value])>;
 
@@ -109,7 +109,7 @@ pub trait CssValue: Sized {
     fn as_unit(&self) -> Option<(f32, &str)>;
     fn as_color(&self) -> Option<(f32, f32, f32, f32)>;
     fn as_number(&self) -> Option<f32>;
-    fn as_list(&self) -> Option<Vec<Self>>;
+    fn as_list(&self) -> Option<&[Self]>;
     
     fn as_function(&self) -> Option<(&str, &[Self])>;
 

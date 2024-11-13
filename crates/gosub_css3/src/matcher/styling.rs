@@ -597,9 +597,9 @@ impl gosub_shared::traits::css3::CssProperty for CssProperty {
         }
     }
 
-    fn as_list(&self) -> Option<Vec<Self::Value>> {
+    fn as_list(&self) -> Option<&[Self::Value]> {
         if let CssValue::List(list) = &self.actual {
-            Some(list.to_vec())
+            Some(list)
         } else {
             None
         }
