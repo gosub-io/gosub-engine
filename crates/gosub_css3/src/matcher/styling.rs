@@ -605,6 +605,14 @@ impl gosub_shared::traits::css3::CssProperty for CssProperty {
         }
     }
 
+    fn as_function(&self) -> Option<(&str, &[Self::Value])> {
+        if let CssValue::Function(name, args) = &self.actual {
+            Some((name.as_str(), args))
+        } else {
+            None
+        }
+    }
+
     fn is_none(&self) -> bool {
         matches!(self.actual, CssValue::None)
     }
