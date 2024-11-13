@@ -606,7 +606,7 @@ impl gosub_shared::traits::css3::CssValue for CssValue {
             None
         }
     }
-    
+
     fn as_function(&self) -> Option<(&str, &[Self])> {
         if let CssValue::Function(name, args) = &self {
             Some((name.as_str(), args))
