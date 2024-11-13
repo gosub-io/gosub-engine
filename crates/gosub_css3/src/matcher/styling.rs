@@ -1,8 +1,8 @@
 use core::fmt::Debug;
+use itertools::Itertools;
 use std::cmp::Ordering;
 use std::collections::HashMap;
-
-use itertools::Itertools;
+use std::fmt::Display;
 
 use gosub_shared::document::DocumentHandle;
 use gosub_shared::node::NodeId;
@@ -540,6 +540,12 @@ impl From<CssValue> for CssProperty {
         this.calculate_value();
 
         this
+    }
+}
+
+impl Display for CssProperty {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(&self.actual, f)
     }
 }
 

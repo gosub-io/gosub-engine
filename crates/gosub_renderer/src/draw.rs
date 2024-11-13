@@ -64,6 +64,7 @@ pub trait SceneDrawer<
     fn select_element(&mut self, id: LT::NodeId);
     fn unselect_element(&mut self);
 
+    fn info(&mut self, id: LT::NodeId, sender: Sender<NodeDesc>);
     fn send_nodes(&mut self, sender: Sender<NodeDesc>);
 
     fn set_needs_redraw(&mut self);
@@ -264,6 +265,10 @@ where
         self.selected_element = None;
         self.debugger_scene = None;
         self.dirty = true
+    }
+
+    fn info(&mut self, id: NodeId, sender: Sender<NodeDesc>) {
+        let _ = sender.send(self.tree.desc_node(id));
     }
 
     fn send_nodes(&mut self, sender: Sender<NodeDesc>) {

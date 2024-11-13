@@ -204,6 +204,10 @@ impl<
         self.tabs.select_element(id);
     }
 
+    pub fn info(&mut self, id: LT::NodeId, sender: Sender<NodeDesc>) {
+        self.tabs.info(id, sender);
+    }
+
     pub fn send_nodes(&mut self, sender: Sender<NodeDesc>) {
         self.tabs.send_nodes(sender);
     }
