@@ -80,10 +80,10 @@ pub fn parse_position(node: &mut impl Node) -> Position {
 
 pub fn parse_inset(node: &mut impl Node) -> Rect<LengthPercentageAuto> {
     Rect {
-        top: parse_len_auto(node, "inset-top"),
-        right: parse_len_auto(node, "inset-right"),
-        bottom: parse_len_auto(node, "inset-bottom"),
-        left: parse_len_auto(node, "inset-left"),
+        top: parse_len_auto(node, "top"),
+        right: parse_len_auto(node, "right"),
+        bottom: parse_len_auto(node, "bottom"),
+        left: parse_len_auto(node, "left"),
     }
 }
 
