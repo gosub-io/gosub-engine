@@ -16,7 +16,7 @@ use gosub_rendering::position::PositionTree;
 use gosub_rendering::render_tree::{RenderNodeData, RenderTree, RenderTreeNode};
 use gosub_shared::async_executor::WasmNotSend;
 use gosub_shared::node::NodeId;
-use gosub_shared::traits::css3::{CssProperty, CssPropertyMap, CssSystem};
+use gosub_shared::traits::css3::{CssProperty, CssPropertyMap, CssSystem, CssValue};
 use gosub_shared::traits::document::Document;
 use gosub_shared::traits::html5::Html5Parser;
 use gosub_shared::traits::render_tree;
@@ -720,28 +720,40 @@ fn render_bg<B: RenderBackend, L: Layouter, C: CssSystem, RT: render_tree::Rende
     let background_image = node
         .properties
         .get("background-image")
-        .and_then(|prop| prop.as_string());
+        .map(|x| dbg!(x))
+        .and_then(|prop| prop.as_function());
 
     let mut img_size = None;
 
-    if let Some(url) = background_image {
-        let size = node.layout.size_or().map(|x| x.u32());
+    #[allow(clippy::collapsible_match)]
+    if let Some((function, args)) = background_image {
+        #[allow(clippy::single_match)]
+        match function {
+            "url" => {
+                if let Some(url) = args.first().and_then(|url| url.as_string()) {
+                    let size = node.layout.size_or().map(|x| x.u32());
 
-        let img = match request_img::<B, RT, C>(fetcher.clone(), svg.clone(), url, size, img_cache, el) {
-            Ok(img) => img,
-            Err(e) => {
-                eprintln!("Error loading image: {:?}", e);
-                return (border_radius, None);
+                    let img = match request_img::<B, RT, C>(fetcher.clone(), svg.clone(), url, size, img_cache, el) {
+                        Ok(img) => img,
+                        Err(e) => {
+                            eprintln!("Error loading image: {:?}", e);
+                            return (border_radius, None);
+                        }
+                    };
+
+                    if size.is_none() {
+                        img_size = Some(img.size());
+                    }
+
+                    let _ =
+                        render_image::<B>(img, *pos, node.layout.size(), border_radius, "fill", scene).map_err(|e| {
+                            eprintln!("Error rendering image: {:?}", e);
+                        });
+                }
             }
-        };
 
-        if size.is_none() {
-            img_size = Some(img.size());
+            _ => {}
         }
-
-        let _ = render_image::<B>(img, *pos, node.layout.size(), border_radius, "fill", scene).map_err(|e| {
-            eprintln!("Error rendering image: {:?}", e);
-        });
     }
 
     (border_radius, img_size)
