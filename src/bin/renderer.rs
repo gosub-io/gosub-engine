@@ -12,6 +12,8 @@ use gosub_taffy::TaffyLayouter;
 use gosub_useragent::application::{Application, CustomEventInternal, WindowOptions};
 use gosub_useragent::winit::window::WindowId;
 use gosub_vello::VelloBackend;
+use log::LevelFilter;
+use simple_logger::SimpleLogger;
 use url::Url;
 
 type Backend = VelloBackend;
@@ -27,7 +29,11 @@ type Drawer = TreeDrawer<Backend, Layouter, Document, CssSystem>;
 type Tree = RenderTree<Layouter, CssSystem>;
 
 fn main() -> Result<()> {
-    simple_logger::init_with_level(log::Level::Info)?;
+    SimpleLogger::new()
+        .with_level(LevelFilter::Info)
+        .with_module_level("wgpu_hal", LevelFilter::Warn)
+        .with_module_level("wgpu_core", LevelFilter::Warn)
+        .init()?;
 
     let matches = clap::Command::new("Gosub Renderer")
         .arg(
