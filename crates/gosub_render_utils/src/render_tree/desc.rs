@@ -9,7 +9,7 @@ impl<L: Layouter, C: CssSystem> RenderTree<L, C> {
         self.desc_node(self.root)
     }
 
-    fn desc_node(&self, node: NodeId) -> NodeDesc {
+    pub fn desc_node(&self, node: NodeId) -> NodeDesc {
         let Some(node) = self.get_node(node) else {
             return NodeDesc {
                 id: 0,
@@ -43,7 +43,7 @@ impl<L: Layouter, C: CssSystem> RenderTree<L, C> {
             properties: node
                 .properties
                 .iter()
-                .map(|(k, v)| (k.to_owned(), format!("{v:?}")))
+                .map(|(k, v)| (k.to_owned(), v.to_string()))
                 .collect(),
             text,
             pos: node.layout.rel_pos(),

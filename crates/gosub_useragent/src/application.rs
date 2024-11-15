@@ -215,6 +215,12 @@ impl<
                     window.request_redraw();
                 }
             }
+            CustomEventInternal::Info(id, sender) => {
+                if let Some(window) = self.windows.values_mut().next() {
+                    window.info(LT::NodeId::from(id), sender);
+                    window.request_redraw();
+                }
+            }
             CustomEventInternal::SendNodes(sender) => {
                 for window in self.windows.values_mut() {
                     window.send_nodes(sender.clone());
@@ -390,6 +396,7 @@ pub enum CustomEventInternal<
     CloseWindow(WindowId),
     OpenInitial,
     Select(u64),
+    Info(u64, mpsc::Sender<NodeDesc>),
     SendNodes(mpsc::Sender<NodeDesc>),
     Unselect,
     Redraw(WindowId),
@@ -420,6 +427,7 @@ impl<
             Self::Redraw(_) => f.write_str("Redraw"),
             Self::AddImg(..) => f.write_str("AddImg"),
             Self::ReloadFrom(..) => f.write_str("ReloadFrom"),
+            Self::Info(..) => f.write_str("Info"),
         }
     }
 }

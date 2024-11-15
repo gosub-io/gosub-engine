@@ -98,6 +98,12 @@ impl<
         }
     }
 
+    pub fn info(&mut self, id: LT::NodeId, sender: Sender<NodeDesc>) {
+        if let Some(tab) = self.get_current_tab() {
+            tab.data.info(id, sender);
+        }
+    }
+
     pub fn send_nodes(&mut self, sender: Sender<NodeDesc>) {
         if let Some(tab) = self.get_current_tab() {
             tab.data.send_nodes(sender);

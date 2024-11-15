@@ -1,4 +1,5 @@
 use std::fmt::{Debug, Display, Write};
+use std::io;
 use std::ops::{Div, Mul, MulAssign};
 
 use crate::layout::TextLayout;
@@ -747,6 +748,42 @@ impl NodeDesc {
                 write!(f, "  ")?;
             }
             writeln!(f, "{}: </{}>", self.id, self.name)?;
+        }
+
+        Ok(())
+    }
+
+    pub fn dbg_current(&self) {
+        let _ = self.write_current(&mut io::stdout());
+    }
+
+    pub fn write_current(&self, f: &mut impl io::Write) -> io::Result<()> {
+        let is_special = self.name.starts_with('#') || self.name.starts_with('!');
+
+        if is_special {
+            write!(f, "{}: {}", self.id, self.name)?;
+        } else {
+            write!(f, "{}: <{}", self.id, self.name)?;
+        }
+
+        if let Some(text) = &self.text {
+            write!(f, " =[{}]", text)?;
+        }
+
+        for (key, value) in &self.attributes {
+            write!(f, " {}=\"{}\"", key, value)?;
+        }
+
+        if !is_special {
+            writeln!(f, ">")?;
+        } else {
+            writeln!(f)?;
+        }
+
+        writeln!(f, "Props:")?;
+
+        for (name, value) in &self.properties {
+            writeln!(f, "    {name}: {value}")?;
         }
 
         Ok(())

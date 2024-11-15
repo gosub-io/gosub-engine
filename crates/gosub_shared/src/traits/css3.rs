@@ -5,7 +5,7 @@ use crate::node::NodeId;
 use crate::traits::document::Document;
 use crate::traits::render_tree::RenderTree;
 use crate::traits::ParserConfig;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 
 /// Defines the origin of the stylesheet (or declaration)
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -72,7 +72,7 @@ pub trait CssPropertyMap: Default + Debug + WasmNotSend {
     fn make_clean(&mut self);
     fn is_dirty(&self) -> bool;
 }
-pub trait CssProperty: Debug + Sized + From<Self::Value> {
+pub trait CssProperty: Debug + Display + Sized + From<Self::Value> {
     type Value: CssValue;
 
     fn compute_value(&mut self); // this should probably be removed

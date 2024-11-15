@@ -123,6 +123,29 @@ fn main() -> Result<()> {
                 }
             }
 
+            if input.starts_with("info ") {
+                let id = input.trim_start_matches("info ");
+                let Ok(id) = id.parse::<u64>() else {
+                    eprintln!("Invalid id: {id}");
+                    continue;
+                };
+
+                let (sender, receiver) = mpsc::channel();
+
+                if let Err(e) = p.send_event(CustomEventInternal::Info(id, sender)) {
+                    eprintln!("Error sending event: {e:?}");
+                }
+                let node = match receiver.recv() {
+                    Ok(node) => node,
+                    Err(e) => {
+                        eprintln!("Error receiving node: {e:?}");
+                        continue;
+                    }
+                };
+
+                node.dbg_current()
+            }
+
             if input.starts_with("window ") {
                 let id = input.trim_start_matches("window ");
                 let Ok(id) = id.parse::<u64>() else {
