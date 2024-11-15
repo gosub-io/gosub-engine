@@ -348,7 +348,7 @@ pub fn compute_inline_layout<LT: LayoutTree<TaffyLayouter>>(
 
     layout.break_all_lines(max_width);
 
-    layout.align(max_width, align);
+    layout.align(None, align);
 
     let content_size = Size {
         width: layout.width().ceil(),
