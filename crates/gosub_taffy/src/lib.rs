@@ -1,11 +1,10 @@
-use log::info;
 use std::ops::{Deref, DerefMut};
 use std::vec::IntoIter;
 use taffy::{
     compute_block_layout, compute_cached_layout, compute_flexbox_layout, compute_grid_layout, compute_hidden_layout,
     compute_root_layout, AvailableSpace, Cache as TaffyCache, Display as TaffyDisplay, Layout as TaffyLayout,
     LayoutBlockContainer, LayoutFlexboxContainer, LayoutGridContainer, LayoutInput, LayoutOutput, LayoutPartialTree,
-    NodeId as TaffyId, Style, TraversePartialTree,
+    NodeId as TaffyId, SizingMode, Style, TraversePartialTree,
 };
 
 use gosub_render_backend::geo::{Point, Rect, Size, SizeU32};
@@ -43,8 +42,8 @@ impl TLayout for Layout {
 
     fn size_or(&self) -> Option<Size> {
         let size = self.0.size;
-        if size.width == 0.0 && size.height == 0.0 {
-            None //Temporary hack to indicate that the size is not set
+        if size.width == f32::MIN && size.height == f32::MIN {
+            None
         } else {
             Some(Size::new(size.width, size.height))
         }
@@ -102,7 +101,7 @@ pub enum Display {
     Taffy,
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 #[allow(unused)]
 pub struct Cache {
     taffy: TaffyCache,
@@ -280,11 +279,10 @@ impl<LT: LayoutTree<TaffyLayouter>> LayoutPartialTree for LayoutDocument<'_, LT>
             .taffy
     }
 
-    fn compute_child_layout(&mut self, node_id: TaffyId, inputs: LayoutInput) -> LayoutOutput {
-        info!("Layout {node_id:?}");
+    fn compute_child_layout(&mut self, node_id: TaffyId, mut inputs: LayoutInput) -> LayoutOutput {
+        inputs.sizing_mode = SizingMode::InherentSize;
 
         compute_cached_layout(self, node_id, inputs, |tree, node_id_taffy, inputs| {
-            info!("actually Layout {node_id:?}");
             let node_id = LT::NodeId::from(node_id_taffy.into());
 
             if let Some(node) = tree.0.get_node(node_id) {
@@ -296,16 +294,12 @@ impl<LT: LayoutTree<TaffyLayouter>> LayoutPartialTree for LayoutDocument<'_, LT>
             // let has_children = tree.0.child_count(node_id) > 0; //TODO: this isn't optimal, since we are now requesting the same node twice (up in get_cache and here)
             let style = tree.get_taffy_style(node_id);
 
-            let x = match style.display {
+            match style.display {
                 TaffyDisplay::None => compute_hidden_layout(tree, node_id_taffy),
                 TaffyDisplay::Block => compute_block_layout(tree, node_id_taffy, inputs),
                 TaffyDisplay::Flex => compute_flexbox_layout(tree, node_id_taffy, inputs),
                 TaffyDisplay::Grid => compute_grid_layout(tree, node_id_taffy, inputs),
-            };
-
-            info!("Output id = {node_id_taffy:?} = {x:?}");
-
-            x
+            }
         })
     }
 }
