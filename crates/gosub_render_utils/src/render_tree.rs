@@ -300,9 +300,9 @@ impl<L: Layouter, C: CssSystem> RenderTree<L, C> {
 
         let iter_handle = DocumentHandle::clone(&handle);
 
-        for current_node_id in TreeIterator::new(iter_handle) {
-            let doc = handle.get();
+        let mut doc = handle.get();
 
+        for current_node_id in TreeIterator::new(iter_handle) {
             let node = doc.node_by_id(current_node_id).unwrap();
 
             let Some(properties) = C::properties_from_node(node, doc.stylesheets(), handle.clone(), current_node_id)
@@ -315,9 +315,12 @@ impl<L: Layouter, C: CssSystem> RenderTree<L, C> {
 
                 drop(doc);
 
-                let mut doc = handle.get_mut();
+                let mut doc_mut = handle.get_mut();
 
-                doc.detach_node(current_node_id);
+                doc_mut.detach_node(current_node_id);
+                drop(doc_mut);
+
+                doc = handle.get();
 
                 continue;
             };
@@ -326,7 +329,24 @@ impl<L: Layouter, C: CssSystem> RenderTree<L, C> {
 
             let render_data = match RenderNodeData::from_node_data(data) {
                 ControlFlow::Ok(data) => data,
-                ControlFlow::Drop => continue,
+                ControlFlow::Drop => {
+                    if let Some(parent) = node.parent_id() {
+                        if let Some(parent) = self.get_node_mut(parent) {
+                            parent.children.retain(|id| *id != current_node_id)
+                        }
+                    }
+
+                    drop(doc);
+
+                    let mut doc_mut = handle.get_mut();
+
+                    doc_mut.detach_node(current_node_id);
+                    drop(doc_mut);
+
+                    doc = handle.get();
+
+                    continue;
+                }
                 ControlFlow::Error(e) => {
                     log::error!("Failed to create node data for node: {current_node_id:?} ({e}");
                     continue;
