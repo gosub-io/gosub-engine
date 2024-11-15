@@ -1,6 +1,5 @@
 use std::cell::RefCell;
 use std::char::REPLACEMENT_CHARACTER;
-use std::collections::HashMap;
 use std::fmt::{Debug, Display, Formatter};
 use std::io::Read;
 use std::{fmt, io};
@@ -572,8 +571,8 @@ pub struct LocationHandler {
     pub start_location: Location,
     /// The current location of the stream
     pub cur_location: Location,
-    /// List of all line number -> col size mappings
-    line_endings: HashMap<usize, usize>,
+    /// Stack of all column size
+    column_stack: Vec<usize>,
 }
 
 impl LocationHandler {
@@ -583,7 +582,7 @@ impl LocationHandler {
         Self {
             start_location,
             cur_location: Location::default(),
-            line_endings: HashMap::new(),
+            column_stack: Vec::new(),
         }
     }
 
@@ -598,12 +597,9 @@ impl LocationHandler {
         if self.cur_location.column > 1 {
             self.cur_location.column -= 1;
             self.cur_location.offset -= 1;
-            return;
-        }
-
-        if self.cur_location.line > 1 {
+        } else if self.cur_location.line > 1 {
             self.cur_location.line -= 1;
-            self.cur_location.column = self.line_endings[&self.cur_location.line];
+            self.cur_location.column = self.column_stack.pop().unwrap_or(1);
             self.cur_location.offset -= 1;
         }
     }
@@ -612,9 +608,7 @@ impl LocationHandler {
     pub fn inc(&mut self, ch: Character) {
         match ch {
             Ch(CHAR_LF) => {
-                self.line_endings
-                    .insert(self.cur_location.line, self.cur_location.column);
-
+                self.column_stack.push(self.cur_location.column);
                 self.cur_location.line += 1;
                 self.cur_location.column = 1;
                 self.cur_location.offset += 1;
@@ -990,5 +984,34 @@ mod test {
         assert_eq!(stream.read_and_next(), Ch('\r'));
         stream.prev_n(4);
         assert_eq!(stream.read_and_next(), Ch('c'));
+    }
+
+    #[test]
+    fn test_set() {
+        let mut handler = LocationHandler::new(Location::default());
+        handler.set(Location::new(1, 5, 4));
+        assert_eq!(handler.cur_location, Location::new(1, 5, 4));
+    }
+
+    #[test]
+    fn test_dec() {
+        let mut handler = LocationHandler::new(Location::default());
+        handler.cur_location = Location::new(2, 2, 4);
+        handler.column_stack = vec![3];
+        handler.dec();
+        assert_eq!(handler.cur_location, Location::new(2, 1, 3));
+        handler.dec();
+        assert_eq!(handler.cur_location, Location::new(1, 3, 2));
+        assert_eq!(handler.column_stack, vec![]);
+    }
+
+    #[test]
+    fn test_inc() {
+        let mut handler = LocationHandler::new(Location::default());
+        handler.inc(Character::Ch('A'));
+        assert_eq!(handler.cur_location, Location::new(1, 2, 1));
+        handler.inc(Character::Ch('\n'));
+        assert_eq!(handler.cur_location, Location::new(2, 1, 2));
+        assert_eq!(handler.column_stack, vec![2]);
     }
 }
