@@ -9,7 +9,7 @@ license = "MIT"
 gosub_shared = { path = "../gosub_shared" }
 gosub_render_backend = { path = "../gosub_render_backend" }
 gosub_typeface = { path = "../gosub_typeface" }
-taffy = "0.6.1"
+taffy = "0.6.2"
 anyhow = "1.0.93"
 regex = "1.11.1"
 log = "0.4.22"
