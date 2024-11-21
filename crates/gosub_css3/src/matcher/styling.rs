@@ -446,34 +446,19 @@ impl CssProperty {
     }
 
     fn find_cascaded_value(&self) -> Option<CssValue> {
-        let mut declared = self.declared.clone();
-
-        declared.sort();
-        declared.sort_by(|a, b| {
-            if a.priority() == b.priority() {
-                return Ordering::Equal;
-            }
-
-            a.specificity.cmp(&b.specificity)
-        });
-
-        declared.last().map(|d| d.value.clone())
+        self.declared
+            .iter()
+            .max_by(|a, b| a.cmp(b).then_with(|| a.specificity.cmp(&b.specificity)))
+            .map(|v| v.value.clone())
     }
 
     fn find_specified_value(&self) -> CssValue {
-        match self.declared.iter().max() {
-            Some(decl) => decl.value.clone(),
-            None => CssValue::None,
-        }
+        self.cascaded.as_ref().unwrap_or(&self.inherited).clone()
     }
 
     fn find_computed_value(&self) -> CssValue {
         if self.specified != CssValue::None {
             return self.specified.clone();
-        }
-
-        if self.inherited != CssValue::None {
-            return self.inherited.clone();
         }
 
         self.get_initial_value().unwrap_or(CssValue::None)
