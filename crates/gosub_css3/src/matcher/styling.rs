@@ -378,7 +378,9 @@ impl Eq for DeclarationProperty {}
 
 impl Ord for DeclarationProperty {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.priority().cmp(&other.priority())
+        self.priority()
+            .cmp(&other.priority())
+            .then_with(|| self.specificity.cmp(&other.specificity))
     }
 }
 
@@ -446,10 +448,7 @@ impl CssProperty {
     }
 
     fn find_cascaded_value(&self) -> Option<CssValue> {
-        self.declared
-            .iter()
-            .max_by(|a, b| a.cmp(b).then_with(|| a.specificity.cmp(&b.specificity)))
-            .map(|v| v.value.clone())
+        self.declared.iter().max().map(|v| v.value.clone())
     }
 
     fn find_specified_value(&self) -> CssValue {
@@ -525,6 +524,18 @@ impl From<CssValue> for CssProperty {
         this.calculate_value();
 
         this
+    }
+}
+
+impl From<CssValue> for DeclarationProperty {
+    fn from(value: CssValue) -> Self {
+        Self {
+            location: "".into(),
+            important: false,
+            value,
+            origin: CssOrigin::Author,
+            specificity: Specificity::new(0, 0, 0),
+        }
     }
 }
 

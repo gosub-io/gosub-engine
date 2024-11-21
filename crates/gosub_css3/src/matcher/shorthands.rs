@@ -106,8 +106,18 @@ pub struct Shorthands {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FixList {
-    list: Vec<(String, Vec<CssValue>)>,
+    list: Vec<(String, Vec<DeclarationProperty>)>,
     multipliers: Vec<(String, usize)>,
+
+    current_info: Option<FixListInfo>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FixListInfo {
+    origin: CssOrigin,
+    important: bool,
+    location: String,
+    specificity: Specificity,
 }
 
 #[derive(Debug, Clone)]
@@ -192,6 +202,7 @@ pub struct Snapshot {
 }
 
 impl<'a> ShorthandResolver<'a> {
+    #[allow(clippy::result_large_err)]
     pub fn step(&'a mut self, idx: usize) -> Result<Option<Self>, CompleteStep<'a>> {
         let snapshot = Some(self.snapshot());
 
@@ -318,18 +329,46 @@ impl FixList {
         Self {
             list: Vec::new(),
             multipliers: Vec::new(),
+            current_info: None,
         }
     }
 
-    pub fn insert(&mut self, name: String, value: Vec<CssValue>) {
+    pub fn set_info(&mut self, info: FixListInfo) {
+        self.current_info = Some(info);
+    }
+
+    fn get_declaration(&self, value: CssValue) -> DeclarationProperty {
+        if let Some(info) = &self.current_info {
+            DeclarationProperty {
+                value,
+                origin: info.origin,
+                important: info.important,
+                specificity: info.specificity,
+                location: info.location.clone(),
+            }
+        } else {
+            DeclarationProperty {
+                value,
+                origin: CssOrigin::Author,
+                important: false,
+                specificity: Specificity::new(0, 0, 0),
+                location: String::new(),
+            }
+        }
+    }
+
+    pub fn insert(&mut self, name: String, value: CssValue) {
+        let value = self.get_declaration(value);
+
         for (k, v) in &mut self.list {
             if *k == name {
-                *v = value;
+                v.clear(); //TODO: This is a hack, we should not have to clear the vec
+                v.push(value);
                 return;
             }
         }
 
-        self.list.push((name, value));
+        self.list.push((name, vec![value]));
     }
 
     pub fn resolve_nested(&mut self, definitions: &CssDefinitions) {
@@ -337,7 +376,7 @@ impl FixList {
 
         let mut had_shorthands = false;
 
-        for (name, value) in &self.list {
+        for (name, decl) in &self.list {
             let Some(prop) = definitions.find_property(name) else {
                 continue;
             };
@@ -346,9 +385,11 @@ impl FixList {
                 continue;
             }
 
+            let Some(decl) = decl.iter().max() else { continue };
+
             had_shorthands = true;
 
-            prop.matches_and_shorthands(value, &mut fix_list);
+            prop.matches_and_shorthands(decl.value.to_slice(), &mut fix_list);
         }
 
         if had_shorthands {
@@ -364,16 +405,8 @@ impl FixList {
 
     pub fn apply(&mut self, props: &mut CssProperties) {
         for (name, value) in &self.list {
-            let Some(value) = value.first().cloned() else {
+            let Some(decl) = value.iter().max().cloned() else {
                 continue;
-            };
-
-            let decl = DeclarationProperty {
-                value,
-                origin: CssOrigin::Author,
-                important: false,
-                location: "".to_string(),
-                specificity: Specificity::new(0, 1, 0),
             };
 
             match props.properties.entry(name.clone()) {
@@ -396,8 +429,10 @@ impl FixList {
 
 impl CompleteStep<'_> {
     pub fn complete(mut self, value: Vec<CssValue>) {
+        let val = CssValue::from_vec(value);
+
         for name in self.name.clone() {
-            self.list.insert(name.to_string(), value.clone());
+            self.list.insert(name.to_string(), val.clone())
         }
 
         self.completed = true;
@@ -619,12 +654,13 @@ mod tests {
             fix_list,
             FixList {
                 list: vec![
-                    ("margin-bottom".to_string(), vec![unit!(1.0, "px")]),
-                    ("margin-left".to_string(), vec![unit!(1.0, "px")]),
-                    ("margin-right".to_string(), vec![unit!(1.0, "px")]),
-                    ("margin-top".to_string(), vec![unit!(1.0, "px")]),
+                    ("margin-bottom".to_string(), vec![unit!(1.0, "px").into()]),
+                    ("margin-left".to_string(), vec![unit!(1.0, "px").into()]),
+                    ("margin-right".to_string(), vec![unit!(1.0, "px").into()]),
+                    ("margin-top".to_string(), vec![unit!(1.0, "px").into()]),
                 ],
                 multipliers: vec![("margin".to_string(), 1),],
+                current_info: None
             }
         );
 
@@ -638,12 +674,13 @@ mod tests {
             fix_list,
             FixList {
                 list: vec![
-                    ("margin-bottom".to_string(), vec![unit!(1.0, "px")]),
-                    ("margin-left".to_string(), vec![unit!(2.0, "px")]),
-                    ("margin-right".to_string(), vec![unit!(2.0, "px")]),
-                    ("margin-top".to_string(), vec![unit!(1.0, "px")]),
+                    ("margin-bottom".to_string(), vec![unit!(1.0, "px").into()]),
+                    ("margin-left".to_string(), vec![unit!(2.0, "px").into()]),
+                    ("margin-right".to_string(), vec![unit!(2.0, "px").into()]),
+                    ("margin-top".to_string(), vec![unit!(1.0, "px").into()]),
                 ],
                 multipliers: vec![("margin".to_string(), 2),],
+                current_info: None
             }
         );
 
@@ -656,12 +693,13 @@ mod tests {
             fix_list,
             FixList {
                 list: vec![
-                    ("margin-bottom".to_string(), vec![unit!(3.0, "px")]),
-                    ("margin-left".to_string(), vec![unit!(2.0, "px")]),
-                    ("margin-right".to_string(), vec![unit!(2.0, "px")]),
-                    ("margin-top".to_string(), vec![unit!(1.0, "px")]),
+                    ("margin-bottom".to_string(), vec![unit!(3.0, "px").into()]),
+                    ("margin-left".to_string(), vec![unit!(2.0, "px").into()]),
+                    ("margin-right".to_string(), vec![unit!(2.0, "px").into()]),
+                    ("margin-top".to_string(), vec![unit!(1.0, "px").into()]),
                 ],
                 multipliers: vec![("margin".to_string(), 3),],
+                current_info: None
             }
         );
 
@@ -675,12 +713,13 @@ mod tests {
             fix_list,
             FixList {
                 list: vec![
-                    ("margin-bottom".to_string(), vec![unit!(3.0, "px")]),
-                    ("margin-left".to_string(), vec![unit!(4.0, "px")]),
-                    ("margin-right".to_string(), vec![unit!(2.0, "px")]),
-                    ("margin-top".to_string(), vec![unit!(1.0, "px")]),
+                    ("margin-bottom".to_string(), vec![unit!(3.0, "px").into()]),
+                    ("margin-left".to_string(), vec![unit!(4.0, "px").into()]),
+                    ("margin-right".to_string(), vec![unit!(2.0, "px").into()]),
+                    ("margin-top".to_string(), vec![unit!(1.0, "px").into()]),
                 ],
                 multipliers: vec![("margin".to_string(), 4),],
+                current_info: None
             }
         );
 
