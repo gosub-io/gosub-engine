@@ -8,7 +8,7 @@ license = "MIT"
 [dependencies]
 syn = { version = "2.0.82", features = ["full", "extra-traits"] }
 quote = { version = "1.0.37", features = [] }
-proc-macro2 = "1.0.89"
+proc-macro2 = "1.0.92"
 serde = { version = "1.0.215", features = ["derive"] }
 lazy_static = "1.5.0"
 
