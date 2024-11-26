@@ -1204,20 +1204,6 @@ dependencies = [
 
 [[package]]
 name = "fontdb"
-version = "0.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "37be9fc20d966be438cd57a45767f73349477fb0f85ce86e000557f787298afb"
-dependencies = [
- "fontconfig-parser",
- "log",
- "memmap2",
- "slotmap",
- "tinyvec",
- "ttf-parser 0.24.1",
-]
-
-[[package]]
-name = "fontdb"
 version = "0.22.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a3a6f9af55fb97ad673fb7a69533eb2f967648a06fa21f8c9bb2cd6d33975716"
@@ -3687,7 +3673,7 @@ dependencies = [
  "rgb",
  "svgtypes",
  "tiny-skia",
- "usvg 0.44.0",
+ "usvg",
  "zune-jpeg",
 ]
 
@@ -4618,33 +4604,6 @@ dependencies = [
 
 [[package]]
 name = "usvg"
-version = "0.43.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6803057b5cbb426e9fb8ce2216f3a9b4ca1dd2c705ba3cbebc13006e437735fd"
-dependencies = [
- "base64",
- "data-url",
- "flate2",
- "fontdb 0.21.0",
- "imagesize",
- "kurbo",
- "log",
- "pico-args",
- "roxmltree 0.20.0",
- "rustybuzz",
- "simplecss",
- "siphasher 1.0.1",
- "strict-num",
- "svgtypes",
- "tiny-skia-path",
- "unicode-bidi",
- "unicode-script",
- "unicode-vo",
- "xmlwriter",
-]
-
-[[package]]
-name = "usvg"
 version = "0.44.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7447e703d7223b067607655e625e0dbca80822880248937da65966194c4864e6"
@@ -4652,7 +4611,7 @@ dependencies = [
  "base64",
  "data-url",
  "flate2",
- "fontdb 0.22.0",
+ "fontdb",
  "imagesize",
  "kurbo",
  "log",
@@ -4772,13 +4731,13 @@ dependencies = [
 
 [[package]]
 name = "vello_svg"
-version = "0.4.0"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "47ca63b9321e371196c2645343bde868b1854d433608043ef1abbad6c8a83484"
+checksum = "bbf8bc9b79b81a290cb8dfa3506c281c7300cc0fcf23e76ec5e2f0174bac4f03"
 dependencies = [
  "image",
  "thiserror 1.0.69",
- "usvg 0.43.0",
+ "usvg",
  "vello",
 ]
 
