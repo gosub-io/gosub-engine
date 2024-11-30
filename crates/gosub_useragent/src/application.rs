@@ -129,11 +129,7 @@ impl<
                 let _ = proxy.send_event(CustomEventInternal::OpenTab(url, id));
             }
             CustomEventInternal::AddTab(tab, id) => {
-                info!("Adding tab to window: {id:?}");
-
                 if let Some(window) = self.windows.get_mut(&id) {
-                    info!("Found window, adding tab");
-
                     window.add_tab(tab);
                 }
             }
@@ -242,10 +238,6 @@ impl<
             CustomEventInternal::AddImg(url, img, size, id) => {
                 if let Some(window) = self.windows.get_mut(&id) {
                     if let Some(tab) = window.tabs.get_current_tab() {
-                        info!("Add img {url} {size:?}");
-
-                        info!("size  {:?}", img.size());
-
                         tab.data.get_img_cache().add(url, img, size);
 
                         tab.data.make_dirty();
