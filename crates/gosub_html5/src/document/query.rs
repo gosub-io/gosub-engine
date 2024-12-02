@@ -95,14 +95,14 @@ impl<D: Document<C>, C: CssSystem> DocumentQuery<D, C> {
                     return false;
                 };
 
-                return current_node_data.classlist().contains(class_name);
+                current_node_data.classlist().contains(class_name)
             }
             Condition::ContainsAttribute(attribute) => {
                 let Some(current_node_data) = current_node.get_element_data() else {
                     return false;
                 };
 
-                return current_node_data.attributes().contains_key(attribute);
+                current_node_data.attributes().contains_key(attribute)
             }
             Condition::ContainsChildTag(child_tag) => {
                 Self::contains_child_tag(doc_handle.clone(), current_node.id(), child_tag)

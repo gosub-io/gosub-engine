@@ -60,7 +60,7 @@ pub struct Tokenizer<'stream> {
     pub error_logger: Rc<RefCell<ErrorLogger>>,
 }
 
-impl<'stream> Tokenizer<'stream> {
+impl Tokenizer<'_> {
     pub(crate) fn insert_tokens_at_queue_start(&mut self, first_tokens: &[Token]) {
         let mut new_queue = first_tokens.to_owned();
         new_queue.extend(self.token_queue.iter().cloned());

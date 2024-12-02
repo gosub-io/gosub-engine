@@ -14,7 +14,6 @@ use gosub_shared::traits::render_tree::RenderTree;
 use gosub_shared::types::Result;
 
 impl<
-        'a,
         D: SceneDrawer<B, L, LT, Doc, C, RT>,
         B: RenderBackend,
         L: Layouter,
@@ -22,7 +21,7 @@ impl<
         Doc: Document<C>,
         C: CssSystem,
         RT: RenderTree<C>,
-    > Window<'a, D, B, L, LT, Doc, C, RT>
+    > Window<'_, D, B, L, LT, Doc, C, RT>
 {
     pub fn event<P: Html5Parser<C, Document = Doc>>(
         &mut self,

@@ -162,7 +162,7 @@ pub enum Ref<'a, T> {
     Owned(T),
 }
 
-impl<'a, T> Ref<'a, T> {
+impl<T> Ref<'_, T> {
     fn get_ref(&self) -> &T {
         match self {
             Ref::Ref(r) => r,
