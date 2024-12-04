@@ -6,7 +6,6 @@ use gosub_shared::traits::document::Document;
 use gosub_shared::traits::html5::Html5Parser;
 use gosub_shared::traits::render_tree::RenderTree;
 use gosub_shared::types::Result;
-use log::info;
 use slotmap::{DefaultKey, SlotMap};
 use std::sync::mpsc::Sender;
 use url::Url;
@@ -181,8 +180,6 @@ impl<
 
     pub async fn from_url<P: Html5Parser<C, Document = Doc>>(url: Url, layouter: L, debug: bool) -> Result<Self> {
         let data = D::from_url::<P>(url.clone(), layouter, debug).await?;
-
-        info!("Tab created: {}", url.as_str());
 
         Ok(Self {
             title: url.as_str().to_string(),

@@ -725,7 +725,6 @@ fn render_bg<B: RenderBackend, L: Layouter, C: CssSystem, RT: render_tree::Rende
     let background_image = node
         .properties
         .get("background-image")
-        .map(|x| dbg!(x))
         .and_then(|prop| prop.as_function());
 
     let mut img_size = None;
