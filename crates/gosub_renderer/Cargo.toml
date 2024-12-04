@@ -19,5 +19,5 @@ log = "0.4.22"
 lazy_static = "1.5.0"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen-futures = "0.4.42"
+wasm-bindgen-futures = "0.4.47"
 web-sys = "0.3.72"
