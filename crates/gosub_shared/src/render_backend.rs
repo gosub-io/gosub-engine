@@ -29,18 +29,18 @@ pub trait WindowedEventLoop<C: HasRenderTree + HasRenderBackend>: WasmNotSendSyn
     fn open_tab(&mut self, url: Url);
 }
 
-pub trait RenderBackend: Sized + Debug + 'static {
-    type Rect: Rect;
-    type Border: Border<Self>;
+pub trait RenderBackend: Sized + Debug {
+    type Rect: Rect + Clone;
+    type Border: Border<Self> + Clone + Debug;
     type BorderSide: BorderSide<Self>;
     type BorderRadius: BorderRadius;
     type Transform: Transform;
-    type Text: Text;
+    type Text: Text + Clone;
     type Gradient: Gradient<Self>;
     type Color: Color;
     type Image: Image;
     type Brush: Brush<Self>;
-    type Scene: Scene<Self> + Send;
+    type Scene: Scene<Self>;
     type SVGRenderer: SvgRenderer<Self>;
 
     type ActiveWindowData<'a>;
@@ -48,6 +48,7 @@ pub trait RenderBackend: Sized + Debug + 'static {
 
     fn draw_rect(&mut self, data: &mut Self::WindowData<'_>, rect: &RenderRect<Self>);
     fn draw_text(&mut self, data: &mut Self::WindowData<'_>, text: &RenderText<Self>);
+
     fn apply_scene(&mut self, data: &mut Self::WindowData<'_>, scene: &Self::Scene, transform: Option<Self::Transform>);
     fn reset(&mut self, data: &mut Self::WindowData<'_>);
     // fn layer_push(&mut self, data: &mut Self::WindowData<'_>);
@@ -92,6 +93,7 @@ pub trait Scene<B: RenderBackend>: Clone + Debug {
     fn new() -> Self;
 }
 
+#[derive(Clone, Debug)]
 pub struct RenderRect<B: RenderBackend> {
     pub rect: B::Rect,
     pub transform: Option<B::Transform>,
@@ -141,6 +143,7 @@ impl<B: RenderBackend> RenderRect<B> {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct RenderText<B: RenderBackend> {
     pub text: B::Text,
     pub rect: B::Rect,
@@ -169,6 +172,7 @@ impl<B: RenderBackend> RenderText<B> {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct RenderBorder<B: RenderBackend> {
     pub border: B::Border,
     pub transform: Option<B::Transform>,
@@ -213,7 +217,7 @@ pub trait BorderSide<B: RenderBackend> {
     fn new(width: FP, style: BorderStyle, brush: B::Brush) -> Self;
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum BorderStyle {
     Solid,
     Dashed,
@@ -246,7 +250,7 @@ impl BorderStyle {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum Radius {
     Uniform(FP),
     Elliptical(FP, FP),
@@ -665,7 +669,7 @@ pub enum ImageCacheEntry<'a, B: RenderBackend> {
     None,
 }
 
-pub trait ImgCache<B: RenderBackend>: Sized + Send {
+pub trait ImgCache<B: RenderBackend>: Sized {
     fn new() -> Self {
         Self::with_capacity(0)
     }

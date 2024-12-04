@@ -2,7 +2,7 @@ use crate::{Color, Gradient, Image, VelloBackend};
 use gosub_shared::render_backend::Brush as TBrush;
 use vello::peniko::Brush as VelloBrush;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Brush(pub(crate) VelloBrush);
 
 impl From<VelloBrush> for Brush {

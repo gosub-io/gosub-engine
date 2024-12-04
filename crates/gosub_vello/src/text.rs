@@ -8,6 +8,7 @@ use vello::skrifa::instance::NormalizedCoord;
 use vello::Scene;
 use vello_encoding::Glyph;
 
+#[derive(Clone)]
 pub struct Text {
     glyphs: Vec<Glyph>,
     font: Font,

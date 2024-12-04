@@ -5,7 +5,7 @@ pub trait Font: Clone {
 pub type GlyphID = u16;
 
 /// A fully positioned glyph
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Glyph {
     pub id: GlyphID,
     pub x: f32,

@@ -9,7 +9,14 @@ use gosub_shared::traits::config::ModuleConfiguration;
 use gosub_shared::traits::draw::TreeDrawer;
 use gosub_shared::types::Result;
 
-impl<C: ModuleConfiguration> Window<'_, C> {
+impl<C: ModuleConfiguration> Window<'_, C>
+where
+    C::RenderBackend: Send,
+    C::RenderTree: Send,
+    C::TreeDrawer: Send,
+    <C::RenderBackend as RenderBackend>::Scene: Send,
+    C::Layouter: Send,
+{
     pub fn event(&mut self, el: &ActiveEventLoop, backend: &mut C::RenderBackend, event: WindowEvent) -> Result<()> {
         let WindowState::Active {
             surface: active_window_data,
