@@ -29,7 +29,7 @@ pub enum BookMark<NodeId> {
     InsertAfter(NodeId),
 }
 
-impl<'chars, D, C> Html5Parser<'chars, D, C>
+impl<D, C> Html5Parser<'_, D, C>
 where
     D: Document<C>,
     C: CssSystem,

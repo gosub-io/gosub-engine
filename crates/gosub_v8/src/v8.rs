@@ -77,7 +77,7 @@ pub struct V8Context<'a> {
     ctx: Rc<RefCell<V8Ctx<'a>>>,
 }
 
-impl<'a> V8Context<'a> {
+impl V8Context<'_> {
     pub fn error(&self, error: impl Display) {
         let scope = self.scope();
         let err = error.to_string();

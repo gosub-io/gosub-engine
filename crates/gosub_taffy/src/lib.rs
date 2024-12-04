@@ -168,7 +168,8 @@ impl TaffyLayouter {
 pub struct LayoutDocument<'a, LT: LayoutTree<TaffyLayouter>>(&'a mut LT);
 
 impl<LT: LayoutTree<TaffyLayouter>> TraversePartialTree for LayoutDocument<'_, LT> {
-    type ChildIter<'a> = IntoIter<TaffyId>
+    type ChildIter<'a>
+        = IntoIter<TaffyId>
     where
         Self: 'a;
 
@@ -251,10 +252,12 @@ impl<LT: LayoutTree<TaffyLayouter>> LayoutDocument<'_, LT> {
 }
 
 impl<LT: LayoutTree<TaffyLayouter>> LayoutPartialTree for LayoutDocument<'_, LT> {
-    type CoreContainerStyle<'a> = &'a Style
+    type CoreContainerStyle<'a>
+        = &'a Style
     where
         Self: 'a;
-    type CacheMut<'b> = &'b mut TaffyCache
+    type CacheMut<'b>
+        = &'b mut TaffyCache
     where
         Self: 'b;
 
@@ -305,10 +308,12 @@ impl<LT: LayoutTree<TaffyLayouter>> LayoutPartialTree for LayoutDocument<'_, LT>
 }
 
 impl<LT: LayoutTree<TaffyLayouter>> LayoutBlockContainer for LayoutDocument<'_, LT> {
-    type BlockContainerStyle<'a> = &'a Style
+    type BlockContainerStyle<'a>
+        = &'a Style
     where
         Self: 'a;
-    type BlockItemStyle<'a> = &'a Style
+    type BlockItemStyle<'a>
+        = &'a Style
     where
         Self: 'a;
 
@@ -322,10 +327,12 @@ impl<LT: LayoutTree<TaffyLayouter>> LayoutBlockContainer for LayoutDocument<'_, 
 }
 
 impl<LT: LayoutTree<TaffyLayouter>> LayoutFlexboxContainer for LayoutDocument<'_, LT> {
-    type FlexboxContainerStyle<'a> = &'a Style
+    type FlexboxContainerStyle<'a>
+        = &'a Style
     where
         Self: 'a;
-    type FlexboxItemStyle<'a> = &'a Style
+    type FlexboxItemStyle<'a>
+        = &'a Style
     where
         Self: 'a;
 
@@ -339,10 +346,12 @@ impl<LT: LayoutTree<TaffyLayouter>> LayoutFlexboxContainer for LayoutDocument<'_
 }
 
 impl<LT: LayoutTree<TaffyLayouter>> LayoutGridContainer for LayoutDocument<'_, LT> {
-    type GridContainerStyle<'a> = &'a Style
+    type GridContainerStyle<'a>
+        = &'a Style
     where
         Self: 'a;
-    type GridItemStyle<'a> = &'a Style
+    type GridItemStyle<'a>
+        = &'a Style
     where
         Self: 'a;
 

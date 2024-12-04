@@ -176,7 +176,6 @@ impl ErrorLogger {
 }
 
 #[cfg(test)]
-
 mod tests {
     use super::*;
 

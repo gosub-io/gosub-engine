@@ -65,7 +65,6 @@ pub struct Application<
 }
 
 impl<
-        'a,
         D: SceneDrawer<B, L, LT, Doc, C, RT>,
         B: RenderBackend,
         L: Layouter,
@@ -74,7 +73,7 @@ impl<
         C: CssSystem,
         P: Html5Parser<C, Document = Doc>,
         RT: RenderTree<C>,
-    > ApplicationHandler<CustomEventInternal<D, B, L, LT, Doc, C, RT>> for Application<'a, D, B, L, LT, Doc, C, P, RT>
+    > ApplicationHandler<CustomEventInternal<D, B, L, LT, Doc, C, RT>> for Application<'_, D, B, L, LT, Doc, C, P, RT>
 {
     fn resumed(&mut self, _event_loop: &ActiveEventLoop) {
         info!("Resumed");

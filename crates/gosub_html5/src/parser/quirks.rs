@@ -3,7 +3,7 @@ use gosub_shared::traits::css3::CssSystem;
 use gosub_shared::traits::document::{Document, DocumentFragment};
 use gosub_shared::traits::node::{ElementDataType, Node, QuirksMode};
 
-impl<'chars, D, C> Html5Parser<'chars, D, C>
+impl<D, C> Html5Parser<'_, D, C>
 where
     C: CssSystem,
     D: Document<C>,

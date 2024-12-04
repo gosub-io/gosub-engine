@@ -80,12 +80,12 @@ pub struct Token {
 impl Debug for Token {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if let TokenType::Whitespace(v) = self.token_type.clone() {
-            return match v.as_str() {
+            match v.as_str() {
                 "\t" => write!(f, "TAB at {:?}", self.location),
                 "\r" => write!(f, "CR at {:?}", self.location),
                 "\n" => write!(f, "LF at {:?}", self.location),
                 _ => write!(f, "{:?} at {:?}", self.token_type, self.location),
-            };
+            }
         } else {
             write!(f, "{:?} at {:?}", self.token_type, self.location)
         }
@@ -647,7 +647,7 @@ impl<'stream> Tokenizer<'stream> {
             return Token::new_function(value.as_str(), loc);
         }
 
-        return Token::new_ident(value.as_str(), loc);
+        Token::new_ident(value.as_str(), loc)
     }
 
     /// 4.3.6. [Consume a url token](https://www.w3.org/TR/css-syntax-3/#consume-a-url-token)
@@ -691,7 +691,7 @@ impl<'stream> Tokenizer<'stream> {
             url.push(self.next_char().into());
         }
 
-        return Token::new_url(url.as_str(), loc);
+        Token::new_url(url.as_str(), loc)
     }
 
     /// 4.3.14. [Consume the remnants of a bad url](https://www.w3.org/TR/css-syntax-3/#consume-remnants-of-bad-url)

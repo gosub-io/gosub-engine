@@ -166,6 +166,7 @@ struct Test2 {
     other_field: String,
 }
 
+#[allow(clippy::ptr_arg)]
 impl Test2 {
     fn cool_fn(&self) -> i32 {
         self.field
