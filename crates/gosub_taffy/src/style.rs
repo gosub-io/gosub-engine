@@ -1,14 +1,15 @@
 use taffy::Style;
 
 use crate::Display;
-use gosub_render_backend::layout::Node;
+use gosub_shared::render_backend::layout::LayoutNode;
+use gosub_shared::traits::config::HasLayouter;
 
 mod parse;
 mod parse_properties;
 
 const SCROLLBAR_WIDTH: f32 = 16.0;
 
-pub fn get_style_from_node(node: &mut impl Node) -> (Style, Display) {
+pub fn get_style_from_node<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> (Style, Display) {
     //TODO: theoretically we should limit this to the taffy layouter, since it doesn't make any sense otherweise
     let (display, disp) = parse_properties::parse_display(node);
     let overflow = parse_properties::parse_overflow(node);

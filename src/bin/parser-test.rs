@@ -1,6 +1,9 @@
 use gosub_css3::system::Css3System;
+use gosub_html5::document::builder::DocumentBuilderImpl;
 use gosub_html5::document::document_impl::DocumentImpl;
+use gosub_html5::document::fragment::DocumentFragmentImpl;
 use gosub_html5::parser::Html5Parser;
+use gosub_shared::traits::config::{HasCssSystem, HasDocument, HasHtmlParser};
 use gosub_testing::testing::tree_construction::fixture::read_fixtures;
 use gosub_testing::testing::tree_construction::result::ResultStatus;
 use gosub_testing::testing::tree_construction::Harness;
@@ -21,6 +24,21 @@ pub struct TotalTestResults {
     failed_position: usize,
     /// The actual tests that have failed
     tests_failed: Vec<(usize, usize, String)>,
+}
+#[derive(Clone, Debug, PartialEq)]
+struct Config;
+
+impl HasCssSystem for Config {
+    type CssSystem = Css3System;
+}
+impl HasDocument for Config {
+    type Document = DocumentImpl<Self>;
+    type DocumentFragment = DocumentFragmentImpl<Self>;
+    type DocumentBuilder = DocumentBuilderImpl;
+}
+
+impl HasHtmlParser for Config {
+    type HtmlParser = Html5Parser<'static, Self>;
 }
 
 fn main() {
@@ -68,7 +86,7 @@ fn run_test(test_idx: usize, test: Test, all_results: &mut TotalTestResults) {
 
     let mut harness = Harness::new();
     let result = harness
-        .run_test::<Html5Parser<DocumentImpl<Css3System>, Css3System>, Css3System>(test.clone(), false)
+        .run_test::<Config>(test.clone(), false)
         .expect("problem parsing");
 
     // #[cfg(all(feature = "debug_parser", not(test)))]

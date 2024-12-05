@@ -10,8 +10,9 @@ use taffy::{
     RunMode, Size,
 };
 
-use gosub_render_backend::geo;
-use gosub_render_backend::layout::{Decoration, DecorationStyle, HasTextLayout, LayoutTree, Node};
+use gosub_shared::render_backend::geo;
+use gosub_shared::render_backend::layout::{Decoration, DecorationStyle, HasTextLayout, LayoutNode, LayoutTree};
+use gosub_shared::traits::config::HasLayouter;
 use gosub_shared::traits::css3::{CssProperty, CssValue};
 use gosub_typeface::font::Glyph;
 
@@ -29,9 +30,9 @@ static FONT_CX: LazyLock<Mutex<FontContext>> = LazyLock::new(|| {
     Mutex::new(ctx)
 });
 
-pub fn compute_inline_layout<LT: LayoutTree<TaffyLayouter>>(
-    tree: &mut LayoutDocument<LT>,
-    nod_id: LT::NodeId,
+pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
+    tree: &mut LayoutDocument<C>,
+    nod_id: <C::LayoutTree as LayoutTree<C>>::NodeId,
     mut layout_input: LayoutInput,
 ) -> LayoutOutput {
     layout_input.known_dimensions = Size::NONE;
@@ -49,7 +50,7 @@ pub fn compute_inline_layout<LT: LayoutTree<TaffyLayouter>>(
     for child in &children {
         let node_id = NodeId::from((*child).into());
 
-        let Some(node) = tree.0.get_node(*child) else {
+        let Some(node) = tree.0.get_node_mut(*child) else {
             continue;
         };
 
@@ -99,7 +100,7 @@ pub fn compute_inline_layout<LT: LayoutTree<TaffyLayouter>>(
             let color = node.get_property("color").and_then(|s| s.parse_color());
 
             if let Some(actual_parent) = tree.0.parent_id(nod_id) {
-                if let Some(node) = tree.0.get_node(actual_parent) {
+                if let Some(node) = tree.0.get_node_mut(actual_parent) {
                     let decoration_line = node.get_property("text-decoration-line");
 
                     if let Some(decoration_line) = decoration_line {
@@ -356,11 +357,11 @@ pub fn compute_inline_layout<LT: LayoutTree<TaffyLayouter>>(
     };
 
     let mut current_node_idx = 0;
-    let mut current_node_id = LT::NodeId::from(0);
+    let mut current_node_id = <C::LayoutTree as LayoutTree<C>>::NodeId::from(0);
     let mut current_to = 0;
 
     if let Some(first) = text_node_data.first() {
-        current_node_id = LT::NodeId::from(first.id.into());
+        current_node_id = <C::LayoutTree as LayoutTree<C>>::NodeId::from(first.id.into());
         current_to = first.to;
     }
 
@@ -403,7 +404,7 @@ pub fn compute_inline_layout<LT: LayoutTree<TaffyLayouter>>(
 
                         if let Some(next) = text_node_data.get(current_node_idx) {
                             current_to = next.to;
-                            current_node_id = LT::NodeId::from(next.id.into());
+                            current_node_id = <C::LayoutTree as LayoutTree<C>>::NodeId::from(next.id.into());
                         } else {
                             break 'lines;
                         }
@@ -445,7 +446,7 @@ pub fn compute_inline_layout<LT: LayoutTree<TaffyLayouter>>(
                         decoration,
                     };
 
-                    let Some(node) = tree.0.get_node(current_node_id) else {
+                    let Some(node) = tree.0.get_node_mut(current_node_id) else {
                         continue;
                     };
 
@@ -538,7 +539,7 @@ struct TextNodeData {
     id: NodeId,
 }
 
-fn parse_alignment(node: &mut impl Node) -> Alignment {
+fn parse_alignment<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Alignment {
     let Some(prop) = node.get_property("text-align") else {
         return Alignment::Start;
     };
@@ -556,7 +557,7 @@ fn parse_alignment(node: &mut impl Node) -> Alignment {
     }
 }
 
-fn parse_font_weight(node: &mut impl Node) -> FontWeight {
+fn parse_font_weight<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> FontWeight {
     let Some(prop) = node.get_property("font-weight") else {
         return FontWeight::NORMAL;
     };
@@ -585,7 +586,7 @@ fn parse_font_weight(node: &mut impl Node) -> FontWeight {
     }
 }
 
-fn parse_font_style(node: &mut impl Node) -> FontStyle {
+fn parse_font_style<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> FontStyle {
     let Some(prop) = node.get_property("font-style") else {
         return FontStyle::Normal;
     };
@@ -604,7 +605,7 @@ fn parse_font_style(node: &mut impl Node) -> FontStyle {
     }
 }
 
-fn parse_font_axes(n: &mut impl Node) -> Vec<FontVariation> {
+fn parse_font_axes<C: HasLayouter>(n: &mut impl LayoutNode<C>) -> Vec<FontVariation> {
     let prop = n.get_property("font-variation-settings");
 
     let Some(s) = prop else {

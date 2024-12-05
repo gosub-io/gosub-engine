@@ -1,16 +1,12 @@
 use crate::DocumentHandle;
 use core::fmt::Debug;
 use gosub_shared::traits::document::{Document as OtherDocument, Document, DocumentType};
-use std::cell::RefCell;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fmt;
 use std::fmt::{Display, Formatter};
-use std::rc::Rc;
 use url::Url;
 
-use crate::document::builder::DocumentBuilderImpl;
-use crate::document::fragment::DocumentFragmentImpl;
 use crate::document::task_queue::is_valid_id_attribute_value;
 use crate::node::arena::NodeArena;
 use crate::node::data::comment::CommentData;
@@ -22,18 +18,18 @@ use crate::node::node_impl::{NodeDataTypeInternal, NodeImpl};
 use crate::node::visitor::Visitor;
 use gosub_shared::byte_stream::Location;
 use gosub_shared::node::NodeId;
-use gosub_shared::traits::css3::CssSystem;
+use gosub_shared::traits::config::HasDocument;
 use gosub_shared::traits::node::Node;
 use gosub_shared::traits::node::QuirksMode;
 
 /// Defines a document
 #[derive(Debug)]
-pub struct DocumentImpl<C: CssSystem> {
+pub struct DocumentImpl<C: HasDocument> {
     // pub handle: Weak<DocumentHandle<Self>>,
     /// URL of the given document (if any)
     pub url: Option<Url>,
     /// Holds and owns all nodes in the document
-    pub(crate) arena: NodeArena<NodeImpl<C>, C>,
+    pub(crate) arena: NodeArena<C>,
     /// HTML elements with ID (e.g., <div id="myid">)
     named_id_elements: HashMap<String, NodeId>,
     /// Document type of this document
@@ -44,7 +40,7 @@ pub struct DocumentImpl<C: CssSystem> {
     pub stylesheets: Vec<C::Stylesheet>,
 }
 
-impl<C: CssSystem> PartialEq for DocumentImpl<C> {
+impl<C: HasDocument> PartialEq for DocumentImpl<C> {
     fn eq(&self, other: &Self) -> bool {
         self.url == other.url
             && self.arena == other.arena
@@ -55,15 +51,13 @@ impl<C: CssSystem> PartialEq for DocumentImpl<C> {
     }
 }
 
-impl<C: CssSystem> Document<C> for DocumentImpl<C> {
+impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
     type Node = NodeImpl<C>;
-    type Fragment = DocumentFragmentImpl<C>;
-    type Builder = DocumentBuilderImpl;
 
     /// Creates a new document without a doc handle
     #[must_use]
-    fn new(document_type: DocumentType, url: Option<Url>, root_node: Option<Self::Node>) -> DocumentHandle<Self, C> {
-        let doc = Self {
+    fn new(document_type: DocumentType, url: Option<Url>, root_node: Option<Self::Node>) -> DocumentHandle<C> {
+        let mut doc = Self {
             url,
             arena: NodeArena::new(),
             named_id_elements: HashMap::new(),
@@ -72,16 +66,17 @@ impl<C: CssSystem> Document<C> for DocumentImpl<C> {
             stylesheets: Vec::new(),
         };
 
-        let mut doc_handle = DocumentHandle(Rc::new(RefCell::new(doc)), Default::default());
-
         if let Some(node) = root_node {
-            doc_handle.get_mut().register_node(node);
+            doc.register_node(node);
+
+            DocumentHandle::create(doc)
         } else {
+            let mut doc_handle = DocumentHandle::create(doc);
             let node = Self::Node::new_document(doc_handle.clone(), Location::default(), QuirksMode::NoQuirks);
             doc_handle.get_mut().arena.register_node(node);
-        }
 
-        doc_handle
+            doc_handle
+        }
     }
 
     /// Returns the URL of the document, or "" when no location is set
@@ -303,7 +298,7 @@ impl<C: CssSystem> Document<C> for DocumentImpl<C> {
     }
 
     /// Creates a new document node
-    fn new_document_node(handle: DocumentHandle<Self, C>, quirks_mode: QuirksMode, location: Location) -> Self::Node {
+    fn new_document_node(handle: DocumentHandle<C>, quirks_mode: QuirksMode, location: Location) -> Self::Node {
         NodeImpl::new(
             handle.clone(),
             location,
@@ -312,7 +307,7 @@ impl<C: CssSystem> Document<C> for DocumentImpl<C> {
     }
 
     fn new_doctype_node(
-        handle: DocumentHandle<Self, C>,
+        handle: DocumentHandle<C>,
         name: &str,
         public_id: Option<&str>,
         system_id: Option<&str>,
@@ -326,7 +321,7 @@ impl<C: CssSystem> Document<C> for DocumentImpl<C> {
     }
 
     /// Creates a new comment node
-    fn new_comment_node(handle: DocumentHandle<Self, C>, comment: &str, location: Location) -> Self::Node {
+    fn new_comment_node(handle: DocumentHandle<C>, comment: &str, location: Location) -> Self::Node {
         NodeImpl::new(
             handle.clone(),
             location,
@@ -335,7 +330,7 @@ impl<C: CssSystem> Document<C> for DocumentImpl<C> {
     }
 
     /// Creates a new text node
-    fn new_text_node(handle: DocumentHandle<Self, C>, value: &str, location: Location) -> Self::Node {
+    fn new_text_node(handle: DocumentHandle<C>, value: &str, location: Location) -> Self::Node {
         NodeImpl::new(
             handle.clone(),
             location,
@@ -345,7 +340,7 @@ impl<C: CssSystem> Document<C> for DocumentImpl<C> {
 
     /// Creates a new element node
     fn new_element_node(
-        handle: DocumentHandle<Self, C>,
+        handle: DocumentHandle<C>,
         name: &str,
         namespace: Option<&str>,
         attributes: HashMap<String, String>,
@@ -383,7 +378,7 @@ impl<C: CssSystem> Document<C> for DocumentImpl<C> {
     }
 }
 
-impl<C: CssSystem> DocumentImpl<C> {
+impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
     // Called whenever a node is being mutated in the document.
     fn on_document_node_mutation(&mut self, node: &NodeImpl<C>) {
         // self.on_document_node_mutation_update_id_in_node(node);
@@ -414,13 +409,7 @@ impl<C: CssSystem> DocumentImpl<C> {
     }
 
     /// Print a node and all its children in a tree-like structure
-    pub fn print_tree(
-        &self,
-        node: &<DocumentImpl<C> as Document<C>>::Node,
-        prefix: String,
-        last: bool,
-        f: &mut Formatter,
-    ) {
+    pub fn print_tree(&self, node: &C::Node, prefix: String, last: bool, f: &mut Formatter) {
         let mut buffer = prefix.clone();
         if last {
             buffer.push_str("└─ ");
@@ -480,7 +469,7 @@ impl<C: CssSystem> DocumentImpl<C> {
     }
 }
 
-impl<C: CssSystem> Display for DocumentImpl<C> {
+impl<C: HasDocument<Document = Self>> Display for DocumentImpl<C> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         let root = self.get_root();
         self.print_tree(root, "".to_string(), true, f);
@@ -488,9 +477,9 @@ impl<C: CssSystem> Display for DocumentImpl<C> {
     }
 }
 
-impl<C: CssSystem> DocumentImpl<C> {
+impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
     /// Fetches a node by named id (string) or returns None when no node with this ID is found
-    pub fn get_node_by_named_id(&self, named_id: &str) -> Option<&<DocumentImpl<C> as Document<C>>::Node> {
+    pub fn get_node_by_named_id(&self, named_id: &str) -> Option<&C::Node> {
         let node_id = self.named_id_elements.get(named_id)?;
         self.arena.node_ref(*node_id)
     }
@@ -499,7 +488,7 @@ impl<C: CssSystem> DocumentImpl<C> {
     // pub fn get_node_by_named_id_mut<D>(
     //     &mut self,
     //     named_id: &str,
-    // ) -> Option<&mut <DocumentImpl<C> as Document<C>>::Node> {
+    // ) -> Option<&mut C::Node> {
     //     let node_id = self.named_id_elements.get(named_id)?;
     //     self.arena.node_mut(*node_id)
     // }
@@ -530,26 +519,19 @@ impl<C: CssSystem> DocumentImpl<C> {
         self.arena.peek_next_id()
     }
 
-    pub fn nodes(&self) -> &HashMap<NodeId, <DocumentImpl<C> as Document<C>>::Node> {
+    pub fn nodes(&self) -> &HashMap<NodeId, C::Node> {
         self.arena.nodes()
     }
 }
 
 // Walk the document tree with the given visitor
-pub fn walk_document_tree<C: CssSystem>(
-    handle: DocumentHandle<DocumentImpl<C>, C>,
-    visitor: &mut Box<dyn Visitor<<DocumentImpl<C> as Document<C>>::Node, C>>,
-) {
+pub fn walk_document_tree<C: HasDocument>(handle: DocumentHandle<C>, visitor: &mut Box<dyn Visitor<C>>) {
     let binding = handle.get();
     let root = binding.get_root();
     internal_visit(handle.clone(), root, visitor);
 }
 
-fn internal_visit<C: CssSystem>(
-    handle: DocumentHandle<DocumentImpl<C>, C>,
-    node: &<DocumentImpl<C> as Document<C>>::Node,
-    visitor: &mut Box<dyn Visitor<<DocumentImpl<C> as Document<C>>::Node, C>>,
-) {
+fn internal_visit<C: HasDocument>(handle: DocumentHandle<C>, node: &C::Node, visitor: &mut Box<dyn Visitor<C>>) {
     visitor.document_enter(node);
 
     let binding = handle.get();
@@ -567,15 +549,15 @@ fn internal_visit<C: CssSystem>(
 /// WARNING: mutations in the document would be reflected
 /// in the iterator. It's advised to consume the entire iterator
 /// before mutating the document again.
-pub struct TreeIterator<D: Document<C>, C: CssSystem> {
+pub struct TreeIterator<C: HasDocument> {
     current_node_id: Option<NodeId>,
     node_stack: Vec<NodeId>,
-    document: DocumentHandle<D, C>,
+    document: DocumentHandle<C>,
 }
 
-impl<D: Document<C>, C: CssSystem> TreeIterator<D, C> {
+impl<C: HasDocument> TreeIterator<C> {
     #[must_use]
-    pub fn new(doc: DocumentHandle<D, C>) -> Self {
+    pub fn new(doc: DocumentHandle<C>) -> Self {
         let node_stack = vec![doc.get().get_root().id()];
 
         Self {
@@ -586,7 +568,7 @@ impl<D: Document<C>, C: CssSystem> TreeIterator<D, C> {
     }
 }
 
-impl<D: Document<C>, C: CssSystem> Iterator for TreeIterator<D, C> {
+impl<C: HasDocument> Iterator for TreeIterator<C> {
     type Item = NodeId;
 
     fn next(&mut self) -> Option<NodeId> {
@@ -614,6 +596,7 @@ impl<D: Document<C>, C: CssSystem> Iterator for TreeIterator<D, C> {
 mod tests {
     use super::*;
     use crate::document::builder::DocumentBuilderImpl;
+    use crate::document::fragment::DocumentFragmentImpl;
     use crate::document::query::DocumentQuery;
     use crate::document::task_queue::DocumentTaskQueue;
     use crate::node::HTML_NAMESPACE;
@@ -621,13 +604,26 @@ mod tests {
     use crate::parser::tree_builder::TreeBuilder;
     use gosub_css3::system::Css3System;
     use gosub_shared::byte_stream::Location;
+    use gosub_shared::traits::config::HasCssSystem;
     use gosub_shared::traits::document::DocumentBuilder;
     use gosub_shared::traits::node::ClassList;
     use gosub_shared::traits::node::ElementDataType;
     use gosub_shared::traits::node::NodeType;
     use std::collections::HashMap;
 
-    type Document = DocumentImpl<Css3System>;
+    #[derive(Clone, Debug, PartialEq)]
+    struct Config;
+
+    impl HasCssSystem for Config {
+        type CssSystem = Css3System;
+    }
+    impl HasDocument for Config {
+        type Document = DocumentImpl<Self>;
+        type DocumentFragment = DocumentFragmentImpl<Self>;
+        type DocumentBuilder = DocumentBuilderImpl;
+    }
+    type Handle = DocumentHandle<Config>;
+    type Document = DocumentImpl<Config>;
 
     #[test]
     fn relocate() {
@@ -713,16 +709,16 @@ mod tests {
 
     #[test]
     fn verify_node_ids_in_element_data() {
-        let mut doc_handle = DocumentBuilderImpl::new_document(None);
+        let mut doc_handle: DocumentHandle<Config> = DocumentBuilderImpl::new_document(None);
 
-        let node_1: NodeImpl<Css3System> = DocumentImpl::new_element_node(
+        let node_1: NodeImpl<Config> = DocumentImpl::new_element_node(
             doc_handle.clone(),
             "div",
             Some(HTML_NAMESPACE),
             HashMap::new(),
             Location::default(),
         );
-        let node_2: NodeImpl<Css3System> = DocumentImpl::new_element_node(
+        let node_2: NodeImpl<Config> = DocumentImpl::new_element_node(
             doc_handle.clone(),
             "div",
             Some(HTML_NAMESPACE),
@@ -750,7 +746,7 @@ mod tests {
 
     #[test]
     fn document_task_queue() {
-        let doc_handle: DocumentHandle<DocumentImpl<Css3System>, Css3System> = DocumentBuilderImpl::new_document(None);
+        let doc_handle: Handle = DocumentBuilderImpl::new_document(None);
 
         // Using task queue to create the following structure initially:
         // <div>
@@ -859,8 +855,7 @@ mod tests {
 
     #[test]
     fn task_queue_insert_attribute_failues() {
-        let doc_handle: DocumentHandle<DocumentImpl<Css3System>, Css3System> =
-            <DocumentBuilderImpl as DocumentBuilder<Css3System>>::new_document(None);
+        let doc_handle: Handle = DocumentBuilderImpl::new_document(None);
 
         let mut task_queue = DocumentTaskQueue::new(doc_handle.clone());
         let div_id = task_queue.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
@@ -897,8 +892,7 @@ mod tests {
     // but using tree builder directly instead of the task queue
     #[test]
     fn document_tree_builder() {
-        let mut doc_handle: DocumentHandle<DocumentImpl<Css3System>, Css3System> =
-            <DocumentBuilderImpl as DocumentBuilder<Css3System>>::new_document(None);
+        let mut doc_handle: Handle = DocumentBuilderImpl::new_document(None);
 
         // Using tree builder to create the following structure:
         // <div>
@@ -1005,8 +999,7 @@ mod tests {
 
     #[test]
     fn insert_generic_attribute() {
-        let mut doc_handle: DocumentHandle<DocumentImpl<Css3System>, Css3System> =
-            <DocumentBuilderImpl as DocumentBuilder<Css3System>>::new_document(None);
+        let mut doc_handle: Handle = DocumentBuilderImpl::new_document(None);
 
         let node = Document::new_element_node(
             doc_handle.clone(),
@@ -1034,8 +1027,7 @@ mod tests {
 
     #[test]
     fn task_queue_insert_generic_attribute() {
-        let doc_handle: DocumentHandle<DocumentImpl<Css3System>, Css3System> =
-            <DocumentBuilderImpl as DocumentBuilder<Css3System>>::new_document(None);
+        let doc_handle: Handle = DocumentBuilderImpl::new_document(None);
 
         let mut task_queue = DocumentTaskQueue::new(doc_handle.clone());
         let div_id = task_queue.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
@@ -1051,8 +1043,7 @@ mod tests {
 
     #[test]
     fn insert_class_attribute() {
-        let mut doc_handle: DocumentHandle<DocumentImpl<Css3System>, Css3System> =
-            <DocumentBuilderImpl as DocumentBuilder<Css3System>>::new_document(None);
+        let mut doc_handle: Handle = DocumentBuilderImpl::new_document(None);
 
         let div_node = Document::new_element_node(
             doc_handle.clone(),
@@ -1082,7 +1073,7 @@ mod tests {
 
     #[test]
     fn task_queue_insert_class_attribute() {
-        let doc_handle: DocumentHandle<DocumentImpl<Css3System>, Css3System> = DocumentBuilderImpl::new_document(None);
+        let doc_handle: Handle = DocumentBuilderImpl::new_document(None);
 
         let mut task_queue = DocumentTaskQueue::new(doc_handle.clone());
         let div_id = task_queue.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
@@ -1101,7 +1092,7 @@ mod tests {
 
     #[test]
     fn uninitialized_query() {
-        let doc_handle: DocumentHandle<DocumentImpl<Css3System>, Css3System> = DocumentBuilderImpl::new_document(None);
+        let doc_handle: Handle = DocumentBuilderImpl::new_document(None);
 
         let query = Query::new();
         let found_ids = DocumentQuery::query(doc_handle.clone(), &query);
@@ -1124,8 +1115,7 @@ mod tests {
         // <div>
         //     <p>
         // <p>
-        let mut doc_handle: DocumentHandle<DocumentImpl<Css3System>, Css3System> =
-            DocumentBuilderImpl::new_document(None);
+        let mut doc_handle: Handle = DocumentBuilderImpl::new_document(None);
 
         let div_node = Document::new_element_node(
             doc_handle.clone(),
@@ -1205,8 +1195,7 @@ mod tests {
         // <div>
         //     <p>
         // <p>
-        let mut doc_handle: DocumentHandle<DocumentImpl<Css3System>, Css3System> =
-            DocumentBuilderImpl::new_document(None);
+        let mut doc_handle: Handle = DocumentBuilderImpl::new_document(None);
 
         let div_node = Document::new_element_node(
             doc_handle.clone(),
@@ -1286,8 +1275,7 @@ mod tests {
         // <div>
         //     <p>
         // <p>
-        let mut doc_handle: DocumentHandle<DocumentImpl<Css3System>, Css3System> =
-            DocumentBuilderImpl::new_document(None);
+        let mut doc_handle: Handle = DocumentBuilderImpl::new_document(None);
 
         let div_node = Document::new_element_node(
             doc_handle.clone(),
@@ -1375,8 +1363,7 @@ mod tests {
         // <div>
         //     <p class="two three">
         // <p class="three">
-        let mut doc_handle: DocumentHandle<DocumentImpl<Css3System>, Css3System> =
-            DocumentBuilderImpl::new_document(None);
+        let mut doc_handle: Handle = DocumentBuilderImpl::new_document(None);
 
         let div_node = Document::new_element_node(
             doc_handle.clone(),
@@ -1489,8 +1476,7 @@ mod tests {
         // <div>
         //     <p class="two three">
         // <p class="three">
-        let mut doc_handle: DocumentHandle<DocumentImpl<Css3System>, Css3System> =
-            DocumentBuilderImpl::new_document(None);
+        let mut doc_handle: Handle = DocumentBuilderImpl::new_document(None);
 
         let div_node = Document::new_element_node(
             doc_handle.clone(),
@@ -1603,8 +1589,7 @@ mod tests {
         // <div style="otherstyle" id="otherid">
         //     <p>
         // <p title="yo" style="cat">
-        let mut doc_handle: DocumentHandle<DocumentImpl<Css3System>, Css3System> =
-            DocumentBuilderImpl::new_document(None);
+        let mut doc_handle: Handle = DocumentBuilderImpl::new_document(None);
 
         let div_node = Document::new_element_node(
             doc_handle.clone(),
@@ -1719,8 +1704,7 @@ mod tests {
         // <div style="otherstyle" id="otherid">
         //     <p>
         // <p title="yo" style="cat">
-        let mut doc_handle: DocumentHandle<DocumentImpl<Css3System>, Css3System> =
-            DocumentBuilderImpl::new_document(None);
+        let mut doc_handle: Handle = DocumentBuilderImpl::new_document(None);
 
         let div_node = Document::new_element_node(
             doc_handle.clone(),
@@ -1837,8 +1821,7 @@ mod tests {
         // <div>
         //     <p>
         // <p>
-        let mut doc_handle: DocumentHandle<DocumentImpl<Css3System>, Css3System> =
-            DocumentBuilderImpl::new_document(None);
+        let mut doc_handle: Handle = DocumentBuilderImpl::new_document(None);
 
         let div_node = Document::new_element_node(
             doc_handle.clone(),
@@ -1918,8 +1901,7 @@ mod tests {
         // <div>
         //     <p>
         // <p>
-        let mut doc_handle: DocumentHandle<DocumentImpl<Css3System>, Css3System> =
-            DocumentBuilderImpl::new_document(None);
+        let mut doc_handle: Handle = DocumentBuilderImpl::new_document(None);
 
         let div_node = Document::new_element_node(
             doc_handle.clone(),
@@ -1999,8 +1981,7 @@ mod tests {
         // <div>
         //     <p>
         // <p>
-        let mut doc_handle: DocumentHandle<DocumentImpl<Css3System>, Css3System> =
-            DocumentBuilderImpl::new_document(None);
+        let mut doc_handle: Handle = DocumentBuilderImpl::new_document(None);
 
         let div_node = Document::new_element_node(
             doc_handle.clone(),
@@ -2080,8 +2061,7 @@ mod tests {
         // <div>
         //     <p>
         // <p>
-        let mut doc_handle: DocumentHandle<DocumentImpl<Css3System>, Css3System> =
-            DocumentBuilderImpl::new_document(None);
+        let mut doc_handle: Handle = DocumentBuilderImpl::new_document(None);
 
         let div_node = Document::new_element_node(
             doc_handle.clone(),
@@ -2154,8 +2134,7 @@ mod tests {
 
     #[test]
     fn tree_iterator() {
-        let mut doc_handle: DocumentHandle<DocumentImpl<Css3System>, Css3System> =
-            DocumentBuilderImpl::new_document(None);
+        let mut doc_handle: Handle = DocumentBuilderImpl::new_document(None);
 
         // <div>
         //     <div>
@@ -2239,8 +2218,7 @@ mod tests {
 
     #[test]
     fn tree_iterator_mutation() {
-        let mut doc_handle: DocumentHandle<DocumentImpl<Css3System>, Css3System> =
-            DocumentBuilderImpl::new_document(None);
+        let mut doc_handle: Handle = DocumentBuilderImpl::new_document(None);
 
         let div_node = Document::new_element_node(
             doc_handle.clone(),

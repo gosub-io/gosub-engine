@@ -12,14 +12,10 @@ use winit::event::Modifiers;
 use winit::event_loop::{ActiveEventLoop, EventLoopProxy};
 use winit::window::{Icon, Window as WinitWindow, WindowId};
 
-use gosub_render_backend::geo::SizeU32;
-use gosub_render_backend::layout::{LayoutTree, Layouter};
-use gosub_render_backend::{ImageBuffer, NodeDesc, RenderBackend, WindowedEventLoop};
-use gosub_renderer::draw::SceneDrawer;
-use gosub_shared::traits::css3::CssSystem;
-use gosub_shared::traits::document::Document;
-use gosub_shared::traits::html5::Html5Parser;
-use gosub_shared::traits::render_tree::RenderTree;
+use gosub_shared::render_backend::geo::SizeU32;
+use gosub_shared::render_backend::layout::LayoutTree;
+use gosub_shared::render_backend::{ImageBuffer, NodeDesc, RenderBackend, WindowedEventLoop};
+use gosub_shared::traits::config::ModuleConfiguration;
 use gosub_shared::types::Result;
 
 use crate::application::{CustomEventInternal, WindowOptions};
@@ -52,40 +48,21 @@ static ICON: LazyCell<Icon> = LazyCell::new(|| {
 });
 }
 
-pub struct Window<
-    'a,
-    D: SceneDrawer<B, L, LT, Doc, C, RT>,
-    B: RenderBackend,
-    L: Layouter,
-    LT: LayoutTree<L>,
-    Doc: Document<C>,
-    C: CssSystem,
-    RT: RenderTree<C>,
-> {
-    pub(crate) state: WindowState<'a, B>,
+pub struct Window<'a, C: ModuleConfiguration> {
+    pub(crate) state: WindowState<'a, C::RenderBackend>,
     pub(crate) window: Arc<WinitWindow>,
-    pub(crate) renderer_data: B::WindowData<'a>,
-    pub(crate) tabs: Tabs<D, B, L, LT, Doc, C, RT>,
-    pub(crate) el: WindowEventLoop<D, B, L, LT, Doc, C, RT>,
+    pub(crate) renderer_data: <C::RenderBackend as RenderBackend>::WindowData<'a>,
+    pub(crate) tabs: Tabs<C>,
+    pub(crate) el: WindowEventLoop<C>,
     pub(crate) mods: Modifiers,
 }
 
-impl<
-        'a,
-        D: SceneDrawer<B, L, LT, Doc, C, RT>,
-        B: RenderBackend,
-        L: Layouter,
-        LT: LayoutTree<L>,
-        Doc: Document<C>,
-        C: CssSystem,
-        RT: RenderTree<C>,
-    > Window<'a, D, B, L, LT, Doc, C, RT>
-{
-    pub fn new<P: Html5Parser<C, Document = Doc>>(
+impl<'a, C: ModuleConfiguration> Window<'a, C> {
+    pub fn new(
         event_loop: &ActiveEventLoop,
-        backend: &mut B,
+        backend: &mut C::RenderBackend,
         opts: WindowOptions,
-        el: EventLoopProxy<CustomEventInternal<D, B, L, LT, Doc, C, RT>>,
+        el: EventLoopProxy<CustomEventInternal<C>>,
     ) -> Result<Self> {
         let window = create_window(event_loop)?;
 
@@ -134,18 +111,13 @@ impl<
         })
     }
 
-    pub async fn open_tab<P: Html5Parser<C, Document = Doc>>(
-        &mut self,
-        url: Url,
-        layouter: L,
-        debug: bool,
-    ) -> Result<()> {
-        let tab = Tab::from_url::<P>(url, layouter, debug).await?;
+    pub async fn open_tab(&mut self, url: Url, layouter: C::Layouter, debug: bool) -> Result<()> {
+        let tab = Tab::from_url(url, layouter, debug).await?;
         self.tabs.add_tab(tab);
         Ok(())
     }
 
-    pub fn add_tab(&mut self, tab: Tab<D, B, L, LT, Doc, C, RT>) {
+    pub fn add_tab(&mut self, tab: Tab<C>) {
         let id = self.tabs.add_tab(tab);
 
         if self.tabs.active == TabID::default() {
@@ -155,7 +127,7 @@ impl<
         self.window.request_redraw();
     }
 
-    pub fn resumed(&mut self, backend: &mut B) -> Result<()> {
+    pub fn resumed(&mut self, backend: &mut C::RenderBackend) -> Result<()> {
         if !matches!(self.state, WindowState::Suspended) {
             return Ok(());
         };
@@ -173,7 +145,7 @@ impl<
         Ok(())
     }
 
-    pub fn suspended(&mut self, _el: &ActiveEventLoop, backend: &mut B) {
+    pub fn suspended(&mut self, _el: &ActiveEventLoop, backend: &mut C::RenderBackend) {
         let WindowState::Active { surface: data } = &mut self.state else {
             return;
         };
@@ -200,11 +172,11 @@ impl<
         }
     }
 
-    pub fn select_element(&mut self, id: LT::NodeId) {
+    pub fn select_element(&mut self, id: <C::LayoutTree as LayoutTree<C>>::NodeId) {
         self.tabs.select_element(id);
     }
 
-    pub fn info(&mut self, id: LT::NodeId, sender: Sender<NodeDesc>) {
+    pub fn info(&mut self, id: <C::LayoutTree as LayoutTree<C>>::NodeId, sender: Sender<NodeDesc>) {
         self.tabs.info(id, sender);
     }
 
@@ -229,47 +201,21 @@ fn create_window(event_loop: &ActiveEventLoop) -> Result<Arc<WinitWindow>> {
         .map(Arc::new)
 }
 
-pub(crate) struct WindowEventLoop<
-    D: SceneDrawer<B, L, LT, Doc, C, RT>,
-    B: RenderBackend,
-    L: Layouter,
-    LT: LayoutTree<L>,
-    Doc: Document<C>,
-    C: CssSystem,
-    RT: RenderTree<C>,
-> {
-    proxy: EventLoopProxy<CustomEventInternal<D, B, L, LT, Doc, C, RT>>,
+pub(crate) struct WindowEventLoop<C: ModuleConfiguration> {
+    proxy: EventLoopProxy<CustomEventInternal<C>>,
     id: WindowId,
 }
 
-impl<
-        D: SceneDrawer<B, L, LT, Doc, C, RT>,
-        B: RenderBackend,
-        L: Layouter,
-        LT: LayoutTree<L>,
-        Doc: Document<C>,
-        C: CssSystem,
-        RT: RenderTree<C>,
-    > WindowEventLoop<D, B, L, LT, Doc, C, RT>
-{
+impl<C: ModuleConfiguration> WindowEventLoop<C> {
     #[allow(unused)]
-    pub fn send(&mut self, event: CustomEventInternal<D, B, L, LT, Doc, C, RT>) {
+    pub fn send(&mut self, event: CustomEventInternal<C>) {
         if let Err(e) = self.proxy.send_event(event) {
             error!("Failed to send event {e}");
         }
     }
 }
 
-impl<
-        D: SceneDrawer<B, L, LT, Doc, C, RT>,
-        B: RenderBackend,
-        L: Layouter,
-        LT: LayoutTree<L>,
-        Doc: Document<C>,
-        C: CssSystem,
-        RT: RenderTree<C>,
-    > Clone for WindowEventLoop<D, B, L, LT, Doc, C, RT>
-{
+impl<C: ModuleConfiguration> Clone for WindowEventLoop<C> {
     fn clone(&self) -> Self {
         Self {
             proxy: self.proxy.clone(),
@@ -278,23 +224,14 @@ impl<
     }
 }
 
-impl<
-        D: SceneDrawer<B, L, LT, Doc, C, RT>,
-        B: RenderBackend,
-        L: Layouter,
-        LT: LayoutTree<L>,
-        Doc: Document<C>,
-        C: CssSystem,
-        RT: RenderTree<C>,
-    > WindowedEventLoop<B, RT, C> for WindowEventLoop<D, B, L, LT, Doc, C, RT>
-{
+impl<C: ModuleConfiguration> WindowedEventLoop<C> for WindowEventLoop<C> {
     fn redraw(&mut self) {
         if let Err(e) = self.proxy.send_event(CustomEventInternal::Redraw(self.id)) {
             error!("Failed to send event {e}"); // only will error if the event loop was closed
         }
     }
 
-    fn add_img_cache(&mut self, url: String, buf: ImageBuffer<B>, size: Option<SizeU32>) {
+    fn add_img_cache(&mut self, url: String, buf: ImageBuffer<C::RenderBackend>, size: Option<SizeU32>) {
         if let Err(e) = self
             .proxy
             .send_event(CustomEventInternal::AddImg(url, buf, size, self.id))
@@ -303,7 +240,7 @@ impl<
         }
     }
 
-    fn reload_from(&mut self, rt: RT) {
+    fn reload_from(&mut self, rt: C::RenderTree) {
         if let Err(e) = self.proxy.send_event(CustomEventInternal::ReloadFrom(rt, self.id)) {
             error!("Failed to send event {e}");
         }

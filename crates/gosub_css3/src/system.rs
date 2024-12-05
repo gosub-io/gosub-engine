@@ -9,8 +9,8 @@ use crate::{load_default_useragent_stylesheet, Css3};
 use gosub_shared::document::DocumentHandle;
 use gosub_shared::errors::CssResult;
 use gosub_shared::node::NodeId;
+use gosub_shared::traits::config::{HasDocument, HasRenderTree};
 use gosub_shared::traits::css3::{CssOrigin, CssPropertyMap, CssSystem};
-use gosub_shared::traits::document::Document;
 use gosub_shared::traits::node::{ElementDataType, Node, TextDataType};
 use gosub_shared::traits::render_tree::{RenderTree, RenderTreeNode};
 use gosub_shared::traits::ParserConfig;
@@ -26,20 +26,21 @@ impl CssSystem for Css3System {
     type PropertyMap = CssProperties;
 
     type Property = CssProperty;
+    type Value = CssValue;
 
     fn parse_str(str: &str, config: ParserConfig, origin: CssOrigin, url: &str) -> CssResult<Self::Stylesheet> {
         Css3::parse_str(str, config, origin, url)
     }
 
-    fn properties_from_node<D: Document<Self>>(
-        node: &D::Node,
+    fn properties_from_node<C: HasDocument<CssSystem = Self>>(
+        node: &C::Node,
         sheets: &[Self::Stylesheet],
-        handle: DocumentHandle<D, Self>,
+        handle: DocumentHandle<C>,
         id: NodeId,
     ) -> Option<Self::PropertyMap> {
         let mut css_map_entry = CssProperties::new();
 
-        if node_is_unrenderable::<D, Self>(node) {
+        if node_is_unrenderable::<C>(node) {
             return None;
         }
 
@@ -111,8 +112,8 @@ impl CssSystem for Css3System {
         Some(css_map_entry)
     }
 
-    fn inheritance<T: RenderTree<Self>>(tree: &mut T) {
-        Self::resolve_inheritance(tree, tree.root(), &Vec::new());
+    fn inheritance<C: HasRenderTree<CssSystem = Self>>(tree: &mut C::RenderTree) {
+        Self::resolve_inheritance::<C>(tree, tree.root(), &Vec::new());
     }
 
     fn load_default_useragent_stylesheet() -> Self::Stylesheet {
@@ -121,9 +122,9 @@ impl CssSystem for Css3System {
 }
 
 impl Css3System {
-    fn resolve_inheritance<T: RenderTree<Self>>(
-        tree: &mut T,
-        node_id: T::NodeId,
+    fn resolve_inheritance<C: HasRenderTree<CssSystem = Self>>(
+        tree: &mut C::RenderTree,
+        node_id: <C::RenderTree as RenderTree<C>>::NodeId,
         inherit_props: &Vec<(String, CssValue)>,
     ) {
         let Some(current_node) = tree.get_node_mut(node_id) else {
@@ -162,7 +163,7 @@ impl Css3System {
         };
 
         for child in children {
-            Self::resolve_inheritance(tree, child, &inherit_props);
+            Self::resolve_inheritance::<C>(tree, child, &inherit_props);
         }
     }
 }
@@ -218,7 +219,7 @@ pub fn add_property_to_map(
     }
 }
 
-pub fn node_is_unrenderable<D: Document<C>, C: CssSystem>(node: &D::Node) -> bool {
+pub fn node_is_unrenderable<C: HasDocument>(node: &C::Node) -> bool {
     // There are more elements that are not renderable, but for now we only remove the most common ones
 
     const REMOVABLE_ELEMENTS: [&str; 6] = ["head", "script", "style", "svg", "noscript", "title"];
@@ -238,18 +239,14 @@ pub fn node_is_unrenderable<D: Document<C>, C: CssSystem>(node: &D::Node) -> boo
     false
 }
 
-pub fn resolve_functions<D: Document<C>, C: CssSystem>(
-    value: &CssValue,
-    node: &D::Node,
-    handle: DocumentHandle<D, C>,
-) -> CssValue {
-    fn resolve<D: Document<C>, C: CssSystem>(val: &CssValue, node: &D::Node, doc: &D) -> CssValue {
+pub fn resolve_functions<C: HasDocument>(value: &CssValue, node: &C::Node, handle: DocumentHandle<C>) -> CssValue {
+    fn resolve<C: HasDocument>(val: &CssValue, node: &C::Node, doc: &C::Document) -> CssValue {
         match val {
             CssValue::Function(func, values) => {
                 let resolved = match func.as_str() {
                     "calc" => resolve_calc(values),
-                    "attr" => resolve_attr(values, node),
-                    "var" => resolve_var(values, doc, node),
+                    "attr" => resolve_attr::<C>(values, node),
+                    "var" => resolve_var::<C>(values, doc, node),
                     _ => vec![val.clone()],
                 };
 
@@ -262,9 +259,9 @@ pub fn resolve_functions<D: Document<C>, C: CssSystem>(
     let doc = handle.get();
 
     if let CssValue::List(list) = value {
-        let resolved = list.iter().map(|val| resolve(val, node, &*doc)).collect();
+        let resolved = list.iter().map(|val| resolve::<C>(val, node, &*doc)).collect();
         CssValue::List(resolved)
     } else {
-        resolve(value, node, &*doc)
+        resolve::<C>(value, node, &*doc)
     }
 }

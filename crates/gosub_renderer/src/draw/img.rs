@@ -6,27 +6,28 @@ use image::DynamicImage;
 
 use crate::draw::img_cache::ImageCache;
 use gosub_net::http::fetcher::Fetcher;
-use gosub_render_backend::svg::SvgRenderer;
-use gosub_render_backend::{
+use gosub_shared::render_backend::svg::SvgRenderer;
+use gosub_shared::render_backend::{
     Image as _, ImageBuffer, ImageCacheEntry, ImgCache, RenderBackend, SizeU32, WindowedEventLoop,
 };
-use gosub_shared::traits::css3::CssSystem;
-use gosub_shared::traits::render_tree::RenderTree;
+use gosub_shared::traits::config::HasDrawComponents;
 use gosub_shared::types::Result;
 
-pub fn request_img<B: RenderBackend, RT: RenderTree<C>, C: CssSystem>(
+pub fn request_img<C: HasDrawComponents>(
     fetcher: Arc<Fetcher>,
-    svg_renderer: Arc<Mutex<B::SVGRenderer>>,
+    svg_renderer: Arc<Mutex<<C::RenderBackend as RenderBackend>::SVGRenderer>>,
     url: &str,
     size: Option<SizeU32>,
-    img_cache: &mut ImageCache<B>,
-    el: &impl WindowedEventLoop<B, RT, C>,
-) -> Result<ImageBuffer<B>> {
+    img_cache: &mut ImageCache<C::RenderBackend>,
+    el: &impl WindowedEventLoop<C>,
+) -> Result<ImageBuffer<C::RenderBackend>> {
     let img = img_cache.get(url);
 
     Ok(match img {
         ImageCacheEntry::Image(img) => img.clone(),
-        ImageCacheEntry::Pending => ImageBuffer::Image(B::Image::from_img(image::DynamicImage::new_rgba8(0, 0))),
+        ImageCacheEntry::Pending => ImageBuffer::Image(<C::RenderBackend as RenderBackend>::Image::from_img(
+            image::DynamicImage::new_rgba8(0, 0),
+        )),
         ImageCacheEntry::None => {
             img_cache.add_pending(url.to_string());
 
@@ -35,18 +36,22 @@ pub fn request_img<B: RenderBackend, RT: RenderTree<C>, C: CssSystem>(
             let mut el = el.clone();
 
             gosub_shared::async_executor::spawn(async move {
-                if let Ok(img) = load_img::<B>(&url, fetcher, svg_renderer, size).await {
+                if let Ok(img) = load_img::<C::RenderBackend>(&url, fetcher, svg_renderer, size).await {
                     el.add_img_cache(url.to_string(), img, size);
                 } else {
                     el.add_img_cache(
                         url.to_string(),
-                        ImageBuffer::Image(B::Image::from_img(INVALID_IMG.clone())),
+                        ImageBuffer::Image(<C::RenderBackend as RenderBackend>::Image::from_img(
+                            INVALID_IMG.clone(),
+                        )),
                         size,
                     );
                 }
             });
 
-            ImageBuffer::Image(B::Image::from_img(DynamicImage::new_rgba8(0, 0)))
+            ImageBuffer::Image(<C::RenderBackend as RenderBackend>::Image::from_img(
+                DynamicImage::new_rgba8(0, 0),
+            ))
         }
     })
 }

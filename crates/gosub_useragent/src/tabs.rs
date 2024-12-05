@@ -1,71 +1,36 @@
-use gosub_render_backend::layout::{LayoutTree, Layouter};
-use gosub_render_backend::{NodeDesc, RenderBackend, WindowedEventLoop};
-use gosub_renderer::draw::SceneDrawer;
-use gosub_shared::traits::css3::CssSystem;
-use gosub_shared::traits::document::Document;
-use gosub_shared::traits::html5::Html5Parser;
-use gosub_shared::traits::render_tree::RenderTree;
+use gosub_shared::render_backend::layout::LayoutTree;
+use gosub_shared::render_backend::{NodeDesc, WindowedEventLoop};
+use gosub_shared::traits::config::ModuleConfiguration;
+use gosub_shared::traits::draw::TreeDrawer;
 use gosub_shared::types::Result;
 use slotmap::{DefaultKey, SlotMap};
 use std::sync::mpsc::Sender;
 use url::Url;
 
-pub struct Tabs<
-    D: SceneDrawer<B, L, LT, Doc, C, RT>,
-    B: RenderBackend,
-    L: Layouter,
-    LT: LayoutTree<L>,
-    Doc: Document<C>,
-    C: CssSystem,
-    RT: RenderTree<C>,
-> {
+pub struct Tabs<C: ModuleConfiguration> {
     #[allow(clippy::type_complexity)]
-    pub tabs: SlotMap<DefaultKey, Tab<D, B, L, LT, Doc, C, RT>>,
+    pub tabs: SlotMap<DefaultKey, Tab<C>>,
     pub active: TabID,
-    _marker: std::marker::PhantomData<(B, L, LT)>,
 }
 
-impl<
-        D: SceneDrawer<B, L, LT, Doc, C, RT>,
-        L: Layouter,
-        LT: LayoutTree<L>,
-        B: RenderBackend,
-        Doc: Document<C>,
-        C: CssSystem,
-        RT: RenderTree<C>,
-    > Default for Tabs<D, B, L, LT, Doc, C, RT>
-{
+impl<C: ModuleConfiguration> Default for Tabs<C> {
     fn default() -> Self {
         Self {
             tabs: SlotMap::new(),
             active: TabID::default(),
-            _marker: std::marker::PhantomData,
         }
     }
 }
 
-impl<
-        D: SceneDrawer<B, L, LT, Doc, C, RT>,
-        L: Layouter,
-        LT: LayoutTree<L>,
-        B: RenderBackend,
-        Doc: Document<C>,
-        C: CssSystem,
-        RT: RenderTree<C>,
-    > Tabs<D, B, L, LT, Doc, C, RT>
-{
-    pub fn new(initial: Tab<D, B, L, LT, Doc, C, RT>) -> Self {
+impl<C: ModuleConfiguration> Tabs<C> {
+    pub fn new(initial: Tab<C>) -> Self {
         let mut tabs = SlotMap::new();
         let active = TabID(tabs.insert(initial));
 
-        Self {
-            tabs,
-            active,
-            _marker: std::marker::PhantomData,
-        }
+        Self { tabs, active }
     }
 
-    pub fn add_tab(&mut self, tab: Tab<D, B, L, LT, Doc, C, RT>) -> TabID {
+    pub fn add_tab(&mut self, tab: Tab<C>) -> TabID {
         TabID(self.tabs.insert(tab))
     }
 
@@ -77,27 +42,23 @@ impl<
         self.active = id;
     }
 
-    pub fn get_current_tab(&mut self) -> Option<&mut Tab<D, B, L, LT, Doc, C, RT>> {
+    pub fn get_current_tab(&mut self) -> Option<&mut Tab<C>> {
         self.tabs.get_mut(self.active.0)
     }
 
     #[allow(unused)]
-    pub(crate) async fn from_url<P: Html5Parser<C, Document = Doc>>(
-        url: Url,
-        layouter: L,
-        debug: bool,
-    ) -> Result<Self> {
-        let tab = Tab::from_url::<P>(url, layouter, debug).await?;
+    pub(crate) async fn from_url(url: Url, layouter: C::Layouter, debug: bool) -> Result<Self> {
+        let tab = Tab::from_url(url, layouter, debug).await?;
         Ok(Self::new(tab))
     }
 
-    pub fn select_element(&mut self, id: LT::NodeId) {
+    pub fn select_element(&mut self, id: <C::LayoutTree as LayoutTree<C>>::NodeId) {
         if let Some(tab) = self.get_current_tab() {
             tab.data.select_element(id);
         }
     }
 
-    pub fn info(&mut self, id: LT::NodeId, sender: Sender<NodeDesc>) {
+    pub fn info(&mut self, id: <C::LayoutTree as LayoutTree<C>>::NodeId, sender: Sender<NodeDesc>) {
         if let Some(tab) = self.get_current_tab() {
             tab.data.info(id, sender);
         }
@@ -143,57 +104,32 @@ impl<
 }
 
 #[derive(Debug)]
-pub struct Tab<
-    D: SceneDrawer<B, L, LT, Doc, C, RT>,
-    B: RenderBackend,
-    L: Layouter,
-    LT: LayoutTree<L>,
-    Doc: Document<C>,
-    C: CssSystem,
-    RT: RenderTree<C>,
-> {
+pub struct Tab<C: ModuleConfiguration> {
     pub title: String,
     pub url: Url,
-    pub data: D,
-    #[allow(clippy::type_complexity)]
-    _marker: std::marker::PhantomData<fn(B, L, LT, Doc, C, RT)>,
+    pub data: C::TreeDrawer,
 }
 
-impl<
-        D: SceneDrawer<B, L, LT, Doc, C, RT>,
-        B: RenderBackend,
-        L: Layouter,
-        LT: LayoutTree<L>,
-        Doc: Document<C>,
-        C: CssSystem,
-        RT: RenderTree<C>,
-    > Tab<D, B, L, LT, Doc, C, RT>
-{
-    pub fn new(title: String, url: Url, data: D) -> Self {
-        Self {
-            title,
-            url,
-            data,
-            _marker: std::marker::PhantomData,
-        }
+impl<C: ModuleConfiguration> Tab<C> {
+    pub fn new(title: String, url: Url, data: C::TreeDrawer) -> Self {
+        Self { title, url, data }
     }
 
-    pub async fn from_url<P: Html5Parser<C, Document = Doc>>(url: Url, layouter: L, debug: bool) -> Result<Self> {
-        let data = D::from_url::<P>(url.clone(), layouter, debug).await?;
+    pub async fn from_url(url: Url, layouter: C::Layouter, debug: bool) -> Result<Self> {
+        let data = C::TreeDrawer::from_url(url.clone(), layouter, debug).await?;
 
         Ok(Self {
             title: url.as_str().to_string(),
             url,
             data,
-            _marker: std::marker::PhantomData,
         })
     }
 
-    pub fn reload<P: Html5Parser<C, Document = Doc>>(&mut self, el: impl WindowedEventLoop<B, RT, C>) {
-        self.data.reload::<P>(el);
+    pub fn reload(&mut self, el: impl WindowedEventLoop<C>) {
+        self.data.reload(el);
     }
 
-    pub fn reload_from(&mut self, rt: RT) {
+    pub fn reload_from(&mut self, rt: C::RenderTree) {
         self.data.reload_from(rt)
     }
 }

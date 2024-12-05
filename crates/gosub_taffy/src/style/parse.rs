@@ -4,11 +4,12 @@ use taffy::{
     NonRepeatedTrackSizingFunction, TrackSizingFunction,
 };
 
-use gosub_render_backend::geo::Size;
-use gosub_render_backend::layout::Node;
+use gosub_shared::render_backend::geo::Size;
+use gosub_shared::render_backend::layout::LayoutNode;
+use gosub_shared::traits::config::HasLayouter;
 use gosub_shared::traits::css3::CssProperty;
 
-pub fn parse_len(node: &mut impl Node, name: &str) -> LengthPercentage {
+pub fn parse_len<C: HasLayouter>(node: &mut impl LayoutNode<C>, name: &str) -> LengthPercentage {
     let Some(property) = node.get_property(name) else {
         return LengthPercentage::Length(0.0);
     };
@@ -20,7 +21,7 @@ pub fn parse_len(node: &mut impl Node, name: &str) -> LengthPercentage {
     LengthPercentage::Length(property.unit_to_px())
 }
 
-pub fn parse_len_auto(node: &mut impl Node, name: &str) -> LengthPercentageAuto {
+pub fn parse_len_auto<C: HasLayouter>(node: &mut impl LayoutNode<C>, name: &str) -> LengthPercentageAuto {
     let Some(property) = node.get_property(name) else {
         return LengthPercentageAuto::Length(0.0);
     };
@@ -38,7 +39,7 @@ pub fn parse_len_auto(node: &mut impl Node, name: &str) -> LengthPercentageAuto 
     LengthPercentageAuto::Length(property.unit_to_px())
 }
 
-pub fn parse_dimension(node: &mut impl Node, name: &str) -> Dimension {
+pub fn parse_dimension<C: HasLayouter>(node: &mut impl LayoutNode<C>, name: &str) -> Dimension {
     let Some(property) = node.get_property(name) else {
         return Dimension::Auto;
     };
@@ -66,7 +67,7 @@ pub fn parse_text_dim(size: Size, name: &str) -> Dimension {
     }
 }
 
-pub fn parse_align_i(node: &mut impl Node, name: &str) -> Option<AlignItems> {
+pub fn parse_align_i<C: HasLayouter>(node: &mut impl LayoutNode<C>, name: &str) -> Option<AlignItems> {
     let display = node.get_property(name)?;
     let value = display.as_string()?;
 
@@ -82,7 +83,7 @@ pub fn parse_align_i(node: &mut impl Node, name: &str) -> Option<AlignItems> {
     }
 }
 
-pub fn parse_align_c(node: &mut impl Node, name: &str) -> Option<AlignContent> {
+pub fn parse_align_c<C: HasLayouter>(node: &mut impl LayoutNode<C>, name: &str) -> Option<AlignContent> {
     let display = node.get_property(name)?;
 
     let value = display.as_string()?;
@@ -100,7 +101,10 @@ pub fn parse_align_c(node: &mut impl Node, name: &str) -> Option<AlignContent> {
     }
 }
 
-pub fn parse_tracking_sizing_function(node: &mut impl Node, name: &str) -> Vec<TrackSizingFunction> {
+pub fn parse_tracking_sizing_function<C: HasLayouter>(
+    node: &mut impl LayoutNode<C>,
+    name: &str,
+) -> Vec<TrackSizingFunction> {
     let Some(display) = node.get_property(name) else {
         return Vec::new();
     };
@@ -113,14 +117,17 @@ pub fn parse_tracking_sizing_function(node: &mut impl Node, name: &str) -> Vec<T
 }
 
 #[allow(dead_code)]
-pub fn parse_non_repeated_tracking_sizing_function(
-    _node: &mut impl Node,
+pub fn parse_non_repeated_tracking_sizing_function<C: HasLayouter>(
+    _node: &mut impl LayoutNode<C>,
     _name: &str,
 ) -> NonRepeatedTrackSizingFunction {
     todo!("implement parse_non_repeated_tracking_sizing_function")
 }
 
-pub fn parse_grid_auto(node: &mut impl Node, name: &str) -> Vec<NonRepeatedTrackSizingFunction> {
+pub fn parse_grid_auto<C: HasLayouter>(
+    node: &mut impl LayoutNode<C>,
+    name: &str,
+) -> Vec<NonRepeatedTrackSizingFunction> {
     let Some(display) = node.get_property(name) else {
         return Vec::new();
     };
@@ -132,7 +139,7 @@ pub fn parse_grid_auto(node: &mut impl Node, name: &str) -> Vec<NonRepeatedTrack
     Vec::new() //TODO: Implement this
 }
 
-pub fn parse_grid_placement(node: &mut impl Node, name: &str) -> GridPlacement {
+pub fn parse_grid_placement<C: HasLayouter>(node: &mut impl LayoutNode<C>, name: &str) -> GridPlacement {
     let Some(display) = node.get_property(name) else {
         return GridPlacement::Auto;
     };

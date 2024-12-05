@@ -1,11 +1,10 @@
 use crate::byte_stream::Location;
 use crate::document::DocumentHandle;
 use crate::node::NodeId;
-use crate::traits::css3::CssSystem;
-use crate::traits::document::Document;
-use crate::traits::document::DocumentFragment;
+use crate::traits::config::HasDocument;
 use std::collections::hash_map::IntoIter;
 use std::collections::HashMap;
+use std::fmt::Debug;
 
 #[derive(PartialEq, Debug, Copy, Clone)]
 pub enum QuirksMode {
@@ -25,22 +24,22 @@ pub enum NodeType {
 }
 
 /// Different types of nodes
-#[derive(Debug, PartialEq)]
-pub enum NodeData<'a, C: CssSystem, N: Node<C>> {
-    Document(&'a N::DocumentData),
-    DocType(&'a N::DocTypeData),
-    Text(&'a N::TextData),
-    Comment(&'a N::CommentData),
-    Element(&'a N::ElementData),
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum NodeData<'a, C: HasDocument> {
+    Document(&'a C::DocumentData),
+    DocType(&'a C::DocTypeData),
+    Text(&'a C::TextData),
+    Comment(&'a C::CommentData),
+    Element(&'a C::ElementData),
 }
 
-impl<C: CssSystem, N: Node<C>> Copy for NodeData<'_, C, N> {}
-
-impl<C: CssSystem, N: Node<C>> Clone for NodeData<'_, C, N> {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
+// impl<C: HasDocument> Copy for NodeData<'_, C> {}
+//
+// impl<C: HasDocument> Clone for NodeData<'_, C> {
+//     fn clone(&self) -> Self {
+//         *self
+//     }
+// }
 
 pub trait DocumentDataType {
     fn quirks_mode(&self) -> QuirksMode;
@@ -92,10 +91,7 @@ pub trait ClassList {
     fn iter(&self) -> IntoIter<String, bool>;
 }
 
-pub trait ElementDataType<C: CssSystem> {
-    type Document: Document<C>;
-    type DocumentFragment: DocumentFragment<C>;
-
+pub trait ElementDataType<C: HasDocument> {
     /// Returns the name of the element
     fn name(&self) -> &str;
 
@@ -129,24 +125,19 @@ pub trait ElementDataType<C: CssSystem> {
     fn is_special(&self) -> bool;
 
     // Return the template document of the element
-    fn template_contents(&self) -> Option<&Self::DocumentFragment>;
+    fn template_contents(&self) -> Option<&C::DocumentFragment>;
     /// Returns true if the given node is a "formatting" node
     fn is_formatting(&self) -> bool;
 
-    fn set_template_contents(&mut self, template_contents: Self::DocumentFragment);
+    fn set_template_contents(&mut self, template_contents: C::DocumentFragment);
 }
 
-pub trait Node<C: CssSystem>: Clone + PartialEq {
-    type Document: Document<C>;
+pub trait Node<C: HasDocument>: Clone + Debug + PartialEq {
     type DocumentData: DocumentDataType;
     type DocTypeData: DocTypeDataType;
     type TextData: TextDataType;
     type CommentData: CommentDataType;
-    type ElementData: ElementDataType<
-        C,
-        Document = Self::Document,
-        DocumentFragment = <Self::Document as Document<C>>::Fragment,
-    >;
+    type ElementData: ElementDataType<C>;
 
     fn new_from_node(org_node: &Self) -> Self;
 
@@ -184,7 +175,7 @@ pub trait Node<C: CssSystem>: Clone + PartialEq {
     fn get_doctype_data(&self) -> Option<&Self::DocTypeData>;
 
     /// Returns the document handle of the node
-    fn handle(&self) -> DocumentHandle<Self::Document, C>;
+    fn handle(&self) -> DocumentHandle<C>;
     /// Removes a child node from the node
     fn remove(&mut self, node_id: NodeId);
     /// Inserts a child node to the node at a specific index
@@ -192,5 +183,5 @@ pub trait Node<C: CssSystem>: Clone + PartialEq {
     /// Pushes a child node to the node
     fn push(&mut self, node_id: NodeId);
 
-    fn data(&self) -> NodeData<C, Self>;
+    fn data(&self) -> NodeData<C>;
 }

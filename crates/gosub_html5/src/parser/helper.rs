@@ -3,7 +3,7 @@ use crate::parser::{ActiveElement, Html5Parser, Scope};
 use crate::tokenizer::token::Token;
 use gosub_shared::document::DocumentHandle;
 use gosub_shared::node::NodeId;
-use gosub_shared::traits::css3::CssSystem;
+use gosub_shared::traits::config::HasDocument;
 use gosub_shared::traits::document::Document;
 use gosub_shared::traits::document::DocumentFragment;
 use gosub_shared::traits::node::{ElementDataType, Node, TextDataType};
@@ -12,13 +12,13 @@ const ADOPTION_AGENCY_OUTER_LOOP_DEPTH: usize = 8;
 const ADOPTION_AGENCY_INNER_LOOP_DEPTH: usize = 3;
 
 #[derive(Debug)]
-pub enum InsertionPositionMode<D: Document<C>, C: CssSystem, NodeId> {
+pub enum InsertionPositionMode<C: HasDocument, NodeId> {
     LastChild {
-        handle: DocumentHandle<D, C>,
+        handle: DocumentHandle<C>,
         parent_id: NodeId,
     },
     Sibling {
-        handle: DocumentHandle<D, C>,
+        handle: DocumentHandle<C>,
         parent_id: NodeId,
         before_id: NodeId,
     },
@@ -29,14 +29,7 @@ pub enum BookMark<NodeId> {
     InsertAfter(NodeId),
 }
 
-impl<D, C> Html5Parser<'_, D, C>
-where
-    D: Document<C>,
-    C: CssSystem,
-    <<D as Document<C>>::Node as Node<C>>::ElementData: ElementDataType<C, Document = D>,
-    <<<D as Document<C>>::Node as Node<C>>::ElementData as ElementDataType<C>>::DocumentFragment:
-        DocumentFragment<C, Document = D>,
-{
+impl<C: HasDocument> Html5Parser<'_, C> {
     fn find_position_in_active_format(&self, node_id: NodeId) -> Option<usize> {
         self.active_formatting_elements
             .iter()
@@ -81,7 +74,7 @@ where
             })
     }
 
-    pub fn insert_element_helper(&mut self, node_id: NodeId, position: InsertionPositionMode<D, C, NodeId>) {
+    pub fn insert_element_helper(&mut self, node_id: NodeId, position: InsertionPositionMode<C, NodeId>) {
         match position {
             InsertionPositionMode::Sibling {
                 handle,
@@ -101,7 +94,7 @@ where
         }
     }
 
-    pub fn insert_text_helper(&mut self, position: InsertionPositionMode<D, C, NodeId>, token: &Token) {
+    pub fn insert_text_helper(&mut self, position: InsertionPositionMode<C, NodeId>, token: &Token) {
         match position {
             InsertionPositionMode::Sibling {
                 handle,
@@ -171,13 +164,13 @@ where
         self.insert_element(node, override_node)
     }
 
-    pub fn insert_element_from_node(&mut self, org_node: &D::Node, override_node: Option<NodeId>) -> NodeId {
+    pub fn insert_element_from_node(&mut self, org_node: &C::Node, override_node: Option<NodeId>) -> NodeId {
         // Create a node, but without children and push it onto the open elements stack (if needed)
-        let new_node = D::Node::new_from_node(org_node);
+        let new_node = C::Node::new_from_node(org_node);
         self.insert_element(new_node, override_node)
     }
 
-    pub fn insert_element(&mut self, node: D::Node, override_node: Option<NodeId>) -> NodeId {
+    pub fn insert_element(&mut self, node: C::Node, override_node: Option<NodeId>) -> NodeId {
         let node_id = self.document.get_mut().register_node(node);
 
         let insert_position = self.appropriate_place_insert(override_node);
@@ -228,7 +221,7 @@ where
     }
 
     // @todo: where is the fragment case handled? (sub step 4: https://html.spec.whatwg.org/multipage/parsing.html#appropriate-place-for-inserting-a-node)
-    pub fn appropriate_place_insert(&self, override_node: Option<NodeId>) -> InsertionPositionMode<D, C, NodeId> {
+    pub fn appropriate_place_insert(&self, override_node: Option<NodeId>) -> InsertionPositionMode<C, NodeId> {
         let current_node = current_node!(self);
 
         // if current_node.id() == NodeId::root() {
@@ -412,7 +405,7 @@ where
                 let element_node = get_node_by_id!(self.document, node_id);
                 let element_data = get_element_data!(element_node);
 
-                let replacement_node = D::new_element_node(
+                let replacement_node = C::Document::new_element_node(
                     self.document.clone(),
                     element_data.name(),
                     Some(element_data.namespace()),
@@ -446,7 +439,7 @@ where
             self.insert_element_helper(last_node_id, insert_position);
 
             // step 4.15
-            let new_format_node = D::new_element_node(
+            let new_format_node = C::Document::new_element_node(
                 self.document.clone(),
                 format_element_data.name(),
                 Some(format_element_data.namespace()),

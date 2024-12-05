@@ -11,7 +11,7 @@ use wgpu::{
     PowerPreference, Queue, Surface, SurfaceConfiguration, TextureFormat,
 };
 
-use gosub_render_backend::WindowHandle;
+use gosub_shared::render_backend::WindowHandle;
 use gosub_shared::types::Result;
 
 pub mod window;

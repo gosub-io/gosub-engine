@@ -28,7 +28,7 @@ pub struct TokenizerBuilder {
 }
 
 impl TokenizerBuilder {
-    pub fn build(&mut self) -> Tokenizer<'_> {
+    pub fn build(&mut self) -> Tokenizer {
         let error_logger = Rc::new(RefCell::new(ErrorLogger::new()));
         Tokenizer::new(
             &mut self.stream,

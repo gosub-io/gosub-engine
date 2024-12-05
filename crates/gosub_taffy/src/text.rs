@@ -1,5 +1,5 @@
-use gosub_render_backend::layout::{Decoration, TextLayout as TLayout};
-use gosub_render_backend::Size;
+use gosub_shared::render_backend::layout::{Decoration, TextLayout as TLayout};
+use gosub_shared::render_backend::Size;
 use gosub_typeface::font::Font as TFont;
 use gosub_typeface::font::Glyph;
 use parley::Font as PFont;

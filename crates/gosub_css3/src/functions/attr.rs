@@ -1,10 +1,10 @@
 use crate::stylesheet::CssValue;
-use gosub_shared::traits::css3::CssSystem;
+use gosub_shared::traits::config::HasDocument;
 use gosub_shared::traits::node::{ElementDataType, Node};
 
 // Probably this shouldn't quite be in gosub_css3
 #[allow(dead_code)]
-pub fn resolve_attr<N: Node<C>, C: CssSystem>(values: &[CssValue], node: &N) -> Vec<CssValue> {
+pub fn resolve_attr<C: HasDocument>(values: &[CssValue], node: &C::Node) -> Vec<CssValue> {
     let Some(attr_name) = values.first().map(|v| v.to_string()) else {
         return vec![];
     };

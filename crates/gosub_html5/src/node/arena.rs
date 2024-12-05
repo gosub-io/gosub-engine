@@ -1,27 +1,24 @@
 use gosub_shared::node::NodeId;
-use gosub_shared::traits::css3::CssSystem;
+use gosub_shared::traits::config::HasDocument;
 use gosub_shared::traits::node::Node;
 use std::collections::HashMap;
-use std::marker::PhantomData;
 
 /// The node arena is the single source for nodes in a document (or fragment).
 #[derive(Debug, Clone)]
-pub struct NodeArena<N: Node<C>, C: CssSystem> {
+pub struct NodeArena<C: HasDocument> {
     /// Current nodes stored as <id, node>
-    nodes: HashMap<NodeId, N>,
+    nodes: HashMap<NodeId, C::Node>,
     /// Next node ID to use
     next_id: NodeId,
-
-    _marker: PhantomData<C>,
 }
 
-impl<C: CssSystem, N: Node<C>> NodeArena<N, C> {
+impl<C: HasDocument> NodeArena<C> {
     pub fn node_count(&self) -> usize {
         self.nodes.len()
     }
 }
 
-impl<C: CssSystem, N: Node<C>> PartialEq for NodeArena<N, C> {
+impl<C: HasDocument> PartialEq for NodeArena<C> {
     fn eq(&self, other: &Self) -> bool {
         if self.next_id != other.next_id {
             return false;
@@ -31,14 +28,13 @@ impl<C: CssSystem, N: Node<C>> PartialEq for NodeArena<N, C> {
     }
 }
 
-impl<N: Node<C>, C: CssSystem> NodeArena<N, C> {
+impl<C: HasDocument> NodeArena<C> {
     /// Creates a new NodeArena
     #[must_use]
     pub fn new() -> Self {
         Self {
             nodes: HashMap::new(),
             next_id: NodeId::default(),
-            _marker: PhantomData,
         }
     }
 
@@ -56,12 +52,12 @@ impl<N: Node<C>, C: CssSystem> NodeArena<N, C> {
     }
 
     /// Gets the node with the given id
-    pub fn node_ref(&self, node_id: NodeId) -> Option<&N> {
+    pub fn node_ref(&self, node_id: NodeId) -> Option<&C::Node> {
         self.nodes.get(&node_id)
     }
 
     /// Gets the node with the given id
-    pub fn node(&self, node_id: NodeId) -> Option<N> {
+    pub fn node(&self, node_id: NodeId) -> Option<C::Node> {
         self.nodes.get(&node_id).cloned()
     }
 
@@ -74,11 +70,11 @@ impl<N: Node<C>, C: CssSystem> NodeArena<N, C> {
         self.nodes.remove(&node_id);
     }
 
-    pub fn update_node(&mut self, node: N) {
+    pub fn update_node(&mut self, node: C::Node) {
         self.nodes.insert(node.id(), node);
     }
 
-    pub fn register_node_with_node_id(&mut self, mut node: N, node_id: NodeId) {
+    pub fn register_node_with_node_id(&mut self, mut node: C::Node, node_id: NodeId) {
         assert!(!node.is_registered(), "Node is already attached to an arena");
 
         node.set_id(node_id);
@@ -88,7 +84,7 @@ impl<N: Node<C>, C: CssSystem> NodeArena<N, C> {
     }
 
     /// Registered an unregistered node into the arena
-    pub fn register_node(&mut self, mut node: N) -> NodeId {
+    pub fn register_node(&mut self, mut node: C::Node) -> NodeId {
         assert!(!node.is_registered(), "Node is already attached to an arena");
 
         let id = self.next_id;
@@ -101,12 +97,12 @@ impl<N: Node<C>, C: CssSystem> NodeArena<N, C> {
         id
     }
 
-    pub fn nodes(&self) -> &HashMap<NodeId, N> {
+    pub fn nodes(&self) -> &HashMap<NodeId, C::Node> {
         &self.nodes
     }
 }
 
-impl<N: Node<C>, C: CssSystem> Default for NodeArena<N, C> {
+impl<C: HasDocument> Default for NodeArena<C> {
     fn default() -> Self {
         Self::new()
     }
@@ -115,21 +111,34 @@ impl<N: Node<C>, C: CssSystem> Default for NodeArena<N, C> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::document::builder::DocumentBuilderImpl;
     use crate::document::document_impl::DocumentImpl;
+    use crate::document::fragment::DocumentFragmentImpl;
+    use crate::node::HTML_NAMESPACE;
     use gosub_css3::system::Css3System;
     use gosub_shared::byte_stream::Location;
+    use gosub_shared::document::DocumentHandle;
+    use gosub_shared::traits::config::HasCssSystem;
     use gosub_shared::traits::document::Document;
-
-    use crate::document::builder::DocumentBuilderImpl;
     use gosub_shared::traits::document::DocumentBuilder;
 
-    use crate::node::HTML_NAMESPACE;
+    #[derive(Clone, Debug, PartialEq)]
+    struct Config;
+
+    impl HasCssSystem for Config {
+        type CssSystem = Css3System;
+    }
+    impl HasDocument for Config {
+        type Document = DocumentImpl<Self>;
+        type DocumentFragment = DocumentFragmentImpl<Self>;
+        type DocumentBuilder = DocumentBuilderImpl;
+    }
 
     #[test]
     fn register_node() {
-        let mut doc_handle = DocumentBuilderImpl::new_document(None);
+        let mut doc_handle: DocumentHandle<Config> = DocumentBuilderImpl::new_document(None);
 
-        let node = DocumentImpl::<Css3System>::new_element_node(
+        let node = DocumentImpl::<Config>::new_element_node(
             doc_handle.clone(),
             "test",
             Some(HTML_NAMESPACE),
@@ -150,7 +159,7 @@ mod tests {
     fn register_node_twice() {
         let mut doc_handle = DocumentBuilderImpl::new_document(None);
 
-        let node = DocumentImpl::<Css3System>::new_element_node(
+        let node = DocumentImpl::<Config>::new_element_node(
             doc_handle.clone(),
             "test",
             Some(HTML_NAMESPACE),
@@ -167,7 +176,7 @@ mod tests {
     fn get_node() {
         let mut doc_handle = DocumentBuilderImpl::new_document(None);
 
-        let node = DocumentImpl::<Css3System>::new_element_node(
+        let node = DocumentImpl::<Config>::new_element_node(
             doc_handle.clone(),
             "test",
             Some(HTML_NAMESPACE),
@@ -187,7 +196,7 @@ mod tests {
     // fn get_node_mut() {
     //     let mut doc_handle = DocumentBuilderImpl::new_document(None);
     //
-    //     let node = DocumentImpl::<Css3System>::new_element_node(
+    //     let node = DocumentImpl::<Config>::new_element_node(
     //         doc_handle.clone(),
     //         "test",
     //         Some(HTML_NAMESPACE),
@@ -207,14 +216,14 @@ mod tests {
     fn register_node_through_document() {
         let mut doc_handle = DocumentBuilderImpl::new_document(None);
 
-        let parent = DocumentImpl::<Css3System>::new_element_node(
+        let parent = DocumentImpl::<Config>::new_element_node(
             doc_handle.clone(),
             "parent",
             Some(HTML_NAMESPACE),
             HashMap::new(),
             Location::default(),
         );
-        let child = DocumentImpl::<Css3System>::new_element_node(
+        let child = DocumentImpl::<Config>::new_element_node(
             doc_handle.clone(),
             "child",
             Some(HTML_NAMESPACE),
