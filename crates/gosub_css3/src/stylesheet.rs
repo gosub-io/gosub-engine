@@ -1,4 +1,5 @@
 use core::fmt::Debug;
+use core::slice;
 use gosub_shared::byte_stream::Location;
 use gosub_shared::errors::CssError;
 use gosub_shared::errors::CssResult;
@@ -286,7 +287,7 @@ impl Display for MatcherType {
 }
 
 /// Defines the specificity for a selector
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct Specificity(u32, u32, u32);
 
 impl Specificity {
@@ -435,6 +436,28 @@ impl CssValue {
                 }
             }
             _ => 0.0,
+        }
+    }
+
+    pub fn from_vec(mut value: Vec<Self>) -> Self {
+        match value.len() {
+            0 => Self::None,
+            1 => value.swap_remove(0),
+            _ => Self::List(value),
+        }
+    }
+
+    pub fn to_slice(&self) -> &[Self] {
+        match self {
+            Self::List(l) => l,
+            this => slice::from_ref(this),
+        }
+    }
+
+    pub fn into_vec(self) -> Vec<Self> {
+        match self {
+            Self::List(l) => l,
+            this => vec![this],
         }
     }
 

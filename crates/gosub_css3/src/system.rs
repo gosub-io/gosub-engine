@@ -99,7 +99,7 @@ impl CssSystem for Css3System {
                             important: declaration.important,
                         };
 
-                        add_property_to_map(&mut css_map_entry, sheet, specificity.clone(), &decl);
+                        add_property_to_map(&mut css_map_entry, sheet, specificity, &decl);
                     }
                 }
             }
