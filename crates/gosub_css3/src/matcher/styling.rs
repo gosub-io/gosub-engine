@@ -6,7 +6,9 @@ use std::fmt::Display;
 
 use gosub_shared::document::DocumentHandle;
 use gosub_shared::node::NodeId;
-use gosub_shared::traits::css3::{CssOrigin, CssPropertyMap, CssSystem};
+use gosub_shared::traits::config::HasDocument;
+use gosub_shared::traits::css3;
+use gosub_shared::traits::css3::{CssOrigin, CssPropertyMap};
 use gosub_shared::traits::document::Document;
 use gosub_shared::traits::node::ClassList;
 use gosub_shared::traits::node::ElementDataType;
@@ -14,10 +16,11 @@ use gosub_shared::traits::node::Node;
 
 use crate::matcher::property_definitions::get_css_definitions;
 use crate::stylesheet::{Combinator, CssSelector, CssSelectorPart, CssValue, MatcherType, Specificity};
+use crate::system::Css3System;
 
 // Matches a complete selector (all parts) against the given node(id)
-pub(crate) fn match_selector<D: Document<C>, C: CssSystem>(
-    document: DocumentHandle<D, C>,
+pub(crate) fn match_selector<C: HasDocument>(
+    document: DocumentHandle<C>,
     node_id: NodeId,
     selector: &CssSelector,
 ) -> (bool, Specificity) {
@@ -41,8 +44,8 @@ fn consume<'a, T>(this: &mut &'a [T]) -> Option<&'a T> {
 }
 
 /// Returns true when the given node matches the part(s)
-fn match_selector_parts<D: Document<C>, C: CssSystem>(
-    handle: DocumentHandle<D, C>,
+fn match_selector_parts<C: HasDocument>(
+    handle: DocumentHandle<C>,
     node_id: NodeId,
     mut parts: &[CssSelectorPart],
 ) -> bool {
@@ -61,7 +64,7 @@ fn match_selector_parts<D: Document<C>, C: CssSystem>(
             return false;
         }
 
-        if !match_selector_part(part, current_node, &*binding, &mut next_current_node, &mut parts) {
+        if !match_selector_part::<C>(part, current_node, &*binding, &mut next_current_node, &mut parts) {
             return false;
         }
 
@@ -74,11 +77,11 @@ fn match_selector_parts<D: Document<C>, C: CssSystem>(
     true
 }
 
-fn match_selector_part<'a, D: Document<C>, C: CssSystem>(
+fn match_selector_part<'a, C: HasDocument>(
     part: &CssSelectorPart,
-    current_node: &D::Node,
-    doc: &'a D,
-    next_node: &mut Option<&'a D::Node>,
+    current_node: &C::Node,
+    doc: &'a C::Document,
+    next_node: &mut Option<&'a C::Node>,
     parts: &mut &[CssSelectorPart],
 ) -> bool {
     match part {
@@ -198,7 +201,7 @@ fn match_selector_part<'a, D: Document<C>, C: CssSystem>(
 
                         *next_node = Some(parent);
 
-                        if match_selector_part(last, parent, doc, next_node, parts) {
+                        if match_selector_part::<C>(last, parent, doc, next_node, parts) {
                             return true;
                         }
 
@@ -227,7 +230,7 @@ fn match_selector_part<'a, D: Document<C>, C: CssSystem>(
 
                     *next_node = Some(parent);
 
-                    match_selector_part(last, parent, doc, next_node, parts)
+                    match_selector_part::<C>(last, parent, doc, next_node, parts)
                 }
                 Combinator::NextSibling => {
                     let parent_node = doc.node_by_id(current_node.parent_id().unwrap());
@@ -261,7 +264,7 @@ fn match_selector_part<'a, D: Document<C>, C: CssSystem>(
 
                     *next_node = Some(prev);
 
-                    match_selector_part(last, prev, doc, next_node, parts)
+                    match_selector_part::<C>(last, prev, doc, next_node, parts)
                 }
                 Combinator::SubsequentSibling => {
                     let parent_node = doc.node_by_id(current_node.parent_id().unwrap());
@@ -282,7 +285,7 @@ fn match_selector_part<'a, D: Document<C>, C: CssSystem>(
                             continue;
                         };
 
-                        if match_selector_part(last, child, doc, next_node, parts) {
+                        if match_selector_part::<C>(last, child, doc, next_node, parts) {
                             return true;
                         }
                     }
@@ -534,9 +537,7 @@ impl Display for CssProperty {
     }
 }
 
-impl gosub_shared::traits::css3::CssProperty for CssProperty {
-    type Value = CssValue;
-
+impl css3::CssProperty<Css3System> for CssProperty {
     fn compute_value(&mut self) {
         self.compute_value();
     }
@@ -588,7 +589,7 @@ impl gosub_shared::traits::css3::CssProperty for CssProperty {
         }
     }
 
-    fn as_list(&self) -> Option<&[Self::Value]> {
+    fn as_list(&self) -> Option<&[CssValue]> {
         if let CssValue::List(list) = &self.actual {
             Some(list)
         } else {
@@ -596,7 +597,7 @@ impl gosub_shared::traits::css3::CssProperty for CssProperty {
         }
     }
 
-    fn as_function(&self) -> Option<(&str, &[Self::Value])> {
+    fn as_function(&self) -> Option<(&str, &[CssValue])> {
         if let CssValue::Function(name, args) = &self.actual {
             Some((name.as_str(), args))
         } else {
@@ -636,22 +637,20 @@ impl CssProperties {
     }
 }
 
-impl CssPropertyMap for CssProperties {
-    type Property = CssProperty;
-
-    fn insert_inherited(&mut self, name: &str, value: Self::Property) {
+impl CssPropertyMap<Css3System> for CssProperties {
+    fn insert_inherited(&mut self, name: &str, value: CssProperty) {
         self.properties.entry(name.to_string()).or_insert(value);
     }
 
-    fn insert(&mut self, name: &str, value: Self::Property) {
+    fn insert(&mut self, name: &str, value: CssProperty) {
         self.properties.insert(name.to_string(), value);
     }
 
-    fn get(&self, name: &str) -> Option<&Self::Property> {
+    fn get(&self, name: &str) -> Option<&CssProperty> {
         self.properties.get(name)
     }
 
-    fn get_mut(&mut self, name: &str) -> Option<&mut Self::Property> {
+    fn get_mut(&mut self, name: &str) -> Option<&mut CssProperty> {
         self.properties.get_mut(name)
     }
 
@@ -659,11 +658,11 @@ impl CssPropertyMap for CssProperties {
         self.dirty = true;
     }
 
-    fn iter(&self) -> impl Iterator<Item = (&str, &Self::Property)> + '_ {
+    fn iter(&self) -> impl Iterator<Item = (&str, &CssProperty)> + '_ {
         self.properties.iter().map(|(k, v)| (k.as_str(), v))
     }
 
-    fn iter_mut(&mut self) -> impl Iterator<Item = (&str, &mut Self::Property)> + '_ {
+    fn iter_mut(&mut self) -> impl Iterator<Item = (&str, &mut CssProperty)> + '_ {
         self.properties.iter_mut().map(|(k, v)| (k.as_str(), v))
     }
 

@@ -8,7 +8,7 @@ use gosub_html5::node::{HTML_NAMESPACE, MATHML_NAMESPACE, SVG_NAMESPACE};
 use gosub_shared::byte_stream::{ByteStream, Config, Encoding, Location};
 use gosub_shared::document::DocumentHandle;
 use gosub_shared::node::NodeId;
-use gosub_shared::traits::css3::CssSystem;
+use gosub_shared::traits::config::{HasDocument, HasHtmlParser};
 use gosub_shared::traits::document::{Document, DocumentBuilder};
 use gosub_shared::traits::html5::{Html5Parser, ParserOptions};
 use gosub_shared::types::{ParseError, Result};
@@ -77,26 +77,19 @@ impl Harness {
     }
 
     /// Runs a single test and returns the test result of that run
-    pub fn run_test<P: Html5Parser<C>, C: CssSystem>(
-        &mut self,
-        test: Test,
-        scripting_enabled: bool,
-    ) -> Result<TestResult> {
+    pub fn run_test<C: HasHtmlParser>(&mut self, test: Test, scripting_enabled: bool) -> Result<TestResult> {
         self.test = test;
         self.next_document_line = 0;
 
-        let (actual_document, actual_errors) = self.do_parse::<P, C>(scripting_enabled)?;
-        let result = self.generate_test_result::<P, C>(actual_document.clone(), &actual_errors);
+        let (actual_document, actual_errors) = self.do_parse::<C>(scripting_enabled)?;
+        let result = self.generate_test_result::<C>(actual_document.clone(), &actual_errors);
 
         Ok(result)
     }
 
     /// Run the html5 parser and return the document tree and errors
-    fn do_parse<P: Html5Parser<C>, C: CssSystem>(
-        &mut self,
-        scripting_enabled: bool,
-    ) -> ParseResult<DocumentHandle<P::Document, C>> {
-        let options = <P::Options as ParserOptions>::new(scripting_enabled);
+    fn do_parse<C: HasHtmlParser>(&mut self, scripting_enabled: bool) -> ParseResult<DocumentHandle<C>> {
+        let options = <<C::HtmlParser as Html5Parser<C>>::Options as ParserOptions>::new(scripting_enabled);
         let mut stream = ByteStream::new(
             Encoding::UTF8,
             Some(Config {
@@ -109,10 +102,10 @@ impl Harness {
         stream.close();
 
         let (document, parse_errors) = if let Some(fragment) = self.test.spec.document_fragment.clone() {
-            self.parse_fragment::<P, C>(fragment, stream, options, Location::default())?
+            self.parse_fragment::<C>(fragment, stream, options, Location::default())?
         } else {
-            let document = <P::Document as Document<C>>::Builder::new_document(None);
-            let parser_errors = P::parse(&mut stream, DocumentHandle::clone(&document), Some(options))?;
+            let document = C::DocumentBuilder::new_document(None);
+            let parser_errors = C::HtmlParser::parse(&mut stream, DocumentHandle::clone(&document), Some(options))?;
 
             (document, parser_errors)
         };
@@ -120,15 +113,15 @@ impl Harness {
         Ok((document, parse_errors))
     }
 
-    fn parse_fragment<P: Html5Parser<C>, C: CssSystem>(
+    fn parse_fragment<C: HasHtmlParser>(
         &mut self,
         fragment: String,
         mut stream: ByteStream,
-        options: P::Options,
+        options: <C::HtmlParser as Html5Parser<C>>::Options,
         start_location: Location,
-    ) -> ParseResult<DocumentHandle<P::Document, C>> {
+    ) -> ParseResult<DocumentHandle<C>> {
         // First, create a (fake) main document that contains only the fragment as node
-        let mut main_doc_handle = <P::Document as Document<C>>::Builder::new_document(None);
+        let mut main_doc_handle = C::DocumentBuilder::new_document(None);
 
         // let mut main_document = main_document.clone();
         let (element, namespace) = if fragment.starts_with("svg ") {
@@ -144,7 +137,7 @@ impl Harness {
         // let doc_clone = DocumentHandle::clone(&main_document);
         // let mut doc = main_document.get_mut();
 
-        let node = <P::Document as Document<C>>::new_element_node(
+        let node = C::Document::new_element_node(
             main_doc_handle.clone(),
             element.as_str(),
             Some(namespace),
@@ -157,9 +150,9 @@ impl Harness {
         let context_node = binding.node_by_id(context_node_id).unwrap();
         let _ = context_node_id;
 
-        let document = <P::Document as Document<C>>::Builder::new_document_fragment(context_node, quirks_mode);
+        let document = C::DocumentBuilder::new_document_fragment(context_node, quirks_mode);
 
-        let parser_errors = P::parse_fragment(
+        let parser_errors = C::HtmlParser::parse_fragment(
             &mut stream,
             document.clone(),
             context_node,
@@ -213,9 +206,9 @@ impl Harness {
         Some(line.to_string())
     }
 
-    fn generate_test_result<P: Html5Parser<C>, C: CssSystem>(
+    fn generate_test_result<C: HasDocument>(
         &mut self,
-        document: DocumentHandle<P::Document, C>,
+        document: DocumentHandle<C>,
         _parse_errors: &[ParseError],
     ) -> TestResult {
         let mut result = TestResult::default();

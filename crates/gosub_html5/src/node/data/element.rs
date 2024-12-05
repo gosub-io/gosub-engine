@@ -1,5 +1,3 @@
-use crate::document::document_impl::DocumentImpl;
-use crate::document::fragment::DocumentFragmentImpl;
 use crate::node::elements::{
     FORMATTING_HTML_ELEMENTS, SPECIAL_HTML_ELEMENTS, SPECIAL_MATHML_ELEMENTS, SPECIAL_SVG_ELEMENTS,
 };
@@ -7,7 +5,7 @@ use crate::node::{HTML_NAMESPACE, MATHML_NAMESPACE, SVG_NAMESPACE};
 use core::fmt::{Debug, Formatter};
 use gosub_shared::document::DocumentHandle;
 use gosub_shared::node::NodeId;
-use gosub_shared::traits::css3::CssSystem;
+use gosub_shared::traits::config::HasDocument;
 use gosub_shared::traits::node::{ClassList, ElementDataType};
 use std::collections::hash_map::IntoIter;
 use std::collections::HashMap;
@@ -151,8 +149,8 @@ impl From<&str> for ClassListImpl {
 
 /// Data structure for element nodes
 #[derive(PartialEq, Clone)]
-pub struct ElementData<C: CssSystem> {
-    pub doc_handle: DocumentHandle<DocumentImpl<C>, C>,
+pub struct ElementData<C: HasDocument> {
+    pub doc_handle: DocumentHandle<C>,
     pub node_id: Option<NodeId>,
     /// Name of the element (e.g., div)
     pub name: String,
@@ -168,10 +166,10 @@ pub struct ElementData<C: CssSystem> {
     // Only used for <script> elements
     pub force_async: bool,
     // Template contents (when it's a template element)
-    pub template_contents: Option<DocumentFragmentImpl<C>>,
+    pub template_contents: Option<C::DocumentFragment>,
 }
 
-impl<C: CssSystem> Debug for ElementData<C> {
+impl<C: HasDocument> Debug for ElementData<C> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let mut debug = f.debug_struct("ElementData");
         debug.field("name", &self.name);
@@ -181,10 +179,7 @@ impl<C: CssSystem> Debug for ElementData<C> {
     }
 }
 
-impl<C: CssSystem> ElementDataType<C> for ElementData<C> {
-    type Document = DocumentImpl<C>;
-    type DocumentFragment = DocumentFragmentImpl<C>;
-
+impl<C: HasDocument> ElementDataType<C> for ElementData<C> {
     fn name(&self) -> &str {
         self.name.as_str()
     }
@@ -323,7 +318,7 @@ impl<C: CssSystem> ElementDataType<C> for ElementData<C> {
         false
     }
 
-    fn template_contents(&self) -> Option<&Self::DocumentFragment> {
+    fn template_contents(&self) -> Option<&C::DocumentFragment> {
         match &self.template_contents {
             Some(fragment) => Some(fragment),
             None => None,
@@ -335,14 +330,14 @@ impl<C: CssSystem> ElementDataType<C> for ElementData<C> {
         self.namespace == Some(HTML_NAMESPACE.into()) && FORMATTING_HTML_ELEMENTS.contains(&self.name.as_str())
     }
 
-    fn set_template_contents(&mut self, template_contents: Self::DocumentFragment) {
+    fn set_template_contents(&mut self, template_contents: C::DocumentFragment) {
         self.template_contents = Some(template_contents);
     }
 }
 
-impl<C: CssSystem> ElementData<C> {
+impl<C: HasDocument> ElementData<C> {
     pub(crate) fn new(
-        doc_handle: DocumentHandle<DocumentImpl<C>, C>,
+        doc_handle: DocumentHandle<C>,
         name: &str,
         namespace: Option<&str>,
         attributes: HashMap<String, String>,

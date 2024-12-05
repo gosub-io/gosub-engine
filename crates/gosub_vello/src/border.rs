@@ -3,8 +3,8 @@ use vello::kurbo::{Arc, BezPath, Cap, Join, RoundedRectRadii, Stroke};
 use vello::Scene;
 
 use crate::{Brush, Rect, Transform, VelloBackend};
-use gosub_render_backend::geo::FP;
-use gosub_render_backend::{
+use gosub_shared::render_backend::geo::FP;
+use gosub_shared::render_backend::{
     Border as TBorder, BorderRadius as TBorderRadius, BorderSide as TBorderSide, BorderStyle, Radius, RenderBorder,
 };
 

@@ -1,4 +1,4 @@
-use gosub_render_backend::Color as TColor;
+use gosub_shared::render_backend::Color as TColor;
 use vello::peniko::Color as VelloColor;
 
 pub struct Color(pub(crate) VelloColor);

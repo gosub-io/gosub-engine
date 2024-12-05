@@ -1,3 +1,4 @@
+use gosub_shared::traits::config::{HasDocument, HasHtmlParser};
 #[cfg(not(target_arch = "wasm32"))]
 use {
     cookie::CookieJar,
@@ -9,8 +10,7 @@ use {
     gosub_net::http::response::Response,
     gosub_shared::byte_stream::{ByteStream, Encoding},
     gosub_shared::document::DocumentHandle,
-    gosub_shared::traits::css3::CssSystem,
-    gosub_shared::traits::document::{Document, DocumentBuilder},
+    gosub_shared::traits::document::DocumentBuilder,
     gosub_shared::traits::html5::Html5Parser as Html5ParserT,
     gosub_shared::types::{ParseError, Result},
     gosub_shared::{timing_start, timing_stop},
@@ -26,13 +26,13 @@ const MAX_BYTES: u64 = 10_000_000;
 
 /// Response that is returned from the fetch function
 #[cfg(not(target_arch = "wasm32"))]
-pub struct FetchResponse<D: Document<C>, C: CssSystem> {
+pub struct FetchResponse<C: HasDocument> {
     /// Request that has been send
     pub request: Request,
     /// Response that has been received
     pub response: Response,
     /// Document tree that is made from the response
-    pub document: DocumentHandle<D, C>,
+    pub document: DocumentHandle<C>,
     /// Parse errors that occurred while parsing the document tree
     pub parse_errors: Vec<ParseError>,
     /// Rendertree that is generated from the document tree and css tree
@@ -40,7 +40,7 @@ pub struct FetchResponse<D: Document<C>, C: CssSystem> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-impl<D: Document<C> + Debug, C: CssSystem> Debug for FetchResponse<D, C> {
+impl<C: HasDocument> Debug for FetchResponse<C> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         writeln!(f, "Request:")?;
         writeln!(f, "{}", self.request)?;
@@ -65,12 +65,12 @@ impl<D: Document<C> + Debug, C: CssSystem> Debug for FetchResponse<D, C> {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[allow(dead_code)]
-fn fetch_url<P: Html5ParserT<C>, C: CssSystem>(
+fn fetch_url<C: HasHtmlParser>(
     method: &str,
     url: &str,
     headers: Headers,
     cookies: CookieJar,
-) -> Result<FetchResponse<P::Document, C>> {
+) -> Result<FetchResponse<C>> {
     let mut http_req = Request::new(method, url, "HTTP/1.1");
     http_req.headers = headers.clone();
     http_req.cookies = cookies.clone();
@@ -80,7 +80,7 @@ fn fetch_url<P: Html5ParserT<C>, C: CssSystem>(
     let mut fetch_response = FetchResponse {
         request: http_req,
         response: Response::new(),
-        document: <P::Document as Document<C>>::Builder::new_document(Some(parts.clone())),
+        document: C::DocumentBuilder::new_document(Some(parts.clone())),
         parse_errors: vec![],
         render_tree: String::new(),
     };
@@ -143,9 +143,9 @@ fn fetch_url<P: Html5ParserT<C>, C: CssSystem>(
 
     let mut stream = ByteStream::new(Encoding::UTF8, None);
     let _ = stream.read_from_bytes(&fetch_response.response.body);
-    fetch_response.document = <P::Document as Document<C>>::Builder::new_document(Some(parts));
+    fetch_response.document = C::DocumentBuilder::new_document(Some(parts));
 
-    match P::parse(&mut stream, DocumentHandle::clone(&fetch_response.document), None) {
+    match C::HtmlParser::parse(&mut stream, DocumentHandle::clone(&fetch_response.document), None) {
         Ok(parse_errors) => {
             fetch_response.parse_errors = parse_errors;
         }
@@ -164,8 +164,27 @@ mod tests {
     use super::*;
     use cookie::CookieJar;
     use gosub_css3::system::Css3System;
+    use gosub_html5::document::builder::DocumentBuilderImpl;
     use gosub_html5::document::document_impl::DocumentImpl;
+    use gosub_html5::document::fragment::DocumentFragmentImpl;
     use gosub_html5::parser::Html5Parser;
+    use gosub_shared::traits::config::HasCssSystem;
+
+    #[derive(Clone, Debug, PartialEq)]
+    struct Config;
+
+    impl HasCssSystem for Config {
+        type CssSystem = Css3System;
+    }
+    impl HasDocument for Config {
+        type Document = DocumentImpl<Self>;
+        type DocumentFragment = DocumentFragmentImpl<Self>;
+        type DocumentBuilder = DocumentBuilderImpl;
+    }
+
+    impl HasHtmlParser for Config {
+        type HtmlParser = Html5Parser<'static, Self>;
+    }
 
     #[test]
     fn test_fetch_url() {
@@ -174,8 +193,8 @@ mod tests {
         headers.set_str("User-Agent", USER_AGENT);
         let cookies = CookieJar::new();
 
-        let resp =
-            fetch_url::<Html5Parser<DocumentImpl<Css3System>, Css3System>, Css3System>("GET", url, headers, cookies);
+        let resp = fetch_url::<Config>("GET", url, headers, cookies);
+        dbg!(&resp);
         assert!(resp.is_ok());
     }
 }

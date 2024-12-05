@@ -3,12 +3,30 @@ use std::fs::File;
 use criterion::{criterion_group, criterion_main, Criterion};
 use gosub_css3::system::Css3System;
 use gosub_html5::document::builder::DocumentBuilderImpl;
-use gosub_html5::document::document_impl::TreeIterator;
+use gosub_html5::document::document_impl::{DocumentImpl, TreeIterator};
+use gosub_html5::document::fragment::DocumentFragmentImpl;
 use gosub_html5::parser::Html5Parser;
 use gosub_shared::byte_stream::{ByteStream, Encoding};
+use gosub_shared::document::DocumentHandle;
 use gosub_shared::node::NodeId;
+use gosub_shared::traits::config::{HasCssSystem, HasDocument, HasHtmlParser};
 use gosub_shared::traits::document::DocumentBuilder;
 
+#[derive(Clone, Debug, PartialEq)]
+struct Config;
+
+impl HasCssSystem for Config {
+    type CssSystem = Css3System;
+}
+impl HasDocument for Config {
+    type Document = DocumentImpl<Self>;
+    type DocumentFragment = DocumentFragmentImpl<Self>;
+    type DocumentBuilder = DocumentBuilderImpl;
+}
+
+impl HasHtmlParser for Config {
+    type HtmlParser = Html5Parser<'static, Self>;
+}
 fn wikipedia_main_page(c: &mut Criterion) {
     // Criterion can report inconsistent results from run to run in some cases.  We attempt to
     // minimize that in this setup.
@@ -20,7 +38,7 @@ fn wikipedia_main_page(c: &mut Criterion) {
     let mut stream = ByteStream::new(Encoding::UTF8, None);
     let _ = stream.read_from_file(html_file);
 
-    let doc_handle = <DocumentBuilderImpl as DocumentBuilder<Css3System>>::new_document(None);
+    let doc_handle: DocumentHandle<Config> = DocumentBuilderImpl::new_document(None);
     let _ = Html5Parser::parse_document(&mut stream, doc_handle.clone(), None);
 
     group.bench_function("wikipedia main page", |b| {
@@ -45,7 +63,7 @@ fn stackoverflow_home(c: &mut Criterion) {
     let mut bytestream = ByteStream::new(Encoding::UTF8, None);
     let _ = bytestream.read_from_file(html_file);
 
-    let doc_handle = <DocumentBuilderImpl as DocumentBuilder<Css3System>>::new_document(None);
+    let doc_handle: DocumentHandle<Config> = DocumentBuilderImpl::new_document(None);
     let _ = Html5Parser::parse_document(&mut bytestream, doc_handle.clone(), None);
 
     group.bench_function("stackoverflow home", |b| {

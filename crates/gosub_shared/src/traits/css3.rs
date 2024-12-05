@@ -2,8 +2,7 @@ use crate::async_executor::WasmNotSend;
 use crate::document::DocumentHandle;
 use crate::errors::CssResult;
 use crate::node::NodeId;
-use crate::traits::document::Document;
-use crate::traits::render_tree::RenderTree;
+use crate::traits::config::{HasDocument, HasRenderTree};
 use crate::traits::ParserConfig;
 use std::fmt::{Debug, Display};
 
@@ -20,31 +19,32 @@ pub enum CssOrigin {
 
 /// The CssSystem trait is a trait that defines all things CSS3 that are used by other non-css3 crates. This is the main trait that
 /// is used to parse CSS3 files. It contains sub elements like the Stylesheet trait that is used in for instance the Document trait.
-pub trait CssSystem: Clone + 'static {
+pub trait CssSystem: Clone + Debug + 'static {
     type Stylesheet: CssStylesheet;
 
-    type PropertyMap: CssPropertyMap<Property = Self::Property>;
+    type PropertyMap: CssPropertyMap<Self>;
 
-    type Property: CssProperty;
+    type Property: CssProperty<Self>;
+    type Value: CssValue;
 
     /// Parses a string into a CSS3 stylesheet
     fn parse_str(str: &str, config: ParserConfig, origin: CssOrigin, source_url: &str) -> CssResult<Self::Stylesheet>;
 
     /// Returns the properties of a node
     /// If `None` is returned, the node is not renderable
-    fn properties_from_node<D: Document<Self>>(
-        node: &D::Node,
+    fn properties_from_node<C: HasDocument<CssSystem = Self>>(
+        node: &C::Node,
         sheets: &[Self::Stylesheet],
-        handle: DocumentHandle<D, Self>,
+        handle: DocumentHandle<C>,
         id: NodeId,
     ) -> Option<Self::PropertyMap>;
 
-    fn inheritance<T: RenderTree<Self>>(tree: &mut T);
+    fn inheritance<C: HasRenderTree<CssSystem = Self>>(tree: &mut C::RenderTree);
 
     fn load_default_useragent_stylesheet() -> Self::Stylesheet;
 }
 
-pub trait CssStylesheet: PartialEq {
+pub trait CssStylesheet: PartialEq + Debug {
     /// Returns the origin of the stylesheet
     fn origin(&self) -> CssOrigin;
 
@@ -52,29 +52,25 @@ pub trait CssStylesheet: PartialEq {
     fn url(&self) -> &str;
 }
 
-pub trait CssPropertyMap: Default + Debug + WasmNotSend {
-    type Property: CssProperty;
+pub trait CssPropertyMap<S: CssSystem>: Default + Debug + WasmNotSend {
+    fn insert_inherited(&mut self, name: &str, value: S::Property);
 
-    fn insert_inherited(&mut self, name: &str, value: Self::Property);
+    fn insert(&mut self, name: &str, value: S::Property);
 
-    fn insert(&mut self, name: &str, value: Self::Property);
+    fn get(&self, name: &str) -> Option<&S::Property>;
 
-    fn get(&self, name: &str) -> Option<&Self::Property>;
-
-    fn get_mut(&mut self, name: &str) -> Option<&mut Self::Property>;
+    fn get_mut(&mut self, name: &str) -> Option<&mut S::Property>;
 
     fn make_dirty(&mut self);
 
-    fn iter(&self) -> impl Iterator<Item = (&str, &Self::Property)> + '_;
+    fn iter(&self) -> impl Iterator<Item = (&str, &S::Property)> + '_;
 
-    fn iter_mut(&mut self) -> impl Iterator<Item = (&str, &mut Self::Property)> + '_;
+    fn iter_mut(&mut self) -> impl Iterator<Item = (&str, &mut S::Property)> + '_;
 
     fn make_clean(&mut self);
     fn is_dirty(&self) -> bool;
 }
-pub trait CssProperty: Debug + Display + Sized + From<Self::Value> {
-    type Value: CssValue;
-
+pub trait CssProperty<S: CssSystem>: Debug + Display + Sized + From<S::Value> {
     fn compute_value(&mut self); // this should probably be removed
 
     fn unit_to_px(&self) -> f32;
@@ -87,9 +83,9 @@ pub trait CssProperty: Debug + Display + Sized + From<Self::Value> {
     fn parse_color(&self) -> Option<(f32, f32, f32, f32)>;
 
     fn as_number(&self) -> Option<f32>;
-    fn as_list(&self) -> Option<&[Self::Value]>;
+    fn as_list(&self) -> Option<&[S::Value]>;
 
-    fn as_function(&self) -> Option<(&str, &[Self::Value])>;
+    fn as_function(&self) -> Option<(&str, &[S::Value])>;
 
     fn is_none(&self) -> bool;
 }

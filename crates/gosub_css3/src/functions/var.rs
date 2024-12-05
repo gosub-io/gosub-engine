@@ -1,8 +1,6 @@
-use std::collections::HashMap;
-
 use crate::stylesheet::CssValue;
-use gosub_shared::traits::css3::CssSystem;
-use gosub_shared::traits::document::Document;
+use gosub_shared::traits::config::HasDocument;
+use std::collections::HashMap;
 
 #[allow(dead_code)]
 #[derive(Clone, Debug, Default)]
@@ -12,7 +10,7 @@ pub struct VariableEnvironment {
 
 #[allow(dead_code)]
 impl VariableEnvironment {
-    pub fn get<D: Document<C>, C: CssSystem>(&self, name: &str, _doc: &D, _node: &D::Node) -> Option<CssValue> {
+    pub fn get<C: HasDocument>(&self, name: &str, _doc: &C::Document, _node: &C::Node) -> Option<CssValue> {
         let mut current = Some(self);
 
         while let Some(env) = current {
@@ -32,7 +30,7 @@ impl VariableEnvironment {
 }
 
 #[allow(dead_code)]
-pub fn resolve_var<D: Document<C>, C: CssSystem>(values: &[CssValue], doc: &D, node: &D::Node) -> Vec<CssValue> {
+pub fn resolve_var<C: HasDocument>(values: &[CssValue], doc: &C::Document, node: &C::Node) -> Vec<CssValue> {
     let Some(name) = values.first().map(|v| {
         let mut str = v.to_string();
 
@@ -50,7 +48,7 @@ pub fn resolve_var<D: Document<C>, C: CssSystem>(values: &[CssValue], doc: &D, n
 
     let environment = VariableEnvironment::default(); //TODO: get from node
 
-    let Some(value) = environment.get(&name, doc, node) else {
+    let Some(value) = environment.get::<C>(&name, doc, node) else {
         let Some(default) = values.get(1).cloned() else {
             return vec![];
         };

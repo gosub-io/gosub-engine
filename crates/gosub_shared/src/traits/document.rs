@@ -1,10 +1,10 @@
 use crate::byte_stream::Location;
 use crate::document::DocumentHandle;
 use crate::node::NodeId;
-use crate::traits::css3::CssSystem;
+use crate::traits::config::HasDocument;
 use crate::traits::node::{Node, QuirksMode};
 use std::collections::HashMap;
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 use url::Url;
 
 /// Type of the given document
@@ -16,32 +16,27 @@ pub enum DocumentType {
     IframeSrcDoc,
 }
 
-pub trait DocumentBuilder<C: CssSystem> {
-    type Document: Document<C>;
-
-    fn new_document(url: Option<Url>) -> DocumentHandle<Self::Document, C>;
+pub trait DocumentBuilder<C: HasDocument> {
+    fn new_document(url: Option<Url>) -> DocumentHandle<C>;
     fn new_document_fragment(
-        context_node: &<Self::Document as Document<C>>::Node,
+        context_node: &<C::Document as Document<C>>::Node,
         quirks_mode: QuirksMode,
-    ) -> DocumentHandle<Self::Document, C>;
+    ) -> DocumentHandle<C>;
 }
 
-pub trait DocumentFragment<C: CssSystem>: Sized {
-    type Document: Document<C, Fragment = Self>;
-
+pub trait DocumentFragment<C: HasDocument>: Sized + Clone + PartialEq {
     /// Returns the document handle for this document
-    fn handle(&self) -> DocumentHandle<Self::Document, C>;
+    fn handle(&self) -> DocumentHandle<C>;
 
-    fn new(handle: DocumentHandle<Self::Document, C>, node_id: NodeId) -> Self;
+    fn new(handle: DocumentHandle<C>, node_id: NodeId) -> Self;
 }
 
-pub trait Document<C: CssSystem>: Sized + Display + 'static {
-    type Node: Node<C, Document = Self>;
-    type Fragment: DocumentFragment<C, Document = Self>;
-    type Builder: DocumentBuilder<C, Document = Self>;
+pub trait Document<C: HasDocument<Document = Self>>: Sized + Display + Debug + PartialEq + 'static {
+    type Node: Node<C>;
 
     // Creates a new doc with an optional document root node
-    fn new(document_type: DocumentType, url: Option<Url>, root_node: Option<Self::Node>) -> DocumentHandle<Self, C>;
+    #[allow(clippy::new_ret_no_self)]
+    fn new(document_type: DocumentType, url: Option<Url>, root_node: Option<Self::Node>) -> DocumentHandle<C>;
 
     // /// Creates a new document with an optional document root node
     // fn new_with_handle(document_type: DocumentType, url: Option<Url>, location: &Location, root_node: Option<&Self::Node>) -> DocumentHandle<Self>;
@@ -105,18 +100,18 @@ pub trait Document<C: CssSystem>: Sized + Display + 'static {
     fn register_node_at(&mut self, node: Self::Node, parent_id: NodeId, position: Option<usize>) -> NodeId;
 
     /// Node creation methods. The root node is needed in order to fetch the document handle (it can't be created from the document itself)
-    fn new_document_node(handle: DocumentHandle<Self, C>, quirks_mode: QuirksMode, location: Location) -> Self::Node;
+    fn new_document_node(handle: DocumentHandle<C>, quirks_mode: QuirksMode, location: Location) -> Self::Node;
     fn new_doctype_node(
-        handle: DocumentHandle<Self, C>,
+        handle: DocumentHandle<C>,
         name: &str,
         public_id: Option<&str>,
         system_id: Option<&str>,
         location: Location,
     ) -> Self::Node;
-    fn new_comment_node(handle: DocumentHandle<Self, C>, comment: &str, location: Location) -> Self::Node;
-    fn new_text_node(handle: DocumentHandle<Self, C>, value: &str, location: Location) -> Self::Node;
+    fn new_comment_node(handle: DocumentHandle<C>, comment: &str, location: Location) -> Self::Node;
+    fn new_text_node(handle: DocumentHandle<C>, value: &str, location: Location) -> Self::Node;
     fn new_element_node(
-        handle: DocumentHandle<Self, C>,
+        handle: DocumentHandle<C>,
         name: &str,
         namespace: Option<&str>,
         attributes: HashMap<String, String>,

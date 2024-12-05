@@ -29,9 +29,9 @@ pub const CHAR_SPACE: char = '\u{0020}';
 pub const CHAR_REPLACEMENT: char = '\u{FFFD}';
 
 /// The tokenizer will read the input stream and emit tokens that can be used by the parser.
-pub struct Tokenizer<'stream> {
+pub struct Tokenizer<'tokens> {
     /// HTML character input stream
-    pub stream: &'stream mut ByteStream,
+    pub stream: &'tokens mut ByteStream,
     /// Current location in the stream
     location_handler: LocationHandler,
     /// Current state of the tokenizer

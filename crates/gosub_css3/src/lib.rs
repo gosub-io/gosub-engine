@@ -1,3 +1,5 @@
+extern crate core;
+
 use crate::ast::convert_ast_to_stylesheet;
 use crate::stylesheet::CssStylesheet;
 use crate::tokenizer::Tokenizer;

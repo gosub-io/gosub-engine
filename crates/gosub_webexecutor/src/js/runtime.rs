@@ -5,7 +5,7 @@ use crate::js::{
     JSFunctionVariadic, JSGetterCallback, JSObject, JSSetterCallback, JSValue, VariadicArgs, VariadicArgsInternal,
 };
 
-//trait around the main JS engine (e.g V8, SpiderMonkey, JSC, etc.)
+// trait around the main JS engine (e.g V8, SpiderMonkey, JSC, etc.)
 pub trait JSRuntime {
     type Context: JSContext<RT = Self>;
     type Value: JSValue<RT = Self>;

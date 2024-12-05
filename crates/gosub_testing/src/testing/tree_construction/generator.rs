@@ -1,19 +1,19 @@
 use gosub_html5::node::HTML_NAMESPACE;
 use gosub_html5::node::{MATHML_NAMESPACE, SVG_NAMESPACE, XLINK_NAMESPACE, XMLNS_NAMESPACE};
 use gosub_shared::document::DocumentHandle;
-use gosub_shared::traits::css3::CssSystem;
+use gosub_shared::traits::config::HasDocument;
 use gosub_shared::traits::document::Document;
 use gosub_shared::traits::node::{CommentDataType, DocTypeDataType, ElementDataType, Node, NodeType, TextDataType};
 
 /// Generates a tree output that can be used for matching with the expected output
-pub struct TreeOutputGenerator<D: Document<C>, C: CssSystem> {
-    document: DocumentHandle<D, C>,
+pub struct TreeOutputGenerator<C: HasDocument> {
+    document: DocumentHandle<C>,
 }
 
-impl<D: Document<C>, C: CssSystem> TreeOutputGenerator<D, C> {
+impl<C: HasDocument> TreeOutputGenerator<C> {
     /// Initializes a new tree output generator
     #[must_use]
-    pub fn new(document: DocumentHandle<D, C>) -> Self {
+    pub fn new(document: DocumentHandle<C>) -> Self {
         Self { document }
     }
 
@@ -23,7 +23,7 @@ impl<D: Document<C>, C: CssSystem> TreeOutputGenerator<D, C> {
     }
 
     /// Generates an array of indented tree line and its children. Note that text lines can have newlines in them
-    fn output_treeline(&self, node: &D::Node, indent_level: usize) -> Vec<String> {
+    fn output_treeline(&self, node: &C::Node, indent_level: usize) -> Vec<String> {
         let mut indent_level = indent_level;
         let mut output = Vec::new();
 
@@ -64,7 +64,7 @@ impl<D: Document<C>, C: CssSystem> TreeOutputGenerator<D, C> {
     }
 
     /// Generate the output for a single node
-    fn output_node(&self, node: &D::Node) -> String {
+    fn output_node(&self, node: &C::Node) -> String {
         match node.type_of() {
             NodeType::ElementNode => {
                 let Some(data) = node.get_element_data() else {

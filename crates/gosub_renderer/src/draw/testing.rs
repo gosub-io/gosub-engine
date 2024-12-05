@@ -1,29 +1,21 @@
-use crate::render_tree::TreeDrawer;
-use gosub_render_backend::layout::Layouter;
-use gosub_render_backend::RenderBackend;
-use gosub_rendering::render_tree::{RenderNodeData, TextData};
+use crate::draw::TreeDrawerImpl;
+use gosub_rendering::render_tree::{RenderNodeData, RenderTree, TextData};
 use gosub_shared::node::NodeId;
-use gosub_shared::traits::css3::{CssProperty, CssPropertyMap, CssSystem, CssValue};
-use gosub_shared::traits::document::Document;
+use gosub_shared::traits::config::HasDrawComponents;
+use gosub_shared::traits::css3::{CssPropertyMap, CssValue};
 
-pub(crate) fn test_add_element<B: RenderBackend, L: Layouter, D: Document<C>, C: CssSystem>(
-    d: &mut TreeDrawer<B, L, D, C>,
+pub(crate) fn test_add_element<C: HasDrawComponents<RenderTree = RenderTree<C>, LayoutTree = RenderTree<C>>>(
+    d: &mut TreeDrawerImpl<C>,
 ) {
     d.dirty = true;
 
-    let mut props = C::PropertyMap::default();
+    let mut props = C::CssPropertyMap::default();
 
-    props.insert(
-        "width",
-        <C::Property as CssProperty>::Value::new_unit(100.0, "px".to_string()).into(),
-    );
-    props.insert(
-        "height",
-        <C::Property as CssProperty>::Value::new_unit(100.0, "px".to_string()).into(),
-    );
+    props.insert("width", C::CssValue::new_unit(100.0, "px".to_string()).into());
+    props.insert("height", C::CssValue::new_unit(100.0, "px".to_string()).into());
     props.insert(
         "background-color",
-        <C::Property as CssProperty>::Value::new_color(255.0, 0.0, 0.0, 255.0).into(),
+        C::CssValue::new_color(255.0, 0.0, 0.0, 255.0).into(),
     );
 
     let id = d
@@ -32,16 +24,10 @@ pub(crate) fn test_add_element<B: RenderBackend, L: Layouter, D: Document<C>, C:
 
     d.tree.layout_dirty_from(NodeId::from(14u64));
 
-    let mut props = C::PropertyMap::default();
+    let mut props = C::CssPropertyMap::default();
 
-    props.insert(
-        "font-size",
-        <C::Property as CssProperty>::Value::new_number(16.0).into(),
-    );
-    props.insert(
-        "color",
-        <C::Property as CssProperty>::Value::new_color(0.0, 1.0, 1.0, 1.0).into(),
-    );
+    props.insert("font-size", C::CssValue::new_number(16.0).into());
+    props.insert("color", C::CssValue::new_color(0.0, 1.0, 1.0, 1.0).into());
 
     d.tree.insert_node_data(
         id,
@@ -57,8 +43,6 @@ pub(crate) fn test_add_element<B: RenderBackend, L: Layouter, D: Document<C>, C:
     d.tree_scene = None;
 }
 
-pub(crate) fn test_restyle_element<B: RenderBackend, L: Layouter, D: Document<C>, C: CssSystem>(
-    _d: &mut TreeDrawer<B, L, D, C>,
-) {
+pub(crate) fn test_restyle_element<C: HasDrawComponents>(_d: &mut TreeDrawerImpl<C>) {
     todo!()
 }

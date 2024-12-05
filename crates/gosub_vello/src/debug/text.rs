@@ -1,5 +1,5 @@
 use crate::{Brush, Color, Scene, Transform};
-use gosub_render_backend::{Brush as _, Color as _, Transform as _};
+use gosub_shared::render_backend::{Brush as _, Color as _, Transform as _};
 use gosub_shared::types::Point;
 use gosub_typeface::ROBOTO_FONT;
 use std::sync::{Arc, LazyLock};

@@ -7,8 +7,9 @@ use taffy::{
     NodeId as TaffyId, SizingMode, Style, TraversePartialTree,
 };
 
-use gosub_render_backend::geo::{Point, Rect, Size, SizeU32};
-use gosub_render_backend::layout::{Layout as TLayout, LayoutCache, LayoutTree, Layouter, Node};
+use gosub_shared::render_backend::geo::{Point, Rect, Size, SizeU32};
+use gosub_shared::render_backend::layout::{Layout as TLayout, LayoutCache, LayoutNode, LayoutTree, Layouter};
+use gosub_shared::traits::config::HasLayouter;
 use gosub_shared::types::Result;
 
 use crate::compute::inline::compute_inline_layout;
@@ -136,13 +137,18 @@ impl Layouter for TaffyLayouter {
 
     const COLLAPSE_INLINE: bool = true;
 
-    fn layout<LT: LayoutTree<Self>>(&self, tree: &mut LT, root: LT::NodeId, space: SizeU32) -> Result<()> {
+    fn layout<C: HasLayouter<Layouter = TaffyLayouter>>(
+        &self,
+        tree: &mut C::LayoutTree,
+        root: <C::LayoutTree as LayoutTree<C>>::NodeId,
+        space: SizeU32,
+    ) -> Result<()> {
         let size = taffy::Size {
             width: AvailableSpace::Definite(space.width as f32),
             height: AvailableSpace::Definite(space.height as f32),
         };
 
-        let mut tree = LayoutDocument(tree);
+        let mut tree: LayoutDocument<C> = LayoutDocument(tree);
         Self::precompute_style(&mut tree, root);
         compute_root_layout(&mut tree, TaffyId::from(root.into()), size);
 
@@ -151,7 +157,10 @@ impl Layouter for TaffyLayouter {
 }
 
 impl TaffyLayouter {
-    fn precompute_style<LT: LayoutTree<Self>>(tree: &mut LayoutDocument<LT>, root: LT::NodeId) {
+    fn precompute_style<C: HasLayouter<Layouter = TaffyLayouter>>(
+        tree: &mut LayoutDocument<C>,
+        root: <C::LayoutTree as LayoutTree<C>>::NodeId,
+    ) {
         tree.update_style(root);
 
         let Some(children) = tree.0.children(root) else {
@@ -159,22 +168,22 @@ impl TaffyLayouter {
         };
 
         for child in children {
-            Self::precompute_style(tree, LT::NodeId::from(child.into()));
+            Self::precompute_style(tree, <C::LayoutTree as LayoutTree<C>>::NodeId::from(child.into()));
         }
     }
 }
 
 #[repr(transparent)]
-pub struct LayoutDocument<'a, LT: LayoutTree<TaffyLayouter>>(&'a mut LT);
+pub struct LayoutDocument<'a, C: HasLayouter>(&'a mut C::LayoutTree);
 
-impl<LT: LayoutTree<TaffyLayouter>> TraversePartialTree for LayoutDocument<'_, LT> {
+impl<C: HasLayouter<Layouter = TaffyLayouter>> TraversePartialTree for LayoutDocument<'_, C> {
     type ChildIter<'a>
         = IntoIter<TaffyId>
     where
         Self: 'a;
 
     fn child_ids(&self, parent: TaffyId) -> Self::ChildIter<'_> {
-        let parent = LT::NodeId::from(parent.into());
+        let parent = <C::LayoutTree as LayoutTree<C>>::NodeId::from(parent.into());
 
         if let Some(children) = self.0.children(parent) {
             children
@@ -189,13 +198,13 @@ impl<LT: LayoutTree<TaffyLayouter>> TraversePartialTree for LayoutDocument<'_, L
     }
 
     fn child_count(&self, parent: TaffyId) -> usize {
-        let parent = LT::NodeId::from(parent.into());
+        let parent = <C::LayoutTree as LayoutTree<C>>::NodeId::from(parent.into());
 
         self.0.child_count(parent)
     }
 
     fn get_child_id(&self, parent: TaffyId, index: usize) -> TaffyId {
-        let parent = LT::NodeId::from(parent.into());
+        let parent = <C::LayoutTree as LayoutTree<C>>::NodeId::from(parent.into());
 
         if let Some(node) = self.0.children(parent) {
             TaffyId::from(
@@ -211,9 +220,9 @@ impl<LT: LayoutTree<TaffyLayouter>> TraversePartialTree for LayoutDocument<'_, L
     }
 }
 
-impl<LT: LayoutTree<TaffyLayouter>> LayoutDocument<'_, LT> {
-    fn update_style(&mut self, node_id: LT::NodeId) {
-        let Some(node) = self.0.get_node(node_id) else {
+impl<C: HasLayouter<Layouter = TaffyLayouter>> LayoutDocument<'_, C> {
+    fn update_style(&mut self, node_id: <C::LayoutTree as LayoutTree<C>>::NodeId) {
+        let Some(node) = self.0.get_node_mut(node_id) else {
             return;
         };
 
@@ -225,7 +234,7 @@ impl<LT: LayoutTree<TaffyLayouter>> LayoutDocument<'_, LT> {
         }
     }
 
-    fn get_taffy_style(&mut self, node_id: LT::NodeId) -> &Style {
+    fn get_taffy_style(&mut self, node_id: <C::LayoutTree as LayoutTree<C>>::NodeId) -> &Style {
         let dirty_style = self.0.style_dirty(node_id);
 
         if dirty_style {
@@ -240,7 +249,7 @@ impl<LT: LayoutTree<TaffyLayouter>> LayoutDocument<'_, LT> {
         &cache.style
     }
 
-    fn get_taffy_style_no_update(&self, node_id: LT::NodeId) -> &Style {
+    fn get_taffy_style_no_update(&self, node_id: <C::LayoutTree as LayoutTree<C>>::NodeId) -> &Style {
         if let Some(cache) = self.0.get_cache(node_id) {
             return &cache.style;
         }
@@ -251,7 +260,7 @@ impl<LT: LayoutTree<TaffyLayouter>> LayoutDocument<'_, LT> {
     }
 }
 
-impl<LT: LayoutTree<TaffyLayouter>> LayoutPartialTree for LayoutDocument<'_, LT> {
+impl<C: HasLayouter<Layouter = TaffyLayouter>> LayoutPartialTree for LayoutDocument<'_, C> {
     type CoreContainerStyle<'a>
         = &'a Style
     where
@@ -262,19 +271,19 @@ impl<LT: LayoutTree<TaffyLayouter>> LayoutPartialTree for LayoutDocument<'_, LT>
         Self: 'b;
 
     fn get_core_container_style(&self, node_id: TaffyId) -> Self::CoreContainerStyle<'_> {
-        self.get_taffy_style_no_update(LT::NodeId::from(node_id.into()))
+        self.get_taffy_style_no_update(<C::LayoutTree as LayoutTree<C>>::NodeId::from(node_id.into()))
     }
 
     fn set_unrounded_layout(&mut self, node_id: TaffyId, layout: &TaffyLayout) {
         let layout = Layout(*layout);
 
-        let node_id = LT::NodeId::from(node_id.into());
+        let node_id = <C::LayoutTree as LayoutTree<C>>::NodeId::from(node_id.into());
 
         self.0.set_layout(node_id, layout);
     }
 
     fn get_cache_mut(&mut self, node_id: TaffyId) -> &mut TaffyCache {
-        let node_id = LT::NodeId::from(node_id.into());
+        let node_id = <C::LayoutTree as LayoutTree<C>>::NodeId::from(node_id.into());
         &mut self
             .0
             .get_cache_mut(node_id)
@@ -286,9 +295,9 @@ impl<LT: LayoutTree<TaffyLayouter>> LayoutPartialTree for LayoutDocument<'_, LT>
         inputs.sizing_mode = SizingMode::InherentSize;
 
         compute_cached_layout(self, node_id, inputs, |tree, node_id_taffy, inputs| {
-            let node_id = LT::NodeId::from(node_id_taffy.into());
+            let node_id = <C::LayoutTree as LayoutTree<C>>::NodeId::from(node_id_taffy.into());
 
-            if let Some(node) = tree.0.get_node(node_id) {
+            if let Some(node) = tree.0.get_node_mut(node_id) {
                 if node.is_anon_inline_parent() {
                     return compute_inline_layout(tree, node_id, inputs);
                 }
@@ -307,7 +316,7 @@ impl<LT: LayoutTree<TaffyLayouter>> LayoutPartialTree for LayoutDocument<'_, LT>
     }
 }
 
-impl<LT: LayoutTree<TaffyLayouter>> LayoutBlockContainer for LayoutDocument<'_, LT> {
+impl<C: HasLayouter<Layouter = TaffyLayouter>> LayoutBlockContainer for LayoutDocument<'_, C> {
     type BlockContainerStyle<'a>
         = &'a Style
     where
@@ -318,15 +327,15 @@ impl<LT: LayoutTree<TaffyLayouter>> LayoutBlockContainer for LayoutDocument<'_, 
         Self: 'a;
 
     fn get_block_container_style(&self, node_id: TaffyId) -> Self::BlockContainerStyle<'_> {
-        self.get_taffy_style_no_update(LT::NodeId::from(node_id.into()))
+        self.get_taffy_style_no_update(<C::LayoutTree as LayoutTree<C>>::NodeId::from(node_id.into()))
     }
 
     fn get_block_child_style(&self, child_node_id: TaffyId) -> Self::BlockItemStyle<'_> {
-        self.get_taffy_style_no_update(LT::NodeId::from(child_node_id.into()))
+        self.get_taffy_style_no_update(<C::LayoutTree as LayoutTree<C>>::NodeId::from(child_node_id.into()))
     }
 }
 
-impl<LT: LayoutTree<TaffyLayouter>> LayoutFlexboxContainer for LayoutDocument<'_, LT> {
+impl<C: HasLayouter<Layouter = TaffyLayouter>> LayoutFlexboxContainer for LayoutDocument<'_, C> {
     type FlexboxContainerStyle<'a>
         = &'a Style
     where
@@ -337,15 +346,15 @@ impl<LT: LayoutTree<TaffyLayouter>> LayoutFlexboxContainer for LayoutDocument<'_
         Self: 'a;
 
     fn get_flexbox_container_style(&self, node_id: TaffyId) -> Self::FlexboxContainerStyle<'_> {
-        self.get_taffy_style_no_update(LT::NodeId::from(node_id.into()))
+        self.get_taffy_style_no_update(<C::LayoutTree as LayoutTree<C>>::NodeId::from(node_id.into()))
     }
 
     fn get_flexbox_child_style(&self, child_node_id: TaffyId) -> Self::FlexboxItemStyle<'_> {
-        self.get_taffy_style_no_update(LT::NodeId::from(child_node_id.into()))
+        self.get_taffy_style_no_update(<C::LayoutTree as LayoutTree<C>>::NodeId::from(child_node_id.into()))
     }
 }
 
-impl<LT: LayoutTree<TaffyLayouter>> LayoutGridContainer for LayoutDocument<'_, LT> {
+impl<C: HasLayouter<Layouter = TaffyLayouter>> LayoutGridContainer for LayoutDocument<'_, C> {
     type GridContainerStyle<'a>
         = &'a Style
     where
@@ -356,10 +365,10 @@ impl<LT: LayoutTree<TaffyLayouter>> LayoutGridContainer for LayoutDocument<'_, L
         Self: 'a;
 
     fn get_grid_container_style(&self, node_id: TaffyId) -> Self::GridContainerStyle<'_> {
-        self.get_taffy_style_no_update(LT::NodeId::from(node_id.into()))
+        self.get_taffy_style_no_update(<C::LayoutTree as LayoutTree<C>>::NodeId::from(node_id.into()))
     }
 
     fn get_grid_child_style(&self, child_node_id: TaffyId) -> Self::GridItemStyle<'_> {
-        self.get_taffy_style_no_update(LT::NodeId::from(child_node_id.into()))
+        self.get_taffy_style_no_update(<C::LayoutTree as LayoutTree<C>>::NodeId::from(child_node_id.into()))
     }
 }

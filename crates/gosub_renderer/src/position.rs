@@ -3,8 +3,8 @@ use std::marker::PhantomData;
 
 use rstar::{RTree, RTreeObject, AABB};
 
-use gosub_render_backend::layout::Layouter;
-use gosub_render_backend::RenderBackend;
+use gosub_shared::render_backend::layout::Layouter;
+use gosub_shared::render_backend::RenderBackend;
 use gosub_shared::node::NodeId;
 use gosub_shared::traits::css3::CssSystem;
 use gosub_shared::traits::document::Document;
@@ -36,7 +36,7 @@ pub struct PositionTree<D, C> {
     phantom_data_c: PhantomData<C>,
 }
 
-impl<D: Document<C>, C: CssSystem> PositionTree<D, C> {
+impl<C: HasDocument> PositionTree<D, C> {
     pub fn from_tree<B: RenderBackend, L: Layouter>(from_tree: &MacOSRenderTree<D, C>) -> Self {
         let mut tree = RTree::new();
 

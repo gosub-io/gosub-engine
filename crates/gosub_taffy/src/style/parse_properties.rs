@@ -6,10 +6,11 @@ use crate::style::parse::{
     parse_align_c, parse_align_i, parse_dimension, parse_grid_auto, parse_grid_placement, parse_len, parse_len_auto,
     parse_text_dim, parse_tracking_sizing_function,
 };
-use gosub_render_backend::layout::Node;
+use gosub_shared::render_backend::layout::LayoutNode;
+use gosub_shared::traits::config::HasLayouter;
 use gosub_shared::traits::css3::CssProperty;
 
-pub fn parse_display(node: &mut impl Node) -> (Display, crate::Display) {
+pub fn parse_display<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> (Display, crate::Display) {
     let Some(display) = node.get_property("display") else {
         return (Display::Block, crate::Display::Taffy);
     };
@@ -30,7 +31,7 @@ pub fn parse_display(node: &mut impl Node) -> (Display, crate::Display) {
     }
 }
 
-pub fn parse_overflow(node: &mut impl Node) -> Point<Overflow> {
+pub fn parse_overflow<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Point<Overflow> {
     fn parse(str: &str) -> Overflow {
         match str {
             "visible" => Overflow::Visible,
@@ -62,7 +63,7 @@ pub fn parse_overflow(node: &mut impl Node) -> Point<Overflow> {
     overflow
 }
 
-pub fn parse_position(node: &mut impl Node) -> Position {
+pub fn parse_position<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Position {
     let Some(position) = node.get_property("position") else {
         return Position::Relative;
     };
@@ -78,7 +79,7 @@ pub fn parse_position(node: &mut impl Node) -> Position {
     }
 }
 
-pub fn parse_inset(node: &mut impl Node) -> Rect<LengthPercentageAuto> {
+pub fn parse_inset<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Rect<LengthPercentageAuto> {
     Rect {
         top: parse_len_auto(node, "top"),
         right: parse_len_auto(node, "right"),
@@ -87,7 +88,7 @@ pub fn parse_inset(node: &mut impl Node) -> Rect<LengthPercentageAuto> {
     }
 }
 
-pub fn parse_size(node: &mut impl Node) -> Size<Dimension> {
+pub fn parse_size<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Size<Dimension> {
     if let Some(t) = node.text_size() {
         return Size {
             width: parse_text_dim(t, "width"),
@@ -101,7 +102,7 @@ pub fn parse_size(node: &mut impl Node) -> Size<Dimension> {
     }
 }
 
-pub fn parse_min_size(node: &mut impl Node) -> Size<Dimension> {
+pub fn parse_min_size<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Size<Dimension> {
     if let Some(t) = node.text_size() {
         return Size {
             width: parse_text_dim(t, "min-width"),
@@ -115,7 +116,7 @@ pub fn parse_min_size(node: &mut impl Node) -> Size<Dimension> {
     }
 }
 
-pub fn parse_max_size(node: &mut impl Node) -> Size<Dimension> {
+pub fn parse_max_size<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Size<Dimension> {
     if let Some(t) = node.text_size() {
         return Size {
             width: parse_text_dim(t, "max-width"),
@@ -129,7 +130,7 @@ pub fn parse_max_size(node: &mut impl Node) -> Size<Dimension> {
     }
 }
 
-pub fn parse_aspect_ratio(node: &mut impl Node) -> Option<f32> {
+pub fn parse_aspect_ratio<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Option<f32> {
     let aspect_ratio = node.get_property("aspect-ratio")?;
 
     if let Some(value) = aspect_ratio.as_number() {
@@ -164,7 +165,7 @@ pub fn parse_aspect_ratio(node: &mut impl Node) -> Option<f32> {
     None
 }
 
-pub fn parse_margin(node: &mut impl Node) -> Rect<LengthPercentageAuto> {
+pub fn parse_margin<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Rect<LengthPercentageAuto> {
     Rect {
         top: parse_len_auto(node, "margin-top"),
         right: parse_len_auto(node, "margin-right"),
@@ -173,7 +174,7 @@ pub fn parse_margin(node: &mut impl Node) -> Rect<LengthPercentageAuto> {
     }
 }
 
-pub fn parse_padding(node: &mut impl Node) -> Rect<LengthPercentage> {
+pub fn parse_padding<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Rect<LengthPercentage> {
     Rect {
         top: parse_len(node, "padding-top"),
         right: parse_len(node, "padding-right"),
@@ -182,7 +183,7 @@ pub fn parse_padding(node: &mut impl Node) -> Rect<LengthPercentage> {
     }
 }
 
-pub fn parse_border(node: &mut impl Node) -> Rect<LengthPercentage> {
+pub fn parse_border<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Rect<LengthPercentage> {
     Rect {
         top: parse_len(node, "border-top-width"),
         right: parse_len(node, "border-right-width"),
@@ -191,7 +192,7 @@ pub fn parse_border(node: &mut impl Node) -> Rect<LengthPercentage> {
     }
 }
 
-pub fn parse_align_items(node: &mut impl Node) -> Option<AlignItems> {
+pub fn parse_align_items<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Option<AlignItems> {
     let display = node.get_property("align-items")?;
 
     let value = display.as_string()?;
@@ -208,34 +209,34 @@ pub fn parse_align_items(node: &mut impl Node) -> Option<AlignItems> {
     }
 }
 
-pub fn parse_align_self(node: &mut impl Node) -> Option<AlignSelf> {
+pub fn parse_align_self<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Option<AlignSelf> {
     parse_align_i(node, "align-self")
 }
 
-pub fn parse_justify_items(node: &mut impl Node) -> Option<AlignItems> {
+pub fn parse_justify_items<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Option<AlignItems> {
     parse_align_i(node, "justify-items")
 }
 
-pub fn parse_justify_self(node: &mut impl Node) -> Option<AlignSelf> {
+pub fn parse_justify_self<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Option<AlignSelf> {
     parse_align_i(node, "justify-self")
 }
 
-pub fn parse_align_content(node: &mut impl Node) -> Option<AlignContent> {
+pub fn parse_align_content<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Option<AlignContent> {
     parse_align_c(node, "align-content")
 }
 
-pub fn parse_justify_content(node: &mut impl Node) -> Option<JustifyContent> {
+pub fn parse_justify_content<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Option<JustifyContent> {
     parse_align_c(node, "justify-content")
 }
 
-pub fn parse_gap(node: &mut impl Node) -> Size<LengthPercentage> {
+pub fn parse_gap<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Size<LengthPercentage> {
     Size {
         width: parse_len(node, "column-gap"),
         height: parse_len(node, "row-gap"),
     }
 }
 
-pub fn parse_flex_direction(node: &mut impl Node) -> FlexDirection {
+pub fn parse_flex_direction<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> FlexDirection {
     let Some(property) = node.get_property("flex-direction") else {
         return FlexDirection::Row;
     };
@@ -253,7 +254,7 @@ pub fn parse_flex_direction(node: &mut impl Node) -> FlexDirection {
     }
 }
 
-pub fn parse_flex_wrap(node: &mut impl Node) -> FlexWrap {
+pub fn parse_flex_wrap<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> FlexWrap {
     let Some(property) = node.get_property("flex-wrap") else {
         return FlexWrap::NoWrap;
     };
@@ -270,11 +271,11 @@ pub fn parse_flex_wrap(node: &mut impl Node) -> FlexWrap {
     }
 }
 
-pub fn parse_flex_basis(node: &mut impl Node) -> Dimension {
+pub fn parse_flex_basis<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Dimension {
     parse_dimension(node, "flex-basis")
 }
 
-pub fn parse_flex_grow(node: &mut impl Node) -> f32 {
+pub fn parse_flex_grow<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> f32 {
     let Some(property) = node.get_property("flex-grow") else {
         return 0.0;
     };
@@ -282,7 +283,7 @@ pub fn parse_flex_grow(node: &mut impl Node) -> f32 {
     property.as_number().unwrap_or(0.0)
 }
 
-pub fn parse_flex_shrink(node: &mut impl Node) -> f32 {
+pub fn parse_flex_shrink<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> f32 {
     let Some(property) = node.get_property("flex-shrink") else {
         return 1.0;
     };
@@ -290,23 +291,23 @@ pub fn parse_flex_shrink(node: &mut impl Node) -> f32 {
     property.as_number().unwrap_or(1.0)
 }
 
-pub fn parse_grid_template_rows(node: &mut impl Node) -> Vec<TrackSizingFunction> {
+pub fn parse_grid_template_rows<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Vec<TrackSizingFunction> {
     parse_tracking_sizing_function(node, "grid-template-rows")
 }
 
-pub fn parse_grid_template_columns(node: &mut impl Node) -> Vec<TrackSizingFunction> {
+pub fn parse_grid_template_columns<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Vec<TrackSizingFunction> {
     parse_tracking_sizing_function(node, "grid-template-columns")
 }
 
-pub fn parse_grid_auto_rows(node: &mut impl Node) -> Vec<NonRepeatedTrackSizingFunction> {
+pub fn parse_grid_auto_rows<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Vec<NonRepeatedTrackSizingFunction> {
     parse_grid_auto(node, "grid-auto-rows")
 }
 
-pub fn parse_grid_auto_columns(node: &mut impl Node) -> Vec<NonRepeatedTrackSizingFunction> {
+pub fn parse_grid_auto_columns<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Vec<NonRepeatedTrackSizingFunction> {
     parse_grid_auto(node, "grid-auto-columns")
 }
 
-pub fn parse_grid_auto_flow(node: &mut impl Node) -> GridAutoFlow {
+pub fn parse_grid_auto_flow<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> GridAutoFlow {
     let Some(property) = node.get_property("grid-auto-flow") else {
         return GridAutoFlow::Row;
     };
@@ -324,21 +325,21 @@ pub fn parse_grid_auto_flow(node: &mut impl Node) -> GridAutoFlow {
     }
 }
 
-pub fn parse_grid_row(node: &mut impl Node) -> Line<GridPlacement> {
+pub fn parse_grid_row<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Line<GridPlacement> {
     Line {
         start: parse_grid_placement(node, "grid-row-start"),
         end: parse_grid_placement(node, "grid-row-end"),
     }
 }
 
-pub fn parse_grid_column(node: &mut impl Node) -> Line<GridPlacement> {
+pub fn parse_grid_column<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Line<GridPlacement> {
     Line {
         start: parse_grid_placement(node, "grid-column-start"),
         end: parse_grid_placement(node, "grid-column-end"),
     }
 }
 
-pub fn parse_box_sizing(node: &mut impl Node) -> BoxSizing {
+pub fn parse_box_sizing<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> BoxSizing {
     let Some(property) = node.get_property("box-sizing") else {
         return BoxSizing::ContentBox;
     };
@@ -354,7 +355,7 @@ pub fn parse_box_sizing(node: &mut impl Node) -> BoxSizing {
     }
 }
 
-pub fn parse_text_align(node: &mut impl Node) -> TextAlign {
+pub fn parse_text_align<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> TextAlign {
     let Some(property) = node.get_property("text-align") else {
         return TextAlign::Auto;
     };
