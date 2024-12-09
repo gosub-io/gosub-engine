@@ -1491,6 +1491,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "07e28edb80900c19c28f1072f2e8aeca7fa06b23cd4169cefe1af5aa3260783f"
 
 [[package]]
+name = "gio"
+version = "0.20.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8826d2a9ad56ce3de1f04bea0bea0daff6f5f1c913cc834996cfea1f9401361c"
+dependencies = [
+ "futures-channel",
+ "futures-core",
+ "futures-io",
+ "futures-util",
+ "gio-sys",
+ "glib",
+ "libc",
+ "pin-project-lite",
+ "smallvec",
+]
+
+[[package]]
 name = "gio-sys"
 version = "0.20.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1603,12 +1620,12 @@ dependencies = [
  "anyhow",
  "cairo-rs",
  "futures",
- "gosub_render_backend",
  "gosub_shared",
- "gosub_svg",
  "gosub_typeface",
  "image",
  "kurbo",
+ "pango",
+ "pangocairo",
  "peniko",
  "skrifa 0.26.1",
  "smallvec",
@@ -1671,7 +1688,6 @@ dependencies = [
  "gosub_html5",
  "gosub_jsapi",
  "gosub_net",
- "gosub_render_backend",
  "gosub_renderer",
  "gosub_rendering",
  "gosub_shared",
@@ -1748,22 +1764,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "gosub_render_backend"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "gosub_css3",
- "gosub_html5",
- "gosub_shared",
- "gosub_typeface",
- "image",
- "log",
- "raw-window-handle",
- "smallvec",
- "url",
-]
-
-[[package]]
 name = "gosub_renderer"
 version = "0.1.0"
 dependencies = [
@@ -1771,7 +1771,6 @@ dependencies = [
  "gosub_css3",
  "gosub_html5",
  "gosub_net",
- "gosub_render_backend",
  "gosub_rendering",
  "gosub_shared",
  "image",
@@ -1789,7 +1788,6 @@ dependencies = [
  "anyhow",
  "gosub_css3",
  "gosub_html5",
- "gosub_render_backend",
  "gosub_shared",
  "log",
  "regex",
@@ -1830,7 +1828,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "gosub_html5",
- "gosub_render_backend",
  "gosub_shared",
  "resvg",
  "tiny-skia",
@@ -1841,7 +1838,6 @@ name = "gosub_taffy"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "gosub_render_backend",
  "gosub_shared",
  "gosub_typeface",
  "log",
@@ -1877,7 +1873,6 @@ name = "gosub_useragent"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "gosub_render_backend",
  "gosub_renderer",
  "gosub_shared",
  "image",
@@ -1908,7 +1903,6 @@ dependencies = [
  "anyhow",
  "futures",
  "gosub_html5",
- "gosub_render_backend",
  "gosub_shared",
  "gosub_svg",
  "gosub_typeface",
@@ -3256,6 +3250,56 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "22ec719bbf3b2a81c109a4e20b1f129b5566b7dce654bc3872f6a05abf82b2c4"
 dependencies = [
  "ttf-parser 0.25.1",
+]
+
+[[package]]
+name = "pango"
+version = "0.20.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "71e34e7ca2c52e3933d7e5251409a82b83725fa9d6d48fbdaacec056b3a0554a"
+dependencies = [
+ "gio",
+ "glib",
+ "libc",
+ "pango-sys",
+]
+
+[[package]]
+name = "pango-sys"
+version = "0.20.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "84fd65917bf12f06544ae2bbc200abf9fc0a513a5a88a0fa81013893aef2b838"
+dependencies = [
+ "glib-sys",
+ "gobject-sys",
+ "libc",
+ "system-deps 7.0.3",
+]
+
+[[package]]
+name = "pangocairo"
+version = "0.20.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4291ca8cdd05e4330752bf8a450d3a4e701ca48fd9aad2b3566e92849ee4055e"
+dependencies = [
+ "cairo-rs",
+ "glib",
+ "libc",
+ "pango",
+ "pangocairo-sys",
+]
+
+[[package]]
+name = "pangocairo-sys"
+version = "0.20.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "be0ed959258ea648a49bde7dfdbaa98310717cb15159b421fa76510c45ec306e"
+dependencies = [
+ "cairo-sys-rs",
+ "glib-sys",
+ "libc",
+ "pango-sys",
+ "system-deps 7.0.3",
 ]
 
 [[package]]

@@ -1,53 +1,86 @@
+use std::fmt::{Debug, Formatter};
+use std::sync::Arc;
 use gosub_shared::render_backend::{Point, Radius, RenderBackend, RenderRect, RenderText, Scene as TScene, FP};
 
 use crate::debug::text::render_text_simple;
-use crate::{Border, BorderRadius, BorderRenderOptions, CairoBackend, Text, Transform};
+use crate::{BorderRadius, CairoBackend, Text, Transform};
 
 pub struct Scene {
-    context: cairo::Context,
+    pub(crate) context: Arc<cairo::Context>,
 }
 
 impl Scene {
-    pub fn inner(&mut self) -> &mut cairo::Context {
+    pub fn inner(&mut self) -> &mut Arc<cairo::Context> {
         &mut self.context
     }
 
     pub fn create(cr: &cairo::Context) -> Self {
         Self {
-            context: cr.clone(),
+            context: Arc::new(cr.clone()),
         }
+    }
+}
+
+impl Clone for Scene {
+    fn clone(&self) -> Self {
+        todo!()
+    }
+}
+
+impl Debug for Scene {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Scene").finish()
     }
 }
 
 impl TScene<CairoBackend> for Scene {
     fn draw_rect(&mut self, rect: &RenderRect<CairoBackend>) {
-        // let affine = rect.transform.as_ref().map(|t| t.0).unwrap_or_default();
 
-        let brush = &rect.brush;
-        // let brush_transform = rect.brush_transform.as_ref().map(|t| t.0);
+        let cr = self.context.clone();
+        cr.rectangle(rect.rect.x, rect.rect.y, rect.rect.width, rect.rect.height);
 
-        if let Some(radius) = &rect.radius {
-            self.context.set_source_rgba(brush.r, brush.g, brush.b, brush.a);
-            draw_rounded_rect(&mut self.context, rect.rect.x as FP, rect.rect.y as FP, rect.rect.width as FP, rect.rect.height as FP, radius);
-        } else {
-            self.context.set_source_rgba(brush.r, brush.g, brush.b, brush.a);
-            self.context.rectangle(rect.rect.x, rect.rect.y, rect.rect.width, rect.rect.height);
-        }
-
-        if let Some(border) = &rect.border {
-            let opts = BorderRenderOptions {
-                border,
-                rect: &rect.rect,
-                transform: rect.transform.as_ref(),
-                radius: rect.radius.as_ref(),
-            };
-
-            Border::draw(&mut self.context, opts);
-        }
+        // // let affine = rect.transform.as_ref().map(|t| t.0).unwrap_or_default();
+        //
+        // let brush = &rect.brush.brush;
+        // // let brush_transform = rect.brush_transform.as_ref().map(|t| t.0);
+        // match brush {
+        //     CairoBrush::Gradient(gradient) => {
+        //         gradient.apply(&mut self.context, rect.rect.x as FP, rect.rect.y as FP, rect.rect.width as FP, rect.rect.height as FP);
+        //     }
+        //     CairoBrush::Solid(color) => {
+        //         self.context.set_source_rgba(color.r(), color.g(), color.b(), color.a());
+        //         draw_rounded_rect(&mut self.context, rect.rect.x as FP, rect.rect.y as FP, rect.rect.width as FP, rect.rect.height as FP, radius);
+        //     }
+        //     CairoBrush::Image(image) => {
+        //         let surface = image.surface();
+        //         self.context.set_source_surface(&surface, rect.rect.x as f64, rect.rect.y as f64);
+        //         self.context.paint();
+        //     }
+        // }
+        //
+        //
+        // if let Some(radius) = &rect.radius {
+        //     draw_rounded_rect(&mut self.context, rect.rect.x as FP, rect.rect.y as FP, rect.rect.width as FP, rect.rect.height as FP, radius);
+        // } else {
+        //
+        //     self.context.set_source_rgba(brush.r, brush.g, brush.b, brush.a);
+        //     self.context.rectangle(rect.rect.x, rect.rect.y, rect.rect.width, rect.rect.height);
+        // }
+        //
+        // if let Some(border) = &rect.border {
+        //     let opts = BorderRenderOptions {
+        //         border,
+        //         rect: &rect.rect,
+        //         transform: rect.transform.as_ref(),
+        //         radius: rect.radius.as_ref(),
+        //     };
+        //
+        //     Border::draw(&mut self.context, opts);
+        // }
     }
 
     fn draw_text(&mut self, text: &RenderText<CairoBackend>) {
-        Text::show(&mut self.context, text)
+        Text::show(self, text)
     }
 
     fn debug_draw_simple_text(&mut self, text: &str, pos: Point, size: FP) {
@@ -63,7 +96,12 @@ impl TScene<CairoBackend> for Scene {
     }
 
     fn new() -> Self {
-        CairoBackend::new().into()
+        let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, 800, 600).unwrap();
+        let context = cairo::Context::new(&surface).unwrap();
+
+        Self {
+            context: Arc::new(context.clone()),
+        }
     }
 }
 

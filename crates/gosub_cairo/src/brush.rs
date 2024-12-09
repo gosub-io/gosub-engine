@@ -2,7 +2,7 @@ use crate::{Color, CairoGradient, Image, CairoBackend};
 use gosub_shared::render_backend::Brush as TBrush;
 
 #[derive(Clone)]
-enum CairoBrush {
+pub enum CairoBrush {
     Gradient(CairoGradient),
     Solid(Color),
     Image(Image),

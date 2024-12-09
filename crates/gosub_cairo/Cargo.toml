@@ -8,7 +8,6 @@ license = "MIT"
 
 [dependencies]
 gosub_shared = { path = "../gosub_shared" }
-gosub_render_backend = { path = "../gosub_render_backend" }
 gosub_typeface = { path = "../gosub_typeface" }
 gosub_svg = { path = "../gosub_svg" }
 image = "0.25.2"
@@ -20,3 +19,5 @@ cairo-rs = "0.20.5"
 kurbo = "0.11.1"
 peniko = "0.2.0"
 skrifa = "0.26.1"
+pango = "0.20.6"
+pangocairo = "0.20.4"
