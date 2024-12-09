@@ -5,7 +5,7 @@ use gosub_shared::render_backend::geo::FP;
 use gosub_shared::render_backend::Image as TImage;
 
 #[derive(Clone)]
-enum Format {
+pub enum Format {
     Rgba8,
 }
 

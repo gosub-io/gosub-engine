@@ -26,7 +26,7 @@ mod text;
 mod transform;
 mod debug;
 
-pub struct CairoBackend;
+pub struct CairoBackend {}
 
 impl Debug for CairoBackend {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -48,15 +48,15 @@ impl RenderBackend for CairoBackend {
     type Scene = Scene;
     type SVGRenderer = gosub_svg::resvg::Resvg;
 
-    type ActiveWindowData = ActiveWindowData;
-    type WindowData = WindowData;
+    type ActiveWindowData<'a> = ActiveWindowData<'a>;
+    type WindowData<'a> = WindowData<'a>;
 
     fn draw_rect(&mut self, data: &mut Self::WindowData<'_>, rect: &RenderRect<Self>) {
-        data.draw_rect(rect);
+        // data.draw_rect(rect);
     }
 
     fn draw_text(&mut self, data: &mut Self::WindowData<'_>, text: &RenderText<Self>) {
-        data.draw_text(text);
+        // data.draw_text(text);
     }
 
     fn apply_scene(
@@ -65,11 +65,11 @@ impl RenderBackend for CairoBackend {
         scene: &Self::Scene,
         transform: Option<Self::Transform>,
     ) {
-        data.apply_scene(scene, transform);
+        // data.apply_scene(scene, transform);
     }
 
     fn reset(&mut self, data: &mut Self::WindowData<'_>) {
-        data.reset();
+        // data.reset();
     }
 
     fn activate_window<'a>(
@@ -81,8 +81,9 @@ impl RenderBackend for CairoBackend {
         let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, 800, 600).unwrap();
 
         Ok(ActiveWindowData {
-            surface,
-            context: data.context.clone()
+            surface: surface.clone(),
+            context: data.context.clone(),
+            _phantom: std::marker::PhantomData,
         })
     }
 
@@ -97,35 +98,45 @@ impl RenderBackend for CairoBackend {
 
     fn create_window_data<'a>(&mut self, _handle: impl WindowHandle) -> Result<Self::WindowData<'a>> {
 
-        let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, 0, 0).unwrap();
+        let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, 800, 600).unwrap();
         let ctx = cairo::Context::new(&surface).unwrap();
 
         Ok(WindowData {
-            context: ctx.clone()
+            context: ctx.clone(),
+            _phantom: std::marker::PhantomData,
         })
     }
 
-    fn resize_window<'a>(
-        &mut self,
-        _window_data: &mut Self::WindowData<'a>,
-        _active_window_data: &mut Self::ActiveWindowData<'a>,
-        _size: SizeU32,
-    ) -> Result<()> {
+    fn resize_window(&mut self, _window_data: &mut Self::WindowData<'_>, _active_window_data: &mut Self::ActiveWindowData<'_>, _size: SizeU32) -> Result<()> {
         Ok(())
     }
 
-    fn render<'a>(
-        &mut self,
-        _window_data: &mut Self::WindowData<'a>,
-        _active_data: &mut Self::ActiveWindowData<'a>,
-    ) -> Result<()> {
+    fn render(&mut self, _window_data: &mut Self::WindowData<'_>, _active_data: &mut Self::ActiveWindowData<'_>) -> Result<()> {
         Ok(())
     }
+
+
+    // fn resize_window<'a>(
+    //     &mut self,
+    //     _window_data: &mut Self::WindowData<'a>,
+    //     _active_window_data: &mut Self::ActiveWindowData<'a>,
+    //     _size: SizeU32,
+    // ) -> Result<()> {
+    //     Ok(())
+    // }
+    //
+    // fn render<'a>(
+    //     &mut self,
+    //     _window_data: &mut Self::WindowData<'a>,
+    //     _active_data: &mut Self::ActiveWindowData<'a>,
+    // ) -> Result<()> {
+    //     Ok(())
+    // }
 }
 
 impl CairoBackend {
     pub fn new() -> Self {
-        Self
+        Self {}
     }
 }
 

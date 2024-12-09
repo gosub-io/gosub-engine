@@ -1,22 +1,22 @@
 use std::fmt::{Debug, Formatter};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use gosub_shared::render_backend::{Point, Radius, RenderBackend, RenderRect, RenderText, Scene as TScene, FP};
 
 use crate::debug::text::render_text_simple;
 use crate::{BorderRadius, CairoBackend, Text, Transform};
 
 pub struct Scene {
-    pub(crate) context: Arc<cairo::Context>,
+    pub(crate) context: Arc<Mutex<cairo::Context>>,
 }
 
-impl Scene {
-    pub fn inner(&mut self) -> &mut Arc<cairo::Context> {
+impl Scene{
+    pub fn inner(&mut self) -> &mut Arc<Mutex<cairo::Context>> {
         &mut self.context
     }
 
     pub fn create(cr: &cairo::Context) -> Self {
         Self {
-            context: Arc::new(cr.clone()),
+            context: Arc::new(Mutex::new(cr.clone())),
         }
     }
 }
@@ -37,7 +37,7 @@ impl TScene<CairoBackend> for Scene {
     fn draw_rect(&mut self, rect: &RenderRect<CairoBackend>) {
 
         let cr = self.context.clone();
-        cr.rectangle(rect.rect.x, rect.rect.y, rect.rect.width, rect.rect.height);
+        cr.lock().expect("").rectangle(rect.rect.x, rect.rect.y, rect.rect.width, rect.rect.height);
 
         // // let affine = rect.transform.as_ref().map(|t| t.0).unwrap_or_default();
         //
@@ -100,7 +100,7 @@ impl TScene<CairoBackend> for Scene {
         let context = cairo::Context::new(&surface).unwrap();
 
         Self {
-            context: Arc::new(context.clone()),
+            context: Arc::new(Mutex::new(context.clone())),
         }
     }
 }

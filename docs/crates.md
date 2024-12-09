@@ -7,7 +7,6 @@ The engine is split up in a few different crates. This is done to keep the codeb
 * gosub_html5
 * gosub_jsapi
 * gosub_net
-* gosub_render_backend
 * gosub_render_utils
 * gosub_renderer
 * gosub_shared
@@ -39,14 +38,11 @@ This crate contains Javascript api's that are usable in the browser. For instanc
 ## gosub_net
 This crate contains the network stack that is used to fetch resources from the web. It can fetch resources from the web, but also from the local filesystem. Currently hosting a DNS system that we can use for resolving domain names over different kind of protocols.
 
-## gosub_render_backend
-This crate contains trait definitions of the render backend and some more layout.
-
 ## gosub_render_utils
 This crate contains implementations of the render tree and some other utilities, for instance for resolving mouse positions back to elements.
 
 ## gosub_renderer
-This crate contains the actual renderer. It uses the traits defined in the `gosub_render_backend` crate to render a html document.
+This crate contains the actual renderer.
 
 ## gosub_shared
 Some of the code and data structures that will be used throughout different crates are stored here. It also holds the traits that are used to implement the different parts of the engine.

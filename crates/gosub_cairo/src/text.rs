@@ -59,8 +59,8 @@ impl Text {
     pub(crate) fn show(scene: &mut Scene, render: &RenderText<CairoBackend>) {
 
         let cr = scene.context.clone();
-        cr.set_font_size(render.text.fs.into());
-        cr.select_font_face(
+        cr.lock().unwrap().set_font_size(render.text.fs.into());
+        cr.lock().unwrap().select_font_face(
             &render.text.font.family,
             render.text.font.slant,
             render.text.font.weight,
@@ -75,15 +75,15 @@ impl Text {
         let x = render.rect.x;
         let y = render.rect.y;
 
-        let layout = pangocairo::functions::create_layout(&cr);
+        let layout = pangocairo::functions::create_layout(&cr.lock().unwrap());
         let markup = "[Gosub Text] :) 🐟";
         layout.set_markup(markup);
 
         let font_desc = pango::FontDescription::from_string("Sans 12");
         layout.set_font_description(Some(&font_desc));
 
-        cr.move_to(x, y);
-        pangocairo::functions::show_layout(&cr, &layout);
+        cr.lock().unwrap().move_to(x, y);
+        pangocairo::functions::show_layout(&cr.lock().unwrap(), &layout);
 
         {
             let decoration = &render.text.decoration;

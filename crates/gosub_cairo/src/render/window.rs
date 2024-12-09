@@ -1,8 +1,10 @@
-pub struct WindowData {
-    pub(crate) context: cairo::Context,
+pub struct WindowData<'a> {
+    pub context: cairo::Context,
+    pub _phantom: std::marker::PhantomData<&'a ()>,
 }
 
-pub struct ActiveWindowData {
-    pub(crate) context: cairo::Context,
-    pub(crate) surface: cairo::Surface,
+pub struct ActiveWindowData<'a> {
+    pub context: cairo::Context,
+    pub surface: cairo::ImageSurface,
+    pub _phantom: std::marker::PhantomData<&'a ()>,
 }

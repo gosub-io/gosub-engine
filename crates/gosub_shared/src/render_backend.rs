@@ -40,7 +40,7 @@ pub trait RenderBackend: Sized + Debug + 'static {
     type Color: Color;
     type Image: Image;
     type Brush: Brush<Self>;
-    type Scene: Scene<Self> + Send;
+    type Scene: Scene<Self>;
     type SVGRenderer: SvgRenderer<Self>;
 
     type ActiveWindowData<'a>;

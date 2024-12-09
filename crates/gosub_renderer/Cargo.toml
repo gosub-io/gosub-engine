@@ -15,7 +15,6 @@ anyhow = "1.0.93"
 image = "0.25.5"
 url = "2.5.4"
 log = "0.4.22"
-lazy_static = "1.5.0"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen-futures = "0.4.47"
