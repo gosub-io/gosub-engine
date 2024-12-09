@@ -17,7 +17,7 @@ use gosub_shared::types::Result;
 use gosub_taffy::TaffyLayouter;
 use gosub_useragent::application::{Application, CustomEventInternal, WindowOptions};
 use gosub_useragent::winit::window::WindowId;
-use gosub_vello::VelloBackend;
+use gosub_cairo::CairoBackend;
 use log::LevelFilter;
 use simple_logger::SimpleLogger;
 use url::Url;
@@ -52,7 +52,7 @@ impl HasTreeDrawer for Config {
 }
 
 impl HasRenderBackend for Config {
-    type RenderBackend = VelloBackend;
+    type RenderBackend = CairoBackend;
 }
 
 impl ModuleConfiguration for Config {}
@@ -86,7 +86,7 @@ fn main() -> Result<()> {
 
     // let mut rt = load_html_rendertree(&url)?;
     //
-    let mut application: Application<Config> = Application::new(VelloBackend::new(), TaffyLayouter, debug);
+    let mut application: Application<Config> = Application::new(CairoBackend::new(), TaffyLayouter, debug);
 
     application.initial_tab(Url::parse(&url)?, WindowOptions::default());
 
