@@ -52,7 +52,6 @@ simple_logger = "5.0.0"
 cookie = { version = "0.18.1", features = ["secure", "private"] }
 url = "2.5.4"
 nom = "7.1.3"
-nom-trace = "0.2.1"
 log = "0.4.22"
 
 [dev-dependencies]
