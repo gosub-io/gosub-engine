@@ -10,7 +10,7 @@ gosub_shared = { path = "../gosub_shared", features = [] }
 gosub_config = { path = "../gosub_config", features = [] }
 derive_more = { version = "1", features = ["from", "display"] }
 thiserror = "2.0.6"
-anyhow = "1.0.93"
+anyhow = "1.0.94"
 log = "0.4.22"
 domain-lookup-tree = "0.1"
 cookie = { version = "0.18.1", features = ["secure", "private"] }

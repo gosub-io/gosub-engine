@@ -10,5 +10,5 @@ gosub_shared = { path = "../gosub_shared" }
 gosub_webexecutor = { path = "../gosub_webexecutor" }
 thiserror = "2.0.6"
 v8 = "130.0.1"
-anyhow = "1.0.93"
+anyhow = "1.0.94"
 serde_json = "1.0.133"

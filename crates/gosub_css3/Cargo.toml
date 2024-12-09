@@ -10,7 +10,7 @@ gosub_shared = { path = "../gosub_shared", features = [] }
 lazy_static = "1.5.0"
 log = "0.4.22"
 simple_logger = "5.0.0"
-anyhow = { version = "1.0.93", features = [] }
+anyhow = { version = "1.0.94", features = [] }
 colors-transform = "0.2.11"
 rand = "0.9.0-beta"
 itertools = "0.13.0"
