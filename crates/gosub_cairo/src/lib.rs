@@ -1,4 +1,5 @@
 use std::fmt::Debug;
+use std::sync::Arc;
 pub use border::*;
 pub use brush::*;
 pub use color::*;
@@ -51,24 +52,27 @@ impl RenderBackend for CairoBackend {
     type ActiveWindowData<'a> = ActiveWindowData<'a>;
     type WindowData<'a> = WindowData<'a>;
 
-    fn draw_rect(&mut self, data: &mut Self::WindowData<'_>, rect: &RenderRect<Self>) {
-        // data.draw_rect(rect);
+    fn draw_rect(&mut self, _data: &mut Self::WindowData<'_>, _rect: &RenderRect<Self>) {
+        println!("render_backend::draw_rect");
     }
 
-    fn draw_text(&mut self, data: &mut Self::WindowData<'_>, text: &RenderText<Self>) {
+    fn draw_text(&mut self, _data: &mut Self::WindowData<'_>, _text: &RenderText<Self>) {
         // data.draw_text(text);
+        println!("render_backend::draw_text:");
     }
 
     fn apply_scene(
         &mut self,
-        data: &mut Self::WindowData<'_>,
-        scene: &Self::Scene,
-        transform: Option<Self::Transform>,
+        _data: &mut Self::WindowData<'_>,
+        _scene: &Self::Scene,
+        _transform: Option<Self::Transform>,
     ) {
+        println!("apply scene");
         // data.apply_scene(scene, transform);
     }
 
-    fn reset(&mut self, data: &mut Self::WindowData<'_>) {
+    fn reset(&mut self, _data: &mut Self::WindowData<'_>) {
+        println!("reset");
         // data.reset();
     }
 
@@ -82,7 +86,7 @@ impl RenderBackend for CairoBackend {
 
         Ok(ActiveWindowData {
             surface: surface.clone(),
-            context: data.context.clone(),
+            crc: data.crc.clone(),
             _phantom: std::marker::PhantomData,
         })
     }
@@ -101,8 +105,10 @@ impl RenderBackend for CairoBackend {
         let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, 800, 600).unwrap();
         let ctx = cairo::Context::new(&surface).unwrap();
 
+        let crc = CairoRenderContext::new(ctx);
+
         Ok(WindowData {
-            context: ctx.clone(),
+            crc: Arc::new(crc),
             _phantom: std::marker::PhantomData,
         })
     }

@@ -1,15 +1,23 @@
 use std::fmt::{Debug, Formatter};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{mpsc, Arc};
+use std::sync::atomic::AtomicUsize;
 use gosub_shared::render_backend::{Point, Radius, RenderBackend, RenderRect, RenderText, Scene as TScene, FP};
 
 use crate::debug::text::render_text_simple;
 use crate::{BorderRadius, CairoBackend, Text, Transform};
 
+/// The CairoRender is a wrapper around a Cairo context that allows for rendering operations to be
+/// sent to a separate thread. We do this because the Cairo context is not thread-safe, and we want
+/// to be able to render to it from multiple threads. (todo: we probably do not want this)
 pub struct CairoRenderContext {
     sender: mpsc::Sender<Box<dyn FnOnce(&cairo::Context) + Send>>,
+    render_calls: AtomicUsize,
 }
 
 impl CairoRenderContext {
+    /// Create a new CairoRenderContext (crc) with the given Cairo context. It will spawn a seperate
+    /// thread in which the actual cairo context lives. It will receive draw functions from a channel
+    /// that can be called from different threads
     pub fn new(context: cairo::Context) -> Self {
         let (sender, receiver) = mpsc::channel::<Box<dyn FnOnce(&cairo::Context) + Send>>();
 
@@ -19,37 +27,45 @@ impl CairoRenderContext {
             }
         });
 
-        Self { sender }
+        Self {
+            sender,
+            render_calls: AtomicUsize::new(0),
+        }
     }
 
+    /// Call "render" with a cairo context function to simply draw to the cairo cosntsext
     pub fn render<F>(&self, func: F)
     where
         F: FnOnce(&cairo::Context) + Send + 'static,
     {
+        self.render_calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         self.sender.send(Box::new(func)).unwrap();
+    }
+
+    /// Returns the number of times the render() function has been called. Mostly for debugging
+    pub fn render_calls(&self) -> usize {
+        self.render_calls.load(std::sync::atomic::Ordering::Relaxed)
     }
 }
 
 
 pub struct Scene {
-    pub(crate) crc: CairoRenderContext,
+    pub(crate) crc: Arc<CairoRenderContext>,
 }
 
 impl Scene{
-    pub fn inner(&mut self) -> &mut Arc<Mutex<cairo::Context>> {
-        &mut self.context
-    }
-
     pub fn create(cr: &cairo::Context) -> Self {
         Self {
-            crc: CairoRenderContext::new(cr.clone()),
+            crc: Arc::new(CairoRenderContext::new(cr.clone())),
         }
     }
 }
 
 impl Clone for Scene {
     fn clone(&self) -> Self {
-        todo!()
+        Self {
+            crc: self.crc.clone(),
+        }
     }
 }
 
@@ -62,8 +78,9 @@ impl Debug for Scene {
 impl TScene<CairoBackend> for Scene {
     fn draw_rect(&mut self, rect: &RenderRect<CairoBackend>) {
 
+        let rect_clone = rect.clone();
         self.crc.render(|cr| {
-            cr.rectangle(rect.rect.x, rect.rect.y, rect.rect.width, rect.rect.height);
+            cr.rectangle(rect_clone.rect.x, rect_clone.rect.y, rect_clone.rect.width, rect_clone.rect.height);
         });
 
         // // let affine = rect.transform.as_ref().map(|t| t.0).unwrap_or_default();
@@ -116,18 +133,22 @@ impl TScene<CairoBackend> for Scene {
 
     fn apply_scene(&mut self, _scene: &<CairoBackend as RenderBackend>::Scene, _transform: Option<Transform>) {
         // There is nothing to apply, as all operations are done on the context immediately
+        println!("scene::apply_scene() called");
     }
 
     fn reset(&mut self) {
         // There is nothing to reset. All operations are done on the context immediately
+        println!("scene::reset() called");
     }
 
     fn new() -> Self {
         let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, 800, 600).unwrap();
         let context = cairo::Context::new(&surface).unwrap();
 
+        let crc = Arc::new(CairoRenderContext::new(context));
+
         Self {
-            crc: CairoRenderContext::new(context),
+            crc: Arc::clone(&crc),
         }
     }
 }

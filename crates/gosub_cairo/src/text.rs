@@ -58,13 +58,14 @@ impl TText for Text {
 impl Text {
     pub(crate) fn show(scene: &mut Scene, render: &RenderText<CairoBackend>) {
 
-        let cr = scene.context.clone();
-        cr.lock().unwrap().set_font_size(render.text.fs.into());
-        cr.lock().unwrap().select_font_face(
-            &render.text.font.family,
-            render.text.font.slant,
-            render.text.font.weight,
-        );
+        scene.crc.render(|cr| {
+            cr.set_font_size(render.text.fs.into());
+            cr.select_font_face(
+                &render.text.font.family,
+                render.text.font.slant,
+                render.text.font.weight,
+            );
+        });
 
         // let brush = &render.brush;
         // let style: StyleRef = Fill::NonZero.into();
@@ -75,16 +76,25 @@ impl Text {
         let x = render.rect.x;
         let y = render.rect.y;
 
-        let layout = pangocairo::functions::create_layout(&cr.lock().unwrap());
+        
+        // oh fun.. not we need to return a layout from the render function. If that's possible at all...
+        let layout = scene.crc.render(|cr| {
+            cr.set_font_size(render.text.fs.into());
+            pangocairo::functions::create_layout(&cr);
+        });
         let markup = "[Gosub Text] :) 🐟";
         layout.set_markup(markup);
 
         let font_desc = pango::FontDescription::from_string("Sans 12");
         layout.set_font_description(Some(&font_desc));
 
-        cr.lock().unwrap().move_to(x, y);
-        pangocairo::functions::show_layout(&cr.lock().unwrap(), &layout);
+        scene.crc.render(|cr| {
+            cr.move_to(x, y);
+            pangocairo::functions::show_layout(&cr, &layout);
+        });
 
+        
+        // Set decoration (underline, overline, line-through)
         {
             let decoration = &render.text.decoration;
             let _stroke = Stroke::new(decoration.width as f64);
