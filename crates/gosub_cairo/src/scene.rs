@@ -1,12 +1,38 @@
 use std::fmt::{Debug, Formatter};
-use std::sync::{Arc, Mutex};
+use std::sync::{mpsc, Arc, Mutex};
 use gosub_shared::render_backend::{Point, Radius, RenderBackend, RenderRect, RenderText, Scene as TScene, FP};
 
 use crate::debug::text::render_text_simple;
 use crate::{BorderRadius, CairoBackend, Text, Transform};
 
+pub struct CairoRenderContext {
+    sender: mpsc::Sender<Box<dyn FnOnce(&cairo::Context) + Send>>,
+}
+
+impl CairoRenderContext {
+    pub fn new(context: cairo::Context) -> Self {
+        let (sender, receiver) = mpsc::channel::<Box<dyn FnOnce(&cairo::Context) + Send>>();
+
+        std::thread::spawn(move || {
+            while let Ok(task) = receiver.recv() {
+                task(&context);
+            }
+        });
+
+        Self { sender }
+    }
+
+    pub fn render<F>(&self, func: F)
+    where
+        F: FnOnce(&cairo::Context) + Send + 'static,
+    {
+        self.sender.send(Box::new(func)).unwrap();
+    }
+}
+
+
 pub struct Scene {
-    pub(crate) context: Arc<Mutex<cairo::Context>>,
+    pub(crate) crc: CairoRenderContext,
 }
 
 impl Scene{
@@ -16,7 +42,7 @@ impl Scene{
 
     pub fn create(cr: &cairo::Context) -> Self {
         Self {
-            context: Arc::new(Mutex::new(cr.clone())),
+            crc: CairoRenderContext::new(cr.clone()),
         }
     }
 }
@@ -36,8 +62,9 @@ impl Debug for Scene {
 impl TScene<CairoBackend> for Scene {
     fn draw_rect(&mut self, rect: &RenderRect<CairoBackend>) {
 
-        let cr = self.context.clone();
-        cr.lock().expect("").rectangle(rect.rect.x, rect.rect.y, rect.rect.width, rect.rect.height);
+        self.crc.render(|cr| {
+            cr.rectangle(rect.rect.x, rect.rect.y, rect.rect.width, rect.rect.height);
+        });
 
         // // let affine = rect.transform.as_ref().map(|t| t.0).unwrap_or_default();
         //
@@ -100,7 +127,7 @@ impl TScene<CairoBackend> for Scene {
         let context = cairo::Context::new(&surface).unwrap();
 
         Self {
-            context: Arc::new(Mutex::new(context.clone())),
+            crc: CairoRenderContext::new(context),
         }
     }
 }
