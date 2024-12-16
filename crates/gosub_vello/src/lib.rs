@@ -96,9 +96,9 @@ impl RenderBackend for VelloBackend {
         data: &mut Self::WindowData<'_>,
         size: SizeU32,
     ) -> Result<Self::ActiveWindowData<'a>> {
-        let surface = data
-            .adapter
-            .create_surface(handle, size.width, size.height, wgpu::PresentMode::AutoVsync)?;
+        let surface =
+            data.adapter
+                .create_surface(handle, size.width, size.height, vello::wgpu::PresentMode::AutoVsync)?;
 
         let renderer = data.adapter.create_renderer(Some(surface.config.format))?;
 

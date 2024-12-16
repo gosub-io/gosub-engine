@@ -2,14 +2,15 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use anyhow::anyhow;
-use vello::{AaSupport, Renderer as VelloRenderer, RendererOptions as VelloRendererOptions};
-use wgpu::util::{
+use vello::wgpu::util::{
     backend_bits_from_env, dx12_shader_compiler_from_env, gles_minor_version_from_env, power_preference_from_env,
 };
-use wgpu::{
-    Adapter, Backends, CompositeAlphaMode, Device, Dx12Compiler, Gles3MinorVersion, Instance, InstanceDescriptor,
-    PowerPreference, Queue, Surface, SurfaceConfiguration, TextureFormat,
+use vello::wgpu::{
+    Adapter, Backends, CompositeAlphaMode, Dx12Compiler, Gles3MinorVersion, Instance, InstanceDescriptor,
+    PowerPreference, Queue, Surface, SurfaceConfiguration,
 };
+use vello::wgpu::{Device, TextureFormat};
+use vello::{AaSupport, Renderer as VelloRenderer, RendererOptions as VelloRendererOptions};
 
 use gosub_shared::render_backend::WindowHandle;
 use gosub_shared::types::Result;
@@ -154,7 +155,7 @@ impl Renderer {
 
         if adapter.is_none() {
             adapter = instance
-                .request_adapter(&wgpu::RequestAdapterOptions {
+                .request_adapter(&vello::wgpu::RequestAdapterOptions {
                     power_preference: config.power_preference,
                     force_fallback_adapter: false,
                     compatible_surface: None,
@@ -164,7 +165,7 @@ impl Renderer {
 
         if adapter.is_none() {
             adapter = instance
-                .request_adapter(&wgpu::RequestAdapterOptions {
+                .request_adapter(&vello::wgpu::RequestAdapterOptions {
                     power_preference: config.power_preference,
                     force_fallback_adapter: true,
                     compatible_surface: None,
@@ -178,16 +179,16 @@ impl Renderer {
 
         let mut features = adapter.features();
 
-        if info.device_type == wgpu::DeviceType::DiscreteGpu {
-            features -= wgpu::Features::MAPPABLE_PRIMARY_BUFFERS;
+        if info.device_type == vello::wgpu::DeviceType::DiscreteGpu {
+            features -= vello::wgpu::Features::MAPPABLE_PRIMARY_BUFFERS;
         }
 
-        features -= wgpu::Features::RAY_QUERY;
-        features -= wgpu::Features::RAY_TRACING_ACCELERATION_STRUCTURE;
+        features -= vello::wgpu::Features::RAY_QUERY;
+        features -= vello::wgpu::Features::RAY_TRACING_ACCELERATION_STRUCTURE;
 
         let (device, queue) = adapter
             .request_device(
-                &wgpu::DeviceDescriptor {
+                &vello::wgpu::DeviceDescriptor {
                     label: None,
                     required_features: Default::default(),
                     required_limits: Default::default(),
@@ -224,7 +225,7 @@ impl InstanceAdapter {
         window: impl WindowHandle + 'a,
         width: u32,
         height: u32,
-        present_mode: wgpu::PresentMode,
+        present_mode: vello::wgpu::PresentMode,
     ) -> Result<SurfaceWrapper<'a>> {
         let surface = self.instance.create_surface(window)?;
         let capabilities = surface.get_capabilities(&self.adapter);
@@ -235,7 +236,7 @@ impl InstanceAdapter {
             .ok_or(anyhow!("surface should support Rgba8Unorm or Bgra8Unorm"))?;
 
         let config = SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            usage: vello::wgpu::TextureUsages::RENDER_ATTACHMENT,
             format,
             width,
             height,
