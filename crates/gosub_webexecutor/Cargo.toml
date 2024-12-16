@@ -7,7 +7,7 @@ license = "MIT"
 
 [dependencies]
 gosub_shared = { path = "../gosub_shared" }
-colored = "2.1.0"
+colored = "2.2.0"
 derive_more = { version = "1", features = ["from", "display"] }
 lazy_static = "1.5"
 thiserror = "2.0.6"
