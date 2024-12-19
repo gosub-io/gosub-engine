@@ -1,4 +1,4 @@
-use gosub_testing::testing::tokenizer::{self, FixtureFile};
+use crate::testing::tokenizer::{self, FixtureFile};
 use lazy_static::lazy_static;
 use std::collections::HashSet;
 use test_case::test_case;

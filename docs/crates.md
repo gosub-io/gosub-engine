@@ -12,7 +12,6 @@ The engine is split up in a few different crates. This is done to keep the codeb
 * gosub_shared
 * gosub_svg
 * gosub_taffy
-* gosub_testing
 * gosub_typeface
 * gosub_useragent
 * gosub_v8
@@ -52,9 +51,6 @@ Implementation of the SVG Document for `usvg` and optionally the `resvg` crates,
 
 ## gosub_taffy
 Implementation of layout traits for the `taffy` layouting system.
-
-## gosub_testing
-A dedicated crate for testing some of the engine. This will allow to easily test the different parts of the engine, most notably the html5 tokenizer and parser.
 
 ## gosub_typeface
 Currently doesn't do much, but it is used to store fallback fonts and the `Font` trait

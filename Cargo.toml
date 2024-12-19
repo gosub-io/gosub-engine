@@ -33,7 +33,6 @@ gosub_config = { path = "./crates/gosub_config", features = [] }
 gosub_html5 = { path = "./crates/gosub_html5", features = [] }
 gosub_css3 = { path = "./crates/gosub_css3", features = [] }
 gosub_jsapi = { path = "./crates/gosub_jsapi", features = [] }
-gosub_testing = { path = "./crates/gosub_testing", features = [] }
 gosub_rendering = { path = "crates/gosub_render_utils", features = [] }
 gosub_renderer = { path = "./crates/gosub_renderer", features = [] }
 gosub_vello = { path = "./crates/gosub_vello", features = [] }

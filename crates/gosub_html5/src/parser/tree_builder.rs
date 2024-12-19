@@ -34,10 +34,10 @@ mod tests {
     use crate::document::document_impl::DocumentImpl;
     use crate::document::fragment::DocumentFragmentImpl;
     use crate::parser::Html5Parser;
+    use crate::testing::tree_construction::fixture::{fixture_root_path, read_fixture_from_path};
+    use crate::testing::tree_construction::Harness;
     use gosub_css3::system::Css3System;
     use gosub_shared::traits::config::{HasCssSystem, HasDocument, HasHtmlParser};
-    use gosub_testing::testing::tree_construction::fixture::{fixture_root_path, read_fixture_from_path};
-    use gosub_testing::testing::tree_construction::Harness;
     use test_case::test_case;
 
     #[derive(Clone, Debug, PartialEq)]
@@ -119,6 +119,7 @@ mod tests {
     #[test_case("webkit01.dat")]
     #[test_case("webkit02.dat")]
     fn tree_construction(filename: &str) {
+        dbg!(fixture_root_path().join(filename));
         let fixture_file = read_fixture_from_path(fixture_root_path().join(filename)).expect("fixture");
         let mut harness = Harness::new();
 

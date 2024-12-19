@@ -1779,7 +1779,6 @@ dependencies = [
  "gosub_rendering",
  "gosub_shared",
  "gosub_taffy",
- "gosub_testing",
  "gosub_useragent",
  "gosub_v8",
  "gosub_vello",
@@ -1809,10 +1808,15 @@ dependencies = [
  "derive_more",
  "gosub_css3",
  "gosub_shared",
- "gosub_testing",
  "lazy_static",
  "log",
+ "nom",
+ "nom_locate",
  "phf",
+ "regex",
+ "serde",
+ "serde_derive",
+ "serde_json",
  "test-case",
  "thiserror 2.0.7",
  "ureq",
@@ -1925,21 +1929,6 @@ dependencies = [
  "parley",
  "regex",
  "taffy",
-]
-
-[[package]]
-name = "gosub_testing"
-version = "0.1.0"
-dependencies = [
- "gosub_html5",
- "gosub_shared",
- "lazy_static",
- "nom",
- "nom_locate",
- "regex",
- "serde",
- "serde_derive",
- "serde_json",
 ]
 
 [[package]]

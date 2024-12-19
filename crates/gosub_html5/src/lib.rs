@@ -17,6 +17,7 @@ pub mod parser;
 pub mod tokenizer;
 #[allow(dead_code)]
 pub mod writer;
+pub mod testing;
 
 /// Parses the given HTML string and returns a handle to the resulting DOM tree.
 pub fn html_compile<C: HasDocument>(html: &str) -> DocumentHandle<C> {
