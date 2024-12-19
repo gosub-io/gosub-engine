@@ -19,7 +19,6 @@ derive_more = {version = "1.0.0", features = ["display"]}
 log = "0.4.22"
 raw-window-handle = "0.6.2"
 smallvec = "1.13.2"
-gosub_typeface = { path = "../gosub_typeface"}
 image = "0.25.5"
 
 

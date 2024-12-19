@@ -1,8 +1,8 @@
 use crate::CairoBackend;
+use gosub_shared::font::{Glyph, GlyphID};
 use gosub_shared::render_backend::geo::FP;
 use gosub_shared::render_backend::layout::{Decoration, TextLayout};
 use gosub_shared::render_backend::{RenderText, Text as TText};
-use gosub_typeface::font::{Glyph, GlyphID};
 use peniko::Font;
 use skrifa::instance::NormalizedCoord;
 use std::cell::RefCell;
@@ -12,7 +12,7 @@ use std::rc::Rc;
 use crate::elements::brush::GsBrush;
 use crate::elements::color::GsColor;
 use freetype::{Face, Library};
-use gosub_typeface::ROBOTO_FONT;
+use gosub_shared::ROBOTO_FONT;
 use kurbo::Stroke;
 use log::info;
 use once_cell::sync::Lazy;

@@ -1707,7 +1707,6 @@ dependencies = [
  "futures",
  "gosub_shared",
  "gosub_svg",
- "gosub_typeface",
  "image",
  "kurbo",
  "log",
@@ -1890,7 +1889,6 @@ dependencies = [
  "encoding_rs",
  "futures",
  "getrandom 0.2.15",
- "gosub_typeface",
  "image",
  "js-sys",
  "lazy_static",
@@ -1924,18 +1922,10 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "gosub_shared",
- "gosub_typeface",
  "log",
  "parley",
  "regex",
  "taffy",
-]
-
-[[package]]
-name = "gosub_typeface"
-version = "0.1.0"
-dependencies = [
- "lazy_static",
 ]
 
 [[package]]
@@ -1975,7 +1965,6 @@ dependencies = [
  "gosub_html5",
  "gosub_shared",
  "gosub_svg",
- "gosub_typeface",
  "image",
  "log",
  "raw-window-handle",

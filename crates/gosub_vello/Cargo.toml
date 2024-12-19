@@ -7,7 +7,6 @@ license = "MIT"
 
 [dependencies]
 gosub_shared = { path = "../gosub_shared" }
-gosub_typeface = { path = "../gosub_typeface" }
 gosub_svg = { path = "../gosub_svg" }
 vello = "0.3.0"
 vello_encoding = "0.3.0"
