@@ -3,11 +3,11 @@ use gosub_html5::document::builder::DocumentBuilderImpl;
 use gosub_html5::document::document_impl::DocumentImpl;
 use gosub_html5::document::fragment::DocumentFragmentImpl;
 use gosub_html5::parser::Html5Parser;
+use gosub_html5::testing::tree_construction::fixture::read_fixtures;
+use gosub_html5::testing::tree_construction::result::ResultStatus;
+use gosub_html5::testing::tree_construction::Harness;
+use gosub_html5::testing::tree_construction::Test;
 use gosub_shared::traits::config::{HasCssSystem, HasDocument, HasHtmlParser};
-use gosub_testing::testing::tree_construction::fixture::read_fixtures;
-use gosub_testing::testing::tree_construction::result::ResultStatus;
-use gosub_testing::testing::tree_construction::Harness;
-use gosub_testing::testing::tree_construction::Test;
 
 /// Holds the results from all tests that are executed
 #[derive(Default)]

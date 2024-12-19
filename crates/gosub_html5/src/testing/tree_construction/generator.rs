@@ -1,5 +1,5 @@
-use gosub_html5::node::HTML_NAMESPACE;
-use gosub_html5::node::{MATHML_NAMESPACE, SVG_NAMESPACE, XLINK_NAMESPACE, XMLNS_NAMESPACE};
+use crate::node::HTML_NAMESPACE;
+use crate::node::{MATHML_NAMESPACE, SVG_NAMESPACE, XLINK_NAMESPACE, XMLNS_NAMESPACE};
 use gosub_shared::document::DocumentHandle;
 use gosub_shared::traits::config::HasDocument;
 use gosub_shared::traits::document::Document;

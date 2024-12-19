@@ -1,7 +1,7 @@
 use super::FIXTURE_ROOT;
-use gosub_html5::parser::errors::ErrorLogger;
-use gosub_html5::tokenizer::ParserData;
-use gosub_html5::tokenizer::{
+use crate::parser::errors::ErrorLogger;
+use crate::tokenizer::ParserData;
+use crate::tokenizer::{
     state::State as TokenState,
     token::Token,
     {Options, Tokenizer},

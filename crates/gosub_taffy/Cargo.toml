@@ -7,7 +7,6 @@ license = "MIT"
 
 [dependencies]
 gosub_shared = { path = "../gosub_shared" }
-gosub_typeface = { path = "../gosub_typeface" }
 taffy = "0.6.3"
 anyhow = "1.0.94"
 regex = "1.11.1"

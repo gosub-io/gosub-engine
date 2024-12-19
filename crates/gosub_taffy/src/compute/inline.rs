@@ -10,11 +10,12 @@ use taffy::{
     RunMode, Size,
 };
 
+use gosub_shared::font::Glyph;
 use gosub_shared::render_backend::geo;
 use gosub_shared::render_backend::layout::{Decoration, DecorationStyle, HasTextLayout, LayoutNode, LayoutTree};
 use gosub_shared::traits::config::HasLayouter;
 use gosub_shared::traits::css3::{CssProperty, CssValue};
-use gosub_typeface::font::Glyph;
+use gosub_shared::ROBOTO_FONT;
 
 use crate::text::{Font, TextLayout};
 use crate::{Display, LayoutDocument, TaffyLayouter};
@@ -22,7 +23,7 @@ use crate::{Display, LayoutDocument, TaffyLayouter};
 static FONT_CX: LazyLock<Mutex<FontContext>> = LazyLock::new(|| {
     let mut ctx = FontContext::default();
 
-    let fonts = ctx.collection.register_fonts(gosub_typeface::ROBOTO_FONT.to_vec());
+    let fonts = ctx.collection.register_fonts(ROBOTO_FONT.to_vec());
 
     ctx.collection
         .append_fallbacks(FallbackKey::new(Script::from("Latn"), None), fonts.iter().map(|f| f.0));

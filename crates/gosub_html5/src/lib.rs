@@ -14,6 +14,7 @@ pub mod dom;
 pub mod errors;
 pub mod node;
 pub mod parser;
+pub mod testing;
 pub mod tokenizer;
 #[allow(dead_code)]
 pub mod writer;

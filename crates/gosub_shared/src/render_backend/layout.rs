@@ -1,9 +1,9 @@
 use std::fmt::Debug;
 
 use super::geo::{Point, Rect, Size, SizeU32};
+use crate::font::{Font, Glyph};
 use crate::traits::config::HasLayouter;
 use crate::types::Result;
-use gosub_typeface::font::{Font, Glyph};
 
 pub trait LayoutTree<C: HasLayouter<LayoutTree = Self>>: Sized + Debug + 'static {
     type NodeId: Debug + Copy + Clone + From<u64> + Into<u64> + PartialEq;
