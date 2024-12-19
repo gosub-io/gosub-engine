@@ -7,9 +7,9 @@ pub use gosub_html5::document::document_impl::DocumentImpl;
 pub use gosub_html5::document::fragment::DocumentFragmentImpl;
 pub use gosub_html5::parser::Html5Parser;
 
-pub use gosub_taffy::TaffyLayouter;
 pub use gosub_renderer::draw::TreeDrawerImpl;
 pub use gosub_rendering::render_tree::RenderTree;
+pub use gosub_taffy::TaffyLayouter;
 
 pub use gosub_cairo::CairoBackend;
 pub use gosub_vello::VelloBackend;
