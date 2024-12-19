@@ -3,18 +3,18 @@ use std::fmt::{Debug, Formatter};
 use std::sync::mpsc;
 
 use anyhow::anyhow;
+use gosub_shared::async_executor::spawn_from;
+use gosub_shared::render_backend::layout::LayoutTree;
+use gosub_shared::render_backend::{ImageBuffer, ImgCache, NodeDesc, RenderBackend, SizeU32};
+use gosub_shared::traits::config::ModuleConfiguration;
+use gosub_shared::traits::draw::TreeDrawer;
+use gosub_shared::types::Result;
 use log::{error, info};
 use url::Url;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
 use winit::window::WindowId;
-
-use gosub_shared::render_backend::layout::LayoutTree;
-use gosub_shared::render_backend::{ImageBuffer, ImgCache, NodeDesc, SizeU32};
-use gosub_shared::traits::config::ModuleConfiguration;
-use gosub_shared::traits::draw::TreeDrawer;
-use gosub_shared::types::Result;
 
 use crate::tabs::Tab;
 use crate::window::Window;
@@ -38,7 +38,13 @@ impl WindowOptions {
 }
 
 #[allow(clippy::type_complexity)]
-pub struct Application<'a, C: ModuleConfiguration> {
+pub struct Application<'a, C: ModuleConfiguration>
+where
+    C::RenderBackend: Send,
+    C::RenderTree: Send,
+    C::TreeDrawer: Send,
+    <C::RenderBackend as RenderBackend>::Scene: Send,
+{
     open_windows: Vec<(Vec<Url>, WindowOptions)>, // Vec of Windows, each with a Vec of URLs, representing tabs
     windows: HashMap<WindowId, Window<'a, C>>,
     backend: C::RenderBackend,
@@ -50,7 +56,14 @@ pub struct Application<'a, C: ModuleConfiguration> {
     debug: bool,
 }
 
-impl<C: ModuleConfiguration> ApplicationHandler<CustomEventInternal<C>> for Application<'_, C> {
+impl<C: ModuleConfiguration> ApplicationHandler<CustomEventInternal<C>> for Application<'_, C>
+where
+    C::RenderBackend: Send,
+    C::RenderTree: Send,
+    C::TreeDrawer: Send,
+    <C::RenderBackend as RenderBackend>::Scene: Send,
+    C::Layouter: Send,
+{
     fn resumed(&mut self, _event_loop: &ActiveEventLoop) {
         info!("Resumed");
         for window in self.windows.values_mut() {
@@ -119,8 +132,8 @@ impl<C: ModuleConfiguration> ApplicationHandler<CustomEventInternal<C>> for Appl
                 let layouter = self.layouter.clone();
                 let debug = self.debug;
 
-                gosub_shared::async_executor::spawn(async move {
-                    let tab = match Tab::from_url(url, layouter, debug).await {
+                spawn_from(move || async move {
+                    let tab = match Tab::<C>::from_url(url, layouter, debug).await {
                         Ok(tab) => tab,
                         Err(e) => {
                             error!("Error opening tab: {e:?}");
@@ -251,7 +264,13 @@ impl<C: ModuleConfiguration> ApplicationHandler<CustomEventInternal<C>> for Appl
     }
 }
 
-impl<'a, C: ModuleConfiguration> Application<'a, C> {
+impl<'a, C: ModuleConfiguration> Application<'a, C>
+where
+    C::RenderBackend: Send,
+    C::RenderTree: Send,
+    C::TreeDrawer: Send,
+    <C::RenderBackend as RenderBackend>::Scene: Send,
+{
     pub fn new(backend: C::RenderBackend, layouter: C::Layouter, debug: bool) -> Self {
         Self {
             windows: HashMap::new(),
@@ -336,7 +355,13 @@ pub enum CustomEvent {
     SendNodes(mpsc::Sender<NodeDesc>),
     Unselect,
 }
-pub enum CustomEventInternal<C: ModuleConfiguration> {
+pub enum CustomEventInternal<C: ModuleConfiguration>
+where
+    C::RenderBackend: Send,
+    C::RenderTree: Send,
+    C::TreeDrawer: Send,
+    <C::RenderBackend as RenderBackend>::Scene: Send,
+{
     OpenWindow(Url, WindowOptions),
     OpenTab(Url, WindowId),
     AddTab(Tab<C>, WindowId),
@@ -351,7 +376,13 @@ pub enum CustomEventInternal<C: ModuleConfiguration> {
     ReloadFrom(C::RenderTree, WindowId),
 }
 
-impl<C: ModuleConfiguration> Debug for CustomEventInternal<C> {
+impl<C: ModuleConfiguration> Debug for CustomEventInternal<C>
+where
+    C::RenderBackend: Send,
+    C::RenderTree: Send,
+    C::TreeDrawer: Send,
+    <C::RenderBackend as RenderBackend>::Scene: Send,
+{
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::OpenWindow(..) => f.write_str("OpenWindow"),

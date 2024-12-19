@@ -468,7 +468,7 @@ fn parse_property_file(json: serde_json::Value) -> HashMap<String, PropertyDefin
                 }
             }
         } else {
-            warn!("Initial value is not a string or array {:?}", obj);
+            // warn!("Initial value is not a string or array {:?}", obj);
             None
         };
 

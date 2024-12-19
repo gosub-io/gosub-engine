@@ -2,6 +2,7 @@ use gosub_shared::render_backend::geo::{Point, Size, FP};
 use gosub_shared::render_backend::Rect as TRect;
 use vello::kurbo::Rect as VelloRect;
 
+#[derive(Clone)]
 pub struct Rect(pub(crate) VelloRect);
 
 impl From<VelloRect> for Rect {

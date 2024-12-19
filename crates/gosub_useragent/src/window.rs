@@ -48,7 +48,14 @@ static ICON: LazyCell<Icon> = LazyCell::new(|| {
 });
 }
 
-pub struct Window<'a, C: ModuleConfiguration> {
+pub struct Window<'a, C: ModuleConfiguration>
+where
+    C::RenderBackend: Send,
+    C::RenderTree: Send,
+    C::TreeDrawer: Send,
+    <C::RenderBackend as RenderBackend>::Scene: Send,
+    C::Layouter: Send,
+{
     pub(crate) state: WindowState<'a, C::RenderBackend>,
     pub(crate) window: Arc<WinitWindow>,
     pub(crate) renderer_data: <C::RenderBackend as RenderBackend>::WindowData<'a>,
@@ -57,7 +64,14 @@ pub struct Window<'a, C: ModuleConfiguration> {
     pub(crate) mods: Modifiers,
 }
 
-impl<'a, C: ModuleConfiguration> Window<'a, C> {
+impl<'a, C: ModuleConfiguration> Window<'a, C>
+where
+    C::RenderBackend: Send,
+    C::RenderTree: Send,
+    C::TreeDrawer: Send,
+    <C::RenderBackend as RenderBackend>::Scene: Send,
+    C::Layouter: Send,
+{
     pub fn new(
         event_loop: &ActiveEventLoop,
         backend: &mut C::RenderBackend,
@@ -201,12 +215,26 @@ fn create_window(event_loop: &ActiveEventLoop) -> Result<Arc<WinitWindow>> {
         .map(Arc::new)
 }
 
-pub(crate) struct WindowEventLoop<C: ModuleConfiguration> {
+pub(crate) struct WindowEventLoop<C: ModuleConfiguration>
+where
+    C::RenderBackend: Send,
+    C::RenderTree: Send,
+    C::TreeDrawer: Send,
+    <C::RenderBackend as RenderBackend>::Scene: Send,
+    C::Layouter: Send,
+{
     proxy: EventLoopProxy<CustomEventInternal<C>>,
     id: WindowId,
 }
 
-impl<C: ModuleConfiguration> WindowEventLoop<C> {
+impl<C: ModuleConfiguration> WindowEventLoop<C>
+where
+    C::RenderBackend: Send,
+    C::RenderTree: Send,
+    C::TreeDrawer: Send,
+    <C::RenderBackend as RenderBackend>::Scene: Send,
+    C::Layouter: Send,
+{
     #[allow(unused)]
     pub fn send(&mut self, event: CustomEventInternal<C>) {
         if let Err(e) = self.proxy.send_event(event) {
@@ -215,7 +243,14 @@ impl<C: ModuleConfiguration> WindowEventLoop<C> {
     }
 }
 
-impl<C: ModuleConfiguration> Clone for WindowEventLoop<C> {
+impl<C: ModuleConfiguration> Clone for WindowEventLoop<C>
+where
+    C::RenderBackend: Send,
+    C::RenderTree: Send,
+    C::TreeDrawer: Send,
+    <C::RenderBackend as RenderBackend>::Scene: Send,
+    C::Layouter: Send,
+{
     fn clone(&self) -> Self {
         Self {
             proxy: self.proxy.clone(),
@@ -224,7 +259,14 @@ impl<C: ModuleConfiguration> Clone for WindowEventLoop<C> {
     }
 }
 
-impl<C: ModuleConfiguration> WindowedEventLoop<C> for WindowEventLoop<C> {
+impl<C: ModuleConfiguration> WindowedEventLoop<C> for WindowEventLoop<C>
+where
+    C::RenderBackend: Send,
+    C::RenderTree: Send,
+    C::TreeDrawer: Send,
+    <C::RenderBackend as RenderBackend>::Scene: Send,
+    C::Layouter: Send,
+{
     fn redraw(&mut self) {
         if let Err(e) = self.proxy.send_event(CustomEventInternal::Redraw(self.id)) {
             error!("Failed to send event {e}"); // only will error if the event loop was closed

@@ -30,10 +30,10 @@ mod img;
 pub mod img_cache;
 mod testing;
 
-const DEBUG_CONTENT_COLOR: (u8, u8, u8) = (0, 192, 255); //rgb(0, 192, 255)
-const DEBUG_PADDING_COLOR: (u8, u8, u8) = (0, 255, 192); //rgb(0, 255, 192)
-const DEBUG_BORDER_COLOR: (u8, u8, u8) = (255, 72, 72); //rgb(255, 72, 72)
-                                                        // const DEBUG_MARGIN_COLOR: (u8, u8, u8) = (255, 192, 0);
+const DEBUG_CONTENT_COLOR: (u8, u8, u8) = (0, 192, 255);
+const DEBUG_PADDING_COLOR: (u8, u8, u8) = (0, 255, 192);
+const DEBUG_BORDER_COLOR: (u8, u8, u8) = (255, 72, 72);
+// const DEBUG_MARGIN_COLOR: (u8, u8, u8) = (255, 192, 0);
 
 type Point = gosub_shared::types::Point<FP>;
 
