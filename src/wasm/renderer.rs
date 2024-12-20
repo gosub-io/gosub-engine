@@ -5,7 +5,7 @@ use gosub_renderer::render_tree::TreeDrawer;
 use gosub_rendering::render_tree::RenderTree;
 use gosub_shared::types::Result;
 use gosub_taffy::TaffyLayouter;
-use gosub_useragent::application::{Application, WindowOptions};
+use crate::application::{Application, WindowOptions};
 use gosub_vello::VelloBackend;
 use js_sys::Promise;
 use log::info;

@@ -15,12 +15,19 @@ use gosub_shared::traits::config::{
 };
 use gosub_shared::types::Result;
 use gosub_taffy::TaffyLayouter;
-use gosub_useragent::application::{Application, CustomEventInternal, WindowOptions};
-use gosub_useragent::winit::window::WindowId;
+use crate::application::{Application, CustomEventInternal, WindowOptions};
+use crate::winit::window::WindowId;
 use gosub_vello::VelloBackend;
 use log::LevelFilter;
 use simple_logger::SimpleLogger;
 use url::Url;
+
+pub mod application;
+pub mod event_loop;
+pub mod tabs;
+pub mod window;
+pub use winit;
+
 
 #[derive(Clone, Debug, PartialEq)]
 struct Config;
