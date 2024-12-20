@@ -29,7 +29,7 @@ pub enum WindowState<'a, B: RenderBackend> {
 
 thread_local! {
 static ICON: LazyCell<Icon> = LazyCell::new(|| {
-        let bytes = include_bytes!("../../../resources/gosub-logo.png");
+        let bytes = include_bytes!("../../resources/gosub-logo.png");
 
         let Ok(img) = image::load_from_memory(bytes) else {
             return Icon::from_rgba(vec![], 0, 0).unwrap();

@@ -12,7 +12,6 @@ The engine is split up in a few different crates. This is done to keep the codeb
 * gosub_shared
 * gosub_svg
 * gosub_taffy
-* gosub_useragent
 * gosub_v8
 * gosub_vello
 * gosub_webexecutor
@@ -51,9 +50,6 @@ Implementation of the SVG Document for `usvg` and optionally the `resvg` crates,
 ## gosub_taffy
 Implementation of layout traits for the `taffy` layouting system.
 
-## gosub_useragent
-This crate keeps a simple application with event loop renders html5 documents. It can be seen as a very simple browser. Ultimately, this crate will be removed in favor of an external application that will use the engine. 
-
 ## gosub_v8
 Gosub bindings to the V8 javascript engine.
 
@@ -65,3 +61,64 @@ System to execute javascript. This could also be used for executing other langua
 
 ## gosub_webinterop
 Proc macro to easily pass functions and define APIs to javascript, wasm or lua and others.
+
+
+# Dependency graph
+
+This graph is created with the following commandline:
+
+```bash
+$ cargo install cargo-depgraph
+$ cargo depgraph --depth=1 --include gosub_html5,gosub_engine,gosub_shared,gosub_css3,gosub_config,gosub_cairo,gosub_jsapi,gosub_net,gosub_render_utils,gosub_renderer,gosub_svg,gosub_taffy,gosub_v8,gosub_vello,gosub_webexecutor,gosub_webinterop | dot -Tpng -o out.png
+```
+
+
+```mermaid
+graph {
+    0 [ label = "gosub_cairo" shape = box]
+    1 [ label = "gosub_shared" shape = box]
+    2 [ label = "gosub_svg" shape = box]
+    3 [ label = "gosub_html5" shape = box]
+    4 [ label = "gosub_css3" shape = box]
+    5 [ label = "gosub_config" shape = box]
+    6 [ label = "gosub_jsapi" shape = box]
+    7 [ label = "gosub_net" shape = box]
+    8 [ label = "gosub_renderer" shape = box]
+    9 [ label = "gosub_taffy" shape = box]
+    10 [ label = "gosub_v8" shape = box]
+    11 [ label = "gosub_webexecutor" shape = box]
+    12 [ label = "gosub_vello" shape = box]
+    13 [ label = "gosub_engine" shape = box]
+    0 -> 1 [ ]
+    0 -> 2 [ ]
+    2 -> 3 [ ]
+    2 -> 1 [ ]
+    3 -> 4 [ ]
+    3 -> 1 [ ]
+    4 -> 1 [ ]
+    5 -> 1 [ ]
+    6 -> 1 [ ]
+    7 -> 5 [ ]
+    7 -> 1 [ ]
+    8 -> 7 [ ]
+    8 -> 1 [ ]
+    9 -> 1 [ ]
+    10 -> 1 [ ]
+    10 -> 11 [ ]
+    11 -> 1 [ ]
+    12 -> 1 [ ]
+    12 -> 2 [ ]
+    13 -> 0 [ ]
+    13 -> 5 [ ]
+    13 -> 4 [ ]
+    13 -> 3 [ ]
+    13 -> 6 [ ]
+    13 -> 7 [ ]
+    13 -> 8 [ ]
+    13 -> 1 [ ]
+    13 -> 9 [ ]
+    13 -> 12 [ ]
+}
+
+
+```

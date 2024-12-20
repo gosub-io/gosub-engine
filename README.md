@@ -81,10 +81,18 @@ You can run the following binaries:
 | `cargo run -r --bin gosub-parser`      | bin  | The actual html5 parser/tokenizer that allows you to convert html5 into a document tree.                                                                        |
 | `cargo run -r --bin html5-parser-test` | test | A test suite that tests all html5lib tests for the treebuilding                                                                                                 |
 | `cargo run -r --bin parser-test`       | test | A test suite for the parser that tests specific tests. This will be removed as soon as the parser is completely finished as this tool is for developement only. |
-| `cargo run -r --bin renderer`          | bin  | Render a html page (WIP)                                                                                                                                        |
 | `cargo run -r --bin run-js`            | bin  | Run a JS file (Note: console and event loop are not yet implemented)                                                                                            |
 
 For running the binaries, take a look at a quick introduction at [/docs/binaries.md](/docs/binaries.md)
+
+There are also a bit more advanced examples that can be run:
+
+
+| Command                                    | Description                                                  |
+|--------------------------------------------|--------------------------------------------------------------|
+| `cargo run --example gtk-renderer <url>`   | A GUI based on GTK4 / Cairo that displays a webpage          |
+| `cargo run --example vello-renderer <url>` | A GUI based on Winit / Vello that displays a webpage         |
+| `cargo run --example html5-parser`         | A simple example that displays a dom tree from a html source |
 
 
 ## Benchmark and test suites
