@@ -74,51 +74,52 @@ $ cargo depgraph --depth=1 --include gosub_html5,gosub_engine,gosub_shared,gosub
 
 
 ```mermaid
-graph {
-    0 [ label = "gosub_cairo" shape = box]
-    1 [ label = "gosub_shared" shape = box]
-    2 [ label = "gosub_svg" shape = box]
-    3 [ label = "gosub_html5" shape = box]
-    4 [ label = "gosub_css3" shape = box]
-    5 [ label = "gosub_config" shape = box]
-    6 [ label = "gosub_jsapi" shape = box]
-    7 [ label = "gosub_net" shape = box]
-    8 [ label = "gosub_renderer" shape = box]
-    9 [ label = "gosub_taffy" shape = box]
-    10 [ label = "gosub_v8" shape = box]
-    11 [ label = "gosub_webexecutor" shape = box]
-    12 [ label = "gosub_vello" shape = box]
-    13 [ label = "gosub_engine" shape = box]
-    0 -> 1 [ ]
-    0 -> 2 [ ]
-    2 -> 3 [ ]
-    2 -> 1 [ ]
-    3 -> 4 [ ]
-    3 -> 1 [ ]
-    4 -> 1 [ ]
-    5 -> 1 [ ]
-    6 -> 1 [ ]
-    7 -> 5 [ ]
-    7 -> 1 [ ]
-    8 -> 7 [ ]
-    8 -> 1 [ ]
-    9 -> 1 [ ]
-    10 -> 1 [ ]
-    10 -> 11 [ ]
-    11 -> 1 [ ]
-    12 -> 1 [ ]
-    12 -> 2 [ ]
-    13 -> 0 [ ]
-    13 -> 5 [ ]
-    13 -> 4 [ ]
-    13 -> 3 [ ]
-    13 -> 6 [ ]
-    13 -> 7 [ ]
-    13 -> 8 [ ]
-    13 -> 1 [ ]
-    13 -> 9 [ ]
-    13 -> 12 [ ]
-}
+flowchart
+    A("gosub_cairo")
+    B("gosub_shared")
+    C("gosub_svg")
+    D("gosub_html5")
+    E("gosub_css3")
+    F("gosub_config")
+    G("gosub_jsapi")
+    H("gosub_net")
+    I("gosub_renderer")
+    J("gosub_taffy")
+    K("gosub_v8")
+    L("gosub_webexecutor")
+    M("gosub_vello")
+    N("gosub_engine")
 
+    A --> B
+    A --> C
+    C --> D
+    C --> B
+    D --> E
+    D --> B
+    E --> B
+    F --> B
+    G --> B
+    H --> F
+    H --> B
+    I --> H
+    I --> B
+    J --> B
+    K --> B
+    K --> L
+    L --> B
+    M --> B
+    M --> C
+    N --> A
+    N --> F
+    N --> E
+    N --> D
+    N --> G
+    N --> H
+    N --> I
+    N --> B
+    N --> J
+    N --> M
+
+    
 
 ```
