@@ -232,9 +232,9 @@ impl Css3<'_> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use gosub_interface::css3::CssOrigin;
     use gosub_shared::byte_stream::{ByteStream, Encoding};
-    use gosub_shared::traits::css3::CssOrigin;
-    use gosub_shared::traits::ParserConfig;
+    use gosub_shared::config::ParserConfig;
 
     macro_rules! test {
         ($func:ident, $input:expr, $expected:expr) => {

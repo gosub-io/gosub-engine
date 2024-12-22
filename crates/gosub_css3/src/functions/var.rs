@@ -1,5 +1,5 @@
 use crate::stylesheet::CssValue;
-use gosub_shared::traits::config::HasDocument;
+use gosub_interface::config::HasDocument;
 use std::collections::HashMap;
 
 #[allow(dead_code)]

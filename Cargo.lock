@@ -1711,6 +1711,7 @@ dependencies = [
  "cairo-sys-rs",
  "freetype-rs",
  "futures",
+ "gosub_interface",
  "gosub_shared",
  "gosub_svg",
  "image",
@@ -1749,6 +1750,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "colors-transform",
+ "gosub_interface",
  "gosub_shared",
  "itertools 0.13.0",
  "lazy_static",
@@ -1778,6 +1780,7 @@ dependencies = [
  "gosub_config",
  "gosub_css3",
  "gosub_html5",
+ "gosub_interface",
  "gosub_jsapi",
  "gosub_net",
  "gosub_renderer",
@@ -1810,6 +1813,7 @@ dependencies = [
  "criterion",
  "derive_more",
  "gosub_css3",
+ "gosub_interface",
  "gosub_shared",
  "lazy_static",
  "log",
@@ -1823,6 +1827,17 @@ dependencies = [
  "test-case",
  "thiserror 2.0.8",
  "ureq",
+ "url",
+]
+
+[[package]]
+name = "gosub_interface"
+version = "0.1.0"
+dependencies = [
+ "gosub_shared",
+ "image",
+ "raw-window-handle",
+ "smallvec",
  "url",
 ]
 
@@ -1861,6 +1876,7 @@ name = "gosub_renderer"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "gosub_interface",
  "gosub_net",
  "gosub_rendering",
  "gosub_shared",
@@ -1877,6 +1893,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "gosub_html5",
+ "gosub_interface",
  "gosub_shared",
  "log",
  "rstar",
@@ -1915,6 +1932,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "gosub_html5",
+ "gosub_interface",
  "gosub_shared",
  "resvg",
  "tiny-skia",
@@ -1925,6 +1943,7 @@ name = "gosub_taffy"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "gosub_interface",
  "gosub_shared",
  "log",
  "parley",
@@ -1951,6 +1970,7 @@ dependencies = [
  "anyhow",
  "futures",
  "gosub_html5",
+ "gosub_interface",
  "gosub_shared",
  "gosub_svg",
  "image",

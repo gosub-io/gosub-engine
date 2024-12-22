@@ -5,12 +5,12 @@ use anyhow::anyhow;
 use image::DynamicImage;
 
 use crate::draw::img_cache::ImageCache;
-use gosub_net::http::fetcher::Fetcher;
-use gosub_shared::render_backend::svg::SvgRenderer;
-use gosub_shared::render_backend::{
+use gosub_interface::config::HasDrawComponents;
+use gosub_interface::render_backend::{
     Image as _, ImageBuffer, ImageCacheEntry, ImgCache, RenderBackend, SizeU32, WindowedEventLoop,
 };
-use gosub_shared::traits::config::HasDrawComponents;
+use gosub_interface::svg::SvgRenderer;
+use gosub_net::http::fetcher::Fetcher;
 use gosub_shared::types::Result;
 
 pub fn request_img<C: HasDrawComponents>(

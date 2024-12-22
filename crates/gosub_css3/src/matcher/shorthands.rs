@@ -1,5 +1,5 @@
 use crate::stylesheet::{CssValue, Specificity};
-use gosub_shared::traits::css3::CssOrigin;
+use gosub_interface::css3::CssOrigin;
 use std::collections::hash_map::Entry;
 
 use crate::matcher::property_definitions::CssDefinitions;

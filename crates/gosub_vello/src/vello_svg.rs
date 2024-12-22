@@ -1,8 +1,8 @@
-use gosub_shared::document::DocumentHandle;
+use gosub_interface::config::HasDocument;
+use gosub_interface::document_handle::DocumentHandle;
+use gosub_interface::render_backend::ImageBuffer;
+use gosub_interface::svg::SvgRenderer;
 use gosub_shared::node::NodeId;
-use gosub_shared::render_backend::svg::SvgRenderer;
-use gosub_shared::render_backend::ImageBuffer;
-use gosub_shared::traits::config::HasDocument;
 use gosub_shared::types::{Result, Size};
 
 use crate::VelloBackend;

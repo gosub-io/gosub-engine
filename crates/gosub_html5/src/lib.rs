@@ -4,10 +4,10 @@
 //! implemented as a state machine and runs in the current thread.
 use crate::document::builder::DocumentBuilderImpl;
 use crate::parser::Html5Parser;
+use gosub_interface::config::HasDocument;
+use gosub_interface::document::DocumentBuilder as _;
+use gosub_interface::document_handle::DocumentHandle;
 use gosub_shared::byte_stream::{ByteStream, Encoding};
-use gosub_shared::document::DocumentHandle;
-use gosub_shared::traits::config::HasDocument;
-use gosub_shared::traits::document::DocumentBuilder as _;
 
 pub mod document;
 pub mod dom;

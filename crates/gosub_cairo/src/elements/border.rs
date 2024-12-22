@@ -5,10 +5,10 @@ use smallvec::SmallVec;
 use crate::elements::brush::GsBrush;
 use crate::elements::transform::GsTransform;
 use crate::{CairoBackend, Scene};
-use gosub_shared::render_backend::geo::FP;
-use gosub_shared::render_backend::{
+use gosub_interface::render_backend::{
     Border as TBorder, BorderRadius as TBorderRadius, BorderSide as TBorderSide, BorderStyle, Radius, RenderBorder,
 };
+use gosub_shared::geo::FP;
 
 #[derive(Clone, Debug)]
 pub struct GsBorder {

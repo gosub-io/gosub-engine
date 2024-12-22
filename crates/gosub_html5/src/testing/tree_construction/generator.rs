@@ -1,9 +1,9 @@
 use crate::node::HTML_NAMESPACE;
 use crate::node::{MATHML_NAMESPACE, SVG_NAMESPACE, XLINK_NAMESPACE, XMLNS_NAMESPACE};
-use gosub_shared::document::DocumentHandle;
-use gosub_shared::traits::config::HasDocument;
-use gosub_shared::traits::document::Document;
-use gosub_shared::traits::node::{CommentDataType, DocTypeDataType, ElementDataType, Node, NodeType, TextDataType};
+use gosub_interface::config::HasDocument;
+use gosub_interface::document::Document;
+use gosub_interface::document_handle::DocumentHandle;
+use gosub_interface::node::{CommentDataType, DocTypeDataType, ElementDataType, Node, NodeType, TextDataType};
 
 /// Generates a tree output that can be used for matching with the expected output
 pub struct TreeOutputGenerator<C: HasDocument> {

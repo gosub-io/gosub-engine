@@ -3,7 +3,7 @@ use crate::elements::rect::GsRect;
 use crate::elements::text::GsText;
 use crate::elements::transform::GsTransform;
 use crate::CairoBackend;
-use gosub_shared::render_backend::{
+use gosub_interface::render_backend::{
     Point, Radius, RenderBackend, RenderRect, RenderText, Scene as TScene, Transform as TTransform, FP,
 };
 use std::fmt::{Debug, Formatter};

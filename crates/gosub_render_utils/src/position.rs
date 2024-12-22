@@ -2,8 +2,8 @@ use std::cmp::Ordering;
 
 use rstar::{RTree, RTreeObject, AABB};
 
-use gosub_shared::render_backend::layout::{Layout, LayoutTree};
-use gosub_shared::traits::config::HasLayouter;
+use gosub_interface::config::HasLayouter;
+use gosub_interface::layout::{Layout, LayoutTree};
 
 #[derive(Debug)]
 pub struct Element<C: HasLayouter> {

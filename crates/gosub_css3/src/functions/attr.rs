@@ -1,6 +1,6 @@
 use crate::stylesheet::CssValue;
-use gosub_shared::traits::config::HasDocument;
-use gosub_shared::traits::node::{ElementDataType, Node};
+use gosub_interface::config::HasDocument;
+use gosub_interface::node::{ElementDataType, Node};
 
 // Probably this shouldn't quite be in gosub_css3
 #[allow(dead_code)]

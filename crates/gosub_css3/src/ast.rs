@@ -5,8 +5,8 @@ use crate::stylesheet::{
     AttributeSelector, Combinator, CssDeclaration, CssRule, CssSelector, CssSelectorPart, CssStylesheet, CssValue,
     MatcherType,
 };
+use gosub_interface::css3::CssOrigin;
 use gosub_shared::errors::{CssError, CssResult};
-use gosub_shared::traits::css3::CssOrigin;
 
 /*
 
@@ -223,7 +223,7 @@ pub fn convert_ast_to_stylesheet(css_ast: &CssNode, origin: CssOrigin, url: &str
 mod tests {
     use super::*;
     use crate::Css3;
-    use gosub_shared::traits::ParserConfig;
+    use gosub_shared::config::ParserConfig;
 
     #[test]
     fn convert_font_family() {

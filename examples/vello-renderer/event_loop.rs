@@ -4,9 +4,9 @@ use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::{KeyCode, ModifiersState, PhysicalKey};
 
 use crate::window::{Window, WindowState};
-use gosub_shared::render_backend::{Point, RenderBackend, SizeU32, WindowedEventLoop, FP};
-use gosub_shared::traits::config::ModuleConfiguration;
-use gosub_shared::traits::draw::TreeDrawer;
+use gosub_interface::config::ModuleConfiguration;
+use gosub_interface::draw::TreeDrawer;
+use gosub_interface::render_backend::{Point, RenderBackend, SizeU32, WindowedEventLoop, FP};
 use gosub_shared::types::Result;
 
 impl<C: ModuleConfiguration> Window<'_, C>

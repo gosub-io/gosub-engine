@@ -1,4 +1,4 @@
-use gosub_shared::render_backend::{ImageBuffer, ImageCacheEntry, ImgCache, RenderBackend, SizeU32};
+use gosub_interface::render_backend::{ImageBuffer, ImageCacheEntry, ImgCache, RenderBackend, SizeU32};
 use std::collections::HashMap;
 
 #[derive(Debug)]

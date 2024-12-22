@@ -4,22 +4,22 @@ use crate::draw::img_cache::ImageCache;
 use crate::draw::testing::{test_add_element, test_restyle_element};
 use crate::render_tree::{load_html_rendertree, load_html_rendertree_fetcher};
 use anyhow::anyhow;
-use gosub_net::http::fetcher::Fetcher;
-use gosub_rendering::position::PositionTree;
-use gosub_rendering::render_tree::RenderTree;
-use gosub_shared::node::NodeId;
-use gosub_shared::render_backend::geo::{Size, SizeU32, FP};
-use gosub_shared::render_backend::layout::{Layout, LayoutTree, Layouter, TextLayout};
-use gosub_shared::render_backend::svg::SvgRenderer;
-use gosub_shared::render_backend::{
+use gosub_interface::config::{HasDrawComponents, HasHtmlParser};
+use gosub_interface::css3::{CssProperty, CssPropertyMap, CssValue};
+use gosub_interface::draw::TreeDrawer;
+use gosub_interface::layout::{Layout, LayoutTree, Layouter, TextLayout};
+use gosub_interface::render_backend::{
     Border, BorderSide, BorderStyle, Brush, Color, ImageBuffer, ImgCache, NodeDesc, Rect, RenderBackend, RenderBorder,
     RenderRect, RenderText, Scene as TScene, Text, Transform, WindowedEventLoop,
 };
-use gosub_shared::traits::config::{HasDrawComponents, HasHtmlParser};
-use gosub_shared::traits::css3::{CssProperty, CssPropertyMap, CssValue};
-use gosub_shared::traits::draw::TreeDrawer;
-use gosub_shared::traits::render_tree;
-use gosub_shared::traits::render_tree::RenderTreeNode as _;
+use gosub_interface::render_tree;
+use gosub_interface::render_tree::RenderTreeNode as _;
+use gosub_interface::svg::SvgRenderer;
+use gosub_net::http::fetcher::Fetcher;
+use gosub_rendering::position::PositionTree;
+use gosub_rendering::render_tree::RenderTree;
+use gosub_shared::geo::{Size, SizeU32, FP};
+use gosub_shared::node::NodeId;
 use gosub_shared::types::Result;
 use log::{error, info, warn};
 use std::sync::mpsc::Sender;

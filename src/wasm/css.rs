@@ -1,9 +1,9 @@
 use gosub_css3::tokenizer::{TokenType, Tokenizer};
 use gosub_css3::Css3;
+use gosub_interface::css3::CssOrigin;
+use gosub_interface::ParserConfig;
 use gosub_shared::byte_stream::{ByteStream, Encoding, Location};
 use gosub_shared::errors::CssError;
-use gosub_shared::traits::css3::CssOrigin;
-use gosub_shared::traits::ParserConfig;
 use std::string::ToString;
 use wasm_bindgen::prelude::wasm_bindgen;
 

@@ -1,7 +1,7 @@
 use crate::VelloBackend;
-use gosub_shared::render_backend::geo::FP;
-use gosub_shared::render_backend::layout::{Decoration, TextLayout};
-use gosub_shared::render_backend::{RenderText, Text as TText};
+use gosub_interface::layout::{Decoration, TextLayout};
+use gosub_interface::render_backend::{RenderText, Text as TText};
+use gosub_shared::geo::FP;
 use vello::kurbo::{Affine, Line, Stroke};
 use vello::peniko::{Brush, Color, Fill, Font, StyleRef};
 use vello::skrifa::instance::NormalizedCoord;

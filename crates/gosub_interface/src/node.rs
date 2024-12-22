@@ -1,7 +1,7 @@
-use crate::byte_stream::Location;
-use crate::document::DocumentHandle;
-use crate::node::NodeId;
-use crate::traits::config::HasDocument;
+use crate::config::HasDocument;
+use crate::document_handle::DocumentHandle;
+use gosub_shared::byte_stream::Location;
+use gosub_shared::node::NodeId;
 use std::collections::hash_map::IntoIter;
 use std::collections::HashMap;
 use std::fmt::Debug;

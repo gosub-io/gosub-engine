@@ -1,5 +1,5 @@
 use core::fmt::{Debug, Formatter};
-use gosub_shared::traits::node::DocTypeDataType;
+use gosub_interface::node::DocTypeDataType;
 use std::fmt;
 
 #[derive(PartialEq, Clone)]

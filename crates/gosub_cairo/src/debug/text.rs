@@ -2,7 +2,7 @@ use crate::elements::brush::GsBrush;
 use crate::elements::color::GsColor;
 use crate::elements::transform::GsTransform;
 use crate::Scene;
-use gosub_shared::render_backend::{Brush as _, Color as _, Transform as _};
+use gosub_interface::render_backend::{Brush as _, Color as _, Transform as _};
 use gosub_shared::types::Point;
 use gosub_shared::ROBOTO_FONT;
 use peniko::{Blob, Font};

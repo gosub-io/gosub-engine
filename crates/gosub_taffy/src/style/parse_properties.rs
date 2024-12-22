@@ -6,9 +6,9 @@ use crate::style::parse::{
     parse_align_c, parse_align_i, parse_dimension, parse_grid_auto, parse_grid_placement, parse_len, parse_len_auto,
     parse_text_dim, parse_tracking_sizing_function,
 };
-use gosub_shared::render_backend::layout::LayoutNode;
-use gosub_shared::traits::config::HasLayouter;
-use gosub_shared::traits::css3::CssProperty;
+use gosub_interface::config::HasLayouter;
+use gosub_interface::css3::CssProperty;
+use gosub_interface::layout::LayoutNode;
 
 pub fn parse_display<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> (Display, crate::Display) {
     let Some(display) = node.get_property("display") else {

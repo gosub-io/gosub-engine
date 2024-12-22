@@ -1,12 +1,12 @@
 use anyhow::anyhow;
 use tiny_skia::Pixmap;
 
-use gosub_shared::document::DocumentHandle;
+use gosub_interface::config::HasDocument;
+use gosub_interface::document_handle::DocumentHandle;
+use gosub_interface::render_backend::{Image, ImageBuffer, RenderBackend};
+use gosub_interface::svg::SvgRenderer;
+use gosub_shared::geo::FP;
 use gosub_shared::node::NodeId;
-use gosub_shared::render_backend::geo::FP;
-use gosub_shared::render_backend::svg::SvgRenderer;
-use gosub_shared::render_backend::{Image, ImageBuffer, RenderBackend};
-use gosub_shared::traits::config::HasDocument;
 use gosub_shared::types::{Result, Size};
 
 use crate::SVGDocument;

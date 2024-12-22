@@ -7,7 +7,7 @@ use gosub_html5::testing::tree_construction::fixture::read_fixtures;
 use gosub_html5::testing::tree_construction::result::ResultStatus;
 use gosub_html5::testing::tree_construction::Harness;
 use gosub_html5::testing::tree_construction::Test;
-use gosub_shared::traits::config::{HasCssSystem, HasDocument, HasHtmlParser};
+use gosub_interface::config::{HasCssSystem, HasDocument, HasHtmlParser};
 
 /// Holds the results from all tests that are executed
 #[derive(Default)]

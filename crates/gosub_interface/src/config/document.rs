@@ -1,7 +1,7 @@
-use crate::traits::config::css_system::HasCssSystem;
-use crate::traits::document::{Document, DocumentBuilder, DocumentFragment};
-use crate::traits::html5::Html5Parser;
-use crate::traits::node::{CommentDataType, DocTypeDataType, DocumentDataType, ElementDataType, Node, TextDataType};
+use crate::config::css_system::HasCssSystem;
+use crate::document::{Document, DocumentBuilder, DocumentFragment};
+use crate::html5::Html5Parser;
+use crate::node::{CommentDataType, DocTypeDataType, DocumentDataType, ElementDataType, Node, TextDataType};
 use std::fmt::Debug;
 
 pub trait HasDocument:

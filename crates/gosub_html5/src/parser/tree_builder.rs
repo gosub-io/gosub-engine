@@ -37,7 +37,7 @@ mod tests {
     use crate::testing::tree_construction::fixture::{fixture_root_path, read_fixture_from_path};
     use crate::testing::tree_construction::Harness;
     use gosub_css3::system::Css3System;
-    use gosub_shared::traits::config::{HasCssSystem, HasDocument, HasHtmlParser};
+    use gosub_interface::config::{HasCssSystem, HasDocument, HasHtmlParser};
     use test_case::test_case;
 
     #[derive(Clone, Debug, PartialEq)]

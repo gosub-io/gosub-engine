@@ -10,11 +10,11 @@ use taffy::{
     RunMode, Size,
 };
 
+use gosub_interface::config::HasLayouter;
+use gosub_interface::css3::{CssProperty, CssValue};
+use gosub_interface::layout::{Decoration, DecorationStyle, HasTextLayout, LayoutNode, LayoutTree};
 use gosub_shared::font::Glyph;
-use gosub_shared::render_backend::geo;
-use gosub_shared::render_backend::layout::{Decoration, DecorationStyle, HasTextLayout, LayoutNode, LayoutTree};
-use gosub_shared::traits::config::HasLayouter;
-use gosub_shared::traits::css3::{CssProperty, CssValue};
+use gosub_shared::geo;
 use gosub_shared::ROBOTO_FONT;
 
 use crate::text::{Font, TextLayout};

@@ -1,4 +1,6 @@
-use gosub_shared::render_backend::{Brush, Color, Point, Rect, RenderBackend, RenderRect, Scene, SizeU32, Transform};
+use gosub_interface::render_backend::{
+    Brush, Color, Point, Rect, RenderBackend, RenderRect, Scene, SizeU32, Transform,
+};
 use std::cmp::max;
 use std::f32::consts::PI;
 

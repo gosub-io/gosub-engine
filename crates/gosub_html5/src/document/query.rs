@@ -1,13 +1,13 @@
 use crate::document::document_impl::TreeIterator;
 use crate::errors::Error;
 use crate::parser::query::{Condition, Query, SearchType};
-use gosub_shared::document::DocumentHandle;
+use gosub_interface::config::HasDocument;
+use gosub_interface::document::Document;
+use gosub_interface::document_handle::DocumentHandle;
+use gosub_interface::node::ClassList;
+use gosub_interface::node::ElementDataType;
+use gosub_interface::node::Node;
 use gosub_shared::node::NodeId;
-use gosub_shared::traits::config::HasDocument;
-use gosub_shared::traits::document::Document;
-use gosub_shared::traits::node::ClassList;
-use gosub_shared::traits::node::ElementDataType;
-use gosub_shared::traits::node::Node;
 
 pub struct DocumentQuery<C: HasDocument> {
     _phantom: std::marker::PhantomData<C>,

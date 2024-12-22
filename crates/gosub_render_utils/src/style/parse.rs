@@ -4,7 +4,7 @@ use taffy::{
     TrackSizingFunction,
 };
 
-use gosub_shared::render_backend::{PreRenderText, RenderBackend};
+use gosub_interface::render_backend::{PreRenderText, RenderBackend};
 use gosub_css3::stylesheet::CssValue;
 use gosub_css3::render_tree::{RenderTreeNode, TextData};
 

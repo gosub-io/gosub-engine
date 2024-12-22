@@ -1,9 +1,9 @@
 use core::fmt::Debug;
 use core::slice;
+use gosub_interface::css3::CssOrigin;
 use gosub_shared::byte_stream::Location;
 use gosub_shared::errors::CssError;
 use gosub_shared::errors::CssResult;
-use gosub_shared::traits::css3::CssOrigin;
 use std::cmp::Ordering;
 use std::fmt::Display;
 
@@ -108,7 +108,7 @@ pub struct CssStylesheet {
     pub parse_log: Vec<CssLog>,
 }
 
-impl gosub_shared::traits::css3::CssStylesheet for CssStylesheet {
+impl gosub_interface::css3::CssStylesheet for CssStylesheet {
     fn origin(&self) -> CssOrigin {
         self.origin
     }
@@ -553,7 +553,7 @@ impl CssValue {
     }
 }
 
-impl gosub_shared::traits::css3::CssValue for CssValue {
+impl gosub_interface::css3::CssValue for CssValue {
     fn new_string(value: &str) -> Self {
         CssValue::String(value.to_string())
     }

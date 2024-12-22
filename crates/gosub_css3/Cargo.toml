@@ -7,6 +7,7 @@ license = "MIT"
 
 [dependencies]
 gosub_shared = { path = "../gosub_shared", features = [] }
+gosub_interface = { path = "../gosub_interface", features = [] }
 lazy_static = "1.5.0"
 log = "0.4.22"
 simple_logger = "5.0.0"

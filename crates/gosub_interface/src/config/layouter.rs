@@ -1,5 +1,5 @@
-use crate::render_backend::layout::{LayoutTree, Layouter};
-use crate::traits::config::HasCssSystem;
+use crate::config::HasCssSystem;
+use crate::layout::{LayoutTree, Layouter};
 use std::fmt::Debug;
 
 pub trait HasLayouter: HasCssSystem + Debug + 'static {

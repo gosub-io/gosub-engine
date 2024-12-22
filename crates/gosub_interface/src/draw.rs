@@ -1,6 +1,7 @@
-use crate::render_backend::layout::LayoutTree;
-use crate::render_backend::{ImgCache, NodeDesc, Point, RenderBackend, SizeU32, WindowedEventLoop, FP};
-use crate::traits::config::HasDrawComponents;
+use crate::config::HasDrawComponents;
+use crate::layout::LayoutTree;
+use crate::render_backend::{ImgCache, NodeDesc, RenderBackend, WindowedEventLoop};
+use gosub_shared::geo::{Point, SizeU32, FP};
 use std::future::Future;
 use std::sync::mpsc::Sender;
 use url::Url;
@@ -18,7 +19,11 @@ pub trait TreeDrawer<C: HasDrawComponents> {
     fn mouse_move(&mut self, backend: &mut C::RenderBackend, x: FP, y: FP) -> bool;
 
     fn scroll(&mut self, point: Point);
-    fn from_url(url: Url, layouter: C::Layouter, debug: bool) -> impl Future<Output = crate::types::Result<Self>>
+    fn from_url(
+        url: Url,
+        layouter: C::Layouter,
+        debug: bool,
+    ) -> impl Future<Output = gosub_shared::types::Result<Self>>
     where
         Self: Sized;
 

@@ -1,9 +1,8 @@
-use crate::document::DocumentHandle;
-use crate::node::NodeId;
-use crate::traits::config::HasDocument;
-use crate::types::{Result, Size};
-
-use super::{ImageBuffer, RenderBackend};
+use crate::config::HasDocument;
+use crate::document_handle::DocumentHandle;
+use crate::render_backend::{ImageBuffer, RenderBackend};
+use gosub_shared::node::NodeId;
+use gosub_shared::types::{Result, Size};
 
 pub trait SvgRenderer<B: RenderBackend>: Send {
     type SvgDocument;

@@ -1,10 +1,10 @@
 use anyhow::{anyhow, bail, Result};
 use gosub_css3::tokenizer::{TokenType, Tokenizer};
 use gosub_css3::Css3;
+use gosub_interface::css3::CssOrigin;
 use gosub_shared::byte_stream::{ByteStream, Encoding, Location};
+use gosub_shared::config::ParserConfig;
 use gosub_shared::errors::CssError;
-use gosub_shared::traits::css3::CssOrigin;
-use gosub_shared::traits::ParserConfig;
 use simple_logger::SimpleLogger;
 use std::fs;
 use std::time::Instant;

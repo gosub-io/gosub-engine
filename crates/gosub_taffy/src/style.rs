@@ -1,8 +1,8 @@
 use taffy::Style;
 
 use crate::Display;
-use gosub_shared::render_backend::layout::LayoutNode;
-use gosub_shared::traits::config::HasLayouter;
+use gosub_interface::config::HasLayouter;
+use gosub_interface::layout::LayoutNode;
 
 mod parse;
 mod parse_properties;

@@ -1,4 +1,4 @@
-use gosub_shared::traits::config::HasDocument;
+use gosub_interface::config::HasDocument;
 
 pub trait Visitor<C: HasDocument> {
     fn document_enter(&mut self, node: &C::Node);

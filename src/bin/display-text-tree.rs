@@ -7,11 +7,11 @@ use std::process::exit;
 
 use gosub_html5::document::document_impl::DocumentImpl;
 use gosub_html5::document::fragment::DocumentFragmentImpl;
-use gosub_shared::document::DocumentHandle;
+use gosub_interface::config::{HasCssSystem, HasDocument, HasHtmlParser};
+use gosub_interface::document::{Document, DocumentBuilder};
+use gosub_interface::document_handle::DocumentHandle;
+use gosub_interface::node::{Node, TextDataType};
 use gosub_shared::node::NodeId;
-use gosub_shared::traits::config::{HasCssSystem, HasDocument, HasHtmlParser};
-use gosub_shared::traits::document::{Document, DocumentBuilder};
-use gosub_shared::traits::node::{Node, TextDataType};
 
 #[derive(Clone, Debug, PartialEq)]
 struct Config;

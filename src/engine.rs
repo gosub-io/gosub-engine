@@ -1,17 +1,17 @@
-use gosub_shared::traits::config::{HasDocument, HasHtmlParser};
+use gosub_interface::config::{HasDocument, HasHtmlParser};
 #[cfg(not(target_arch = "wasm32"))]
 use {
     cookie::CookieJar,
     core::fmt::Debug,
+    gosub_interface::document::DocumentBuilder,
+    gosub_interface::document_handle::DocumentHandle,
+    gosub_interface::html5::Html5Parser as Html5ParserT,
     gosub_net::dns::{Dns, ResolveType},
     gosub_net::errors::Error,
     gosub_net::http::headers::Headers,
     gosub_net::http::request::Request,
     gosub_net::http::response::Response,
     gosub_shared::byte_stream::{ByteStream, Encoding},
-    gosub_shared::document::DocumentHandle,
-    gosub_shared::traits::document::DocumentBuilder,
-    gosub_shared::traits::html5::Html5Parser as Html5ParserT,
     gosub_shared::types::{ParseError, Result},
     gosub_shared::{timing_start, timing_stop},
     std::io::Read,
@@ -168,7 +168,7 @@ mod tests {
     use gosub_html5::document::document_impl::DocumentImpl;
     use gosub_html5::document::fragment::DocumentFragmentImpl;
     use gosub_html5::parser::Html5Parser;
-    use gosub_shared::traits::config::HasCssSystem;
+    use gosub_interface::config::HasCssSystem;
 
     #[derive(Clone, Debug, PartialEq)]
     struct Config;

@@ -1,8 +1,8 @@
 use crate::elements::border::GsBorderRadius;
 use crate::elements::brush::GsBrush;
 use crate::CairoBackend;
-use gosub_shared::render_backend::geo::{Point, Size, FP};
-use gosub_shared::render_backend::{Rect as TRect, RenderRect};
+use gosub_interface::render_backend::{Rect as TRect, RenderRect};
+use gosub_shared::geo::{Point, Size, FP};
 
 #[derive(Clone, Debug)]
 pub struct GsRect {

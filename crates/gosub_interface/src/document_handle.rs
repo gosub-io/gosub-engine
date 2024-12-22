@@ -1,4 +1,4 @@
-use crate::traits::config::HasDocument;
+use crate::config::HasDocument;
 use std::cell::{Ref, RefCell, RefMut};
 use std::fmt::{Debug, Display, Formatter};
 use std::rc::Rc;

@@ -1,9 +1,9 @@
 use crate::render_tree::{RenderNodeData, RenderTree};
+use gosub_interface::config::HasLayouter;
+use gosub_interface::css3::CssPropertyMap;
+use gosub_interface::layout::{Layout, LayoutTree};
+use gosub_interface::render_backend::{NodeDesc, Point, Size};
 use gosub_shared::node::NodeId;
-use gosub_shared::render_backend::layout::{Layout, LayoutTree};
-use gosub_shared::render_backend::{NodeDesc, Point, Size};
-use gosub_shared::traits::config::HasLayouter;
-use gosub_shared::traits::css3::CssPropertyMap;
 
 impl<C: HasLayouter<LayoutTree = Self>> RenderTree<C> {
     pub fn desc(&self) -> NodeDesc {

@@ -1,4 +1,4 @@
-use gosub_shared::traits::node::TextDataType;
+use gosub_interface::node::TextDataType;
 
 #[derive(Clone, Debug, PartialEq)]
 
