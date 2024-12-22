@@ -2,7 +2,7 @@
 name = "gosub_engine"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.79"
+rust-version = "1.80"
 authors = ["Gosub Community <info@gosub.io>"]
 description = "An HTML5 browser engine written in Rust."
 license = "MIT"
@@ -12,12 +12,19 @@ keywords = ["html5", "parser", "browser", "Rust", "DOM"]
 
 [workspace]
 members = [
-    "crates/*",
-    "examples/*"
+    "crates/*"
 ]
 
 [[example]]
 name = "html5-parser"
+
+[[example]]
+name = "gtk-renderer"
+path = "examples/gtk-renderer/main.rs"
+
+[[example]]
+name = "vello-renderer"
+path = "examples/vello-renderer/main.rs"
 
 [[bench]]
 name = "tree_iterator"
@@ -37,33 +44,37 @@ gosub_rendering = { path = "crates/gosub_render_utils", features = [] }
 gosub_renderer = { path = "./crates/gosub_renderer", features = [] }
 gosub_vello = { path = "./crates/gosub_vello", features = [] }
 gosub_cairo = { path = "./crates/gosub_cairo", features = [] }
-gosub_useragent = { path = "./crates/gosub_useragent", features = [] }
 gosub_taffy = { path = "./crates/gosub_taffy", features = [] }
 gosub_net = { path = "./crates/gosub_net", features = [] }
-serde = { version = "1.0", features = ["derive"] }
-serde_derive = "1.0"
-derive_more = { version = "1", features = ["from"] }
-lazy_static = "1.5"
-regex = "1"
-anyhow = "1.0.94"
-walkdir = "2.5"
-clap = { version = "4.5.21", features = ["derive"] }
-simple_logger = "5.0.0"
+# Dependencies are needed for gosub_engine itself, and some of the binaries in src/bin.
 cookie = { version = "0.18.1", features = ["secure", "private"] }
 url = "2.5.4"
-nom = "7.1.3"
+clap = { version = "4.5.21", features = ["derive"] }
+anyhow = "1.0.94"
+derive_more = "1.0.0"
+simple_logger = "5.0.0"
 log = "0.4.22"
+walkdir = "2.5.0"
 
+# Dependencies for testing and development. Also used for some of the examples (like the gtk/vello renderer).
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
 test-case = "3.3.1"
+gtk4 = "0.9.5"
+winit = "0.30.5"
+cookie = { version = "0.18.1", features = ["secure", "private"] }
+url = "2.5.4"
+clap = { version = "4.5.21", features = ["derive"] }
+simple_logger = "5.0.0"
+log = "0.4.22"
+anyhow = "1.0.94"
+image = "0.25.5"
+slotmap = "1.0.7"
 
 [features]
 # Enables extended debugging information during parsing.
 debug_parser = []
 debug_parser_verbose = []
-
-
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 web-sys = "0.3.72"
@@ -73,7 +84,6 @@ console_error_panic_hook = "0.1.7"
 wasm-bindgen = "0.2.93"
 wasm-bindgen-futures = "0.4.47"
 getrandom = { version = "0.2.15", features = ["js"] }
-
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 gosub_v8 = { path = "./crates/gosub_v8", features = [] }

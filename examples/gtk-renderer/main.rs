@@ -12,6 +12,7 @@ use gosub_shared::render_backend::{ImageBuffer, SizeU32, WindowedEventLoop};
 use gosub_shared::traits::config::*;
 use gosub_shared::traits::draw::TreeDrawer;
 use gosub_taffy::TaffyLayouter;
+use gtk4::gio::{ApplicationCommandLine, ApplicationFlags};
 use gtk4::glib::spawn_future_local;
 use gtk4::prelude::*;
 use gtk4::{glib, Application, ApplicationWindow, DrawingArea};
@@ -60,28 +61,25 @@ impl ModuleConfiguration for Config {}
 fn main() -> glib::ExitCode {
     SimpleLogger::new().with_level(LevelFilter::Info).init().unwrap();
 
-    let app = Application::builder().application_id(APP_ID).build();
-    app.connect_activate(build_ui);
+    let app = Application::builder()
+        .application_id(APP_ID)
+        .flags(ApplicationFlags::HANDLES_COMMAND_LINE)
+        .build();
+    app.connect_command_line(build_ui);
+
     app.run()
 }
 
-fn build_ui(app: &Application) {
+fn build_ui(app: &Application, cl: &ApplicationCommandLine) -> i32 {
+    let binding = cl.arguments();
+    let args = binding.as_slice();
+    let url = args[1].to_str().unwrap_or("https://example.com").to_string();
+
     // Create a window and set the title
     let window = ApplicationWindow::builder()
         .application(app)
         .title("GTK Renderer")
         .build();
-
-    let matches = clap::Command::new("Gosub GTK Renderer")
-        .arg(
-            clap::Arg::new("url")
-                .help("The url or file to parse")
-                .required(true)
-                .index(1),
-        )
-        .get_matches();
-
-    let url: String = matches.get_one::<String>("url").expect("url").to_string();
 
     // Tree drawer that will render the final tree
     let drawer = Arc::new(Mutex::new(Option::<<Config as HasTreeDrawer>::TreeDrawer>::None));
@@ -119,13 +117,9 @@ fn build_ui(app: &Application) {
         let area = area.clone();
         let drawer = drawer.clone();
         spawn_future_local(async move {
-            let d = <Config as HasTreeDrawer>::TreeDrawer::from_url(
-                Url::parse(url.as_str()).unwrap(),
-                TaffyLayouter,
-                false,
-            )
-            .await
-            .unwrap();
+            let d = <Config as HasTreeDrawer>::TreeDrawer::from_url(Url::parse(&url).unwrap(), TaffyLayouter, false)
+                .await
+                .unwrap();
 
             let mut drawer_lock = drawer.lock().unwrap();
             *drawer_lock = Some(d);
@@ -139,6 +133,8 @@ fn build_ui(app: &Application) {
     window.set_default_height(600);
     window.set_child(Some(&area));
     window.present();
+
+    1
 }
 
 #[derive(Clone)]

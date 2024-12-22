@@ -12,7 +12,6 @@ The engine is split up in a few different crates. This is done to keep the codeb
 * gosub_shared
 * gosub_svg
 * gosub_taffy
-* gosub_useragent
 * gosub_v8
 * gosub_vello
 * gosub_webexecutor
@@ -51,9 +50,6 @@ Implementation of the SVG Document for `usvg` and optionally the `resvg` crates,
 ## gosub_taffy
 Implementation of layout traits for the `taffy` layouting system.
 
-## gosub_useragent
-This crate keeps a simple application with event loop renders html5 documents. It can be seen as a very simple browser. Ultimately, this crate will be removed in favor of an external application that will use the engine. 
-
 ## gosub_v8
 Gosub bindings to the V8 javascript engine.
 
@@ -65,3 +61,65 @@ System to execute javascript. This could also be used for executing other langua
 
 ## gosub_webinterop
 Proc macro to easily pass functions and define APIs to javascript, wasm or lua and others.
+
+
+# Dependency graph
+
+This graph is created with the following commandline:
+
+```bash
+$ cargo install cargo-depgraph
+$ cargo depgraph --depth=1 --include gosub_html5,gosub_engine,gosub_shared,gosub_css3,gosub_config,gosub_cairo,gosub_jsapi,gosub_net,gosub_render_utils,gosub_renderer,gosub_svg,gosub_taffy,gosub_v8,gosub_vello,gosub_webexecutor,gosub_webinterop | dot -Tpng -o out.png
+```
+
+
+```mermaid
+flowchart
+    A("gosub_cairo")
+    B("gosub_shared")
+    C("gosub_svg")
+    D("gosub_html5")
+    E("gosub_css3")
+    F("gosub_config")
+    G("gosub_jsapi")
+    H("gosub_net")
+    I("gosub_renderer")
+    J("gosub_taffy")
+    K("gosub_v8")
+    L("gosub_webexecutor")
+    M("gosub_vello")
+    N("gosub_engine")
+
+    A --> B
+    A --> C
+    C --> D
+    C --> B
+    D --> E
+    D --> B
+    E --> B
+    F --> B
+    G --> B
+    H --> F
+    H --> B
+    I --> H
+    I --> B
+    J --> B
+    K --> B
+    K --> L
+    L --> B
+    M --> B
+    M --> C
+    N --> A
+    N --> F
+    N --> E
+    N --> D
+    N --> G
+    N --> H
+    N --> I
+    N --> B
+    N --> J
+    N --> M
+
+    
+
+```
