@@ -1,5 +1,5 @@
-use gosub_shared::render_backend::geo::{Point, Size, FP};
-use gosub_shared::render_backend::Rect as TRect;
+use gosub_interface::render_backend::Rect as TRect;
+use gosub_shared::geo::{Point, Size, FP};
 use vello::kurbo::Rect as VelloRect;
 
 #[derive(Clone)]

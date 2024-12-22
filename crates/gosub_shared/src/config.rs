@@ -1,14 +1,5 @@
 use crate::byte_stream::Location;
 
-pub mod css3;
-pub mod document;
-pub mod html5;
-pub mod node;
-
-pub mod config;
-pub mod draw;
-pub mod render_tree;
-
 /// Context defines how the data needs to be parsed
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Context {

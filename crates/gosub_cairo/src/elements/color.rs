@@ -1,4 +1,4 @@
-use gosub_shared::render_backend::Color as TColor;
+use gosub_interface::render_backend::Color as TColor;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct GsColor {

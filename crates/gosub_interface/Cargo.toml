@@ -1,0 +1,11 @@
+[package]
+name = "gosub_interface"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+gosub_shared = { path = "../gosub_shared" }
+url = "2.5.4"
+smallvec = "1.13.2"
+raw-window-handle = "0.6.2"
+image = "0.25.5"

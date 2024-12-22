@@ -5,11 +5,11 @@ use crate::node::data::document::DocumentData;
 use crate::node::data::element::ElementData;
 use crate::node::data::text::TextData;
 use core::fmt::Debug;
+use gosub_interface::config::HasDocument;
+use gosub_interface::document_handle::DocumentHandle;
+use gosub_interface::node::{Node, NodeData, NodeType, QuirksMode};
 use gosub_shared::byte_stream::Location;
-use gosub_shared::document::DocumentHandle;
 use gosub_shared::node::NodeId;
-use gosub_shared::traits::config::HasDocument;
-use gosub_shared::traits::node::{Node, NodeData, NodeType, QuirksMode};
 use std::collections::HashMap;
 
 /// Implementation of the NodeDataType trait
@@ -318,9 +318,9 @@ mod tests {
     use crate::node::SVG_NAMESPACE;
     use crate::DocumentBuilderImpl;
     use gosub_css3::system::Css3System;
-    use gosub_shared::traits::config::HasCssSystem;
-    use gosub_shared::traits::document::DocumentBuilder;
-    use gosub_shared::traits::node::ElementDataType;
+    use gosub_interface::config::HasCssSystem;
+    use gosub_interface::document::DocumentBuilder;
+    use gosub_interface::node::ElementDataType;
     use std::collections::HashMap;
 
     #[derive(Clone, Debug, PartialEq)]

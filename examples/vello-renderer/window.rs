@@ -12,10 +12,10 @@ use winit::event::Modifiers;
 use winit::event_loop::{ActiveEventLoop, EventLoopProxy};
 use winit::window::{Icon, Window as WinitWindow, WindowId};
 
-use gosub_shared::render_backend::geo::SizeU32;
-use gosub_shared::render_backend::layout::LayoutTree;
-use gosub_shared::render_backend::{ImageBuffer, NodeDesc, RenderBackend, WindowedEventLoop};
-use gosub_shared::traits::config::ModuleConfiguration;
+use gosub_interface::config::ModuleConfiguration;
+use gosub_interface::layout::LayoutTree;
+use gosub_interface::render_backend::{ImageBuffer, NodeDesc, RenderBackend, WindowedEventLoop};
+use gosub_shared::geo::SizeU32;
 use gosub_shared::types::Result;
 
 use crate::application::{CustomEventInternal, WindowOptions};

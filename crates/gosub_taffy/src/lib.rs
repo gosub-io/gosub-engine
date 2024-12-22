@@ -7,9 +7,9 @@ use taffy::{
     NodeId as TaffyId, SizingMode, Style, TraversePartialTree,
 };
 
-use gosub_shared::render_backend::geo::{Point, Rect, Size, SizeU32};
-use gosub_shared::render_backend::layout::{Layout as TLayout, LayoutCache, LayoutNode, LayoutTree, Layouter};
-use gosub_shared::traits::config::HasLayouter;
+use gosub_interface::config::HasLayouter;
+use gosub_interface::layout::{Layout as TLayout, LayoutCache, LayoutNode, LayoutTree, Layouter};
+use gosub_shared::geo::{Point, Rect, Size, SizeU32};
 use gosub_shared::types::Result;
 
 use crate::compute::inline::compute_inline_layout;

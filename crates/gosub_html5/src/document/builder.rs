@@ -1,9 +1,9 @@
 use crate::node::HTML_NAMESPACE;
 use crate::DocumentHandle;
-use gosub_shared::traits::config::HasDocument;
-use gosub_shared::traits::document::DocumentBuilder;
-use gosub_shared::traits::document::{Document, DocumentType};
-use gosub_shared::traits::node::{Node, QuirksMode};
+use gosub_interface::config::HasDocument;
+use gosub_interface::document::DocumentBuilder;
+use gosub_interface::document::{Document, DocumentType};
+use gosub_interface::node::{Node, QuirksMode};
 use std::collections::HashMap;
 use url::Url;
 

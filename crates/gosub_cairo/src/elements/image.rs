@@ -1,8 +1,8 @@
 use image::{DynamicImage, GenericImageView};
 use std::sync::Arc;
 
-use gosub_shared::render_backend::geo::FP;
-use gosub_shared::render_backend::Image as TImage;
+use gosub_interface::render_backend::Image as TImage;
+use gosub_shared::geo::FP;
 
 #[derive(Clone, Debug)]
 pub enum GsFormat {

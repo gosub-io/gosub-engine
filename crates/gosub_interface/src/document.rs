@@ -1,8 +1,8 @@
-use crate::byte_stream::Location;
-use crate::document::DocumentHandle;
-use crate::node::NodeId;
-use crate::traits::config::HasDocument;
-use crate::traits::node::{Node, QuirksMode};
+use crate::config::HasDocument;
+use crate::document_handle::DocumentHandle;
+use crate::node::{Node, QuirksMode};
+use gosub_shared::byte_stream::Location;
+use gosub_shared::node::NodeId;
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 use url::Url;

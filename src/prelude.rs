@@ -1,4 +1,4 @@
-pub use gosub_shared::traits::config::*;
+pub use gosub_interface::config::*;
 
 pub use gosub_css3::system::Css3System;
 

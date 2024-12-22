@@ -1,4 +1,4 @@
-use gosub_shared::traits::node::CommentDataType;
+use gosub_interface::node::CommentDataType;
 
 #[derive(Debug, PartialEq, Clone)]
 /// Data structure for comment nodes

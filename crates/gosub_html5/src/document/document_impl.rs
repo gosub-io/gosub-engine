@@ -1,6 +1,6 @@
 use crate::DocumentHandle;
 use core::fmt::Debug;
-use gosub_shared::traits::document::{Document as OtherDocument, Document, DocumentType};
+use gosub_interface::document::{Document as OtherDocument, Document, DocumentType};
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fmt;
@@ -16,11 +16,11 @@ use crate::node::data::element::{ClassListImpl, ElementData};
 use crate::node::data::text::TextData;
 use crate::node::node_impl::{NodeDataTypeInternal, NodeImpl};
 use crate::node::visitor::Visitor;
+use gosub_interface::config::HasDocument;
+use gosub_interface::node::Node;
+use gosub_interface::node::QuirksMode;
 use gosub_shared::byte_stream::Location;
 use gosub_shared::node::NodeId;
-use gosub_shared::traits::config::HasDocument;
-use gosub_shared::traits::node::Node;
-use gosub_shared::traits::node::QuirksMode;
 
 /// Defines a document
 #[derive(Debug)]
@@ -603,12 +603,12 @@ mod tests {
     use crate::parser::query::Query;
     use crate::parser::tree_builder::TreeBuilder;
     use gosub_css3::system::Css3System;
+    use gosub_interface::config::HasCssSystem;
+    use gosub_interface::document::DocumentBuilder;
+    use gosub_interface::node::ClassList;
+    use gosub_interface::node::ElementDataType;
+    use gosub_interface::node::NodeType;
     use gosub_shared::byte_stream::Location;
-    use gosub_shared::traits::config::HasCssSystem;
-    use gosub_shared::traits::document::DocumentBuilder;
-    use gosub_shared::traits::node::ClassList;
-    use gosub_shared::traits::node::ElementDataType;
-    use gosub_shared::traits::node::NodeType;
     use std::collections::HashMap;
 
     #[derive(Clone, Debug, PartialEq)]

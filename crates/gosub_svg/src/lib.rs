@@ -1,8 +1,8 @@
 use ::resvg::usvg;
-use gosub_shared::document::DocumentHandle;
+use gosub_interface::config::HasDocument;
+use gosub_interface::document::Document;
+use gosub_interface::document_handle::DocumentHandle;
 use gosub_shared::node::NodeId;
-use gosub_shared::traits::config::HasDocument;
-use gosub_shared::traits::document::Document;
 use gosub_shared::types::Result;
 
 #[cfg(feature = "resvg")]

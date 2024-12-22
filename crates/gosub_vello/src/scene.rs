@@ -1,4 +1,4 @@
-use gosub_shared::render_backend::{Point, RenderBackend, RenderRect, RenderText, Scene as TScene, FP};
+use gosub_interface::render_backend::{Point, RenderBackend, RenderRect, RenderText, Scene as TScene, FP};
 use std::fmt::{Debug, Formatter};
 use vello::kurbo::RoundedRect;
 use vello::peniko::Fill;

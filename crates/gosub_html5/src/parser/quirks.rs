@@ -1,6 +1,6 @@
 use crate::parser::Html5Parser;
-use gosub_shared::traits::config::HasDocument;
-use gosub_shared::traits::node::QuirksMode;
+use gosub_interface::config::HasDocument;
+use gosub_interface::node::QuirksMode;
 
 impl<C: HasDocument> Html5Parser<'_, C> {
     // returns the correct quirk mode for the given doctype
@@ -155,8 +155,8 @@ mod tests {
     use crate::parser::QuirksMode;
     use crate::DocumentBuilderImpl;
     use gosub_css3::system::Css3System;
+    use gosub_interface::config::{HasCssSystem, HasDocument};
     use gosub_shared::byte_stream::{ByteStream, Encoding, Location};
-    use gosub_shared::traits::config::{HasCssSystem, HasDocument};
 
     #[derive(Clone, Debug, PartialEq)]
     struct Config;

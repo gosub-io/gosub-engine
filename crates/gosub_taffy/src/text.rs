@@ -1,7 +1,7 @@
+use gosub_interface::layout::{Decoration, TextLayout as TLayout};
 use gosub_shared::font::Font as TFont;
 use gosub_shared::font::Glyph;
-use gosub_shared::render_backend::layout::{Decoration, TextLayout as TLayout};
-use gosub_shared::render_backend::Size;
+use gosub_shared::geo::Size;
 use parley::Font as PFont;
 
 #[derive(Debug, Clone)]

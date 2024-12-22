@@ -4,11 +4,11 @@ use crate::ast::convert_ast_to_stylesheet;
 use crate::stylesheet::CssStylesheet;
 use crate::tokenizer::Tokenizer;
 
+use gosub_interface::css3::CssOrigin;
 use gosub_shared::byte_stream::{ByteStream, Encoding, Location};
+use gosub_shared::config::Context;
+use gosub_shared::config::ParserConfig;
 use gosub_shared::errors::{CssError, CssResult};
-use gosub_shared::traits::css3::CssOrigin;
-use gosub_shared::traits::Context;
-use gosub_shared::traits::ParserConfig;
 use gosub_shared::{timing_start, timing_stop};
 
 pub mod ast;

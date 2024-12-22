@@ -1,10 +1,10 @@
 use gosub_css3::system::Css3System;
 use gosub_html5::document::builder::DocumentBuilderImpl;
 use gosub_html5::parser::Html5Parser;
+use gosub_interface::document::DocumentBuilder;
+use gosub_interface::document_handle::DocumentHandle;
 use gosub_rendering::render_tree::{generate_render_tree, RenderTree};
 use gosub_shared::byte_stream::{ByteStream, Encoding};
-use gosub_shared::document::DocumentHandle;
-use gosub_shared::traits::document::DocumentBuilder;
 use gosub_taffy::TaffyLayouter;
 use url::Url;
 use wasm_bindgen::prelude::wasm_bindgen;

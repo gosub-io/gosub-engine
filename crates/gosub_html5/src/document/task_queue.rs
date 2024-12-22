@@ -1,12 +1,12 @@
 use crate::DocumentHandle;
-use gosub_shared::traits::document::Document;
+use gosub_interface::document::Document;
 use std::collections::HashMap;
 
 use crate::parser::tree_builder::TreeBuilder;
+use gosub_interface::config::HasDocument;
+use gosub_interface::node::{ElementDataType, Node};
 use gosub_shared::byte_stream::Location;
 use gosub_shared::node::NodeId;
-use gosub_shared::traits::config::HasDocument;
-use gosub_shared::traits::node::{ElementDataType, Node};
 use gosub_shared::types::Result;
 
 /// Enum of tasks that can be performed to add or

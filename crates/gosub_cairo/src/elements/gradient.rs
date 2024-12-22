@@ -1,6 +1,6 @@
 use crate::CairoBackend;
-use gosub_shared::render_backend::geo::{Point, FP};
-use gosub_shared::render_backend::{ColorStops, Gradient as TGradient};
+use gosub_interface::render_backend::{ColorStops, Gradient as TGradient};
+use gosub_shared::geo::{Point, FP};
 use peniko::{Color as ExtColor, ColorStop as ExtColorStop, ColorStops as ExtColorStops, Gradient as ExtGradient};
 
 #[allow(unused)]

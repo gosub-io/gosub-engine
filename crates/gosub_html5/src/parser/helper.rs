@@ -1,12 +1,12 @@
 use crate::node::HTML_NAMESPACE;
 use crate::parser::{ActiveElement, Html5Parser, Scope};
 use crate::tokenizer::token::Token;
-use gosub_shared::document::DocumentHandle;
+use gosub_interface::config::HasDocument;
+use gosub_interface::document::Document;
+use gosub_interface::document::DocumentFragment;
+use gosub_interface::document_handle::DocumentHandle;
+use gosub_interface::node::{ElementDataType, Node, TextDataType};
 use gosub_shared::node::NodeId;
-use gosub_shared::traits::config::HasDocument;
-use gosub_shared::traits::document::Document;
-use gosub_shared::traits::document::DocumentFragment;
-use gosub_shared::traits::node::{ElementDataType, Node, TextDataType};
 
 const ADOPTION_AGENCY_OUTER_LOOP_DEPTH: usize = 8;
 const ADOPTION_AGENCY_INNER_LOOP_DEPTH: usize = 3;

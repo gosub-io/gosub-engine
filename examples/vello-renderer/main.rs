@@ -9,12 +9,12 @@ use gosub_html5::document::builder::DocumentBuilderImpl;
 use gosub_html5::document::document_impl::DocumentImpl;
 use gosub_html5::document::fragment::DocumentFragmentImpl;
 use gosub_html5::parser::Html5Parser;
-use gosub_renderer::draw::TreeDrawerImpl;
-use gosub_rendering::render_tree::RenderTree;
-use gosub_shared::traits::config::{
+use gosub_interface::config::{
     HasCssSystem, HasDocument, HasHtmlParser, HasLayouter, HasRenderBackend, HasRenderTree, HasTreeDrawer,
     ModuleConfiguration,
 };
+use gosub_renderer::draw::TreeDrawerImpl;
+use gosub_rendering::render_tree::RenderTree;
 use gosub_shared::types::Result;
 use gosub_taffy::TaffyLayouter;
 use gosub_vello::VelloBackend;

@@ -1,6 +1,6 @@
-use crate::render_backend::layout::Layouter;
-use crate::traits::config::HasLayouter;
-use crate::traits::css3::CssSystem;
+use crate::config::HasLayouter;
+use crate::css3::CssSystem;
+use crate::layout::Layouter;
 use std::collections::HashMap;
 use std::fmt::Debug;
 

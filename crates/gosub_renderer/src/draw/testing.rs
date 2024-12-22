@@ -1,8 +1,8 @@
 use crate::draw::TreeDrawerImpl;
+use gosub_interface::config::HasDrawComponents;
+use gosub_interface::css3::{CssPropertyMap, CssValue};
 use gosub_rendering::render_tree::{RenderNodeData, RenderTree, TextData};
 use gosub_shared::node::NodeId;
-use gosub_shared::traits::config::HasDrawComponents;
-use gosub_shared::traits::css3::{CssPropertyMap, CssValue};
 
 pub(crate) fn test_add_element<C: HasDrawComponents<RenderTree = RenderTree<C>, LayoutTree = RenderTree<C>>>(
     d: &mut TreeDrawerImpl<C>,

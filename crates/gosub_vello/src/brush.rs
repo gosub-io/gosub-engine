@@ -1,5 +1,5 @@
 use crate::{Color, Gradient, Image, VelloBackend};
-use gosub_shared::render_backend::Brush as TBrush;
+use gosub_interface::render_backend::Brush as TBrush;
 use vello::peniko::Brush as VelloBrush;
 
 #[derive(Clone, Debug)]

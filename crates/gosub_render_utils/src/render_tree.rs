@@ -1,16 +1,14 @@
 use gosub_html5::document::document_impl::TreeIterator;
-use gosub_shared::document::DocumentHandle;
+use gosub_interface::config::{HasDocument, HasLayouter, HasRenderTree};
+use gosub_interface::css3::{CssProperty, CssPropertyMap, CssSystem};
+use gosub_interface::document::Document;
+use gosub_interface::document_handle::DocumentHandle;
+use gosub_interface::layout::{HasTextLayout, Layout, LayoutCache, LayoutNode, LayoutTree, Layouter, TextLayout};
+use gosub_interface::node::NodeData;
+use gosub_interface::node::{ElementDataType, Node as DocumentNode, TextDataType};
+use gosub_interface::render_backend::Size;
+use gosub_interface::render_tree;
 use gosub_shared::node::NodeId;
-use gosub_shared::render_backend::layout::{
-    HasTextLayout, Layout, LayoutCache, LayoutNode, LayoutTree, Layouter, TextLayout,
-};
-use gosub_shared::render_backend::Size;
-use gosub_shared::traits::config::{HasDocument, HasLayouter, HasRenderTree};
-use gosub_shared::traits::css3::{CssProperty, CssPropertyMap, CssSystem};
-use gosub_shared::traits::document::Document;
-use gosub_shared::traits::node::NodeData;
-use gosub_shared::traits::node::{ElementDataType, Node as DocumentNode, TextDataType};
-use gosub_shared::traits::render_tree;
 use gosub_shared::types::Result;
 use log::info;
 use std::collections::HashMap;

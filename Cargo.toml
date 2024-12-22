@@ -36,6 +36,7 @@ harness = false
 
 [dependencies]
 gosub_shared = { path = "./crates/gosub_shared", features = [] }
+gosub_interface = { path = "./crates/gosub_interface", features = [] }
 gosub_config = { path = "./crates/gosub_config", features = [] }
 gosub_html5 = { path = "./crates/gosub_html5", features = [] }
 gosub_css3 = { path = "./crates/gosub_css3", features = [] }

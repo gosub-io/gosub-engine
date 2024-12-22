@@ -4,15 +4,15 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt::Display;
 
-use gosub_shared::document::DocumentHandle;
+use gosub_interface::config::HasDocument;
+use gosub_interface::css3;
+use gosub_interface::css3::{CssOrigin, CssPropertyMap};
+use gosub_interface::document::Document;
+use gosub_interface::document_handle::DocumentHandle;
+use gosub_interface::node::ClassList;
+use gosub_interface::node::ElementDataType;
+use gosub_interface::node::Node;
 use gosub_shared::node::NodeId;
-use gosub_shared::traits::config::HasDocument;
-use gosub_shared::traits::css3;
-use gosub_shared::traits::css3::{CssOrigin, CssPropertyMap};
-use gosub_shared::traits::document::Document;
-use gosub_shared::traits::node::ClassList;
-use gosub_shared::traits::node::ElementDataType;
-use gosub_shared::traits::node::Node;
 
 use crate::matcher::property_definitions::get_css_definitions;
 use crate::stylesheet::{Combinator, CssSelector, CssSelectorPart, CssValue, MatcherType, Specificity};

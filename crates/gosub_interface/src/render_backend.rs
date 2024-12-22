@@ -1,19 +1,15 @@
-use crate::async_executor::WasmNotSendSync;
-use crate::traits::config::{HasRenderBackend, HasRenderTree};
-use crate::types::Result;
-pub use geo::*;
-use layout::TextLayout;
+use crate::config::{HasRenderBackend, HasRenderTree};
+use crate::layout::TextLayout;
+use crate::svg::SvgRenderer;
+use gosub_shared::async_executor::WasmNotSendSync;
+pub use gosub_shared::geo::*;
+use gosub_shared::types::Result;
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use smallvec::SmallVec;
 use std::fmt::{Debug, Display, Write};
 use std::io;
 use std::ops::{Div, Mul, MulAssign};
-use svg::SvgRenderer;
 use url::Url;
-
-pub mod geo;
-pub mod layout;
-pub mod svg;
 
 pub trait WindowHandle: HasDisplayHandle + HasWindowHandle + Send + Sync + Clone {}
 

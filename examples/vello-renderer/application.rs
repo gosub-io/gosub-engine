@@ -3,11 +3,11 @@ use std::fmt::{Debug, Formatter};
 use std::sync::mpsc;
 
 use anyhow::anyhow;
+use gosub_interface::config::ModuleConfiguration;
+use gosub_interface::draw::TreeDrawer;
+use gosub_interface::layout::LayoutTree;
+use gosub_interface::render_backend::{ImageBuffer, ImgCache, NodeDesc, RenderBackend, SizeU32};
 use gosub_shared::async_executor::spawn_from;
-use gosub_shared::render_backend::layout::LayoutTree;
-use gosub_shared::render_backend::{ImageBuffer, ImgCache, NodeDesc, RenderBackend, SizeU32};
-use gosub_shared::traits::config::ModuleConfiguration;
-use gosub_shared::traits::draw::TreeDrawer;
 use gosub_shared::types::Result;
 use log::{error, info};
 use url::Url;

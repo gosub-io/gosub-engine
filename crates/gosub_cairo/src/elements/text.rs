@@ -1,8 +1,8 @@
 use crate::CairoBackend;
+use gosub_interface::layout::{Decoration, TextLayout};
+use gosub_interface::render_backend::{RenderText, Text as TText};
 use gosub_shared::font::{Glyph, GlyphID};
-use gosub_shared::render_backend::geo::FP;
-use gosub_shared::render_backend::layout::{Decoration, TextLayout};
-use gosub_shared::render_backend::{RenderText, Text as TText};
+use gosub_shared::geo::FP;
 use peniko::Font;
 use skrifa::instance::NormalizedCoord;
 use std::cell::RefCell;

@@ -1,7 +1,7 @@
-use gosub_shared::render_backend::layout::LayoutTree;
-use gosub_shared::render_backend::{NodeDesc, WindowedEventLoop};
-use gosub_shared::traits::config::ModuleConfiguration;
-use gosub_shared::traits::draw::TreeDrawer;
+use gosub_interface::config::ModuleConfiguration;
+use gosub_interface::draw::TreeDrawer;
+use gosub_interface::layout::LayoutTree;
+use gosub_interface::render_backend::{NodeDesc, WindowedEventLoop};
 use gosub_shared::types::Result;
 use slotmap::{DefaultKey, SlotMap};
 use std::sync::mpsc::Sender;

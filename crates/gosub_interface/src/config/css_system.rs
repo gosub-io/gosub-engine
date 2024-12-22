@@ -1,4 +1,4 @@
-use crate::traits::css3::{CssProperty, CssPropertyMap, CssStylesheet, CssSystem, CssValue};
+use crate::css3::{CssProperty, CssPropertyMap, CssStylesheet, CssSystem, CssValue};
 
 pub trait HasCssSystem:
     Sized

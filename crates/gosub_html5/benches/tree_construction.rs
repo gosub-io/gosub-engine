@@ -6,7 +6,7 @@ use gosub_html5::document::fragment::DocumentFragmentImpl;
 use gosub_html5::parser::Html5Parser;
 use gosub_html5::testing::tree_construction;
 use gosub_html5::testing::tree_construction::Harness;
-use gosub_shared::traits::config::{HasCssSystem, HasDocument, HasHtmlParser};
+use gosub_interface::config::{HasCssSystem, HasDocument, HasHtmlParser};
 
 #[derive(Clone, Debug, PartialEq)]
 struct Config;

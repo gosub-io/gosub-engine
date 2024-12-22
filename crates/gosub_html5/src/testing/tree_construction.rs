@@ -5,12 +5,12 @@ pub mod result;
 
 use crate::node::{HTML_NAMESPACE, MATHML_NAMESPACE, SVG_NAMESPACE};
 use generator::TreeOutputGenerator;
+use gosub_interface::config::{HasDocument, HasHtmlParser};
+use gosub_interface::document::{Document, DocumentBuilder};
+use gosub_interface::document_handle::DocumentHandle;
+use gosub_interface::html5::{Html5Parser, ParserOptions};
 use gosub_shared::byte_stream::{ByteStream, Config, Encoding, Location};
-use gosub_shared::document::DocumentHandle;
 use gosub_shared::node::NodeId;
-use gosub_shared::traits::config::{HasDocument, HasHtmlParser};
-use gosub_shared::traits::document::{Document, DocumentBuilder};
-use gosub_shared::traits::html5::{Html5Parser, ParserOptions};
 use gosub_shared::types::{ParseError, Result};
 use parser::{ScriptMode, TestSpec};
 use result::TestResult;

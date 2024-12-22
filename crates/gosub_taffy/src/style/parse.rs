@@ -4,10 +4,10 @@ use taffy::{
     NonRepeatedTrackSizingFunction, TrackSizingFunction,
 };
 
-use gosub_shared::render_backend::geo::Size;
-use gosub_shared::render_backend::layout::LayoutNode;
-use gosub_shared::traits::config::HasLayouter;
-use gosub_shared::traits::css3::CssProperty;
+use gosub_interface::config::HasLayouter;
+use gosub_interface::css3::CssProperty;
+use gosub_interface::layout::LayoutNode;
+use gosub_shared::geo::Size;
 
 pub fn parse_len<C: HasLayouter>(node: &mut impl LayoutNode<C>, name: &str) -> LengthPercentage {
     let Some(property) = node.get_property(name) else {

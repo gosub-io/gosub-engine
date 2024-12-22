@@ -7,6 +7,7 @@ license = "MIT"
 
 [dependencies]
 gosub_html5 = { path = "../gosub_html5" }
+gosub_interface = { path = "../gosub_interface" }
 gosub_shared = { path = "../gosub_shared" }
 anyhow = "1.0.94"
 rstar = "0.12.2"

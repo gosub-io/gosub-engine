@@ -2,7 +2,7 @@ use crate::elements::color::GsColor;
 use crate::elements::gradient::GsGradient;
 use crate::elements::image::GsImage;
 use crate::CairoBackend;
-use gosub_shared::render_backend::Brush as TBrush;
+use gosub_interface::render_backend::Brush as TBrush;
 
 #[derive(Clone, Debug)]
 pub enum GsBrush {

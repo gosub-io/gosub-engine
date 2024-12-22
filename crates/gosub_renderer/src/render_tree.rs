@@ -1,12 +1,12 @@
 use anyhow::bail;
+use gosub_interface::config::{HasHtmlParser, HasRenderTree};
+use gosub_interface::css3::CssSystem;
+use gosub_interface::document::{Document, DocumentBuilder};
+use gosub_interface::document_handle::DocumentHandle;
+use gosub_interface::html5::Html5Parser;
 use gosub_net::http::fetcher::Fetcher;
 use gosub_rendering::render_tree::{generate_render_tree, RenderTree};
 use gosub_shared::byte_stream::{ByteStream, Encoding};
-use gosub_shared::document::DocumentHandle;
-use gosub_shared::traits::config::{HasHtmlParser, HasRenderTree};
-use gosub_shared::traits::css3::CssSystem;
-use gosub_shared::traits::document::{Document, DocumentBuilder};
-use gosub_shared::traits::html5::Html5Parser;
 use std::fs;
 use url::Url;
 

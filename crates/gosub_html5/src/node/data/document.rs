@@ -1,5 +1,5 @@
 use core::fmt::{Debug, Formatter};
-use gosub_shared::traits::node::{DocumentDataType, QuirksMode};
+use gosub_interface::node::{DocumentDataType, QuirksMode};
 use std::fmt;
 
 #[derive(PartialEq, Clone)]

@@ -12,7 +12,7 @@ use vello::wgpu::{
 use vello::wgpu::{Device, TextureFormat};
 use vello::{AaSupport, Renderer as VelloRenderer, RendererOptions as VelloRendererOptions};
 
-use gosub_shared::render_backend::WindowHandle;
+use gosub_interface::render_backend::WindowHandle;
 use gosub_shared::types::Result;
 
 pub mod window;
