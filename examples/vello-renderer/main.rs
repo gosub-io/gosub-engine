@@ -1,6 +1,8 @@
 use std::sync::mpsc;
 use std::{io, thread};
 
+use crate::application::{Application, CustomEventInternal, WindowOptions};
+use crate::winit::window::WindowId;
 use clap::ArgAction;
 use gosub_css3::system::Css3System;
 use gosub_html5::document::builder::DocumentBuilderImpl;
@@ -15,8 +17,6 @@ use gosub_shared::traits::config::{
 };
 use gosub_shared::types::Result;
 use gosub_taffy::TaffyLayouter;
-use crate::application::{Application, CustomEventInternal, WindowOptions};
-use crate::winit::window::WindowId;
 use gosub_vello::VelloBackend;
 use log::LevelFilter;
 use simple_logger::SimpleLogger;
@@ -27,7 +27,6 @@ pub mod event_loop;
 pub mod tabs;
 pub mod window;
 pub use winit;
-
 
 #[derive(Clone, Debug, PartialEq)]
 struct Config;

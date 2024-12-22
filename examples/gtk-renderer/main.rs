@@ -12,13 +12,13 @@ use gosub_shared::render_backend::{ImageBuffer, SizeU32, WindowedEventLoop};
 use gosub_shared::traits::config::*;
 use gosub_shared::traits::draw::TreeDrawer;
 use gosub_taffy::TaffyLayouter;
+use gtk4::gio::{ApplicationCommandLine, ApplicationFlags};
 use gtk4::glib::spawn_future_local;
 use gtk4::prelude::*;
 use gtk4::{glib, Application, ApplicationWindow, DrawingArea};
 use log::{info, LevelFilter};
 use simple_logger::SimpleLogger;
 use std::sync::{Arc, Mutex};
-use gtk4::gio::{ApplicationCommandLine, ApplicationFlags};
 use url::Url;
 
 const APP_ID: &str = "io.gosub.gtk-renderer";
@@ -61,7 +61,10 @@ impl ModuleConfiguration for Config {}
 fn main() -> glib::ExitCode {
     SimpleLogger::new().with_level(LevelFilter::Info).init().unwrap();
 
-    let app = Application::builder().application_id(APP_ID).flags(ApplicationFlags::HANDLES_COMMAND_LINE).build();
+    let app = Application::builder()
+        .application_id(APP_ID)
+        .flags(ApplicationFlags::HANDLES_COMMAND_LINE)
+        .build();
     app.connect_command_line(build_ui);
 
     app.run()
@@ -114,13 +117,9 @@ fn build_ui(app: &Application, cl: &ApplicationCommandLine) -> i32 {
         let area = area.clone();
         let drawer = drawer.clone();
         spawn_future_local(async move {
-            let d = <Config as HasTreeDrawer>::TreeDrawer::from_url(
-                Url::parse(&url).unwrap(),
-                TaffyLayouter,
-                false,
-            )
-            .await
-            .unwrap();
+            let d = <Config as HasTreeDrawer>::TreeDrawer::from_url(Url::parse(&url).unwrap(), TaffyLayouter, false)
+                .await
+                .unwrap();
 
             let mut drawer_lock = drawer.lock().unwrap();
             *drawer_lock = Some(d);
