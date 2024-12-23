@@ -62,7 +62,7 @@ walkdir = "2.5.0"
 criterion = { version = "0.5", features = ["html_reports"] }
 test-case = "3.3.1"
 gtk4 = "0.9.5"
-winit = "0.30.5"
+winit = "0.30.7"
 cookie = { version = "0.18.1", features = ["secure", "private"] }
 url = "2.5.4"
 clap = { version = "4.5.21", features = ["derive"] }
