@@ -15,6 +15,6 @@ anyhow = "1.0.94"
 paste = "1.0.15"
 
 [dev-dependencies]
-serde_json = "1.0.133"
+serde_json = "1.0.134"
 gosub_v8 = { path = "../gosub_v8" }
 gosub_webinterop = { path = "../gosub_webinterop" }
