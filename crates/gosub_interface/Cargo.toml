@@ -2,6 +2,9 @@
 name = "gosub_interface"
 version = "0.1.0"
 edition = "2021"
+authors = ["Gosub Community <info@gosub.io>"]
+description = "Gosub engine interface"
+license = "MIT"
 
 [dependencies]
 gosub_shared = { path = "../gosub_shared" }
