@@ -17,5 +17,5 @@ rand = "0.9.0-beta"
 itertools = "0.13.0"
 serde = { version = "1.0.216", features = ["derive"] }
 serde_json = "1.0.134"
-thiserror = "2.0.7"
+thiserror = "2.0.9"
 nom = "7.1.3"
