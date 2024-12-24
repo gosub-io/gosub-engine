@@ -17,7 +17,8 @@ impl GsGradient {
 
 impl TGradient<CairoBackend> for GsGradient {
     fn new_linear(start: Point, end: Point, stops: ColorStops<CairoBackend>) -> Self {
-        let g = ExtGradient::new_linear(to_kurbo(start), to_kurbo(end)).with_stops(&*to_stops(stops));
+        let peniko_stops = to_stops(stops);
+        let g = ExtGradient::new_linear(to_kurbo(start), to_kurbo(end)).with_stops(peniko_stops.as_slice());
         GsGradient::new(g)
     }
 
@@ -28,19 +29,22 @@ impl TGradient<CairoBackend> for GsGradient {
         end_radius: FP,
         stops: ColorStops<CairoBackend>,
     ) -> Self {
+        let peniko_stops = to_stops(stops);
         let g =
             ExtGradient::new_two_point_radial(to_kurbo(start_center), start_radius, to_kurbo(end_center), end_radius)
-                .with_stops(&*to_stops(stops));
+                .with_stops(peniko_stops.as_slice());
         GsGradient::new(g)
     }
 
     fn new_radial(center: Point, radius: FP, stops: ColorStops<CairoBackend>) -> Self {
-        let g = ExtGradient::new_radial(to_kurbo(center), radius).with_stops(&*to_stops(stops));
+        let peniko_stops = to_stops(stops);
+        let g = ExtGradient::new_radial(to_kurbo(center), radius).with_stops(peniko_stops.as_slice());
         GsGradient::new(g)
     }
 
     fn new_sweep(center: Point, start_angle: FP, end_angle: FP, stops: ColorStops<CairoBackend>) -> Self {
-        let g = ExtGradient::new_sweep(to_kurbo(center), start_angle, end_angle).with_stops(&*to_stops(stops));
+        let peniko_stops = to_stops(stops);
+        let g = ExtGradient::new_sweep(to_kurbo(center), start_angle, end_angle).with_stops(peniko_stops.as_slice());
         GsGradient::new(g)
     }
 }
@@ -55,7 +59,7 @@ fn to_stops(stops: ColorStops<CairoBackend>) -> ExtColorStops {
     for stop in stops.iter() {
         css.push(ExtColorStop::from((
             stop.offset,
-            ExtColor::rgba(stop.color.r, stop.color.g, stop.color.b, stop.color.a),
+            ExtColor::from_rgba8(stop.color.r8(), stop.color.g8(), stop.color.b8(), stop.color.a8()),
         )));
     }
 
