@@ -212,7 +212,13 @@ where
     }
 
     async fn from_url(url: Url, layouter: C::Layouter, debug: bool) -> Result<Self> {
-        let (rt, fetcher) = load_html_rendertree::<C>(url.clone()).await?;
+        let (rt, fetcher) = load_html_rendertree::<C>(url.clone(), None).await?;
+
+        Ok(Self::new(rt, layouter, fetcher, debug))
+    }
+
+    async fn from_source(url: Url, source_html: &str, layouter: C::Layouter, debug: bool) -> Result<Self> {
+        let (rt, fetcher) = load_html_rendertree::<C>(url, Some(source_html)).await?;
 
         Ok(Self::new(rt, layouter, fetcher, debug))
     }

@@ -1,5 +1,7 @@
 pub use gosub_interface::config::*;
+pub use gosub_interface::draw::TreeDrawer;
 pub use gosub_interface::render_backend::ImageBuffer;
+pub use gosub_interface::render_backend::RenderBackend;
 pub use gosub_interface::render_backend::WindowedEventLoop;
 
 pub use gosub_shared::geo::*;

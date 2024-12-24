@@ -10,16 +10,47 @@ use gosub_shared::byte_stream::{ByteStream, Encoding};
 use std::fs;
 use url::Url;
 
+/// Generates a render tree from the given URL.. if the source is given, the URL is not loaded, but the source HTML is used instead
 pub(crate) async fn load_html_rendertree<
     C: HasRenderTree<LayoutTree = RenderTree<C>, RenderTree = RenderTree<C>> + HasHtmlParser,
 >(
     url: Url,
+    source: Option<&str>,
 ) -> gosub_shared::types::Result<(RenderTree<C>, Fetcher)> {
     let fetcher = Fetcher::new(url.clone());
 
-    let rt = load_html_rendertree_fetcher::<C>(url, &fetcher).await?;
+    let rt = match source {
+        Some(source) => load_html_rendertree_source::<C>(url, source).await?,
+        None => load_html_rendertree_fetcher::<C>(url, &fetcher).await?,
+    };
 
     Ok((rt, fetcher))
+}
+
+pub(crate) async fn load_html_rendertree_source<
+    C: HasRenderTree<LayoutTree = RenderTree<C>, RenderTree = RenderTree<C>> + HasHtmlParser,
+>(
+    url: Url,
+    source_html: &str,
+) -> gosub_shared::types::Result<RenderTree<C>> {
+    let mut stream = ByteStream::new(Encoding::UTF8, None);
+    stream.read_from_str(source_html, Some(Encoding::UTF8));
+    stream.close();
+
+    let mut doc_handle = C::DocumentBuilder::new_document(Some(url));
+    let parse_errors = C::HtmlParser::parse(&mut stream, DocumentHandle::clone(&doc_handle), None)?;
+
+    for error in parse_errors {
+        eprintln!("Parse error: {:?}", error);
+    }
+
+    let mut doc = doc_handle.get_mut();
+
+    doc.add_stylesheet(C::CssSystem::load_default_useragent_stylesheet());
+
+    drop(doc);
+
+    generate_render_tree(DocumentHandle::clone(&doc_handle))
 }
 
 pub(crate) async fn load_html_rendertree_fetcher<
@@ -42,22 +73,5 @@ pub(crate) async fn load_html_rendertree_fetcher<
         bail!("Unsupported url scheme: {}", url.scheme());
     };
 
-    let mut stream = ByteStream::new(Encoding::UTF8, None);
-    stream.read_from_str(&html, Some(Encoding::UTF8));
-    stream.close();
-
-    let mut doc_handle = C::DocumentBuilder::new_document(Some(url));
-    let parse_errors = C::HtmlParser::parse(&mut stream, DocumentHandle::clone(&doc_handle), None)?;
-
-    for error in parse_errors {
-        eprintln!("Parse error: {:?}", error);
-    }
-
-    let mut doc = doc_handle.get_mut();
-
-    doc.add_stylesheet(C::CssSystem::load_default_useragent_stylesheet());
-
-    drop(doc);
-
-    generate_render_tree(DocumentHandle::clone(&doc_handle))
+    load_html_rendertree_source(url, &html).await
 }
