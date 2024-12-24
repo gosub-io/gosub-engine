@@ -36,7 +36,7 @@ pub trait TreeDrawer<C: HasDrawComponents> {
         layouter: C::Layouter,
         // Debug flag
         debug: bool,
-    ) -> impl Future<Output = gosub_shared::types::Result<Self>>
+    ) -> gosub_shared::types::Result<Self>
     where
         Self: Sized;
 

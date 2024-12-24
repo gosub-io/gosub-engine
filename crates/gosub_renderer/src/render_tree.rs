@@ -20,14 +20,16 @@ pub(crate) async fn load_html_rendertree<
     let fetcher = Fetcher::new(url.clone());
 
     let rt = match source {
-        Some(source) => load_html_rendertree_source::<C>(url, source).await?,
+        Some(source) => load_html_rendertree_source::<C>(url, source)?,
         None => load_html_rendertree_fetcher::<C>(url, &fetcher).await?,
     };
 
     Ok((rt, fetcher))
 }
 
-pub(crate) async fn load_html_rendertree_source<
+// Generate a render tree from the given source HTML. THe URL is needed to resolve relative URLs
+// and also to set the base URL for the document.
+pub(crate) fn load_html_rendertree_source<
     C: HasRenderTree<LayoutTree = RenderTree<C>, RenderTree = RenderTree<C>> + HasHtmlParser,
 >(
     url: Url,
@@ -53,6 +55,7 @@ pub(crate) async fn load_html_rendertree_source<
     generate_render_tree(DocumentHandle::clone(&doc_handle))
 }
 
+/// Generates a render tree from the given URL. The complete HTML source is fetched from the URL async.
 pub(crate) async fn load_html_rendertree_fetcher<
     C: HasRenderTree<LayoutTree = RenderTree<C>, RenderTree = RenderTree<C>> + HasHtmlParser,
 >(
@@ -73,5 +76,5 @@ pub(crate) async fn load_html_rendertree_fetcher<
         bail!("Unsupported url scheme: {}", url.scheme());
     };
 
-    load_html_rendertree_source(url, &html).await
+    load_html_rendertree_source(url, &html)
 }
