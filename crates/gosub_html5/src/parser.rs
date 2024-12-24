@@ -4234,7 +4234,11 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
 
         match rel.as_str() {
             "stylesheet" => {
-                let href = attributes.get("href").unwrap();
+                // Stylesheet link may not have a href link (for instance, it could be data-href for optional loading through JS)
+                let Some(href) = attributes.get("href") else {
+                    return;
+                };
+
                 let css_url = match Url::parse(href) {
                     Ok(url) => url,
                     Err(_err) => {
