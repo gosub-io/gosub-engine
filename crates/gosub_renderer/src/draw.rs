@@ -2,7 +2,7 @@ use crate::debug::scale::px_scale;
 use crate::draw::img::request_img;
 use crate::draw::img_cache::ImageCache;
 use crate::draw::testing::{test_add_element, test_restyle_element};
-use crate::render_tree::{load_html_rendertree, load_html_rendertree_fetcher};
+use crate::render_tree::{load_html_rendertree, load_html_rendertree_fetcher, load_html_rendertree_source};
 use anyhow::anyhow;
 use gosub_interface::config::{HasDrawComponents, HasHtmlParser};
 use gosub_interface::css3::{CssProperty, CssPropertyMap, CssValue};
@@ -212,7 +212,14 @@ where
     }
 
     async fn from_url(url: Url, layouter: C::Layouter, debug: bool) -> Result<Self> {
-        let (rt, fetcher) = load_html_rendertree::<C>(url.clone()).await?;
+        let (rt, fetcher) = load_html_rendertree::<C>(url.clone(), None).await?;
+
+        Ok(Self::new(rt, layouter, fetcher, debug))
+    }
+
+    fn from_source(url: Url, source_html: &str, layouter: C::Layouter, debug: bool) -> Result<Self> {
+        let fetcher = Fetcher::new(url.clone());
+        let rt = load_html_rendertree_source::<C>(url, source_html)?;
 
         Ok(Self::new(rt, layouter, fetcher, debug))
     }

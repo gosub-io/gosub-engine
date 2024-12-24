@@ -27,6 +27,19 @@ pub trait TreeDrawer<C: HasDrawComponents> {
     where
         Self: Sized;
 
+    fn from_source(
+        // The initial url that the source was loaded from
+        url: Url,
+        // Actual loaded source HTML
+        source_html: &str,
+        // Layouter that renders the tree
+        layouter: C::Layouter,
+        // Debug flag
+        debug: bool,
+    ) -> gosub_shared::types::Result<Self>
+    where
+        Self: Sized;
+
     fn clear_buffers(&mut self);
     fn toggle_debug(&mut self);
 
