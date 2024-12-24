@@ -19,7 +19,6 @@ testing_logger = "0.1.1"
 url = "2.5.4"
 anyhow = "1.0.94"
 
-
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-sqlite = "0.36.1"
+rusqlite = "0.32.1"
 ureq = "2.12.1"
