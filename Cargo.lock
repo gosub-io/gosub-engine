@@ -1970,6 +1970,7 @@ dependencies = [
  "anyhow",
  "gosub_shared",
  "gosub_webexecutor",
+ "gosub_webinterop",
  "serde_json",
  "thiserror 2.0.9",
  "v8",
@@ -1998,15 +1999,8 @@ dependencies = [
 name = "gosub_webexecutor"
 version = "0.1.0"
 dependencies = [
- "anyhow",
- "colored",
- "derive_more",
  "gosub_shared",
- "gosub_v8",
- "gosub_webinterop",
- "lazy_static",
  "paste",
- "serde_json",
  "thiserror 2.0.9",
 ]
 
@@ -2017,7 +2011,6 @@ dependencies = [
  "lazy_static",
  "proc-macro2",
  "quote",
- "serde",
  "syn 2.0.91",
 ]
 

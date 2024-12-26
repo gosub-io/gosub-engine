@@ -12,3 +12,7 @@ thiserror = "2.0.9"
 v8 = "130.0.1"
 anyhow = "1.0.94"
 serde_json = "1.0.134"
+
+
+[dev-dependencies]
+gosub_webinterop = { path = "../gosub_webinterop" }
