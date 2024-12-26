@@ -1,12 +1,12 @@
 [package]
 name = "gosub_engine"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.80"
 authors = ["Gosub Community <info@gosub.io>"]
-description = "An HTML5 browser engine written in Rust."
+description = "Gosub Browser Engine"
 license = "MIT"
-repository = "https://github.com/gosub-browser/gosub-engine"
+repository = "https://github.com/gosub-io/gosub-engine"
 readme = "README.md"
 keywords = ["html5", "parser", "browser", "Rust", "DOM"]
 
@@ -35,18 +35,18 @@ name = "bytestream"
 harness = false
 
 [dependencies]
-gosub_shared = { path = "./crates/gosub_shared", features = [] }
-gosub_interface = { path = "./crates/gosub_interface", features = [] }
-gosub_config = { path = "./crates/gosub_config", features = [] }
-gosub_html5 = { path = "./crates/gosub_html5", features = [] }
-gosub_css3 = { path = "./crates/gosub_css3", features = [] }
-gosub_jsapi = { path = "./crates/gosub_jsapi", features = [] }
-gosub_rendering = { path = "crates/gosub_render_utils", features = [] }
-gosub_renderer = { path = "./crates/gosub_renderer", features = [] }
-gosub_vello = { path = "./crates/gosub_vello", features = [] }
-gosub_cairo = { path = "./crates/gosub_cairo", features = [] }
-gosub_taffy = { path = "./crates/gosub_taffy", features = [] }
-gosub_net = { path = "./crates/gosub_net", features = [] }
+gosub_interface = { version = "0.1.1", path = "./crates/gosub_interface", features = [], registry = "gosub" }
+gosub_shared = { version = "0.1.1", path = "./crates/gosub_shared", features = [], registry = "gosub" }
+gosub_config = { version = "0.1.1", path = "./crates/gosub_config", features = [], registry = "gosub" }
+gosub_html5 = { version = "0.1.1", path = "./crates/gosub_html5", features = [], registry = "gosub" }
+gosub_css3 = { version = "0.1.1", path = "./crates/gosub_css3", features = [], registry = "gosub" }
+gosub_jsapi = { version = "0.1.1", path = "./crates/gosub_jsapi", features = [], registry = "gosub" }
+gosub_rendering = { version = "0.1.1", path = "crates/gosub_rendering", features = [], registry = "gosub" }
+gosub_renderer = { version = "0.1.1", path = "./crates/gosub_renderer", features = [], registry = "gosub" }
+gosub_vello = { version = "0.1.1", path = "./crates/gosub_vello", features = [], registry = "gosub" }
+gosub_cairo = { version = "0.1.1", path = "./crates/gosub_cairo", features = [], registry = "gosub" }
+gosub_taffy = { version = "0.1.1", path = "./crates/gosub_taffy", features = [], registry = "gosub" }
+gosub_net = { version = "0.1.1", path = "./crates/gosub_net", features = [], registry = "gosub" }
 # Dependencies are needed for gosub_engine itself, and some of the binaries in src/bin.
 cookie = { version = "0.18.1", features = ["secure", "private"] }
 url = "2.5.4"
@@ -87,8 +87,8 @@ wasm-bindgen-futures = "0.4.47"
 getrandom = { version = "0.2.15", features = ["js"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-gosub_v8 = { path = "./crates/gosub_v8", features = [] }
-gosub_webexecutor = { path = "./crates/gosub_webexecutor", features = [] }
+gosub_v8 = { version = "0.1.1", path = "./crates/gosub_v8", features = [], registry = "gosub" }
+gosub_webexecutor = { version = "0.1.1", path = "./crates/gosub_webexecutor", features = [], registry = "gosub" }
 ureq = "2.12.1"
 futures = "0.3.31"
 

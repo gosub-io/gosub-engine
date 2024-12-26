@@ -1,14 +1,16 @@
 [package]
 name = "gosub_vello"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["Gosub Community <info@gosub.io>"]
 license = "MIT"
+description = "Vello rendering backend for Gosub"
 
 [dependencies]
-gosub_shared = { path = "../gosub_shared" }
-gosub_interface = { path = "../gosub_interface", features = [] }
-gosub_svg = { path = "../gosub_svg" }
+gosub_shared = { version = "0.1.1", registry = "gosub", path = "../gosub_shared" }
+gosub_interface = { version = "0.1.1", registry = "gosub", path = "../gosub_interface", features = [] }
+gosub_html5 = { version = "0.1.1", registry = "gosub", path = "../gosub_html5", optional = true }
+gosub_svg = { version = "0.1.1", registry = "gosub", path = "../gosub_svg" }
 vello = "0.3.0"
 vello_encoding = "0.3.0"
 image = "0.25.5"
@@ -17,7 +19,6 @@ anyhow = "1.0.94"
 raw-window-handle = "0.6.2"
 futures = "0.3.31"
 vello_svg = { version = "0.5.0", optional = true }
-gosub_html5 = { path = "../gosub_html5", optional = true }
 log = { version = "0.4.22", features = [] }
 
 

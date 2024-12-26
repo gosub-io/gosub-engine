@@ -1,9 +1,10 @@
 [package]
 name = "gosub_shared"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["Gosub Community <info@gosub.io>"]
 license = "MIT"
+description = "Gosub shared code"
 
 [dependencies]
 chardet = "0.2.4"

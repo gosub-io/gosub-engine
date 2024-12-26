@@ -1,13 +1,14 @@
 [package]
 name = "gosub_taffy"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["Gosub Community <info@gosub.io>"]
 license = "MIT"
+description = "Taffy layouter for Gosub"
 
 [dependencies]
-gosub_shared = { path = "../gosub_shared" }
-gosub_interface = { path = "../gosub_interface" }
+gosub_shared = { version = "0.1.1", registry = "gosub", path = "../gosub_shared" }
+gosub_interface = { version = "0.1.1", registry = "gosub", path = "../gosub_interface" }
 taffy = "0.6.3"
 anyhow = "1.0.94"
 regex = "1.11.1"

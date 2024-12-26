@@ -201,9 +201,9 @@ dependencies = [
 
 [[package]]
 name = "anyhow"
-version = "1.0.94"
+version = "1.0.95"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c1fd03a028ef38ba2276dce7e33fcd6369c158a1bca17946c4b1b701891c1ff7"
+checksum = "34ac096ce696dc2fcabef30516bb13c0a68a11d30131d3df6f04711467681b04"
 
 [[package]]
 name = "arbitrary"
@@ -325,7 +325,7 @@ dependencies = [
  "bitflags 2.6.0",
  "cexpr",
  "clang-sys",
- "itertools 0.13.0",
+ "itertools 0.10.5",
  "log",
  "prettyplease",
  "proc-macro2",
@@ -419,18 +419,18 @@ checksum = "5ce89b21cab1437276d2650d57e971f9d548a2d9037cc231abdc0562b97498ce"
 
 [[package]]
 name = "bytemuck"
-version = "1.20.0"
+version = "1.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8b37c88a63ffd85d15b406896cc343916d7cf57838a847b3a6f2ca5d39a5695a"
+checksum = "ef657dfab802224e671f5818e9a4935f9b1957ed18e58292690cc39e7a4092a3"
 dependencies = [
  "bytemuck_derive",
 ]
 
 [[package]]
 name = "bytemuck_derive"
-version = "1.8.0"
+version = "1.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bcfcc3cd946cb52f0bbfdbbcfa2f4e24f75ebb6c0e1002f7c25904fada18b9ec"
+checksum = "3fa76293b4f7bb636ab88fd78228235b5248b4d05cc589aed610f954af5d7c7a"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -708,7 +708,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "117725a109d387c937a1533ce01b450cbde6b88abceea8473c4d7a85853cda3c"
 dependencies = [
  "lazy_static",
- "windows-sys 0.59.0",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
@@ -1133,7 +1133,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "33d852cb9b869c2a9b3df2f71a3074817f01e1844f839a144f5fcef059a4eb5d"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1618,7 +1618,7 @@ dependencies = [
  "gobject-sys",
  "libc",
  "system-deps 7.0.3",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1716,7 +1716,7 @@ dependencies = [
 
 [[package]]
 name = "gosub_cairo"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "cairo-rs",
@@ -1739,7 +1739,7 @@ dependencies = [
 
 [[package]]
 name = "gosub_config"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "gosub_shared",
@@ -1758,7 +1758,7 @@ dependencies = [
 
 [[package]]
 name = "gosub_css3"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "colors-transform",
@@ -1777,7 +1777,7 @@ dependencies = [
 
 [[package]]
 name = "gosub_engine"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -1820,7 +1820,7 @@ dependencies = [
 
 [[package]]
 name = "gosub_html5"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "criterion",
  "derive_more",
@@ -1844,7 +1844,7 @@ dependencies = [
 
 [[package]]
 name = "gosub_interface"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "gosub_shared",
  "image",
@@ -1855,7 +1855,7 @@ dependencies = [
 
 [[package]]
 name = "gosub_jsapi"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "gosub_shared",
  "regex",
@@ -1864,7 +1864,7 @@ dependencies = [
 
 [[package]]
 name = "gosub_net"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "cookie",
@@ -1885,7 +1885,7 @@ dependencies = [
 
 [[package]]
 name = "gosub_renderer"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "gosub_interface",
@@ -1901,7 +1901,7 @@ dependencies = [
 
 [[package]]
 name = "gosub_rendering"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "gosub_html5",
@@ -1913,7 +1913,7 @@ dependencies = [
 
 [[package]]
 name = "gosub_shared"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "chardet",
@@ -1940,7 +1940,7 @@ dependencies = [
 
 [[package]]
 name = "gosub_svg"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "gosub_html5",
@@ -1952,7 +1952,7 @@ dependencies = [
 
 [[package]]
 name = "gosub_taffy"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "gosub_interface",
@@ -1965,7 +1965,7 @@ dependencies = [
 
 [[package]]
 name = "gosub_v8"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "gosub_shared",
@@ -1978,7 +1978,7 @@ dependencies = [
 
 [[package]]
 name = "gosub_vello"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "futures",
@@ -1997,7 +1997,7 @@ dependencies = [
 
 [[package]]
 name = "gosub_webexecutor"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "gosub_shared",
  "paste",
@@ -2006,7 +2006,7 @@ dependencies = [
 
 [[package]]
 name = "gosub_webinterop"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "lazy_static",
  "proc-macro2",
@@ -2782,7 +2782,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc2f4eb4bc735547cfed7c0a4922cbd04a4655978c09b54f1f7b228750664c34"
 dependencies = [
  "cfg-if",
- "windows-targets 0.52.6",
+ "windows-targets 0.48.5",
 ]
 
 [[package]]
@@ -3374,9 +3374,9 @@ dependencies = [
 
 [[package]]
 name = "object"
-version = "0.36.5"
+version = "0.36.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aedf0a2d09c573ed1d8d85b30c119153926a2b36dce0ab28322c09a117a4683e"
+checksum = "62948e14d923ea95ea2c7c86c71013138b66525b86bdc08d2dcc262bdb497b87"
 dependencies = [
  "memchr",
 ]
@@ -3752,9 +3752,9 @@ dependencies = [
 
 [[package]]
 name = "quote"
-version = "1.0.37"
+version = "1.0.38"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b5b9d34b8991d19d98081b46eacdd8eb58c6f2b201139f7c5f643cc155a633af"
+checksum = "0e4dccaaaf89514f546c693ddc140f729f958c247918a13380cccc6078391acc"
 dependencies = [
  "proc-macro2",
 ]
@@ -3778,7 +3778,7 @@ checksum = "c8478de76992f2825a1052cc2ae9d1401cdb62687761d4100ddd69a73dc3dc48"
 dependencies = [
  "rand_chacha 0.9.0-beta.1",
  "rand_core 0.9.0-beta.1",
- "zerocopy 0.8.13",
+ "zerocopy 0.8.14",
 ]
 
 [[package]]
@@ -3817,7 +3817,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a98fa0b8309344136abe6244130311e76997e546f76fae8054422a7539b43df7"
 dependencies = [
  "getrandom 0.3.0-rc.0",
- "zerocopy 0.8.13",
+ "zerocopy 0.8.14",
 ]
 
 [[package]]
@@ -4094,7 +4094,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -4722,9 +4722,9 @@ dependencies = [
 
 [[package]]
 name = "tinyvec"
-version = "1.8.0"
+version = "1.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "445e881f4f6d382d5f27c034e25eb92edd7c784ceab92a0937db7f2e9471b938"
+checksum = "022db8904dfa342efe721985167e9fcd16c29b226db4397ed752a761cfce81e8"
 dependencies = [
  "tinyvec_macros",
 ]
@@ -5509,7 +5509,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
@@ -6018,11 +6018,11 @@ dependencies = [
 
 [[package]]
 name = "zerocopy"
-version = "0.8.13"
+version = "0.8.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "67914ab451f3bfd2e69e5e9d2ef3858484e7074d63f204fd166ec391b54de21d"
+checksum = "a367f292d93d4eab890745e75a778da40909cab4d6ff8173693812f79c4a2468"
 dependencies = [
- "zerocopy-derive 0.8.13",
+ "zerocopy-derive 0.8.14",
 ]
 
 [[package]]
@@ -6038,9 +6038,9 @@ dependencies = [
 
 [[package]]
 name = "zerocopy-derive"
-version = "0.8.13"
+version = "0.8.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7988d73a4303ca289df03316bc490e934accf371af6bc745393cf3c2c5c4f25d"
+checksum = "d3931cb58c62c13adec22e38686b559c86a30565e16ad6e8510a337cedc611e1"
 dependencies = [
  "proc-macro2",
  "quote",

@@ -95,7 +95,7 @@ async fn load_img<B: RenderBackend>(
     })
 }
 
-const INVALID_IMG_BYTES: &[u8] = include_bytes!("../../../../resources/test_img.png");
+const INVALID_IMG_BYTES: &[u8] = include_bytes!("../../resources/test_img.png");
 
 static INVALID_IMG: LazyLock<DynamicImage> =
     LazyLock::new(|| image::load_from_memory(INVALID_IMG_BYTES).unwrap_or(DynamicImage::new_rgba8(0, 0)));

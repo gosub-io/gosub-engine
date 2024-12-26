@@ -1,0 +1,2 @@
+[registries]
+gosub = { index = "sparse+https://regsitry.gosub.io/" }

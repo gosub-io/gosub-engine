@@ -1,0 +1,15 @@
+[package]
+name = "gosub_rendering"
+version = "0.1.1"
+edition = "2021"
+authors = ["Gosub Community <info@gosub.io>"]
+license = "MIT"
+description = "Gosub Rendering"
+
+[dependencies]
+gosub_html5 = { version = "0.1.1", registry = "gosub", path = "../gosub_html5" }
+gosub_interface = { version = "0.1.1", registry = "gosub", path = "../gosub_interface" }
+gosub_shared = { version = "0.1.1", registry = "gosub", path = "../gosub_shared" }
+anyhow = "1.0.94"
+rstar = "0.12.2"
+log = "0.4.14"

@@ -1,11 +1,12 @@
 [package]
 name = "gosub_webexecutor"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["Gosub Community <info@gosub.io>"]
 license = "MIT"
+description = "Gosub WebExecutor"
 
 [dependencies]
-gosub_shared = { path = "../gosub_shared" }
+gosub_shared = { version = "0.1.1", registry = "gosub", path = "../gosub_shared" }
 thiserror = "2.0.9"
 paste = "1.0.15"
