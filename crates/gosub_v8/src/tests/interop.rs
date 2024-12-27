@@ -1,8 +1,8 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use crate::V8Engine;
 use gosub_shared::types::Result;
-use gosub_v8::V8Engine;
 use gosub_webexecutor::js::{
     Args, IntoJSValue, IntoRustValue, JSContext, JSFunction, JSFunctionCallBack, JSFunctionCallBackVariadic,
     JSFunctionVariadic, JSGetterCallback, JSInterop, JSObject, JSRuntime, JSSetterCallback, JSValue, VariadicArgs,

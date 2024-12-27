@@ -1,3 +1,5 @@
+#[cfg(test)]
+mod tests;
 mod v8;
 
 pub use v8::*;
