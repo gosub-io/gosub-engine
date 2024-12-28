@@ -30,3 +30,7 @@ pub trait ModuleConfiguration:
 pub trait HasDrawComponents: HasRenderTree + HasRenderBackend {}
 
 impl<C: HasRenderTree + HasRenderBackend> HasDrawComponents for C {}
+
+pub trait HasWebComponents: HasChrome + 'static {}
+
+impl<C: HasChrome + 'static> HasWebComponents for C {}
