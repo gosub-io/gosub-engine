@@ -10,8 +10,8 @@ use gosub_html5::document::document_impl::DocumentImpl;
 use gosub_html5::document::fragment::DocumentFragmentImpl;
 use gosub_html5::parser::Html5Parser;
 use gosub_interface::config::{
-    HasCssSystem, HasDocument, HasHtmlParser, HasLayouter, HasRenderBackend, HasRenderTree, HasTreeDrawer,
-    ModuleConfiguration,
+    HasChrome, HasCssSystem, HasDocument, HasDrawComponents, HasHtmlParser, HasLayouter, HasRenderBackend,
+    HasRenderTree, HasTreeDrawer, ModuleConfiguration,
 };
 use gosub_renderer::draw::TreeDrawerImpl;
 use gosub_rendering::render_tree::RenderTree;
@@ -26,7 +26,13 @@ pub mod application;
 pub mod event_loop;
 pub mod tabs;
 pub mod window;
+use gosub_instance::DebugEvent;
+use gosub_interface::chrome::ChromeHandle;
+use gosub_interface::instance::InstanceId;
+use gosub_interface::render_backend::RenderBackend;
+use gosub_shared::geo::SizeU32;
 pub use winit;
+use winit::event_loop::EventLoopProxy;
 
 #[derive(Clone, Debug, PartialEq)]
 struct Config;
@@ -61,7 +67,33 @@ impl HasRenderBackend for Config {
     type RenderBackend = VelloBackend;
 }
 
+impl HasChrome for Config {
+    type ChromeHandle = WinitEventLoopHandle<Self>;
+}
+
 impl ModuleConfiguration for Config {}
+
+pub struct WinitEventLoopHandle<C: HasRenderBackend + 'static> {
+    proxy: EventLoopProxy<CustomEventInternal<C>>,
+    window: WindowId,
+}
+
+impl<C: HasRenderBackend> Clone for WinitEventLoopHandle<C> {
+    fn clone(&self) -> Self {
+        Self {
+            proxy: self.proxy.clone(),
+            window: self.window,
+        }
+    }
+}
+
+impl<C: HasRenderBackend> ChromeHandle<C> for WinitEventLoopHandle<C> {
+    fn draw_scene(&self, scene: <C::RenderBackend as RenderBackend>::Scene, size: SizeU32, instance: InstanceId) {
+        let _ = self
+            .proxy
+            .send_event(CustomEventInternal::DrawScene(scene, size, instance, self.window));
+    }
+}
 
 fn main() -> Result<()> {
     SimpleLogger::new()
@@ -86,13 +118,12 @@ fn main() -> Result<()> {
         .get_matches();
 
     let url: String = matches.get_one::<String>("url").expect("url").to_string();
-    let debug = matches.get_one::<bool>("debug").copied().unwrap_or(false);
 
     // let drawer: TreeDrawer<Tree, TaffyLayouter> = TreeDrawer::new(todo!(), TaffyLayouter, "".to_string().into(), debug);
 
     // let mut rt = load_html_rendertree(&url)?;
     //
-    let mut application: Application<Config> = Application::new(VelloBackend::new(), TaffyLayouter, debug);
+    let mut application: Application<Config> = Application::new(VelloBackend::new(), TaffyLayouter);
 
     application.initial_tab(Url::parse(&url)?, WindowOptions::default());
 
@@ -115,7 +146,7 @@ fn main() -> Result<()> {
                 "list" => {
                     let (sender, receiver) = mpsc::channel();
 
-                    if let Err(e) = p.send_event(CustomEventInternal::SendNodes(sender)) {
+                    if let Err(e) = p.send_event(CustomEventInternal::Debug(DebugEvent::SendNodes(sender))) {
                         eprintln!("Error sending event: {e:?}");
                         continue;
                     }
@@ -132,12 +163,12 @@ fn main() -> Result<()> {
                 }
 
                 "add" => {
-                    if let Err(e) = p.send_event(CustomEventInternal::Select(u64::MAX)) {
+                    if let Err(e) = p.send_event(CustomEventInternal::Debug(DebugEvent::SelectElement(u64::MAX))) {
                         eprintln!("Error sending event: {e:?}");
                     }
                 }
                 "unselect" => {
-                    if let Err(e) = p.send_event(CustomEventInternal::Unselect) {
+                    if let Err(e) = p.send_event(CustomEventInternal::Debug(DebugEvent::Deselect)) {
                         eprintln!("Error sending event: {e:?}");
                     }
                 }
@@ -152,7 +183,7 @@ fn main() -> Result<()> {
                     continue;
                 };
 
-                if let Err(e) = p.send_event(CustomEventInternal::Select(id)) {
+                if let Err(e) = p.send_event(CustomEventInternal::Debug(DebugEvent::SelectElement(id))) {
                     eprintln!("Error sending event: {e:?}");
                 }
             }
@@ -166,7 +197,7 @@ fn main() -> Result<()> {
 
                 let (sender, receiver) = mpsc::channel();
 
-                if let Err(e) = p.send_event(CustomEventInternal::Info(id, sender)) {
+                if let Err(e) = p.send_event(CustomEventInternal::Debug(DebugEvent::Info(id, sender))) {
                     eprintln!("Error sending event: {e:?}");
                 }
                 let node = match receiver.recv() {

@@ -114,7 +114,7 @@ impl RenderBackend for CairoBackend {
         window_data: &mut Self::WindowData<'_>,
         active_data: &mut Self::ActiveWindowData<'_>,
     ) -> Result<()> {
-        window_data.scene.render_to_context(active_data.cr.clone());
+        window_data.scene.render_to_context(&active_data.cr);
         Ok(())
     }
 }

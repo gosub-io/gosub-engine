@@ -24,7 +24,7 @@ impl GsBrush {
         GsBrush::Image(image)
     }
 
-    pub fn render(obj: &GsBrush, cr: cairo::Context) {
+    pub fn render(obj: &GsBrush, cr: &cairo::Context) {
         match &obj {
             GsBrush::Solid(c) => {
                 cr.set_source_rgba(c.r, c.g, c.b, c.a);

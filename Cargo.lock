@@ -1792,6 +1792,7 @@ dependencies = [
  "gosub_config",
  "gosub_css3",
  "gosub_html5",
+ "gosub_instance",
  "gosub_interface",
  "gosub_jsapi",
  "gosub_net",
@@ -1843,9 +1844,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "gosub_instance"
+version = "0.1.0"
+dependencies = [
+ "gosub_interface",
+ "gosub_net",
+ "gosub_shared",
+ "log",
+ "tokio",
+ "url",
+]
+
+[[package]]
 name = "gosub_interface"
 version = "0.1.2"
 dependencies = [
+ "gosub_net",
  "gosub_shared",
  "image",
  "raw-window-handle",

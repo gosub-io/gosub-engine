@@ -11,7 +11,7 @@ use std::fs;
 use url::Url;
 
 /// Generates a render tree from the given URL.. if the source is given, the URL is not loaded, but the source HTML is used instead
-pub(crate) async fn load_html_rendertree<
+pub async fn load_html_rendertree<
     C: HasRenderTree<LayoutTree = RenderTree<C>, RenderTree = RenderTree<C>> + HasHtmlParser,
 >(
     url: Url,
@@ -29,7 +29,7 @@ pub(crate) async fn load_html_rendertree<
 
 // Generate a render tree from the given source HTML. THe URL is needed to resolve relative URLs
 // and also to set the base URL for the document.
-pub(crate) fn load_html_rendertree_source<
+pub fn load_html_rendertree_source<
     C: HasRenderTree<LayoutTree = RenderTree<C>, RenderTree = RenderTree<C>> + HasHtmlParser,
 >(
     url: Url,
@@ -56,7 +56,7 @@ pub(crate) fn load_html_rendertree_source<
 }
 
 /// Generates a render tree from the given URL. The complete HTML source is fetched from the URL async.
-pub(crate) async fn load_html_rendertree_fetcher<
+pub async fn load_html_rendertree_fetcher<
     C: HasRenderTree<LayoutTree = RenderTree<C>, RenderTree = RenderTree<C>> + HasHtmlParser,
 >(
     url: Url,

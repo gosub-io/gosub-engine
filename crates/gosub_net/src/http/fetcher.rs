@@ -67,7 +67,7 @@ impl Fetcher {
         todo!()
     }
 
-    fn parse_url(&self, url: &str) -> Result<Url> {
+    pub fn parse_url(&self, url: &str) -> Result<Url> {
         let mut parsed_url = Url::parse(url);
 
         if parsed_url == Err(ParseError::RelativeUrlWithoutBase) {

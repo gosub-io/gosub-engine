@@ -7,10 +7,11 @@ use anyhow::anyhow;
 use gosub_interface::config::{HasDrawComponents, HasHtmlParser};
 use gosub_interface::css3::{CssProperty, CssPropertyMap, CssValue};
 use gosub_interface::draw::TreeDrawer;
+use gosub_interface::eventloop::EventLoopHandle;
 use gosub_interface::layout::{Layout, LayoutTree, Layouter, TextLayout};
 use gosub_interface::render_backend::{
     Border, BorderSide, BorderStyle, Brush, Color, ImageBuffer, ImgCache, NodeDesc, Rect, RenderBackend, RenderBorder,
-    RenderRect, RenderText, Scene as TScene, Text, Transform, WindowedEventLoop,
+    RenderRect, RenderText, Scene as TScene, Text, Transform,
 };
 use gosub_interface::render_tree;
 use gosub_interface::render_tree::RenderTreeNode as _;
@@ -22,6 +23,7 @@ use gosub_shared::geo::{Size, SizeU32, FP};
 use gosub_shared::node::NodeId;
 use gosub_shared::types::Result;
 use log::{error, info, warn};
+use std::future::Future;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 use url::Url;
@@ -55,10 +57,10 @@ pub struct TreeDrawerImpl<C: HasDrawComponents> {
 }
 
 impl<C: HasDrawComponents> TreeDrawerImpl<C> {
-    pub fn new(tree: C::RenderTree, layouter: C::Layouter, fetcher: Fetcher, debug: bool) -> Self {
+    pub fn new(tree: C::RenderTree, layouter: C::Layouter, fetcher: Arc<Fetcher>, debug: bool) -> Self {
         Self {
             tree,
-            fetcher: Arc::new(fetcher),
+            fetcher,
             layouter,
             size: None,
             position: PositionTree::default(),
@@ -82,13 +84,7 @@ where
 {
     type ImgCache = ImageCache<C::RenderBackend>;
 
-    fn draw(
-        &mut self,
-        backend: &mut C::RenderBackend,
-        data: &mut <C::RenderBackend as RenderBackend>::WindowData<'_>,
-        size: SizeU32,
-        el: &impl WindowedEventLoop<C>,
-    ) -> bool {
+    fn draw(&mut self, size: SizeU32, el: &impl EventLoopHandle<C>) -> <C::RenderBackend as RenderBackend>::Scene {
         if self.tree_scene.is_none() || self.size != Some(size) || !self.dirty {
             self.size = Some(size);
 
@@ -121,8 +117,6 @@ where
             self.size = Some(size);
         }
 
-        backend.reset(data);
-
         let bg = Rect::new(0.0, 0.0, size.width as FP, size.height as FP);
 
         let rect = RenderRect {
@@ -134,10 +128,14 @@ where
             border: None,
         };
 
-        backend.draw_rect(data, &rect);
+        let mut root_scene = <C::RenderBackend as RenderBackend>::Scene::new();
+
+        root_scene.draw_rect(&rect);
 
         if let Some(scene) = &self.tree_scene {
-            backend.apply_scene(data, scene, self.scene_transform.clone());
+            root_scene.apply_scene(scene, self.scene_transform.clone());
+        } else {
+            println!("No scene");
         }
 
         if self.dirty {
@@ -148,7 +146,7 @@ where
 
         if let Some(scene) = &self.debugger_scene {
             self.dirty = false;
-            backend.apply_scene(data, scene, self.scene_transform.clone());
+            root_scene.apply_scene(scene, self.scene_transform.clone());
         }
 
         if self.debug {
@@ -161,19 +159,19 @@ where
             let scale =
                 px_scale::<C::RenderBackend>(size, pos, self.size.as_ref().map(|x| x.width as f32).unwrap_or(0.0));
 
-            backend.apply_scene(data, &scale, None);
+            root_scene.apply_scene(&scale, None);
         }
 
         if self.dirty {
             self.dirty = false;
 
-            return true;
+            // el.redraw();
         }
 
-        false
+        root_scene
     }
 
-    fn mouse_move(&mut self, _backend: &mut C::RenderBackend, x: FP, y: FP) -> bool {
+    fn mouse_move(&mut self, x: FP, y: FP) -> bool {
         let x = x - self.scene_transform.clone().unwrap_or(Transform::IDENTITY).tx();
         let y = y - self.scene_transform.clone().unwrap_or(Transform::IDENTITY).ty();
 
@@ -214,12 +212,21 @@ where
     async fn from_url(url: Url, layouter: C::Layouter, debug: bool) -> Result<Self> {
         let (rt, fetcher) = load_html_rendertree::<C>(url.clone(), None).await?;
 
-        Ok(Self::new(rt, layouter, fetcher, debug))
+        Ok(Self::new(rt, layouter, Arc::new(fetcher), debug))
     }
 
     fn from_source(url: Url, source_html: &str, layouter: C::Layouter, debug: bool) -> Result<Self> {
         let fetcher = Fetcher::new(url.clone());
         let rt = load_html_rendertree_source::<C>(url, source_html)?;
+
+        Ok(Self::new(rt, layouter, Arc::new(fetcher), debug))
+    }
+
+    async fn with_fetcher(url: Url, fetcher: Arc<Fetcher>, layouter: C::Layouter, debug: bool) -> Result<Self>
+    where
+        Self: Sized,
+    {
+        let rt = load_html_rendertree_fetcher::<C>(url.clone(), &fetcher).await?;
 
         Ok(Self::new(rt, layouter, fetcher, debug))
     }
@@ -284,10 +291,10 @@ where
         self.debugger_scene = None;
     }
 
-    fn reload(&mut self, mut el: impl WindowedEventLoop<C>) {
+    fn reload(&mut self, el: impl EventLoopHandle<C>) -> impl Future<Output = ()> + 'static {
         let fetcher = self.fetcher.clone();
 
-        gosub_shared::async_executor::spawn(async move {
+        async move {
             info!("Reloading tab");
 
             let rt = match load_html_rendertree_fetcher::<C>(fetcher.base().clone(), &fetcher).await {
@@ -299,7 +306,25 @@ where
             };
 
             el.reload_from(rt);
-        })
+        }
+    }
+
+    fn navigate(&mut self, url: Url, el: impl EventLoopHandle<C>) -> impl Future<Output = ()> + 'static {
+        let fetcher = self.fetcher.clone();
+
+        async move {
+            info!("Navigating to {url}");
+
+            let rt = match load_html_rendertree_fetcher::<C>(url.clone(), &fetcher).await {
+                Ok(rt) => rt,
+                Err(e) => {
+                    error!("Failed to navigate to {url}: {e}");
+                    return;
+                }
+            };
+
+            el.reload_from(rt);
+        }
     }
 
     fn reload_from(&mut self, tree: C::RenderTree) {
@@ -315,7 +340,7 @@ where
     }
 }
 
-struct Drawer<'s, 't, C: HasDrawComponents + HasHtmlParser, EL: WindowedEventLoop<C>> {
+struct Drawer<'s, 't, C: HasDrawComponents, EL: EventLoopHandle<C>> {
     scene: &'s mut <C::RenderBackend as RenderBackend>::Scene,
     drawer: &'t mut TreeDrawerImpl<C>,
     svg: Arc<Mutex<<C::RenderBackend as RenderBackend>::SVGRenderer>>,
@@ -324,7 +349,7 @@ struct Drawer<'s, 't, C: HasDrawComponents + HasHtmlParser, EL: WindowedEventLoo
 
 impl<
         C: HasDrawComponents<LayoutTree = RenderTree<C>, RenderTree = RenderTree<C>> + HasHtmlParser,
-        EL: WindowedEventLoop<C>,
+        EL: EventLoopHandle<C>,
     > Drawer<'_, '_, C, EL>
 where
     <<C::RenderBackend as RenderBackend>::Text as Text>::Font:
@@ -630,7 +655,7 @@ fn render_bg<C: HasDrawComponents>(
     svg: Arc<Mutex<<C::RenderBackend as RenderBackend>::SVGRenderer>>,
     fetcher: Arc<Fetcher>,
     img_cache: &mut ImageCache<C::RenderBackend>,
-    el: &impl WindowedEventLoop<C>,
+    el: &impl EventLoopHandle<C>,
 ) -> ((FP, FP, FP, FP), Option<SizeU32>) {
     let bg_color = node
         .props()

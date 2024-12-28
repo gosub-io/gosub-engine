@@ -1,22 +1,19 @@
 use crate::config::HasDrawComponents;
+use crate::eventloop::EventLoopHandle;
 use crate::layout::LayoutTree;
-use crate::render_backend::{ImgCache, NodeDesc, RenderBackend, WindowedEventLoop};
+use crate::render_backend::{ImgCache, NodeDesc, RenderBackend};
+use gosub_net::http::fetcher::Fetcher;
 use gosub_shared::geo::{Point, SizeU32, FP};
 use std::future::Future;
 use std::sync::mpsc::Sender;
+use std::sync::Arc;
 use url::Url;
 
 pub trait TreeDrawer<C: HasDrawComponents> {
     type ImgCache: ImgCache<C::RenderBackend>;
 
-    fn draw(
-        &mut self,
-        backend: &mut C::RenderBackend,
-        data: &mut <C::RenderBackend as RenderBackend>::WindowData<'_>,
-        size: SizeU32,
-        el: &impl WindowedEventLoop<C>,
-    ) -> bool;
-    fn mouse_move(&mut self, backend: &mut C::RenderBackend, x: FP, y: FP) -> bool;
+    fn draw(&mut self, size: SizeU32, el: &impl EventLoopHandle<C>) -> <C::RenderBackend as RenderBackend>::Scene;
+    fn mouse_move(&mut self, x: FP, y: FP) -> bool;
 
     fn scroll(&mut self, point: Point);
     fn from_url(
@@ -40,6 +37,19 @@ pub trait TreeDrawer<C: HasDrawComponents> {
     where
         Self: Sized;
 
+    fn with_fetcher(
+        // The initial url that the source was loaded from
+        url: Url,
+        // The fetcher that is used to load resources
+        fetcher: Arc<Fetcher>,
+        // Layouter that renders the tree
+        layouter: C::Layouter,
+        // Debug flag
+        debug: bool,
+    ) -> impl Future<Output = gosub_shared::types::Result<Self>>
+    where
+        Self: Sized;
+
     fn clear_buffers(&mut self);
     fn toggle_debug(&mut self);
 
@@ -57,7 +67,9 @@ pub trait TreeDrawer<C: HasDrawComponents> {
 
     fn delete_scene(&mut self);
 
-    fn reload(&mut self, el: impl WindowedEventLoop<C>);
+    fn reload(&mut self, el: impl EventLoopHandle<C>) -> impl Future<Output = ()> + 'static;
+
+    fn navigate(&mut self, url: Url, el: impl EventLoopHandle<C>) -> impl Future<Output = ()> + 'static;
 
     fn reload_from(&mut self, tree: C::RenderTree);
 }

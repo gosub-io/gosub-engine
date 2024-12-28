@@ -1,17 +1,16 @@
 use std::io::Cursor;
 use std::sync::{Arc, LazyLock, Mutex};
 
-use anyhow::anyhow;
-use image::DynamicImage;
-
 use crate::draw::img_cache::ImageCache;
+use anyhow::anyhow;
 use gosub_interface::config::HasDrawComponents;
-use gosub_interface::render_backend::{
-    Image as _, ImageBuffer, ImageCacheEntry, ImgCache, RenderBackend, SizeU32, WindowedEventLoop,
-};
+use gosub_interface::eventloop::EventLoopHandle;
+use gosub_interface::render_backend::{Image as _, ImageBuffer, ImageCacheEntry, ImgCache, RenderBackend, SizeU32};
 use gosub_interface::svg::SvgRenderer;
 use gosub_net::http::fetcher::Fetcher;
 use gosub_shared::types::Result;
+use image::DynamicImage;
+use url::Url;
 
 pub fn request_img<C: HasDrawComponents>(
     fetcher: Arc<Fetcher>,
@@ -19,7 +18,7 @@ pub fn request_img<C: HasDrawComponents>(
     url: &str,
     size: Option<SizeU32>,
     img_cache: &mut ImageCache<C::RenderBackend>,
-    el: &impl WindowedEventLoop<C>,
+    el: &impl EventLoopHandle<C>,
 ) -> Result<ImageBuffer<C::RenderBackend>> {
     let img = img_cache.get(url);
 
@@ -33,14 +32,20 @@ pub fn request_img<C: HasDrawComponents>(
 
             let url = url.to_string();
 
-            let mut el = el.clone();
+            let el = el.clone();
+
+            let Ok(url) = fetcher.parse_url(&url) else {
+                return Ok(ImageBuffer::Image(
+                    <C::RenderBackend as RenderBackend>::Image::from_img(INVALID_IMG.clone()),
+                ));
+            };
 
             gosub_shared::async_executor::spawn(async move {
                 if let Ok(img) = load_img::<C::RenderBackend>(&url, fetcher, svg_renderer, size).await {
-                    el.add_img_cache(url.to_string(), img, size);
+                    el.add_img_cache(url, img, size);
                 } else {
                     el.add_img_cache(
-                        url.to_string(),
+                        url,
                         ImageBuffer::Image(<C::RenderBackend as RenderBackend>::Image::from_img(
                             INVALID_IMG.clone(),
                         )),
@@ -57,12 +62,12 @@ pub fn request_img<C: HasDrawComponents>(
 }
 
 async fn load_img<B: RenderBackend>(
-    url: &str,
+    url: &Url,
     fetcher: Arc<Fetcher>,
     svg_renderer: Arc<Mutex<B::SVGRenderer>>,
     size: Option<SizeU32>,
 ) -> Result<ImageBuffer<B>> {
-    let res = fetcher.get(url).await?;
+    let res = fetcher.get_url(url).await?;
     if !res.is_ok() {
         return Err(anyhow!("Could not get url. Status code {}", res.status));
     }
