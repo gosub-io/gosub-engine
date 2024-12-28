@@ -2,12 +2,15 @@ use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::sync::mpsc;
 
+use crate::window::Window;
+use crate::WinitEventLoopHandle;
 use anyhow::anyhow;
-use gosub_interface::config::ModuleConfiguration;
-use gosub_interface::draw::TreeDrawer;
-use gosub_interface::layout::LayoutTree;
-use gosub_interface::render_backend::{ImageBuffer, ImgCache, NodeDesc, RenderBackend, SizeU32};
-use gosub_shared::async_executor::spawn_from;
+use gosub_instance::{DebugEvent, InstanceMessage};
+use gosub_interface::chrome::ChromeHandle;
+use gosub_interface::config::{HasRenderBackend, ModuleConfiguration};
+use gosub_interface::instance::{Handles, InstanceId};
+use gosub_interface::render_backend::{NodeDesc, RenderBackend, SizeU32};
+use gosub_interface::request::RequestServerHandle;
 use gosub_shared::types::Result;
 use log::{error, info};
 use url::Url;
@@ -15,9 +18,6 @@ use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
 use winit::window::WindowId;
-
-use crate::tabs::Tab;
-use crate::window::Window;
 
 #[derive(Debug, Default)]
 pub struct WindowOptions {
@@ -38,31 +38,30 @@ impl WindowOptions {
 }
 
 #[allow(clippy::type_complexity)]
-pub struct Application<'a, C: ModuleConfiguration>
-where
-    C::RenderBackend: Send,
-    C::RenderTree: Send,
-    C::TreeDrawer: Send,
-    <C::RenderBackend as RenderBackend>::Scene: Send,
-{
+pub struct Application<'a, C: ModuleConfiguration> {
     open_windows: Vec<(Vec<Url>, WindowOptions)>, // Vec of Windows, each with a Vec of URLs, representing tabs
     windows: HashMap<WindowId, Window<'a, C>>,
     backend: C::RenderBackend,
     layouter: C::Layouter,
-    #[allow(clippy::type_complexity)]
-    proxy: Option<EventLoopProxy<CustomEventInternal<C>>>,
-    #[allow(clippy::type_complexity)]
+    active_state: Option<ActiveState<C>>,
     event_loop: Option<EventLoop<CustomEventInternal<C>>>,
-    debug: bool,
 }
 
-impl<C: ModuleConfiguration> ApplicationHandler<CustomEventInternal<C>> for Application<'_, C>
-where
-    C::RenderBackend: Send,
-    C::RenderTree: Send,
-    C::TreeDrawer: Send,
-    <C::RenderBackend as RenderBackend>::Scene: Send,
-    C::Layouter: Send,
+pub struct ActiveState<C: ModuleConfiguration> {
+    proxy: EventLoopProxy<CustomEventInternal<C>>,
+    handles: Handles<C>,
+}
+
+impl<C: ModuleConfiguration> Application<'_, C> {
+    fn active_state(&self) -> &ActiveState<C> {
+        self.active_state
+            .as_ref()
+            .expect("No active state; event loop not running!")
+    }
+}
+
+impl<C: ModuleConfiguration<ChromeHandle = WinitEventLoopHandle<C>>> ApplicationHandler<CustomEventInternal<C>>
+    for Application<'_, C>
 {
     fn resumed(&mut self, _event_loop: &ActiveEventLoop) {
         info!("Resumed");
@@ -78,12 +77,9 @@ where
             CustomEventInternal::OpenWindow(url, id) => {
                 info!("Opening window with URL: {url}");
 
-                let mut window = match Window::new(
-                    event_loop,
-                    &mut self.backend,
-                    id,
-                    self.proxy.clone().expect("unreachable"),
-                ) {
+                let handles = self.active_state().handles.clone();
+
+                let mut window = match Window::new(event_loop, &mut self.backend, id, handles) {
                     Ok(window) => window,
                     Err(e) => {
                         error!("Error opening window: {e:?}");
@@ -108,41 +104,29 @@ where
 
                 self.windows.insert(id, window);
 
-                let Some(proxy) = self.proxy.clone() else {
-                    error!("No proxy; unreachable!");
-                    return;
-                };
+                let proxy = self.active_state().proxy.clone();
 
                 info!("Sending OpenTab event");
 
                 let _ = proxy.send_event(CustomEventInternal::OpenTab(url, id));
             }
-            CustomEventInternal::AddTab(tab, id) => {
-                if let Some(window) = self.windows.get_mut(&id) {
-                    window.add_tab(tab);
-                }
-            }
             CustomEventInternal::OpenTab(url, id) => {
                 info!("Opening tab with URL: {url}");
 
-                let Some(proxy) = self.proxy.clone() else {
+                let mut handles = self.active_state().handles.clone();
+                let Some(window) = self.windows.get_mut(&id) else {
+                    error!("No window with ID: {id:?}");
                     return;
                 };
 
-                let layouter = self.layouter.clone();
-                let debug = self.debug;
+                handles.chrome.window = window.id();
 
-                spawn_from(move || async move {
-                    let tab = match Tab::<C>::from_url(url, layouter, debug).await {
-                        Ok(tab) => tab,
-                        Err(e) => {
-                            error!("Error opening tab: {e:?}");
-                            return;
-                        }
-                    };
+                if let Err(e) = window.tabs.open(url, self.layouter.clone(), handles) {
+                    error!("Error opening tab: {e:?}");
+                    return;
+                }
 
-                    let _ = proxy.send_event(CustomEventInternal::AddTab(tab, id));
-                });
+                window.request_redraw();
             }
             CustomEventInternal::CloseWindow(id) => {
                 self.windows.remove(&id);
@@ -154,9 +138,11 @@ where
             CustomEventInternal::OpenInitial => {
                 info!("Opening initial windows");
 
+                let handles = self.active_state().handles.clone();
+                let proxy = self.active_state().proxy.clone();
+
                 for (urls, opts) in self.open_windows.drain(..) {
-                    let mut window = match Window::new(event_loop, &mut self.backend, opts, self.proxy.clone().unwrap())
-                    {
+                    let mut window = match Window::new(event_loop, &mut self.backend, opts, handles.clone()) {
                         Ok(window) => window,
                         Err(e) => {
                             error!("Error opening window: {e:?}");
@@ -181,11 +167,6 @@ where
 
                     self.windows.insert(id, window);
 
-                    let Some(proxy) = self.proxy.clone() else {
-                        error!("No proxy; unreachable!");
-                        return;
-                    };
-
                     info!("Sending OpenTab event");
 
                     for url in urls {
@@ -193,58 +174,22 @@ where
                     }
                 }
             }
-            CustomEventInternal::Select(id) => {
+            CustomEventInternal::Debug(event) => {
                 if let Some(window) = self.windows.values_mut().next() {
-                    window.select_element(<C::LayoutTree as LayoutTree<C>>::NodeId::from(id));
+                    let Some(tab) = window.tabs.get_current_tab() else {
+                        return;
+                    };
+
+                    let _ = tab.tx.blocking_send(InstanceMessage::Debug(event));
                     window.request_redraw();
                 }
             }
-            CustomEventInternal::Info(id, sender) => {
-                if let Some(window) = self.windows.values_mut().next() {
-                    window.info(<C::LayoutTree as LayoutTree<C>>::NodeId::from(id), sender);
-                    window.request_redraw();
-                }
-            }
-            CustomEventInternal::SendNodes(sender) => {
-                for window in self.windows.values_mut() {
-                    window.send_nodes(sender.clone());
-                }
-            }
+            CustomEventInternal::DrawScene(scene, _, id, window) => {
+                let Some(window) = self.windows.get_mut(&window) else {
+                    return;
+                };
 
-            CustomEventInternal::Unselect => {
-                if let Some(window) = self.windows.values_mut().next() {
-                    window.unselect_element();
-                    window.request_redraw();
-                }
-            }
-
-            CustomEventInternal::Redraw(id) => {
-                if let Some(window) = self.windows.get_mut(&id) {
-                    window.request_redraw();
-                }
-            }
-
-            CustomEventInternal::AddImg(url, img, size, id) => {
-                if let Some(window) = self.windows.get_mut(&id) {
-                    if let Some(tab) = window.tabs.get_current_tab() {
-                        tab.data.get_img_cache().add(url, img, size);
-
-                        tab.data.make_dirty();
-
-                        tab.data.delete_scene();
-
-                        window.request_redraw();
-                    }
-                }
-            }
-            CustomEventInternal::ReloadFrom(rt, id) => {
-                if let Some(window) = self.windows.get_mut(&id) {
-                    if let Some(tab) = window.tabs.get_current_tab() {
-                        tab.reload_from(rt);
-
-                        window.request_redraw();
-                    }
-                }
+                let _ = window.draw_scene(scene, id, &mut self.backend);
             }
         }
     }
@@ -264,22 +209,15 @@ where
     }
 }
 
-impl<'a, C: ModuleConfiguration> Application<'a, C>
-where
-    C::RenderBackend: Send,
-    C::RenderTree: Send,
-    C::TreeDrawer: Send,
-    <C::RenderBackend as RenderBackend>::Scene: Send,
-{
-    pub fn new(backend: C::RenderBackend, layouter: C::Layouter, debug: bool) -> Self {
+impl<'a, C: ModuleConfiguration<ChromeHandle = WinitEventLoopHandle<C>>> Application<'a, C> {
+    pub fn new(backend: C::RenderBackend, layouter: C::Layouter) -> Self {
         Self {
             windows: HashMap::new(),
             backend,
             layouter,
-            proxy: None,
+            active_state: None,
             event_loop: None,
             open_windows: Vec::new(),
-            debug,
         }
     }
 
@@ -296,15 +234,25 @@ where
     }
 
     pub fn open_window(&mut self, url: Url, opts: WindowOptions) {
-        if let Some(proxy) = &self.proxy {
-            let _ = proxy.send_event(CustomEventInternal::OpenWindow(url, opts));
+        if let Some(state) = self.active_state.as_ref() {
+            let _ = state.proxy.send_event(CustomEventInternal::OpenWindow(url, opts));
         }
     }
 
     pub fn initialize(&mut self) -> Result<()> {
         let event_loop = EventLoop::with_user_event().build()?;
 
-        self.proxy = Some(event_loop.create_proxy());
+        let proxy = event_loop.create_proxy();
+
+        let handles = Handles {
+            chrome: WinitEventLoopHandle {
+                proxy: proxy.clone(),
+                window: WindowId::from(0),
+            },
+            request: RequestServerHandle,
+        };
+
+        self.active_state = Some(ActiveState { handles, proxy });
         self.event_loop = Some(event_loop);
 
         Ok(())
@@ -331,16 +279,19 @@ where
 
     #[allow(clippy::type_complexity)]
     pub fn proxy(&mut self) -> Result<EventLoopProxy<CustomEventInternal<C>>> {
-        if self.proxy.is_none() {
+        if self.active_state.is_none() {
             self.initialize()?;
         }
 
-        self.proxy.clone().ok_or(anyhow!("No proxy; unreachable!"))
+        self.active_state
+            .as_ref()
+            .map(|s| s.proxy.clone())
+            .ok_or(anyhow!("No proxy; unreachable!"))
     }
 
     pub fn close_window(&mut self, id: WindowId) {
-        if let Some(proxy) = &self.proxy {
-            let _ = proxy.send_event(CustomEventInternal::CloseWindow(id));
+        if let Some(state) = &self.active_state {
+            let _ = state.proxy.send_event(CustomEventInternal::CloseWindow(id));
         }
     }
 }
@@ -355,48 +306,29 @@ pub enum CustomEvent {
     SendNodes(mpsc::Sender<NodeDesc>),
     Unselect,
 }
-pub enum CustomEventInternal<C: ModuleConfiguration>
-where
-    C::RenderBackend: Send,
-    C::RenderTree: Send,
-    C::TreeDrawer: Send,
-    <C::RenderBackend as RenderBackend>::Scene: Send,
-{
+pub enum CustomEventInternal<C: HasRenderBackend> {
     OpenWindow(Url, WindowOptions),
     OpenTab(Url, WindowId),
-    AddTab(Tab<C>, WindowId),
     CloseWindow(WindowId),
     OpenInitial,
-    Select(u64),
-    Info(u64, mpsc::Sender<NodeDesc>),
-    SendNodes(mpsc::Sender<NodeDesc>),
-    Unselect,
-    Redraw(WindowId),
-    AddImg(String, ImageBuffer<C::RenderBackend>, Option<SizeU32>, WindowId),
-    ReloadFrom(C::RenderTree, WindowId),
+    Debug(DebugEvent),
+    DrawScene(
+        <C::RenderBackend as RenderBackend>::Scene,
+        SizeU32,
+        InstanceId,
+        WindowId,
+    ),
 }
 
-impl<C: ModuleConfiguration> Debug for CustomEventInternal<C>
-where
-    C::RenderBackend: Send,
-    C::RenderTree: Send,
-    C::TreeDrawer: Send,
-    <C::RenderBackend as RenderBackend>::Scene: Send,
-{
+impl<C: HasRenderBackend> Debug for CustomEventInternal<C> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::OpenWindow(..) => f.write_str("OpenWindow"),
             Self::OpenTab(..) => f.write_str("OpenTab"),
-            Self::AddTab(..) => f.write_str("AddTab"),
             Self::CloseWindow(_) => f.write_str("CloseWindow"),
             Self::OpenInitial => f.write_str("OpenInitial"),
-            Self::Select(_) => f.write_str("Select"),
-            Self::SendNodes(_) => f.write_str("SendNodes"),
-            Self::Unselect => f.write_str("Unselect"),
-            Self::Redraw(_) => f.write_str("Redraw"),
-            Self::AddImg(..) => f.write_str("AddImg"),
-            Self::ReloadFrom(..) => f.write_str("ReloadFrom"),
-            Self::Info(..) => f.write_str("Info"),
+            Self::Debug(..) => f.write_str("Debug"),
+            Self::DrawScene(..) => f.write_str("DrawScene"),
         }
     }
 }

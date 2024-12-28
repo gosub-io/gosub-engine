@@ -3,7 +3,19 @@ use std::ops::Deref;
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
 
+use crate::application::{CustomEventInternal, WindowOptions};
+use crate::tabs::Tabs;
+use crate::WinitEventLoopHandle;
 use anyhow::anyhow;
+use gosub_instance::{EngineInstance, InstanceHandle};
+use gosub_interface::chrome::ChromeHandle;
+use gosub_interface::config::ModuleConfiguration;
+use gosub_interface::eventloop::EventLoopHandle;
+use gosub_interface::instance::{Handles, InstanceId};
+use gosub_interface::layout::LayoutTree;
+use gosub_interface::render_backend::{ImageBuffer, NodeDesc, RenderBackend};
+use gosub_shared::geo::SizeU32;
+use gosub_shared::types::Result;
 use image::imageops::FilterType;
 use log::{error, warn};
 use url::Url;
@@ -11,15 +23,6 @@ use winit::dpi::LogicalSize;
 use winit::event::Modifiers;
 use winit::event_loop::{ActiveEventLoop, EventLoopProxy};
 use winit::window::{Icon, Window as WinitWindow, WindowId};
-
-use gosub_interface::config::ModuleConfiguration;
-use gosub_interface::layout::LayoutTree;
-use gosub_interface::render_backend::{ImageBuffer, NodeDesc, RenderBackend, WindowedEventLoop};
-use gosub_shared::geo::SizeU32;
-use gosub_shared::types::Result;
-
-use crate::application::{CustomEventInternal, WindowOptions};
-use crate::tabs::{Tab, TabID, Tabs};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WindowState<'a, B: RenderBackend> {
@@ -48,39 +51,25 @@ static ICON: LazyCell<Icon> = LazyCell::new(|| {
 });
 }
 
-pub struct Window<'a, C: ModuleConfiguration>
-where
-    C::RenderBackend: Send,
-    C::RenderTree: Send,
-    C::TreeDrawer: Send,
-    <C::RenderBackend as RenderBackend>::Scene: Send,
-    C::Layouter: Send,
-{
+pub struct Window<'a, C: ModuleConfiguration> {
     pub(crate) state: WindowState<'a, C::RenderBackend>,
     pub(crate) window: Arc<WinitWindow>,
     pub(crate) renderer_data: <C::RenderBackend as RenderBackend>::WindowData<'a>,
-    pub(crate) tabs: Tabs<C>,
-    pub(crate) el: WindowEventLoop<C>,
+    pub(crate) tabs: Tabs,
     pub(crate) mods: Modifiers,
+    pub(crate) handles: Handles<C>,
 }
 
-impl<'a, C: ModuleConfiguration> Window<'a, C>
-where
-    C::RenderBackend: Send,
-    C::RenderTree: Send,
-    C::TreeDrawer: Send,
-    <C::RenderBackend as RenderBackend>::Scene: Send,
-    C::Layouter: Send,
-{
+impl<'a, C: ModuleConfiguration<ChromeHandle = WinitEventLoopHandle<C>>> Window<'a, C> {
     pub fn new(
         event_loop: &ActiveEventLoop,
         backend: &mut C::RenderBackend,
         opts: WindowOptions,
-        el: EventLoopProxy<CustomEventInternal<C>>,
+        mut handles: Handles<C>,
     ) -> Result<Self> {
         let window = create_window(event_loop)?;
 
-        println!("Created window with id: {:?}", window.id());
+        handles.chrome.window = window.id();
 
         #[cfg(target_arch = "wasm32")]
         {
@@ -110,35 +99,14 @@ where
 
         let renderer_data = backend.create_window_data(window.clone())?;
 
-        let el = WindowEventLoop {
-            proxy: el,
-            id: window.id(),
-        };
-
         Ok(Self {
             state: WindowState::Suspended,
             window,
             renderer_data,
             tabs: Tabs::default(),
-            el,
             mods: Modifiers::default(),
+            handles,
         })
-    }
-
-    pub async fn open_tab(&mut self, url: Url, layouter: C::Layouter, debug: bool) -> Result<()> {
-        let tab = Tab::from_url(url, layouter, debug).await?;
-        self.tabs.add_tab(tab);
-        Ok(())
-    }
-
-    pub fn add_tab(&mut self, tab: Tab<C>) {
-        let id = self.tabs.add_tab(tab);
-
-        if self.tabs.active == TabID::default() {
-            self.tabs.activate_tab(id);
-        }
-
-        self.window.request_redraw();
     }
 
     pub fn resumed(&mut self, backend: &mut C::RenderBackend) -> Result<()> {
@@ -186,20 +154,24 @@ where
         }
     }
 
-    pub fn select_element(&mut self, id: <C::LayoutTree as LayoutTree<C>>::NodeId) {
-        self.tabs.select_element(id);
-    }
+    pub fn draw_scene(
+        &mut self,
+        scene: <C::RenderBackend as RenderBackend>::Scene,
+        instance: InstanceId,
+        backend: &mut C::RenderBackend,
+    ) -> Result<()> {
+        let WindowState::Active { surface: data } = &mut self.state else {
+            return Ok(());
+        };
 
-    pub fn info(&mut self, id: <C::LayoutTree as LayoutTree<C>>::NodeId, sender: Sender<NodeDesc>) {
-        self.tabs.info(id, sender);
-    }
+        if !self.tabs.is_active(instance) {
+            return Ok(());
+        }
 
-    pub fn send_nodes(&mut self, sender: Sender<NodeDesc>) {
-        self.tabs.send_nodes(sender);
-    }
+        backend.reset(&mut self.renderer_data);
+        backend.apply_scene(&mut self.renderer_data, &scene, None);
 
-    pub fn unselect_element(&mut self) {
-        self.tabs.unselect_element();
+        backend.render(&mut self.renderer_data, data)
     }
 }
 
@@ -213,84 +185,4 @@ fn create_window(event_loop: &ActiveEventLoop) -> Result<Arc<WinitWindow>> {
         .create_window(attributes)
         .map_err(|e| anyhow!(e.to_string()))
         .map(Arc::new)
-}
-
-pub(crate) struct WindowEventLoop<C: ModuleConfiguration>
-where
-    C::RenderBackend: Send,
-    C::RenderTree: Send,
-    C::TreeDrawer: Send,
-    <C::RenderBackend as RenderBackend>::Scene: Send,
-    C::Layouter: Send,
-{
-    proxy: EventLoopProxy<CustomEventInternal<C>>,
-    id: WindowId,
-}
-
-impl<C: ModuleConfiguration> WindowEventLoop<C>
-where
-    C::RenderBackend: Send,
-    C::RenderTree: Send,
-    C::TreeDrawer: Send,
-    <C::RenderBackend as RenderBackend>::Scene: Send,
-    C::Layouter: Send,
-{
-    #[allow(unused)]
-    pub fn send(&mut self, event: CustomEventInternal<C>) {
-        if let Err(e) = self.proxy.send_event(event) {
-            error!("Failed to send event {e}");
-        }
-    }
-}
-
-impl<C: ModuleConfiguration> Clone for WindowEventLoop<C>
-where
-    C::RenderBackend: Send,
-    C::RenderTree: Send,
-    C::TreeDrawer: Send,
-    <C::RenderBackend as RenderBackend>::Scene: Send,
-    C::Layouter: Send,
-{
-    fn clone(&self) -> Self {
-        Self {
-            proxy: self.proxy.clone(),
-            id: self.id,
-        }
-    }
-}
-
-impl<C: ModuleConfiguration> WindowedEventLoop<C> for WindowEventLoop<C>
-where
-    C::RenderBackend: Send,
-    C::RenderTree: Send,
-    C::TreeDrawer: Send,
-    <C::RenderBackend as RenderBackend>::Scene: Send,
-    C::Layouter: Send,
-{
-    fn redraw(&mut self) {
-        if let Err(e) = self.proxy.send_event(CustomEventInternal::Redraw(self.id)) {
-            error!("Failed to send event {e}"); // only will error if the event loop was closed
-        }
-    }
-
-    fn add_img_cache(&mut self, url: String, buf: ImageBuffer<C::RenderBackend>, size: Option<SizeU32>) {
-        if let Err(e) = self
-            .proxy
-            .send_event(CustomEventInternal::AddImg(url, buf, size, self.id))
-        {
-            error!("Failed to send event {e}");
-        }
-    }
-
-    fn reload_from(&mut self, rt: C::RenderTree) {
-        if let Err(e) = self.proxy.send_event(CustomEventInternal::ReloadFrom(rt, self.id)) {
-            error!("Failed to send event {e}");
-        }
-    }
-
-    fn open_tab(&mut self, url: Url) {
-        if let Err(e) = self.proxy.send_event(CustomEventInternal::OpenTab(url, self.id)) {
-            error!("Failed to send event {e}");
-        }
-    }
 }

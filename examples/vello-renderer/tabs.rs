@@ -1,138 +1,116 @@
+use gosub_instance::{DebugEvent, EngineInstance, InstanceHandle, InstanceMessage};
 use gosub_interface::config::ModuleConfiguration;
-use gosub_interface::draw::TreeDrawer;
-use gosub_interface::layout::LayoutTree;
-use gosub_interface::render_backend::{NodeDesc, WindowedEventLoop};
+use gosub_interface::instance::{Handles, InstanceId};
 use gosub_shared::types::Result;
-use slotmap::{DefaultKey, SlotMap};
-use std::sync::mpsc::Sender;
+use slotmap::{DefaultKey, Key, KeyData, SlotMap};
 use url::Url;
 
-pub struct Tabs<C: ModuleConfiguration> {
+pub struct Tabs {
     #[allow(clippy::type_complexity)]
-    pub tabs: SlotMap<DefaultKey, Tab<C>>,
-    pub active: TabID,
+    pub tabs: SlotMap<DefaultKey, InstanceHandle>,
+    pub active: InstanceId,
 }
 
-impl<C: ModuleConfiguration> Default for Tabs<C> {
+impl Default for Tabs {
     fn default() -> Self {
         Self {
             tabs: SlotMap::new(),
-            active: TabID::default(),
+            active: InstanceId(DefaultKey::null().data().as_ffi()),
         }
     }
 }
 
-impl<C: ModuleConfiguration> Tabs<C> {
-    pub fn new(initial: Tab<C>) -> Self {
+impl Tabs {
+    pub fn new(initial: InstanceHandle) -> Self {
         let mut tabs = SlotMap::new();
-        let active = TabID(tabs.insert(initial));
+
+        let active = kti(tabs.insert(initial));
 
         Self { tabs, active }
     }
 
-    pub fn add_tab(&mut self, tab: Tab<C>) -> TabID {
-        TabID(self.tabs.insert(tab))
+    pub fn remove_tab(&mut self, id: InstanceId) -> Option<InstanceHandle> {
+        self.tabs.remove(itk(id))
     }
 
-    pub fn remove_tab(&mut self, id: TabID) {
-        self.tabs.remove(id.0);
-    }
-
-    pub fn activate_tab(&mut self, id: TabID) {
+    pub fn activate_tab(&mut self, id: InstanceId) {
         self.active = id;
     }
 
-    pub fn get_current_tab(&mut self) -> Option<&mut Tab<C>> {
-        self.tabs.get_mut(self.active.0)
+    pub fn get_current_tab(&mut self) -> Option<&mut InstanceHandle> {
+        self.tabs.get_mut(itk(self.active))
     }
 
     #[allow(unused)]
-    pub(crate) async fn from_url(url: Url, layouter: C::Layouter, debug: bool) -> Result<Self> {
-        let tab = Tab::from_url(url, layouter, debug).await?;
-        Ok(Self::new(tab))
+    pub(crate) fn from_url<C: ModuleConfiguration>(
+        url: Url,
+        layouter: C::Layouter,
+        handles: Handles<C>,
+    ) -> Result<Self> {
+        let mut tabs = SlotMap::new();
+
+        let id = tabs.try_insert_with_key(|key| EngineInstance::new_on_thread(url, layouter, kti(key), handles))?;
+
+        Ok(Self { tabs, active: kti(id) })
     }
 
-    pub fn select_element(&mut self, id: <C::LayoutTree as LayoutTree<C>>::NodeId) {
-        if let Some(tab) = self.get_current_tab() {
-            tab.data.select_element(id);
-        }
+    pub fn open<C: ModuleConfiguration>(&mut self, url: Url, layouter: C::Layouter, handles: Handles<C>) -> Result<()> {
+        let id = self
+            .tabs
+            .try_insert_with_key(|key| EngineInstance::new_on_thread(url.clone(), layouter, kti(key), handles))?;
+
+        self.active = kti(id);
+
+        Ok(())
     }
 
-    pub fn info(&mut self, id: <C::LayoutTree as LayoutTree<C>>::NodeId, sender: Sender<NodeDesc>) {
-        if let Some(tab) = self.get_current_tab() {
-            tab.data.info(id, sender);
+    pub fn debug_event(&self, id: InstanceId, event: DebugEvent) -> Result<()> {
+        if let Some(tab) = self.tabs.get(itk(id)) {
+            tab.tx.blocking_send(InstanceMessage::Debug(event))?;
         }
-    }
 
-    pub fn send_nodes(&mut self, sender: Sender<NodeDesc>) {
-        if let Some(tab) = self.get_current_tab() {
-            tab.data.send_nodes(sender);
-        }
-    }
-
-    pub fn unselect_element(&mut self) {
-        if let Some(tab) = self.get_current_tab() {
-            tab.data.unselect_element();
-        }
+        Ok(())
     }
 
     pub fn next_tab(&mut self) {
-        if let Some(next_tab_id) = self.tabs.keys().skip_while(|key| *key != self.active.0).nth(1) {
-            self.active = TabID(next_tab_id);
+        let active = itk(self.active);
+        if let Some(next_tab_id) = self.tabs.keys().skip_while(|key| *key != active).nth(1) {
+            self.active = kti(next_tab_id);
         }
     }
 
     pub fn previous_tab(&mut self) {
+        let active = itk(self.active);
         if let Some(prev_tab_id) = self
             .tabs
             .keys()
             .collect::<Vec<_>>()
             .iter()
             .rev()
-            .skip_while(|key| **key != self.active.0)
+            .skip_while(|key| **key != active)
             .nth(1)
         {
-            self.active = TabID(*prev_tab_id);
+            self.active = kti(*prev_tab_id);
         }
     }
 
     pub fn activate_idx(&mut self, idx: usize) {
         if let Some(id) = self.tabs.keys().nth(idx) {
-            self.active = TabID(id);
+            self.active = kti(id);
         }
     }
-}
 
-#[derive(Debug)]
-pub struct Tab<C: ModuleConfiguration> {
-    pub title: String,
-    pub url: Url,
-    pub data: C::TreeDrawer,
-}
-
-impl<C: ModuleConfiguration> Tab<C> {
-    pub fn new(title: String, url: Url, data: C::TreeDrawer) -> Self {
-        Self { title, url, data }
-    }
-
-    pub async fn from_url(url: Url, layouter: C::Layouter, debug: bool) -> Result<Self> {
-        let data = C::TreeDrawer::from_url(url.clone(), layouter, debug).await?;
-
-        Ok(Self {
-            title: url.as_str().to_string(),
-            url,
-            data,
-        })
-    }
-
-    pub fn reload(&mut self, el: impl WindowedEventLoop<C>) {
-        self.data.reload(el);
-    }
-
-    pub fn reload_from(&mut self, rt: C::RenderTree) {
-        self.data.reload_from(rt)
+    pub fn is_active(&self, id: InstanceId) -> bool {
+        self.active == id
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-pub struct TabID(pub(crate) DefaultKey);
+/// DefaultKey to InstanceID
+fn kti(key: DefaultKey) -> InstanceId {
+    InstanceId(key.data().as_ffi())
+}
+
+/// InstanceID to DefaultKey
+fn itk(id: InstanceId) -> DefaultKey {
+    DefaultKey::from(KeyData::from_ffi(id.0))
+}

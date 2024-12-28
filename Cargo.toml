@@ -47,6 +47,7 @@ gosub_vello = { version = "0.1.1", path = "./crates/gosub_vello", features = [],
 gosub_cairo = { version = "0.1.1", path = "./crates/gosub_cairo", features = [], registry = "gosub" }
 gosub_taffy = { version = "0.1.1", path = "./crates/gosub_taffy", features = [], registry = "gosub" }
 gosub_net = { version = "0.1.1", path = "./crates/gosub_net", features = [], registry = "gosub" }
+gosub_instance = { version = "0.1.0", path = "./crates/gosub_instance", features = [], registry = "gosub" }
 # Dependencies are needed for gosub_engine itself, and some of the binaries in src/bin.
 cookie = { version = "0.18.1", features = ["secure", "private"] }
 url = "2.5.4"

@@ -1,26 +1,30 @@
-use gosub_cairo::render::window::{ActiveWindowData, WindowData};
+use futures::channel::mpsc;
+use futures::channel::mpsc::UnboundedSender;
+use futures::executor::block_on;
+use futures::{SinkExt, StreamExt};
 use gosub_cairo::{CairoBackend, Scene};
 use gosub_css3::system::Css3System;
 use gosub_html5::document::builder::DocumentBuilderImpl;
 use gosub_html5::document::document_impl::DocumentImpl;
 use gosub_html5::document::fragment::DocumentFragmentImpl;
 use gosub_html5::parser::Html5Parser;
+use gosub_instance::{EngineInstance, InstanceMessage};
+use gosub_interface::chrome::ChromeHandle;
 use gosub_interface::config::*;
-use gosub_interface::draw::TreeDrawer;
+use gosub_interface::instance::{Handles, InstanceId};
 use gosub_interface::render_backend::RenderBackend;
-use gosub_interface::render_backend::{ImageBuffer, SizeU32, WindowedEventLoop};
+use gosub_interface::render_backend::SizeU32;
+use gosub_interface::request::RequestServerHandle;
 use gosub_renderer::draw::TreeDrawerImpl;
 use gosub_rendering::render_tree::RenderTree;
 use gosub_taffy::TaffyLayouter;
 use gtk4::gio::{ApplicationCommandLine, ApplicationFlags};
-use gtk4::glib::spawn_future_local;
 use gtk4::prelude::*;
 use gtk4::{glib, Application, ApplicationWindow, DrawingArea};
 use log::{info, LevelFilter};
 use simple_logger::SimpleLogger;
 use std::sync::{Arc, Mutex};
 use url::Url;
-
 const APP_ID: &str = "io.gosub.gtk-renderer";
 
 #[derive(Clone, Debug, PartialEq)]
@@ -56,7 +60,21 @@ impl HasRenderBackend for Config {
     type RenderBackend = CairoBackend;
 }
 
+impl HasChrome for Config {
+    type ChromeHandle = GtkChromeHandle;
+}
+
 impl ModuleConfiguration for Config {}
+
+#[derive(Clone)]
+struct GtkChromeHandle(UnboundedSender<Scene>);
+
+impl ChromeHandle<Config> for GtkChromeHandle {
+    fn draw_scene(&self, scene: <CairoBackend as RenderBackend>::Scene, _: SizeU32, _: InstanceId) {
+        info!("Drawing scene");
+        self.0.unbounded_send(scene).unwrap();
+    }
+}
 
 fn main() -> glib::ExitCode {
     SimpleLogger::new().with_level(LevelFilter::Info).init().unwrap();
@@ -73,7 +91,11 @@ fn main() -> glib::ExitCode {
 fn build_ui(app: &Application, cl: &ApplicationCommandLine) -> i32 {
     let binding = cl.arguments();
     let args = binding.as_slice();
-    let url = args[1].to_str().unwrap_or("https://example.com").to_string();
+    let url = args
+        .get(1)
+        .and_then(|url| url.to_str())
+        .unwrap_or("https://example.com")
+        .to_string();
 
     // Create a window and set the title
     let window = ApplicationWindow::builder()
@@ -81,51 +103,46 @@ fn build_ui(app: &Application, cl: &ApplicationCommandLine) -> i32 {
         .title("GTK Renderer")
         .build();
 
+    let (tx, rx) = mpsc::unbounded();
+
+    let rx = Arc::new(Mutex::new(rx));
+
+    let handles = Handles::<Config> {
+        chrome: GtkChromeHandle(tx),
+        request: RequestServerHandle,
+    };
+
     // Tree drawer that will render the final tree
-    let drawer = Arc::new(Mutex::new(Option::<<Config as HasTreeDrawer>::TreeDrawer>::None));
+    let instance =
+        EngineInstance::new_on_thread(Url::parse(&url).unwrap(), TaffyLayouter, InstanceId(0), handles).unwrap();
 
     // Set up drawing area widget with a custom draw function. This will render a scene using the
     // tree drawer.
     let area = DrawingArea::default();
+
     area.set_draw_func(move |area, cr, width, height| {
-        let mut drawer_lock = drawer.lock().unwrap();
+        let size = SizeU32::new(width as u32, height as u32);
 
-        // If there is a drawer initialized, just draw the tree onto the cairo context (cr)
-        if let Some(drawer) = drawer_lock.as_mut() {
-            let mut render_backend = <Config as HasRenderBackend>::RenderBackend::new();
-            let size = SizeU32::new(width as u32, height as u32);
+        let tx = instance.tx.clone();
+        let cr = cr.clone();
+        let rx = rx.clone();
 
-            // Drawer.draw will populate the scene with elements from the tree
-            let mut win_data = WindowData {
-                scene: Scene::new(),
-                cr: Some(cr.clone()),
-            };
-            drawer.draw(&mut render_backend, &mut win_data, size, &WindowEventLoopDummy);
+        #[allow(clippy::await_holding_lock)]
+        // we will always able to lock the mutex, since we are the only one holding it (stupid futures_channel)
+        //TODO: we need a better way than blocking the draw call
+        // the problem is that rendering is done by another thread but we can only finish the frame when we have the scene
+        // ideally we can have some system that is able to request a redraw from the instance in the `DrawingArea`'s draw_func, and then it returns
+        // afterwards if we got the finished scene we can ask for the DrawingArea to be redrawn again and this time we ONLY render the available scene,
+        // and DO NOT request another frame from the instance
+        block_on(async move {
+            tx.send(InstanceMessage::Redraw(size)).await.unwrap();
 
-            // Render the scene to the cairo context
-            let mut active_win_data = ActiveWindowData { cr: cr.clone() };
-            _ = render_backend.render(&mut win_data, &mut active_win_data);
+            let scene = rx.lock().unwrap().next().await;
 
-            return;
-        }
-        drop(drawer_lock);
-
-        // Drawer does not exist yet. Create it from within a new async task, and trigger a redraw
-        // once it's ready.
-
-        let url = url.clone();
-        let area = area.clone();
-        let drawer = drawer.clone();
-        spawn_future_local(async move {
-            let d = <Config as HasTreeDrawer>::TreeDrawer::from_url(Url::parse(&url).unwrap(), TaffyLayouter, false)
-                .await
-                .unwrap();
-
-            let mut drawer_lock = drawer.lock().unwrap();
-            *drawer_lock = Some(d);
-            drop(drawer_lock);
-
-            area.queue_draw();
+            if let Some(scene) = scene {
+                info!("Rendering scene to context");
+                scene.render_to_context(&cr);
+            }
         });
     });
 
@@ -135,30 +152,4 @@ fn build_ui(app: &Application, cl: &ApplicationCommandLine) -> i32 {
     window.present();
 
     1
-}
-
-#[derive(Clone)]
-struct WindowEventLoopDummy;
-
-impl WindowedEventLoop<Config> for WindowEventLoopDummy {
-    fn redraw(&mut self) {
-        info!("eventloop: Redraw needed");
-    }
-
-    fn add_img_cache(
-        &mut self,
-        url: String,
-        _buf: ImageBuffer<<Config as HasRenderBackend>::RenderBackend>,
-        _size: Option<SizeU32>,
-    ) {
-        info!("eventloop: Add image to cache: {}", url);
-    }
-
-    fn reload_from(&mut self, _rt: <Config as HasRenderTree>::RenderTree) {
-        info!("eventloop: reload from")
-    }
-
-    fn open_tab(&mut self, _url: Url) {
-        info!("eventloop: open tab")
-    }
 }

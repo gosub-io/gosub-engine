@@ -30,13 +30,13 @@ impl GsRect {
         }
     }
 
-    pub(crate) fn render(obj: &RenderRect<CairoBackend>, cr: cairo::Context) {
+    pub(crate) fn render(obj: &RenderRect<CairoBackend>, cr: &cairo::Context) {
         let x = obj.rect.x;
         let y = obj.rect.y;
         let width = obj.rect.width;
         let height = obj.rect.height;
 
-        GsBrush::render(&obj.brush, cr.clone());
+        GsBrush::render(&obj.brush, cr);
 
         cr.move_to(x, y);
         cr.rectangle(x, y, width, height);

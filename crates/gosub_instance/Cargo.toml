@@ -1,0 +1,12 @@
+[package]
+name = "gosub_instance"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+gosub_shared = { path = "../gosub_shared" }
+gosub_interface = { path = "../gosub_interface" }
+gosub_net = { path = "../gosub_net" }
+tokio = { version = "1.42.0", features = ["sync", "rt"] }
+url = "2.5.4"
+log = "0.4.22"

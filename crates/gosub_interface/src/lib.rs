@@ -1,11 +1,16 @@
+pub mod chrome;
 pub mod config;
 pub mod css3;
 pub mod document;
 pub mod document_handle;
 pub mod draw;
+pub mod eventloop;
 pub mod html5;
+pub mod input;
+pub mod instance;
 pub mod layout;
 pub mod node;
 pub mod render_backend;
 pub mod render_tree;
+pub mod request;
 pub mod svg;

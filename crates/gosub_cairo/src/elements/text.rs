@@ -157,7 +157,7 @@ impl TText for GsText {
 }
 
 impl GsText {
-    pub(crate) fn render(obj: &RenderText<CairoBackend>, cr: cairo::Context) {
+    pub(crate) fn render(obj: &RenderText<CairoBackend>, cr: &cairo::Context) {
         // let brush = &render.brush;
         // let style: StyleRef = Fill::NonZero.into();
         //
@@ -169,7 +169,7 @@ impl GsText {
         cr.move_to(base_x, base_y);
 
         // Setup brush for rendering text
-        GsBrush::render(&obj.brush, cr.clone());
+        GsBrush::render(&obj.brush, cr);
 
         // This should be moved to the GosubFontContext::get_cairo_font_face(family: &str) method)
         let font_face = unsafe {
@@ -203,7 +203,7 @@ impl GsText {
 
             let c = decoration.color;
             let brush = GsBrush::solid(GsColor::rgba32(c.0, c.1, c.2, 1.0));
-            GsBrush::render(&brush, cr.clone());
+            GsBrush::render(&brush, cr);
 
             let offset = decoration.x_offset as f64;
             if decoration.underline {

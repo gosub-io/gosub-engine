@@ -81,24 +81,24 @@ impl Scene {
         }
     }
 
-    pub fn render_to_context(&self, cr: cairo::Context) {
-        Self::render_scene_command(&self.root, cr.clone());
+    pub fn render_to_context(&self, cr: &cairo::Context) {
+        Self::render_scene_command(&self.root, cr);
     }
 
-    fn render_scene_command(scene_command: &SceneCommand, cr: cairo::Context) {
+    fn render_scene_command(scene_command: &SceneCommand, cr: &cairo::Context) {
         match scene_command {
             SceneCommand::Group { children, .. } => {
                 // let affine = transform.map(|t| t.0).unwrap_or_default();
                 // cr.transform(affine);
                 for child in children {
-                    Self::render_scene_command(child, cr.clone());
+                    Self::render_scene_command(child, cr);
                 }
             }
             SceneCommand::Rectangle(rect) => {
-                GsRect::render(rect, cr.clone());
+                GsRect::render(rect, cr);
             }
             SceneCommand::Text(text) => {
-                GsText::render(text, cr.clone());
+                GsText::render(text, cr);
             }
             SceneCommand::SimpleText { text, pos, size } => {
                 let face =
