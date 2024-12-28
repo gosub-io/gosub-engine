@@ -1,18 +1,18 @@
 [package]
 name = "gosub_v8"
-version = "0.1.0"
+version = "0.1.2"
 edition = "2021"
 authors = ["Gosub Community <info@gosub.io>"]
 license = "MIT"
+description = "V8 bindings for Gosub"
 
 [dependencies]
-gosub_shared = { path = "../gosub_shared" }
-gosub_webexecutor = { path = "../gosub_webexecutor" }
+gosub_shared = { version = "0.1.1", registry = "gosub", path = "../gosub_shared" }
+gosub_webexecutor = { version = "0.1.1", registry = "gosub", path = "../gosub_webexecutor" }
 thiserror = "2.0.9"
 v8 = "130.0.1"
 anyhow = "1.0.94"
 serde_json = "1.0.134"
 
-
 [dev-dependencies]
-gosub_webinterop = { path = "../gosub_webinterop" }
+gosub_webinterop = { version = "0.1.1", registry = "gosub", path = "../gosub_webinterop" }

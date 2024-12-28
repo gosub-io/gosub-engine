@@ -1,13 +1,13 @@
 [package]
 name = "gosub_interface"
-version = "0.1.0"
+version = "0.1.2"
 edition = "2021"
 authors = ["Gosub Community <info@gosub.io>"]
 description = "Gosub engine interface"
 license = "MIT"
 
 [dependencies]
-gosub_shared = { path = "../gosub_shared" }
+gosub_shared = { version = "0.1.1", path = "../gosub_shared", registry = "gosub" }
 url = "2.5.4"
 smallvec = "1.13.2"
 raw-window-handle = "0.6.2"

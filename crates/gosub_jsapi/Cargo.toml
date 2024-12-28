@@ -1,11 +1,12 @@
 [package]
 name = "gosub_jsapi"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["Gosub Community <info@gosub.io>"]
 license = "MIT"
+description = "Web Javascript API"
 
 [dependencies]
-gosub_shared = { path = "../gosub_shared", features = [] }
+gosub_shared = { version = "0.1.1", registry = "gosub", path = "../gosub_shared", features = [] }
 uuid = { version = "1.11.0", features = ["v4"] }
 regex = "1"

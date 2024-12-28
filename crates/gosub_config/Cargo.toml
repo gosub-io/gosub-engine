@@ -1,13 +1,13 @@
 [package]
 name = "gosub_config"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["Gosub Community <info@gosub.io>"]
 license = "MIT"
-
+description = "Configuration management for Gosub"
 
 [dependencies]
-gosub_shared = { path = "../gosub_shared", features = [] }
+gosub_shared = { version = "0.1.1", registry = "gosub",  path = "../gosub_shared", features = [] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = {version = "1.0", features = ["preserve_order"]}
 serde_derive = "1.0"

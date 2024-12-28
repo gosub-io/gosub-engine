@@ -1,15 +1,16 @@
 [package]
 name = "gosub_renderer"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["Gosub Community <info@gosub.io>"]
 license = "MIT"
+description = "Gosub Renderer"
 
 [dependencies]
-gosub_rendering = { path = "../gosub_render_utils" }
-gosub_interface = { path = "../gosub_interface", features = [] }
-gosub_shared = { path = "../gosub_shared" }
-gosub_net = { path = "../gosub_net" }
+gosub_rendering = { version = "0.1.1", registry = "gosub", path = "../gosub_rendering" }
+gosub_interface = { version = "0.1.1", registry = "gosub", path = "../gosub_interface", features = [] }
+gosub_shared = { version = "0.1.1", registry = "gosub", path = "../gosub_shared" }
+gosub_net = { version = "0.1.1", registry = "gosub", path = "../gosub_net" }
 anyhow = "1.0.94"
 image = "0.25.5"
 url = "2.5.4"

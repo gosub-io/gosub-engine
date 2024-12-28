@@ -1,9 +1,10 @@
 [package]
 name = "gosub_webinterop"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["Gosub Community <info@gosub.io>"]
 license = "MIT"
+description = "Web Interop for Gosub"
 
 [dependencies]
 syn = { version = "2.0.91", features = ["full", "extra-traits"] }
