@@ -9,6 +9,7 @@ use gosub_interface::render_backend::{ImageBuffer, NodeDesc};
 use gosub_net::http::fetcher::Fetcher;
 use gosub_shared::geo::SizeU32;
 use gosub_shared::types::Result;
+use gosub_web_platform::{WebEventLoop, WebEventLoopHandle, WebEventLoopMessage};
 use log::warn;
 use std::sync::mpsc::Sender as SyncSender;
 use std::sync::Arc;
@@ -23,6 +24,7 @@ pub struct EngineInstance<C: ModuleConfiguration> {
     pub title: String,
     pub url: Url,
     pub data: C::TreeDrawer,
+    web: WebEventLoopHandle,
     rx: Receiver<InstanceMessage>,
     irx: Receiver<InternalInstanceMessage<C>>,
     el: El<C>,
@@ -61,8 +63,11 @@ impl<C: ModuleConfiguration> EngineInstance<C> {
 
         let (itx, irx) = tokio::sync::mpsc::channel(128);
 
+        let web = WebEventLoop::new_on_thread(handles.clone());
+
         Ok(EngineInstance {
             title: "Gosub".to_string(),
+            web,
             url,
             data,
             rx,
@@ -184,18 +189,22 @@ impl<C: ModuleConfiguration> EngineInstance<C> {
                     }
                 }
             }
-            InstanceMessage::Input(event) => match event {
-                InputEvent::MouseScroll(delta) => {
-                    self.data.scroll(delta);
-                    self.redraw();
-                }
-                InputEvent::MouseMove(point) => {
-                    if self.data.mouse_move(point.x, point.y) {
+            InstanceMessage::Input(event) => {
+                match event {
+                    InputEvent::MouseScroll(delta) => {
+                        self.data.scroll(delta);
                         self.redraw();
                     }
+                    InputEvent::MouseMove(point) => {
+                        if self.data.mouse_move(point.x, point.y) {
+                            self.redraw();
+                        }
+                    }
+                    _ => {}
                 }
-                _ => {} //TODO: send all events to the WebEventLoop
-            },
+
+                self.web.tx.send(WebEventLoopMessage::InputEvent(event)).await?;
+            }
         }
 
         Ok(())
