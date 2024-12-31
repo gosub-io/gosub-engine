@@ -6,7 +6,6 @@ use crate::window::Window;
 use crate::WinitEventLoopHandle;
 use anyhow::anyhow;
 use gosub_instance::{DebugEvent, InstanceMessage};
-use gosub_interface::chrome::ChromeHandle;
 use gosub_interface::config::{HasRenderBackend, ModuleConfiguration};
 use gosub_interface::instance::{Handles, InstanceId};
 use gosub_interface::render_backend::{NodeDesc, RenderBackend, SizeU32};

@@ -3,7 +3,7 @@ use quote::{format_ident, quote};
 
 use crate::types::Field;
 
-pub fn impl_interop_struct(name: Ident, fields: &[Field]) -> TokenStream {
+pub fn impl_interop_struct(name: Ident, fields: &[Field], js_name: TokenStream) -> TokenStream {
     let marker_struct = format_ident!("{}JSMethodsMarker", name);
     let marker_trait = format_ident!("{}JSMethods", name);
 
@@ -12,7 +12,7 @@ pub fn impl_interop_struct(name: Ident, fields: &[Field]) -> TokenStream {
     quote! {
         impl JSInterop for #name {
             fn implement<RT: JSRuntime>(s: Rc<RefCell<Self>>, mut ctx: RT::Context) -> Result<()> {
-                let mut obj = ctx.new_global_object(stringify!(#name))?;
+                let mut obj = ctx.new_global_object(stringify!(#js_name))?;
 
                 #getters_setters
 
