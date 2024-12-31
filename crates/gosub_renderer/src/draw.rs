@@ -6,6 +6,7 @@ use crate::render_tree::{load_html_rendertree, load_html_rendertree_fetcher, loa
 use anyhow::anyhow;
 use gosub_interface::config::{HasDrawComponents, HasHtmlParser};
 use gosub_interface::css3::{CssProperty, CssPropertyMap, CssValue};
+use gosub_interface::document_handle::DocumentHandle;
 use gosub_interface::draw::TreeDrawer;
 use gosub_interface::eventloop::EventLoopHandle;
 use gosub_interface::layout::{Layout, LayoutTree, Layouter, TextLayout};
@@ -209,26 +210,33 @@ where
         self.dirty = true;
     }
 
-    async fn from_url(url: Url, layouter: C::Layouter, debug: bool) -> Result<Self> {
-        let (rt, fetcher) = load_html_rendertree::<C>(url.clone(), None).await?;
+    async fn from_url(url: Url, layouter: C::Layouter, debug: bool) -> Result<(Self, DocumentHandle<C>)> {
+        let (rt, handle, fetcher) = load_html_rendertree::<C>(url.clone(), None).await?;
 
-        Ok(Self::new(rt, layouter, Arc::new(fetcher), debug))
+        Ok((Self::new(rt, layouter, Arc::new(fetcher), debug), handle))
     }
 
-    fn from_source(url: Url, source_html: &str, layouter: C::Layouter, debug: bool) -> Result<Self> {
+    fn from_source(
+        url: Url,
+        source_html: &str,
+        layouter: C::Layouter,
+        debug: bool,
+    ) -> Result<(Self, DocumentHandle<C>)> {
         let fetcher = Fetcher::new(url.clone());
-        let rt = load_html_rendertree_source::<C>(url, source_html)?;
+        let (rt, handle) = load_html_rendertree_source::<C>(url, source_html)?;
 
-        Ok(Self::new(rt, layouter, Arc::new(fetcher), debug))
+        Ok((Self::new(rt, layouter, Arc::new(fetcher), debug), handle))
     }
 
-    async fn with_fetcher(url: Url, fetcher: Arc<Fetcher>, layouter: C::Layouter, debug: bool) -> Result<Self>
-    where
-        Self: Sized,
-    {
-        let rt = load_html_rendertree_fetcher::<C>(url.clone(), &fetcher).await?;
+    async fn with_fetcher(
+        url: Url,
+        fetcher: Arc<Fetcher>,
+        layouter: C::Layouter,
+        debug: bool,
+    ) -> Result<(Self, DocumentHandle<C>)> {
+        let (rt, handle) = load_html_rendertree_fetcher::<C>(url.clone(), &fetcher).await?;
 
-        Ok(Self::new(rt, layouter, fetcher, debug))
+        Ok((Self::new(rt, layouter, fetcher, debug), handle))
     }
 
     fn clear_buffers(&mut self) {
@@ -291,39 +299,47 @@ where
         self.debugger_scene = None;
     }
 
-    fn reload(&mut self, el: impl EventLoopHandle<C>) -> impl Future<Output = ()> + 'static {
+    fn reload(&mut self, el: impl EventLoopHandle<C>) -> impl Future<Output = Result<DocumentHandle<C>>> + 'static {
         let fetcher = self.fetcher.clone();
 
         async move {
             info!("Reloading tab");
 
-            let rt = match load_html_rendertree_fetcher::<C>(fetcher.base().clone(), &fetcher).await {
+            let (rt, handle) = match load_html_rendertree_fetcher::<C>(fetcher.base().clone(), &fetcher).await {
                 Ok(rt) => rt,
                 Err(e) => {
                     error!("Failed to reload tab: {e}");
-                    return;
+                    return Err(e);
                 }
             };
 
             el.reload_from(rt);
+
+            Ok(handle)
         }
     }
 
-    fn navigate(&mut self, url: Url, el: impl EventLoopHandle<C>) -> impl Future<Output = ()> + 'static {
+    fn navigate(
+        &mut self,
+        url: Url,
+        el: impl EventLoopHandle<C>,
+    ) -> impl Future<Output = Result<DocumentHandle<C>>> + 'static {
         let fetcher = self.fetcher.clone();
 
         async move {
             info!("Navigating to {url}");
 
-            let rt = match load_html_rendertree_fetcher::<C>(url.clone(), &fetcher).await {
+            let (rt, handle) = match load_html_rendertree_fetcher::<C>(url.clone(), &fetcher).await {
                 Ok(rt) => rt,
                 Err(e) => {
                     error!("Failed to navigate to {url}: {e}");
-                    return;
+                    return Err(e);
                 }
             };
 
             el.reload_from(rt);
+
+            Ok(handle)
         }
     }
 

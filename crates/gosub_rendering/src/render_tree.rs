@@ -546,7 +546,7 @@ impl<C: HasRenderTree<LayoutTree = Self, RenderTree = Self> + HasDocument> Rende
     }
 }
 
-impl<C: HasLayouter<LayoutTree = Self>> render_tree::RenderTree<C> for RenderTree<C> {
+impl<C: HasRenderTree<LayoutTree = Self, RenderTree = Self>> render_tree::RenderTree<C> for RenderTree<C> {
     type NodeId = NodeId;
     type Node = RenderTreeNode<C>;
 
@@ -568,6 +568,13 @@ impl<C: HasLayouter<LayoutTree = Self>> render_tree::RenderTree<C> for RenderTre
 
     fn get_layout(&self, id: Self::NodeId) -> Option<&<C::Layouter as Layouter>::Layout> {
         Some(&LayoutTree::get_node(self, id)?.layout)
+    }
+
+    fn from_document(handle: DocumentHandle<C>) -> Self
+    where
+        C: HasDocument,
+    {
+        RenderTree::from_document(handle)
     }
 }
 
@@ -806,10 +813,8 @@ impl<C: HasLayouter> LayoutNode<C> for RenderTreeNode<C> {
 }
 
 /// Generates a render tree for the given document based on its loaded stylesheets
-pub fn generate_render_tree<C: HasDocument + HasRenderTree<LayoutTree = RenderTree<C>, RenderTree = RenderTree<C>>>(
-    document: DocumentHandle<C>,
-) -> Result<RenderTree<C>> {
-    let render_tree = RenderTree::from_document(document);
+pub fn generate_render_tree<C: HasDocument + HasRenderTree>(document: DocumentHandle<C>) -> Result<C::RenderTree> {
+    let render_tree = render_tree::RenderTree::from_document(document);
 
     Ok(render_tree)
 }
