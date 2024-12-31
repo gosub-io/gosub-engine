@@ -4,18 +4,18 @@ use proc_macro::TokenStream;
 use std::collections::HashMap;
 use std::sync::RwLock;
 
-use lazy_static::lazy_static;
-use proc_macro2::{Ident, TokenTree};
-use quote::ToTokens;
-use syn::spanned::Spanned;
-use syn::{FnArg, ItemImpl, ItemStruct};
-
 use crate::function::Function;
 use crate::impl_function::impl_js_functions;
 use crate::impl_interop_struct::impl_interop_struct;
 use crate::property::{FieldProperty, FunctionProperty};
 use crate::types::{Arg, ArgVariant, Field, GenericsMatcher, ReturnType, SelfType};
 use crate::utils::crate_name;
+use lazy_static::lazy_static;
+use proc_macro2::{Ident, TokenTree};
+use quote::ToTokens;
+use syn::punctuated::Punctuated;
+use syn::spanned::Spanned;
+use syn::{parse_macro_input, FnArg, ItemImpl, ItemStruct, MetaNameValue, Token};
 
 mod function;
 mod impl_function;
@@ -29,7 +29,7 @@ lazy_static! {
 }
 
 #[proc_macro_attribute]
-pub fn web_interop(_: TokenStream, item: TokenStream) -> TokenStream {
+pub fn web_interop(args: TokenStream, item: TokenStream) -> TokenStream {
     let mut fields: Vec<Field> = Vec::new();
 
     let mut input: ItemStruct = syn::parse_macro_input!(item);
@@ -47,7 +47,18 @@ pub fn web_interop(_: TokenStream, item: TokenStream) -> TokenStream {
         }
     }
 
-    let extend = impl_interop_struct(input.ident.clone(), &fields);
+    let items: Punctuated<MetaNameValue, Token![,]> =
+        parse_macro_input!(args with Punctuated::<MetaNameValue, Token![,]>::parse_terminated);
+
+    let mut js_name = input.ident.to_token_stream();
+
+    for item in items {
+        if item.path.is_ident("js_name") {
+            js_name = item.value.to_token_stream();
+        }
+    }
+
+    let extend = impl_interop_struct(input.ident.clone(), &fields, js_name);
 
     let name = input.ident.clone().into_token_stream().to_string();
     STATE.write().unwrap().insert((crate_name(), name), 0);
