@@ -1,9 +1,11 @@
-use crate::config::HasDrawComponents;
+use crate::config::{HasDocument, HasDrawComponents};
+use crate::document_handle::DocumentHandle;
 use crate::eventloop::EventLoopHandle;
 use crate::layout::LayoutTree;
 use crate::render_backend::{ImgCache, NodeDesc, RenderBackend};
 use gosub_net::http::fetcher::Fetcher;
 use gosub_shared::geo::{Point, SizeU32, FP};
+use gosub_shared::types::Result;
 use std::future::Future;
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
@@ -20,9 +22,10 @@ pub trait TreeDrawer<C: HasDrawComponents> {
         url: Url,
         layouter: C::Layouter,
         debug: bool,
-    ) -> impl Future<Output = gosub_shared::types::Result<Self>>
+    ) -> impl Future<Output = gosub_shared::types::Result<(Self, DocumentHandle<C>)>>
     where
-        Self: Sized;
+        Self: Sized,
+        C: HasDocument;
 
     fn from_source(
         // The initial url that the source was loaded from
@@ -33,9 +36,10 @@ pub trait TreeDrawer<C: HasDrawComponents> {
         layouter: C::Layouter,
         // Debug flag
         debug: bool,
-    ) -> gosub_shared::types::Result<Self>
+    ) -> Result<(Self, DocumentHandle<C>)>
     where
-        Self: Sized;
+        Self: Sized,
+        C: HasDocument;
 
     fn with_fetcher(
         // The initial url that the source was loaded from
@@ -46,9 +50,10 @@ pub trait TreeDrawer<C: HasDrawComponents> {
         layouter: C::Layouter,
         // Debug flag
         debug: bool,
-    ) -> impl Future<Output = gosub_shared::types::Result<Self>>
+    ) -> impl Future<Output = Result<(Self, DocumentHandle<C>)>>
     where
-        Self: Sized;
+        Self: Sized,
+        C: HasDocument;
 
     fn clear_buffers(&mut self);
     fn toggle_debug(&mut self);
@@ -67,9 +72,17 @@ pub trait TreeDrawer<C: HasDrawComponents> {
 
     fn delete_scene(&mut self);
 
-    fn reload(&mut self, el: impl EventLoopHandle<C>) -> impl Future<Output = ()> + 'static;
+    fn reload(&mut self, el: impl EventLoopHandle<C>) -> impl Future<Output = Result<DocumentHandle<C>>> + 'static
+    where
+        C: HasDocument;
 
-    fn navigate(&mut self, url: Url, el: impl EventLoopHandle<C>) -> impl Future<Output = ()> + 'static;
+    fn navigate(
+        &mut self,
+        url: Url,
+        el: impl EventLoopHandle<C>,
+    ) -> impl Future<Output = Result<DocumentHandle<C>>> + 'static
+    where
+        C: HasDocument;
 
     fn reload_from(&mut self, tree: C::RenderTree);
 }

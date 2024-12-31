@@ -57,7 +57,7 @@ impl<C: ModuleConfiguration> EngineInstance<C> {
         handles: Handles<C>,
     ) -> Result<Self> {
         let fetcher = Arc::new(Fetcher::new(url.clone()));
-        let data = C::TreeDrawer::with_fetcher(url.clone(), fetcher.clone(), layouter, false).await?;
+        let (data, _handle) = C::TreeDrawer::with_fetcher(url.clone(), fetcher.clone(), layouter, false).await?;
 
         let (itx, irx) = tokio::sync::mpsc::channel(128);
 

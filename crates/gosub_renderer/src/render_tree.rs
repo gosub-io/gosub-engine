@@ -14,15 +14,15 @@ use url::Url;
 pub async fn load_html_rendertree<C: HasRenderTree + HasHtmlParser>(
     url: Url,
     source: Option<&str>,
-) -> gosub_shared::types::Result<(C::RenderTree, Fetcher)> {
+) -> gosub_shared::types::Result<(C::RenderTree, DocumentHandle<C>, Fetcher)> {
     let fetcher = Fetcher::new(url.clone());
 
-    let rt = match source {
+    let (rt, handle) = match source {
         Some(source) => load_html_rendertree_source::<C>(url, source)?,
         None => load_html_rendertree_fetcher::<C>(url, &fetcher).await?,
     };
 
-    Ok((rt, fetcher))
+    Ok((rt, handle, fetcher))
 }
 
 // Generate a render tree from the given source HTML. THe URL is needed to resolve relative URLs
@@ -30,7 +30,7 @@ pub async fn load_html_rendertree<C: HasRenderTree + HasHtmlParser>(
 pub fn load_html_rendertree_source<C: HasRenderTree + HasHtmlParser>(
     url: Url,
     source_html: &str,
-) -> gosub_shared::types::Result<C::RenderTree> {
+) -> gosub_shared::types::Result<(C::RenderTree, DocumentHandle<C>)> {
     let mut stream = ByteStream::new(Encoding::UTF8, None);
     stream.read_from_str(source_html, Some(Encoding::UTF8));
     stream.close();
@@ -48,14 +48,14 @@ pub fn load_html_rendertree_source<C: HasRenderTree + HasHtmlParser>(
 
     drop(doc);
 
-    generate_render_tree(DocumentHandle::clone(&doc_handle))
+    Ok((generate_render_tree(DocumentHandle::clone(&doc_handle))?, doc_handle))
 }
 
 /// Generates a render tree from the given URL. The complete HTML source is fetched from the URL async.
 pub async fn load_html_rendertree_fetcher<C: HasRenderTree + HasHtmlParser>(
     url: Url,
     fetcher: &Fetcher,
-) -> gosub_shared::types::Result<C::RenderTree> {
+) -> gosub_shared::types::Result<(C::RenderTree, DocumentHandle<C>)> {
     let html = if url.scheme() == "http" || url.scheme() == "https" {
         // Fetch the html from the url
         let response = fetcher.get(url.as_ref()).await?;
