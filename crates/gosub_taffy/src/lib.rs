@@ -2,9 +2,9 @@ use std::ops::{Deref, DerefMut};
 use std::vec::IntoIter;
 use taffy::{
     compute_block_layout, compute_cached_layout, compute_flexbox_layout, compute_grid_layout, compute_hidden_layout,
-    compute_root_layout, AvailableSpace, Cache as TaffyCache, Display as TaffyDisplay, Layout as TaffyLayout,
-    LayoutBlockContainer, LayoutFlexboxContainer, LayoutGridContainer, LayoutInput, LayoutOutput, LayoutPartialTree,
-    NodeId as TaffyId, SizingMode, Style, TraversePartialTree,
+    compute_root_layout, AvailableSpace, Cache as TaffyCache, CacheTree, Display as TaffyDisplay,
+    Layout as TaffyLayout, LayoutBlockContainer, LayoutFlexboxContainer, LayoutGridContainer, LayoutInput,
+    LayoutOutput, LayoutPartialTree, NodeId as TaffyId, RunMode, SizingMode, Style, TraversePartialTree,
 };
 
 use gosub_interface::config::HasLayouter;
@@ -260,16 +260,59 @@ impl<C: HasLayouter<Layouter = TaffyLayouter>> LayoutDocument<'_, C> {
     }
 }
 
+impl<C: HasLayouter<Layouter = TaffyLayouter>> CacheTree for LayoutDocument<'_, C> {
+    fn cache_get(
+        &self,
+        node_id: TaffyId,
+        known_dimensions: taffy::Size<Option<f32>>,
+        available_space: taffy::Size<AvailableSpace>,
+        run_mode: RunMode,
+    ) -> Option<LayoutOutput> {
+        let node_id = <C::LayoutTree as LayoutTree<C>>::NodeId::from(node_id.into());
+        let cache = &self
+            .0
+            .get_cache(node_id)
+            .expect("Cache not found, why again does taffy don't use optionals?")
+            .taffy;
+
+        cache.get(known_dimensions, available_space, run_mode)
+    }
+
+    fn cache_store(
+        &mut self,
+        node_id: TaffyId,
+        known_dimensions: taffy::Size<Option<f32>>,
+        available_space: taffy::Size<AvailableSpace>,
+        run_mode: RunMode,
+        layout_output: LayoutOutput,
+    ) {
+        let node_id = <C::LayoutTree as LayoutTree<C>>::NodeId::from(node_id.into());
+        let cache = &mut self
+            .0
+            .get_cache_mut(node_id)
+            .expect("Cache not found, why again does taffy don't use optionals?")
+            .taffy;
+
+        cache.store(known_dimensions, available_space, run_mode, layout_output);
+    }
+
+    fn cache_clear(&mut self, node_id: TaffyId) {
+        let node_id = <C::LayoutTree as LayoutTree<C>>::NodeId::from(node_id.into());
+        let cache = &mut self
+            .0
+            .get_cache_mut(node_id)
+            .expect("Cache not found, why again does taffy don't use optionals?")
+            .taffy;
+
+        cache.clear();
+    }
+}
+
 impl<C: HasLayouter<Layouter = TaffyLayouter>> LayoutPartialTree for LayoutDocument<'_, C> {
     type CoreContainerStyle<'a>
         = &'a Style
     where
         Self: 'a;
-    type CacheMut<'b>
-        = &'b mut TaffyCache
-    where
-        Self: 'b;
-
     fn get_core_container_style(&self, node_id: TaffyId) -> Self::CoreContainerStyle<'_> {
         self.get_taffy_style_no_update(<C::LayoutTree as LayoutTree<C>>::NodeId::from(node_id.into()))
     }
@@ -280,15 +323,6 @@ impl<C: HasLayouter<Layouter = TaffyLayouter>> LayoutPartialTree for LayoutDocum
         let node_id = <C::LayoutTree as LayoutTree<C>>::NodeId::from(node_id.into());
 
         self.0.set_layout(node_id, layout);
-    }
-
-    fn get_cache_mut(&mut self, node_id: TaffyId) -> &mut TaffyCache {
-        let node_id = <C::LayoutTree as LayoutTree<C>>::NodeId::from(node_id.into());
-        &mut self
-            .0
-            .get_cache_mut(node_id)
-            .expect("Cache not found, why again does taffy don't use optionals?")
-            .taffy
     }
 
     fn compute_child_layout(&mut self, node_id: TaffyId, mut inputs: LayoutInput) -> LayoutOutput {
