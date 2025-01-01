@@ -1,0 +1,15 @@
+[package]
+name = "gosub_web_platform"
+version = "0.1.0"
+edition = "2021"
+authors = ["Gosub Community <info@gosub.io>"]
+license = "MIT"
+description = "Gosub Web Platform implementation"
+
+[dependencies]
+gosub_shared = { version = "0.1.1", registry = "gosub", path = "../gosub_shared" }
+gosub_interface = { version = "0.1.2", registry = "gosub", path = "../gosub_interface", features = [] }
+slotmap = "1.0.7"
+tokio = { version = "1.42.0", features = ["sync", "rt", "macros"] }
+pin-project = "1.1.7"
+log = "0.4.22"
