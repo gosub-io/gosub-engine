@@ -1,4 +1,14 @@
 use crate::CairoBackend;
+use cairo::{freetype, FontFace};
+use std::borrow::Borrow;
+use std::cell::LazyCell;
+use std::rc::Rc;
+use std::sync::Arc;
+
+use crate::elements::brush::GsBrush;
+use crate::elements::color::GsColor;
+use cairo::freetype::{Face, Library};
+use gosub_interface::font::FontBlob;
 use gosub_interface::layout::{Decoration, TextLayout};
 use gosub_interface::render_backend::{RenderText, Text as TText};
 use gosub_shared::font::{Glyph, GlyphID};
@@ -7,114 +17,21 @@ use gosub_shared::geo::{NormalizedCoord, Point, FP};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
-
-use crate::elements::brush::GsBrush;
-use crate::elements::color::GsColor;
-use freetype::{Face, Library};
-use gosub_shared::ROBOTO_FONT;
-use kurbo::Stroke;
-use log::info;
-use once_cell::sync::Lazy;
-use parley::fontique::{FamilyId, SourceKind};
-use parley::{FontContext, GenericFamily};
-
-/// Font manager that keeps track of fonts and faces
-struct GosubFontContext {
-    /// Freetype library. Should be kept alive as long as any face is alive.
-    _library: Library,
-    /// Font context for parley to find fonts
-    font_ctx: FontContext,
-    /// Cache of any loaded font faces
-    face_cache: HashMap<String, Face>,
-    /// Default font face to use when a font cannot be found
-    default_face: Face,
-}
-
-impl GosubFontContext {
-    /// Finds the face for the given family name, or returns the default face if no font is found.
-    fn find_face_family(&mut self, family: &str) -> &mut Face {
-        info!("Finding face for family: {}", family);
-
-        // See if we already got the face in cache
-        if self.face_cache.contains_key(family) {
-            info!("Face found in cache");
-            return self.face_cache.get_mut(family).expect("Face not found in cache");
-        }
-
-        // Parse the family name into a GenericFamily enum
-        let gf = GenericFamily::parse(family).unwrap_or(GenericFamily::SansSerif);
-
-        // Find all the fonts for this family
-        let fids: Vec<FamilyId> = self.font_ctx.collection.generic_families(gf).collect();
-        if fids.is_empty() {
-            info!("No family found for family: {}", family);
-            return &mut self.default_face;
-        }
-
-        // We only use the first font in the family
-        match self.font_ctx.collection.family(fids[0]) {
-            Some(f) => {
-                info!("Face found for family: {:?}", f.fonts());
-
-                // This first font can have multiple fonts (e.g. regular, bold, italic, etc.)
-                for font in f.fonts() {
-                    match &font.source().kind {
-                        SourceKind::Memory(blob) => {
-                            info!("Loading font face from memory");
-                            let rc = Rc::new(blob.data().to_vec());
-
-                            let face = self._library.new_memory_face(rc, 0).expect("Failed to load font face");
-                            self.face_cache.insert(family.to_string(), face);
-                        }
-                        SourceKind::Path(path) => {
-                            info!("Loading font face from path {}", path.to_str().expect("path to string"));
-
-                            let face = self
-                                ._library
-                                .new_face(path.to_str().expect("path to string"), 0)
-                                .expect("Failed to load font face");
-                            self.face_cache.insert(family.to_string(), face);
-                        }
-                    }
-                }
-            }
-            None => {
-                info!("No face found for family: {}", family);
-            }
-        }
-
-        &mut self.default_face
-    }
-}
+use log::{info, warn};
 
 thread_local! {
-    /// We use a thread-local lazy static to ensure the font context is initialized once per thread
-    /// and is dropped when the thread exits. We need this because the FreeType library cannot be dropped
-    /// while any faces are still alive, so all is managed within this struct.
-    static LIB_FONT_FACE: Lazy<RefCell<GosubFontContext>> = Lazy::new(|| {
-        let lib = Library::init().expect("Failed to initialize FreeType");
-        let rc = Rc::new(ROBOTO_FONT.to_vec());
-        let default_face = lib.new_memory_face(rc, 0).expect("Failed to load font face");
-
-        // The FontContext struct holds the lib, ensuring it lives as long as all loaded faces
-        RefCell::new(GosubFontContext {
-            _library: lib,
-            font_ctx: FontContext::new(),
-            face_cache: HashMap::new(),
-            default_face,
-        })
+    static LIB_FONT_FACE: LazyCell<Library> = LazyCell::new(|| {
+        Library::init().expect("Failed to initialize FreeType")
     });
 }
 
 #[allow(unused)]
 #[derive(Clone, Debug)]
 pub struct GsText {
-    // List of glyphs we need to show
+    // List of positioned glyphs with font info
     glyphs: Vec<Glyph>,
-    // Actual utf-8 text (we don't have this yet)
-    text: String,
-    // // Font we need to display (we need to have more info, like font familty, weight, etc.)
-    // font: peniko::Font,
+    // Font we need to display
+    font: FontBlob,
     // Font size
     fs: FP,
     // List of coordinates for each glyph (?)
@@ -126,8 +43,9 @@ pub struct GsText {
 }
 
 impl TText for GsText {
-    fn new<TL: TextLayout>(layout: &TL) -> Self {
-        // let font = layout.font().clone().into();
+    // fn new<TL: TextLayout>(layout: &TL) -> Self {
+    fn new(layout: &impl TextLayout) -> Self {
+        let font = layout.font().clone();
         let fs = layout.font_size();
 
         let glyphs = layout
@@ -142,8 +60,7 @@ impl TText for GsText {
 
         Self {
             glyphs,
-            text: String::new(),
-            // font,
+            font,
             fs,
             coords: layout.coords().to_vec(),
             decoration: layout.decorations().clone(),
@@ -154,32 +71,17 @@ impl TText for GsText {
 
 impl GsText {
     pub(crate) fn render(obj: &RenderText<CairoBackend>, cr: &cairo::Context) {
-        // let brush = &render.brush;
-        // let style: StyleRef = Fill::NonZero.into();
-        //
-        // let transform = render.transform.map(|t| t).unwrap_or(Transform::IDENTITY);
-        // let brush_transform = render.brush_transform.map(|t| t);
-
         let base_x = obj.rect.x;
         let base_y = obj.rect.y;
         cr.move_to(base_x, base_y);
 
-        // Setup brush for rendering text
-
-        // This should be moved to the GosubFontContext::get_cairo_font_face(family: &str) method)
-        let font_face = unsafe {
-            LIB_FONT_FACE.with(|ctx_ref| {
-                let mut ctx = ctx_ref.borrow_mut();
-
-                let ft_face = ctx.find_face_family("sans-serif");
-                let ft_face_ptr = ft_face.raw_mut() as *mut _ as *mut std::ffi::c_void;
-                let ff = cairo::ffi::cairo_ft_font_face_create_for_ft_face(ft_face_ptr, 0);
-                cairo::FontFace::from_raw_full(ff)
-            })
-        };
-        cr.set_font_face(&font_face);
-
         for text in &obj.text {
+            let Ok(font_face) = create_memory_font_face(&text.font) else {
+                warn!("Could not convert memory face");
+                continue;
+            };
+            cr.set_font_face(&font_face);
+
             GsBrush::render(&obj.brush, cr);
             cr.move_to(base_x + text.offset.x as f64, base_y + text.offset.y as f64);
             cr.set_font_size(text.fs.into());
@@ -201,7 +103,7 @@ impl GsText {
             // Set decoration (underline, overline, line-through)
             {
                 let decoration = &text.decoration;
-                let _stroke = Stroke::new(decoration.width as f64);
+                let _stroke = kurbo::Stroke::new(decoration.width as f64);
 
                 let c = decoration.color;
                 let brush = GsBrush::solid(GsColor::rgba32(c.0, c.1, c.2, 1.0));
@@ -233,4 +135,43 @@ impl GsText {
             }
         }
     }
+}
+
+#[derive(Clone)]
+struct BlobWrapper(Arc<dyn AsRef<[u8]>>);
+
+impl Borrow<[u8]> for BlobWrapper {
+    fn borrow(&self) -> &[u8] {
+        self.0.as_ref().as_ref()
+    }
+}
+
+/// Creates a cairo font-face from the font data (blob of raw fontdata). We do this by converting
+/// the blob into an in-memory freetype face and then into a cairo font face.
+fn create_memory_font_face(font: &FontBlob) -> Result<FontFace, cairo::Error> {
+    static FT_FACE_KEY: cairo::UserDataKey<Face<BlobWrapper>> = cairo::UserDataKey::new();
+
+    // Create an in-memory font face from the font data
+    let face = LIB_FONT_FACE.with(|lib| {
+        lib.new_memory_face2(BlobWrapper(font.data.clone()), font.index as isize)
+            .expect("Failed to create memory face")
+    });
+    let mut face = face.clone();
+
+    // SAFETY: The user data entry keeps `freetype::face::Face` alive
+    // until the FontFace is dropped.
+    let font_face = unsafe {
+        FontFace::from_raw_full(cairo::ffi::cairo_ft_font_face_create_for_ft_face(
+            face.raw_mut() as freetype::ffi::FT_Face as *mut _,
+            0,
+        ))
+    };
+    font_face.set_user_data(&FT_FACE_KEY, Rc::new(face))?;
+    let status = unsafe { cairo::ffi::cairo_font_face_status(font_face.to_raw_none()) };
+    match status {
+        cairo::ffi::STATUS_SUCCESS => {}
+        err => return Err(err.into()),
+    };
+
+    Ok(font_face)
 }

@@ -48,6 +48,7 @@ gosub_cairo = { version = "0.1.1", path = "./crates/gosub_cairo", features = [],
 gosub_taffy = { version = "0.1.1", path = "./crates/gosub_taffy", features = [], registry = "gosub" }
 gosub_net = { version = "0.1.1", path = "./crates/gosub_net", features = [], registry = "gosub" }
 gosub_instance = { version = "0.1.0", path = "./crates/gosub_instance", features = [], registry = "gosub" }
+gosub_fontmanager = { version = "0.1.0", path = "./crates/gosub_fontmanager", registry = "gosub" }
 # Dependencies are needed for gosub_engine itself, and some of the binaries in src/bin.
 cookie = { version = "0.18.1", features = ["secure", "private"] }
 url = "2.5.4"
@@ -62,7 +63,7 @@ walkdir = "2.5.0"
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
 test-case = "3.3.1"
-gtk4 = "0.9.5"
+gtk4 = "0.8.0"
 winit = "0.30.8"
 cookie = { version = "0.18.1", features = ["secure", "private"] }
 url = "2.5.4"

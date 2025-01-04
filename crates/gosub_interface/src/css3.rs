@@ -69,6 +69,7 @@ pub trait CssPropertyMap<S: CssSystem>: Default + Debug + WasmNotSend {
     fn make_clean(&mut self);
     fn is_dirty(&self) -> bool;
 }
+
 pub trait CssProperty<S: CssSystem>: Debug + Display + Sized + From<S::Value> {
     fn compute_value(&mut self); // this should probably be removed
 

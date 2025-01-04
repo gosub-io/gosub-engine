@@ -36,13 +36,14 @@ impl RenderBackend for CairoBackend {
     type BorderSide = GsBorderSide;
     type BorderRadius = GsBorderRadius;
     type Transform = GsTransform;
-    type Text = GsText;
     type Gradient = GsGradient;
     type Color = GsColor;
     type Image = GsImage;
     type Brush = GsBrush;
     type Scene = Scene;
+    type Text = GsText;
     type SVGRenderer = gosub_svg::resvg::Resvg;
+    type FontManager = gosub_fontmanager::FontManager;
 
     type ActiveWindowData<'a> = ActiveWindowData;
     type WindowData<'a> = WindowData;

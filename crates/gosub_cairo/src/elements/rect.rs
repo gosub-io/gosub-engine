@@ -31,6 +31,8 @@ impl GsRect {
     }
 
     pub(crate) fn render(obj: &RenderRect<CairoBackend>, cr: &cairo::Context) {
+        // info!(target: "cairo", "GsRect::render");
+
         let x = obj.rect.x;
         let y = obj.rect.y;
         let width = obj.rect.width;

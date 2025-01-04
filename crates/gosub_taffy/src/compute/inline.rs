@@ -1,10 +1,6 @@
+use parley::fontique::{FallbackKey, Script, Weight};
+use parley::FontContext;
 use std::sync::{LazyLock, Mutex};
-
-use log::warn;
-use parley::fontique::{FallbackKey, Script};
-use parley::layout::{Alignment, PositionedLayoutItem};
-use parley::style::{FontSettings, FontStack, FontStyle, FontVariation, FontWeight, StyleProperty};
-use parley::{FontContext, InlineBox, LayoutContext};
 use taffy::{
     AvailableSpace, CollapsibleMarginSet, Layout, LayoutInput, LayoutOutput, LayoutPartialTree, NodeId, Point, Rect,
     RunMode, Size,
@@ -12,11 +8,11 @@ use taffy::{
 
 use gosub_interface::config::HasLayouter;
 use gosub_interface::css3::{CssProperty, CssValue};
-use gosub_interface::layout::{Decoration, DecorationStyle, FontData, HasTextLayout, LayoutNode, LayoutTree};
+use gosub_interface::layout::{Decoration, DecorationStyle, HasTextLayout, LayoutNode, LayoutTree};
+use gosub_interface::font::{FontBlob, FontInfo, FontManager, FontStyle, HasFontManager};
 use gosub_shared::font::Glyph;
-use gosub_shared::geo;
 use gosub_shared::geo::FP;
-use gosub_shared::ROBOTO_FONT;
+use gosub_shared::{geo, ROBOTO_FONT};
 
 use crate::text::TextLayout;
 use crate::{Display, LayoutDocument, TaffyLayouter};
@@ -32,44 +28,62 @@ static FONT_CX: LazyLock<Mutex<FontContext>> = LazyLock::new(|| {
     Mutex::new(ctx)
 });
 
+/// Computes the layout for inline elements.
 pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
     tree: &mut LayoutDocument<C>,
-    nod_id: <C::LayoutTree as LayoutTree<C>>::NodeId,
+    node_id: <C::LayoutTree as LayoutTree<C>>::NodeId,
     mut layout_input: LayoutInput,
 ) -> LayoutOutput {
     layout_input.known_dimensions = Size::NONE;
     layout_input.run_mode = RunMode::PerformLayout; //TODO: We should respect the run mode
                                                     // layout_input.sizing_mode = SizingMode::ContentSize;
 
-    let Some(children) = tree.0.children(nod_id) else {
+    // If there are no children, the node is hidden
+    let Some(children) = tree.0.children(node_id) else {
         return LayoutOutput::HIDDEN;
     };
 
+    // Either a node is an inline element (for instance, an image aligned or inside a text), or an
+    // actual text node.
+
+    // The buffer that holds the text data of the node
     let mut str_buf = String::new();
-    let mut text_node_data = Vec::new();
+    // Text node data holds the information about the text nodes. There can be multiple text node data elements for
+    // a single text, for instance, if there are different font sizes or weights inside the text.
+    let mut text_node_data: Vec<TextNodeData<C>> = Vec::new();
+    // List of any inline boxes that are inside the node
     let mut inline_boxes = Vec::new();
 
+    // Generate the text data and inline boxes. A text can consist of multiple text nodes, for instance, if there are
+    // different font sizes or weights inside the text. For instance:  "This is a <b>bold</b> text". In this example
+    // there will be three text nodes: "This is a ", "bold" and " text". The first and last will have no bold font,
+    // but the second has a bold font.
     for child in &children {
-        let node_id = NodeId::from((*child).into());
+        let child_node_id = NodeId::from((*child).into());
 
+        // If the child is not a node, we skip it
         let Some(node) = tree.0.get_node_mut(*child) else {
             continue;
         };
         node.clear_text_layout();
 
         if let Some(text) = node.text_data() {
+            // We found a text node
             if text.is_empty() {
                 continue;
             }
 
+            // Empty or whitespace only text nodes are ignored
             let only_whitespace = text.chars().all(|c| c.is_whitespace());
             if only_whitespace {
                 continue;
             }
 
+            // We add a space between the text nodes, so that the text is not glued together
             str_buf.push(' ');
             str_buf.push_str(text);
 
+            // @TODO: default font family can be different per platform
             let font_family = node
                 .get_property("font-family")
                 .and_then(|s| s.as_string())
@@ -77,20 +91,18 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
                 .unwrap_or("sans-serif".to_string());
 
             let font_size = node.get_property("font-size").map(|s| s.unit_to_px()).unwrap_or(16.0);
-
             let alignment = parse_alignment(node);
-
             let font_weight = parse_font_weight(node);
-
             let font_style = parse_font_style(node);
-
             let var_axes = parse_font_axes(node);
-
             let line_height = node.get_property("line-height").and_then(|s| s.as_number());
-
             let word_spacing = node.get_property("word-spacing").map(|s| s.unit_to_px());
-
             let letter_spacing = node.get_property("letter-spacing").map(|s| s.unit_to_px());
+
+            let font_info = <C::FontManager as FontManager>::FontInfo::new(&font_family)
+                .unwrap()
+                .with_weight(font_weight.value() as i32)
+                .with_style(font_style);
 
             let mut underline = false;
             let mut overline = false;
@@ -99,10 +111,10 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
             let mut decoration_color = (0.0, 0.0, 0.0, 1.0);
             let mut style = DecorationStyle::Solid;
             let mut underline_offset = 4.0;
-
             let color = node.get_property("color").and_then(|s| s.parse_color());
 
-            if let Some(actual_parent) = tree.0.parent_id(nod_id) {
+            // Generate decoration styles
+            if let Some(actual_parent) = tree.0.parent_id(node_id) {
                 if let Some(node) = tree.0.get_node_mut(actual_parent) {
                     let decoration_line = node.get_property("text-decoration-line");
 
@@ -159,14 +171,12 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
             }
 
             text_node_data.push(TextNodeData {
-                font_family,
+                font_info,
                 font_size,
                 line_height,
                 word_spacing,
                 letter_spacing,
                 alignment,
-                font_weight,
-                font_style,
                 var_axes,
 
                 decoration: Decoration {
@@ -181,17 +191,17 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
                 },
 
                 to: str_buf.len(),
-                id: node_id,
+                id: child_node_id,
             });
         } else {
-            let out = tree.compute_child_layout(node_id, layout_input);
+            // We found an inline box
+            let out = tree.compute_child_layout(child_node_id, layout_input);
 
             tree.update_style(*child);
 
             let size = if let Some(cache) = tree.0.get_cache(*child) {
                 if cache.display == Display::Inline {
                     //TODO: handle margins here
-
                     out.content_size
                 } else {
                     out.size
@@ -200,8 +210,8 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
                 out.content_size
             };
 
-            inline_boxes.push(InlineBox {
-                id: node_id.into(),
+            inline_boxes.push(parley::InlineBox {
+                id: child_node_id.into(),
                 index: str_buf.len(),
                 height: size.height,
                 width: size.width,
@@ -209,134 +219,150 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
         }
     }
 
+    // No inline boxes or text data, so the node is hidden
     if inline_boxes.is_empty() && str_buf.is_empty() {
         return LayoutOutput::HIDDEN;
     }
 
+    // We we don't have a text node, we add an empty character to the buffer
     if str_buf.is_empty() {
         str_buf.push(0 as char);
     }
 
-    let mut layout_cx: LayoutContext<usize> = LayoutContext::new();
+    // We use the parley layout engine to generate the text layout
+    let mut layout_cx: parley::LayoutContext<usize> = parley::LayoutContext::new();
     // let mut scale_cx = ScaleContext::new();
 
-    let Ok(mut lock) = FONT_CX.lock() else {
-        warn!("Failed to get font context");
-        return LayoutOutput::HIDDEN;
-    };
-    let mut builder = layout_cx.ranged_builder(&mut lock, &str_buf, 1.0);
-    let mut align = Alignment::default();
+    let mut font_context = FONT_CX.lock().unwrap();
 
-    println!("=============================");
+    let mut builder = layout_cx.ranged_builder(&mut font_context, &str_buf, 1.0);
+    let mut align = parley::Alignment::default();
 
-    for d in &text_node_data {
-        dbg!(d);
-    }
-
+    // The first text node is the default style for the text. This is why this is treated separately.
     if let Some(default) = text_node_data.first() {
-        builder.push_default(StyleProperty::FontStack(FontStack::Source(
-            (&default.font_family).into(),
+        let info: &<<C as HasFontManager>::FontManager as FontManager>::FontInfo = default.font_info();
+
+        builder.push_default(parley::StyleProperty::FontStack(parley::FontStack::Single(
+            parley::FontFamily::Named(info.family().into()),
         )));
-        builder.push_default(StyleProperty::FontSize(default.font_size));
+        builder.push_default(parley::StyleProperty::FontSize(default.font_size));
         if let Some(line_height) = default.line_height {
-            builder.push_default(StyleProperty::LineHeight(line_height));
+            builder.push_default(parley::StyleProperty::LineHeight(line_height));
         }
         if let Some(word_spacing) = default.word_spacing {
-            builder.push_default(StyleProperty::WordSpacing(word_spacing));
+            builder.push_default(parley::StyleProperty::WordSpacing(word_spacing));
         }
         if let Some(letter_spacing) = default.letter_spacing {
-            builder.push_default(StyleProperty::LetterSpacing(letter_spacing));
+            builder.push_default(parley::StyleProperty::LetterSpacing(letter_spacing));
         }
-        builder.push_default(StyleProperty::FontWeight(default.font_weight));
-        builder.push_default(StyleProperty::FontStyle(default.font_style));
-        builder.push_default(StyleProperty::FontVariations(FontSettings::List(
+        builder.push_default(parley::StyleProperty::FontWeight(Weight::new(info.weight() as f32)));
+        builder.push_default(parley::StyleProperty::FontStyle(match info.style() {
+            FontStyle::Normal => parley::FontStyle::Normal,
+            FontStyle::Italic => parley::FontStyle::Italic,
+            FontStyle::Oblique => parley::FontStyle::Oblique(None),
+        }));
+        builder.push_default(parley::StyleProperty::FontVariations(parley::FontSettings::List(
             default.var_axes.as_slice().into(),
         )));
 
         if default.decoration.overline && default.decoration.underline {
-            builder.push_default(StyleProperty::Underline(true));
+            builder.push_default(parley::StyleProperty::Underline(true));
 
-            builder.push_default(StyleProperty::UnderlineSize(Some(default.decoration.width * 2.0)));
-            builder.push_default(StyleProperty::UnderlineOffset(Some(
+            builder.push_default(parley::StyleProperty::UnderlineSize(Some(
+                default.decoration.width * 2.0,
+            )));
+            builder.push_default(parley::StyleProperty::UnderlineOffset(Some(
                 default.decoration.underline_offset,
             )));
         } else if default.decoration.overline {
-            builder.push_default(StyleProperty::Underline(true));
+            builder.push_default(parley::StyleProperty::Underline(true));
 
-            builder.push_default(StyleProperty::UnderlineSize(Some(default.decoration.width)));
+            builder.push_default(parley::StyleProperty::UnderlineSize(Some(default.decoration.width)));
         } else if default.decoration.underline {
-            builder.push_default(StyleProperty::Underline(true));
+            builder.push_default(parley::StyleProperty::Underline(true));
 
-            builder.push_default(StyleProperty::UnderlineSize(Some(default.decoration.width)));
-            builder.push_default(StyleProperty::UnderlineOffset(Some(
+            builder.push_default(parley::StyleProperty::UnderlineSize(Some(default.decoration.width)));
+            builder.push_default(parley::StyleProperty::UnderlineOffset(Some(
                 default.decoration.underline_offset,
             )));
         }
 
-        builder.push_default(StyleProperty::Brush(0));
+        builder.push_default(parley::StyleProperty::Brush(0));
 
         align = default.alignment;
 
         let mut from = default.to;
 
         for (idx, text_node) in text_node_data.get(1..).unwrap_or_default().iter().enumerate() {
+            let info: &<<C as HasFontManager>::FontManager as FontManager>::FontInfo = text_node.font_info();
+
             builder.push(
-                StyleProperty::FontStack(FontStack::Source(text_node.font_family.as_str().into())),
+                parley::StyleProperty::FontStack(parley::FontStack::Source(info.family().into())),
                 from..text_node.to,
             );
-            builder.push(StyleProperty::FontSize(text_node.font_size), from..text_node.to);
+            builder.push(parley::StyleProperty::FontSize(text_node.font_size), from..text_node.to);
             if let Some(line_height) = text_node.line_height {
-                builder.push(StyleProperty::LineHeight(line_height), from..text_node.to);
+                builder.push(parley::StyleProperty::LineHeight(line_height), from..text_node.to);
             }
             if let Some(word_spacing) = text_node.word_spacing {
-                builder.push(StyleProperty::WordSpacing(word_spacing), from..text_node.to);
+                builder.push(parley::StyleProperty::WordSpacing(word_spacing), from..text_node.to);
             }
             if let Some(letter_spacing) = text_node.letter_spacing {
-                builder.push(StyleProperty::LetterSpacing(letter_spacing), from..text_node.to);
+                builder.push(parley::StyleProperty::LetterSpacing(letter_spacing), from..text_node.to);
             }
-            builder.push(StyleProperty::FontWeight(text_node.font_weight), from..text_node.to);
-            builder.push(StyleProperty::FontStyle(text_node.font_style), from..text_node.to);
             builder.push(
-                StyleProperty::FontVariations(FontSettings::List(text_node.var_axes.as_slice().into())),
+                parley::StyleProperty::FontWeight(Weight::new(info.weight() as f32)),
+                from..text_node.to,
+            );
+            builder.push(
+                parley::StyleProperty::FontStyle(match info.style() {
+                    FontStyle::Normal => parley::FontStyle::Normal,
+                    FontStyle::Italic => parley::FontStyle::Italic,
+                    FontStyle::Oblique => parley::FontStyle::Oblique(None),
+                }),
+                from..text_node.to,
+            );
+            builder.push(
+                parley::StyleProperty::FontVariations(parley::FontSettings::List(text_node.var_axes.as_slice().into())),
                 from..text_node.to,
             );
 
-            builder.push(StyleProperty::Brush(idx), from..text_node.to);
+            builder.push(parley::StyleProperty::Brush(idx), from..text_node.to);
 
             if default.decoration.overline && default.decoration.underline {
-                builder.push(StyleProperty::Underline(true), from..text_node.to);
+                builder.push(parley::StyleProperty::Underline(true), from..text_node.to);
 
                 builder.push(
-                    StyleProperty::UnderlineSize(Some(default.decoration.width * 2.0)),
+                    parley::StyleProperty::UnderlineSize(Some(default.decoration.width * 2.0)),
                     from..text_node.to,
                 );
                 builder.push(
-                    StyleProperty::UnderlineOffset(Some(default.decoration.underline_offset + 4.0)),
+                    parley::StyleProperty::UnderlineOffset(Some(default.decoration.underline_offset + 4.0)),
                     from..text_node.to,
                 );
             } else if default.decoration.overline {
-                builder.push(StyleProperty::Underline(true), from..text_node.to);
+                builder.push(parley::StyleProperty::Underline(true), from..text_node.to);
 
                 builder.push(
-                    StyleProperty::UnderlineSize(Some(default.decoration.width)),
+                    parley::StyleProperty::UnderlineSize(Some(default.decoration.width)),
                     from..text_node.to,
                 );
-                builder.push(StyleProperty::UnderlineOffset(Some(4.0)), from..text_node.to);
+                builder.push(parley::StyleProperty::UnderlineOffset(Some(4.0)), from..text_node.to);
             } else if default.decoration.underline {
-                builder.push(StyleProperty::Underline(true), from..text_node.to);
+                builder.push(parley::StyleProperty::Underline(true), from..text_node.to);
 
                 builder.push(
-                    StyleProperty::UnderlineSize(Some(default.decoration.width)),
+                    parley::StyleProperty::UnderlineSize(Some(default.decoration.width)),
                     from..text_node.to,
                 );
                 builder.push(
-                    StyleProperty::UnderlineOffset(Some(default.decoration.underline_offset)),
+                    parley::StyleProperty::UnderlineOffset(Some(default.decoration.underline_offset)),
                     from..text_node.to,
                 );
             }
 
             builder.push(
-                StyleProperty::Underline(default.decoration.underline || default.decoration.overline),
+                parley::StyleProperty::Underline(default.decoration.underline || default.decoration.overline),
                 from..text_node.to,
             );
 
@@ -349,6 +375,8 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
     }
 
     let mut layout = builder.build(&str_buf);
+
+    drop(font_context);
 
     let max_width = match layout_input.available_space.width {
         AvailableSpace::Definite(width) => Some(width),
@@ -385,7 +413,7 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
 
         for item in line.items() {
             match item {
-                PositionedLayoutItem::GlyphRun(run) => {
+                parley::PositionedLayoutItem::GlyphRun(run) => {
                     let mut offset = 0.0;
 
                     let grun = run.run();
@@ -447,11 +475,16 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
                         }
                     }
 
+                    let font = grun.font().clone();
+                    let (font_data, _) = font.data.into_raw_parts();
+
                     let text_layout = TextLayout {
+                        glyphs,
                         size,
                         font_size: fs,
-                        font_data: FontData::new(grun.font().data.data(), grun.font().index),
                         glyphs,
+                        // Actual font that is resolved by the layouter which is used for these set of glyphs
+                        resolved_font: FontBlob::new(font_data, font.index),
                         coords,
                         decoration,
                         offset: geo::Point {
@@ -472,7 +505,7 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
 
                     node.add_text_layout(text_layout);
                 }
-                PositionedLayoutItem::InlineBox(inline_box) => {
+                parley::PositionedLayoutItem::InlineBox(inline_box) => {
                     let id = NodeId::from(inline_box.id);
 
                     let size = Size {
@@ -562,67 +595,85 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
     }
 }
 
+/// Structure that holds information for a (partial) text that consists of a single font size, weight, etc.
+/// If a string consists of multiple font sizes, weights, etc., there will be multiple TextNodeData elements.
+/// For instance: "This is a <b>bold</b> text". In this example there will be three text nodes: "This is a ",
+/// "bold" and " text" with different font weights.
 #[derive(Debug)]
-struct TextNodeData {
-    font_family: String,
-    font_size: f32,
-    line_height: Option<f32>,
-    word_spacing: Option<f32>,
-    letter_spacing: Option<f32>,
-    alignment: Alignment,
-    font_weight: FontWeight, // Axis: WGHT
-    font_style: FontStyle,   // Axis: ITAL
-    var_axes: Vec<FontVariation>,
-    decoration: Decoration,
-
+struct TextNodeData<C: HasFontManager> {
+    /// Start index of the text node in the complete string (str_buf)
     to: usize,
+    /// Node identifier that holds the text
     id: NodeId,
+    /// Actual font for rendering and layouting
+    font_info: <<C as HasFontManager>::FontManager as FontManager>::FontInfo,
+    /// Font size
+    font_size: f32,
+    /// Line height in case of multiple lines
+    line_height: Option<f32>,
+    /// Spacing between words
+    word_spacing: Option<f32>,
+    /// Spacing between letters (glyphs?)
+    letter_spacing: Option<f32>,
+    /// Alignment of the text
+    alignment: parley::Alignment,
+    /// Unknown
+    var_axes: Vec<parley::FontVariation>,
+    /// Decoration of the font (strikethrough, underline etc)
+    decoration: Decoration,
 }
 
-fn parse_alignment<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Alignment {
-    let Some(prop) = node.get_property("text-align") else {
-        return Alignment::Start;
-    };
-
-    let Some(s) = prop.as_string() else {
-        return Alignment::Start;
-    };
-
-    match s {
-        "left" => Alignment::Start,
-        "center" => Alignment::Middle,
-        "right" => Alignment::End,
-        "justify" => Alignment::Justified,
-        _ => Alignment::Start,
+impl<C: HasFontManager> TextNodeData<C> {
+    /// Returns the font info of the text node
+    pub fn font_info(&self) -> &<<C as HasFontManager>::FontManager as FontManager>::FontInfo {
+        &self.font_info
     }
 }
 
-fn parse_font_weight<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> FontWeight {
+fn parse_alignment<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> parley::Alignment {
+    let Some(prop) = node.get_property("text-align") else {
+        return parley::Alignment::Start;
+    };
+
+    let Some(s) = prop.as_string() else {
+        return parley::Alignment::Start;
+    };
+
+    match s {
+        "left" => parley::Alignment::Start,
+        "center" => parley::Alignment::Middle,
+        "right" => parley::Alignment::End,
+        "justify" => parley::Alignment::Justified,
+        _ => parley::Alignment::Start,
+    }
+}
+
+fn parse_font_weight<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> parley::FontWeight {
     let Some(prop) = node.get_property("font-weight") else {
-        return FontWeight::NORMAL;
+        return parley::FontWeight::NORMAL;
     };
 
     let Some(s) = prop.as_string() else {
         if let Some(v) = prop.as_number() {
-            return FontWeight::new(v);
+            return parley::FontWeight::new(v);
         };
 
-        return FontWeight::NORMAL;
+        return parley::FontWeight::NORMAL;
     };
 
     match s {
-        "thin" => FontWeight::THIN,
-        "extra-light" => FontWeight::EXTRA_LIGHT,
-        "light" => FontWeight::LIGHT,
-        "semi-light" => FontWeight::SEMI_LIGHT,
-        "normal" => FontWeight::NORMAL,
-        "medium" => FontWeight::MEDIUM,
-        "semi-bold" => FontWeight::SEMI_BOLD,
-        "bold" => FontWeight::BOLD,
-        "extra-bold" => FontWeight::EXTRA_BOLD,
-        "black" => FontWeight::BLACK,
-        "extra-black" => FontWeight::EXTRA_BLACK,
-        _ => FontWeight::NORMAL,
+        "thin" => parley::FontWeight::THIN,
+        "extra-light" => parley::FontWeight::EXTRA_LIGHT,
+        "light" => parley::FontWeight::LIGHT,
+        "semi-light" => parley::FontWeight::SEMI_LIGHT,
+        "normal" => parley::FontWeight::NORMAL,
+        "medium" => parley::FontWeight::MEDIUM,
+        "semi-bold" => parley::FontWeight::SEMI_BOLD,
+        "bold" => parley::FontWeight::BOLD,
+        "extra-bold" => parley::FontWeight::EXTRA_BOLD,
+        "black" => parley::FontWeight::BLACK,
+        "extra-black" => parley::FontWeight::EXTRA_BLACK,
+        _ => parley::FontWeight::NORMAL,
     }
 }
 
@@ -633,7 +684,6 @@ fn parse_font_style<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> FontStyle 
 
     let Some(s) = prop.as_string() else {
         //TODO handle font-style: oblique
-
         return FontStyle::Normal;
     };
 
@@ -645,7 +695,7 @@ fn parse_font_style<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> FontStyle 
     }
 }
 
-fn parse_font_axes<C: HasLayouter>(n: &mut impl LayoutNode<C>) -> Vec<FontVariation> {
+fn parse_font_axes<C: HasLayouter>(n: &mut impl LayoutNode<C>) -> Vec<parley::FontVariation> {
     let prop = n.get_property("font-variation-settings");
 
     let Some(s) = prop else {
@@ -678,6 +728,9 @@ fn parse_font_axes<C: HasLayouter>(n: &mut impl LayoutNode<C>) -> Vec<FontVariat
         if value.is_comma() {
             continue;
         }
+        let Some(value) = value.as_number() else {
+            continue;
+        };
 
         let Some(axis) = axis.as_string() else {
             continue;
@@ -689,11 +742,7 @@ fn parse_font_axes<C: HasLayouter>(n: &mut impl LayoutNode<C>) -> Vec<FontVariat
 
         let tag = u32::from_be_bytes(tag_bytes);
 
-        let Some(value) = value.as_number() else {
-            continue;
-        };
-
-        vars.push(FontVariation { tag, value });
+        vars.push(parley::FontVariation { tag, value });
     }
 
     vars

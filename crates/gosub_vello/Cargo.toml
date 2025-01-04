@@ -11,6 +11,7 @@ gosub_shared = { version = "0.1.1", registry = "gosub", path = "../gosub_shared"
 gosub_interface = { version = "0.1.1", registry = "gosub", path = "../gosub_interface", features = [] }
 gosub_html5 = { version = "0.1.1", registry = "gosub", path = "../gosub_html5", optional = true }
 gosub_svg = { version = "0.1.1", registry = "gosub", path = "../gosub_svg" }
+gosub_fontmanager = { version = "0.1.0", path = "../gosub_fontmanager", registry = "gosub" }
 vello = "0.4.0"
 vello_encoding = "0.4.0"
 image = "0.25.5"

@@ -3,6 +3,7 @@ use crate::elements::rect::GsRect;
 use crate::elements::text::GsText;
 use crate::elements::transform::GsTransform;
 use crate::CairoBackend;
+use gosub_interface::font::FontBlob;
 use gosub_interface::render_backend::{
     Point, Radius, RenderBackend, RenderRect, RenderText, Scene as TScene, Transform as TTransform, FP,
 };
@@ -18,8 +19,8 @@ pub enum SceneCommand {
     // Draw a simple text without too much decoration and in a single font / color
     SimpleText {
         text: String,
+        font: FontBlob,
         pos: Point,
-        size: FP,
     },
     // Group a list of commands together on a certain transform (translation, rotation, scale)
     Group {
@@ -36,8 +37,17 @@ impl SceneCommand {
         }
     }
 
-    fn simple_text(text: String, pos: Point, size: FP) -> SceneCommand {
-        SceneCommand::SimpleText { text, pos, size }
+    fn simple_text(_text: String, _pos: Point, _size: FP) -> SceneCommand {
+        // let mut f = GsRenderFont::default();
+        // f.set_size(size as f32);
+
+        todo!()
+
+        // SceneCommand::SimpleText {
+        //     text,
+        //     font: f,
+        //     pos,
+        // }
     }
 }
 
@@ -51,11 +61,11 @@ impl Debug for SceneCommand {
                 .field("children", &children)
                 .field("transform", &transform)
                 .finish(),
-            SceneCommand::SimpleText { text, pos, size } => f
+            SceneCommand::SimpleText { text, font, pos } => f
                 .debug_struct("SimpleText")
                 .field("text", text)
+                .field("font", font)
                 .field("pos", pos)
-                .field("size", size)
                 .finish(),
         }
     }
@@ -100,18 +110,21 @@ impl Scene {
             SceneCommand::Text(text) => {
                 GsText::render(text, cr);
             }
-            SceneCommand::SimpleText { text, pos, size } => {
-                let face =
-                    &cairo::FontFace::toy_create("sans-serif", cairo::FontSlant::Normal, cairo::FontWeight::Bold)
-                        .unwrap();
-                cr.set_font_face(face);
-                let fs: f32 = *size;
-                cr.set_font_size(fs as f64);
-
-                cr.move_to(pos.x.into(), pos.y.into());
-                cr.set_source_rgb(0.0, 0.0, 1.0);
-
-                _ = cr.show_text(text);
+            SceneCommand::SimpleText {
+                text: _,
+                font: _,
+                pos: _,
+            } => {
+                // let pango_ctx = pangocairo::functions::create_context(cr);
+                // let layout = Layout::new(&pango_ctx);
+                //
+                // let font_desc = font.get_font_description();
+                // layout.set_font_description(Some(&font_desc));
+                // layout.set_text(text);
+                //
+                // cr.move_to(pos.x.into(), pos.y.into());
+                // cr.set_source_rgb(0.0, 0.0, 1.0);
+                // pangocairo::functions::show_layout(cr, &layout);
             }
         }
     }

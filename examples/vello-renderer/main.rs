@@ -28,6 +28,7 @@ pub mod tabs;
 pub mod window;
 use gosub_instance::DebugEvent;
 use gosub_interface::chrome::ChromeHandle;
+use gosub_interface::font::HasFontManager;
 use gosub_interface::instance::InstanceId;
 use gosub_interface::render_backend::RenderBackend;
 use gosub_shared::geo::SizeU32;
@@ -69,6 +70,10 @@ impl HasRenderBackend for Config {
 
 impl HasChrome for Config {
     type ChromeHandle = WinitEventLoopHandle<Self>;
+}
+
+impl HasFontManager for Config {
+    type FontManager = gosub_fontmanager::FontManager;
 }
 
 impl ModuleConfiguration for Config {}

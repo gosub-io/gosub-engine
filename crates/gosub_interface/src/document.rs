@@ -32,12 +32,6 @@ pub trait Document<C: HasDocument<Document = Self>>: Sized + Display + Debug + P
     #[allow(clippy::new_ret_no_self)]
     fn new(document_type: DocumentType, url: Option<Url>, root_node: Option<Self::Node>) -> C::Document;
 
-    // /// Creates a new document with an optional document root node
-    // fn new_with_handle(document_type: DocumentType, url: Option<Url>, location: &Location, root_node: Option<&Self::Node>) -> DocumentHandle<Self>;
-
-    // /// Returns the document handle for this document
-    // fn handle(&self) -> DocumentHandle<Self, C>;
-
     /// Location of the document (URL, file path, etc.)
     fn url(&self) -> Option<Url>;
 
@@ -52,16 +46,11 @@ pub trait Document<C: HasDocument<Document = Self>>: Sized + Display + Debug + P
     // Return an element node by the "id" attribute
     fn node_by_named_id(&self, id: &str) -> Option<&Self::Node>;
 
-    // fn add_named_id(&mut self, id: &str, node_id: NodeId);
-    // /// Remove a named ID from the document
-    // fn remove_named_id(&mut self, id: &str);
-
     fn stylesheets(&self) -> &Vec<C::Stylesheet>;
     fn add_stylesheet(&mut self, stylesheet: C::Stylesheet);
 
     /// Return the root node of the document
     fn get_root(&self) -> &Self::Node;
-    // fn get_root_mut(&mut self) -> &mut Self::Node;
 
     fn attach_node(&mut self, node_id: NodeId, parent_id: NodeId, position: Option<usize>);
     fn detach_node(&mut self, node_id: NodeId);
@@ -72,9 +61,6 @@ pub trait Document<C: HasDocument<Document = Self>>: Sized + Display + Debug + P
 
     // Updates a node that is referenced into the document. This is useful for instance when a node is fetched with node_by_id() for instance.
     fn update_node_ref(&mut self, node: &Self::Node);
-
-    // /// Return the parent node from a given ID
-    // fn parent_node(&self, node: &Self::Node) -> Option<&Self::Node>;
 
     /// Removes a node from the document
     fn delete_node_by_id(&mut self, node_id: NodeId);

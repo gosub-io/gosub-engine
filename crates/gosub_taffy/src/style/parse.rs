@@ -8,6 +8,10 @@ use gosub_interface::config::HasLayouter;
 use gosub_interface::css3::CssProperty;
 use gosub_interface::layout::LayoutNode;
 
+// Parse functions that will parse a CSS property and converts it into a Taffy type so it can be used
+// in the taffy layout engine. This step is needed since our CSS properties are not directly compatible
+// with the Taffy layout engine.
+
 pub fn parse_len<C: HasLayouter>(node: &mut impl LayoutNode<C>, name: &str) -> LengthPercentage {
     let Some(property) = node.get_property(name) else {
         return LengthPercentage::Length(0.0);

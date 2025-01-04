@@ -1,13 +1,13 @@
 use crate::VelloBackend;
-use gosub_interface::layout::{Decoration, FontData, TextLayout};
+use gosub_interface::layout::{Decoration, TextLayout};
 use gosub_interface::render_backend::{RenderText, Text as TText};
 use gosub_shared::geo::{NormalizedCoord, Point, FP};
 use vello::kurbo::{Affine, Line, Stroke};
-use vello::peniko::{Brush, Color, Fill, Font, StyleRef};
+use vello::peniko::{Blob, Brush, Color, Fill, Font, StyleRef};
 use vello::Scene;
 use vello_encoding::Glyph;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Text {
     glyphs: Vec<Glyph>,
     fs: FP,
@@ -105,6 +105,37 @@ impl Text {
                     scene.stroke(&stroke, Affine::IDENTITY, &brush, None, &line);
                 }
             }
+        }
+    }
+}
+
+impl TText for Text {
+    fn new(layout: &impl TextLayout) -> Self {
+        let font = layout.font();
+
+        let font = Font::new(Blob::new(font.data.clone()), font.index);
+
+        let fs = layout.font_size();
+
+        let glyphs = layout
+            .glyphs()
+            .iter()
+            .map(|g| Glyph {
+                id: g.id as u32,
+                x: g.x,
+                y: g.y,
+            })
+            .collect();
+
+        let coords = layout.coords().iter().map(|c| NormalizedCoord::from_bits(*c)).collect();
+
+        Self {
+            glyphs,
+            font,
+            fs,
+            coords,
+            decoration: layout.decorations().clone(),
+            offset: layout.offset(),
         }
     }
 }
