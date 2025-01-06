@@ -10,7 +10,7 @@ description = "V8 bindings for Gosub"
 gosub_shared = { version = "0.1.1", registry = "gosub", path = "../gosub_shared" }
 gosub_webexecutor = { version = "0.1.1", registry = "gosub", path = "../gosub_webexecutor" }
 thiserror = "2.0.9"
-v8 = "130.0.1"
+v8 = "130.0.5"
 anyhow = "1.0.94"
 serde_json = "1.0.134"
 
