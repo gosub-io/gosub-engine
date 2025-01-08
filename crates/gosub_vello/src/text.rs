@@ -1,7 +1,7 @@
 use crate::VelloBackend;
 use gosub_interface::layout::{Decoration, TextLayout};
 use gosub_interface::render_backend::{RenderText, Text as TText};
-use gosub_shared::geo::FP;
+use gosub_shared::geo::{Point, FP};
 use vello::kurbo::{Affine, Line, Stroke};
 use vello::peniko::{Brush, Color, Fill, Font, StyleRef};
 use vello::skrifa::instance::NormalizedCoord;
@@ -15,6 +15,7 @@ pub struct Text {
     fs: FP,
     coords: Vec<NormalizedCoord>,
     decoration: Decoration,
+    offset: Point,
 }
 
 impl TText for Text {
@@ -44,6 +45,7 @@ impl TText for Text {
             fs,
             coords,
             decoration: layout.decorations().clone(),
+            offset: layout.offset(),
         }
     }
 }
@@ -61,48 +63,50 @@ impl Text {
 
         let transform = transform.with_translation((x, y).into());
 
-        scene
-            .draw_glyphs(&render.text.font)
-            .font_size(render.text.fs)
-            .transform(transform)
-            .glyph_transform(brush_transform)
-            .normalized_coords(&render.text.coords)
-            .brush(brush)
-            .draw(style, render.text.glyphs.iter().copied());
+        for text in &render.text {
+            let transform = transform.then_translate((text.offset.x as f64, text.offset.y as f64).into());
 
-        {
-            let decoration = &render.text.decoration;
+            scene
+                .draw_glyphs(&text.font)
+                .font_size(text.fs)
+                .transform(transform)
+                .glyph_transform(brush_transform)
+                .normalized_coords(&text.coords)
+                .brush(brush)
+                .draw(style, text.glyphs.iter().copied());
 
-            let stroke = Stroke::new(decoration.width as f64);
+            {
+                let decoration = &text.decoration;
 
-            let c = decoration.color;
+                let stroke = Stroke::new(decoration.width as f64);
 
-            let brush = Brush::Solid(Color::rgba(c.0 as f64, c.1 as f64, c.2 as f64, c.3 as f64));
+                let c = decoration.color;
 
-            let offset = decoration.x_offset as f64;
+                let brush = Brush::Solid(Color::rgba(c.0 as f64, c.1 as f64, c.2 as f64, c.3 as f64));
 
-            if decoration.underline {
-                let y = y + decoration.underline_offset as f64;
+                let offset = decoration.x_offset as f64;
 
-                let line = Line::new((x + offset, y), (x + render.rect.0.width(), y));
+                if decoration.underline {
+                    let y = y + decoration.underline_offset as f64 + render.rect.0.height();
 
-                scene.stroke(&stroke, Affine::IDENTITY, &brush, None, &line);
-            }
+                    let line = Line::new((x + offset, y), (x + render.rect.0.width(), y));
 
-            if decoration.overline {
-                let y = y - render.rect.0.height();
+                    scene.stroke(&stroke, Affine::IDENTITY, &brush, None, &line);
+                }
 
-                let line = Line::new((x + offset, y), (x + render.rect.0.width(), y));
+                if decoration.overline {
+                    let line = Line::new((x + offset, y), (x + render.rect.0.width(), y));
 
-                scene.stroke(&stroke, Affine::IDENTITY, &brush, None, &line);
-            }
+                    scene.stroke(&stroke, Affine::IDENTITY, &brush, None, &line);
+                }
 
-            if decoration.line_through {
-                let y = y - render.rect.0.height() / 2.0;
+                if decoration.line_through {
+                    let y = y + render.rect.0.height() / 2.0;
 
-                let line = Line::new((x + offset, y), (x + render.rect.0.width(), y));
+                    let line = Line::new((x + offset, y), (x + render.rect.0.width(), y));
 
-                scene.stroke(&stroke, Affine::IDENTITY, &brush, None, &line);
+                    scene.stroke(&stroke, Affine::IDENTITY, &brush, None, &line);
+                }
             }
         }
     }

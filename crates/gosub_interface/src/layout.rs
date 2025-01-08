@@ -34,7 +34,7 @@ pub trait Layouter: Sized + Clone + Send + 'static {
     type Cache: LayoutCache;
     type Layout: Layout + Send;
 
-    type TextLayout: TextLayout + Send;
+    type TextLayout: TextLayout + Send + Debug;
 
     const COLLAPSE_INLINE: bool;
 
@@ -127,21 +127,20 @@ pub trait LayoutNode<C: HasLayouter>: HasTextLayout<C> {
     fn get_property(&self, name: &str) -> Option<&C::CssProperty>;
     fn text_data(&self) -> Option<&str>;
 
-    fn text_size(&self) -> Option<Size>;
-
     /// This can only return true if the `Layout::COLLAPSE_INLINE` is set true for the layouter
     ///
     fn is_anon_inline_parent(&self) -> bool;
 }
 
 pub trait HasTextLayout<C: HasLayouter> {
-    fn set_text_layout(&mut self, layout: <C::Layouter as Layouter>::TextLayout);
+    fn clear_text_layout(&mut self);
+    fn add_text_layout(&mut self, layout: <C::Layouter as Layouter>::TextLayout);
+    fn get_text_layouts(&self) -> Option<&[<C::Layouter as Layouter>::TextLayout]>;
+    fn get_text_layouts_mut(&mut self) -> Option<&mut Vec<<C::Layouter as Layouter>::TextLayout>>;
 }
 
 pub trait TextLayout {
     type Font: Font;
-    fn dbg_layout(&self) -> String;
-
     fn size(&self) -> Size;
 
     fn glyphs(&self) -> &[Glyph];
@@ -153,6 +152,8 @@ pub trait TextLayout {
     fn coords(&self) -> &[i16];
 
     fn decorations(&self) -> &Decoration;
+
+    fn offset(&self) -> Point;
 }
 
 #[derive(Debug, Clone, Default)]

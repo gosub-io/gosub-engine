@@ -15,6 +15,7 @@ use gosub_interface::css3::{CssProperty, CssValue};
 use gosub_interface::layout::{Decoration, DecorationStyle, HasTextLayout, LayoutNode, LayoutTree};
 use gosub_shared::font::Glyph;
 use gosub_shared::geo;
+use gosub_shared::geo::FP;
 use gosub_shared::ROBOTO_FONT;
 
 use crate::text::{Font, TextLayout};
@@ -54,6 +55,7 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
         let Some(node) = tree.0.get_node_mut(*child) else {
             continue;
         };
+        node.clear_text_layout();
 
         if let Some(text) = node.text_data() {
             if text.is_empty() {
@@ -225,6 +227,12 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
     let mut builder = layout_cx.ranged_builder(&mut lock, &str_buf, 1.0);
     let mut align = Alignment::default();
 
+    println!("=============================");
+
+    for d in &text_node_data {
+        dbg!(d);
+    }
+
     if let Some(default) = text_node_data.first() {
         builder.push_default(StyleProperty::FontStack(FontStack::Source(
             (&default.font_family).into(),
@@ -368,6 +376,8 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
 
     let mut current_glyph_idx = 0;
 
+    let mut ids = Vec::with_capacity(text_node_data.len());
+
     'lines: for line in layout.lines() {
         let metrics = line.metrics();
 
@@ -418,10 +428,9 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
 
                     let coords = grun.normalized_coords().to_owned();
 
-                    let mut decoration = text_node_data
-                        .get(run.style().brush)
-                        .map(|x| x.decoration.clone())
-                        .unwrap_or_default();
+                    let data = text_node_data.get(run.style().brush);
+
+                    let mut decoration = data.map(|x| x.decoration.clone()).unwrap_or_default();
 
                     if let Some(text) = str_buf.get(grun.text_range()) {
                         let first_non_ws = text.chars().position(|c| !c.is_whitespace());
@@ -445,34 +454,23 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
                         glyphs,
                         coords,
                         decoration,
+                        offset: geo::Point {
+                            x: run.offset() as FP,
+                            y: run_y as FP,
+                        },
                     };
 
-                    let Some(node) = tree.0.get_node_mut(current_node_id) else {
+                    let node_id = data
+                        .map(|x| <C::LayoutTree as LayoutTree<C>>::NodeId::from(x.id.into()))
+                        .unwrap_or(current_node_id);
+
+                    ids.push(node_id);
+
+                    let Some(node) = tree.0.get_node_mut(node_id) else {
                         continue;
                     };
 
-                    node.set_text_layout(text_layout);
-
-                    let size = Size {
-                        width: size.width,
-                        height: size.height,
-                    };
-                    tree.set_unrounded_layout(
-                        NodeId::new(current_node_id.into()),
-                        &Layout {
-                            size,
-                            content_size: size,
-                            scrollbar_size: Size::ZERO,
-                            border: Rect::ZERO,
-                            location: Point {
-                                x: run.offset(),
-                                y: run_y,
-                            },
-                            order: 0,
-                            padding: Rect::ZERO,
-                            margin: Rect::ZERO,
-                        },
-                    );
+                    node.add_text_layout(text_layout);
                 }
                 PositionedLayoutItem::InlineBox(inline_box) => {
                     let id = NodeId::from(inline_box.id);
@@ -501,6 +499,47 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
                 }
             }
         }
+    }
+
+    for id in ids {
+        let Some(node) = tree.0.get_node_mut(id) else { continue };
+
+        let Some(layouts) = node.get_text_layouts_mut() else {
+            continue;
+        };
+
+        let mut location = Point {
+            x: f32::INFINITY,
+            y: f32::INFINITY,
+        };
+        let mut size = Size::ZERO;
+
+        for layout in &*layouts {
+            location.x = location.x.min(layout.offset.x);
+            location.y = location.y.min(layout.offset.y - layout.size.height);
+
+            size.width = size.width.max(layout.size.width + layout.offset.x);
+            size.height = size.height.max(layout.offset.y);
+        }
+
+        for layout in layouts {
+            layout.offset.x -= location.x;
+            layout.offset.y -= location.y;
+        }
+
+        tree.set_unrounded_layout(
+            NodeId::new(current_node_id.into()),
+            &Layout {
+                size,
+                content_size: size,
+                scrollbar_size: Size::ZERO,
+                border: Rect::ZERO,
+                location,
+                order: 0,
+                padding: Rect::ZERO,
+                margin: Rect::ZERO,
+            },
+        );
     }
 
     let mut size = content_size;

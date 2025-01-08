@@ -128,7 +128,7 @@ impl<B: RenderBackend> RenderRect<B> {
 
 #[derive(Clone, Debug)]
 pub struct RenderText<B: RenderBackend> {
-    pub text: B::Text,
+    pub text: Vec<B::Text>,
     pub rect: B::Rect,
     pub transform: Option<B::Transform>,
     pub brush: B::Brush,
@@ -136,7 +136,7 @@ pub struct RenderText<B: RenderBackend> {
 }
 
 impl<B: RenderBackend> RenderText<B> {
-    pub fn new(text: B::Text, rect: B::Rect, brush: B::Brush) -> Self {
+    pub fn new(text: Vec<B::Text>, rect: B::Rect, brush: B::Brush) -> Self {
         Self {
             text,
             rect,

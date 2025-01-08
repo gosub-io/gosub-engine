@@ -4,7 +4,7 @@ use taffy::{Overflow, Point, TextAlign};
 
 use crate::style::parse::{
     parse_align_c, parse_align_i, parse_dimension, parse_grid_auto, parse_grid_placement, parse_len, parse_len_auto,
-    parse_text_dim, parse_tracking_sizing_function,
+    parse_tracking_sizing_function,
 };
 use gosub_interface::config::HasLayouter;
 use gosub_interface::css3::CssProperty;
@@ -89,13 +89,6 @@ pub fn parse_inset<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Rect<Length
 }
 
 pub fn parse_size<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Size<Dimension> {
-    if let Some(t) = node.text_size() {
-        return Size {
-            width: parse_text_dim(t, "width"),
-            height: parse_text_dim(t, "height"),
-        };
-    }
-
     Size {
         width: parse_dimension(node, "width"),
         height: parse_dimension(node, "height"),
@@ -103,13 +96,6 @@ pub fn parse_size<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Size<Dimensi
 }
 
 pub fn parse_min_size<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Size<Dimension> {
-    if let Some(t) = node.text_size() {
-        return Size {
-            width: parse_text_dim(t, "min-width"),
-            height: parse_text_dim(t, "min-height"),
-        };
-    }
-
     Size {
         width: parse_dimension(node, "min-width"),
         height: parse_dimension(node, "min-height"),
@@ -117,13 +103,6 @@ pub fn parse_min_size<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Size<Dim
 }
 
 pub fn parse_max_size<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Size<Dimension> {
-    if let Some(t) = node.text_size() {
-        return Size {
-            width: parse_text_dim(t, "max-width"),
-            height: parse_text_dim(t, "max-height"),
-        };
-    }
-
     Size {
         width: parse_dimension(node, "max-width"),
         height: parse_dimension(node, "max-height"),
