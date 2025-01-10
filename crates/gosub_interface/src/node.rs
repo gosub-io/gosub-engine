@@ -1,5 +1,4 @@
 use crate::config::HasDocument;
-use crate::document_handle::DocumentHandle;
 use gosub_shared::byte_stream::Location;
 use gosub_shared::node::NodeId;
 use std::collections::hash_map::IntoIter;
@@ -174,8 +173,6 @@ pub trait Node<C: HasDocument>: Clone + Debug + PartialEq {
     fn get_comment_data(&self) -> Option<&Self::CommentData>;
     fn get_doctype_data(&self) -> Option<&Self::DocTypeData>;
 
-    /// Returns the document handle of the node
-    fn handle(&self) -> DocumentHandle<C>;
     /// Removes a child node from the node
     fn remove(&mut self, node_id: NodeId);
     /// Inserts a child node to the node at a specific index

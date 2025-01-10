@@ -6,7 +6,7 @@ use crate::render_tree::{load_html_rendertree, load_html_rendertree_fetcher, loa
 use anyhow::anyhow;
 use gosub_interface::config::{HasDrawComponents, HasHtmlParser};
 use gosub_interface::css3::{CssProperty, CssPropertyMap, CssValue};
-use gosub_interface::document_handle::DocumentHandle;
+
 use gosub_interface::draw::TreeDrawer;
 use gosub_interface::eventloop::EventLoopHandle;
 use gosub_interface::layout::{Layout, LayoutTree, Layouter, TextLayout};
@@ -210,18 +210,13 @@ where
         self.dirty = true;
     }
 
-    async fn from_url(url: Url, layouter: C::Layouter, debug: bool) -> Result<(Self, DocumentHandle<C>)> {
+    async fn from_url(url: Url, layouter: C::Layouter, debug: bool) -> Result<(Self, C::Document)> {
         let (rt, handle, fetcher) = load_html_rendertree::<C>(url.clone(), None).await?;
 
         Ok((Self::new(rt, layouter, Arc::new(fetcher), debug), handle))
     }
 
-    fn from_source(
-        url: Url,
-        source_html: &str,
-        layouter: C::Layouter,
-        debug: bool,
-    ) -> Result<(Self, DocumentHandle<C>)> {
+    fn from_source(url: Url, source_html: &str, layouter: C::Layouter, debug: bool) -> Result<(Self, C::Document)> {
         let fetcher = Fetcher::new(url.clone());
         let (rt, handle) = load_html_rendertree_source::<C>(url, source_html)?;
 
@@ -233,7 +228,7 @@ where
         fetcher: Arc<Fetcher>,
         layouter: C::Layouter,
         debug: bool,
-    ) -> Result<(Self, DocumentHandle<C>)> {
+    ) -> Result<(Self, C::Document)> {
         let (rt, handle) = load_html_rendertree_fetcher::<C>(url.clone(), &fetcher).await?;
 
         Ok((Self::new(rt, layouter, fetcher, debug), handle))
@@ -299,7 +294,7 @@ where
         self.debugger_scene = None;
     }
 
-    fn reload(&mut self, el: impl EventLoopHandle<C>) -> impl Future<Output = Result<DocumentHandle<C>>> + 'static {
+    fn reload(&mut self, el: impl EventLoopHandle<C>) -> impl Future<Output = Result<C::Document>> + 'static {
         let fetcher = self.fetcher.clone();
 
         async move {
@@ -323,7 +318,7 @@ where
         &mut self,
         url: Url,
         el: impl EventLoopHandle<C>,
-    ) -> impl Future<Output = Result<DocumentHandle<C>>> + 'static {
+    ) -> impl Future<Output = Result<C::Document>> + 'static {
         let fetcher = self.fetcher.clone();
 
         async move {

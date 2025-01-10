@@ -4,7 +4,7 @@ use crate::node::elements::{
 use crate::node::{HTML_NAMESPACE, MATHML_NAMESPACE, SVG_NAMESPACE};
 use core::fmt::{Debug, Formatter};
 use gosub_interface::config::HasDocument;
-use gosub_interface::document_handle::DocumentHandle;
+
 use gosub_interface::node::{ClassList, ElementDataType};
 use gosub_shared::node::NodeId;
 use std::collections::hash_map::IntoIter;
@@ -150,7 +150,6 @@ impl From<&str> for ClassListImpl {
 /// Data structure for element nodes
 #[derive(PartialEq, Clone)]
 pub struct ElementData<C: HasDocument> {
-    pub doc_handle: DocumentHandle<C>,
     pub node_id: Option<NodeId>,
     /// Name of the element (e.g., div)
     pub name: String,
@@ -337,7 +336,6 @@ impl<C: HasDocument> ElementDataType<C> for ElementData<C> {
 
 impl<C: HasDocument> ElementData<C> {
     pub(crate) fn new(
-        doc_handle: DocumentHandle<C>,
         name: &str,
         namespace: Option<&str>,
         attributes: HashMap<String, String>,
@@ -345,7 +343,6 @@ impl<C: HasDocument> ElementData<C> {
     ) -> Self {
         let (force_async, template_contents) = <_>::default();
         Self {
-            doc_handle: doc_handle.clone(),
             node_id: None, // We are not yet registered in the document, so we have no node-id
             name: name.into(),
             namespace: Some(namespace.unwrap_or(HTML_NAMESPACE).into()),

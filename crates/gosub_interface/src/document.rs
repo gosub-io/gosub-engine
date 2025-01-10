@@ -1,5 +1,4 @@
 use crate::config::HasDocument;
-use crate::document_handle::DocumentHandle;
 use crate::node::{Node, QuirksMode};
 use gosub_shared::byte_stream::Location;
 use gosub_shared::node::NodeId;
@@ -17,18 +16,13 @@ pub enum DocumentType {
 }
 
 pub trait DocumentBuilder<C: HasDocument> {
-    fn new_document(url: Option<Url>) -> DocumentHandle<C>;
-    fn new_document_fragment(
-        context_node: &<C::Document as Document<C>>::Node,
-        quirks_mode: QuirksMode,
-    ) -> DocumentHandle<C>;
+    fn new_document(url: Option<Url>) -> C::Document;
+    fn new_document_fragment(context_node: &<C::Document as Document<C>>::Node, quirks_mode: QuirksMode)
+        -> C::Document;
 }
 
 pub trait DocumentFragment<C: HasDocument>: Sized + Clone + PartialEq {
-    /// Returns the document handle for this document
-    fn handle(&self) -> DocumentHandle<C>;
-
-    fn new(handle: DocumentHandle<C>, node_id: NodeId) -> Self;
+    fn new(node_id: NodeId) -> Self;
 }
 
 pub trait Document<C: HasDocument<Document = Self>>: Sized + Display + Debug + PartialEq + 'static {
@@ -36,7 +30,7 @@ pub trait Document<C: HasDocument<Document = Self>>: Sized + Display + Debug + P
 
     // Creates a new doc with an optional document root node
     #[allow(clippy::new_ret_no_self)]
-    fn new(document_type: DocumentType, url: Option<Url>, root_node: Option<Self::Node>) -> DocumentHandle<C>;
+    fn new(document_type: DocumentType, url: Option<Url>, root_node: Option<Self::Node>) -> C::Document;
 
     // /// Creates a new document with an optional document root node
     // fn new_with_handle(document_type: DocumentType, url: Option<Url>, location: &Location, root_node: Option<&Self::Node>) -> DocumentHandle<Self>;
@@ -100,18 +94,12 @@ pub trait Document<C: HasDocument<Document = Self>>: Sized + Display + Debug + P
     fn register_node_at(&mut self, node: Self::Node, parent_id: NodeId, position: Option<usize>) -> NodeId;
 
     /// Node creation methods. The root node is needed in order to fetch the document handle (it can't be created from the document itself)
-    fn new_document_node(handle: DocumentHandle<C>, quirks_mode: QuirksMode, location: Location) -> Self::Node;
-    fn new_doctype_node(
-        handle: DocumentHandle<C>,
-        name: &str,
-        public_id: Option<&str>,
-        system_id: Option<&str>,
-        location: Location,
-    ) -> Self::Node;
-    fn new_comment_node(handle: DocumentHandle<C>, comment: &str, location: Location) -> Self::Node;
-    fn new_text_node(handle: DocumentHandle<C>, value: &str, location: Location) -> Self::Node;
+    fn new_document_node(quirks_mode: QuirksMode, location: Location) -> Self::Node;
+    fn new_doctype_node(name: &str, public_id: Option<&str>, system_id: Option<&str>, location: Location)
+        -> Self::Node;
+    fn new_comment_node(comment: &str, location: Location) -> Self::Node;
+    fn new_text_node(value: &str, location: Location) -> Self::Node;
     fn new_element_node(
-        handle: DocumentHandle<C>,
         name: &str,
         namespace: Option<&str>,
         attributes: HashMap<String, String>,

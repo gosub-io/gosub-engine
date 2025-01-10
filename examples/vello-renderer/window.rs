@@ -1,27 +1,21 @@
 use std::cell::LazyCell;
 use std::ops::Deref;
-use std::sync::mpsc::Sender;
 use std::sync::Arc;
 
-use crate::application::{CustomEventInternal, WindowOptions};
+use crate::application::WindowOptions;
 use crate::tabs::Tabs;
 use crate::WinitEventLoopHandle;
 use anyhow::anyhow;
-use gosub_instance::{EngineInstance, InstanceHandle};
-use gosub_interface::chrome::ChromeHandle;
 use gosub_interface::config::ModuleConfiguration;
-use gosub_interface::eventloop::EventLoopHandle;
 use gosub_interface::instance::{Handles, InstanceId};
-use gosub_interface::layout::LayoutTree;
-use gosub_interface::render_backend::{ImageBuffer, NodeDesc, RenderBackend};
+use gosub_interface::render_backend::RenderBackend;
 use gosub_shared::geo::SizeU32;
 use gosub_shared::types::Result;
 use image::imageops::FilterType;
-use log::{error, warn};
-use url::Url;
+use log::warn;
 use winit::dpi::LogicalSize;
 use winit::event::Modifiers;
-use winit::event_loop::{ActiveEventLoop, EventLoopProxy};
+use winit::event_loop::ActiveEventLoop;
 use winit::window::{Icon, Window as WinitWindow, WindowId};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,6 +51,7 @@ pub struct Window<'a, C: ModuleConfiguration> {
     pub(crate) renderer_data: <C::RenderBackend as RenderBackend>::WindowData<'a>,
     pub(crate) tabs: Tabs,
     pub(crate) mods: Modifiers,
+    #[allow(dead_code)]
     pub(crate) handles: Handles<C>,
 }
 

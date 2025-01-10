@@ -2,7 +2,7 @@ use anyhow::anyhow;
 use tiny_skia::Pixmap;
 
 use gosub_interface::config::HasDocument;
-use gosub_interface::document_handle::DocumentHandle;
+
 use gosub_interface::render_backend::{Image, ImageBuffer, RenderBackend};
 use gosub_interface::svg::SvgRenderer;
 use gosub_shared::geo::FP;
@@ -24,8 +24,8 @@ impl<B: RenderBackend> SvgRenderer<B> for Resvg {
         SVGDocument::from_str(&data)
     }
 
-    fn parse_internal<C: HasDocument>(tree: DocumentHandle<C>, id: NodeId) -> Result<Self::SvgDocument> {
-        SVGDocument::from_html_doc(id, tree)
+    fn parse_internal<C: HasDocument>(tree: C::Document, id: NodeId) -> Result<Self::SvgDocument> {
+        SVGDocument::from_html_doc::<C>(id, tree)
     }
 
     fn render(&mut self, doc: &SVGDocument) -> Result<ImageBuffer<B>> {

@@ -7,7 +7,7 @@ use crate::node::{HTML_NAMESPACE, MATHML_NAMESPACE, SVG_NAMESPACE};
 use generator::TreeOutputGenerator;
 use gosub_interface::config::{HasDocument, HasHtmlParser};
 use gosub_interface::document::{Document, DocumentBuilder};
-use gosub_interface::document_handle::DocumentHandle;
+
 use gosub_interface::html5::{Html5Parser, ParserOptions};
 use gosub_shared::byte_stream::{ByteStream, Config, Encoding, Location};
 use gosub_shared::node::NodeId;
@@ -82,13 +82,13 @@ impl Harness {
         self.next_document_line = 0;
 
         let (actual_document, actual_errors) = self.do_parse::<C>(scripting_enabled)?;
-        let result = self.generate_test_result::<C>(actual_document.clone(), &actual_errors);
+        let result = self.generate_test_result::<C>(actual_document, &actual_errors);
 
         Ok(result)
     }
 
     /// Run the html5 parser and return the document tree and errors
-    fn do_parse<C: HasHtmlParser>(&mut self, scripting_enabled: bool) -> ParseResult<DocumentHandle<C>> {
+    fn do_parse<C: HasHtmlParser>(&mut self, scripting_enabled: bool) -> ParseResult<C::Document> {
         let options = <<C::HtmlParser as Html5Parser<C>>::Options as ParserOptions>::new(scripting_enabled);
         let mut stream = ByteStream::new(
             Encoding::UTF8,
@@ -104,8 +104,8 @@ impl Harness {
         let (document, parse_errors) = if let Some(fragment) = self.test.spec.document_fragment.clone() {
             self.parse_fragment::<C>(fragment, stream, options, Location::default())?
         } else {
-            let document = C::DocumentBuilder::new_document(None);
-            let parser_errors = C::HtmlParser::parse(&mut stream, DocumentHandle::clone(&document), Some(options))?;
+            let mut document = C::DocumentBuilder::new_document(None);
+            let parser_errors = C::HtmlParser::parse(&mut stream, &mut document, Some(options))?;
 
             (document, parser_errors)
         };
@@ -119,7 +119,7 @@ impl Harness {
         mut stream: ByteStream,
         options: <C::HtmlParser as Html5Parser<C>>::Options,
         start_location: Location,
-    ) -> ParseResult<DocumentHandle<C>> {
+    ) -> ParseResult<C::Document> {
         // First, create a (fake) main document that contains only the fragment as node
         let mut main_doc_handle = C::DocumentBuilder::new_document(None);
 
@@ -132,30 +132,23 @@ impl Harness {
             (fragment, HTML_NAMESPACE)
         };
 
-        let quirks_mode = main_doc_handle.get().quirks_mode();
+        let quirks_mode = main_doc_handle.quirks_mode();
 
         // let doc_clone = DocumentHandle::clone(&main_document);
         // let mut doc = main_document.get_mut();
 
-        let node = C::Document::new_element_node(
-            main_doc_handle.clone(),
-            element.as_str(),
-            Some(namespace),
-            HashMap::new(),
-            start_location,
-        );
+        let node = C::Document::new_element_node(element.as_str(), Some(namespace), HashMap::new(), start_location);
 
-        let context_node_id = main_doc_handle.get_mut().register_node_at(node, NodeId::root(), None);
-        let binding = main_doc_handle.get();
-        let context_node = binding.node_by_id(context_node_id).unwrap();
+        let context_node_id = main_doc_handle.register_node_at(node, NodeId::root(), None);
+        let context_node = main_doc_handle.node_by_id(context_node_id).unwrap();
         let _ = context_node_id;
 
-        let document = C::DocumentBuilder::new_document_fragment(context_node, quirks_mode);
+        let mut document = C::DocumentBuilder::new_document_fragment(context_node, quirks_mode);
 
         let parser_errors = C::HtmlParser::parse_fragment(
             &mut stream,
-            document.clone(),
-            context_node,
+            &mut document,
+            context_node.clone(),
             Some(options),
             start_location,
         )?;
@@ -208,12 +201,12 @@ impl Harness {
 
     fn generate_test_result<C: HasDocument>(
         &mut self,
-        document: DocumentHandle<C>,
+        document: C::Document,
         _parse_errors: &[ParseError],
     ) -> TestResult {
         let mut result = TestResult::default();
 
-        let generator = TreeOutputGenerator::new(document);
+        let generator = TreeOutputGenerator::<C>::new(document);
         let actual = generator.generate();
 
         let mut line_idx = 1;

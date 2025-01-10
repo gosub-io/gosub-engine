@@ -3,8 +3,7 @@ use crate::parser::{ActiveElement, Html5Parser, Scope};
 use crate::tokenizer::token::Token;
 use gosub_interface::config::HasDocument;
 use gosub_interface::document::Document;
-use gosub_interface::document::DocumentFragment;
-use gosub_interface::document_handle::DocumentHandle;
+
 use gosub_interface::node::{ElementDataType, Node, TextDataType};
 use gosub_shared::node::NodeId;
 
@@ -12,16 +11,9 @@ const ADOPTION_AGENCY_OUTER_LOOP_DEPTH: usize = 8;
 const ADOPTION_AGENCY_INNER_LOOP_DEPTH: usize = 3;
 
 #[derive(Debug)]
-pub enum InsertionPositionMode<C: HasDocument, NodeId> {
-    LastChild {
-        handle: DocumentHandle<C>,
-        parent_id: NodeId,
-    },
-    Sibling {
-        handle: DocumentHandle<C>,
-        parent_id: NodeId,
-        before_id: NodeId,
-    },
+pub enum InsertionPositionMode<NodeId> {
+    LastChild { parent_id: NodeId },
+    Sibling { parent_id: NodeId, before_id: NodeId },
 }
 
 pub enum BookMark<NodeId> {
@@ -74,74 +66,63 @@ impl<C: HasDocument> Html5Parser<'_, C> {
             })
     }
 
-    pub fn insert_element_helper(&mut self, node_id: NodeId, position: InsertionPositionMode<C, NodeId>) {
+    pub fn insert_element_helper(&mut self, node_id: NodeId, position: InsertionPositionMode<NodeId>) {
         match position {
-            InsertionPositionMode::Sibling {
-                handle,
-                parent_id,
-                before_id,
-            } => {
-                let parent_node = get_node_by_id!(handle, parent_id);
+            InsertionPositionMode::Sibling { parent_id, before_id } => {
+                let parent_node = get_node_by_id!(self.document, parent_id);
                 let position = parent_node.children().iter().position(|&x| x == before_id);
 
-                let mut_handle = &mut handle.clone();
-                mut_handle.get_mut().attach_node(node_id, parent_id, position);
+                self.document.attach_node(node_id, parent_id, position);
             }
-            InsertionPositionMode::LastChild { handle, parent_id } => {
-                let mut_handle = &mut handle.clone();
-                mut_handle.get_mut().attach_node(node_id, parent_id, None);
+            InsertionPositionMode::LastChild { parent_id } => {
+                self.document.attach_node(node_id, parent_id, None);
             }
         }
     }
 
-    pub fn insert_text_helper(&mut self, position: InsertionPositionMode<C, NodeId>, token: &Token) {
+    pub fn insert_text_helper(&mut self, position: InsertionPositionMode<NodeId>, token: &Token) {
         match position {
-            InsertionPositionMode::Sibling {
-                handle,
-                parent_id,
-                before_id,
-            } => {
-                let parent_node = get_node_by_id!(handle, parent_id);
+            InsertionPositionMode::Sibling { parent_id, before_id } => {
+                let parent_node = get_node_by_id!(self.document, parent_id);
                 let position = parent_node.children().iter().position(|&x| x == before_id);
                 match position {
                     None | Some(0) => {
                         let node = self.create_node(token, HTML_NAMESPACE);
-                        let mut_handle = &mut handle.clone();
-                        mut_handle.get_mut().register_node_at(node, parent_id, position);
+                        self.document.register_node_at(node, parent_id, position);
                     }
                     Some(index) => {
                         let last_node_id = parent_node.children()[index - 1];
 
                         // If last node is a text node, we merge the text to that node instead of adding a new extra node
-                        let mut last_node = get_node_by_id!(handle.clone(), last_node_id);
+                        let mut last_node = get_node_by_id!(self.document, last_node_id);
                         if last_node.is_text_node() {
                             let data = get_text_data_mut!(&mut last_node);
                             data.value_mut().push_str(&token.to_string());
-                            handle.clone().get_mut().update_node(last_node);
+                            self.document.update_node(last_node);
                             return;
                         }
 
                         let node = self.create_node(token, HTML_NAMESPACE);
-                        handle.clone().get_mut().register_node_at(node, parent_id, Some(index));
+                        self.document.register_node_at(node, parent_id, Some(index));
                     }
                 }
             }
-            InsertionPositionMode::LastChild { handle, parent_id } => {
-                let parent_node = get_node_by_id!(handle, parent_id);
+            InsertionPositionMode::LastChild { parent_id } => {
+                let parent_node = get_node_by_id!(self.document, parent_id);
                 if let Some(&last_node_id) = parent_node.children().last() {
                     // If the last node is a text node we merge the text to that node instead of adding a new extra node
-                    let mut last_node = get_node_by_id!(handle.clone(), last_node_id);
+                    let mut last_node = get_node_by_id!(self.document, last_node_id);
                     if last_node.is_text_node() {
                         let data = last_node.get_text_data_mut().unwrap();
                         data.value_mut().push_str(&token.to_string());
-                        handle.clone().get_mut().update_node(last_node);
+                        self.document.update_node(last_node);
                         return;
                     }
                 }
 
                 // Just add the node to the parent as the last node
                 let node = self.create_node(token, HTML_NAMESPACE);
-                handle.clone().get_mut().register_node_at(node, parent_id, None);
+                self.document.register_node_at(node, parent_id, None);
             }
         }
     }
@@ -171,7 +152,7 @@ impl<C: HasDocument> Html5Parser<'_, C> {
     }
 
     pub fn insert_element(&mut self, node: C::Node, override_node: Option<NodeId>) -> NodeId {
-        let node_id = self.document.get_mut().register_node(node);
+        let node_id = self.document.register_node(node);
 
         let insert_position = self.appropriate_place_insert(override_node);
         self.insert_element_helper(node_id, insert_position);
@@ -185,12 +166,12 @@ impl<C: HasDocument> Html5Parser<'_, C> {
 
     pub fn insert_doctype_element(&mut self, token: &Token) {
         let node = self.create_node(token, HTML_NAMESPACE);
-        self.document.get_mut().register_node_at(node, NodeId::root(), None);
+        self.document.register_node_at(node, NodeId::root(), None);
     }
 
     pub fn insert_document_element(&mut self, token: &Token) {
         let node = self.create_node(token, HTML_NAMESPACE);
-        let node_id = self.document.get_mut().register_node_at(node, NodeId::root(), None);
+        let node_id = self.document.register_node_at(node, NodeId::root(), None);
 
         self.open_elements.push(node_id);
     }
@@ -198,11 +179,11 @@ impl<C: HasDocument> Html5Parser<'_, C> {
     pub fn insert_comment_element(&mut self, token: &Token, insert_position: Option<NodeId>) {
         let node = self.create_node(token, HTML_NAMESPACE);
         if let Some(position) = insert_position {
-            self.document.get_mut().register_node_at(node, position, None);
+            self.document.register_node_at(node, position, None);
             return;
         }
 
-        let node_id = self.document.get_mut().register_node(node);
+        let node_id = self.document.register_node(node);
         let insert_position = self.appropriate_place_insert(None);
         self.insert_element_helper(node_id, insert_position);
     }
@@ -221,7 +202,7 @@ impl<C: HasDocument> Html5Parser<'_, C> {
     }
 
     // @todo: where is the fragment case handled? (sub step 4: https://html.spec.whatwg.org/multipage/parsing.html#appropriate-place-for-inserting-a-node)
-    pub fn appropriate_place_insert(&self, override_node: Option<NodeId>) -> InsertionPositionMode<C, NodeId> {
+    pub fn appropriate_place_insert(&self, override_node: Option<NodeId>) -> InsertionPositionMode<NodeId> {
         let current_node = current_node!(self);
 
         // if current_node.id() == NodeId::root() {
@@ -239,17 +220,11 @@ impl<C: HasDocument> Html5Parser<'_, C> {
         if !(self.foster_parenting && ["table", "tbody", "thead", "tfoot", "tr"].contains(&target_element_data.name()))
         {
             if target_element_data.name() == "template" && target_element_data.is_namespace(HTML_NAMESPACE) {
-                if let Some(template_fragment) = target_element_data.template_contents() {
-                    return InsertionPositionMode::LastChild {
-                        handle: template_fragment.handle(),
-                        parent_id: target_id,
-                    };
+                if target_element_data.template_contents().is_some() {
+                    return InsertionPositionMode::LastChild { parent_id: target_id };
                 }
             } else {
-                return InsertionPositionMode::LastChild {
-                    handle: self.document.clone(),
-                    parent_id: target_id,
-                };
+                return InsertionPositionMode::LastChild { parent_id: target_id };
             }
         }
         let mut iter = self.open_elements.iter().rev().peekable();
@@ -258,29 +233,23 @@ impl<C: HasDocument> Html5Parser<'_, C> {
             let element_data = get_element_data!(node);
 
             if element_data.name() == "template" {
-                if let Some(template_fragment) = element_data.template_contents() {
-                    return InsertionPositionMode::LastChild {
-                        handle: template_fragment.handle(),
-                        parent_id: *node_id,
-                    };
+                if element_data.template_contents().is_some() {
+                    return InsertionPositionMode::LastChild { parent_id: *node_id };
                 }
             } else if element_data.name() == "table" {
                 if let Some(parent_id) = node.parent_id() {
                     return InsertionPositionMode::Sibling {
-                        handle: self.document.clone(),
                         parent_id,
                         before_id: *node_id,
                     };
                 }
                 // TODO has some question? can reached?
                 return InsertionPositionMode::LastChild {
-                    handle: self.document.clone(),
                     parent_id: *(*iter.peek().unwrap()),
                 };
             }
         }
         InsertionPositionMode::LastChild {
-            handle: self.document.clone(),
             parent_id: *self.open_elements.first().unwrap(),
         }
     }
@@ -406,13 +375,12 @@ impl<C: HasDocument> Html5Parser<'_, C> {
                 let element_data = get_element_data!(element_node);
 
                 let replacement_node = C::Document::new_element_node(
-                    self.document.clone(),
                     element_data.name(),
                     Some(element_data.namespace()),
                     element_data.attributes().clone(),
                     element_node.location(),
                 );
-                let replace_node_id = self.document.get_mut().register_node(replacement_node);
+                let replace_node_id = self.document.register_node(replacement_node);
 
                 self.active_formatting_elements[node_active_position] = ActiveElement::Node(replace_node_id);
 
@@ -426,21 +394,20 @@ impl<C: HasDocument> Html5Parser<'_, C> {
                 }
 
                 // step 4.13.8
-                self.document.get_mut().detach_node(last_node_id);
-                self.document.get_mut().attach_node(last_node_id, replace_node_id, None);
+                self.document.detach_node(last_node_id);
+                self.document.attach_node(last_node_id, replace_node_id, None);
 
                 // step 4.13.9
                 last_node_id = node_id;
             }
 
             // step 4.14
-            self.document.get_mut().detach_node(last_node_id);
+            self.document.detach_node(last_node_id);
             let insert_position = self.appropriate_place_insert(Some(common_ancestor));
             self.insert_element_helper(last_node_id, insert_position);
 
             // step 4.15
             let new_format_node = C::Document::new_element_node(
-                self.document.clone(),
                 format_element_data.name(),
                 Some(format_element_data.namespace()),
                 format_element_data.attributes().clone(),
@@ -448,17 +415,15 @@ impl<C: HasDocument> Html5Parser<'_, C> {
             );
 
             // step 4.16
-            let new_node_id = self.document.get_mut().register_node(new_format_node);
+            let new_node_id = self.document.register_node(new_format_node);
 
             let further_block_node = get_node_by_id!(self.document, further_block_node_id);
             for child in further_block_node.children() {
-                self.document.get_mut().relocate_node(*child, new_node_id);
+                self.document.relocate_node(*child, new_node_id);
             }
 
             // step 4.17
-            self.document
-                .get_mut()
-                .attach_node(new_node_id, further_block_node_id, None);
+            self.document.attach_node(new_node_id, further_block_node_id, None);
 
             // step 4.18
             match bookmark_node_id {

@@ -1,7 +1,7 @@
 use ::resvg::usvg;
 use gosub_interface::config::HasDocument;
 use gosub_interface::document::Document;
-use gosub_interface::document_handle::DocumentHandle;
+
 use gosub_shared::node::NodeId;
 use gosub_shared::types::Result;
 
@@ -21,9 +21,7 @@ impl SVGDocument {
         Ok(Self { tree })
     }
 
-    pub fn from_html_doc<C: HasDocument>(id: NodeId, doc: DocumentHandle<C>) -> Result<Self> {
-        let doc = doc.get();
-
+    pub fn from_html_doc<C: HasDocument>(id: NodeId, doc: C::Document) -> Result<Self> {
         let str = doc.write_from_node(id);
 
         Self::from_str(&str)

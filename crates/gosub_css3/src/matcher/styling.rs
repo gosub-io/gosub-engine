@@ -8,7 +8,7 @@ use gosub_interface::config::HasDocument;
 use gosub_interface::css3;
 use gosub_interface::css3::{CssOrigin, CssPropertyMap};
 use gosub_interface::document::Document;
-use gosub_interface::document_handle::DocumentHandle;
+
 use gosub_interface::node::ClassList;
 use gosub_interface::node::ElementDataType;
 use gosub_interface::node::Node;
@@ -20,12 +20,12 @@ use crate::system::Css3System;
 
 // Matches a complete selector (all parts) against the given node(id)
 pub(crate) fn match_selector<C: HasDocument>(
-    document: DocumentHandle<C>,
+    document: &C::Document,
     node_id: NodeId,
     selector: &CssSelector,
 ) -> (bool, Specificity) {
     for part in &selector.parts {
-        if match_selector_parts(DocumentHandle::clone(&document), node_id, part) {
+        if match_selector_parts::<C>(document, node_id, part) {
             return (true, Specificity::from(part.as_slice()));
         }
     }
@@ -44,13 +44,8 @@ fn consume<'a, T>(this: &mut &'a [T]) -> Option<&'a T> {
 }
 
 /// Returns true when the given node matches the part(s)
-fn match_selector_parts<C: HasDocument>(
-    handle: DocumentHandle<C>,
-    node_id: NodeId,
-    mut parts: &[CssSelectorPart],
-) -> bool {
-    let binding = handle.get();
-    let mut next_current_node = binding.node_by_id(node_id);
+fn match_selector_parts<C: HasDocument>(doc: &C::Document, node_id: NodeId, mut parts: &[CssSelectorPart]) -> bool {
+    let mut next_current_node = doc.node_by_id(node_id);
     if next_current_node.is_none() {
         return false;
     }
@@ -64,7 +59,7 @@ fn match_selector_parts<C: HasDocument>(
             return false;
         }
 
-        if !match_selector_part::<C>(part, current_node, &*binding, &mut next_current_node, &mut parts) {
+        if !match_selector_part::<C>(part, current_node, doc, &mut next_current_node, &mut parts) {
             return false;
         }
 

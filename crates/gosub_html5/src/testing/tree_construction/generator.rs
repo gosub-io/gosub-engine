@@ -2,24 +2,24 @@ use crate::node::HTML_NAMESPACE;
 use crate::node::{MATHML_NAMESPACE, SVG_NAMESPACE, XLINK_NAMESPACE, XMLNS_NAMESPACE};
 use gosub_interface::config::HasDocument;
 use gosub_interface::document::Document;
-use gosub_interface::document_handle::DocumentHandle;
+
 use gosub_interface::node::{CommentDataType, DocTypeDataType, ElementDataType, Node, NodeType, TextDataType};
 
 /// Generates a tree output that can be used for matching with the expected output
 pub struct TreeOutputGenerator<C: HasDocument> {
-    document: DocumentHandle<C>,
+    document: C::Document,
 }
 
 impl<C: HasDocument> TreeOutputGenerator<C> {
     /// Initializes a new tree output generator
     #[must_use]
-    pub fn new(document: DocumentHandle<C>) -> Self {
+    pub fn new(document: C::Document) -> Self {
         Self { document }
     }
 
     /// Generates a tree
     pub fn generate(&self) -> Vec<String> {
-        self.output_treeline(self.document.get().get_root(), 0)
+        self.output_treeline(self.document.get_root(), 0)
     }
 
     /// Generates an array of indented tree line and its children. Note that text lines can have newlines in them
@@ -54,8 +54,7 @@ impl<C: HasDocument> TreeOutputGenerator<C> {
         }
 
         for child_id in node.children() {
-            let doc = self.document.get();
-            let child_node = doc.node_by_id(*child_id).expect("node not found");
+            let child_node = self.document.node_by_id(*child_id).expect("node not found");
 
             output.append(&mut self.output_treeline(child_node, indent_level + 1));
         }

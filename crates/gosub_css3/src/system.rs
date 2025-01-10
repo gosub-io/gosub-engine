@@ -8,7 +8,7 @@ use crate::stylesheet::{CssDeclaration, CssValue, Specificity};
 use crate::{load_default_useragent_stylesheet, Css3};
 use gosub_interface::config::{HasDocument, HasRenderTree};
 use gosub_interface::css3::{CssOrigin, CssPropertyMap, CssSystem};
-use gosub_interface::document_handle::DocumentHandle;
+
 use gosub_interface::node::{ElementDataType, Node, TextDataType};
 use gosub_interface::render_tree::{RenderTree, RenderTreeNode};
 use gosub_shared::config::ParserConfig;
@@ -35,7 +35,7 @@ impl CssSystem for Css3System {
     fn properties_from_node<C: HasDocument<CssSystem = Self>>(
         node: &C::Node,
         sheets: &[Self::Stylesheet],
-        handle: DocumentHandle<C>,
+        doc: &C::Document,
         id: NodeId,
     ) -> Option<Self::PropertyMap> {
         let mut css_map_entry = CssProperties::new();
@@ -51,7 +51,7 @@ impl CssSystem for Css3System {
         for sheet in sheets {
             for rule in &sheet.rules {
                 for selector in rule.selectors().iter() {
-                    let (matched, specificity) = match_selector(DocumentHandle::clone(&handle), id, selector);
+                    let (matched, specificity) = match_selector::<C>(doc, id, selector);
 
                     if !matched {
                         continue;
@@ -66,7 +66,7 @@ impl CssSystem for Css3System {
                             continue;
                         };
 
-                        let value = resolve_functions(&declaration.value, node, handle.clone());
+                        let value = resolve_functions::<C>(&declaration.value, node, doc);
 
                         let match_value = if let CssValue::List(value) = &value {
                             &**value
@@ -239,7 +239,7 @@ pub fn node_is_unrenderable<C: HasDocument>(node: &C::Node) -> bool {
     false
 }
 
-pub fn resolve_functions<C: HasDocument>(value: &CssValue, node: &C::Node, handle: DocumentHandle<C>) -> CssValue {
+pub fn resolve_functions<C: HasDocument>(value: &CssValue, node: &C::Node, doc: &C::Document) -> CssValue {
     fn resolve<C: HasDocument>(val: &CssValue, node: &C::Node, doc: &C::Document) -> CssValue {
         match val {
             CssValue::Function(func, values) => {
@@ -256,12 +256,10 @@ pub fn resolve_functions<C: HasDocument>(value: &CssValue, node: &C::Node, handl
         }
     }
 
-    let doc = handle.get();
-
     if let CssValue::List(list) = value {
-        let resolved = list.iter().map(|val| resolve::<C>(val, node, &*doc)).collect();
+        let resolved = list.iter().map(|val| resolve::<C>(val, node, doc)).collect();
         CssValue::List(resolved)
     } else {
-        resolve::<C>(value, node, &*doc)
+        resolve::<C>(value, node, doc)
     }
 }
