@@ -1,0 +1,3 @@
+disallowed-methods = [
+  { path = "str::to_ascii_lowercase", reason = "To avoid memory allocation, use `cow_utils::CowUtils::cow_to_ascii_lowercase` instead." },
+]

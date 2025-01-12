@@ -2616,8 +2616,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             {
                 if ["h1", "h2", "h3", "h4", "h5", "h6"]
                     .iter()
-                    .map(|tag| self.is_in_scope(tag, HTML_NAMESPACE, Scope::Regular))
-                    .any(|res| res)
+                    .any(|tag| self.is_in_scope(tag, HTML_NAMESPACE, Scope::Regular))
                 {
                     self.generate_implied_end_tags(Some(name), false);
 

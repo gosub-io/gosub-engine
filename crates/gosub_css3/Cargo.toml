@@ -20,3 +20,4 @@ serde = { version = "1.0.217", features = ["derive"] }
 serde_json = "1.0.134"
 thiserror = "2.0.9"
 nom = "7.1.3"
+cow-utils = "0.1.3"
