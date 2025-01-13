@@ -13,7 +13,7 @@ gosub_css3 = { version = "0.1.1", registry = "gosub", path = "../gosub_css3", fe
 derive_more = { version = "1", features = ["from", "display"] }
 phf = { version = "0.11.2", features = ["macros"] }
 lazy_static = "1.5"
-thiserror = "2.0.9"
+thiserror = "2.0.11"
 url = { version = "2.5.4", features = [] }
 log = { version = "0.4.22", features = [] }
 nom = "7.1.3"
