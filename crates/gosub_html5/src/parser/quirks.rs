@@ -1,4 +1,5 @@
 use crate::parser::Html5Parser;
+use cow_utils::CowUtils;
 use gosub_interface::config::HasDocument;
 use gosub_interface::node::QuirksMode;
 
@@ -16,14 +17,14 @@ impl<C: HasDocument> Html5Parser<'_, C> {
         }
 
         if let Some(value) = pub_identifier {
-            let pub_id = value.to_lowercase();
-            if QUIRKS_PUB_IDENTIFIER_EQ.contains(&pub_id.as_str()) {
+            let pub_id = value.cow_to_lowercase();
+            if QUIRKS_PUB_IDENTIFIER_EQ.contains(&pub_id.as_ref()) {
                 return QuirksMode::Quirks;
             }
 
             if QUIRKS_PUB_IDENTIFIER_PREFIX
                 .iter()
-                .any(|&prefix| pub_id.as_str().starts_with(prefix))
+                .any(|&prefix| pub_id.as_ref().starts_with(prefix))
             {
                 return QuirksMode::Quirks;
             }
@@ -31,7 +32,7 @@ impl<C: HasDocument> Html5Parser<'_, C> {
             if sys_identifier.is_some()
                 && LIMITED_QUIRKS_PUB_IDENTIFIER_PREFIX_NOT_MISSING_SYS
                     .iter()
-                    .any(|&prefix| pub_id.as_str().starts_with(prefix))
+                    .any(|&prefix| pub_id.as_ref().starts_with(prefix))
             {
                 return QuirksMode::LimitedQuirks;
             }
@@ -39,24 +40,24 @@ impl<C: HasDocument> Html5Parser<'_, C> {
             if sys_identifier.is_none()
                 && QUIRKS_PUB_IDENTIFIER_PREFIX_MISSING_SYS
                     .iter()
-                    .any(|&prefix| pub_id.as_str().starts_with(prefix))
+                    .any(|&prefix| pub_id.as_ref().starts_with(prefix))
             {
                 return QuirksMode::Quirks;
             }
 
             if LIMITED_QUIRKS_PUB_IDENTIFIER_PREFIX
                 .iter()
-                .any(|&prefix| pub_id.as_str().starts_with(prefix))
+                .any(|&prefix| pub_id.as_ref().starts_with(prefix))
             {
                 return QuirksMode::LimitedQuirks;
             }
         }
 
         if let Some(value) = sys_identifier {
-            let sys_id = value.to_lowercase();
+            let sys_id = value.cow_to_lowercase();
             if QUIRKS_SYS_IDENTIFIER_EQ
                 .iter()
-                .any(|&prefix| sys_id.as_str().starts_with(prefix))
+                .any(|&prefix| sys_id.as_ref().starts_with(prefix))
             {
                 return QuirksMode::Quirks;
             }

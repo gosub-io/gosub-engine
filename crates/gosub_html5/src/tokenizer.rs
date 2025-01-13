@@ -12,6 +12,7 @@ use crate::node::HTML_NAMESPACE;
 use crate::parser::errors::{ErrorLogger, ParserError};
 use crate::tokenizer::state::State;
 use crate::tokenizer::token::Token;
+use cow_utils::CowUtils;
 use gosub_shared::byte_stream::Character::{Ch, StreamEnd};
 use gosub_shared::byte_stream::{ByteStream, Character, Location, LocationHandler, Stream};
 use gosub_shared::types::Result;
@@ -1235,7 +1236,7 @@ impl<'stream> Tokenizer<'stream> {
                         continue;
                     }
 
-                    if Character::slice_to_string(self.stream.get_slice(7)).to_uppercase() == "DOCTYPE" {
+                    if Character::slice_to_string(self.stream.get_slice(7)).cow_to_uppercase() == "DOCTYPE" {
                         self.stream_next_n(7);
                         self.state = State::DOCTYPE;
                         continue;
@@ -1605,12 +1606,12 @@ impl<'stream> Tokenizer<'stream> {
                         }
                         _ => {
                             self.stream_prev();
-                            if Character::slice_to_string(self.stream.get_slice(6)).to_uppercase() == "PUBLIC" {
+                            if Character::slice_to_string(self.stream.get_slice(6)).cow_to_uppercase() == "PUBLIC" {
                                 self.stream_next_n(6);
                                 self.state = State::AfterDOCTYPEPublicKeyword;
                                 continue;
                             }
-                            if Character::slice_to_string(self.stream.get_slice(6)).to_uppercase() == "SYSTEM" {
+                            if Character::slice_to_string(self.stream.get_slice(6)).cow_to_uppercase() == "SYSTEM" {
                                 self.stream_next_n(6);
                                 self.state = State::AfterDOCTYPESystemKeyword;
                                 continue;

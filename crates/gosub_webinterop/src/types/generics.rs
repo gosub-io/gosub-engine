@@ -1,4 +1,5 @@
 use crate::types::Primitive;
+use cow_utils::CowUtils;
 use quote::ToTokens;
 use syn::Path;
 
@@ -23,10 +24,10 @@ pub(crate) enum GenericsMatcher {
 
 impl GenericsMatcher {
     pub(crate) fn is_match(&self, ty: &str, index: usize) -> bool {
-        let ty = ty.replace(' ', "");
+        let ty = ty.cow_replace(' ', "");
         match self {
-            GenericsMatcher::Param(p) => p.to_token_stream().to_string().replace(' ', "") == ty,
-            GenericsMatcher::Trait(p) => p.to_token_stream().to_string().replace(' ', "") == ty,
+            GenericsMatcher::Param(p) => p.to_token_stream().to_string().cow_replace(' ', "") == ty,
+            GenericsMatcher::Trait(p) => p.to_token_stream().to_string().cow_replace(' ', "") == ty,
             GenericsMatcher::Index(i) => i == &index,
         }
     }

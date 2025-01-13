@@ -1,3 +1,4 @@
+use cow_utils::CowUtils;
 use proc_macro2::{Ident, TokenStream};
 use quote::quote;
 
@@ -12,7 +13,7 @@ pub(crate) enum Primitive {
 
 impl Primitive {
     pub(crate) fn get(ty: &str) -> Self {
-        let ty = ty.replace('&', "");
+        let ty = ty.cow_replace('&', "");
         match &*ty {
             "i8" | "u8" | "i16" | "u16" | "i32" | "u32" | "i64" | "u64" | "i128" | "u128" | "isize" | "usize"
             | "f32" | "f64" => Primitive::Number,

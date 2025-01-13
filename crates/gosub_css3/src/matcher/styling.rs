@@ -1,4 +1,5 @@
 use core::fmt::Debug;
+use cow_utils::CowUtils;
 use itertools::Itertools;
 use std::cmp::Ordering;
 use std::collections::HashMap;
@@ -132,8 +133,8 @@ fn match_selector_part<'a, C: HasDocument>(
             let mut _got_buf = String::new();
             // If we need to match case-insensitive, just convert everything to lowercase for comparison
             if attr.case_insensitive {
-                _wanted_buf = wanted_attr_name.to_lowercase();
-                _got_buf = got_attr_value.to_lowercase();
+                _wanted_buf = wanted_attr_name.cow_to_lowercase().to_string();
+                _got_buf = got_attr_value.cow_to_lowercase().to_string();
 
                 wanted_attr_value = &_wanted_buf;
                 got_attr_value = &_got_buf;

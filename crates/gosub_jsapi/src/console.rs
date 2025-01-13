@@ -4,6 +4,7 @@ mod formatter;
 mod writable_printer;
 
 use crate::console::formatter::Formatter;
+use cow_utils::CowUtils;
 use std::collections::HashMap;
 use std::fmt;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -33,7 +34,7 @@ pub enum LogLevel {
 impl fmt::Display for LogLevel {
     // When displaying the enum, make sure it is in lowercase
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", format!("{self:?}").to_lowercase())
+        write!(f, "{}", format!("{self:?}").cow_to_lowercase())
     }
 }
 

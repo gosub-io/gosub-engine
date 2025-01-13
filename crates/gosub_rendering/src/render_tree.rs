@@ -1,3 +1,4 @@
+use cow_utils::CowUtils;
 use gosub_html5::document::document_impl::TreeIterator;
 use gosub_interface::config::{HasDocument, HasLayouter, HasRenderTree};
 use gosub_interface::css3::{CssProperty, CssPropertyMap, CssSystem};
@@ -773,9 +774,9 @@ impl<C: HasLayouter> RenderTreeNode<C> {
             return d;
         }
 
-        let tag_name = self.name.to_lowercase();
+        let tag_name = self.name.cow_to_lowercase();
 
-        INLINE_ELEMENTS.contains(&tag_name.as_str())
+        INLINE_ELEMENTS.contains(&tag_name.as_ref())
     }
 }
 

@@ -1,5 +1,6 @@
 use crate::errors::Error;
 use core::fmt::Display;
+use cow_utils::CowUtils;
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::str::FromStr;
@@ -94,8 +95,8 @@ impl Setting {
 }
 
 fn is_bool_value(s: &str) -> bool {
-    let us = s.to_uppercase();
-    if ["YES", "ON", "TRUE", "1"].contains(&us.as_str()) {
+    let us = s.cow_to_uppercase();
+    if ["YES", "ON", "TRUE", "1"].contains(&us.as_ref()) {
         return true;
     }
 

@@ -1,4 +1,5 @@
 // See https://github.com/html5lib/html5lib-tests/tree/master/tree-construction
+use cow_utils::CowUtils;
 use gosub_shared::types::{Error, Result};
 use nom::{
     branch::alt,
@@ -302,7 +303,7 @@ fn trim_last_newline(s: String) -> String {
 
 pub fn parse_fixture(i: &str) -> Result<Vec<TestSpec>> {
     // Deal with a corner case that makes it hard to parse tricky01.dat.
-    let input = i.replace("\"\n\n\"", QUOTED_DOUBLE_NEWLINE).clone() + "\n";
+    let input = i.cow_replace("\"\n\n\"", QUOTED_DOUBLE_NEWLINE).clone() + "\n";
 
     let files = map(
         tuple((separated_list1(tag("\n\n"), test), multispace0)),

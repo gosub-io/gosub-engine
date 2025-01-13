@@ -1,6 +1,7 @@
 use crate::node::{FeatureKind, Node, NodeType};
 use crate::tokenizer::TokenType;
 use crate::Css3;
+use cow_utils::CowUtils;
 use gosub_shared::errors::{CssError, CssResult};
 
 impl Css3<'_> {
@@ -15,13 +16,13 @@ impl Css3<'_> {
             TokenType::Number(value) => Ok(Node::new(NodeType::Number { value }, loc)),
             TokenType::Dimension { value, unit } => Ok(Node::new(NodeType::Dimension { value, unit }, loc)),
             TokenType::Function(name) => {
-                let name = name.to_lowercase();
-                let args = self.parse_pseudo_function(name.as_str())?;
+                let name = name.cow_to_lowercase();
+                let args = self.parse_pseudo_function(name.as_ref())?;
                 self.consume(TokenType::RParen)?;
 
                 Ok(Node::new(
                     NodeType::Function {
-                        name,
+                        name: name.to_string(),
                         arguments: vec![args],
                     },
                     loc,
@@ -111,13 +112,13 @@ impl Css3<'_> {
                 }
                 TokenType::Ident(value) => Some(Node::new(NodeType::Ident { value }, t.location)),
                 TokenType::Function(name) => {
-                    let name = name.to_lowercase();
-                    let args = self.parse_pseudo_function(name.as_str())?;
+                    let name = name.cow_to_lowercase();
+                    let args = self.parse_pseudo_function(name.as_ref())?;
                     self.consume(TokenType::RParen)?;
 
                     Some(Node::new(
                         NodeType::Function {
-                            name,
+                            name: name.to_string(),
                             arguments: vec![args],
                         },
                         t.location,
@@ -208,8 +209,8 @@ impl Css3<'_> {
                 _ => unreachable!(),
             };
 
-            let s = ident.to_lowercase();
-            media_type = if ["not", "only"].contains(&s.as_str()) {
+            let s = ident.cow_to_lowercase();
+            media_type = if ["not", "only"].contains(&s.as_ref()) {
                 self.consume_whitespace_comments();
                 modifier = ident;
                 self.consume_any_ident()?

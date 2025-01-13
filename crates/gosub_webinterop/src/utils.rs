@@ -1,5 +1,5 @@
+use cow_utils::CowUtils;
 use std::env;
-
 use syn::Path;
 
 #[allow(dead_code)]
@@ -9,7 +9,7 @@ pub fn crate_ident() -> Path {
         name = "crate".to_string();
     }
 
-    let name = name.replace('-', "_");
+    let name = name.cow_replace('-', "_");
 
     syn::parse_str::<Path>(&name).unwrap()
 }
