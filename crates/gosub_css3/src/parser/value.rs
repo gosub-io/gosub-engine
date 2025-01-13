@@ -1,6 +1,7 @@
 use crate::node::{Node, NodeType};
 use crate::tokenizer::TokenType;
 use crate::Css3;
+use cow_utils::CowUtils;
 use gosub_shared::errors::CssError;
 use gosub_shared::errors::CssResult;
 
@@ -74,7 +75,7 @@ impl Css3<'_> {
                 Ok(Some(node))
             }
             TokenType::Function(name) => {
-                let node = match name.to_ascii_lowercase().as_str() {
+                let node = match name.cow_to_ascii_lowercase().as_ref() {
                     "calc" => self.parse_calc()?,
                     "url" => {
                         self.tokenizer.reconsume();
