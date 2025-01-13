@@ -11,7 +11,7 @@ impl Css3<'_> {
         let loc = self.tokenizer.current_location();
 
         let name = self.consume_function()?;
-        if name.to_ascii_lowercase() != "url" {
+        if !name.eq_ignore_ascii_case("url") {
             return Err(CssError::with_location(
                 format!("Expected url, got {:?}", name).as_str(),
                 self.tokenizer.current_location(),
