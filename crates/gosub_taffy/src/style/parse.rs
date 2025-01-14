@@ -7,7 +7,6 @@ use taffy::{
 use gosub_interface::config::HasLayouter;
 use gosub_interface::css3::CssProperty;
 use gosub_interface::layout::LayoutNode;
-use gosub_shared::geo::Size;
 
 pub fn parse_len<C: HasLayouter>(node: &mut impl LayoutNode<C>, name: &str) -> LengthPercentage {
     let Some(property) = node.get_property(name) else {
@@ -55,16 +54,6 @@ pub fn parse_dimension<C: HasLayouter>(node: &mut impl LayoutNode<C>, name: &str
     }
 
     Dimension::Length(property.unit_to_px())
-}
-
-pub fn parse_text_dim(size: Size, name: &str) -> Dimension {
-    if name == "width" || name == "max-width" || name == "min-width" {
-        Dimension::Length(size.width)
-    } else if name == "height" || name == "max-height" || name == "min-height" {
-        Dimension::Length(size.height)
-    } else {
-        Dimension::Auto
-    }
 }
 
 pub fn parse_align_i<C: HasLayouter>(node: &mut impl LayoutNode<C>, name: &str) -> Option<AlignItems> {

@@ -2,7 +2,7 @@ use crate::CairoBackend;
 use gosub_interface::layout::{Decoration, TextLayout};
 use gosub_interface::render_backend::{RenderText, Text as TText};
 use gosub_shared::font::{Glyph, GlyphID};
-use gosub_shared::geo::FP;
+use gosub_shared::geo::{Point, FP};
 use peniko::Font;
 use skrifa::instance::NormalizedCoord;
 use std::cell::RefCell;
@@ -122,6 +122,8 @@ pub struct GsText {
     coords: Vec<NormalizedCoord>,
     // Text decoration (strike-through, underline, etc.)
     decoration: Decoration,
+    // offset in the element
+    offset: Point,
 }
 
 impl TText for GsText {
@@ -152,6 +154,7 @@ impl TText for GsText {
             fs,
             coords,
             decoration: layout.decorations().clone(),
+            offset: layout.offset(),
         }
     }
 }
@@ -169,7 +172,6 @@ impl GsText {
         cr.move_to(base_x, base_y);
 
         // Setup brush for rendering text
-        GsBrush::render(&obj.brush, cr);
 
         // This should be moved to the GosubFontContext::get_cairo_font_face(family: &str) method)
         let font_face = unsafe {
@@ -184,49 +186,57 @@ impl GsText {
         };
         cr.set_font_face(&font_face);
 
-        cr.set_font_size(obj.text.fs.into());
+        for text in &obj.text {
+            GsBrush::render(&obj.brush, cr);
+            cr.move_to(base_x + text.offset.x as f64, base_y + text.offset.y as f64);
+            cr.set_font_size(text.fs.into());
 
-        // Convert glyphs that are in parley / taffy format to cairo glyphs. Also make sure we
-        // offset the glyphs by the base_x and base_y.
-        let mut cairo_glyphs = vec![];
-        for glyph in &obj.text.glyphs {
-            let cairo_glyph = cairo::Glyph::new(glyph.id as u64, base_x + glyph.x as f64, base_y + glyph.y as f64);
-            cairo_glyphs.push(cairo_glyph);
-        }
-
-        _ = cr.show_glyphs(&cairo_glyphs);
-
-        // Set decoration (underline, overline, line-through)
-        {
-            let decoration = &obj.text.decoration;
-            let _stroke = Stroke::new(decoration.width as f64);
-
-            let c = decoration.color;
-            let brush = GsBrush::solid(GsColor::rgba32(c.0, c.1, c.2, 1.0));
-            GsBrush::render(&brush, cr);
-
-            let offset = decoration.x_offset as f64;
-            if decoration.underline {
-                let y = base_y + decoration.underline_offset as f64;
-
-                cr.move_to(base_x + offset, y);
-                cr.line_to(base_x + obj.rect.width, y);
-                _ = cr.stroke();
-            }
-            if decoration.overline {
-                let y = base_y - obj.rect.height;
-
-                cr.move_to(base_x + offset, y);
-                cr.line_to(base_x + obj.rect.width, y);
-                _ = cr.stroke();
+            // Convert glyphs that are in parley / taffy format to cairo glyphs. Also make sure we
+            // offset the glyphs by the base_x and base_y.
+            let mut cairo_glyphs = vec![];
+            for glyph in &text.glyphs {
+                let cairo_glyph = cairo::Glyph::new(
+                    glyph.id as u64,
+                    base_x + glyph.x as f64 + text.offset.x as f64,
+                    base_y + glyph.y as f64 + text.offset.y as f64,
+                );
+                cairo_glyphs.push(cairo_glyph);
             }
 
-            if decoration.line_through {
-                let y = base_y - obj.rect.height / 2.0;
+            _ = cr.show_glyphs(&cairo_glyphs);
 
-                cr.move_to(base_x + offset, y);
-                cr.line_to(base_x + obj.rect.width, y);
-                _ = cr.stroke();
+            // Set decoration (underline, overline, line-through)
+            {
+                let decoration = &text.decoration;
+                let _stroke = Stroke::new(decoration.width as f64);
+
+                let c = decoration.color;
+                let brush = GsBrush::solid(GsColor::rgba32(c.0, c.1, c.2, 1.0));
+                GsBrush::render(&brush, cr);
+
+                let offset = decoration.x_offset as f64;
+                if decoration.underline {
+                    let y = base_y + decoration.underline_offset as f64 + obj.rect.height;
+
+                    cr.move_to(base_x + offset, y);
+                    cr.line_to(base_x + obj.rect.width, y);
+                    _ = cr.stroke();
+                }
+                if decoration.overline {
+                    let y = base_y - obj.rect.height;
+
+                    cr.move_to(base_x + offset, y);
+                    cr.line_to(base_x + obj.rect.width, y);
+                    _ = cr.stroke();
+                }
+
+                if decoration.line_through {
+                    let y = base_y + obj.rect.height / 2.0;
+
+                    cr.move_to(base_x + offset, y);
+                    cr.line_to(base_x + obj.rect.width, y);
+                    _ = cr.stroke();
+                }
             }
         }
     }

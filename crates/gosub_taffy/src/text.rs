@@ -1,8 +1,10 @@
 use gosub_interface::layout::{Decoration, TextLayout as TLayout};
 use gosub_shared::font::Font as TFont;
 use gosub_shared::font::Glyph;
-use gosub_shared::geo::Size;
+use gosub_shared::geo::{Point, Size};
 use parley::Font as PFont;
+use std::fmt;
+use std::fmt::{Debug, Formatter};
 
 #[derive(Debug, Clone)]
 pub struct Font(pub PFont);
@@ -19,7 +21,6 @@ impl From<Font> for PFont {
     }
 }
 
-#[derive(Debug)]
 pub struct TextLayout {
     pub glyphs: Vec<Glyph>,
     pub font: Font,
@@ -27,14 +28,22 @@ pub struct TextLayout {
     pub size: Size,
     pub coords: Vec<i16>,
     pub decoration: Decoration,
+    pub offset: Point,
+}
+
+impl Debug for TextLayout {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TextLayout")
+            .field("size", &self.size)
+            .field("font_size", &self.font_size)
+            .field("decoration", &self.decoration)
+            .field("offset", &self.offset)
+            .finish()
+    }
 }
 
 impl TLayout for TextLayout {
     type Font = Font;
-
-    fn dbg_layout(&self) -> String {
-        format!("TextLayout: {:?}", self)
-    }
 
     fn size(&self) -> Size {
         self.size
@@ -58,5 +67,9 @@ impl TLayout for TextLayout {
 
     fn decorations(&self) -> &Decoration {
         &self.decoration
+    }
+
+    fn offset(&self) -> Point {
+        self.offset
     }
 }

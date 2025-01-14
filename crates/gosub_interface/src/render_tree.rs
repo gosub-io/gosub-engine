@@ -33,6 +33,6 @@ pub trait RenderTreeNode<C: HasLayouter>: Debug {
     fn layout_mut(&mut self) -> &mut <C::Layouter as Layouter>::Layout;
 
     fn element_attributes(&self) -> Option<&HashMap<String, String>>;
-    fn text_data(&self) -> Option<(&str, Option<&<C::Layouter as Layouter>::TextLayout>)>;
+    fn text_data(&self) -> Option<(&str, &[<C::Layouter as Layouter>::TextLayout])>;
     fn name(&self) -> &str;
 }

@@ -3,10 +3,9 @@ use gosub_interface::config::{HasDocument, HasLayouter, HasRenderTree};
 use gosub_interface::css3::{CssProperty, CssPropertyMap, CssSystem};
 use gosub_interface::document::Document;
 
-use gosub_interface::layout::{HasTextLayout, Layout, LayoutCache, LayoutNode, LayoutTree, Layouter, TextLayout};
+use gosub_interface::layout::{HasTextLayout, Layout, LayoutCache, LayoutNode, LayoutTree, Layouter};
 use gosub_interface::node::NodeData;
 use gosub_interface::node::{ElementDataType, Node as DocumentNode, TextDataType};
-use gosub_interface::render_backend::Size;
 use gosub_interface::render_tree;
 use gosub_shared::node::NodeId;
 use gosub_shared::types::Result;
@@ -580,9 +579,9 @@ impl<C: HasLayouter> render_tree::RenderTreeNode<C> for RenderTreeNode<C> {
         None
     }
 
-    fn text_data(&self) -> Option<(&str, Option<&<C::Layouter as Layouter>::TextLayout>)> {
+    fn text_data(&self) -> Option<(&str, &[<C::Layouter as Layouter>::TextLayout])> {
         if let RenderNodeData::Text(data) = &self.data {
-            return Some((&data.text, data.layout.as_ref()));
+            return Some((&data.text, &data.layout));
         }
 
         None
@@ -631,14 +630,14 @@ impl<L: Layouter> Debug for RenderNodeData<L> {
 
 pub struct TextData<L: Layouter> {
     pub text: String,
-    pub layout: Option<L::TextLayout>,
+    pub layout: Vec<L::TextLayout>,
 }
 
 impl<L: Layouter> Debug for TextData<L> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("TextData")
             .field("text", &self.text)
-            .field("layout", &self.layout.as_ref().map(|x| x.dbg_layout()))
+            .field("layout", &self.layout)
             .finish()
     }
 }
@@ -658,7 +657,10 @@ impl<L: Layouter> RenderNodeData<L> {
             NodeData::Text(data) => {
                 let text = pre_transform_text(data.string_value());
 
-                RenderNodeData::Text(Box::new(TextData { text, layout: None }))
+                RenderNodeData::Text(Box::new(TextData {
+                    text,
+                    layout: Vec::new(),
+                }))
             }
             NodeData::Document(_) => RenderNodeData::Document,
             _ => return ControlFlow::Drop,
@@ -757,9 +759,31 @@ impl<C: HasLayouter> RenderTreeNode<C> {
 }
 
 impl<C: HasLayouter> HasTextLayout<C> for RenderTreeNode<C> {
-    fn set_text_layout(&mut self, layout: <C::Layouter as Layouter>::TextLayout) {
+    fn clear_text_layout(&mut self) {
         if let RenderNodeData::Text(text) = &mut self.data {
-            text.layout = Some(layout);
+            text.layout.clear();
+        }
+    }
+
+    fn add_text_layout(&mut self, layout: <C::Layouter as Layouter>::TextLayout) {
+        if let RenderNodeData::Text(text) = &mut self.data {
+            text.layout.push(layout);
+        }
+    }
+
+    fn get_text_layouts(&self) -> Option<&[<C::Layouter as Layouter>::TextLayout]> {
+        if let RenderNodeData::Text(text) = &self.data {
+            Some(&text.layout)
+        } else {
+            None
+        }
+    }
+
+    fn get_text_layouts_mut(&mut self) -> Option<&mut Vec<<C::Layouter as Layouter>::TextLayout>> {
+        if let RenderNodeData::Text(text) = &mut self.data {
+            Some(&mut text.layout)
+        } else {
+            None
         }
     }
 }
@@ -771,14 +795,6 @@ impl<C: HasLayouter> LayoutNode<C> for RenderTreeNode<C> {
     fn text_data(&self) -> Option<&str> {
         if let RenderNodeData::Text(text) = &self.data {
             Some(&text.text)
-        } else {
-            None
-        }
-    }
-
-    fn text_size(&self) -> Option<Size> {
-        if let RenderNodeData::Text(text) = &self.data {
-            text.layout.as_ref().map(|layout| layout.size())
         } else {
             None
         }

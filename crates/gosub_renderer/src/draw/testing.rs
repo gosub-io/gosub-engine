@@ -34,7 +34,7 @@ pub(crate) fn test_add_element<C: HasDrawComponents<RenderTree = RenderTree<C>, 
         "#text".to_string(),
         RenderNodeData::Text(Box::new(TextData {
             text: "test add element".to_string(),
-            layout: None,
+            layout: Vec::new(),
         })),
         props,
     );

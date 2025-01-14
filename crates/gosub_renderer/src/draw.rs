@@ -23,7 +23,7 @@ use gosub_rendering::render_tree::RenderTree;
 use gosub_shared::geo::{Size, SizeU32, FP};
 use gosub_shared::node::NodeId;
 use gosub_shared::types::Result;
-use log::{error, info, warn};
+use log::{error, info};
 use std::future::Future;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
@@ -490,13 +490,15 @@ fn render_text<C: HasDrawComponents>(
         .unwrap_or(Color::BLACK);
 
     if let Some((_, layout)) = &node.text_data() {
-        let Some(layout) = layout else {
-            warn!("No layout for text node");
-            return;
-        };
+        let text = layout
+            .iter()
+            .map(|layout| {
+                let text: <C::RenderBackend as RenderBackend>::Text =
+                    Text::new::<<C::Layouter as Layouter>::TextLayout>(layout);
 
-        let text: <C::RenderBackend as RenderBackend>::Text =
-            Text::new::<<C::Layouter as Layouter>::TextLayout>(layout);
+                text
+            })
+            .collect::<Vec<_>>();
 
         let size = node.layout().size();
 
