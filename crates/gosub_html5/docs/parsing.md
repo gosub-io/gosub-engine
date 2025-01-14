@@ -16,14 +16,14 @@ Next, we need to create a document, which will be the main object that will be f
 data that is generated during the parsing of the HTML. This also includes any stylesheets that are found, both internally and externally.
     
 ```rust
-    let doc_handle = DocumentBuilderImpl::new_document();
+    let doc = DocumentBuilderImpl::new_document();
 ```
 
-Note that a doc_handle itself isn't a document, but a HANDLE to a document (a `DocumentHandle`). Once we have our document handle, we can start the parser
+Once we have our document, we can start the parser
 by calling the `parse_document` method on the `Html5Parser` struct. This method will return a list of parse errors, if any. 
 
 ```rust
-    let parse_errors = Html5Parser::parse_document(&mut stream, doc_handle.clone(), None)?;
+    let parse_errors = Html5Parser::parse_document(&mut stream, &mut doc, None)?;
 
     for e in parse_errors {
         println!("Parse Error: {}", e.message);

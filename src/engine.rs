@@ -4,7 +4,6 @@ use {
     cookie::CookieJar,
     core::fmt::Debug,
     gosub_interface::document::DocumentBuilder,
-    gosub_interface::document_handle::DocumentHandle,
     gosub_interface::html5::Html5Parser as Html5ParserT,
     gosub_net::dns::{Dns, ResolveType},
     gosub_net::errors::Error,
@@ -32,7 +31,7 @@ pub struct FetchResponse<C: HasDocument> {
     /// Response that has been received
     pub response: Response,
     /// Document tree that is made from the response
-    pub document: DocumentHandle<C>,
+    pub document: C::Document,
     /// Parse errors that occurred while parsing the document tree
     pub parse_errors: Vec<ParseError>,
     /// Rendertree that is generated from the document tree and css tree
@@ -145,7 +144,7 @@ fn fetch_url<C: HasHtmlParser>(
     let _ = stream.read_from_bytes(&fetch_response.response.body);
     fetch_response.document = C::DocumentBuilder::new_document(Some(parts));
 
-    match C::HtmlParser::parse(&mut stream, DocumentHandle::clone(&fetch_response.document), None) {
+    match C::HtmlParser::parse(&mut stream, &mut fetch_response.document, None) {
         Ok(parse_errors) => {
             fetch_response.parse_errors = parse_errors;
         }

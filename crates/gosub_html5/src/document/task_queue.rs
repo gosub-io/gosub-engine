@@ -1,4 +1,3 @@
-use crate::DocumentHandle;
 use gosub_interface::document::Document;
 use std::collections::HashMap;
 
@@ -52,7 +51,7 @@ pub enum DocumentTask {
 /// create_element() will generate and return a new NodeId for the parser to keep
 /// track of the current context node and optionally store this in a list of open elements.
 /// When encountering a closing tag, the parser must pop this ID off of its list.
-pub struct DocumentTaskQueue<C: HasDocument> {
+pub struct DocumentTaskQueue {
     /// Internal counter of the next ID to generate from the NodeArena
     /// without actually registering the node.
     /// WARNING: if nodes are registered in the arena while tasks are being queued
@@ -60,8 +59,6 @@ pub struct DocumentTaskQueue<C: HasDocument> {
     /// if using a DocumentTaskQueue.
     #[allow(dead_code)]
     next_node_id: NodeId,
-    /// Reference to the document to commit changes to
-    pub(crate) doc_handle: DocumentHandle<C>,
     /// List of tasks to commit upon flush() which is cleared after execution finishes.
     // IMPLEMENTATION NOTE: using a vec here since I'm assuming we are
     // executing all tasks at once. If we need to support stopping task
@@ -70,12 +67,12 @@ pub struct DocumentTaskQueue<C: HasDocument> {
     pub(crate) tasks: Vec<DocumentTask>,
 }
 
-impl<C: HasDocument> DocumentTaskQueue<C> {
+impl DocumentTaskQueue {
     pub fn is_empty(&self) -> bool {
         self.tasks.is_empty()
     }
 
-    pub fn flush(&mut self) -> Vec<String> {
+    pub fn flush<C: HasDocument>(&mut self, doc: &mut C::Document) -> Vec<String> {
         let mut errors = Vec::new();
 
         for current_task in &self.tasks {
@@ -87,30 +84,24 @@ impl<C: HasDocument> DocumentTaskQueue<C> {
                     position,
                     location,
                 } => {
-                    let node = C::Document::new_element_node(
-                        self.doc_handle.clone(),
-                        name,
-                        Some(namespace),
-                        HashMap::new(),
-                        *location,
-                    );
-                    self.doc_handle.get_mut().register_node_at(node, *parent_id, *position);
+                    let node = C::Document::new_element_node(name, Some(namespace), HashMap::new(), *location);
+                    doc.register_node_at(node, *parent_id, *position);
                 }
                 DocumentTask::CreateText {
                     content,
                     parent_id,
                     location,
                 } => {
-                    let node = C::Document::new_text_node(self.doc_handle.clone(), content, *location);
-                    self.doc_handle.get_mut().register_node_at(node, *parent_id, None);
+                    let node = C::Document::new_text_node(content, *location);
+                    doc.register_node_at(node, *parent_id, None);
                 }
                 DocumentTask::CreateComment {
                     content,
                     parent_id,
                     location,
                 } => {
-                    let node = C::Document::new_comment_node(self.doc_handle.clone(), content, *location);
-                    self.doc_handle.get_mut().register_node_at(node, *parent_id, None);
+                    let node = C::Document::new_comment_node(content, *location);
+                    doc.register_node_at(node, *parent_id, None);
                 }
                 DocumentTask::InsertAttribute {
                     key, value, element_id, ..
@@ -122,16 +113,13 @@ impl<C: HasDocument> DocumentTaskQueue<C> {
                     }
 
                     // An ID must be tied to only one element
-                    let binding = self.doc_handle.get();
-                    let named_node = binding.node_by_named_id(value);
+                    let named_node = doc.node_by_named_id(value);
                     if named_node.is_some() && named_node.unwrap().id() != *element_id {
                         errors.push(format!("ID attribute value '{value}' already exists in DOM"));
                         continue;
                     }
-                    drop(binding);
 
-                    let mut binding = self.doc_handle.get_mut();
-                    let Some(node) = binding.node_by_id(*element_id) else {
+                    let Some(node) = doc.node_by_id(*element_id) else {
                         errors.push(format!("Node id {} not found", element_id));
                         continue;
                     };
@@ -146,7 +134,7 @@ impl<C: HasDocument> DocumentTaskQueue<C> {
                     let element_data = node.get_element_data_mut().unwrap();
                     element_data.add_attribute(key, value);
 
-                    binding.update_node(node);
+                    doc.update_node(node);
                 }
             }
         }
@@ -162,7 +150,7 @@ pub(crate) fn is_valid_id_attribute_value(value: &str) -> bool {
 }
 
 // See tree_builder.rs for method comments
-impl<C: HasDocument> TreeBuilder for DocumentTaskQueue<C> {
+impl TreeBuilder for DocumentTaskQueue {
     fn create_element(
         &mut self,
         name: &str,
@@ -223,12 +211,11 @@ impl<C: HasDocument> TreeBuilder for DocumentTaskQueue<C> {
     }
 }
 
-impl<C: HasDocument> DocumentTaskQueue<C> {
-    pub fn new(doc_handle: DocumentHandle<C>) -> Self {
-        let next_node_id = doc_handle.get().peek_next_id();
+impl DocumentTaskQueue {
+    pub fn new<C: HasDocument>(doc: &C::Document) -> Self {
+        let next_node_id = doc.peek_next_id();
         Self {
             next_node_id,
-            doc_handle: doc_handle.clone(),
             tasks: Vec::new(),
         }
     }

@@ -6,7 +6,6 @@ use gosub_html5::document::fragment::DocumentFragmentImpl;
 use gosub_html5::parser::Html5Parser;
 use gosub_interface::config::{HasCssSystem, HasDocument, HasHtmlParser};
 use gosub_interface::document::DocumentBuilder;
-use gosub_interface::document_handle::DocumentHandle;
 use gosub_shared::byte_stream::{ByteStream, Encoding};
 use gosub_shared::timing::Scale;
 use gosub_shared::timing_display;
@@ -78,11 +77,11 @@ fn main() -> Result<()> {
     // SimpleLogger::new().init().unwrap();
 
     // Create a new document that will be filled in by the parser
-    let doc_handle: DocumentHandle<Config> = DocumentBuilderImpl::new_document(Some(url));
-    let parse_errors = Html5Parser::<Config>::parse_document(&mut stream, doc_handle.clone(), None)?;
+    let mut doc = <DocumentBuilderImpl as DocumentBuilder<Config>>::new_document(Some(url));
+    let parse_errors = Html5Parser::<Config>::parse_document(&mut stream, &mut doc, None)?;
 
-    println!("Found {} stylesheets", doc_handle.get().stylesheets.len());
-    for sheet in &doc_handle.get().stylesheets {
+    println!("Found {} stylesheets", doc.stylesheets.len());
+    for sheet in &doc.stylesheets {
         println!("Stylesheet url: {:?}", sheet.url);
     }
 

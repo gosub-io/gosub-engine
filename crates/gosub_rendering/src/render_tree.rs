@@ -2,7 +2,7 @@ use gosub_html5::document::document_impl::TreeIterator;
 use gosub_interface::config::{HasDocument, HasLayouter, HasRenderTree};
 use gosub_interface::css3::{CssProperty, CssPropertyMap, CssSystem};
 use gosub_interface::document::Document;
-use gosub_interface::document_handle::DocumentHandle;
+
 use gosub_interface::layout::{HasTextLayout, Layout, LayoutCache, LayoutNode, LayoutTree, Layouter, TextLayout};
 use gosub_interface::node::NodeData;
 use gosub_interface::node::{ElementDataType, Node as DocumentNode, TextDataType};
@@ -437,45 +437,30 @@ impl<C: HasLayouter<LayoutTree = Self>> RenderTree<C> {
 }
 
 impl<C: HasRenderTree<LayoutTree = Self, RenderTree = Self> + HasDocument> RenderTree<C> {
-    pub fn from_document(document: DocumentHandle<C>) -> Self {
-        let mut render_tree = RenderTree::with_capacity(document.get().node_count());
+    pub fn from_document(document: &C::Document) -> Self {
+        let mut render_tree = RenderTree::with_capacity(document.node_count());
 
         render_tree.generate_from(document);
 
         render_tree
     }
 
-    fn generate_from(&mut self, mut handle: DocumentHandle<C>) {
+    fn generate_from(&mut self, doc: &C::Document) {
         // Iterate the complete document tree
 
-        let iter_handle = DocumentHandle::clone(&handle);
-
-        let mut doc = handle.get();
-
-        for current_node_id in TreeIterator::new(iter_handle) {
+        for current_node_id in TreeIterator::<C>::new(doc) {
             let node = doc.node_by_id(current_node_id).unwrap();
 
-            let Some(properties) = <C::CssSystem as CssSystem>::properties_from_node(
-                node,
-                doc.stylesheets(),
-                handle.clone(),
-                current_node_id,
-            ) else {
+            let Some(properties) =
+                <C::CssSystem as CssSystem>::properties_from_node::<C>(node, doc.stylesheets(), doc, current_node_id)
+            else {
                 if let Some(parent) = node.parent_id() {
                     if let Some(parent) = self.get_node_mut(parent) {
                         parent.children.retain(|id| *id != current_node_id)
                     }
                 }
 
-                drop(doc);
-
-                let mut doc_mut = handle.get_mut();
-
-                doc_mut.detach_node(current_node_id);
-                drop(doc_mut);
-
-                doc = handle.get();
-
+                // doc.detach_node(current_node_id);
                 continue;
             };
 
@@ -490,15 +475,7 @@ impl<C: HasRenderTree<LayoutTree = Self, RenderTree = Self> + HasDocument> Rende
                         }
                     }
 
-                    drop(doc);
-
-                    let mut doc_mut = handle.get_mut();
-
-                    doc_mut.detach_node(current_node_id);
-                    drop(doc_mut);
-
-                    doc = handle.get();
-
+                    // doc.detach_node(current_node_id);
                     continue;
                 }
                 ControlFlow::Error(e) => {
@@ -534,7 +511,7 @@ impl<C: HasRenderTree<LayoutTree = Self, RenderTree = Self> + HasDocument> Rende
             self.nodes.insert(current_node_id, render_tree_node);
         }
 
-        self.next_id = handle.get().peek_next_id();
+        self.next_id = doc.peek_next_id();
 
         self.remove_unrenderable_nodes();
 
@@ -570,11 +547,11 @@ impl<C: HasRenderTree<LayoutTree = Self, RenderTree = Self>> render_tree::Render
         Some(&LayoutTree::get_node(self, id)?.layout)
     }
 
-    fn from_document(handle: DocumentHandle<C>) -> Self
+    fn from_document(doc: &C::Document) -> Self
     where
         C: HasDocument,
     {
-        RenderTree::from_document(handle)
+        RenderTree::from_document(doc)
     }
 }
 
@@ -813,7 +790,7 @@ impl<C: HasLayouter> LayoutNode<C> for RenderTreeNode<C> {
 }
 
 /// Generates a render tree for the given document based on its loaded stylesheets
-pub fn generate_render_tree<C: HasDocument + HasRenderTree>(document: DocumentHandle<C>) -> Result<C::RenderTree> {
+pub fn generate_render_tree<C: HasDocument + HasRenderTree>(document: &C::Document) -> Result<C::RenderTree> {
     let render_tree = render_tree::RenderTree::from_document(document);
 
     Ok(render_tree)

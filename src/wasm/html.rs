@@ -4,7 +4,7 @@ use gosub_html5::document::document_impl::DocumentImpl;
 use gosub_html5::parser::Html5Parser;
 use gosub_html5::writer::DocumentWriter;
 use gosub_interface::document::DocumentBuilder;
-use gosub_interface::document_handle::DocumentHandle;
+
 use gosub_shared::byte_stream::{ByteStream, Encoding};
 use gosub_shared::node::NodeId;
 use url::Url;

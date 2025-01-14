@@ -1,5 +1,4 @@
 use crate::config::{HasDocument, HasRenderTree};
-use crate::document_handle::DocumentHandle;
 use gosub_shared::async_executor::WasmNotSend;
 use gosub_shared::config::ParserConfig;
 use gosub_shared::errors::CssResult;
@@ -35,7 +34,7 @@ pub trait CssSystem: Clone + Debug + 'static {
     fn properties_from_node<C: HasDocument<CssSystem = Self>>(
         node: &C::Node,
         sheets: &[Self::Stylesheet],
-        handle: DocumentHandle<C>,
+        doc: &C::Document,
         id: NodeId,
     ) -> Option<Self::PropertyMap>;
 

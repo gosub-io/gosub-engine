@@ -119,7 +119,7 @@ mod tests {
     use gosub_interface::config::HasCssSystem;
     use gosub_interface::document::Document;
     use gosub_interface::document::DocumentBuilder;
-    use gosub_interface::document_handle::DocumentHandle;
+
     use gosub_shared::byte_stream::Location;
 
     #[derive(Clone, Debug, PartialEq)]
@@ -136,65 +136,48 @@ mod tests {
 
     #[test]
     fn register_node() {
-        let mut doc_handle: DocumentHandle<Config> = DocumentBuilderImpl::new_document(None);
+        let mut doc = <DocumentBuilderImpl as DocumentBuilder<Config>>::new_document(None);
 
-        let node = DocumentImpl::<Config>::new_element_node(
-            doc_handle.clone(),
-            "test",
-            Some(HTML_NAMESPACE),
-            HashMap::new(),
-            Location::default(),
-        );
+        let node =
+            DocumentImpl::<Config>::new_element_node("test", Some(HTML_NAMESPACE), HashMap::new(), Location::default());
 
-        let id = doc_handle.get_mut().arena.register_node(node);
+        let id = doc.arena.register_node(node);
 
-        let binding = doc_handle.get();
-        assert_eq!(binding.arena.nodes.len(), 2);
-        assert_eq!(binding.arena.next_id, 2usize.into());
+        assert_eq!(doc.arena.nodes.len(), 2);
+        assert_eq!(doc.arena.next_id, 2usize.into());
         assert_eq!(id, NodeId::from(1_usize));
     }
 
     #[test]
     #[should_panic(expected = "Node is already attached to an arena")]
     fn register_node_twice() {
-        let mut doc_handle = DocumentBuilderImpl::new_document(None);
+        let mut doc_handle = <DocumentBuilderImpl as DocumentBuilder<Config>>::new_document(None);
 
-        let node = DocumentImpl::<Config>::new_element_node(
-            doc_handle.clone(),
-            "test",
-            Some(HTML_NAMESPACE),
-            HashMap::new(),
-            Location::default(),
-        );
-        doc_handle.get_mut().arena.register_node(node);
+        let node =
+            DocumentImpl::<Config>::new_element_node("test", Some(HTML_NAMESPACE), HashMap::new(), Location::default());
+        doc_handle.arena.register_node(node);
 
-        let node = doc_handle.get_mut().node_by_id(NodeId::root()).unwrap().to_owned();
-        doc_handle.get_mut().arena.register_node(node);
+        let node = doc_handle.node_by_id(NodeId::root()).unwrap().to_owned();
+        doc_handle.arena.register_node(node);
     }
 
     #[test]
     fn get_node() {
-        let mut doc_handle = DocumentBuilderImpl::new_document(None);
+        let mut doc = <DocumentBuilderImpl as DocumentBuilder<Config>>::new_document(None);
 
-        let node = DocumentImpl::<Config>::new_element_node(
-            doc_handle.clone(),
-            "test",
-            Some(HTML_NAMESPACE),
-            HashMap::new(),
-            Location::default(),
-        );
+        let node =
+            DocumentImpl::<Config>::new_element_node("test", Some(HTML_NAMESPACE), HashMap::new(), Location::default());
 
-        let id = doc_handle.get_mut().arena.register_node(node);
+        let id = doc.arena.register_node(node);
 
-        let binding = doc_handle.get();
-        let node = binding.arena.node(id);
+        let node = doc.arena.node(id);
         assert!(node.is_some());
         assert_eq!(node.unwrap().get_element_data().unwrap().name, "test");
     }
 
     // #[test]
     // fn get_node_mut() {
-    //     let mut doc_handle = DocumentBuilderImpl::new_document(None);
+    //     let mut doc_handle = <DocumentBuilderImpl as DocumentBuilder<Config>::new_document(None);
     //
     //     let node = DocumentImpl::<Config>::new_element_node(
     //         doc_handle.clone(),
@@ -214,33 +197,30 @@ mod tests {
 
     #[test]
     fn register_node_through_document() {
-        let mut doc_handle = DocumentBuilderImpl::new_document(None);
+        let mut doc = <DocumentBuilderImpl as DocumentBuilder<Config>>::new_document(None);
 
         let parent = DocumentImpl::<Config>::new_element_node(
-            doc_handle.clone(),
             "parent",
             Some(HTML_NAMESPACE),
             HashMap::new(),
             Location::default(),
         );
         let child = DocumentImpl::<Config>::new_element_node(
-            doc_handle.clone(),
             "child",
             Some(HTML_NAMESPACE),
             HashMap::new(),
             Location::default(),
         );
 
-        let parent_id = doc_handle.get_mut().arena.register_node(parent);
-        let child_id = doc_handle.get_mut().register_node_at(child, parent_id, None);
+        let parent_id = doc.arena.register_node(parent);
+        let child_id = doc.register_node_at(child, parent_id, None);
 
-        let binding = doc_handle.get();
-        let parent = binding.node_by_id(parent_id);
+        let parent = doc.node_by_id(parent_id);
         assert!(parent.is_some());
         assert_eq!(parent.unwrap().children().len(), 1);
         assert_eq!(parent.unwrap().children()[0], child_id);
 
-        let child = binding.node_by_id(child_id);
+        let child = doc.node_by_id(child_id);
         assert!(child.is_some());
         assert_eq!(child.unwrap().parent, Some(parent_id));
     }

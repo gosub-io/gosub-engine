@@ -1,7 +1,7 @@
 use futures::channel::mpsc;
 use futures::channel::mpsc::UnboundedSender;
 use futures::executor::block_on;
-use futures::{SinkExt, StreamExt};
+use futures::StreamExt;
 use gosub_cairo::{CairoBackend, Scene};
 use gosub_css3::system::Css3System;
 use gosub_html5::document::builder::DocumentBuilderImpl;
@@ -120,7 +120,7 @@ fn build_ui(app: &Application, cl: &ApplicationCommandLine) -> i32 {
     // tree drawer.
     let area = DrawingArea::default();
 
-    area.set_draw_func(move |area, cr, width, height| {
+    area.set_draw_func(move |_area, cr, width, height| {
         let size = SizeU32::new(width as u32, height as u32);
 
         let tx = instance.tx.clone();

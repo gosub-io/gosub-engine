@@ -1,5 +1,4 @@
 use crate::config::{HasDocument, HasDrawComponents};
-use crate::document_handle::DocumentHandle;
 use crate::eventloop::EventLoopHandle;
 use crate::layout::LayoutTree;
 use crate::render_backend::{ImgCache, NodeDesc, RenderBackend};
@@ -22,7 +21,7 @@ pub trait TreeDrawer<C: HasDrawComponents> {
         url: Url,
         layouter: C::Layouter,
         debug: bool,
-    ) -> impl Future<Output = gosub_shared::types::Result<(Self, DocumentHandle<C>)>>
+    ) -> impl Future<Output = gosub_shared::types::Result<(Self, C::Document)>>
     where
         Self: Sized,
         C: HasDocument;
@@ -36,7 +35,7 @@ pub trait TreeDrawer<C: HasDrawComponents> {
         layouter: C::Layouter,
         // Debug flag
         debug: bool,
-    ) -> Result<(Self, DocumentHandle<C>)>
+    ) -> Result<(Self, C::Document)>
     where
         Self: Sized,
         C: HasDocument;
@@ -50,7 +49,7 @@ pub trait TreeDrawer<C: HasDrawComponents> {
         layouter: C::Layouter,
         // Debug flag
         debug: bool,
-    ) -> impl Future<Output = Result<(Self, DocumentHandle<C>)>>
+    ) -> impl Future<Output = Result<(Self, C::Document)>>
     where
         Self: Sized,
         C: HasDocument;
@@ -72,7 +71,7 @@ pub trait TreeDrawer<C: HasDrawComponents> {
 
     fn delete_scene(&mut self);
 
-    fn reload(&mut self, el: impl EventLoopHandle<C>) -> impl Future<Output = Result<DocumentHandle<C>>> + 'static
+    fn reload(&mut self, el: impl EventLoopHandle<C>) -> impl Future<Output = Result<C::Document>> + 'static
     where
         C: HasDocument;
 
@@ -80,7 +79,7 @@ pub trait TreeDrawer<C: HasDrawComponents> {
         &mut self,
         url: Url,
         el: impl EventLoopHandle<C>,
-    ) -> impl Future<Output = Result<DocumentHandle<C>>> + 'static
+    ) -> impl Future<Output = Result<C::Document>> + 'static
     where
         C: HasDocument;
 

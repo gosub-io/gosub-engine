@@ -1,4 +1,3 @@
-use crate::DocumentHandle;
 use core::fmt;
 use core::fmt::Debug;
 
@@ -13,7 +12,6 @@ pub struct DocumentFragmentImpl<C: HasDocument> {
     /// Node elements inside this fragment
     arena: NodeArena<C>,
     /// Document handle of the parent
-    pub handle: DocumentHandle<C>,
     /// Host node on which this fragment is attached
     host: NodeId,
 }
@@ -23,7 +21,6 @@ impl<C: HasDocument> Clone for DocumentFragmentImpl<C> {
     fn clone(&self) -> Self {
         Self {
             arena: self.arena.clone(),
-            handle: self.handle.clone(),
             host: self.host,
         }
     }
@@ -38,22 +35,16 @@ impl<C: HasDocument> Debug for DocumentFragmentImpl<C> {
 impl<C: HasDocument> DocumentFragmentImpl<C> {
     /// Creates a new document fragment and attaches it to "host" node inside "handle"
     #[must_use]
-    pub(crate) fn new(handle: DocumentHandle<C>, host: NodeId) -> Self {
+    pub(crate) fn new(host: NodeId) -> Self {
         Self {
             arena: NodeArena::new(),
-            handle,
             host,
         }
     }
 }
 
 impl<C: HasDocument> DocumentFragment<C> for DocumentFragmentImpl<C> {
-    /// Returns the document handle for this document
-    fn handle(&self) -> DocumentHandle<C> {
-        self.handle.clone()
-    }
-
-    fn new(handle: DocumentHandle<C>, node_id: NodeId) -> Self {
-        Self::new(handle, node_id)
+    fn new(node_id: NodeId) -> Self {
+        Self::new(node_id)
     }
 }

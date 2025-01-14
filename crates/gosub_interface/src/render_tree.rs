@@ -1,6 +1,5 @@
 use crate::config::{HasDocument, HasLayouter};
 use crate::css3::CssSystem;
-use crate::document_handle::DocumentHandle;
 use crate::layout::Layouter;
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -20,7 +19,7 @@ pub trait RenderTree<C: HasLayouter>: Send + 'static {
 
     fn get_layout(&self, id: Self::NodeId) -> Option<&<C::Layouter as Layouter>::Layout>;
 
-    fn from_document(handle: DocumentHandle<C>) -> Self
+    fn from_document(doc: &C::Document) -> Self
     where
         C: HasDocument;
 }

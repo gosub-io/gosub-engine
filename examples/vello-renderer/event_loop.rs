@@ -1,7 +1,6 @@
 use crate::window::{Window, WindowState};
 use gosub_instance::{DebugEvent, InstanceMessage};
 use gosub_interface::config::ModuleConfiguration;
-use gosub_interface::draw::TreeDrawer;
 use gosub_interface::input::InputEvent;
 use gosub_interface::render_backend::{Point, RenderBackend, SizeU32, FP};
 use gosub_shared::types::Result;

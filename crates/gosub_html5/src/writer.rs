@@ -1,7 +1,7 @@
 use crate::node::visitor::Visitor;
 use gosub_interface::config::HasDocument;
 use gosub_interface::document::Document;
-use gosub_interface::document_handle::DocumentHandle;
+
 use gosub_interface::node::ElementDataType;
 use gosub_interface::node::{CommentDataType, DocTypeDataType, Node, NodeType, TextDataType};
 use gosub_shared::node::NodeId;
@@ -15,19 +15,18 @@ pub struct DocumentWriter {
 }
 
 impl DocumentWriter {
-    pub fn write_from_node<C: HasDocument>(node: NodeId, handle: DocumentHandle<C>) -> String {
+    pub fn write_from_node<C: HasDocument>(node: NodeId, doc: &C::Document) -> String {
         let mut w = Self {
             comments: false,
             buffer: String::new(),
         };
 
-        w.visit_node(node, handle);
+        w.visit_node::<C>(node, doc);
         w.buffer
     }
 
-    pub fn visit_node<C: HasDocument>(&mut self, id: NodeId, handle: DocumentHandle<C>) {
-        let binding = handle.get();
-        let node = match binding.node_by_id(id) {
+    pub fn visit_node<C: HasDocument>(&mut self, id: NodeId, doc: &C::Document) {
+        let node = match doc.node_by_id(id) {
             Some(node) => node,
             None => return,
         };
@@ -37,35 +36,35 @@ impl DocumentWriter {
                 // self.document_enter(node);
                 <DocumentWriter as Visitor<C>>::document_enter(self, node);
 
-                self.visit_children(node.children(), handle.clone());
+                self.visit_children::<C>(node.children(), doc);
                 <DocumentWriter as Visitor<C>>::document_leave(self, node);
             }
             NodeType::DocTypeNode => {
                 <DocumentWriter as Visitor<C>>::doctype_enter(self, node);
-                self.visit_children(node.children(), handle.clone());
+                self.visit_children::<C>(node.children(), doc);
                 <DocumentWriter as Visitor<C>>::doctype_leave(self, node);
             }
             NodeType::TextNode => {
                 <DocumentWriter as Visitor<C>>::text_enter(self, node);
-                self.visit_children(node.children(), handle.clone());
+                self.visit_children::<C>(node.children(), doc);
                 <DocumentWriter as Visitor<C>>::text_leave(self, node);
             }
             NodeType::CommentNode => {
                 <DocumentWriter as Visitor<C>>::comment_enter(self, node);
-                self.visit_children(node.children(), handle.clone());
+                self.visit_children::<C>(node.children(), doc);
                 <DocumentWriter as Visitor<C>>::comment_leave(self, node);
             }
             NodeType::ElementNode => {
                 <DocumentWriter as Visitor<C>>::element_enter(self, node);
-                self.visit_children(node.children(), handle.clone());
+                self.visit_children::<C>(node.children(), doc);
                 <DocumentWriter as Visitor<C>>::element_leave(self, node);
             }
         }
     }
 
-    pub fn visit_children<C: HasDocument>(&mut self, children: &[NodeId], handle: DocumentHandle<C>) {
+    pub fn visit_children<C: HasDocument>(&mut self, children: &[NodeId], doc: &C::Document) {
         for child in children {
-            self.visit_node(*child, handle.clone());
+            self.visit_node::<C>(*child, doc);
         }
     }
 }

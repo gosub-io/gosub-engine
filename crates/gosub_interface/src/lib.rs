@@ -2,7 +2,6 @@ pub mod chrome;
 pub mod config;
 pub mod css3;
 pub mod document;
-pub mod document_handle;
 pub mod draw;
 pub mod eventloop;
 pub mod html5;
