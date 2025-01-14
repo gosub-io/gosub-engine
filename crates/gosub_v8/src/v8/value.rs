@@ -1,65 +1,110 @@
-use v8::{Array, Local, Value};
+use std::ops::DerefMut;
+use v8::{Array, Global, Local, Value};
 
 use gosub_shared::types::Result;
 
 use crate::{FromContext, IntoContext, V8Array, V8Context, V8Engine, V8Object};
-use gosub_webexecutor::js::{ArrayConversion, AsArray, IntoJSValue, JSArray, JSError, JSRuntime, JSType, JSValue, Ref};
+use gosub_webexecutor::js::{
+    ArrayConversion, AsArray, IntoWebValue, JSError, JSType, Ref, WebArray, WebRuntime, WebValue,
+};
 use gosub_webexecutor::Error;
 
-pub struct V8Value<'a> {
-    pub context: V8Context<'a>,
-    pub value: Local<'a, Value>,
+pub struct V8Value {
+    pub context: V8Context,
+    pub value: Global<Value>,
 }
 
-impl<'a> V8Value<'a> {
-    pub fn from_value(ctx: V8Context<'a>, value: Local<'a, Value>) -> Self {
+impl V8Value {
+    pub fn from_value(ctx: V8Context, value: Global<Value>) -> Self {
         Self { context: ctx, value }
+    }
+
+    pub fn from_local(ctx: V8Context, value: Local<Value>) -> Self {
+        Self {
+            value: Global::new(&mut ctx.isolate(), value),
+            context: ctx,
+        }
+    }
+
+    #[allow(unused)]
+    fn from_local_iso(isolate: &mut v8::Isolate, ctx: V8Context, value: Local<Value>) -> Self {
+        Self {
+            context: ctx,
+            value: Global::new(isolate, value),
+        }
     }
 }
 
 macro_rules! impl_is {
     ($name:ident) => {
         fn $name(&self) -> bool {
-            self.value.$name()
+            let mut iso = self.context.isolate();
+
+            let value = self.value.open(&mut iso);
+
+            value.$name()
         }
     };
 }
 
-impl<'a> From<V8Array<'a>> for V8Value<'a> {
-    fn from(array: V8Array<'a>) -> Self {
+impl From<V8Array> for V8Value {
+    fn from(array: V8Array) -> Self {
+        let mut scope = array.ctx.scope();
+
+        let value: Local<Value> = Local::new(&mut scope, array.value).into();
+
+        let value = Global::new(&mut scope, value);
+
+        drop(scope);
+
         Self {
+            value,
             context: array.ctx,
-            value: array.value.into(),
         }
     }
 }
 
-impl<'a> From<V8Object<'a>> for V8Value<'a> {
-    fn from(object: V8Object<'a>) -> Self {
+impl From<V8Object> for V8Value {
+    fn from(object: V8Object) -> Self {
+        let mut scope = object.ctx.scope();
+
+        let value: Local<Value> = Local::new(&mut scope, object.value).into();
+
+        let value = Global::new(&mut scope, value);
+
+        drop(scope);
+
         Self {
+            value,
             context: object.ctx,
-            value: object.value.into(),
         }
     }
 }
 
-impl<'a> AsArray for V8Value<'a> {
-    type Runtime = V8Engine<'a>;
+impl AsArray for V8Value {
+    type Runtime = V8Engine;
 
-    fn array(&self) -> Result<Ref<<Self::Runtime as JSRuntime>::Array>> {
+    fn array(&self) -> Result<Ref<<Self::Runtime as WebRuntime>::Array>> {
         Ok(Ref::Owned(self.as_array()?))
     }
 }
 
-impl<'a> JSValue for V8Value<'a> {
-    type RT = V8Engine<'a>;
+impl WebValue for V8Value {
+    type RT = V8Engine;
 
     fn as_string(&self) -> Result<String> {
-        Ok(self.value.to_rust_string_lossy(self.context.scope()))
+        let mut scope = self.context.scope();
+
+        let value = self.value.open(&mut scope);
+
+        Ok(value.to_rust_string_lossy(&mut scope))
     }
 
     fn as_number(&self) -> Result<f64> {
-        if let Some(value) = self.value.number_value(self.context.scope()) {
+        let mut scope = self.context.scope();
+
+        let value = self.value.open(&mut scope);
+        if let Some(value) = value.number_value(&mut scope) {
             Ok(value)
         } else {
             Err(Error::JS(JSError::Conversion("could not convert to number".to_owned())).into())
@@ -67,11 +112,18 @@ impl<'a> JSValue for V8Value<'a> {
     }
 
     fn as_bool(&self) -> Result<bool> {
-        Ok(self.value.boolean_value(self.context.scope()))
+        let mut scope = self.context.scope();
+
+        let value = self.value.open(&mut scope);
+        Ok(value.boolean_value(&mut scope))
     }
 
-    fn as_object(&self) -> Result<<Self::RT as JSRuntime>::Object> {
-        if let Some(value) = self.value.to_object(self.context.scope()) {
+    fn as_object(&self) -> Result<<Self::RT as WebRuntime>::Object> {
+        let mut scope = self.context.scope();
+
+        let value = self.value.open(&mut scope);
+
+        if let Some(value) = value.to_object(&mut scope) {
             Ok(V8Object::from_ctx(V8Context::clone(&self.context), value))
         } else {
             Err(Error::JS(JSError::Conversion("could not convert to number".to_owned())).into())
@@ -86,18 +138,29 @@ impl<'a> JSValue for V8Value<'a> {
     impl_is!(is_undefined);
     impl_is!(is_function);
 
-    fn as_array(&self) -> Result<<Self::RT as JSRuntime>::Array> {
-        let array: Local<Array> = self.value.try_into()?;
+    fn as_array(&self) -> Result<<Self::RT as WebRuntime>::Array> {
+        let value = self.value.clone();
+
+        let mut scope = self.context.scope();
+
+        let value = Local::new(&mut scope, value);
+
+        let array: Local<Array> = value.try_into()?;
 
         Ok(array.into_ctx(V8Context::clone(&self.context)))
     }
 
     fn is_bool(&self) -> bool {
-        self.value.is_boolean()
+        let mut iso = self.context.isolate();
+
+        let value = self.value.open(&mut iso);
+
+        value.is_boolean()
     }
 
     fn type_of(&self) -> JSType {
         //There is a v8::Value::type_of() method, but it returns a string, which is not what we want.
+        //TODO: this currently creates a new scope for each test, this should not be like this
         if self.is_string() {
             JSType::String
         } else if self.is_number() {
@@ -115,80 +178,90 @@ impl<'a> JSValue for V8Value<'a> {
         } else if self.is_object() {
             JSType::Object
         } else {
-            let ctx = self.context.scope();
+            let mut scope = self.context.scope();
 
-            let t = self.value.type_of(ctx).to_rust_string_lossy(ctx);
+            let value = self.value.open(&mut scope);
+
+            let t = value.type_of(&mut scope).to_rust_string_lossy(&mut scope);
 
             JSType::Other(t)
         }
     }
 
-    fn new_object(ctx: <Self::RT as JSRuntime>::Context) -> Result<<Self::RT as JSRuntime>::Object> {
+    fn new_object(ctx: <Self::RT as WebRuntime>::Context) -> Result<<Self::RT as WebRuntime>::Object> {
         V8Object::new(ctx)
     }
 
-    fn new_array<T: IntoJSValue<Self, Value = Self>>(
-        ctx: <Self::RT as JSRuntime>::Context,
+    fn new_array<T: IntoWebValue<Self, Value = Self>>(
+        ctx: <Self::RT as WebRuntime>::Context,
         value: &[T],
-    ) -> Result<<Self::RT as JSRuntime>::Array> {
-        value.to_js_array(ctx)
+    ) -> Result<<Self::RT as WebRuntime>::Array> {
+        value.to_web_array(ctx)
     }
 
-    fn new_empty_array(ctx: <Self::RT as JSRuntime>::Context) -> Result<<Self::RT as JSRuntime>::Array> {
+    fn new_empty_array(ctx: <Self::RT as WebRuntime>::Context) -> Result<<Self::RT as WebRuntime>::Array> {
         V8Array::new(ctx, 0)
     }
 
-    fn new_string(ctx: <Self::RT as JSRuntime>::Context, value: &str) -> Result<Self> {
-        if let Some(value) = v8::String::new(ctx.scope(), value) {
+    fn new_string(ctx: <Self::RT as WebRuntime>::Context, value: &str) -> Result<Self> {
+        let scope = &mut ctx.scope();
+
+        if let Some(value) = v8::String::new(scope, value) {
+            let value: Local<Value> = value.into();
+
             Ok(Self {
                 context: V8Context::clone(&ctx),
-                value: Local::from(value),
+                value: Global::new(scope, value),
             })
         } else {
             Err(Error::JS(JSError::Conversion("could not convert to string".to_owned())).into())
         }
     }
 
-    fn new_number<N: Into<f64>>(ctx: <Self::RT as JSRuntime>::Context, value: N) -> Result<Self> {
-        let value = v8::Number::new(ctx.scope(), value.into());
+    fn new_number<N: Into<f64>>(ctx: <Self::RT as WebRuntime>::Context, value: N) -> Result<Self> {
+        let scope = &mut ctx.scope();
+
+        let value: Local<Value> = v8::Number::new(scope, value.into()).into();
         Ok(Self {
             context: V8Context::clone(&ctx),
-            value: Local::from(value),
+            value: Global::new(scope, value),
         })
     }
 
-    fn new_bool(ctx: <Self::RT as JSRuntime>::Context, value: bool) -> Result<Self> {
-        let value = v8::Boolean::new(ctx.scope(), value);
+    fn new_bool(ctx: <Self::RT as WebRuntime>::Context, value: bool) -> Result<Self> {
+        let mut isolate = ctx.isolate();
+
+        let value: Local<Value> = v8::Boolean::new(isolate.deref_mut(), value).into();
         Ok(Self {
             context: V8Context::clone(&ctx),
-            value: Local::from(value),
+            value: Global::new(&mut isolate, value),
         })
     }
 
-    fn new_null(ctx: <Self::RT as JSRuntime>::Context) -> Result<Self> {
-        let null = v8::null(ctx.scope());
+    fn new_null(ctx: <Self::RT as WebRuntime>::Context) -> Result<Self> {
+        let mut isolate = ctx.isolate();
+        let null: Local<Value> = v8::null(isolate.deref_mut()).into();
 
         Ok(Self {
             context: V8Context::clone(&ctx),
-            value: Local::from(null),
+            value: Global::new(&mut isolate, null),
         })
     }
 
-    fn new_undefined(ctx: <Self::RT as JSRuntime>::Context) -> Result<Self> {
-        let scope = ctx.scope();
-
-        let undefined = v8::undefined(scope);
+    fn new_undefined(ctx: <Self::RT as WebRuntime>::Context) -> Result<Self> {
+        let mut isolate = ctx.isolate();
+        let undefined: Local<Value> = v8::undefined(isolate.deref_mut()).into();
 
         Ok(Self {
             context: V8Context::clone(&ctx),
-            value: Local::from(undefined),
+            value: Global::new(&mut isolate, undefined),
         })
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use gosub_webexecutor::js::{IntoRustValue, JSContext};
+    use gosub_webexecutor::js::{IntoRustValue, WebContext};
 
     use super::*;
 

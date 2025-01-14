@@ -3,8 +3,8 @@ use std::rc::Rc;
 
 use gosub_shared::types::Result;
 
-use crate::js::JSRuntime;
+use crate::js::WebRuntime;
 
 pub trait JSInterop {
-    fn implement<RT: JSRuntime>(s: Rc<RefCell<Self>>, ctx: RT::Context) -> Result<()>;
+    fn implement<RT: WebRuntime>(s: Rc<RefCell<Self>>, ctx: RT::Context) -> Result<()>;
 }

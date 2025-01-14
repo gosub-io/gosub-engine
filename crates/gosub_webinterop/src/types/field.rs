@@ -48,7 +48,7 @@ impl Field {
                 Box::new(move |cb: &mut RT::GetterCB| {
                     let ctx = cb.context();
                     let value = s.borrow().#ident;
-                    let value = match value.to_js_value(ctx.clone()) {
+                    let value = match value.to_web_value(ctx.clone()) {
                         Ok(value) => value,
                         Err(e) => {
                             cb.error(e);

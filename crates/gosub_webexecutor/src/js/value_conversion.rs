@@ -2,30 +2,30 @@ use paste;
 
 use gosub_shared::types::Result;
 
-use crate::js::{JSArray, JSError, JSRuntime, JSValue};
+use crate::js::{JSError, WebArray, WebRuntime, WebValue};
 
-//trait to easily convert Rust types to JS values (just call .to_js_value() on the type)
-pub trait IntoJSValue<V: JSValue> {
-    type Value: JSValue;
+//trait to easily convert Rust types to JS values (just call .to_web_value() on the type)
+pub trait IntoWebValue<V: WebValue> {
+    type Value: WebValue;
 
-    fn to_js_value(&self, ctx: <V::RT as JSRuntime>::Context) -> Result<V>;
+    fn to_web_value(&self, ctx: <V::RT as WebRuntime>::Context) -> Result<V>;
 }
 
 macro_rules! impl_value_conversion {
     (number, $type:ty) => {
-        impl<V: JSValue> IntoJSValue<V> for $type {
+        impl<V: WebValue> IntoWebValue<V> for $type {
             type Value = V;
 
-            fn to_js_value(&self, ctx: <V::RT as JSRuntime>::Context) -> Result<Self::Value> {
+            fn to_web_value(&self, ctx: <V::RT as WebRuntime>::Context) -> Result<Self::Value> {
                 Self::Value::new_number(ctx, *self as f64)
             }
         }
     };
 
     ($func:ident, $type:ty) => {
-        impl<V: JSValue> IntoJSValue<V> for $type {
+        impl<V: WebValue> IntoWebValue<V> for $type {
             type Value = V;
-            fn to_js_value(&self, ctx: <V::RT as JSRuntime>::Context) -> Result<Self::Value> {
+            fn to_web_value(&self, ctx: <V::RT as WebRuntime>::Context) -> Result<Self::Value> {
                 Self::Value::$func(ctx, *self)
             }
         }
@@ -51,56 +51,56 @@ impl_value_conversion!(new_string, &str);
 
 impl_value_conversion!(new_bool, bool);
 
-impl<V: JSValue> IntoJSValue<V> for String {
+impl<V: WebValue> IntoWebValue<V> for String {
     type Value = V;
-    fn to_js_value(&self, ctx: <V::RT as JSRuntime>::Context) -> Result<Self::Value> {
+    fn to_web_value(&self, ctx: <V::RT as WebRuntime>::Context) -> Result<Self::Value> {
         Self::Value::new_string(ctx, self)
     }
 }
 
-impl<V: JSValue> IntoJSValue<V> for () {
+impl<V: WebValue> IntoWebValue<V> for () {
     type Value = V;
-    fn to_js_value(&self, ctx: <V::RT as JSRuntime>::Context) -> Result<Self::Value> {
+    fn to_web_value(&self, ctx: <V::RT as WebRuntime>::Context) -> Result<Self::Value> {
         Self::Value::new_undefined(ctx)
     }
 }
 
-pub trait ArrayConversion<A: JSArray> {
-    type Array: JSArray;
+pub trait ArrayConversion<A: WebArray> {
+    type Array: WebArray;
 
-    fn to_js_array(&self, ctx: <A::RT as JSRuntime>::Context) -> Result<A>;
+    fn to_web_array(&self, ctx: <A::RT as WebRuntime>::Context) -> Result<A>;
 }
 
 impl<A, T> ArrayConversion<A> for [T]
 where
-    A: JSArray,
-    T: IntoJSValue<<A::RT as JSRuntime>::Value, Value = <A::RT as JSRuntime>::Value>,
+    A: WebArray,
+    T: IntoWebValue<<A::RT as WebRuntime>::Value, Value = <A::RT as WebRuntime>::Value>,
 {
     type Array = A;
-    fn to_js_array(&self, ctx: <A::RT as JSRuntime>::Context) -> Result<A> {
+    fn to_web_array(&self, ctx: <A::RT as WebRuntime>::Context) -> Result<A> {
         let data = self
             .iter()
-            .map(|v| v.to_js_value(ctx.clone()))
+            .map(|v| v.to_web_value(ctx.clone()))
             .collect::<Result<Vec<_>>>()?;
 
         Self::Array::new_with_data(ctx.clone(), &data)
     }
 }
 
-impl<V, T> IntoJSValue<V> for [T]
+impl<V, T> IntoWebValue<V> for [T]
 where
-    V: JSValue,
-    T: IntoJSValue<V, Value = V>,
-    V::RT: JSRuntime<Value = V>,
+    V: WebValue,
+    T: IntoWebValue<V, Value = V>,
+    V::RT: WebRuntime<Value = V>,
 {
     type Value = V;
-    fn to_js_value(&self, ctx: <V::RT as JSRuntime>::Context) -> Result<Self::Value> {
+    fn to_web_value(&self, ctx: <V::RT as WebRuntime>::Context) -> Result<Self::Value> {
         let data = self
             .iter()
-            .map(|v| v.to_js_value(ctx.clone()))
+            .map(|v| v.to_web_value(ctx.clone()))
             .collect::<Result<Vec<_>>>()?;
 
-        <V::RT as JSRuntime>::Array::new_with_data(ctx.clone(), &data).map(|v| v.as_value())
+        <V::RT as WebRuntime>::Array::new_with_data(ctx.clone(), &data).map(|v| v.as_value())
     }
 }
 
@@ -112,7 +112,7 @@ pub trait IntoRustValue<T> {
 
 macro_rules! impl_rust_conversion {
     ($func:ident, $type:ty, cast) => {
-        impl<T: JSValue> IntoRustValue<$type> for T {
+        impl<T: WebValue> IntoRustValue<$type> for T {
             fn to_rust_value(&self) -> Result<$type> {
                 Ok(self.$func()? as $type)
             }
@@ -120,7 +120,7 @@ macro_rules! impl_rust_conversion {
     };
 
     ($func:ident, $type:ty) => {
-        impl<T: JSValue> IntoRustValue<$type> for T {
+        impl<T: WebValue> IntoRustValue<$type> for T {
             fn to_rust_value(&self) -> Result<$type> {
                 self.$func()
             }
@@ -146,7 +146,7 @@ impl_rust_conversion!(as_number, f64, cast);
 impl_rust_conversion!(as_string, String);
 impl_rust_conversion!(as_bool, bool);
 
-impl<T: JSValue> IntoRustValue<()> for T {
+impl<T: WebValue> IntoRustValue<()> for T {
     fn to_rust_value(&self) -> Result<()> {
         if self.is_undefined() || self.is_null() {
             Ok(())
@@ -172,14 +172,14 @@ impl<T> Ref<'_, T> {
 }
 
 pub trait AsArray {
-    type Runtime: JSRuntime;
-    fn array(&self) -> Result<Ref<<Self::Runtime as JSRuntime>::Array>>;
+    type Runtime: WebRuntime;
+    fn array(&self) -> Result<Ref<<Self::Runtime as WebRuntime>::Array>>;
 }
 
 impl<V, T> IntoRustValue<Vec<T>> for V
 where
     V: AsArray,
-    <V::Runtime as JSRuntime>::Value: IntoRustValue<T>,
+    <V::Runtime as WebRuntime>::Value: IntoRustValue<T>,
 {
     fn to_rust_value(&self) -> Result<Vec<T>> {
         let arr = self.array()?;
@@ -194,20 +194,20 @@ where
 macro_rules! impl_tuple {
     ($($t:expr),*) => {
             paste::paste! {
-                impl<V: JSValue, $([<T $t>]: IntoJSValue<<V::RT as JSRuntime>::Value>),*> IntoJSValue<V> for ($([<T $t>],)*)
+                impl<V: WebValue, $([<T $t>]: IntoWebValue<<V::RT as WebRuntime>::Value>),*> IntoWebValue<V> for ($([<T $t>],)*)
                 {
                     type Value = V;
 
-                    fn to_js_value(&self, ctx: <V::RT as JSRuntime>::Context) -> Result<Self::Value> {
-                        let vals = vec![$(self.$t.to_js_value(ctx.clone())?),*];
-                        let arr = <V::RT as JSRuntime>::Array::new_with_data(ctx, &vals)?;
+                    fn to_web_value(&self, ctx: <V::RT as WebRuntime>::Context) -> Result<Self::Value> {
+                        let vals = vec![$(self.$t.to_web_value(ctx.clone())?),*];
+                        let arr = <V::RT as WebRuntime>::Array::new_with_data(ctx, &vals)?;
                         Ok(arr.as_value())
                     }
                 }
 
                 impl<V: AsArray, $([<T $t>]),*> IntoRustValue<($([<T $t>],)*)> for V
                 where
-                    $(<V::Runtime as JSRuntime>::Value: IntoRustValue<[<T $t>]>),*
+                    $(<V::Runtime as WebRuntime>::Value: IntoRustValue<[<T $t>]>),*
 
                 {
                     fn to_rust_value(&self) -> Result<($([<T $t>],)*)> {

@@ -233,7 +233,7 @@ impl Function {
         let func_generics = self.get_generics();
 
         quote! {
-            let ret = match #func #func_generics(#call_args).to_js_value(ctx.clone()) {
+            let ret = match #func #func_generics(#call_args).to_web_value(ctx.clone()) {
                 Ok(ret) => ret,
                 Err(e) => {
                     cb.error(e);

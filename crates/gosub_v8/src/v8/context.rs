@@ -1,126 +1,65 @@
-use std::ptr::NonNull;
-
-use v8::{
-    CallbackScope, ContextScope, CreateParams, HandleScope, Isolate, Local, Object, OwnedIsolate, StackFrame,
-    StackTrace, TryCatch,
-};
+use v8::{CreateParams, Global, HandleScope, Isolate, Local, OwnedIsolate, StackFrame, StackTrace, TryCatch};
 
 use gosub_shared::types::Result;
-use gosub_webexecutor::js::{JSCompiled, JSContext, JSError, JSRuntime};
+use gosub_webexecutor::js::{JSError, WebCompiled, WebContext, WebRuntime};
 use gosub_webexecutor::Error;
 
-use crate::{FromContext, V8Compiled, V8Context, V8Engine, V8Object};
+use crate::{FromContext, V8Compiled, V8Context, V8Engine};
 
-/// SAFETY: This is NOT thread safe, as the rest of the engine is not thread safe.
-/// This struct uses `NonNull` internally to store pointers to the V8Context "values" in one struct.
-pub struct V8Ctx<'a> {
-    pub isolate: NonNull<OwnedIsolate>,
-    pub handle_scope: NonNull<HandleScopeType<'a>>,
-    pub ctx: NonNull<Local<'a, v8::Context>>,
-    pub context_scope: NonNull<ContextScope<'a, HandleScope<'a>>>,
-    copied: Copied,
+pub struct V8Ctx {
+    isolate: OwnedIsolate, // Safety: this should NEVER be replaced with a new isolate
+    pub ctx: Global<v8::Context>,
+
+    parent_scope: Option<HandleScope<'static>>, // Safety: this does NOT have an actual 'static lifetime
 }
 
-struct Copied {
-    isolate: bool,
-    handle_scope: bool,
-    ctx: bool,
-    context_scope: bool,
+pub struct ScopeGuard<'a> {
+    _marker: std::marker::PhantomData<&'a ()>,
+    ctx: V8Context,
+    prev_scope: Option<HandleScope<'static>>,
 }
 
-impl Copied {
-    fn new() -> Self {
+impl Drop for ScopeGuard<'_> {
+    fn drop(&mut self) {
+        let mut x = self.ctx.borrow_mut();
+
+        x.parent_scope = self.prev_scope.take();
+    }
+}
+
+impl V8Ctx {
+    pub(crate) fn new(params: CreateParams) -> Self {
+        let mut isolate = Isolate::new(params);
+
+        let ctx = {
+            let mut handle_scope = HandleScope::new(&mut isolate);
+
+            let ctx = v8::Context::new(&mut handle_scope, Default::default());
+
+            Global::new(&mut handle_scope, ctx)
+        };
+
         Self {
-            isolate: false,
-            handle_scope: false,
-            ctx: false,
-            context_scope: false,
-        }
-    }
-}
-
-pub enum HandleScopeType<'a> {
-    WithContextRef(&'a mut HandleScope<'a>),
-    WithoutContext(HandleScope<'a, ()>),
-    CallbackScope(CallbackScope<'a>),
-}
-
-impl<'a> HandleScopeType<'a> {
-    fn new(isolate: &'a mut OwnedIsolate) -> Self {
-        Self::WithoutContext(HandleScope::new(isolate))
-    }
-
-    pub fn get(&mut self) -> &mut HandleScope<'a, ()> {
-        match self {
-            Self::WithoutContext(scope) => scope,
-            Self::CallbackScope(scope) => scope,
-            Self::WithContextRef(scope) => scope,
+            isolate,
+            ctx,
+            parent_scope: None,
         }
     }
 
-    pub fn with_context(&mut self) -> Option<&mut HandleScope<'a>> {
-        match self {
-            Self::WithoutContext(_) => None,
-            Self::CallbackScope(scope) => Some(scope),
-            Self::WithContextRef(scope) => Some(*scope),
+    pub(crate) fn isolate(&mut self) -> &mut OwnedIsolate {
+        &mut self.isolate
+    }
+
+    pub fn context(&mut self) -> &mut Global<v8::Context> {
+        &mut self.ctx
+    }
+
+    pub fn new_scope(&mut self) -> HandleScope {
+        if let Some(parent_scope) = &mut self.parent_scope {
+            HandleScope::new(parent_scope)
+        } else {
+            HandleScope::with_context(&mut self.isolate, &self.ctx)
         }
-    }
-}
-
-impl<'a> V8Ctx<'a> {
-    pub(crate) fn new(params: CreateParams) -> Result<Self> {
-        let mut v8_ctx = Self {
-            isolate: NonNull::dangling(),
-            handle_scope: NonNull::dangling(),
-            ctx: NonNull::dangling(),
-            context_scope: NonNull::dangling(),
-            copied: Copied::new(),
-        };
-
-        let isolate = Box::new(Isolate::new(params));
-
-        let Some(isolate) = NonNull::new(Box::into_raw(isolate)) else {
-            return Err(Error::JS(JSError::Compile("Failed to create isolate".to_owned())).into());
-        };
-        v8_ctx.isolate = isolate;
-
-        let handle_scope = Box::new(HandleScopeType::new(unsafe { v8_ctx.isolate.as_mut() }));
-
-        let Some(handle_scope) = NonNull::new(Box::into_raw(handle_scope)) else {
-            return Err(Error::JS(JSError::Compile("Failed to create handle scope".to_owned())).into());
-        };
-
-        v8_ctx.handle_scope = handle_scope;
-
-        let ctx = v8::Context::new(unsafe { v8_ctx.handle_scope.as_mut() }.get(), Default::default());
-
-        let ctx_scope = Box::new(ContextScope::new(unsafe { v8_ctx.handle_scope.as_mut() }.get(), ctx));
-
-        let Some(ctx) = NonNull::new(Box::into_raw(Box::new(ctx))) else {
-            return Err(Error::JS(JSError::Compile("Failed to create context".to_owned())).into());
-        };
-
-        v8_ctx.ctx = ctx;
-
-        let Some(ctx_scope) = NonNull::new(Box::into_raw(ctx_scope)) else {
-            return Err(Error::JS(JSError::Compile("Failed to create context scope".to_owned())).into());
-        };
-
-        v8_ctx.context_scope = ctx_scope;
-
-        Ok(v8_ctx)
-    }
-
-    pub fn scope(&mut self) -> &'a mut ContextScope<'a, HandleScope<'a>> {
-        unsafe { self.context_scope.as_mut() }
-    }
-
-    // pub(crate) fn handle_scope(&mut self) -> &'a mut HandleScope<'a, ()> {
-    //     unsafe { self.handle_scope.as_mut() }.get()
-    // }
-
-    pub fn context(&mut self) -> &'a mut Local<'a, v8::Context> {
-        unsafe { self.ctx.as_mut() }
     }
 
     pub fn report_exception(try_catch: &mut TryCatch<HandleScope>) -> Error {
@@ -171,129 +110,38 @@ impl<'a> V8Ctx<'a> {
     }
 }
 
-pub fn ctx_from_scope_isolate<'a>(
-    scope: HandleScopeType<'a>,
-    ctx: Local<'a, v8::Context>,
-    isolate: NonNull<OwnedIsolate>,
-) -> std::result::Result<V8Context<'a>, (HandleScopeType<'a>, Error)> {
-    let mut v8_ctx = V8Ctx {
-        isolate,
-        handle_scope: NonNull::dangling(),
-        ctx: NonNull::dangling(),
-        context_scope: NonNull::dangling(),
-        copied: Copied {
-            isolate: true,
-            handle_scope: false,
-            ctx: false,
-            context_scope: false,
-        },
-    };
-
-    let ctx = Box::new(ctx);
-
-    let Some(ctx) = NonNull::new(Box::into_raw(ctx)) else {
-        return Err((
-            scope,
-            Error::JS(JSError::Compile("Failed to create context".to_owned())),
-        ));
-    };
-
-    v8_ctx.ctx = ctx;
-
-    let scope = Box::new(scope);
-
-    let raw_scope = Box::into_raw(scope);
-    let Some(scope) = NonNull::new(raw_scope) else {
-        //SAFETY: we just created this, so it is safe to convert it back to a Box
-        let scope = unsafe { Box::from_raw(raw_scope) };
-        return Err((
-            *scope,
-            Error::JS(JSError::Compile("Failed to create handle scope".to_owned())),
-        ));
-    };
-
-    v8_ctx.handle_scope = scope;
-
-    let ctx_scope = Box::new(ContextScope::new(
-        unsafe { v8_ctx.handle_scope.as_mut() }.get(),
-        unsafe { v8_ctx.ctx.as_mut() }.to_owned(),
-    ));
-
-    let Some(ctx_scope) = NonNull::new(Box::into_raw(ctx_scope)) else {
-        //SAFETY: we just created this, so it is safe to convert it back to a Box
-        let scope = unsafe { Box::from_raw(v8_ctx.handle_scope.as_ptr()) };
-
-        return Err((
-            *scope,
-            Error::JS(JSError::Compile("Failed to create context scope".to_owned())),
-        ));
-    };
-
-    v8_ctx.context_scope = ctx_scope;
-
-    Ok(V8Context::from_ctx(v8_ctx))
-    // Ok(v8_ctx)
-}
-
-pub fn ctx_from_function_callback_info(
-    scope: CallbackScope,
-    isolate: NonNull<OwnedIsolate>,
-) -> std::result::Result<V8Context, (HandleScopeType, Error)> {
-    let ctx = scope.get_current_context();
-    let scope = HandleScopeType::CallbackScope(scope);
-
-    ctx_from_scope_isolate(scope, ctx, isolate)
-}
-
-pub fn ctx_from<'a>(
-    scope: &'a mut HandleScope,
-    isolate: NonNull<OwnedIsolate>,
-) -> std::result::Result<V8Context<'a>, (HandleScopeType<'a>, Error)> {
-    let ctx = scope.get_current_context();
-
-    //SAFETY: This can only shorten the lifetime of the scope, which is fine. (we borrow it for 'a and it is '2, which will always be longer than 'a)
-    let scope = unsafe { std::mem::transmute::<&mut HandleScope<'_>, &mut HandleScope<'_>>(scope) };
-
-    let scope = HandleScopeType::WithContextRef(scope);
-
-    ctx_from_scope_isolate(scope, ctx, isolate)
-}
-
-impl Drop for V8Ctx<'_> {
+impl Drop for V8Ctx {
     fn drop(&mut self) {
-        // order is important here: context scope, then handle scope (and ctx), then isolate
+        //TODO order is important here: context scope, then handle scope (and ctx), then isolate
+    }
+}
 
-        if !self.copied.context_scope {
-            let _ = unsafe { Box::from_raw(self.context_scope.as_ptr()) };
-            self.context_scope = NonNull::dangling(); //use a dangling pointer to prevent double free and segfaults, instead it crashes with a null pointer dereference
-        }
+impl V8Context {
+    pub fn set_parent_scope<'a>(&self, scope: HandleScope<'a>) -> ScopeGuard<'a> {
+        let mut borrowed = self.borrow_mut();
 
-        if !self.copied.handle_scope {
-            let _ = unsafe { Box::from_raw(self.handle_scope.as_ptr()) };
-            self.handle_scope = NonNull::dangling();
-        }
+        // Safety: this only extends the lifetime of the scope, which is guarded by the ScopeGuard and removed when the guard is dropped
+        let x = borrowed
+            .parent_scope
+            .replace(unsafe { std::mem::transmute::<HandleScope<'a>, HandleScope<'static>>(scope) });
 
-        if !self.copied.ctx {
-            let _ = unsafe { Box::from_raw(self.ctx.as_ptr()) };
-            self.ctx = NonNull::dangling();
-        }
-
-        if !self.copied.isolate {
-            let _ = unsafe { Box::from_raw(self.isolate.as_ptr()) };
-            self.isolate = NonNull::dangling();
+        ScopeGuard {
+            _marker: std::marker::PhantomData,
+            ctx: self.clone(),
+            prev_scope: x,
         }
     }
 }
 
-impl<'a> JSContext for V8Context<'a> {
-    type RT = V8Engine<'a>;
+impl WebContext for V8Context {
+    type RT = V8Engine;
 
-    fn run(&mut self, code: &str) -> Result<<Self::RT as JSRuntime>::Value> {
+    fn run(&mut self, code: &str) -> Result<<Self::RT as WebRuntime>::Value> {
         self.compile(code)?.run()
     }
 
-    fn compile(&mut self, code: &str) -> Result<<Self::RT as JSRuntime>::Compiled> {
-        let s = self.scope();
+    fn compile(&mut self, code: &str) -> Result<<Self::RT as WebRuntime>::Compiled> {
+        let s = &mut self.scope();
 
         let try_catch = &mut TryCatch::new(s);
 
@@ -310,20 +158,32 @@ impl<'a> JSContext for V8Context<'a> {
 
     fn run_compiled(
         &mut self,
-        compiled: &mut <Self::RT as JSRuntime>::Compiled,
-    ) -> Result<<Self::RT as JSRuntime>::Value> {
+        compiled: &mut <Self::RT as WebRuntime>::Compiled,
+    ) -> Result<<Self::RT as WebRuntime>::Value> {
         compiled.run()
     }
 
-    fn new_global_object(&mut self, name: &str) -> Result<<Self::RT as JSRuntime>::Object> {
-        let scope = self.scope();
-        let obj = Object::new(scope);
-        let name = v8::String::new(scope, name).unwrap();
+    fn set_on_global_object(&mut self, name: &str, value: <Self::RT as WebRuntime>::Value) -> Result<()> {
+        let mut c = self.borrow_mut();
 
-        let global = self.borrow_mut().context().global(scope);
+        let ctx = c.ctx.clone();
+        let scope = &mut c.new_scope();
 
-        global.set(scope, name.into(), obj.into());
+        let iso_ctx = ctx.open(scope);
 
-        Ok(V8Object::from_ctx(V8Context::clone(self), obj))
+        let global = iso_ctx.global(scope);
+
+        let name = v8::String::new(scope, name).ok_or(Error::JS(JSError::Conversion(
+            "Failed to convert to string".to_string(),
+        )))?;
+        let value = Local::new(scope, value.value);
+
+        let obj = global.set(scope, name.into(), value);
+
+        if obj.is_none() {
+            return Err(Error::JS(JSError::Conversion("Failed to set value".to_string())).into());
+        }
+
+        Ok(())
     }
 }

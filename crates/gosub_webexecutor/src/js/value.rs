@@ -1,13 +1,13 @@
 use gosub_shared::types::Result;
 
-use crate::js::{AsArray, IntoJSValue, JSRuntime, JSType};
+use crate::js::{AsArray, IntoWebValue, JSType, WebRuntime};
 
-pub trait JSValue:
-    Sized + From<<Self::RT as JSRuntime>::Object> + From<<Self::RT as JSRuntime>::Array> + AsArray<Runtime = Self::RT>
+pub trait WebValue:
+    Sized + From<<Self::RT as WebRuntime>::Object> + From<<Self::RT as WebRuntime>::Array> + AsArray<Runtime = Self::RT>
 where
     Self: Sized,
 {
-    type RT: JSRuntime<Value = Self>;
+    type RT: WebRuntime<Value = Self>;
 
     fn as_string(&self) -> Result<String>;
 
@@ -15,9 +15,9 @@ where
 
     fn as_bool(&self) -> Result<bool>;
 
-    fn as_object(&self) -> Result<<Self::RT as JSRuntime>::Object>;
+    fn as_object(&self) -> Result<<Self::RT as WebRuntime>::Object>;
 
-    fn as_array(&self) -> Result<<Self::RT as JSRuntime>::Array>;
+    fn as_array(&self) -> Result<<Self::RT as WebRuntime>::Array>;
 
     fn is_string(&self) -> bool;
 
@@ -37,22 +37,22 @@ where
 
     fn type_of(&self) -> JSType;
 
-    fn new_object(ctx: <Self::RT as JSRuntime>::Context) -> Result<<Self::RT as JSRuntime>::Object>;
+    fn new_object(ctx: <Self::RT as WebRuntime>::Context) -> Result<<Self::RT as WebRuntime>::Object>;
 
-    fn new_array<T: IntoJSValue<Self, Value = Self>>(
-        ctx: <Self::RT as JSRuntime>::Context,
+    fn new_array<T: IntoWebValue<Self, Value = Self>>(
+        ctx: <Self::RT as WebRuntime>::Context,
         value: &[T],
-    ) -> Result<<Self::RT as JSRuntime>::Array>;
+    ) -> Result<<Self::RT as WebRuntime>::Array>;
 
-    fn new_empty_array(ctx: <Self::RT as JSRuntime>::Context) -> Result<<Self::RT as JSRuntime>::Array>;
+    fn new_empty_array(ctx: <Self::RT as WebRuntime>::Context) -> Result<<Self::RT as WebRuntime>::Array>;
 
-    fn new_string(ctx: <Self::RT as JSRuntime>::Context, value: &str) -> Result<Self>;
+    fn new_string(ctx: <Self::RT as WebRuntime>::Context, value: &str) -> Result<Self>;
 
-    fn new_number<N: Into<f64>>(context: <Self::RT as JSRuntime>::Context, value: N) -> Result<Self>;
+    fn new_number<N: Into<f64>>(context: <Self::RT as WebRuntime>::Context, value: N) -> Result<Self>;
 
-    fn new_bool(ctx: <Self::RT as JSRuntime>::Context, value: bool) -> Result<Self>;
+    fn new_bool(ctx: <Self::RT as WebRuntime>::Context, value: bool) -> Result<Self>;
 
-    fn new_null(ctx: <Self::RT as JSRuntime>::Context) -> Result<Self>;
+    fn new_null(ctx: <Self::RT as WebRuntime>::Context) -> Result<Self>;
 
-    fn new_undefined(ctx: <Self::RT as JSRuntime>::Context) -> Result<Self>;
+    fn new_undefined(ctx: <Self::RT as WebRuntime>::Context) -> Result<Self>;
 }

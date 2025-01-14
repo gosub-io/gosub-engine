@@ -1,23 +1,22 @@
 #[cfg(test)]
 mod tests;
 mod v8;
-
 pub use v8::*;
 
-trait FromContext<'a, T> {
-    fn from_ctx(ctx: V8Context<'a>, value: T) -> Self;
+trait FromContext<T> {
+    fn from_ctx(ctx: V8Context, value: T) -> Self;
 }
 
-trait IntoContext<'a, T> {
-    fn into_ctx(self, ctx: V8Context<'a>) -> T;
+trait IntoContext<T> {
+    fn into_ctx(self, ctx: V8Context) -> T;
 }
 
 //impl into context for everything that implements FromContext
-impl<'a, T, U> IntoContext<'a, U> for T
+impl<T, U> IntoContext<U> for T
 where
-    U: FromContext<'a, T>,
+    U: FromContext<T>,
 {
-    fn into_ctx(self, ctx: V8Context<'a>) -> U {
+    fn into_ctx(self, ctx: V8Context) -> U {
         U::from_ctx(ctx, self)
     }
 }

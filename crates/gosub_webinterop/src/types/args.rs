@@ -115,7 +115,7 @@ impl Arg {
             TypeT::Generic(p) => {
                 p.iter().for_each(|p| {
                     if let Some(s) = p.segments.last() {
-                        if s.ident == "JSContext" {
+                        if s.ident == "WebContext" {
                             variant = ArgVariant::Context;
                         } else if s.ident == "VariadicArgs" {
                             variant = ArgVariant::Variadic;

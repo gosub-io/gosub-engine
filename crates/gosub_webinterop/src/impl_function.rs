@@ -33,7 +33,7 @@ pub fn impl_js_functions(functions: &[Function], name: &Ident, options: &Options
     quote! {
         impl #marker_trait for #refs #marker_struct {
             #[inline(always)]
-            fn implement<RT: JSRuntime>(&self, obj: &mut RT::Object, s: Rc<RefCell<#name>>, ctx: RT::Context) -> Result<()> {
+            fn implement<RT: WebRuntime>(&self, obj: &mut RT::Object, s: Rc<RefCell<#name>>, ctx: RT::Context) -> Result<()> {
                 #(#impls)*
 
                 (*self).implement::<RT>(obj, s, ctx)
