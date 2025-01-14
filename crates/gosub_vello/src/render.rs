@@ -2,6 +2,7 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use anyhow::anyhow;
+use cow_utils::CowUtils;
 use vello::wgpu::util::{
     backend_bits_from_env, dx12_shader_compiler_from_env, gles_minor_version_from_env, power_preference_from_env,
 };
@@ -130,13 +131,13 @@ impl Renderer {
         #[cfg(not(target_arch = "wasm32"))]
         let mut adapter = config.adapter.and_then(|adapter_name| {
             let adapters = instance.enumerate_adapters(Backends::all());
-            let adapter_name = adapter_name.to_lowercase();
+            let adapter_name = adapter_name.cow_to_lowercase();
 
             let mut chosen_adapter = None;
             for adapter in adapters {
                 let info = adapter.get_info();
 
-                if info.name.to_lowercase().contains(&adapter_name) {
+                if info.name.cow_to_lowercase().contains(adapter_name.as_ref()) {
                     chosen_adapter = Some(adapter);
                     break;
                 }

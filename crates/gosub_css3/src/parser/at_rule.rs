@@ -13,6 +13,7 @@ use crate::node::{Node, NodeType};
 use crate::parser::block::BlockParseMode;
 use crate::tokenizer::TokenType;
 use crate::Css3;
+use cow_utils::CowUtils;
 use gosub_shared::errors::{CssError, CssResult};
 
 impl Css3<'_> {
@@ -59,7 +60,7 @@ impl Css3<'_> {
         log::trace!("parse_at_rule_prelude");
 
         self.consume_whitespace_comments();
-        let node = match name.to_lowercase().as_str() {
+        let node = match name.cow_to_lowercase().as_ref() {
             "container" => Some(self.parse_at_rule_container_prelude()?),
             "font-face" => None,
             "import" => Some(self.parse_at_rule_import_prelude()?),
@@ -102,7 +103,7 @@ impl Css3<'_> {
         }
 
         // parse block. They may or may not have nested rules depending on the is_declaration and block type
-        let node = match name.to_lowercase().as_str() {
+        let node = match name.cow_to_lowercase().as_ref() {
             "container" => Some(self.parse_block(mode)?),
             "font-face" => Some(self.parse_block(BlockParseMode::StyleBlock)?),
             "import" => None,

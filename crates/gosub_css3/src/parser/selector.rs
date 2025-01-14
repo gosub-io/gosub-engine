@@ -1,6 +1,7 @@
 use crate::node::{Node, NodeType};
 use crate::tokenizer::TokenType;
 use crate::Css3;
+use cow_utils::CowUtils;
 use gosub_shared::errors::CssError;
 use gosub_shared::errors::CssResult;
 
@@ -222,13 +223,13 @@ impl Css3<'_> {
         let value = match t.token_type {
             TokenType::Ident(value) => Node::new(NodeType::Ident { value }, t.location),
             TokenType::Function(name) => {
-                let name = name.to_lowercase();
-                let args = self.parse_pseudo_function(name.as_str())?;
+                let name = name.cow_to_lowercase();
+                let args = self.parse_pseudo_function(name.as_ref())?;
                 self.consume(TokenType::RParen)?;
 
                 Node::new(
                     NodeType::Function {
-                        name,
+                        name: name.to_string(),
                         arguments: vec![args],
                     },
                     t.location,

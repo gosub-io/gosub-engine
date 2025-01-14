@@ -13,6 +13,7 @@ use crate::parser::errors::{ErrorLogger, ParserError};
 use crate::tokenizer::state::State;
 use crate::tokenizer::token::Token;
 use crate::tokenizer::{ParserData, Tokenizer, CHAR_REPLACEMENT};
+use cow_utils::CowUtils;
 use gosub_interface::config::HasDocument;
 use gosub_interface::css3::{CssOrigin, CssSystem};
 use gosub_interface::document::{Document, DocumentFragment, DocumentType};
@@ -595,7 +596,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 let mut node_idx = self.open_elements.len() - 1;
                 let mut node = get_node_by_id!(self.document, self.open_elements[node_idx]);
 
-                if get_element_data!(node).name().to_lowercase() != *name {
+                if get_element_data!(node).name().cow_to_lowercase() != *name {
                     self.parse_error("end tag does not match current node");
                 }
 
@@ -607,7 +608,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                         _ => {}
                     }
 
-                    if get_element_data!(node).name().to_lowercase() == *name {
+                    if get_element_data!(node).name().cow_to_lowercase() == *name {
                         while let Some(node_id) = self.open_elements.pop() {
                             if node_id == node.id() {
                                 break;
@@ -2771,7 +2772,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
 
                 self.acknowledge_closing_tag(*is_self_closing);
 
-                if !attributes.contains_key("type") || attributes.get("type").unwrap().to_lowercase() != *"hidden" {
+                if !attributes.contains_key("type") || attributes.get("type").unwrap().cow_to_lowercase() != *"hidden" {
                     self.frameset_ok = false;
                 }
             }
@@ -3329,7 +3330,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 attributes,
                 ..
             } if name == "input" => {
-                if !attributes.contains_key("type") || attributes.get("type").unwrap().to_lowercase() != *"hidden" {
+                if !attributes.contains_key("type") || attributes.get("type").unwrap().cow_to_lowercase() != *"hidden" {
                     anything_else = true;
                 } else {
                     self.parse_error("input tag not allowed in in table insertion mode");

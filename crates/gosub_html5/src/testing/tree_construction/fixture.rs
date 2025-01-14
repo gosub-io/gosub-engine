@@ -1,6 +1,7 @@
 use crate::testing::tree_construction::parser::{parse_fixture, QUOTED_DOUBLE_NEWLINE};
 use crate::testing::tree_construction::Test;
 use crate::testing::{FIXTURE_ROOT, TREE_CONSTRUCTION_PATH};
+use cow_utils::CowUtils;
 use gosub_shared::types::Result;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -77,7 +78,7 @@ pub fn read_fixtures(filenames: Option<&[&str]>) -> Result<Vec<FixtureFile>> {
 // have a "|" prefix using an "\n" delimiter.  Otherwise strip "\n" from lines.
 fn create_document_array(s: &str) -> Vec<String> {
     let document = s
-        .replace(QUOTED_DOUBLE_NEWLINE, "\"\n\n\"")
+        .cow_replace(QUOTED_DOUBLE_NEWLINE, "\"\n\n\"")
         .split('|')
         .skip(1)
         .flat_map(|l| (!l.is_empty()).then(|| format!("|{}", l.trim_end())))

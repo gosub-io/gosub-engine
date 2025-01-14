@@ -1748,6 +1748,7 @@ name = "gosub_config"
 version = "0.1.1"
 dependencies = [
  "anyhow",
+ "cow-utils",
  "gosub_shared",
  "lazy_static",
  "log",
@@ -1830,6 +1831,7 @@ dependencies = [
 name = "gosub_html5"
 version = "0.1.1"
 dependencies = [
+ "cow-utils",
  "criterion",
  "derive_more",
  "gosub_css3",
@@ -1879,6 +1881,7 @@ dependencies = [
 name = "gosub_jsapi"
 version = "0.1.1"
 dependencies = [
+ "cow-utils",
  "gosub_shared",
  "regex",
  "uuid",
@@ -1926,6 +1929,7 @@ name = "gosub_rendering"
 version = "0.1.1"
 dependencies = [
  "anyhow",
+ "cow-utils",
  "gosub_html5",
  "gosub_interface",
  "gosub_shared",
@@ -2003,6 +2007,7 @@ name = "gosub_vello"
 version = "0.1.1"
 dependencies = [
  "anyhow",
+ "cow-utils",
  "futures",
  "gosub_html5",
  "gosub_interface",
@@ -2042,6 +2047,7 @@ dependencies = [
 name = "gosub_webinterop"
 version = "0.1.1"
 dependencies = [
+ "cow-utils",
  "lazy_static",
  "proc-macro2",
  "quote",
