@@ -4562,9 +4562,9 @@ dependencies = [
 
 [[package]]
 name = "taffy"
-version = "0.7.2"
+version = "0.7.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c5ee7dc8eeb09b5952509850485cf7e73b81af1a4cd5d71f2ee34ed2aa0c562a"
+checksum = "944a2a0b6070d217b69afb819f65f84ba093c43d627571fdac1c46f03a14d326"
 dependencies = [
  "arrayvec",
  "grid",
@@ -4792,13 +4792,13 @@ dependencies = [
 
 [[package]]
 name = "tokio-macros"
-version = "2.4.0"
+version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "693d596312e88961bc67d7f1f97af8a70227d9f90c31bba5806eec004978d752"
+checksum = "6e06d43f1345a3bcd39f6a56dbb7dcab2ba47e68e8ac134855e7e2bdbaf8cab8"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.91",
+ "syn 2.0.96",
 ]
 
 [[package]]
