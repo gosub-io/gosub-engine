@@ -13,7 +13,7 @@ url = "2.5.4"
 anyhow = "1.0.94"
 lazy_static = "1.5.0"
 uuid = { version = "1.12.1", features = ["v4"] }
-rand = "0.9.0-beta.0"
+rand = "0.9.0-beta.3"
 chardetng = "0.1.17"
 encoding_rs = "0.8.35"
 derive_more = {version = "1.0.0", features = ["display"]}

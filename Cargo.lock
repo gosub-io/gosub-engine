@@ -1776,7 +1776,7 @@ dependencies = [
  "lazy_static",
  "log",
  "nom",
- "rand 0.9.0-beta.1",
+ "rand 0.9.0-beta.3",
  "serde",
  "serde_json",
  "simple_logger",
@@ -1952,7 +1952,7 @@ dependencies = [
  "js-sys",
  "lazy_static",
  "log",
- "rand 0.9.0-beta.1",
+ "rand 0.9.0-beta.3",
  "raw-window-handle",
  "smallvec",
  "thiserror 2.0.11",
@@ -3824,9 +3824,9 @@ dependencies = [
 
 [[package]]
 name = "rand"
-version = "0.9.0-beta.1"
+version = "0.9.0-beta.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c8478de76992f2825a1052cc2ae9d1401cdb62687761d4100ddd69a73dc3dc48"
+checksum = "6fccbfebb3972a41a31c605a59207d9fba5489b9a87d9d87024cb6df73a32ec7"
 dependencies = [
  "rand_chacha 0.9.0-beta.1",
  "rand_core 0.9.0-beta.1",
