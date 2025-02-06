@@ -10,18 +10,16 @@ description = "HTML5 parser for Gosub"
 gosub_shared = { version = "0.1.1", registry = "gosub", path = "../gosub_shared", features = [] }
 gosub_interface = { version = "0.1.1", registry = "gosub", path = "../gosub_interface", features = [] }
 gosub_css3 = { version = "0.1.1", registry = "gosub", path = "../gosub_css3", features = [] }
-derive_more = { version = "1", features = ["from", "display"] }
 phf = { version = "0.11.3", features = ["macros"] }
 lazy_static = "1.5"
 thiserror = "2.0.11"
 url = { version = "2.5.4", features = [] }
 log = { version = "0.4.22", features = [] }
 nom = "8.0.0"
-nom_locate = "4.2.0"
+nom_locate = "5.0.0"
 regex = "1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", features = ["preserve_order"] }
-serde_derive = "1.0"
 cow-utils = "0.1.3"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
