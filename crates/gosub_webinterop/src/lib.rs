@@ -128,15 +128,15 @@ pub fn web_fns(attr: TokenStream, item: TokenStream) -> TokenStream {
                 if let Some(arg) = func.arguments.last() {
                     if arg.variant != ArgVariant::Variadic {
                         if arg.variant != ArgVariant::Context {
-                            panic!("Variadic argument must be the last argument111");
+                            panic!("Variadic argument must be the last argument");
                         }
                         //get second last
                         if func.arguments.len() <= 1 {
-                            panic!("Variadic argument must be the last argument222");
+                            panic!("Variadic argument must be the last argument");
                         }
                         if let Some(arg) = func.arguments.get(func.arguments.len() - 2) {
                             if arg.variant != ArgVariant::Variadic {
-                                panic!("Variadic argument must be the last argument333");
+                                panic!("Variadic argument must be the last argument");
                             }
                         }
                     }

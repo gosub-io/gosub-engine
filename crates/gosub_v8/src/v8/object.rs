@@ -1,38 +1,44 @@
 use core::fmt::Display;
 use std::ffi::c_void;
 
+use gosub_shared::types::Result;
+use gosub_webexecutor::js::{JSError, WebGetterCallback, WebObject, WebRuntime, WebSetterCallback, WebValue};
+use gosub_webexecutor::Error;
 use v8::{
-    AccessorConfiguration, External, HandleScope, Local, Name, Object, PropertyCallbackArguments, ReturnValue, Value,
+    AccessorConfiguration, External, Global, HandleScope, Local, Name, Object, PropertyCallbackArguments, ReturnValue,
+    Value,
 };
 
-use gosub_shared::types::Result;
-use gosub_webexecutor::js::{JSError, JSGetterCallback, JSObject, JSRuntime, JSSetterCallback, JSValue};
-use gosub_webexecutor::Error;
+use crate::{FromContext, V8Context, V8Ctx, V8Engine, V8Function, V8FunctionVariadic, V8Value};
 
-use crate::{ctx_from, FromContext, V8Context, V8Ctx, V8Engine, V8Function, V8FunctionVariadic, V8Value};
-
-pub struct V8Object<'a> {
-    pub ctx: V8Context<'a>,
-    pub value: Local<'a, Object>,
+#[derive(Clone)]
+pub struct V8Object {
+    pub ctx: V8Context,
+    pub value: Global<Object>,
 }
 
-pub struct GetterCallback<'a> {
-    ctx: V8Context<'a>,
-    ret: V8Value<'a>,
+pub struct GetterCallback {
+    ctx: V8Context,
+    ret: V8Value,
 }
 
-impl V8Object<'_> {
+impl V8Object {
     pub fn new(ctx: V8Context) -> Result<V8Object> {
-        let scope = ctx.scope();
-        let value = Object::new(scope);
+        let mut scope = ctx.scope();
+        let value = Object::new(&mut scope);
+
+        let value = Global::new(&mut scope, value);
+
+        drop(scope);
+
         Ok(V8Object { ctx, value })
     }
 }
 
-impl<'a> JSGetterCallback for GetterCallback<'a> {
-    type RT = V8Engine<'a>;
+impl WebGetterCallback for GetterCallback {
+    type RT = V8Engine;
 
-    fn context(&mut self) -> &mut <Self::RT as JSRuntime>::Context {
+    fn context(&mut self) -> &mut <Self::RT as WebRuntime>::Context {
         &mut self.ctx
     }
 
@@ -40,20 +46,20 @@ impl<'a> JSGetterCallback for GetterCallback<'a> {
         self.ctx.error(error);
     }
 
-    fn ret(&mut self, value: <Self::RT as JSRuntime>::Value) {
+    fn ret(&mut self, value: <Self::RT as WebRuntime>::Value) {
         self.ret = value;
     }
 }
 
-pub struct SetterCallback<'a> {
-    ctx: V8Context<'a>,
-    value: V8Value<'a>,
+pub struct SetterCallback {
+    ctx: V8Context,
+    value: V8Value,
 }
 
-impl<'a> JSSetterCallback for SetterCallback<'a> {
-    type RT = V8Engine<'a>;
+impl WebSetterCallback for SetterCallback {
+    type RT = V8Engine;
 
-    fn context(&mut self) -> &mut <Self::RT as JSRuntime>::Context {
+    fn context(&mut self) -> &mut <Self::RT as WebRuntime>::Context {
         &mut self.ctx
     }
 
@@ -61,65 +67,88 @@ impl<'a> JSSetterCallback for SetterCallback<'a> {
         self.ctx.error(error)
     }
 
-    fn value(&mut self) -> &<Self::RT as JSRuntime>::Value {
+    fn value(&mut self) -> &<Self::RT as WebRuntime>::Value {
         &self.value
     }
 }
 
-struct GetterSetter<'a> {
-    ctx: V8Context<'a>,
-    getter: Box<dyn Fn(&mut GetterCallback<'a>)>,
-    setter: Box<dyn Fn(&mut SetterCallback<'a>)>,
+struct GetterSetter {
+    ctx: V8Context,
+    getter: Box<dyn Fn(&mut GetterCallback)>,
+    setter: Box<dyn Fn(&mut SetterCallback)>,
 }
 
-impl<'a> JSObject for V8Object<'a> {
-    type RT = V8Engine<'a>;
+impl WebObject for V8Object {
+    type RT = V8Engine;
 
     fn set_property(&self, name: &str, value: &V8Value) -> Result<()> {
-        let Some(name) = v8::String::new(self.ctx.scope(), name) else {
+        let scope = &mut self.ctx.scope();
+
+        let Some(name) = v8::String::new(scope, name) else {
             return Err(Error::JS(JSError::Generic("failed to create a string".to_owned())).into());
         };
 
-        if self.value.set(self.ctx.scope(), name.into(), value.value).is_none() {
+        let obj = self.value.open(scope);
+        let value = Local::new(scope, value.value.clone());
+
+        if obj.set(scope, name.into(), value).is_none() {
             Err(Error::JS(JSError::Generic("failed to set a property in an object".to_owned())).into())
         } else {
             Ok(())
         }
     }
 
-    fn get_property(&self, name: &str) -> Result<<Self::RT as JSRuntime>::Value> {
-        let Some(name) = v8::String::new(self.ctx.scope(), name) else {
+    fn get_property(&self, name: &str) -> Result<<Self::RT as WebRuntime>::Value> {
+        let scope = &mut self.ctx.scope();
+
+        let Some(name) = v8::String::new(scope, name) else {
             return Err(Error::JS(JSError::Generic("failed to create a string".to_owned())).into());
         };
 
-        let scope = self.ctx.scope();
+        let obj = self.value.open(scope);
 
-        self.value
-            .get(scope, name.into())
+        obj.get(scope, name.into())
             .ok_or_else(|| Error::JS(JSError::Generic("failed to get a property from an object".to_owned())).into())
-            .map(|value| V8Value::from_value(self.ctx.clone(), value))
+            .map(|value| {
+                let value = Global::new(scope, value);
+                V8Value::from_value(self.ctx.clone(), value)
+            })
     }
 
     fn call_method(
         &self,
         name: &str,
-        args: &[&<Self::RT as JSRuntime>::Value],
-    ) -> Result<<Self::RT as JSRuntime>::Value> {
-        let func = self.get_property(name)?.value;
+        args: &[&<Self::RT as WebRuntime>::Value],
+    ) -> Result<<Self::RT as WebRuntime>::Value> {
+        let scope = &mut self.ctx.scope();
+
+        let Some(name) = v8::String::new(scope, name) else {
+            return Err(Error::JS(JSError::Generic("failed to create a string".to_owned())).into());
+        };
+
+        let obj = self.value.open(scope);
+
+        let func = obj.get(scope, name.into()).ok_or_else(|| {
+            anyhow::Error::new(Error::JS(JSError::Generic(
+                "failed to get a property from an object".to_owned(),
+            )))
+        })?;
 
         if !func.is_function() {
             return Err(Error::JS(JSError::Generic("property is not a function".to_owned())).into());
         }
 
-        let function = Local::<v8::Function>::try_from(func).unwrap();
+        let function = Local::<v8::Function>::try_from(func)?;
 
-        let args: Vec<Local<Value>> = args.iter().map(|v| v.value).collect();
+        let args: Vec<Local<Value>> = args.iter().map(|v| Local::new(scope, &v.value)).collect();
 
-        let try_catch = &mut v8::TryCatch::new(self.ctx.scope());
+        let try_catch = &mut v8::TryCatch::new(scope);
+
+        let recv = Local::new(try_catch, self.value.clone());
 
         let Some(ret) = function
-            .call(try_catch, self.value.into(), &args)
-            .map(|v| V8Value::from_value(self.ctx.clone(), v))
+            .call(try_catch, recv.into(), &args)
+            .map(|v| V8Value::from_value(self.ctx.clone(), Global::new(try_catch, v)))
         else {
             return Err(V8Ctx::report_exception(try_catch).into());
         };
@@ -128,19 +157,17 @@ impl<'a> JSObject for V8Object<'a> {
     }
 
     fn set_method(&self, name: &str, func: &V8Function) -> Result<()> {
-        let Some(name) = v8::String::new(self.ctx.scope(), name) else {
+        let scope = &mut self.ctx.scope();
+
+        let Some(name) = v8::String::new(scope, name) else {
             return Err(Error::JS(JSError::Generic("failed to create a string".to_owned())).into());
         };
 
-        if !func.function.is_function() {
-            return Err(Error::JS(JSError::Generic("property is not a function".to_owned())).into());
-        }
+        let f = Local::new(scope, func.function.clone());
 
-        if self
-            .value
-            .set(self.ctx.scope(), name.into(), func.function.into())
-            .is_none()
-        {
+        let obj = self.value.open(scope);
+
+        if obj.set(scope, name.into(), f.into()).is_none() {
             Err(Error::JS(JSError::Generic("failed to set a property in an object".to_owned())).into())
         } else {
             Ok(())
@@ -148,19 +175,17 @@ impl<'a> JSObject for V8Object<'a> {
     }
 
     fn set_method_variadic(&self, name: &str, func: &V8FunctionVariadic) -> Result<()> {
-        let Some(name) = v8::String::new(self.ctx.scope(), name) else {
+        let scope = &mut self.ctx.scope();
+
+        let Some(name) = v8::String::new(scope, name) else {
             return Err(Error::JS(JSError::Generic("failed to create a string".to_owned())).into());
         };
 
-        if !func.function.is_function() {
-            return Err(Error::JS(JSError::Generic("property is not a function".to_owned())).into());
-        }
+        let f = Local::new(scope, func.function.clone());
 
-        if self
-            .value
-            .set(self.ctx.scope(), name.into(), func.function.into())
-            .is_none()
-        {
+        let obj = self.value.open(scope);
+
+        if obj.set(scope, name.into(), f.into()).is_none() {
             Err(Error::JS(JSError::Generic("failed to set a property in an object".to_owned())).into())
         } else {
             Ok(())
@@ -170,13 +195,12 @@ impl<'a> JSObject for V8Object<'a> {
     fn set_property_accessor(
         &self,
         name: &str,
-        getter: Box<dyn Fn(&mut <Self::RT as JSRuntime>::GetterCB)>,
-        setter: Box<dyn Fn(&mut <Self::RT as JSRuntime>::SetterCB)>,
+        getter: Box<dyn Fn(&mut <Self::RT as WebRuntime>::GetterCB)>,
+        setter: Box<dyn Fn(&mut <Self::RT as WebRuntime>::SetterCB)>,
     ) -> Result<()> {
-        let name = v8::String::new(self.ctx.scope(), name)
+        let scope = &mut self.ctx.scope();
+        let name = v8::String::new(scope, name)
             .ok_or_else(|| Error::JS(JSError::Generic("failed to create a string".to_owned())))?;
-
-        let scope = self.ctx.scope();
 
         let gs = Box::new(GetterSetter {
             ctx: self.ctx.clone(),
@@ -202,42 +226,26 @@ impl<'a> JSObject for V8Object<'a> {
 
                 let gs = unsafe { &*(external.value() as *const GetterSetter) };
 
-                let isolate = gs.ctx.borrow().isolate;
-
-                let ctx = match ctx_from(scope, isolate) {
-                    Ok(ctx) => ctx,
-                    Err((mut st, e)) => {
-                        let scope = st.with_context();
-                        if let Some(scope) = scope {
-                            let e = V8Context::create_exception(scope, e);
-                            if let Some(exception) = e {
-                                scope.throw_exception(exception);
-                            }
-                        } else {
-                            let scope = st.get();
-                            let Some(e) = v8::String::new(scope, &e.to_string()) else {
-                                eprintln!("failed to create exception string\nexception was: {e}");
-                                return;
-                            };
-                            scope.throw_exception(e.into());
-                        }
-                        return;
-                    }
-                };
-
-                let ret = match V8Value::new_undefined(ctx.clone()) {
+                let ret = match V8Value::new_undefined(gs.ctx.clone()) {
                     Ok(ret) => ret,
                     Err(e) => {
-                        ctx.error(e);
+                        gs.ctx.error(e);
                         return;
                     }
                 };
 
-                let mut gc = GetterCallback { ctx, ret };
+                let sg = gs.ctx.set_parent_scope(HandleScope::new(scope));
 
+                let mut gc = GetterCallback {
+                    ctx: gs.ctx.clone(),
+                    ret,
+                };
+                //TODO: do we need to drop the scope here?
                 (gs.getter)(&mut gc);
 
-                rv.set(gc.ret.value);
+                drop(sg);
+
+                rv.set(Local::new(scope, gc.ret.value));
             },
         )
         .setter(
@@ -260,44 +268,38 @@ impl<'a> JSObject for V8Object<'a> {
 
                 let gs = unsafe { &*(external.value() as *const GetterSetter) };
 
-                let ctx = match ctx_from(scope, gs.ctx.borrow().isolate) {
-                    Ok(ctx) => ctx,
-                    Err((mut st, e)) => {
-                        let scope = st.with_context();
-                        if let Some(scope) = scope {
-                            let e = V8Context::create_exception(scope, e);
-                            if let Some(exception) = e {
-                                scope.throw_exception(exception);
-                            }
-                        } else {
-                            let scope = st.get();
-                            let Some(e) = v8::String::new(scope, &e.to_string()) else {
-                                eprintln!("failed to create exception string\nexception was: {e}");
-                                return;
-                            };
-                            scope.throw_exception(e.into());
-                        }
-                        return;
-                    }
+                let val = V8Value::from_value(gs.ctx.clone(), Global::new(scope, value));
+
+                let sg = gs.ctx.set_parent_scope(HandleScope::new(scope));
+
+                let mut sc = SetterCallback {
+                    ctx: gs.ctx.clone(),
+                    value: val,
                 };
 
-                let val = V8Value::from_value(ctx.clone(), value);
-
-                let mut sc = SetterCallback { ctx, value: val };
-
                 (gs.setter)(&mut sc);
+
+                drop(sg);
             },
         )
         .data(Local::from(data));
 
-        self.value.set_accessor_with_configuration(scope, name.into(), config);
+        let obj = self.value.open(scope);
+
+        obj.set_accessor_with_configuration(scope, name.into(), config);
 
         Ok(())
     }
+
+    fn new(ctx: &<Self::RT as WebRuntime>::Context) -> Result<Self> {
+        Self::new(ctx.clone())
+    }
 }
 
-impl<'a> FromContext<'a, Local<'a, Object>> for V8Object<'a> {
-    fn from_ctx(ctx: V8Context<'a>, object: Local<'a, Object>) -> Self {
+impl FromContext<Local<'_, Object>> for V8Object {
+    fn from_ctx(ctx: V8Context, object: Local<'_, Object>) -> Self {
+        let object = Global::new(&mut ctx.isolate(), object);
+
         Self { ctx, value: object }
     }
 }
@@ -310,8 +312,8 @@ mod tests {
     use serde_json::to_string;
 
     use gosub_webexecutor::js::{
-        IntoJSValue, JSFunction, JSFunctionCallBack, JSFunctionCallBackVariadic, JSFunctionVariadic,
-        VariadicArgsInternal,
+        IntoWebValue, VariadicArgsInternal, WebFunction, WebFunctionCallBack, WebFunctionCallBackVariadic,
+        WebFunctionVariadic,
     };
 
     use crate::v8::{V8FunctionCallBack, V8FunctionCallBackVariadic};
@@ -342,7 +344,7 @@ mod tests {
         let getter = {
             let string = Rc::clone(&string);
             Box::new(move |cb: &mut GetterCallback| {
-                let value = string.borrow().to_js_value(cb.context().clone()).unwrap();
+                let value = string.borrow().to_web_value(cb.context().clone()).unwrap();
                 cb.ret(value);
             })
         };
