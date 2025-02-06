@@ -8,8 +8,7 @@ use nom::{
     combinator::{all_consuming, map, opt},
     multi::{many0, many1, separated_list1},
     sequence::{delimited, preceded},
-    Finish, IResult,
-    Parser,
+    Finish, IResult, Parser,
 };
 use nom_locate::{position, LocatedSpan};
 
@@ -97,13 +96,13 @@ fn error_1(i: Span) -> IResult<Span, ErrorSpec> {
         |(_, line, _, col, _): (Span, u64, Span, u64, Span)| (line as usize, col as usize),
     );
 
-    map(
-        (location, tag(": "), take_until1("\n")),
-        |((line, col), _, message)| ErrorSpec::Location {
+    map((location, tag(": "), take_until1("\n")), |((line, col), _, message)| {
+        ErrorSpec::Location {
             pos: Position { line, col },
             message: message.trim().into(),
-        },
-    ).parse(i)
+        }
+    })
+    .parse(i)
 }
 
 fn error_2(i: Span) -> IResult<Span, ErrorSpec> {
@@ -118,13 +117,13 @@ fn error_2(i: Span) -> IResult<Span, ErrorSpec> {
         |(_, line, _, col, _): (Span, u64, Span, u64, Span)| (line as usize, col as usize),
     );
 
-    map(
-        (location, tag(" "), take_until1("\n")),
-        |((line, col), _, message)| ErrorSpec::Location {
+    map((location, tag(" "), take_until1("\n")), |((line, col), _, message)| {
+        ErrorSpec::Location {
             pos: Position { line, col },
             message: message.trim().into(),
-        },
-    ).parse(i)
+        }
+    })
+    .parse(i)
 }
 
 fn error_3(i: Span) -> IResult<Span, ErrorSpec> {
@@ -133,13 +132,13 @@ fn error_3(i: Span) -> IResult<Span, ErrorSpec> {
         |(line, _, col): (u64, Span, u64)| (line as usize, col as usize),
     );
 
-    map(
-        (location, tag(": "), take_until1("\n")),
-        |((line, col), _, message)| ErrorSpec::Location {
+    map((location, tag(": "), take_until1("\n")), |((line, col), _, message)| {
+        ErrorSpec::Location {
             pos: Position { line, col },
             message: message.trim().into(),
-        },
-    ).parse(i)
+        }
+    })
+    .parse(i)
 }
 
 fn error_4(i: Span) -> IResult<Span, ErrorSpec> {
@@ -154,13 +153,13 @@ fn error_4(i: Span) -> IResult<Span, ErrorSpec> {
         |(_, line, _, col, _): (Span, u64, Span, u64, Span)| (line as usize, col as usize),
     );
 
-    map(
-        (location, tag(" "), take_until1("\n")),
-        |((line, col), _, message)| ErrorSpec::Location {
+    map((location, tag(" "), take_until1("\n")), |((line, col), _, message)| {
+        ErrorSpec::Location {
             pos: Position { line, col },
             message: message.trim().into(),
-        },
-    ).parse(i)
+        }
+    })
+    .parse(i)
 }
 
 fn error_5(i: Span) -> IResult<Span, ErrorSpec> {
@@ -170,7 +169,8 @@ fn error_5(i: Span) -> IResult<Span, ErrorSpec> {
             line: line as _,
             message: message.trim().into(),
         },
-    ).parse(i)
+    )
+    .parse(i)
 }
 
 // (1:44-1:49) non-void-html-element-start-tag-with-trailing-solidus
@@ -208,13 +208,15 @@ fn error_6(i: Span) -> IResult<Span, ErrorSpec> {
             end,
             message: message.to_string(),
         },
-    ).parse(i)
+    )
+    .parse(i)
 }
 
 fn error_messages(i: Span) -> IResult<Span, Vec<ErrorSpec>> {
     map(take_until1("#"), |string: Span| {
         string.lines().map(|s| ErrorSpec::Message(s.into())).collect::<Vec<_>>()
-    }).parse(i)
+    })
+    .parse(i)
 }
 
 fn old_errors(i: Span) -> IResult<Span, Vec<ErrorSpec>> {
@@ -232,7 +234,8 @@ fn old_errors(i: Span) -> IResult<Span, Vec<ErrorSpec>> {
             |errors| errors.unwrap_or_default(),
         ),
         multispace0,
-    ).parse(i)
+    )
+    .parse(i)
 }
 
 fn new_errors(i: Span) -> IResult<Span, Vec<ErrorSpec>> {
@@ -240,7 +243,8 @@ fn new_errors(i: Span) -> IResult<Span, Vec<ErrorSpec>> {
         (multispace0, tag("#new-errors\n")),
         many0(delimited(multispace0, alt((error_2, error_6)), tag("\n"))),
         multispace0,
-    ).parse(i)
+    )
+    .parse(i)
 }
 
 fn document(i: Span) -> IResult<Span, Span> {
@@ -290,7 +294,8 @@ fn test(i: Span) -> IResult<Span, TestSpec> {
                 document: document.to_string(),
             }
         },
-    ).parse(i)
+    )
+    .parse(i)
 }
 
 /// Trims only a single newline from the string, even if there are multiple newlines present.
@@ -306,12 +311,10 @@ pub fn parse_fixture(i: &str) -> Result<Vec<TestSpec>> {
     // Deal with a corner case that makes it hard to parse tricky01.dat.
     let input = i.cow_replace("\"\n\n\"", QUOTED_DOUBLE_NEWLINE).clone() + "\n";
 
-    let files = map(
-        (separated_list1(tag("\n\n"), test), multispace0),
-        |(tests, _)| tests,
-    );
+    let files = map((separated_list1(tag("\n\n"), test), multispace0), |(tests, _)| tests);
 
-    let (_, tests) = all_consuming(files).parse(Span::new(&input))
+    let (_, tests) = all_consuming(files)
+        .parse(Span::new(&input))
         .finish()
         .map_err(|err| Error::Test(format!("{err}")))?;
 
