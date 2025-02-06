@@ -7,9 +7,10 @@ use nom::character::complete::{alpha1, alphanumeric1, char, digit0, digit1, mult
 use nom::combinator::{map, map_res, opt, recognize};
 use nom::multi::{fold_many1, many0, many1, separated_list0, separated_list1};
 use nom::number::complete::float;
-use nom::sequence::{delimited, pair, preceded, separated_pair, tuple};
+use nom::sequence::{delimited, pair, preceded, separated_pair};
 use nom::Err;
 use nom::IResult;
+use nom::Parser;
 
 use crate::matcher::syntax_matcher::CssSyntaxTree;
 use crate::stylesheet::CssValue;
@@ -279,7 +280,7 @@ impl CssSyntax {
 /// Parse a unit input
 fn parse_unit(input: &str) -> IResult<&str, SyntaxComponent> {
     let (input, value) = float(input)?;
-    let (input, suffix) = opt(alpha1)(input)?;
+    let (input, suffix) = opt(alpha1).parse(input)?;
 
     if suffix.is_none() {
         return if value == 0.0 {
@@ -306,23 +307,23 @@ fn parse_unit(input: &str) -> IResult<&str, SyntaxComponent> {
 }
 
 /// Removes preceding whitespace from a parser
-fn ws<'a, F, O>(inner: F) -> impl FnMut(&'a str) -> IResult<&'a str, O>
+fn ws<'a, F, O>(inner: F) -> impl Parser<&'a str, Output = O, Error = nom::error::Error<&'a str>>
 where
-    F: FnMut(&'a str) -> IResult<&'a str, O>,
+    // F: FnMut(&'a str) -> IResult<&'a str, O>,
+    F: Parser<&'a str, Output = O, Error = nom::error::Error<&'a str>>,
 {
     delimited(multispace0, inner, multispace0)
-    // preceded(multispace0, inner)
 }
 
 /// Parse a keyword (alphanumeric characters and dashes)
 fn parse_keyword(input: &str) -> IResult<&str, &str> {
     let alpha_or_dash = alt((alphanumeric1, recognize(many1(one_of("-")))));
-    recognize(fold_many1(alpha_or_dash, || (), |_, _| ()))(input)
+    recognize(fold_many1(alpha_or_dash, || (), |_, _| ())).parse(input)
 }
 
 /// Parse an integer
 fn integer(input: &str) -> IResult<&str, u32> {
-    map_res(digit0, |s: &str| s.parse::<u32>())(input)
+    map_res(digit0, |s: &str| s.parse::<u32>()).parse(input)
 }
 
 fn parse_curly_braces_multiplier(input: &str) -> IResult<&str, SyntaxComponentMultiplier> {
@@ -330,7 +331,7 @@ fn parse_curly_braces_multiplier(input: &str) -> IResult<&str, SyntaxComponentMu
         separated_pair(ws(integer), ws(tag(",")), ws(integer)),
         map(ws(integer), |num| (num, num)),
     ));
-    let (input, range) = delimited(tag("{"), range, tag("}"))(input)?;
+    let (input, range) = delimited(tag("{"), range, tag("}")).parse(input)?;
 
     Ok((
         input,
@@ -348,7 +349,8 @@ fn parse_comma_separated_multiplier(input: &str) -> IResult<&str, SyntaxComponen
         map(delimited(ws(tag("#{")), range, ws(tag("}"))), |(min, max)| (min, max)),
         // No range means one or more values
         map(ws(tag("#")), |_| (1, u32::MAX)),
-    ))(input)?;
+    ))
+    .parse(input)?;
 
     Ok((
         input,
@@ -367,7 +369,8 @@ fn parse_multipliers(input: &str) -> IResult<&str, Vec<SyntaxComponentMultiplier
         map(tag("!"), |_| SyntaxComponentMultiplier::AtLeastOneValue),
         parse_comma_separated_multiplier,
         parse_curly_braces_multiplier,
-    )))(input)?;
+    )))
+    .parse(input)?;
 
     if multipliers.is_empty() {
         return Ok((input, vec![SyntaxComponentMultiplier::Once]));
@@ -380,7 +383,7 @@ fn parse_multipliers(input: &str) -> IResult<&str, Vec<SyntaxComponentMultiplier
 fn parse_group(input: &str) -> IResult<&str, SyntaxComponent> {
     debug_print!("Parsing group: {}", input);
 
-    let (input, components) = delimited(ws(tag("[")), parse_component_singlebar_list, ws(tag("]")))(input)?;
+    let (input, components) = delimited(ws(tag("[")), parse_component_singlebar_list, ws(tag("]"))).parse(input)?;
 
     Ok((input, components))
 }
@@ -388,7 +391,7 @@ fn parse_group(input: &str) -> IResult<&str, SyntaxComponent> {
 fn parse_component_singlebar_list(input: &str) -> IResult<&str, SyntaxComponent> {
     debug_print!("Parsing component singlebar list: {}", input);
 
-    let (input, components) = separated_list1(ws(tag("|")), parse_component_doublebar_list)(input)?;
+    let (input, components) = separated_list1(ws(tag("|")), parse_component_doublebar_list).parse(input)?;
 
     if components.len() == 1 {
         return Ok((input, components[0].clone()));
@@ -408,7 +411,7 @@ fn parse_component_singlebar_list(input: &str) -> IResult<&str, SyntaxComponent>
 fn parse_component_doublebar_list(input: &str) -> IResult<&str, SyntaxComponent> {
     debug_print!("Parsing component doublebar list: {}", input);
 
-    let (input, components) = separated_list1(ws(tag("||")), parse_component_doubleampersand_list)(input)?;
+    let (input, components) = separated_list1(ws(tag("||")), parse_component_doubleampersand_list).parse(input)?;
 
     if components.len() == 1 {
         return Ok((input, components[0].clone()));
@@ -428,7 +431,7 @@ fn parse_component_doublebar_list(input: &str) -> IResult<&str, SyntaxComponent>
 fn parse_component_doubleampersand_list(input: &str) -> IResult<&str, SyntaxComponent> {
     debug_print!("Parsing component doubleampersand list: {}", input);
 
-    let (input, components) = separated_list1(ws(tag("&&")), parse_component_juxtaposition_list)(input)?;
+    let (input, components) = separated_list1(ws(tag("&&")), parse_component_juxtaposition_list).parse(input)?;
 
     if components.len() == 1 {
         return Ok((input, components[0].clone()));
@@ -469,7 +472,8 @@ fn juxtaseparator(input: &str) -> IResult<&str, bool> {
         char(')'), // End of a function argument list
         char('|'), // Start of a separator for non-juxtaposition group
         char('&'), // Start of a separator for non-juxtaposition group
-    )))(input)?;
+    )))
+    .parse(input)?;
 
     // If we didn't find any of the above chars, we return true, as we seem to have found a
     // next juxtaposition element.
@@ -527,7 +531,7 @@ fn parse_component_juxtaposition_list(input: &str) -> IResult<&str, SyntaxCompon
 }
 
 fn int_as_float(input: &str) -> IResult<&str, f32> {
-    map(integer, |i| i as f32)(input)
+    map(integer, |i| i as f32).parse(input)
 }
 
 fn parse_unit_inner(input: &str) -> IResult<&str, SyntaxComponent> {
@@ -536,11 +540,11 @@ fn parse_unit_inner(input: &str) -> IResult<&str, SyntaxComponent> {
     let single_int = map(integer, |i| (Some(i as f32), None));
     let paired_int = separated_pair(opt(int_as_float), tag(".."), opt(int_as_float));
 
-    let (input, range) = opt(alt((paired_int, single_int)))(input)?;
+    let (input, range) = opt(alt((paired_int, single_int))).parse(input)?;
 
     // Find any optional suffixes
     let (input, _) = multispace0(input)?;
-    let (input, suffixes) = opt(separated_list0(ws(tag("|")), alpha1))(input)?;
+    let (input, suffixes) = opt(separated_list0(ws(tag("|")), alpha1)).parse(input)?;
 
     if suffixes.is_none() {
         // No suffixes, just a range
@@ -570,7 +574,7 @@ fn parse_unit_inner(input: &str) -> IResult<&str, SyntaxComponent> {
 
 fn parse_unit_function(input: &str) -> IResult<&str, SyntaxComponent> {
     debug_print!("Parsing unit_function: {}", input);
-    let (input, unit) = delimited(tag("unit("), parse_unit_inner, tag(")"))(input)?;
+    let (input, unit) = delimited(tag("unit("), parse_unit_inner, tag(")")).parse(input)?;
 
     Ok((input, unit))
 }
@@ -578,15 +582,11 @@ fn parse_unit_function(input: &str) -> IResult<&str, SyntaxComponent> {
 fn parse_function(input: &str) -> IResult<&str, SyntaxComponent> {
     debug_print!("Parsing function: {}", input);
 
-    let empty_arglist = delimited(
-        tuple((space0, char('('), space0)),
-        space0,
-        tuple((space0, char(')'), space0)),
-    );
+    let empty_arglist = delimited((space0, char('('), space0), space0, (space0, char(')'), space0));
     let arglist = delimited(ws(tag("(")), ws(parse_component_singlebar_list), ws(tag(")")));
 
     let (input, name) = parse_keyword(input)?;
-    let (input, arglist) = alt((map(empty_arglist, |_| None), map(arglist, Some)))(input)?;
+    let (input, arglist) = alt((map(empty_arglist, |_| None), map(arglist, Some))).parse(input)?;
 
     match arglist {
         Some(arglist) => Ok((
@@ -618,7 +618,8 @@ fn parse_property(input: &str) -> IResult<&str, SyntaxComponent> {
             multipliers: vec![SyntaxComponentMultiplier::Once],
         }),
         tag("'"),
-    )(input)?;
+    )
+    .parse(input)?;
 
     Ok((input, property))
 }
@@ -629,7 +630,8 @@ fn parse_generic_keyword(input: &str) -> IResult<&str, SyntaxComponent> {
     map(parse_keyword, |s: &str| SyntaxComponent::GenericKeyword {
         keyword: s.to_string(),
         multipliers: vec![SyntaxComponentMultiplier::Once],
-    })(input)
+    })
+    .parse(input)
 }
 
 /// Parses an infinity symbol and returns NumberOrInfinity::Infinity
@@ -639,7 +641,8 @@ fn parse_infinity(input: &str) -> IResult<&str, NumberOrInfinity> {
         map(tag_no_case("∞"), |_| NumberOrInfinity::Infinity),
         map(tag_no_case("-inf"), |_| NumberOrInfinity::NegativeInfinity),
         map(tag_no_case("-∞"), |_| NumberOrInfinity::NegativeInfinity),
-    ))(input)
+    ))
+    .parse(input)
 }
 
 /// Parses an integer (signed or unsigned) and returns NumberOrInfinity::FiniteI64, or errors when the integer is invalid
@@ -650,12 +653,13 @@ fn parse_signed_integer(input: &str) -> IResult<&str, NumberOrInfinity> {
         if let Ok(num) = num {
             Ok(NumberOrInfinity::FiniteI64(num))
         } else {
-            Err(nom::Err::Error(nom::error::Error::new(
+            Err(Err::<nom::error::Error<&str>>::Error(nom::error::Error::new(
                 input,
                 nom::error::ErrorKind::Digit,
             )))
         }
-    })(input)
+    })
+    .parse(input)
 }
 
 fn parse_unit_range(input: &str) -> IResult<&str, NumberOrInfinity> {
@@ -691,13 +695,13 @@ fn datatype_range(input: &str) -> IResult<&str, RangeType> {
         max: max.unwrap_or(NumberOrInfinity::None),
     });
 
-    let (input, r) = delimited(ws(tag("[")), range, ws(tag("]")))(input)?;
+    let (input, r) = delimited(ws(tag("[")), range, ws(tag("]"))).parse(input)?;
 
     Ok((input, r))
 }
 
 fn keyword_or_function(input: &str) -> IResult<&str, &str> {
-    recognize(pair(parse_keyword, opt(tag("()"))))(input)
+    recognize(pair(parse_keyword, opt(tag("()")))).parse(input)
 }
 
 fn parse_datatype(input: &str) -> IResult<&str, SyntaxComponent> {
@@ -718,7 +722,8 @@ fn parse_datatype(input: &str) -> IResult<&str, SyntaxComponent> {
             ),
         )),
         ws(tag(">")),
-    )(input)?;
+    )
+    .parse(input)?;
 
     Ok((
         input,
@@ -744,7 +749,8 @@ fn parse_specific_keyword(input: &str) -> IResult<&str, SyntaxComponent> {
         map(tag("unset"), |_| SyntaxComponent::Unset {
             multipliers: vec![SyntaxComponentMultiplier::Once],
         }),
-    ))(input)
+    ))
+    .parse(input)
 }
 
 fn parse_literal(input: &str) -> IResult<&str, SyntaxComponent> {
@@ -765,7 +771,8 @@ fn parse_literal(input: &str) -> IResult<&str, SyntaxComponent> {
                 multipliers: vec![SyntaxComponentMultiplier::Once],
             }
         }),
-    ))(input)
+    ))
+    .parse(input)
 }
 
 fn parse_component(input: &str) -> IResult<&str, SyntaxComponent> {
@@ -781,7 +788,8 @@ fn parse_component(input: &str) -> IResult<&str, SyntaxComponent> {
         parse_unit,
         parse_datatype,
         parse_generic_keyword, // This is more of a catch-all
-    ))(input)?;
+    ))
+    .parse(input)?;
     let (input, multipliers) = parse_multipliers(input)?;
 
     component.update_multipliers(multipliers.clone());
@@ -793,7 +801,7 @@ fn parse_component(input: &str) -> IResult<&str, SyntaxComponent> {
 
 fn parse(input: &str) -> IResult<&str, SyntaxComponent> {
     debug_print!("Parsing: {}", input);
-    let (input, component) = preceded(multispace0, parse_component_singlebar_list)(input)?;
+    let (input, component) = preceded(multispace0, parse_component_singlebar_list).parse(input)?;
     debug_print!("<- Parsed: {:#?}", component);
 
     Ok((input, component))

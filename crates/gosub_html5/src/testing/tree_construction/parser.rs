@@ -7,8 +7,8 @@ use nom::{
     character::complete::multispace0,
     combinator::{all_consuming, map, opt},
     multi::{many0, many1, separated_list1},
-    sequence::{delimited, preceded, tuple},
-    Finish, IResult,
+    sequence::{delimited, preceded},
+    Finish, IResult, Parser,
 };
 use nom_locate::{position, LocatedSpan};
 
@@ -81,101 +81,102 @@ impl TestSpec {
 }
 
 fn data(i: Span) -> IResult<Span, Span> {
-    preceded(tag("#data\n"), preceded(multispace0, take_until("#errors")))(i)
+    preceded(tag("#data\n"), preceded(multispace0, take_until("#errors"))).parse(i)
 }
 
 fn error_1(i: Span) -> IResult<Span, ErrorSpec> {
     let location = map(
-        tuple((
+        (
             tag("("),
             nom::character::complete::u64,
             tag(","),
             nom::character::complete::u64,
             tag(")"),
-        )),
+        ),
         |(_, line, _, col, _): (Span, u64, Span, u64, Span)| (line as usize, col as usize),
     );
 
-    map(
-        tuple((location, tag(": "), take_until1("\n"))),
-        |((line, col), _, message)| ErrorSpec::Location {
+    map((location, tag(": "), take_until1("\n")), |((line, col), _, message)| {
+        ErrorSpec::Location {
             pos: Position { line, col },
             message: message.trim().into(),
-        },
-    )(i)
+        }
+    })
+    .parse(i)
 }
 
 fn error_2(i: Span) -> IResult<Span, ErrorSpec> {
     let location = map(
-        tuple((
+        (
             tag("("),
             nom::character::complete::u64,
             tag(":"),
             nom::character::complete::u64,
             tag(")"),
-        )),
+        ),
         |(_, line, _, col, _): (Span, u64, Span, u64, Span)| (line as usize, col as usize),
     );
 
-    map(
-        tuple((location, tag(" "), take_until1("\n"))),
-        |((line, col), _, message)| ErrorSpec::Location {
+    map((location, tag(" "), take_until1("\n")), |((line, col), _, message)| {
+        ErrorSpec::Location {
             pos: Position { line, col },
             message: message.trim().into(),
-        },
-    )(i)
+        }
+    })
+    .parse(i)
 }
 
 fn error_3(i: Span) -> IResult<Span, ErrorSpec> {
     let location = map(
-        tuple((nom::character::complete::u64, tag(":"), nom::character::complete::u64)),
+        (nom::character::complete::u64, tag(":"), nom::character::complete::u64),
         |(line, _, col): (u64, Span, u64)| (line as usize, col as usize),
     );
 
-    map(
-        tuple((location, tag(": "), take_until1("\n"))),
-        |((line, col), _, message)| ErrorSpec::Location {
+    map((location, tag(": "), take_until1("\n")), |((line, col), _, message)| {
+        ErrorSpec::Location {
             pos: Position { line, col },
             message: message.trim().into(),
-        },
-    )(i)
+        }
+    })
+    .parse(i)
 }
 
 fn error_4(i: Span) -> IResult<Span, ErrorSpec> {
     let location = map(
-        tuple((
+        (
             alt((tag(" * ("), tag("* ("))),
             nom::character::complete::u64,
             tag(","),
             nom::character::complete::u64,
             tag(")"),
-        )),
+        ),
         |(_, line, _, col, _): (Span, u64, Span, u64, Span)| (line as usize, col as usize),
     );
 
-    map(
-        tuple((location, tag(" "), take_until1("\n"))),
-        |((line, col), _, message)| ErrorSpec::Location {
+    map((location, tag(" "), take_until1("\n")), |((line, col), _, message)| {
+        ErrorSpec::Location {
             pos: Position { line, col },
             message: message.trim().into(),
-        },
-    )(i)
+        }
+    })
+    .parse(i)
 }
 
 fn error_5(i: Span) -> IResult<Span, ErrorSpec> {
     map(
-        tuple((nom::character::complete::u64, tag(": "), take_until1("\n"))),
+        (nom::character::complete::u64, tag(": "), take_until1("\n")),
         |(line, _, message): (u64, Span, Span)| ErrorSpec::Line {
             line: line as _,
             message: message.trim().into(),
         },
-    )(i)
+    )
+    .parse(i)
 }
 
 // (1:44-1:49) non-void-html-element-start-tag-with-trailing-solidus
 fn error_6(i: Span) -> IResult<Span, ErrorSpec> {
     let span = map(
-        tuple((
+        (
             tag("("),
             nom::character::complete::u64,
             tag(":"),
@@ -185,7 +186,7 @@ fn error_6(i: Span) -> IResult<Span, ErrorSpec> {
             tag(":"),
             nom::character::complete::u64,
             tag(")"),
-        )),
+        ),
         |(_, line1, _, col1, _, line2, _, col2, _): (Span, u64, Span, u64, Span, u64, Span, u64, Span)| {
             (
                 Position {
@@ -201,24 +202,26 @@ fn error_6(i: Span) -> IResult<Span, ErrorSpec> {
     );
 
     map(
-        tuple((span, tag(" "), take_until1("\n"))),
+        (span, tag(" "), take_until1("\n")),
         |((start, end), _, message): ((Position, Position), Span, Span)| ErrorSpec::Span {
             start,
             end,
             message: message.to_string(),
         },
-    )(i)
+    )
+    .parse(i)
 }
 
 fn error_messages(i: Span) -> IResult<Span, Vec<ErrorSpec>> {
     map(take_until1("#"), |string: Span| {
         string.lines().map(|s| ErrorSpec::Message(s.into())).collect::<Vec<_>>()
-    })(i)
+    })
+    .parse(i)
 }
 
 fn old_errors(i: Span) -> IResult<Span, Vec<ErrorSpec>> {
     delimited(
-        tuple((multispace0, tag("#errors\n"))),
+        (multispace0, tag("#errors\n")),
         map(
             opt(alt((
                 many1(delimited(
@@ -231,23 +234,25 @@ fn old_errors(i: Span) -> IResult<Span, Vec<ErrorSpec>> {
             |errors| errors.unwrap_or_default(),
         ),
         multispace0,
-    )(i)
+    )
+    .parse(i)
 }
 
 fn new_errors(i: Span) -> IResult<Span, Vec<ErrorSpec>> {
     delimited(
-        tuple((multispace0, tag("#new-errors\n"))),
+        (multispace0, tag("#new-errors\n")),
         many0(delimited(multispace0, alt((error_2, error_6)), tag("\n"))),
         multispace0,
-    )(i)
+    )
+    .parse(i)
 }
 
 fn document(i: Span) -> IResult<Span, Span> {
-    preceded(tuple((multispace0, tag("#document\n"))), take_until("\n\n"))(i)
+    preceded((multispace0, tag("#document\n")), take_until("\n\n")).parse(i)
 }
 
 fn document_fragment(i: Span) -> IResult<Span, Span> {
-    preceded(tag("#document-fragment\n"), take_until1("\n"))(i)
+    preceded(tag("#document-fragment\n"), take_until1("\n")).parse(i)
 }
 
 fn test(i: Span) -> IResult<Span, TestSpec> {
@@ -259,7 +264,7 @@ fn test(i: Span) -> IResult<Span, TestSpec> {
     };
 
     map(
-        tuple((
+        (
             data,
             old_errors,
             opt(new_errors),
@@ -267,7 +272,7 @@ fn test(i: Span) -> IResult<Span, TestSpec> {
             opt(tag("#script-off\n")),
             opt(document_fragment),
             document,
-        )),
+        ),
         move |(data, errors, new_errors, script_on, script_off, document_fragment, document)| {
             let script_on = script_on.map(|s| *s.fragment());
             let script_off = script_off.map(|s| *s.fragment());
@@ -289,7 +294,8 @@ fn test(i: Span) -> IResult<Span, TestSpec> {
                 document: document.to_string(),
             }
         },
-    )(i)
+    )
+    .parse(i)
 }
 
 /// Trims only a single newline from the string, even if there are multiple newlines present.
@@ -305,12 +311,10 @@ pub fn parse_fixture(i: &str) -> Result<Vec<TestSpec>> {
     // Deal with a corner case that makes it hard to parse tricky01.dat.
     let input = i.cow_replace("\"\n\n\"", QUOTED_DOUBLE_NEWLINE).clone() + "\n";
 
-    let files = map(
-        tuple((separated_list1(tag("\n\n"), test), multispace0)),
-        |(tests, _)| tests,
-    );
+    let files = map((separated_list1(tag("\n\n"), test), multispace0), |(tests, _)| tests);
 
-    let (_, tests) = all_consuming(files)(Span::new(&input))
+    let (_, tests) = all_consuming(files)
+        .parse(Span::new(&input))
         .finish()
         .map_err(|err| Error::Test(format!("{err}")))?;
 

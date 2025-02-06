@@ -55,7 +55,7 @@ pub struct Window<'a, C: ModuleConfiguration> {
     pub(crate) handles: Handles<C>,
 }
 
-impl<'a, C: ModuleConfiguration<ChromeHandle = WinitEventLoopHandle<C>>> Window<'a, C> {
+impl<C: ModuleConfiguration<ChromeHandle = WinitEventLoopHandle<C>>> Window<'_, C> {
     pub fn new(
         event_loop: &ActiveEventLoop,
         backend: &mut C::RenderBackend,
