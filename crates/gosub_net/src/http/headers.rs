@@ -18,12 +18,8 @@ impl Headers {
         }
     }
 
-    pub fn set_str(&mut self, key: &str, value: &str) {
+    pub fn set(&mut self, key: &str, value: &str) {
         self.headers.insert(key.to_string(), value.to_string());
-    }
-
-    pub fn set(&mut self, key: String, value: String) {
-        self.headers.insert(key, value);
     }
 
     pub fn get(&self, key: &str) -> Option<&String> {

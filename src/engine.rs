@@ -34,7 +34,7 @@ pub struct FetchResponse<C: HasDocument> {
     pub document: C::Document,
     /// Parse errors that occurred while parsing the document tree
     pub parse_errors: Vec<ParseError>,
-    /// Rendertree that is generated from the document tree and css tree
+    /// Render tree that is generated from the document tree and css tree
     pub render_tree: String,
 }
 
@@ -99,10 +99,10 @@ fn fetch_url<C: HasHtmlParser>(
     // Fetch the HTML document from the site
     let t_id = timing_start!("http.transfer", parts.host_str().unwrap());
 
-    let agent = ureq::agent();
-    let mut req = agent.request(method, url).set("User-Agent", USER_AGENT);
+    let mut req = Request::new(method, url, "HTTP/1.1");
+    req.add_header("User-Agent", USER_AGENT);
     for (key, value) in headers.sorted() {
-        req = req.set(key, value);
+        req.add_header(key, value);
     }
 
     match req.call() {

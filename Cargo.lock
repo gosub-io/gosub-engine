@@ -1898,7 +1898,6 @@ dependencies = [
  "gosub_config",
  "gosub_shared",
  "hickory-resolver",
- "http",
  "js-sys",
  "log",
  "thiserror 2.0.11",

@@ -15,9 +15,7 @@ pub trait RequestAgent: Debug {
     type Error: Error;
 
     fn new() -> Self;
-
     fn get(&self, url: &str) -> impl Future<Output = Result<Response>>;
-
     fn get_req(&self, req: &Request) -> impl Future<Output = Result<Response>>;
 }
 

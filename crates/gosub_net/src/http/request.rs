@@ -24,6 +24,10 @@ impl Request {
         }
     }
 
+    pub fn add_header(&mut self, key: &str, value: &str) {
+        self.headers.set(key, value);
+    }
+
     pub fn headers(&mut self, headers: Headers) {
         self.headers = headers;
     }
@@ -63,11 +67,11 @@ mod tests {
         req.headers(Headers::new());
         req.cookies(CookieJar::new());
 
-        req.headers.set_str("Content-Type", "application/json");
+        req.headers.set("Content-Type", "application/json");
         req.cookies.add(Cookie::new("qux", "wok"));
         req.cookies.add(Cookie::new("foo", "bar"));
-        req.headers.set_str("Accept", "text/html");
-        req.headers.set_str("Accept-Encoding", "gzip, deflate, br");
+        req.headers.set("Accept", "text/html");
+        req.headers.set("Accept-Encoding", "gzip, deflate, br");
 
         assert_eq!(req.method, "GET");
         assert_eq!(req.uri, "/");
