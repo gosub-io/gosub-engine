@@ -12,13 +12,13 @@ use taffy::{
 
 use gosub_interface::config::HasLayouter;
 use gosub_interface::css3::{CssProperty, CssValue};
-use gosub_interface::layout::{Decoration, DecorationStyle, HasTextLayout, LayoutNode, LayoutTree};
+use gosub_interface::layout::{Decoration, DecorationStyle, FontData, HasTextLayout, LayoutNode, LayoutTree};
 use gosub_shared::font::Glyph;
 use gosub_shared::geo;
 use gosub_shared::geo::FP;
 use gosub_shared::ROBOTO_FONT;
 
-use crate::text::{Font, TextLayout};
+use crate::text::TextLayout;
 use crate::{Display, LayoutDocument, TaffyLayouter};
 
 static FONT_CX: LazyLock<Mutex<FontContext>> = LazyLock::new(|| {
@@ -450,7 +450,7 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
                     let text_layout = TextLayout {
                         size,
                         font_size: fs,
-                        font: Font(grun.font().clone()),
+                        font_data: FontData::new(grun.font().data.data(), grun.font().index),
                         glyphs,
                         coords,
                         decoration,

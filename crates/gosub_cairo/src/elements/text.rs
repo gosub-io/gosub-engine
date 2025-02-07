@@ -3,7 +3,7 @@ use gosub_interface::layout::{Decoration, TextLayout};
 use gosub_interface::render_backend::{RenderText, Text as TText};
 use gosub_shared::font::{Glyph, GlyphID};
 use gosub_shared::geo::{Point, FP};
-use peniko::Font;
+
 use skrifa::instance::NormalizedCoord;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -114,8 +114,8 @@ pub struct GsText {
     glyphs: Vec<Glyph>,
     // Actual utf-8 text (we don't have this yet)
     text: String,
-    // Font we need to display (we need to have more info, like font familty, weight, etc.)
-    font: Font,
+    // // Font we need to display (we need to have more info, like font familty, weight, etc.)
+    // font: peniko::Font,
     // Font size
     fs: FP,
     // List of coordinates for each glyph (?)
@@ -127,13 +127,8 @@ pub struct GsText {
 }
 
 impl TText for GsText {
-    type Font = Font;
-
-    fn new<TL: TextLayout>(layout: &TL) -> Self
-    where
-        TL::Font: Into<Font>,
-    {
-        let font = layout.font().clone().into();
+    fn new<TL: TextLayout>(layout: &TL) -> Self {
+        // let font = layout.font().clone().into();
         let fs = layout.font_size();
 
         let glyphs = layout
@@ -150,7 +145,7 @@ impl TText for GsText {
         Self {
             glyphs,
             text: String::new(),
-            font,
+            // font,
             fs,
             coords,
             decoration: layout.decorations().clone(),

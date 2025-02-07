@@ -1,7 +1,9 @@
 use crate::CairoBackend;
 use gosub_interface::render_backend::{ColorStops, Gradient as TGradient};
-use gosub_shared::geo::{Point, FP};
-use peniko::{Color as ExtColor, ColorStop as ExtColorStop, ColorStops as ExtColorStops, Gradient as ExtGradient};
+use gosub_shared::geo::{Point as GsPoint, FP};
+use peniko::color::{AlphaColor, DynamicColor, Srgb};
+use peniko::{ColorStop, Gradient as ExtGradient};
+use smallvec::SmallVec;
 
 #[allow(unused)]
 #[derive(Clone, Debug)]
@@ -16,48 +18,67 @@ impl GsGradient {
 }
 
 impl TGradient<CairoBackend> for GsGradient {
-    fn new_linear(start: Point, end: Point, stops: ColorStops<CairoBackend>) -> Self {
-        let g = ExtGradient::new_linear(to_kurbo(start), to_kurbo(end)).with_stops(&*to_stops(stops));
+    fn new_linear(start: GsPoint, end: GsPoint, stops: ColorStops<CairoBackend>) -> Self {
+        let vec = to_stop_vec(stops);
+        let g = ExtGradient::new_linear(kurbo_point(start), kurbo_point(end)).with_stops(&*vec);
+
         GsGradient::new(g)
     }
 
     fn new_radial_two_point(
-        start_center: Point,
+        start_center: GsPoint,
         start_radius: FP,
-        end_center: Point,
+        end_center: GsPoint,
         end_radius: FP,
         stops: ColorStops<CairoBackend>,
     ) -> Self {
-        let g =
-            ExtGradient::new_two_point_radial(to_kurbo(start_center), start_radius, to_kurbo(end_center), end_radius)
-                .with_stops(&*to_stops(stops));
+        let vec = to_stop_vec(stops);
+        let g = ExtGradient::new_two_point_radial(
+            kurbo_point(start_center),
+            start_radius,
+            kurbo_point(end_center),
+            end_radius,
+        )
+        .with_stops(&*vec);
+
         GsGradient::new(g)
     }
 
-    fn new_radial(center: Point, radius: FP, stops: ColorStops<CairoBackend>) -> Self {
-        let g = ExtGradient::new_radial(to_kurbo(center), radius).with_stops(&*to_stops(stops));
+    fn new_radial(center: GsPoint, radius: FP, stops: ColorStops<CairoBackend>) -> Self {
+        let vec = to_stop_vec(stops);
+        let g = ExtGradient::new_radial(kurbo_point(center), radius).with_stops(&*vec);
+
         GsGradient::new(g)
     }
 
-    fn new_sweep(center: Point, start_angle: FP, end_angle: FP, stops: ColorStops<CairoBackend>) -> Self {
-        let g = ExtGradient::new_sweep(to_kurbo(center), start_angle, end_angle).with_stops(&*to_stops(stops));
+    fn new_sweep(center: GsPoint, start_angle: FP, end_angle: FP, stops: ColorStops<CairoBackend>) -> Self {
+        let vec = to_stop_vec(stops);
+        let g = ExtGradient::new_sweep(kurbo_point(center), start_angle, end_angle).with_stops(&*vec);
+
         GsGradient::new(g)
     }
 }
 
-fn to_kurbo(point: Point) -> kurbo::Point {
-    kurbo::Point::new(point.x.into(), point.y.into())
-}
-
-fn to_stops(stops: ColorStops<CairoBackend>) -> ExtColorStops {
-    let mut css = ExtColorStops::new();
+fn to_stop_vec(stops: ColorStops<CairoBackend>) -> SmallVec<[ColorStop; 4]> {
+    let mut vec = SmallVec::<[ColorStop; 4]>::new();
 
     for stop in stops.iter() {
-        css.push(ExtColorStop::from((
-            stop.offset,
-            ExtColor::rgba(stop.color.r, stop.color.g, stop.color.b, stop.color.a),
-        )));
+        let alpha_color = AlphaColor::<Srgb>::new([
+            stop.color.r as f32,
+            stop.color.g as f32,
+            stop.color.b as f32,
+            stop.color.a as f32,
+        ]);
+
+        vec.push(ColorStop {
+            offset: stop.offset,
+            color: DynamicColor::from_alpha_color(alpha_color),
+        });
     }
 
-    css
+    vec
+}
+
+fn kurbo_point(point: GsPoint) -> kurbo::Point {
+    kurbo::Point::new(point.x.into(), point.y.into())
 }

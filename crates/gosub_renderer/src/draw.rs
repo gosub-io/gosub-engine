@@ -9,7 +9,7 @@ use gosub_interface::css3::{CssProperty, CssPropertyMap, CssValue};
 
 use gosub_interface::draw::TreeDrawer;
 use gosub_interface::eventloop::EventLoopHandle;
-use gosub_interface::layout::{Layout, LayoutTree, Layouter, TextLayout};
+use gosub_interface::layout::{Layout, LayoutTree, Layouter};
 use gosub_interface::render_backend::{
     Border, BorderSide, BorderStyle, Brush, Color, ImageBuffer, ImgCache, NodeDesc, Rect, RenderBackend, RenderBorder,
     RenderRect, RenderText, Scene as TScene, Text, Transform,
@@ -79,9 +79,6 @@ impl<C: HasDrawComponents> TreeDrawerImpl<C> {
 
 impl<C: HasDrawComponents<RenderTree = RenderTree<C>, LayoutTree = RenderTree<C>> + HasHtmlParser> TreeDrawer<C>
     for TreeDrawerImpl<C>
-where
-    <<C::RenderBackend as RenderBackend>::Text as Text>::Font:
-        From<<<C::Layouter as Layouter>::TextLayout as TextLayout>::Font>,
 {
     type ImgCache = ImageCache<C::RenderBackend>;
 
@@ -362,9 +359,6 @@ impl<
         C: HasDrawComponents<LayoutTree = RenderTree<C>, RenderTree = RenderTree<C>> + HasHtmlParser,
         EL: EventLoopHandle<C>,
     > Drawer<'_, '_, C, EL>
-where
-    <<C::RenderBackend as RenderBackend>::Text as Text>::Font:
-        From<<<C::Layouter as Layouter>::TextLayout as TextLayout>::Font>,
 {
     pub(crate) fn render(&mut self, size: SizeU32) {
         let root = self.drawer.tree.root();
@@ -470,18 +464,7 @@ fn render_text<C: HasDrawComponents>(
     node: &<C::RenderTree as render_tree::RenderTree<C>>::Node,
     pos: &Point,
     scene: &mut <C::RenderBackend as RenderBackend>::Scene,
-) where
-    <<C::RenderBackend as RenderBackend>::Text as Text>::Font:
-        From<<<C::Layouter as Layouter>::TextLayout as TextLayout>::Font>,
-{
-    // if u64::from(node.id) < 204 && u64::from(node.id) > 202 {
-    //     return;
-    // }
-
-    // if u64::from(node.id) == 203 {
-    //     return;
-    // }
-
+) {
     let color = node
         .props()
         .get("color")
