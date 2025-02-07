@@ -2,9 +2,8 @@ use crate::CairoBackend;
 use gosub_interface::layout::{Decoration, TextLayout};
 use gosub_interface::render_backend::{RenderText, Text as TText};
 use gosub_shared::font::{Glyph, GlyphID};
-use gosub_shared::geo::{Point, FP};
+use gosub_shared::geo::{NormalizedCoord, Point, FP};
 
-use skrifa::instance::NormalizedCoord;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -140,14 +139,13 @@ impl TText for GsText {
                 y: g.y,
             })
             .collect();
-        let coords = layout.coords().iter().map(|c| NormalizedCoord::from_bits(*c)).collect();
 
         Self {
             glyphs,
             text: String::new(),
             // font,
             fs,
-            coords,
+            coords: layout.coords().to_vec(),
             decoration: layout.decorations().clone(),
             offset: layout.offset(),
         }

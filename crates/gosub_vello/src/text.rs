@@ -1,10 +1,9 @@
 use crate::VelloBackend;
 use gosub_interface::layout::{Decoration, FontData, TextLayout};
 use gosub_interface::render_backend::{RenderText, Text as TText};
-use gosub_shared::geo::{Point, FP};
+use gosub_shared::geo::{NormalizedCoord, Point, FP};
 use vello::kurbo::{Affine, Line, Stroke};
 use vello::peniko::{Brush, Color, Fill, Font, StyleRef};
-use vello::skrifa::instance::NormalizedCoord;
 use vello::Scene;
 use vello_encoding::Glyph;
 
@@ -30,13 +29,11 @@ impl TText for Text {
             })
             .collect();
 
-        let coords = layout.coords().iter().map(|c| NormalizedCoord::from_bits(*c)).collect();
-
         Self {
             glyphs,
             fs: layout.font_size(),
             font_data: layout.font_data().clone(),
-            coords,
+            coords: layout.coords().to_vec(),
             decoration: layout.decorations().clone(),
             offset: layout.offset(),
         }
@@ -77,7 +74,12 @@ impl Text {
 
                 let c = decoration.color;
 
-                let brush = Brush::Solid(Color::rgba(c.0 as f64, c.1 as f64, c.2 as f64, c.3 as f64));
+                let brush = Brush::Solid(Color::from_rgba8(
+                    (c.0 * 255.0) as u8,
+                    (c.1 * 255.0) as u8,
+                    (c.2 * 255.0) as u8,
+                    (c.3 * 255.0) as u8,
+                ));
 
                 let offset = decoration.x_offset as f64;
 
