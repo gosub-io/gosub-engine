@@ -1,8 +1,8 @@
-use vello::peniko::{ColorStop as VelloColorStop, ColorStops as VelloColorStops, Gradient as VelloGradient};
-
 use crate::{Convert, VelloBackend};
 use gosub_interface::render_backend::{ColorStop, ColorStops, Gradient as TGradient};
 use gosub_shared::geo::{Point, FP};
+use vello::peniko::color::DynamicColor;
+use vello::peniko::{ColorStop as VelloColorStop, ColorStops as VelloColorStops, Gradient as VelloGradient};
 
 pub struct Gradient(pub(crate) VelloGradient);
 
@@ -67,7 +67,7 @@ impl Convert<VelloColorStop> for ColorStop<VelloBackend> {
     fn convert(self) -> VelloColorStop {
         VelloColorStop {
             offset: self.offset,
-            color: self.color.0,
+            color: DynamicColor::from_alpha_color(self.color.0),
         }
     }
 }

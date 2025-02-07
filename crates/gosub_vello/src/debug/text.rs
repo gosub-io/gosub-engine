@@ -2,11 +2,12 @@ use crate::{Brush, Color, Scene, Transform};
 use gosub_interface::render_backend::{Brush as _, Color as _, Transform as _};
 use gosub_shared::types::Point;
 use gosub_shared::ROBOTO_FONT;
+use skrifa;
+use skrifa::{FontRef, MetadataProvider};
 use std::sync::{Arc, LazyLock};
 use vello::peniko::{Blob, BrushRef, Fill, Font, Style, StyleRef};
-use vello::skrifa;
-use vello::skrifa::{FontRef, MetadataProvider};
 use vello_encoding::Glyph;
+use vello_encoding::NormalizedCoord as VelloNormalizedCoord;
 
 static FONT: LazyLock<Font> = LazyLock::new(|| Font::new(Blob::new(Arc::new(ROBOTO_FONT)), 0));
 
@@ -69,6 +70,12 @@ pub fn render_text_var<'a>(
 
     let fs = skrifa::instance::Size::new(font_size);
 
+    let vello_coords: Vec<VelloNormalizedCoord> = var_loc
+        .coords()
+        .iter()
+        .map(|&x| VelloNormalizedCoord::from(x.to_bits()))
+        .collect::<Vec<_>>();
+
     let metrics = font_ref.metrics(fs, &var_loc);
     let line_height = metrics.ascent - metrics.descent + metrics.leading;
     let glyph_metrics = font_ref.glyph_metrics(fs, &var_loc);
@@ -80,7 +87,7 @@ pub fn render_text_var<'a>(
         .font_size(font_size)
         .transform(transform.0)
         .glyph_transform(Some(glyph_transform.0))
-        .normalized_coords(var_loc.coords())
+        .normalized_coords(vello_coords.as_slice())
         .brush(brush)
         .hint(false)
         .draw(
@@ -105,7 +112,7 @@ pub fn render_text_var<'a>(
 }
 
 fn to_font_ref(font: &Font) -> Option<FontRef<'_>> {
-    use vello::skrifa::raw::FileRef;
+    use skrifa::raw::FileRef;
     let file_ref = FileRef::new(font.data.as_ref()).ok()?;
     match file_ref {
         FileRef::Font(font) => Some(font),
