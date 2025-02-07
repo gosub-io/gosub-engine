@@ -1,7 +1,3 @@
-pub trait Font: Clone {
-    fn to_bytes(&self) -> &[u8];
-}
-
 pub type GlyphID = u16;
 
 /// A fully positioned glyph

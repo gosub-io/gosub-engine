@@ -17,7 +17,7 @@ futures = "0.3.30"
 cairo-rs = "0.20.5"
 cairo-sys-rs = { version = "0.20.0", features = ["freetype"] }
 kurbo = "0.11.1"
-peniko = "0.2.0"
+peniko = "0.3.1"
 skrifa = "0.26.5"
 log = "0.4.22"
 uuid = { version = "1.12.1", features = ["v4"] }
