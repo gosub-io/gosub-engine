@@ -90,7 +90,7 @@ getrandom = { version = "0.2.15", features = ["js"] }
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 gosub_v8 = { version = "0.1.1", path = "./crates/gosub_v8", features = [], registry = "gosub" }
 gosub_webexecutor = { version = "0.1.1", path = "./crates/gosub_webexecutor", features = [], registry = "gosub" }
-ureq = "2.12.1"
+ureq = "3.0.3"
 futures = "0.3.31"
 
 [profile.release]

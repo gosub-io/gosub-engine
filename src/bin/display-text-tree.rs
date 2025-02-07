@@ -39,12 +39,12 @@ fn main() -> Result<()> {
         .unwrap();
 
     // Fetch the html from the url
-    let response = ureq::get(&url).call().map_err(Box::new)?;
-    if !response.status() == 200 {
+    let mut response = ureq::get(&url).call().map_err(Box::new)?;
+    if response.status() != 200 {
         println!("could not get url. Status code {}", response.status());
         exit(1);
     }
-    let html = response.into_string()?;
+    let html = response.body_mut().read_to_string()?;
 
     let mut stream = ByteStream::new(Encoding::UTF8, None);
     stream.read_from_str(&html, Some(Encoding::UTF8));

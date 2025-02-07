@@ -15,14 +15,11 @@ anyhow = "1.0.94"
 log = "0.4.22"
 domain-lookup-tree = "0.1"
 cookie = { version = "0.18.1", features = ["secure", "private"] }
-http = "1.2.0"
 url = "2.5.4"
-
-
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 hickory-resolver = "0.24.2"
-ureq = "2.12.1"
+ureq = "3.0.3"
 
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

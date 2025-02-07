@@ -18,12 +18,8 @@ impl Headers {
         }
     }
 
-    pub fn set_str(&mut self, key: &str, value: &str) {
+    pub fn set(&mut self, key: &str, value: &str) {
         self.headers.insert(key.to_string(), value.to_string());
-    }
-
-    pub fn set(&mut self, key: String, value: String) {
-        self.headers.insert(key, value);
     }
 
     pub fn get(&self, key: &str) -> Option<&String> {
@@ -50,10 +46,10 @@ mod tests {
     fn test_headers() {
         let mut headers = Headers::new();
 
-        headers.set_str("Content-Type", "application/json");
+        headers.set("Content-Type", "application/json");
         assert_eq!(headers.get("Content-Type").unwrap(), "application/json");
 
-        headers.set_str("Content-Type", "text/html");
+        headers.set("Content-Type", "text/html");
         assert_eq!(headers.get("Content-Type").unwrap(), "text/html");
         assert_eq!(headers.all().len(), 1);
     }

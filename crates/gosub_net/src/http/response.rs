@@ -78,7 +78,7 @@ mod tests {
         assert_eq!(s, "HTTP/1.1 0\nHeaders:\nCookies:\nBody: 0 bytes\n");
 
         response.status = 200;
-        response.headers.set_str("Content-Type", "application/json");
+        response.headers.set("Content-Type", "application/json");
         response.cookies.insert("session".to_string(), "1234567890".to_string());
         response.body = b"Hello, world!".to_vec();
 

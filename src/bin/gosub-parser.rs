@@ -58,11 +58,11 @@ fn main() -> Result<()> {
 
     let html = if url.scheme() == "http" || url.scheme() == "https" {
         // Fetch the html from the url
-        let response = ureq::get(url.as_ref()).call()?;
+        let mut response = ureq::get(url.as_ref()).call()?;
         if response.status() != 200 {
             bail!("Could not get url. Status code {}", response.status());
         }
-        response.into_string()?
+        response.body_mut().read_to_string()?
     } else if url.scheme() == "file" {
         // Get html from the file
         fs::read_to_string(url.to_string().trim_start_matches("file://"))?

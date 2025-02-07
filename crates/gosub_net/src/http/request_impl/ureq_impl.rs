@@ -1,4 +1,4 @@
-use ureq::Agent;
+use ureq::{http, Agent, Body};
 
 use crate::http::fetcher::RequestAgent;
 use crate::http::headers::Headers;
@@ -17,10 +17,10 @@ impl From<Agent> for UreqAgent {
 }
 
 impl RequestAgent for UreqAgent {
-    type Error = ureq::Error;
+    type Error = http::Error;
 
     fn new() -> Self {
-        Agent::new().into()
+        Agent::new_with_defaults().into()
     }
 
     async fn get(&self, url: &str) -> gosub_shared::types::Result<Response> {
@@ -33,42 +33,34 @@ impl RequestAgent for UreqAgent {
     }
 }
 
-fn get_headers(response: &ureq::Response) -> Headers {
-    let names = response.headers_names();
+fn get_headers(http_headers: &http::header::HeaderMap) -> Headers {
+    let mut headers = Headers::with_capacity(http_headers.len());
 
-    let mut headers = Headers::with_capacity(names.len());
-
-    for name in names {
-        let header = response.header(&name).unwrap_or_default().to_string();
-
-        headers.set(name, header);
+    for (name, value) in http_headers.iter() {
+        headers.set(name.as_str(), value.to_str().unwrap_or_default());
     }
 
     headers
 }
 
-impl TryFrom<ureq::Response> for Response {
+impl TryFrom<http::response::Response<Body>> for Response {
     type Error = anyhow::Error;
 
-    fn try_from(value: ureq::Response) -> std::result::Result<Self, Self::Error> {
-        let body = Vec::with_capacity(
-            value
-                .header("Content-Length")
-                .map(|s| s.parse().unwrap_or(0))
-                .unwrap_or(0),
-        );
-
-        let mut this = Self {
-            status: value.status(),
-            status_text: value.status_text().to_string(),
-            version: value.http_version().to_string(),
-            headers: get_headers(&value),
-            body,
+    fn try_from(mut response: http::response::Response<Body>) -> Result<Self, Self::Error> {
+        Ok(Self {
+            status: response.status().as_u16(),
+            status_text: response.status().to_string(),
+            version: match response.version() {
+                http::Version::HTTP_09 => "http/0.9".into(),
+                http::Version::HTTP_10 => "http/1.0".into(),
+                http::Version::HTTP_11 => "http/1.1".into(),
+                http::Version::HTTP_2 => "http/2.0".into(),
+                http::Version::HTTP_3 => "http/3.0".into(),
+                _ => "http/1.0".into(),
+            },
+            headers: get_headers(response.headers()),
+            body: response.body_mut().read_to_vec()?,
             cookies: Default::default(),
-        };
-
-        value.into_reader().read_to_end(&mut this.body)?;
-
-        Ok(this)
+        })
     }
 }

@@ -4118,7 +4118,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 );
                 return None;
             }
-            let response = response.expect("result");
+            let mut response = response.expect("result");
 
             if response.status() != 200 {
                 warn!(
@@ -4128,14 +4128,20 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 );
                 return None;
             }
-            if response.content_type() != "text/css" {
-                warn!(
-                    "External stylesheet has no text/css content type: {} ",
-                    response.content_type()
-                );
+            let content_type = response.headers().get("Content-Type");
+            match content_type {
+                Some(content_type) => {
+                    let content_type = content_type.to_str().unwrap_or("");
+                    if !content_type.starts_with("text/css") {
+                        warn!("External stylesheet has no text/css content type: {} ", content_type);
+                    }
+                }
+                None => {
+                    warn!("External stylesheet has no content type: {} ", url);
+                }
             }
 
-            match response.into_string() {
+            match response.body_mut().read_to_string() {
                 Ok(css) => css,
                 Err(err) => {
                     warn!("Could not load external stylesheet from {}. Error: {}", url, err);
