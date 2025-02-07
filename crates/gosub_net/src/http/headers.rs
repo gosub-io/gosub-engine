@@ -46,10 +46,10 @@ mod tests {
     fn test_headers() {
         let mut headers = Headers::new();
 
-        headers.set_str("Content-Type", "application/json");
+        headers.set("Content-Type", "application/json");
         assert_eq!(headers.get("Content-Type").unwrap(), "application/json");
 
-        headers.set_str("Content-Type", "text/html");
+        headers.set("Content-Type", "text/html");
         assert_eq!(headers.get("Content-Type").unwrap(), "text/html");
         assert_eq!(headers.all().len(), 1);
     }

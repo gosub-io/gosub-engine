@@ -88,9 +88,9 @@ mod tests {
 
         req.cookies.add(Cookie::new("foo", "bar"));
         req.cookies.add(Cookie::new("qux", "wok"));
-        req.headers.set_str("Content-Type", "application/json");
-        req.headers.set_str("Accept", "text/html");
-        req.headers.set_str("Accept-Encoding", "gzip, deflate, br");
+        req.headers.set("Content-Type", "application/json");
+        req.headers.set("Accept", "text/html");
+        req.headers.set("Accept-Encoding", "gzip, deflate, br");
 
         let s = format!("{}", req);
         assert_eq!(s, "GET / HTTP/1.1\nHeaders:\n  Accept: text/html\n  Accept-Encoding: gzip, deflate, br\n  Content-Type: application/json\nCookies:\n  foo=bar\n  qux=wok\nBody: 0 bytes\n");

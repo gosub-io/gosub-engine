@@ -58,7 +58,7 @@ impl TryFrom<http::response::Response<Body>> for Response {
                 http::Version::HTTP_3 => "http/3.0".into(),
                 _ => "http/1.0".into(),
             },
-            headers: get_headers(&response.headers()),
+            headers: get_headers(response.headers()),
             body: response.body_mut().read_to_vec()?,
             cookies: Default::default(),
         })

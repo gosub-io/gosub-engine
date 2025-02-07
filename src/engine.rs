@@ -13,7 +13,6 @@ use {
     gosub_shared::byte_stream::{ByteStream, Encoding},
     gosub_shared::types::{ParseError, Result},
     gosub_shared::{timing_start, timing_stop},
-    std::io::Read,
     url::Url,
 };
 
@@ -99,36 +98,29 @@ fn fetch_url<C: HasHtmlParser>(
     // Fetch the HTML document from the site
     let t_id = timing_start!("http.transfer", parts.host_str().unwrap());
 
-    let mut req = Request::new(method, url, "HTTP/1.1");
-    req.add_header("User-Agent", USER_AGENT);
+    let agent = ureq::agent();
+    let mut req = agent.get(url);
+    req = req.header("User-Agent", USER_AGENT);
     for (key, value) in headers.sorted() {
-        req.add_header(key, value);
+        req = req.header(key, value);
     }
 
     match req.call() {
-        Ok(resp) => {
+        Ok(mut resp) => {
             fetch_response.response = Response::new();
-            fetch_response.response.status = resp.status();
-            fetch_response.response.version = format!("{:?}", resp.http_version());
-            for key in &resp.headers_names() {
-                for value in resp.all(key) {
-                    fetch_response.response.headers.set_str(key.as_str(), value);
-                }
+            fetch_response.response.status = resp.status().as_u16();
+            fetch_response.response.version = format!("{:?}", resp.version());
+            for (key, val) in resp.headers().iter() {
+                fetch_response
+                    .response
+                    .headers
+                    .set(key.as_str(), val.to_str().unwrap_or(""));
             }
             // TODO: cookies
             // for cookie in resp.cookies() {
             //     fetch_response.response.cookies.insert(cookie.name().to_string(), cookie.value().to_string());
             // }
-
-            let len = if let Some(header) = resp.header("Content-Length") {
-                header.parse::<usize>().unwrap_or_default()
-            } else {
-                MAX_BYTES as usize
-            };
-
-            let mut bytes: Vec<u8> = Vec::with_capacity(len);
-            resp.into_reader().take(MAX_BYTES).read_to_end(&mut bytes)?;
-            fetch_response.response.body = bytes;
+            fetch_response.response.body = resp.body_mut().read_to_vec()?;
         }
         Err(e) => {
             return Err(Error::Generic(format!("Failed to fetch URL: {}", e)).into());
@@ -189,7 +181,7 @@ mod tests {
     fn test_fetch_url() {
         let url = "https://gosub.io/";
         let mut headers = Headers::new();
-        headers.set_str("User-Agent", USER_AGENT);
+        headers.set("User-Agent", USER_AGENT);
         let cookies = CookieJar::new();
 
         let resp = fetch_url::<Config>("GET", url, headers, cookies);
