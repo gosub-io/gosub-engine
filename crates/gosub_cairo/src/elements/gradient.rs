@@ -1,8 +1,8 @@
 use crate::CairoBackend;
 use gosub_interface::render_backend::{ColorStops, Gradient as TGradient};
 use gosub_shared::geo::{Point as GsPoint, FP};
-use peniko::{ColorStop, Gradient as ExtGradient};
 use peniko::color::{AlphaColor, DynamicColor, Srgb};
+use peniko::{ColorStop, Gradient as ExtGradient};
 use smallvec::SmallVec;
 
 #[allow(unused)]
@@ -20,10 +20,7 @@ impl GsGradient {
 impl TGradient<CairoBackend> for GsGradient {
     fn new_linear(start: GsPoint, end: GsPoint, stops: ColorStops<CairoBackend>) -> Self {
         let vec = to_stop_vec(stops);
-        let g = ExtGradient::new_linear(
-            kurbo_point(start),
-            kurbo_point(end)
-        ).with_stops(&*vec);
+        let g = ExtGradient::new_linear(kurbo_point(start), kurbo_point(end)).with_stops(&*vec);
 
         GsGradient::new(g)
     }
@@ -36,12 +33,13 @@ impl TGradient<CairoBackend> for GsGradient {
         stops: ColorStops<CairoBackend>,
     ) -> Self {
         let vec = to_stop_vec(stops);
-        let g =
-            ExtGradient::new_two_point_radial(
-                kurbo_point(start_center), start_radius,
-                kurbo_point(end_center), end_radius
-            )
-            .with_stops(&*vec);
+        let g = ExtGradient::new_two_point_radial(
+            kurbo_point(start_center),
+            start_radius,
+            kurbo_point(end_center),
+            end_radius,
+        )
+        .with_stops(&*vec);
 
         GsGradient::new(g)
     }
@@ -69,7 +67,7 @@ fn to_stop_vec(stops: ColorStops<CairoBackend>) -> SmallVec<[ColorStop; 4]> {
             stop.color.r as f32,
             stop.color.g as f32,
             stop.color.b as f32,
-            stop.color.a as f32
+            stop.color.a as f32,
         ]);
 
         vec.push(ColorStop {

@@ -1,9 +1,32 @@
 use std::fmt::Debug;
 
 use crate::config::HasLayouter;
-use gosub_shared::font::{Font, Glyph};
+use gosub_shared::font::Glyph;
 use gosub_shared::geo::{Point, Rect, Size, SizeU32};
 use gosub_shared::types::Result;
+
+#[derive(Clone, Debug)]
+pub struct FontData {
+    data: Vec<u8>,
+    index: u32,
+}
+
+impl FontData {
+    pub fn new(data: &[u8], index: u32) -> FontData {
+        Self {
+            data: data.to_vec(),
+            index,
+        }
+    }
+
+    pub fn to_bytes(&self) -> &[u8] {
+        &self.data
+    }
+
+    pub fn index(&self) -> u32 {
+        self.index
+    }
+}
 
 pub trait LayoutTree<C: HasLayouter<LayoutTree = Self>>: Sized + Debug + 'static {
     type NodeId: Debug + Copy + Clone + From<u64> + Into<u64> + PartialEq;
@@ -140,12 +163,11 @@ pub trait HasTextLayout<C: HasLayouter> {
 }
 
 pub trait TextLayout {
-    type Font: Font;
     fn size(&self) -> Size;
 
     fn glyphs(&self) -> &[Glyph];
 
-    fn font(&self) -> &Self::Font;
+    fn font_data(&self) -> &FontData;
 
     fn font_size(&self) -> f32;
 

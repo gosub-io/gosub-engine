@@ -1,5 +1,5 @@
 use crate::VelloBackend;
-use gosub_interface::layout::{Decoration, TextLayout};
+use gosub_interface::layout::{Decoration, FontData, TextLayout};
 use gosub_interface::render_backend::{RenderText, Text as TText};
 use gosub_shared::geo::{Point, FP};
 use vello::kurbo::{Affine, Line, Stroke};
@@ -11,22 +11,15 @@ use vello_encoding::Glyph;
 #[derive(Clone)]
 pub struct Text {
     glyphs: Vec<Glyph>,
-    font: Font,
     fs: FP,
+    font_data: FontData,
     coords: Vec<NormalizedCoord>,
     decoration: Decoration,
     offset: Point,
 }
 
 impl TText for Text {
-    type Font = Font;
-    fn new<TL: TextLayout>(layout: &TL) -> Self
-    where
-        TL::Font: Into<Font>,
-    {
-        let font = layout.font().clone().into();
-        let fs = layout.font_size();
-
+    fn new<TL: TextLayout>(layout: &TL) -> Self {
         let glyphs = layout
             .glyphs()
             .iter()
@@ -41,8 +34,8 @@ impl TText for Text {
 
         Self {
             glyphs,
-            font,
-            fs,
+            fs: layout.font_size(),
+            font_data: layout.font_data().clone(),
             coords,
             decoration: layout.decorations().clone(),
             offset: layout.offset(),
@@ -66,8 +59,10 @@ impl Text {
         for text in &render.text {
             let transform = transform.then_translate((text.offset.x as f64, text.offset.y as f64).into());
 
+            let font = Font::new(text.font_data.to_bytes().to_vec().into(), text.font_data.index());
+
             scene
-                .draw_glyphs(&text.font)
+                .draw_glyphs(&font)
                 .font_size(text.fs)
                 .transform(transform)
                 .glyph_transform(brush_transform)

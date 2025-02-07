@@ -480,11 +480,7 @@ pub trait Transform: Sized + Mul<Self> + MulAssign + Clone + Send + Debug {
 }
 
 pub trait Text {
-    type Font;
-
-    fn new<TL: TextLayout>(node: &TL) -> Self
-    where
-        TL::Font: Into<Self::Font>;
+    fn new<TL: TextLayout>(node: &TL) -> Self;
 }
 
 pub struct ColorStop<B: RenderBackend> {
