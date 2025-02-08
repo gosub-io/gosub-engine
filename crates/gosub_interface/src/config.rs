@@ -6,6 +6,7 @@ mod render;
 mod render_tree;
 mod tree_drawer;
 
+use crate::font::HasFontManager;
 pub use chrome::*;
 pub use css_system::*;
 pub use document::*;
@@ -19,6 +20,7 @@ pub trait ModuleConfiguration:
     + HasCssSystem
     + HasDocument
     + HasHtmlParser
+    + HasFontManager
     + HasLayouter
     + HasRenderTree
     + HasTreeDrawer

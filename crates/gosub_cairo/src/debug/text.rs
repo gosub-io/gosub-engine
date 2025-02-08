@@ -2,31 +2,37 @@ use crate::elements::brush::GsBrush;
 use crate::elements::color::GsColor;
 use crate::elements::transform::GsTransform;
 use crate::Scene;
+use gosub_interface::font::{FontInfo, FontStyle};
 use gosub_interface::render_backend::{Brush as _, Color as _, Transform as _};
 use gosub_shared::types::Point;
-use gosub_shared::ROBOTO_FONT;
 use peniko::{Blob, Font};
 use std::sync::{Arc, LazyLock};
 
-static FONT: LazyLock<Font> = LazyLock::new(|| Font::new(Blob::new(Arc::new(ROBOTO_FONT)), 0));
-
 pub fn render_text_simple(scene: &mut Scene, text: &str, point: Point<f32>, font_size: f32) {
-    render_text(scene, text, point, font_size, &FONT, &GsBrush::color(GsColor::BLACK));
+    // render_text(scene, text, point, font_size, &font_info, &GsBrush::color(GsColor::BLACK));
 }
 
-pub fn render_text(scene: &mut Scene, text: &str, point: Point<f32>, font_size: f32, font: &Font, brush: &GsBrush) {
+pub fn render_text(
+    scene: &mut Scene,
+    text: &str,
+    point: Point<f32>,
+    font_size: f32,
+    font_info: &impl FontInfo,
+    brush: &GsBrush,
+) {
     let transform = GsTransform::translate(point.x.into(), point.y.into());
 
-    render_text_var(
-        scene,
-        text,
-        font_size,
-        font,
-        brush,
-        transform,
-        GsTransform::IDENTITY,
-        &[],
-    )
+    // render_text_var(
+    //     scene,
+    //     text,
+    //     font_size,
+    //
+    //     font_info,
+    //     brush,
+    //     transform,
+    //     GsTransform::IDENTITY,
+    //     &[],
+    // )
 }
 
 #[allow(clippy::too_many_arguments)]

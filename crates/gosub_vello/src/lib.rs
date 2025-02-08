@@ -1,6 +1,7 @@
 use std::fmt::Debug;
 
 use anyhow::anyhow;
+use gosub_fontmanager::FontManager;
 use log::info;
 use vello::kurbo::Point as VelloPoint;
 use vello::peniko::Color as VelloColor;
@@ -9,6 +10,7 @@ use vello::{AaConfig, RenderParams, Scene as VelloScene};
 pub use border::*;
 pub use brush::*;
 pub use color::*;
+use gosub_interface::font::HasFontManager;
 use gosub_interface::render_backend::{RenderBackend, RenderRect, RenderText, Scene as TScene, WindowHandle};
 use gosub_shared::geo::{Point, SizeU32};
 use gosub_shared::types::Result;
@@ -48,26 +50,31 @@ impl Debug for VelloBackend {
     }
 }
 
+impl HasFontManager for VelloBackend {
+    type FontManager = FontManager;
+}
+
 impl RenderBackend for VelloBackend {
     type Rect = Rect;
     type Border = Border;
     type BorderSide = BorderSide;
     type BorderRadius = BorderRadius;
     type Transform = Transform;
-    type Text = Text;
     type Gradient = Gradient;
     type Color = Color;
     type Image = Image;
     type Brush = Brush;
     type Scene = Scene;
+    type Text = Text;
     #[cfg(feature = "resvg")]
     type SVGRenderer = gosub_svg::resvg::Resvg;
     #[cfg(all(feature = "vello_svg", not(feature = "resvg")))]
     type SVGRenderer = vello_svg::VelloSVG;
 
     type ActiveWindowData<'a> = ActiveWindowData<'a>;
-
     type WindowData<'a> = WindowData;
+
+    type FontManager = FontManager;
 
     fn draw_rect(&mut self, data: &mut Self::WindowData<'_>, rect: &RenderRect<Self>) {
         data.scene.draw_rect(rect);

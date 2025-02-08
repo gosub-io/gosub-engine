@@ -4,6 +4,7 @@ pub mod css3;
 pub mod document;
 pub mod draw;
 pub mod eventloop;
+pub mod font;
 pub mod html5;
 pub mod input;
 pub mod instance;

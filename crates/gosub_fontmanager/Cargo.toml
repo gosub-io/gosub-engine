@@ -1,0 +1,51 @@
+[package]
+name = "gosub_fontmanager"
+version = "0.1.0"
+edition = "2021"
+authors = ["Gosub Community <info@gosub.io>"]
+description = "Generic font manager"
+license = "MIT"
+
+[[bin]]
+name = "display-fonts"
+path = "src/bin/display-fonts.rs"
+
+[[bin]]
+name = "generate-svg"
+path = "src/bin/generate-svg.rs"
+
+[[bin]]
+name = "gtk-test"
+path = "src/bin/gtk-test.rs"
+
+[[bin]]
+name = "gtk2-test"
+path = "src/bin/gtk2-test.rs"
+
+[[bin]]
+name = "vello-test"
+path = "src/bin/vello-test.rs"
+
+[dependencies]
+gosub_interface = { version = "0.1.1", registry = "gosub", path = "../gosub_interface", features = [] }
+colog = "^1.3"
+log = "0.4.22"
+anyhow = "1.0.95"
+prettytable = "0.10.0"
+vello = "0.3.0"
+winit = "0.30.7"
+pollster = "0.4.0"
+image = "0.25.5"
+swash = "0.1.19"
+lazy_static = "1.5.0"
+rand = "0.9.0-beta.1"
+cow-utils = "0.1.3"
+
+gtk4 = { version = "0.8.0", features = ["v4_6"] }
+parley = "0.2.0"
+font-kit = { version = "0.14.2" }
+freetype-rs = "0.36.0"
+# 19.4 is the latest version that works with the current version of font-kit (0.14.2)
+cairo-rs = { version = "0.19.4", features = ["use_glib", "freetype"] }
+
+pangocairo = "0.19.8"

@@ -8,6 +8,7 @@ use taffy::{
 };
 
 use gosub_interface::config::HasLayouter;
+use gosub_interface::font::HasFontManager;
 use gosub_interface::layout::{Layout as TLayout, LayoutCache, LayoutNode, LayoutTree, Layouter};
 use gosub_shared::geo::{Point, Rect, Size, SizeU32};
 use gosub_shared::types::Result;
@@ -17,10 +18,10 @@ use crate::style::get_style_from_node;
 use crate::text::TextLayout;
 
 mod compute;
-mod conversions;
 pub mod style;
 mod text;
 
+/// Our layout implementation is based on Taffy properties.
 #[repr(transparent)]
 #[derive(Default, Debug)]
 pub struct Layout(TaffyLayout);
@@ -89,6 +90,7 @@ impl TLayout for Layout {
     }
 }
 
+/// Our implementation of the Taffy layouter.
 #[derive(Clone, Copy, Debug)]
 pub struct TaffyLayouter;
 
@@ -130,17 +132,17 @@ impl LayoutCache for Cache {
     }
 }
 
-impl Layouter for TaffyLayouter {
+impl<B: HasLayouter<Layouter = TaffyLayouter> + HasFontManager> Layouter<B> for TaffyLayouter {
     type Cache = Cache;
     type Layout = Layout;
     type TextLayout = TextLayout;
 
     const COLLAPSE_INLINE: bool = true;
 
-    fn layout<C: HasLayouter<Layouter = TaffyLayouter>>(
+    fn layout(
         &self,
-        tree: &mut C::LayoutTree,
-        root: <C::LayoutTree as LayoutTree<C>>::NodeId,
+        tree: &mut B::LayoutTree,
+        root: <B::LayoutTree as LayoutTree<B>>::NodeId,
         space: SizeU32,
     ) -> Result<()> {
         let size = taffy::Size {
@@ -148,8 +150,15 @@ impl Layouter for TaffyLayouter {
             height: AvailableSpace::Definite(space.height as f32),
         };
 
-        let mut tree: LayoutDocument<C> = LayoutDocument(tree);
+        // We need to convert our tree into a LayoutDocument. This document can be used by Taffy to layout the tree
+        // throughout the LayoutPartialTree trait that our LayoutDocument implements.
+        let mut tree: LayoutDocument<B> = LayoutDocument(tree);
+
+        // Precompute the styles for all nodes in the layout tree. This will convert all the CSS properties we need
+        // for layouting into Taffy properties that are stored in a cache.
         Self::precompute_style(&mut tree, root);
+
+        // Now let taffy compute the layout of the tree.
         compute_root_layout(&mut tree, TaffyId::from(root.into()), size);
 
         Ok(())
@@ -161,12 +170,14 @@ impl TaffyLayouter {
         tree: &mut LayoutDocument<C>,
         root: <C::LayoutTree as LayoutTree<C>>::NodeId,
     ) {
+        // Convert our CSS properties into Taffy properties and store them in a cache.
         tree.update_style(root);
 
         let Some(children) = tree.0.children(root) else {
             return;
         };
 
+        // Recursively precompute the style for all children of the current node.
         for child in children {
             Self::precompute_style(tree, <C::LayoutTree as LayoutTree<C>>::NodeId::from(child.into()));
         }
@@ -221,6 +232,7 @@ impl<C: HasLayouter<Layouter = TaffyLayouter>> TraversePartialTree for LayoutDoc
 }
 
 impl<C: HasLayouter<Layouter = TaffyLayouter>> LayoutDocument<'_, C> {
+    /// Get the CSS properties for the given node, and store it inside the cache
     fn update_style(&mut self, node_id: <C::LayoutTree as LayoutTree<C>>::NodeId) {
         let Some(node) = self.0.get_node_mut(node_id) else {
             return;
@@ -234,9 +246,9 @@ impl<C: HasLayouter<Layouter = TaffyLayouter>> LayoutDocument<'_, C> {
         }
     }
 
+    /// Get the taffy style properties for a given node. If the style is dirty, we will update the style first.
     fn get_taffy_style(&mut self, node_id: <C::LayoutTree as LayoutTree<C>>::NodeId) -> &Style {
         let dirty_style = self.0.style_dirty(node_id);
-
         if dirty_style {
             self.update_style(node_id);
         }
@@ -249,6 +261,7 @@ impl<C: HasLayouter<Layouter = TaffyLayouter>> LayoutDocument<'_, C> {
         &cache.style
     }
 
+    /// Force the taffy style from the cache. Do not care about dirty styles
     fn get_taffy_style_no_update(&self, node_id: <C::LayoutTree as LayoutTree<C>>::NodeId) -> &Style {
         if let Some(cache) = self.0.get_cache(node_id) {
             return &cache.style;
@@ -308,6 +321,7 @@ impl<C: HasLayouter<Layouter = TaffyLayouter>> CacheTree for LayoutDocument<'_, 
     }
 }
 
+/// Implementation of taffy's LayoutPartialTree
 impl<C: HasLayouter<Layouter = TaffyLayouter>> LayoutPartialTree for LayoutDocument<'_, C> {
     type CoreContainerStyle<'a>
         = &'a Style
@@ -332,13 +346,18 @@ impl<C: HasLayouter<Layouter = TaffyLayouter>> LayoutPartialTree for LayoutDocum
             let node_id = <C::LayoutTree as LayoutTree<C>>::NodeId::from(node_id_taffy.into());
 
             if let Some(node) = tree.0.get_node_mut(node_id) {
+                // If we are an inline parent, we should compute the inline layout
                 if node.is_anon_inline_parent() {
+                    println!("Node: {:?} is inline parent", node_id);
+                    // Any text nodes are always inline, so they are handled in this function
                     return compute_inline_layout(tree, node_id, inputs);
                 }
             }
 
             // let has_children = tree.0.child_count(node_id) > 0; //TODO: this isn't optimal, since we are now requesting the same node twice (up in get_cache and here)
             let style = tree.get_taffy_style(node_id);
+
+            // @TODO: somehow we should implement table layout here as well. This could be doable with a Grid layout aparently.
 
             match style.display {
                 TaffyDisplay::None => compute_hidden_layout(tree, node_id_taffy),
@@ -350,6 +369,7 @@ impl<C: HasLayouter<Layouter = TaffyLayouter>> LayoutPartialTree for LayoutDocum
     }
 }
 
+/// Implementation of taffy's LayoutBLockContainer
 impl<C: HasLayouter<Layouter = TaffyLayouter>> LayoutBlockContainer for LayoutDocument<'_, C> {
     type BlockContainerStyle<'a>
         = &'a Style
@@ -369,6 +389,7 @@ impl<C: HasLayouter<Layouter = TaffyLayouter>> LayoutBlockContainer for LayoutDo
     }
 }
 
+/// Implementation of taffy's LayoutFlexboxContainer
 impl<C: HasLayouter<Layouter = TaffyLayouter>> LayoutFlexboxContainer for LayoutDocument<'_, C> {
     type FlexboxContainerStyle<'a>
         = &'a Style
@@ -388,6 +409,7 @@ impl<C: HasLayouter<Layouter = TaffyLayouter>> LayoutFlexboxContainer for Layout
     }
 }
 
+/// Implementation of taffy's LayoutGridContainer
 impl<C: HasLayouter<Layouter = TaffyLayouter>> LayoutGridContainer for LayoutDocument<'_, C> {
     type GridContainerStyle<'a>
         = &'a Style

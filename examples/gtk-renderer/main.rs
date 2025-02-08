@@ -4,6 +4,7 @@ use futures::executor::block_on;
 use futures::StreamExt;
 use gosub_cairo::{CairoBackend, Scene};
 use gosub_css3::system::Css3System;
+use gosub_fontmanager::FontManager;
 use gosub_html5::document::builder::DocumentBuilderImpl;
 use gosub_html5::document::document_impl::DocumentImpl;
 use gosub_html5::document::fragment::DocumentFragmentImpl;
@@ -11,6 +12,7 @@ use gosub_html5::parser::Html5Parser;
 use gosub_instance::{EngineInstance, InstanceMessage};
 use gosub_interface::chrome::ChromeHandle;
 use gosub_interface::config::*;
+use gosub_interface::font::HasFontManager;
 use gosub_interface::instance::{Handles, InstanceId};
 use gosub_interface::render_backend::RenderBackend;
 use gosub_interface::render_backend::SizeU32;
@@ -25,6 +27,7 @@ use log::{info, LevelFilter};
 use simple_logger::SimpleLogger;
 use std::sync::{Arc, Mutex};
 use url::Url;
+
 const APP_ID: &str = "io.gosub.gtk-renderer";
 
 #[derive(Clone, Debug, PartialEq)]
@@ -64,6 +67,10 @@ impl HasChrome for Config {
     type ChromeHandle = GtkChromeHandle;
 }
 
+impl HasFontManager for Config {
+    type FontManager = FontManager;
+}
+
 impl ModuleConfiguration for Config {}
 
 #[derive(Clone)]
@@ -94,7 +101,7 @@ fn build_ui(app: &Application, cl: &ApplicationCommandLine) -> i32 {
     let url = args
         .get(1)
         .and_then(|url| url.to_str())
-        .unwrap_or("https://example.com")
+        .unwrap_or("https://gosub.io/tests/gopher.html")
         .to_string();
 
     // Create a window and set the title
@@ -146,9 +153,15 @@ fn build_ui(app: &Application, cl: &ApplicationCommandLine) -> i32 {
         });
     });
 
+    let scroll = gtk4::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk4::PolicyType::Automatic)
+        .vscrollbar_policy(gtk4::PolicyType::Automatic)
+        .child(&area)
+        .build();
+    window.set_child(Some(&scroll));
+
     window.set_default_width(800);
     window.set_default_height(600);
-    window.set_child(Some(&area));
     window.present();
 
     1

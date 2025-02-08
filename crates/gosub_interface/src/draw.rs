@@ -1,4 +1,4 @@
-use crate::config::{HasDocument, HasDrawComponents};
+use crate::config::{HasDocument, HasDrawComponents, HasHtmlParser};
 use crate::eventloop::EventLoopHandle;
 use crate::layout::LayoutTree;
 use crate::render_backend::{ImgCache, NodeDesc, RenderBackend};
@@ -24,7 +24,7 @@ pub trait TreeDrawer<C: HasDrawComponents> {
     ) -> impl Future<Output = gosub_shared::types::Result<(Self, C::Document)>>
     where
         Self: Sized,
-        C: HasDocument;
+        C: HasDocument + HasHtmlParser;
 
     fn from_source(
         // The initial url that the source was loaded from
@@ -38,7 +38,7 @@ pub trait TreeDrawer<C: HasDrawComponents> {
     ) -> Result<(Self, C::Document)>
     where
         Self: Sized,
-        C: HasDocument;
+        C: HasDocument + HasHtmlParser;
 
     fn with_fetcher(
         // The initial url that the source was loaded from
@@ -52,7 +52,7 @@ pub trait TreeDrawer<C: HasDrawComponents> {
     ) -> impl Future<Output = Result<(Self, C::Document)>>
     where
         Self: Sized,
-        C: HasDocument;
+        C: HasDocument + HasHtmlParser;
 
     fn clear_buffers(&mut self);
     fn toggle_debug(&mut self);
@@ -73,7 +73,7 @@ pub trait TreeDrawer<C: HasDrawComponents> {
 
     fn reload(&mut self, el: impl EventLoopHandle<C>) -> impl Future<Output = Result<C::Document>> + 'static
     where
-        C: HasDocument;
+        C: HasDocument + HasHtmlParser;
 
     fn navigate(
         &mut self,
@@ -81,7 +81,7 @@ pub trait TreeDrawer<C: HasDrawComponents> {
         el: impl EventLoopHandle<C>,
     ) -> impl Future<Output = Result<C::Document>> + 'static
     where
-        C: HasDocument;
+        C: HasDocument + HasHtmlParser;
 
     fn reload_from(&mut self, tree: C::RenderTree);
 }

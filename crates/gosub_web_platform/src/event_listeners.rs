@@ -1,7 +1,6 @@
 use crate::callback::{Callback, FutureExecutor};
 use gosub_interface::input::{InputEvent, MouseButton};
 use gosub_shared::geo::Point;
-use log::info;
 use std::fmt::Debug;
 
 pub enum Listeners<E: FutureExecutor> {
@@ -39,7 +38,6 @@ pub struct EventListener<D, E: FutureExecutor> {
 
 impl<D: Clone + Debug, E: FutureExecutor> EventListener<D, E> {
     pub fn handle_event(&mut self, event: D, e: &mut E) {
-        info!("Handling event: {:?}", event);
         for listener in self.listeners.iter_mut() {
             listener.execute(e, event.clone());
         }

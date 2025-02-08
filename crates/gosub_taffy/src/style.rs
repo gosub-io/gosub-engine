@@ -9,8 +9,9 @@ mod parse_properties;
 
 const SCROLLBAR_WIDTH: f32 = 16.0;
 
+// This function will convert a node into a Style object with Taffy properties.
 pub fn get_style_from_node<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> (Style, Display) {
-    //TODO: theoretically we should limit this to the taffy layouter, since it doesn't make any sense otherweise
+    //TODO: theoretically we should limit this to the taffy layouter, since it doesn't make any sense otherwise
     let (display, disp) = parse_properties::parse_display(node);
     let overflow = parse_properties::parse_overflow(node);
     let position = parse_properties::parse_position(node);

@@ -1,9 +1,9 @@
-use std::fmt::Debug;
-
 use crate::config::HasLayouter;
+use crate::font::{FontBlob, HasFontManager};
 use gosub_shared::font::Glyph;
 use gosub_shared::geo::{Point, Rect, Size, SizeU32};
 use gosub_shared::types::Result;
+use std::fmt::Debug;
 
 #[derive(Clone, Debug)]
 pub struct FontData {
@@ -28,32 +28,46 @@ impl FontData {
     }
 }
 
+/// LayoutTree is a combined structure of a RenderTree and a LayoutTree. The RenderTree part contains all the
+/// nodes that can be rendered or have any effect of visual layout. The layout part holds all the information
+/// about how the nodes are laid out on the screen.
 pub trait LayoutTree<C: HasLayouter<LayoutTree = Self>>: Sized + Debug + 'static {
     type NodeId: Debug + Copy + Clone + From<u64> + Into<u64> + PartialEq;
     type Node: LayoutNode<C>;
 
+    /// Returns all NodeIds of the children of the given NodeId
     fn children(&self, id: Self::NodeId) -> Option<Vec<Self::NodeId>>;
+    /// Returns true when the given NodeId is a child of the root node
     fn contains(&self, id: &Self::NodeId) -> bool;
+    /// Returns the count of the children
     fn child_count(&self, id: Self::NodeId) -> usize;
+    /// Returns the parent of the given NodeId, or None when the node is a root node
     fn parent_id(&self, id: Self::NodeId) -> Option<Self::NodeId>;
-    fn get_cache(&self, id: Self::NodeId) -> Option<&<C::Layouter as Layouter>::Cache>;
-    fn get_layout(&self, id: Self::NodeId) -> Option<&<C::Layouter as Layouter>::Layout>;
-    fn get_cache_mut(&mut self, id: Self::NodeId) -> Option<&mut <C::Layouter as Layouter>::Cache>;
-    fn get_layout_mut(&mut self, id: Self::NodeId) -> Option<&mut <C::Layouter as Layouter>::Layout>;
-    fn set_cache(&mut self, id: Self::NodeId, cache: <C::Layouter as Layouter>::Cache);
-    fn set_layout(&mut self, id: Self::NodeId, layout: <C::Layouter as Layouter>::Layout);
+
+    /// Returns the Layout cache which holds all the style and display information of a node
+    fn get_cache(&self, id: Self::NodeId) -> Option<&<C::Layouter as Layouter<C>>::Cache>;
+    /// Returns the layout data of the node.
+    fn get_layout(&self, id: Self::NodeId) -> Option<&<C::Layouter as Layouter<C>>::Layout>;
+
+    fn get_cache_mut(&mut self, id: Self::NodeId) -> Option<&mut <C::Layouter as Layouter<C>>::Cache>;
+    fn get_layout_mut(&mut self, id: Self::NodeId) -> Option<&mut <C::Layouter as Layouter<C>>::Layout>;
+    fn set_cache(&mut self, id: Self::NodeId, cache: <C::Layouter as Layouter<C>>::Cache);
+    fn set_layout(&mut self, id: Self::NodeId, layout: <C::Layouter as Layouter<C>>::Layout);
 
     fn style_dirty(&self, id: Self::NodeId) -> bool;
-
     fn clean_style(&mut self, id: Self::NodeId);
 
+    /// Get node functionality
     fn get_node_mut(&mut self, id: Self::NodeId) -> Option<&mut Self::Node>;
     fn get_node(&self, id: Self::NodeId) -> Option<&Self::Node>;
 
+    /// Returns the root node of the tree
     fn root(&self) -> Self::NodeId;
 }
 
-pub trait Layouter: Sized + Clone + Send + 'static {
+/// Main layout trait that will convert a RenderTree into a LayoutTree (or in our case, it will
+/// update the LayoutTree with new layout information)
+pub trait Layouter<C: HasLayouter + HasFontManager>: Sized + Clone + Send + 'static {
     type Cache: LayoutCache;
     type Layout: Layout + Send;
 
@@ -61,18 +75,24 @@ pub trait Layouter: Sized + Clone + Send + 'static {
 
     const COLLAPSE_INLINE: bool;
 
-    fn layout<C: HasLayouter<Layouter = Self>>(
+    fn layout(
         &self,
+        // Rendertree, probably not filled with layout information. This rendertree will be updated by this function.
         tree: &mut C::LayoutTree,
+        // The root node of the tree. This is not really needed as the LayoutTree also contains this information
         root: <C::LayoutTree as LayoutTree<C>>::NodeId,
+        // Dimensions of the viewport that we layout in
         space: SizeU32,
     ) -> Result<()>;
 }
 
+/// Cache that holds all the style and display information of a node
 pub trait LayoutCache: Default + Send + Debug {
     fn invalidate(&mut self);
 }
 
+/// Trait that defines all layout information of a node. Currently residing in the same tree that also
+/// holds the RenderTree. This is not ideal, but it is a start.
 pub trait Layout: Default + Debug {
     /// Returns the relative upper left pos of the content box
     fn rel_pos(&self) -> Point;
@@ -82,16 +102,13 @@ pub trait Layout: Default + Debug {
 
     /// Size of the scroll box (content box without overflow), including scrollbars (if any)
     fn size(&self) -> Size;
-
     fn size_or(&self) -> Option<Size>;
 
     fn set_size_and_content(&mut self, size: SizeU32) {
         self.set_size(size);
         self.set_content(size);
     }
-
     fn set_size(&mut self, size: SizeU32);
-
     fn set_content(&mut self, size: SizeU32);
 
     /// Size of the content box (content without scrollbars, but with overflow)
@@ -149,33 +166,34 @@ pub trait Layout: Default + Debug {
 pub trait LayoutNode<C: HasLayouter>: HasTextLayout<C> {
     fn get_property(&self, name: &str) -> Option<&C::CssProperty>;
     fn text_data(&self) -> Option<&str>;
-
+    fn text_size(&self) -> Option<Size>;
     /// This can only return true if the `Layout::COLLAPSE_INLINE` is set true for the layouter
-    ///
     fn is_anon_inline_parent(&self) -> bool;
 }
 
 pub trait HasTextLayout<C: HasLayouter> {
     fn clear_text_layout(&mut self);
-    fn add_text_layout(&mut self, layout: <C::Layouter as Layouter>::TextLayout);
-    fn get_text_layouts(&self) -> Option<&[<C::Layouter as Layouter>::TextLayout]>;
-    fn get_text_layouts_mut(&mut self) -> Option<&mut Vec<<C::Layouter as Layouter>::TextLayout>>;
+    fn add_text_layout(&mut self, layout: <C::Layouter as Layouter<C>>::TextLayout);
+    fn get_text_layouts(&self) -> Option<&[<C::Layouter as Layouter<C>>::TextLayout]>;
+    fn get_text_layouts_mut(&mut self) -> Option<&mut Vec<<C::Layouter as Layouter<C>>::TextLayout>>;
 }
 
+/// Text layout that keeps all information on how a part of text is laid out
 pub trait TextLayout {
-    fn size(&self) -> Size;
-
+    /// Returns a list of glyphs for the text
     fn glyphs(&self) -> &[Glyph];
-
-    fn font_data(&self) -> &FontData;
-
+    /// Font data
+    fn font_data(&self) -> &FontBlob;
+    // Size of the font in pixels
     fn font_size(&self) -> f32;
-
-    fn coords(&self) -> &[i16];
-
+    /// Additional font decorations
     fn decorations(&self) -> &Decoration;
-
+    // Offset?
     fn offset(&self) -> Point;
+    /// Coordinates of the font
+    fn coords(&self) -> &[i16];
+    /// Size of the text
+    fn size(&self) -> Size;
 }
 
 #[derive(Debug, Clone, Default)]

@@ -4,7 +4,7 @@ use crate::draw::img_cache::ImageCache;
 use crate::draw::testing::{test_add_element, test_restyle_element};
 use crate::render_tree::{load_html_rendertree, load_html_rendertree_fetcher, load_html_rendertree_source};
 use anyhow::anyhow;
-use gosub_interface::config::{HasDrawComponents, HasHtmlParser};
+use gosub_interface::config::{HasDocument, HasDrawComponents, HasHtmlParser};
 use gosub_interface::css3::{CssProperty, CssPropertyMap, CssValue};
 
 use gosub_interface::draw::TreeDrawer;
@@ -36,7 +36,6 @@ mod testing;
 const DEBUG_CONTENT_COLOR: (u8, u8, u8) = (0, 192, 255);
 const DEBUG_PADDING_COLOR: (u8, u8, u8) = (0, 255, 192);
 const DEBUG_BORDER_COLOR: (u8, u8, u8) = (255, 72, 72);
-// const DEBUG_MARGIN_COLOR: (u8, u8, u8) = (255, 192, 0);
 
 type Point = gosub_shared::types::Point<FP>;
 
@@ -77,8 +76,8 @@ impl<C: HasDrawComponents> TreeDrawerImpl<C> {
     }
 }
 
-impl<C: HasDrawComponents<RenderTree = RenderTree<C>, LayoutTree = RenderTree<C>> + HasHtmlParser> TreeDrawer<C>
-    for TreeDrawerImpl<C>
+impl<C: HasDrawComponents<RenderTree = RenderTree<C>, LayoutTree = RenderTree<C>> + HasHtmlParser + HasDocument>
+    TreeDrawer<C> for TreeDrawerImpl<C>
 {
     type ImgCache = ImageCache<C::RenderBackend>;
 
@@ -162,7 +161,6 @@ impl<C: HasDrawComponents<RenderTree = RenderTree<C>, LayoutTree = RenderTree<C>
 
         if self.dirty {
             self.dirty = false;
-
             // el.redraw();
         }
 
@@ -362,12 +360,10 @@ impl<
 {
     pub(crate) fn render(&mut self, size: SizeU32) {
         let root = self.drawer.tree.root();
-        if let Err(e) = self.drawer.layouter.layout::<C>(&mut self.drawer.tree, root, size) {
+        if let Err(e) = self.drawer.layouter.layout(&mut self.drawer.tree, root, size) {
             eprintln!("Failed to compute layout: {:?}", e);
             return;
         }
-
-        // print_tree(&self.taffy, self.root, &self.style);
 
         self.drawer.position = PositionTree::<C>::from_tree(&self.drawer.tree);
 
@@ -476,9 +472,7 @@ fn render_text<C: HasDrawComponents>(
         let text = layout
             .iter()
             .map(|layout| {
-                let text: <C::RenderBackend as RenderBackend>::Text =
-                    Text::new::<<C::Layouter as Layouter>::TextLayout>(layout);
-
+                let text: <C::RenderBackend as RenderBackend>::Text = Text::new(layout);
                 text
             })
             .collect::<Vec<_>>();

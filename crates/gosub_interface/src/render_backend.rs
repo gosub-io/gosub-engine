@@ -1,3 +1,4 @@
+use crate::font::{FontManager, HasFontManager};
 use crate::layout::TextLayout;
 use crate::svg::SvgRenderer;
 pub use gosub_shared::geo::*;
@@ -18,19 +19,22 @@ pub trait RenderBackend: Sized + Debug {
     type BorderSide: BorderSide<Self>;
     type BorderRadius: BorderRadius;
     type Transform: Transform;
-    type Text: Text + Clone;
     type Gradient: Gradient<Self>;
     type Color: Color;
     type Image: Image;
     type Brush: Brush<Self>;
     type Scene: Scene<Self>;
+    type Text: Text;
     type SVGRenderer: SvgRenderer<Self>;
+    type FontManager: FontManager;
 
     type ActiveWindowData<'a>;
     type WindowData<'a>;
 
     fn draw_rect(&mut self, data: &mut Self::WindowData<'_>, rect: &RenderRect<Self>);
-    fn draw_text(&mut self, data: &mut Self::WindowData<'_>, text: &RenderText<Self>);
+    fn draw_text(&mut self, data: &mut Self::WindowData<'_>, text: &RenderText<Self>)
+    where
+        Self: HasFontManager;
 
     fn apply_scene(&mut self, data: &mut Self::WindowData<'_>, scene: &Self::Scene, transform: Option<Self::Transform>);
     fn reset(&mut self, data: &mut Self::WindowData<'_>);
@@ -74,6 +78,10 @@ pub trait Scene<B: RenderBackend>: Clone + Debug + Send {
     fn reset(&mut self);
 
     fn new() -> Self;
+}
+
+pub trait Text: Clone + Debug + Sized {
+    fn new(layout: &impl TextLayout) -> Self;
 }
 
 #[derive(Clone, Debug)]
@@ -477,10 +485,6 @@ pub trait Transform: Sized + Mul<Self> + MulAssign + Clone + Send + Debug {
         matrix[5] = y;
         *self = Self::from_matrix(matrix);
     }
-}
-
-pub trait Text {
-    fn new<TL: TextLayout>(node: &TL) -> Self;
 }
 
 pub struct ColorStop<B: RenderBackend> {
