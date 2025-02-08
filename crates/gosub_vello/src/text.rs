@@ -1,9 +1,10 @@
 use crate::VelloBackend;
+use gosub_interface::font::FontBlob;
 use gosub_interface::layout::{Decoration, TextLayout};
 use gosub_interface::render_backend::{RenderText, Text as TText};
 use gosub_shared::geo::{NormalizedCoord, Point, FP};
 use vello::kurbo::{Affine, Line, Stroke};
-use vello::peniko::{Blob, Brush, Color, Fill, Font, StyleRef};
+use vello::peniko::{Blob, Brush, Color, Fill, Font as PenikoFont, StyleRef};
 use vello::Scene;
 use vello_encoding::Glyph;
 
@@ -11,33 +12,10 @@ use vello_encoding::Glyph;
 pub struct Text {
     glyphs: Vec<Glyph>,
     fs: FP,
-    font_data: FontData,
+    font_data: FontBlob,
     coords: Vec<NormalizedCoord>,
     decoration: Decoration,
     offset: Point,
-}
-
-impl TText for Text {
-    fn new<TL: TextLayout>(layout: &TL) -> Self {
-        let glyphs = layout
-            .glyphs()
-            .iter()
-            .map(|g| Glyph {
-                id: g.id as u32,
-                x: g.x,
-                y: g.y,
-            })
-            .collect();
-
-        Self {
-            glyphs,
-            fs: layout.font_size(),
-            font_data: layout.font_data().clone(),
-            coords: layout.coords().to_vec(),
-            decoration: layout.decorations().clone(),
-            offset: layout.offset(),
-        }
-    }
 }
 
 impl Text {
@@ -56,10 +34,10 @@ impl Text {
         for text in &render.text {
             let transform = transform.then_translate((text.offset.x as f64, text.offset.y as f64).into());
 
-            let font = Font::new(text.font_data.to_bytes().to_vec().into(), text.font_data.index());
+            let peniko_font = PenikoFont::new(Blob::new(text.font_data.data.clone()), text.font_data.index);
 
             scene
-                .draw_glyphs(&font)
+                .draw_glyphs(&peniko_font)
                 .font_size(text.fs)
                 .transform(transform)
                 .glyph_transform(brush_transform)
@@ -111,12 +89,6 @@ impl Text {
 
 impl TText for Text {
     fn new(layout: &impl TextLayout) -> Self {
-        let font = layout.font();
-
-        let font = Font::new(Blob::new(font.data.clone()), font.index);
-
-        let fs = layout.font_size();
-
         let glyphs = layout
             .glyphs()
             .iter()
@@ -127,13 +99,13 @@ impl TText for Text {
             })
             .collect();
 
-        let coords = layout.coords().iter().map(|c| NormalizedCoord::from_bits(*c)).collect();
+        // let coords = layout.coords().iter().map(|c| NormalizedCoord::from(*c)).collect();
 
         Self {
             glyphs,
-            font,
-            fs,
-            coords,
+            font_data: layout.font_data().clone(),
+            fs: layout.font_size(),
+            coords: layout.coords().to_vec(),
             decoration: layout.decorations().clone(),
             offset: layout.offset(),
         }

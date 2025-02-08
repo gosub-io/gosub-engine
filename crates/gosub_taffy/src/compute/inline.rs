@@ -8,8 +8,8 @@ use taffy::{
 
 use gosub_interface::config::HasLayouter;
 use gosub_interface::css3::{CssProperty, CssValue};
-use gosub_interface::layout::{Decoration, DecorationStyle, HasTextLayout, LayoutNode, LayoutTree};
 use gosub_interface::font::{FontBlob, FontInfo, FontManager, FontStyle, HasFontManager};
+use gosub_interface::layout::{Decoration, DecorationStyle, HasTextLayout, LayoutNode, LayoutTree};
 use gosub_shared::font::Glyph;
 use gosub_shared::geo::FP;
 use gosub_shared::{geo, ROBOTO_FONT};
@@ -482,9 +482,8 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
                         glyphs,
                         size,
                         font_size: fs,
-                        glyphs,
                         // Actual font that is resolved by the layouter which is used for these set of glyphs
-                        resolved_font: FontBlob::new(font_data, font.index),
+                        font_data: FontBlob::new(font_data, font.index),
                         coords,
                         decoration,
                         offset: geo::Point {

@@ -13,11 +13,7 @@ use gosub_interface::layout::{Decoration, TextLayout};
 use gosub_interface::render_backend::{RenderText, Text as TText};
 use gosub_shared::font::{Glyph, GlyphID};
 use gosub_shared::geo::{NormalizedCoord, Point, FP};
-
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::rc::Rc;
-use log::{info, warn};
+use log::warn;
 
 thread_local! {
     static LIB_FONT_FACE: LazyCell<Library> = LazyCell::new(|| {
@@ -31,7 +27,7 @@ pub struct GsText {
     // List of positioned glyphs with font info
     glyphs: Vec<Glyph>,
     // Font we need to display
-    font: FontBlob,
+    font_data: FontBlob,
     // Font size
     fs: FP,
     // List of coordinates for each glyph (?)
@@ -45,9 +41,6 @@ pub struct GsText {
 impl TText for GsText {
     // fn new<TL: TextLayout>(layout: &TL) -> Self {
     fn new(layout: &impl TextLayout) -> Self {
-        let font = layout.font().clone();
-        let fs = layout.font_size();
-
         let glyphs = layout
             .glyphs()
             .iter()
@@ -60,8 +53,8 @@ impl TText for GsText {
 
         Self {
             glyphs,
-            font,
-            fs,
+            font_data: layout.font_data().clone(),
+            fs: layout.font_size(),
             coords: layout.coords().to_vec(),
             decoration: layout.decorations().clone(),
             offset: layout.offset(),
@@ -76,7 +69,7 @@ impl GsText {
         cr.move_to(base_x, base_y);
 
         for text in &obj.text {
-            let Ok(font_face) = create_memory_font_face(&text.font) else {
+            let Ok(font_face) = create_memory_font_face(&text.font_data) else {
                 warn!("Could not convert memory face");
                 continue;
             };

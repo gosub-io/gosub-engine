@@ -10,7 +10,7 @@ pub struct TextLayout {
     /// in the font_info field.
     pub glyphs: Vec<Glyph>,
     /// Actual font used for layouting (and thus rendering) of the text.
-    pub resolved_font: FontBlob,
+    pub font_data: FontBlob,
     // Font size of the text
     pub font_size: f32,
     /// Font decorations of the text
@@ -39,8 +39,8 @@ impl TLayout for TextLayout {
         &self.glyphs
     }
 
-    fn font(&self) -> &FontBlob {
-        &self.resolved_font
+    fn font_data(&self) -> &FontBlob {
+        &self.font_data
     }
 
     fn font_size(&self) -> f32 {

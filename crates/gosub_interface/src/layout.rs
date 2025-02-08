@@ -183,7 +183,7 @@ pub trait TextLayout {
     /// Returns a list of glyphs for the text
     fn glyphs(&self) -> &[Glyph];
     /// Font data
-    fn font(&self) -> &FontBlob;
+    fn font_data(&self) -> &FontBlob;
     // Size of the font in pixels
     fn font_size(&self) -> f32;
     /// Additional font decorations

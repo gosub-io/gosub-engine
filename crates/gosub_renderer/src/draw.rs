@@ -9,11 +9,11 @@ use gosub_interface::css3::{CssProperty, CssPropertyMap, CssValue};
 
 use gosub_interface::draw::TreeDrawer;
 use gosub_interface::eventloop::EventLoopHandle;
+use gosub_interface::layout::{Layout, LayoutTree, Layouter};
 use gosub_interface::render_backend::{
     Border, BorderSide, BorderStyle, Brush, Color, ImageBuffer, ImgCache, NodeDesc, Rect, RenderBackend, RenderBorder,
     RenderRect, RenderText, Scene as TScene, Text, Transform,
 };
-use gosub_interface::layout::{Layout, LayoutTree, Layouter, TextLayout};
 use gosub_interface::render_tree;
 use gosub_interface::render_tree::RenderTreeNode as _;
 use gosub_interface::svg::SvgRenderer;
