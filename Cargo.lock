@@ -2017,7 +2017,7 @@ dependencies = [
  "pangocairo",
  "parley",
  "peniko 0.3.1",
- "skrifa 0.26.5",
+ "skrifa 0.27.0",
  "smallvec",
  "uuid",
 ]
