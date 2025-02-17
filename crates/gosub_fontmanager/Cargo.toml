@@ -48,4 +48,4 @@ freetype-rs = "0.36.0"
 # 19.4 is the latest version that works with the current version of font-kit (0.14.2)
 cairo-rs = { version = "0.19.4", features = ["use_glib", "freetype"] }
 
-pangocairo = "0.19.8"
+pangocairo = "0.20.7"
