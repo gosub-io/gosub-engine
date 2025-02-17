@@ -2013,7 +2013,7 @@ dependencies = [
  "kurbo",
  "log",
  "once_cell",
- "pango 0.20.7",
+ "pango 0.20.9",
  "pangocairo",
  "parley",
  "peniko 0.3.1",
@@ -2222,7 +2222,7 @@ dependencies = [
  "gosub_shared",
  "image",
  "log",
- "pango 0.20.7",
+ "pango 0.20.9",
  "url",
  "wasm-bindgen-futures",
  "web-sys",
@@ -3847,9 +3847,9 @@ dependencies = [
 
 [[package]]
 name = "pango"
-version = "0.20.7"
+version = "0.20.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e89bd74250a03a05cec047b43465469102af803be2bf5e5a1088f8b8455e087"
+checksum = "6b1f5dc1b8cf9bc08bfc0843a04ee0fa2e78f1e1fa4b126844a383af4f25f0ec"
 dependencies = [
  "gio 0.20.7",
  "glib 0.20.7",
