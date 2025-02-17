@@ -478,11 +478,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b2ac2a4d0e69036cf0062976f6efcba1aaee3e448594e6514bb2ddf87acce562"
 dependencies = [
  "bitflags 2.8.0",
- "cairo-sys-rs",
+ "cairo-sys-rs 0.19.2",
  "freetype-rs 0.35.0",
  "glib 0.19.9",
  "libc",
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "cairo-rs"
+version = "0.20.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ae50b5510d86cf96ac2370e66d8dc960882f3df179d6a5a1e52bd94a1416c0f7"
+dependencies = [
+ "bitflags 2.8.0",
+ "cairo-sys-rs 0.20.7",
+ "glib 0.20.7",
+ "libc",
 ]
 
 [[package]]
@@ -494,6 +506,17 @@ dependencies = [
  "glib-sys 0.19.8",
  "libc",
  "system-deps 6.2.2",
+]
+
+[[package]]
+name = "cairo-sys-rs"
+version = "0.20.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f18b6bb8e43c7eb0f2aac7976afe0c61b6f5fc2ab7bc4c139537ea56c92290df"
+dependencies = [
+ "glib-sys 0.20.7",
+ "libc",
+ "system-deps 7.0.3",
 ]
 
 [[package]]
@@ -1678,7 +1701,7 @@ version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "db265c9dd42d6a371e09e52deab3a84808427198b86ac792d75fd35c07990a07"
 dependencies = [
- "cairo-rs",
+ "cairo-rs 0.19.4",
  "gdk-pixbuf",
  "gdk4-sys",
  "gio 0.19.8",
@@ -1693,7 +1716,7 @@ version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c9418fb4e8a67074919fe7604429c45aa74eb9df82e7ca529767c6d4e9dc66dd"
 dependencies = [
- "cairo-sys-rs",
+ "cairo-sys-rs 0.19.2",
  "gdk-pixbuf-sys",
  "gio-sys 0.19.8",
  "glib-sys 0.19.8",
@@ -2002,7 +2025,7 @@ name = "gosub_cairo"
 version = "0.1.1"
 dependencies = [
  "anyhow",
- "cairo-rs",
+ "cairo-rs 0.19.4",
  "futures",
  "gosub_fontmanager",
  "gosub_interface",
@@ -2112,7 +2135,7 @@ name = "gosub_fontmanager"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "cairo-rs",
+ "cairo-rs 0.19.4",
  "colog",
  "cow-utils",
  "font-kit",
@@ -2460,7 +2483,7 @@ version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7563884bf6939f4468e5d94654945bdd9afcaf8c3ba4c5dd17b5342b747221be"
 dependencies = [
- "cairo-rs",
+ "cairo-rs 0.19.4",
  "gdk4",
  "glib 0.19.9",
  "graphene-rs",
@@ -2475,7 +2498,7 @@ version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "23024bf2636c38bbd1f822f58acc9d1c25b28da896ff0f291a1a232d4272b3dc"
 dependencies = [
- "cairo-sys-rs",
+ "cairo-sys-rs 0.19.2",
  "gdk4-sys",
  "glib-sys 0.19.8",
  "gobject-sys 0.19.8",
@@ -2491,7 +2514,7 @@ version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b04e11319b08af11358ab543105a9e49b0c491faca35e2b8e7e36bfba8b671ab"
 dependencies = [
- "cairo-rs",
+ "cairo-rs 0.19.4",
  "field-offset",
  "futures-channel",
  "gdk-pixbuf",
@@ -2524,7 +2547,7 @@ version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8c8aa86b7f85ea71d66ea88c1d4bae1cfacf51ca4856274565133838d77e57b5"
 dependencies = [
- "cairo-sys-rs",
+ "cairo-sys-rs 0.19.2",
  "gdk-pixbuf-sys",
  "gdk4-sys",
  "gio-sys 0.19.8",
@@ -3883,28 +3906,28 @@ dependencies = [
 
 [[package]]
 name = "pangocairo"
-version = "0.19.8"
+version = "0.20.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e4c8b43c02ec1c4e16daf7fc50fbce6b8ead5705c18ae56274f703233cce1cd9"
+checksum = "4690509a2fea2a6552a0ef8aa3e5f790c1365365ee0712afa1aedb39af3997b6"
 dependencies = [
- "cairo-rs",
- "glib 0.19.9",
+ "cairo-rs 0.20.7",
+ "glib 0.20.7",
  "libc",
- "pango 0.19.8",
+ "pango 0.20.9",
  "pangocairo-sys",
 ]
 
 [[package]]
 name = "pangocairo-sys"
-version = "0.19.8"
+version = "0.20.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "591904498438879785f5b7a2fdf7c38e9ec08c514b93c614b5c3b48cd11dd8d7"
+checksum = "5be6ac24147911a6a46783922fc288cf02f67570bc0d360e563b5b26aead6767"
 dependencies = [
- "cairo-sys-rs",
- "glib-sys 0.19.8",
+ "cairo-sys-rs 0.20.7",
+ "glib-sys 0.20.7",
  "libc",
- "pango-sys 0.19.8",
- "system-deps 6.2.2",
+ "pango-sys 0.20.7",
+ "system-deps 7.0.3",
 ]
 
 [[package]]
