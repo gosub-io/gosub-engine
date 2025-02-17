@@ -22,4 +22,4 @@ cow-utils = "0.1.3"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 rusqlite = "0.32.1"
-ureq = "3.0.3"
+ureq = "3.0.5"
