@@ -16,7 +16,7 @@ anyhow = "1.0.94"
 image = "0.25.5"
 url = "2.5.4"
 log = "0.4.22"
-pango = "0.20.7"
+pango = "0.20.9"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen-futures = "0.4.47"
