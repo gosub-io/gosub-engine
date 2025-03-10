@@ -2,9 +2,9 @@ use gosub_interface::font::FontStyle;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use vello::kurbo::{Affine, Circle, Ellipse, Line, RoundedRect, Stroke};
-use vello::peniko::Color;
 use vello::util::{DeviceHandle, RenderContext, RenderSurface};
 use vello::{wgpu, AaConfig, RenderParams, Renderer, RendererOptions, Scene};
+use vello::peniko::color;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
@@ -122,7 +122,7 @@ impl ApplicationHandler for App<'_> {
                     .get_current_texture()
                     .expect("Failed to get current texture");
                 let render_params = RenderParams {
-                    base_color: Color::YELLOW_GREEN,
+                    base_color: color::palette::css::YELLOW_GREEN,
                     width,
                     height,
                     antialiasing_method: AaConfig::Area,
@@ -132,12 +132,12 @@ impl ApplicationHandler for App<'_> {
                 // Draw an outlined rectangle
                 let stroke = Stroke::new(6.0);
                 let rect = RoundedRect::new(10.0, 10.0, 240.0, 240.0, 20.0);
-                let rect_stroke_color = Color::YELLOW_GREEN;
+                let rect_stroke_color = color::palette::css::YELLOW_GREEN;
                 scene.stroke(&stroke, Affine::IDENTITY, rect_stroke_color, None, &rect);
 
                 // Draw a filled circle
                 let circle = Circle::new((420.0, 200.0), 120.0);
-                let circle_fill_color = Color::REBECCA_PURPLE;
+                let circle_fill_color = color::palette::css::REBECCA_PURPLE;
                 scene.fill(
                     vello::peniko::Fill::NonZero,
                     Affine::IDENTITY,
@@ -148,7 +148,7 @@ impl ApplicationHandler for App<'_> {
 
                 // Draw a filled ellipse
                 let ellipse = Ellipse::new((250.0, 420.0), (100.0, 160.0), -90.0);
-                let ellipse_fill_color = Color::BLUE_VIOLET;
+                let ellipse_fill_color = color::palette::css::BLUE_VIOLET;
                 scene.fill(
                     vello::peniko::Fill::NonZero,
                     Affine::IDENTITY,
@@ -159,7 +159,7 @@ impl ApplicationHandler for App<'_> {
 
                 // Draw a straight line
                 let line = Line::new((260.0, 20.0), (620.0, 100.0));
-                let line_stroke_color = Color::FIREBRICK;
+                let line_stroke_color = color::palette::css::FIREBRICK;
                 scene.stroke(&stroke, Affine::IDENTITY, line_stroke_color, None, &line);
 
                 let _ = self.renderer.as_mut().unwrap().render_to_surface(
