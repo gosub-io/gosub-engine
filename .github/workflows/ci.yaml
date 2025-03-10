@@ -112,7 +112,7 @@ jobs:
           restore-keys: |
             ${{ matrix.os }}-cargo-target-${{ matrix.rust_version }}-
       - name: Run Clippy
-        run: cargo clippy --all --tests -- -D warnings
+        run: cargo clippy --all --all-targets -- -D warnings
 
   fmt:
     runs-on: ubuntu-24.04
