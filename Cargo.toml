@@ -63,7 +63,7 @@ walkdir = "2.5.0"
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
 test-case = "3.3.1"
-gtk4 = "0.8.0"
+gtk4 = "0.9.6"
 winit = "0.30.8"
 cookie = { version = "0.18.1", features = ["secure", "private"] }
 url = "2.5.4"
