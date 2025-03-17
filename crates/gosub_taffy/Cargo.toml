@@ -14,4 +14,4 @@ taffy = "0.7.7"
 anyhow = "1.0.94"
 regex = "1.11.1"
 log = "0.4.22"
-parley = { version = "0.2.0", default-features = false, features = ["std"] }
+parley = { version = "0.3.0", default-features = false, features = ["std"] }
