@@ -5,10 +5,10 @@ use gtk4::cairo::{FontFace, Glyph};
 use gtk4::prelude::*;
 use gtk4::{glib, Application, ApplicationWindow, DrawingArea};
 use image::Rgba;
-use parley::fontique::Weight;
+use parley::fontique::FontWeight;
 use parley::layout::{Alignment, Layout, PositionedLayoutItem};
 use parley::style::StyleProperty;
-use parley::{Font, InlineBox, LayoutContext};
+use parley::{AlignmentOptions, Font, InlineBox, LayoutContext};
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -272,7 +272,7 @@ fn create_layout(
     let text_color = Rgba([0, 0, 0, 255]);
     let text_brush = ColorBrush { color: text_color };
     let brush_style = StyleProperty::Brush(text_brush);
-    let bold_style = StyleProperty::FontWeight(Weight::BOLD);
+    let bold_style = StyleProperty::FontWeight(FontWeight::BOLD);
     // let underline_style = StyleProperty::Underline(true);
     // let strikethrough_style = StyleProperty::Strikethrough(true);
 
@@ -311,7 +311,13 @@ fn create_layout(
 
     // We can now break the lines and align them.
     layout.break_all_lines(max_advance);
-    layout.align(max_advance, Alignment::Start);
+    layout.align(
+        max_advance,
+        Alignment::Start,
+        AlignmentOptions {
+            align_when_overflowing: true,
+        },
+    );
 
     layout
 }

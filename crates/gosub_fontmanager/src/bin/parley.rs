@@ -4,7 +4,7 @@ use image::codecs::png::PngEncoder;
 use image::{self, Pixel, Rgba, RgbaImage};
 use parley::layout::{Alignment, Glyph, GlyphRun, Layout, PositionedLayoutItem};
 use parley::style::{FontWeight, StyleProperty};
-use parley::{InlineBox, LayoutContext};
+use parley::{AlignmentOptions, InlineBox, LayoutContext};
 use std::borrow::Cow;
 use std::fs::File;
 use swash::scale::image::Content;
@@ -84,7 +84,13 @@ fn main() {
     let mut layout: Layout<ColorBrush> = builder.build(text);
 
     layout.break_all_lines(max_advance);
-    layout.align(max_advance, Alignment::Start);
+    layout.align(
+        max_advance,
+        Alignment::Start,
+        AlignmentOptions {
+            align_when_overflowing: true,
+        },
+    );
 
     let width = layout.width().ceil() as u32 + (padding * 2);
     let height = layout.height().ceil() as u32 + (padding * 2);
