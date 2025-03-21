@@ -314,7 +314,7 @@ impl CssDefinitions {
 
                 SyntaxComponent::Group {
                     components: resolved_components,
-                    combinator: combinator.clone(),
+                    combinator: *combinator,
                     multipliers: multipliers.clone(),
                 }
             }

@@ -31,7 +31,7 @@ pub struct Group {
 }
 
 #[allow(dead_code)]
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Debug, Clone, Copy)]
 pub enum GroupCombinators {
     /// All elements must be matched in order (space delimited)
     Juxtaposition,
@@ -44,7 +44,7 @@ pub enum GroupCombinators {
 }
 
 /// Multiplier for a syntax component that defines how many times this component is allowed to appear
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Debug, Clone, Copy)]
 pub enum SyntaxComponentMultiplier {
     /// Default case
     Once,
@@ -79,7 +79,7 @@ impl Display for SyntaxComponentMultiplier {
 }
 
 /// Represent either a number (i64) or infinity
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 enum NumberOrInfinity {
     /// Nothing defined (no min or max)
     None,
@@ -92,7 +92,7 @@ enum NumberOrInfinity {
 }
 
 /// Represents an optional min and/or max range for a type definition
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Copy)]
 pub struct RangeType {
     /// Mininum value
     min: NumberOrInfinity,
