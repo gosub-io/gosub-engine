@@ -1,5 +1,5 @@
-use parley::fontique::{FallbackKey, Script, Weight};
-use parley::FontContext;
+use parley::fontique::{FallbackKey, FontWeight, Script};
+use parley::{AlignmentOptions, FontContext};
 use std::sync::{LazyLock, Mutex};
 use taffy::{
     AvailableSpace, CollapsibleMarginSet, Layout, LayoutInput, LayoutOutput, LayoutPartialTree, NodeId, Point, Rect,
@@ -255,7 +255,7 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
         if let Some(letter_spacing) = default.letter_spacing {
             builder.push_default(parley::StyleProperty::LetterSpacing(letter_spacing));
         }
-        builder.push_default(parley::StyleProperty::FontWeight(Weight::new(info.weight() as f32)));
+        builder.push_default(parley::StyleProperty::FontWeight(FontWeight::new(info.weight() as f32)));
         builder.push_default(parley::StyleProperty::FontStyle(match info.style() {
             FontStyle::Normal => parley::FontStyle::Normal,
             FontStyle::Italic => parley::FontStyle::Italic,
@@ -311,7 +311,7 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
                 builder.push(parley::StyleProperty::LetterSpacing(letter_spacing), from..text_node.to);
             }
             builder.push(
-                parley::StyleProperty::FontWeight(Weight::new(info.weight() as f32)),
+                parley::StyleProperty::FontWeight(FontWeight::new(info.weight() as f32)),
                 from..text_node.to,
             );
             builder.push(
@@ -386,7 +386,13 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
 
     layout.break_all_lines(max_width);
 
-    layout.align(None, align);
+    layout.align(
+        None,
+        align,
+        AlignmentOptions {
+            align_when_overflowing: true,
+        },
+    );
 
     let content_size = Size {
         width: layout.width().ceil(),
