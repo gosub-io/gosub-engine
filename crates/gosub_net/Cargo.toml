@@ -19,7 +19,7 @@ url = "2.5.4"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 hickory-resolver = "0.24.4"
-ureq = "3.0.5"
+ureq = "3.0.10"
 
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
