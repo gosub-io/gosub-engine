@@ -8,6 +8,6 @@ description = "Web Javascript API"
 
 [dependencies]
 gosub_shared = { version = "0.1.1", registry = "gosub", path = "../gosub_shared", features = [] }
-uuid = { version = "1.14.0", features = ["v4"] }
+uuid = { version = "1.16.0", features = ["v4"] }
 regex = "1"
 cow-utils = "0.1.3"
