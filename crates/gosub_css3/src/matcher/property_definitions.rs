@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::hash::Hash;
 use std::sync::LazyLock;
 
 use log::warn;
@@ -339,19 +340,33 @@ impl CssDefinitions {
     }
 }
 
-pub static CSS_DEFINITIONS: LazyLock<CssDefinitions, fn() -> CssDefinitions> = LazyLock::new(pars_definition_files);
+pub static CSS_DEFINITIONS: LazyLock<CssDefinitions, fn() -> CssDefinitions> = LazyLock::new(parse_definition_files);
+
+#[cfg(feature = "unresolved_syntax")]
+pub static CSS_VALUES: LazyLock<indexmap::IndexMap<String, SyntaxDefinition>> = LazyLock::new(get_values);
+#[cfg(feature = "unresolved_syntax")]
+pub static CSS_PROPERTIES: LazyLock<indexmap::IndexMap<String, PropertyDefinition>> = LazyLock::new(get_properties);
+
+pub const DEFINITIONS_VALUES: &str = include_str!("../../resources/definitions/definitions_values.json");
+pub const DEFINITIONS_PROPERTIES: &str = include_str!("../../resources/definitions/definitions_properties.json");
+
+fn get_values<M: Map<String, SyntaxDefinition>>() -> M {
+    let json: serde_json::Value = serde_json::from_str(DEFINITIONS_VALUES).expect("JSON was not well-formatted");
+    parse_syntax_file(json)
+}
+
+fn get_properties<M: Map<String, PropertyDefinition>>() -> M {
+    let json: serde_json::Value = serde_json::from_str(DEFINITIONS_PROPERTIES).expect("JSON was not well-formatted");
+    parse_property_file(json)
+}
 
 /// Parses the internal CSS definition file
-fn pars_definition_files() -> CssDefinitions {
+fn parse_definition_files() -> CssDefinitions {
     // parse all syntax, so we can use them in the properties
-    let contents = include_str!("../../resources/definitions/definitions_values.json");
-    let json: serde_json::Value = serde_json::from_str(contents).expect("JSON was not well-formatted");
-    let syntax = parse_syntax_file(json);
+    let syntax = get_values();
 
     // Parse property definitions
-    let contents = include_str!("../../resources/definitions/definitions_properties.json");
-    let json: serde_json::Value = serde_json::from_str(contents).expect("JSON was not well-formatted");
-    let properties = parse_property_file(json);
+    let properties = get_properties();
 
     // Create definition structure, and resolve all definitions
     let mut definitions = CssDefinitions {
@@ -372,9 +387,46 @@ pub fn get_css_definitions() -> &'static CssDefinitions {
     &CSS_DEFINITIONS
 }
 
+#[cfg(feature = "unresolved_syntax")]
+pub fn get_css_values() -> &'static indexmap::IndexMap<String, SyntaxDefinition> {
+    &CSS_VALUES
+}
+
+#[cfg(feature = "unresolved_syntax")]
+pub fn get_css_properties() -> &'static indexmap::IndexMap<String, PropertyDefinition> {
+    &CSS_PROPERTIES
+}
+
+trait Map<K, V> {
+    fn new() -> Self;
+
+    fn insert(&mut self, key: K, value: V);
+}
+
+impl<K: Eq + Hash, V> Map<K, V> for HashMap<K, V> {
+    fn new() -> Self {
+        HashMap::new()
+    }
+
+    fn insert(&mut self, key: K, value: V) {
+        self.insert(key, value);
+    }
+}
+
+#[cfg(feature = "unresolved_syntax")]
+impl<K: Eq + Hash, V> Map<K, V> for indexmap::IndexMap<K, V> {
+    fn new() -> Self {
+        indexmap::IndexMap::new()
+    }
+
+    fn insert(&mut self, key: K, value: V) {
+        self.insert(key, value);
+    }
+}
+
 /// Parses a syntax JSON import file
-fn parse_syntax_file(json: serde_json::Value) -> HashMap<String, SyntaxDefinition> {
-    let mut syntaxes = HashMap::new();
+fn parse_syntax_file<M: Map<String, SyntaxDefinition>>(json: serde_json::Value) -> M {
+    let mut syntaxes = M::new();
 
     let entries = json.as_array().unwrap();
     for entry in entries.iter() {
@@ -423,8 +475,8 @@ fn parse_syntax_file(json: serde_json::Value) -> HashMap<String, SyntaxDefinitio
 }
 
 /// Parses the JSON input into a CSS property definitions structure
-fn parse_property_file(json: serde_json::Value) -> HashMap<String, PropertyDefinition> {
-    let mut properties = HashMap::new();
+fn parse_property_file<M: Map<String, PropertyDefinition>>(json: serde_json::Value) -> M {
+    let mut properties = M::new();
 
     for obj in json.as_array().unwrap() {
         let name = obj["name"].as_str().unwrap().to_string();
