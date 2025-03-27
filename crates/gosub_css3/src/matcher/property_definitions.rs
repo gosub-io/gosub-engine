@@ -144,7 +144,15 @@ pub struct SyntaxDefinition {
     /// Actual syntax
     pub syntax: CssSyntaxTree,
     /// True when the element has already been resolved
-    resolved: bool,
+    pub resolved: bool,
+    pub ty: SyntaxType,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SyntaxType {
+    Quoted,
+    Definition,
+    None,
 }
 
 /// Defines a list of CSS properties and its syntax.
@@ -433,13 +441,16 @@ fn parse_syntax_file<M: Map<String, SyntaxDefinition>>(json: serde_json::Value) 
         match CssSyntax::new(entry.get("syntax").unwrap().as_str().unwrap()).compile() {
             Ok(ast) => {
                 let mut name = entry.get("name").unwrap().to_string();
+                let mut ty = SyntaxType::None;
 
                 if name.starts_with('"') {
                     name = name[1..].to_string();
+                    ty = SyntaxType::Quoted;
                 }
 
                 if name.starts_with('<') {
                     name = name[1..].to_string();
+                    ty = SyntaxType::Definition;
                 }
 
                 if name.ends_with('"') {
@@ -456,6 +467,7 @@ fn parse_syntax_file<M: Map<String, SyntaxDefinition>>(json: serde_json::Value) 
                         // name,
                         syntax: ast.clone(),
                         resolved: false,
+                        ty,
                     },
                 );
             }
