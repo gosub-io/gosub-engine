@@ -20,7 +20,7 @@ derive_more = {version = "2.0.1", features = ["display"]}
 log = "0.4.22"
 raw-window-handle = "0.6.2"
 smallvec = "1.13.2"
-image = "0.25.5"
+image = "0.25.6"
 
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
