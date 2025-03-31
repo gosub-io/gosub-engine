@@ -52,7 +52,7 @@ gosub_fontmanager = { version = "0.1.0", path = "./crates/gosub_fontmanager", re
 # Dependencies are needed for gosub_engine itself, and some of the binaries in src/bin.
 cookie = { version = "0.18.1", features = ["secure", "private"] }
 url = "2.5.4"
-clap = { version = "4.5.32", features = ["derive"] }
+clap = { version = "4.5.34", features = ["derive"] }
 anyhow = "1.0.94"
 derive_more = "2.0.1"
 simple_logger = "5.0.0"
@@ -67,7 +67,7 @@ gtk4 = "0.8.0"
 winit = "0.30.8"
 cookie = { version = "0.18.1", features = ["secure", "private"] }
 url = "2.5.4"
-clap = { version = "4.5.32", features = ["derive"] }
+clap = { version = "4.5.34", features = ["derive"] }
 simple_logger = "5.0.0"
 log = "0.4.22"
 anyhow = "1.0.94"
