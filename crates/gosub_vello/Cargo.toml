@@ -14,7 +14,7 @@ gosub_svg = { version = "0.1.1", registry = "gosub", path = "../gosub_svg" }
 gosub_fontmanager = { version = "0.1.0", path = "../gosub_fontmanager", registry = "gosub" }
 vello = "0.4.1"
 vello_encoding = "0.4.0"
-image = "0.25.5"
+image = "0.25.6"
 smallvec = "1.13.2"
 anyhow = "1.0.94"
 raw-window-handle = "0.6.2"

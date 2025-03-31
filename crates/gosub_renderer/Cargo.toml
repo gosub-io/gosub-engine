@@ -13,7 +13,7 @@ gosub_shared = { version = "0.1.1", registry = "gosub", path = "../gosub_shared"
 gosub_net = { version = "0.1.1", registry = "gosub", path = "../gosub_net" }
 gosub_fontmanager = { version = "0.1.0", registry = "gosub", path = "../gosub_fontmanager" }
 anyhow = "1.0.94"
-image = "0.25.5"
+image = "0.25.6"
 url = "2.5.4"
 log = "0.4.22"
 pango = "0.20.9"
