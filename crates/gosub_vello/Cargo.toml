@@ -15,7 +15,7 @@ gosub_fontmanager = { version = "0.1.0", path = "../gosub_fontmanager", registry
 vello = "0.4.1"
 vello_encoding = "0.4.0"
 image = "0.25.6"
-smallvec = "1.13.2"
+smallvec = "1.15.0"
 anyhow = "1.0.94"
 raw-window-handle = "0.6.2"
 futures = "0.3.31"

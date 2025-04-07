@@ -12,7 +12,7 @@ gosub_interface = { version = "0.1.2", registry = "gosub", path = "../gosub_inte
 gosub_svg = { version = "0.1.1", registry = "gosub", path = "../gosub_svg", features = ["resvg"] }
 gosub_fontmanager = { version = "0.1.0", path = "../gosub_fontmanager", registry = "gosub" }
 image = "0.25.6"
-smallvec = "1.13.2"
+smallvec = "1.15.0"
 
 cairo-rs = {  version = "0.19.4", features = ["use_glib", "freetype"] }
 kurbo = "0.11.1"

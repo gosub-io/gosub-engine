@@ -10,6 +10,6 @@ license = "MIT"
 gosub_shared = { version = "0.1.1", path = "../gosub_shared", registry = "gosub" }
 gosub_net = { version = "0.1.1", path = "../gosub_net", registry = "gosub" }
 url = "2.5.4"
-smallvec = "1.13.2"
+smallvec = "1.15.0"
 raw-window-handle = "0.6.2"
 image = "0.25.6"
