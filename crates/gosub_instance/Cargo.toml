@@ -8,6 +8,6 @@ gosub_shared = { path = "../gosub_shared", registry = "gosub" }
 gosub_interface = { path = "../gosub_interface", registry = "gosub" }
 gosub_web_platform = { path = "../gosub_web_platform", registry = "gosub" }
 gosub_net = { path = "../gosub_net" }
-tokio = { version = "1.44.1", features = ["sync", "rt"] }
+tokio = { version = "1.44.2", features = ["sync", "rt"] }
 url = "2.5.4"
 log = "0.4.22"
