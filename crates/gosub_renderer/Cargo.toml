@@ -15,7 +15,7 @@ gosub_fontmanager = { version = "0.1.0", registry = "gosub", path = "../gosub_fo
 anyhow = "1.0.98"
 image = "0.25.6"
 url = "2.5.4"
-log = "0.4.22"
+log = "0.4.27"
 pango = "0.20.9"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

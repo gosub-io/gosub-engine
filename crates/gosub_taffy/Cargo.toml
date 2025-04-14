@@ -13,5 +13,5 @@ gosub_fontmanager = { version = "0.1.0", path = "../gosub_fontmanager", registry
 taffy = "0.7.7"
 anyhow = "1.0.98"
 regex = "1.11.1"
-log = "0.4.22"
+log = "0.4.27"
 parley = { version = "0.3.0", default-features = false, features = ["std"] }
