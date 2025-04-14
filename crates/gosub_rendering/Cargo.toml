@@ -12,5 +12,5 @@ gosub_interface = { version = "0.1.1", registry = "gosub", path = "../gosub_inte
 gosub_shared = { version = "0.1.1", registry = "gosub", path = "../gosub_shared" }
 anyhow = "1.0.98"
 rstar = "0.12.2"
-log = "0.4.14"
+log = "0.4.27"
 cow-utils = "0.1.3"

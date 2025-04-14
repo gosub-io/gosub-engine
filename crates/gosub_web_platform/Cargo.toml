@@ -12,4 +12,4 @@ gosub_interface = { version = "0.1.2", registry = "gosub", path = "../gosub_inte
 slotmap = "1.0.7"
 tokio = { version = "1.44.2", features = ["sync", "rt", "macros"] }
 pin-project = "1.1.7"
-log = "0.4.22"
+log = "0.4.27"

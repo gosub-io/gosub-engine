@@ -10,7 +10,7 @@ description = "CSS3 parser for Gosub"
 gosub_shared = { version = "0.1.1", registry = "gosub", path = "../gosub_shared", features = [] }
 gosub_interface = { version = "0.1.1", registry = "gosub", path = "../gosub_interface", features = [] }
 lazy_static = "1.5.0"
-log = "0.4.22"
+log = "0.4.27"
 simple_logger = "5.0.0"
 anyhow = { version = "1.0.98", features = [] }
 colors-transform = "0.2.11"

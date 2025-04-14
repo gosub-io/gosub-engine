@@ -10,4 +10,4 @@ gosub_web_platform = { path = "../gosub_web_platform", registry = "gosub" }
 gosub_net = { path = "../gosub_net" }
 tokio = { version = "1.44.2", features = ["sync", "rt"] }
 url = "2.5.4"
-log = "0.4.22"
+log = "0.4.27"
