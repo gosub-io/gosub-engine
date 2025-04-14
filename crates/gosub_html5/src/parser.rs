@@ -4091,7 +4091,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             match C::CssSystem::parse_str(data.value(), config, origin, &source_url.clone()) {
                 Ok(stylesheet) => return Some(stylesheet),
                 Err(err) => {
-                    warn!("Error while parsing CSS stylesheet: {} ", err.to_string());
+                    warn!("Error while parsing CSS stylesheet: {err} ");
                 }
             }
         }
@@ -4172,7 +4172,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         match C::CssSystem::parse_str(css.as_str(), config, origin, url.as_str()) {
             Ok(stylesheet) => Some(stylesheet),
             Err(err) => {
-                warn!("Error while parsing CSS stylesheet: {} ", err.to_string());
+                warn!("Error while parsing CSS stylesheet: {err}");
                 None
             }
         }
