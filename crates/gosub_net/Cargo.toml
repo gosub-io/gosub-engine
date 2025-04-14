@@ -11,7 +11,7 @@ gosub_shared = { version = "0.1.1", registry = "gosub", path = "../gosub_shared"
 gosub_config = { version = "0.1.1", registry = "gosub", path = "../gosub_config", features = [] }
 derive_more = { version = "2", features = ["from", "display"] }
 thiserror = "2.0.11"
-anyhow = "1.0.94"
+anyhow = "1.0.98"
 log = "0.4.22"
 domain-lookup-tree = "0.1"
 cookie = { version = "0.18.1", features = ["secure", "private"] }

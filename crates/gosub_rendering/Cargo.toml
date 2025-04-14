@@ -10,7 +10,7 @@ description = "Gosub Rendering"
 gosub_html5 = { version = "0.1.1", registry = "gosub", path = "../gosub_html5" }
 gosub_interface = { version = "0.1.1", registry = "gosub", path = "../gosub_interface" }
 gosub_shared = { version = "0.1.1", registry = "gosub", path = "../gosub_shared" }
-anyhow = "1.0.94"
+anyhow = "1.0.98"
 rstar = "0.12.2"
 log = "0.4.14"
 cow-utils = "0.1.3"

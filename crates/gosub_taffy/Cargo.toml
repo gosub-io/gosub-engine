@@ -11,7 +11,7 @@ gosub_shared = { version = "0.1.1", registry = "gosub", path = "../gosub_shared"
 gosub_interface = { version = "0.1.1", registry = "gosub", path = "../gosub_interface" }
 gosub_fontmanager = { version = "0.1.0", path = "../gosub_fontmanager", registry = "gosub" }
 taffy = "0.7.7"
-anyhow = "1.0.94"
+anyhow = "1.0.98"
 regex = "1.11.1"
 log = "0.4.22"
 parley = { version = "0.3.0", default-features = false, features = ["std"] }
