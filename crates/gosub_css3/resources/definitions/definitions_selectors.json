@@ -1,36 +1,321 @@
 [
   {
-    "name": ":volume-locked"
+    "name": "&"
   },
   {
-    "name": ":last-child"
+    "name": "+"
   },
   {
-    "name": ":hover"
+    "name": "::after"
   },
   {
-    "name": ":root"
+    "name": "::before"
+  },
+  {
+    "name": "::checkmark"
+  },
+  {
+    "name": "::clear-icon"
+  },
+  {
+    "name": "::color-swatch"
+  },
+  {
+    "name": "::column"
+  },
+  {
+    "name": "::cue"
+  },
+  {
+    "name": "::cue()"
+  },
+  {
+    "name": "::cue-region"
+  },
+  {
+    "name": "::cue-region()"
+  },
+  {
+    "name": "::details-content"
+  },
+  {
+    "name": "::field-component"
+  },
+  {
+    "name": "::field-separator"
+  },
+  {
+    "name": "::field-text"
+  },
+  {
+    "name": "::file-selector-button"
+  },
+  {
+    "name": "::first-letter"
+  },
+  {
+    "name": "::first-line"
   },
   {
     "name": "::grammar-error"
   },
   {
-    "name": ":first-line"
+    "name": "::highlight()"
   },
   {
-    "name": ":closed"
+    "name": "::marker"
+  },
+  {
+    "name": "::part()"
+  },
+  {
+    "name": "::picker()"
+  },
+  {
+    "name": "::picker-icon"
+  },
+  {
+    "name": "::placeholder"
+  },
+  {
+    "name": "::search-text"
+  },
+  {
+    "name": "::selection"
+  },
+  {
+    "name": "::slider-fill"
+  },
+  {
+    "name": "::slider-thumb"
+  },
+  {
+    "name": "::slider-track"
+  },
+  {
+    "name": "::slotted()"
+  },
+  {
+    "name": "::spelling-error"
+  },
+  {
+    "name": "::step-control"
+  },
+  {
+    "name": "::step-down"
+  },
+  {
+    "name": "::step-up"
+  },
+  {
+    "name": "::target-text"
+  },
+  {
+    "name": "::view-transition"
+  },
+  {
+    "name": "::view-transition-group()"
+  },
+  {
+    "name": "::view-transition-image-pair()"
+  },
+  {
+    "name": "::view-transition-new()"
+  },
+  {
+    "name": "::view-transition-old()"
+  },
+  {
+    "name": ":active"
+  },
+  {
+    "name": ":after"
+  },
+  {
+    "name": ":any-link"
+  },
+  {
+    "name": ":autofill"
+  },
+  {
+    "name": ":before"
+  },
+  {
+    "name": ":blank"
+  },
+  {
+    "name": ":buffering"
+  },
+  {
+    "name": ":checked"
+  },
+  {
+    "name": ":current"
+  },
+  {
+    "name": ":current()"
+  },
+  {
+    "name": ":default"
+  },
+  {
+    "name": ":defined"
+  },
+  {
+    "name": ":dir()"
+  },
+  {
+    "name": ":disabled"
+  },
+  {
+    "name": ":empty"
   },
   {
     "name": ":enabled"
   },
   {
-    "name": ":invalid"
+    "name": ":first"
+  },
+  {
+    "name": ":first-child"
+  },
+  {
+    "name": ":first-letter"
+  },
+  {
+    "name": ":first-line"
+  },
+  {
+    "name": ":first-of-type"
+  },
+  {
+    "name": ":focus"
+  },
+  {
+    "name": ":focus-visible"
+  },
+  {
+    "name": ":focus-within"
   },
   {
     "name": ":fullscreen"
   },
   {
-    "name": "~"
+    "name": ":future"
+  },
+  {
+    "name": ":has()"
+  },
+  {
+    "name": ":has-slotted"
+  },
+  {
+    "name": ":high-value"
+  },
+  {
+    "name": ":host"
+  },
+  {
+    "name": ":host()"
+  },
+  {
+    "name": ":host-context()"
+  },
+  {
+    "name": ":hover"
+  },
+  {
+    "name": ":in-range"
+  },
+  {
+    "name": ":indeterminate"
+  },
+  {
+    "name": ":invalid"
+  },
+  {
+    "name": ":is()"
+  },
+  {
+    "name": ":lang"
+  },
+  {
+    "name": ":lang()"
+  },
+  {
+    "name": ":last-child"
+  },
+  {
+    "name": ":last-of-type"
+  },
+  {
+    "name": ":left"
+  },
+  {
+    "name": ":link"
+  },
+  {
+    "name": ":local-link"
+  },
+  {
+    "name": ":low-value"
+  },
+  {
+    "name": ":matches()"
+  },
+  {
+    "name": ":modal"
+  },
+  {
+    "name": ":muted"
+  },
+  {
+    "name": ":not()"
+  },
+  {
+    "name": ":nth()"
+  },
+  {
+    "name": ":nth-child()"
+  },
+  {
+    "name": ":nth-col()"
+  },
+  {
+    "name": ":nth-last-child()"
+  },
+  {
+    "name": ":nth-last-col()"
+  },
+  {
+    "name": ":nth-last-of-type()"
+  },
+  {
+    "name": ":nth-of-type()"
+  },
+  {
+    "name": ":only-child"
+  },
+  {
+    "name": ":only-of-type"
+  },
+  {
+    "name": ":open"
+  },
+  {
+    "name": ":optimal-value"
+  },
+  {
+    "name": ":optional"
+  },
+  {
+    "name": ":out-of-range"
+  },
+  {
+    "name": ":past"
+  },
+  {
+    "name": ":paused"
   },
   {
     "name": ":picture-in-picture"
@@ -39,291 +324,69 @@
     "name": ":placeholder-shown"
   },
   {
-    "name": ":target-within"
+    "name": ":playing"
   },
   {
-    "name": ":matches()"
-  },
-  {
-    "name": ":target"
-  },
-  {
-    "name": "::view-transition"
-  },
-  {
-    "name": ":lang"
-  },
-  {
-    "name": ":open"
-  },
-  {
-    "name": "::cue()"
-  },
-  {
-    "name": ":has()"
-  },
-  {
-    "name": ":blank"
-  },
-  {
-    "name": "::placeholder"
-  },
-  {
-    "name": ":not()"
-  },
-  {
-    "name": ":disabled"
-  },
-  {
-    "name": ":nth-child()"
-  },
-  {
-    "name": ":nth-of-type()"
-  },
-  {
-    "name": ":first-letter"
-  },
-  {
-    "name": ":is()"
-  },
-  {
-    "name": ":dir()"
-  },
-  {
-    "name": ":stalled"
-  },
-  {
-    "name": ":modal"
-  },
-  {
-    "name": ":read-write"
-  },
-  {
-    "name": ":nth-col()"
-  },
-  {
-    "name": "::marker"
-  },
-  {
-    "name": "&"
-  },
-  {
-    "name": ":optional"
-  },
-  {
-    "name": "::after"
+    "name": ":popover-open"
   },
   {
     "name": ":read-only"
   },
   {
-    "name": ":out-of-range"
-  },
-  {
-    "name": "::cue-region"
-  },
-  {
-    "name": ":defined"
-  },
-  {
-    "name": ":link"
-  },
-  {
-    "name": ":visited"
-  },
-  {
-    "name": ":current"
-  },
-  {
-    "name": "::selection"
-  },
-  {
-    "name": ":nth-last-col()"
-  },
-  {
-    "name": "::cue"
-  },
-  {
-    "name": ":where()"
-  },
-  {
-    "name": ":current()"
-  },
-  {
-    "name": ":nth-last-child()"
-  },
-  {
-    "name": ":lang()"
-  },
-  {
-    "name": ":focus"
-  },
-  {
-    "name": ":buffering"
-  },
-  {
-    "name": "::view-transition-old()"
-  },
-  {
-    "name": "::before"
-  },
-  {
-    "name": ":host"
-  },
-  {
-    "name": ":any-link"
-  },
-  {
-    "name": ":playing"
-  },
-  {
-    "name": ":in-range"
-  },
-  {
-    "name": "::view-transition-image-pair()"
-  },
-  {
-    "name": ":before"
-  },
-  {
-    "name": "::spelling-error"
-  },
-  {
-    "name": "::file-selector-button"
-  },
-  {
-    "name": ":muted"
-  },
-  {
-    "name": ":first-child"
-  },
-  {
-    "name": ":first-of-type"
-  },
-  {
-    "name": ">"
-  },
-  {
-    "name": "+"
-  },
-  {
-    "name": "::cue-region()"
-  },
-  {
-    "name": ":left"
-  },
-  {
-    "name": "::part()"
-  },
-  {
-    "name": ":host-context()"
-  },
-  {
-    "name": "::target-text"
-  },
-  {
-    "name": ":host()"
-  },
-  {
-    "name": ":after"
-  },
-  {
-    "name": ":default"
-  },
-  {
-    "name": ":only-child"
-  },
-  {
-    "name": "::first-letter"
-  },
-  {
-    "name": ":active"
-  },
-  {
-    "name": ":seeking"
-  },
-  {
-    "name": ":empty"
-  },
-  {
-    "name": "::slotted()"
-  },
-  {
-    "name": ":focus-visible"
-  },
-  {
-    "name": ":valid"
-  },
-  {
-    "name": ":only-of-type"
-  },
-  {
-    "name": "||"
-  },
-  {
-    "name": ":local-link"
-  },
-  {
-    "name": ":focus-within"
-  },
-  {
-    "name": "::details-content"
-  },
-  {
-    "name": ":right"
-  },
-  {
-    "name": ":scope"
-  },
-  {
-    "name": ":paused"
-  },
-  {
-    "name": ":user-valid"
-  },
-  {
-    "name": "::view-transition-new()"
-  },
-  {
-    "name": ":nth()"
-  },
-  {
-    "name": ":first"
-  },
-  {
-    "name": ":future"
-  },
-  {
-    "name": ":indeterminate"
-  },
-  {
-    "name": "::first-line"
-  },
-  {
-    "name": ":past"
-  },
-  {
-    "name": ":user-invalid"
-  },
-  {
-    "name": ":last-of-type"
+    "name": ":read-write"
   },
   {
     "name": ":required"
   },
   {
-    "name": ":nth-last-of-type()"
+    "name": ":right"
   },
   {
-    "name": ":autofill"
+    "name": ":root"
   },
   {
-    "name": ":checked"
+    "name": ":scope"
   },
   {
-    "name": "::highlight()"
+    "name": ":seeking"
   },
   {
-    "name": "::view-transition-group()"
+    "name": ":stalled"
+  },
+  {
+    "name": ":target"
+  },
+  {
+    "name": ":target-within"
+  },
+  {
+    "name": ":user-invalid"
+  },
+  {
+    "name": ":user-valid"
+  },
+  {
+    "name": ":valid"
+  },
+  {
+    "name": ":visited"
+  },
+  {
+    "name": ":volume-locked"
+  },
+  {
+    "name": ":where()"
+  },
+  {
+    "name": ":xr-overlay"
+  },
+  {
+    "name": ">"
+  },
+  {
+    "name": "||"
+  },
+  {
+    "name": "~"
   }
 ]

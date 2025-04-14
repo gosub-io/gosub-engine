@@ -12,7 +12,7 @@ use crate::stylesheet::CssValue;
 
 /// List of elements that are built-in data types in the CSS specification. These will be handled
 /// by the syntax matcher as built-in types.
-const BUILTIN_DATA_TYPES: [&str; 41] = [
+const BUILTIN_DATA_TYPES: [&str; 43] = [
     "absolute-size",
     "age",
     "angle",
@@ -54,6 +54,8 @@ const BUILTIN_DATA_TYPES: [&str; 41] = [
     "color()",
     "attr()",    //TODO: this is not a builtin!
     "element()", //TODO: this is not a builtin!
+    "dynamic-range-limit-mix()",
+    "palette-mix()",
 ];
 
 /// A CSS property definition including its type and initial value and optional expanded values if it's a shorthand property
@@ -584,7 +586,12 @@ mod tests {
 
     #[test]
     fn test_parse_definition_file() {
-        assert_eq!(CSS_DEFINITIONS.len(), 620);
+        // set the log level to WARN
+        simple_logger::SimpleLogger::new()
+            .with_level(log::LevelFilter::Warn)
+            .init()
+            .unwrap();
+        assert_eq!(CSS_DEFINITIONS.len(), 656);
     }
 
     #[test]

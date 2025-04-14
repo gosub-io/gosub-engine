@@ -1,6 +1,21 @@
 [
   {
-    "name": "@layer",
+    "name": "@-webkit-keyframes",
+    "descriptors": [],
+    "Values": null
+  },
+  {
+    "name": "@bottom-center",
+    "descriptors": [],
+    "Values": null
+  },
+  {
+    "name": "@bottom-left",
+    "descriptors": [],
+    "Values": null
+  },
+  {
+    "name": "@bottom-left-corner",
     "descriptors": [],
     "Values": null
   },
@@ -15,51 +30,9 @@
     "Values": null
   },
   {
-    "name": "@page",
-    "descriptors": [
-      {
-        "name": "size",
-        "syntax": "<length [0,∞]>{1,2} | auto | [ <page-size> || [ portrait | landscape ] ]",
-        "initial": "auto"
-      },
-      {
-        "name": "page-orientation",
-        "syntax": "upright | rotate-left | rotate-right",
-        "initial": "upright"
-      },
-      {
-        "name": "marks",
-        "syntax": "none | [ crop || cross ]",
-        "initial": ""
-      },
-      {
-        "name": "bleed",
-        "syntax": "auto | <length>",
-        "initial": "auto"
-      }
-    ],
-    "Values": [
-      {
-        "name": ":left",
-        "value": ":left",
-        "Values": null
-      },
-      {
-        "name": ":right",
-        "value": ":right",
-        "Values": null
-      },
-      {
-        "name": ":first",
-        "value": ":first",
-        "Values": null
-      },
-      {
-        "name": ":blank",
-        "value": ":blank",
-        "Values": null
-      }
-    ]
+    "name": "@charset",
+    "descriptors": [],
+    "Values": null
   },
   {
     "name": "@counter-style",
@@ -118,44 +91,84 @@
     "Values": null
   },
   {
-    "name": "@function",
+    "name": "@custom-selector",
+    "descriptors": [],
+    "Values": null
+  },
+  {
+    "name": "@font-face",
     "descriptors": [
       {
-        "name": "result",
-        "syntax": "<declaration-value>?",
+        "name": "font-family",
+        "syntax": "<family-name>",
+        "initial": ""
+      },
+      {
+        "name": "src",
+        "syntax": "<font-src-list>",
+        "initial": ""
+      },
+      {
+        "name": "font-style",
+        "syntax": "auto | normal | italic | oblique [ <angle [-90deg,90deg]>{1,2} ]?",
+        "initial": "auto"
+      },
+      {
+        "name": "font-weight",
+        "syntax": "auto | <font-weight-absolute>{1,2}",
+        "initial": "auto"
+      },
+      {
+        "name": "font-width",
+        "syntax": "auto | <'font-width'>{1,2}",
+        "initial": "auto"
+      },
+      {
+        "name": "unicode-range",
+        "syntax": "<unicode-range-token>#",
+        "initial": "U+0-10FFFF"
+      },
+      {
+        "name": "font-feature-settings",
+        "syntax": "normal | <feature-tag-value>#",
+        "initial": ""
+      },
+      {
+        "name": "font-variation-settings",
+        "syntax": "normal | [ <string> <number>]#",
+        "initial": ""
+      },
+      {
+        "name": "font-named-instance",
+        "syntax": "auto | <string>",
+        "initial": "auto"
+      },
+      {
+        "name": "font-display",
+        "syntax": "auto | block | swap | fallback | optional",
+        "initial": "auto"
+      },
+      {
+        "name": "font-language-override",
+        "syntax": "normal | <string>",
+        "initial": ""
+      },
+      {
+        "name": "ascent-override",
+        "syntax": "normal | <percentage [0,∞]>",
+        "initial": ""
+      },
+      {
+        "name": "descent-override",
+        "syntax": "normal | <percentage [0,∞]>",
+        "initial": ""
+      },
+      {
+        "name": "line-gap-override",
+        "syntax": "normal | <percentage [0,∞]>",
         "initial": ""
       }
     ],
-    "Values": null
-  },
-  {
-    "name": "@charset",
-    "descriptors": [],
-    "Values": null
-  },
-  {
-    "name": "@top-center",
-    "descriptors": [],
-    "Values": null
-  },
-  {
-    "name": "@bottom-left",
-    "descriptors": [],
-    "Values": null
-  },
-  {
-    "name": "@left-middle",
-    "descriptors": [],
-    "Values": null
-  },
-  {
-    "name": "@left-bottom",
-    "descriptors": [],
-    "Values": null
-  },
-  {
-    "name": "@right-bottom",
-    "descriptors": [],
     "Values": null
   },
   {
@@ -226,12 +239,44 @@
     "Values": null
   },
   {
+    "name": "@function",
+    "descriptors": [
+      {
+        "name": "result",
+        "syntax": "<declaration-value>?",
+        "initial": ""
+      }
+    ],
+    "Values": [
+      {
+        "name": "type()",
+        "value": "type( <syntax> )",
+        "Values": null
+      }
+    ]
+  },
+  {
+    "name": "@import",
+    "descriptors": [],
+    "Values": null
+  },
+  {
     "name": "@keyframes",
     "descriptors": [],
     "Values": null
   },
   {
-    "name": "@namespace",
+    "name": "@layer",
+    "descriptors": [],
+    "Values": null
+  },
+  {
+    "name": "@left-bottom",
+    "descriptors": [],
+    "Values": null
+  },
+  {
+    "name": "@left-middle",
     "descriptors": [],
     "Values": null
   },
@@ -243,6 +288,16 @@
   {
     "name": "@media",
     "descriptors": [
+      {
+        "name": "-webkit-device-pixel-ratio",
+        "syntax": "<number>",
+        "initial": ""
+      },
+      {
+        "name": "-webkit-transform-3d",
+        "syntax": "<mq-boolean>",
+        "initial": ""
+      },
       {
         "name": "width",
         "syntax": "<length>",
@@ -346,16 +401,6 @@
       {
         "name": "device-aspect-ratio",
         "syntax": "<ratio>",
-        "initial": ""
-      },
-      {
-        "name": "-webkit-device-pixel-ratio",
-        "syntax": "<number>",
-        "initial": ""
-      },
-      {
-        "name": "-webkit-transform-3d",
-        "syntax": "<mq-boolean>",
         "initial": ""
       },
       {
@@ -488,6 +533,63 @@
     ]
   },
   {
+    "name": "@namespace",
+    "descriptors": [],
+    "Values": null
+  },
+  {
+    "name": "@page",
+    "descriptors": [
+      {
+        "name": "size",
+        "syntax": "<length [0,∞]>{1,2} | auto | [ <page-size> || [ portrait | landscape ] ]",
+        "initial": "auto"
+      },
+      {
+        "name": "page-orientation",
+        "syntax": "upright | rotate-left | rotate-right",
+        "initial": "upright"
+      },
+      {
+        "name": "marks",
+        "syntax": "none | [ crop || cross ]",
+        "initial": ""
+      },
+      {
+        "name": "bleed",
+        "syntax": "auto | <length>",
+        "initial": "auto"
+      }
+    ],
+    "Values": [
+      {
+        "name": ":left",
+        "value": ":left",
+        "Values": null
+      },
+      {
+        "name": ":right",
+        "value": ":right",
+        "Values": null
+      },
+      {
+        "name": ":first",
+        "value": ":first",
+        "Values": null
+      },
+      {
+        "name": ":blank",
+        "value": ":blank",
+        "Values": null
+      }
+    ]
+  },
+  {
+    "name": "@position-try",
+    "descriptors": [],
+    "Values": null
+  },
+  {
     "name": "@property",
     "descriptors": [
       {
@@ -509,93 +611,7 @@
     "Values": null
   },
   {
-    "name": "@bottom-left-corner",
-    "descriptors": [],
-    "Values": null
-  },
-  {
-    "name": "@font-face",
-    "descriptors": [
-      {
-        "name": "font-family",
-        "syntax": "<family-name>",
-        "initial": ""
-      },
-      {
-        "name": "src",
-        "syntax": "<font-src-list>",
-        "initial": ""
-      },
-      {
-        "name": "font-style",
-        "syntax": "auto | normal | italic | oblique [ <angle [-90deg,90deg]>{1,2} ]?",
-        "initial": "auto"
-      },
-      {
-        "name": "font-weight",
-        "syntax": "auto | <font-weight-absolute>{1,2}",
-        "initial": "auto"
-      },
-      {
-        "name": "font-width",
-        "syntax": "auto | <'font-width'>{1,2}",
-        "initial": "auto"
-      },
-      {
-        "name": "unicode-range",
-        "syntax": "<urange>#",
-        "initial": "U+0-10FFFF"
-      },
-      {
-        "name": "font-feature-settings",
-        "syntax": "normal | <feature-tag-value>#",
-        "initial": ""
-      },
-      {
-        "name": "font-variation-settings",
-        "syntax": "normal | [ <string> <number>]#",
-        "initial": ""
-      },
-      {
-        "name": "font-named-instance",
-        "syntax": "auto | <string>",
-        "initial": "auto"
-      },
-      {
-        "name": "font-display",
-        "syntax": "auto | block | swap | fallback | optional",
-        "initial": "auto"
-      },
-      {
-        "name": "font-language-override",
-        "syntax": "normal | <string>",
-        "initial": ""
-      },
-      {
-        "name": "ascent-override",
-        "syntax": "normal | <percentage [0,∞]>",
-        "initial": ""
-      },
-      {
-        "name": "descent-override",
-        "syntax": "normal | <percentage [0,∞]>",
-        "initial": ""
-      },
-      {
-        "name": "line-gap-override",
-        "syntax": "normal | <percentage [0,∞]>",
-        "initial": ""
-      }
-    ],
-    "Values": null
-  },
-  {
-    "name": "@-webkit-keyframes",
-    "descriptors": [],
-    "Values": null
-  },
-  {
-    "name": "@position-try",
+    "name": "@right-bottom",
     "descriptors": [],
     "Values": null
   },
@@ -605,7 +621,7 @@
     "Values": null
   },
   {
-    "name": "@custom-selector",
+    "name": "@right-top",
     "descriptors": [],
     "Values": null
   },
@@ -615,7 +631,7 @@
     "Values": null
   },
   {
-    "name": "@top-left-corner",
+    "name": "@top-center",
     "descriptors": [],
     "Values": null
   },
@@ -625,29 +641,8 @@
     "Values": null
   },
   {
-    "name": "@top-right-corner",
+    "name": "@top-left-corner",
     "descriptors": [],
-    "Values": null
-  },
-  {
-    "name": "@right-top",
-    "descriptors": [],
-    "Values": null
-  },
-  {
-    "name": "@import",
-    "descriptors": [],
-    "Values": null
-  },
-  {
-    "name": "@viewport",
-    "descriptors": [
-      {
-        "name": "viewport-fit",
-        "syntax": "auto | contain | cover",
-        "initial": "auto"
-      }
-    ],
     "Values": null
   },
   {
@@ -656,7 +651,7 @@
     "Values": null
   },
   {
-    "name": "@bottom-center",
+    "name": "@top-right-corner",
     "descriptors": [],
     "Values": null
   }
