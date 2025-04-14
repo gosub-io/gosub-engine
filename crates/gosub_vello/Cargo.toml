@@ -16,7 +16,7 @@ vello = "0.4.1"
 vello_encoding = "0.4.0"
 image = "0.25.6"
 smallvec = "1.15.0"
-anyhow = "1.0.94"
+anyhow = "1.0.98"
 raw-window-handle = "0.6.2"
 futures = "0.3.31"
 vello_svg = { version = "0.6.0", optional = true }
