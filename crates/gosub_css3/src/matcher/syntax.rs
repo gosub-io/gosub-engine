@@ -272,9 +272,7 @@ impl CssSyntax {
                 }
                 Ok(CssSyntaxTree::new(vec![components]))
             }
-            Err(e) => {
-                Err(CssError::new(e.to_string().as_str()))
-            }
+            Err(e) => Err(CssError::new(e.to_string().as_str())),
         }
     }
 }
