@@ -8,9 +8,11 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
+	"unicode"
 )
 
 var (
@@ -94,12 +96,12 @@ func GetWebRefFiles() []utils.DirectoryListItem {
 }
 
 func GetWebRefData() Data {
-	//DownloadPatches() This is no longer needed
+	// DownloadPatches() This is no longer needed
 	files := GetWebRefFiles()
 
 	wg := new(sync.WaitGroup)
 
-	//s := specs2.GetSpecifications()
+	// s := specs2.GetSpecifications()
 
 	parseData := ParseData{
 		Properties: make(map[string]WebRefProperties),
@@ -172,6 +174,9 @@ func GetFileContent(file *utils.DirectoryListItem) ([]byte, error) {
 
 func DownloadFileContent(file *utils.DirectoryListItem) []byte {
 	cachePath := path.Join(utils.CACHE_DIR, "specs", file.Name)
+	if err := os.MkdirAll(filepath.Dir(cachePath), 0755); err != nil {
+		log.Panic(err)
+	}
 
 	hash := ""
 	content, err := os.ReadFile(cachePath)
@@ -306,14 +311,84 @@ func skip(shortname string) bool {
 	return true
 }
 
-// ProcessValue will process a single value (from either root values or propertt values) and add it
+func quoteParentheses(input string) string {
+	var result strings.Builder
+	runes := []rune(input)
+	n := len(runes)
+	var quote_closing_parenthesis []bool
+
+	for i := 0; i < n; i++ {
+		current := runes[i]
+
+		found := false
+		for _, literal := range []rune{'{', '}', ':', ';', '$', ','} {
+			if current == literal {
+				if i == 0 || unicode.IsSpace(runes[i-1]) {
+					result.WriteRune('\'')
+					result.WriteRune(current)
+					result.WriteRune('\'')
+					found = true
+					continue
+				}
+			}
+		}
+
+		if found {
+			found = false
+			continue
+		}
+
+		if current == '(' {
+			if i == 0 {
+				result.WriteString("'('")
+				quote_closing_parenthesis = append(quote_closing_parenthesis, true)
+				continue
+			}
+
+			if unicode.IsSpace(runes[i-1]) {
+				result.WriteString("'('")
+				quote_closing_parenthesis = append(quote_closing_parenthesis, true)
+				continue
+			}
+
+			if unicode.IsLetter(runes[i-1]) || unicode.IsDigit(runes[i-1]) {
+				result.WriteRune('(')
+				quote_closing_parenthesis = append(quote_closing_parenthesis, false)
+				continue
+			}
+		}
+
+		if current == ')' {
+			quote_parenthesis := true
+			if len(quote_closing_parenthesis) > 0 {
+				quote_parenthesis = quote_closing_parenthesis[len(quote_closing_parenthesis)-1]
+				quote_closing_parenthesis = quote_closing_parenthesis[:len(quote_closing_parenthesis)-1]
+			}
+
+			if quote_parenthesis {
+				result.WriteString("')'")
+			} else {
+				result.WriteRune(')')
+			}
+			continue
+		}
+
+		result.WriteRune(current)
+	}
+
+	return result.String()
+}
+
+// ProcessValue will process a single value (from either root values or property values) and add it
 // to the ParseData if possible.
 func ProcessValue(name string, type_ string, syntax string, pd *ParseData) {
 	if name == syntax {
-		//log.Println("name == syntax for ", name)
+		// log.Println("name == syntax for ", name)
 
 		return
 	}
+
+	syntax = quoteParentheses(syntax)
 
 	// If value already exists, update the syntax if possible
 	if v, ok := pd.Values[name]; ok {
@@ -332,7 +407,7 @@ func ProcessValue(name string, type_ string, syntax string, pd *ParseData) {
 			log.Println("Different syntax for duplicated value", name)
 			log.Println("Old:", v.Syntax)
 			log.Println("New:", syntax)
-			//log.Panic("Syntax mismatch")
+			// log.Panic("Syntax mismatch")
 		}
 
 		pd.Values[name] = v
@@ -369,11 +444,10 @@ func DecodeFileContent(content []byte, pd *ParseData) {
 	}
 
 	for _, property := range fileData.Properties {
-		//log.Println("Processing property: ", property.Name)
+		// log.Println("Processing property: ", property.Name)
 
 		for _, v := range property.Values {
 			ProcessValue(v.Name, v.Type, v.Syntax, pd)
-
 			ProcessExtraValues(v.Values, pd)
 		}
 
@@ -384,7 +458,7 @@ func DecodeFileContent(content []byte, pd *ParseData) {
 				log.Println("Different syntax for duplicated property", property.Name)
 				log.Println("Old:", p.Syntax)
 				log.Println("New:", property.Syntax)
-				//log.Panic("Syntax mismatch")
+				// log.Panic("Syntax mismatch")
 			}
 
 			if p.NewSyntax != "" && p.Syntax != "" {
@@ -421,7 +495,7 @@ func DecodeFileContent(content []byte, pd *ParseData) {
 				log.Println("Different syntax for duplicated at-rule", atRule.Name)
 				log.Println("Old:", a.Syntax)
 				log.Println("New:", atRule.Syntax)
-				//log.Panic("Syntax mismatch")
+				// log.Panic("Syntax mismatch")
 			}
 
 			a.Values = append(a.Values, atRule.Values...)

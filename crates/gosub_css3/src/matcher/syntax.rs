@@ -7,7 +7,7 @@ use nom::character::complete::{alpha1, alphanumeric1, char, digit0, digit1, mult
 use nom::combinator::{map, map_res, opt, recognize};
 use nom::multi::{fold_many1, many0, many1, separated_list0, separated_list1};
 use nom::number::complete::float;
-use nom::sequence::{delimited, pair, preceded, separated_pair};
+use nom::sequence::{delimited, pair, preceded, separated_pair, terminated};
 use nom::Err;
 use nom::IResult;
 use nom::Parser;
@@ -18,7 +18,7 @@ use crate::stylesheet::CssValue;
 // When debugging the parser, it's nice to have some additional information ready. This should maybe
 // be inside a cfg setting, but for now (un)commenting the appropriate line is good enough.
 macro_rules! debug_print {
-    // ($($x:tt)*) => { println!($($x)*) }
+    // ($($x:tt)*) => { println!($($x)*) };
     ($($x:tt)*) => {{}};
 }
 
@@ -341,8 +341,9 @@ fn parse_curly_braces_multiplier(input: &str) -> IResult<&str, SyntaxComponentMu
 
 fn parse_comma_separated_multiplier(input: &str) -> IResult<&str, SyntaxComponentMultiplier> {
     let range = alt((
-        separated_pair(ws(integer), ws(tag(",")), ws(integer)),
-        map(ws(integer), |num| (num, num)),
+        separated_pair(ws(integer), ws(tag(",")), ws(integer)), // "2,5"
+        map(terminated(ws(integer), ws(tag(","))), |num| (num, u32::MAX)), // "3,"
+        map(ws(integer), |num| (num, num)),                     // "3"
     ));
 
     let (input, minmax) = alt((
@@ -367,8 +368,8 @@ fn parse_multipliers(input: &str) -> IResult<&str, Vec<SyntaxComponentMultiplier
         map(tag("+"), |_| SyntaxComponentMultiplier::OneOrMore),
         map(tag("?"), |_| SyntaxComponentMultiplier::Optional),
         map(tag("!"), |_| SyntaxComponentMultiplier::AtLeastOneValue),
-        parse_comma_separated_multiplier,
-        parse_curly_braces_multiplier,
+        parse_comma_separated_multiplier, // Deals with # and #{x,y}
+        parse_curly_braces_multiplier,    // Deals with {x,y}
     )))
     .parse(input)?;
 
@@ -794,7 +795,7 @@ fn parse_component(input: &str) -> IResult<&str, SyntaxComponent> {
 
     component.update_multipliers(multipliers.clone());
 
-    debug_print!("<- Parsed component_type: {:#?} {}", component, multipliers);
+    debug_print!("<- Parsed component_type: {:#?} {:?}", component, multipliers);
 
     Ok((input, component))
 }

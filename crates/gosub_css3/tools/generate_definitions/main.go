@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"generate_definitions/mdn"
 	"generate_definitions/utils"
@@ -9,6 +10,7 @@ import (
 	"log"
 	"os"
 	"path"
+	"slices"
 )
 
 type ExportType int
@@ -21,7 +23,7 @@ const (
 
 const (
 	exportType      = Both
-	ResourcePath    = "crates/gosub_css3/resources/definitions"
+	ResourcePath    = ".output/definitions"
 	SingleFilePath  = ResourcePath + "/definitions.json"
 	MultiFileDir    = ResourcePath
 	MultiFilePrefix = "definitions_"
@@ -109,6 +111,20 @@ func main() {
 		len(data.Properties), len(data.Values), len(data.AtRules), len(data.Selectors),
 	)
 
+	// Sort elements, so that the output is deterministic and we have less issues with version control
+	slices.SortFunc(data.Properties, func(a, b utils.Property) int {
+		return cmp.Compare(a.Name, b.Name)
+	})
+	slices.SortFunc(data.Values, func(a, b utils.Value) int {
+		return cmp.Compare(a.Name, b.Name)
+	})
+	slices.SortFunc(data.AtRules, func(a, b utils.AtRule) int {
+		return cmp.Compare(a.Name, b.Name)
+	})
+	slices.SortFunc(data.Selectors, func(a, b utils.Selector) int {
+		return cmp.Compare(a.Name, b.Name)
+	})
+
 	switch exportType {
 	case SingleFile:
 		ExportSingleFile(&data)
@@ -140,7 +156,6 @@ func ExportMultiFile(data *utils.Data) {
 	ExportData(data.Values, path.Join(MultiFileDir, MultiFilePrefix+"values.json"))
 	ExportData(data.AtRules, path.Join(MultiFileDir, MultiFilePrefix+"at-rules.json"))
 	ExportData(data.Selectors, path.Join(MultiFileDir, MultiFilePrefix+"selectors.json"))
-
 }
 
 func ExportData(data any, path string) {
