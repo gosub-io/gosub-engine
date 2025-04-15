@@ -273,7 +273,6 @@ impl CssSyntax {
                 Ok(CssSyntaxTree::new(vec![components]))
             }
             Err(e) => {
-                dbg!(&self.source);
                 Err(CssError::new(e.to_string().as_str()))
             }
         }
