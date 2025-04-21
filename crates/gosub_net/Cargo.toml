@@ -18,7 +18,7 @@ cookie = { version = "0.18.1", features = ["secure", "private"] }
 url = "2.5.4"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-hickory-resolver = "0.24.4"
+hickory-resolver = "0.25.1"
 ureq = "3.0.11"
 
 
