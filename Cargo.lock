@@ -4911,9 +4911,9 @@ dependencies = [
 
 [[package]]
 name = "swash"
-version = "0.2.1"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "13d5bbc2aa266907ed8ee977c9c9e16363cc2b001266104e13397b57f1d15f71"
+checksum = "fae9a562c7b46107d9c78cd78b75bbe1e991c16734c0aee8ff0ee711fb8b620a"
 dependencies = [
  "skrifa 0.26.6",
  "yazi",
