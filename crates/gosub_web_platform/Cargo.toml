@@ -10,6 +10,6 @@ description = "Gosub Web Platform implementation"
 gosub_shared = { version = "0.1.1", registry = "gosub", path = "../gosub_shared" }
 gosub_interface = { version = "0.1.2", registry = "gosub", path = "../gosub_interface", features = [] }
 slotmap = "1.0.7"
-tokio = { version = "1.44.2", features = ["sync", "rt", "macros"] }
+tokio = { version = "1.45.0", features = ["sync", "rt", "macros"] }
 pin-project = "1.1.7"
 log = "0.4.27"
