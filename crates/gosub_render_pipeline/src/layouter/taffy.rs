@@ -1,5 +1,4 @@
-use crate::common::document::node::{Node, NodeId as DomNodeId, NodeType};
-use crate::common::document::style::{FontWeight, StyleProperty, StyleValue, TextAlign, Unit};
+use crate::common::style::{FontWeight, StyleProperty, StyleValue, TextAlign, Unit};
 use crate::common::geo::Coordinate;
 use crate::common::media::{Media, MediaId, MediaType};
 use crate::common::{geo, get_media_store};
@@ -15,6 +14,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use taffy::prelude::*;
 use taffy::NodeId as TaffyNodeId;
+use gosub_interface::config::HasDocument;
+use gosub_interface::node::{ElementDataType, Node, NodeType};
 use crate::common::font::{FontAlignment, FontInfo};
 use crate::layouter::box_model::Edges;
 
@@ -22,13 +23,14 @@ const DEFAULT_FONT_SIZE: f64 = 16.0;
 const DEFAULT_FONT_FAMILY: &str = "Sans";
 
 /// Layouter structure that uses taffy as layout engine
-pub struct TaffyLayouter {
+pub struct TaffyLayouter<C: HasDocument> {
     /// Generated taffy tree
     tree: TaffyTree<TaffyContext>,
     /// Root id of the taffy tree
     root_id: TaffyNodeId,
     /// Mapping of layout element id to taffy node id
     layout_taffy_mapping: HashMap<LayoutElementId, TaffyNodeId>,
+    _marker: std::marker::PhantomData<C>,
 }
 
 /// Context structures to pass to taffy measure functions so we can calculate the size of the text or images.
@@ -43,7 +45,7 @@ impl TaffyContext {
     fn text(
         text: &str,
         font_info: FontInfo,
-        node_id: DomNodeId,
+        node_id: NodeId,
         text_offset: Coordinate,
     ) -> TaffyContext {
         TaffyContext::Text(ElementContextText {
@@ -58,7 +60,7 @@ impl TaffyContext {
         src: &str,
         media_id: MediaId,
         dimension: geo::Dimension,
-        node_id: DomNodeId,
+        node_id: NodeId,
     ) -> TaffyContext {
         TaffyContext::Image(ElementContextImage {
             node_id,
@@ -68,7 +70,7 @@ impl TaffyContext {
         })
     }
 
-    fn svg(src: &str, media_id: MediaId, node_id: DomNodeId) -> TaffyContext {
+    fn svg(src: &str, media_id: MediaId, node_id: NodeId) -> TaffyContext {
         TaffyContext::Svg(ElementContextSvg {
             node_id,
             src: src.to_string(),
@@ -153,7 +155,7 @@ impl CanLayout for TaffyLayouter {
     }
 }
 
-impl TaffyLayouter {
+impl<C:HasDocument> TaffyLayouter<C> {
     // Populate the layout tree with the box models that we now can generate
     fn populate_boxmodel(
         &self,
@@ -376,21 +378,23 @@ impl TaffyLayouter {
 
     /// Extracts taffy variables based the DOM node. It will generate the taffy style based on the node CSS properties,
     /// any context that might be needed (images, svg, text).
-    fn extract_taffy_data(&self, layout_tree: &LayoutTree, dom_node: &&Node) -> Option<(Option<TaffyContext>, Style)> {
+    fn extract_taffy_data(&self, layout_tree: &LayoutTree, dom_node: &C::Node) -> Option<(Option<TaffyContext>, Style)> {
         let mut taffy_context = None;
         let mut taffy_style = Style::default();
 
-        match &dom_node.node_type {
+        match dom_node.type_of() {
             // Node is an element node (like a div, span, etc.)
-            NodeType::Element(data) => {
+            NodeType::ElementNode => {
+                let data = dom_node.get_element_data().unwrap();
+
                 // Create the taffy style from our CSS and push it into the stack
                 let conv = CssTaffyConverter::new(&data.styles);
                 taffy_style = conv.convert(dom_node.node_id, false);
 
                 // Check if element type is an image, if so, set the taffy context
-                if data.tag_name.eq_ignore_ascii_case("img") {
+                if data.name().eq_ignore_ascii_case("img") {
                     let base_url = layout_tree.render_tree.doc.base_url();
-                    let src = data.get_attribute("src").unwrap();
+                    let src = data.attribute("src").unwrap();
                     let src = to_absolute_url(src, base_url);
 
                     println!("Loading (image) resource: {}", src);

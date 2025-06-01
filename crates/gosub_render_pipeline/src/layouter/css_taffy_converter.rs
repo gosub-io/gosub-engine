@@ -1,7 +1,7 @@
 use taffy::{AlignContent, AlignItems, AlignSelf, BoxSizing, Dimension, Display, FlexDirection, FlexWrap, GridAutoFlow, GridPlacement, LengthPercentage, LengthPercentageAuto, Line, NonRepeatedTrackSizingFunction, Overflow, Point, Position, Rect, Size, Style, TextAlign, TrackSizingFunction};
 use taffy::prelude::{FromLength, TaffyAuto};
-use crate::common::document::node::NodeId;
-use crate::common::document::style::{StyleProperty, StylePropertyList, StyleValue, Display as CssDisplay, Unit as CssUnit };
+use gosub_shared::node::NodeId;
+use crate::common::style::{StyleProperty, StylePropertyList, StyleValue, Display as CssDisplay, Unit as CssUnit };
 
 /// This struct convert CSS stylesheets into taffy style structure.
 pub struct CssTaffyConverter {

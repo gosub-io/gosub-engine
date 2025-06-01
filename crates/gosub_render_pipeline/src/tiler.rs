@@ -5,10 +5,12 @@ use std::ops::AddAssign;
 use std::sync::{Arc, RwLock};
 use rstar::AABB;
 use rstar::primitives::GeomWithData;
-use crate::common::document::document::Document;
-use crate::common::document::node::{NodeId, NodeType};
-use crate::common::document::style::{Color as StyleColor, StyleProperty, StyleValue};
-use crate::common::document::style::StyleProperty::BackgroundColor;
+use gosub_interface::config::HasDocument;
+use gosub_interface::document::Document;
+use gosub_interface::node::NodeType;
+use gosub_shared::node::NodeId;
+use crate::common::style::{Color as StyleColor, StyleProperty, StyleValue};
+use crate::common::style::StyleProperty::BackgroundColor;
 use crate::common::geo::{Coordinate, Dimension, Rect};
 use crate::layering::layer::{LayerId, LayerList};
 use crate::layouter::{LayoutElementId, LayoutElementNode};
@@ -171,9 +173,9 @@ impl TileLayer {
 
 /// Main list of tiles per layer.
 #[derive(Clone)]
-pub struct TileList {
+pub struct TileList<C: HasDocument> {
     /// Wrapped layer list
-    pub layer_list: Arc<LayerList>,
+    pub layer_list: Arc<LayerList<C>>,
 
     // Tile info per layer
     pub tiles: HashMap<LayerId, TileLayer>,
@@ -186,7 +188,7 @@ pub struct TileList {
     pub default_tile_dimension: Dimension,
 }
 
-impl Debug for TileList {
+impl<C:HasDocument> Debug for TileList<C> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("TileList")
             .field("layers", &self.tiles)
@@ -197,7 +199,7 @@ impl Debug for TileList {
     }
 }
 
-impl TileList {
+impl<C:HasDocument> TileList<C> {
     pub fn get_tiles_for_element(&self, element_id: LayoutElementId) -> Vec<TileId> {
         let mut matching_tiles = vec![];
 
@@ -242,8 +244,8 @@ impl TileList {
     }
 }
 
-impl TileList {
-    pub fn new(layer_list: LayerList, dimension: Dimension) -> Self {
+impl<C:HasDocument> TileList<C> {
+    pub fn new(layer_list: LayerList<C>, dimension: Dimension) -> Self {
         Self {
             layer_list: Arc::new(layer_list),
             tiles: HashMap::new(),
@@ -382,7 +384,7 @@ impl TileList {
     }
 }
 
-fn get_background_color_from_node(node_id: Option<NodeId>, doc: &Document) -> Option<(f32, f32, f32, f32)> {
+fn get_background_color_from_node<C: HasDocument>(node_id: Option<NodeId>, doc: &C::Document) -> Option<(f32, f32, f32, f32)> {
     let node_id = match node_id {
         Some(node_id) => node_id,
         None => {
@@ -390,12 +392,17 @@ fn get_background_color_from_node(node_id: Option<NodeId>, doc: &Document) -> Op
         }
     };
 
-    let Some(node) = doc.get_node_by_id(node_id) else {
+    let Some(node) = doc.node_by_id(node_id) else {
         return None;
     };
 
-    let NodeType::Element(data) = &node.node_type else {
+    let NodeType::ElementNode = &node.node_type() else {
         return None;
+    };
+
+    let data = match node.element_data() {
+        Some(data) => data,
+        None => return None,
     };
 
     data.styles.get_property(BackgroundColor).map(|value| {

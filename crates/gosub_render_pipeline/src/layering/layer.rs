@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 use std::ops::AddAssign;
 use std::sync::{Arc, RwLock};
+use gosub_interface::config::HasDocument;
+use gosub_interface::document::Document;
+use gosub_interface::node::NodeType;
 use crate::layouter::{LayoutElementId, LayoutTree};
 
 /// ID for layers
@@ -60,9 +63,9 @@ impl std::fmt::Debug for Layer {
 }
 
 /// A list of layers that is returned by the pipeline stage
-pub struct LayerList {
+pub struct LayerList<C: HasDocument> {
     /// Wrapped layout tree
-    pub layout_tree: Arc<LayoutTree>,
+    pub layout_tree: Arc<LayoutTree<C>>,
     /// List of all (unique) layer IDs
     pub layer_ids: RwLock<Vec<LayerId>>,
     /// List of actual layers
@@ -71,7 +74,7 @@ pub struct LayerList {
     next_layer_id: RwLock<LayerId>,
 }
 
-impl std::fmt::Debug for LayerList {
+impl<C: HasDocument> std::fmt::Debug for LayerList<C> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("LayerList")
             .field("layout_tree", &self.layout_tree)
@@ -80,8 +83,8 @@ impl std::fmt::Debug for LayerList {
     }
 }
 
-impl LayerList {
-    pub fn new(layout_tree: LayoutTree) -> LayerList {
+impl<C: HasDocument> LayerList<C> {
+    pub fn new(layout_tree: LayoutTree<C>) -> LayerList<C> {
         let mut layer_list = LayerList {
             layout_tree: Arc::new(layout_tree),
             layers: RwLock::new(HashMap::new()),
@@ -164,15 +167,13 @@ impl LayerList {
             return;
         };
 
-        let is_image = self.layout_tree.render_tree.doc
-            .get_node_by_id(layout_element.dom_node_id)
-            .and_then(|dom_node| match dom_node.node_type {
-                crate::common::document::node::NodeType::Element(ref element_data) => {
-                    Some(element_data.tag_name.eq_ignore_ascii_case("img"))
-                },
-                _ => None,
-            })
-            .unwrap_or(false);
+        let is_image = matches!(
+            self.layout_tree.render_tree.doc.node_by_id(layout_element.dom_node_id),
+            Some(dom_node) if matches!(
+                dom_node.node_type,
+                NodeType::ElementNode(ref element_data) if element_data.tag_name.eq_ignore_ascii_case("img")
+            )
+        );
 
         // When we detect an image, we create a new layer for it
         if is_image {

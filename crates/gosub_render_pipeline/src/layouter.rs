@@ -2,9 +2,10 @@ use std::collections::HashMap;
 use std::ops::AddAssign;
 use std::sync::{Arc, RwLock};
 use rstar::primitives::GeomWithData;
+use gosub_interface::config::HasDocument;
+use gosub_shared::node::NodeId;
 use crate::layouter::box_model::BoxModel;
 use crate::rendertree_builder::{RenderTree, RenderNodeId};
-use crate::common::document::node::{NodeId as DomNodeId, NodeId};
 use crate::common::font::FontInfo;
 use crate::common::geo::{Coordinate, Dimension};
 use crate::common::media::MediaId;
@@ -40,7 +41,7 @@ impl std::fmt::Display for LayoutElementId {
 #[derive(Debug, Clone)]
 pub struct ElementContextText {
     /// Node ID of the text in the DOM
-    pub node_id: DomNodeId,
+    pub node_id: NodeId,
     pub font_info: FontInfo,
     pub text: String,
     /// Additional offset for the text. This can happen when we have a lineheight and the text needs to be centered in the block
@@ -50,7 +51,7 @@ pub struct ElementContextText {
 #[derive(Debug, Clone)]
 pub struct ElementContextSvg {
     /// Node ID of the SVG in the DOM
-    pub node_id: DomNodeId,
+    pub node_id: NodeId,
     /// Source of the SVG
     pub src: String,
     /// ID of the SVG inside the media store
@@ -62,7 +63,7 @@ pub struct ElementContextSvg {
 #[derive(Clone, Debug)]
 pub struct ElementContextImage {
     /// Node ID of the image in the DOM
-    pub node_id: DomNodeId,
+    pub node_id: NodeId,
     /// Source of the image
     pub src: String,
     /// ID of the image inside the image store
@@ -82,7 +83,7 @@ pub enum ElementContext {
 }
 
 impl ElementContext {
-    pub(crate) fn text(text: &str, font_info: FontInfo, node_id: DomNodeId, text_offset: Coordinate) -> ElementContext {
+    pub(crate) fn text(text: &str, font_info: FontInfo, node_id: NodeId, text_offset: Coordinate) -> ElementContext {
         Self::Text(ElementContextText{
             text: text.to_string(),
             font_info,
@@ -91,7 +92,7 @@ impl ElementContext {
         })
     }
 
-    pub fn image(src: &str, media_id: MediaId, dimension: Dimension, node_id: DomNodeId) -> ElementContext {
+    pub fn image(src: &str, media_id: MediaId, dimension: Dimension, node_id: NodeId) -> ElementContext {
         Self::Image(ElementContextImage {
             node_id,
             src: src.to_string(),
@@ -100,7 +101,7 @@ impl ElementContext {
         })
     }
 
-    pub fn svg(src: &str, media_id: MediaId, dimension: Dimension, node_id: DomNodeId) -> ElementContext {
+    pub fn svg(src: &str, media_id: MediaId, dimension: Dimension, node_id: NodeId) -> ElementContext {
         Self::Svg(ElementContextSvg {
             node_id,
             src: src.to_string(),
@@ -115,7 +116,7 @@ impl ElementContext {
 pub struct LayoutElementNode {
     pub id: LayoutElementId,
     /// ID of the node in the DOM, contains the data, like element name, attributes, etc.
-    pub dom_node_id: DomNodeId,
+    pub dom_node_id: NodeId,
     /// ID of the node in the render tree. This is normally the same node ID as the dom node ID
     pub render_node_id: RenderNodeId,
     /// Children of this node
@@ -126,9 +127,9 @@ pub struct LayoutElementNode {
     pub context: ElementContext,
 }
 
-pub struct LayoutTree {
+pub struct LayoutTree<C: HasDocument> {
     /// Wrapped render tree
-    pub render_tree: RenderTree,
+    pub render_tree: RenderTree<C>,
     /// Arena of layout nodes
     pub arena : HashMap<LayoutElementId, LayoutElementNode>,
     /// Root node of the layout tree
@@ -141,7 +142,7 @@ pub struct LayoutTree {
     rstar_tree: rstar::RTree<GeomWithData<rstar::primitives::Rectangle<[f64; 2]>, LayoutElementId>>,
 }
 
-impl LayoutTree {
+impl<C: HasDocument> LayoutTree<C> {
     pub fn get_node_by_id(&self, node_id: LayoutElementId) -> Option<&LayoutElementNode> {
         self.arena.get(&node_id)
     }
@@ -158,7 +159,7 @@ impl LayoutTree {
     }
 }
 
-impl std::fmt::Debug for LayoutTree {
+impl<C: HasDocument> std::fmt::Debug for LayoutTree<C> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("LayoutTree")
             .field("arena", &self.arena)
@@ -169,6 +170,6 @@ impl std::fmt::Debug for LayoutTree {
 }
 
 /// A layout engine should implement this trait and return a layout tree
-pub trait CanLayout {
-    fn layout(&mut self, render_tree: RenderTree, viewport: Option<Dimension>, dpi_scale_factor: f32) -> LayoutTree;
+pub trait CanLayout<C: HasDocument> {
+    fn layout(&mut self, render_tree: RenderTree<C>, viewport: Option<Dimension>, dpi_scale_factor: f32) -> LayoutTree<C>;
 }

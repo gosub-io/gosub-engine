@@ -11,6 +11,7 @@ use gosub_interface::chrome::ChromeHandle;
 use gosub_interface::config::{HasChrome, HasCssSystem, HasDocument, HasHtmlParser, HasLayouter, HasRenderBackend, HasRenderTree, HasTreeDrawer, ModuleConfiguration};
 use gosub_interface::font::HasFontManager;
 use gosub_interface::instance::InstanceId;
+use gosub_interface::render_backend::RenderBackend;
 use gosub_renderer::draw::TreeDrawerImpl;
 use gosub_rendering::render_tree::RenderTree;
 use gosub_shared::geo::SizeU32;
@@ -53,7 +54,7 @@ impl HasRenderBackend for Config {
 struct GtkChromeHandle(UnboundedSender<Scene>);
 
 impl ChromeHandle<Config> for GtkChromeHandle {
-    fn draw_scene(&self, scene: gosub_interface::render_backend::Scene, _: SizeU32, _: InstanceId) {
+    fn draw_scene(&self, scene: <CairoBackend as RenderBackend>::Scene, _: SizeU32, _: InstanceId) {
         info!("Drawing scene");
         self.0.unbounded_send(scene).unwrap();
     }

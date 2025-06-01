@@ -21,6 +21,9 @@ use gosub_render_pipeline::layouter::CanLayout;
 use gosub_render_pipeline::layouter::taffy::TaffyLayouter;
 use gosub_render_pipeline::rendertree_builder::RenderTree;
 use gosub_shared::byte_stream::{ByteStream, Encoding};
+use glutin::{
+    surface::{Surface as GlutinSurface},
+};
 
 const TILE_DIMENSION: f64 = 256.0;
 

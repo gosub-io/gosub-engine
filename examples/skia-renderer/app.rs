@@ -19,7 +19,6 @@ use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::KeyCode;
 use winit::keyboard::PhysicalKey::Code;
 use winit::window::{Window, WindowAttributes, WindowId};
-use gosub_interface::render_backend::Color;
 use gosub_render_pipeline::common::browser_state::{get_browser_state, WireframeState};
 use gosub_render_pipeline::common::geo::{Dimension, Rect};
 use gosub_render_pipeline::compositor::Composable;
@@ -124,7 +123,7 @@ impl ApplicationHandler for App {
                 // println!("FPS: {:.2}", self.fps);
 
                 let canvas = env.surface.canvas();
-                canvas.clear(Color::WHITE);
+                canvas.clear(skia_safe::Color::WHITE);
 
                 let binding = get_browser_state();
                 let state = binding.read().unwrap();

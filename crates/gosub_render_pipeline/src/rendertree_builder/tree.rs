@@ -1,9 +1,12 @@
 use std::collections::HashMap;
 use std::ops::AddAssign;
+use std::process::id;
 use std::sync::Arc;
-use crate::common::document::document::Document;
-use crate::common::document::node::{Node, NodeType, NodeId};
-use crate::common::document::style::{StyleProperty, StyleValue, Display as CssDisplay};
+use gosub_interface::config::{HasDocument, ModuleConfiguration};
+use gosub_interface::document::Document;
+use gosub_interface::node::{ElementDataType, Node, NodeType};
+use crate::common::style::{StyleProperty, StyleValue, Display as CssDisplay};
+use gosub_shared::node::NodeId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct RenderNodeId(u64);
@@ -38,31 +41,30 @@ impl std::fmt::Display for RenderNodeId {
 
 
 #[derive(Clone)]
-pub struct RenderNode {
+pub struct RenderNode<C: HasDocument> {
     pub node_id: RenderNodeId,
     pub children: Vec<RenderNodeId>,
+    _marker: std::marker::PhantomData<C>,
 }
-
 
 /// A RenderTree holds both the DOM and the render tree. This tree holds all the visible nodes in
 /// the DOM.
 #[derive(Clone)]
-pub struct RenderTree {
-    pub doc: Arc<Document>,
-    pub arena: HashMap<RenderNodeId, RenderNode>,
+pub struct RenderTree<C: HasDocument> {
+    pub doc: Arc<C::Document>,
+    pub arena: HashMap<RenderNodeId, RenderNode<C>>,
     pub root_id: Option<RenderNodeId>,
 }
 
-impl std::fmt::Debug for RenderTree {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RenderTree")
-            // .field("arena", &self.arena)
-            .field("root_id", &self.root_id)
-            .finish()
+impl<C:HasDocument> RenderTree<C> {
+    pub fn new(doc: Arc<C::Document>) -> Self {
+        RenderTree {
+            doc,
+            arena: HashMap::new(),
+            root_id: None,
+        }
     }
-}
 
-impl RenderTree {
     pub fn count_elements(&self) -> usize {
         self.arena.len()
     }
@@ -74,7 +76,7 @@ impl RenderTree {
         }
     }
 
-    pub fn get_node_by_id(&self, node_id: RenderNodeId) -> Option<&RenderNode> {
+    pub fn get_node_by_id(&self, node_id: RenderNodeId) -> Option<&RenderNode<C>> {
         self.arena.get(&node_id)
     }
 
@@ -90,49 +92,35 @@ impl RenderTree {
         }
     }
 
-    pub(crate) fn get_document_node_by_render_id(&self, render_node_id: RenderNodeId) -> Option<&Node> {
+    pub fn get_document_node_by_render_id(&self, render_node_id: RenderNodeId) -> Option<&C::Node> {
         let Some(node) = self.arena.get(&render_node_id) else {
             return None;
         };
 
-        let Some(doc_node) = self.doc.get_node_by_id(NodeId::new(node.node_id.to_u64())) else {
-            return None;
-        };
-
-        Some(doc_node)
-    }
-}
-
-const INVISIBLE_ELEMENTS: [&str; 6] = [ "head",  "style",  "script",  "meta",  "link",  "title" ];
-
-impl RenderTree {
-    pub fn new(doc: Arc<Document>) -> Self {
-        RenderTree {
-            doc: doc.clone(),
-            arena: HashMap::new(),
-            root_id: None,
-        }
+        self.doc.node_by_id(NodeId::new(node.node_id.to_u64()))
     }
 
     pub fn parse(&mut self) {
-        let Some(root_id) = self.doc.root_id else {
-            panic!("Document has no root node");
-        };
+        let root_node = self.doc.get_root();
 
         let doc = &self.doc;
-        match self.build_rendertree(root_id) {
+        match self.build_rendertree(root_node.id()) {
             Some(render_node_id) => self.root_id = Some(render_node_id),
             None => panic!("Failed to build rendertree"),
         }
     }
 
-    fn is_visible(&self, node: &Node) -> bool {
-        match &node.node_type {
-            NodeType::Comment(..) => false,
-            NodeType::Text(..) => true,
-            NodeType::Element(element) => {
+    fn is_visible(&self, node: &C::Node) -> bool {
+        match node.type_of() {
+            NodeType::CommentNode => false,
+            NodeType::TextNode => true,
+            NodeType::ElementNode => {
+                let Some(element) = node.get_element_data() else {
+                    return false; // Not an element node
+                };
+
                 // Check element name
-                if INVISIBLE_ELEMENTS.contains(&element.tag_name.as_str()) {
+                if INVISIBLE_ELEMENTS.contains(&element.name()) {
                     return false;
                 }
 
@@ -147,11 +135,13 @@ impl RenderTree {
 
                 true
             }
+            NodeType::DocumentNode => false,
+            NodeType::DocTypeNode => false,
         }
     }
 
     fn build_rendertree(&mut self, node_id: NodeId) -> Option<RenderNodeId> {
-        let Some(node) = self.doc.get_node_by_id(node_id) else {
+        let Some(node) = self.doc.node_by_id(node_id) else {
             return None;
         };
 
@@ -162,11 +152,12 @@ impl RenderTree {
         let mut render_node = RenderNode {
             node_id: RenderNodeId::from(node_id),
             children: Vec::new(),
+            _marker: std::marker::PhantomData,
         };
 
-        let children = node.children.clone();
+        let children = node.children().clone();
         for child_id in children {
-            if let Some(render_child) = self.build_rendertree(child_id) {
+            if let Some(render_child) = self.build_rendertree(*child_id) {
                 render_node.children.push(render_child);
             }
         }
@@ -177,3 +168,14 @@ impl RenderTree {
         Some(render_node_id)
     }
 }
+
+impl<C: ModuleConfiguration> std::fmt::Debug for RenderTree<C> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RenderTree")
+            .field("root_id", &self.root_id)
+            .finish()
+    }
+}
+
+// Invisible elements in the DOM that should never be rendered
+const INVISIBLE_ELEMENTS: [&str; 6] = ["head", "style", "script", "meta", "link", "title"];

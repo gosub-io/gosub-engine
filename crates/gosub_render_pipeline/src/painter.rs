@@ -3,9 +3,10 @@ pub mod commands;
 use std::ops::AddAssign;
 use std::sync::Arc;
 use rand::Rng;
+use gosub_interface::config::HasDocument;
+use gosub_interface::node::Node;
 use crate::common::browser_state::{get_browser_state, BrowserState, WireframeState};
-use crate::common::document::node::{Node, NodeType};
-use crate::common::document::style::{StyleProperty, StyleValue, Color as StyleColor};
+use crate::common::style::{StyleProperty, StyleValue, Color as StyleColor};
 use crate::layering::layer::LayerList;
 use crate::layouter::{ElementContext, LayoutElementNode};
 use crate::painter::commands::brush::Brush;
@@ -21,12 +22,12 @@ use crate::tiler::{Tile, TiledLayoutElement};
 /// Painter works with the layout tree and generates paint commands for the renderer. It does not
 /// generate a new data structure as output, but will update the existing layout elements with
 /// paint commands.
-pub struct Painter {
-    layer_list: Arc<LayerList>,
+pub struct Painter<C: HasDocument> {
+    layer_list: Arc<LayerList<C>>,
 }
 
-impl Painter {
-    pub fn new(layer_list: Arc<LayerList>) -> Painter {
+impl<C: HasDocument> Painter<C> {
+    pub fn new(layer_list: Arc<LayerList<C>>) -> Painter<C> {
         Painter {
             layer_list
         }
@@ -71,16 +72,17 @@ impl Painter {
     }
 
     // Returns a brush for the color found in the given dom node
-    fn get_brush(&self, node: &Node, css_prop: StyleProperty, default: Brush) -> Brush {
-        let NodeType::Element(element_data) = &node.node_type else {
-            log::warn!("Failed to get brush for node: {:?}", node.node_id);
+    fn get_brush(&self, node: &C::Node, css_prop: StyleProperty, default: Brush) -> Brush {
+        let Some(element_data) = node.get_element_data() else {
+            log::warn!("Failed to get element data for node: {:?}", node.id());
             return default;
         };
+
         element_data.get_style(css_prop).map_or(default.clone(), |value| {
             match value {
                 StyleValue::Color(css_color) => Brush::solid(convert_css_color(css_color)),
                 _ => {
-                    log::warn!("Failed to get brush for node: {:?}", node.node_id);
+                    log::warn!("Failed to get brush for node: {:?}", node.id());
                     default.clone()
                 }
             }
@@ -88,7 +90,7 @@ impl Painter {
     }
 
     // Returns a brush for the color found in the PARENT of the given dom node
-    fn get_parent_brush(&self, node: &Node, css_prop: StyleProperty, default: Brush) -> Brush {
+    fn get_parent_brush(&self, node: &C::Node, css_prop: StyleProperty, default: Brush) -> Brush {
         let parent = match &node.parent_id {
             Some(parent_id) => self.layer_list.layout_tree.render_tree.doc.get_node_by_id(*parent_id).expect("Failed to get parent node"),
             None => {
@@ -136,7 +138,7 @@ impl Painter {
     }
 
     /// Generates the paint commands for the given layout element
-    fn generate_element_commands(&self, layout_element: &LayoutElementNode, dom_node: &Node) -> Vec<PaintCommand> {
+    fn generate_element_commands(&self, layout_element: &LayoutElementNode, dom_node: &C::Node) -> Vec<PaintCommand> {
         let mut commands = Vec::new();
 
         match &layout_element.context {
