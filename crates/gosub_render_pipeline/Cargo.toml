@@ -1,0 +1,66 @@
+[package]
+name = "gosub_render_pipeline"
+version = "0.1.0"
+edition = "2021"
+authors = ["Gosub Community <info@gosub.io>"]
+license = "MIT"
+description = "Rendering pipelines for Gosub"
+
+[[bin]]
+name = "pipeline-cairo"
+path = "src/bin/pipeline-cairo.rs"
+required-features = ["text_pango", "backend_cairo"]
+
+[[bin]]
+name = "pipeline-vello"
+path = "src/bin/pipeline-vello.rs"
+required-features = ["backend_vello"]
+
+[[bin]]
+name = "pipeline-skia"
+path = "src/bin/pipeline-skia.rs"
+required-features = ["text_skia", "backend_skia"]
+
+
+[dependencies]
+taffy = "0.7.5"
+log = "0.4.25"
+colog = "1.3.0"
+image = "0.25.5"
+rand = "0.9.0"
+sha2 = "0.10.8"
+hex = "0.4.3"
+serde = { version = "1.0.217", features = ["derive"] }
+serde_json = "1.0.138"
+csscolorparser = "0.7.0"
+regex = "1.11.1"
+rstar = "0.12.2"
+reqwest = { version = "0.12.15", features = ["blocking"] }
+resvg = "0.45.0"
+bytes = "1.10.1"
+file_type = { version = "=0.8.5", features = ["httpd"] }
+
+anyhow = "1.0.95"
+
+parley = { version = "0.3.0", optional = true }
+pangocairo = { version = "0.20.7", optional = true }
+gtk4 = { version = "0.8.0", optional = true }
+vello = { version = "0.4.1", optional = true }
+winit = { version = "0.30.9", optional = true }
+pollster = { version = "0.4.0", optional = true }
+skia-safe = { version = "0.82.0", optional = true, features = ["textlayout", "gl", "gpu"] }
+glutin = { version = "0.32.2", optional = true }
+glutin-winit = { version = "0.5.0", optional = true }
+raw-window-handle = { version = "0.6.2", optional = true }
+gl-rs = { package = "gl", version = "0.14.0", optional = true }
+
+
+[features]
+default = ["text_skia", "backend_skia"]
+#default = ["text_pango", "backend_cairo"]
+text_pango = ["dep:pangocairo"]
+text_parley = ["dep:parley"]
+text_skia = ["dep:skia-safe"]
+backend_cairo = ["dep:gtk4"]
+backend_vello = ["dep:vello", "dep:winit", "dep:pollster"]
+backend_skia = ["dep:skia-safe", "dep:winit", "dep:pollster", "dep:glutin", "dep:glutin-winit", "dep:raw-window-handle", "dep:gl-rs"]
