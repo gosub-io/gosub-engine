@@ -1,7 +1,8 @@
 use skia_safe::{AlphaType, ColorType, Data, ISize, ImageInfo};
-use crate::common::browser_state::get_browser_state;
+use crate::common::browser_state::BrowserState;
 use crate::common::get_texture_store;
 use crate::layering::layer::LayerId;
+use crate::with_browser;
 
 pub fn skia_compositor(canvas: &skia_safe::Canvas, layer_ids: Vec<LayerId>) {
     for layer_id in layer_ids {
@@ -10,13 +11,14 @@ pub fn skia_compositor(canvas: &skia_safe::Canvas, layer_ids: Vec<LayerId>) {
 }
 
 pub fn compose_layer(canvas: &skia_safe::canvas::Canvas, layer_id: LayerId) {
-    let binding = get_browser_state();
-    let state = binding.read().expect("Failed to get browser state");
+    let tile_list = with_browser!(config, state => {
+        let Some(ref tile_list) = state.tile_list else {
+            log::error!("No tile list found");
+            return;
+        };
 
-    let Some(ref tile_list) = state.tile_list else {
-        log::error!("No tile list found");
-        return;
-    };
+        tile_list
+    });
 
     let tile_ids = tile_list.read().expect("Failed to get tile list").get_intersecting_tiles(layer_id, state.viewport);
     for tile_id in tile_ids {

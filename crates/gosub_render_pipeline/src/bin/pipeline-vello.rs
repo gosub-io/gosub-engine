@@ -3,7 +3,7 @@ compile_error!("This binary can only be used with the feature 'backend_vello' en
 
 use poc_pipeline::common;
 use poc_pipeline::common::browser_state::{
-    get_browser_state, init_browser_state, BrowserState, WireframeState,
+    init_browser_state, BrowserState, WireframeState,
 };
 use poc_pipeline::common::geo::{Dimension, Rect};
 use poc_pipeline::compositor::vello::{VelloCompositor, VelloCompositorConfig};
@@ -31,6 +31,8 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::KeyCode;
 use winit::keyboard::PhysicalKey::Code;
 use winit::window::{Window, WindowId};
+use gosub_render_pipeline::common::browser_state::BrowserState;
+use gosub_render_pipeline::with_browser_state_mut;
 
 const TILE_DIMENSION: f64 = 256.0;
 
@@ -70,31 +72,28 @@ fn main() {
 }
 
 fn reflow() {
-    let binding = get_browser_state();
-    let state = binding.read().unwrap();
-
     println!("reflowing to dimension: {:?}", state.viewport);
 
-    let mut render_tree = RenderTree::new(state.document.clone());
-    render_tree.parse();
+    with_browser_state!(C, state => {
+        let mut render_tree = RenderTree::new(state.document.clone());
+        render_tree.parse();
 
-    let mut layouter = TaffyLayouter::new();
-    let layout_tree = layouter.layout(
-        render_tree,
-        Some(Dimension::new(state.viewport.width, state.viewport.height)),
-        state.dpi_scale_factor,
-    );
+        let mut layouter = TaffyLayouter::new();
+        let layout_tree = layouter.layout(
+            render_tree,
+            Some(Dimension::new(state.viewport.width, state.viewport.height)),
+            state.dpi_scale_factor,
+        );
 
-    let layer_list = LayerList::new(layout_tree);
+        let layer_list = LayerList::new(layout_tree);
 
-    let mut tile_list = TileList::new(layer_list, Dimension::new(TILE_DIMENSION, TILE_DIMENSION));
-    tile_list.generate();
+        let mut tile_list = TileList::new(layer_list, Dimension::new(TILE_DIMENSION, TILE_DIMENSION));
+        tile_list.generate();
+    });
 
-    drop(state);
-
-    let binding = get_browser_state();
-    let mut state = binding.write().unwrap();
-    state.tile_list = Some(RwLock::new(tile_list));
+    with_browser_state_mut!(C, state => {
+        state.tile_list = Some(RwLock::new(tile_list));
+    });
 }
 
 struct Env<'s> {
@@ -169,10 +168,9 @@ impl ApplicationHandler for App<'_> {
                     height,
                 );
 
-                let binding = get_browser_state();
-                let mut state = binding.write().unwrap();
-                state.viewport = Rect::new(0.0, 0.0, width as f64, height as f64);
-                drop(state);
+                with_browser_state_mut!(C, state => {
+                    state.viewport = Rect::new(0.0, 0.0, width as f64, height as f64);
+                });
 
                 // reflow();
             }
@@ -185,10 +183,9 @@ impl ApplicationHandler for App<'_> {
                 let dev_id = surface.dev_id;
                 let DeviceHandle { device, queue, .. } = &env.render_ctx.devices[dev_id];
 
-                let binding = get_browser_state();
-                let state = binding.read().unwrap();
-                let vis_layers = state.visible_layer_list.clone();
-                drop(state);
+                let vis_layers = with_browser_state!(C, state => {
+                    state.visible_layer_list.clone()
+                });
 
                 let renderer = &mut env.renderer.as_mut().unwrap();
 
@@ -204,18 +201,16 @@ impl ApplicationHandler for App<'_> {
                     .get_current_texture()
                     .expect("Failed to get current texture");
 
-
-                let binding = get_browser_state();
-                let state = binding.read().unwrap();
-
-                let render_params = RenderParams {
-                    base_color: color::palette::css::DARK_MAGENTA,
-                    width: state.viewport.width as u32,
-                    height: state.viewport.height as u32,
-                    // width: self.window_size.width as u32,
-                    // height: self.window_size.height as u32,
-                    antialiasing_method: AaConfig::Msaa16,
-                };
+                let render_params = with_browser_state_mut!(C, state => {
+                    RenderParams {
+                        base_color: color::palette::css::DARK_MAGENTA,
+                        width: state.viewport.width as u32,
+                        height: state.viewport.height as u32,
+                        // width: self.window_size.width as u32,
+                        // height: self.window_size.height as u32,
+                        antialiasing_method: AaConfig::Msaa16,
+                    };
+                });
 
                 let scene = VelloCompositor::compose(VelloCompositorConfig {});
 
@@ -256,7 +251,11 @@ impl ApplicationHandler for App<'_> {
 
                 if physical_key >= Code(KeyCode::Digit0) && physical_key <= Code(KeyCode::Digit9) {
                     let binding = get_browser_state();
-                    let mut state = binding.write().unwrap();
+                    let guard = binding.write().unwrap();
+                    let mut state = guard
+                        .as_any()
+                        .downcast_ref::<BrowserState<C>>()
+                        .expect("Incorrect type");
 
                     let layer_id = match physical_key {
                         Code(KeyCode::Digit1) => 0,
@@ -277,7 +276,11 @@ impl ApplicationHandler for App<'_> {
 
                 if logical_key == "w" {
                     let binding = get_browser_state();
-                    let mut state = binding.write().unwrap();
+                    let guard = binding.write().unwrap();
+                    let mut state = guard
+                        .as_any()
+                        .downcast_ref::<BrowserState<C>>()
+                        .expect("Incorrect type");
 
                     match state.wireframed {
                         WireframeState::None => state.wireframed = WireframeState::Only,
@@ -368,7 +371,11 @@ fn create_window_env<'s>(el: &ActiveEventLoop, title: &str, size: Dimension) -> 
 
 fn do_paint(layer_id: LayerId) {
     let binding = get_browser_state();
-    let state = binding.read().unwrap();
+    let guard = binding.read().unwrap();
+    let state = guard
+        .as_any()
+        .downcast_ref::<BrowserState<C>>()
+        .expect("Incorrect type");
 
     let Some(ref tile_list) = state.tile_list else {
         log::error!("No tile list found");
@@ -408,7 +415,11 @@ fn do_rasterize(
     layer_id: LayerId,
 ) {
     let binding = get_browser_state();
-    let state = binding.read().unwrap();
+    let guard = binding.read().unwrap();
+    let state = guard
+        .as_any()
+        .downcast_ref::<BrowserState<C>>()
+        .expect("Incorrect type");
 
     let Some(ref tile_list) = state.tile_list else {
         log::error!("No tile list found");
@@ -431,7 +442,6 @@ fn do_rasterize(
         if tile.state == TileState::Clean || tile.state == TileState::Empty {
             continue;
         }
-
 
         let Some(tile) = binding.get_tile_mut(tile_id) else {
             log::warn!("Tile not found: {:?}", tile_id);

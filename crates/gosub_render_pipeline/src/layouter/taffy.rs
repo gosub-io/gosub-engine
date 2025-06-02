@@ -159,7 +159,7 @@ impl<C:HasDocument> TaffyLayouter<C> {
     // Populate the layout tree with the box models that we now can generate
     fn populate_boxmodel(
         &self,
-        layout_tree: &mut LayoutTree,
+        layout_tree: &mut LayoutTree<C>,
         layout_node_id: LayoutElementId,
         offset: Coordinate,
     ) {
@@ -185,9 +185,9 @@ impl<C:HasDocument> TaffyLayouter<C> {
     /// Generate the layout tree from the render tree
     fn generate_tree(
         &mut self,
-        render_tree: RenderTree,
+        render_tree: RenderTree<C>,
         root_id: RenderNodeId,
-    ) -> Option<LayoutTree> {
+    ) -> Option<LayoutTree<C>> {
         self.tree = TaffyTree::new();
         self.root_id = TaffyNodeId::new(0); // Will be filled in later
 
@@ -378,7 +378,7 @@ impl<C:HasDocument> TaffyLayouter<C> {
 
     /// Extracts taffy variables based the DOM node. It will generate the taffy style based on the node CSS properties,
     /// any context that might be needed (images, svg, text).
-    fn extract_taffy_data(&self, layout_tree: &LayoutTree, dom_node: &C::Node) -> Option<(Option<TaffyContext>, Style)> {
+    fn extract_taffy_data(&self, layout_tree: &LayoutTree<C>, dom_node: &C::Node) -> Option<(Option<TaffyContext>, Style)> {
         let mut taffy_context = None;
         let mut taffy_style = Style::default();
 

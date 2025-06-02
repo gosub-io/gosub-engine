@@ -26,7 +26,7 @@ use winit::{
 
 use poc_pipeline::common;
 use poc_pipeline::common::browser_state::{
-    get_browser_state, init_browser_state, BrowserState, WireframeState,
+    init_browser_state, BrowserState, WireframeState,
 };
 use poc_pipeline::common::geo::{Dimension, Rect};
 use poc_pipeline::compositor::skia::{SkiaCompositor, SkiaCompositorConfig};
@@ -49,6 +49,11 @@ use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::KeyCode;
 use winit::keyboard::PhysicalKey::Code;
 use winit::window::{WindowAttributes, WindowId};
+use gosub_render_pipeline::common::browser_state::{BrowserState, WireframeState};
+use gosub_render_pipeline::{with_browser_state, with_browser_state_mut};
+use gosub_render_pipeline::common::geo::Dimension;
+use gosub_render_pipeline::layering::layer::{LayerId, LayerList};
+use gosub_render_pipeline::tiler::TileList;
 
 const TILE_DIMENSION: f64 = 256.0;
 
@@ -96,17 +101,22 @@ fn main() {
 
 // This will reflow EVERYTHING. This is not efficient, but it's good enough for now.
 fn reflow() {
-    let binding = get_browser_state();
-    let state = binding.read().unwrap();
-
-    let mut render_tree = RenderTree::new(state.document.clone());
+    let cloned_document = with_browser_state!(C, state => {
+        state.document.clone()
+    });
+    let mut render_tree = RenderTree::new(cloned_document);
     render_tree.parse();
+
+
+    let (viewport, dpi_scale_factor) = with_browser_state!(C, state => {
+        (state.viewport, state.dpi_scale_factor)
+    });
 
     let mut layouter = TaffyLayouter::new();
     let layout_tree = layouter.layout(
         render_tree,
-        Some(Dimension::new(state.viewport.width, state.viewport.height)),
-        state.dpi_scale_factor,
+        Some(Dimension::new(viewport.width, viewport.height)),
+        dpi_scale_factor,
     );
     // layouter.print_tree();
 
@@ -115,13 +125,9 @@ fn reflow() {
     let mut tile_list = TileList::new(layer_list, Dimension::new(TILE_DIMENSION, TILE_DIMENSION));
     tile_list.generate();
 
-    // tile_list.print_list();
-
-    drop(state);
-
-    let binding = get_browser_state();
-    let mut state = binding.write().unwrap();
-    state.tile_list = Some(RwLock::new(tile_list));
+    with_browser_state_mut!(C, state => {
+        state.tile_list = Some(RwLock::new(tile_list));
+    });
 }
 
 // Application environment. Mostly OpenGL stuff.
@@ -198,14 +204,10 @@ impl ApplicationHandler for App {
                 event_loop.exit();
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-                let binding = get_browser_state();
-                let state = binding.read().unwrap();
-                println!("Scale factor changed from {} to {}", state.dpi_scale_factor, scale_factor);
-                drop(state);
-
-                let mut state = binding.write().unwrap();
-                state.dpi_scale_factor = scale_factor as f32;
-                drop(state);
+                with_browser_state_mut!(C, state => {
+                    println!("Scale factor changed from {} to {}", state.dpi_scale_factor, scale_factor);
+                    state.dpi_scale_factor = scale_factor as f32;
+                });
 
                 env.window.request_redraw();
             }
@@ -227,10 +229,9 @@ impl ApplicationHandler for App {
                     NonZeroU32::new(height.max(1)).unwrap(),
                 );
 
-                let binding = get_browser_state();
-                let mut state = binding.write().unwrap();
-                state.viewport = Rect::new(0.0, 0.0, width as f64, height as f64);
-                drop(state);
+                with_browser_state_mut!(C, state => {
+                    state.viewport = Rect::new(0.0, 0.0, width as f64, height as f64);
+                });
 
                 reflow();
             }
@@ -245,10 +246,9 @@ impl ApplicationHandler for App {
                 let canvas = env.surface.canvas();
                 canvas.clear(Color::WHITE);
 
-                let binding = get_browser_state();
-                let state = binding.read().unwrap();
-                let vis_layers = state.visible_layer_list.clone();
-                drop(state);
+                let vis_layers = with_browser_state!(C, state => {
+                    state.visible_layer_list.clone();
+                });
 
                 for i in 0..10 {
                     if vis_layers[i] {
@@ -283,9 +283,6 @@ impl ApplicationHandler for App {
                 }
 
                 if physical_key >= Code(KeyCode::Digit0) && physical_key <= Code(KeyCode::Digit9) {
-                    let binding = get_browser_state();
-                    let mut state = binding.write().unwrap();
-
                     let layer_id = match physical_key {
                         Code(KeyCode::Digit1) => 0,
                         Code(KeyCode::Digit2) => 1,
@@ -299,24 +296,26 @@ impl ApplicationHandler for App {
                         Code(KeyCode::Digit0) => 9,
                         _ => unreachable!(),
                     };
-                    state.visible_layer_list[layer_id] = !state.visible_layer_list[layer_id];
+
+                    with_browser_state_mut!(C, state => {
+                        state.visible_layer_list[layer_id] = !state.visible_layer_list[layer_id];
+                    });
                     env.window.request_redraw();
                 }
 
                 if logical_key == "w" {
-                    let binding = get_browser_state();
-                    let mut state = binding.write().unwrap();
+                    with_browser_state_mut!(C, state => {
+                        match state.wireframed {
+                            WireframeState::None => state.wireframed = WireframeState::Only,
+                            WireframeState::Only => state.wireframed = WireframeState::Both,
+                            WireframeState::Both => state.wireframed = WireframeState::None,
+                        }
 
-                    match state.wireframed {
-                        WireframeState::None => state.wireframed = WireframeState::Only,
-                        WireframeState::Only => state.wireframed = WireframeState::Both,
-                        WireframeState::Both => state.wireframed = WireframeState::None,
-                    }
-
-                    let Some(ref tile_list) = state.tile_list else {
-                        log::error!("No tile list found");
-                        return;
-                    };
+                        let Some(ref tile_list) = state.tile_list else {
+                            log::error!("No tile list found");
+                            return;
+                        };
+                    });
 
                     tile_list
                         .write()
@@ -326,18 +325,16 @@ impl ApplicationHandler for App {
                 }
 
                 if logical_key == "d" {
-                    let binding = get_browser_state();
-                    let mut state = binding.write().unwrap();
-
-                    state.debug_hover = !state.debug_hover;
+                    with_browser_state_mut!(C, state => {
+                        state.debug_hover = !state.debug_hover;
+                    });
                     env.window.request_redraw();
                 }
 
                 if logical_key == "t" {
-                    let binding = get_browser_state();
-                    let mut state = binding.write().unwrap();
-
-                    state.show_tilegrid = !state.show_tilegrid;
+                    with_browser_state_mut!(C, state => {
+                        state.show_tilegrid = !state.show_tilegrid;
+                    });
                     env.window.request_redraw();
                 }
             }
@@ -501,13 +498,9 @@ fn create_surface(
 }
 
 fn do_paint(layer_id: LayerId) {
-    let binding = get_browser_state();
-    let state = binding.read().unwrap();
-
-    let Some(ref tile_list) = state.tile_list else {
-        log::error!("No tile list found");
-        return;
-    };
+    let ref tile_list = with_browser_state_mut!(C, state => {
+        state.tile_list
+    });
 
     let painter = Painter::new(tile_list.read().unwrap().layer_list.clone());
 
@@ -536,13 +529,9 @@ fn do_paint(layer_id: LayerId) {
 }
 
 fn do_rasterize(layer_id: LayerId) {
-    let binding = get_browser_state();
-    let state = binding.read().unwrap();
-
-    let Some(ref tile_list) = state.tile_list else {
-        log::error!("No tile list found");
-        return;
-    };
+    let ref tile_list = with_browser_state_mut!(C, state => {
+        state.tile_list
+    });
 
     let tile_ids = tile_list
         .read()

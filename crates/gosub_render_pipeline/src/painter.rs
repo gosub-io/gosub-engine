@@ -5,7 +5,7 @@ use std::sync::Arc;
 use rand::Rng;
 use gosub_interface::config::HasDocument;
 use gosub_interface::node::Node;
-use crate::common::browser_state::{get_browser_state, BrowserState, WireframeState};
+use crate::common::browser_state::{BrowserState, WireframeState};
 use crate::common::style::{StyleProperty, StyleValue, Color as StyleColor};
 use crate::layering::layer::LayerList;
 use crate::layouter::{ElementContext, LayoutElementNode};
@@ -18,6 +18,7 @@ use crate::common::media::{Media, MediaType};
 use crate::painter::commands::border::{Border, BorderStyle};
 use crate::painter::commands::text::Text;
 use crate::tiler::{Tile, TiledLayoutElement};
+use crate::with_browser_state;
 
 /// Painter works with the layout tree and generates paint commands for the renderer. It does not
 /// generate a new data structure as output, but will update the existing layout elements with
@@ -44,32 +45,31 @@ impl<C: HasDocument> Painter<C> {
             return Vec::new();
         };
 
-        let binding = get_browser_state();
-        let state = binding.read().unwrap();
+        with_browser_state!(C, state => {
+            // Paint boxmodel for the hovered element if needed
+            if state.debug_hover && state.current_hovered_element.is_some() && state.current_hovered_element.unwrap() == layout_element.id {
+                commands.extend(self.generate_boxmodel_commands(&layout_element));
+            }
 
-        // Paint boxmodel for the hovered element if needed
-        if state.debug_hover && state.current_hovered_element.is_some() && state.current_hovered_element.unwrap() == layout_element.id {
-            commands.extend(self.generate_boxmodel_commands(&layout_element));
+            match state.wireframed {
+                WireframeState::Only => {
+                    // Paint only the wireframe of the element
+                    commands.extend(self.generate_wireframe_commands(&layout_element));
+                }
+                WireframeState::Both => {
+                    // Paint both the wireframe and element
+                    commands.extend(self.generate_element_commands(&layout_element, &dom_node));
+                    commands.extend(self.generate_wireframe_commands(&layout_element));
+                }
+                WireframeState::None => {
+                    // Paint only the element. No debug/developer wireframe is needed.
+                    commands.extend(self.generate_element_commands(&layout_element, &dom_node));
+                }
+            }
+
+            commands
         }
-
-        match state.wireframed {
-            WireframeState::Only => {
-                // Paint only the wireframe of the element
-                commands.extend(self.generate_wireframe_commands(&layout_element));
-            }
-            WireframeState::Both => {
-                // Paint both the wireframe and element
-                commands.extend(self.generate_element_commands(&layout_element, &dom_node));
-                commands.extend(self.generate_wireframe_commands(&layout_element));
-            }
-            WireframeState::None => {
-                // Paint only the element. No debug/developer wireframe is needed.
-                commands.extend(self.generate_element_commands(&layout_element, &dom_node));
-            }
-        }
-
-        commands
-    }
+    );
 
     // Returns a brush for the color found in the given dom node
     fn get_brush(&self, node: &C::Node, css_prop: StyleProperty, default: Brush) -> Brush {

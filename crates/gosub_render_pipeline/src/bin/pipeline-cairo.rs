@@ -12,7 +12,7 @@ use gtk4::{
 };
 use poc_pipeline::common;
 use poc_pipeline::common::browser_state::{
-    get_browser_state, init_browser_state, BrowserState, WireframeState,
+    init_browser_state, BrowserState, WireframeState,
 };
 use poc_pipeline::common::geo::{Dimension, Rect};
 use poc_pipeline::compositor::cairo::{CairoCompositor, CairoCompositorConfig};
@@ -26,6 +26,9 @@ use poc_pipeline::rasterizer::Rasterable;
 use poc_pipeline::rendertree_builder::RenderTree;
 use poc_pipeline::tiler::{TileList, TileState};
 use std::sync::RwLock;
+use gosub_render_pipeline::common::browser_state::{with_browser_state, BrowserState};
+use gosub_render_pipeline::layering::layer::LayerId;
+use gosub_render_pipeline::{with_browser_state, with_browser_state_mut};
 
 const TILE_DIMENSION: f64 = 256.0;
 
@@ -126,26 +129,25 @@ fn build_ui(app: &Application) {
         .build();
 
     // Find the root layout dimension so we can set the viewport correctly
-    let binding = get_browser_state().clone();
-    let state = binding.read().unwrap();
-    let dim = state
-        .tile_list
-        .read()
-        .unwrap()
-        .layer_list
-        .layout_tree
-        .clone()
-        .root_dimension
-        .clone();
+    let dim = with_browser_state!(C, state => {
+        state.tile_list
+            .read()
+            .unwrap()
+            .layer_list
+            .layout_tree
+            .clone()
+            .root_dimension
+            .clone();
+    });
 
     let area = DrawingArea::new();
     area.set_content_width(dim.width as i32);
     area.set_content_height(dim.height as i32);
     area.set_draw_func(move |_area, cr, _width, _height| {
-        let binding = get_browser_state();
-        let state = binding.read().unwrap();
-        let vis_layers = state.visible_layer_list.clone();
-        drop(state);
+
+        let vis_layers = with_browser_state!(C, state => {
+            state.visible_layer_list.clone()
+        });
 
         if vis_layers[0] {
             do_paint(LayerId::new(0));
@@ -165,90 +167,102 @@ fn build_ui(app: &Application) {
     let motion_controller = EventControllerMotion::new();
     let area_clone = area.clone();
     motion_controller.connect_motion(move |_, x, y| {
-        let binding = get_browser_state();
-        let state = binding.read().expect("Failed to get browser state");
-        let el_id = state
-            .tile_list
-            .read()
-            .unwrap()
-            .layer_list
-            .find_element_at(x, y)
-            .clone();
-        let che = state.current_hovered_element.clone();
+
+        let (che, el_id) = with_browser_state!(C, state => {
+            let el_id = state
+                .tile_list
+                .read()
+                .unwrap()
+                .layer_list
+                .find_element_at(x, y)
+                .clone();
+            let che = state.current_hovered_element.clone();
+
+            (che, el_id)
+        });
 
         let mut tile_ids = vec![];
         match (che, el_id) {
             (Some(current_id), Some(new_id)) if current_id != new_id => {
-                state
-                    .tile_list
-                    .read()
-                    .unwrap()
-                    .get_tiles_for_element(current_id)
-                    .iter()
-                    .for_each(|tile_id| {
-                        tile_ids.push(*tile_id);
-                    });
-                state
-                    .tile_list
-                    .read()
-                    .unwrap()
-                    .get_tiles_for_element(new_id)
-                    .iter()
-                    .for_each(|tile_id| {
-                        tile_ids.push(*tile_id);
-                    });
+                with_browser_state_mut!(C, state => {
+                    state
+                        .tile_list
+                        .read()
+                        .unwrap()
+                        .get_tiles_for_element(current_id)
+                        .iter()
+                        .for_each(|tile_id| {
+                            tile_ids.push(*tile_id);
+                        });
+                });
+                with_browser_state_mut!(C, state => {
+                    state
+                        .tile_list
+                        .read()
+                        .unwrap()
+                        .get_tiles_for_element(new_id)
+                        .iter()
+                        .for_each(|tile_id| {
+                            tile_ids.push(*tile_id);
+                        });
+                });
             }
             (None, Some(new_id)) => {
                 let mut tile_ids = vec![];
-                state
-                    .tile_list
-                    .read()
-                    .unwrap()
-                    .get_tiles_for_element(new_id)
-                    .iter()
-                    .for_each(|tile_id| {
-                        tile_ids.push(*tile_id);
-                    });
+                with_browser_state_mut!(C, state => {
+                    state
+                        .tile_list
+                        .read()
+                        .unwrap()
+                        .get_tiles_for_element(new_id)
+                        .iter()
+                        .for_each(|tile_id| {
+                            tile_ids.push(*tile_id);
+                        });
+                });
             }
             (Some(current_id), None) => {
                 let mut tile_ids = vec![];
-                state
-                    .tile_list
-                    .read()
-                    .unwrap()
-                    .get_tiles_for_element(current_id)
-                    .iter()
-                    .for_each(|tile_id| {
-                        tile_ids.push(*tile_id);
+                with_browser_state_mut!(C, state => {
+                    state
+                        .tile_list
+                        .read()
+                        .unwrap()
+                        .get_tiles_for_element(current_id)
+                        .iter()
+                        .for_each(|tile_id| {
+                            tile_ids.push(*tile_id);
+                        });
                     });
             }
             _ => {}
         }
-        drop(state);
 
-        let mut state = binding.write().expect("Failed to get browser state");
-        if state.current_hovered_element != el_id {
-            if el_id.is_some() {
-                let binding = state.tile_list.read().unwrap();
-                let layout_element = binding
-                    .layer_list
-                    .layout_tree
-                    .get_node_by_id(el_id.unwrap())
-                    .unwrap();
-                println!("Hovered element id:");
-                println!("   Layout ID : {:?}", el_id);
-                println!("   DOM ID    : {:?}", layout_element.dom_node_id);
-                drop(binding);
+
+        with_browser_state_mut!(C, state => {
+            if state.current_hovered_element != el_id {
+                if el_id.is_some() {
+                    let binding = state.tile_list.read().unwrap();
+                    let layout_element = binding
+                        .layer_list
+                        .layout_tree
+                        .get_node_by_id(el_id.unwrap())
+                        .unwrap();
+                    println!("Hovered element id:");
+                    println!("   Layout ID : {:?}", el_id);
+                    println!("   DOM ID    : {:?}", layout_element.dom_node_id);
+                    drop(binding);
+                }
+
+                for tile_id in &tile_ids {
+                    // It's ok when we have double tiles in the list. We just set the tile to dirty again.
+                    state.tile_list.write().unwrap().invalidate_tile(*tile_id);
+                }
+
+                state.current_hovered_element = el_id;
+                area_clone.queue_draw();
             }
-
-            for tile_id in &tile_ids {
-                // It's ok when we have double tiles in the list. We just set the tile to dirty again.
-                state.tile_list.write().unwrap().invalidate_tile(*tile_id);
-            }
-
-            state.current_hovered_element = el_id;
-            area_clone.queue_draw();
-        }
+        });
     });
     area.add_controller(motion_controller);
 
@@ -264,83 +278,82 @@ fn build_ui(app: &Application) {
     // Add keyboard shortcuts to trigger some of the rendering options
     let controller = gtk4::EventControllerKey::new();
     controller.connect_key_pressed(move |_controller, keyval, _keycode, _state| {
-        let binding = get_browser_state();
-        let mut state = binding.write().expect("Failed to get browser state");
+        with_browser_state_mut!(C, state => {
 
-        match keyval {
-            // numeric keys triggers the visibility of the layers
-            key if key == gtk4::gdk::Key::_1 => {
-                state.visible_layer_list[0] = !state.visible_layer_list[0];
-                area.queue_draw();
-            }
-            key if key == gtk4::gdk::Key::_2 => {
-                state.visible_layer_list[1] = !state.visible_layer_list[1];
-                area.queue_draw();
-            }
-            key if key == gtk4::gdk::Key::_3 => {
-                state.visible_layer_list[2] = !state.visible_layer_list[2];
-                area.queue_draw();
-            }
-            key if key == gtk4::gdk::Key::_4 => {
-                state.visible_layer_list[3] = !state.visible_layer_list[3];
-                area.queue_draw();
-            }
-            key if key == gtk4::gdk::Key::_5 => {
-                state.visible_layer_list[4] = !state.visible_layer_list[4];
-                area.queue_draw();
-            }
-            key if key == gtk4::gdk::Key::_6 => {
-                state.visible_layer_list[5] = !state.visible_layer_list[5];
-                area.queue_draw();
-            }
-            key if key == gtk4::gdk::Key::_7 => {
-                state.visible_layer_list[6] = !state.visible_layer_list[6];
-                area.queue_draw();
-            }
-            key if key == gtk4::gdk::Key::_8 => {
-                state.visible_layer_list[7] = !state.visible_layer_list[7];
-                area.queue_draw();
-            }
-            key if key == gtk4::gdk::Key::_9 => {
-                state.visible_layer_list[8] = !state.visible_layer_list[8];
-                area.queue_draw();
-            }
-            key if key == gtk4::gdk::Key::_0 => {
-                state.visible_layer_list[9] = !state.visible_layer_list[9];
-                area.queue_draw();
-            }
-            // toggle wireframed elements
-            key if key == gtk4::gdk::Key::w => {
-                match state.wireframed {
-                    WireframeState::None => state.wireframed = WireframeState::Only,
-                    WireframeState::Only => state.wireframed = WireframeState::Both,
-                    WireframeState::Both => state.wireframed = WireframeState::None,
+            match keyval {
+                // numeric keys triggers the visibility of the layers
+                key if key == gtk4::gdk::Key::_1 => {
+                    state.visible_layer_list[0] = !state.visible_layer_list[0];
+                    area.queue_draw();
                 }
-                state
-                    .tile_list
-                    .write()
-                    .expect("Failed to get tile list")
-                    .invalidate_all();
-                area.queue_draw();
+                key if key == gtk4::gdk::Key::_2 => {
+                    state.visible_layer_list[1] = !state.visible_layer_list[1];
+                    area.queue_draw();
+                }
+                key if key == gtk4::gdk::Key::_3 => {
+                    state.visible_layer_list[2] = !state.visible_layer_list[2];
+                    area.queue_draw();
+                }
+                key if key == gtk4::gdk::Key::_4 => {
+                    state.visible_layer_list[3] = !state.visible_layer_list[3];
+                    area.queue_draw();
+                }
+                key if key == gtk4::gdk::Key::_5 => {
+                    state.visible_layer_list[4] = !state.visible_layer_list[4];
+                    area.queue_draw();
+                }
+                key if key == gtk4::gdk::Key::_6 => {
+                    state.visible_layer_list[5] = !state.visible_layer_list[5];
+                    area.queue_draw();
+                }
+                key if key == gtk4::gdk::Key::_7 => {
+                    state.visible_layer_list[6] = !state.visible_layer_list[6];
+                    area.queue_draw();
+                }
+                key if key == gtk4::gdk::Key::_8 => {
+                    state.visible_layer_list[7] = !state.visible_layer_list[7];
+                    area.queue_draw();
+                }
+                key if key == gtk4::gdk::Key::_9 => {
+                    state.visible_layer_list[8] = !state.visible_layer_list[8];
+                    area.queue_draw();
+                }
+                key if key == gtk4::gdk::Key::_0 => {
+                    state.visible_layer_list[9] = !state.visible_layer_list[9];
+                    area.queue_draw();
+                }
+                // toggle wireframed elements
+                key if key == gtk4::gdk::Key::w => {
+                    match state.wireframed {
+                        WireframeState::None => state.wireframed = WireframeState::Only,
+                        WireframeState::Only => state.wireframed = WireframeState::Both,
+                        WireframeState::Both => state.wireframed = WireframeState::None,
+                    }
+                    state
+                        .tile_list
+                        .write()
+                        .expect("Failed to get tile list")
+                        .invalidate_all();
+                    area.queue_draw();
+                }
+                // toggle displaying only the hovered element
+                key if key == gtk4::gdk::Key::d => {
+                    state.debug_hover = !state.debug_hover;
+                    state
+                        .tile_list
+                        .write()
+                        .expect("Failed to get tile list")
+                        .invalidate_all();
+                    area.queue_draw();
+                }
+                // toggle tile grid
+                key if key == gtk4::gdk::Key::t => {
+                    state.show_tilegrid = !state.show_tilegrid;
+                    area.queue_draw();
+                }
+                _ => (),
             }
-            // toggle displaying only the hovered element
-            key if key == gtk4::gdk::Key::d => {
-                state.debug_hover = !state.debug_hover;
-                state
-                    .tile_list
-                    .write()
-                    .expect("Failed to get tile list")
-                    .invalidate_all();
-                area.queue_draw();
-            }
-            // toggle tile grid
-            key if key == gtk4::gdk::Key::t => {
-                state.show_tilegrid = !state.show_tilegrid;
-                area.queue_draw();
-            }
-            _ => (),
-        }
-
+        });
         glib::Propagation::Proceed
     });
     window.add_controller(controller);
@@ -351,76 +364,75 @@ fn build_ui(app: &Application) {
 
 /// Paint all the dirty tiles that are in view
 fn do_paint(layer_id: LayerId) {
-    let binding = get_browser_state();
-    let state = binding.read().unwrap();
+    with_browser_state!(C, state => {
+        let painter = Painter::new(state.tile_list.read().unwrap().layer_list.clone());
 
-    let painter = Painter::new(state.tile_list.read().unwrap().layer_list.clone());
+        let tile_ids = state
+            .tile_list
+            .read()
+            .unwrap()
+            .get_intersecting_tiles(layer_id, state.viewport);
+        for tile_id in tile_ids {
+            // get tile
+            let mut binding = state.tile_list.write().expect("Failed to get tile list");
+            let Some(tile) = binding.get_tile_mut(tile_id) else {
+                log::warn!("Tile not found: {:?}", tile_id);
+                continue;
+            };
 
-    let tile_ids = state
-        .tile_list
-        .read()
-        .unwrap()
-        .get_intersecting_tiles(layer_id, state.viewport);
-    for tile_id in tile_ids {
-        // get tile
-        let mut binding = state.tile_list.write().expect("Failed to get tile list");
-        let Some(tile) = binding.get_tile_mut(tile_id) else {
-            log::warn!("Tile not found: {:?}", tile_id);
-            continue;
-        };
+            // if not dirty, no need to render and continue
+            if tile.state == TileState::Clean || tile.state == TileState::Empty {
+                continue;
+            }
 
-        // if not dirty, no need to render and continue
-        if tile.state == TileState::Clean || tile.state == TileState::Empty {
-            continue;
+            // Paint all the elements in each tile
+            for tiled_layout_element in &mut tile.elements {
+                tiled_layout_element.paint_commands = painter.paint(tiled_layout_element);
+            }
         }
-
-        // Paint all the elements in each tile
-        for tiled_layout_element in &mut tile.elements {
-            tiled_layout_element.paint_commands = painter.paint(tiled_layout_element);
-        }
-    }
+    });
 }
 
 fn do_rasterize(layer_id: LayerId) {
-    let binding = get_browser_state();
-    let state = binding.read().unwrap();
+    with_browser_state!(C, state => {
 
-    let tile_ids = state
-        .tile_list
-        .read()
-        .unwrap()
-        .get_intersecting_tiles(layer_id, state.viewport);
-    for tile_id in tile_ids {
-        // get tile
-        let mut binding = state.tile_list.write().expect("Failed to get tile list");
-        let Some(tile) = binding.get_tile(tile_id) else {
-            log::warn!("Tile not found: {:?}", tile_id);
-            continue;
-        };
+        let tile_ids = state
+            .tile_list
+            .read()
+            .unwrap()
+            .get_intersecting_tiles(layer_id, state.viewport);
+        for tile_id in tile_ids {
+            // get tile
+            let mut binding = state.tile_list.write().expect("Failed to get tile list");
+            let Some(tile) = binding.get_tile(tile_id) else {
+                log::warn!("Tile not found: {:?}", tile_id);
+                continue;
+            };
 
-        // if not dirty, no need to render and continue
-        if tile.state == TileState::Clean || tile.state == TileState::Empty {
-            continue;
-        }
-
-        // Rasterize the tile into a texture
-        // println!("Generating painting commands for tile");
-        let Some(tile) = binding.get_tile_mut(tile_id) else {
-            log::warn!("Tile not found: {:?}", tile_id);
-            continue;
-        };
-
-        let rasterizer = CairoRasterizer::new();
-        match rasterizer.rasterize(tile) {
-            Some(texture_id) => {
-                tile.texture_id = Some(texture_id);
-                tile.state = TileState::Clean;
+            // if not dirty, no need to render and continue
+            if tile.state == TileState::Clean || tile.state == TileState::Empty {
+                continue;
             }
-            None => {
-                tile.state = TileState::Empty;
+
+            // Rasterize the tile into a texture
+            // println!("Generating painting commands for tile");
+            let Some(tile) = binding.get_tile_mut(tile_id) else {
+                log::warn!("Tile not found: {:?}", tile_id);
+                continue;
+            };
+
+            let rasterizer = CairoRasterizer::new();
+            match rasterizer.rasterize(tile) {
+                Some(texture_id) => {
+                    tile.texture_id = Some(texture_id);
+                    tile.state = TileState::Clean;
+                }
+                None => {
+                    tile.state = TileState::Empty;
+                }
             }
         }
-    }
+    });
 }
 
 // Function to set up viewport event listeners
@@ -475,19 +487,18 @@ fn on_viewport_changed(area: &DrawingArea, hadj: &Adjustment, vadj: &Adjustment)
         x, y, width, height
     );
 
-    let binding = get_browser_state();
-    let mut state = binding.write().expect("Failed to get browser state");
+    with_browser_state_mut!(C, state => {
+        // If we changed the viewport size, we need to invalidate all tiles
+        if width != state.viewport.width || height != state.viewport.height {
+            state
+                .tile_list
+                .write()
+                .expect("Failed to get tile list")
+                .invalidate_all();
+        }
 
-    // If we changed the viewport size, we need to invalidate all tiles
-    if width != state.viewport.width || height != state.viewport.height {
-        state
-            .tile_list
-            .write()
-            .expect("Failed to get tile list")
-            .invalidate_all();
-    }
-
-    state.viewport = Rect::new(x, y, width, height);
+        state.viewport = Rect::new(x, y, width, height);
+    });
 
     area.queue_draw();
 }

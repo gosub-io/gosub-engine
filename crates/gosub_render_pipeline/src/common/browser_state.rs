@@ -49,66 +49,60 @@ impl<C: HasDocument> Debug for BrowserState<C> {
     }
 }
 
-pub trait BrowserConfiguration: HasDocument + Send + Sync + 'static
-where
-    Self::Document: Sync
-{ }
-
-static BROWSER_STATE: OnceLock<Arc<RwLock<dyn ErasedBrowserState>>> = OnceLock::new();
-
-trait ErasedBrowserState: Debug + Send + Sync + 'static {
+pub trait AnyBrowserState: Debug + Send + Sync + 'static {
     fn as_any(&self) -> &dyn std::any::Any;
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any;
 }
 
-// impl Debug for ErasedBrowserState {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         f.debug_struct("ErasedBrowserState").finish()
-//     }
-// }
+static BROWSER_STATE: OnceLock<Arc<RwLock<dyn AnyBrowserState>>> = OnceLock::new();
 
-impl<C: BrowserConfiguration> ErasedBrowserState for BrowserState<C> where <C as HasDocument>::Document: Sync, <C as HasDocument>::Document: Send {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
-        self
-    }
+pub fn init_browser_state(state: Arc<RwLock<dyn AnyBrowserState>>) {
+    BROWSER_STATE.set(state).expect("Browser state already set");
 }
 
-pub fn init_browser_state<C: BrowserConfiguration>(state: BrowserState<C>) where <C as HasDocument>::Document: Sync, <C as HasDocument>::Document: Send {
-    BROWSER_STATE.set(Arc::new(RwLock::new(state)))
-        .expect("Browser state already initialized");
+fn get_browser_state() -> Arc<RwLock<dyn AnyBrowserState>> {
+    BROWSER_STATE.get().expect("Browser state not initialized").clone()
 }
 
-pub fn with_browser_state<F, R, C: BrowserConfiguration>(f: F) -> R
+pub fn with_browser_state<F, R, C: 'static>(f: F) -> R
 where
     F: FnOnce(&BrowserState<C>) -> R,
-    C::Document: Sync,
+    C: HasDocument + 'static + Sync + Send,
 {
-    let state = BROWSER_STATE.get().expect("Browser state not initialized");
-    let guard = state.read().unwrap();
-    let concrete_state = guard.as_any().downcast_ref::<BrowserState<C>>()
+    let binding = get_browser_state();
+    let guard = binding.read().unwrap();
+    let state = guard
+        .as_any()
+        .downcast_ref::<BrowserState<C>>()
         .expect("Incorrect BrowserState type");
-    f(concrete_state)
+    f(state)
 }
 
-pub fn with_browser_state_mut<F, R, C: BrowserConfiguration>(f: F) -> R
+pub fn with_browser_state_mut<F, R, C: 'static>(f: F) -> R
 where
     F: FnOnce(&mut BrowserState<C>) -> R,
-    C::Document: Sync,
+    C: HasDocument + 'static + Sync + Send,
 {
-    let state = BROWSER_STATE.get().expect("Browser state not initialized");
-    let mut guard = state.write().unwrap();
-    let concrete_state = guard.as_any_mut().downcast_mut::<BrowserState<C>>()
+    let binding = get_browser_state();
+    let mut guard = binding.write().unwrap();
+    let state = guard
+        .as_any_mut()
+        .downcast_mut::<BrowserState<C>>()
         .expect("Incorrect BrowserState type");
-    f(concrete_state)
+    f(state)
 }
 
 
-pub fn get_browser_state() -> Arc<RwLock<dyn ErasedBrowserState>> {
-    BROWSER_STATE
-        .get()
-        .expect("Browser state not initialized")
-        .clone()
+#[macro_export]
+macro_rules! with_browser_state {
+    ($cfg:ty, $state:ident => $body:block) => {
+        $crate::browser_state::with_browser_state::<_, _, $cfg>(|$state| $body)
+    };
+}
+
+#[macro_export]
+macro_rules! with_browser_state_mut {
+    ($cfg:ty, $state:ident => $body:block) => {
+        $crate::browser_state::with_browser_state_mut::<_, _, $cfg>(|$state| $body)
+    };
 }
