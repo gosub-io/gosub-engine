@@ -1,8 +1,7 @@
 use skia_safe::{AlphaType, ColorType, Data, ISize, ImageInfo};
-use crate::common::browser_state::BrowserState;
 use crate::common::get_texture_store;
 use crate::layering::layer::LayerId;
-use crate::with_browser;
+use crate::with_render_state;
 
 pub fn skia_compositor(canvas: &skia_safe::Canvas, layer_ids: Vec<LayerId>) {
     for layer_id in layer_ids {
@@ -11,7 +10,7 @@ pub fn skia_compositor(canvas: &skia_safe::Canvas, layer_ids: Vec<LayerId>) {
 }
 
 pub fn compose_layer(canvas: &skia_safe::canvas::Canvas, layer_id: LayerId) {
-    let tile_list = with_browser!(config, state => {
+    let tile_list = with_render_state!(config, state => {
         let Some(ref tile_list) = state.tile_list else {
             log::error!("No tile list found");
             return;

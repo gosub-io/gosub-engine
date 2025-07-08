@@ -1,9 +1,9 @@
 use gtk4::cairo;
 use gtk4::cairo::ImageSurface;
-use crate::common::browser_state::BrowserState;
+use crate::common::render_state::RenderState;
 use crate::layering::layer::LayerId;
 use crate::common::get_texture_store;
-use crate::with_browser_state;
+use crate::with_render_state;
 
 pub fn cairo_compositor(cr: &cairo::Context, layer_ids: Vec<LayerId>) {
     for layer_id in layer_ids {
@@ -12,7 +12,7 @@ pub fn cairo_compositor(cr: &cairo::Context, layer_ids: Vec<LayerId>) {
 }
 
 pub fn compose_layer(cr: &cairo::Context, layer_id: LayerId) {
-    with_browser_state!(C, state => {
+    with_render_state!(C, state => {
         let tile_ids = state.tile_list.read().expect("Failed to get tile list").get_intersecting_tiles(layer_id, state.viewport);
         for tile_id in tile_ids {
             let binding = state.tile_list.write().expect("Failed to get tile list");

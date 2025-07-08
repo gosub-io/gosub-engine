@@ -1,4 +1,4 @@
-use gosub_render_pipeline::common::browser_state::get_browser_state;
+use gosub_render_pipeline::common::render_state::get_render_state;
 use gosub_render_pipeline::layering::layer::LayerId;
 use gosub_render_pipeline::painter::Painter;
 use gosub_render_pipeline::rasterizer::Rasterable;
@@ -6,7 +6,7 @@ use gosub_render_pipeline::rasterizer::skia::SkiaRasterizer;
 use gosub_render_pipeline::tiler::TileState;
 
 pub fn do_paint(layer_id: LayerId) {
-    let binding = get_browser_state();
+    let binding = get_render_state();
     let state = binding.read().unwrap();
 
     let Some(ref tile_list) = state.tile_list else {
@@ -41,7 +41,7 @@ pub fn do_paint(layer_id: LayerId) {
 }
 
 pub fn do_rasterize(layer_id: LayerId) {
-    let binding = get_browser_state();
+    let binding = get_render_state();
     let state = binding.read().unwrap();
 
     let Some(ref tile_list) = state.tile_list else {

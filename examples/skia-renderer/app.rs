@@ -19,7 +19,7 @@ use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::KeyCode;
 use winit::keyboard::PhysicalKey::Code;
 use winit::window::{Window, WindowAttributes, WindowId};
-use gosub_render_pipeline::common::browser_state::{get_browser_state, WireframeState};
+use gosub_render_pipeline::common::render_state::{get_render_state, WireframeState};
 use gosub_render_pipeline::common::geo::{Dimension, Rect};
 use gosub_render_pipeline::compositor::Composable;
 use gosub_render_pipeline::compositor::skia::{SkiaCompositor, SkiaCompositorConfig};
@@ -78,7 +78,7 @@ impl ApplicationHandler for App {
                 event_loop.exit();
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-                let binding = get_browser_state();
+                let binding = get_render_state();
                 let state = binding.read().unwrap();
                 println!("Scale factor changed from {} to {}", state.dpi_scale_factor, scale_factor);
                 drop(state);
@@ -107,7 +107,7 @@ impl ApplicationHandler for App {
                     NonZeroU32::new(height.max(1)).unwrap(),
                 );
 
-                let binding = get_browser_state();
+                let binding = get_render_state();
                 let mut state = binding.write().unwrap();
                 state.viewport = Rect::new(0.0, 0.0, width as f64, height as f64);
                 drop(state);
@@ -125,7 +125,7 @@ impl ApplicationHandler for App {
                 let canvas = env.surface.canvas();
                 canvas.clear(skia_safe::Color::WHITE);
 
-                let binding = get_browser_state();
+                let binding = get_render_state();
                 let state = binding.read().unwrap();
                 let vis_layers = state.visible_layer_list.clone();
                 drop(state);
@@ -163,7 +163,7 @@ impl ApplicationHandler for App {
                 }
 
                 if physical_key >= Code(KeyCode::Digit0) && physical_key <= Code(KeyCode::Digit9) {
-                    let binding = get_browser_state();
+                    let binding = get_render_state();
                     let mut state = binding.write().unwrap();
 
                     let layer_id = match physical_key {
@@ -184,7 +184,7 @@ impl ApplicationHandler for App {
                 }
 
                 if logical_key == "w" {
-                    let binding = get_browser_state();
+                    let binding = get_render_state();
                     let mut state = binding.write().unwrap();
 
                     match state.wireframed {
@@ -206,7 +206,7 @@ impl ApplicationHandler for App {
                 }
 
                 if logical_key == "d" {
-                    let binding = get_browser_state();
+                    let binding = get_render_state();
                     let mut state = binding.write().unwrap();
 
                     state.debug_hover = !state.debug_hover;
@@ -214,7 +214,7 @@ impl ApplicationHandler for App {
                 }
 
                 if logical_key == "t" {
-                    let binding = get_browser_state();
+                    let binding = get_render_state();
                     let mut state = binding.write().unwrap();
 
                     state.show_tilegrid = !state.show_tilegrid;

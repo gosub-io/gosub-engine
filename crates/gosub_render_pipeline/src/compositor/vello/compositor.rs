@@ -1,9 +1,9 @@
 use vello::kurbo::Affine;
-use crate::common::browser_state::BrowserState;
+use crate::common::render_state::RenderState;
 use crate::common::get_texture_store;
 use crate::layering::layer::LayerId;
 use vello::peniko::{Blob, Image, ImageFormat};
-use crate::with_browser_state;
+use crate::with_render_state;
 
 pub fn vello_compositor(layer_ids: Vec<LayerId>) -> vello::Scene {
     let mut scene = vello::Scene::new();
@@ -16,7 +16,7 @@ pub fn vello_compositor(layer_ids: Vec<LayerId>) -> vello::Scene {
 }
 
 pub fn compose_layer(scene: &mut vello::Scene, layer_id: LayerId) {
-    with_browser_state!(C, state => {
+    with_render_state!(C, state => {
         let Some(ref tile_list) = state.tile_list else {
             log::error!("No tile list found");
             return;

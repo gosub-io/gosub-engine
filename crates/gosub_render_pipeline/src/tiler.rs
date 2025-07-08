@@ -17,35 +17,6 @@ use crate::layouter::{LayoutElementId, LayoutElementNode};
 use crate::painter::commands::PaintCommand;
 use crate::common::texture::TextureId;
 
-/*
-
-TileList
-    wrapped(LayerList)
-    tiles: hashmap<LayerId, TileLayer>
-    arena of Tile
-    next_node_id
-    default_tile_dimension
-
-TileLayer
-    layer_id
-    tiles: Vec<TileId>
-    rstar_tree
-
- Tile
-    id
-    layer_id
-    elements: Vec<TiledLayoutElement>
-    texture_id
-    state
-    rect
-
- TiledLayoutElement
-    id
-    rect
-    position
-    paint_commands
- */
-
 /// Identifier for tiles
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TileId(u64);

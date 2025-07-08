@@ -1,5 +1,5 @@
 use gtk4::cairo;
-use crate::common::browser_state::BrowserState;
+use crate::common::render_state::RenderState;
 use crate::compositor::cairo::compositor::cairo_compositor;
 use crate::compositor::Composable;
 use crate::layering::layer::LayerId;

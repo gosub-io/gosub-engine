@@ -1,8 +1,8 @@
-use crate::common::browser_state::BrowserState;
+use crate::common::render_state::RenderState;
 use crate::compositor::Composable;
 use crate::compositor::skia::compositor::skia_compositor;
 use crate::layering::layer::LayerId;
-use crate::{with_browser_state, with_browser_state_mut};
+use crate::{with_render_state, with_render_state_mut};
 
 pub struct SkiaCompositorConfig<'a> {
     pub canvas: &'a skia_safe::Canvas,
@@ -19,7 +19,7 @@ impl<'a> Composable for SkiaCompositor<'a> {
     type Return = ();
 
     fn compose(config: Self::Config) -> Self::Return {
-        with_browser_state!(C, state => {
+        with_render_state!(C, state => {
             let mut layers = vec![];
             for i in 0..state.visible_layer_list.len() {
                 if state.visible_layer_list[i] {

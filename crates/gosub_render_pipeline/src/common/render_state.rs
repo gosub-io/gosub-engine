@@ -14,7 +14,7 @@ pub enum WireframeState {
 
 /// Things that can change in the browser is stored in this structure. It keeps the current rendering pipeline (in the form of a layer_list),
 /// and some things that we can control, or is controlled by the user (like current_hovered_element).
-pub struct BrowserState<C: HasDocument> {
+pub struct RenderState<C: HasDocument> {
     /// List of layers that will be visible are set to true
     pub visible_layer_list: Vec<bool>,
     /// Defines if we need to draw wireframes, or the actual content, or both
@@ -35,7 +35,7 @@ pub struct BrowserState<C: HasDocument> {
     pub dpi_scale_factor: f32,
 }
 
-impl<C: HasDocument> Debug for BrowserState<C> {
+impl<C: HasDocument> Debug for RenderState<C> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("BrowserState")
             .field("visible_layer_list", &self.visible_layer_list)
@@ -49,60 +49,60 @@ impl<C: HasDocument> Debug for BrowserState<C> {
     }
 }
 
-pub trait AnyBrowserState: Debug + Send + Sync + 'static {
+pub trait AnyRenderState: Debug + Send + Sync + 'static {
     fn as_any(&self) -> &dyn std::any::Any;
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any;
 }
 
-static BROWSER_STATE: OnceLock<Arc<RwLock<dyn AnyBrowserState>>> = OnceLock::new();
+static RENDER_STATE: OnceLock<Arc<RwLock<dyn AnyRenderState>>> = OnceLock::new();
 
-pub fn init_browser_state(state: Arc<RwLock<dyn AnyBrowserState>>) {
-    BROWSER_STATE.set(state).expect("Browser state already set");
+pub fn init_render_state(state: Arc<RwLock<dyn AnyRenderState>>) {
+    RENDER_STATE.set(state).expect("Render state already set");
 }
 
-fn get_browser_state() -> Arc<RwLock<dyn AnyBrowserState>> {
-    BROWSER_STATE.get().expect("Browser state not initialized").clone()
+fn get_render_state() -> Arc<RwLock<dyn AnyRenderState>> {
+    RENDER_STATE.get().expect("Render state not initialized").clone()
 }
 
-pub fn with_browser_state<F, R, C: 'static>(f: F) -> R
+pub fn with_render_state<F, R, C: 'static>(f: F) -> R
 where
-    F: FnOnce(&BrowserState<C>) -> R,
+    F: FnOnce(&RenderState<C>) -> R,
     C: HasDocument + 'static + Sync + Send,
 {
-    let binding = get_browser_state();
+    let binding = get_render_state();
     let guard = binding.read().unwrap();
     let state = guard
         .as_any()
-        .downcast_ref::<BrowserState<C>>()
-        .expect("Incorrect BrowserState type");
+        .downcast_ref::<RenderState<C>>()
+        .expect("Incorrect RenderState type");
     f(state)
 }
 
-pub fn with_browser_state_mut<F, R, C: 'static>(f: F) -> R
+pub fn with_render_state_mut<F, R, C: 'static>(f: F) -> R
 where
-    F: FnOnce(&mut BrowserState<C>) -> R,
+    F: FnOnce(&mut RenderState<C>) -> R,
     C: HasDocument + 'static + Sync + Send,
 {
-    let binding = get_browser_state();
+    let binding = get_render_state();
     let mut guard = binding.write().unwrap();
     let state = guard
         .as_any_mut()
-        .downcast_mut::<BrowserState<C>>()
-        .expect("Incorrect BrowserState type");
+        .downcast_mut::<RenderState<C>>()
+        .expect("Incorrect RenderState type");
     f(state)
 }
 
 
 #[macro_export]
-macro_rules! with_browser_state {
+macro_rules! with_render_state {
     ($cfg:ty, $state:ident => $body:block) => {
-        $crate::browser_state::with_browser_state::<_, _, $cfg>(|$state| $body)
+        $crate::render_state::with_render_state::<_, _, $cfg>(|$state| $body)
     };
 }
 
 #[macro_export]
-macro_rules! with_browser_state_mut {
+macro_rules! with_render_state_mut {
     ($cfg:ty, $state:ident => $body:block) => {
-        $crate::browser_state::with_browser_state_mut::<_, _, $cfg>(|$state| $body)
+        $crate::render_state::with_render_state_mut::<_, _, $cfg>(|$state| $body)
     };
 }

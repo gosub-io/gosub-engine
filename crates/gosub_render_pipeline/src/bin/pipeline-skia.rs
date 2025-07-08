@@ -25,8 +25,8 @@ use winit::{
 };
 
 use poc_pipeline::common;
-use poc_pipeline::common::browser_state::{
-    init_browser_state, BrowserState, WireframeState,
+use poc_pipeline::common::render_state::{
+    init_render_state, RenderState, WireframeState,
 };
 use poc_pipeline::common::geo::{Dimension, Rect};
 use poc_pipeline::compositor::skia::{SkiaCompositor, SkiaCompositorConfig};
@@ -49,8 +49,8 @@ use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::KeyCode;
 use winit::keyboard::PhysicalKey::Code;
 use winit::window::{WindowAttributes, WindowId};
-use gosub_render_pipeline::common::browser_state::{BrowserState, WireframeState};
-use gosub_render_pipeline::{with_browser_state, with_browser_state_mut};
+use gosub_render_pipeline::common::render_state::{RenderState, WireframeState};
+use gosub_render_pipeline::{with_render_state, with_render_state_mut};
 use gosub_render_pipeline::common::geo::Dimension;
 use gosub_render_pipeline::layering::layer::{LayerId, LayerList};
 use gosub_render_pipeline::tiler::TileList;
@@ -74,7 +74,7 @@ fn main() {
     let window_dimension = Dimension::new(800.0, 600.0);
     let viewport_dimension = Dimension::new(1280.0, 1144.0);
 
-    let browser_state = BrowserState {
+    let render_state = RenderState {
         visible_layer_list: vec![true; 10],
         wireframed: WireframeState::None,
         debug_hover: false,
@@ -90,7 +90,7 @@ fn main() {
         tile_list: None,
         dpi_scale_factor: 1.0,
     };
-    init_browser_state(browser_state);
+    init_render_state(render_state);
 
     let event_loop = EventLoop::new().unwrap();
     event_loop.set_control_flow(ControlFlow::Poll);
@@ -101,14 +101,14 @@ fn main() {
 
 // This will reflow EVERYTHING. This is not efficient, but it's good enough for now.
 fn reflow() {
-    let cloned_document = with_browser_state!(C, state => {
+    let cloned_document = with_render_state!(C, state => {
         state.document.clone()
     });
     let mut render_tree = RenderTree::new(cloned_document);
     render_tree.parse();
 
 
-    let (viewport, dpi_scale_factor) = with_browser_state!(C, state => {
+    let (viewport, dpi_scale_factor) = with_render_state!(C, state => {
         (state.viewport, state.dpi_scale_factor)
     });
 
@@ -125,7 +125,7 @@ fn reflow() {
     let mut tile_list = TileList::new(layer_list, Dimension::new(TILE_DIMENSION, TILE_DIMENSION));
     tile_list.generate();
 
-    with_browser_state_mut!(C, state => {
+    with_render_state_mut!(C, state => {
         state.tile_list = Some(RwLock::new(tile_list));
     });
 }
@@ -204,7 +204,7 @@ impl ApplicationHandler for App {
                 event_loop.exit();
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-                with_browser_state_mut!(C, state => {
+                with_render_state_mut!(C, state => {
                     println!("Scale factor changed from {} to {}", state.dpi_scale_factor, scale_factor);
                     state.dpi_scale_factor = scale_factor as f32;
                 });
@@ -229,7 +229,7 @@ impl ApplicationHandler for App {
                     NonZeroU32::new(height.max(1)).unwrap(),
                 );
 
-                with_browser_state_mut!(C, state => {
+                with_render_state_mut!(C, state => {
                     state.viewport = Rect::new(0.0, 0.0, width as f64, height as f64);
                 });
 
@@ -246,7 +246,7 @@ impl ApplicationHandler for App {
                 let canvas = env.surface.canvas();
                 canvas.clear(Color::WHITE);
 
-                let vis_layers = with_browser_state!(C, state => {
+                let vis_layers = with_render_state!(C, state => {
                     state.visible_layer_list.clone();
                 });
 
@@ -297,14 +297,14 @@ impl ApplicationHandler for App {
                         _ => unreachable!(),
                     };
 
-                    with_browser_state_mut!(C, state => {
+                    with_render_state_mut!(C, state => {
                         state.visible_layer_list[layer_id] = !state.visible_layer_list[layer_id];
                     });
                     env.window.request_redraw();
                 }
 
                 if logical_key == "w" {
-                    with_browser_state_mut!(C, state => {
+                    with_render_state_mut!(C, state => {
                         match state.wireframed {
                             WireframeState::None => state.wireframed = WireframeState::Only,
                             WireframeState::Only => state.wireframed = WireframeState::Both,
@@ -325,14 +325,14 @@ impl ApplicationHandler for App {
                 }
 
                 if logical_key == "d" {
-                    with_browser_state_mut!(C, state => {
+                    with_render_state_mut!(C, state => {
                         state.debug_hover = !state.debug_hover;
                     });
                     env.window.request_redraw();
                 }
 
                 if logical_key == "t" {
-                    with_browser_state_mut!(C, state => {
+                    with_render_state_mut!(C, state => {
                         state.show_tilegrid = !state.show_tilegrid;
                     });
                     env.window.request_redraw();
@@ -498,7 +498,7 @@ fn create_surface(
 }
 
 fn do_paint(layer_id: LayerId) {
-    let ref tile_list = with_browser_state_mut!(C, state => {
+    let ref tile_list = with_render_state_mut!(C, state => {
         state.tile_list
     });
 
@@ -529,7 +529,7 @@ fn do_paint(layer_id: LayerId) {
 }
 
 fn do_rasterize(layer_id: LayerId) {
-    let ref tile_list = with_browser_state_mut!(C, state => {
+    let ref tile_list = with_render_state_mut!(C, state => {
         state.tile_list
     });
 

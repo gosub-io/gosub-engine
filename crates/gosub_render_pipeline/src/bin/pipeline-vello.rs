@@ -2,8 +2,8 @@
 compile_error!("This binary can only be used with the feature 'backend_vello' enabled");
 
 use poc_pipeline::common;
-use poc_pipeline::common::browser_state::{
-    init_browser_state, BrowserState, WireframeState,
+use poc_pipeline::common::render_state::{
+    init_render_state, RenderState, WireframeState,
 };
 use poc_pipeline::common::geo::{Dimension, Rect};
 use poc_pipeline::compositor::vello::{VelloCompositor, VelloCompositorConfig};
@@ -31,8 +31,8 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::KeyCode;
 use winit::keyboard::PhysicalKey::Code;
 use winit::window::{Window, WindowId};
-use gosub_render_pipeline::common::browser_state::BrowserState;
-use gosub_render_pipeline::with_browser_state_mut;
+use gosub_render_pipeline::common::render_state::RenderState;
+use gosub_render_pipeline::with_render_state_mut;
 
 const TILE_DIMENSION: f64 = 256.0;
 
@@ -45,7 +45,7 @@ fn main() {
     let window_dimension = Dimension::new(800.0, 600.0);
     let viewport_dimension = Dimension::new(1024.0, 768.0);
 
-    let browser_state = BrowserState {
+    let render_state = RenderState {
         // visible_layer_list: vec![true; 10],
         visible_layer_list: vec![true, false, false, false, false, false, false, false, false, false],
         wireframed: WireframeState::None,
@@ -62,7 +62,7 @@ fn main() {
         tile_list: None,
         dpi_scale_factor: 1.0,
     };
-    init_browser_state(browser_state);
+    init_render_state(render_state);
 
     let event_loop = EventLoop::new().unwrap();
     event_loop.set_control_flow(ControlFlow::Poll);
@@ -74,7 +74,7 @@ fn main() {
 fn reflow() {
     println!("reflowing to dimension: {:?}", state.viewport);
 
-    with_browser_state!(C, state => {
+    with_render_state!(C, state => {
         let mut render_tree = RenderTree::new(state.document.clone());
         render_tree.parse();
 
@@ -91,7 +91,7 @@ fn reflow() {
         tile_list.generate();
     });
 
-    with_browser_state_mut!(C, state => {
+    with_render_state_mut!(C, state => {
         state.tile_list = Some(RwLock::new(tile_list));
     });
 }
@@ -168,7 +168,7 @@ impl ApplicationHandler for App<'_> {
                     height,
                 );
 
-                with_browser_state_mut!(C, state => {
+                with_render_state_mut!(C, state => {
                     state.viewport = Rect::new(0.0, 0.0, width as f64, height as f64);
                 });
 
@@ -183,7 +183,7 @@ impl ApplicationHandler for App<'_> {
                 let dev_id = surface.dev_id;
                 let DeviceHandle { device, queue, .. } = &env.render_ctx.devices[dev_id];
 
-                let vis_layers = with_browser_state!(C, state => {
+                let vis_layers = with_render_state!(C, state => {
                     state.visible_layer_list.clone()
                 });
 
@@ -201,7 +201,7 @@ impl ApplicationHandler for App<'_> {
                     .get_current_texture()
                     .expect("Failed to get current texture");
 
-                let render_params = with_browser_state_mut!(C, state => {
+                let render_params = with_render_state_mut!(C, state => {
                     RenderParams {
                         base_color: color::palette::css::DARK_MAGENTA,
                         width: state.viewport.width as u32,
@@ -250,11 +250,11 @@ impl ApplicationHandler for App<'_> {
                 }
 
                 if physical_key >= Code(KeyCode::Digit0) && physical_key <= Code(KeyCode::Digit9) {
-                    let binding = get_browser_state();
+                    let binding = get_render_state();
                     let guard = binding.write().unwrap();
                     let mut state = guard
                         .as_any()
-                        .downcast_ref::<BrowserState<C>>()
+                        .downcast_ref::<RenderState<C>>()
                         .expect("Incorrect type");
 
                     let layer_id = match physical_key {
@@ -275,11 +275,11 @@ impl ApplicationHandler for App<'_> {
                 }
 
                 if logical_key == "w" {
-                    let binding = get_browser_state();
+                    let binding = get_render_state();
                     let guard = binding.write().unwrap();
                     let mut state = guard
                         .as_any()
-                        .downcast_ref::<BrowserState<C>>()
+                        .downcast_ref::<RenderState<C>>()
                         .expect("Incorrect type");
 
                     match state.wireframed {
@@ -301,7 +301,7 @@ impl ApplicationHandler for App<'_> {
                 }
 
                 if logical_key == "d" {
-                    let binding = get_browser_state();
+                    let binding = get_render_state();
                     let mut state = binding.write().unwrap();
 
                     state.debug_hover = !state.debug_hover;
@@ -309,7 +309,7 @@ impl ApplicationHandler for App<'_> {
                 }
 
                 if logical_key == "t" {
-                    let binding = get_browser_state();
+                    let binding = get_render_state();
                     let mut state = binding.write().unwrap();
 
                     state.show_tilegrid = !state.show_tilegrid;
@@ -370,11 +370,11 @@ fn create_window_env<'s>(el: &ActiveEventLoop, title: &str, size: Dimension) -> 
 
 
 fn do_paint(layer_id: LayerId) {
-    let binding = get_browser_state();
+    let binding = get_render_state();
     let guard = binding.read().unwrap();
     let state = guard
         .as_any()
-        .downcast_ref::<BrowserState<C>>()
+        .downcast_ref::<RenderState<C>>()
         .expect("Incorrect type");
 
     let Some(ref tile_list) = state.tile_list else {
@@ -414,11 +414,11 @@ fn do_rasterize(
     renderer: Arc<RefCell<Renderer>>,
     layer_id: LayerId,
 ) {
-    let binding = get_browser_state();
+    let binding = get_render_state();
     let guard = binding.read().unwrap();
     let state = guard
         .as_any()
-        .downcast_ref::<BrowserState<C>>()
+        .downcast_ref::<RenderState<C>>()
         .expect("Incorrect type");
 
     let Some(ref tile_list) = state.tile_list else {

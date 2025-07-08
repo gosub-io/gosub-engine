@@ -11,8 +11,8 @@ use gtk4::{
     ScrolledWindow,
 };
 use poc_pipeline::common;
-use poc_pipeline::common::browser_state::{
-    init_browser_state, BrowserState, WireframeState,
+use poc_pipeline::common::render_state::{
+    init_render_state, RenderState, WireframeState,
 };
 use poc_pipeline::common::geo::{Dimension, Rect};
 use poc_pipeline::compositor::cairo::{CairoCompositor, CairoCompositorConfig};
@@ -26,9 +26,9 @@ use poc_pipeline::rasterizer::Rasterable;
 use poc_pipeline::rendertree_builder::RenderTree;
 use poc_pipeline::tiler::{TileList, TileState};
 use std::sync::RwLock;
-use gosub_render_pipeline::common::browser_state::{with_browser_state, BrowserState};
+use gosub_render_pipeline::common::render_state::{with_render_state, RenderState};
 use gosub_render_pipeline::layering::layer::LayerId;
-use gosub_render_pipeline::{with_browser_state, with_browser_state_mut};
+use gosub_render_pipeline::{with_render_state, with_render_state_mut};
 
 const TILE_DIMENSION: f64 = 256.0;
 
@@ -87,7 +87,7 @@ fn main() {
         .application_id("io.gosub.renderer")
         .build();
 
-    let browser_state = BrowserState {
+    let render_state = RenderState {
         visible_layer_list: vec![true; 10],
         wireframed: WireframeState::None,
         debug_hover: false,
@@ -96,7 +96,7 @@ fn main() {
         show_tilegrid: true,
         viewport: Rect::ZERO,
     };
-    init_browser_state(browser_state);
+    init_render_state(render_state);
 
     app.connect_activate(move |app| {
         build_ui(app);
@@ -129,7 +129,7 @@ fn build_ui(app: &Application) {
         .build();
 
     // Find the root layout dimension so we can set the viewport correctly
-    let dim = with_browser_state!(C, state => {
+    let dim = with_render_state!(C, state => {
         state.tile_list
             .read()
             .unwrap()
@@ -145,7 +145,7 @@ fn build_ui(app: &Application) {
     area.set_content_height(dim.height as i32);
     area.set_draw_func(move |_area, cr, _width, _height| {
 
-        let vis_layers = with_browser_state!(C, state => {
+        let vis_layers = with_render_state!(C, state => {
             state.visible_layer_list.clone()
         });
 
@@ -168,7 +168,7 @@ fn build_ui(app: &Application) {
     let area_clone = area.clone();
     motion_controller.connect_motion(move |_, x, y| {
 
-        let (che, el_id) = with_browser_state!(C, state => {
+        let (che, el_id) = with_render_state!(C, state => {
             let el_id = state
                 .tile_list
                 .read()
@@ -184,7 +184,7 @@ fn build_ui(app: &Application) {
         let mut tile_ids = vec![];
         match (che, el_id) {
             (Some(current_id), Some(new_id)) if current_id != new_id => {
-                with_browser_state_mut!(C, state => {
+                with_render_state!(C, state => {
                     state
                         .tile_list
                         .read()
@@ -195,7 +195,7 @@ fn build_ui(app: &Application) {
                             tile_ids.push(*tile_id);
                         });
                 });
-                with_browser_state_mut!(C, state => {
+                with_render_state_mut!(C, state => {
                     state
                         .tile_list
                         .read()
@@ -209,7 +209,7 @@ fn build_ui(app: &Application) {
             }
             (None, Some(new_id)) => {
                 let mut tile_ids = vec![];
-                with_browser_state_mut!(C, state => {
+                with_render_state_mut!(C, state => {
                     state
                         .tile_list
                         .read()
@@ -223,7 +223,7 @@ fn build_ui(app: &Application) {
             }
             (Some(current_id), None) => {
                 let mut tile_ids = vec![];
-                with_browser_state_mut!(C, state => {
+                with_render_state_mut!(C, state => {
                     state
                         .tile_list
                         .read()
@@ -239,7 +239,7 @@ fn build_ui(app: &Application) {
         }
 
 
-        with_browser_state_mut!(C, state => {
+        with_render_state_mut!(C, state => {
             if state.current_hovered_element != el_id {
                 if el_id.is_some() {
                     let binding = state.tile_list.read().unwrap();
@@ -278,7 +278,7 @@ fn build_ui(app: &Application) {
     // Add keyboard shortcuts to trigger some of the rendering options
     let controller = gtk4::EventControllerKey::new();
     controller.connect_key_pressed(move |_controller, keyval, _keycode, _state| {
-        with_browser_state_mut!(C, state => {
+        with_render_state_mut!(C, state => {
 
             match keyval {
                 // numeric keys triggers the visibility of the layers
@@ -364,7 +364,7 @@ fn build_ui(app: &Application) {
 
 /// Paint all the dirty tiles that are in view
 fn do_paint(layer_id: LayerId) {
-    with_browser_state!(C, state => {
+    with_render_state!(C, state => {
         let painter = Painter::new(state.tile_list.read().unwrap().layer_list.clone());
 
         let tile_ids = state
@@ -394,7 +394,7 @@ fn do_paint(layer_id: LayerId) {
 }
 
 fn do_rasterize(layer_id: LayerId) {
-    with_browser_state!(C, state => {
+    with_render_state!(C, state => {
 
         let tile_ids = state
             .tile_list
@@ -487,7 +487,7 @@ fn on_viewport_changed(area: &DrawingArea, hadj: &Adjustment, vadj: &Adjustment)
         x, y, width, height
     );
 
-    with_browser_state_mut!(C, state => {
+    with_render_state_mut!(C, state => {
         // If we changed the viewport size, we need to invalidate all tiles
         if width != state.viewport.width || height != state.viewport.height {
             state

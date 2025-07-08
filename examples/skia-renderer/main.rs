@@ -15,7 +15,7 @@ use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::Window;
 use gosub_html5::document::builder::DocumentBuilderImpl;
 use gosub_interface::document::DocumentBuilder;
-use gosub_render_pipeline::common::browser_state::{get_browser_state, init_browser_state, BrowserState, WireframeState};
+use gosub_render_pipeline::common::render_state::{get_render_state, init_render_state, RenderState, WireframeState};
 use gosub_render_pipeline::common::geo::{Dimension, Rect};
 use gosub_render_pipeline::layouter::CanLayout;
 use gosub_render_pipeline::layouter::taffy::TaffyLayouter;
@@ -58,6 +58,7 @@ fn main() -> anyhow::Result<()> {
     let url: String = matches.get_one::<String>("url").expect("url").to_string();
     let url = Url::from_str(&url).unwrap_or_else(|_| panic!("Invalid url"));
 
+    // Load the HTML from the URL or file
     let html = if url.scheme() == "http" || url.scheme() == "https" {
         // Fetch the html from the url
         let Ok(mut response) = ureq::get(url.as_ref()).call() else {
@@ -76,6 +77,7 @@ fn main() -> anyhow::Result<()> {
         panic!("Invalid url scheme");
     };
 
+    // Convert the HTML string into a byte stream
     let mut stream = ByteStream::new(Encoding::UTF8, None);
     stream.read_from_str(&html, Some(Encoding::UTF8));
     stream.close();
@@ -91,7 +93,7 @@ fn main() -> anyhow::Result<()> {
     let window_dimension = Dimension::new(800.0, 600.0);
     let viewport_dimension = Dimension::new(1280.0, 1144.0);
 
-    let browser_state = BrowserState {
+    let render_state = RenderState {
         visible_layer_list: vec![true; 10],
         wireframed: WireframeState::None,
         debug_hover: false,
@@ -107,7 +109,7 @@ fn main() -> anyhow::Result<()> {
         tile_list: None,
         dpi_scale_factor: 1.0,
     };
-    init_browser_state(browser_state);
+    init_render_state(render_state);
 
     let event_loop = EventLoop::new().unwrap();
     event_loop.set_control_flow(ControlFlow::Poll);
@@ -120,7 +122,7 @@ fn main() -> anyhow::Result<()> {
 
 
 fn reflow() {
-    let binding = get_browser_state();
+    let binding = get_render_state();
     let state = binding.read().unwrap();
 
     let mut render_tree = RenderTree::new(state.document.clone());
@@ -143,7 +145,7 @@ fn reflow() {
 
     drop(state);
 
-    let binding = get_browser_state();
+    let binding = get_render_state();
     let mut state = binding.write().unwrap();
     state.tile_list = Some(RwLock::new(tile_list));
 }

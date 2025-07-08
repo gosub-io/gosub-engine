@@ -1,7 +1,7 @@
 pub mod texture;
 pub mod media;
 pub mod geo;
-pub mod browser_state;
+pub mod render_state;
 pub mod font;
 
 mod texture_store;
