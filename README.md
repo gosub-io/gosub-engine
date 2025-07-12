@@ -1,3 +1,5 @@
+# This is a fork of Gosub-engine for studying web browser!!
+
 # Gosub: Gateway to Optimized Searching and Unlimited Browsing
 
 This repository holds the Gosub browser engine. It will become a standalone library that can be used by other projects
