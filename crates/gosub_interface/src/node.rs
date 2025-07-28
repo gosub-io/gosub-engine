@@ -12,7 +12,7 @@ pub enum QuirksMode {
     NoQuirks,
 }
 
-/// Different types of nodes that all have their own data structures (NodeData)
+/// Different types of nodes that all have their own data structures (`NodeData`)
 #[derive(Debug, PartialEq)]
 pub enum NodeType {
     DocumentNode,

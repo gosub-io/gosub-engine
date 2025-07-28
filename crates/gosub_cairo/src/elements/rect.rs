@@ -48,7 +48,7 @@ impl GsRect {
 
 impl TRect for GsRect {
     fn new(x: FP, y: FP, width: FP, height: FP) -> Self {
-        GsRect::new(x as f64, y as f64, width as f64, height as f64, None)
+        GsRect::new(f64::from(x), f64::from(y), f64::from(width), f64::from(height), None)
     }
 
     fn from_point(point: Point, size: Size) -> Self {

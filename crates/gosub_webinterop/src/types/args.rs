@@ -113,7 +113,7 @@ impl Arg {
                 }
             }
             TypeT::Generic(p) => {
-                p.iter().for_each(|p| {
+                for p in p {
                     if let Some(s) = p.segments.last() {
                         if s.ident == "WebContext" {
                             variant = ArgVariant::Context;
@@ -123,7 +123,7 @@ impl Arg {
                             variant = ArgVariant::Generic;
                         }
                     }
-                });
+                }
             }
             _ => {}
         }

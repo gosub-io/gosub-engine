@@ -16,7 +16,7 @@ pub struct DocumentQuery<C: HasDocument> {
 impl<C: HasDocument> DocumentQuery<C> {
     /// Perform a single query against the document.
     /// If query search type is uninitialized, returns an error.
-    /// Otherwise, returns a vector of NodeIds that match the predicate in tree order (preorder depth-first.)
+    /// Otherwise, returns a vector of `NodeIds` that match the predicate in tree order (preorder depth-first.)
     pub fn query(doc: &C::Document, query: &Query) -> gosub_shared::types::Result<Vec<NodeId>> {
         if query.search_type == SearchType::Uninitialized {
             return Err(Error::Query("Query predicate is uninitialized".to_owned()).into());
@@ -106,9 +106,8 @@ impl<C: HasDocument> DocumentQuery<C> {
                     let parent = doc.node_by_id(parent_id).unwrap();
                     if let Some(parent_data) = parent.get_element_data() {
                         return parent_data.name() == *parent_tag;
-                    } else {
-                        return false;
                     }
+                    return false;
                 }
 
                 false

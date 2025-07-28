@@ -50,15 +50,15 @@ pub fn parse_overflow<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Point<Ov
         if let Some(value) = display.as_string() {
             let x = parse(value);
             overflow.x = x;
-        };
-    };
+        }
+    }
 
     if let Some(display) = node.get_property("overflow-y") {
         if let Some(value) = display.as_string() {
             let y = parse(value);
             overflow.y = y;
-        };
-    };
+        }
+    }
 
     overflow
 }

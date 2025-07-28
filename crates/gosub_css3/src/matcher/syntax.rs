@@ -69,10 +69,10 @@ impl Display for SyntaxComponentMultiplier {
             SyntaxComponentMultiplier::ZeroOrMore => write!(f, "*"),
             SyntaxComponentMultiplier::OneOrMore => write!(f, "+"),
             SyntaxComponentMultiplier::Optional => write!(f, "?"),
-            SyntaxComponentMultiplier::Between(min, max) => write!(f, "{{{}, {}}}", min, max),
+            SyntaxComponentMultiplier::Between(min, max) => write!(f, "{{{min}, {max}}}"),
             SyntaxComponentMultiplier::AtLeastOneValue => write!(f, "!"),
             SyntaxComponentMultiplier::CommaSeparatedRepeat(min, max) => {
-                write!(f, "#{{{}, {}}}", min, max)
+                write!(f, "#{{{min}, {max}}}")
             }
         }
     }
@@ -123,7 +123,7 @@ pub enum SyntaxComponent {
         property: String,
         multipliers: Vec<SyntaxComponentMultiplier>,
     },
-    /// Functions like color(), length() etc
+    /// Functions like `color()`, `length()` etc
     Function {
         name: String,
         arguments: Option<Box<SyntaxComponent>>,
@@ -165,7 +165,7 @@ pub enum SyntaxComponent {
         combinator: GroupCombinators,
         multipliers: Vec<SyntaxComponentMultiplier>,
     },
-    /// special unit() function case (@todo: figure out if we need this special case)
+    /// special `unit()` function case (@todo: figure out if we need this special case)
     Unit {
         from: Option<f32>,
         to: Option<f32>,
@@ -179,10 +179,12 @@ pub enum SyntaxComponent {
 }
 
 impl SyntaxComponent {
+    #[must_use] 
     pub fn is_group(&self) -> bool {
         matches!(self, SyntaxComponent::Group { .. })
     }
 
+    #[must_use] 
     pub fn get_multipliers(&self) -> Vec<SyntaxComponentMultiplier> {
         match self {
             SyntaxComponent::Group { multipliers, .. } => multipliers.clone(),
@@ -242,7 +244,7 @@ impl SyntaxComponent {
     }
 }
 
-/// A value definition syntax structure. See https://developer.mozilla.org/en-US/docs/Web/CSS/Value_definition_syntax
+/// A value definition syntax structure. See <https://developer.mozilla.org/en-US/docs/Web/CSS/Value_definition_syntax>
 pub(crate) struct CssSyntax {
     /// Source string of the syntax
     source: String,
@@ -267,7 +269,7 @@ impl CssSyntax {
             Ok((input, components)) => {
                 if !input.trim().is_empty() {
                     return Err(CssError::new(
-                        format!("Failed to parse all input (left: '{}')", input).as_str(),
+                        format!("Failed to parse all input (left: '{input}')").as_str(),
                     ));
                 }
                 Ok(CssSyntaxTree::new(vec![components]))
@@ -318,7 +320,7 @@ where
 /// Parse a keyword (alphanumeric characters and dashes)
 fn parse_keyword(input: &str) -> IResult<&str, &str> {
     let alpha_or_dash = alt((alphanumeric1, recognize(many1(one_of("-")))));
-    recognize(fold_many1(alpha_or_dash, || (), |_, _| ())).parse(input)
+    recognize(fold_many1(alpha_or_dash, || (), |(), _| ())).parse(input)
 }
 
 /// Parse an integer
@@ -561,7 +563,7 @@ fn parse_unit_inner(input: &str) -> IResult<&str, SyntaxComponent> {
     }
 
     // Convert the suffixes to a vector of strings
-    let suffixes: Vec<String> = suffixes.unwrap().iter().map(|s| s.to_string()).collect();
+    let suffixes: Vec<String> = suffixes.unwrap().iter().map(|s| (*s).to_string()).collect();
     Ok((
         input,
         SyntaxComponent::Unit {
@@ -635,7 +637,7 @@ fn parse_generic_keyword(input: &str) -> IResult<&str, SyntaxComponent> {
     .parse(input)
 }
 
-/// Parses an infinity symbol and returns NumberOrInfinity::Infinity
+/// Parses an infinity symbol and returns `NumberOrInfinity::Infinity`
 fn parse_infinity(input: &str) -> IResult<&str, NumberOrInfinity> {
     alt((
         map(tag_no_case("inf"), |_| NumberOrInfinity::Infinity),
@@ -646,7 +648,7 @@ fn parse_infinity(input: &str) -> IResult<&str, NumberOrInfinity> {
     .parse(input)
 }
 
-/// Parses an integer (signed or unsigned) and returns NumberOrInfinity::FiniteI64, or errors when the integer is invalid
+/// Parses an integer (signed or unsigned) and returns `NumberOrInfinity::FiniteI64`, or errors when the integer is invalid
 fn parse_signed_integer(input: &str) -> IResult<&str, NumberOrInfinity> {
     map_res(pair(opt(char('-')), digit1), |(sign, digits): (Option<char>, &str)| {
         let neg_multiplier = if sign == Some('-') { -1 } else { 1 };
@@ -671,7 +673,7 @@ fn parse_unit_range(input: &str) -> IResult<&str, NumberOrInfinity> {
             CssValue::Zero => 0,
             CssValue::Number(v) => v as i64,
             v => {
-                panic!("Invalid value: {:?}", v);
+                panic!("Invalid value: {v:?}");
             }
         };
 

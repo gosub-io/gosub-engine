@@ -21,6 +21,7 @@ impl Default for Tabs {
 }
 
 impl Tabs {
+    #[must_use] 
     pub fn new(initial: InstanceHandle) -> Self {
         let mut tabs = SlotMap::new();
 
@@ -100,17 +101,18 @@ impl Tabs {
         }
     }
 
+    #[must_use] 
     pub fn is_active(&self, id: InstanceId) -> bool {
         self.active == id
     }
 }
 
-/// DefaultKey to InstanceID
+/// `DefaultKey` to `InstanceID`
 fn kti(key: DefaultKey) -> InstanceId {
     InstanceId(key.data().as_ffi())
 }
 
-/// InstanceID to DefaultKey
+/// `InstanceID` to `DefaultKey`
 fn itk(id: InstanceId) -> DefaultKey {
     DefaultKey::from(KeyData::from_ffi(id.0))
 }

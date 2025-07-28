@@ -144,7 +144,7 @@ impl Renderer {
             }
 
             if chosen_adapter.is_none() && config.crash_on_invalid_adapter {
-                eprintln!("No adapter found with name: {}", adapter_name);
+                eprintln!("No adapter found with name: {adapter_name}");
                 std::process::exit(1);
             }
 

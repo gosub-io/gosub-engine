@@ -137,7 +137,7 @@ impl Css3<'_> {
         let result = self.parse_at_rule_internal(is_declaration);
         if result.is_err() && self.config.ignore_errors {
             self.parse_until_rule_end();
-            log::warn!("Ignoring error in parse_at_rule: {:?}", result);
+            log::warn!("Ignoring error in parse_at_rule: {result:?}");
             return Ok(None);
         }
 

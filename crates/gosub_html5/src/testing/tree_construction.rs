@@ -34,6 +34,7 @@ pub struct Test {
 
 impl Test {
     /// Returns the script modes that should be tested as an array
+    #[must_use] 
     pub fn script_modes(&self) -> &[bool] {
         match self.spec.script_mode {
             ScriptMode::ScriptOff => &[false],
@@ -42,10 +43,12 @@ impl Test {
         }
     }
 
+    #[must_use] 
     pub fn document_as_str(&self) -> &str {
         self.spec.document.as_str()
     }
 
+    #[must_use] 
     pub fn spec_data(&self) -> &str {
         self.spec.data.as_str()
     }
@@ -67,7 +70,7 @@ impl Default for Harness {
 }
 
 impl Harness {
-    /// Generated a new harness instance. It uses a dummy test that is replaced when run_test is called
+    /// Generated a new harness instance. It uses a dummy test that is replaced when `run_test` is called
     #[must_use]
     pub fn new() -> Self {
         Self {

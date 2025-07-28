@@ -17,7 +17,7 @@ pub mod poll_guard;
 #[allow(dead_code)]
 mod timers;
 
-/// The web event loop, this will be the main event loop for a JS or Lua runtime, it is directly tied to an instance's EventLoop
+/// The web event loop, this will be the main event loop for a JS or Lua runtime, it is directly tied to an instance's `EventLoop`
 #[allow(unused)]
 pub struct WebEventLoop<C: HasWebComponents, E: FutureExecutor = TokioExecutor> {
     listeners: EventListeners<E>,
@@ -45,7 +45,7 @@ pub enum LocalEventLoopMessage<E: FutureExecutor> {
 }
 
 impl<C: HasWebComponents> WebEventLoop<C> {
-    /// Create a new WebEventLoop on a new thead, returning the handle to the event loop
+    /// Create a new `WebEventLoop` on a new thead, returning the handle to the event loop
     pub fn new_on_thread(handles: Handles<C>) -> WebEventLoopHandle {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()

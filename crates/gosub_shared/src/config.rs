@@ -9,7 +9,7 @@ pub enum Context {
     Declaration,
 }
 
-/// ParserConfig holds the configuration for the CSS3 parser
+/// `ParserConfig` holds the configuration for the CSS3 parser
 pub struct ParserConfig {
     /// Context defines what kind of data we are providing: a stylesheet, a rule, an at-rule or a declaration
     pub context: Context,

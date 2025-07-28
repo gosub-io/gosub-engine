@@ -89,7 +89,7 @@ fn fetch_url<C: HasHtmlParser>(
 
     let mut resolver = Dns::new();
     let Some(hostname) = parts.host_str() else {
-        return Err(Error::Generic(format!("invalid hostname: {}", url)).into());
+        return Err(Error::Generic(format!("invalid hostname: {url}")).into());
     };
     let _ = resolver.resolve(hostname, ResolveType::Ipv4)?;
 
@@ -110,7 +110,7 @@ fn fetch_url<C: HasHtmlParser>(
             fetch_response.response = Response::new();
             fetch_response.response.status = resp.status().as_u16();
             fetch_response.response.version = format!("{:?}", resp.version());
-            for (key, val) in resp.headers().iter() {
+            for (key, val) in resp.headers() {
                 fetch_response
                     .response
                     .headers
@@ -123,7 +123,7 @@ fn fetch_url<C: HasHtmlParser>(
             fetch_response.response.body = resp.body_mut().read_to_vec()?;
         }
         Err(e) => {
-            return Err(Error::Generic(format!("Failed to fetch URL: {}", e)).into());
+            return Err(Error::Generic(format!("Failed to fetch URL: {e}")).into());
         }
     }
     timing_stop!(t_id);
@@ -141,7 +141,7 @@ fn fetch_url<C: HasHtmlParser>(
             fetch_response.parse_errors = parse_errors;
         }
         Err(e) => {
-            return Err(Error::Generic(format!("Failed to parse HTML: {}", e)).into());
+            return Err(Error::Generic(format!("Failed to parse HTML: {e}")).into());
         }
     }
 

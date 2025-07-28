@@ -12,9 +12,9 @@ use gosub_shared::errors::{CssError, CssResult};
 use gosub_shared::{timing_start, timing_stop};
 
 pub mod ast;
-/// This CSS3 parser is heavily based on the MIT licensed CssTree parser written by
-/// Roman Dvornov (https://github.com/lahmatiy).
-/// The original version can be found at https://github.com/csstree/csstree
+/// This CSS3 parser is heavily based on the MIT licensed `CssTree` parser written by
+/// Roman Dvornov (<https://github.com/lahmatiy>).
+/// The original version can be found at <https://github.com/csstree/csstree>
 pub mod colors;
 pub mod errors;
 mod functions;
@@ -42,7 +42,7 @@ pub struct Css3<'stream> {
 }
 
 impl<'stream> Css3<'stream> {
-    /// Creates a new parser with the given byte stream so only parse() needs to be called.
+    /// Creates a new parser with the given byte stream so only `parse()` needs to be called.
     fn new(stream: &'stream mut ByteStream, config: ParserConfig, origin: CssOrigin, source: &str) -> Self {
         Self {
             tokenizer: Tokenizer::new(stream, Location::default()),
@@ -53,7 +53,7 @@ impl<'stream> Css3<'stream> {
         }
     }
 
-    /// Parses a direct string to a CssStyleSheet
+    /// Parses a direct string to a `CssStyleSheet`
     pub fn parse_str(
         data: &str,
         config: ParserConfig,
@@ -67,7 +67,7 @@ impl<'stream> Css3<'stream> {
         Css3::parse_stream(&mut stream, config, origin, source_url)
     }
 
-    /// Parses a direct stream to a CssStyleSheet
+    /// Parses a direct stream to a `CssStyleSheet`
     pub fn parse_stream(
         stream: &mut ByteStream,
         config: ParserConfig,
@@ -106,6 +106,7 @@ impl<'stream> Css3<'stream> {
 }
 
 /// Loads the default user agent stylesheet
+#[must_use] 
 pub fn load_default_useragent_stylesheet() -> CssStylesheet {
     // @todo: we should be able to browse to gosub:useragent.css and see the actual useragent css file
     let url = "gosub:useragent.css";

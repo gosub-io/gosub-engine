@@ -197,7 +197,7 @@ impl<C: ModuleConfiguration<ChromeHandle = WinitEventLoopHandle<C>>> Application
         if let Some(window) = self.windows.get_mut(&window_id) {
             if let Err(e) = window.event(event_loop, &mut self.backend, event) {
                 eprintln!("Error handling window event: {e:?}");
-            };
+            }
         }
     }
 
@@ -251,7 +251,7 @@ impl<'a, C: ModuleConfiguration<ChromeHandle = WinitEventLoopHandle<C>>> Applica
             request: RequestServerHandle,
         };
 
-        self.active_state = Some(ActiveState { handles, proxy });
+        self.active_state = Some(ActiveState { proxy, handles });
         self.event_loop = Some(event_loop);
 
         Ok(())

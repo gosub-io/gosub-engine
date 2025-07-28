@@ -1,7 +1,7 @@
 use phf::phf_map;
 
 /// These are token replacements as defined by
-/// https://dev.w3.org/html5/spec-LC/tokenization.html#consume-a-character-reference
+/// <https://dev.w3.org/html5/spec-LC/tokenization.html#consume-a-character-reference>
 /// If a character (#0x80; for instance) is found, it must be replaced by the given character
 pub static TOKEN_REPLACEMENTS: phf::Map<u32, char> = phf_map! {
     // REPLACEMENT CHARACTER
@@ -75,7 +75,7 @@ pub static TOKEN_REPLACEMENTS: phf::Map<u32, char> = phf_map! {
 };
 
 /// Converted from golang.org/x/net/html/entity.go
-/// Taken from https://dev.w3.org/html5/spec-LC/named-character-references.html#named-character-references
+/// Taken from <https://dev.w3.org/html5/spec-LC/named-character-references.html#named-character-references>
 pub static TOKEN_NAMED_CHARS: phf::Map<&'static str, &'static str> = phf_map! {
     "AElig;"                            => "\u{00C6}",
     "AMP;"                              => "\u{0026}",

@@ -50,7 +50,7 @@ impl CssSystem for Css3System {
 
         for sheet in sheets {
             for rule in &sheet.rules {
-                for selector in rule.selectors().iter() {
+                for selector in rule.selectors() {
                     let (matched, specificity) = match_selector::<C>(doc, id, selector);
 
                     if !matched {
@@ -58,7 +58,7 @@ impl CssSystem for Css3System {
                     }
 
                     // Selector matched, so we add all declared values to the map
-                    for declaration in rule.declarations().iter() {
+                    for declaration in rule.declarations() {
                         // Step 1: find the property in our CSS definition list
                         let Some(definition) = definitions.find_property(&declaration.property) else {
                             // If not found, we skip this declaration
@@ -77,7 +77,7 @@ impl CssSystem for Css3System {
                         // Check if the declaration matches the definition and return the "expanded" order
                         let res = definition.matches_and_shorthands(match_value, &mut fix_list);
                         if !res {
-                            warn!("Declaration does not match definition: {:?}", declaration);
+                            warn!("Declaration does not match definition: {declaration:?}");
                             continue;
                         }
 
@@ -168,11 +168,11 @@ impl Css3System {
     }
 }
 
+#[must_use] 
 pub fn prop_is_inherit(name: &str) -> bool {
     get_css_definitions()
         .find_property(name)
-        .map(|def| def.inherited)
-        .unwrap_or(false)
+        .is_some_and(|def| def.inherited)
 }
 
 pub fn add_property_to_map(
@@ -231,7 +231,7 @@ pub fn node_is_unrenderable<C: HasDocument>(node: &C::Node) -> bool {
     }
 
     if let Some(text_data) = &node.get_text_data() {
-        if text_data.value().chars().all(|c| c.is_whitespace()) {
+        if text_data.value().chars().all(char::is_whitespace) {
             return true;
         }
     }

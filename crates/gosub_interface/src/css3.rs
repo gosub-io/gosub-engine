@@ -16,7 +16,7 @@ pub enum CssOrigin {
     User,
 }
 
-/// The CssSystem trait is a trait that defines all things CSS3 that are used by other non-css3 crates. This is the main trait that
+/// The `CssSystem` trait is a trait that defines all things CSS3 that are used by other non-css3 crates. This is the main trait that
 /// is used to parse CSS3 files. It contains sub elements like the Stylesheet trait that is used in for instance the Document trait.
 pub trait CssSystem: Clone + Debug + 'static {
     type Stylesheet: CssStylesheet;

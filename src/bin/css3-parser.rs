@@ -102,8 +102,8 @@ fn main() -> Result<()> {
     let tree = result.unwrap();
 
     println!("\n------- Log messages -------");
-    for log in tree.parse_log.iter() {
-        println!("{}", log);
+    for log in &tree.parse_log {
+        println!("{log}");
     }
 
     Ok(())
@@ -111,12 +111,9 @@ fn main() -> Result<()> {
 
 /// Print snippet where the error occurred
 fn display_snippet(css: &str, err: CssError) {
-    let loc = match err.location {
-        Some(l) => l,
-        None => {
-            println!("Error: {}", err.message);
-            return;
-        }
+    let loc = if let Some(l) = err.location { l } else {
+        println!("Error: {}", err.message);
+        return;
     };
 
     let lines: Vec<&str> = css.split('\n').collect();
@@ -162,7 +159,7 @@ fn print_tokens(css: &str) {
     let mut tokenizer = Tokenizer::new(&mut stream, Location::default());
     loop {
         let token = tokenizer.consume();
-        println!("{:?}", token);
+        println!("{token:?}");
 
         if token.token_type == TokenType::Eof {
             break;

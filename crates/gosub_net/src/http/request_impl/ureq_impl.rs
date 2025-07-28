@@ -36,7 +36,7 @@ impl RequestAgent for UreqAgent {
 fn get_headers(http_headers: &http::header::HeaderMap) -> Headers {
     let mut headers = Headers::with_capacity(http_headers.len());
 
-    for (name, value) in http_headers.iter() {
+    for (name, value) in http_headers {
         headers.set(name.as_str(), value.to_str().unwrap_or_default());
     }
 

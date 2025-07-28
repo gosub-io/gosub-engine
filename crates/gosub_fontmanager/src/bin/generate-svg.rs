@@ -35,7 +35,7 @@ fn main() {
     let font = binding.as_str();
 
     let Some(font_info) = manager.find(&[font], FontStyle::Normal) else {
-        eprintln!("Font not found: {}", font);
+        eprintln!("Font not found: {font}");
         return;
     };
 
@@ -122,10 +122,10 @@ fn draw_curve(curve: freetype::outline::Curve) {
     match curve {
         freetype::outline::Curve::Line(pt) => println!("L {} {}", pt.x, -pt.y),
         freetype::outline::Curve::Bezier2(pt1, pt2) => {
-            println!("Q {} {} {} {}", pt1.x, -pt1.y, pt2.x, -pt2.y)
+            println!("Q {} {} {} {}", pt1.x, -pt1.y, pt2.x, -pt2.y);
         }
         freetype::outline::Curve::Bezier3(pt1, pt2, pt3) => {
-            println!("C {} {} {} {} {} {}", pt1.x, -pt1.y, pt2.x, -pt2.y, pt3.x, -pt3.y)
+            println!("C {} {} {} {} {} {}", pt1.x, -pt1.y, pt2.x, -pt2.y, pt3.x, -pt3.y);
         }
     }
 }

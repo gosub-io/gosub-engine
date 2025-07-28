@@ -321,7 +321,7 @@ impl<C: HasLayouter<Layouter = TaffyLayouter>> CacheTree for LayoutDocument<'_, 
     }
 }
 
-/// Implementation of taffy's LayoutPartialTree
+/// Implementation of taffy's `LayoutPartialTree`
 impl<C: HasLayouter<Layouter = TaffyLayouter>> LayoutPartialTree for LayoutDocument<'_, C> {
     type CoreContainerStyle<'a>
         = &'a Style
@@ -348,7 +348,7 @@ impl<C: HasLayouter<Layouter = TaffyLayouter>> LayoutPartialTree for LayoutDocum
             if let Some(node) = tree.0.get_node_mut(node_id) {
                 // If we are an inline parent, we should compute the inline layout
                 if node.is_anon_inline_parent() {
-                    println!("Node: {:?} is inline parent", node_id);
+                    println!("Node: {node_id:?} is inline parent");
                     // Any text nodes are always inline, so they are handled in this function
                     return compute_inline_layout(tree, node_id, inputs);
                 }
@@ -369,7 +369,7 @@ impl<C: HasLayouter<Layouter = TaffyLayouter>> LayoutPartialTree for LayoutDocum
     }
 }
 
-/// Implementation of taffy's LayoutBLockContainer
+/// Implementation of taffy's `LayoutBLockContainer`
 impl<C: HasLayouter<Layouter = TaffyLayouter>> LayoutBlockContainer for LayoutDocument<'_, C> {
     type BlockContainerStyle<'a>
         = &'a Style
@@ -389,7 +389,7 @@ impl<C: HasLayouter<Layouter = TaffyLayouter>> LayoutBlockContainer for LayoutDo
     }
 }
 
-/// Implementation of taffy's LayoutFlexboxContainer
+/// Implementation of taffy's `LayoutFlexboxContainer`
 impl<C: HasLayouter<Layouter = TaffyLayouter>> LayoutFlexboxContainer for LayoutDocument<'_, C> {
     type FlexboxContainerStyle<'a>
         = &'a Style
@@ -409,7 +409,7 @@ impl<C: HasLayouter<Layouter = TaffyLayouter>> LayoutFlexboxContainer for Layout
     }
 }
 
-/// Implementation of taffy's LayoutGridContainer
+/// Implementation of taffy's `LayoutGridContainer`
 impl<C: HasLayouter<Layouter = TaffyLayouter>> LayoutGridContainer for LayoutDocument<'_, C> {
     type GridContainerStyle<'a>
         = &'a Style

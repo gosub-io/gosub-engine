@@ -84,7 +84,7 @@ impl<C: HasLayouter<LayoutTree = Self>> LayoutTree<C> for RenderTree<C> {
     }
 
     fn style_dirty(&self, id: Self::NodeId) -> bool {
-        self.get_node(id).map(|node| node.properties.is_dirty()).unwrap_or(true)
+        self.get_node(id).is_none_or(|node| node.properties.is_dirty())
     }
 
     fn clean_style(&mut self, id: Self::NodeId) {
@@ -112,6 +112,7 @@ impl<C: HasLayouter<FontManager = Self>> RenderTree<C> {}
 
 impl<C: HasLayouter<LayoutTree = Self>> RenderTree<C> {
     // Generates a new render tree with a root node
+    #[must_use] 
     pub fn with_capacity(capacity: usize) -> Self {
         let mut tree = Self {
             nodes: HashMap::with_capacity(capacity),
@@ -212,18 +213,21 @@ impl<C: HasLayouter<LayoutTree = Self>> RenderTree<C> {
     }
 
     /// Returns the root node of the render tree
+    #[must_use] 
     pub fn get_root(&self) -> &RenderTreeNode<C> {
         self.nodes.get(&self.root).expect("root node")
     }
 
     /// Returns the children of the given node
+    #[must_use] 
     pub fn get_children(&self, id: NodeId) -> Option<&Vec<NodeId>> {
         self.nodes.get(&id).map(|node| &node.children)
     }
 
     /// Returns the children of the given node
+    #[must_use] 
     pub fn child_count(&self, id: NodeId) -> usize {
-        self.nodes.get(&id).map(|node| node.children.len()).unwrap_or(0)
+        self.nodes.get(&id).map_or(0, |node| node.children.len())
     }
 
     /// Inserts a new node into the render tree, note that you are responsible for the node id
@@ -282,6 +286,7 @@ impl<C: HasLayouter<LayoutTree = Self>> RenderTree<C> {
     }
 
     /// Retrieves the property for the given node, or None when not found
+    #[must_use] 
     pub fn get_property(&self, node_id: NodeId, prop_name: &str) -> Option<&C::CssProperty> {
         let props = self.nodes.get(&node_id)?;
 
@@ -289,6 +294,7 @@ impl<C: HasLayouter<LayoutTree = Self>> RenderTree<C> {
     }
 
     /// Retrieves the value for the given property for the given node, or None when not found
+    #[must_use] 
     pub fn get_all_properties(&self, node_id: NodeId) -> Option<&C::CssPropertyMap> {
         self.nodes.get(&node_id).map(|props| &props.properties)
     }
@@ -386,7 +392,7 @@ impl<C: HasLayouter<LayoutTree = Self>> RenderTree<C> {
                 inline_wrapper = None;
             }
 
-            self.collapse_inline(child_id)
+            self.collapse_inline(child_id);
         }
     }
 
@@ -461,7 +467,7 @@ impl<C: HasRenderTree<LayoutTree = Self, RenderTree = Self> + HasDocument> Rende
             else {
                 if let Some(parent) = node.parent_id() {
                     if let Some(parent) = self.get_node_mut(parent) {
-                        parent.children.retain(|id| *id != current_node_id)
+                        parent.children.retain(|id| *id != current_node_id);
                     }
                 }
 
@@ -476,7 +482,7 @@ impl<C: HasRenderTree<LayoutTree = Self, RenderTree = Self> + HasDocument> Rende
                 ControlFlow::Drop => {
                     if let Some(parent) = node.parent_id() {
                         if let Some(parent) = self.get_node_mut(parent) {
-                            parent.children.retain(|id| *id != current_node_id)
+                            parent.children.retain(|id| *id != current_node_id);
                         }
                     }
 
@@ -653,6 +659,7 @@ pub enum ControlFlow<T> {
 }
 
 impl<C: HasLayouter + HasDocument> RenderNodeData<C> {
+    #[must_use] 
     pub fn from_node_data(node: &NodeData<C>) -> ControlFlow<Self> {
         ControlFlow::Ok(match node {
             NodeData::Element(d) => RenderNodeData::Element {

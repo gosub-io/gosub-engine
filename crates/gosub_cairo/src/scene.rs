@@ -74,7 +74,7 @@ impl Debug for SceneCommand {
 /// A scene holds all the commands that must be executed onto the given cairo context.
 #[derive(Debug)]
 pub struct Scene {
-    /// Root node is always a SceneCommand::Group()
+    /// Root node is always a `SceneCommand::Group()`
     pub(crate) root: SceneCommand,
 }
 
@@ -85,6 +85,7 @@ impl Default for Scene {
 }
 
 impl Scene {
+    #[must_use] 
     pub fn new() -> Self {
         Self {
             root: SceneCommand::new_group(),
@@ -191,51 +192,51 @@ pub fn draw_rounded_rect(cr: &cairo::Context, x: FP, y: FP, width: FP, height: F
     let (br_rx, br_ry) = extract_radius(&radius.bottom_right);
 
     // Start in the top-left corner, adjusted for the top-left radius
-    cr.move_to((x + tl_rx) as f64, y as f64);
+    cr.move_to(f64::from(x + tl_rx), f64::from(y));
 
     // Top edge and top-right corner
-    cr.line_to((x + width - tr_rx) as f64, y as f64);
+    cr.line_to(f64::from(x + width - tr_rx), f64::from(y));
     if tr_rx > 0.0 && tr_ry > 0.0 {
         cr.arc(
-            (x + width - tr_rx) as f64,
-            (y + tr_ry) as f64,
-            tr_rx.min(tr_ry) as f64,
+            f64::from(x + width - tr_rx),
+            f64::from(y + tr_ry),
+            f64::from(tr_rx.min(tr_ry)),
             -std::f64::consts::FRAC_PI_2,
             0.0,
         );
     }
 
     // Right edge and bottom-right corner
-    cr.line_to((x + width) as f64, (y + height - br_ry) as f64);
+    cr.line_to(f64::from(x + width), f64::from(y + height - br_ry));
     if br_rx > 0.0 && br_ry > 0.0 {
         cr.arc(
-            (x + width - br_rx) as f64,
-            (y + height - br_ry) as f64,
-            br_rx.min(br_ry) as f64,
+            f64::from(x + width - br_rx),
+            f64::from(y + height - br_ry),
+            f64::from(br_rx.min(br_ry)),
             0.0,
             std::f64::consts::FRAC_PI_2,
         );
     }
 
     // Bottom edge and bottom-left corner
-    cr.line_to((x + bl_rx) as f64, (y + height) as f64);
+    cr.line_to(f64::from(x + bl_rx), f64::from(y + height));
     if bl_rx > 0.0 && bl_ry > 0.0 {
         cr.arc(
-            (x + bl_rx) as f64,
-            (y + height - bl_ry) as f64,
-            bl_rx.min(bl_ry) as f64,
+            f64::from(x + bl_rx),
+            f64::from(y + height - bl_ry),
+            f64::from(bl_rx.min(bl_ry)),
             std::f64::consts::FRAC_PI_2,
             std::f64::consts::PI,
         );
     }
 
     // Left edge and top-left corner
-    cr.line_to(x as f64, (y + tl_ry) as f64);
+    cr.line_to(f64::from(x), f64::from(y + tl_ry));
     if tl_rx > 0.0 && tl_ry > 0.0 {
         cr.arc(
-            (x + tl_rx) as f64,
-            (y + tl_ry) as f64,
-            tl_rx.min(tl_ry) as f64,
+            f64::from(x + tl_rx),
+            f64::from(y + tl_ry),
+            f64::from(tl_rx.min(tl_ry)),
             std::f64::consts::PI,
             3.0 * std::f64::consts::FRAC_PI_2,
         );

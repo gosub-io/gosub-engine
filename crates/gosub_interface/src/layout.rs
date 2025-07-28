@@ -12,6 +12,7 @@ pub struct FontData {
 }
 
 impl FontData {
+    #[must_use] 
     pub fn new(data: &[u8], index: u32) -> FontData {
         Self {
             data: data.to_vec(),
@@ -19,29 +20,31 @@ impl FontData {
         }
     }
 
+    #[must_use] 
     pub fn to_bytes(&self) -> &[u8] {
         &self.data
     }
 
+    #[must_use] 
     pub fn index(&self) -> u32 {
         self.index
     }
 }
 
-/// LayoutTree is a combined structure of a RenderTree and a LayoutTree. The RenderTree part contains all the
+/// `LayoutTree` is a combined structure of a `RenderTree` and a `LayoutTree`. The `RenderTree` part contains all the
 /// nodes that can be rendered or have any effect of visual layout. The layout part holds all the information
 /// about how the nodes are laid out on the screen.
 pub trait LayoutTree<C: HasLayouter<LayoutTree = Self>>: Sized + Debug + 'static {
     type NodeId: Debug + Copy + Clone + From<u64> + Into<u64> + PartialEq;
     type Node: LayoutNode<C>;
 
-    /// Returns all NodeIds of the children of the given NodeId
+    /// Returns all `NodeIds` of the children of the given `NodeId`
     fn children(&self, id: Self::NodeId) -> Option<Vec<Self::NodeId>>;
-    /// Returns true when the given NodeId is a child of the root node
+    /// Returns true when the given `NodeId` is a child of the root node
     fn contains(&self, id: &Self::NodeId) -> bool;
     /// Returns the count of the children
     fn child_count(&self, id: Self::NodeId) -> usize;
-    /// Returns the parent of the given NodeId, or None when the node is a root node
+    /// Returns the parent of the given `NodeId`, or None when the node is a root node
     fn parent_id(&self, id: Self::NodeId) -> Option<Self::NodeId>;
 
     /// Returns the Layout cache which holds all the style and display information of a node
@@ -65,8 +68,8 @@ pub trait LayoutTree<C: HasLayouter<LayoutTree = Self>>: Sized + Debug + 'static
     fn root(&self) -> Self::NodeId;
 }
 
-/// Main layout trait that will convert a RenderTree into a LayoutTree (or in our case, it will
-/// update the LayoutTree with new layout information)
+/// Main layout trait that will convert a `RenderTree` into a `LayoutTree` (or in our case, it will
+/// update the `LayoutTree` with new layout information)
 pub trait Layouter<C: HasLayouter + HasFontManager>: Sized + Clone + Send + 'static {
     type Cache: LayoutCache;
     type Layout: Layout + Send;
@@ -92,7 +95,7 @@ pub trait LayoutCache: Default + Send + Debug {
 }
 
 /// Trait that defines all layout information of a node. Currently residing in the same tree that also
-/// holds the RenderTree. This is not ideal, but it is a start.
+/// holds the `RenderTree`. This is not ideal, but it is a start.
 pub trait Layout: Default + Debug {
     /// Returns the relative upper left pos of the content box
     fn rel_pos(&self) -> Point;

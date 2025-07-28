@@ -21,7 +21,7 @@ impl Css3<'_> {
         }
 
         Err(CssError::with_location(
-            format!("Expected operator, got {:?}", operator).as_str(),
+            format!("Expected operator, got {operator:?}").as_str(),
             self.tokenizer.current_location(),
         ))
     }

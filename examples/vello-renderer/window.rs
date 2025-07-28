@@ -107,7 +107,7 @@ impl<C: ModuleConfiguration<ChromeHandle = WinitEventLoopHandle<C>>> Window<'_, 
     pub fn resumed(&mut self, backend: &mut C::RenderBackend) -> Result<()> {
         if !matches!(self.state, WindowState::Suspended) {
             return Ok(());
-        };
+        }
 
         let size = self.window.inner_size();
         let size = SizeU32::new(size.width, size.height);
@@ -128,7 +128,7 @@ impl<C: ModuleConfiguration<ChromeHandle = WinitEventLoopHandle<C>>> Window<'_, 
         };
 
         if let Err(e) = backend.suspend_window(self.window.clone(), data, &mut self.renderer_data) {
-            warn!("Failed to suspend window: {}", e);
+            warn!("Failed to suspend window: {e}");
         }
 
         self.state = WindowState::Suspended;

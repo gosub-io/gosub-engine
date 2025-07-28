@@ -38,7 +38,7 @@ pub struct EventListener<D, E: FutureExecutor> {
 
 impl<D: Clone + Debug, E: FutureExecutor> EventListener<D, E> {
     pub fn handle_event(&mut self, event: D, e: &mut E) {
-        for listener in self.listeners.iter_mut() {
+        for listener in &mut self.listeners {
             listener.execute(e, event.clone());
         }
     }

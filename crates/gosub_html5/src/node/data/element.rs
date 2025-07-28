@@ -14,8 +14,8 @@ use std::fmt;
 #[derive(Debug)]
 pub struct ClassListImpl {
     /// a map of classes applied to an HTML element.
-    /// key = name, value = is_active
-    /// the is_active is used to toggle a class (JavaScript API)
+    /// key = name, value = `is_active`
+    /// the `is_active` is used to toggle a class (JavaScript API)
     class_map: HashMap<String, bool>,
 }
 
@@ -40,7 +40,7 @@ impl Default for ClassListImpl {
 }
 
 impl ClassListImpl {
-    /// Initialise a new (empty) ClassList
+    /// Initialise a new (empty) `ClassList`
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -157,7 +157,7 @@ pub struct ElementData<C: HasDocument> {
     pub namespace: Option<String>,
     /// Element's attributes stored as key-value pairs.
     /// Note that it is NOT RECOMMENDED to modify this
-    /// attribute map directly and instead use TreeBuilder.insert_attribute
+    /// attribute map directly and instead use `TreeBuilder.insert_attribute`
     /// to keep attributes in sync with the DOM.
     pub attributes: HashMap<String, String>,
     /// CSS list of classes
@@ -222,7 +222,7 @@ impl<C: HasDocument> ElementDataType<C> for ElementData<C> {
         &self.attributes
     }
 
-    /// Note that adding attributes should not be done directly, but rather through the document.insert_attribute
+    /// Note that adding attributes should not be done directly, but rather through the `document.insert_attribute`
     /// function. This way, the document can keep track of ID attributes.
     fn add_attribute(&mut self, name: &str, value: &str) {
         self.attributes.insert(name.into(), value.into());
@@ -271,7 +271,7 @@ impl<C: HasDocument> ElementDataType<C> for ElementData<C> {
     }
 
     /// Returns true if the given node is a mathml integration point
-    /// See: https://html.spec.whatwg.org/multipage/parsing.html#mathml-text-integration-point
+    /// See: <https://html.spec.whatwg.org/multipage/parsing.html#mathml-text-integration-point>
     fn is_mathml_integration_point(&self) -> bool {
         let namespace = self.namespace.clone().unwrap_or_default();
 
@@ -279,7 +279,7 @@ impl<C: HasDocument> ElementDataType<C> for ElementData<C> {
     }
 
     /// Returns true if the given node is a html integration point
-    /// See: https://html.spec.whatwg.org/multipage/parsing.html#html-integration-point
+    /// See: <https://html.spec.whatwg.org/multipage/parsing.html#html-integration-point>
     fn is_html_integration_point(&self) -> bool {
         match self.namespace {
             Some(ref namespace) => {

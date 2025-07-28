@@ -76,7 +76,7 @@ impl GsText {
             cr.set_font_face(&font_face);
 
             GsBrush::render(&obj.brush, cr);
-            cr.move_to(base_x + text.offset.x as f64, base_y + text.offset.y as f64);
+            cr.move_to(base_x + f64::from(text.offset.x), base_y + f64::from(text.offset.y));
             cr.set_font_size(text.fs.into());
 
             // Convert glyphs that are in parley / taffy format to cairo glyphs. Also make sure we
@@ -84,9 +84,9 @@ impl GsText {
             let mut cairo_glyphs = vec![];
             for glyph in &text.glyphs {
                 let cairo_glyph = cairo::Glyph::new(
-                    glyph.id as u64,
-                    base_x + glyph.x as f64 + text.offset.x as f64,
-                    base_y + glyph.y as f64 + text.offset.y as f64,
+                    u64::from(glyph.id),
+                    base_x + f64::from(glyph.x) + f64::from(text.offset.x),
+                    base_y + f64::from(glyph.y) + f64::from(text.offset.y),
                 );
                 cairo_glyphs.push(cairo_glyph);
             }
@@ -96,15 +96,15 @@ impl GsText {
             // Set decoration (underline, overline, line-through)
             {
                 let decoration = &text.decoration;
-                let _stroke = kurbo::Stroke::new(decoration.width as f64);
+                let _stroke = kurbo::Stroke::new(f64::from(decoration.width));
 
                 let c = decoration.color;
                 let brush = GsBrush::solid(GsColor::rgba32(c.0, c.1, c.2, 1.0));
                 GsBrush::render(&brush, cr);
 
-                let offset = decoration.x_offset as f64;
+                let offset = f64::from(decoration.x_offset);
                 if decoration.underline {
-                    let y = base_y + decoration.underline_offset as f64 + obj.rect.height;
+                    let y = base_y + f64::from(decoration.underline_offset) + obj.rect.height;
 
                     cr.move_to(base_x + offset, y);
                     cr.line_to(base_x + obj.rect.width, y);
@@ -155,7 +155,7 @@ fn create_memory_font_face(font: &FontBlob) -> Result<FontFace, cairo::Error> {
     // until the FontFace is dropped.
     let font_face = unsafe {
         FontFace::from_raw_full(cairo::ffi::cairo_ft_font_face_create_for_ft_face(
-            face.raw_mut() as freetype::ffi::FT_Face as *mut _,
+            (face.raw_mut() as freetype::ffi::FT_Face).cast(),
             0,
         ))
     };
@@ -164,7 +164,7 @@ fn create_memory_font_face(font: &FontBlob) -> Result<FontFace, cairo::Error> {
     match status {
         cairo::ffi::STATUS_SUCCESS => {}
         err => return Err(err.into()),
-    };
+    }
 
     Ok(font_face)
 }

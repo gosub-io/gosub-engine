@@ -20,6 +20,7 @@ impl TextData {
         Self { value: String::new() }
     }
 
+    #[must_use] 
     pub fn with_value(value: &str) -> Self {
         Self {
             value: value.to_owned(),

@@ -20,6 +20,7 @@ pub mod tokenizer;
 pub mod writer;
 
 /// Parses the given HTML string and returns a handle to the resulting DOM tree.
+#[must_use] 
 pub fn html_compile<C: HasDocument>(html: &str) -> C::Document {
     let mut stream = ByteStream::new(Encoding::UTF8, None);
     stream.read_from_str(html, Some(Encoding::UTF8));

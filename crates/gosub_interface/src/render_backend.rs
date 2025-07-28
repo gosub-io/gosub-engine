@@ -224,6 +224,7 @@ pub enum BorderStyle {
 
 impl BorderStyle {
     #[allow(clippy::should_implement_trait)]
+    #[must_use] 
     pub fn from_str(style: &str) -> Self {
         match style {
             "none" => Self::None,
@@ -248,6 +249,7 @@ pub enum Radius {
 }
 
 impl Radius {
+    #[must_use] 
     pub fn offset(&self) -> Size {
         match self {
             Radius::Uniform(value) => Size::uniform(value.powi(2).div(2.0).sqrt() - *value),
@@ -263,6 +265,7 @@ impl Radius {
         }
     }
 
+    #[must_use] 
     pub fn radi_x(&self) -> FP {
         match self {
             Radius::Uniform(value) => *value,
@@ -270,6 +273,7 @@ impl Radius {
         }
     }
 
+    #[must_use] 
     pub fn radi_y(&self) -> FP {
         match self {
             Radius::Uniform(value) => *value,
@@ -277,6 +281,7 @@ impl Radius {
         }
     }
 
+    #[must_use] 
     pub fn radii(&self) -> [FP; 2] {
         match self {
             Radius::Uniform(value) => [*value, *value],
@@ -284,10 +289,11 @@ impl Radius {
         }
     }
 
+    #[must_use] 
     pub fn radii_f64(&self) -> (f64, f64) {
         match self {
-            Radius::Uniform(value) => (*value as f64, *value as f64),
-            Radius::Elliptical(x, y) => (*x as f64, *y as f64),
+            Radius::Uniform(value) => (f64::from(*value), f64::from(*value)),
+            Radius::Elliptical(x, y) => (f64::from(*x), f64::from(*y)),
         }
     }
 }
@@ -313,8 +319,8 @@ impl From<(FP, FP)> for Radius {
 impl From<Radius> for (f64, f64) {
     fn from(value: Radius) -> Self {
         match value {
-            Radius::Uniform(value) => (value as f64, value as f64),
-            Radius::Elliptical(x, y) => (x as f64, y as f64),
+            Radius::Uniform(value) => (f64::from(value), f64::from(value)),
+            Radius::Elliptical(x, y) => (f64::from(x), f64::from(y)),
         }
     }
 }
@@ -322,8 +328,8 @@ impl From<Radius> for (f64, f64) {
 impl From<Radius> for f64 {
     fn from(value: Radius) -> Self {
         match value {
-            Radius::Uniform(value) => value as f64,
-            Radius::Elliptical(x, y) => (x * y).sqrt() as f64,
+            Radius::Uniform(value) => f64::from(value),
+            Radius::Elliptical(x, y) => f64::from((x * y).sqrt()),
         }
     }
 }
@@ -366,17 +372,21 @@ pub trait BorderRadius:
     + From<(Radius, Radius, Radius, Radius)>
     + From<(FP, FP, FP, FP, FP, FP, FP, FP)>
 {
+    #[must_use] 
     fn empty() -> Self {
         Self::uniform(0.0)
     }
+    #[must_use] 
     fn uniform(radius: FP) -> Self {
         Self::from(radius)
     }
     fn uniform_radius(radius: Radius) -> Self;
+    #[must_use] 
     fn uniform_elliptical(radius_x: FP, radius_y: FP) -> Self {
         Self::from([radius_x, radius_y, radius_x, radius_y])
     }
 
+    #[must_use] 
     fn all(radius: FP) -> Self {
         let radius = radius.into();
         Self::all_radius(radius, radius, radius, radius)
@@ -516,6 +526,7 @@ pub trait Gradient<B: RenderBackend> {
 }
 
 pub trait Color {
+    #[must_use] 
     fn new(r: u8, g: u8, b: u8) -> Self
     where
         Self: Sized,
@@ -525,6 +536,7 @@ pub trait Color {
 
     fn with_alpha(r: u8, g: u8, b: u8, a: u8) -> Self;
 
+    #[must_use] 
     fn rgb(r: u8, g: u8, b: u8) -> Self
     where
         Self: Sized,
@@ -532,6 +544,7 @@ pub trait Color {
         Self::new(r, g, b)
     }
 
+    #[must_use] 
     fn rgba(r: u8, g: u8, b: u8, a: u8) -> Self
     where
         Self: Sized,
@@ -539,6 +552,7 @@ pub trait Color {
         Self::with_alpha(r, g, b, a)
     }
 
+    #[must_use] 
     fn tuple3(tup: (u8, u8, u8)) -> Self
     where
         Self: Sized,
@@ -546,6 +560,7 @@ pub trait Color {
         Self::new(tup.0, tup.1, tup.2)
     }
 
+    #[must_use] 
     fn tuple4(tup: (u8, u8, u8, u8)) -> Self
     where
         Self: Sized,
@@ -602,7 +617,7 @@ impl<B: RenderBackend> Debug for ImageBuffer<B> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ImageBuffer::Image(_) => write!(f, "ImageBuffer::Image"),
-            ImageBuffer::Scene(_, size) => write!(f, "ImageBuffer::Scene({:?})", size),
+            ImageBuffer::Scene(_, size) => write!(f, "ImageBuffer::Scene({size:?})"),
         }
     }
 }
@@ -653,6 +668,7 @@ pub enum ImageCacheEntry<'a, B: RenderBackend> {
 }
 
 pub trait ImgCache<B: RenderBackend>: Sized {
+    #[must_use] 
     fn new() -> Self {
         Self::with_capacity(0)
     }
@@ -705,11 +721,11 @@ impl NodeDesc {
         }
 
         if let Some(text) = &self.text {
-            write!(f, " =[{}]", text)?;
+            write!(f, " =[{text}]")?;
         }
 
         for (key, value) in &self.attributes {
-            write!(f, " {}=\"{}\"", key, value)?;
+            write!(f, " {key}=\"{value}\"")?;
         }
 
         if !is_special {
@@ -750,17 +766,17 @@ impl NodeDesc {
         }
 
         if let Some(text) = &self.text {
-            write!(f, " =[{}]", text)?;
+            write!(f, " =[{text}]")?;
         }
 
         for (key, value) in &self.attributes {
-            write!(f, " {}=\"{}\"", key, value)?;
+            write!(f, " {key}=\"{value}\"")?;
         }
 
-        if !is_special {
-            writeln!(f, ">")?;
-        } else {
+        if is_special {
             writeln!(f)?;
+        } else {
+            writeln!(f, ">")?;
         }
 
         writeln!(f, "Props:")?;

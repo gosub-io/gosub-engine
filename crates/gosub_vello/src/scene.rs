@@ -21,6 +21,7 @@ impl Scene {
         &mut self.0
     }
 
+    #[must_use] 
     pub fn create() -> Self {
         Self(VelloScene::new())
     }
@@ -35,9 +36,9 @@ impl TScene<VelloBackend> for Scene {
 
         if let Some(radius) = &rect.radius {
             let shape = RoundedRect::from_rect(rect.rect.0, radius.clone());
-            self.0.fill(Fill::NonZero, affine, brush, brush_transform, &shape)
+            self.0.fill(Fill::NonZero, affine, brush, brush_transform, &shape);
         } else {
-            self.0.fill(Fill::NonZero, affine, brush, brush_transform, &rect.rect.0)
+            self.0.fill(Fill::NonZero, affine, brush, brush_transform, &rect.rect.0);
         }
 
         if let Some(border) = &rect.border {
@@ -53,11 +54,11 @@ impl TScene<VelloBackend> for Scene {
     }
 
     fn draw_text(&mut self, text: &RenderText<VelloBackend>) {
-        Text::show(&mut self.0, text)
+        Text::show(&mut self.0, text);
     }
 
     fn debug_draw_simple_text(&mut self, text: &str, pos: Point, size: FP) {
-        render_text_simple(self, text, pos, size)
+        render_text_simple(self, text, pos, size);
     }
 
     fn apply_scene(&mut self, scene: &<VelloBackend as RenderBackend>::Scene, transform: Option<Transform>) {
@@ -69,7 +70,7 @@ impl TScene<VelloBackend> for Scene {
     }
 
     fn reset(&mut self) {
-        self.0.reset()
+        self.0.reset();
     }
 
     fn new() -> Self {

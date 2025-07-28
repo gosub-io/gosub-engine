@@ -239,7 +239,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
     //     }
     // }
 
-    /// Retrieves the next sibling NodeId (to the right) of the reference_node or None.
+    /// Retrieves the next sibling `NodeId` (to the right) of the `reference_node` or None.
     fn get_next_sibling(&self, reference_node: NodeId) -> Option<NodeId> {
         let node = self.node_by_id(reference_node)?;
         let parent = self.node_by_id(node.parent_id()?)?;
@@ -450,13 +450,14 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
 impl<C: HasDocument<Document = Self>> Display for DocumentImpl<C> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         let root = self.get_root();
-        self.print_tree(root, "".to_string(), true, f);
+        self.print_tree(root, String::new(), true, f);
         Ok(())
     }
 }
 
 impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
     /// Fetches a node by named id (string) or returns None when no node with this ID is found
+    #[must_use] 
     pub fn get_node_by_named_id(&self, named_id: &str) -> Option<&C::Node> {
         let node_id = self.named_id_elements.get(named_id)?;
         self.arena.node_ref(*node_id)
@@ -475,6 +476,7 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
     //     self.arena.count_nodes()
     // }
 
+    #[must_use] 
     pub fn has_node_id_recursive(&self, parent_id: NodeId, target_node_id: NodeId) -> bool {
         let parent = self.arena.node_ref(parent_id);
         if parent.is_none() {
@@ -493,10 +495,12 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         false
     }
 
+    #[must_use] 
     pub fn peek_next_id(&self) -> NodeId {
         self.arena.peek_next_id()
     }
 
+    #[must_use] 
     pub fn nodes(&self) -> &HashMap<NodeId, C::Node> {
         self.arena.nodes()
     }
@@ -520,7 +524,7 @@ fn internal_visit<C: HasDocument>(doc: &C::Document, node: &C::Node, visitor: &m
     visitor.document_leave(node);
 }
 
-/// Constructs an iterator from a given DocumentHandle.
+/// Constructs an iterator from a given `DocumentHandle`.
 /// WARNING: mutations in the document would be reflected
 /// in the iterator. It's advised to consume the entire iterator
 /// before mutating the document again.
@@ -615,38 +619,38 @@ mod tests {
         let node3_1_id = doc.register_node_at(node3_1, node3_id, None);
 
         assert_eq!(
-            format!("{}", doc),
-            r#"└─ Document
+            format!("{doc}"),
+            r"└─ Document
    └─ <parent>
       ├─ <div1>
       ├─ <div2>
       └─ <div3>
          └─ <div3_1>
-"#
+"
         );
 
         doc.relocate_node(node3_1_id, node1_id);
         assert_eq!(
-            format!("{}", doc),
-            r#"└─ Document
+            format!("{doc}"),
+            r"└─ Document
    └─ <parent>
       ├─ <div1>
       │  └─ <div3_1>
       ├─ <div2>
       └─ <div3>
-"#
+"
         );
 
         doc.relocate_node(node1_id, node2_id);
         assert_eq!(
-            format!("{}", doc),
-            r#"└─ Document
+            format!("{doc}"),
+            r"└─ Document
    └─ <parent>
       ├─ <div2>
       │  └─ <div1>
       │     └─ <div3_1>
       └─ <div3>
-"#
+"
         );
     }
 
@@ -769,7 +773,7 @@ mod tests {
         // since it doesn't touch DOM until flush
         let _ = task_queue.insert_attribute("id", "myid", p_id, Location::default());
         let errors = task_queue.flush::<Config>(&mut doc);
-        println!("{:?}", errors);
+        println!("{errors:?}");
         assert!(errors.is_empty());
 
         // validate ID is searchable in dom
@@ -803,7 +807,7 @@ mod tests {
         let _ = task_queue.insert_attribute("id", "", NodeId::from(1usize), Location::default());
         let errors = task_queue.flush::<Config>(&mut doc);
         for error in &errors {
-            println!("{}", error);
+            println!("{error}");
         }
         assert_eq!(errors.len(), 5);
         assert_eq!(errors[0], "ID attribute value 'myid' already exists in DOM");
@@ -974,7 +978,7 @@ mod tests {
         let div_id = task_queue.create_element("div", NodeId::root(), None, HTML_NAMESPACE, Location::default());
         let _ = task_queue.insert_attribute("class", "one two three", div_id, Location::default());
         let errors = task_queue.flush::<Config>(&mut doc);
-        println!("{:?}", errors);
+        println!("{errors:?}");
         assert!(errors.is_empty());
 
         let element = doc.node_by_id(div_id).unwrap().get_element_data().unwrap();

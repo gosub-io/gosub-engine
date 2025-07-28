@@ -40,7 +40,7 @@ pub enum Character {
     StreamEmpty,
 }
 
-use Character::*;
+use Character::{Ch, Surrogate, StreamEmpty, StreamEnd};
 
 /// Converts the given character to a char. This is only valid for UTF8 characters. Surrogate
 /// and EOF characters are converted to 0x0000
@@ -77,11 +77,13 @@ impl fmt::Display for Character {
 
 impl Character {
     /// Returns true when the character is a whitespace
+    #[must_use] 
     pub fn is_whitespace(&self) -> bool {
         matches!(self, Ch(c) if c.is_whitespace())
     }
 
     /// Returns true when the character is a numerical
+    #[must_use] 
     pub fn is_numeric(&self) -> bool {
         matches!(self, Ch(c) if c.is_numeric())
     }
@@ -358,18 +360,18 @@ impl ByteStream {
                 }
 
                 let ch = match width {
-                    1 => first_byte as u32,
-                    2 => ((first_byte as u32 & 0x1F) << 6) | (self.buffer[*buf_pos + 1] as u32 & 0x3F),
+                    1 => u32::from(first_byte),
+                    2 => ((u32::from(first_byte) & 0x1F) << 6) | (u32::from(self.buffer[*buf_pos + 1]) & 0x3F),
                     3 => {
-                        ((first_byte as u32 & 0x0F) << 12)
-                            | ((self.buffer[*buf_pos + 1] as u32 & 0x3F) << 6)
-                            | (self.buffer[*buf_pos + 2] as u32 & 0x3F)
+                        ((u32::from(first_byte) & 0x0F) << 12)
+                            | ((u32::from(self.buffer[*buf_pos + 1]) & 0x3F) << 6)
+                            | (u32::from(self.buffer[*buf_pos + 2]) & 0x3F)
                     }
                     4 => {
-                        ((first_byte as u32 & 0x07) << 18)
-                            | ((self.buffer[*buf_pos + 1] as u32 & 0x3F) << 12)
-                            | ((self.buffer[*buf_pos + 2] as u32 & 0x3F) << 6)
-                            | (self.buffer[*buf_pos + 3] as u32 & 0x3F)
+                        ((u32::from(first_byte) & 0x07) << 18)
+                            | ((u32::from(self.buffer[*buf_pos + 1]) & 0x3F) << 12)
+                            | ((u32::from(self.buffer[*buf_pos + 2]) & 0x3F) << 6)
+                            | (u32::from(self.buffer[*buf_pos + 3]) & 0x3F)
                     }
                     _ => 0xFFFD, // Invalid UTF-8 byte sequence
                 };
@@ -548,6 +550,7 @@ impl Default for Location {
 
 impl Location {
     /// Create a new Location
+    #[must_use] 
     pub fn new(line: usize, column: usize, offset: usize) -> Self {
         Self { line, column, offset }
     }
@@ -565,7 +568,7 @@ impl Debug for Location {
     }
 }
 
-/// LocationHandler is a wrapper that will deal with line/column locations in the stream
+/// `LocationHandler` is a wrapper that will deal with line/column locations in the stream
 pub struct LocationHandler {
     /// The start offset of the location. Normally this is 0:0, but can be different in case of inline streams
     pub start_location: Location,
@@ -576,8 +579,9 @@ pub struct LocationHandler {
 }
 
 impl LocationHandler {
-    /// Create a new LocationHandler. Start_location can be set in case the stream is
+    /// Create a new `LocationHandler`. `Start_location` can be set in case the stream is
     /// not starting at 1:1
+    #[must_use] 
     pub fn new(start_location: Location) -> Self {
         Self {
             start_location,
@@ -629,7 +633,7 @@ fn utf8_char_width(first_byte: u8) -> usize {
     if first_byte < 0x80 {
         1
     } else {
-        2 + (first_byte >= 0xE0) as usize + (first_byte >= 0xF0) as usize
+        2 + usize::from(first_byte >= 0xE0) + usize::from(first_byte >= 0xF0)
     }
     // match first_byte {
     //     0..=0x7F => 1,
@@ -862,10 +866,10 @@ mod test {
         let ch = Ch('a');
         assert_eq!(char::from(&ch), 'a');
         assert_eq!(char::from(ch), 'a');
-        assert_eq!(format!("{}", ch), "a");
+        assert_eq!(format!("{ch}"), "a");
 
         let ch = Surrogate(0xDFA9);
-        assert_eq!(format!("{}", ch), "U+DFA9");
+        assert_eq!(format!("{ch}"), "U+DFA9");
         assert!(!ch.is_numeric());
         assert!(!ch.is_whitespace());
 

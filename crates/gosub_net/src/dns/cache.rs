@@ -14,19 +14,19 @@ impl DnsResolver for CacheResolver {
     fn resolve(&mut self, domain: &str, resolve_type: ResolveType) -> Result<DnsEntry> {
         if let Some(entry) = self.values.get(domain) {
             if !entry.has_ipv4 && !entry.has_ipv6 && resolve_type == ResolveType::Both {
-                trace!("{}: no addresses found in entry", domain);
+                trace!("{domain}: no addresses found in entry");
                 return Err(Error::DnsNoIpAddressFound.into());
             }
             if !entry.has_ipv4 && resolve_type == ResolveType::Ipv4 {
-                trace!("{}: no ipv4 addresses found in entry", domain);
+                trace!("{domain}: no ipv4 addresses found in entry");
                 return Err(Error::DnsNoIpAddressFound.into());
             }
             if !entry.has_ipv6 && resolve_type == ResolveType::Ipv6 {
-                trace!("{}: no ipv6 addresses found in entry", domain);
+                trace!("{domain}: no ipv6 addresses found in entry");
                 return Err(Error::DnsNoIpAddressFound.into());
             }
 
-            trace!("{}: found in cache with correct resolve type", domain);
+            trace!("{domain}: found in cache with correct resolve type");
             self.lru.retain(|x| x != domain);
             self.lru.push_back(domain.to_string());
 
@@ -39,13 +39,13 @@ impl DnsResolver for CacheResolver {
     /// When a domain is resolved, it will be announced to all resolvers. This cache resolver
     /// will store it into the cache.
     fn announce(&mut self, domain: &str, entry: &DnsEntry) {
-        trace!("{}: announcing to cache", domain);
+        trace!("{domain}: announcing to cache");
 
         self.lru.retain(|x| x != domain);
         self.lru.push_back(domain.to_string());
 
         if let Some(current_entry) = self.values.get_mut(domain) {
-            trace!("{}: updating existing entry to cache", domain);
+            trace!("{domain}: updating existing entry to cache");
 
             trace!("current entries: {:?}", current_entry.ips);
             trace!("new entries: {:?}", entry.ips);

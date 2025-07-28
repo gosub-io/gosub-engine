@@ -11,7 +11,7 @@ pub type Number = f32;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum TokenType {
-    /// A [`<at-keyword-token>`](https://drafts.csswg.org/css-syntax/#at-keyword-token-     diagram)
+    /// A [`<at-keyword-token>`](<https://drafts.csswg.org/css-syntax/#at-keyword-token>-     diagram)
     ///
     /// The value does not include the `@` marker.
     AtKeyword(String),
@@ -199,8 +199,8 @@ impl fmt::Display for Token {
             | TokenType::BadString(val) => val,
             TokenType::Delim(val) => val.to_string(),
             TokenType::Number(val) => val.to_string(),
-            TokenType::Percentage(val) => format!("{}%", val),
-            TokenType::Dimension { unit, value } => format!("{}{}", value, unit),
+            TokenType::Percentage(val) => format!("{val}%"),
+            TokenType::Dimension { unit, value } => format!("{value}{unit}"),
             TokenType::Cdc => "-->".into(),
             TokenType::Cdo => "<!--".into(),
             TokenType::Colon => ":".into(),
@@ -247,22 +247,26 @@ impl<'stream> Tokenizer<'stream> {
         }
     }
 
+    #[must_use] 
     pub fn get_tokens(&self) -> Vec<Token> {
         self.tokens.clone()
     }
 
     /// Returns the current location (line/col) of the tokenizer
+    #[must_use] 
     pub fn current_location(&self) -> Location {
         self.location_handler.cur_location
     }
 
     /// Returns true when there is no next element, and the stream is closed
+    #[must_use] 
     pub fn eof(&self) -> bool {
         self.stream.eof() && self.token_position >= self.tokens.len()
     }
 
     /// Returns the current token. This can be either EOF at the end of the stream, of EOF when we
     /// haven't read anything. It would be more correct to return this in an Option.
+    #[must_use] 
     pub fn current(&self) -> Token {
         if self.token_position == 0 {
             // We haven't read anything yet. We can't really return anything (we haven't read anything), so we return EOF
@@ -291,7 +295,7 @@ impl<'stream> Tokenizer<'stream> {
     }
 
     /// Looks ahead at the next token with offset. So lookahead(1) will look at the next character
-    /// that will be consumed with consume()
+    /// that will be consumed with `consume()`
     pub fn lookahead(&mut self, offset: usize) -> Token {
         while (self.tokens.len() - 1) < (self.token_position + offset) {
             let token = self.consume_token();
@@ -317,7 +321,7 @@ impl<'stream> Tokenizer<'stream> {
         let token = &self.tokens[self.token_position];
         self.token_position += 1;
 
-        log::trace!("{:?}", token);
+        log::trace!("{token:?}");
 
         token.clone()
     }
@@ -507,7 +511,7 @@ impl<'stream> Tokenizer<'stream> {
 
             // consume '*/'
             comment.push_str(&self.consume_chars(2));
-        };
+        }
 
         comment
     }
@@ -893,6 +897,7 @@ impl<'stream> Tokenizer<'stream> {
         self.stream.read()
     }
 
+    #[must_use] 
     pub fn tell(&self) -> usize {
         self.stream.tell_bytes()
     }
@@ -957,7 +962,7 @@ mod test {
         let mut tokenizer = Tokenizer::new(&mut stream, Location::default());
         tokenizer.consume_comment();
 
-        assert!(stream.eof())
+        assert!(stream.eof());
     }
 
     #[test]

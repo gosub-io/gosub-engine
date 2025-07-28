@@ -21,7 +21,7 @@ impl Css3<'_> {
                 self.tokenizer.reconsume();
 
                 return Err(CssError::with_location(
-                    format!("Expected attribute operator, got {:?}", c).as_str(),
+                    format!("Expected attribute operator, got {c:?}").as_str(),
                     loc,
                 ));
             }
@@ -69,7 +69,7 @@ impl Css3<'_> {
                 Ok("*".to_string())
             }
             _ => Err(CssError::with_location(
-                format!("Unexpected token {:?}", t).as_str(),
+                format!("Unexpected token {t:?}").as_str(),
                 self.tokenizer.current_location(),
             )),
         }
@@ -141,7 +141,7 @@ impl Css3<'_> {
                     value = self.consume_any_ident()?;
                 } else {
                     return Err(CssError::with_location(
-                        format!("Unexpected token {:?}", t).as_str(),
+                        format!("Unexpected token {t:?}").as_str(),
                         self.tokenizer.current_location(),
                     ));
                 }
@@ -182,7 +182,7 @@ impl Css3<'_> {
             TokenType::Ident(s) => s,
             _ => {
                 return Err(CssError::with_location(
-                    format!("Unexpected token {:?}", t).as_str(),
+                    format!("Unexpected token {t:?}").as_str(),
                     self.tokenizer.current_location(),
                 ));
             }
@@ -204,7 +204,7 @@ impl Css3<'_> {
             self.consume_any_ident()?
         } else {
             return Err(CssError::with_location(
-                format!("Unexpected token {:?}", t).as_str(),
+                format!("Unexpected token {t:?}").as_str(),
                 self.tokenizer.current_location(),
             ));
         };
@@ -237,7 +237,7 @@ impl Css3<'_> {
             }
             _ => {
                 return Err(CssError::with_location(
-                    format!("Unexpected token {:?}", t).as_str(),
+                    format!("Unexpected token {t:?}").as_str(),
                     self.tokenizer.current_location(),
                 ));
             }
@@ -250,7 +250,7 @@ impl Css3<'_> {
         log::trace!("parse_selector");
 
         let loc = self.tokenizer.current_location();
-        log::trace!("loc: {:?}", loc);
+        log::trace!("loc: {loc:?}");
 
         let mut children = vec![];
 
@@ -269,9 +269,8 @@ impl Css3<'_> {
             if skip_space {
                 if t.is_whitespace() {
                     continue;
-                } else {
-                    skip_space = false;
                 }
+                skip_space = false;
             }
 
             if t.is_whitespace() {
@@ -306,7 +305,7 @@ impl Css3<'_> {
 
                 TokenType::Dimension { value, unit } => Node::new(NodeType::Dimension { value, unit }, t.location),
 
-                TokenType::Delim('+') | TokenType::Delim('>') | TokenType::Delim('~') | TokenType::Delim('/') => {
+                TokenType::Delim('+' | '>' | '~' | '/') => {
                     // Dont add descendant combinator since we are now adding another one
                     space = false;
 
@@ -318,7 +317,7 @@ impl Css3<'_> {
                     self.tokenizer.reconsume();
                     self.parse_class_selector()?
                 }
-                TokenType::Delim('|') | TokenType::Delim('*') => {
+                TokenType::Delim('|' | '*') => {
                     self.tokenizer.reconsume();
                     self.parse_type_selector()?
                 }

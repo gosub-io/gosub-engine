@@ -199,6 +199,7 @@ impl VelloBackend {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
+    #[must_use] 
     pub fn new() -> Self {
         Self {}
     }
@@ -217,6 +218,6 @@ trait Convert<T> {
 
 impl Convert<VelloPoint> for Point {
     fn convert(self) -> VelloPoint {
-        VelloPoint::new(self.x as f64, self.y as f64)
+        VelloPoint::new(f64::from(self.x), f64::from(self.y))
     }
 }

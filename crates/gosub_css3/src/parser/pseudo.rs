@@ -101,7 +101,7 @@ impl Css3<'_> {
             "host" => self.parse_pseudo_function_selector(),
             "host-context" => self.parse_pseudo_function_selector(),
             _ => Err(CssError::with_location(
-                format!("Unexpected pseudo function {:?}", name).as_str(),
+                format!("Unexpected pseudo function {name:?}").as_str(),
                 self.tokenizer.current_location(),
             )),
         }

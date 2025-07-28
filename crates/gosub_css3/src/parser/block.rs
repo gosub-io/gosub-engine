@@ -50,7 +50,7 @@ impl Css3<'_> {
     }
 
     pub fn parse_block(&mut self, mode: BlockParseMode) -> CssResult<Node> {
-        log::trace!("parse_block with parse mode: {:?}", mode);
+        log::trace!("parse_block with parse mode: {mode:?}");
 
         let loc = self.tokenizer.current_location();
         let mut children: Vec<Node> = Vec::new();
@@ -85,7 +85,7 @@ impl Css3<'_> {
                     BlockParseMode::StyleBlock => {
                         if !semicolon_seperated {
                             return Err(CssError::with_location(
-                                format!("Expected a ; got {:?}", t).as_str(),
+                                format!("Expected a ; got {t:?}").as_str(),
                                 self.tokenizer.current_location(),
                             ));
                         }

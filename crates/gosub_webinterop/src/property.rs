@@ -64,21 +64,15 @@ impl FieldProperty {
                                     property.as_mut().unwrap().rename = Some(lit.value());
                                 }
                                 path if path.is_ident("js") => {
-                                    if property.as_mut().unwrap().executor != Executor::Both {
-                                        panic!("Executor cannot be specified twice!")
-                                    }
+                                    assert!(!(property.as_mut().unwrap().executor != Executor::Both), "Executor cannot be specified twice!");
                                     property.as_mut().unwrap().executor = Executor::JS;
                                 }
                                 path if path.is_ident("wasm") => {
-                                    if property.as_mut().unwrap().executor != Executor::Both {
-                                        panic!("Executor cannot be specified twice!")
-                                    }
+                                    assert!(!(property.as_mut().unwrap().executor != Executor::Both), "Executor cannot be specified twice!");
                                     property.as_mut().unwrap().executor = Executor::WASM;
                                 }
                                 path if path.is_ident("none") => {
-                                    if property.as_mut().unwrap().executor != Executor::Both {
-                                        panic!("Executor cannot be specified twice!")
-                                    }
+                                    assert!(!(property.as_mut().unwrap().executor != Executor::Both), "Executor cannot be specified twice!");
                                     property.as_mut().unwrap().executor = Executor::None;
                                 }
                                 _ => Err(syn::Error::new_spanned(attr, "Unknown attribute in property attribute"))?,
@@ -125,21 +119,15 @@ impl FunctionProperty {
                                     property.as_mut().unwrap().rename = Some(lit.value());
                                 }
                                 path if path.is_ident("js") => {
-                                    if property.as_mut().unwrap().executor != Executor::Both {
-                                        panic!("Executor cannot be specified twice!")
-                                    }
+                                    assert!(!(property.as_mut().unwrap().executor != Executor::Both), "Executor cannot be specified twice!");
                                     property.as_mut().unwrap().executor = Executor::JS;
                                 }
                                 path if path.is_ident("wasm") => {
-                                    if property.as_mut().unwrap().executor != Executor::Both {
-                                        panic!("Executor cannot be specified twice!")
-                                    }
+                                    assert!(!(property.as_mut().unwrap().executor != Executor::Both), "Executor cannot be specified twice!");
                                     property.as_mut().unwrap().executor = Executor::WASM;
                                 }
                                 path if path.is_ident("none") => {
-                                    if property.as_mut().unwrap().executor != Executor::Both {
-                                        panic!("Executor cannot be specified twice!")
-                                    }
+                                    assert!(!(property.as_mut().unwrap().executor != Executor::Both), "Executor cannot be specified twice!");
                                     property.as_mut().unwrap().executor = Executor::None;
                                 }
 
@@ -176,9 +164,7 @@ impl FunctionProperty {
                     attr.parse_nested_meta(|meta| {
                         if name_found {
                             let prim = Primitive::get(&meta.path.to_token_stream().to_string());
-                            if types.iter().any(|(_, p)| p == &prim) {
-                                panic!("Cannot have multiple {:?}s in generic attribute", prim);
-                            }
+                            assert!(!types.iter().any(|(_, p)| p == &prim), "Cannot have multiple {prim:?}s in generic attribute");
                             types.push((meta.path, prim));
                         } else {
                             param = Some(meta.path);

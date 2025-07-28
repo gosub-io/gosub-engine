@@ -102,82 +102,100 @@ where
 impl Point<u32> {
     pub const ZERO: Self = Self { x: 0, y: 0 };
 
+    #[must_use] 
     pub fn f64(&self) -> Point<f64> {
-        Point::new(self.x as f64, self.y as f64)
+        Point::new(f64::from(self.x), f64::from(self.y))
     }
 
+    #[must_use] 
     pub fn f32(&self) -> Point<f32> {
         Point::new(self.x as f32, self.y as f32)
     }
 
+    #[must_use] 
     pub fn x32(&self) -> f32 {
         self.x as f32
     }
 
+    #[must_use] 
     pub fn y32(&self) -> f32 {
         self.y as f32
     }
 
+    #[must_use] 
     pub fn x64(&self) -> f64 {
-        self.x as f64
+        f64::from(self.x)
     }
 
+    #[must_use] 
     pub fn y64(&self) -> f64 {
-        self.y as f64
+        f64::from(self.y)
     }
 }
 
 impl Point<f32> {
     pub const ZERO: Self = Self { x: 0.0, y: 0.0 };
 
+    #[must_use] 
     pub fn u32(&self) -> Point<u32> {
         Point::new(self.x as u32, self.y as u32)
     }
 
+    #[must_use] 
     pub fn f64(&self) -> Point<f64> {
-        Point::new(self.x as f64, self.y as f64)
+        Point::new(f64::from(self.x), f64::from(self.y))
     }
 
+    #[must_use] 
     pub fn x_u32(&self) -> u32 {
         self.x as u32
     }
 
+    #[must_use] 
     pub fn y_u32(&self) -> u32 {
         self.y as u32
     }
 
+    #[must_use] 
     pub fn x64(&self) -> f64 {
-        self.x as f64
+        f64::from(self.x)
     }
 
+    #[must_use] 
     pub fn y64(&self) -> f64 {
-        self.y as f64
+        f64::from(self.y)
     }
 }
 
 impl Point<f64> {
     pub const ZERO: Self = Self { x: 0.0, y: 0.0 };
 
+    #[must_use] 
     pub fn u32(&self) -> Point<u32> {
         Point::new(self.x as u32, self.y as u32)
     }
 
+    #[must_use] 
     pub fn f32(&self) -> Point<f32> {
         Point::new(self.x as f32, self.y as f32)
     }
 
+    #[must_use] 
     pub fn x_u32(&self) -> u32 {
         self.x as u32
     }
 
+    #[must_use] 
     pub fn y_u32(&self) -> u32 {
         self.y as u32
     }
 
+    #[must_use] 
     pub fn x32(&self) -> f32 {
         self.x as f32
     }
 
+    #[must_use] 
     pub fn y32(&self) -> f32 {
         self.y as f32
     }
@@ -186,28 +204,34 @@ impl Point<f64> {
 impl Size<u32> {
     pub const ZERO: Self = Self { width: 0, height: 0 };
 
+    #[must_use] 
     pub fn f64(&self) -> Size<f64> {
-        Size::new(self.width as f64, self.height as f64)
+        Size::new(f64::from(self.width), f64::from(self.height))
     }
 
+    #[must_use] 
     pub fn f32(&self) -> Size<f32> {
         Size::new(self.width as f32, self.height as f32)
     }
 
+    #[must_use] 
     pub fn w32(&self) -> f32 {
         self.width as f32
     }
 
+    #[must_use] 
     pub fn h32(&self) -> f32 {
         self.height as f32
     }
 
+    #[must_use] 
     pub fn w64(&self) -> f64 {
-        self.width as f64
+        f64::from(self.width)
     }
 
+    #[must_use] 
     pub fn h64(&self) -> f64 {
-        self.height as f64
+        f64::from(self.height)
     }
 }
 
@@ -217,28 +241,34 @@ impl Size<f32> {
         height: 0.0,
     };
 
+    #[must_use] 
     pub fn u32(&self) -> Size<u32> {
         Size::new(self.width as u32, self.height as u32)
     }
 
+    #[must_use] 
     pub fn f64(&self) -> Size<f64> {
-        Size::new(self.width as f64, self.height as f64)
+        Size::new(f64::from(self.width), f64::from(self.height))
     }
 
+    #[must_use] 
     pub fn w_u32(&self) -> u32 {
         self.width as u32
     }
 
+    #[must_use] 
     pub fn h_u32(&self) -> u32 {
         self.height as u32
     }
 
+    #[must_use] 
     pub fn w64(&self) -> f64 {
-        self.width as f64
+        f64::from(self.width)
     }
 
+    #[must_use] 
     pub fn h64(&self) -> f64 {
-        self.height as f64
+        f64::from(self.height)
     }
 }
 
@@ -248,26 +278,32 @@ impl Size<f64> {
         height: 0.0,
     };
 
+    #[must_use] 
     pub fn u32(&self) -> Size<u32> {
         Size::new(self.width as u32, self.height as u32)
     }
 
+    #[must_use] 
     pub fn f32(&self) -> Size<f32> {
         Size::new(self.width as f32, self.height as f32)
     }
 
+    #[must_use] 
     pub fn w_u32(&self) -> u32 {
         self.width as u32
     }
 
+    #[must_use] 
     pub fn h_u32(&self) -> u32 {
         self.height as u32
     }
 
+    #[must_use] 
     pub fn w32(&self) -> f32 {
         self.width as f32
     }
 
+    #[must_use] 
     pub fn h32(&self) -> f32 {
         self.height as f32
     }
@@ -287,7 +323,7 @@ pub struct Rect<T: Copy> {
 
 impl<T: Copy> Rect<T> {
     pub fn new(x1: T, y1: T, x2: T, y2: T) -> Self {
-        Self { x1, y1, x2, y2 }
+        Self { y1, x1, y2, x2 }
     }
 
     pub fn from_components(origin: Point<T>, size: Size<T>) -> Self {
@@ -318,43 +354,53 @@ impl Rect<u32> {
         y2: 0,
     };
 
+    #[must_use] 
     pub fn f64(&self) -> Rect<f64> {
-        Rect::new(self.x1 as f64, self.y1 as f64, self.x2 as f64, self.y2 as f64)
+        Rect::new(f64::from(self.x1), f64::from(self.y1), f64::from(self.x2), f64::from(self.y2))
     }
 
+    #[must_use] 
     pub fn f32(&self) -> Rect<f32> {
         Rect::new(self.x1 as f32, self.y1 as f32, self.x2 as f32, self.y2 as f32)
     }
 
+    #[must_use] 
     pub fn x1_f32(&self) -> f32 {
         self.x1 as f32
     }
 
+    #[must_use] 
     pub fn y1_f32(&self) -> f32 {
         self.y1 as f32
     }
 
+    #[must_use] 
     pub fn x2_f32(&self) -> f32 {
         self.x2 as f32
     }
 
+    #[must_use] 
     pub fn y2_f32(&self) -> f32 {
         self.y2 as f32
     }
 
+    #[must_use] 
     pub fn x1_f64(&self) -> f64 {
-        self.x1 as f64
+        f64::from(self.x1)
     }
 
+    #[must_use] 
     pub fn y1_f64(&self) -> f64 {
-        self.y1 as f64
+        f64::from(self.y1)
     }
 
+    #[must_use] 
     pub fn x2_f64(&self) -> f64 {
-        self.x2 as f64
+        f64::from(self.x2)
     }
 
+    #[must_use] 
     pub fn y2_f64(&self) -> f64 {
-        self.y2 as f64
+        f64::from(self.y2)
     }
 }

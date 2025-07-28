@@ -11,6 +11,7 @@ pub struct CssError {
 }
 
 impl CssError {
+    #[must_use] 
     pub fn new(message: &str) -> Self {
         CssError {
             message: message.to_string(),
@@ -18,6 +19,7 @@ impl CssError {
         }
     }
 
+    #[must_use] 
     pub fn with_location(message: &str, location: Location) -> Self {
         CssError {
             message: message.to_string(),

@@ -26,6 +26,7 @@ pub struct Fetcher {
 }
 
 impl Fetcher {
+    #[must_use] 
     pub fn new(base: Url) -> Self {
         Self {
             base_url: base,
@@ -33,6 +34,7 @@ impl Fetcher {
         }
     }
 
+    #[must_use] 
     pub fn base(&self) -> &Url {
         &self.base_url
     }

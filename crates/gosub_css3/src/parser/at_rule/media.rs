@@ -48,11 +48,11 @@ impl Css3<'_> {
         if delim == '>' || delim == '<' {
             let eq_sign = self.consume_any_delim()?;
             if eq_sign == '=' {
-                return Ok(Node::new(NodeType::Operator(format!("{}=", delim)), loc));
+                return Ok(Node::new(NodeType::Operator(format!("{delim}=")), loc));
             }
 
             self.tokenizer.reconsume();
-            return Ok(Node::new(NodeType::Operator(format!("{}", delim)), loc));
+            return Ok(Node::new(NodeType::Operator(format!("{delim}")), loc));
         }
 
         Err(CssError::with_location("Expected comparison operator", loc))
@@ -195,8 +195,8 @@ impl Css3<'_> {
 
         let loc = self.tokenizer.current_location();
 
-        let mut modifier = "".into();
-        let mut media_type = "".into();
+        let mut modifier = String::new();
+        let mut media_type = String::new();
         let mut condition = None;
 
         self.consume_whitespace_comments();

@@ -6,7 +6,7 @@ fn main() {
     colog::init();
 
     let arg = std::env::args().nth(1);
-    let binding = arg.unwrap_or("".into());
+    let binding = arg.unwrap_or_default();
     let pattern = binding.as_str();
 
     let manager = FontManager::new();
