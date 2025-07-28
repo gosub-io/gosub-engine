@@ -121,7 +121,7 @@ fn display_snippet(css: &str, err: CssError) {
 
     let lines: Vec<&str> = css.split('\n').collect();
     let line_nr = loc.line - 1;
-    let col_nr = if loc.column < 2 { 0 } else { loc.column - 2 };
+    let col_nr = loc.column.saturating_sub(2);
 
     if col_nr > 1000 {
         println!("Error is too far to the right to display.");

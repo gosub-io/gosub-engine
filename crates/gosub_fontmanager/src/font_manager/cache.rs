@@ -17,11 +17,13 @@ pub(crate) trait Cache {
 }
 
 // Some kind of caching strategy for font_info stuff
+#[allow(dead_code)]
 pub struct MemoryCache {
     cache: HashMap<String, FontInfo>,
 }
 
 impl MemoryCache {
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self { cache: HashMap::new() }
     }

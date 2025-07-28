@@ -156,7 +156,7 @@ impl<'stream> Tokenizer<'stream> {
     }
 
     /// Returns the error logger
-    pub fn get_error_logger(&self) -> Ref<ErrorLogger> {
+    pub fn get_error_logger(&self) -> Ref<'_, ErrorLogger> {
         self.error_logger.borrow()
     }
 

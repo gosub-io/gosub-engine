@@ -180,5 +180,5 @@ pub trait Node<C: HasDocument>: Clone + Debug + PartialEq {
     /// Pushes a child node to the node
     fn push(&mut self, node_id: NodeId);
 
-    fn data(&self) -> NodeData<C>;
+    fn data(&self) -> NodeData<'_, C>;
 }

@@ -585,7 +585,7 @@ impl<C: HasLayouter> render_tree::RenderTreeNode<C> for RenderTreeNode<C> {
         None
     }
 
-    fn text_data(&self) -> Option<(&str, TextLayoutRef<C>)> {
+    fn text_data(&self) -> Option<(&str, TextLayoutRef<'_, C>)> {
         if let RenderNodeData::Text(data) = &self.data {
             return Some((&data.text, data.layout.as_slice()));
         }

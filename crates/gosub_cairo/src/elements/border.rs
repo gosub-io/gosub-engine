@@ -42,7 +42,7 @@ struct GsBorderRenderSideOptions<'a> {
 }
 
 impl<'a> GsBorderRenderOptions<'a> {
-    fn left(&self, transform: Option<&'a GsTransform>) -> Option<GsBorderRenderSideOptions> {
+    fn left(&self, transform: Option<&'a GsTransform>) -> Option<GsBorderRenderSideOptions<'_>> {
         let segment = self.border.border.left.as_ref()?;
 
         Some(GsBorderRenderSideOptions {
@@ -54,7 +54,7 @@ impl<'a> GsBorderRenderOptions<'a> {
         })
     }
 
-    fn right(&self, transform: Option<&'a GsTransform>) -> Option<GsBorderRenderSideOptions> {
+    fn right(&self, transform: Option<&'a GsTransform>) -> Option<GsBorderRenderSideOptions<'_>> {
         let segment = self.border.border.right.as_ref()?;
 
         Some(GsBorderRenderSideOptions {
@@ -66,7 +66,7 @@ impl<'a> GsBorderRenderOptions<'a> {
         })
     }
 
-    fn top(&self, transform: Option<&'a GsTransform>) -> Option<GsBorderRenderSideOptions> {
+    fn top(&self, transform: Option<&'a GsTransform>) -> Option<GsBorderRenderSideOptions<'_>> {
         let segment = self.border.border.top.as_ref()?;
 
         Some(GsBorderRenderSideOptions {
@@ -78,7 +78,7 @@ impl<'a> GsBorderRenderOptions<'a> {
         })
     }
 
-    fn bottom(&self, transform: Option<&'a GsTransform>) -> Option<GsBorderRenderSideOptions> {
+    fn bottom(&self, transform: Option<&'a GsTransform>) -> Option<GsBorderRenderSideOptions<'_>> {
         let segment = self.border.border.bottom.as_ref()?;
 
         Some(GsBorderRenderSideOptions {

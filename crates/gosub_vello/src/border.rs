@@ -39,7 +39,7 @@ struct BorderRenderSideOptions<'a> {
 }
 
 impl<'a> BorderRenderOptions<'a> {
-    fn left(&self, transform: Option<&'a Transform>) -> Option<BorderRenderSideOptions> {
+    fn left(&self, transform: Option<&'a Transform>) -> Option<BorderRenderSideOptions<'_>> {
         let segment = self.border.border.left.as_ref()?;
 
         Some(BorderRenderSideOptions {
@@ -51,7 +51,7 @@ impl<'a> BorderRenderOptions<'a> {
         })
     }
 
-    fn right(&self, transform: Option<&'a Transform>) -> Option<BorderRenderSideOptions> {
+    fn right(&self, transform: Option<&'a Transform>) -> Option<BorderRenderSideOptions<'_>> {
         let segment = self.border.border.right.as_ref()?;
 
         Some(BorderRenderSideOptions {
@@ -63,7 +63,7 @@ impl<'a> BorderRenderOptions<'a> {
         })
     }
 
-    fn top(&self, transform: Option<&'a Transform>) -> Option<BorderRenderSideOptions> {
+    fn top(&self, transform: Option<&'a Transform>) -> Option<BorderRenderSideOptions<'_>> {
         let segment = self.border.border.top.as_ref()?;
 
         Some(BorderRenderSideOptions {
@@ -75,7 +75,7 @@ impl<'a> BorderRenderOptions<'a> {
         })
     }
 
-    fn bottom(&self, transform: Option<&'a Transform>) -> Option<BorderRenderSideOptions> {
+    fn bottom(&self, transform: Option<&'a Transform>) -> Option<BorderRenderSideOptions<'_>> {
         let segment = self.border.border.bottom.as_ref()?;
 
         Some(BorderRenderSideOptions {

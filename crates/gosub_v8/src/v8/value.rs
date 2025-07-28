@@ -84,7 +84,7 @@ impl From<V8Object> for V8Value {
 impl AsArray for V8Value {
     type Runtime = V8Engine;
 
-    fn array(&self) -> Result<Ref<<Self::Runtime as WebRuntime>::Array>> {
+    fn array(&self) -> Result<Ref<'_, <Self::Runtime as WebRuntime>::Array>> {
         Ok(Ref::Owned(self.as_array()?))
     }
 }

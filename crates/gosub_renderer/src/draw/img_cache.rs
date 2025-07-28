@@ -24,7 +24,7 @@ impl<B: RenderBackend> ImgCache<B> for ImageCache<B> {
         self.cache.insert(url, Entry::Pending);
     }
 
-    fn get(&self, url: &str) -> ImageCacheEntry<B> {
+    fn get(&self, url: &str) -> ImageCacheEntry<'_, B> {
         match self.cache.get(url) {
             Some(Entry::Image(img)) => ImageCacheEntry::Image(img),
             Some(Entry::SizedImg(_, img)) => ImageCacheEntry::Image(img),

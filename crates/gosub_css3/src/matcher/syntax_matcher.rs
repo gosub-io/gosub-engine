@@ -773,7 +773,7 @@ fn multiplier_fulfilled(component: &SyntaxComponent, cnt: usize) -> Fulfillment 
 }
 
 /// Helper function to return no matches
-fn no_match(input: &[CssValue]) -> MatchResult {
+fn no_match(input: &[CssValue]) -> MatchResult<'_> {
     MatchResult {
         remainder: input,
         matched: false,
@@ -782,7 +782,7 @@ fn no_match(input: &[CssValue]) -> MatchResult {
 }
 
 /// Helper function to return the first element from input in a match result, as we need this a lot
-fn first_match(input: &[CssValue]) -> MatchResult {
+fn first_match(input: &[CssValue]) -> MatchResult<'_> {
     MatchResult {
         remainder: input.get(1..).unwrap_or(&[]),
         matched: true,

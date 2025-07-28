@@ -128,7 +128,7 @@ impl V8Context {
         Some(Exception::error(scope, e))
     }
 
-    pub fn scope(&self) -> HandleScope {
+    pub fn scope(&self) -> HandleScope<'_> {
         // let iso = unsafe { self.isolate_static() };
         //
         // let this = self.borrow();
@@ -163,11 +163,11 @@ impl V8Context {
         })
     }
 
-    pub fn borrow_mut(&self) -> std::cell::RefMut<V8Ctx> {
+    pub fn borrow_mut(&self) -> std::cell::RefMut<'_, V8Ctx> {
         self.ctx.borrow_mut()
     }
 
-    pub fn borrow(&self) -> std::cell::Ref<V8Ctx> {
+    pub fn borrow(&self) -> std::cell::Ref<'_, V8Ctx> {
         self.ctx.borrow()
     }
 }

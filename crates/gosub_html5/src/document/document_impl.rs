@@ -54,7 +54,6 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
     type Node = NodeImpl<C>;
 
     /// Creates a new document without a doc handle
-    #[must_use]
     fn new(document_type: DocumentType, url: Option<Url>, root_node: Option<Self::Node>) -> C::Document {
         let mut doc = Self {
             url,

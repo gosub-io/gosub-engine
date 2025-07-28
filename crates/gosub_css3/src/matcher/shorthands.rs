@@ -189,7 +189,7 @@ impl Shorthands {
 }
 
 impl Shorthand {
-    pub fn resolver(&self) -> ResolveShorthand {
+    pub fn resolver(&self) -> ResolveShorthand<'_> {
         ResolveShorthand {
             name: &self.name,
             components: &self.components,

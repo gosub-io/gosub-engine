@@ -325,7 +325,7 @@ pub fn parse_fixture(i: &str) -> Result<Vec<TestSpec>> {
 mod tests {
     use super::*;
 
-    fn parse_test(i: &str) -> (Span, TestSpec) {
+    fn parse_test(i: &str) -> (Span<'_>, TestSpec) {
         test(Span::new(i.trim_start())).unwrap()
     }
 

@@ -663,7 +663,7 @@ pub trait ImgCache<B: RenderBackend>: Sized {
 
     fn add_pending(&mut self, url: String);
 
-    fn get(&self, url: &str) -> ImageCacheEntry<B>;
+    fn get(&self, url: &str) -> ImageCacheEntry<'_, B>;
 }
 
 pub struct NodeDesc {
