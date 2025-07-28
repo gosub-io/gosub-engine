@@ -117,12 +117,12 @@ impl TimingTable {
 
     fn scale(&self, value: u64, scale: Scale) -> String {
         match scale {
-            Scale::MicroSecond => format!("{}µs", value),
+            Scale::MicroSecond => format!("{value}µs"),
             Scale::MilliSecond => format!("{}ms", value / 1000),
             Scale::Second => format!("{}s", value / (1000 * 1000)),
             Scale::Auto => {
                 if value < 1000 {
-                    format!("{}µs", value)
+                    format!("{value}µs")
                 } else if value < 1000 * 1000 {
                     format!("{}ms", value / 1000)
                 } else {
