@@ -188,7 +188,9 @@ fn draw(fctx: &mut FontContext, cr: &gtk4::cairo::Context, layout: Layout<ColorB
                     // Find the font that is accompanied by this glyph run, or generate it if it does not exist yet.
                     let font_id = grun.font().data.id();
 
-                    let font_face = if let Some(font_face) = fctx.font_face_cache.get(&font_id) { font_face } else {
+                    let font_face = if let Some(font_face) = fctx.font_face_cache.get(&font_id) {
+                        font_face
+                    } else {
                         let font_face = create_memory_font_face(fctx.ft_lib.clone(), grun.font());
                         fctx.font_face_cache.insert(font_id, font_face);
                         fctx.font_face_cache.get(&font_id).unwrap()
@@ -204,7 +206,13 @@ fn draw(fctx: &mut FontContext, cr: &gtk4::cairo::Context, layout: Layout<ColorB
                     // that our offset is not 0,0 but offset_x, offset_y.
                     let glyphs: Vec<Glyph> = glyph_run
                         .positioned_glyphs()
-                        .map(|g| Glyph::new(u64::from(g.id), f64::from(offset_x) + f64::from(g.x), f64::from(offset_y) + f64::from(g.y)))
+                        .map(|g| {
+                            Glyph::new(
+                                u64::from(g.id),
+                                f64::from(offset_x) + f64::from(g.x),
+                                f64::from(offset_y) + f64::from(g.y),
+                            )
+                        })
                         .collect();
 
                     // We can show the set of glyphs as a whole now

@@ -150,8 +150,7 @@ fn match_selector_part<'a, C: HasDocument>(
                 }
                 MatcherType::DashMatch => {
                     // Exact value or value followed by a hyphen
-                    got_attr_value == wanted_attr_value
-                        || got_attr_value.starts_with(&format!("{wanted_attr_value}-"))
+                    got_attr_value == wanted_attr_value || got_attr_value.starts_with(&format!("{wanted_attr_value}-"))
                 }
                 MatcherType::PrefixMatch => {
                     // Starts with
@@ -406,7 +405,7 @@ pub struct CssProperty {
 }
 
 impl CssProperty {
-    #[must_use] 
+    #[must_use]
     pub fn new(prop_name: &str) -> Self {
         Self {
             name: prop_name.to_string(),
@@ -478,7 +477,7 @@ impl CssProperty {
     }
 
     // /// Returns true if the given property is a shorthand property (ie: border, margin etc.)
-    #[must_use] 
+    #[must_use]
     pub fn is_shorthand(&self) -> bool {
         let defs = get_css_definitions();
         match defs.find_property(&self.name) {
@@ -488,7 +487,7 @@ impl CssProperty {
     }
 
     /// Returns the list of properties from a shorthand property, or just the property itself if it isn't a shorthand property.
-    #[must_use] 
+    #[must_use]
     pub fn get_props_from_shorthand(&self) -> Vec<String> {
         let defs = get_css_definitions();
         match defs.find_property(&self.name) {
@@ -507,7 +506,8 @@ impl CssProperty {
     // // Returns the initial value for the property, if any
     fn get_initial_value(&self) -> Option<CssValue> {
         let defs = get_css_definitions();
-        defs.find_property(&self.name).map(super::property_definitions::PropertyDefinition::initial_value)
+        defs.find_property(&self.name)
+            .map(super::property_definitions::PropertyDefinition::initial_value)
     }
 }
 
@@ -635,7 +635,7 @@ impl Default for CssProperties {
 }
 
 impl CssProperties {
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self {
             properties: HashMap::new(),

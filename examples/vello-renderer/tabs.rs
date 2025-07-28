@@ -21,7 +21,7 @@ impl Default for Tabs {
 }
 
 impl Tabs {
-    #[must_use] 
+    #[must_use]
     pub fn new(initial: InstanceHandle) -> Self {
         let mut tabs = SlotMap::new();
 
@@ -101,7 +101,7 @@ impl Tabs {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn is_active(&self, id: InstanceId) -> bool {
         self.active == id
     }

@@ -179,12 +179,12 @@ pub enum SyntaxComponent {
 }
 
 impl SyntaxComponent {
-    #[must_use] 
+    #[must_use]
     pub fn is_group(&self) -> bool {
         matches!(self, SyntaxComponent::Group { .. })
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn get_multipliers(&self) -> Vec<SyntaxComponentMultiplier> {
         match self {
             SyntaxComponent::Group { multipliers, .. } => multipliers.clone(),

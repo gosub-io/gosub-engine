@@ -21,7 +21,7 @@ impl Scene {
         &mut self.0
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn create() -> Self {
         Self(VelloScene::new())
     }

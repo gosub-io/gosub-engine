@@ -132,10 +132,16 @@ impl Border {
                     let offset_left = left.offset();
                     let offset_right = right.offset();
 
-                    path.move_to((pos.x - f64::from(offset_left.width), pos.y - f64::from(offset_left.height)));
+                    path.move_to((
+                        pos.x - f64::from(offset_left.width),
+                        pos.y - f64::from(offset_left.height),
+                    ));
 
                     let arc = Arc::new(
-                        (pos.x + f64::from(offset_left.width), pos.y - f64::from(offset_left.height)),
+                        (
+                            pos.x + f64::from(offset_left.width),
+                            pos.y - f64::from(offset_left.height),
+                        ),
                         left.radii_f64(),
                         -std::f64::consts::PI * 3.0 / 4.0,
                         std::f64::consts::PI / 4.0,
@@ -152,7 +158,10 @@ impl Border {
                     ));
 
                     let arc = Arc::new(
-                        (pos.x + width - f64::from(right.radi_x()), pos.y + f64::from(right.radi_y())),
+                        (
+                            pos.x + width - f64::from(right.radi_x()),
+                            pos.y + f64::from(right.radi_y()),
+                        ),
                         right.radii_f64(),
                         0.0,
                         std::f64::consts::PI / 4.0,
@@ -167,135 +176,153 @@ impl Border {
                     path.line_to((pos.x + width, pos.y));
                 }
             }
-            Side::Right => if let Some((top, bottom)) = radius {
-                let offset_top = top.offset();
-                let offset_bottom = bottom.offset();
+            Side::Right => {
+                if let Some((top, bottom)) = radius {
+                    let offset_top = top.offset();
+                    let offset_bottom = bottom.offset();
 
-                path.move_to((
-                    pos.x + width + f64::from(offset_top.width),
-                    pos.y - f64::from(offset_top.height),
-                ));
+                    path.move_to((
+                        pos.x + width + f64::from(offset_top.width),
+                        pos.y - f64::from(offset_top.height),
+                    ));
 
-                let arc = Arc::new(
-                    (
-                        pos.x + width - f64::from(offset_top.width),
-                        pos.y + f64::from(offset_top.height),
-                    ),
-                    top.radii_f64(),
-                    -std::f64::consts::PI / 4.0,
-                    std::f64::consts::PI / 4.0,
-                    0.0,
-                );
+                    let arc = Arc::new(
+                        (
+                            pos.x + width - f64::from(offset_top.width),
+                            pos.y + f64::from(offset_top.height),
+                        ),
+                        top.radii_f64(),
+                        -std::f64::consts::PI / 4.0,
+                        std::f64::consts::PI / 4.0,
+                        0.0,
+                    );
 
-                arc.to_cubic_beziers(0.1, |p1, p2, p3| {
-                    path.curve_to(p1, p2, p3);
-                });
+                    arc.to_cubic_beziers(0.1, |p1, p2, p3| {
+                        path.curve_to(p1, p2, p3);
+                    });
 
-                path.line_to((
-                    pos.x + width - f64::from(offset_bottom.width),
-                    pos.y + height - f64::from(bottom.radi_y()),
-                ));
-
-                let arc = Arc::new(
-                    (
+                    path.line_to((
                         pos.x + width - f64::from(offset_bottom.width),
-                        pos.y + height - f64::from(offset_bottom.height),
-                    ),
-                    bottom.radii_f64(),
-                    0.0,
-                    std::f64::consts::PI / 4.0,
-                    0.0,
-                );
+                        pos.y + height - f64::from(bottom.radi_y()),
+                    ));
 
-                arc.to_cubic_beziers(0.1, |p1, p2, p3| {
-                    path.curve_to(p1, p2, p3);
-                });
-            } else {
-                path.move_to((pos.x + width, pos.y));
-                path.line_to((pos.x + width, pos.y + height));
-            },
-            Side::Bottom => if let Some((left, right)) = radius {
-                let offset_left = left.offset();
-                let offset_right = right.offset();
+                    let arc = Arc::new(
+                        (
+                            pos.x + width - f64::from(offset_bottom.width),
+                            pos.y + height - f64::from(offset_bottom.height),
+                        ),
+                        bottom.radii_f64(),
+                        0.0,
+                        std::f64::consts::PI / 4.0,
+                        0.0,
+                    );
 
-                path.move_to((
-                    pos.x + width + f64::from(offset_right.width),
-                    pos.y + height + f64::from(offset_right.height),
-                ));
+                    arc.to_cubic_beziers(0.1, |p1, p2, p3| {
+                        path.curve_to(p1, p2, p3);
+                    });
+                } else {
+                    path.move_to((pos.x + width, pos.y));
+                    path.line_to((pos.x + width, pos.y + height));
+                }
+            }
+            Side::Bottom => {
+                if let Some((left, right)) = radius {
+                    let offset_left = left.offset();
+                    let offset_right = right.offset();
 
-                let arc = Arc::new(
-                    (
-                        pos.x + width - f64::from(offset_right.width),
-                        pos.y + height - f64::from(offset_right.height),
-                    ),
-                    right.radii_f64(),
-                    -std::f64::consts::PI * 7.0 / 4.0,
-                    std::f64::consts::PI / 4.0,
-                    0.0,
-                );
+                    path.move_to((
+                        pos.x + width + f64::from(offset_right.width),
+                        pos.y + height + f64::from(offset_right.height),
+                    ));
 
-                arc.to_cubic_beziers(0.1, |p1, p2, p3| {
-                    path.curve_to(p1, p2, p3);
-                });
+                    let arc = Arc::new(
+                        (
+                            pos.x + width - f64::from(offset_right.width),
+                            pos.y + height - f64::from(offset_right.height),
+                        ),
+                        right.radii_f64(),
+                        -std::f64::consts::PI * 7.0 / 4.0,
+                        std::f64::consts::PI / 4.0,
+                        0.0,
+                    );
 
-                path.line_to((pos.x + f64::from(left.radi_x()), pos.y + height - f64::from(offset_left.height)));
+                    arc.to_cubic_beziers(0.1, |p1, p2, p3| {
+                        path.curve_to(p1, p2, p3);
+                    });
 
-                let arc = Arc::new(
-                    (pos.x + f64::from(left.radi_x()), pos.y + height - f64::from(offset_left.height)),
-                    left.radii_f64(),
-                    -std::f64::consts::PI * 3.0 / 2.0,
-                    std::f64::consts::PI / 4.0,
-                    0.0,
-                );
+                    path.line_to((
+                        pos.x + f64::from(left.radi_x()),
+                        pos.y + height - f64::from(offset_left.height),
+                    ));
 
-                arc.to_cubic_beziers(0.1, |p1, p2, p3| {
-                    path.curve_to(p1, p2, p3);
-                });
-            } else {
-                path.move_to((pos.x, pos.y + height));
-                path.line_to((pos.x + width, pos.y + height));
-            },
-            Side::Left => if let Some((top, bottom)) = radius {
-                let offset_top = top.offset();
-                let offset_bottom = bottom.offset();
+                    let arc = Arc::new(
+                        (
+                            pos.x + f64::from(left.radi_x()),
+                            pos.y + height - f64::from(offset_left.height),
+                        ),
+                        left.radii_f64(),
+                        -std::f64::consts::PI * 3.0 / 2.0,
+                        std::f64::consts::PI / 4.0,
+                        0.0,
+                    );
 
-                path.move_to((
-                    pos.x - f64::from(offset_top.width),
-                    pos.y + height + f64::from(offset_top.height),
-                ));
+                    arc.to_cubic_beziers(0.1, |p1, p2, p3| {
+                        path.curve_to(p1, p2, p3);
+                    });
+                } else {
+                    path.move_to((pos.x, pos.y + height));
+                    path.line_to((pos.x + width, pos.y + height));
+                }
+            }
+            Side::Left => {
+                if let Some((top, bottom)) = radius {
+                    let offset_top = top.offset();
+                    let offset_bottom = bottom.offset();
 
-                let arc = Arc::new(
-                    (
-                        pos.x + f64::from(offset_top.width),
-                        pos.y + height - f64::from(offset_top.height),
-                    ),
-                    top.radii_f64(),
-                    -std::f64::consts::PI * 5.0 / 4.0,
-                    std::f64::consts::PI / 4.0,
-                    0.0,
-                );
+                    path.move_to((
+                        pos.x - f64::from(offset_top.width),
+                        pos.y + height + f64::from(offset_top.height),
+                    ));
 
-                arc.to_cubic_beziers(0.1, |p1, p2, p3| {
-                    path.curve_to(p1, p2, p3);
-                });
+                    let arc = Arc::new(
+                        (
+                            pos.x + f64::from(offset_top.width),
+                            pos.y + height - f64::from(offset_top.height),
+                        ),
+                        top.radii_f64(),
+                        -std::f64::consts::PI * 5.0 / 4.0,
+                        std::f64::consts::PI / 4.0,
+                        0.0,
+                    );
 
-                path.line_to((pos.x + f64::from(offset_bottom.width), pos.y + f64::from(bottom.radi_y())));
+                    arc.to_cubic_beziers(0.1, |p1, p2, p3| {
+                        path.curve_to(p1, p2, p3);
+                    });
 
-                let arc = Arc::new(
-                    (pos.x + f64::from(offset_bottom.width), pos.y + f64::from(bottom.radi_y())),
-                    bottom.radii_f64(),
-                    -std::f64::consts::PI,
-                    std::f64::consts::PI / 4.0,
-                    0.0,
-                );
+                    path.line_to((
+                        pos.x + f64::from(offset_bottom.width),
+                        pos.y + f64::from(bottom.radi_y()),
+                    ));
 
-                arc.to_cubic_beziers(0.1, |p1, p2, p3| {
-                    path.curve_to(p1, p2, p3);
-                });
-            } else {
-                path.move_to((pos.x, pos.y + height));
-                path.line_to((pos.x, pos.y));
-            },
+                    let arc = Arc::new(
+                        (
+                            pos.x + f64::from(offset_bottom.width),
+                            pos.y + f64::from(bottom.radi_y()),
+                        ),
+                        bottom.radii_f64(),
+                        -std::f64::consts::PI,
+                        std::f64::consts::PI / 4.0,
+                        0.0,
+                    );
+
+                    arc.to_cubic_beziers(0.1, |p1, p2, p3| {
+                        path.curve_to(p1, p2, p3);
+                    });
+                } else {
+                    path.move_to((pos.x, pos.y + height));
+                    path.line_to((pos.x, pos.y));
+                }
+            }
         }
 
         let cap = match style {

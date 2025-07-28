@@ -43,7 +43,7 @@ impl SyntaxComponent {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn multipliers(&self) -> &[SyntaxComponentMultiplier] {
         match self {
             SyntaxComponent::GenericKeyword { multipliers, .. } => multipliers,
@@ -190,7 +190,7 @@ impl Shorthands {
 }
 
 impl Shorthand {
-    #[must_use] 
+    #[must_use]
     pub fn resolver(&self) -> ResolveShorthand<'_> {
         ResolveShorthand {
             name: &self.name,
@@ -290,7 +290,7 @@ impl<'a> ShorthandResolver<'a> {
         }))
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn snapshot(&self) -> Snapshot {
         Snapshot {
             fix_list: self.fix_list.clone(),
@@ -328,7 +328,7 @@ impl Default for FixList {
 }
 
 impl FixList {
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self {
             list: Vec::new(),
@@ -464,7 +464,7 @@ impl CssDefinitions {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn resolve_shorthands(&self, computed: &[String], syntax: &CssSyntaxTree, name: &str) -> Option<Shorthands> {
         if computed.len() <= 1 || syntax.components.is_empty() {
             return None;

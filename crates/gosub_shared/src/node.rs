@@ -44,13 +44,13 @@ impl NodeId {
     pub const ROOT_NODE: usize = 0;
 
     /// Returns the root node ID
-    #[must_use] 
+    #[must_use]
     pub fn root() -> Self {
         Self(Self::ROOT_NODE)
     }
 
     /// Returns true when this nodeId is the root node
-    #[must_use] 
+    #[must_use]
     pub fn is_root(&self) -> bool {
         self.0 == Self::ROOT_NODE
     }
@@ -66,7 +66,7 @@ impl NodeId {
     }
 
     /// Returns the nodeID as usize
-    #[must_use] 
+    #[must_use]
     pub fn as_usize(&self) -> usize {
         self.0
     }

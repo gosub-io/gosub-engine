@@ -85,7 +85,7 @@ impl Default for Scene {
 }
 
 impl Scene {
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self {
             root: SceneCommand::new_group(),

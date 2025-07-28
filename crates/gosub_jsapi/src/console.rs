@@ -86,7 +86,7 @@ impl Console {
     }
 
     /// Returns the printer that is used by the console
-    #[must_use] 
+    #[must_use]
     pub fn get_printer(self) -> Box<dyn Printer> {
         self.printer
     }

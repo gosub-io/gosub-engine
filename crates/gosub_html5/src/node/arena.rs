@@ -13,7 +13,7 @@ pub struct NodeArena<C: HasDocument> {
 }
 
 impl<C: HasDocument> NodeArena<C> {
-    #[must_use] 
+    #[must_use]
     pub fn node_count(&self) -> usize {
         self.nodes.len()
     }
@@ -53,13 +53,13 @@ impl<C: HasDocument> NodeArena<C> {
     }
 
     /// Gets the node with the given id
-    #[must_use] 
+    #[must_use]
     pub fn node_ref(&self, node_id: NodeId) -> Option<&C::Node> {
         self.nodes.get(&node_id)
     }
 
     /// Gets the node with the given id
-    #[must_use] 
+    #[must_use]
     pub fn node(&self, node_id: NodeId) -> Option<C::Node> {
         self.nodes.get(&node_id).cloned()
     }
@@ -100,7 +100,7 @@ impl<C: HasDocument> NodeArena<C> {
         id
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn nodes(&self) -> &HashMap<NodeId, C::Node> {
         &self.nodes
     }

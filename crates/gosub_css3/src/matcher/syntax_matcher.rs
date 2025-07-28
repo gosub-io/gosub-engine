@@ -39,7 +39,10 @@ impl CssSyntaxTree {
             return false;
         }
 
-        assert!((self.components.len() == 1), "Syntax tree must have exactly one root component");
+        assert!(
+            (self.components.len() == 1),
+            "Syntax tree must have exactly one root component"
+        );
 
         let res = match_component(input, &self.components[0], None);
         res.matched && res.remainder.is_empty()
@@ -50,7 +53,10 @@ impl CssSyntaxTree {
             return false;
         }
 
-        assert!((self.components.len() == 1), "Syntax tree must have exactly one root component");
+        assert!(
+            (self.components.len() == 1),
+            "Syntax tree must have exactly one root component"
+        );
 
         let res = match_component(input, &self.components[0], Some(resolver));
         res.matched && res.remainder.is_empty()

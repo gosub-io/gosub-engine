@@ -89,14 +89,22 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
                 .and_then(|s| s.as_string())
                 .map_or("sans-serif".to_string(), std::string::ToString::to_string);
 
-            let font_size = node.get_property("font-size").map_or(16.0, gosub_interface::css3::CssProperty::unit_to_px);
+            let font_size = node
+                .get_property("font-size")
+                .map_or(16.0, gosub_interface::css3::CssProperty::unit_to_px);
             let alignment = parse_alignment(node);
             let font_weight = parse_font_weight(node);
             let font_style = parse_font_style(node);
             let var_axes = parse_font_axes(node);
-            let line_height = node.get_property("line-height").and_then(gosub_interface::css3::CssProperty::as_number);
-            let word_spacing = node.get_property("word-spacing").map(gosub_interface::css3::CssProperty::unit_to_px);
-            let letter_spacing = node.get_property("letter-spacing").map(gosub_interface::css3::CssProperty::unit_to_px);
+            let line_height = node
+                .get_property("line-height")
+                .and_then(gosub_interface::css3::CssProperty::as_number);
+            let word_spacing = node
+                .get_property("word-spacing")
+                .map(gosub_interface::css3::CssProperty::unit_to_px);
+            let letter_spacing = node
+                .get_property("letter-spacing")
+                .map(gosub_interface::css3::CssProperty::unit_to_px);
 
             let font_info = <C::FontManager as FontManager>::FontInfo::new(&font_family)
                 .unwrap()
@@ -110,7 +118,9 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
             let mut decoration_color = (0.0, 0.0, 0.0, 1.0);
             let mut style = DecorationStyle::Solid;
             let mut underline_offset = 4.0;
-            let color = node.get_property("color").and_then(gosub_interface::css3::CssProperty::parse_color);
+            let color = node
+                .get_property("color")
+                .and_then(gosub_interface::css3::CssProperty::parse_color);
 
             // Generate decoration styles
             if let Some(actual_parent) = tree.0.parent_id(node_id) {
@@ -162,7 +172,10 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
                         decoration_color = c;
                     }
 
-                    if let Some(o) = node.get_property("text-underline-offset").map(gosub_interface::css3::CssProperty::unit_to_px) {
+                    if let Some(o) = node
+                        .get_property("text-underline-offset")
+                        .map(gosub_interface::css3::CssProperty::unit_to_px)
+                    {
                         underline_offset = o;
                     }
                 }
@@ -496,8 +509,9 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
                         },
                     };
 
-                    let node_id = data
-                        .map_or(current_node_id, |x| <C::LayoutTree as LayoutTree<C>>::NodeId::from(x.id.into()));
+                    let node_id = data.map_or(current_node_id, |x| {
+                        <C::LayoutTree as LayoutTree<C>>::NodeId::from(x.id.into())
+                    });
 
                     ids.push(node_id);
 

@@ -60,7 +60,7 @@ pub struct TestResult {
 
 impl TestResult {
     /// Returns true when both results and `error_results` are either empty or have a result that is not Success
-    #[must_use] 
+    #[must_use]
     pub fn is_success(&self) -> bool {
         self.tree_results.iter().all(|r| r.result == ResultStatus::Success)
             && self.error_results.iter().all(|r| r.result == ResultStatus::Success)

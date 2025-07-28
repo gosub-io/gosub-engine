@@ -81,7 +81,7 @@ impl<C: HasLayouter> PositionTree<C> {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn find(&self, x: f32, y: f32) -> Option<<C::LayoutTree as LayoutTree<C>>::NodeId> {
         let envelope = AABB::from_point((x, y));
 

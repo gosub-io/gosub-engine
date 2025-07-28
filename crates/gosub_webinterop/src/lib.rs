@@ -125,11 +125,20 @@ pub fn web_fns(attr: TokenStream, item: TokenStream) -> TokenStream {
             if func.variadic {
                 if let Some(arg) = func.arguments.last() {
                     if arg.variant != ArgVariant::Variadic {
-                        assert!(!(arg.variant != ArgVariant::Context), "Variadic argument must be the last argument");
+                        assert!(
+                            !(arg.variant != ArgVariant::Context),
+                            "Variadic argument must be the last argument"
+                        );
                         //get second last
-                        assert!((func.arguments.len() > 1), "Variadic argument must be the last argument");
+                        assert!(
+                            (func.arguments.len() > 1),
+                            "Variadic argument must be the last argument"
+                        );
                         if let Some(arg) = func.arguments.get(func.arguments.len() - 2) {
-                            assert!(!(arg.variant != ArgVariant::Variadic), "Variadic argument must be the last argument");
+                            assert!(
+                                !(arg.variant != ArgVariant::Variadic),
+                                "Variadic argument must be the last argument"
+                            );
                         }
                     }
                 }
@@ -137,7 +146,10 @@ pub fn web_fns(attr: TokenStream, item: TokenStream) -> TokenStream {
 
             if func.needs_ctx {
                 if let Some(arg) = func.arguments.last() {
-                    assert!(!(arg.variant != ArgVariant::Context), "Context argument must be the last argument");
+                    assert!(
+                        !(arg.variant != ArgVariant::Context),
+                        "Context argument must be the last argument"
+                    );
                 }
             }
 

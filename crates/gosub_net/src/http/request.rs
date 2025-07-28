@@ -13,7 +13,7 @@ pub struct Request {
 }
 
 impl Request {
-    #[must_use] 
+    #[must_use]
     pub fn new(method: &str, uri: &str, version: &str) -> Self {
         Self {
             method: method.to_string(),

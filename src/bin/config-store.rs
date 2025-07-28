@@ -2,7 +2,7 @@ use anyhow::anyhow;
 use clap::{Parser, Subcommand};
 use derive_more::Display;
 use gosub_config::settings::Setting;
-use gosub_config::storage::{SqliteStorageAdapter, JsonStorageAdapter};
+use gosub_config::storage::{JsonStorageAdapter, SqliteStorageAdapter};
 use gosub_config::{config_store, config_store_write, StorageAdapter};
 use std::str::FromStr;
 

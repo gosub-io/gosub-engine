@@ -27,7 +27,7 @@ impl Default for FontManager {
 }
 
 impl FontManager {
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         let source = font_kit::source::SystemSource::new();
         let handles = source.all_fonts().unwrap();
@@ -49,12 +49,12 @@ impl FontManager {
     }
 
     /// Returns all available fonts for given source-type
-    #[must_use] 
+    #[must_use]
     pub fn available_fonts(&self) -> &Vec<FontInfo> {
         &self.available_fonts
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn find(&self, families: &[&str], style: FontStyle) -> Option<FontInfo> {
         for &fam in families {
             for fi in self.available_fonts() {

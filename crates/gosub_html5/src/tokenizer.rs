@@ -156,7 +156,7 @@ impl<'stream> Tokenizer<'stream> {
     }
 
     /// Returns the error logger
-    #[must_use] 
+    #[must_use]
     pub fn get_error_logger(&self) -> Ref<'_, ErrorLogger> {
         self.error_logger.borrow()
     }
@@ -2173,13 +2173,13 @@ impl<'stream> Tokenizer<'stream> {
     }
 
     /// Return the consumed string as a String
-    #[must_use] 
+    #[must_use]
     pub fn get_consumed_str(&self) -> &str {
         &self.consumed
     }
 
     /// Returns true if there is anything in the consume buffer
-    #[must_use] 
+    #[must_use]
     pub fn has_consumed_data(&self) -> bool {
         !self.consumed.is_empty()
     }

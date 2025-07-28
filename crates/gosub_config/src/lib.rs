@@ -230,7 +230,9 @@ impl ConfigStore {
     /// storage. Note that the setting MUST have a settings-info entry, otherwise
     /// this function will not store the setting.
     pub fn set(&self, key: &str, value: Setting) {
-        let info = if let Some(info) = self.settings_info.get(key) { info } else {
+        let info = if let Some(info) = self.settings_info.get(key) {
+            info
+        } else {
             warn!("config: Setting {key} is not known");
             return;
         };

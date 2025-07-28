@@ -29,7 +29,7 @@ pub struct RgbColor {
 
 impl RgbColor {
     /// Create a new color with r,g,b and alpha values
-    #[must_use] 
+    #[must_use]
     pub fn new(r: f32, g: f32, b: f32, a: f32) -> Self {
         RgbColor { r, g, b, a }
     }
@@ -825,7 +825,7 @@ lazy_static! {
     ];
 }
 
-#[must_use] 
+#[must_use]
 pub fn is_system_color(name: &str) -> bool {
     for entry in &CSS_SYSTEM_COLOR_NAMES {
         if entry == &name {
@@ -835,7 +835,7 @@ pub fn is_system_color(name: &str) -> bool {
     false
 }
 
-#[must_use] 
+#[must_use]
 pub fn is_named_color(name: &str) -> bool {
     for entry in *CSS_COLORNAMES {
         if entry.name == name {

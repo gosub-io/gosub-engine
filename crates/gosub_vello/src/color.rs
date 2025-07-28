@@ -10,7 +10,7 @@ impl From<VelloColor> for Color {
 }
 
 impl Color {
-    #[must_use] 
+    #[must_use]
     pub const fn rgba8(r: u8, g: u8, b: u8, a: u8) -> Self {
         Color(VelloColor::from_rgba8(r, g, b, a))
     }

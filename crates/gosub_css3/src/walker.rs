@@ -9,7 +9,7 @@ pub struct Walker<'a> {
 
 impl<'a> Walker<'a> {
     #[allow(dead_code)]
-    #[must_use] 
+    #[must_use]
     pub fn new(root: &'a Node) -> Self {
         Self { root }
     }
@@ -20,7 +20,7 @@ impl<'a> Walker<'a> {
     }
 
     #[allow(dead_code)]
-    #[must_use] 
+    #[must_use]
     pub fn walk_to_string(&self) -> String {
         let mut output: Vec<u8> = Vec::new();
 
@@ -61,10 +61,7 @@ fn inner_walk(node: &Node, depth: usize, f: &mut dyn Write) -> Result<(), std::i
             value,
             important,
         } => {
-            writeln!(
-                f,
-                "{prefix}[Declaration] property: {property} important: {important}"
-            )?;
+            writeln!(f, "{prefix}[Declaration] property: {property} important: {important}")?;
             for child in value {
                 inner_walk(child, depth + 1, f)?;
             }
@@ -119,10 +116,7 @@ fn inner_walk(node: &Node, depth: usize, f: &mut dyn Write) -> Result<(), std::i
             writeln!(f, "{prefix}[NestingSelector]")?;
         }
         NodeType::TypeSelector { namespace, value } => {
-            writeln!(
-                f,
-                "{prefix}[TypeSelector] namespace: {namespace:?} value: {value}"
-            )?;
+            writeln!(f, "{prefix}[TypeSelector] namespace: {namespace:?} value: {value}")?;
         }
         NodeType::Combinator { value } => {
             writeln!(f, "{prefix}[Combinator] {value}")?;
@@ -145,10 +139,7 @@ fn inner_walk(node: &Node, depth: usize, f: &mut dyn Write) -> Result<(), std::i
             media_type,
             condition,
         } => {
-            writeln!(
-                f,
-                "{prefix}[MediaQuery] modifier: {modifier} media_type: {media_type}"
-            )?;
+            writeln!(f, "{prefix}[MediaQuery] modifier: {modifier} media_type: {media_type}")?;
             if condition.is_some() {
                 inner_walk(condition.as_ref().unwrap(), depth + 1, f)?;
             }
@@ -213,10 +204,7 @@ fn inner_walk(node: &Node, depth: usize, f: &mut dyn Write) -> Result<(), std::i
             inner_walk(func, depth + 1, f)?;
         }
         NodeType::MSIdent { value, default_value } => {
-            writeln!(
-                f,
-                "{prefix}[MSIdent] value: {value} default_value: {default_value}"
-            )?;
+            writeln!(f, "{prefix}[MSIdent] value: {value} default_value: {default_value}")?;
         }
         NodeType::Calc { expr } => {
             writeln!(f, "{prefix}[Calc]")?;

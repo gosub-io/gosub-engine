@@ -84,7 +84,7 @@ pub fn convert_ast_to_stylesheet(css_ast: &CssNode, origin: CssOrigin, url: &str
         };
 
         let (prelude, declarations) = node.as_rule();
-        if let Some(node) =  prelude {
+        if let Some(node) = prelude {
             if !node.is_selector_list() {
                 continue;
             }
@@ -128,21 +128,25 @@ pub fn convert_ast_to_stylesheet(css_ast: &CssNode, origin: CssOrigin, url: &str
                             let matcher = match matcher {
                                 None => MatcherType::None,
 
-                                Some(matcher) => if let NodeType::Operator(op) = &*matcher.node_type { match op.as_str() {
-                                    "=" => MatcherType::Equals,
-                                    "~=" => MatcherType::Includes,
-                                    "|=" => MatcherType::DashMatch,
-                                    "^=" => MatcherType::PrefixMatch,
-                                    "$=" => MatcherType::SuffixMatch,
-                                    "*=" => MatcherType::SubstringMatch,
-                                    _ => {
+                                Some(matcher) => {
+                                    if let NodeType::Operator(op) = &*matcher.node_type {
+                                        match op.as_str() {
+                                            "=" => MatcherType::Equals,
+                                            "~=" => MatcherType::Includes,
+                                            "|=" => MatcherType::DashMatch,
+                                            "^=" => MatcherType::PrefixMatch,
+                                            "$=" => MatcherType::SuffixMatch,
+                                            "*=" => MatcherType::SubstringMatch,
+                                            _ => {
+                                                warn!("Unsupported matcher: {matcher:?}");
+                                                MatcherType::Equals
+                                            }
+                                        }
+                                    } else {
                                         warn!("Unsupported matcher: {matcher:?}");
                                         MatcherType::Equals
                                     }
-                                } } else {
-                                    warn!("Unsupported matcher: {matcher:?}");
-                                    MatcherType::Equals
-                                },
+                                }
                             };
 
                             CssSelectorPart::Attribute(Box::new(AttributeSelector {

@@ -247,26 +247,26 @@ impl<'stream> Tokenizer<'stream> {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn get_tokens(&self) -> Vec<Token> {
         self.tokens.clone()
     }
 
     /// Returns the current location (line/col) of the tokenizer
-    #[must_use] 
+    #[must_use]
     pub fn current_location(&self) -> Location {
         self.location_handler.cur_location
     }
 
     /// Returns true when there is no next element, and the stream is closed
-    #[must_use] 
+    #[must_use]
     pub fn eof(&self) -> bool {
         self.stream.eof() && self.token_position >= self.tokens.len()
     }
 
     /// Returns the current token. This can be either EOF at the end of the stream, of EOF when we
     /// haven't read anything. It would be more correct to return this in an Option.
-    #[must_use] 
+    #[must_use]
     pub fn current(&self) -> Token {
         if self.token_position == 0 {
             // We haven't read anything yet. We can't really return anything (we haven't read anything), so we return EOF
@@ -897,7 +897,7 @@ impl<'stream> Tokenizer<'stream> {
         self.stream.read()
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn tell(&self) -> usize {
         self.stream.tell_bytes()
     }

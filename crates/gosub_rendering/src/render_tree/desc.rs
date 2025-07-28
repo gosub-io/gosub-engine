@@ -6,12 +6,12 @@ use gosub_interface::render_backend::{NodeDesc, Point, Size};
 use gosub_shared::node::NodeId;
 
 impl<C: HasLayouter<LayoutTree = Self>> RenderTree<C> {
-    #[must_use] 
+    #[must_use]
     pub fn desc(&self) -> NodeDesc {
         self.desc_node(self.root)
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn desc_node(&self, node: NodeId) -> NodeDesc {
         let Some(node) = self.get_node(node) else {
             return NodeDesc {

@@ -224,7 +224,7 @@ pub enum BorderStyle {
 
 impl BorderStyle {
     #[allow(clippy::should_implement_trait)]
-    #[must_use] 
+    #[must_use]
     pub fn from_str(style: &str) -> Self {
         match style {
             "none" => Self::None,
@@ -249,7 +249,7 @@ pub enum Radius {
 }
 
 impl Radius {
-    #[must_use] 
+    #[must_use]
     pub fn offset(&self) -> Size {
         match self {
             Radius::Uniform(value) => Size::uniform(value.powi(2).div(2.0).sqrt() - *value),
@@ -265,7 +265,7 @@ impl Radius {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn radi_x(&self) -> FP {
         match self {
             Radius::Uniform(value) => *value,
@@ -273,7 +273,7 @@ impl Radius {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn radi_y(&self) -> FP {
         match self {
             Radius::Uniform(value) => *value,
@@ -281,7 +281,7 @@ impl Radius {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn radii(&self) -> [FP; 2] {
         match self {
             Radius::Uniform(value) => [*value, *value],
@@ -289,7 +289,7 @@ impl Radius {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn radii_f64(&self) -> (f64, f64) {
         match self {
             Radius::Uniform(value) => (f64::from(*value), f64::from(*value)),
@@ -372,21 +372,21 @@ pub trait BorderRadius:
     + From<(Radius, Radius, Radius, Radius)>
     + From<(FP, FP, FP, FP, FP, FP, FP, FP)>
 {
-    #[must_use] 
+    #[must_use]
     fn empty() -> Self {
         Self::uniform(0.0)
     }
-    #[must_use] 
+    #[must_use]
     fn uniform(radius: FP) -> Self {
         Self::from(radius)
     }
     fn uniform_radius(radius: Radius) -> Self;
-    #[must_use] 
+    #[must_use]
     fn uniform_elliptical(radius_x: FP, radius_y: FP) -> Self {
         Self::from([radius_x, radius_y, radius_x, radius_y])
     }
 
-    #[must_use] 
+    #[must_use]
     fn all(radius: FP) -> Self {
         let radius = radius.into();
         Self::all_radius(radius, radius, radius, radius)
@@ -526,7 +526,7 @@ pub trait Gradient<B: RenderBackend> {
 }
 
 pub trait Color {
-    #[must_use] 
+    #[must_use]
     fn new(r: u8, g: u8, b: u8) -> Self
     where
         Self: Sized,
@@ -536,7 +536,7 @@ pub trait Color {
 
     fn with_alpha(r: u8, g: u8, b: u8, a: u8) -> Self;
 
-    #[must_use] 
+    #[must_use]
     fn rgb(r: u8, g: u8, b: u8) -> Self
     where
         Self: Sized,
@@ -544,7 +544,7 @@ pub trait Color {
         Self::new(r, g, b)
     }
 
-    #[must_use] 
+    #[must_use]
     fn rgba(r: u8, g: u8, b: u8, a: u8) -> Self
     where
         Self: Sized,
@@ -552,7 +552,7 @@ pub trait Color {
         Self::with_alpha(r, g, b, a)
     }
 
-    #[must_use] 
+    #[must_use]
     fn tuple3(tup: (u8, u8, u8)) -> Self
     where
         Self: Sized,
@@ -560,7 +560,7 @@ pub trait Color {
         Self::new(tup.0, tup.1, tup.2)
     }
 
-    #[must_use] 
+    #[must_use]
     fn tuple4(tup: (u8, u8, u8, u8)) -> Self
     where
         Self: Sized,
@@ -668,7 +668,7 @@ pub enum ImageCacheEntry<'a, B: RenderBackend> {
 }
 
 pub trait ImgCache<B: RenderBackend>: Sized {
-    #[must_use] 
+    #[must_use]
     fn new() -> Self {
         Self::with_capacity(0)
     }

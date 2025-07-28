@@ -12,7 +12,7 @@ pub struct FontData {
 }
 
 impl FontData {
-    #[must_use] 
+    #[must_use]
     pub fn new(data: &[u8], index: u32) -> FontData {
         Self {
             data: data.to_vec(),
@@ -20,12 +20,12 @@ impl FontData {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn to_bytes(&self) -> &[u8] {
         &self.data
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn index(&self) -> u32 {
         self.index
     }

@@ -49,7 +49,7 @@ fn use_fixture(filenames: &[&str], path: impl AsRef<Path>) -> bool {
 }
 
 /// Returns the root path for the fixtures
-#[must_use] 
+#[must_use]
 pub fn fixture_root_path() -> PathBuf {
     PathBuf::from(FIXTURE_ROOT).join(TREE_CONSTRUCTION_PATH)
 }
@@ -82,7 +82,8 @@ fn create_document_array(s: &str) -> Vec<String> {
         .cow_replace(QUOTED_DOUBLE_NEWLINE, "\"\n\n\"")
         .split('|')
         .skip(1)
-        .filter(|&l| !l.is_empty()).map(|l| format!("|{}", l.trim_end()))
+        .filter(|&l| !l.is_empty())
+        .map(|l| format!("|{}", l.trim_end()))
         .collect::<Vec<_>>();
 
     document

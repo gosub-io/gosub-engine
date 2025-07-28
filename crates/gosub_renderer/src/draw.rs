@@ -152,8 +152,7 @@ impl<C: HasDrawComponents<RenderTree = RenderTree<C>, LayoutTree = RenderTree<C>
                 .as_ref()
                 .map_or(Point::ZERO, |x| Point::new(x.tx(), x.ty()));
 
-            let scale =
-                px_scale::<C::RenderBackend>(size, pos, self.size.as_ref().map_or(0.0, |x| x.width as f32));
+            let scale = px_scale::<C::RenderBackend>(size, pos, self.size.as_ref().map_or(0.0, |x| x.width as f32));
 
             root_scene.apply_scene(&scale, None);
         }
@@ -464,7 +463,9 @@ fn render_text<C: HasDrawComponents>(
         .props()
         .get("color")
         .and_then(gosub_interface::css3::CssProperty::parse_color)
-        .map_or(Color::BLACK, |color| Color::rgba(color.0 as u8, color.1 as u8, color.2 as u8, color.3 as u8));
+        .map_or(Color::BLACK, |color| {
+            Color::rgba(color.0 as u8, color.1 as u8, color.2 as u8, color.3 as u8)
+        });
 
     if let Some((_, layout)) = &node.text_data() {
         let text = layout

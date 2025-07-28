@@ -78,40 +78,40 @@ pub struct PropertyDefinition {
 }
 
 impl PropertyDefinition {
-    #[must_use] 
+    #[must_use]
     pub fn name(&self) -> &str {
         &self.name
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn expanded_properties(&self) -> Vec<String> {
         self.computed.clone()
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn syntax(&self) -> &CssSyntaxTree {
         &self.syntax
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn inherited(&self) -> bool {
         self.inherited
     }
 
     /// Returns true when this definition has an initial value
-    #[must_use] 
+    #[must_use]
     pub fn has_initial_value(&self) -> bool {
         self.initial_value.is_some()
     }
 
     /// Returns the initial value
-    #[must_use] 
+    #[must_use]
     pub fn initial_value(&self) -> CssValue {
         self.initial_value.clone().unwrap_or(CssValue::None)
     }
 
     /// Matches a list of values against the current definition
-    #[must_use] 
+    #[must_use]
     pub fn matches(&self, input: &[CssValue]) -> bool {
         self.syntax.matches(input)
     }
@@ -126,7 +126,7 @@ impl PropertyDefinition {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn check_expanded_properties(&self, _values: &[CssValue]) -> bool {
         // if values.len() != self.expanded_properties.len() {
         //     return false;
@@ -143,7 +143,7 @@ impl PropertyDefinition {
         true
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn is_shorthand(&self) -> bool {
         self.computed.len() > 1
     }
@@ -184,7 +184,7 @@ impl Default for CssDefinitions {
 }
 
 impl CssDefinitions {
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         CssDefinitions {
             resolved_properties: HashMap::new(),
@@ -209,19 +209,19 @@ impl CssDefinitions {
     }
 
     /// Find a specific property
-    #[must_use] 
+    #[must_use]
     pub fn find_property(&self, name: &str) -> Option<&PropertyDefinition> {
         self.resolved_properties.get(name)
     }
 
     /// Returns the length of the property definitions
-    #[must_use] 
+    #[must_use]
     pub fn len(&self) -> usize {
         self.resolved_properties.len()
     }
 
     /// Returns true when the properties definitions are empty
-    #[must_use] 
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.resolved_properties.is_empty()
     }
@@ -406,7 +406,7 @@ fn parse_definition_files() -> CssDefinitions {
 
 /// Main function to return the definitions. This will automatically load the definition files
 /// and caches them if needed.
-#[must_use] 
+#[must_use]
 pub fn get_css_definitions() -> &'static CssDefinitions {
     &CSS_DEFINITIONS
 }

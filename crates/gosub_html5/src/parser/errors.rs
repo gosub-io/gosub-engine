@@ -61,7 +61,7 @@ pub enum ParserError {
 
 impl ParserError {
     /// Parser errors as string representation
-    #[must_use] 
+    #[must_use]
     pub fn as_str(&self) -> &'static str {
         match self {
             ParserError::AbruptDoctypePublicIdentifier => "abrupt-doctype-public-identifier",
@@ -156,7 +156,7 @@ impl ErrorLogger {
     }
 
     /// Returns a cloned instance of the errors
-    #[must_use] 
+    #[must_use]
     pub fn get_errors(&self) -> Vec<ParseError> {
         self.errors.clone()
     }

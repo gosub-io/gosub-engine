@@ -168,7 +168,7 @@ impl Css3System {
     }
 }
 
-#[must_use] 
+#[must_use]
 pub fn prop_is_inherit(name: &str) -> bool {
     get_css_definitions()
         .find_property(name)

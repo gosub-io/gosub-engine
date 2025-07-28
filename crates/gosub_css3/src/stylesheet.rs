@@ -42,7 +42,7 @@ pub struct CssLog {
 }
 
 impl CssLog {
-    #[must_use] 
+    #[must_use]
     pub fn log(severity: Severity, message: &str, location: Location) -> Self {
         Self {
             severity,
@@ -51,7 +51,7 @@ impl CssLog {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn error(message: &str, location: Location) -> Self {
         Self {
             severity: Severity::Error,
@@ -60,7 +60,7 @@ impl CssLog {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn warn(message: &str, location: Location) -> Self {
         Self {
             severity: Severity::Warning,
@@ -69,7 +69,7 @@ impl CssLog {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn info(message: &str, location: Location) -> Self {
         Self {
             severity: Severity::Info,
@@ -132,12 +132,12 @@ pub struct CssRule {
 }
 
 impl CssRule {
-    #[must_use] 
+    #[must_use]
     pub fn selectors(&self) -> &Vec<CssSelector> {
         &self.selectors
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn declarations(&self) -> &Vec<CssDeclaration> {
         &self.declarations
     }
@@ -163,7 +163,7 @@ pub struct CssSelector {
 
 impl CssSelector {
     /// Generate specificity for this selector
-    #[must_use] 
+    #[must_use]
     pub fn specificity(&self) -> Vec<Specificity> {
         self.parts
             .iter()
@@ -298,7 +298,7 @@ impl Display for MatcherType {
 pub struct Specificity(u32, u32, u32);
 
 impl Specificity {
-    #[must_use] 
+    #[must_use]
     pub fn new(a: u32, b: u32, c: u32) -> Self {
         Self(a, b, c)
     }
@@ -413,7 +413,7 @@ impl Display for CssValue {
 }
 
 impl CssValue {
-    #[must_use] 
+    #[must_use]
     pub fn to_color(&self) -> Option<RgbColor> {
         match self {
             CssValue::Color(col) => Some(*col),
@@ -422,7 +422,7 @@ impl CssValue {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn unit_to_px(&self) -> f32 {
         //TODO: Implement the rest of the units
         match self {
@@ -449,7 +449,7 @@ impl CssValue {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn from_vec(mut value: Vec<Self>) -> Self {
         match value.len() {
             0 => Self::None,
@@ -458,7 +458,7 @@ impl CssValue {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn to_slice(&self) -> &[Self] {
         match self {
             Self::List(l) => l,
@@ -466,7 +466,7 @@ impl CssValue {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn into_vec(self) -> Vec<Self> {
         match self {
             Self::List(l) => l,

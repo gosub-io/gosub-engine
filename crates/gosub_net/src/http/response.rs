@@ -14,7 +14,7 @@ pub struct Response {
 }
 
 impl Response {
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Response {
         Self {
             status: 0,
@@ -26,7 +26,7 @@ impl Response {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn is_ok(&self) -> bool {
         self.status >= 200 && self.status < 300
     }

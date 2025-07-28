@@ -112,7 +112,7 @@ impl<C: HasLayouter<FontManager = Self>> RenderTree<C> {}
 
 impl<C: HasLayouter<LayoutTree = Self>> RenderTree<C> {
     // Generates a new render tree with a root node
-    #[must_use] 
+    #[must_use]
     pub fn with_capacity(capacity: usize) -> Self {
         let mut tree = Self {
             nodes: HashMap::with_capacity(capacity),
@@ -213,19 +213,19 @@ impl<C: HasLayouter<LayoutTree = Self>> RenderTree<C> {
     }
 
     /// Returns the root node of the render tree
-    #[must_use] 
+    #[must_use]
     pub fn get_root(&self) -> &RenderTreeNode<C> {
         self.nodes.get(&self.root).expect("root node")
     }
 
     /// Returns the children of the given node
-    #[must_use] 
+    #[must_use]
     pub fn get_children(&self, id: NodeId) -> Option<&Vec<NodeId>> {
         self.nodes.get(&id).map(|node| &node.children)
     }
 
     /// Returns the children of the given node
-    #[must_use] 
+    #[must_use]
     pub fn child_count(&self, id: NodeId) -> usize {
         self.nodes.get(&id).map_or(0, |node| node.children.len())
     }
@@ -286,7 +286,7 @@ impl<C: HasLayouter<LayoutTree = Self>> RenderTree<C> {
     }
 
     /// Retrieves the property for the given node, or None when not found
-    #[must_use] 
+    #[must_use]
     pub fn get_property(&self, node_id: NodeId, prop_name: &str) -> Option<&C::CssProperty> {
         let props = self.nodes.get(&node_id)?;
 
@@ -294,7 +294,7 @@ impl<C: HasLayouter<LayoutTree = Self>> RenderTree<C> {
     }
 
     /// Retrieves the value for the given property for the given node, or None when not found
-    #[must_use] 
+    #[must_use]
     pub fn get_all_properties(&self, node_id: NodeId) -> Option<&C::CssPropertyMap> {
         self.nodes.get(&node_id).map(|props| &props.properties)
     }
@@ -659,7 +659,7 @@ pub enum ControlFlow<T> {
 }
 
 impl<C: HasLayouter + HasDocument> RenderNodeData<C> {
-    #[must_use] 
+    #[must_use]
     pub fn from_node_data(node: &NodeData<C>) -> ControlFlow<Self> {
         ControlFlow::Ok(match node {
             NodeData::Element(d) => RenderNodeData::Element {

@@ -457,7 +457,7 @@ impl<C: HasDocument<Document = Self>> Display for DocumentImpl<C> {
 
 impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
     /// Fetches a node by named id (string) or returns None when no node with this ID is found
-    #[must_use] 
+    #[must_use]
     pub fn get_node_by_named_id(&self, named_id: &str) -> Option<&C::Node> {
         let node_id = self.named_id_elements.get(named_id)?;
         self.arena.node_ref(*node_id)
@@ -476,7 +476,7 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
     //     self.arena.count_nodes()
     // }
 
-    #[must_use] 
+    #[must_use]
     pub fn has_node_id_recursive(&self, parent_id: NodeId, target_node_id: NodeId) -> bool {
         let parent = self.arena.node_ref(parent_id);
         if parent.is_none() {
@@ -495,12 +495,12 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
         false
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn peek_next_id(&self) -> NodeId {
         self.arena.peek_next_id()
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn nodes(&self) -> &HashMap<NodeId, C::Node> {
         self.arena.nodes()
     }

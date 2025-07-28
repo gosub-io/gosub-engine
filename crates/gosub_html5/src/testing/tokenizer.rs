@@ -179,7 +179,7 @@ where
 }
 
 impl TestSpec {
-    #[must_use] 
+    #[must_use]
     pub fn builders(&self) -> Vec<TokenizerBuilder> {
         let mut builders = vec![];
 
@@ -366,7 +366,7 @@ pub enum FixtureFile {
     },
 }
 
-#[must_use] 
+#[must_use]
 pub fn from_utf16_lossy(input: &str) -> String {
     // TODO: Maybe use String::from_utf8_lossy(input.as_bytes()).into() instead
     // https://doc.rust-lang.org/std/string/struct.String.html#method.from_utf8_lossy
@@ -379,7 +379,9 @@ pub fn from_utf16_lossy(input: &str) -> String {
         let n = u16::from_str_radix(&cap[1], 16).unwrap();
         // There are UTF-16 characters that the following will not decode into UTF-8, so we might
         // be dropping characters when a DecodeUtf16Error error is encountered.
-        std::char::decode_utf16([n]).filter_map(std::result::Result::ok).collect::<String>()
+        std::char::decode_utf16([n])
+            .filter_map(std::result::Result::ok)
+            .collect::<String>()
     })
     .to_string()
 }

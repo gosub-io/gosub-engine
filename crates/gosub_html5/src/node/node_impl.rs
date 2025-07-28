@@ -305,7 +305,10 @@ mod tests {
         assert_eq!(node.id, NodeId::default());
         assert_eq!(node.parent, None);
         assert!(node.children.is_empty());
-        if let NodeDataTypeInternal::Document(_) = &node.data {  } else { panic!() }
+        if let NodeDataTypeInternal::Document(_) = &node.data {
+        } else {
+            panic!()
+        }
     }
 
     #[test]
@@ -322,7 +325,9 @@ mod tests {
             assert_eq!(data.name(), "div");
             assert!(data.attributes().contains_key("id"));
             assert_eq!(data.attributes().get("id").unwrap(), "test");
-        } else { panic!() }
+        } else {
+            panic!()
+        }
     }
 
     #[test]

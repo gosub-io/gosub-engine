@@ -135,10 +135,16 @@ impl GsBorder {
                     let offset_left = left.offset();
                     let offset_right = right.offset();
 
-                    path.move_to((pos.x - f64::from(offset_left.width), pos.y - f64::from(offset_left.height)));
+                    path.move_to((
+                        pos.x - f64::from(offset_left.width),
+                        pos.y - f64::from(offset_left.height),
+                    ));
 
                     let arc = Arc {
-                        center: Point::new(pos.x + f64::from(offset_left.width), pos.y - f64::from(offset_left.height)),
+                        center: Point::new(
+                            pos.x + f64::from(offset_left.width),
+                            pos.y - f64::from(offset_left.height),
+                        ),
                         radii: Vec2::new(left.radii_f64().0, left.radii_f64().1),
                         start_angle: -std::f64::consts::PI * 3.0 / 4.0,
                         sweep_angle: std::f64::consts::PI / 4.0,
@@ -155,7 +161,10 @@ impl GsBorder {
                     ));
 
                     let arc = Arc {
-                        center: Point::new(pos.x + width - f64::from(right.radi_x()), pos.y + f64::from(right.radi_y())),
+                        center: Point::new(
+                            pos.x + width - f64::from(right.radi_x()),
+                            pos.y + f64::from(right.radi_y()),
+                        ),
                         radii: Vec2::new(right.radii_f64().0, right.radii_f64().1),
                         start_angle: 0.0,
                         sweep_angle: std::f64::consts::PI / 4.0,
@@ -170,135 +179,153 @@ impl GsBorder {
                     path.line_to((pos.x + width, pos.y));
                 }
             }
-            GsSide::Right => if let Some((top, bottom)) = radius {
-                let offset_top = top.offset();
-                let offset_bottom = bottom.offset();
+            GsSide::Right => {
+                if let Some((top, bottom)) = radius {
+                    let offset_top = top.offset();
+                    let offset_bottom = bottom.offset();
 
-                path.move_to((
-                    pos.x + width + f64::from(offset_top.width),
-                    pos.y - f64::from(offset_top.height),
-                ));
+                    path.move_to((
+                        pos.x + width + f64::from(offset_top.width),
+                        pos.y - f64::from(offset_top.height),
+                    ));
 
-                let arc = Arc {
-                    center: Point::new(
-                        pos.x + width - f64::from(offset_top.width),
-                        pos.y + f64::from(offset_top.height),
-                    ),
-                    radii: Vec2::new(top.radii_f64().0, top.radii_f64().1),
-                    start_angle: -std::f64::consts::PI / 4.0,
-                    sweep_angle: std::f64::consts::PI / 4.0,
-                    x_rotation: 0.0,
-                };
+                    let arc = Arc {
+                        center: Point::new(
+                            pos.x + width - f64::from(offset_top.width),
+                            pos.y + f64::from(offset_top.height),
+                        ),
+                        radii: Vec2::new(top.radii_f64().0, top.radii_f64().1),
+                        start_angle: -std::f64::consts::PI / 4.0,
+                        sweep_angle: std::f64::consts::PI / 4.0,
+                        x_rotation: 0.0,
+                    };
 
-                arc.to_cubic_beziers(0.1, |p1, p2, p3| {
-                    path.curve_to(p1, p2, p3);
-                });
+                    arc.to_cubic_beziers(0.1, |p1, p2, p3| {
+                        path.curve_to(p1, p2, p3);
+                    });
 
-                path.line_to((
-                    pos.x + width - f64::from(offset_bottom.width),
-                    pos.y + height - f64::from(bottom.radi_y()),
-                ));
-
-                let arc = Arc {
-                    center: Point::new(
+                    path.line_to((
                         pos.x + width - f64::from(offset_bottom.width),
-                        pos.y + height - f64::from(offset_bottom.height),
-                    ),
-                    radii: Vec2::new(bottom.radii_f64().0, bottom.radii_f64().1),
-                    start_angle: 0.0,
-                    sweep_angle: std::f64::consts::PI / 4.0,
-                    x_rotation: 0.0,
-                };
+                        pos.y + height - f64::from(bottom.radi_y()),
+                    ));
 
-                arc.to_cubic_beziers(0.1, |p1, p2, p3| {
-                    path.curve_to(p1, p2, p3);
-                });
-            } else {
-                path.move_to((pos.x + width, pos.y));
-                path.line_to((pos.x + width, pos.y + height));
-            },
-            GsSide::Bottom => if let Some((left, right)) = radius {
-                let offset_left = left.offset();
-                let offset_right = right.offset();
+                    let arc = Arc {
+                        center: Point::new(
+                            pos.x + width - f64::from(offset_bottom.width),
+                            pos.y + height - f64::from(offset_bottom.height),
+                        ),
+                        radii: Vec2::new(bottom.radii_f64().0, bottom.radii_f64().1),
+                        start_angle: 0.0,
+                        sweep_angle: std::f64::consts::PI / 4.0,
+                        x_rotation: 0.0,
+                    };
 
-                path.move_to((
-                    pos.x + width + f64::from(offset_right.width),
-                    pos.y + height + f64::from(offset_right.height),
-                ));
+                    arc.to_cubic_beziers(0.1, |p1, p2, p3| {
+                        path.curve_to(p1, p2, p3);
+                    });
+                } else {
+                    path.move_to((pos.x + width, pos.y));
+                    path.line_to((pos.x + width, pos.y + height));
+                }
+            }
+            GsSide::Bottom => {
+                if let Some((left, right)) = radius {
+                    let offset_left = left.offset();
+                    let offset_right = right.offset();
 
-                let arc = Arc {
-                    center: Point::new(
-                        pos.x + width - f64::from(offset_right.width),
-                        pos.y + height - f64::from(offset_right.height),
-                    ),
-                    radii: Vec2::new(right.radii_f64().0, right.radii_f64().1),
-                    start_angle: -std::f64::consts::PI * 7.0 / 4.0,
-                    sweep_angle: std::f64::consts::PI / 4.0,
-                    x_rotation: 0.0,
-                };
+                    path.move_to((
+                        pos.x + width + f64::from(offset_right.width),
+                        pos.y + height + f64::from(offset_right.height),
+                    ));
 
-                arc.to_cubic_beziers(0.1, |p1, p2, p3| {
-                    path.curve_to(p1, p2, p3);
-                });
+                    let arc = Arc {
+                        center: Point::new(
+                            pos.x + width - f64::from(offset_right.width),
+                            pos.y + height - f64::from(offset_right.height),
+                        ),
+                        radii: Vec2::new(right.radii_f64().0, right.radii_f64().1),
+                        start_angle: -std::f64::consts::PI * 7.0 / 4.0,
+                        sweep_angle: std::f64::consts::PI / 4.0,
+                        x_rotation: 0.0,
+                    };
 
-                path.line_to((pos.x + f64::from(left.radi_x()), pos.y + height - f64::from(offset_left.height)));
+                    arc.to_cubic_beziers(0.1, |p1, p2, p3| {
+                        path.curve_to(p1, p2, p3);
+                    });
 
-                let arc = Arc {
-                    center: Point::new(pos.x + f64::from(left.radi_x()), pos.y + height - f64::from(offset_left.height)),
-                    radii: Vec2::new(left.radii_f64().0, left.radii_f64().1),
-                    start_angle: -std::f64::consts::PI * 3.0 / 2.0,
-                    sweep_angle: std::f64::consts::PI / 4.0,
-                    x_rotation: 0.0,
-                };
+                    path.line_to((
+                        pos.x + f64::from(left.radi_x()),
+                        pos.y + height - f64::from(offset_left.height),
+                    ));
 
-                arc.to_cubic_beziers(0.1, |p1, p2, p3| {
-                    path.curve_to(p1, p2, p3);
-                });
-            } else {
-                path.move_to((pos.x, pos.y + height));
-                path.line_to((pos.x + width, pos.y + height));
-            },
-            GsSide::Left => if let Some((top, bottom)) = radius {
-                let offset_top = top.offset();
-                let offset_bottom = bottom.offset();
+                    let arc = Arc {
+                        center: Point::new(
+                            pos.x + f64::from(left.radi_x()),
+                            pos.y + height - f64::from(offset_left.height),
+                        ),
+                        radii: Vec2::new(left.radii_f64().0, left.radii_f64().1),
+                        start_angle: -std::f64::consts::PI * 3.0 / 2.0,
+                        sweep_angle: std::f64::consts::PI / 4.0,
+                        x_rotation: 0.0,
+                    };
 
-                path.move_to((
-                    pos.x - f64::from(offset_top.width),
-                    pos.y + height + f64::from(offset_top.height),
-                ));
+                    arc.to_cubic_beziers(0.1, |p1, p2, p3| {
+                        path.curve_to(p1, p2, p3);
+                    });
+                } else {
+                    path.move_to((pos.x, pos.y + height));
+                    path.line_to((pos.x + width, pos.y + height));
+                }
+            }
+            GsSide::Left => {
+                if let Some((top, bottom)) = radius {
+                    let offset_top = top.offset();
+                    let offset_bottom = bottom.offset();
 
-                let arc = Arc {
-                    center: Point::new(
-                        pos.x + f64::from(offset_top.width),
-                        pos.y + height - f64::from(offset_top.height),
-                    ),
-                    radii: Vec2::new(top.radii_f64().0, top.radii_f64().1),
-                    start_angle: -std::f64::consts::PI * 5.0 / 4.0,
-                    sweep_angle: std::f64::consts::PI / 4.0,
-                    x_rotation: 0.0,
-                };
+                    path.move_to((
+                        pos.x - f64::from(offset_top.width),
+                        pos.y + height + f64::from(offset_top.height),
+                    ));
 
-                arc.to_cubic_beziers(0.1, |p1, p2, p3| {
-                    path.curve_to(p1, p2, p3);
-                });
+                    let arc = Arc {
+                        center: Point::new(
+                            pos.x + f64::from(offset_top.width),
+                            pos.y + height - f64::from(offset_top.height),
+                        ),
+                        radii: Vec2::new(top.radii_f64().0, top.radii_f64().1),
+                        start_angle: -std::f64::consts::PI * 5.0 / 4.0,
+                        sweep_angle: std::f64::consts::PI / 4.0,
+                        x_rotation: 0.0,
+                    };
 
-                path.line_to((pos.x + f64::from(offset_bottom.width), pos.y + f64::from(bottom.radi_y())));
+                    arc.to_cubic_beziers(0.1, |p1, p2, p3| {
+                        path.curve_to(p1, p2, p3);
+                    });
 
-                let arc = Arc {
-                    center: Point::new(pos.x + f64::from(offset_bottom.width), pos.y + f64::from(bottom.radi_y())),
-                    radii: Vec2::new(bottom.radii_f64().0, bottom.radii_f64().1),
-                    start_angle: -std::f64::consts::PI,
-                    sweep_angle: std::f64::consts::PI / 4.0,
-                    x_rotation: 0.0,
-                };
+                    path.line_to((
+                        pos.x + f64::from(offset_bottom.width),
+                        pos.y + f64::from(bottom.radi_y()),
+                    ));
 
-                arc.to_cubic_beziers(0.1, |p1, p2, p3| {
-                    path.curve_to(p1, p2, p3);
-                });
-            } else {
-                path.move_to((pos.x, pos.y + height));
-                path.line_to((pos.x, pos.y));
-            },
+                    let arc = Arc {
+                        center: Point::new(
+                            pos.x + f64::from(offset_bottom.width),
+                            pos.y + f64::from(bottom.radi_y()),
+                        ),
+                        radii: Vec2::new(bottom.radii_f64().0, bottom.radii_f64().1),
+                        start_angle: -std::f64::consts::PI,
+                        sweep_angle: std::f64::consts::PI / 4.0,
+                        x_rotation: 0.0,
+                    };
+
+                    arc.to_cubic_beziers(0.1, |p1, p2, p3| {
+                        path.curve_to(p1, p2, p3);
+                    });
+                } else {
+                    path.move_to((pos.x, pos.y + height));
+                    path.line_to((pos.x, pos.y));
+                }
+            }
         }
 
         let cap = match style {

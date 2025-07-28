@@ -4210,9 +4210,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             "stylesheet",
         ];
         if parser_in_body && !body_ok_types.contains(&rel.as_str()) {
-            self.parse_error(
-                format!("link element with rel attribute '{rel}' is not supported in the body").as_str(),
-            );
+            self.parse_error(format!("link element with rel attribute '{rel}' is not supported in the body").as_str());
             return;
         }
 

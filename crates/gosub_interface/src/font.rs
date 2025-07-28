@@ -13,12 +13,12 @@ impl FontBlob {
         Self { data, index }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn data(&self) -> &Arc<dyn AsRef<[u8]> + Send + Sync> {
         &self.data
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn as_u8(&self) -> &[u8] {
         self.data.as_ref().as_ref()
     }

@@ -106,7 +106,7 @@ impl<'stream> Css3<'stream> {
 }
 
 /// Loads the default user agent stylesheet
-#[must_use] 
+#[must_use]
 pub fn load_default_useragent_stylesheet() -> CssStylesheet {
     // @todo: we should be able to browse to gosub:useragent.css and see the actual useragent css file
     let url = "gosub:useragent.css";

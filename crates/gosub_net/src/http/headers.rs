@@ -6,14 +6,14 @@ pub struct Headers {
 }
 
 impl Headers {
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Headers {
         Headers {
             headers: HashMap::new(),
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn with_capacity(capacity: usize) -> Headers {
         Headers {
             headers: HashMap::with_capacity(capacity),
@@ -24,18 +24,18 @@ impl Headers {
         self.headers.insert(key.to_string(), value.to_string());
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn get(&self, key: &str) -> Option<&String> {
         self.headers.get(key)
     }
 
     /// Returns all the header entries. Note that there is no ordering in here!
-    #[must_use] 
+    #[must_use]
     pub fn all(&self) -> &HashMap<String, String> {
         &self.headers
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn sorted(&self) -> Vec<(&String, &String)> {
         let mut sorted = self.headers.iter().collect::<Vec<_>>();
         sorted.sort_by(|a, b| a.0.cmp(b.0));

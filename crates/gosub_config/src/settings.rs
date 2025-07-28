@@ -17,7 +17,7 @@ pub enum Setting {
 }
 
 impl Setting {
-    #[must_use] 
+    #[must_use]
     pub fn to_bool(&self) -> bool {
         if !matches!(self, Setting::Bool(_)) {
             warn!("setting is not a boolean");
@@ -32,7 +32,7 @@ impl Setting {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn to_sint(&self) -> isize {
         if !matches!(self, Setting::SInt(_)) {
             warn!("setting is not an signed integer");
@@ -47,7 +47,7 @@ impl Setting {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn to_uint(&self) -> usize {
         if !matches!(self, Setting::UInt(_)) {
             warn!("setting is not an unsigned integer");
@@ -63,7 +63,7 @@ impl Setting {
     }
 
     #[allow(clippy::inherent_to_string_shadow_display)]
-    #[must_use] 
+    #[must_use]
     pub fn to_string(&self) -> String {
         if !matches!(self, Setting::String(_)) {
             warn!("setting is not a string");
@@ -86,7 +86,7 @@ impl Setting {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn to_map(&self) -> Vec<String> {
         if !matches!(self, Setting::Map(_)) {
             warn!("setting is not a map");

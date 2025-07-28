@@ -59,7 +59,10 @@ impl GenericsMatcher {
         for generic in generics {
             let matcher = GenericsMatcher::new(generic.param, func);
 
-            assert!(!gen.iter().any(|g: &Generics| g.matcher == matcher), "Duplicate generic matcher");
+            assert!(
+                !gen.iter().any(|g: &Generics| g.matcher == matcher),
+                "Duplicate generic matcher"
+            );
 
             gen.push(Generics {
                 matcher,

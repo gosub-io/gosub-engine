@@ -40,7 +40,7 @@ pub enum Character {
     StreamEmpty,
 }
 
-use Character::{Ch, Surrogate, StreamEmpty, StreamEnd};
+use Character::{Ch, StreamEmpty, StreamEnd, Surrogate};
 
 /// Converts the given character to a char. This is only valid for UTF8 characters. Surrogate
 /// and EOF characters are converted to 0x0000
@@ -77,13 +77,13 @@ impl fmt::Display for Character {
 
 impl Character {
     /// Returns true when the character is a whitespace
-    #[must_use] 
+    #[must_use]
     pub fn is_whitespace(&self) -> bool {
         matches!(self, Ch(c) if c.is_whitespace())
     }
 
     /// Returns true when the character is a numerical
-    #[must_use] 
+    #[must_use]
     pub fn is_numeric(&self) -> bool {
         matches!(self, Ch(c) if c.is_numeric())
     }
@@ -550,7 +550,7 @@ impl Default for Location {
 
 impl Location {
     /// Create a new Location
-    #[must_use] 
+    #[must_use]
     pub fn new(line: usize, column: usize, offset: usize) -> Self {
         Self { line, column, offset }
     }
@@ -581,7 +581,7 @@ pub struct LocationHandler {
 impl LocationHandler {
     /// Create a new `LocationHandler`. `Start_location` can be set in case the stream is
     /// not starting at 1:1
-    #[must_use] 
+    #[must_use]
     pub fn new(start_location: Location) -> Self {
         Self {
             start_location,

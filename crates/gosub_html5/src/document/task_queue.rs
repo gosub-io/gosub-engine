@@ -68,7 +68,7 @@ pub struct DocumentTaskQueue {
 }
 
 impl DocumentTaskQueue {
-    #[must_use] 
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.tasks.is_empty()
     }

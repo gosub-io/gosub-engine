@@ -179,12 +179,12 @@ impl Node {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn is_block(&self) -> bool {
         matches!(&*self.node_type, NodeType::Block { .. })
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn as_block(&self) -> &Vec<Node> {
         match &&*self.node_type {
             &NodeType::Block { children } => children,
@@ -192,17 +192,17 @@ impl Node {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn is_stylesheet(&self) -> bool {
         matches!(&*self.node_type, NodeType::StyleSheet { .. })
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn is_rule(&self) -> bool {
         matches!(&*self.node_type, NodeType::Rule { .. })
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn as_stylesheet(&self) -> &Vec<Node> {
         match &&*self.node_type {
             &NodeType::StyleSheet { children } => children,
@@ -210,7 +210,7 @@ impl Node {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn as_rule(&self) -> (&Option<Node>, &Option<Node>) {
         match &&*self.node_type {
             &NodeType::Rule { prelude, block } => (prelude, block),
@@ -218,12 +218,12 @@ impl Node {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn is_selector_list(&self) -> bool {
         matches!(&*self.node_type, NodeType::SelectorList { .. })
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn as_selector_list(&self) -> &Vec<Node> {
         match &&*self.node_type {
             &NodeType::SelectorList { selectors } => selectors,
@@ -231,12 +231,12 @@ impl Node {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn is_selector(&self) -> bool {
         matches!(&*self.node_type, NodeType::Selector { .. })
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn as_selector(&self) -> &Vec<Node> {
         match &&*self.node_type {
             &NodeType::Selector { children } => children,
@@ -244,12 +244,12 @@ impl Node {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn is_ident(&self) -> bool {
         matches!(&*self.node_type, NodeType::Ident { .. })
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn as_ident(&self) -> &String {
         match &&*self.node_type {
             &NodeType::Ident { value } => value,
@@ -257,12 +257,12 @@ impl Node {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn is_number(&self) -> bool {
         matches!(&*self.node_type, NodeType::Number { .. })
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn as_number(&self) -> &Number {
         match &&*self.node_type {
             &NodeType::Number { value } => value,
@@ -270,12 +270,12 @@ impl Node {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn is_hash(&self) -> bool {
         matches!(&*self.node_type, NodeType::Hash { .. })
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn as_hash(&self) -> &String {
         match &&*self.node_type {
             &NodeType::Hash { value } => value,
@@ -283,7 +283,7 @@ impl Node {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn as_class_selector(&self) -> &String {
         match &&*self.node_type {
             &NodeType::ClassSelector { value } => value,
@@ -291,12 +291,12 @@ impl Node {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn is_class_selector(&self) -> bool {
         matches!(&*self.node_type, NodeType::ClassSelector { .. })
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn is_type_selector(&self) -> bool {
         match &&*self.node_type {
             &NodeType::TypeSelector { value, .. } => value != "*",
@@ -304,7 +304,7 @@ impl Node {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn as_type_selector(&self) -> &String {
         match &&*self.node_type {
             &NodeType::TypeSelector { value, .. } => value,
@@ -312,7 +312,7 @@ impl Node {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn is_universal_selector(&self) -> bool {
         match &&*self.node_type {
             &NodeType::TypeSelector { value, .. } => value == "*",
@@ -320,12 +320,12 @@ impl Node {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn is_attribute_selector(&self) -> bool {
         matches!(&*self.node_type, NodeType::AttributeSelector { .. })
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn as_attribute_selector(&self) -> (&String, &Option<Node>, &String, &String) {
         match &&*self.node_type {
             &NodeType::AttributeSelector {
@@ -338,12 +338,12 @@ impl Node {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn is_pseudo_class_selector(&self) -> bool {
         matches!(&*self.node_type, NodeType::PseudoClassSelector { .. })
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn as_pseudo_class_selector(&self) -> String {
         match &&*self.node_type {
             &NodeType::PseudoClassSelector { value } => value.to_string(),
@@ -351,12 +351,12 @@ impl Node {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn is_pseudo_element_selector(&self) -> bool {
         matches!(&*self.node_type, NodeType::PseudoElementSelector { .. })
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn as_pseudo_element_selector(&self) -> &String {
         match &&*self.node_type {
             &NodeType::PseudoElementSelector { value } => value,
@@ -364,12 +364,12 @@ impl Node {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn is_combinator(&self) -> bool {
         matches!(&*self.node_type, NodeType::Combinator { .. })
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn as_combinator(&self) -> &String {
         match &&*self.node_type {
             &NodeType::Combinator { value } => value,
@@ -377,12 +377,12 @@ impl Node {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn is_dimension(&self) -> bool {
         matches!(&*self.node_type, NodeType::Dimension { .. })
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn as_dimension(&self) -> (&Number, &String) {
         match &&*self.node_type {
             &NodeType::Dimension { value, unit } => (value, unit),
@@ -390,12 +390,12 @@ impl Node {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn is_id_selector(&self) -> bool {
         matches!(&*self.node_type, NodeType::IdSelector { .. })
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn as_id_selector(&self) -> &String {
         match &&*self.node_type {
             &NodeType::IdSelector { value } => value,
@@ -403,12 +403,12 @@ impl Node {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn is_declaration(&self) -> bool {
         matches!(&*self.node_type, NodeType::Declaration { .. })
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn as_declaration(&self) -> (&String, &Vec<Node>, &bool) {
         match &&*self.node_type {
             &NodeType::Declaration {
@@ -429,7 +429,10 @@ impl Display for Node {
                 .map(std::string::ToString::to_string)
                 .collect::<Vec<String>>()
                 .join(", "),
-            NodeType::Selector { children } => children.iter().map(std::string::ToString::to_string).collect::<String>(),
+            NodeType::Selector { children } => children
+                .iter()
+                .map(std::string::ToString::to_string)
+                .collect::<String>(),
             NodeType::IdSelector { value } => value.clone(),
             NodeType::Ident { value } => value.clone(),
             NodeType::Number { value } => value.to_string(),
@@ -460,14 +463,14 @@ impl Display for Node {
             NodeType::Operator(value) => value.clone(),
             NodeType::ClassSelector { value } => format!(".{value}"),
             NodeType::TypeSelector { namespace, value } => {
-                let ns = namespace
-                    .as_ref()
-                    .map_or(String::new(), |ns| format!("{ns}|"));
+                let ns = namespace.as_ref().map_or(String::new(), |ns| format!("{ns}|"));
                 format!("{ns}{value}")
             }
             NodeType::Combinator { value } => value.clone(),
             NodeType::Nth { nth, selector } => {
-                let sel = selector.as_ref().map_or(String::new(), std::string::ToString::to_string);
+                let sel = selector
+                    .as_ref()
+                    .map_or(String::new(), std::string::ToString::to_string);
                 format!("{nth}{sel}")
             }
             NodeType::AnPlusB { a, b } => format!("{a}n+{b}"),

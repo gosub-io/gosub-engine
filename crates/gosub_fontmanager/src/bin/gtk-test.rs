@@ -100,7 +100,12 @@ fn build_ui(app: &Application) {
         // Nice bounding rectangle around the text
         gtk_cr.set_source_rgba(0.0, 0.0, 0.0, 1.0);
         gtk_cr.set_line_width(1.0);
-        gtk_cr.rectangle(0.0, f64::from(cur_y), f64::from(width), f64::from(max_y) - f64::from(cur_y));
+        gtk_cr.rectangle(
+            0.0,
+            f64::from(cur_y),
+            f64::from(width),
+            f64::from(max_y) - f64::from(cur_y),
+        );
         let _ = gtk_cr.stroke();
 
         // Add a little bit of padding
@@ -122,7 +127,12 @@ fn build_ui(app: &Application) {
         // Bounding box around the text again
         gtk_cr.set_source_rgba(0.0, 1.0, 1.0, 1.0);
         gtk_cr.set_line_width(3.0);
-        gtk_cr.rectangle(0.0, f64::from(cur_y), f64::from(width), f64::from(max_y) - f64::from(cur_y));
+        gtk_cr.rectangle(
+            0.0,
+            f64::from(cur_y),
+            f64::from(width),
+            f64::from(max_y) - f64::from(cur_y),
+        );
         let _ = gtk_cr.stroke();
 
         // Get current position and add the layout height. This is the new height of the canvas in this drawing area so

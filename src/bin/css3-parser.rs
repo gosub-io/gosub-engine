@@ -111,7 +111,9 @@ fn main() -> Result<()> {
 
 /// Print snippet where the error occurred
 fn display_snippet(css: &str, err: CssError) {
-    let loc = if let Some(l) = err.location { l } else {
+    let loc = if let Some(l) = err.location {
+        l
+    } else {
         println!("Error: {}", err.message);
         return;
     };

@@ -74,7 +74,7 @@ impl Token {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn get_location(&self) -> Location {
         match self {
             Token::DocType { location, .. } => *location,
@@ -98,7 +98,7 @@ impl Token {
     }
 
     /// Returns true when any of the characters in the token are null
-    #[must_use] 
+    #[must_use]
     pub fn is_null(&self) -> bool {
         if let Token::Text { text: value, .. } = self {
             value.chars().any(|ch| ch == CHAR_NUL)
@@ -108,13 +108,13 @@ impl Token {
     }
 
     /// Returns true when the token is an EOF token
-    #[must_use] 
+    #[must_use]
     pub fn is_eof(&self) -> bool {
         matches!(self, Token::Eof { .. })
     }
 
     /// Returns true if the text token is empty or only contains whitespace
-    #[must_use] 
+    #[must_use]
     pub fn is_empty_or_white(&self) -> bool {
         if let Token::Text { text: value, .. } = self {
             if value.is_empty() {
