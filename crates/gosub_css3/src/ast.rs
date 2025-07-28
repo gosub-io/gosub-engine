@@ -84,7 +84,7 @@ pub fn convert_ast_to_stylesheet(css_ast: &CssNode, origin: CssOrigin, url: &str
         };
 
         let (prelude, declarations) = node.as_rule();
-        for node in prelude {
+        if let Some(node) =  prelude {
             if !node.is_selector_list() {
                 continue;
             }
@@ -172,7 +172,7 @@ pub fn convert_ast_to_stylesheet(css_ast: &CssNode, origin: CssOrigin, url: &str
             rule.selectors.push(selector);
         }
 
-        for declaration in declarations {
+        if let Some(declaration) = declarations {
             if !declaration.is_block() {
                 continue;
             }

@@ -49,7 +49,7 @@ impl V8Engine {
                 std::thread::sleep(std::time::Duration::from_millis(10));
                 wait_time -= 10;
                 if wait_time <= 9 {
-                    panic!("V8 initialization timed out after {} seconds", MAX_V8_INIT_SECONDS);
+                    panic!("V8 initialization timed out after {MAX_V8_INIT_SECONDS} seconds");
                 }
             }
             return;
@@ -110,7 +110,7 @@ impl V8Context {
         let scope = &mut self.scope();
         let err = error.to_string();
         let Some(e) = v8::String::new(scope, &err) else {
-            eprintln!("failed to create exception string\nexception was: {}", err);
+            eprintln!("failed to create exception string\nexception was: {err}");
             return;
         };
 
@@ -121,7 +121,7 @@ impl V8Context {
     pub fn create_exception<'b>(scope: &mut HandleScope<'b>, error: impl Display) -> Option<Local<'b, Value>> {
         let err = error.to_string();
         let Some(e) = v8::String::new(scope, &err) else {
-            eprintln!("failed to create exception string\nexception was: {}", err);
+            eprintln!("failed to create exception string\nexception was: {err}");
             return None;
         };
 

@@ -106,7 +106,7 @@ impl V8Ctx {
         let line = frame.get_line_number();
         let column = frame.get_column();
 
-        Some(format!("{}@{}:{}: {}", function, script, line, column))
+        Some(format!("{function}@{script}:{line}: {column}"))
     }
 }
 
