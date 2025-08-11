@@ -10,7 +10,7 @@ description = "Taffy layouter for Gosub"
 gosub_shared = { version = "0.1.1", registry = "gosub", path = "../gosub_shared" }
 gosub_interface = { version = "0.1.1", registry = "gosub", path = "../gosub_interface" }
 gosub_fontmanager = { version = "0.1.0", path = "../gosub_fontmanager", registry = "gosub" }
-taffy = "0.7.7"
+taffy = "0.9.0"
 anyhow = "1.0.98"
 regex = "1.11.1"
 log = "0.4.27"
