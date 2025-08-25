@@ -39,7 +39,7 @@ pub fn load_html_rendertree_source<C: HasRenderTree + HasHtmlParser>(
     let parse_errors = C::HtmlParser::parse(&mut stream, &mut doc, None)?;
 
     for error in parse_errors {
-        eprintln!("Parse error: {:?}", error);
+        eprintln!("Parse error: {error:?}");
     }
 
     doc.add_stylesheet(C::CssSystem::load_default_useragent_stylesheet());

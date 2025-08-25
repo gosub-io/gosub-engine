@@ -13,6 +13,7 @@ pub struct NodeArena<C: HasDocument> {
 }
 
 impl<C: HasDocument> NodeArena<C> {
+    #[must_use]
     pub fn node_count(&self) -> usize {
         self.nodes.len()
     }
@@ -29,7 +30,7 @@ impl<C: HasDocument> PartialEq for NodeArena<C> {
 }
 
 impl<C: HasDocument> NodeArena<C> {
-    /// Creates a new NodeArena
+    /// Creates a new `NodeArena`
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -46,17 +47,19 @@ impl<C: HasDocument> NodeArena<C> {
     }
 
     /// Peek what the next node ID is without incrementing the internal counter.
-    /// Used by DocumentTaskQueue for create_element() tasks.
+    /// Used by `DocumentTaskQueue` for `create_element()` tasks.
     pub(crate) fn peek_next_id(&self) -> NodeId {
         self.next_id
     }
 
     /// Gets the node with the given id
+    #[must_use]
     pub fn node_ref(&self, node_id: NodeId) -> Option<&C::Node> {
         self.nodes.get(&node_id)
     }
 
     /// Gets the node with the given id
+    #[must_use]
     pub fn node(&self, node_id: NodeId) -> Option<C::Node> {
         self.nodes.get(&node_id).cloned()
     }
@@ -97,6 +100,7 @@ impl<C: HasDocument> NodeArena<C> {
         id
     }
 
+    #[must_use]
     pub fn nodes(&self) -> &HashMap<NodeId, C::Node> {
         &self.nodes
     }

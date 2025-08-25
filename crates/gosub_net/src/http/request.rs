@@ -13,6 +13,7 @@ pub struct Request {
 }
 
 impl Request {
+    #[must_use]
     pub fn new(method: &str, uri: &str, version: &str) -> Self {
         Self {
             method: method.to_string(),
@@ -42,13 +43,13 @@ impl Display for Request {
         writeln!(f, "{} {} {}", self.method, self.uri, self.version)?;
         writeln!(f, "Headers:")?;
         for (key, value) in self.headers.sorted() {
-            writeln!(f, "  {}: {}", key, value)?;
+            writeln!(f, "  {key}: {value}")?;
         }
         writeln!(f, "Cookies:")?;
         let mut sorted_cookies = self.cookies.iter().collect::<Vec<_>>();
         sorted_cookies.sort_by(|a, b| a.name().cmp(b.name()));
         for cookie in sorted_cookies {
-            writeln!(f, "  {}", cookie)?;
+            writeln!(f, "  {cookie}")?;
         }
         writeln!(f, "Body: {} bytes", self.body.len())?;
 
@@ -92,7 +93,7 @@ mod tests {
         req.headers.set("Accept", "text/html");
         req.headers.set("Accept-Encoding", "gzip, deflate, br");
 
-        let s = format!("{}", req);
+        let s = format!("{req}");
         assert_eq!(s, "GET / HTTP/1.1\nHeaders:\n  Accept: text/html\n  Accept-Encoding: gzip, deflate, br\n  Content-Type: application/json\nCookies:\n  foo=bar\n  qux=wok\nBody: 0 bytes\n");
     }
 }

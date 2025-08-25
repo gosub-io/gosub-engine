@@ -82,10 +82,12 @@ impl LocalTableResolver {
     }
 
     /// Regenerates the new entries table
+    #[allow(dead_code)]
     pub fn reload_table_entries(&mut self) {
         // @todo: this should reload all table entries from the configuration into the self.entries list
     }
 
+    #[allow(dead_code)]
     pub fn reload_table_entry(&mut self, _domain: &str) {
         // @todo: this should reload a single entry from the configuration into the self.entries
     }

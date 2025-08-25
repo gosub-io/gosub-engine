@@ -3,6 +3,7 @@ use thiserror::Error;
 
 /// Parser error that defines an error (message) on the given position
 #[derive(Clone, Debug, PartialEq)]
+#[allow(dead_code)]
 pub struct ParseError {
     /// Parse error message
     pub message: String,

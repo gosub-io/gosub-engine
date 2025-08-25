@@ -27,6 +27,7 @@ impl Default for FontManager {
 }
 
 impl FontManager {
+    #[must_use]
     pub fn new() -> Self {
         let source = font_kit::source::SystemSource::new();
         let handles = source.all_fonts().unwrap();
@@ -36,7 +37,7 @@ impl FontManager {
         let mut font_info_list = Vec::new();
         for handle in &handles {
             if let Ok(info) = handle_to_info(&mut seen_paths, handle) {
-                font_info_list.push(info)
+                font_info_list.push(info);
             }
         }
 
@@ -48,10 +49,12 @@ impl FontManager {
     }
 
     /// Returns all available fonts for given source-type
+    #[must_use]
     pub fn available_fonts(&self) -> &Vec<FontInfo> {
         &self.available_fonts
     }
 
+    #[must_use]
     pub fn find(&self, families: &[&str], style: FontStyle) -> Option<FontInfo> {
         for &fam in families {
             for fi in self.available_fonts() {
@@ -69,7 +72,7 @@ impl TFontManager for FontManager {
     type FontInfo = FontInfo;
 
     fn instance() -> Arc<RwLock<Self>> {
-        FONT_MANAGER.with(|f| f.clone())
+        FONT_MANAGER.with(std::clone::Clone::clone)
     }
 
     fn find_font(&self, families: &[&str], style: FontStyle) -> Option<Self::FontInfo> {
@@ -97,12 +100,12 @@ fn handle_to_info(seen_paths: &mut HashSet<PathBuf>, handle: &Handle) -> Result<
     };
 
     let Handle::Path { ref path, font_index } = handle else {
-        error!(target: LOG_TARGET, "Expected a path handle. Got: {:?}", handle);
+        error!(target: LOG_TARGET, "Expected a path handle. Got: {handle:?}");
         return Err(anyhow!("Expected a path handle"));
     };
 
     // Check if the path is symlinked
-    let resolved_path = resolve_symlink(path.to_path_buf());
+    let resolved_path = resolve_symlink(path.clone());
     if seen_paths.contains(&resolved_path) {
         return Err(anyhow!("Path already seen"));
     }

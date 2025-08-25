@@ -90,7 +90,7 @@ pub static SPECIAL_HTML_ELEMENTS: [&str; 83] = [
     "xmp",
 ];
 
-/// MathML elements that are considered special elements
+/// `MathML` elements that are considered special elements
 pub static SPECIAL_MATHML_ELEMENTS: [&str; 6] = ["mi", "mo", "mn", "ms", "mtext", "annotation-xml"];
 
 /// SVG elements that are considered special elements

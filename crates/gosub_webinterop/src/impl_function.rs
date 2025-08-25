@@ -54,7 +54,7 @@ fn get_refs(name: String, num_refs: Option<u8>) -> TokenStream {
     let mut refs = TokenStream::new();
 
     for _ in 0..num_refs {
-        refs.extend(quote! { & })
+        refs.extend(quote! { & });
     }
 
     refs

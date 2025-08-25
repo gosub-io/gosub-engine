@@ -35,5 +35,5 @@ fn main() {
     let _ = Html5Parser::<Config>::parse_document(&mut stream, &mut doc, None);
 
     // document now contains the html5 node tree
-    println!("Generated tree: \n\n {}", doc);
+    println!("Generated tree: \n\n {doc}");
 }

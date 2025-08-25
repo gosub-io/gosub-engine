@@ -53,7 +53,7 @@ impl RenderBackend for CairoBackend {
     }
 
     fn draw_text(&mut self, data: &mut Self::WindowData<'_>, text: &RenderText<Self>) {
-        data.scene.draw_text(text)
+        data.scene.draw_text(text);
     }
 
     fn apply_scene(
@@ -121,6 +121,7 @@ impl RenderBackend for CairoBackend {
 }
 
 impl CairoBackend {
+    #[must_use]
     pub fn new() -> Self {
         Self {}
     }

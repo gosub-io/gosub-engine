@@ -45,7 +45,7 @@ impl TestStruct {
     }
 
     fn array_test(&self, array: &[[i32; 3]; 3]) {
-        println!("{:?}", array);
+        println!("{array:?}");
     }
 
     fn array_test2(&self, array: &[[i32; 3]; 3]) -> Vec<i32> {
@@ -59,7 +59,7 @@ impl TestStruct {
     }
 
     fn variadic3(num: i32, args: &impl VariadicArgs) {
-        println!("got num arg...: {}", num);
+        println!("got num arg...: {num}");
         for a in args.as_vec() {
             println!("got an arg...: {}", a.as_string().unwrap());
         }
@@ -223,7 +223,7 @@ impl JSInterop for Test2 {
                 Box::new(move |cb: &mut RT::GetterCB| {
                     let ctx = cb.context();
                     let value = s.borrow().field;
-                    println!("got a call to getter: {}", value);
+                    println!("got a call to getter: {value}");
                     let value = match value.to_web_value(ctx.clone()) {
                         Ok(value) => value,
                         Err(e) => {
@@ -247,7 +247,7 @@ impl JSInterop for Test2 {
                         }
                     };
 
-                    println!("got a call to setter: {}", value);
+                    println!("got a call to setter: {value}");
 
                     s.borrow_mut().field = value as i32;
                 })
@@ -263,7 +263,7 @@ impl JSInterop for Test2 {
                 Box::new(move |cb: &mut RT::GetterCB| {
                     let ctx = cb.context();
                     let value = s.borrow().other_field.clone();
-                    println!("got a call to getter: {}", value);
+                    println!("got a call to getter: {value}");
                     let value = match value.to_web_value(ctx.clone()) {
                         Ok(value) => value,
                         Err(e) => {
@@ -287,7 +287,7 @@ impl JSInterop for Test2 {
                         }
                     };
 
-                    println!("got a call to setter: {}", value);
+                    println!("got a call to setter: {value}");
 
                     s.borrow_mut().other_field = value;
                 })
@@ -533,6 +533,6 @@ fn manual_js_interop() {
         .as_string()
         .unwrap();
 
-    println!("JS: {}", out);
+    println!("JS: {out}");
     println!("Rust: {:?}", t2.borrow())
 }

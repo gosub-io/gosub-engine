@@ -17,6 +17,7 @@ pub enum Setting {
 }
 
 impl Setting {
+    #[must_use]
     pub fn to_bool(&self) -> bool {
         if !matches!(self, Setting::Bool(_)) {
             warn!("setting is not a boolean");
@@ -31,6 +32,7 @@ impl Setting {
         }
     }
 
+    #[must_use]
     pub fn to_sint(&self) -> isize {
         if !matches!(self, Setting::SInt(_)) {
             warn!("setting is not an signed integer");
@@ -39,12 +41,13 @@ impl Setting {
         match self {
             Setting::SInt(value) => *value,
             Setting::UInt(value) => *value as isize,
-            Setting::Bool(value) => *value as isize,
-            Setting::String(value) => is_bool_value(value) as isize,
+            Setting::Bool(value) => isize::from(*value),
+            Setting::String(value) => isize::from(is_bool_value(value)),
             Setting::Map(values) => values.len() as isize,
         }
     }
 
+    #[must_use]
     pub fn to_uint(&self) -> usize {
         if !matches!(self, Setting::UInt(_)) {
             warn!("setting is not an unsigned integer");
@@ -53,13 +56,14 @@ impl Setting {
         match self {
             Setting::UInt(value) => *value,
             Setting::SInt(value) => *value as usize,
-            Setting::Bool(value) => *value as usize,
-            Setting::String(value) => is_bool_value(value) as usize,
+            Setting::Bool(value) => usize::from(*value),
+            Setting::String(value) => usize::from(is_bool_value(value)),
             Setting::Map(values) => values.len(),
         }
     }
 
     #[allow(clippy::inherent_to_string_shadow_display)]
+    #[must_use]
     pub fn to_string(&self) -> String {
         if !matches!(self, Setting::String(_)) {
             warn!("setting is not a string");
@@ -82,6 +86,7 @@ impl Setting {
         }
     }
 
+    #[must_use]
     pub fn to_map(&self) -> Vec<String> {
         if !matches!(self, Setting::Map(_)) {
             warn!("setting is not a map");
@@ -189,7 +194,7 @@ impl FromStr for Setting {
     }
 }
 
-/// SettingInfo returns information about a given setting
+/// `SettingInfo` returns information about a given setting
 #[derive(Clone, PartialEq, Debug)]
 pub struct SettingInfo {
     /// Name of the key (dot notation, (ie: dns.resolver.enabled

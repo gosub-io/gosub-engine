@@ -103,7 +103,7 @@ fn build_ui(app: &Application) {
             &mut font_context,
             &font_info,
             text,
-            width as f64,
+            f64::from(width),
             *font_size_clone.borrow(),
         );
         let layout_height = layout.height();
@@ -188,17 +188,16 @@ fn draw(fctx: &mut FontContext, cr: &gtk4::cairo::Context, layout: Layout<ColorB
                     // Find the font that is accompanied by this glyph run, or generate it if it does not exist yet.
                     let font_id = grun.font().data.id();
 
-                    let font_face = match fctx.font_face_cache.get(&font_id) {
-                        Some(font_face) => font_face,
-                        None => {
-                            let font_face = create_memory_font_face(fctx.ft_lib.clone(), grun.font());
-                            fctx.font_face_cache.insert(font_id, font_face);
-                            fctx.font_face_cache.get(&font_id).unwrap()
-                        }
+                    let font_face = if let Some(font_face) = fctx.font_face_cache.get(&font_id) {
+                        font_face
+                    } else {
+                        let font_face = create_memory_font_face(fctx.ft_lib.clone(), grun.font());
+                        fctx.font_face_cache.insert(font_id, font_face);
+                        fctx.font_face_cache.get(&font_id).unwrap()
                     };
                     cr.set_font_face(font_face);
 
-                    cr.set_font_size(glyph_run.run().font_size() as f64);
+                    cr.set_font_size(f64::from(glyph_run.run().font_size()));
 
                     // Render per glyph
                     cr.set_source_rgba(0.0, 0.0, 0.0, 1.0);
@@ -207,7 +206,13 @@ fn draw(fctx: &mut FontContext, cr: &gtk4::cairo::Context, layout: Layout<ColorB
                     // that our offset is not 0,0 but offset_x, offset_y.
                     let glyphs: Vec<Glyph> = glyph_run
                         .positioned_glyphs()
-                        .map(|g| Glyph::new(g.id as u64, offset_x as f64 + g.x as f64, offset_y as f64 + g.y as f64))
+                        .map(|g| {
+                            Glyph::new(
+                                u64::from(g.id),
+                                f64::from(offset_x) + f64::from(g.x),
+                                f64::from(offset_y) + f64::from(g.y),
+                            )
+                        })
                         .collect();
 
                     // We can show the set of glyphs as a whole now
@@ -215,24 +220,24 @@ fn draw(fctx: &mut FontContext, cr: &gtk4::cairo::Context, layout: Layout<ColorB
                 }
                 PositionedLayoutItem::InlineBox(inline_box) => {
                     cr.rectangle(
-                        (offset_x + inline_box.x) as f64,
-                        (offset_y + inline_box.y) as f64,
-                        inline_box.width as f64,
-                        inline_box.height as f64,
+                        f64::from(offset_x + inline_box.x),
+                        f64::from(offset_y + inline_box.y),
+                        f64::from(inline_box.width),
+                        f64::from(inline_box.height),
                     );
                     cr.set_source_rgba(0.0, 0.0, 0.0, 1.0);
                     let _ = cr.stroke();
 
                     cr.rectangle(
-                        (offset_x + inline_box.x) as f64,
-                        (offset_y + inline_box.y) as f64,
-                        inline_box.width as f64,
-                        inline_box.height as f64,
+                        f64::from(offset_x + inline_box.x),
+                        f64::from(offset_y + inline_box.y),
+                        f64::from(inline_box.width),
+                        f64::from(inline_box.height),
                     );
                     cr.set_source_rgba(0.0, 0.0, 1.0, 0.25);
                     let _ = cr.fill();
                 }
-            };
+            }
         }
     }
 }
@@ -248,7 +253,7 @@ fn create_memory_font_face(ft_lib: Rc<Library>, font: &Font) -> FontFace {
     // until the FontFace is dropped.
     unsafe {
         FontFace::from_raw_full(cairo::ffi::cairo_ft_font_face_create_for_ft_face(
-            face.raw_mut() as cairo::freetype::ffi::FT_Face as *mut _,
+            (face.raw_mut() as cairo::freetype::ffi::FT_Face).cast(),
             0,
         ))
     }

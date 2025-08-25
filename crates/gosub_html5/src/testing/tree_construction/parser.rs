@@ -231,7 +231,7 @@ fn old_errors(i: Span) -> IResult<Span, Vec<ErrorSpec>> {
                 )),
                 error_messages,
             ))),
-            |errors| errors.unwrap_or_default(),
+            std::option::Option::unwrap_or_default,
         ),
         multispace0,
     )
@@ -325,7 +325,7 @@ pub fn parse_fixture(i: &str) -> Result<Vec<TestSpec>> {
 mod tests {
     use super::*;
 
-    fn parse_test(i: &str) -> (Span, TestSpec) {
+    fn parse_test(i: &str) -> (Span<'_>, TestSpec) {
         test(Span::new(i.trim_start())).unwrap()
     }
 
@@ -347,7 +347,7 @@ mod tests {
         assert_eq!(
             *s,
             "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Frameset//EN\"\n            \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-frameset.dtd\"><p><table>\n"
-        )
+        );
     }
 
     #[test]
@@ -498,7 +498,7 @@ FOO<!-- BAR --!
     #[test]
     fn tables01_dat_288() {
         let (_, test) = parse_test(
-            r#"
+            r"
 #data
 <div><table><svg><foreignObject><select><table><s>
 #errors
@@ -521,7 +521,7 @@ FOO<!-- BAR --!
 |       <s>
 |       <table>
 
-"#,
+",
         );
 
         assert_eq!(test.errors.len(), 7);
@@ -530,7 +530,7 @@ FOO<!-- BAR --!
     #[test]
     fn template_dat_61() {
         let (_, test) = parse_test(
-            r#"
+            r"
 #data
 <div><template><div><span></template><b>
 #errors
@@ -548,7 +548,7 @@ FOO<!-- BAR --!
 |             <span>
 |       <b>
 
-"#,
+",
         );
 
         assert_eq!(test.errors.len(), 3);
@@ -586,7 +586,7 @@ FOO<!-- BAR --!
     #[test]
     fn template_data_148() {
         let (_, test) = parse_test(
-            r#"
+            r"
 #data
 <table><template></template><div></div>
 #errors
@@ -603,7 +603,7 @@ eof in table
 |       <template>
 |         content
 
-"#,
+",
         );
 
         assert_eq!(test.errors.len(), 4);
@@ -726,7 +726,7 @@ x"
                 line: 52,
                 message: "End of file seen and there were open elements.".into(),
             },
-        )
+        );
     }
 
     #[test]
@@ -740,7 +740,7 @@ x"
                 end: Position { line: 1, col: 49 },
                 message: "non-void-html-element-start-tag-with-trailing-solidus".into(),
             }
-        )
+        );
     }
 
     #[test]
@@ -780,7 +780,7 @@ math ms
     #[test]
     fn tests10_data_638() {
         let (_, test) = parse_test(
-            r#"
+            r"
 #data
 <svg><script></script><path>
 #errors
@@ -794,7 +794,7 @@ math ms
 |       <svg script>
 |       <svg path>
 
-"#,
+",
         );
 
         assert!(test.document.ends_with("path>"));
@@ -803,7 +803,7 @@ math ms
     #[test]
     fn tests_inner_html_1_dat_837() {
         let (_, test) = parse_test(
-            r#"
+            r"
 #data
 #errors
 #document-fragment
@@ -812,7 +812,7 @@ html
 | <head>
 | <body>
 
-"#,
+",
         );
 
         assert_eq!(test.data, "");

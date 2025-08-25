@@ -93,7 +93,7 @@ impl<C: ModuleConfiguration> EngineInstance<C> {
             let mut instance = match rt.block_on(Self::with_chan(url, layouter, rx, id, handles)) {
                 Ok(instance) => instance,
                 Err(e) => {
-                    eprintln!("Error: {:?}", e);
+                    eprintln!("Error: {e:?}");
                     return;
                 }
             };
@@ -111,7 +111,7 @@ impl<C: ModuleConfiguration> EngineInstance<C> {
         set.block_on(rt, async move {
             while let Some(message) = self.rx.recv().await {
                 if let Err(e) = self.handle_message(message).await {
-                    warn!("Error: {:?}", e);
+                    warn!("Error: {e:?}");
                 }
             }
         });
@@ -283,11 +283,11 @@ pub enum InternalInstanceMessage<C: HasTreeDrawer> {
 }
 
 pub enum DebugEvent {
-    /// Send a NodeDescription of the root node to the given sender
+    /// Send a `NodeDescription` of the root node to the given sender
     SendNodes(SyncSender<NodeDesc>),
     /// Visually select the element with the given ID
     SelectElement(u64),
-    /// Send a NodeDescription of the element with the given ID to the given sender
+    /// Send a `NodeDescription` of the element with the given ID to the given sender
     Info(u64, SyncSender<NodeDesc>),
     /// Deselect the currently selected element (visually)
     Deselect,

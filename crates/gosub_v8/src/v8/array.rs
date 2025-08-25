@@ -51,7 +51,7 @@ impl Iterator for V8Array {
 impl AsArray for V8Array {
     type Runtime = V8Engine;
 
-    fn array(&self) -> Result<Ref<<Self::Runtime as WebRuntime>::Array>> {
+    fn array(&self) -> Result<Ref<'_, <Self::Runtime as WebRuntime>::Array>> {
         Ok(Ref::Ref(self))
     }
 }

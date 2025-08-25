@@ -78,33 +78,40 @@ pub struct PropertyDefinition {
 }
 
 impl PropertyDefinition {
+    #[must_use]
     pub fn name(&self) -> &str {
         &self.name
     }
 
+    #[must_use]
     pub fn expanded_properties(&self) -> Vec<String> {
         self.computed.clone()
     }
 
+    #[must_use]
     pub fn syntax(&self) -> &CssSyntaxTree {
         &self.syntax
     }
 
+    #[must_use]
     pub fn inherited(&self) -> bool {
         self.inherited
     }
 
     /// Returns true when this definition has an initial value
+    #[must_use]
     pub fn has_initial_value(&self) -> bool {
         self.initial_value.is_some()
     }
 
     /// Returns the initial value
+    #[must_use]
     pub fn initial_value(&self) -> CssValue {
         self.initial_value.clone().unwrap_or(CssValue::None)
     }
 
     /// Matches a list of values against the current definition
+    #[must_use]
     pub fn matches(&self, input: &[CssValue]) -> bool {
         self.syntax.matches(input)
     }
@@ -119,6 +126,7 @@ impl PropertyDefinition {
         }
     }
 
+    #[must_use]
     pub fn check_expanded_properties(&self, _values: &[CssValue]) -> bool {
         // if values.len() != self.expanded_properties.len() {
         //     return false;
@@ -135,6 +143,7 @@ impl PropertyDefinition {
         true
     }
 
+    #[must_use]
     pub fn is_shorthand(&self) -> bool {
         self.computed.len() > 1
     }
@@ -175,6 +184,7 @@ impl Default for CssDefinitions {
 }
 
 impl CssDefinitions {
+    #[must_use]
     pub fn new() -> Self {
         CssDefinitions {
             resolved_properties: HashMap::new(),
@@ -199,16 +209,19 @@ impl CssDefinitions {
     }
 
     /// Find a specific property
+    #[must_use]
     pub fn find_property(&self, name: &str) -> Option<&PropertyDefinition> {
         self.resolved_properties.get(name)
     }
 
     /// Returns the length of the property definitions
+    #[must_use]
     pub fn len(&self) -> usize {
         self.resolved_properties.len()
     }
 
     /// Returns true when the properties definitions are empty
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.resolved_properties.is_empty()
     }
@@ -310,7 +323,7 @@ impl CssDefinitions {
                     };
                 }
 
-                panic!("Unknown datatype encountered: {:?}", datatype);
+                panic!("Unknown datatype encountered: {datatype:?}");
             }
             SyntaxComponent::Group {
                 components,
@@ -393,6 +406,7 @@ fn parse_definition_files() -> CssDefinitions {
 
 /// Main function to return the definitions. This will automatically load the definition files
 /// and caches them if needed.
+#[must_use]
 pub fn get_css_definitions() -> &'static CssDefinitions {
     &CSS_DEFINITIONS
 }
@@ -439,7 +453,7 @@ fn parse_syntax_file<M: Map<String, SyntaxDefinition>>(json: serde_json::Value) 
     let mut syntaxes = M::new();
 
     let entries = json.as_array().unwrap();
-    for entry in entries.iter() {
+    for entry in entries {
         match CssSyntax::new(entry.get("syntax").unwrap().as_str().unwrap()).compile() {
             Ok(ast) => {
                 let mut name = entry.get("name").unwrap().to_string();
@@ -512,12 +526,12 @@ fn parse_property_file<M: Map<String, PropertyDefinition>>(json: serde_json::Val
         } else if obj["computed"].is_string() {
             vec![obj["computed"].as_str().unwrap().to_string()]
         } else {
-            warn!("Computed property is not a string or array {:?}", obj);
+            warn!("Computed property is not a string or array {obj:?}");
             vec![]
         };
 
         let initial_value = if obj["initial_value"].is_array() {
-            warn!("Initial value is an array, not supported {:?}", obj);
+            warn!("Initial value is an array, not supported {obj:?}");
             // obj["initial_value"]
             //     .as_array()
             //     .unwrap()
@@ -529,7 +543,7 @@ fn parse_property_file<M: Map<String, PropertyDefinition>>(json: serde_json::Val
             match CssValue::parse_str(obj["initial_value"].as_str().unwrap()) {
                 Ok(value) => Some(value),
                 Err(e) => {
-                    warn!("Could not parse initial value: {:?}", e);
+                    warn!("Could not parse initial value: {e:?}");
                     None
                 }
             }

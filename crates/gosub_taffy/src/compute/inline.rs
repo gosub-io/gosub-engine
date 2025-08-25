@@ -74,7 +74,7 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
             }
 
             // Empty or whitespace only text nodes are ignored
-            let only_whitespace = text.chars().all(|c| c.is_whitespace());
+            let only_whitespace = text.chars().all(char::is_whitespace);
             if only_whitespace {
                 continue;
             }
@@ -87,17 +87,24 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
             let font_family = node
                 .get_property("font-family")
                 .and_then(|s| s.as_string())
-                .map(|s| s.to_string())
-                .unwrap_or("sans-serif".to_string());
+                .map_or("sans-serif".to_string(), std::string::ToString::to_string);
 
-            let font_size = node.get_property("font-size").map(|s| s.unit_to_px()).unwrap_or(16.0);
+            let font_size = node
+                .get_property("font-size")
+                .map_or(16.0, gosub_interface::css3::CssProperty::unit_to_px);
             let alignment = parse_alignment(node);
             let font_weight = parse_font_weight(node);
             let font_style = parse_font_style(node);
             let var_axes = parse_font_axes(node);
-            let line_height = node.get_property("line-height").and_then(|s| s.as_number());
-            let word_spacing = node.get_property("word-spacing").map(|s| s.unit_to_px());
-            let letter_spacing = node.get_property("letter-spacing").map(|s| s.unit_to_px());
+            let line_height = node
+                .get_property("line-height")
+                .and_then(gosub_interface::css3::CssProperty::as_number);
+            let word_spacing = node
+                .get_property("word-spacing")
+                .map(gosub_interface::css3::CssProperty::unit_to_px);
+            let letter_spacing = node
+                .get_property("letter-spacing")
+                .map(gosub_interface::css3::CssProperty::unit_to_px);
 
             let font_info = <C::FontManager as FontManager>::FontInfo::new(&font_family)
                 .unwrap()
@@ -111,7 +118,9 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
             let mut decoration_color = (0.0, 0.0, 0.0, 1.0);
             let mut style = DecorationStyle::Solid;
             let mut underline_offset = 4.0;
-            let color = node.get_property("color").and_then(|s| s.parse_color());
+            let color = node
+                .get_property("color")
+                .and_then(gosub_interface::css3::CssProperty::parse_color);
 
             // Generate decoration styles
             if let Some(actual_parent) = tree.0.parent_id(node_id) {
@@ -153,18 +162,20 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
 
                     decoration_width = node
                         .get_property("text-decoration-thickness")
-                        .map(|s| s.unit_to_px())
-                        .unwrap_or(1.0);
+                        .map_or(1.0, gosub_interface::css3::CssProperty::unit_to_px);
 
                     if let Some(c) = node
                         .get_property("text-decoration-color")
-                        .and_then(|s| s.parse_color())
+                        .and_then(gosub_interface::css3::CssProperty::parse_color)
                         .or(color)
                     {
                         decoration_color = c;
                     }
 
-                    if let Some(o) = node.get_property("text-underline-offset").map(|s| s.unit_to_px()) {
+                    if let Some(o) = node
+                        .get_property("text-underline-offset")
+                        .map(gosub_interface::css3::CssProperty::unit_to_px)
+                    {
                         underline_offset = o;
                     }
                 }
@@ -498,9 +509,9 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
                         },
                     };
 
-                    let node_id = data
-                        .map(|x| <C::LayoutTree as LayoutTree<C>>::NodeId::from(x.id.into()))
-                        .unwrap_or(current_node_id);
+                    let node_id = data.map_or(current_node_id, |x| {
+                        <C::LayoutTree as LayoutTree<C>>::NodeId::from(x.id.into())
+                    });
 
                     ids.push(node_id);
 
@@ -601,12 +612,12 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
 }
 
 /// Structure that holds information for a (partial) text that consists of a single font size, weight, etc.
-/// If a string consists of multiple font sizes, weights, etc., there will be multiple TextNodeData elements.
+/// If a string consists of multiple font sizes, weights, etc., there will be multiple `TextNodeData` elements.
 /// For instance: "This is a <b>bold</b> text". In this example there will be three text nodes: "This is a ",
 /// "bold" and " text" with different font weights.
 #[derive(Debug)]
 struct TextNodeData<C: HasFontManager> {
-    /// Start index of the text node in the complete string (str_buf)
+    /// Start index of the text node in the complete string (`str_buf`)
     to: usize,
     /// Node identifier that holds the text
     id: NodeId,
@@ -661,7 +672,7 @@ fn parse_font_weight<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> parley::F
     let Some(s) = prop.as_string() else {
         if let Some(v) = prop.as_number() {
             return parley::FontWeight::new(v);
-        };
+        }
 
         return parley::FontWeight::NORMAL;
     };

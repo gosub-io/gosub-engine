@@ -5,7 +5,7 @@ use gosub_interface::node::{ElementDataType, Node};
 // Probably this shouldn't quite be in gosub_css3
 #[allow(dead_code)]
 pub fn resolve_attr<C: HasDocument>(values: &[CssValue], node: &C::Node) -> Vec<CssValue> {
-    let Some(attr_name) = values.first().map(|v| v.to_string()) else {
+    let Some(attr_name) = values.first().map(std::string::ToString::to_string) else {
         return vec![];
     };
 

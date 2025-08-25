@@ -62,7 +62,7 @@ impl TGradient<CairoBackend> for GsGradient {
 fn to_stop_vec(stops: ColorStops<CairoBackend>) -> SmallVec<[ColorStop; 4]> {
     let mut vec = SmallVec::<[ColorStop; 4]>::new();
 
-    for stop in stops.iter() {
+    for stop in &stops {
         let alpha_color = AlphaColor::<Srgb>::new([
             stop.color.r as f32,
             stop.color.g as f32,

@@ -46,7 +46,7 @@ pub fn draw_scale<B: RenderBackend>(len: u32, interval: u32) -> B::Scene {
             border: None,
         });
 
-        scene.debug_draw_simple_text(&format!("{}", x), Point::new(x as f32, height + 10.0), 12.0);
+        scene.debug_draw_simple_text(&format!("{x}"), Point::new(x as f32, height + 10.0), 12.0);
         x += interval;
     }
 

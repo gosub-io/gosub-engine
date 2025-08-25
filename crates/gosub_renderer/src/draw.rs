@@ -150,11 +150,9 @@ impl<C: HasDrawComponents<RenderTree = RenderTree<C>, LayoutTree = RenderTree<C>
             let pos = self
                 .scene_transform
                 .as_ref()
-                .map(|x| Point::new(x.tx(), x.ty()))
-                .unwrap_or(Point::ZERO);
+                .map_or(Point::ZERO, |x| Point::new(x.tx(), x.ty()));
 
-            let scale =
-                px_scale::<C::RenderBackend>(size, pos, self.size.as_ref().map(|x| x.width as f32).unwrap_or(0.0));
+            let scale = px_scale::<C::RenderBackend>(size, pos, self.size.as_ref().map_or(0.0, |x| x.width as f32));
 
             root_scene.apply_scene(&scale, None);
         }
@@ -179,7 +177,7 @@ impl<C: HasDrawComponents<RenderTree = RenderTree<C>, LayoutTree = RenderTree<C>
                 }
             }
             return false;
-        };
+        }
         false
     }
 
@@ -261,7 +259,7 @@ impl<C: HasDrawComponents<RenderTree = RenderTree<C>, LayoutTree = RenderTree<C>
     fn unselect_element(&mut self) {
         self.selected_element = None;
         self.debugger_scene = None;
-        self.dirty = true
+        self.dirty = true;
     }
 
     fn info(&mut self, id: NodeId, sender: Sender<NodeDesc>) {
@@ -361,7 +359,7 @@ impl<
     pub(crate) fn render(&mut self, size: SizeU32) {
         let root = self.drawer.tree.root();
         if let Err(e) = self.drawer.layouter.layout(&mut self.drawer.tree, root, size) {
-            eprintln!("Failed to compute layout: {:?}", e);
+            eprintln!("Failed to compute layout: {e:?}");
             return;
         }
 
@@ -373,7 +371,7 @@ impl<
     fn render_node_with_children(&mut self, id: NodeId, mut pos: Point) {
         let err = self.render_node(id, &mut pos);
         if let Err(e) = err {
-            eprintln!("Error rendering node: {}", e);
+            eprintln!("Error rendering node: {e}");
         }
 
         let Some(children) = self.drawer.tree.children(id) else {
@@ -449,7 +447,7 @@ impl<
 
             node.layout_mut().set_size(new);
 
-            self.drawer.set_needs_redraw()
+            self.drawer.set_needs_redraw();
         }
 
         Ok(())
@@ -464,9 +462,10 @@ fn render_text<C: HasDrawComponents>(
     let color = node
         .props()
         .get("color")
-        .and_then(|prop| prop.parse_color())
-        .map(|color| Color::rgba(color.0 as u8, color.1 as u8, color.2 as u8, color.3 as u8))
-        .unwrap_or(Color::BLACK);
+        .and_then(gosub_interface::css3::CssProperty::parse_color)
+        .map_or(Color::BLACK, |color| {
+            Color::rgba(color.0 as u8, color.1 as u8, color.2 as u8, color.3 as u8)
+        });
 
     if let Some((_, layout)) = &node.text_data() {
         let text = layout
@@ -650,32 +649,28 @@ fn render_bg<C: HasDrawComponents>(
     let bg_color = node
         .props()
         .get("background-color")
-        .and_then(|prop| prop.parse_color())
+        .and_then(gosub_interface::css3::CssProperty::parse_color)
         .map(|color| Color::rgba(color.0 as u8, color.1 as u8, color.2 as u8, color.3 as u8));
 
     let border_radius_left = node
         .props()
         .get("border-radius-left")
-        .map(|prop| prop.unit_to_px() as f64)
-        .unwrap_or(0.0);
+        .map_or(0.0, |prop| f64::from(prop.unit_to_px()));
 
     let border_radius_right = node
         .props()
         .get("border-radius-right")
-        .map(|prop| prop.unit_to_px() as f64)
-        .unwrap_or(0.0);
+        .map_or(0.0, |prop| f64::from(prop.unit_to_px()));
 
     let border_radius_top = node
         .props()
         .get("border-radius-top")
-        .map(|prop| prop.unit_to_px() as f64)
-        .unwrap_or(0.0);
+        .map_or(0.0, |prop| f64::from(prop.unit_to_px()));
 
     let border_radius_bottom = node
         .props()
         .get("border-radius-bottom")
-        .map(|prop| prop.unit_to_px() as f64)
-        .unwrap_or(0.0);
+        .map_or(0.0, |prop| f64::from(prop.unit_to_px()));
 
     let border_radius = (
         border_radius_top as FP,
@@ -733,7 +728,7 @@ fn render_bg<C: HasDrawComponents>(
                     let img = match request_img::<C>(fetcher.clone(), svg.clone(), url, size, img_cache, el) {
                         Ok(img) => img,
                         Err(e) => {
-                            eprintln!("Error loading image: {:?}", e);
+                            eprintln!("Error loading image: {e:?}");
                             return (border_radius, None);
                         }
                     };
@@ -745,7 +740,7 @@ fn render_bg<C: HasDrawComponents>(
                     let _ =
                         render_image::<C::RenderBackend>(img, *pos, node.layout().size(), border_radius, "fill", scene)
                             .map_err(|e| {
-                                eprintln!("Error rendering image: {:?}", e);
+                                eprintln!("Error rendering image: {e:?}");
                             });
                 }
             }
@@ -772,19 +767,19 @@ fn get_border<C: HasDrawComponents>(
     let mut border = <C::RenderBackend as RenderBackend>::Border::empty();
 
     if let Some(left) = left {
-        border.left(left)
+        border.left(left);
     }
 
     if let Some(right) = right {
-        border.right(right)
+        border.right(right);
     }
 
     if let Some(top) = top {
-        border.top(top)
+        border.top(top);
     }
 
     if let Some(bottom) = bottom {
-        border.bottom(bottom)
+        border.bottom(bottom);
     }
 
     Some(border)
@@ -797,12 +792,12 @@ fn get_border_side<C: HasDrawComponents>(
     let width = node
         .props()
         .get(&format!("border-{}-width", side.to_str()))
-        .map(|prop| prop.unit_to_px())?;
+        .map(gosub_interface::css3::CssProperty::unit_to_px)?;
 
     let color = node
         .props()
         .get(&format!("border-{}-color", side.to_str()))
-        .and_then(|prop| prop.parse_color())?;
+        .and_then(gosub_interface::css3::CssProperty::parse_color)?;
 
     let style = node
         .props()
@@ -855,7 +850,7 @@ impl<C: HasDrawComponents<RenderTree = RenderTree<C>, LayoutTree = RenderTree<C>
             return false;
         };
 
-        println!("Annotating: {:?}", node);
+        println!("Annotating: {node:?}");
         println!("At: {:?} size: {size:?}", (x, y));
 
         let content_rect = Rect::new(x, y, size.width as FP, size.height as FP);

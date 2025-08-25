@@ -21,14 +21,14 @@ impl Css3<'_> {
                     "/deep/".to_string()
                 } else {
                     return Err(CssError::with_location(
-                        format!("Unexpected token {:?}", tn1).as_str(),
+                        format!("Unexpected token {tn1:?}").as_str(),
                         self.tokenizer.current_location(),
                     ));
                 }
             }
             _ => {
                 return Err(CssError::with_location(
-                    format!("Unexpected token {:?}", t).as_str(),
+                    format!("Unexpected token {t:?}").as_str(),
                     self.tokenizer.current_location(),
                 ));
             }

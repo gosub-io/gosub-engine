@@ -7,7 +7,7 @@ use std::fmt::{Debug, Formatter};
 
 pub struct TextLayout {
     /// Glyphs of the text that needs to be rendered. Note that glyph-ids are based on the font stored
-    /// in the font_info field.
+    /// in the `font_info` field.
     pub glyphs: Vec<Glyph>,
     /// Actual font used for layouting (and thus rendering) of the text.
     pub font_data: FontBlob,

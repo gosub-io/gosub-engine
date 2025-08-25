@@ -34,78 +34,78 @@ impl TTransform for Transform {
     const FLIP_Y: Self = Transform(Affine::FLIP_Y);
 
     fn scale(s: FP) -> Self {
-        Affine::scale(s as f64).into()
+        Affine::scale(f64::from(s)).into()
     }
 
     fn scale_xy(sx: FP, sy: FP) -> Self {
-        Affine::scale_non_uniform(sx as f64, sy as f64).into()
+        Affine::scale_non_uniform(f64::from(sx), f64::from(sy)).into()
     }
 
     fn translate(x: FP, y: FP) -> Self {
-        Affine::translate((x as f64, y as f64)).into()
+        Affine::translate((f64::from(x), f64::from(y))).into()
     }
 
     fn rotate(angle: FP) -> Self {
-        Affine::rotate(angle as f64).into()
+        Affine::rotate(f64::from(angle)).into()
     }
 
     fn rotate_around(angle: FP, center: Point) -> Self {
-        Affine::rotate_about(angle as f64, (center.x as f64, center.y as f64).into()).into()
+        Affine::rotate_about(f64::from(angle), (f64::from(center.x), f64::from(center.y)).into()).into()
     }
 
     fn skew_x(angle: FP) -> Self {
-        Affine::skew(angle as f64, 0.0).into()
+        Affine::skew(f64::from(angle), 0.0).into()
     }
 
     fn skew_y(angle: FP) -> Self {
-        Affine::skew(0.0, angle as f64).into()
+        Affine::skew(0.0, f64::from(angle)).into()
     }
 
     fn skew_xy(angle_x: FP, angle_y: FP) -> Self {
-        Affine::skew(angle_x as f64, angle_y as f64).into()
+        Affine::skew(f64::from(angle_x), f64::from(angle_y)).into()
     }
 
     fn pre_scale(self, s: FP) -> Self {
-        self.0.pre_scale(s as f64).into()
+        self.0.pre_scale(f64::from(s)).into()
     }
 
     fn pre_scale_xy(self, sx: FP, sy: FP) -> Self {
-        self.0.pre_scale_non_uniform(sx as f64, sy as f64).into()
+        self.0.pre_scale_non_uniform(f64::from(sx), f64::from(sy)).into()
     }
 
     fn pre_translate(self, x: FP, y: FP) -> Self {
-        self.0.pre_translate((x as f64, y as f64).into()).into()
+        self.0.pre_translate((f64::from(x), f64::from(y)).into()).into()
     }
 
     fn pre_rotate(self, angle: FP) -> Self {
-        self.0.pre_rotate(angle as f64).into()
+        self.0.pre_rotate(f64::from(angle)).into()
     }
 
     fn pre_rotate_around(self, angle: FP, center: Point) -> Self {
         self.0
-            .pre_rotate_about(angle as f64, (center.x as f64, center.y as f64).into())
+            .pre_rotate_about(f64::from(angle), (f64::from(center.x), f64::from(center.y)).into())
             .into()
     }
 
     fn then_scale(self, s: FP) -> Self {
-        self.0.then_scale(s as f64).into()
+        self.0.then_scale(f64::from(s)).into()
     }
 
     fn then_scale_xy(self, sx: FP, sy: FP) -> Self {
-        self.0.then_scale_non_uniform(sx as f64, sy as f64).into()
+        self.0.then_scale_non_uniform(f64::from(sx), f64::from(sy)).into()
     }
 
     fn then_translate(self, x: FP, y: FP) -> Self {
-        self.0.then_translate((x as f64, y as f64).into()).into()
+        self.0.then_translate((f64::from(x), f64::from(y)).into()).into()
     }
 
     fn then_rotate(self, angle: FP) -> Self {
-        self.0.then_rotate(angle as f64).into()
+        self.0.then_rotate(f64::from(angle)).into()
     }
 
     fn then_rotate_around(self, angle: FP, center: Point) -> Self {
         self.0
-            .then_rotate_about(angle as f64, (center.x as f64, center.y as f64).into())
+            .then_rotate_about(f64::from(angle), (f64::from(center.x), f64::from(center.y)).into())
             .into()
     }
 
@@ -123,12 +123,12 @@ impl TTransform for Transform {
 
     fn from_matrix(matrix: [FP; 6]) -> Self {
         Affine::new([
-            matrix[0] as f64,
-            matrix[1] as f64,
-            matrix[2] as f64,
-            matrix[3] as f64,
-            matrix[4] as f64,
-            matrix[5] as f64,
+            f64::from(matrix[0]),
+            f64::from(matrix[1]),
+            f64::from(matrix[2]),
+            f64::from(matrix[3]),
+            f64::from(matrix[4]),
+            f64::from(matrix[5]),
         ])
         .into()
     }

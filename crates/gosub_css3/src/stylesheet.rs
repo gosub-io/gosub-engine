@@ -42,6 +42,7 @@ pub struct CssLog {
 }
 
 impl CssLog {
+    #[must_use]
     pub fn log(severity: Severity, message: &str, location: Location) -> Self {
         Self {
             severity,
@@ -50,6 +51,7 @@ impl CssLog {
         }
     }
 
+    #[must_use]
     pub fn error(message: &str, location: Location) -> Self {
         Self {
             severity: Severity::Error,
@@ -58,6 +60,7 @@ impl CssLog {
         }
     }
 
+    #[must_use]
     pub fn warn(message: &str, location: Location) -> Self {
         Self {
             severity: Severity::Warning,
@@ -66,6 +69,7 @@ impl CssLog {
         }
     }
 
+    #[must_use]
     pub fn info(message: &str, location: Location) -> Self {
         Self {
             severity: Severity::Info,
@@ -128,10 +132,12 @@ pub struct CssRule {
 }
 
 impl CssRule {
+    #[must_use]
     pub fn selectors(&self) -> &Vec<CssSelector> {
         &self.selectors
     }
 
+    #[must_use]
     pub fn declarations(&self) -> &Vec<CssDeclaration> {
         &self.declarations
     }
@@ -157,6 +163,7 @@ pub struct CssSelector {
 
 impl CssSelector {
     /// Generate specificity for this selector
+    #[must_use]
     pub fn specificity(&self) -> Vec<Specificity> {
         self.parts
             .iter()
@@ -224,22 +231,22 @@ impl Debug for CssSelectorPart {
                 )
             }
             CssSelectorPart::Class(name) => {
-                write!(f, ".{}", name)
+                write!(f, ".{name}")
             }
             CssSelectorPart::Id(name) => {
-                write!(f, "#{}", name)
+                write!(f, "#{name}")
             }
             CssSelectorPart::PseudoClass(name) => {
-                write!(f, ":{}", name)
+                write!(f, ":{name}")
             }
             CssSelectorPart::PseudoElement(name) => {
-                write!(f, "::{}", name)
+                write!(f, "::{name}")
             }
             CssSelectorPart::Combinator(combinator) => {
-                write!(f, "'{}'", combinator)
+                write!(f, "'{combinator}'")
             }
             CssSelectorPart::Type(name) => {
-                write!(f, "{}", name)
+                write!(f, "{name}")
             }
         }
     }
@@ -291,6 +298,7 @@ impl Display for MatcherType {
 pub struct Specificity(u32, u32, u32);
 
 impl Specificity {
+    #[must_use]
     pub fn new(a: u32, b: u32, c: u32) -> Self {
         Self(a, b, c)
     }
@@ -373,17 +381,17 @@ impl Display for CssValue {
                 )
             }
             CssValue::Zero => write!(f, "0"),
-            CssValue::Number(num) => write!(f, "{}", num),
-            CssValue::Percentage(p) => write!(f, "{}%", p),
-            CssValue::String(s) => write!(f, "{}", s),
-            CssValue::Unit(val, unit) => write!(f, "{}{}", val, unit),
+            CssValue::Number(num) => write!(f, "{num}"),
+            CssValue::Percentage(p) => write!(f, "{p}%"),
+            CssValue::String(s) => write!(f, "{s}"),
+            CssValue::Unit(val, unit) => write!(f, "{val}{unit}"),
             CssValue::Function(name, args) => {
-                write!(f, "{}(", name)?;
+                write!(f, "{name}(")?;
                 for (i, arg) in args.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{}", arg)?;
+                    write!(f, "{arg}")?;
                 }
                 write!(f, ")")
             }
@@ -396,7 +404,7 @@ impl Display for CssValue {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{}", value)?;
+                    write!(f, "{value}")?;
                 }
                 write!(f, ")")
             }
@@ -405,6 +413,7 @@ impl Display for CssValue {
 }
 
 impl CssValue {
+    #[must_use]
     pub fn to_color(&self) -> Option<RgbColor> {
         match self {
             CssValue::Color(col) => Some(*col),
@@ -413,6 +422,7 @@ impl CssValue {
         }
     }
 
+    #[must_use]
     pub fn unit_to_px(&self) -> f32 {
         //TODO: Implement the rest of the units
         match self {
@@ -439,6 +449,7 @@ impl CssValue {
         }
     }
 
+    #[must_use]
     pub fn from_vec(mut value: Vec<Self>) -> Self {
         match value.len() {
             0 => Self::None,
@@ -447,6 +458,7 @@ impl CssValue {
         }
     }
 
+    #[must_use]
     pub fn to_slice(&self) -> &[Self] {
         match self {
             Self::List(l) => l,
@@ -454,6 +466,7 @@ impl CssValue {
         }
     }
 
+    #[must_use]
     pub fn into_vec(self) -> Vec<Self> {
         match self {
             Self::List(l) => l,
@@ -489,7 +502,7 @@ impl CssValue {
             }
             crate::node::NodeType::Function { name, arguments } => {
                 let mut list = vec![];
-                for node in arguments.iter() {
+                for node in &arguments {
                     match CssValue::parse_ast_node(node) {
                         Ok(value) => list.push(value),
                         Err(e) => return Err(e),
@@ -501,7 +514,7 @@ impl CssValue {
             crate::node::NodeType::Comma => Ok(CssValue::Comma),
 
             _ => Err(CssError::new(
-                format!("Cannot convert node to CssValue: {:?}", node).as_str(),
+                format!("Cannot convert node to CssValue: {node:?}").as_str(),
             )),
         }
     }
@@ -512,7 +525,7 @@ impl CssValue {
             "initial" => return Ok(CssValue::Initial),
             "inherit" => return Ok(CssValue::Inherit),
             "none" => return Ok(CssValue::None),
-            "" => return Ok(CssValue::String("".into())),
+            "" => return Ok(CssValue::String(String::new())),
             _ => {}
         }
 

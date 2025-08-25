@@ -71,7 +71,7 @@ impl Tokenizer<'_> {
 }
 
 /// This struct is a gateway between the parser and the tokenizer. It holds data that can be needed
-/// by the tokenizer in certain cases. See https://github.com/gosub-browser/gosub-engine/issues/230 for
+/// by the tokenizer in certain cases. See <https://github.com/gosub-browser/gosub-engine/issues/230> for
 /// more information and how we should refactor this properly.
 pub struct ParserData {
     pub adjusted_node_namespace: String,
@@ -142,7 +142,7 @@ impl<'stream> Tokenizer<'stream> {
         self.location_handler.cur_location
     }
 
-    /// Retrieves the next token from the input stream or Token::EOF when the end is reached
+    /// Retrieves the next token from the input stream or `Token::EOF` when the end is reached
     pub fn next_token(&mut self, parser_data: ParserData) -> Result<Token> {
         self.consume_stream(parser_data)?;
 
@@ -156,7 +156,8 @@ impl<'stream> Tokenizer<'stream> {
     }
 
     /// Returns the error logger
-    pub fn get_error_logger(&self) -> Ref<ErrorLogger> {
+    #[must_use]
+    pub fn get_error_logger(&self) -> Ref<'_, ErrorLogger> {
         self.error_logger.borrow()
     }
 
@@ -2165,18 +2166,20 @@ impl<'stream> Tokenizer<'stream> {
         self.consumed.push_str(s);
     }
 
-    /// Return true when the given end_token matches the stored start token (ie: 'table' matches when
-    /// last_start_token = 'table')
+    /// Return true when the given `end_token` matches the stored start token (ie: 'table' matches when
+    /// `last_start_token` = 'table')
     fn is_appropriate_end_token(&self, end_token: &str) -> bool {
         self.last_start_token == end_token
     }
 
     /// Return the consumed string as a String
+    #[must_use]
     pub fn get_consumed_str(&self) -> &str {
         &self.consumed
     }
 
     /// Returns true if there is anything in the consume buffer
+    #[must_use]
     pub fn has_consumed_data(&self) -> bool {
         !self.consumed.is_empty()
     }
@@ -2191,7 +2194,7 @@ impl<'stream> Tokenizer<'stream> {
         self.error_logger.borrow_mut().add_error(location, message.as_str());
     }
 
-    /// Set is_closing_tag in current token
+    /// Set `is_closing_tag` in current token
     fn set_is_closing_in_current_token(&mut self, is_closing: bool) {
         match &mut self.current_token.as_mut().unwrap() {
             Token::EndTag { .. } => {
@@ -2206,7 +2209,7 @@ impl<'stream> Tokenizer<'stream> {
         }
     }
 
-    /// Set force_quirk mode in current token
+    /// Set `force_quirk` mode in current token
     fn set_quirks_mode(&mut self, quirky: bool) {
         if let Token::DocType { force_quirks, .. } = &mut self.current_token.as_mut().unwrap() {
             *force_quirks = quirky;
@@ -2236,12 +2239,12 @@ impl<'stream> Tokenizer<'stream> {
         Ok(())
     }
 
-    /// This function checks to see if there is already an attribute name like the one in current_attr_name.
+    /// This function checks to see if there is already an attribute name like the one in `current_attr_name`.
     fn attr_already_exists(&mut self) -> bool {
         self.current_attrs.contains_key(&self.current_attr_name)
     }
 
-    /// Saves the current attribute name and value onto the current_attrs stack, if there is anything to store
+    /// Saves the current attribute name and value onto the `current_attrs` stack, if there is anything to store
     fn store_and_clear_current_attribute(&mut self) {
         if !self.current_attr_name.is_empty() && !self.current_attrs.contains_key(&self.current_attr_name) {
             self.current_attrs

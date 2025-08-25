@@ -60,6 +60,7 @@ impl DnsEntry {
     }
 
     /// Returns true if the dns entry has expired
+    #[must_use]
     pub fn expired(&self) -> bool {
         self.expires < SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()
     }
@@ -92,7 +93,7 @@ pub enum ResolveType {
 }
 
 trait DnsResolver {
-    /// Resolves a domain name for a given resolver_type
+    /// Resolves a domain name for a given `resolver_type`
     fn resolve(&mut self, domain: &str, resolve_type: ResolveType) -> Result<DnsEntry>;
     /// Announces the resolved dns entry for the domain to a resolver
     fn announce(&mut self, _domain: &str, _entry: &DnsEntry) {}
@@ -146,7 +147,7 @@ impl Dns {
         Self { resolvers }
     }
 
-    /// Resolves a domain name to a set of IP addresses based on the resolve_type.
+    /// Resolves a domain name to a set of IP addresses based on the `resolve_type`.
     /// It can resolve either Ipv4, ipv6 or both addresses.
     ///
     /// Each request will be resolved by the resolvers in the order they are added.
@@ -197,26 +198,26 @@ mod test {
         let now = Instant::now();
         let e = dns.resolve("example.org", ResolveType::Ipv4).unwrap();
         let elapsed_time = now.elapsed();
-        e.ipv4().iter().for_each(|x| println!("ipv4: {}", x));
+        e.ipv4().iter().for_each(|x| println!("ipv4: {x}"));
         println!("Took {} microseconds.", elapsed_time.as_micros());
 
         let now = Instant::now();
         let e = dns.resolve("example.org", ResolveType::Ipv6).unwrap();
         let elapsed_time = now.elapsed();
-        e.ipv6().iter().for_each(|x| println!("ipv6: {}", x));
+        e.ipv6().iter().for_each(|x| println!("ipv6: {x}"));
         println!("Took {} microseconds.", elapsed_time.as_micros());
 
         let now = Instant::now();
         let e = dns.resolve("example.org", ResolveType::Ipv4).unwrap();
         let elapsed_time = now.elapsed();
-        e.ipv4().iter().for_each(|x| println!("ipv4: {}", x));
+        e.ipv4().iter().for_each(|x| println!("ipv4: {x}"));
         println!("Took {} microseconds.", elapsed_time.as_micros());
 
         let now = Instant::now();
         let e = dns.resolve("example.org", ResolveType::Both).unwrap();
         let elapsed_time = now.elapsed();
-        e.ipv4().iter().for_each(|x| println!("ipv4: {}", x));
-        e.ipv6().iter().for_each(|x| println!("ipv6: {}", x));
+        e.ipv4().iter().for_each(|x| println!("ipv4: {x}"));
+        e.ipv6().iter().for_each(|x| println!("ipv6: {x}"));
         println!("Took {} microseconds.", elapsed_time.as_micros());
     }
 }

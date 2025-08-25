@@ -2,10 +2,10 @@ use gosub_shared::byte_stream::Location;
 use gosub_shared::node::NodeId;
 use gosub_shared::types::Result;
 
-/// TreeBuilder is an interface to abstract DOM tree modifications.
+/// `TreeBuilder` is an interface to abstract DOM tree modifications.
 ///
-/// This is implemented by DocumentHandle to support direct immediate manipulation of the DOM
-/// and implemented by DocumentTaskQueue to support queueing up several mutations to be performed at once.
+/// This is implemented by `DocumentHandle` to support direct immediate manipulation of the DOM
+/// and implemented by `DocumentTaskQueue` to support queueing up several mutations to be performed at once.
 pub trait TreeBuilder {
     /// Create a new element node with the given tag name and append it to a parent
     /// with an optional position parameter which places the element at a specific child index.
@@ -142,7 +142,7 @@ mod tests {
                 //     test.document_as_str()
                 // );
                 if !result.is_success() {
-                    println!("tree construction failed: {:#?}", result);
+                    println!("tree construction failed: {result:#?}");
                 }
                 // println!("{:?}\n", result);
                 assert!(result.is_success());

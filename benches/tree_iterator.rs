@@ -45,7 +45,7 @@ fn wikipedia_main_page(c: &mut Criterion) {
         b.iter(|| {
             let tree_iterator = TreeIterator::<Config>::new(&doc);
             let _ = tree_iterator.collect::<Vec<NodeId>>();
-        })
+        });
     });
 
     group.finish();
@@ -70,7 +70,7 @@ fn stackoverflow_home(c: &mut Criterion) {
         b.iter(|| {
             let tree_iterator = TreeIterator::<Config>::new(&doc);
             let _ = tree_iterator.collect::<Vec<NodeId>>();
-        })
+        });
     });
 
     group.finish();

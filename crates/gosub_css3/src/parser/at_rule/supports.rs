@@ -31,6 +31,6 @@ mod tests {
         let node = parser.parse_at_rule_supports_prelude().unwrap();
 
         let w = Walker::new(&node);
-        assert_eq!(w.walk_to_string(), "[Raw] (display: flex)\n")
+        assert_eq!(w.walk_to_string(), "[Raw] (display: flex)\n");
     }
 }

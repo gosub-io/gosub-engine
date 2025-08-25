@@ -23,7 +23,7 @@ impl Text {
         let brush = &render.brush.0;
         let style: StyleRef = Fill::NonZero.into();
 
-        let transform = render.transform.map(|t| t.0).unwrap_or(Affine::IDENTITY);
+        let transform = render.transform.map_or(Affine::IDENTITY, |t| t.0);
         let brush_transform = render.brush_transform.map(|t| t.0);
 
         let x = render.rect.0.x0;
@@ -32,7 +32,7 @@ impl Text {
         let transform = transform.with_translation((x, y).into());
 
         for text in &render.text {
-            let transform = transform.then_translate((text.offset.x as f64, text.offset.y as f64).into());
+            let transform = transform.then_translate((f64::from(text.offset.x), f64::from(text.offset.y)).into());
 
             let peniko_font = PenikoFont::new(Blob::new(text.font_data.data.clone()), text.font_data.index);
 
@@ -48,7 +48,7 @@ impl Text {
             {
                 let decoration = &text.decoration;
 
-                let stroke = Stroke::new(decoration.width as f64);
+                let stroke = Stroke::new(f64::from(decoration.width));
 
                 let c = decoration.color;
 
@@ -59,10 +59,10 @@ impl Text {
                     (c.3 * 255.0) as u8,
                 ));
 
-                let offset = decoration.x_offset as f64;
+                let offset = f64::from(decoration.x_offset);
 
                 if decoration.underline {
-                    let y = y + decoration.underline_offset as f64 + render.rect.0.height();
+                    let y = y + f64::from(decoration.underline_offset) + render.rect.0.height();
 
                     let line = Line::new((x + offset, y), (x + render.rect.0.width(), y));
 
@@ -93,7 +93,7 @@ impl TText for Text {
             .glyphs()
             .iter()
             .map(|g| Glyph {
-                id: g.id as u32,
+                id: u32::from(g.id),
                 x: g.x,
                 y: g.y,
             })

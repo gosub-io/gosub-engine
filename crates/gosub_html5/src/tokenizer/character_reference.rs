@@ -333,7 +333,7 @@ impl Tokenizer<'_> {
 
         for i in (0..=chars.len()).rev() {
             if let Some(slice) = chars.get(0..i) {
-                let entity: String = slice.iter().map(|c| c.to_string()).collect();
+                let entity: String = slice.iter().map(std::string::ToString::to_string).collect();
                 if TOKEN_NAMED_CHARS.contains_key(entity.as_str()) {
                     return Some(entity);
                 }

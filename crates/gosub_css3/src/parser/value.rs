@@ -130,7 +130,7 @@ impl Css3<'_> {
                         }
                         _ => {
                             return Err(CssError::with_location(
-                                format!("Expected number or ident, got {:?}", t).as_str(),
+                                format!("Expected number or ident, got {t:?}").as_str(),
                                 self.tokenizer.current_location(),
                             ))
                         }
@@ -154,7 +154,7 @@ impl Css3<'_> {
                     Ok(Some(node))
                 }
                 '#' => Err(CssError::with_location(
-                    format!("Unexpected token {:?}", t).as_str(),
+                    format!("Unexpected token {t:?}").as_str(),
                     self.tokenizer.current_location(),
                 )),
                 _ => {

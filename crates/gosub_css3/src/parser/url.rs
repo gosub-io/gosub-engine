@@ -13,7 +13,7 @@ impl Css3<'_> {
         let name = self.consume_function()?;
         if !name.eq_ignore_ascii_case("url") {
             return Err(CssError::with_location(
-                format!("Expected url, got {:?}", name).as_str(),
+                format!("Expected url, got {name:?}").as_str(),
                 self.tokenizer.current_location(),
             ));
         }
@@ -23,7 +23,7 @@ impl Css3<'_> {
             TokenType::QuotedString(url) => url,
             _ => {
                 return Err(CssError::with_location(
-                    format!("Expected url, got {:?}", t).as_str(),
+                    format!("Expected url, got {t:?}").as_str(),
                     self.tokenizer.current_location(),
                 ));
             }

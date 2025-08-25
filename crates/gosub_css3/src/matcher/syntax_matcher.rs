@@ -8,7 +8,7 @@ use crate::stylesheet::CssValue;
 pub struct MatchResult<'a> {
     /// The remainder of the values that are not matched.
     pub remainder: &'a [CssValue],
-    /// True when this matched did some matching (todo: we might remove this and check for matched_values.is_empty)
+    /// True when this matched did some matching (todo: we might remove this and check for `matched_values.is_empty`)
     pub matched: bool,
     /// List of the matched values
     pub matched_values: Vec<CssValue>,
@@ -39,9 +39,10 @@ impl CssSyntaxTree {
             return false;
         }
 
-        if self.components.len() != 1 {
-            panic!("Syntax tree must have exactly one root component");
-        }
+        assert!(
+            (self.components.len() == 1),
+            "Syntax tree must have exactly one root component"
+        );
 
         let res = match_component(input, &self.components[0], None);
         res.matched && res.remainder.is_empty()
@@ -52,9 +53,10 @@ impl CssSyntaxTree {
             return false;
         }
 
-        if self.components.len() != 1 {
-            panic!("Syntax tree must have exactly one root component");
-        }
+        assert!(
+            (self.components.len() == 1),
+            "Syntax tree must have exactly one root component"
+        );
 
         let res = match_component(input, &self.components[0], Some(resolver));
         res.matched && res.remainder.is_empty()
@@ -150,7 +152,7 @@ fn match_component_inner<'a>(
 }
 
 /// Matches a component against the input values. After the match, there might be remaining
-/// elements in the input. This is passed back in the MatchResult structure.
+/// elements in the input. This is passed back in the `MatchResult` structure.
 fn match_component<'a>(
     raw_input: &'a [CssValue],
     component: &SyntaxComponent,
@@ -245,7 +247,7 @@ fn match_component_group<'a>(
             }
         }
         e => {
-            panic!("Unknown syntax component group: {:?}", e);
+            panic!("Unknown syntax component group: {e:?}");
         }
     }
 }
@@ -348,7 +350,7 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
                     }
                 }
                 _ => {}
-            };
+            }
         }
         SyntaxComponent::Literal { literal, .. } => match value {
             CssValue::String(v) if v.eq(literal) => return first_match(input),
@@ -381,7 +383,7 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
             }
         }
         e => {
-            panic!("Unknown syntax component: {:?}", e);
+            panic!("Unknown syntax component: {e:?}");
         }
     }
 
@@ -714,7 +716,7 @@ fn match_group_juxtaposition<'a>(
     }
 }
 
-/// Fulfillment is a result returned by the multiplier_fulfilled function. This is used to determine
+/// Fulfillment is a result returned by the `multiplier_fulfilled` function. This is used to determine
 /// if a multiplier is fulfilled or not and how.
 #[derive(Debug, PartialEq)]
 enum Fulfillment {
@@ -773,7 +775,7 @@ fn multiplier_fulfilled(component: &SyntaxComponent, cnt: usize) -> Fulfillment 
 }
 
 /// Helper function to return no matches
-fn no_match(input: &[CssValue]) -> MatchResult {
+fn no_match(input: &[CssValue]) -> MatchResult<'_> {
     MatchResult {
         remainder: input,
         matched: false,
@@ -782,7 +784,7 @@ fn no_match(input: &[CssValue]) -> MatchResult {
 }
 
 /// Helper function to return the first element from input in a match result, as we need this a lot
-fn first_match(input: &[CssValue]) -> MatchResult {
+fn first_match(input: &[CssValue]) -> MatchResult<'_> {
     MatchResult {
         remainder: input.get(1..).unwrap_or(&[]),
         matched: true,

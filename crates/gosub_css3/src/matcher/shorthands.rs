@@ -43,6 +43,7 @@ impl SyntaxComponent {
         }
     }
 
+    #[must_use]
     pub fn multipliers(&self) -> &[SyntaxComponentMultiplier] {
         match self {
             SyntaxComponent::GenericKeyword { multipliers, .. } => multipliers,
@@ -189,7 +190,8 @@ impl Shorthands {
 }
 
 impl Shorthand {
-    pub fn resolver(&self) -> ResolveShorthand {
+    #[must_use]
+    pub fn resolver(&self) -> ResolveShorthand<'_> {
         ResolveShorthand {
             name: &self.name,
             components: &self.components,
@@ -214,7 +216,7 @@ impl<'a> ShorthandResolver<'a> {
         ) {
             let mut complete = Vec::with_capacity(self.shorthands.len());
 
-            for shorthand in self.shorthands.iter() {
+            for shorthand in &self.shorthands {
                 match shorthand.step_complete(idx) {
                     Some(Some(elem)) => {
                         shorthands.push(elem);
@@ -259,7 +261,7 @@ impl<'a> ShorthandResolver<'a> {
             }
         }
 
-        for shorthand in self.shorthands.iter() {
+        for shorthand in &self.shorthands {
             match shorthand.step_complete(idx) {
                 Some(Some(elem)) => {
                     shorthands.push(elem);
@@ -288,6 +290,7 @@ impl<'a> ShorthandResolver<'a> {
         }))
     }
 
+    #[must_use]
     pub fn snapshot(&self) -> Snapshot {
         Snapshot {
             fix_list: self.fix_list.clone(),
@@ -325,6 +328,7 @@ impl Default for FixList {
 }
 
 impl FixList {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             list: Vec::new(),
@@ -432,7 +436,7 @@ impl CompleteStep<'_> {
         let val = CssValue::from_vec(value);
 
         for name in self.name.clone() {
-            self.list.insert(name.to_string(), val.clone())
+            self.list.insert(name.to_string(), val.clone());
         }
 
         self.completed = true;
@@ -460,6 +464,7 @@ impl CssDefinitions {
         }
     }
 
+    #[must_use]
     pub fn resolve_shorthands(&self, computed: &[String], syntax: &CssSyntaxTree, name: &str) -> Option<Shorthands> {
         if computed.len() <= 1 || syntax.components.is_empty() {
             return None;

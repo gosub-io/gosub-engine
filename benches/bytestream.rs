@@ -17,7 +17,7 @@ fn utf8_testfile(c: &mut Criterion) {
             while !stream.eof() {
                 stream.read_and_next();
             }
-        })
+        });
     });
 
     group.finish();

@@ -29,6 +29,7 @@ pub struct RgbColor {
 
 impl RgbColor {
     /// Create a new color with r,g,b and alpha values
+    #[must_use]
     pub fn new(r: f32, g: f32, b: f32, a: f32) -> Self {
         RgbColor { r, g, b, a }
     }
@@ -824,8 +825,9 @@ lazy_static! {
     ];
 }
 
+#[must_use]
 pub fn is_system_color(name: &str) -> bool {
-    for entry in CSS_SYSTEM_COLOR_NAMES.iter() {
+    for entry in &CSS_SYSTEM_COLOR_NAMES {
         if entry == &name {
             return true;
         }
@@ -833,8 +835,9 @@ pub fn is_system_color(name: &str) -> bool {
     false
 }
 
+#[must_use]
 pub fn is_named_color(name: &str) -> bool {
-    for entry in CSS_COLORNAMES.iter() {
+    for entry in *CSS_COLORNAMES {
         if entry.name == name {
             return true;
         }
@@ -942,7 +945,7 @@ mod tests {
         let conversion = convert_from_hex_str_to_vec_of_ints(hex_str, 1);
         // Then we should get an expected Vec
         let expected_vec = vec![12, 5, 15];
-        assert_eq!(expected_vec, conversion)
+        assert_eq!(expected_vec, conversion);
     }
 
     #[test]
@@ -953,7 +956,7 @@ mod tests {
         let conversion = convert_from_hex_str_to_vec_of_ints(hex_str, 1);
         // Then we should get an expected Vec
         let expected_vec = vec![10, 11, 12, 13];
-        assert_eq!(expected_vec, conversion)
+        assert_eq!(expected_vec, conversion);
     }
 
     #[test]

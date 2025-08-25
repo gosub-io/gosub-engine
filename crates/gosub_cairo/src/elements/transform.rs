@@ -183,39 +183,39 @@ impl TTransform for GsTransform {
     const FLIP_Y: Self = GsTransform::new([-1.0, 0., 0., 1.0, 0., 0.]);
 
     fn scale(s: FP) -> Self {
-        GsTransform::scale(s as f64, s as f64)
+        GsTransform::scale(f64::from(s), f64::from(s))
     }
 
     fn scale_xy(sx: FP, sy: FP) -> Self {
-        GsTransform::scale(sx as f64, sy as f64)
+        GsTransform::scale(f64::from(sx), f64::from(sy))
     }
 
     fn translate(x: FP, y: FP) -> Self {
-        GsTransform::translate(x as f64, y as f64)
+        GsTransform::translate(f64::from(x), f64::from(y))
     }
 
     fn rotate(angle: FP) -> Self {
-        GsTransform::rotate(angle as f64)
+        GsTransform::rotate(f64::from(angle))
     }
 
     fn rotate_around(angle: FP, center: Point) -> Self {
-        GsTransform::rotate_about(angle as f64, (center.x as f64, center.y as f64))
+        GsTransform::rotate_about(f64::from(angle), (f64::from(center.x), f64::from(center.y)))
     }
 
     fn skew_x(angle: FP) -> Self {
-        GsTransform::skew(angle as f64, 0.0)
+        GsTransform::skew(f64::from(angle), 0.0)
     }
 
     fn skew_y(angle: FP) -> Self {
-        GsTransform::skew(0.0, angle as f64)
+        GsTransform::skew(0.0, f64::from(angle))
     }
 
     fn skew_xy(angle_x: FP, angle_y: FP) -> Self {
-        GsTransform::skew(angle_x as f64, angle_y as f64)
+        GsTransform::skew(f64::from(angle_x), f64::from(angle_y))
     }
 
     fn pre_scale(self, s: FP) -> Self {
-        GsTransform::scale(s as f64, s as f64) * self
+        GsTransform::scale(f64::from(s), f64::from(s)) * self
     }
 
     fn pre_scale_xy(self, sx: FP, sy: FP) -> Self {
@@ -223,35 +223,35 @@ impl TTransform for GsTransform {
     }
 
     fn pre_translate(self, x: FP, y: FP) -> Self {
-        GsTransform::translate(x as f64, y as f64) * self
+        GsTransform::translate(f64::from(x), f64::from(y)) * self
     }
 
     fn pre_rotate(self, angle: FP) -> Self {
-        GsTransform::rotate(angle as f64) * self
+        GsTransform::rotate(f64::from(angle)) * self
     }
 
     fn pre_rotate_around(self, angle: FP, center: Point) -> Self {
-        GsTransform::rotate_about(angle as f64, (center.x as f64, center.y as f64)) * self
+        GsTransform::rotate_about(f64::from(angle), (f64::from(center.x), f64::from(center.y))) * self
     }
 
     fn then_scale(self, s: FP) -> Self {
-        self * GsTransform::scale(s as f64, s as f64)
+        self * GsTransform::scale(f64::from(s), f64::from(s))
     }
 
     fn then_scale_xy(self, sx: FP, sy: FP) -> Self {
-        self * GsTransform::scale(sx as f64, sy as f64)
+        self * GsTransform::scale(f64::from(sx), f64::from(sy))
     }
 
     fn then_translate(self, x: FP, y: FP) -> Self {
-        self * GsTransform::translate(x as f64, y as f64)
+        self * GsTransform::translate(f64::from(x), f64::from(y))
     }
 
     fn then_rotate(self, angle: FP) -> Self {
-        self * GsTransform::rotate(angle as f64)
+        self * GsTransform::rotate(f64::from(angle))
     }
 
     fn then_rotate_around(self, angle: FP, center: Point) -> Self {
-        self * GsTransform::rotate_about(angle as f64, (center.x as f64, center.y as f64))
+        self * GsTransform::rotate_about(f64::from(angle), (f64::from(center.x), f64::from(center.y)))
     }
 
     fn as_matrix(&self) -> [FP; 6] {
@@ -268,12 +268,12 @@ impl TTransform for GsTransform {
 
     fn from_matrix(matrix: [FP; 6]) -> Self {
         Self::new([
-            matrix[0] as f64,
-            matrix[1] as f64,
-            matrix[2] as f64,
-            matrix[3] as f64,
-            matrix[4] as f64,
-            matrix[5] as f64,
+            f64::from(matrix[0]),
+            f64::from(matrix[1]),
+            f64::from(matrix[2]),
+            f64::from(matrix[3]),
+            f64::from(matrix[4]),
+            f64::from(matrix[5]),
         ])
     }
 
@@ -288,8 +288,8 @@ impl TTransform for GsTransform {
     fn with_translation(&self, translation: Point) -> Self {
         let mut this = *self;
 
-        this.e = translation.x as f64;
-        this.f = translation.y as f64;
+        this.e = f64::from(translation.x);
+        this.f = f64::from(translation.y);
 
         this
     }

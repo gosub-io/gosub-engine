@@ -191,7 +191,7 @@ pub struct Html5Parser<'tokens, C: HasDocument> {
     ack_self_closing: bool,
     /// List of active formatting elements or markers
     active_formatting_elements: Vec<ActiveElement>,
-    /// Is the current parsing a fragment case. If so, the context_node_id and context_doc should be set as well.
+    /// Is the current parsing a fragment case. If so, the `context_node_id` and `context_doc` should be set as well.
     is_fragment_case: bool,
     /// A reference to the document we are parsing
     document: &'tokens mut C::Document,
@@ -201,7 +201,7 @@ pub struct Html5Parser<'tokens, C: HasDocument> {
     script_nesting_level: u32,
     /// If true, the parser is paused
     parser_pause_flag: bool,
-    /// Keeps the position of where any document.write() should be inserted when running a script
+    /// Keeps the position of where any `document.write()` should be inserted when running a script
     insertion_point: Option<usize>,
     /// Ignore when next token is LF
     ignore_lf: bool,
@@ -233,7 +233,7 @@ impl<C: HasDocument> gosub_interface::html5::Html5Parser<C> for Html5Parser<'_, 
     }
 }
 
-/// Defines the scopes for in_scope()
+/// Defines the scopes for `in_scope()`
 #[derive(Clone, Copy)]
 enum Scope {
     Regular,
@@ -291,7 +291,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
     }
 
     /// Creates a new parser with a dummy document and dummy tokenizer. This is ONLY used for testing purposes.
-    /// Regular users should use the parse_document() and parse_fragment() functions instead.
+    /// Regular users should use the `parse_document()` and `parse_fragment()` functions instead.
     pub fn new_parser(stream: &'a mut ByteStream, document: &'a mut C::Document, start_location: Location) -> Self {
         let error_logger = Rc::new(RefCell::new(ErrorLogger::new()));
         let tokenizer = Tokenizer::new(stream, None, error_logger.clone(), start_location);
@@ -1773,7 +1773,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         }
     }
 
-    /// Remove the given node_id from the open elements stack. Will do nothing when the node_id is not found
+    /// Remove the given `node_id` from the open elements stack. Will do nothing when the `node_id` is not found
     fn open_elements_remove(&mut self, target_node_id: NodeId) {
         self.open_elements.retain(|&node_id| node_id != target_node_id);
     }
@@ -2131,7 +2131,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         false
     }
 
-    /// Closes a table cell and switches the insertion mode to InRow
+    /// Closes a table cell and switches the insertion mode to `InRow`
     fn close_cell(&mut self) {
         self.generate_implied_end_tags(None, false);
 
@@ -2149,7 +2149,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         self.insertion_mode = InsertionMode::InRow;
     }
 
-    /// Handle insertion mode "in_body"
+    /// Handle insertion mode "`in_body`"
     fn handle_in_body(&mut self) {
         match &self.current_token.clone() {
             Token::Text { text: value, .. } if self.current_token.is_mixed_null() => {
@@ -2269,7 +2269,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                     let second_node_id = self.open_elements[1];
                     let second_node = get_node_by_id!(self.document, second_node_id);
                     if second_node.parent_id().is_some() {
-                        self.document.detach_node(second_node_id)
+                        self.document.detach_node(second_node_id);
                     }
                 }
 
@@ -2966,7 +2966,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         }
     }
 
-    /// Handle insertion mode "in_head"
+    /// Handle insertion mode "`in_head`"
     fn handle_in_head(&mut self) {
         let mut anything_else = false;
 
@@ -3133,7 +3133,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         }
     }
 
-    /// Handle insertion mode "in_template"
+    /// Handle insertion mode "`in_template`"
     fn handle_in_template(&mut self) {
         match &self.current_token {
             Token::Text { .. } | Token::Comment { .. } | Token::DocType { .. } => {
@@ -3211,7 +3211,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         }
     }
 
-    /// Handle insertion mode "in_table"
+    /// Handle insertion mode "`in_table`"
     fn handle_in_table(&mut self) {
         let mut anything_else = false;
 
@@ -3369,7 +3369,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         }
     }
 
-    /// Handle insertion mode "in_select"
+    /// Handle insertion mode "`in_select`"
     fn handle_in_select(&mut self) {
         match &self.current_token {
             Token::Text { text: value, .. } if self.current_token.is_mixed() => {
@@ -3544,7 +3544,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         }
     }
 
-    /// Remove the given node_id from the active formatting elements list. Will do nothing when the node is not found
+    /// Remove the given `node_id` from the active formatting elements list. Will do nothing when the node is not found
     fn active_formatting_elements_remove(&mut self, target_node_id: NodeId) {
         self.active_formatting_elements.retain(|node_id| match node_id {
             ActiveElement::Node(node_id) => *node_id != target_node_id,
@@ -3908,7 +3908,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
     }
 
     /// Finds the node where to place an unexpected html tag. This can only be done on a mathml
-    /// insertion point, a svg_html insertion point, or at a regular html namespaced node.
+    /// insertion point, a `svg_html` insertion point, or at a regular html namespaced node.
     fn process_unexpected_html_tag(&mut self) {
         self.parse_error("process_unexpected_html_tag");
 
@@ -3975,16 +3975,16 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
     ///
     /// example:
     ///
-    ///   Token::Text("  foo bar\0  ")
+    ///   `Token::Text`("  foo bar\0  ")
     ///
     /// is split into 6 tokens:
     ///
-    ///   Token::Text("  ")  // whitespace
-    ///   Token::Text("foo") // regular
-    ///   Token::Text(" ")   // whitespace
-    ///   Token::Text("bar") // regular
-    ///   Token::Text("\0")  // null
-    ///   Token::Text("  ")  // whitespace
+    ///   `Token::Text`("  ")  // whitespace
+    ///   `Token::Text("foo`") // regular
+    ///   `Token::Text`(" ")   // whitespace
+    ///   `Token::Text("bar`") // regular
+    ///   `Token::Text("\0`")  // null
+    ///   `Token::Text`("  ")  // whitespace
     ///
     /// This is needed because the tokenizer does not know about the context of the text it is,
     /// so it will always try to tokenize as greedy as possible. But sometimes we need this split
@@ -3992,7 +3992,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
     /// Only in those cases, this function is called, and the token will be split into multiple
     /// tokens.
     /// The idea is that large blobs of javascript for instance will not be split into separate
-    /// tokens, but still be seen and parsed as a single TextToken.
+    /// tokens, but still be seen and parsed as a single `TextToken`.
     ///
     fn split_mixed_token(&self, text: &str) -> Vec<Token> {
         let mut tokens = vec![];
@@ -4032,7 +4032,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
     }
 
     /// This will split tokens into \0 groups and non-\0 groups.
-    /// @todo: refactor this into split_mixed_token as well, but add a collection of groups callables
+    /// @todo: refactor this into `split_mixed_token` as well, but add a collection of groups callables
     fn split_mixed_token_null(&self, text: &str) -> Vec<Token> {
         let mut tokens = vec![];
         let mut last_group = 'x';
@@ -4075,7 +4075,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         }
 
         let source_url = match self.document.url() {
-            Some(url) => format!("{}#inline", url),
+            Some(url) => format!("{url}#inline"),
             None => "<unknown>#inline".into(),
         };
 
@@ -4133,18 +4133,18 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 Some(content_type) => {
                     let content_type = content_type.to_str().unwrap_or("");
                     if !content_type.starts_with("text/css") {
-                        warn!("External stylesheet has no text/css content type: {} ", content_type);
+                        warn!("External stylesheet has no text/css content type: {content_type} ");
                     }
                 }
                 None => {
-                    warn!("External stylesheet has no content type: {} ", url);
+                    warn!("External stylesheet has no content type: {url} ");
                 }
             }
 
             match response.body_mut().read_to_string() {
                 Ok(css) => css,
                 Err(err) => {
-                    warn!("Could not load external stylesheet from {}. Error: {}", url, err);
+                    warn!("Could not load external stylesheet from {url}. Error: {err}");
                     return None;
                 }
             }
@@ -4154,7 +4154,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             match std::fs::read_to_string(path) {
                 Ok(css) => css,
                 Err(err) => {
-                    warn!("Could not load external stylesheet from {}. Error: {}", url, err);
+                    warn!("Could not load external stylesheet from {url}. Error: {err}");
                     return None;
                 }
             }
@@ -4210,9 +4210,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             "stylesheet",
         ];
         if parser_in_body && !body_ok_types.contains(&rel.as_str()) {
-            self.parse_error(
-                format!("link element with rel attribute '{}' is not supported in the body", rel).as_str(),
-            );
+            self.parse_error(format!("link element with rel attribute '{rel}' is not supported in the body").as_str());
             return;
         }
 
@@ -4242,11 +4240,11 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                     println!("success: loaded external stylesheet");
                     self.document.add_stylesheet(stylesheet);
                 } else {
-                    println!("failed loading stylesheet")
+                    println!("failed loading stylesheet");
                 }
             }
             _ => {
-                self.parse_error(format!("link element with rel attribute '{}' is not supported", rel).as_str());
+                self.parse_error(format!("link element with rel attribute '{rel}' is not supported").as_str());
             }
         }
     }
@@ -4525,7 +4523,7 @@ mod test {
         let mut doc_handle = <DocumentBuilderImpl as DocumentBuilder<Config>>::new_document(None);
         let _ = Parser::parse_document(&mut stream, &mut doc_handle, None);
 
-        println!("{}", doc_handle);
+        println!("{doc_handle}");
     }
 
     #[test]

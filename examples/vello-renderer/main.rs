@@ -143,7 +143,7 @@ fn main() -> Result<()> {
             if let Err(e) = io::stdin().read_line(&mut input) {
                 eprintln!("Error reading input: {e:?}");
                 continue;
-            };
+            }
 
             let input = input.trim();
 
@@ -164,7 +164,7 @@ fn main() -> Result<()> {
                         }
                     };
 
-                    println!("{}", node);
+                    println!("{node}");
                 }
 
                 "add" => {
@@ -213,7 +213,7 @@ fn main() -> Result<()> {
                     }
                 };
 
-                node.dbg_current()
+                node.dbg_current();
             }
 
             if input.starts_with("window ") {

@@ -17,11 +17,13 @@ pub(crate) trait Cache {
 }
 
 // Some kind of caching strategy for font_info stuff
+#[allow(dead_code)]
 pub struct MemoryCache {
     cache: HashMap<String, FontInfo>,
 }
 
 impl MemoryCache {
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self { cache: HashMap::new() }
     }
@@ -29,12 +31,12 @@ impl MemoryCache {
 
 impl Cache for MemoryCache {
     fn get(&self, family: &str, style: FontStyle) -> Option<FontInfo> {
-        let key = format!("{}-{}", family, style);
+        let key = format!("{family}-{style}");
         self.cache.get(&key).cloned()
     }
 
     fn set(&mut self, family: &str, style: FontStyle, font_info: &FontInfo) {
-        let key = format!("{}-{}", family, style);
+        let key = format!("{family}-{style}");
         self.cache.insert(key, font_info.clone());
     }
 
@@ -43,7 +45,7 @@ impl Cache for MemoryCache {
     }
 
     fn remove(&mut self, family: &str, style: FontStyle) {
-        let key = format!("{}-{}", family, style);
+        let key = format!("{family}-{style}");
         self.cache.remove(&key);
     }
 }

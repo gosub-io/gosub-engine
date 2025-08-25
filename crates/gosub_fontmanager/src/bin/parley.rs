@@ -111,7 +111,7 @@ fn main() {
                         }
                     }
                 }
-            };
+            }
         }
     }
 
@@ -130,7 +130,7 @@ fn main() {
     let output_file = File::create(output_path.clone()).unwrap();
     let png_encoder = PngEncoder::new(output_file);
     img.write_with_encoder(png_encoder).unwrap();
-    println!("Image written to: {:?}", output_path);
+    println!("Image written to: {output_path:?}");
 }
 
 fn render_glyph_run(
@@ -267,5 +267,5 @@ fn render_glyph(
                 }
             }
         }
-    };
+    }
 }

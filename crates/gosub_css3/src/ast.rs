@@ -84,13 +84,13 @@ pub fn convert_ast_to_stylesheet(css_ast: &CssNode, origin: CssOrigin, url: &str
         };
 
         let (prelude, declarations) = node.as_rule();
-        for node in prelude.iter() {
+        if let Some(node) = prelude {
             if !node.is_selector_list() {
                 continue;
             }
 
             let mut selector = CssSelector { parts: vec![vec![]] };
-            for node in node.as_selector_list().iter() {
+            for node in node.as_selector_list() {
                 if !node.is_selector() {
                     continue;
                 }
@@ -107,7 +107,7 @@ pub fn convert_ast_to_stylesheet(css_ast: &CssNode, origin: CssOrigin, url: &str
                                 " " => Combinator::Descendant,
                                 "||" => Combinator::Column,
                                 "|" => Combinator::Namespace,
-                                _ => return Err(CssError::new(format!("Unknown combinator: {}", value).as_str())),
+                                _ => return Err(CssError::new(format!("Unknown combinator: {value}").as_str())),
                             };
 
                             CssSelectorPart::Combinator(combinator)
@@ -128,24 +128,25 @@ pub fn convert_ast_to_stylesheet(css_ast: &CssNode, origin: CssOrigin, url: &str
                             let matcher = match matcher {
                                 None => MatcherType::None,
 
-                                Some(matcher) => match &*matcher.node_type {
-                                    NodeType::Operator(op) => match op.as_str() {
-                                        "=" => MatcherType::Equals,
-                                        "~=" => MatcherType::Includes,
-                                        "|=" => MatcherType::DashMatch,
-                                        "^=" => MatcherType::PrefixMatch,
-                                        "$=" => MatcherType::SuffixMatch,
-                                        "*=" => MatcherType::SubstringMatch,
-                                        _ => {
-                                            warn!("Unsupported matcher: {:?}", matcher);
-                                            MatcherType::Equals
+                                Some(matcher) => {
+                                    if let NodeType::Operator(op) = &*matcher.node_type {
+                                        match op.as_str() {
+                                            "=" => MatcherType::Equals,
+                                            "~=" => MatcherType::Includes,
+                                            "|=" => MatcherType::DashMatch,
+                                            "^=" => MatcherType::PrefixMatch,
+                                            "$=" => MatcherType::SuffixMatch,
+                                            "*=" => MatcherType::SubstringMatch,
+                                            _ => {
+                                                warn!("Unsupported matcher: {matcher:?}");
+                                                MatcherType::Equals
+                                            }
                                         }
-                                    },
-                                    _ => {
-                                        warn!("Unsupported matcher: {:?}", matcher);
+                                    } else {
+                                        warn!("Unsupported matcher: {matcher:?}");
                                         MatcherType::Equals
                                     }
-                                },
+                                }
                             };
 
                             CssSelectorPart::Attribute(Box::new(AttributeSelector {
@@ -166,7 +167,7 @@ pub fn convert_ast_to_stylesheet(css_ast: &CssNode, origin: CssOrigin, url: &str
                         }
                     };
                     if let Some(x) = selector.parts.last_mut() {
-                        x.push(part)
+                        x.push(part);
                     } else {
                         selector.parts.push(vec![part]); //unreachable, but still, we handle it
                     }
@@ -175,13 +176,13 @@ pub fn convert_ast_to_stylesheet(css_ast: &CssNode, origin: CssOrigin, url: &str
             rule.selectors.push(selector);
         }
 
-        for declaration in declarations.iter() {
+        if let Some(declaration) = declarations {
             if !declaration.is_block() {
                 continue;
             }
 
             let block = declaration.as_block();
-            for declaration in block.iter() {
+            for declaration in block {
                 if !declaration.is_declaration() {
                     continue;
                 }
@@ -190,7 +191,7 @@ pub fn convert_ast_to_stylesheet(css_ast: &CssNode, origin: CssOrigin, url: &str
 
                 // Convert the nodes into CSS Values
                 let mut css_values = vec![];
-                for node in nodes.iter() {
+                for node in nodes {
                     if let Ok(value) = CssValue::parse_ast_node(node) {
                         css_values.push(value);
                     }
@@ -250,10 +251,10 @@ mod tests {
     #[test]
     fn convert_test() {
         let stylesheet = Css3::parse_str(
-            r#"
+            r"
             h1 { color: red; }
             h3, h4 { border: 1px solid black; }
-            "#,
+            ",
             ParserConfig::default(),
             CssOrigin::User,
             "test.css",

@@ -54,7 +54,7 @@ fn main() -> Result<()> {
 
     let url = Url::from_str(&url).unwrap_or_else(|_| bail("Invalid url"));
 
-    println!("Parsing url: {:?}", url);
+    println!("Parsing url: {url:?}");
 
     let html = if url.scheme() == "http" || url.scheme() == "https" {
         // Fetch the html from the url

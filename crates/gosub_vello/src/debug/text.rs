@@ -44,7 +44,7 @@ pub fn render_text<'a>(
         Transform::IDENTITY,
         style,
         &[],
-    )
+    );
 }
 
 #[allow(clippy::too_many_arguments)]

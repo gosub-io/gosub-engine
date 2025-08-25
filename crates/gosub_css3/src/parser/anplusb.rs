@@ -11,7 +11,7 @@ impl Css3<'_> {
 
         if unit.chars().nth(0).unwrap().to_lowercase().to_string() != "n" {
             return Err(CssError::with_location(
-                format!("Expected n, found {}", unit).as_str(),
+                format!("Expected n, found {unit}").as_str(),
                 self.tokenizer.current_location(),
             ));
         }
@@ -29,7 +29,7 @@ impl Css3<'_> {
         if sign == "+" || sign == "-" {
             if !allow_sign {
                 return Err(CssError::with_location(
-                    format!("Unexpected sign {}", sign).as_str(),
+                    format!("Unexpected sign {sign}").as_str(),
                     self.tokenizer.current_location(),
                 ));
             }
@@ -49,7 +49,7 @@ impl Css3<'_> {
         let nval = value.chars().nth(offset).unwrap_or(' ').to_lowercase().to_string();
         if nval != c {
             return Err(CssError::with_location(
-                format!("Expected {}", c).as_str(),
+                format!("Expected {c}").as_str(),
                 self.tokenizer.current_location(),
             ));
         }
@@ -104,7 +104,7 @@ impl Css3<'_> {
 
         let val = self.consume_any_number()?;
         if negative {
-            return Ok(format!("-{}", val));
+            return Ok(format!("-{val}"));
         }
 
         Ok(val.to_string())

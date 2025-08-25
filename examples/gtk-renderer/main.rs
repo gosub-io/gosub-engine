@@ -11,7 +11,10 @@ use gosub_html5::document::fragment::DocumentFragmentImpl;
 use gosub_html5::parser::Html5Parser;
 use gosub_instance::{EngineInstance, InstanceMessage};
 use gosub_interface::chrome::ChromeHandle;
-use gosub_interface::config::*;
+use gosub_interface::config::{
+    HasChrome, HasCssSystem, HasDocument, HasHtmlParser, HasLayouter, HasRenderBackend, HasRenderTree, HasTreeDrawer,
+    ModuleConfiguration,
+};
 use gosub_interface::font::HasFontManager;
 use gosub_interface::instance::{Handles, InstanceId};
 use gosub_interface::render_backend::RenderBackend;

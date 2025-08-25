@@ -9,11 +9,7 @@ impl Css3<'_> {
         log::trace!("parse_property_name");
         let t = self.consume_any()?;
         match t.token_type {
-            TokenType::Delim('*')
-            | TokenType::Delim('$')
-            | TokenType::Delim('+')
-            | TokenType::Delim('#')
-            | TokenType::Delim('&') => {} //next
+            TokenType::Delim('*' | '$' | '+' | '#' | '&') => {} //next
             TokenType::Delim('/') => {
                 let t = self.tokenizer.lookahead(1);
                 if t.token_type == TokenType::Delim('/') {
@@ -30,7 +26,7 @@ impl Css3<'_> {
             TokenType::Ident(value) => Ok(value),
             TokenType::Hash(value) => Ok(value),
             _ => Err(CssError::with_location(
-                format!("Unexpected token {:?}", t).as_str(),
+                format!("Unexpected token {t:?}").as_str(),
                 self.tokenizer.current_location(),
             )),
         }
@@ -41,7 +37,7 @@ impl Css3<'_> {
 
         let result = self.parse_declaration_internal();
         if result.is_err() && self.config.ignore_errors {
-            log::warn!("Ignoring error in parse_declaration: {:?}", result);
+            log::warn!("Ignoring error in parse_declaration: {result:?}");
             self.parse_until_declaration_end();
             return Ok(None);
         }

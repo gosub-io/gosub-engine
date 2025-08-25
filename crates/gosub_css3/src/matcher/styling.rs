@@ -106,7 +106,7 @@ fn match_selector_part<'a, C: HasDocument>(
                 .unwrap()
                 .attributes()
                 .get("id")
-                .unwrap_or(&"".to_string())
+                .unwrap_or(&String::new())
                 == name
         }
         CssSelectorPart::Attribute(attr) => {
@@ -133,7 +133,7 @@ fn match_selector_part<'a, C: HasDocument>(
 
                 wanted_attr_value = &_wanted_buf;
                 got_attr_value = &_got_buf;
-            };
+            }
 
             match attr.matcher {
                 MatcherType::None => {
@@ -150,8 +150,7 @@ fn match_selector_part<'a, C: HasDocument>(
                 }
                 MatcherType::DashMatch => {
                     // Exact value or value followed by a hyphen
-                    got_attr_value == wanted_attr_value
-                        || got_attr_value.starts_with(&format!("{}-", wanted_attr_value))
+                    got_attr_value == wanted_attr_value || got_attr_value.starts_with(&format!("{wanted_attr_value}-"))
                 }
                 MatcherType::PrefixMatch => {
                     // Starts with
@@ -230,7 +229,7 @@ fn match_selector_part<'a, C: HasDocument>(
                 }
                 Combinator::NextSibling => {
                     let parent_node = doc.node_by_id(current_node.parent_id().unwrap());
-                    let Some(children) = parent_node.map(|p| p.children()) else {
+                    let Some(children) = parent_node.map(gosub_interface::node::Node::children) else {
                         return false;
                     };
 
@@ -264,7 +263,7 @@ fn match_selector_part<'a, C: HasDocument>(
                 }
                 Combinator::SubsequentSibling => {
                     let parent_node = doc.node_by_id(current_node.parent_id().unwrap());
-                    let Some(children) = parent_node.map(|p| p.children()) else {
+                    let Some(children) = parent_node.map(gosub_interface::node::Node::children) else {
                         return false;
                     };
 
@@ -319,7 +318,7 @@ fn match_selector_part<'a, C: HasDocument>(
 /// origin, importance, location and specificity of the declaration.
 #[derive(Debug, Clone)]
 pub struct DeclarationProperty {
-    /// The actual value of the property (@todo: should this be a vec? or do we need to (re-)implement CssValue::List?)
+    /// The actual value of the property (@todo: should this be a vec? or do we need to (re-)implement `CssValue::List`?)
     pub value: CssValue,
     /// Origin of the declaration (user stylesheet, author stylesheet etc.)
     pub origin: CssOrigin,
@@ -333,7 +332,7 @@ pub struct DeclarationProperty {
 }
 
 impl DeclarationProperty {
-    /// Priority of the declaration based on the origin and importance as defined in https://developer.mozilla.org/en-US/docs/Web/CSS/Cascade
+    /// Priority of the declaration based on the origin and importance as defined in <https://developer.mozilla.org/en-US/docs/Web/CSS/Cascade>
     fn priority(&self) -> u8 {
         match self.origin {
             CssOrigin::UserAgent => {
@@ -406,6 +405,7 @@ pub struct CssProperty {
 }
 
 impl CssProperty {
+    #[must_use]
     pub fn new(prop_name: &str) -> Self {
         Self {
             name: prop_name.to_string(),
@@ -477,6 +477,7 @@ impl CssProperty {
     }
 
     // /// Returns true if the given property is a shorthand property (ie: border, margin etc.)
+    #[must_use]
     pub fn is_shorthand(&self) -> bool {
         let defs = get_css_definitions();
         match defs.find_property(&self.name) {
@@ -486,6 +487,7 @@ impl CssProperty {
     }
 
     /// Returns the list of properties from a shorthand property, or just the property itself if it isn't a shorthand property.
+    #[must_use]
     pub fn get_props_from_shorthand(&self) -> Vec<String> {
         let defs = get_css_definitions();
         match defs.find_property(&self.name) {
@@ -504,7 +506,8 @@ impl CssProperty {
     // // Returns the initial value for the property, if any
     fn get_initial_value(&self) -> Option<CssValue> {
         let defs = get_css_definitions();
-        defs.find_property(&self.name).map(|def| def.initial_value())
+        defs.find_property(&self.name)
+            .map(super::property_definitions::PropertyDefinition::initial_value)
     }
 }
 
@@ -513,7 +516,7 @@ impl From<CssValue> for CssProperty {
         let mut this = Self::new("unknown");
 
         this.declared = vec![DeclarationProperty {
-            location: "".into(),
+            location: String::new(),
             important: false,
             value,
             origin: CssOrigin::Author,
@@ -529,7 +532,7 @@ impl From<CssValue> for CssProperty {
 impl From<CssValue> for DeclarationProperty {
     fn from(value: CssValue) -> Self {
         Self {
-            location: "".into(),
+            location: String::new(),
             important: false,
             value,
             origin: CssOrigin::Author,
@@ -632,6 +635,7 @@ impl Default for CssProperties {
 }
 
 impl CssProperties {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             properties: HashMap::new(),
@@ -714,7 +718,7 @@ mod tests {
             ]),
             origin: CssOrigin::Author,
             important: false,
-            location: "".into(),
+            location: String::new(),
             specificity: Specificity::new(1, 0, 0),
         });
 
@@ -740,7 +744,7 @@ mod tests {
             value: CssValue::String("red".into()),
             origin: CssOrigin::Author,
             important: false,
-            location: "".into(),
+            location: String::new(),
             specificity: Specificity::new(1, 0, 0),
         });
 
@@ -757,42 +761,42 @@ mod tests {
             value: CssValue::String("red".into()),
             origin: CssOrigin::Author,
             important: false,
-            location: "".into(),
+            location: String::new(),
             specificity: Specificity::new(1, 0, 0),
         };
         let b = DeclarationProperty {
             value: CssValue::String("blue".into()),
             origin: CssOrigin::UserAgent,
             important: false,
-            location: "".into(),
+            location: String::new(),
             specificity: Specificity::new(1, 0, 0),
         };
         let c = DeclarationProperty {
             value: CssValue::String("green".into()),
             origin: CssOrigin::User,
             important: false,
-            location: "".into(),
+            location: String::new(),
             specificity: Specificity::new(1, 0, 0),
         };
         let d = DeclarationProperty {
             value: CssValue::String("yellow".into()),
             origin: CssOrigin::Author,
             important: true,
-            location: "".into(),
+            location: String::new(),
             specificity: Specificity::new(1, 0, 0),
         };
         let e = DeclarationProperty {
             value: CssValue::String("orange".into()),
             origin: CssOrigin::UserAgent,
             important: true,
-            location: "".into(),
+            location: String::new(),
             specificity: Specificity::new(1, 0, 0),
         };
         let f = DeclarationProperty {
             value: CssValue::String("purple".into()),
             origin: CssOrigin::User,
             important: true,
-            location: "".into(),
+            location: String::new(),
             specificity: Specificity::new(1, 0, 0),
         };
 

@@ -54,7 +54,7 @@ impl V8Ctx {
         &mut self.ctx
     }
 
-    pub fn new_scope(&mut self) -> HandleScope {
+    pub fn new_scope(&mut self) -> HandleScope<'_> {
         if let Some(parent_scope) = &mut self.parent_scope {
             HandleScope::new(parent_scope)
         } else {
@@ -106,7 +106,7 @@ impl V8Ctx {
         let line = frame.get_line_number();
         let column = frame.get_column();
 
-        Some(format!("{}@{}:{}: {}", function, script, line, column))
+        Some(format!("{function}@{script}:{line}: {column}"))
     }
 }
 

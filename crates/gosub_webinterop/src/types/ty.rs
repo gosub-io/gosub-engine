@@ -55,7 +55,7 @@ impl Type {
                 let mut elements = Vec::with_capacity(t.elems.len());
 
                 for elem in &t.elems {
-                    elements.push(Self::parse(elem, allow_ref)?)
+                    elements.push(Self::parse(elem, allow_ref)?);
                 }
 
                 Ok(Type {

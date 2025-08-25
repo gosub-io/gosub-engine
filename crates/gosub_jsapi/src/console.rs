@@ -10,7 +10,7 @@ use std::fmt;
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
-/// LogLevel is the type of log level.
+/// `LogLevel` is the type of log level.
 #[derive(Debug)]
 pub enum LogLevel {
     Info,
@@ -86,6 +86,7 @@ impl Console {
     }
 
     /// Returns the printer that is used by the console
+    #[must_use]
     pub fn get_printer(self) -> Box<dyn Printer> {
         self.printer
     }

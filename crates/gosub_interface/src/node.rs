@@ -12,7 +12,7 @@ pub enum QuirksMode {
     NoQuirks,
 }
 
-/// Different types of nodes that all have their own data structures (NodeData)
+/// Different types of nodes that all have their own data structures (`NodeData`)
 #[derive(Debug, PartialEq)]
 pub enum NodeType {
     DocumentNode,
@@ -180,5 +180,5 @@ pub trait Node<C: HasDocument>: Clone + Debug + PartialEq {
     /// Pushes a child node to the node
     fn push(&mut self, node_id: NodeId);
 
-    fn data(&self) -> NodeData<C>;
+    fn data(&self) -> NodeData<'_, C>;
 }
