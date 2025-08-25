@@ -40,6 +40,14 @@ impl Default for &NodeId {
 }
 
 impl NodeId {
+    pub fn new(id: u64) -> Self {
+        Self(id as usize)
+    }
+
+    pub fn to_u64(&self) -> u64 {
+        self.0 as u64
+    }
+
     // TODO: Drop Default derive and only use 0 for the root, or choose another id for the root
     pub const ROOT_NODE: usize = 0;
 
