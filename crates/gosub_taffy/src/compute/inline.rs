@@ -210,16 +210,14 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
 
             tree.update_style(*child);
 
-            let size = if let Some(cache) = tree.0.get_cache(*child) {
+            let size = tree.0.get_cache(*child).map_or(out.content_size, |cache| {
                 if cache.display == Display::Inline {
                     //TODO: handle margins here
                     out.content_size
                 } else {
                     out.size
                 }
-            } else {
-                out.content_size
-            };
+            });
 
             inline_boxes.push(parley::InlineBox {
                 id: child_node_id.into(),
@@ -481,9 +479,7 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
                         let first_non_ws = text.chars().position(|c| !c.is_whitespace());
 
                         match first_non_ws {
-                            None => {}
-                            Some(0) => {}
-
+                            None | Some(0) => {}
                             Some(i) => {
                                 if let Some(g) = glyphs.get(i) {
                                     decoration.x_offset = g.x;
@@ -641,12 +637,12 @@ struct TextNodeData<C: HasFontManager> {
 
 impl<C: HasFontManager> TextNodeData<C> {
     /// Returns the font info of the text node
-    pub fn font_info(&self) -> &<<C as HasFontManager>::FontManager as FontManager>::FontInfo {
+    pub const fn font_info(&self) -> &<<C as HasFontManager>::FontManager as FontManager>::FontInfo {
         &self.font_info
     }
 }
 
-fn parse_alignment<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> parley::Alignment {
+fn parse_alignment<C: HasLayouter>(node: &impl LayoutNode<C>) -> parley::Alignment {
     let Some(prop) = node.get_property("text-align") else {
         return parley::Alignment::Start;
     };
@@ -656,7 +652,6 @@ fn parse_alignment<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> parley::Ali
     };
 
     match s {
-        "left" => parley::Alignment::Start,
         "center" => parley::Alignment::Middle,
         "right" => parley::Alignment::End,
         "justify" => parley::Alignment::Justified,
@@ -664,7 +659,7 @@ fn parse_alignment<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> parley::Ali
     }
 }
 
-fn parse_font_weight<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> parley::FontWeight {
+fn parse_font_weight<C: HasLayouter>(node: &impl LayoutNode<C>) -> parley::FontWeight {
     let Some(prop) = node.get_property("font-weight") else {
         return parley::FontWeight::NORMAL;
     };
@@ -682,7 +677,6 @@ fn parse_font_weight<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> parley::F
         "extra-light" => parley::FontWeight::EXTRA_LIGHT,
         "light" => parley::FontWeight::LIGHT,
         "semi-light" => parley::FontWeight::SEMI_LIGHT,
-        "normal" => parley::FontWeight::NORMAL,
         "medium" => parley::FontWeight::MEDIUM,
         "semi-bold" => parley::FontWeight::SEMI_BOLD,
         "bold" => parley::FontWeight::BOLD,
@@ -693,7 +687,7 @@ fn parse_font_weight<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> parley::F
     }
 }
 
-fn parse_font_style<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> FontStyle {
+fn parse_font_style<C: HasLayouter>(node: &impl LayoutNode<C>) -> FontStyle {
     let Some(prop) = node.get_property("font-style") else {
         return FontStyle::Normal;
     };
@@ -704,14 +698,12 @@ fn parse_font_style<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> FontStyle 
     };
 
     match s {
-        "normal" => FontStyle::Normal,
-        "italic" => FontStyle::Italic,
-        "oblique" => FontStyle::Italic,
+        "italic" | "oblique" => FontStyle::Italic,
         _ => FontStyle::Normal,
     }
 }
 
-fn parse_font_axes<C: HasLayouter>(n: &mut impl LayoutNode<C>) -> Vec<parley::FontVariation> {
+fn parse_font_axes<C: HasLayouter>(n: &impl LayoutNode<C>) -> Vec<parley::FontVariation> {
     let prop = n.get_property("font-variation-settings");
 
     let Some(s) = prop else {

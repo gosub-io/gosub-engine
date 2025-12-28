@@ -3,6 +3,7 @@ use gosub_interface::font::FontBlob;
 use gosub_interface::layout::{Decoration, TextLayout};
 use gosub_interface::render_backend::{RenderText, Text as TText};
 use gosub_shared::geo::{NormalizedCoord, Point, FP};
+use std::sync::Arc;
 use vello::kurbo::{Affine, Line, Stroke};
 use vello::peniko::{Blob, Brush, Color, Fill, Font as PenikoFont, StyleRef};
 use vello::Scene;
@@ -34,7 +35,7 @@ impl Text {
         for text in &render.text {
             let transform = transform.then_translate((f64::from(text.offset.x), f64::from(text.offset.y)).into());
 
-            let peniko_font = PenikoFont::new(Blob::new(text.font_data.data.clone()), text.font_data.index);
+            let peniko_font = PenikoFont::new(Blob::new(Arc::clone(text.font_data.data())), text.font_data.index);
 
             scene
                 .draw_glyphs(&peniko_font)

@@ -56,5 +56,5 @@ pub fn resolve_var<C: HasDocument>(values: &[CssValue], doc: &C::Document, node:
         return vec![default];
     };
 
-    vec![value.clone()]
+    vec![value]
 }

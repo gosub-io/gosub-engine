@@ -1,10 +1,9 @@
-use std::convert::From;
 use std::fmt::Debug;
 use std::str::FromStr;
 
 use colors_transform::Color;
 use colors_transform::{AlphaColor, Hsl, Rgb};
-use lazy_static::lazy_static;
+use std::sync::LazyLock;
 // Values for this table is taken from https://www.w3.org/TR/CSS21/propidx.html
 // Probably not the complete list, but it will do for now
 
@@ -30,15 +29,15 @@ pub struct RgbColor {
 impl RgbColor {
     /// Create a new color with r,g,b and alpha values
     #[must_use]
-    pub fn new(r: f32, g: f32, b: f32, a: f32) -> Self {
-        RgbColor { r, g, b, a }
+    pub const fn new(r: f32, g: f32, b: f32, a: f32) -> Self {
+        Self { r, g, b, a }
     }
 }
 
 impl Default for RgbColor {
     fn default() -> Self {
         // Default full alpha (solid) with black color
-        RgbColor {
+        Self {
             r: 0.0,
             g: 0.0,
             b: 0.0,
@@ -47,14 +46,15 @@ impl Default for RgbColor {
     }
 }
 
+#[allow(clippy::fallible_impl_from)]
 impl From<&str> for RgbColor {
     fn from(value: &str) -> Self {
         if value.is_empty() {
-            return RgbColor::default();
+            return Self::default();
         }
         if value == "currentcolor" {
             // @todo: implement currentcolor
-            return RgbColor::default();
+            return Self::default();
         }
 
         if value.starts_with('#') {
@@ -64,40 +64,40 @@ impl From<&str> for RgbColor {
             // Rgb function
             let rgb = Rgb::from_str(value);
             if rgb.is_err() {
-                return RgbColor::default();
+                return Self::default();
             }
             let rgb = rgb.unwrap();
-            return RgbColor::new(rgb.get_red(), rgb.get_green(), rgb.get_blue(), 255.0);
+            return Self::new(rgb.get_red(), rgb.get_green(), rgb.get_blue(), 255.0);
         }
         if value.starts_with("rgba(") {
             // Rgba function
             let rgb = Rgb::from_str(value);
             if rgb.is_err() {
-                return RgbColor::default();
+                return Self::default();
             }
             let rgb = rgb.unwrap();
-            return RgbColor::new(rgb.get_red(), rgb.get_green(), rgb.get_blue(), rgb.get_alpha());
+            return Self::new(rgb.get_red(), rgb.get_green(), rgb.get_blue(), rgb.get_alpha());
         }
         if value.starts_with("hsl(") {
             let hsl = Hsl::from_str(value);
             if hsl.is_err() {
-                return RgbColor::default();
+                return Self::default();
             }
             let rgb: Rgb = hsl.unwrap().to_rgb();
-            return RgbColor::new(rgb.get_red(), rgb.get_green(), rgb.get_blue(), 255.0);
+            return Self::new(rgb.get_red(), rgb.get_green(), rgb.get_blue(), 255.0);
         }
         if value.starts_with("hsla(") {
             // @TODO: hsla() does not work properly
             // HSLA function
             let hsl = Hsl::from_str(value);
             if hsl.is_err() {
-                return RgbColor::default();
+                return Self::default();
             }
             let rgb: Rgb = hsl.unwrap().to_rgb();
-            return RgbColor::new(rgb.get_red(), rgb.get_green(), rgb.get_blue(), rgb.get_alpha());
+            return Self::new(rgb.get_red(), rgb.get_green(), rgb.get_blue(), rgb.get_alpha());
         }
 
-        get_hex_color_from_name(value).map_or(RgbColor::default(), parse_hex)
+        get_hex_color_from_name(value).map_or(Self::default(), parse_hex)
     }
 }
 
@@ -195,7 +195,6 @@ fn parse_hex(value: &str) -> RgbColor {
 fn convert_from_hex_str_to_vec_of_ints(hex_value: &str, hex_size: usize) -> Vec<i32> {
     const HEX_RADIX: u32 = 16;
     const LINES_TO_SKIP: usize = 1;
-    const EXPECT_MESSAGE: &str = "is_hex has failed us";
     // Get the individual chars from the hex then convert from hex -> decimal
     match hex_size {
         // if each hex char is only 1 char long
@@ -203,7 +202,7 @@ fn convert_from_hex_str_to_vec_of_ints(hex_value: &str, hex_size: usize) -> Vec<
             hex_value
                 .chars()
                 .skip(LINES_TO_SKIP) // Skip the # at the front
-                .map(|char| i32::from_str_radix(char.to_string().as_str(), HEX_RADIX).expect(EXPECT_MESSAGE)) // Can parse with an unwrap because is_hex made sure it's digits
+                .map(|char| i32::from_str_radix(char.to_string().as_str(), HEX_RADIX).unwrap()) // Can parse with an unwrap because is_hex made sure it's digits
                 .collect::<Vec<i32>>()
         }
         // if each hex char is 2 char long
@@ -219,7 +218,7 @@ fn convert_from_hex_str_to_vec_of_ints(hex_value: &str, hex_size: usize) -> Vec<
 
             hex_vec
                 .iter()
-                .map(|str| i32::from_str_radix(str, HEX_RADIX).expect(EXPECT_MESSAGE))
+                .map(|str| i32::from_str_radix(str, HEX_RADIX).unwrap())
                 .collect::<Vec<i32>>()
         }
         _ => {
@@ -228,8 +227,7 @@ fn convert_from_hex_str_to_vec_of_ints(hex_value: &str, hex_size: usize) -> Vec<
     }
 }
 
-lazy_static! {
-    pub static ref CSS_COLORNAMES: &'static [CssColorEntry] = &[
+pub static CSS_COLORNAMES: LazyLock<&'static [CssColorEntry]> = LazyLock::new(|| &[
         CssColorEntry {
             name: "aliceblue",
             value: "#f0f8ff",
@@ -822,9 +820,7 @@ lazy_static! {
             name: "rebeccapurple",
             value: "#663399",
         },
-    ];
-}
-
+]);
 #[must_use]
 pub fn is_system_color(name: &str) -> bool {
     for entry in &CSS_SYSTEM_COLOR_NAMES {

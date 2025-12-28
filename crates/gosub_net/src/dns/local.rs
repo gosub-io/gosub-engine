@@ -24,7 +24,7 @@ impl Default for LocalTableResolver {
 }
 
 impl DnsResolver for LocalTableResolver {
-    fn resolve(&mut self, domain: &str, _resolve_type: ResolveType) -> Result<DnsEntry> {
+    fn resolve(&mut self, domain: &str, _resolve_type: &ResolveType) -> Result<DnsEntry> {
         let Some(domain_entry) = self.tree.lookup(domain) else {
             trace!("{domain}: not found in local table");
             return Err(Error::DnsDomainNotFound.into());
@@ -62,7 +62,7 @@ impl LocalTableResolver {
     /// Instantiates a new local override table
     #[must_use]
     pub fn new() -> Self {
-        let mut table = Self {
+        let table = Self {
             entries: HashMap::new(),
             tree: DomainLookupTree::new(),
         };
@@ -83,12 +83,14 @@ impl LocalTableResolver {
 
     /// Regenerates the new entries table
     #[allow(dead_code)]
-    pub fn reload_table_entries(&mut self) {
+    #[allow(clippy::unused_self)]
+    pub const fn reload_table_entries(&self) {
         // @todo: this should reload all table entries from the configuration into the self.entries list
     }
 
     #[allow(dead_code)]
-    pub fn reload_table_entry(&mut self, _domain: &str) {
+    #[allow(clippy::unused_self)]
+    pub const fn reload_table_entry(&self, _domain: &str) {
         // @todo: this should reload a single entry from the configuration into the self.entries
     }
 }
@@ -116,25 +118,25 @@ mod test {
         table.add_entry("ipv6.com", vec!["2002::1", "2002::2", "200.200.200.200"]);
 
         // Simple resolve
-        let e = table.resolve("example.com", ResolveType::Ipv4).unwrap();
+        let e = table.resolve("example.com", &ResolveType::Ipv4).unwrap();
         assert_eq!(&IpAddr::from_str("1.2.3.4").unwrap(), e.ips.first().unwrap());
-        assert!(table.resolve("xample.com", ResolveType::Ipv4).is_err());
-        assert!(table.resolve("com", ResolveType::Ipv4).is_err());
-        assert!(table.resolve("example", ResolveType::Ipv4).is_err());
+        assert!(table.resolve("xample.com", &ResolveType::Ipv4).is_err());
+        assert!(table.resolve("com", &ResolveType::Ipv4).is_err());
+        assert!(table.resolve("example", &ResolveType::Ipv4).is_err());
 
         // Wildcard
-        let e = table.resolve("specific.wildcard.com", ResolveType::Ipv4).unwrap();
+        let e = table.resolve("specific.wildcard.com", &ResolveType::Ipv4).unwrap();
         assert_eq!(&IpAddr::from_str("8.8.8.8").unwrap(), e.ips.first().unwrap());
-        let e = table.resolve("something.wildcard.com", ResolveType::Ipv4).unwrap();
+        let e = table.resolve("something.wildcard.com", &ResolveType::Ipv4).unwrap();
         assert_eq!(&IpAddr::from_str("6.6.6.6").unwrap(), e.ips.first().unwrap());
-        let e = table.resolve("foobar.wildcard.com", ResolveType::Ipv4).unwrap();
+        let e = table.resolve("foobar.wildcard.com", &ResolveType::Ipv4).unwrap();
         assert_eq!(&IpAddr::from_str("6.6.6.6").unwrap(), e.ips.first().unwrap());
-        assert!(table.resolve("foo.custom.com", ResolveType::Ipv4).is_err());
-        assert!(table.resolve("too.specific.wildcard.com", ResolveType::Ipv4).is_err());
-        assert!(table.resolve("custom.com", ResolveType::Ipv4).is_err());
+        assert!(table.resolve("foo.custom.com", &ResolveType::Ipv4).is_err());
+        assert!(table.resolve("too.specific.wildcard.com", &ResolveType::Ipv4).is_err());
+        assert!(table.resolve("custom.com", &ResolveType::Ipv4).is_err());
 
         // round robin on both ipv4 and ipv6
-        let e = table.resolve("ipv6.com", ResolveType::Ipv4).unwrap();
+        let e = table.resolve("ipv6.com", &ResolveType::Ipv4).unwrap();
         assert_eq!(3, e.ips.len());
         assert_eq!(1, e.ipv4().len());
         assert_eq!(2, e.ipv6().len());

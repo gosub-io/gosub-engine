@@ -10,7 +10,6 @@ use crate::impl_interop_struct::impl_interop_struct;
 use crate::property::{FieldProperty, FunctionProperty};
 use crate::types::{Arg, ArgVariant, Field, GenericsMatcher, ReturnType, SelfType};
 use crate::utils::crate_name;
-use lazy_static::lazy_static;
 use proc_macro2::{Ident, TokenTree};
 use quote::ToTokens;
 use syn::punctuated::Punctuated;
@@ -24,11 +23,17 @@ mod property;
 mod types;
 mod utils;
 
-lazy_static! {
-    static ref STATE: RwLock<HashMap<(String, String), u8>> = RwLock::new(HashMap::new());
-}
+use std::sync::LazyLock;
+
+static STATE: LazyLock<RwLock<HashMap<(String, String), u8>>> =
+    LazyLock::new(|| RwLock::new(HashMap::new()));
 
 #[proc_macro_attribute]
+///
+/// # Panics
+///
+/// Panics if a field identifier is not set (e.g., in tuple structs).
+///
 pub fn web_interop(args: TokenStream, item: TokenStream) -> TokenStream {
     let mut fields: Vec<Field> = Vec::new();
 
@@ -58,7 +63,7 @@ pub fn web_interop(args: TokenStream, item: TokenStream) -> TokenStream {
         }
     }
 
-    let extend = impl_interop_struct(input.ident.clone(), &fields, js_name);
+    let extend = impl_interop_struct(&input.ident, &fields, &js_name);
 
     let name = input.ident.clone().into_token_stream().to_string();
     STATE.write().unwrap().insert((crate_name(), name), 0);
@@ -70,10 +75,15 @@ pub fn web_interop(args: TokenStream, item: TokenStream) -> TokenStream {
 }
 
 #[proc_macro_attribute]
+///
+/// # Panics
+///
+/// Panics if the function's return type cannot be parsed.
+///
 pub fn web_fns(attr: TokenStream, item: TokenStream) -> TokenStream {
     // let item = preprocess_variadic(item); // custom `...` syntax for variadic functions, but it breaks code editors
     let mut input: ItemImpl = {
-        let item = item.clone();
+        let item = item;
         syn::parse_macro_input!(item)
     };
 
@@ -91,7 +101,7 @@ pub fn web_fns(attr: TokenStream, item: TokenStream) -> TokenStream {
                 name,
                 arguments: Vec::with_capacity(args.len()), // we don't know if the first is self, so no args.len() - 1
                 self_type: SelfType::NoSelf,
-                return_type: ReturnType::parse(&method.sig.output).expect("failed to parse return type"),
+                return_type: ReturnType::parse(&method.sig.output).unwrap(),
                 executor: property.executor,
                 generics: GenericsMatcher::get_matchers(property.generics, method),
                 func_generics: method.sig.generics.clone(),
@@ -111,7 +121,7 @@ pub fn web_fns(attr: TokenStream, item: TokenStream) -> TokenStream {
             let mut index = 0;
             for arg in args {
                 if let FnArg::Typed(arg) = arg {
-                    let arg = Arg::parse(&arg.ty, index, &func.generics).expect("failed to parse arg");
+                    let arg = Arg::parse(&arg.ty, index, &func.generics).unwrap();
                     if arg.variant == ArgVariant::Variadic {
                         func.variadic = true;
                     } else if arg.variant == ArgVariant::Context {

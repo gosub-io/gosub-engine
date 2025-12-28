@@ -15,8 +15,7 @@ impl Css3<'_> {
             let t = self.consume_any()?;
 
             match t.token_type {
-                TokenType::Eof => {}
-                TokenType::Whitespace(_) => {}
+                TokenType::Eof | TokenType::Whitespace(_) => {}
                 TokenType::Comment(comment) => {
                     if comment.chars().nth(2) == Some('!') {
                         children.push(Node::new(NodeType::Comment { value: comment }, t.location));

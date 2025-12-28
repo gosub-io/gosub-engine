@@ -5,14 +5,14 @@ pub struct Color(pub(crate) VelloColor);
 
 impl From<VelloColor> for Color {
     fn from(color: VelloColor) -> Self {
-        Color(color)
+        Self(color)
     }
 }
 
 impl Color {
     #[must_use]
     pub const fn rgba8(r: u8, g: u8, b: u8, a: u8) -> Self {
-        Color(VelloColor::from_rgba8(r, g, b, a))
+        Self(VelloColor::from_rgba8(r, g, b, a))
     }
 }
 
@@ -37,13 +37,13 @@ impl TColor for Color {
         (self.0.components.as_slice()[3] * 255.0) as u8
     }
 
-    const WHITE: Self = Color(vello::peniko::color::palette::css::WHITE);
-    const BLACK: Self = Color(vello::peniko::color::palette::css::BLACK);
-    const RED: Self = Color(vello::peniko::color::palette::css::RED);
-    const GREEN: Self = Color(vello::peniko::color::palette::css::GREEN);
-    const BLUE: Self = Color(vello::peniko::color::palette::css::BLUE);
-    const YELLOW: Self = Color(vello::peniko::color::palette::css::YELLOW);
-    const CYAN: Self = Color(vello::peniko::color::palette::css::CYAN);
-    const MAGENTA: Self = Color(vello::peniko::color::palette::css::MAGENTA);
-    const TRANSPARENT: Self = Color(vello::peniko::color::palette::css::TRANSPARENT);
+    const WHITE: Self = Self(vello::peniko::color::palette::css::WHITE);
+    const BLACK: Self = Self(vello::peniko::color::palette::css::BLACK);
+    const RED: Self = Self(vello::peniko::color::palette::css::RED);
+    const GREEN: Self = Self(vello::peniko::color::palette::css::GREEN);
+    const BLUE: Self = Self(vello::peniko::color::palette::css::BLUE);
+    const YELLOW: Self = Self(vello::peniko::color::palette::css::YELLOW);
+    const CYAN: Self = Self(vello::peniko::color::palette::css::CYAN);
+    const MAGENTA: Self = Self(vello::peniko::color::palette::css::MAGENTA);
+    const TRANSPARENT: Self = Self(vello::peniko::color::palette::css::TRANSPARENT);
 }

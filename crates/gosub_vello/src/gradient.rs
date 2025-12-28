@@ -8,7 +8,7 @@ pub struct Gradient(pub(crate) VelloGradient);
 
 impl From<VelloGradient> for Gradient {
     fn from(gradient: VelloGradient) -> Self {
-        Gradient(gradient)
+        Self(gradient)
     }
 }
 
@@ -17,7 +17,7 @@ impl TGradient<VelloBackend> for Gradient {
         let mut gradient = VelloGradient::new_linear(start.convert(), end.convert());
         gradient.stops = stops.convert();
 
-        Gradient(gradient)
+        Self(gradient)
     }
 
     fn new_radial_two_point(
@@ -32,7 +32,7 @@ impl TGradient<VelloBackend> for Gradient {
 
         gradient.stops = stops.convert();
 
-        Gradient(gradient)
+        Self(gradient)
     }
 
     fn new_radial(center: Point, radius: FP, stops: ColorStops<VelloBackend>) -> Self
@@ -42,14 +42,14 @@ impl TGradient<VelloBackend> for Gradient {
         let mut gradient = VelloGradient::new_radial(center.convert(), radius);
         gradient.stops = stops.convert();
 
-        Gradient(gradient)
+        Self(gradient)
     }
 
     fn new_sweep(center: Point, start_angle: FP, end_angle: FP, stops: ColorStops<VelloBackend>) -> Self {
         let mut gradient = VelloGradient::new_sweep(center.convert(), start_angle, end_angle);
         gradient.stops = stops.convert();
 
-        Gradient(gradient)
+        Self(gradient)
     }
 }
 

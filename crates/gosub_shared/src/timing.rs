@@ -1,10 +1,8 @@
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
-
-use lazy_static::lazy_static;
 #[cfg(target_arch = "wasm32")]
 use web_sys::window;
 
@@ -59,8 +57,8 @@ fn percentage_to_index(count: u64, percentage: f64) -> usize {
 
 impl TimingTable {
     #[must_use]
-    pub fn new() -> TimingTable {
-        TimingTable {
+    pub fn new() -> Self {
+        Self {
             timers: HashMap::new(),
             namespaces: HashMap::new(),
         }
@@ -117,7 +115,7 @@ impl TimingTable {
         }
     }
 
-    fn scale(&self, value: u64, scale: Scale) -> String {
+    fn scale(value: u64, scale: &Scale) -> String {
         match scale {
             Scale::MicroSecond => format!("{value}µs"),
             Scale::MilliSecond => format!("{}ms", value / 1000),
@@ -134,7 +132,11 @@ impl TimingTable {
         }
     }
 
-    pub fn print_timings(&self, show_details: bool, scale: Scale) {
+    /// Print timings for all namespaces
+    ///
+    /// # Panics
+    /// Panics if a timer is not found
+    pub fn print_timings(&self, show_details: bool, scale: &Scale) {
         println!("Namespace            |    Count |      Total |        Min |        Max |        Avg |        50% |        75% |        95% |        99%");
         println!("----------------------------------------------------------------------------------------------------------------------------------------");
         for (namespace, timers) in &self.namespaces {
@@ -143,14 +145,14 @@ impl TimingTable {
                 "{:20} | {:>8} | {:>10} | {:>10} | {:>10} | {:>10} | {:>10} | {:>10} | {:>10} | {:>10}",
                 namespace,
                 stats.count,
-                self.scale(stats.total, scale.clone()),
-                self.scale(stats.min, scale.clone()),
-                self.scale(stats.max, scale.clone()),
-                self.scale(stats.avg, scale.clone()),
-                self.scale(stats.p50, scale.clone()),
-                self.scale(stats.p75, scale.clone()),
-                self.scale(stats.p95, scale.clone()),
-                self.scale(stats.p99, scale.clone()),
+                Self::scale(stats.total, scale),
+                Self::scale(stats.min, scale),
+                Self::scale(stats.max, scale),
+                Self::scale(stats.avg, scale),
+                Self::scale(stats.p50, scale),
+                Self::scale(stats.p75, scale),
+                Self::scale(stats.p95, scale),
+                Self::scale(stats.p99, scale),
             );
 
             if show_details {
@@ -160,7 +162,7 @@ impl TimingTable {
                         println!(
                             "                     | {:>8} | {:>10} | {}",
                             1,
-                            self.scale(timer.duration_us, scale.clone()),
+                            Self::scale(timer.duration_us, scale),
                             timer.context.clone().unwrap_or_default()
                         );
                     }
@@ -171,17 +173,11 @@ impl TimingTable {
 
     #[must_use]
     pub fn duration(&self, timer_id: TimerId) -> u64 {
-        if let Some(timer) = self.timers.get(&timer_id) {
-            timer.duration()
-        } else {
-            0
-        }
+        self.timers.get(&timer_id).map_or(0, Timer::duration)
     }
 }
 
-lazy_static! {
-    pub static ref TIMING_TABLE: Mutex<TimingTable> = Mutex::new(TimingTable::default());
-}
+pub static TIMING_TABLE: LazyLock<Mutex<TimingTable>> = LazyLock::new(|| Mutex::new(TimingTable::default()));
 
 #[allow(clippy::crate_in_macro_def)]
 #[macro_export]
@@ -216,21 +212,21 @@ macro_rules! timing_display {
         $crate::timing::TIMING_TABLE
             .lock()
             .unwrap()
-            .print_timings(false, Scale::Auto);
+            .print_timings(false, &$crate::timing::Scale::Auto);
     }};
 
     ($scale:expr) => {{
         $crate::timing::TIMING_TABLE
             .lock()
             .unwrap()
-            .print_timings(false, $scale);
+            .print_timings(false, &$scale);
     }};
 
     ($details:expr, $scale:expr) => {{
         $crate::timing::TIMING_TABLE
             .lock()
             .unwrap()
-            .print_timings($details, $scale);
+            .print_timings($details, &$scale);
     }};
 }
 
@@ -251,7 +247,7 @@ pub struct Timer {
 
 impl Timer {
     #[must_use]
-    pub fn new(context: Option<String>) -> Timer {
+    pub fn new(context: Option<String>) -> Self {
         #[cfg(not(target_arch = "wasm32"))]
         let start = { Instant::now() };
 
@@ -263,7 +259,7 @@ impl Timer {
                 .unwrap_or(f64::NAN)
         };
 
-        Timer {
+        Self {
             id: new_timer_id(),
             context,
             start,
@@ -286,9 +282,14 @@ impl Timer {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
+    /// End the timer
+    ///
+    /// # Panics
+    /// Panics if the timer was already ended
     pub fn end(&mut self) {
-        self.end = Some(Instant::now());
-        self.duration_us = self.end.expect("").duration_since(self.start).as_micros() as u64;
+        let end_time = Instant::now();
+        self.duration_us = end_time.duration_since(self.start).as_micros() as u64;
+        self.end = Some(end_time);
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -297,12 +298,12 @@ impl Timer {
         self.duration_us = self.end.map(|e| (e - self.start) * 1000.0).unwrap_or(f64::NAN) as u64;
     }
 
-    pub(crate) fn has_finished(&self) -> bool {
+    pub(crate) const fn has_finished(&self) -> bool {
         self.end.is_some()
     }
 
     #[must_use]
-    pub fn duration(&self) -> u64 {
+    pub const fn duration(&self) -> u64 {
         if self.end.is_some() {
             self.duration_us
         } else {
@@ -358,7 +359,7 @@ mod tests {
         sleep(Duration::from_millis(20));
         timing_stop!(t);
 
-        TIMING_TABLE.lock().unwrap().print_timings(true, Scale::Auto);
+        TIMING_TABLE.lock().unwrap().print_timings(true, &Scale::Auto);
     }
 
     #[wasm_bindgen_test]
@@ -392,7 +393,7 @@ mod tests {
         sleep(window, Duration::from_millis(20));
         timing_stop!(t);
 
-        TIMING_TABLE.lock().unwrap().print_timings(true, Scale::Auto);
+        TIMING_TABLE.lock().unwrap().print_timings(true, &Scale::Auto);
     }
 
     //This should only be used for testing purposes

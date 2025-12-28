@@ -59,7 +59,7 @@ pub async fn load_html_rendertree_fetcher<C: HasRenderTree + HasHtmlParser>(
             bail!(format!("Could not get url. Status code {}", response.status));
         }
 
-        String::from_utf8(response.body.clone())?
+        String::from_utf8(response.body)?
     } else if url.scheme() == "file" {
         fs::read_to_string(url.as_str().trim_start_matches("file://"))?
     } else {

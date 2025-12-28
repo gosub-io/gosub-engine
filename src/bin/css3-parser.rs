@@ -48,7 +48,7 @@ fn main() -> Result<()> {
     let debug = matches.get_flag("debug");
     let ignore_errors = matches.get_flag("ignore-errors");
     let match_values = matches.get_flag("match-values");
-    let url: String = matches.get_one::<String>("url").expect("url").to_string();
+    let url: String = matches.get_one::<String>("url").unwrap().to_string();
     let display_tokenizer = matches.get_flag("tokenizer");
 
     let css = if url.starts_with("http://") || url.starts_with("https://") {
@@ -94,7 +94,7 @@ fn main() -> Result<()> {
         // Err is a anyhow::Error, which wraps a Css3::Error
         let err = result.err().unwrap();
         let message = err.to_string();
-        display_snippet(&css, err);
+        display_snippet(&css, &err);
 
         return Err(anyhow!(message));
     }
@@ -110,10 +110,8 @@ fn main() -> Result<()> {
 }
 
 /// Print snippet where the error occurred
-fn display_snippet(css: &str, err: CssError) {
-    let loc = if let Some(l) = err.location {
-        l
-    } else {
+fn display_snippet(css: &str, err: &CssError) {
+    let Some(loc) = err.location else {
         println!("Error: {}", err.message);
         return;
     };

@@ -37,7 +37,7 @@ pub enum FontError {
     UnsupportedFeature(String), // Unsupported features
 }
 
-#[derive(Clone, Debug, Copy, PartialEq)]
+#[derive(Clone, Debug, Copy, PartialEq, Eq)]
 pub enum FontStyle {
     Normal,
     Italic,
@@ -47,9 +47,9 @@ pub enum FontStyle {
 impl std::fmt::Display for FontStyle {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            FontStyle::Normal => write!(f, "Normal"),
-            FontStyle::Italic => write!(f, "Italic"),
-            FontStyle::Oblique => write!(f, "Oblique"),
+            Self::Normal => write!(f, "Normal"),
+            Self::Italic => write!(f, "Italic"),
+            Self::Oblique => write!(f, "Oblique"),
         }
     }
 }
@@ -68,11 +68,17 @@ pub trait FontInfo: Sized + Clone + Debug + Send {
     fn index(&self) -> Option<i32>;
 
     fn new(family: &str) -> Result<Self, FontError>;
+    #[must_use]
     fn with_family(&self, family: &str) -> Self;
+    #[must_use]
     fn with_style(&self, style: FontStyle) -> Self;
+    #[must_use]
     fn with_weight(&self, weight: i32) -> Self;
+    #[must_use]
     fn with_stretch(&self, stretch: f32) -> Self;
+    #[must_use]
     fn with_monospaced(&self, monospaced: bool) -> Self;
+    #[must_use]
     fn with_path(&self, path: PathBuf, index: Option<i32>) -> Self;
 
     /// Converts this font info to a font description usable by Pango

@@ -1,15 +1,13 @@
 use crate::font_manager::font_info::FontInfo;
 use gosub_interface::font::FontStyle;
-use lazy_static::lazy_static;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, LazyLock};
 
-lazy_static! {
-    pub static ref FONT_CACHE: Arc<Mutex<MemoryCache>> = Arc::new(Mutex::new(MemoryCache::new()));
-}
+#[allow(dead_code)]
+pub static FONT_CACHE: LazyLock<Arc<Mutex<MemoryCache>>> = LazyLock::new(|| Arc::new(Mutex::new(MemoryCache::new())));
 
 #[allow(unused)]
-pub(crate) trait Cache {
+pub trait Cache {
     fn get(&self, family: &str, style: FontStyle) -> Option<FontInfo>;
     fn set(&mut self, family: &str, style: FontStyle, font_info: &FontInfo);
     fn clear(&mut self);

@@ -11,9 +11,7 @@ impl Css3<'_> {
 
         let name = match t.token_type {
             TokenType::Whitespace(_) => " ".to_string(),
-            TokenType::Delim('+') => t.to_string(),
-            TokenType::Delim('>') => t.to_string(),
-            TokenType::Delim('~') => t.to_string(),
+            TokenType::Delim('+' | '>' | '~') => t.to_string(),
             TokenType::Delim('/') => {
                 let tn1 = self.tokenizer.lookahead(1);
                 let tn2 = self.tokenizer.lookahead(2);

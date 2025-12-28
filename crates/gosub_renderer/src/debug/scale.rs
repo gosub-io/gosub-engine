@@ -31,11 +31,7 @@ pub fn draw_scale<B: RenderBackend>(len: u32, interval: u32) -> B::Scene {
     let mut x = 0;
 
     while x < len {
-        let mut height = 50.0;
-
-        if x % 100 == 0 {
-            height = 60.0;
-        }
+        let height = if x % 100 == 0 { 60.0 } else { 50.0 };
 
         scene.draw_rect(&RenderRect {
             rect: B::Rect::new(x as f32, 0.0, 2.0, height),

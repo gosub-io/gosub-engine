@@ -24,14 +24,13 @@ impl Css3<'_> {
         loop {
             let t = self.consume_any()?;
             match t.token_type {
-                TokenType::Eof => break,
+                TokenType::Eof | TokenType::RParen => break,
                 TokenType::Function(_) => {
                     self.parse_calc_expr()?;
                 }
                 TokenType::LParen => {
                     self.parse_calc_expr()?;
                 }
-                TokenType::RParen => break,
                 _ => {
                     // ignore
                 }

@@ -3,7 +3,7 @@ use crate::tokenizer::TokenType;
 use crate::Css3;
 use gosub_shared::errors::{CssError, CssResult};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum BlockParseMode {
     StyleBlock,
     RegularBlock,
@@ -18,10 +18,7 @@ impl Css3<'_> {
     fn parse_consume_declaration(&mut self) -> CssResult<Option<Node>> {
         log::trace!("parse_consume_declaration");
 
-        match self.parse_declaration()? {
-            Some(declaration) => Ok(Some(declaration)),
-            None => Ok(None),
-        }
+        self.parse_declaration()
     }
 
     /// Reads until the end of a declaration or rule (or end of the block), in case there is a syntax error
@@ -32,14 +29,11 @@ impl Css3<'_> {
                 break;
             }
             match t.unwrap().token_type {
-                TokenType::Semicolon => {
-                    break;
-                }
                 TokenType::RCurly => {
                     self.tokenizer.reconsume();
                     break;
                 }
-                TokenType::Eof => {
+                TokenType::Semicolon | TokenType::Eof => {
                     break;
                 }
                 _ => {
@@ -76,7 +70,6 @@ impl Css3<'_> {
                         children.push(at_rule_node);
                     }
                     semicolon_seperated = false;
-                    continue;
                 }
                 TokenType::Semicolon => {
                     semicolon_seperated = true;

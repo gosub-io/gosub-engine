@@ -10,7 +10,7 @@ pub struct Walker<'a> {
 impl<'a> Walker<'a> {
     #[allow(dead_code)]
     #[must_use]
-    pub fn new(root: &'a Node) -> Self {
+    pub const fn new(root: &'a Node) -> Self {
         Self { root }
     }
 
@@ -72,10 +72,7 @@ fn inner_walk(node: &Node, depth: usize, f: &mut dyn Write) -> Result<(), std::i
                 inner_walk(child, depth + 1, f)?;
             }
         }
-        NodeType::Comment { .. } => {}
-        // NodeType::Cdo => {}
-        // NodeType::Cdc => {}
-        NodeType::IdSelector { .. } => {}
+        NodeType::Comment { .. } | NodeType::IdSelector { .. } | NodeType::Prelude | NodeType::Cdo | NodeType::Cdc => {}
         NodeType::Ident { value } => {
             writeln!(f, "{prefix}[Ident] {value}")?;
         }
@@ -88,7 +85,6 @@ fn inner_walk(node: &Node, depth: usize, f: &mut dyn Write) -> Result<(), std::i
         NodeType::Dimension { value, unit } => {
             writeln!(f, "{prefix}[Dimension] {value}{unit}")?;
         }
-        NodeType::Prelude => {}
         NodeType::SelectorList { selectors } => {
             writeln!(f, "{}[SelectorList ({})]", prefix, selectors.len())?;
             for child in selectors {
@@ -248,8 +244,6 @@ fn inner_walk(node: &Node, depth: usize, f: &mut dyn Write) -> Result<(), std::i
                 inner_walk(child, depth + 1, f)?;
             }
         }
-        NodeType::Cdo => {}
-        NodeType::Cdc => {}
         NodeType::Range {
             left,
             left_comparison,

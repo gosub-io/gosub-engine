@@ -45,7 +45,7 @@ fn main() {
     let mut results = TotalTestResults::default();
 
     let filenames = Some(&["tests15.dat"][..]);
-    let fixtures = read_fixtures(filenames).expect("fixtures");
+    let fixtures = read_fixtures(filenames).unwrap();
 
     for fixture_file in fixtures {
         println!(
@@ -87,7 +87,7 @@ fn run_test(test_idx: usize, test: Test, all_results: &mut TotalTestResults) {
     let mut harness = Harness::new();
     let result = harness
         .run_test::<Config>(test.clone(), false)
-        .expect("problem parsing");
+        .unwrap();
 
     // #[cfg(all(feature = "debug_parser", not(test)))]
     // print_test_result(&result);

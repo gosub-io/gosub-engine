@@ -25,7 +25,7 @@ impl<B: RenderBackend> SvgRenderer<B> for Resvg {
     }
 
     fn parse_internal<C: HasDocument>(tree: C::Document, id: NodeId) -> Result<Self::SvgDocument> {
-        SVGDocument::from_html_doc::<C>(id, tree)
+        SVGDocument::from_html_doc::<C>(id, &tree)
     }
 
     fn render(&mut self, doc: &SVGDocument) -> Result<ImageBuffer<B>> {

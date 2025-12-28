@@ -1,6 +1,6 @@
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 #[allow(clippy::upper_case_acronyms)]
-pub(crate) enum Executor {
+pub enum Executor {
     JS,
     WASM,
     Both,
@@ -9,11 +9,11 @@ pub(crate) enum Executor {
 
 impl Executor {
     pub(crate) fn is_js(&self) -> bool {
-        *self == Executor::JS || *self == Executor::Both
+        *self == Self::JS || *self == Self::Both
     }
 
     #[allow(dead_code)] // needed when we implement WASM
     pub(crate) fn is_wasm(&self) -> bool {
-        *self == Executor::WASM || *self == Executor::Both
+        *self == Self::WASM || *self == Self::Both
     }
 }

@@ -5,6 +5,9 @@ use gosub_shared::errors::CssError;
 use gosub_shared::errors::CssResult;
 
 impl Css3<'_> {
+    /// # Panics
+    ///
+    /// Panics if `kind` is `FeatureKind::Supports` as it is not implemented yet.
     pub fn parse_condition(&mut self, kind: FeatureKind) -> CssResult<Node> {
         log::trace!("parse_condition");
 
@@ -17,7 +20,6 @@ impl Css3<'_> {
             match t.token_type {
                 TokenType::Comment(_) | TokenType::Whitespace(_) => {
                     // skip
-                    continue;
                 }
                 TokenType::Url(url) => {
                     list.push(Node::new(NodeType::Url { url }, t.location));
@@ -29,17 +31,16 @@ impl Css3<'_> {
                     self.tokenizer.reconsume();
 
                     let term = match kind {
-                        FeatureKind::Media => self.parse_media_feature_or_range(kind.clone()),
-                        FeatureKind::Container => self.parse_media_feature_or_range(kind.clone()),
+                        FeatureKind::Media | FeatureKind::Container => self.parse_media_feature_or_range(kind.clone()),
                         FeatureKind::Supports => {
                             panic!("not implemented")
                         }
                     };
 
                     if term.is_err() {
-                        self.consume(TokenType::RParen)?;
-                        let res = self.parse_condition(kind.clone())?;
-                        self.consume(TokenType::LParen)?;
+                        self.consume(&TokenType::RParen)?;
+                        let res = self.parse_condition(kind)?;
+                        self.consume(&TokenType::LParen)?;
                         return Ok(res);
                     }
 

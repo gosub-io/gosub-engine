@@ -1224,7 +1224,7 @@ impl<'stream> Tokenizer<'stream> {
                     }
                 }
                 State::MarkupDeclarationOpen => {
-                    if Character::slice_to_string(self.stream.get_slice(2)) == "--" {
+                    if Character::slice_to_string(&self.stream.get_slice(2)) == "--" {
                         self.current_token = Some(Token::Comment {
                             comment: String::new(),
                             location: self.get_location(),
@@ -1237,13 +1237,13 @@ impl<'stream> Tokenizer<'stream> {
                         continue;
                     }
 
-                    if Character::slice_to_string(self.stream.get_slice(7)).cow_to_uppercase() == "DOCTYPE" {
+                    if Character::slice_to_string(&self.stream.get_slice(7)).cow_to_uppercase() == "DOCTYPE" {
                         self.stream_next_n(7);
                         self.state = State::DOCTYPE;
                         continue;
                     }
 
-                    if Character::slice_to_string(self.stream.get_slice(7)) == "[CDATA[" {
+                    if Character::slice_to_string(&self.stream.get_slice(7)) == "[CDATA[" {
                         self.stream_next_n(6);
                         let loc = self.get_location();
                         self.stream_next_n(1);
@@ -1607,12 +1607,12 @@ impl<'stream> Tokenizer<'stream> {
                         }
                         _ => {
                             self.stream_prev();
-                            if Character::slice_to_string(self.stream.get_slice(6)).cow_to_uppercase() == "PUBLIC" {
+                            if Character::slice_to_string(&self.stream.get_slice(6)).cow_to_uppercase() == "PUBLIC" {
                                 self.stream_next_n(6);
                                 self.state = State::AfterDOCTYPEPublicKeyword;
                                 continue;
                             }
-                            if Character::slice_to_string(self.stream.get_slice(6)).cow_to_uppercase() == "SYSTEM" {
+                            if Character::slice_to_string(&self.stream.get_slice(6)).cow_to_uppercase() == "SYSTEM" {
                                 self.stream_next_n(6);
                                 self.state = State::AfterDOCTYPESystemKeyword;
                                 continue;

@@ -8,12 +8,12 @@ use gosub_shared::types::Point;
 use peniko::{Blob, Font};
 use std::sync::{Arc, LazyLock};
 
-pub fn render_text_simple(scene: &mut Scene, text: &str, point: Point<f32>, font_size: f32) {
+pub const fn render_text_simple(scene: &Scene, text: &str, point: Point<f32>, font_size: f32) {
     // render_text(scene, text, point, font_size, &font_info, &GsBrush::color(GsColor::BLACK));
 }
 
 pub fn render_text(
-    scene: &mut Scene,
+    scene: &Scene,
     text: &str,
     point: Point<f32>,
     font_size: f32,

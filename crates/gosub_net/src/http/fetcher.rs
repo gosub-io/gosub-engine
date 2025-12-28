@@ -35,7 +35,7 @@ impl Fetcher {
     }
 
     #[must_use]
-    pub fn base(&self) -> &Url {
+    pub const fn base(&self) -> &Url {
         &self.base_url
     }
 

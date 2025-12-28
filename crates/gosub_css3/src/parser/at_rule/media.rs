@@ -15,10 +15,10 @@ impl Css3<'_> {
             TokenType::Ident(ident) => Ok(Node::new(NodeType::Ident { value: ident }, loc)),
             TokenType::Number(value) => Ok(Node::new(NodeType::Number { value }, loc)),
             TokenType::Dimension { value, unit } => Ok(Node::new(NodeType::Dimension { value, unit }, loc)),
-            TokenType::Function(name) => {
-                let name = name.cow_to_lowercase();
-                let args = self.parse_pseudo_function(name.as_ref())?;
-                self.consume(TokenType::RParen)?;
+                TokenType::Function(name) => {
+                    let name = name.cow_to_lowercase();
+                    let args = self.parse_pseudo_function(name.as_ref())?;
+                    self.consume(&TokenType::RParen)?;
 
                 Ok(Node::new(
                     NodeType::Function {
@@ -86,7 +86,7 @@ impl Css3<'_> {
 
         let loc = self.tokenizer.current_location();
 
-        self.consume(TokenType::LParen)?;
+        self.consume(&TokenType::LParen)?;
 
         let mut value: Option<Node> = None;
 
@@ -114,7 +114,7 @@ impl Css3<'_> {
                 TokenType::Function(name) => {
                     let name = name.cow_to_lowercase();
                     let args = self.parse_pseudo_function(name.as_ref())?;
-                    self.consume(TokenType::RParen)?;
+                    self.consume(&TokenType::RParen)?;
 
                     Some(Node::new(
                         NodeType::Function {
@@ -135,7 +135,7 @@ impl Css3<'_> {
             self.consume_whitespace_comments();
 
             if !self.tokenizer.eof() {
-                self.consume(TokenType::RParen)?;
+                self.consume(&TokenType::RParen)?;
             }
         }
 
@@ -148,18 +148,19 @@ impl Css3<'_> {
         let loc = self.tokenizer.current_location();
 
         self.consume_whitespace_comments();
-        self.consume(TokenType::LParen)?;
+        self.consume(&TokenType::LParen)?;
 
         let left = self.parse_media_read_term()?;
         let left_comparison = self.parse_media_read_comparison()?;
         let middle = self.parse_media_read_term()?;
-        let mut right_comparison = None;
-        let mut right = None;
-
-        if self.tokenizer.lookahead_sc(0).is_delim('(') {
-            right_comparison = Some(self.parse_media_read_comparison()?);
-            right = Some(self.parse_media_read_term()?);
-        }
+        let (right_comparison, right) = if self.tokenizer.lookahead_sc(0).is_delim('(') {
+            (
+                Some(self.parse_media_read_comparison()?),
+                Some(self.parse_media_read_term()?),
+            )
+        } else {
+            (None, None)
+        };
 
         self.consume_whitespace_comments();
         self.consume_delim(')')?;
@@ -204,9 +205,8 @@ impl Css3<'_> {
 
         let nt = self.tokenizer.lookahead_sc(0);
         if t.is_ident() && nt.token_type != TokenType::LParen {
-            let ident = match t.token_type {
-                TokenType::Ident(s) => s,
-                _ => unreachable!(),
+            let TokenType::Ident(ident) = t.token_type else {
+                unreachable!();
             };
 
             let s = ident.cow_to_lowercase();

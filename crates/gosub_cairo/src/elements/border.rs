@@ -92,7 +92,7 @@ impl<'a> GsBorderRenderOptions<'a> {
 }
 
 impl GsBorder {
-    pub fn draw(scene: &mut Scene, opts: GsBorderRenderOptions) {
+    pub fn draw(scene: &mut Scene, opts: &GsBorderRenderOptions) {
         let transform = match (opts.transform, opts.border.transform.as_ref()) {
             (Some(t1), Some(t2)) => Some(*t1 * *t2),
             (Some(t1), None) => Some(*t1),
@@ -103,22 +103,21 @@ impl GsBorder {
         let transform = transform.as_ref();
 
         if let Some(segment) = opts.left(transform) {
-            Self::draw_side(scene, segment);
+            Self::draw_side(scene, &segment);
         }
         if let Some(segment) = opts.right(transform) {
-            Self::draw_side(scene, segment);
+            Self::draw_side(scene, &segment);
         }
         if let Some(segment) = opts.top(transform) {
-            Self::draw_side(scene, segment);
+            Self::draw_side(scene, &segment);
         }
         if let Some(segment) = opts.bottom(transform) {
-            Self::draw_side(scene, segment);
+            Self::draw_side(scene, &segment);
         }
     }
 
-    fn draw_side(_scene: &mut Scene, opts: GsBorderRenderSideOptions) {
+    fn draw_side(_scene: &mut Scene, opts: &GsBorderRenderSideOptions) {
         let border_width = f64::from(opts.segment.width);
-        let _brush = &opts.segment.brush;
         let style = opts.segment.style;
         let radius = opts.radius;
 
@@ -418,6 +417,7 @@ impl TBorder<CairoBackend> for GsBorder {
 pub struct GsBorderSide {
     pub(crate) width: FP,
     pub(crate) style: BorderStyle,
+    #[allow(dead_code)]
     pub(crate) brush: GsBrush,
 }
 
@@ -561,7 +561,7 @@ impl TBorderRadius for GsBorderRadius {
 
 impl From<GsBorderRadius> for RoundedRectRadii {
     fn from(value: GsBorderRadius) -> Self {
-        RoundedRectRadii::new(
+        Self::new(
             value.top_left.into(),
             value.top_right.into(),
             value.bottom_right.into(),

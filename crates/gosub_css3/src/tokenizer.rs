@@ -94,32 +94,32 @@ impl Debug for Token {
 
 impl Token {
     /// Returns a new token for the given type on the given location
-    fn new(token_type: TokenType, location: Location) -> Token {
-        Token { token_type, location }
+    const fn new(token_type: TokenType, location: Location) -> Self {
+        Self { token_type, location }
     }
 
-    fn new_delim(c: char, location: Location) -> Token {
-        Token::new(TokenType::Delim(c), location)
+    const fn new_delim(c: char, location: Location) -> Self {
+        Self::new(TokenType::Delim(c), location)
     }
 
-    fn new_hash(value: &str, location: Location) -> Token {
-        Token::new(TokenType::Hash(value.to_string()), location)
+    fn new_hash(value: &str, location: Location) -> Self {
+        Self::new(TokenType::Hash(value.to_string()), location)
     }
 
-    fn new_atkeyword(keyword: &str, location: Location) -> Token {
-        Token::new(TokenType::AtKeyword(keyword.to_string()), location)
+    fn new_atkeyword(keyword: &str, location: Location) -> Self {
+        Self::new(TokenType::AtKeyword(keyword.to_string()), location)
     }
 
-    fn new_number(value: Number, location: Location) -> Token {
-        Token::new(TokenType::Number(value), location)
+    const fn new_number(value: Number, location: Location) -> Self {
+        Self::new(TokenType::Number(value), location)
     }
 
-    fn new_percentage(value: Number, location: Location) -> Token {
-        Token::new(TokenType::Percentage(value), location)
+    const fn new_percentage(value: Number, location: Location) -> Self {
+        Self::new(TokenType::Percentage(value), location)
     }
 
-    fn new_dimension(value: Number, unit: &str, location: Location) -> Token {
-        Token::new(
+    fn new_dimension(value: Number, unit: &str, location: Location) -> Self {
+        Self::new(
             TokenType::Dimension {
                 value,
                 unit: unit.to_string(),
@@ -128,59 +128,59 @@ impl Token {
         )
     }
 
-    fn new_ident(value: &str, location: Location) -> Token {
-        Token::new(TokenType::Ident(value.to_string()), location)
+    fn new_ident(value: &str, location: Location) -> Self {
+        Self::new(TokenType::Ident(value.to_string()), location)
     }
 
-    fn new_function(value: &str, location: Location) -> Token {
-        Token::new(TokenType::Function(value.to_string()), location)
+    fn new_function(value: &str, location: Location) -> Self {
+        Self::new(TokenType::Function(value.to_string()), location)
     }
 
-    fn new_quoted_string(value: &str, location: Location) -> Token {
-        Token::new(TokenType::QuotedString(value.to_string()), location)
+    fn new_quoted_string(value: &str, location: Location) -> Self {
+        Self::new(TokenType::QuotedString(value.to_string()), location)
     }
 
-    fn new_bad_string(value: &str, location: Location) -> Token {
-        Token::new(TokenType::BadString(value.to_string()), location)
+    fn new_bad_string(value: &str, location: Location) -> Self {
+        Self::new(TokenType::BadString(value.to_string()), location)
     }
 
-    fn new_url(value: &str, location: Location) -> Token {
-        Token::new(TokenType::Url(value.to_string()), location)
+    fn new_url(value: &str, location: Location) -> Self {
+        Self::new(TokenType::Url(value.to_string()), location)
     }
 
-    fn new_bad_url(value: &str, location: Location) -> Token {
-        Token::new(TokenType::BadUrl(value.to_string()), location)
+    fn new_bad_url(value: &str, location: Location) -> Self {
+        Self::new(TokenType::BadUrl(value.to_string()), location)
     }
 }
 
 impl Token {
-    pub(crate) fn is_comma(&self) -> bool {
+    pub(crate) const fn is_comma(&self) -> bool {
         matches!(self.token_type, TokenType::Comma)
     }
 
-    pub(crate) fn is_string(&self) -> bool {
+    pub(crate) const fn is_string(&self) -> bool {
         matches!(self.token_type, TokenType::QuotedString(_))
     }
 
-    pub(crate) fn is_ident(&self) -> bool {
+    pub(crate) const fn is_ident(&self) -> bool {
         matches!(self.token_type, TokenType::Ident(_))
     }
 
     #[allow(dead_code)]
-    pub(crate) fn is_comment(&self) -> bool {
+    pub(crate) const fn is_comment(&self) -> bool {
         matches!(self.token_type, TokenType::Comment(_))
     }
 
     #[allow(dead_code)]
-    pub(crate) fn is_whitespace(&self) -> bool {
+    pub(crate) const fn is_whitespace(&self) -> bool {
         matches!(self.token_type, TokenType::Whitespace(_))
     }
 
-    pub(crate) fn is_colon(&self) -> bool {
+    pub(crate) const fn is_colon(&self) -> bool {
         matches!(self.token_type, TokenType::Colon)
     }
 
-    pub(crate) fn is_delim(&self, delim: char) -> bool {
+    pub(crate) const fn is_delim(&self, delim: char) -> bool {
         matches!(self.token_type, TokenType::Delim(c) if c == delim)
     }
 }
@@ -254,7 +254,7 @@ impl<'stream> Tokenizer<'stream> {
 
     /// Returns the current location (line/col) of the tokenizer
     #[must_use]
-    pub fn current_location(&self) -> Location {
+    pub const fn current_location(&self) -> Location {
         self.location_handler.cur_location
     }
 
@@ -327,7 +327,7 @@ impl<'stream> Tokenizer<'stream> {
     }
 
     /// Reconsumes will push the current position back so the next read will be the same token
-    pub fn reconsume(&mut self) {
+    pub const fn reconsume(&mut self) {
         if self.token_position > 0 {
             self.token_position -= 1;
         }
@@ -375,7 +375,7 @@ impl<'stream> Tokenizer<'stream> {
                 // consume '#'
                 self.next_char();
 
-                if self.is_ident_char(self.current_char().into()) || self.is_start_of_escape(0) {
+                if Self::is_ident_char(self.current_char().into()) || self.is_start_of_escape(0) {
                     return Token::new_hash(self.consume_ident().as_str(), loc);
                 }
 
@@ -488,7 +488,7 @@ impl<'stream> Tokenizer<'stream> {
                 Token::new_delim(c, loc)
             }
             Ch(c) if c.is_numeric() => self.consume_numeric_token(),
-            Ch(c) if self.is_ident_start(c) => self.consume_ident_like_seq(),
+            Ch(c) if Self::is_ident_start(c) => self.consume_ident_like_seq(),
             Ch(c) => {
                 self.next_char();
                 Token::new(TokenType::Delim(c), loc)
@@ -624,7 +624,7 @@ impl<'stream> Tokenizer<'stream> {
             value.push_str(&self.consume_digits());
         }
 
-        value.parse().expect("failed to parse number")
+        value.parse().unwrap()
     }
 
     /// 4.3.4. [Consume an ident-like token](https://www.w3.org/TR/css-syntax-3/#consume-ident-like-token)
@@ -742,7 +742,7 @@ impl<'stream> Tokenizer<'stream> {
             return default_char;
         }
 
-        let as_u32 = u32::from_str_radix(&value, 16).expect("unable to parse hex string as number");
+        let as_u32 = u32::from_str_radix(&value, 16).unwrap();
 
         // todo: look for better implementation
         if let Some(char) = char::from_u32(as_u32) {
@@ -788,7 +788,7 @@ impl<'stream> Tokenizer<'stream> {
                 continue;
             }
 
-            if !self.is_ident_char(cc.into()) {
+            if !Self::is_ident_char(cc.into()) {
                 break;
             }
 
@@ -827,13 +827,13 @@ impl<'stream> Tokenizer<'stream> {
     }
 
     /// [ident-start code point](https://www.w3.org/TR/css-syntax-3/#ident-start-code-point)
-    fn is_ident_start(&self, char: char) -> bool {
+    fn is_ident_start(char: char) -> bool {
         char.is_alphabetic() || !char.is_ascii() || char == '_'
     }
 
     /// [ident code point](https://www.w3.org/TR/css-syntax-3/#ident-start-code-point)
-    fn is_ident_char(&self, char: char) -> bool {
-        self.is_ident_start(char) || char.is_numeric() || char == '-'
+    fn is_ident_char(char: char) -> bool {
+        Self::is_ident_start(char) || char.is_numeric() || char == '-'
     }
 
     /// def: [non-printable code point](https://www.w3.org/TR/css-syntax-3/#non-printable-code-point)
@@ -863,14 +863,14 @@ impl<'stream> Tokenizer<'stream> {
         let second = self.stream.look_ahead(start + 1);
 
         if first == Ch('-') {
-            return self.is_ident_start(second.into()) || second == Ch('-') || self.is_start_of_escape(start + 1);
+            return Self::is_ident_start(second.into()) || second == Ch('-') || self.is_start_of_escape(start + 1);
         }
 
         if first == Ch('\\') {
             return self.is_start_of_escape(start);
         }
 
-        self.is_ident_start(first.into())
+        Self::is_ident_start(first.into())
     }
 
     fn is_signed_decimal(&self, start: usize) -> bool {
@@ -1618,7 +1618,7 @@ mod test {
             Token::new_dimension(23.0, "px", Location::default()),
             Token::new(TokenType::Whitespace(" ".into()), Location::default()),
             // `+45.0e6px`
-            Token::new_dimension(45000000.0, "px", Location::default()),
+            Token::new_dimension(45_000_000.0, "px", Location::default()),
             Token::new(TokenType::Whitespace(" ".into()), Location::default()),
             // `-0.67e0px`
             Token::new_dimension(-0.67, "px", Location::default()),
@@ -1666,7 +1666,7 @@ mod test {
             Token::new_percentage(23.0, Location::default()),
             Token::new(TokenType::Whitespace(" ".into()), Location::default()),
             // `+45.0e6%`
-            Token::new_percentage(45000000.0, Location::default()),
+            Token::new_percentage(45_000_000.0, Location::default()),
             Token::new(TokenType::Whitespace(" ".into()), Location::default()),
             // `-0.67e0%`
             Token::new_percentage(-0.67, Location::default()),

@@ -102,7 +102,7 @@ impl<C: HasDrawComponents<RenderTree = RenderTree<C>, LayoutTree = RenderTree<C>
 
             let mut drawer = Drawer {
                 scene: &mut scene,
-                drawer: self,
+                inner: self,
                 svg: Arc::new(Mutex::new(<C::RenderBackend as RenderBackend>::SVGRenderer::new())),
                 el,
             };
@@ -288,7 +288,7 @@ impl<C: HasDrawComponents<RenderTree = RenderTree<C>, LayoutTree = RenderTree<C>
     }
 
     fn reload(&mut self, el: impl EventLoopHandle<C>) -> impl Future<Output = Result<C::Document>> + 'static {
-        let fetcher = self.fetcher.clone();
+        let fetcher = Arc::clone(&self.fetcher);
 
         async move {
             info!("Reloading tab");
@@ -312,7 +312,7 @@ impl<C: HasDrawComponents<RenderTree = RenderTree<C>, LayoutTree = RenderTree<C>
         url: Url,
         el: impl EventLoopHandle<C>,
     ) -> impl Future<Output = Result<C::Document>> + 'static {
-        let fetcher = self.fetcher.clone();
+        let fetcher = Arc::clone(&self.fetcher);
 
         async move {
             info!("Navigating to {url}");
@@ -346,7 +346,7 @@ impl<C: HasDrawComponents<RenderTree = RenderTree<C>, LayoutTree = RenderTree<C>
 
 struct Drawer<'s, 't, C: HasDrawComponents, EL: EventLoopHandle<C>> {
     scene: &'s mut <C::RenderBackend as RenderBackend>::Scene,
-    drawer: &'t mut TreeDrawerImpl<C>,
+    inner: &'t mut TreeDrawerImpl<C>,
     svg: Arc<Mutex<<C::RenderBackend as RenderBackend>::SVGRenderer>>,
     el: &'t EL,
 }
@@ -357,15 +357,15 @@ impl<
     > Drawer<'_, '_, C, EL>
 {
     pub(crate) fn render(&mut self, size: SizeU32) {
-        let root = self.drawer.tree.root();
-        if let Err(e) = self.drawer.layouter.layout(&mut self.drawer.tree, root, size) {
+        let root = self.inner.tree.root();
+        if let Err(e) = self.inner.layouter.layout(&mut self.inner.tree, root, size) {
             eprintln!("Failed to compute layout: {e:?}");
             return;
         }
 
-        self.drawer.position = PositionTree::<C>::from_tree(&self.drawer.tree);
+        self.inner.position = PositionTree::<C>::from_tree(&self.inner.tree);
 
-        self.render_node_with_children(self.drawer.tree.root(), Point::ZERO);
+        self.render_node_with_children(self.inner.tree.root(), Point::ZERO);
     }
 
     fn render_node_with_children(&mut self, id: NodeId, mut pos: Point) {
@@ -374,7 +374,7 @@ impl<
             eprintln!("Error rendering node: {e}");
         }
 
-        let Some(children) = self.drawer.tree.children(id) else {
+        let Some(children) = self.inner.tree.children(id) else {
             eprintln!("Error rendering node children");
             return;
         };
@@ -385,7 +385,7 @@ impl<
     }
 
     fn render_node(&mut self, id: NodeId, pos: &mut Point) -> Result<()> {
-        let node = self.drawer.tree.get_node(id).ok_or(anyhow!("Node {id} not found"))?;
+        let node = self.inner.tree.get_node(id).ok_or(anyhow!("Node {id} not found"))?;
 
         let p = node.layout().rel_pos();
         pos.x += p.x as FP;
@@ -394,10 +394,10 @@ impl<
         let (border_radius, new_size) = render_bg::<C>(
             node,
             self.scene,
-            pos,
-            self.svg.clone(),
-            self.drawer.fetcher.clone(),
-            &mut self.drawer.img_cache,
+            *pos,
+            &self.svg,
+            &self.inner.fetcher,
+            &mut self.inner.img_cache,
             self.el,
         );
 
@@ -412,11 +412,11 @@ impl<
                 let size = node.layout().size_or().map(|x| x.u32());
 
                 let img = request_img::<C>(
-                    self.drawer.fetcher.clone(),
-                    self.svg.clone(),
+                    Arc::clone(&self.inner.fetcher),
+                    Arc::clone(&self.svg),
                     url,
                     size,
-                    &mut self.drawer.img_cache,
+                    &mut self.inner.img_cache,
                     self.el,
                 )?;
 
@@ -432,22 +432,22 @@ impl<
 
                 let size = size.unwrap_or(img.size()).f32();
 
-                render_image::<C::RenderBackend>(img, *pos, size, border_radius, fit, self.scene)?;
+                render_image::<C::RenderBackend>(img, *pos, size, border_radius, fit, self.scene);
             }
         }
 
-        render_text::<C>(node, pos, self.scene);
+        render_text::<C>(node, *pos, self.scene);
 
         if let Some(new) = size_change {
             let node = self
-                .drawer
+                .inner
                 .tree
                 .get_node_mut(id)
                 .ok_or(anyhow!("Node {id} not found"))?;
 
             node.layout_mut().set_size(new);
 
-            self.drawer.set_needs_redraw();
+            self.inner.set_needs_redraw();
         }
 
         Ok(())
@@ -456,7 +456,7 @@ impl<
 
 fn render_text<C: HasDrawComponents>(
     node: &<C::RenderTree as render_tree::RenderTree<C>>::Node,
-    pos: &Point,
+    pos: Point,
     scene: &mut <C::RenderBackend as RenderBackend>::Scene,
 ) {
     let color = node
@@ -499,7 +499,7 @@ fn render_image<B: RenderBackend>(
     radii: (FP, FP, FP, FP),
     fit: &str,
     scene: &mut B::Scene,
-) -> anyhow::Result<()> {
+) {
     let width = size.width as FP;
     let height = size.height as FP;
 
@@ -561,8 +561,6 @@ fn render_image<B: RenderBackend>(
             scene.apply_scene(&s, Some(transform)); //TODO we probably want to use a clip layer here
         }
     }
-
-    Ok(())
 }
 
 /*
@@ -640,9 +638,9 @@ pub fn print_tree<B: RenderBackend, L: Layouter>(
 fn render_bg<C: HasDrawComponents>(
     node: &<C::RenderTree as render_tree::RenderTree<C>>::Node,
     scene: &mut <C::RenderBackend as RenderBackend>::Scene,
-    pos: &Point,
-    svg: Arc<Mutex<<C::RenderBackend as RenderBackend>::SVGRenderer>>,
-    fetcher: Arc<Fetcher>,
+    pos: Point,
+    svg: &Arc<Mutex<<C::RenderBackend as RenderBackend>::SVGRenderer>>,
+    fetcher: &Arc<Fetcher>,
     img_cache: &mut ImageCache<C::RenderBackend>,
     el: &impl EventLoopHandle<C>,
 ) -> ((FP, FP, FP, FP), Option<SizeU32>) {
@@ -725,7 +723,7 @@ fn render_bg<C: HasDrawComponents>(
                 if let Some(url) = args.first().and_then(|url| url.as_string()) {
                     let size = node.layout().size_or().map(|x| x.u32());
 
-                    let img = match request_img::<C>(fetcher.clone(), svg.clone(), url, size, img_cache, el) {
+                    let img = match request_img::<C>(Arc::clone(fetcher), Arc::clone(svg), url, size, img_cache, el) {
                         Ok(img) => img,
                         Err(e) => {
                             eprintln!("Error loading image: {e:?}");
@@ -737,11 +735,7 @@ fn render_bg<C: HasDrawComponents>(
                         img_size = Some(img.size());
                     }
 
-                    let _ =
-                        render_image::<C::RenderBackend>(img, *pos, node.layout().size(), border_radius, "fill", scene)
-                            .map_err(|e| {
-                                eprintln!("Error rendering image: {e:?}");
-                            });
+                    render_image::<C::RenderBackend>(img, pos, node.layout().size(), border_radius, "fill", scene);
                 }
             }
 
@@ -755,10 +749,10 @@ fn render_bg<C: HasDrawComponents>(
 fn get_border<C: HasDrawComponents>(
     node: &<C::RenderTree as render_tree::RenderTree<C>>::Node,
 ) -> Option<<C::RenderBackend as RenderBackend>::Border> {
-    let left = get_border_side::<C>(node, Side::Left);
-    let right = get_border_side::<C>(node, Side::Right);
-    let top = get_border_side::<C>(node, Side::Top);
-    let bottom = get_border_side::<C>(node, Side::Bottom);
+    let left = get_border_side::<C>(node, &Side::Left);
+    let right = get_border_side::<C>(node, &Side::Right);
+    let top = get_border_side::<C>(node, &Side::Top);
+    let bottom = get_border_side::<C>(node, &Side::Bottom);
 
     if left.is_none() && right.is_none() && top.is_none() && bottom.is_none() {
         return None;
@@ -787,7 +781,7 @@ fn get_border<C: HasDrawComponents>(
 
 fn get_border_side<C: HasDrawComponents>(
     node: &<C::RenderTree as render_tree::RenderTree<C>>::Node,
-    side: Side,
+    side: &Side,
 ) -> Option<<C::RenderBackend as RenderBackend>::BorderSide> {
     let width = node
         .props()
@@ -820,12 +814,12 @@ enum Side {
 }
 
 impl Side {
-    fn to_str(&self) -> &'static str {
+    const fn to_str(&self) -> &'static str {
         match self {
-            Side::Top => "top",
-            Side::Right => "right",
-            Side::Bottom => "bottom",
-            Side::Left => "left",
+            Self::Top => "top",
+            Self::Right => "right",
+            Self::Bottom => "bottom",
+            Self::Left => "left",
         }
     }
 }

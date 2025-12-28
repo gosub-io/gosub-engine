@@ -4,7 +4,7 @@ use crate::Css3;
 use gosub_shared::errors::{CssError, CssResult};
 
 impl Css3<'_> {
-    fn do_dimension_block(&mut self, value: Number, unit: String) -> CssResult<(String, String)> {
+    fn do_dimension_block(&mut self, value: Number, unit: &str) -> CssResult<(String, String)> {
         log::trace!("do_dimension_block");
 
         let value = value.to_string();
@@ -16,13 +16,13 @@ impl Css3<'_> {
             ));
         }
         Ok(if unit.len() == 1 {
-            (value.to_string(), self.parse_anplusb_b()?)
+            (value, self.parse_anplusb_b()?)
         } else {
-            (value.to_string(), unit[1..].to_string())
+            (value, unit[1..].to_string())
         })
     }
 
-    fn check_integer(&mut self, value: &str, offset: usize, allow_sign: bool) -> CssResult<bool> {
+    fn check_integer(&self, value: &str, offset: usize, allow_sign: bool) -> CssResult<bool> {
         let sign = value.chars().nth(offset).unwrap_or(' ').to_lowercase().to_string();
         let mut pos = offset;
 
@@ -45,7 +45,7 @@ impl Css3<'_> {
         Ok(true)
     }
 
-    fn expect_char(&mut self, value: &str, c: &str, offset: usize) -> CssResult<bool> {
+    fn expect_char(&self, value: &str, c: &str, offset: usize) -> CssResult<bool> {
         let nval = value.chars().nth(offset).unwrap_or(' ').to_lowercase().to_string();
         if nval != c {
             return Err(CssError::with_location(
@@ -62,16 +62,16 @@ impl Css3<'_> {
 
         self.consume_whitespace_comments();
 
-        if let TokenType::Eof = self.tokenizer.lookahead(0).token_type {
+        if self.tokenizer.lookahead(0).token_type == TokenType::Eof {
             return Ok("0".to_string());
         }
-        if let TokenType::Semicolon = self.tokenizer.lookahead(0).token_type {
+        if self.tokenizer.lookahead(0).token_type == TokenType::Semicolon {
             return Ok("0".to_string());
         }
-        if let TokenType::RCurly = self.tokenizer.lookahead(0).token_type {
+        if self.tokenizer.lookahead(0).token_type == TokenType::RCurly {
             return Ok("0".to_string());
         }
-        if let TokenType::RParen = self.tokenizer.lookahead(0).token_type {
+        if self.tokenizer.lookahead(0).token_type == TokenType::RParen {
             return Ok("0".to_string());
         }
 
@@ -206,7 +206,7 @@ impl Css3<'_> {
                 (a, b) = self.do_plus_block(value.as_str())?;
             }
             TokenType::Dimension { value, unit } => {
-                (a, b) = self.do_dimension_block(value, unit)?;
+                (a, b) = self.do_dimension_block(value, &unit)?;
             }
             _ => {
                 self.tokenizer.reconsume();

@@ -10,7 +10,7 @@ use gosub_interface::config::HasLayouter;
 use gosub_interface::css3::CssProperty;
 use gosub_interface::layout::LayoutNode;
 
-pub fn parse_display<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> (Display, crate::Display) {
+pub fn parse_display<C: HasLayouter>(node: &impl LayoutNode<C>) -> (Display, crate::Display) {
     let Some(display) = node.get_property("display") else {
         return (Display::Block, crate::Display::Taffy);
     };
@@ -21,7 +21,6 @@ pub fn parse_display<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> (Display,
 
     match value {
         "none" => (Display::None, crate::Display::Taffy),
-        "block" => (Display::Block, crate::Display::Taffy),
         "flex" => (Display::Flex, crate::Display::Taffy),
         "grid" => (Display::Grid, crate::Display::Taffy),
         "inline-block" => (Display::Block, crate::Display::InlineBlock),
@@ -31,10 +30,9 @@ pub fn parse_display<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> (Display,
     }
 }
 
-pub fn parse_overflow<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Point<Overflow> {
+pub fn parse_overflow<C: HasLayouter>(node: &impl LayoutNode<C>) -> Point<Overflow> {
     fn parse(str: &str) -> Overflow {
         match str {
-            "visible" => Overflow::Visible,
             "hidden" => Overflow::Hidden,
             "scroll" => Overflow::Scroll,
             _ => Overflow::Visible,
@@ -63,7 +61,7 @@ pub fn parse_overflow<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Point<Ov
     overflow
 }
 
-pub fn parse_position<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Position {
+pub fn parse_position<C: HasLayouter>(node: &impl LayoutNode<C>) -> Position {
     let Some(position) = node.get_property("position") else {
         return Position::Relative;
     };
@@ -73,13 +71,12 @@ pub fn parse_position<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Position
     };
 
     match value {
-        "relative" => Position::Relative,
         "absolute" => Position::Absolute,
         _ => Position::Relative,
     }
 }
 
-pub fn parse_inset<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Rect<LengthPercentageAuto> {
+pub fn parse_inset<C: HasLayouter>(node: &impl LayoutNode<C>) -> Rect<LengthPercentageAuto> {
     Rect {
         top: parse_len_auto(node, "top"),
         right: parse_len_auto(node, "right"),
@@ -88,28 +85,28 @@ pub fn parse_inset<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Rect<Length
     }
 }
 
-pub fn parse_size<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Size<Dimension> {
+pub fn parse_size<C: HasLayouter>(node: &impl LayoutNode<C>) -> Size<Dimension> {
     Size {
         width: parse_dimension(node, "width"),
         height: parse_dimension(node, "height"),
     }
 }
 
-pub fn parse_min_size<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Size<Dimension> {
+pub fn parse_min_size<C: HasLayouter>(node: &impl LayoutNode<C>) -> Size<Dimension> {
     Size {
         width: parse_dimension(node, "min-width"),
         height: parse_dimension(node, "min-height"),
     }
 }
 
-pub fn parse_max_size<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Size<Dimension> {
+pub fn parse_max_size<C: HasLayouter>(node: &impl LayoutNode<C>) -> Size<Dimension> {
     Size {
         width: parse_dimension(node, "max-width"),
         height: parse_dimension(node, "max-height"),
     }
 }
 
-pub fn parse_aspect_ratio<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Option<f32> {
+pub fn parse_aspect_ratio<C: HasLayouter>(node: &impl LayoutNode<C>) -> Option<f32> {
     let aspect_ratio = node.get_property("aspect-ratio")?;
 
     if let Some(value) = aspect_ratio.as_number() {
@@ -144,7 +141,7 @@ pub fn parse_aspect_ratio<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Opti
     None
 }
 
-pub fn parse_margin<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Rect<LengthPercentageAuto> {
+pub fn parse_margin<C: HasLayouter>(node: &impl LayoutNode<C>) -> Rect<LengthPercentageAuto> {
     Rect {
         top: parse_len_auto(node, "margin-top"),
         right: parse_len_auto(node, "margin-right"),
@@ -153,7 +150,7 @@ pub fn parse_margin<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Rect<Lengt
     }
 }
 
-pub fn parse_padding<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Rect<LengthPercentage> {
+pub fn parse_padding<C: HasLayouter>(node: &impl LayoutNode<C>) -> Rect<LengthPercentage> {
     Rect {
         top: parse_len(node, "padding-top"),
         right: parse_len(node, "padding-right"),
@@ -162,7 +159,7 @@ pub fn parse_padding<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Rect<Leng
     }
 }
 
-pub fn parse_border<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Rect<LengthPercentage> {
+pub fn parse_border<C: HasLayouter>(node: &impl LayoutNode<C>) -> Rect<LengthPercentage> {
     Rect {
         top: parse_len(node, "border-top-width"),
         right: parse_len(node, "border-right-width"),
@@ -171,7 +168,7 @@ pub fn parse_border<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Rect<Lengt
     }
 }
 
-pub fn parse_align_items<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Option<AlignItems> {
+pub fn parse_align_items<C: HasLayouter>(node: &impl LayoutNode<C>) -> Option<AlignItems> {
     let display = node.get_property("align-items")?;
 
     let value = display.as_string()?;
@@ -188,73 +185,63 @@ pub fn parse_align_items<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Optio
     }
 }
 
-pub fn parse_align_self<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Option<AlignSelf> {
+pub fn parse_align_self<C: HasLayouter>(node: &impl LayoutNode<C>) -> Option<AlignSelf> {
     parse_align_i(node, "align-self")
 }
 
-pub fn parse_justify_items<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Option<AlignItems> {
+pub fn parse_justify_items<C: HasLayouter>(node: &impl LayoutNode<C>) -> Option<AlignItems> {
     parse_align_i(node, "justify-items")
 }
 
-pub fn parse_justify_self<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Option<AlignSelf> {
+pub fn parse_justify_self<C: HasLayouter>(node: &impl LayoutNode<C>) -> Option<AlignSelf> {
     parse_align_i(node, "justify-self")
 }
 
-pub fn parse_align_content<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Option<AlignContent> {
+pub fn parse_align_content<C: HasLayouter>(node: &impl LayoutNode<C>) -> Option<AlignContent> {
     parse_align_c(node, "align-content")
 }
 
-pub fn parse_justify_content<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Option<JustifyContent> {
+pub fn parse_justify_content<C: HasLayouter>(node: &impl LayoutNode<C>) -> Option<JustifyContent> {
     parse_align_c(node, "justify-content")
 }
 
-pub fn parse_gap<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Size<LengthPercentage> {
+pub fn parse_gap<C: HasLayouter>(node: &impl LayoutNode<C>) -> Size<LengthPercentage> {
     Size {
         width: parse_len(node, "column-gap"),
         height: parse_len(node, "row-gap"),
     }
 }
 
-pub fn parse_flex_direction<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> FlexDirection {
+pub fn parse_flex_direction<C: HasLayouter>(node: &impl LayoutNode<C>) -> FlexDirection {
     let Some(property) = node.get_property("flex-direction") else {
         return FlexDirection::Row;
     };
 
-    if let Some(value) = property.as_string() {
-        match value {
-            "row" => FlexDirection::Row,
-            "row-reverse" => FlexDirection::RowReverse,
-            "column" => FlexDirection::Column,
-            "column-reverse" => FlexDirection::ColumnReverse,
-            _ => FlexDirection::Row,
-        }
-    } else {
-        FlexDirection::Row
-    }
+    property.as_string().map_or(FlexDirection::Row, |value| match value {
+        "row-reverse" => FlexDirection::RowReverse,
+        "column" => FlexDirection::Column,
+        "column-reverse" => FlexDirection::ColumnReverse,
+        _ => FlexDirection::Row,
+    })
 }
 
-pub fn parse_flex_wrap<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> FlexWrap {
+pub fn parse_flex_wrap<C: HasLayouter>(node: &impl LayoutNode<C>) -> FlexWrap {
     let Some(property) = node.get_property("flex-wrap") else {
         return FlexWrap::NoWrap;
     };
 
-    if let Some(value) = property.as_string() {
-        match value {
-            "nowrap" => FlexWrap::NoWrap,
-            "wrap" => FlexWrap::Wrap,
-            "wrap-reverse" => FlexWrap::WrapReverse,
-            _ => FlexWrap::NoWrap,
-        }
-    } else {
-        FlexWrap::NoWrap
-    }
+    property.as_string().map_or(FlexWrap::NoWrap, |value| match value {
+        "wrap" => FlexWrap::Wrap,
+        "wrap-reverse" => FlexWrap::WrapReverse,
+        _ => FlexWrap::NoWrap,
+    })
 }
 
-pub fn parse_flex_basis<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Dimension {
+pub fn parse_flex_basis<C: HasLayouter>(node: &impl LayoutNode<C>) -> Dimension {
     parse_dimension(node, "flex-basis")
 }
 
-pub fn parse_flex_grow<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> f32 {
+pub fn parse_flex_grow<C: HasLayouter>(node: &impl LayoutNode<C>) -> f32 {
     let Some(property) = node.get_property("flex-grow") else {
         return 0.0;
     };
@@ -262,7 +249,7 @@ pub fn parse_flex_grow<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> f32 {
     property.as_number().unwrap_or(0.0)
 }
 
-pub fn parse_flex_shrink<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> f32 {
+pub fn parse_flex_shrink<C: HasLayouter>(node: &impl LayoutNode<C>) -> f32 {
     let Some(property) = node.get_property("flex-shrink") else {
         return 1.0;
     };
@@ -270,83 +257,69 @@ pub fn parse_flex_shrink<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> f32 {
     property.as_number().unwrap_or(1.0)
 }
 
-pub fn parse_grid_template_rows<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Vec<TrackSizingFunction> {
+pub fn parse_grid_template_rows<C: HasLayouter>(node: &impl LayoutNode<C>) -> Vec<TrackSizingFunction> {
     parse_tracking_sizing_function(node, "grid-template-rows")
 }
 
-pub fn parse_grid_template_columns<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Vec<TrackSizingFunction> {
+pub fn parse_grid_template_columns<C: HasLayouter>(node: &impl LayoutNode<C>) -> Vec<TrackSizingFunction> {
     parse_tracking_sizing_function(node, "grid-template-columns")
 }
 
-pub fn parse_grid_auto_rows<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Vec<NonRepeatedTrackSizingFunction> {
+pub fn parse_grid_auto_rows<C: HasLayouter>(node: &impl LayoutNode<C>) -> Vec<NonRepeatedTrackSizingFunction> {
     parse_grid_auto(node, "grid-auto-rows")
 }
 
-pub fn parse_grid_auto_columns<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Vec<NonRepeatedTrackSizingFunction> {
+pub fn parse_grid_auto_columns<C: HasLayouter>(node: &impl LayoutNode<C>) -> Vec<NonRepeatedTrackSizingFunction> {
     parse_grid_auto(node, "grid-auto-columns")
 }
 
-pub fn parse_grid_auto_flow<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> GridAutoFlow {
+pub fn parse_grid_auto_flow<C: HasLayouter>(node: &impl LayoutNode<C>) -> GridAutoFlow {
     let Some(property) = node.get_property("grid-auto-flow") else {
         return GridAutoFlow::Row;
     };
 
-    if let Some(value) = property.as_string() {
-        match value {
-            "row" => GridAutoFlow::Row,
-            "column" => GridAutoFlow::Column,
-            "row dense" => GridAutoFlow::RowDense,
-            "column dense" => GridAutoFlow::ColumnDense,
-            _ => GridAutoFlow::Row,
-        }
-    } else {
-        GridAutoFlow::Row
-    }
+    property.as_string().map_or(GridAutoFlow::Row, |value| match value {
+        "column" => GridAutoFlow::Column,
+        "row dense" => GridAutoFlow::RowDense,
+        "column dense" => GridAutoFlow::ColumnDense,
+        _ => GridAutoFlow::Row,
+    })
 }
 
-pub fn parse_grid_row<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Line<GridPlacement> {
+pub fn parse_grid_row<C: HasLayouter>(node: &impl LayoutNode<C>) -> Line<GridPlacement> {
     Line {
         start: parse_grid_placement(node, "grid-row-start"),
         end: parse_grid_placement(node, "grid-row-end"),
     }
 }
 
-pub fn parse_grid_column<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Line<GridPlacement> {
+pub fn parse_grid_column<C: HasLayouter>(node: &impl LayoutNode<C>) -> Line<GridPlacement> {
     Line {
         start: parse_grid_placement(node, "grid-column-start"),
         end: parse_grid_placement(node, "grid-column-end"),
     }
 }
 
-pub fn parse_box_sizing<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> BoxSizing {
+pub fn parse_box_sizing<C: HasLayouter>(node: &impl LayoutNode<C>) -> BoxSizing {
     let Some(property) = node.get_property("box-sizing") else {
         return BoxSizing::ContentBox;
     };
 
-    if let Some(value) = property.as_string() {
-        match value {
-            "content-box" => BoxSizing::ContentBox,
-            "border-box" => BoxSizing::BorderBox,
-            _ => BoxSizing::ContentBox,
-        }
-    } else {
-        BoxSizing::ContentBox
-    }
+    property.as_string().map_or(BoxSizing::ContentBox, |value| match value {
+        "border-box" => BoxSizing::BorderBox,
+        _ => BoxSizing::ContentBox,
+    })
 }
 
-pub fn parse_text_align<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> TextAlign {
+pub fn parse_text_align<C: HasLayouter>(node: &impl LayoutNode<C>) -> TextAlign {
     let Some(property) = node.get_property("text-align") else {
         return TextAlign::Auto;
     };
 
-    if let Some(value) = property.as_string() {
-        match value {
-            "-webkit-left" | "-moz-left" => TextAlign::LegacyLeft,
-            "-webkit-right" | "-moz-right" => TextAlign::LegacyRight,
-            "-webkit-center" | "-moz-center" => TextAlign::LegacyCenter,
-            _ => TextAlign::Auto,
-        }
-    } else {
-        TextAlign::Auto
-    }
+    property.as_string().map_or(TextAlign::Auto, |value| match value {
+        "-webkit-left" | "-moz-left" => TextAlign::LegacyLeft,
+        "-webkit-right" | "-moz-right" => TextAlign::LegacyRight,
+        "-webkit-center" | "-moz-center" => TextAlign::LegacyCenter,
+        _ => TextAlign::Auto,
+    })
 }

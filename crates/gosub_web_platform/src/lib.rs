@@ -46,6 +46,9 @@ pub enum LocalEventLoopMessage<E: FutureExecutor> {
 
 impl<C: HasWebComponents> WebEventLoop<C> {
     /// Create a new `WebEventLoop` on a new thead, returning the handle to the event loop
+    ///
+    /// # Panics
+    /// Panics if the tokio runtime cannot be created
     pub fn new_on_thread(handles: Handles<C>) -> WebEventLoopHandle {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -56,9 +59,9 @@ impl<C: HasWebComponents> WebEventLoop<C> {
 
         let (tx, rx) = tokio::sync::mpsc::channel(100);
 
-        thread::spawn(|| {
+        thread::spawn(move || {
             let (itx, irx) = tokio::sync::mpsc::channel(100);
-            let mut el = WebEventLoop {
+            let mut el = Self {
                 listeners: EventListeners::default(),
                 handles,
                 rt: rt.handle().clone(),
@@ -68,7 +71,7 @@ impl<C: HasWebComponents> WebEventLoop<C> {
                 timers: WebTimers::new(),
             };
 
-            el.run(rt, TokioExecutor);
+            el.run(&rt, TokioExecutor);
         });
 
         WebEventLoopHandle { rt: handle, tx }
@@ -76,17 +79,17 @@ impl<C: HasWebComponents> WebEventLoop<C> {
 }
 
 impl<C: HasWebComponents, E: FutureExecutor> WebEventLoop<C, E> {
-    pub fn run(&mut self, rt: Runtime, mut e: E) {
+    pub fn run(&mut self, rt: &Runtime, mut e: E) {
         let set = LocalSet::new();
 
-        set.block_on(&rt, async {
+        set.block_on(rt, async {
             loop {
                 tokio::select! {
                     val = self.rx.recv() => {
                         let Some(msg) = val else {
                             break;
                         };
-                        self.handle_message(msg, &mut e);
+                        self.handle_message(&msg, &mut e);
                     }
 
                     val = self.irx.recv() => {
@@ -100,10 +103,10 @@ impl<C: HasWebComponents, E: FutureExecutor> WebEventLoop<C, E> {
         });
     }
 
-    fn handle_message(&mut self, msg: WebEventLoopMessage, exec: &mut E) {
+    fn handle_message(&mut self, msg: &WebEventLoopMessage, exec: &mut E) {
         match msg {
             WebEventLoopMessage::InputEvent(e) => {
-                self.listeners.handle_input_event(e, exec);
+                self.listeners.handle_input_event(*e, exec);
             }
             WebEventLoopMessage::Close => {
                 self.rx.close();

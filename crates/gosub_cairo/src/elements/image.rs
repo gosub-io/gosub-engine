@@ -11,7 +11,7 @@ pub enum GsFormat {
 
 #[derive(Clone, Debug)]
 pub struct GsImage {
-    pub image: Arc<Vec<u8>>,
+    pub image: Arc<[u8]>,
     pub width: u32,
     pub height: u32,
     pub format: GsFormat,
@@ -19,8 +19,9 @@ pub struct GsImage {
 
 impl TImage for GsImage {
     fn new(size: (FP, FP), data: Vec<u8>) -> Self {
-        GsImage {
-            image: Arc::new(data),
+        let image: Arc<[u8]> = data.into();
+        Self {
+            image,
             width: size.0 as u32,
             height: size.1 as u32,
             format: GsFormat::Rgba8,
@@ -31,8 +32,9 @@ impl TImage for GsImage {
         let (width, height) = img.dimensions();
 
         let data = img.into_rgba8().into_raw();
-        GsImage {
-            image: Arc::new(data),
+        let image: Arc<[u8]> = data.into();
+        Self {
+            image,
             width,
             height,
             format: GsFormat::Rgba8,

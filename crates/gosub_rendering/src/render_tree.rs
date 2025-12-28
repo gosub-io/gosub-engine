@@ -139,7 +139,7 @@ impl<C: HasLayouter<LayoutTree = Self>> RenderTree<C> {
         tree
     }
 
-    pub fn reserve_id(&mut self) -> NodeId {
+    pub const fn reserve_id(&mut self) -> NodeId {
         let id = self.next_id;
         self.next_id = self.next_id.next();
         id
@@ -213,7 +213,11 @@ impl<C: HasLayouter<LayoutTree = Self>> RenderTree<C> {
     }
 
     /// Returns the root node of the render tree
+    ///
+    /// # Panics
+    /// Panics if the root node is not found in the render tree
     #[must_use]
+    #[allow(clippy::expect_used)]
     pub fn get_root(&self) -> &RenderTreeNode<C> {
         self.nodes.get(&self.root).expect("root node")
     }
@@ -263,7 +267,7 @@ impl<C: HasLayouter<LayoutTree = Self>> RenderTree<C> {
         if node.is_none() {
             return result;
         }
-        node.expect("node").children.iter().for_each(|child| {
+        node.unwrap().children.iter().for_each(|child| {
             let mut childs = self.get_child_node_ids(*child);
             result.append(&mut childs);
         });
@@ -310,7 +314,6 @@ impl<C: HasLayouter<LayoutTree = Self>> RenderTree<C> {
                 if prop.as_string() == Some("none") {
                     delete_list.append(&mut self.get_child_node_ids(*id));
                     delete_list.push(*id);
-                    continue;
                 }
             }
         }
@@ -449,7 +452,7 @@ impl<C: HasLayouter<LayoutTree = Self>> RenderTree<C> {
 
 impl<C: HasRenderTree<LayoutTree = Self, RenderTree = Self> + HasDocument> RenderTree<C> {
     pub fn from_document(document: &C::Document) -> Self {
-        let mut render_tree = RenderTree::with_capacity(document.node_count());
+        let mut render_tree = Self::with_capacity(document.node_count());
 
         render_tree.generate_from(document);
 
@@ -562,7 +565,7 @@ impl<C: HasRenderTree<LayoutTree = Self, RenderTree = Self>> render_tree::Render
     where
         C: HasDocument,
     {
-        RenderTree::from_document(doc)
+        Self::from_document(doc)
     }
 }
 
@@ -662,24 +665,24 @@ impl<C: HasLayouter + HasDocument> RenderNodeData<C> {
     #[must_use]
     pub fn from_node_data(node: &NodeData<C>) -> ControlFlow<Self> {
         ControlFlow::Ok(match node {
-            NodeData::Element(d) => RenderNodeData::Element {
+            NodeData::Element(d) => Self::Element {
                 attributes: d.attributes().clone(),
             },
             NodeData::Text(data) => {
-                let text = pre_transform_text(data.string_value());
+                let text = pre_transform_text(&data.string_value());
 
-                RenderNodeData::Text(Box::new(TextData {
+                Self::Text(Box::new(TextData {
                     text,
                     layout: Vec::new(),
                 }))
             }
-            NodeData::Document(_) => RenderNodeData::Document,
+            NodeData::Document(_) => Self::Document,
             _ => return ControlFlow::Drop,
         })
     }
 }
 
-fn pre_transform_text(text: String) -> String {
+fn pre_transform_text(text: &str) -> String {
     let mut new_text = String::with_capacity(text.len());
 
     let mut last_was_ws = false;
@@ -720,18 +723,20 @@ impl<C: HasLayouter> Debug for RenderTreeNode<C> {
             .field("name", &self.name)
             .field("namespace", &self.namespace)
             .field("data", &self.data)
+            .field("cache", &self.cache)
+            .field("layout", &self.layout)
             .finish()
     }
 }
 
 impl<C: HasLayouter> RenderTreeNode<C> {
     /// Returns true if the node is an element node
-    pub fn is_element(&self) -> bool {
+    pub const fn is_element(&self) -> bool {
         matches!(self.data, RenderNodeData::Element { .. })
     }
 
     /// Returns true if the node is a text node
-    pub fn is_text(&self) -> bool {
+    pub const fn is_text(&self) -> bool {
         matches!(self.data, RenderNodeData::Text(_))
     }
 

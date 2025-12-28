@@ -20,8 +20,8 @@ pub struct GsRect {
 }
 
 impl GsRect {
-    pub fn new(x: f64, y: f64, width: f64, height: f64, radius: Option<GsBorderRadius>) -> Self {
-        GsRect {
+    pub const fn new(x: f64, y: f64, width: f64, height: f64, radius: Option<GsBorderRadius>) -> Self {
+        Self {
             x,
             y,
             width,
@@ -48,7 +48,7 @@ impl GsRect {
 
 impl TRect for GsRect {
     fn new(x: FP, y: FP, width: FP, height: FP) -> Self {
-        GsRect::new(f64::from(x), f64::from(y), f64::from(width), f64::from(height), None)
+        Self::new(f64::from(x), f64::from(y), f64::from(width), f64::from(height), None)
     }
 
     fn from_point(point: Point, size: Size) -> Self {

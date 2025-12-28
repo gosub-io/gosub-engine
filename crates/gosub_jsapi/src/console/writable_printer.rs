@@ -12,7 +12,7 @@ pub struct Group {
 type Writer<W> = Rc<RefCell<W>>;
 
 /// A writable printer that can be used to write to a buffer
-pub(crate) struct WritablePrinter<W: Write> {
+pub struct WritablePrinter<W: Write> {
     writer: Writer<W>,
     groups: Vec<Group>,
 }
@@ -20,13 +20,13 @@ pub(crate) struct WritablePrinter<W: Write> {
 impl<W: Write> WritablePrinter<W> {
     /// Creates a new writable printer
     #[allow(dead_code)]
-    pub fn new(writer: Rc<RefCell<W>>) -> Self {
+    pub const fn new(writer: Rc<RefCell<W>>) -> Self {
         Self { writer, groups: vec![] }
     }
 
     /// Returns a reference to the writer
     #[allow(dead_code)]
-    pub fn get_writer(&self) -> &Writer<W> {
+    pub const fn get_writer(&self) -> &Writer<W> {
         &self.writer
     }
 
@@ -103,7 +103,7 @@ mod tests {
 
         printer.print(LogLevel::Log, &[&"Hello", &"World"], &[]);
         assert_eq!(
-            buffer.borrow_mut().try_to_string().expect("failed to convert"),
+            buffer.borrow_mut().try_to_string().unwrap(),
             "[log] Hello World\n"
         );
 
@@ -113,7 +113,7 @@ mod tests {
         printer.print(LogLevel::Warn, &[&"a", &"b"], &[]);
         printer.print(LogLevel::Error, &[], &[]);
         assert_eq!(
-            buffer.borrow_mut().try_to_string().expect("failed to convert"),
+            buffer.borrow_mut().try_to_string().unwrap(),
             "[info] Foo 2 false\n[warn] a b\n"
         );
     }

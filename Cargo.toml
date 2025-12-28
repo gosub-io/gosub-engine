@@ -110,3 +110,37 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [package.metadata.wasm-pack.profile.dev.wasm-bindgen]
 dwarf-debug-info = true
+
+[lints]
+workspace = true
+
+[workspace.lints.clippy]
+perf = { level = "deny", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
+#panic = "deny"
+#unwrap_used = "deny"
+clone_on_ref_ptr = "warn"
+empty_enum_variants_with_brackets = "warn"
+empty_structs_with_brackets = "warn"
+enum_glob_use = "warn"
+error_impl_error = "warn"
+format_push_string = "warn"
+infinite_loop = "warn"
+rc_buffer = "warn"
+rc_mutex = "warn"
+expect_used = "deny"
+missing_docs_in_private_items = "allow"
+cargo_common_metadata = "allow" # should be removed if we release our crates to crates.io
+cast_possible_truncation = "allow" # should this be on allow?
+cast_precision_loss = "allow"
+cast_sign_loss = "allow"
+cast_possible_wrap = "allow"
+or_fun_call = "allow"
+multiple_crate_versions = "allow" # should this be on allow?
+missing_errors_doc = "allow"
+cognitive_complexity = "allow"
+float_cmp = "allow" #TODO: this should be changed and f32/f64::EPSILON should be used
+doc_markdown = "allow"
+too_many_lines = "allow"

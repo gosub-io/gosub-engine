@@ -15,7 +15,7 @@ mod local;
 mod remote;
 
 /// A DNS entry is a mapping of a domain to zero or more IP address mapping
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct DnsEntry {
     // domain name
     domain: String,
@@ -60,6 +60,10 @@ impl DnsEntry {
     }
 
     /// Returns true if the dns entry has expired
+    ///
+    /// # Panics
+    ///
+    /// Panics if the system time is before the Unix epoch.
     #[must_use]
     pub fn expired(&self) -> bool {
         self.expires < SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()
@@ -82,7 +86,7 @@ impl DnsEntry {
 }
 
 /// Type of DNS resolution
-#[derive(Clone, Debug, Display, PartialEq)]
+#[derive(Clone, Debug, Display, PartialEq, Eq)]
 pub enum ResolveType {
     /// Only resolve IPV4 addresses (A)
     Ipv4,
@@ -94,7 +98,7 @@ pub enum ResolveType {
 
 trait DnsResolver {
     /// Resolves a domain name for a given `resolver_type`
-    fn resolve(&mut self, domain: &str, resolve_type: ResolveType) -> Result<DnsEntry>;
+    fn resolve(&mut self, domain: &str, resolve_type: &ResolveType) -> Result<DnsEntry>;
     /// Announces the resolved dns entry for the domain to a resolver
     fn announce(&mut self, _domain: &str, _entry: &DnsEntry) {}
     // name for debugging purposes
@@ -142,7 +146,7 @@ impl Dns {
         opts.retries = gosub_config::config!(uint "dns.remote.retries");
         opts.use_hosts_file = gosub_config::config!(bool "dns.remote.use_hosts_file");
 
-        resolvers.push(Box::new(remote::RemoteResolver::new(opts)));
+        resolvers.push(Box::new(remote::RemoteResolver::new(&opts)));
 
         Self { resolvers }
     }
@@ -155,7 +159,10 @@ impl Dns {
     /// The second resolver is usually the local table resolver, which resolves any local overrides
     /// The third resolver is usually the remote resolver, which resolves any remote entries by querying external DNS server(s)
     ///
-    pub fn resolve(&mut self, domain: &str, resolve_type: ResolveType) -> Result<DnsEntry> {
+    /// # Panics
+    ///
+    /// Panics if no resolver successfully resolves the domain.
+    pub fn resolve(&mut self, domain: &str, resolve_type: &ResolveType) -> Result<DnsEntry> {
         let mut entry = None;
 
         info!("Resolving {domain} for {resolve_type:?}");
@@ -163,7 +170,7 @@ impl Dns {
         for resolver in &mut self.resolvers {
             debug!("Trying resolver: {}", resolver.name());
 
-            if let Ok(e) = resolver.resolve(domain, resolve_type.clone()) {
+            if let Ok(e) = resolver.resolve(domain, resolve_type) {
                 debug!("Found entry {e:?}");
                 entry = Some(e);
                 break;
@@ -179,7 +186,7 @@ impl Dns {
             resolver.announce(domain, &entry.clone().unwrap().clone());
         }
 
-        Ok(entry.unwrap().clone())
+        Ok(entry.unwrap())
     }
 }
 
@@ -196,25 +203,25 @@ mod test {
         let mut dns = Dns::new();
 
         let now = Instant::now();
-        let e = dns.resolve("example.org", ResolveType::Ipv4).unwrap();
+        let e = dns.resolve("example.org", &ResolveType::Ipv4).unwrap();
         let elapsed_time = now.elapsed();
         e.ipv4().iter().for_each(|x| println!("ipv4: {x}"));
         println!("Took {} microseconds.", elapsed_time.as_micros());
 
         let now = Instant::now();
-        let e = dns.resolve("example.org", ResolveType::Ipv6).unwrap();
+        let e = dns.resolve("example.org", &ResolveType::Ipv6).unwrap();
         let elapsed_time = now.elapsed();
         e.ipv6().iter().for_each(|x| println!("ipv6: {x}"));
         println!("Took {} microseconds.", elapsed_time.as_micros());
 
         let now = Instant::now();
-        let e = dns.resolve("example.org", ResolveType::Ipv4).unwrap();
+        let e = dns.resolve("example.org", &ResolveType::Ipv4).unwrap();
         let elapsed_time = now.elapsed();
         e.ipv4().iter().for_each(|x| println!("ipv4: {x}"));
         println!("Took {} microseconds.", elapsed_time.as_micros());
 
         let now = Instant::now();
-        let e = dns.resolve("example.org", ResolveType::Both).unwrap();
+        let e = dns.resolve("example.org", &ResolveType::Both).unwrap();
         let elapsed_time = now.elapsed();
         e.ipv4().iter().for_each(|x| println!("ipv4: {x}"));
         e.ipv6().iter().for_each(|x| println!("ipv6: {x}"));

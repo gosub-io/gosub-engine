@@ -16,3 +16,6 @@ cow-utils = "0.1.3"
 
 [lib]
 proc-macro = true
+
+[lints]
+workspace = true

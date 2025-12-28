@@ -2076,6 +2076,7 @@ dependencies = [
 name = "gosub_html5"
 version = "0.1.1"
 dependencies = [
+ "anyhow",
  "cow-utils",
  "criterion",
  "gosub_css3",

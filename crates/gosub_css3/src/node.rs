@@ -3,7 +3,7 @@ use gosub_shared::byte_stream::Location;
 
 pub type Number = f32;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FeatureKind {
     Media,
     Container,
@@ -185,7 +185,10 @@ impl Node {
     }
 
     #[must_use]
-    pub fn as_block(&self) -> &Vec<Node> {
+    /// # Panics
+    ///
+    /// Panics if the node is not of type `Block`.
+    pub fn as_block(&self) -> &Vec<Self> {
         match &&*self.node_type {
             &NodeType::Block { children } => children,
             _ => panic!("Node is not a block"),
@@ -203,7 +206,10 @@ impl Node {
     }
 
     #[must_use]
-    pub fn as_stylesheet(&self) -> &Vec<Node> {
+    /// # Panics
+    ///
+    /// Panics if the node is not of type `StyleSheet`.
+    pub fn as_stylesheet(&self) -> &Vec<Self> {
         match &&*self.node_type {
             &NodeType::StyleSheet { children } => children,
             _ => panic!("Node is not a stylesheet"),
@@ -211,7 +217,10 @@ impl Node {
     }
 
     #[must_use]
-    pub fn as_rule(&self) -> (&Option<Node>, &Option<Node>) {
+    /// # Panics
+    ///
+    /// Panics if the node is not of type `Rule`.
+    pub fn as_rule(&self) -> (&Option<Self>, &Option<Self>) {
         match &&*self.node_type {
             &NodeType::Rule { prelude, block } => (prelude, block),
             _ => panic!("Node is not a rule"),
@@ -224,7 +233,10 @@ impl Node {
     }
 
     #[must_use]
-    pub fn as_selector_list(&self) -> &Vec<Node> {
+    /// # Panics
+    ///
+    /// Panics if the node is not of type `SelectorList`.
+    pub fn as_selector_list(&self) -> &Vec<Self> {
         match &&*self.node_type {
             &NodeType::SelectorList { selectors } => selectors,
             _ => panic!("Node is not a selector list"),
@@ -237,7 +249,10 @@ impl Node {
     }
 
     #[must_use]
-    pub fn as_selector(&self) -> &Vec<Node> {
+    /// # Panics
+    ///
+    /// Panics if the node is not of type `Selector`.
+    pub fn as_selector(&self) -> &Vec<Self> {
         match &&*self.node_type {
             &NodeType::Selector { children } => children,
             _ => panic!("Node is not a selector"),
@@ -250,6 +265,9 @@ impl Node {
     }
 
     #[must_use]
+    /// # Panics
+    ///
+    /// Panics if the node is not of type `Ident`.
     pub fn as_ident(&self) -> &String {
         match &&*self.node_type {
             &NodeType::Ident { value } => value,
@@ -263,6 +281,9 @@ impl Node {
     }
 
     #[must_use]
+    /// # Panics
+    ///
+    /// Panics if the node is not of type `Number`.
     pub fn as_number(&self) -> &Number {
         match &&*self.node_type {
             &NodeType::Number { value } => value,
@@ -276,6 +297,9 @@ impl Node {
     }
 
     #[must_use]
+    /// # Panics
+    ///
+    /// Panics if the node is not of type `Hash`.
     pub fn as_hash(&self) -> &String {
         match &&*self.node_type {
             &NodeType::Hash { value } => value,
@@ -284,6 +308,9 @@ impl Node {
     }
 
     #[must_use]
+    /// # Panics
+    ///
+    /// Panics if the node is not of type `ClassSelector`.
     pub fn as_class_selector(&self) -> &String {
         match &&*self.node_type {
             &NodeType::ClassSelector { value } => value,
@@ -305,6 +332,9 @@ impl Node {
     }
 
     #[must_use]
+    /// # Panics
+    ///
+    /// Panics if the node is not of type `TypeSelector`.
     pub fn as_type_selector(&self) -> &String {
         match &&*self.node_type {
             &NodeType::TypeSelector { value, .. } => value,
@@ -326,7 +356,10 @@ impl Node {
     }
 
     #[must_use]
-    pub fn as_attribute_selector(&self) -> (&String, &Option<Node>, &String, &String) {
+    /// # Panics
+    ///
+    /// Panics if the node is not of type `AttributeSelector`.
+    pub fn as_attribute_selector(&self) -> (&String, &Option<Self>, &String, &String) {
         match &&*self.node_type {
             &NodeType::AttributeSelector {
                 name,
@@ -344,6 +377,9 @@ impl Node {
     }
 
     #[must_use]
+    /// # Panics
+    ///
+    /// Panics if the node is not of type `PseudoClassSelector`.
     pub fn as_pseudo_class_selector(&self) -> String {
         match &&*self.node_type {
             &NodeType::PseudoClassSelector { value } => value.to_string(),
@@ -357,6 +393,9 @@ impl Node {
     }
 
     #[must_use]
+    /// # Panics
+    ///
+    /// Panics if the node is not of type `PseudoElementSelector`.
     pub fn as_pseudo_element_selector(&self) -> &String {
         match &&*self.node_type {
             &NodeType::PseudoElementSelector { value } => value,
@@ -370,6 +409,9 @@ impl Node {
     }
 
     #[must_use]
+    /// # Panics
+    ///
+    /// Panics if the node is not of type `Combinator`.
     pub fn as_combinator(&self) -> &String {
         match &&*self.node_type {
             &NodeType::Combinator { value } => value,
@@ -383,6 +425,9 @@ impl Node {
     }
 
     #[must_use]
+    /// # Panics
+    ///
+    /// Panics if the node is not of type `Dimension`.
     pub fn as_dimension(&self) -> (&Number, &String) {
         match &&*self.node_type {
             &NodeType::Dimension { value, unit } => (value, unit),
@@ -396,6 +441,9 @@ impl Node {
     }
 
     #[must_use]
+    /// # Panics
+    ///
+    /// Panics if the node is not of type `IdSelector`.
     pub fn as_id_selector(&self) -> &String {
         match &&*self.node_type {
             &NodeType::IdSelector { value } => value,
@@ -409,7 +457,10 @@ impl Node {
     }
 
     #[must_use]
-    pub fn as_declaration(&self) -> (&String, &Vec<Node>, &bool) {
+    /// # Panics
+    ///
+    /// Panics if the node is not of type `Declaration`.
+    pub fn as_declaration(&self) -> (&String, &Vec<Self>, &bool) {
         match &&*self.node_type {
             &NodeType::Declaration {
                 property,
@@ -433,13 +484,16 @@ impl Display for Node {
                 .iter()
                 .map(std::string::ToString::to_string)
                 .collect::<String>(),
-            NodeType::IdSelector { value } => value.clone(),
-            NodeType::Ident { value } => value.clone(),
+            NodeType::IdSelector { value }
+            | NodeType::Ident { value }
+            | NodeType::String { value }
+            | NodeType::Operator(value)
+            | NodeType::Combinator { value }
+            | NodeType::Raw { value } => value.clone(),
             NodeType::Number { value } => value.to_string(),
             NodeType::Percentage { value } => format!("{value}%"),
             NodeType::Dimension { value, unit } => format!("{value}{unit}"),
-            NodeType::Hash { value } => format!("#{}", value.clone()),
-            NodeType::String { value } => value.clone(),
+            NodeType::Hash { value } => format!("#{value}"),
             NodeType::Url { url } => url.clone(),
             NodeType::Function { name, arguments } => {
                 let args = arguments
@@ -460,13 +514,11 @@ impl Display for Node {
             }
             NodeType::PseudoClassSelector { value } => format!(":{value}"),
             NodeType::PseudoElementSelector { value } => format!("::{value}"),
-            NodeType::Operator(value) => value.clone(),
             NodeType::ClassSelector { value } => format!(".{value}"),
             NodeType::TypeSelector { namespace, value } => {
                 let ns = namespace.as_ref().map_or(String::new(), |ns| format!("{ns}|"));
                 format!("{ns}{value}")
             }
-            NodeType::Combinator { value } => value.clone(),
             NodeType::Nth { nth, selector } => {
                 let sel = selector
                     .as_ref()
@@ -475,7 +527,6 @@ impl Display for Node {
             }
             NodeType::AnPlusB { a, b } => format!("{a}n+{b}"),
             NodeType::Calc { expr } => format!("calc({expr})"),
-            NodeType::Raw { value } => value.clone(),
 
             _ => {
                 String::new()

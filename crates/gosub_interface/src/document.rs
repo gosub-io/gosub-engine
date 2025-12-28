@@ -7,7 +7,7 @@ use std::fmt::{Debug, Display};
 use url::Url;
 
 /// Type of the given document
-#[derive(PartialEq, Debug, Copy, Clone)]
+#[derive(PartialEq, Eq, Debug, Copy, Clone)]
 pub enum DocumentType {
     /// HTML document
     HTML,

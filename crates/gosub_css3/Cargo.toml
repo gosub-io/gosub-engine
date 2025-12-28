@@ -26,3 +26,6 @@ indexmap = { version = "2.9.0", optional = true }
 [features]
 default = []
 unresolved_syntax = ["dep:indexmap"]
+
+[lints]
+workspace = true

@@ -50,8 +50,8 @@ impl std::str::FromStr for Engine {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "sqlite" => Ok(Engine::Sqlite),
-            "json" => Ok(Engine::Json),
+            "sqlite" => Ok(Self::Sqlite),
+            "json" => Ok(Self::Json),
             _ => Err(anyhow!("problem reading config")),
         }
     }
@@ -97,7 +97,7 @@ fn main() -> anyhow::Result<()> {
             }
         }
         Commands::Set { key, value } => {
-            config_store().set(&key, Setting::from_str(&value).expect("incorrect value"));
+            config_store().set(&key, Setting::from_str(&value).unwrap());
         }
         Commands::Search { key } => {
             for key in config_store().find(&key) {

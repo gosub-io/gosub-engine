@@ -4,12 +4,12 @@ use syn::{Attribute, LitStr, Meta};
 use crate::types::executor::Executor;
 use crate::types::{GenericProperty, Primitive};
 
-pub(crate) struct FieldProperty {
+pub struct FieldProperty {
     pub(crate) rename: Option<String>,
     pub(crate) executor: Executor,
 }
 
-pub(crate) struct FunctionProperty {
+pub struct FunctionProperty {
     pub(crate) rename: Option<String>,
     pub(crate) executor: Executor,
     pub(crate) generics: Vec<GenericProperty>,
@@ -35,13 +35,13 @@ impl Default for FunctionProperty {
 }
 
 impl FieldProperty {
-    pub(crate) fn parse(attrs: &mut Vec<Attribute>) -> Option<FieldProperty> {
+    pub(crate) fn parse(attrs: &mut Vec<Attribute>) -> Option<Self> {
         let mut remove_attrs = None;
         let mut property = None;
 
         for (index, attr) in attrs.iter().enumerate() {
             if attr.path().is_ident("property") {
-                property = Some(FieldProperty {
+                property = Some(Self {
                     rename: None,
                     executor: Executor::Both,
                 });
@@ -109,13 +109,13 @@ impl FieldProperty {
 }
 
 impl FunctionProperty {
-    pub(crate) fn parse(attrs: &mut Vec<Attribute>) -> Option<FunctionProperty> {
+    pub(crate) fn parse(attrs: &mut Vec<Attribute>) -> Option<Self> {
         let mut remove_attrs = Vec::new();
         let mut property = None;
 
         for (index, attr) in attrs.iter().enumerate() {
             if attr.path().is_ident("property") {
-                property = Some(FunctionProperty::default());
+                property = Some(Self::default());
 
                 match &attr.meta {
                     Meta::Path(_) => {}
@@ -172,7 +172,7 @@ impl FunctionProperty {
 
             if attr.path().is_ident("generic") {
                 if property.is_none() {
-                    property = Some(FunctionProperty::default());
+                    property = Some(Self::default());
                 }
 
                 if matches!(attr.meta, Meta::List(_)) {
@@ -195,7 +195,7 @@ impl FunctionProperty {
                     })
                     .unwrap();
 
-                    let param = param.expect("Expected param in generic attribute");
+                    let param = param.unwrap();
 
                     property
                         .as_mut()

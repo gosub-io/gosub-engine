@@ -42,11 +42,11 @@ fn build_ui(app: &Application) {
     let _ = font_context
         .font_manager
         .find(&["comic sans ms"], FontStyle::Normal)
-        .expect("Failed to find font Comic Sans MS");
+        .unwrap();
     let _ = font_context
         .font_manager
         .find(&["Arial"], FontStyle::Normal)
-        .expect("Failed to find font Arial");
+        .unwrap();
 
     let fonts = ["arial", "verdana", "comic sans ms", "webdings"];
     let current_font_idx = Rc::new(RefCell::new(0));
@@ -73,8 +73,8 @@ fn build_ui(app: &Application) {
         // Layout works nicely with bounding boxes and alignment, but I can't seem to get the font face to render
         let layout = create_layout(gtk_cr);
 
-        let idx1 = *font_idx_clone.clone().borrow() % fonts.len();
-        let idx2 = (*font_idx_clone.clone().borrow() + 1) % fonts.len();
+        let idx1 = *Rc::clone(&font_idx_clone).borrow() % fonts.len();
+        let idx2 = (*Rc::clone(&font_idx_clone).borrow() + 1) % fonts.len();
         let fs = *font_size_clone.borrow();
 
         let fi = font_context

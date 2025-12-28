@@ -26,7 +26,7 @@ impl<T: Future<Output = ()>, C: PollCallback> Future for PollGuard<T, C> {
 }
 
 impl<F: Future<Output = ()>, C: PollCallback> PollGuard<F, C> {
-    pub fn new(fut: F, cb: C) -> Self {
+    pub const fn new(fut: F, cb: C) -> Self {
         Self { cb, fut }
     }
 }

@@ -20,9 +20,7 @@ impl MemoryStorageAdapter {
 
 impl StorageAdapter for MemoryStorageAdapter {
     fn get(&self, key: &str) -> Option<Setting> {
-        let lock = self.settings.lock().unwrap();
-        let v = lock.get(key);
-        v.cloned()
+        self.settings.lock().unwrap().get(key).cloned()
     }
 
     fn set(&self, key: &str, value: Setting) {

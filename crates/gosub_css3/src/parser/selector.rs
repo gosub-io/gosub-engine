@@ -40,7 +40,7 @@ impl Css3<'_> {
 
         let loc = self.tokenizer.current_location();
 
-        self.consume(TokenType::Delim('.'))?;
+        self.consume(&TokenType::Delim('.'))?;
 
         let value = self.consume_any_ident()?;
 
@@ -52,7 +52,7 @@ impl Css3<'_> {
 
         let loc = self.tokenizer.current_location();
 
-        self.consume(TokenType::Delim('&'))?;
+        self.consume(&TokenType::Delim('&'))?;
 
         Ok(Node::new(NodeType::NestingSelector, loc))
     }
@@ -120,7 +120,7 @@ impl Css3<'_> {
         let mut matcher = None;
         let mut value = String::new();
 
-        self.consume(TokenType::LBracket)?;
+        self.consume(&TokenType::LBracket)?;
         self.consume_whitespace_comments();
 
         let name = self.consume_any_ident()?;
@@ -156,7 +156,7 @@ impl Css3<'_> {
             }
         }
 
-        self.consume(TokenType::RBracket)?;
+        self.consume(&TokenType::RBracket)?;
         self.consume_whitespace_comments();
 
         Ok(Node::new(
@@ -175,17 +175,14 @@ impl Css3<'_> {
 
         let loc = self.tokenizer.current_location();
 
-        self.consume(TokenType::Delim('#'))?;
+        self.consume(&TokenType::Delim('#'))?;
 
         let t = self.consume_any()?;
-        let value = match t.token_type {
-            TokenType::Ident(s) => s,
-            _ => {
-                return Err(CssError::with_location(
-                    format!("Unexpected token {t:?}").as_str(),
-                    self.tokenizer.current_location(),
-                ));
-            }
+        let TokenType::Ident(value) = t.token_type else {
+            return Err(CssError::with_location(
+                format!("Unexpected token {t:?}").as_str(),
+                self.tokenizer.current_location(),
+            ));
         };
 
         Ok(Node::new(NodeType::IdSelector { value }, loc))
@@ -196,8 +193,8 @@ impl Css3<'_> {
 
         let loc = self.tokenizer.current_location();
 
-        self.consume(TokenType::Colon)?;
-        self.consume(TokenType::Colon)?;
+        self.consume(&TokenType::Colon)?;
+        self.consume(&TokenType::Colon)?;
 
         let t = self.tokenizer.lookahead(0);
         let value = if t.is_ident() {
@@ -217,7 +214,7 @@ impl Css3<'_> {
 
         let loc = self.tokenizer.current_location();
 
-        self.consume(TokenType::Colon)?;
+        self.consume(&TokenType::Colon)?;
 
         let t = self.tokenizer.consume();
         let value = match t.token_type {
@@ -225,7 +222,7 @@ impl Css3<'_> {
             TokenType::Function(name) => {
                 let name = name.cow_to_lowercase();
                 let args = self.parse_pseudo_function(name.as_ref())?;
-                self.consume(TokenType::RParen)?;
+                self.consume(&TokenType::RParen)?;
 
                 Node::new(
                     NodeType::Function {
@@ -288,12 +285,11 @@ impl Css3<'_> {
                 }
                 TokenType::Hash(value) => Node::new(NodeType::IdSelector { value }, t.location),
                 TokenType::Colon => {
+                    self.tokenizer.reconsume();
                     let nt = self.tokenizer.lookahead(0);
                     if nt.token_type == TokenType::Colon {
-                        self.tokenizer.reconsume();
                         self.parse_pseudo_element_selector()?
                     } else {
-                        self.tokenizer.reconsume();
                         self.parse_pseudo_selector()?
                     }
                 }

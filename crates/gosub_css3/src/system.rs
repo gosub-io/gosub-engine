@@ -82,8 +82,8 @@ impl CssSystem for Css3System {
                         }
 
                         let value = if let CssValue::List(mut value) = value {
-                            if value.len() == 1 {
-                                value.pop().expect("unreachable")
+                            if value.len() ==1 {
+                                value.pop().unwrap_or(CssValue::None)
                             } else {
                                 CssValue::List(value)
                             }
@@ -175,6 +175,9 @@ pub fn prop_is_inherit(name: &str) -> bool {
         .is_some_and(|def| def.inherited)
 }
 
+/// # Panics
+///
+/// Panics if there's an internal error accessing the property map (this should never happen in normal operation).
 pub fn add_property_to_map(
     css_map_entry: &mut CssProperties,
     sheet: &crate::stylesheet::CssStylesheet,

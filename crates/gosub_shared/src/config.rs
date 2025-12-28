@@ -1,7 +1,7 @@
 use crate::byte_stream::Location;
 
 /// Context defines how the data needs to be parsed
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Context {
     Stylesheet,
     Rule,

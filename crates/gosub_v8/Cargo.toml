@@ -16,3 +16,6 @@ serde_json = "1.0.137"
 
 [dev-dependencies]
 gosub_webinterop = { version = "0.1.1", registry = "gosub", path = "../gosub_webinterop" }
+
+[lints]
+workspace = true

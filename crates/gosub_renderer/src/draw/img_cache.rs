@@ -26,8 +26,7 @@ impl<B: RenderBackend> ImgCache<B> for ImageCache<B> {
 
     fn get(&self, url: &str) -> ImageCacheEntry<'_, B> {
         match self.cache.get(url) {
-            Some(Entry::Image(img)) => ImageCacheEntry::Image(img),
-            Some(Entry::SizedImg(_, img)) => ImageCacheEntry::Image(img),
+            Some(Entry::Image(img) | Entry::SizedImg(_, img)) => ImageCacheEntry::Image(img),
             Some(Entry::Pending) => ImageCacheEntry::Pending,
             None => ImageCacheEntry::None,
         }
@@ -43,7 +42,7 @@ enum Entry<B: RenderBackend> {
 }
 
 impl<B: RenderBackend> Entry<B> {
-    fn new(img: ImageBuffer<B>, size: Option<SizeU32>) -> Self {
+    const fn new(img: ImageBuffer<B>, size: Option<SizeU32>) -> Self {
         if let Some(size) = size {
             Self::SizedImg(size, img)
         } else {

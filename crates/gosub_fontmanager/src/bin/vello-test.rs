@@ -57,8 +57,8 @@ impl ApplicationHandler for App<'_> {
         let size = window.inner_size();
         let surface_future =
             self.render_ctx
-                .create_surface(window.clone(), size.width, size.height, wgpu::PresentMode::AutoVsync);
-        let surface = pollster::block_on(surface_future).expect("Failed to create surface");
+                .create_surface(Arc::clone(&window), size.width, size.height, wgpu::PresentMode::AutoVsync);
+        let surface = pollster::block_on(surface_future).unwrap();
 
         let dev_handle = &self.render_ctx.devices[surface.dev_id];
 
@@ -120,7 +120,7 @@ impl ApplicationHandler for App<'_> {
                 let surface_texture = surface
                     .surface
                     .get_current_texture()
-                    .expect("Failed to get current texture");
+                    .unwrap();
                 let render_params = RenderParams {
                     base_color: color::palette::css::YELLOW_GREEN,
                     width,

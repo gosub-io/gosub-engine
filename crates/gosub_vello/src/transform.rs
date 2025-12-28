@@ -10,7 +10,7 @@ pub struct Transform(pub(crate) Affine);
 
 impl From<Affine> for Transform {
     fn from(transform: Affine) -> Self {
-        Transform(transform)
+        Self(transform)
     }
 }
 
@@ -18,7 +18,7 @@ impl Mul<Self> for Transform {
     type Output = Self;
 
     fn mul(self, rhs: Self) -> Self::Output {
-        Transform(self.0 * rhs.0)
+        Self(self.0 * rhs.0)
     }
 }
 
@@ -29,9 +29,9 @@ impl MulAssign for Transform {
 }
 
 impl TTransform for Transform {
-    const IDENTITY: Self = Transform(Affine::IDENTITY);
-    const FLIP_X: Self = Transform(Affine::FLIP_X);
-    const FLIP_Y: Self = Transform(Affine::FLIP_Y);
+    const IDENTITY: Self = Self(Affine::IDENTITY);
+    const FLIP_X: Self = Self(Affine::FLIP_X);
+    const FLIP_Y: Self = Self(Affine::FLIP_Y);
 
     fn scale(s: FP) -> Self {
         Affine::scale(f64::from(s)).into()
