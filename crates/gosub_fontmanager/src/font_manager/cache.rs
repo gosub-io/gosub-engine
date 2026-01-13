@@ -1,7 +1,7 @@
 use crate::font_manager::font_info::FontInfo;
 use gosub_interface::font::FontStyle;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, LazyLock};
+use std::sync::{Arc, LazyLock, Mutex};
 
 #[allow(dead_code)]
 pub static FONT_CACHE: LazyLock<Arc<Mutex<MemoryCache>>> = LazyLock::new(|| Arc::new(Mutex::new(MemoryCache::new())));

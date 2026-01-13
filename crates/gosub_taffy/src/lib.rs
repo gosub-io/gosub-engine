@@ -196,14 +196,17 @@ impl<C: HasLayouter<Layouter = TaffyLayouter>> TraversePartialTree for LayoutDoc
     fn child_ids(&self, parent: TaffyId) -> Self::ChildIter<'_> {
         let parent = <C::LayoutTree as LayoutTree<C>>::NodeId::from(parent.into());
 
-        self.0.children(parent).map_or_else(|| Vec::new().into_iter(), |children| {
-            children
-                .iter()
-                .filter(|id| self.0.contains(id)) //FIXME: This is a hack, we should not have to filter out non-existing nodes
-                .map(|id| TaffyId::from(Into::into(*id)))
-                .collect::<Vec<_>>()
-                .into_iter()
-        })
+        self.0.children(parent).map_or_else(
+            || Vec::new().into_iter(),
+            |children| {
+                children
+                    .iter()
+                    .filter(|id| self.0.contains(id)) //FIXME: This is a hack, we should not have to filter out non-existing nodes
+                    .map(|id| TaffyId::from(Into::into(*id)))
+                    .collect::<Vec<_>>()
+                    .into_iter()
+            },
+        )
     }
 
     fn child_count(&self, parent: TaffyId) -> usize {
@@ -215,15 +218,18 @@ impl<C: HasLayouter<Layouter = TaffyLayouter>> TraversePartialTree for LayoutDoc
     fn get_child_id(&self, parent: TaffyId, index: usize) -> TaffyId {
         let parent = <C::LayoutTree as LayoutTree<C>>::NodeId::from(parent.into());
 
-        self.0.children(parent).map_or_else(|| TaffyId::from(0u64), |node| {
-            TaffyId::from(
-                node.into_iter()
-                    .filter(|id| self.0.contains(id)) //FIXME: This is a hack, we should not have to filter out non-existing nodes
-                    .nth(index)
-                    .map(Into::into)
-                    .unwrap_or_default(),
-            )
-        })
+        self.0.children(parent).map_or_else(
+            || TaffyId::from(0u64),
+            |node| {
+                TaffyId::from(
+                    node.into_iter()
+                        .filter(|id| self.0.contains(id)) //FIXME: This is a hack, we should not have to filter out non-existing nodes
+                        .nth(index)
+                        .map(Into::into)
+                        .unwrap_or_default(),
+                )
+            },
+        )
     }
 }
 
@@ -252,7 +258,7 @@ impl<C: HasLayouter<Layouter = TaffyLayouter>> LayoutDocument<'_, C> {
         let cache = self
             .0
             .get_cache(node_id)
-            .unwrap();
+            .expect("Cache not found, why again does taffy don't use optionals?");
 
         &cache.style
     }
@@ -278,9 +284,7 @@ impl<C: HasLayouter<Layouter = TaffyLayouter>> CacheTree for LayoutDocument<'_, 
         run_mode: RunMode,
     ) -> Option<LayoutOutput> {
         let node_id = <C::LayoutTree as LayoutTree<C>>::NodeId::from(node_id.into());
-        let cache = self
-            .0
-            .get_cache(node_id)?;
+        let cache = self.0.get_cache(node_id)?;
 
         cache.taffy.get(known_dimensions, available_space, run_mode)
     }
@@ -297,9 +301,11 @@ impl<C: HasLayouter<Layouter = TaffyLayouter>> CacheTree for LayoutDocument<'_, 
         let cache = self
             .0
             .get_cache_mut(node_id)
-            .unwrap();
+            .expect("Cache not found, why again does taffy don't use optionals?");
 
-        cache.taffy.store(known_dimensions, available_space, run_mode, layout_output);
+        cache
+            .taffy
+            .store(known_dimensions, available_space, run_mode, layout_output);
     }
 
     fn cache_clear(&mut self, node_id: TaffyId) {
@@ -307,7 +313,7 @@ impl<C: HasLayouter<Layouter = TaffyLayouter>> CacheTree for LayoutDocument<'_, 
         let cache = self
             .0
             .get_cache_mut(node_id)
-            .unwrap();
+            .expect("Cache not found, why again does taffy don't use optionals?");
 
         cache.taffy.clear();
     }

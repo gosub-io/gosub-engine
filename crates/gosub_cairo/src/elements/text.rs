@@ -146,8 +146,11 @@ fn create_memory_font_face(font: &FontBlob) -> Result<FontFace, cairo::Error> {
 
     // Create an in-memory font face from the font data
     let mut face = LIB_FONT_FACE.with(|lib| {
-        lib.new_memory_face2(BlobWrapper(Arc::<dyn AsRef<[u8]> + Send + Sync>::clone(&font.data)), font.index as isize)
-            .unwrap()
+        lib.new_memory_face2(
+            BlobWrapper(Arc::<dyn AsRef<[u8]> + Send + Sync>::clone(&font.data)),
+            font.index as isize,
+        )
+        .unwrap()
     });
 
     // SAFETY: The user data entry keeps `freetype::face::Face` alive

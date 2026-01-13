@@ -195,7 +195,7 @@ impl FunctionProperty {
                     })
                     .unwrap();
 
-                    let param = param.unwrap();
+                    let param = param.expect("Expected param in generic attribute");
 
                     property
                         .as_mut()

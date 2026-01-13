@@ -40,9 +40,7 @@ fn main() {
 
     let library = Library::init().unwrap();
     let path = font_info.path.unwrap();
-    let face = library
-        .new_face(path, font_info.index.unwrap_or(0) as isize)
-        .unwrap();
+    let face = library.new_face(path, font_info.index.unwrap_or(0) as isize).unwrap();
 
     char_to_svg(&face, TEST_STRING);
 }

@@ -49,7 +49,7 @@ fn main() -> Result<()> {
             for &scripting_enabled in test.script_modes() {
                 let result = harness
                     .run_test::<Config>(test.clone(), scripting_enabled)
-                    .unwrap();
+                    .expect("problem parsing");
 
                 total += 1;
 

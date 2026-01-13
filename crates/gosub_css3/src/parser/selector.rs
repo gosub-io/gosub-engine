@@ -99,7 +99,7 @@ impl Css3<'_> {
 
         let (namespace, ident) = match value.split_once('|') {
             Some((namespace, ident)) => (Some(namespace.to_string()), ident.to_string()),
-            None => (None, value.to_string()),
+            None => (None, value.clone()),
         };
 
         Ok(Node::new(

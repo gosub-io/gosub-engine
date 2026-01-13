@@ -47,7 +47,7 @@ static CONFIG_STORE: LazyLock<RwLock<ConfigStore>> = LazyLock::new(|| RwLock::ne
 /// # Panics
 /// Panics if the lock is poisoned
 pub fn config_store() -> std::sync::RwLockReadGuard<'static, ConfigStore> {
-    CONFIG_STORE.read().unwrap()
+    CONFIG_STORE.read().expect("config store lock poisoned")
 }
 
 /// Returns a writable reference to the config store.
@@ -55,7 +55,7 @@ pub fn config_store() -> std::sync::RwLockReadGuard<'static, ConfigStore> {
 /// # Panics
 /// Panics if the lock is poisoned
 pub fn config_store_write() -> std::sync::RwLockWriteGuard<'static, ConfigStore> {
-    CONFIG_STORE.write().unwrap()
+    CONFIG_STORE.write().expect("config store lock poisoned")
 }
 
 /// These macro's can be used to simplify the calls to the config store. You can simply do:
@@ -68,51 +68,41 @@ pub fn config_store_write() -> std::sync::RwLockWriteGuard<'static, ConfigStore>
 #[allow(clippy::crate_in_macro_def)]
 #[macro_export]
 macro_rules! config {
-    (string $key:expr) => {
-        {
-            let value = config_store().get($key);
-            match value {
-                Some(setting) => setting.to_string(),
-                None => String::new(),
-            }
+    (string $key:expr) => {{
+        let value = config_store().get($key);
+        match value {
+            Some(setting) => setting.to_string(),
+            None => String::new(),
         }
-    };
-    (bool $key:expr) => {
-        {
-            let value = config_store().get($key);
-            match value {
-                Some(setting) => setting.to_bool(),
-                None => false,
-            }
+    }};
+    (bool $key:expr) => {{
+        let value = config_store().get($key);
+        match value {
+            Some(setting) => setting.to_bool(),
+            None => false,
         }
-    };
-    (uint $key:expr) => {
-        {
-            let value = config_store().get($key);
-            match value {
-                Some(setting) => setting.to_uint(),
-                None => 0,
-            }
+    }};
+    (uint $key:expr) => {{
+        let value = config_store().get($key);
+        match value {
+            Some(setting) => setting.to_uint(),
+            None => 0,
         }
-    };
-    (sint $key:expr) => {
-        {
-            let value = config_store().get($key);
-            match value {
-                Some(setting) => setting.to_sint(),
-                None => 0,
-            }
+    }};
+    (sint $key:expr) => {{
+        let value = config_store().get($key);
+        match value {
+            Some(setting) => setting.to_sint(),
+            None => 0,
         }
-    };
-    (map $key:expr) => {
-        {
-            let value = config_store().get($key);
-            match value {
-                Some(setting) => setting.to_map(),
-                None => Vec::new(),
-            }
+    }};
+    (map $key:expr) => {{
+        let value = config_store().get($key);
+        match value {
+            Some(setting) => setting.to_map(),
+            None => Vec::new(),
         }
-    };
+    }};
 }
 
 #[allow(clippy::crate_in_macro_def)]
@@ -189,7 +179,11 @@ impl ConfigStore {
         // Find all keys, and add them to the configuration store
         if let Ok(all_settings) = self.storage.all() {
             for (key, value) in all_settings {
-                self.settings.lock().unwrap().borrow_mut().insert(key, value);
+                self.settings
+                    .lock()
+                    .expect("settings lock poisoned")
+                    .borrow_mut()
+                    .insert(key, value);
             }
         }
     }
@@ -199,7 +193,11 @@ impl ConfigStore {
     /// # Panics
     /// Panics if the lock is poisoned
     pub fn has(&self, key: &str) -> bool {
-        self.settings.lock().unwrap().borrow().contains_key(key)
+        self.settings
+            .lock()
+            .expect("settings lock poisoned")
+            .borrow()
+            .contains_key(key)
     }
 
     /// Returns a list of keys that matches the given search string (can use ? and *) for search
@@ -231,7 +229,7 @@ impl ConfigStore {
     /// # Panics
     /// Panics if the key is unknown and no default value exists, or if the lock is poisoned
     pub fn get(&self, key: &str) -> Option<Setting> {
-        if let Some(setting) = self.settings.lock().unwrap().borrow().get(key) {
+        if let Some(setting) = self.settings.lock().expect("settings lock poisoned").borrow().get(key) {
             return Some(setting.clone());
         }
 
@@ -239,7 +237,7 @@ impl ConfigStore {
         if let Some(setting) = self.storage.get(key) {
             self.settings
                 .lock()
-                .unwrap()
+                .expect("settings lock poisoned")
                 .borrow_mut()
                 .insert(key.to_string(), setting.clone());
             return Some(setting);
@@ -274,7 +272,7 @@ impl ConfigStore {
 
         self.settings
             .lock()
-            .unwrap()
+            .expect("settings lock poisoned")
             .borrow_mut()
             .insert(key.to_owned(), value.clone());
 
@@ -287,8 +285,7 @@ impl ConfigStore {
 
         if let Value::Object(data) = json_data {
             for (section_prefix, section_entries) in &data {
-                let section_entries: Vec<JsonEntry> =
-                    serde_json::from_value(section_entries.clone())?;
+                let section_entries: Vec<JsonEntry> = serde_json::from_value(section_entries.clone())?;
 
                 for entry in section_entries {
                     let key = format!("{}.{}", section_prefix, entry.key);
@@ -304,7 +301,7 @@ impl ConfigStore {
                     self.settings_info.insert(key.clone(), info.clone());
                     self.settings
                         .lock()
-                        .unwrap()
+                        .expect("settings lock poisoned")
                         .borrow_mut()
                         .insert(key.clone(), info.default.clone());
                 }

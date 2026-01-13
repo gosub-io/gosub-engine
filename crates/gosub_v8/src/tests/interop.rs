@@ -1,3 +1,5 @@
+#![allow(clippy::redundant_clone, clippy::clone_on_ref_ptr)]
+
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -94,6 +96,7 @@ impl TestStruct {
 }
 */
 
+#[allow(dead_code)]
 trait T1 {}
 
 impl T1 for i32 {}
@@ -132,7 +135,7 @@ fn macro_interop() {
         calls.push([TestStruct.uses_ctx(), TestStruct.field, TestStruct.field2])
         calls.push([TestStruct.generic(1, "hello"), TestStruct.field, TestStruct.field2])
         calls.push([TestStruct.generic2(1, 2), TestStruct.field, TestStruct.field2])
-        
+
         calls
         "#,
         )
@@ -182,20 +185,22 @@ impl Test2 {
         self.field += other;
     }
 
-    fn concat(&self, other: String) -> String {
-        self.other_field.clone() + &other
+    fn concat(&self, other: &str) -> String {
+        self.other_field.clone() + other
     }
 
     fn takes_ref(&self, other: &String) -> String {
         self.other_field.clone() + other
     }
 
+    #[allow(unused_variables, clippy::unused_self)]
     fn variadic<A: VariadicArgs>(&self, nums: &A) {
         for a in nums.as_vec() {
             println!("got an arg...: {}", a.as_string().unwrap());
         }
     }
 
+    #[allow(unused_variables, clippy::unused_self)]
     fn generic<A: I32, B: U64>(&self, val: A, _val2: B) -> A {
         val
     }
@@ -372,12 +377,12 @@ impl JSInterop for Test2 {
                     return;
                 };
 
-                let Ok(arg0) = arg0.to_rust_value() else {
+                let Ok(arg0): std::result::Result<String, _> = arg0.to_rust_value() else {
                     cb.error("failed to convert argument");
                     return;
                 };
 
-                let ret = s.borrow().concat(arg0).to_web_value(ctx.clone()).unwrap();
+                let ret = s.borrow().concat(&arg0).to_web_value(ctx.clone()).unwrap();
 
                 cb.ret(ret);
             })?
@@ -540,5 +545,5 @@ fn manual_js_interop() {
         .unwrap();
 
     println!("JS: {out}");
-    println!("Rust: {:?}", t2.borrow())
+    println!("Rust: {:?}", t2.borrow());
 }

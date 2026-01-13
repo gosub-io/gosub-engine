@@ -48,7 +48,7 @@ fn main() -> Result<()> {
     let debug = matches.get_flag("debug");
     let ignore_errors = matches.get_flag("ignore-errors");
     let match_values = matches.get_flag("match-values");
-    let url: String = matches.get_one::<String>("url").unwrap().to_string();
+    let url: String = matches.get_one::<String>("url").expect("url").clone();
     let display_tokenizer = matches.get_flag("tokenizer");
 
     let css = if url.starts_with("http://") || url.starts_with("https://") {

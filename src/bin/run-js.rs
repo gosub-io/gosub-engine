@@ -4,7 +4,7 @@ use gosub_webexecutor::js::{WebContext, WebRuntime, WebValue};
 use std::env::args;
 
 fn main() -> Result<()> {
-    let file = args().nth(1).unwrap();
+    let file = args().nth(1).expect("no file given");
 
     let mut runtime = V8Engine::new();
     let mut ctx: V8Context = runtime.new_context()?;

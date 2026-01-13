@@ -15,10 +15,10 @@ impl Css3<'_> {
             TokenType::Ident(ident) => Ok(Node::new(NodeType::Ident { value: ident }, loc)),
             TokenType::Number(value) => Ok(Node::new(NodeType::Number { value }, loc)),
             TokenType::Dimension { value, unit } => Ok(Node::new(NodeType::Dimension { value, unit }, loc)),
-                TokenType::Function(name) => {
-                    let name = name.cow_to_lowercase();
-                    let args = self.parse_pseudo_function(name.as_ref())?;
-                    self.consume(&TokenType::RParen)?;
+            TokenType::Function(name) => {
+                let name = name.cow_to_lowercase();
+                let args = self.parse_pseudo_function(name.as_ref())?;
+                self.consume(&TokenType::RParen)?;
 
                 Ok(Node::new(
                     NodeType::Function {

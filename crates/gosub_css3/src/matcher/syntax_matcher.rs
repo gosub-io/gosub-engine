@@ -1063,13 +1063,9 @@ mod tests {
         assert_true!(tree.matches(&[str!("foo"), str!("baz"),]));
         assert_true!(tree.matches(&[str!("foo"), str!("bar"), str!("baz"),]));
 
-        assert_false!(tree
-            
-            .matches(&[str!("foo"), str!("bar"), str!("bar"), str!("baz"),]));
+        assert_false!(tree.matches(&[str!("foo"), str!("bar"), str!("bar"), str!("baz"),]));
 
-        assert_false!(tree
-            
-            .matches(&[str!("foo"), str!("bar"), str!("baz"), str!("baz"),]));
+        assert_false!(tree.matches(&[str!("foo"), str!("bar"), str!("baz"), str!("baz"),]));
     }
 
     #[test]
@@ -1140,9 +1136,7 @@ mod tests {
         assert_false!(tree.matches(&[str!("bar")]));
         assert_true!(tree.matches(&[str!("foo"), str!("bar"),]));
         assert_true!(tree.matches(&[str!("foo"), str!("bar"), str!("bar"),]));
-        assert_true!(tree
-            
-            .matches(&[str!("foo"), str!("foo"), str!("bar"), str!("bar"),]));
+        assert_true!(tree.matches(&[str!("foo"), str!("foo"), str!("bar"), str!("bar"),]));
 
         assert_false!(tree.matches(&[str!("bar"), str!("foo"),]));
     }
@@ -1154,12 +1148,8 @@ mod tests {
         assert_false!(tree.matches(&[str!("foo")]));
         assert_true!(tree.matches(&[str!("foo"), str!("bar"), str!("baz"),]));
         assert_false!(tree.matches(&[str!("foo"), str!("baz"),]));
-        assert_true!(tree
-            
-            .matches(&[str!("foo"), str!("bar"), str!("bar"), str!("baz"),]));
-        assert_true!(tree
-            
-            .matches(&[str!("foo"), str!("bar"), str!("bar"), str!("bar"), str!("baz"),]));
+        assert_true!(tree.matches(&[str!("foo"), str!("bar"), str!("bar"), str!("baz"),]));
+        assert_true!(tree.matches(&[str!("foo"), str!("bar"), str!("bar"), str!("bar"), str!("baz"),]));
         assert_false!(tree.matches(&[
             str!("foo"),
             str!("bar"),
@@ -1182,9 +1172,7 @@ mod tests {
         assert_true!(tree.matches(&[str!("foo")]));
         assert_true!(tree.matches(&[str!("foo"), str!("bar"),]));
         assert_true!(tree.matches(&[str!("foo"), str!("bar"), str!("bar"),]));
-        assert_false!(tree
-            
-            .matches(&[str!("foo"), str!("bar"), str!("bar"), str!("bar"), str!("bar"),]));
+        assert_false!(tree.matches(&[str!("foo"), str!("bar"), str!("bar"), str!("bar"), str!("bar"),]));
         assert_false!(tree.matches(&[str!("bar"), str!("foo"),]));
     }
 

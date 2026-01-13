@@ -124,9 +124,7 @@ pub fn convert_ast_to_stylesheet(css_ast: &CssNode, origin: CssOrigin, url: &str
                         }
                         NodeType::IdSelector { value } => CssSelectorPart::Id(value.clone()),
                         NodeType::PseudoClassSelector { value, .. } => CssSelectorPart::PseudoClass(value.to_string()),
-                        NodeType::PseudoElementSelector { value, .. } => {
-                            CssSelectorPart::PseudoElement(value.to_string())
-                        }
+                        NodeType::PseudoElementSelector { value, .. } => CssSelectorPart::PseudoElement(value.clone()),
                         NodeType::AttributeSelector {
                             name,
                             value,

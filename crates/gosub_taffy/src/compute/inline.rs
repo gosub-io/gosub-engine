@@ -409,13 +409,15 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
     };
 
     let mut current_node_idx = 0;
-    let mut current_node_id = <C::LayoutTree as LayoutTree<C>>::NodeId::from(0);
-    let mut current_to = 0;
-
-    if let Some(first) = text_node_data.first() {
-        current_node_id = <C::LayoutTree as LayoutTree<C>>::NodeId::from(first.id.into());
-        current_to = first.to;
-    }
+    let (mut current_node_id, mut current_to) = text_node_data.first().map_or_else(
+        || (<C::LayoutTree as LayoutTree<C>>::NodeId::from(0), 0),
+        |first| {
+            (
+                <C::LayoutTree as LayoutTree<C>>::NodeId::from(first.id.into()),
+                first.to,
+            )
+        },
+    );
 
     let mut current_glyph_idx = 0;
 
@@ -586,16 +588,6 @@ pub fn compute_inline_layout<C: HasLayouter<Layouter = TaffyLayouter>>(
             },
         );
     }
-
-    // let mut size = content_size;
-    //
-    // if let AvailableSpace::Definite(width) = layout_input.available_space.width {
-    //     size.width = content_size.width.min(width);
-    // }
-    //
-    // if let AvailableSpace::Definite(height) = layout_input.available_space.height {
-    //     size.height = content_size.height.min(height);
-    // }
 
     LayoutOutput {
         size: content_size,

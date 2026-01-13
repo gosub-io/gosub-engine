@@ -216,23 +216,23 @@ impl<'a> ShorthandResolver<'a> {
 
         let mut shorthands = Vec::with_capacity(self.shorthands.len());
 
-            if matches!(
-                self.multiplier,
-                Multiplier::QuadMulti | Multiplier::DuoMulti | Multiplier::NextProp
-            ) {
-                let mut complete = Vec::with_capacity(self.shorthands.len());
+        if matches!(
+            self.multiplier,
+            Multiplier::QuadMulti | Multiplier::DuoMulti | Multiplier::NextProp
+        ) {
+            let mut complete = Vec::with_capacity(self.shorthands.len());
 
-                for shorthand in &self.shorthands {
-                    match shorthand.step_complete(idx) {
-                        StepResult::More(elem) => {
-                            shorthands.push(elem);
-                        }
-                        StepResult::Complete => {
-                            complete.push(shorthand.name);
-                        }
-                        StepResult::Continue => {}
+            for shorthand in &self.shorthands {
+                match shorthand.step_complete(idx) {
+                    StepResult::More(elem) => {
+                        shorthands.push(elem);
                     }
+                    StepResult::Complete => {
+                        complete.push(shorthand.name);
+                    }
+                    StepResult::Continue => {}
                 }
+            }
 
             if !complete.is_empty() {
                 let idx = self.fix_list.multipliers.iter_mut().find(|m| m.0 == self.name);
@@ -304,7 +304,7 @@ impl<'a> ShorthandResolver<'a> {
     }
 }
 
- impl ResolveShorthand<'_> {
+impl ResolveShorthand<'_> {
     fn step_complete(&self, idx: usize) -> StepResult<'_> {
         if self.components.is_empty() {
             return StepResult::Complete;
@@ -485,7 +485,8 @@ impl CssDefinitions {
         if let Some(component) = syntax.components.first() {
             for m in component.multipliers() {
                 match m {
-                    SyntaxComponentMultiplier::Between(_, b) | SyntaxComponentMultiplier::CommaSeparatedRepeat(_, b) => {
+                    SyntaxComponentMultiplier::Between(_, b)
+                    | SyntaxComponentMultiplier::CommaSeparatedRepeat(_, b) => {
                         if *b == computed.len() {
                             for c in computed {
                                 shorthands.push(Shorthand {

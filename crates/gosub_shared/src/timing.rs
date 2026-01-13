@@ -157,7 +157,9 @@ impl TimingTable {
 
             if show_details {
                 for timer_id in timers {
-                    let timer = self.timers.get(timer_id).unwrap();
+                    let Some(timer) = self.timers.get(timer_id) else {
+                        continue;
+                    };
                     if timer.has_finished() {
                         println!(
                             "                     | {:>8} | {:>10} | {}",

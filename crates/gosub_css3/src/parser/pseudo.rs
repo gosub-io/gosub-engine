@@ -50,11 +50,7 @@ impl Css3<'_> {
                 },
                 loc,
             ),
-            TokenType::Ident(_) => {
-                self.tokenizer.reconsume();
-                self.parse_anplusb()?
-            }
-            TokenType::Dimension { .. } => {
+            TokenType::Ident(_) | TokenType::Dimension { .. } => {
                 self.tokenizer.reconsume();
                 self.parse_anplusb()?
             }
@@ -85,7 +81,9 @@ impl Css3<'_> {
         log::trace!("parse_pseudo_function");
         match name {
             "dir" | "lang" => self.parse_pseudo_function_ident_list(),
-            "has" | "matches" | "is" | "-moz-any" | "-webkit-any" | "where" | "not" => self.parse_pseudo_function_selector_list(),
+            "has" | "matches" | "is" | "-moz-any" | "-webkit-any" | "where" | "not" => {
+                self.parse_pseudo_function_selector_list()
+            }
             "nth-child" | "nth-last-child" | "nth-last-of-type" | "nth-of-type" => self.parse_pseudo_function_nth(),
             "slotted" | "host" | "host-context" => self.parse_pseudo_function_selector(),
             _ => Err(CssError::with_location(

@@ -25,10 +25,7 @@ impl Css3<'_> {
             let t = self.consume_any()?;
             match t.token_type {
                 TokenType::Eof | TokenType::RParen => break,
-                TokenType::Function(_) => {
-                    self.parse_calc_expr()?;
-                }
-                TokenType::LParen => {
+                TokenType::Function(_) | TokenType::LParen => {
                     self.parse_calc_expr()?;
                 }
                 _ => {

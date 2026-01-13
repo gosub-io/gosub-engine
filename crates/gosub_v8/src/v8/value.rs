@@ -1,4 +1,3 @@
-use std::ops::DerefMut;
 use v8::{Array, Global, Local, Value};
 
 use gosub_shared::types::Result;
@@ -15,10 +14,13 @@ pub struct V8Value {
 }
 
 impl V8Value {
+    #[allow(clippy::missing_const_for_fn)] // Global<Value> doesn't support const operations
+    #[must_use]
     pub fn from_value(ctx: V8Context, value: Global<Value>) -> Self {
         Self { context: ctx, value }
     }
 
+    #[must_use]
     pub fn from_local(ctx: V8Context, value: Local<Value>) -> Self {
         Self {
             value: Global::new(&mut ctx.isolate(), value),
@@ -104,11 +106,9 @@ impl WebValue for V8Value {
         let mut scope = self.context.scope();
 
         let value = self.value.open(&mut scope);
-        if let Some(value) = value.number_value(&mut scope) {
-            Ok(value)
-        } else {
-            Err(Error::JS(JSError::Conversion("could not convert to number".to_owned())).into())
-        }
+        value
+            .number_value(&mut scope)
+            .ok_or_else(|| Error::JS(JSError::Conversion("could not convert to number".to_owned())).into())
     }
 
     fn as_bool(&self) -> Result<bool> {
@@ -123,11 +123,10 @@ impl WebValue for V8Value {
 
         let value = self.value.open(&mut scope);
 
-        if let Some(value) = value.to_object(&mut scope) {
-            Ok(V8Object::from_ctx(V8Context::clone(&self.context), value))
-        } else {
-            Err(Error::JS(JSError::Conversion("could not convert to number".to_owned())).into())
-        }
+        value.to_object(&mut scope).map_or_else(
+            || Err(Error::JS(JSError::Conversion("could not convert to number".to_owned())).into()),
+            |value| Ok(V8Object::from_ctx(V8Context::clone(&self.context), value)),
+        )
     }
 
     impl_is!(is_string);
@@ -206,16 +205,17 @@ impl WebValue for V8Value {
     fn new_string(ctx: <Self::RT as WebRuntime>::Context, value: &str) -> Result<Self> {
         let scope = &mut ctx.scope();
 
-        if let Some(value) = v8::String::new(scope, value) {
-            let value: Local<Value> = value.into();
+        v8::String::new(scope, value).map_or_else(
+            || Err(Error::JS(JSError::Conversion("could not convert to string".to_owned())).into()),
+            |v| {
+                let value: Local<Value> = v.into();
 
-            Ok(Self {
-                context: V8Context::clone(&ctx),
-                value: Global::new(scope, value),
-            })
-        } else {
-            Err(Error::JS(JSError::Conversion("could not convert to string".to_owned())).into())
-        }
+                Ok(Self {
+                    context: V8Context::clone(&ctx),
+                    value: Global::new(scope, value),
+                })
+            },
+        )
     }
 
     fn new_number<N: Into<f64>>(ctx: <Self::RT as WebRuntime>::Context, value: N) -> Result<Self> {
@@ -231,7 +231,7 @@ impl WebValue for V8Value {
     fn new_bool(ctx: <Self::RT as WebRuntime>::Context, value: bool) -> Result<Self> {
         let mut isolate = ctx.isolate();
 
-        let value: Local<Value> = v8::Boolean::new(isolate.deref_mut(), value).into();
+        let value: Local<Value> = v8::Boolean::new(&mut *isolate, value).into();
         Ok(Self {
             context: V8Context::clone(&ctx),
             value: Global::new(&mut isolate, value),
@@ -240,7 +240,7 @@ impl WebValue for V8Value {
 
     fn new_null(ctx: <Self::RT as WebRuntime>::Context) -> Result<Self> {
         let mut isolate = ctx.isolate();
-        let null: Local<Value> = v8::null(isolate.deref_mut()).into();
+        let null: Local<Value> = v8::null(&mut *isolate).into();
 
         Ok(Self {
             context: V8Context::clone(&ctx),
@@ -250,7 +250,7 @@ impl WebValue for V8Value {
 
     fn new_undefined(ctx: <Self::RT as WebRuntime>::Context) -> Result<Self> {
         let mut isolate = ctx.isolate();
-        let undefined: Local<Value> = v8::undefined(isolate.deref_mut()).into();
+        let undefined: Local<Value> = v8::undefined(&mut *isolate).into();
 
         Ok(Self {
             context: V8Context::clone(&ctx),
@@ -289,9 +289,9 @@ mod tests {
 
         let value = context
             .run(
-                r#"
+                r"
             1234
-        "#,
+        ",
             )
             .unwrap();
 
@@ -306,9 +306,9 @@ mod tests {
 
         let value = context
             .run(
-                r#"
+                r"
             true
-        "#,
+        ",
             )
             .unwrap();
 
@@ -323,9 +323,9 @@ mod tests {
 
         let value = context
             .run(
-                r#"
+                r"
             null
-        "#,
+        ",
             )
             .unwrap();
 
@@ -339,9 +339,9 @@ mod tests {
 
         let value = context
             .run(
-                r#"
+                r"
             undefined
-        "#,
+        ",
             )
             .unwrap();
 
@@ -372,9 +372,9 @@ mod tests {
 
         let value = context
             .run(
-                r#"
+                r"
             [1, 2, 3]
-        "#,
+        ",
             )
             .unwrap();
 
@@ -413,7 +413,7 @@ mod tests {
                 .run(
                     r#"
             "Hello World!"
-            "#,
+        "#,
                 )
                 .unwrap();
             assert_eq!(value.type_of(), JSType::String);
@@ -423,9 +423,9 @@ mod tests {
         {
             let value = context
                 .run(
-                    r#"
+                    r"
             1234
-            "#,
+        ",
                 )
                 .unwrap();
             assert_eq!(value.type_of(), JSType::Number);
@@ -435,9 +435,9 @@ mod tests {
         {
             let value = context
                 .run(
-                    r#"
+                    r"
             true
-            "#,
+            ",
                 )
                 .unwrap();
             assert_eq!(value.type_of(), JSType::Boolean);
@@ -460,9 +460,9 @@ mod tests {
         {
             let value = context
                 .run(
-                    r#"
+                    r"
             [1, 2, 3]
-            "#,
+            ",
                 )
                 .unwrap();
             assert_eq!(value.type_of(), JSType::Array);
@@ -472,9 +472,9 @@ mod tests {
         {
             let value = context
                 .run(
-                    r#"
+                    r"
             null
-            "#,
+            ",
                 )
                 .unwrap();
             assert_eq!(value.type_of(), JSType::Null);
@@ -484,9 +484,9 @@ mod tests {
         {
             let value = context
                 .run(
-                    r#"
+                    r"
             undefined
-            "#,
+            ",
                 )
                 .unwrap();
             assert_eq!(value.type_of(), JSType::Undefined);
@@ -496,11 +496,11 @@ mod tests {
         {
             let value = context
                 .run(
-                    r#"
+                    r"
             function test() {}
 
             test
-            "#,
+            ",
                 )
                 .unwrap();
             assert_eq!(value.type_of(), JSType::Function);
@@ -573,9 +573,9 @@ mod tests {
 
         let value = context
             .run(
-                r#"
+                r"
             1234
-        "#,
+        ",
             )
             .unwrap();
 
@@ -588,9 +588,9 @@ mod tests {
 
         let value = context
             .run(
-                r#"
+                r"
             true
-        "#,
+        ",
             )
             .unwrap();
 
@@ -599,9 +599,9 @@ mod tests {
 
         let value = context
             .run(
-                r#"
+                r"
             null
-        "#,
+        ",
             )
             .unwrap();
 

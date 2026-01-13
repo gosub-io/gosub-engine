@@ -103,7 +103,7 @@ mod tests {
 
         printer.print(LogLevel::Log, &[&"Hello", &"World"], &[]);
         assert_eq!(
-            buffer.borrow_mut().try_to_string().unwrap(),
+            buffer.borrow_mut().try_to_string().expect("failed to convert"),
             "[log] Hello World\n"
         );
 
@@ -113,7 +113,7 @@ mod tests {
         printer.print(LogLevel::Warn, &[&"a", &"b"], &[]);
         printer.print(LogLevel::Error, &[], &[]);
         assert_eq!(
-            buffer.borrow_mut().try_to_string().unwrap(),
+            buffer.borrow_mut().try_to_string().expect("failed to convert"),
             "[info] Foo 2 false\n[warn] a b\n"
         );
     }

@@ -362,11 +362,11 @@ pub enum CssValue {
     Percentage(f32),
     String(String),
     Unit(f32, String),
-    Function(String, Vec<CssValue>),
+    Function(String, Vec<Self>),
     Initial,
     Inherit,
     Comma,
-    List(Vec<CssValue>),
+    List(Vec<Self>),
 }
 
 impl Display for CssValue {
@@ -435,13 +435,28 @@ impl CssValue {
             },
             Self::String(value) => {
                 if value.ends_with("px") {
-                    value.trim_end_matches("px").parse::<f32>().unwrap()
+                    value
+                        .trim_end_matches("px")
+                        .parse::<f32>()
+                        .expect("failed to parse px value")
                 } else if value.ends_with("rem") {
-                    value.trim_end_matches("rem").parse::<f32>().unwrap() * 16.0
+                    value
+                        .trim_end_matches("rem")
+                        .parse::<f32>()
+                        .expect("failed to parse rem value")
+                        * 16.0
                 } else if value.ends_with("em") {
-                    value.trim_end_matches("em").parse::<f32>().unwrap() * 16.0
+                    value
+                        .trim_end_matches("em")
+                        .parse::<f32>()
+                        .expect("failed to parse em value")
+                        * 16.0
                 } else if value.ends_with("__qem") {
-                    value.trim_end_matches("__qem").parse::<f32>().unwrap() * 16.0
+                    value
+                        .trim_end_matches("__qem")
+                        .parse::<f32>()
+                        .expect("failed to parse __qem value")
+                        * 16.0
                 } else {
                     0.0
                 }
@@ -497,9 +512,7 @@ impl CssValue {
             }
             crate::node::NodeType::Operator(_) => Ok(Self::None),
             crate::node::NodeType::Calc { .. } => Ok(Self::Function("calc".to_string(), vec![])),
-            crate::node::NodeType::Url { url } => {
-                Ok(Self::Function("url".to_string(), vec![Self::String(url)]))
-            }
+            crate::node::NodeType::Url { url } => Ok(Self::Function("url".to_string(), vec![Self::String(url)])),
             crate::node::NodeType::Function { name, arguments } => {
                 let mut list = vec![];
                 for node in &arguments {

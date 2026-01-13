@@ -8,8 +8,6 @@ pub struct Renderer {
 
 impl Renderer {
     pub const fn new(context: cairo::Context) -> Result<Self> {
-        Ok(Self {
-            context,
-        })
+        Ok(Self { context })
     }
 }

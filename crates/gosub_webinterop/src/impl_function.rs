@@ -19,16 +19,12 @@ pub fn impl_js_functions(functions: &[Function], name: &Ident, options: &Options
     let marker_struct = options
         .marker_struct
         .as_ref()
-        .map_or_else(|| format_ident!("{}JSMethodsMarker", name), |marker_struct| {
-            marker_struct.clone()
-        });
+        .map_or_else(|| format_ident!("{}JSMethodsMarker", name), Clone::clone);
 
     let marker_trait = options
         .marker_trait
         .as_ref()
-        .map_or_else(|| format_ident!("{}JSMethods", name), |marker_trait| {
-            marker_trait.clone()
-        });
+        .map_or_else(|| format_ident!("{}JSMethods", name), Clone::clone);
 
     let refs = get_refs(name.to_string(), options.refs);
 

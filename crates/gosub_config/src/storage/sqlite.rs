@@ -34,12 +34,12 @@ impl TryFrom<&String> for SqliteStorageAdapter {
 impl StorageAdapter for SqliteStorageAdapter {
     fn get(&self, key: &str) -> Option<Setting> {
         let result = {
-            let db_lock = self.connection.lock().unwrap();
+            let db_lock = self.connection.lock().expect("sqlite connection lock poisoned");
             let query = "SELECT value FROM settings WHERE key = :key";
-            let mut statement = db_lock.prepare(query).unwrap();
+            let mut statement = db_lock.prepare(query).expect("failed to prepare sqlite query");
             let val: String = statement
                 .query_row(named_params! { ":key": key }, |row| row.get(0))
-                .unwrap();
+                .ok()?;
 
             match Setting::from_str(&val) {
                 Ok(setting) => Some(setting),
@@ -53,28 +53,31 @@ impl StorageAdapter for SqliteStorageAdapter {
     }
 
     fn set(&self, key: &str, value: Setting) {
-        let db_lock = self.connection.lock().unwrap();
+        let db_lock = self.connection.lock().expect("sqlite connection lock poisoned");
         let query = "INSERT OR REPLACE INTO settings (key, value) VALUES (:key, :value)";
-        let mut statement = db_lock.prepare(query).unwrap();
-        let _ = statement
-            .execute(named_params! {
-                ":key": &key.to_string(),
-                ":value": &value.to_string(),
-            })
-            .unwrap();
+        let Ok(mut statement) = db_lock.prepare(query) else {
+            warn!("failed to prepare sqlite insert statement");
+            return;
+        };
+        if let Err(err) = statement.execute(named_params! {
+            ":key": &key.to_string(),
+            ":value": &value.to_string(),
+        }) {
+            warn!("failed to insert setting into sqlite: {err}");
+        }
     }
 
     fn all(&self) -> Result<HashMap<String, Setting>> {
         let result = {
-            let db_lock = self.connection.lock().unwrap();
+            let db_lock = self.connection.lock().expect("sqlite connection lock poisoned");
             let query = "SELECT id,key,value FROM settings";
-            let mut statement = db_lock.prepare(query).unwrap();
+            let mut statement = db_lock.prepare(query).expect("failed to prepare sqlite query");
 
-            let mut rows = statement.query([]).unwrap();
+            let mut rows = statement.query([]).expect("failed to execute sqlite query");
             let mut res = HashMap::new();
             while let Some(row) = rows.next()? {
-                let key: String = row.get(1).unwrap();
-                let val: String = row.get(2).unwrap();
+                let key: String = row.get(1).expect("failed to get key from sqlite row");
+                let val: String = row.get(2).expect("failed to get value from sqlite row");
                 res.insert(key, Setting::from_str(&val)?);
             }
             res

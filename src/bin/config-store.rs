@@ -91,16 +91,18 @@ fn main() -> anyhow::Result<()> {
             println!("Description    : {}", info.description);
         }
         Commands::List => {
-            for key in config_store().find("*") {
+            let keys = config_store().find("*");
+            for key in keys {
                 let value = config_store().get(&key).unwrap();
                 println!("{key:40}: {value}");
             }
         }
         Commands::Set { key, value } => {
-            config_store().set(&key, Setting::from_str(&value).unwrap());
+            config_store().set(&key, Setting::from_str(&value).expect("incorrect value"));
         }
         Commands::Search { key } => {
-            for key in config_store().find(&key) {
+            let keys = config_store().find(&key);
+            for key in keys {
                 let value = config_store().get(&key).unwrap();
                 println!("{key:40}: {value}");
             }

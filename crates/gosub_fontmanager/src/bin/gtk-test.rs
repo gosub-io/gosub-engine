@@ -42,11 +42,11 @@ fn build_ui(app: &Application) {
     let _ = font_context
         .font_manager
         .find(&["comic sans ms"], FontStyle::Normal)
-        .unwrap();
+        .expect("Failed to find font Comic Sans MS");
     let _ = font_context
         .font_manager
         .find(&["Arial"], FontStyle::Normal)
-        .unwrap();
+        .expect("Failed to find font Arial");
 
     let fonts = ["arial", "verdana", "comic sans ms", "webdings"];
     let current_font_idx = Rc::new(RefCell::new(0));

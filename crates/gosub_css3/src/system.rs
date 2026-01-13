@@ -82,7 +82,7 @@ impl CssSystem for Css3System {
                         }
 
                         let value = if let CssValue::List(mut value) = value {
-                            if value.len() ==1 {
+                            if value.len() == 1 {
                                 value.pop().unwrap_or(CssValue::None)
                             } else {
                                 CssValue::List(value)
@@ -94,7 +94,7 @@ impl CssSystem for Css3System {
                         // create property for the given values
                         let property_name = declaration.property.clone();
                         let decl = CssDeclaration {
-                            property: property_name.to_string(),
+                            property: property_name.clone(),
                             value,
                             important: declaration.important,
                         };
@@ -210,15 +210,17 @@ pub fn add_property_to_map(
         specificity,
     };
 
-    if let std::collections::hash_map::Entry::Vacant(e) = css_map_entry.properties.entry(property_name.clone()) {
-        // Generate new property in the css map
-        let mut entry = CssProperty::new(property_name.as_str());
-        entry.declared.push(declaration);
-        e.insert(entry);
-    } else {
-        // Just add the declaration to the existing property
-        let entry = css_map_entry.properties.get_mut(&property_name).unwrap();
-        entry.declared.push(declaration);
+    match css_map_entry.properties.entry(property_name.clone()) {
+        std::collections::hash_map::Entry::Vacant(e) => {
+            // Generate new property in the css map
+            let mut entry = CssProperty::new(property_name.as_str());
+            entry.declared.push(declaration);
+            e.insert(entry);
+        }
+        std::collections::hash_map::Entry::Occupied(mut e) => {
+            // Just add the declaration to the existing property
+            e.get_mut().declared.push(declaration);
+        }
     }
 }
 

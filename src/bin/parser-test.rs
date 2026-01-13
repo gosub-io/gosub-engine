@@ -45,7 +45,7 @@ fn main() {
     let mut results = TotalTestResults::default();
 
     let filenames = Some(&["tests15.dat"][..]);
-    let fixtures = read_fixtures(filenames).unwrap();
+    let fixtures = read_fixtures(filenames).expect("fixtures");
 
     for fixture_file in fixtures {
         println!(
@@ -57,7 +57,7 @@ fn main() {
         let mut test_idx = 1;
         for test in fixture_file.tests {
             if test_idx == 10 {
-                run_test(test_idx, test, &mut results);
+                run_test(test_idx, &test, &mut results);
             }
             test_idx += 1;
         }
@@ -78,7 +78,7 @@ fn main() {
     }
 }
 
-fn run_test(test_idx: usize, test: Test, all_results: &mut TotalTestResults) {
+fn run_test(test_idx: usize, test: &Test, all_results: &mut TotalTestResults) {
     #[cfg(all(feature = "debug_parser_verbose", test))]
     println!("🧪 Running test #{test_idx}: {}:{}", test.file_path, test.line);
 
@@ -87,7 +87,7 @@ fn run_test(test_idx: usize, test: Test, all_results: &mut TotalTestResults) {
     let mut harness = Harness::new();
     let result = harness
         .run_test::<Config>(test.clone(), false)
-        .unwrap();
+        .expect("problem parsing");
 
     // #[cfg(all(feature = "debug_parser", not(test)))]
     // print_test_result(&result);

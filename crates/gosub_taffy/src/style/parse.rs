@@ -117,10 +117,7 @@ pub fn parse_non_repeated_tracking_sizing_function<C: HasLayouter>(
     todo!("implement parse_non_repeated_tracking_sizing_function")
 }
 
-pub fn parse_grid_auto<C: HasLayouter>(
-    node: &impl LayoutNode<C>,
-    name: &str,
-) -> Vec<NonRepeatedTrackSizingFunction> {
+pub fn parse_grid_auto<C: HasLayouter>(node: &impl LayoutNode<C>, name: &str) -> Vec<NonRepeatedTrackSizingFunction> {
     let Some(display) = node.get_property(name) else {
         return Vec::new();
     };
@@ -141,7 +138,9 @@ pub fn parse_grid_placement<C: HasLayouter>(node: &impl LayoutNode<C>, name: &st
         return if value.starts_with("span") {
             let value = value.trim_start_matches("span").trim();
 
-            value.parse::<u16>().map_or(GridPlacement::Auto, GridPlacement::from_span)
+            value
+                .parse::<u16>()
+                .map_or(GridPlacement::Auto, GridPlacement::from_span)
         } else if let Ok(value) = value.parse::<i16>() {
             GridPlacement::from_line_index(value)
         } else {

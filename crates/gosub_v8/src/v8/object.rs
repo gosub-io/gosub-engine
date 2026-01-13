@@ -23,7 +23,7 @@ pub struct GetterCallback {
 }
 
 impl V8Object {
-    pub fn new(ctx: V8Context) -> Result<V8Object> {
+    pub fn new(ctx: V8Context) -> Result<Self> {
         let mut scope = ctx.scope();
         let value = Object::new(&mut scope);
 
@@ -31,7 +31,7 @@ impl V8Object {
 
         drop(scope);
 
-        Ok(V8Object { ctx, value })
+        Ok(Self { ctx, value })
     }
 }
 
@@ -64,7 +64,7 @@ impl WebSetterCallback for SetterCallback {
     }
 
     fn error(&mut self, error: impl Display) {
-        self.ctx.error(error)
+        self.ctx.error(error);
     }
 
     fn value(&mut self) -> &<Self::RT as WebRuntime>::Value {
@@ -208,7 +208,7 @@ impl WebObject for V8Object {
             setter,
         });
 
-        let data = External::new(scope, Box::into_raw(gs) as *mut c_void);
+        let data = External::new(scope, Box::into_raw(gs).cast::<c_void>());
 
         let config = AccessorConfiguration::new(
             |scope: &mut HandleScope, _name: Local<Name>, args: PropertyCallbackArguments, mut rv: ReturnValue| {
@@ -224,7 +224,7 @@ impl WebObject for V8Object {
                     }
                 };
 
-                let gs = unsafe { &*(external.value() as *const GetterSetter) };
+                let gs = unsafe { &*(external.value().cast::<GetterSetter>()) };
 
                 let ret = match V8Value::new_undefined(gs.ctx.clone()) {
                     Ok(ret) => ret,
@@ -266,7 +266,7 @@ impl WebObject for V8Object {
                     }
                 };
 
-                let gs = unsafe { &*(external.value() as *const GetterSetter) };
+                let gs = unsafe { &*(external.value().cast::<GetterSetter>()) };
 
                 let val = V8Value::from_value(gs.ctx.clone(), Global::new(scope, value));
 
@@ -305,6 +305,7 @@ impl FromContext<Local<'_, Object>> for V8Object {
 }
 
 #[cfg(test)]
+#[allow(clippy::redundant_clone)]
 mod tests {
     use std::cell::RefCell;
     use std::rc::Rc;

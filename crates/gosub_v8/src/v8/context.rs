@@ -34,7 +34,7 @@ impl V8Ctx {
         let ctx = {
             let mut handle_scope = HandleScope::new(&mut isolate);
 
-            let ctx = v8::Context::new(&mut handle_scope, Default::default());
+            let ctx = v8::Context::new(&mut handle_scope, v8::ContextOptions::default());
 
             Global::new(&mut handle_scope, ctx)
         };
@@ -46,10 +46,12 @@ impl V8Ctx {
         }
     }
 
+    #[allow(clippy::missing_const_for_fn)] // Accessing &mut through method can't be const
     pub(crate) fn isolate(&mut self) -> &mut OwnedIsolate {
         &mut self.isolate
     }
 
+    #[allow(clippy::missing_const_for_fn)] // Accessing &mut through method can't be const
     pub fn context(&mut self) -> &mut Global<v8::Context> {
         &mut self.ctx
     }
@@ -62,27 +64,28 @@ impl V8Ctx {
         }
     }
 
+    #[must_use]
     pub fn report_exception(try_catch: &mut TryCatch<HandleScope>) -> Error {
-        let mut err = String::new();
-
-        if let Some(exception) = try_catch.exception() {
-            err = exception.to_rust_string_lossy(try_catch);
-        }
+        let mut err = try_catch
+            .exception()
+            .map_or_else(String::new, |exception| exception.to_rust_string_lossy(try_catch));
 
         if let Some(m) = try_catch.message() {
             err.push_str("\nMessage: ");
             err.push_str(&m.get(try_catch).to_rust_string_lossy(try_catch));
             if let Some(stacktrace) = m.get_stack_trace(try_catch) {
                 let st = Self::handle_stack_trace(try_catch, stacktrace);
-                err.push_str(&format!("\nStacktrace:\n{st}"))
+                err.push_str("\nStacktrace:\n");
+                err.push_str(&st);
             } else {
                 err.push_str("\nStacktrace: <missing information>");
-            };
+            }
         }
 
         Error::JS(JSError::Exception(err))
     }
 
+    #[must_use]
     pub fn handle_stack_trace(ctx: &mut HandleScope, stacktrace: Local<StackTrace>) -> String {
         let mut st = String::new();
 
@@ -117,6 +120,7 @@ impl Drop for V8Ctx {
 }
 
 impl V8Context {
+    #[must_use]
     pub fn set_parent_scope<'a>(&self, scope: HandleScope<'a>) -> ScopeGuard<'a> {
         let mut borrowed = self.borrow_mut();
 
@@ -153,7 +157,7 @@ impl WebContext for V8Context {
             return Err(V8Ctx::report_exception(try_catch).into());
         };
 
-        Ok(V8Compiled::from_ctx(V8Context::clone(self), script))
+        Ok(V8Compiled::from_ctx(Self::clone(self), script))
     }
 
     fn run_compiled(

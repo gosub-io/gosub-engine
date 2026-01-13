@@ -149,35 +149,33 @@ impl<C: ModuleConfiguration> EngineInstance<C> {
                 self.irx.close();
             }
 
-            InstanceMessage::Debug(event) => {
-                match event {
-                    DebugEvent::SendNodes(sender) => {
-                        self.data.send_nodes(sender);
-                    }
-
-                    DebugEvent::SelectElement(id) => {
-                        self.data
-                            .select_element(<C::LayoutTree as LayoutTree<C>>::NodeId::from(id));
-                    }
-
-                    DebugEvent::Info(id, sender) => {
-                        self.data
-                            .info(<C::LayoutTree as LayoutTree<C>>::NodeId::from(id), sender);
-                    }
-
-                    DebugEvent::Deselect => {
-                        self.data.unselect_element();
-                    }
-
-                    DebugEvent::Toggle | DebugEvent::Enable | DebugEvent::Disable => {
-                        self.data.toggle_debug();
-                    }
-
-                    DebugEvent::ClearBuffers => {
-                        self.data.clear_buffers();
-                    }
+            InstanceMessage::Debug(event) => match event {
+                DebugEvent::SendNodes(sender) => {
+                    self.data.send_nodes(sender);
                 }
-            }
+
+                DebugEvent::SelectElement(id) => {
+                    self.data
+                        .select_element(<C::LayoutTree as LayoutTree<C>>::NodeId::from(id));
+                }
+
+                DebugEvent::Info(id, sender) => {
+                    self.data
+                        .info(<C::LayoutTree as LayoutTree<C>>::NodeId::from(id), sender);
+                }
+
+                DebugEvent::Deselect => {
+                    self.data.unselect_element();
+                }
+
+                DebugEvent::Toggle | DebugEvent::Enable | DebugEvent::Disable => {
+                    self.data.toggle_debug();
+                }
+
+                DebugEvent::ClearBuffers => {
+                    self.data.clear_buffers();
+                }
+            },
             InstanceMessage::Input(event) => {
                 match event {
                     InputEvent::MouseScroll(delta) => {

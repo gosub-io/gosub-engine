@@ -439,11 +439,7 @@ impl<
         render_text::<C>(node, *pos, self.scene);
 
         if let Some(new) = size_change {
-            let node = self
-                .inner
-                .tree
-                .get_node_mut(id)
-                .ok_or(anyhow!("Node {id} not found"))?;
+            let node = self.inner.tree.get_node_mut(id).ok_or(anyhow!("Node {id} not found"))?;
 
             node.layout_mut().set_size(new);
 
@@ -584,15 +580,17 @@ pub fn print_tree<B: RenderBackend, L: Layouter>(
         let layout = &tree.get_final_layout(node_id);
         let display = tree.get_debug_label(node_id);
         let num_children = tree.child_count(node_id);
-        let gosub_id = tree.get_node_context(node_id).unwrap();
-        let width_style = tree.style(node_id).unwrap().size;
+        let gosub_id = tree
+            .get_node_context(node_id)
+            .expect("node context not found");
+        let width_style = tree.style(node_id).expect("node style not found").size;
 
         let fork_string = if has_sibling {
             "├── "
         } else {
             "└── "
         };
-        let node = gosub_tree.get_node(*gosub_id).unwrap();
+        let node = gosub_tree.get_node(*gosub_id).expect("render node not found");
         let mut node_render = String::new();
 
         match &node.data {

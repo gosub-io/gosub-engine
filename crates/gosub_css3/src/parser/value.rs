@@ -111,13 +111,9 @@ impl Css3<'_> {
                     self.consume_delim('=')?;
                     let t = self.consume_any()?;
                     let node = match t.token_type {
-                        TokenType::QuotedString(default_value) => Node::new(
-                            NodeType::MSIdent {
-                                value,
-                                default_value,
-                            },
-                            t.location,
-                        ),
+                        TokenType::QuotedString(default_value) | TokenType::Ident(default_value) => {
+                            Node::new(NodeType::MSIdent { value, default_value }, t.location)
+                        }
                         TokenType::Number(default_value) => Node::new(
                             NodeType::MSIdent {
                                 value,
@@ -125,9 +121,6 @@ impl Css3<'_> {
                             },
                             t.location,
                         ),
-                        TokenType::Ident(default_value) => {
-                            Node::new(NodeType::MSIdent { value, default_value }, t.location)
-                        }
                         _ => {
                             return Err(CssError::with_location(
                                 format!("Expected number or ident, got {t:?}").as_str(),

@@ -24,7 +24,7 @@ pub enum SceneCommand {
     },
     // Group a list of commands together on a certain transform (translation, rotation, scale)
     Group {
-        children: Vec<SceneCommand>,
+        children: Vec<Self>,
         transform: GsTransform,
     },
 }

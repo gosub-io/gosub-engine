@@ -21,10 +21,7 @@ impl TryFrom<&String> for JsonStorageAdapter {
         let _ = if let Ok(metadata) = fs::metadata(path) {
             assert!(metadata.is_file(), "json file is not a regular file");
 
-            File::options()
-                .read(true)
-                .write(true)
-                .open(path)?
+            File::options().read(true).write(true).open(path)?
         } else {
             let json = "{}";
 
@@ -35,7 +32,7 @@ impl TryFrom<&String> for JsonStorageAdapter {
         };
 
         let mut adapter = Self {
-            path: path.to_string(),
+            path: path.clone(),
             elements: Mutex::new(HashMap::new()),
         };
 
@@ -47,19 +44,19 @@ impl TryFrom<&String> for JsonStorageAdapter {
 
 impl StorageAdapter for JsonStorageAdapter {
     fn get(&self, key: &str) -> Option<Setting> {
-        let lock = self.elements.lock().unwrap();
+        let lock = self.elements.lock().expect("json storage lock poisoned");
         lock.get(key).cloned()
     }
 
     fn set(&self, key: &str, value: Setting) {
-        let mut lock = self.elements.lock().unwrap();
+        let mut lock = self.elements.lock().expect("json storage lock poisoned");
         lock.insert(key.to_owned(), value);
 
         // self.write_file()
     }
 
     fn all(&self) -> Result<HashMap<String, Setting>> {
-        let lock = self.elements.lock().unwrap();
+        let lock = self.elements.lock().expect("json storage lock poisoned");
 
         Ok(lock.clone())
     }
@@ -69,12 +66,12 @@ impl JsonStorageAdapter {
     /// Read whole json file and stores the data into self.elements
     fn read_file(&mut self) {
         // @TODO: We should have some kind of OS file lock here
-        let mut file = File::open(&self.path).unwrap();
+        let mut file = File::open(&self.path).expect("failed to open json file");
 
         let mut buf = String::new();
         _ = file.read_to_string(&mut buf);
 
-        let parsed_json: Value = serde_json::from_str(&buf).unwrap();
+        let parsed_json: Value = serde_json::from_str(&buf).expect("Failed to parse json");
 
         if let Value::Object(settings) = parsed_json {
             self.elements = Mutex::new(HashMap::new());
@@ -82,7 +79,10 @@ impl JsonStorageAdapter {
             for (key, value) in &settings {
                 match serde_json::from_value(value.clone()) {
                     Ok(setting) => {
-                        self.elements.lock().unwrap().insert(key.clone(), setting);
+                        self.elements
+                            .lock()
+                            .expect("json storage lock poisoned")
+                            .insert(key.clone(), setting);
                     }
                     Err(err) => {
                         warn!("problem reading setting from json: {err}");
@@ -98,12 +98,12 @@ impl JsonStorageAdapter {
     fn write_file(&self) {
         // @TODO: We need some kind of OS lock file here. We should protect against concurrent threads but also
         // against concurrent processes.
-        let mut file = File::open(&self.path).unwrap();
+        let mut file = File::open(&self.path).expect("failed to open json file");
 
-        let json = serde_json::to_string_pretty(&self.elements).unwrap();
+        let json = serde_json::to_string_pretty(&self.elements).expect("failed to serialize");
 
-        file.set_len(0).unwrap();
-        file.seek(std::io::SeekFrom::Start(0)).unwrap();
-        file.write_all(json.as_bytes()).unwrap();
+        file.set_len(0).expect("failed to truncate file");
+        file.seek(std::io::SeekFrom::Start(0)).expect("failed to seek");
+        file.write_all(json.as_bytes()).expect("failed to write file");
     }
 }

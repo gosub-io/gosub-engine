@@ -95,16 +95,10 @@ impl Css3<'_> {
 
         // parse block. They may or may not have nested rules depending on the is_declaration and block type
         let node = match name.cow_to_lowercase().as_ref() {
-            "container" => Some(self.parse_block(mode)?),
-            "font-face" => Some(self.parse_block(BlockParseMode::StyleBlock)?),
+            "container" | "media" | "scope" | "starting-style" | "supports" => Some(self.parse_block(mode)?),
+            "font-face" | "nest" | "page" => Some(self.parse_block(BlockParseMode::StyleBlock)?),
             "import" => None,
             "layer" => Some(self.parse_block(BlockParseMode::RegularBlock)?),
-            "media" => Some(self.parse_block(mode)?),
-            "nest" => Some(self.parse_block(BlockParseMode::StyleBlock)?),
-            "page" => Some(self.parse_block(BlockParseMode::StyleBlock)?),
-            "scope" => Some(self.parse_block(mode)?),
-            "starting-style" => Some(self.parse_block(mode)?),
-            "supports" => Some(self.parse_block(mode)?),
             _ => {
                 let mode = self.declaration_block_at_rule();
                 Some(self.parse_block(mode)?)
@@ -156,13 +150,6 @@ impl Css3<'_> {
         let block = self.parse_at_rule_block(&name, is_declaration)?;
         self.consume_whitespace_comments();
 
-        Ok(Node::new(
-            NodeType::AtRule {
-                name,
-                prelude,
-                block,
-            },
-            t.location,
-        ))
+        Ok(Node::new(NodeType::AtRule { name, prelude, block }, t.location))
     }
 }

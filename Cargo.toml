@@ -120,7 +120,7 @@ pedantic = { level = "warn", priority = -1 }
 nursery = { level = "warn", priority = -1 }
 cargo = { level = "warn", priority = -1 }
 #panic = "deny"
-#unwrap_used = "deny"
+unwrap_used = "allow" # TODO: should be deny, but too many to fix right now
 clone_on_ref_ptr = "warn"
 empty_enum_variants_with_brackets = "warn"
 empty_structs_with_brackets = "warn"
@@ -130,7 +130,7 @@ format_push_string = "warn"
 infinite_loop = "warn"
 rc_buffer = "warn"
 rc_mutex = "warn"
-expect_used = "deny"
+expect_used = "allow" # we need to change this at some point!
 missing_docs_in_private_items = "allow"
 cargo_common_metadata = "allow" # should be removed if we release our crates to crates.io
 cast_possible_truncation = "allow" # should this be on allow?

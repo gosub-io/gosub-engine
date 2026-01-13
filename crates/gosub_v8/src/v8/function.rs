@@ -1,5 +1,4 @@
 use core::fmt::Display;
-use std::ops::DerefMut;
 use v8::{
     undefined, CallbackScope, External, Function, FunctionBuilder, FunctionCallbackArguments, FunctionCallbackInfo,
     Global, HandleScope, Local, ReturnValue, TryCatch,
@@ -107,7 +106,7 @@ impl WebFunctionCallBack for V8FunctionCallBack {
 impl V8Function {
     pub fn callback(
         ctx: &V8Context,
-        args: FunctionCallbackArguments,
+        args: &FunctionCallbackArguments,
         mut ret: ReturnValue,
         f: impl Fn(&mut V8FunctionCallBack),
     ) {
@@ -116,7 +115,7 @@ impl V8Function {
         let mut isolate = ctx.isolate();
 
         for i in 0..args.length() {
-            a.push(Global::new(isolate.deref_mut(), args.get(i)));
+            a.push(Global::new(&mut isolate, args.get(i)));
         }
 
         let args = V8Args { next: 0, args: a };
@@ -167,11 +166,11 @@ extern "C" fn callback(info: *const FunctionCallbackInfo) {
         }
     };
 
-    let data = unsafe { &mut *(external.value() as *mut CallbackWrapper) };
+    let data = unsafe { &mut *(external.value().cast::<CallbackWrapper>()) };
 
     let sg = data.ctx.set_parent_scope(HandleScope::new(&mut scope));
 
-    V8Function::callback(&data.ctx, args, rv, &data.f);
+    V8Function::callback(&data.ctx, &args, rv, &data.f);
 
     drop(sg);
 }
@@ -186,12 +185,13 @@ impl CallbackWrapper {
     fn new(ctx: V8Context, f: impl Fn(&mut V8FunctionCallBack) + 'static) -> *mut std::ffi::c_void {
         let data = Box::new(Self { ctx, f: Box::new(f) });
 
-        Box::into_raw(data) as *mut std::ffi::c_void
+        Box::into_raw(data).cast::<std::ffi::c_void>()
     }
 }
 
 impl WebFunction for V8Function {
     type RT = V8Engine;
+    #[allow(clippy::option_if_let_else)] // Can't use map_or_else due to borrow issues
     fn new(
         ctx: <Self::RT as WebRuntime>::Context,
         f: impl Fn(&mut <Self::RT as WebRuntime>::FunctionCallBack) + 'static,
@@ -391,7 +391,7 @@ impl WebFunctionCallBackVariadic for V8FunctionCallBackVariadic {
 impl V8FunctionVariadic {
     fn callback(
         ctx: &V8Context,
-        args: FunctionCallbackArguments,
+        args: &FunctionCallbackArguments,
         mut ret: ReturnValue,
         f: impl Fn(&mut V8FunctionCallBackVariadic),
     ) {
@@ -452,11 +452,11 @@ extern "C" fn callback_variadic(info: *const FunctionCallbackInfo) {
         }
     };
 
-    let data = unsafe { &mut *(external.value() as *mut CallbackWrapperVariadic) };
+    let data = unsafe { &mut *(external.value().cast::<CallbackWrapperVariadic>()) };
 
     let sg = data.ctx.set_parent_scope(HandleScope::new(&mut scope));
 
-    V8FunctionVariadic::callback(&data.ctx, args, rv, &data.f);
+    V8FunctionVariadic::callback(&data.ctx, &args, rv, &data.f);
 
     drop(sg);
 }
@@ -471,12 +471,13 @@ impl CallbackWrapperVariadic {
     fn new(ctx: V8Context, f: impl Fn(&mut V8FunctionCallBackVariadic) + 'static) -> *mut std::ffi::c_void {
         let data = Box::new(Self { ctx, f: Box::new(f) });
 
-        Box::into_raw(data) as *mut _ as *mut std::ffi::c_void
+        Box::into_raw(data).cast::<std::ffi::c_void>()
     }
 }
 
 impl WebFunctionVariadic for V8FunctionVariadic {
     type RT = V8Engine;
+    #[allow(clippy::option_if_let_else)] // Can't use map_or_else due to borrow issues
     fn new(
         ctx: <Self::RT as WebRuntime>::Context,
         f: impl Fn(&mut <Self::RT as WebRuntime>::FunctionCallBackVariadic) + 'static,
@@ -526,6 +527,7 @@ impl WebFunctionVariadic for V8FunctionVariadic {
 }
 
 #[cfg(test)]
+#[allow(clippy::redundant_clone)]
 mod tests {
     use gosub_webexecutor::js::{
         Args, IntoWebValue, WebFunction, WebFunctionCallBack, WebFunctionVariadic, WebRuntime, WebValue,

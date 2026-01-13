@@ -193,9 +193,7 @@ impl Console {
             Formatter::format(data)
         };
 
-        let group = Group {
-            label: group_label,
-        };
+        let group = Group { label: group_label };
 
         // Group should be expanded
         self.printer.print(LogLevel::Group, &[&group.label], &[]);
@@ -211,9 +209,7 @@ impl Console {
             formatter::Formatter::format(data)
         };
 
-        let group = Group {
-            label: group_label,
-        };
+        let group = Group { label: group_label };
 
         self.printer.print(LogLevel::GroupCollapsed, &[&group.label], &[]);
 
@@ -234,7 +230,9 @@ impl Console {
             return;
         }
 
-        let start = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |n| n.as_millis());
+        let start = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |n| n.as_millis());
 
         self.timer_map.insert(
             label.to_owned(),
@@ -258,7 +256,9 @@ impl Console {
         }
         let message = message.trim_end();
 
-        let cur = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |n| n.as_millis());
+        let cur = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |n| n.as_millis());
 
         let concat = format!(
             "{}: {}ms{}",
@@ -275,7 +275,9 @@ impl Console {
     ///
     /// Panics if the timer for the given label does not exist.
     pub fn time_end(&mut self, label: &str) {
-        let end = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |n| n.as_millis());
+        let end = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |n| n.as_millis());
 
         let concat = format!(
             "{}: {}ms",

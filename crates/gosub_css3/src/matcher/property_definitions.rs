@@ -117,10 +117,13 @@ impl PropertyDefinition {
     }
 
     pub fn matches_and_shorthands(&self, input: &[CssValue], fix_list: &mut FixList) -> bool {
-        self.shorthands.as_ref().map_or_else(|| self.syntax.matches(input), |shorthands| {
-            let resolver = shorthands.get_resolver(fix_list);
-            self.syntax.matches_and_shorthands(input, resolver)
-        })
+        self.shorthands.as_ref().map_or_else(
+            || self.syntax.matches(input),
+            |shorthands| {
+                let resolver = shorthands.get_resolver(fix_list);
+                self.syntax.matches_and_shorthands(input, resolver)
+            },
+        )
     }
 
     #[must_use]

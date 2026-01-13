@@ -698,7 +698,7 @@ pub trait ImgCache<B: RenderBackend>: Sized {
 pub struct NodeDesc {
     pub id: u64,
     pub name: String,
-    pub children: Vec<NodeDesc>,
+    pub children: Vec<Self>,
     pub attributes: Vec<(String, String)>,
     pub properties: Vec<(String, String)>,
     pub pos: Point,

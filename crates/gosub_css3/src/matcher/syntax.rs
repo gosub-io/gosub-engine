@@ -126,7 +126,7 @@ pub enum SyntaxComponent {
     /// Functions like `color()`, `length()` etc
     Function {
         name: String,
-        arguments: Option<Box<SyntaxComponent>>,
+        arguments: Option<Box<Self>>,
         multipliers: Vec<SyntaxComponentMultiplier>,
     },
     /// Internal data definition like <length>, <color>, or quoted like <'background-color'>. Can include
@@ -161,7 +161,7 @@ pub enum SyntaxComponent {
     },
     /// Group of components surrounded by []
     Group {
-        components: Vec<SyntaxComponent>,
+        components: Vec<Self>,
         combinator: GroupCombinators,
         multipliers: Vec<SyntaxComponentMultiplier>,
     },
@@ -570,22 +570,26 @@ fn parse_function(input: &str) -> IResult<&str, SyntaxComponent> {
     let (input, arglist) = alt((map(empty_arglist, |_| None), map(arglist, Some))).parse(input)?;
 
     arglist.map_or_else(
-        || Ok((
-            input,
-            SyntaxComponent::Function {
-                name: name.to_string(),
-                arguments: None,
-                multipliers: vec![SyntaxComponentMultiplier::Once],
-            },
-        )),
-        |arglist| Ok((
-            input,
-            SyntaxComponent::Function {
-                name: name.to_string(),
-                arguments: Some(Box::new(arglist)),
-                multipliers: vec![SyntaxComponentMultiplier::Once],
-            },
-        )),
+        || {
+            Ok((
+                input,
+                SyntaxComponent::Function {
+                    name: name.to_string(),
+                    arguments: None,
+                    multipliers: vec![SyntaxComponentMultiplier::Once],
+                },
+            ))
+        },
+        |arglist| {
+            Ok((
+                input,
+                SyntaxComponent::Function {
+                    name: name.to_string(),
+                    arguments: Some(Box::new(arglist)),
+                    multipliers: vec![SyntaxComponentMultiplier::Once],
+                },
+            ))
+        },
     )
 }
 
@@ -630,12 +634,13 @@ fn parse_infinity(input: &str) -> IResult<&str, NumberOrInfinity> {
 fn parse_signed_integer(input: &str) -> IResult<&str, NumberOrInfinity> {
     map_res(pair(opt(char('-')), digit1), |(sign, digits): (Option<char>, &str)| {
         let neg_multiplier = if sign == Some('-') { -1 } else { 1 };
-        digits.parse::<i64>().map(|num| num * neg_multiplier).map_err(|_| {
-            Err::<nom::error::Error<&str>>::Error(nom::error::Error::new(
-                input,
-                nom::error::ErrorKind::Digit,
-            ))
-        }).map(NumberOrInfinity::FiniteI64)
+        digits
+            .parse::<i64>()
+            .map(|num| num * neg_multiplier)
+            .map_err(|_| {
+                Err::<nom::error::Error<&str>>::Error(nom::error::Error::new(input, nom::error::ErrorKind::Digit))
+            })
+            .map(NumberOrInfinity::FiniteI64)
     })
     .parse(input)
 }

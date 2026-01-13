@@ -128,53 +128,34 @@ fn match_selector_part<'a, C: HasDocument>(
                 let wanted_attr_value = wanted_attr_name.cow_to_lowercase();
                 let got_attr_value = got_attr_value_orig.cow_to_lowercase();
                 match attr.matcher {
-                    MatcherType::None => {
-                        true
-                    }
-                    MatcherType::Equals => {
-                        wanted_attr_value.as_ref() == got_attr_value.as_ref()
-                    }
-                    MatcherType::Includes => {
-                        wanted_attr_value.split_whitespace().any(|s| s == got_attr_value.as_ref())
-                    }
+                    MatcherType::None => true,
+                    MatcherType::Equals => wanted_attr_value.as_ref() == got_attr_value.as_ref(),
+                    MatcherType::Includes => wanted_attr_value
+                        .split_whitespace()
+                        .any(|s| s == got_attr_value.as_ref()),
                     MatcherType::DashMatch => {
                         let wanted = wanted_attr_value.as_ref();
                         let got = got_attr_value.as_ref();
                         got == wanted || got.starts_with(&format!("{wanted}-"))
                     }
-                    MatcherType::PrefixMatch => {
-                        got_attr_value.as_ref().starts_with(wanted_attr_value.as_ref())
-                    }
-                    MatcherType::SuffixMatch => {
-                        got_attr_value.as_ref().ends_with(wanted_attr_value.as_ref())
-                    }
-                    MatcherType::SubstringMatch => {
-                        got_attr_value.as_ref().contains(wanted_attr_value.as_ref())
-                    }
+                    MatcherType::PrefixMatch => got_attr_value.as_ref().starts_with(wanted_attr_value.as_ref()),
+                    MatcherType::SuffixMatch => got_attr_value.as_ref().ends_with(wanted_attr_value.as_ref()),
+                    MatcherType::SubstringMatch => got_attr_value.as_ref().contains(wanted_attr_value.as_ref()),
                 }
             } else {
                 match attr.matcher {
-                    MatcherType::None => {
-                        true
-                    }
-                    MatcherType::Equals => {
-                        wanted_attr_value_orig == got_attr_value_orig
-                    }
-                    MatcherType::Includes => {
-                        wanted_attr_value_orig.split_whitespace().any(|s| s == *got_attr_value_orig)
-                    }
+                    MatcherType::None => true,
+                    MatcherType::Equals => wanted_attr_value_orig == got_attr_value_orig,
+                    MatcherType::Includes => wanted_attr_value_orig
+                        .split_whitespace()
+                        .any(|s| s == *got_attr_value_orig),
                     MatcherType::DashMatch => {
-                        got_attr_value_orig == wanted_attr_value_orig || got_attr_value_orig.starts_with(&format!("{wanted_attr_value_orig}-"))
+                        got_attr_value_orig == wanted_attr_value_orig
+                            || got_attr_value_orig.starts_with(&format!("{wanted_attr_value_orig}-"))
                     }
-                    MatcherType::PrefixMatch => {
-                        got_attr_value_orig.starts_with(wanted_attr_value_orig)
-                    }
-                    MatcherType::SuffixMatch => {
-                        got_attr_value_orig.ends_with(wanted_attr_value_orig)
-                    }
-                    MatcherType::SubstringMatch => {
-                        got_attr_value_orig.contains(wanted_attr_value_orig)
-                    }
+                    MatcherType::PrefixMatch => got_attr_value_orig.starts_with(wanted_attr_value_orig),
+                    MatcherType::SuffixMatch => got_attr_value_orig.ends_with(wanted_attr_value_orig),
+                    MatcherType::SubstringMatch => got_attr_value_orig.contains(wanted_attr_value_orig),
                 }
             }
         }
@@ -492,7 +473,8 @@ impl CssProperty {
     #[must_use]
     pub fn is_shorthand(&self) -> bool {
         let defs = get_css_definitions();
-        defs.find_property(&self.name).is_some_and(|def| def.expanded_properties().len() > 1)
+        defs.find_property(&self.name)
+            .is_some_and(|def| def.expanded_properties().len() > 1)
     }
 
     /// Returns the list of properties from a shorthand property, or just the property itself if it isn't a shorthand property.

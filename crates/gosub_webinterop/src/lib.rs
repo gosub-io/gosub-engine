@@ -25,8 +25,7 @@ mod utils;
 
 use std::sync::LazyLock;
 
-static STATE: LazyLock<RwLock<HashMap<(String, String), u8>>> =
-    LazyLock::new(|| RwLock::new(HashMap::new()));
+static STATE: LazyLock<RwLock<HashMap<(String, String), u8>>> = LazyLock::new(|| RwLock::new(HashMap::new()));
 
 #[proc_macro_attribute]
 ///
@@ -101,7 +100,7 @@ pub fn web_fns(attr: TokenStream, item: TokenStream) -> TokenStream {
                 name,
                 arguments: Vec::with_capacity(args.len()), // we don't know if the first is self, so no args.len() - 1
                 self_type: SelfType::NoSelf,
-                return_type: ReturnType::parse(&method.sig.output).unwrap(),
+                return_type: ReturnType::parse(&method.sig.output).expect("failed to parse return type"),
                 executor: property.executor,
                 generics: GenericsMatcher::get_matchers(property.generics, method),
                 func_generics: method.sig.generics.clone(),
@@ -121,7 +120,7 @@ pub fn web_fns(attr: TokenStream, item: TokenStream) -> TokenStream {
             let mut index = 0;
             for arg in args {
                 if let FnArg::Typed(arg) = arg {
-                    let arg = Arg::parse(&arg.ty, index, &func.generics).unwrap();
+                    let arg = Arg::parse(&arg.ty, index, &func.generics).expect("failed to parse arg");
                     if arg.variant == ArgVariant::Variadic {
                         func.variadic = true;
                     } else if arg.variant == ArgVariant::Context {

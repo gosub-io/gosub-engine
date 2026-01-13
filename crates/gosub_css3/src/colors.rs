@@ -227,7 +227,8 @@ fn convert_from_hex_str_to_vec_of_ints(hex_value: &str, hex_size: usize) -> Vec<
     }
 }
 
-pub static CSS_COLORNAMES: LazyLock<&'static [CssColorEntry]> = LazyLock::new(|| &[
+pub static CSS_COLORNAMES: LazyLock<&'static [CssColorEntry]> = LazyLock::new(|| {
+    &[
         CssColorEntry {
             name: "aliceblue",
             value: "#f0f8ff",
@@ -820,7 +821,8 @@ pub static CSS_COLORNAMES: LazyLock<&'static [CssColorEntry]> = LazyLock::new(||
             name: "rebeccapurple",
             value: "#663399",
         },
-]);
+    ]
+});
 #[must_use]
 pub fn is_system_color(name: &str) -> bool {
     for entry in &CSS_SYSTEM_COLOR_NAMES {
