@@ -6,7 +6,7 @@ use crate::types::executor::Executor;
 use crate::types::{Arg, ArgVariant, Generics, Primitive, ReturnType, SelfType};
 
 #[derive(Clone, Debug)]
-pub(crate) struct Function {
+pub struct Function {
     pub(crate) name: String,
     pub(crate) ident: Ident,
     pub(crate) arguments: Vec<Arg>,

@@ -55,7 +55,12 @@ impl Tabs {
         Ok(Self { tabs, active: kti(id) })
     }
 
-    pub fn open<C: ModuleConfiguration>(&mut self, url: Url, layouter: C::Layouter, handles: Handles<C>) -> Result<()> {
+    pub fn open<C: ModuleConfiguration>(
+        &mut self,
+        url: &Url,
+        layouter: C::Layouter,
+        handles: Handles<C>,
+    ) -> Result<()> {
         let id = self
             .tabs
             .try_insert_with_key(|key| EngineInstance::new_on_thread(url.clone(), layouter, kti(key), handles))?;

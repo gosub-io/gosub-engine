@@ -89,18 +89,18 @@ impl PropertyDefinition {
     }
 
     #[must_use]
-    pub fn syntax(&self) -> &CssSyntaxTree {
+    pub const fn syntax(&self) -> &CssSyntaxTree {
         &self.syntax
     }
 
     #[must_use]
-    pub fn inherited(&self) -> bool {
+    pub const fn inherited(&self) -> bool {
         self.inherited
     }
 
     /// Returns true when this definition has an initial value
     #[must_use]
-    pub fn has_initial_value(&self) -> bool {
+    pub const fn has_initial_value(&self) -> bool {
         self.initial_value.is_some()
     }
 
@@ -117,17 +117,17 @@ impl PropertyDefinition {
     }
 
     pub fn matches_and_shorthands(&self, input: &[CssValue], fix_list: &mut FixList) -> bool {
-        if let Some(shorthands) = &self.shorthands {
-            let resolver = shorthands.get_resolver(fix_list);
-
-            self.syntax.matches_and_shorthands(input, resolver)
-        } else {
-            self.syntax.matches(input)
-        }
+        self.shorthands.as_ref().map_or_else(
+            || self.syntax.matches(input),
+            |shorthands| {
+                let resolver = shorthands.get_resolver(fix_list);
+                self.syntax.matches_and_shorthands(input, resolver)
+            },
+        )
     }
 
     #[must_use]
-    pub fn check_expanded_properties(&self, _values: &[CssValue]) -> bool {
+    pub const fn check_expanded_properties(&self, _values: &[CssValue]) -> bool {
         // if values.len() != self.expanded_properties.len() {
         //     return false;
         // }
@@ -144,7 +144,7 @@ impl PropertyDefinition {
     }
 
     #[must_use]
-    pub fn is_shorthand(&self) -> bool {
+    pub const fn is_shorthand(&self) -> bool {
         self.computed.len() > 1
     }
 }
@@ -186,7 +186,7 @@ impl Default for CssDefinitions {
 impl CssDefinitions {
     #[must_use]
     pub fn new() -> Self {
-        CssDefinitions {
+        Self {
             resolved_properties: HashMap::new(),
             properties: HashMap::new(),
             syntax: HashMap::new(),
@@ -262,6 +262,9 @@ impl CssDefinitions {
     }
 
     /// Resolve a syntax component
+    ///
+    /// # Panics
+    /// Panics if the datatype is unknown and cannot be resolved.
     pub fn resolve_component(&mut self, component: &SyntaxComponent, prop_name: &str) -> SyntaxComponent {
         match component {
             SyntaxComponent::Definition {
@@ -374,13 +377,13 @@ pub const DEFINITIONS_VALUES: &str = include_str!("../../resources/definitions/d
 pub const DEFINITIONS_PROPERTIES: &str = include_str!("../../resources/definitions/definitions_properties.json");
 
 fn get_values<M: Map<String, SyntaxDefinition>>() -> M {
-    let json: serde_json::Value = serde_json::from_str(DEFINITIONS_VALUES).expect("JSON was not well-formatted");
-    parse_syntax_file(json)
+    let json: serde_json::Value = serde_json::from_str(DEFINITIONS_VALUES).unwrap();
+    parse_syntax_file(&json)
 }
 
 fn get_properties<M: Map<String, PropertyDefinition>>() -> M {
-    let json: serde_json::Value = serde_json::from_str(DEFINITIONS_PROPERTIES).expect("JSON was not well-formatted");
-    parse_property_file(json)
+    let json: serde_json::Value = serde_json::from_str(DEFINITIONS_PROPERTIES).unwrap();
+    parse_property_file(&json)
 }
 
 /// Parses the internal CSS definition file
@@ -429,7 +432,7 @@ trait Map<K, V> {
 
 impl<K: Eq + Hash, V> Map<K, V> for HashMap<K, V> {
     fn new() -> Self {
-        HashMap::new()
+        Self::new()
     }
 
     fn insert(&mut self, key: K, value: V) {
@@ -449,7 +452,7 @@ impl<K: Eq + Hash, V> Map<K, V> for indexmap::IndexMap<K, V> {
 }
 
 /// Parses a syntax JSON import file
-fn parse_syntax_file<M: Map<String, SyntaxDefinition>>(json: serde_json::Value) -> M {
+fn parse_syntax_file<M: Map<String, SyntaxDefinition>>(json: &serde_json::Value) -> M {
     let mut syntaxes = M::new();
 
     let entries = json.as_array().unwrap();
@@ -457,17 +460,15 @@ fn parse_syntax_file<M: Map<String, SyntaxDefinition>>(json: serde_json::Value) 
         match CssSyntax::new(entry.get("syntax").unwrap().as_str().unwrap()).compile() {
             Ok(ast) => {
                 let mut name = entry.get("name").unwrap().to_string();
-                let mut ty = SyntaxType::None;
-
-                if name.starts_with('"') {
+                let ty = if name.starts_with('"') {
                     name = name[1..].to_string();
-                    ty = SyntaxType::Quoted;
-                }
-
-                if name.starts_with('<') {
+                    SyntaxType::Quoted
+                } else if name.starts_with('<') {
                     name = name[1..].to_string();
-                    ty = SyntaxType::Definition;
-                }
+                    SyntaxType::Definition
+                } else {
+                    SyntaxType::None
+                };
 
                 if name.ends_with('"') {
                     name.pop();
@@ -503,7 +504,7 @@ fn parse_syntax_file<M: Map<String, SyntaxDefinition>>(json: serde_json::Value) 
 }
 
 /// Parses the JSON input into a CSS property definitions structure
-fn parse_property_file<M: Map<String, PropertyDefinition>>(json: serde_json::Value) -> M {
+fn parse_property_file<M: Map<String, PropertyDefinition>>(json: &serde_json::Value) -> M {
     let mut properties = M::new();
 
     for obj in json.as_array().unwrap() {
@@ -649,7 +650,7 @@ mod tests {
             PropertyDefinition {
                 name: "color".to_string(),
                 computed: vec![],
-                syntax: CssSyntax::new("color()").compile().expect("Could not compile syntax"),
+                syntax: CssSyntax::new("color()").compile().unwrap(),
                 inherited: false,
                 initial_value: None,
                 resolved: false,
@@ -672,7 +673,7 @@ mod tests {
                     "border-bottom-style".to_string(),
                     "border-left-style".to_string(),
                 ],
-                syntax: CssSyntax::new("").compile().expect("Could not compile syntax"),
+                syntax: CssSyntax::new("").compile().unwrap(),
                 inherited: false,
                 initial_value: Some(str!("thick".to_string())),
                 resolved: false,

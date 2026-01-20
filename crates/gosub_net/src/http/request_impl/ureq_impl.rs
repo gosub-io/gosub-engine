@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use ureq::{http, Agent, Body};
 
 use crate::http::fetcher::RequestAgent;
@@ -52,7 +53,6 @@ impl TryFrom<http::response::Response<Body>> for Response {
             status_text: response.status().to_string(),
             version: match response.version() {
                 http::Version::HTTP_09 => "http/0.9".into(),
-                http::Version::HTTP_10 => "http/1.0".into(),
                 http::Version::HTTP_11 => "http/1.1".into(),
                 http::Version::HTTP_2 => "http/2.0".into(),
                 http::Version::HTTP_3 => "http/3.0".into(),
@@ -60,7 +60,7 @@ impl TryFrom<http::response::Response<Body>> for Response {
             },
             headers: get_headers(response.headers()),
             body: response.body_mut().read_to_vec()?,
-            cookies: Default::default(),
+            cookies: HashMap::default(),
         })
     }
 }

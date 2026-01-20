@@ -14,6 +14,7 @@ use gosub_shared::{timing_start, timing_stop};
 pub mod ast;
 /// This CSS3 parser is heavily based on the MIT licensed `CssTree` parser written by
 /// Roman Dvornov (<https://github.com/lahmatiy>).
+///
 /// The original version can be found at <https://github.com/csstree/csstree>
 pub mod colors;
 pub mod errors;
@@ -106,6 +107,9 @@ impl<'stream> Css3<'stream> {
 }
 
 /// Loads the default user agent stylesheet
+///
+/// # Panics
+/// Panics if the user agent CSS file cannot be parsed
 #[must_use]
 pub fn load_default_useragent_stylesheet() -> CssStylesheet {
     // @todo: we should be able to browse to gosub:useragent.css and see the actual useragent css file
@@ -118,7 +122,7 @@ pub fn load_default_useragent_stylesheet() -> CssStylesheet {
     };
 
     let css_data = include_str!("../resources/useragent.css");
-    Css3::parse_str(css_data, config, CssOrigin::UserAgent, url).expect("Could not parse useragent stylesheet")
+    Css3::parse_str(css_data, config, CssOrigin::UserAgent, url).unwrap()
 }
 
 #[cfg(test)]
@@ -128,7 +132,7 @@ mod tests {
     use simple_logger::SimpleLogger;
 
     #[test]
-    #[ignore]
+    #[ignore = "Large test file parsing, manually run when needed"]
     fn parser() {
         let filename = "../tests/data/css3-data/data.css";
 

@@ -2,37 +2,14 @@
 
 use crate::byte_stream::Location;
 use std::ops::Add;
-use thiserror::Error;
 
 /// Parser error that defines an error (message) on the given position
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ParseError {
     /// Parse error message
     pub message: String,
     /// Location of the error
     pub location: Location,
-}
-
-/// Serious errors and errors from third-party libraries
-#[derive(Debug, Error)]
-pub enum Error {
-    #[error("config error: {0}")]
-    Config(String),
-
-    #[error("io error: {0}")]
-    IO(#[from] std::io::Error),
-
-    #[error("parse error: {0}")]
-    Parse(String),
-
-    #[error("utf8 conversion error: {0}")]
-    Utf8(#[from] std::string::FromUtf8Error),
-
-    #[error("test error: {0}")]
-    Test(String),
-
-    #[error("there was a problem: {0}")]
-    Generic(String),
 }
 
 /// Result that can be returned which holds either T or an Error
@@ -45,22 +22,22 @@ pub struct Size<T: Copy> {
 }
 
 impl<T: Copy> Size<T> {
-    pub fn new(width: T, height: T) -> Self {
+    pub const fn new(width: T, height: T) -> Self {
         Self { width, height }
     }
 
-    pub fn uniform(size: T) -> Self {
+    pub const fn uniform(size: T) -> Self {
         Self {
             width: size,
             height: size,
         }
     }
 
-    pub fn width(&self) -> &T {
+    pub const fn width(&self) -> &T {
         &self.width
     }
 
-    pub fn height(&self) -> &T {
+    pub const fn height(&self) -> &T {
         &self.height
     }
 }
@@ -72,15 +49,15 @@ pub struct Point<T: Copy> {
 }
 
 impl<T: Copy> Point<T> {
-    pub fn new(x: T, y: T) -> Self {
+    pub const fn new(x: T, y: T) -> Self {
         Self { x, y }
     }
 
-    pub fn x(&self) -> &T {
+    pub const fn x(&self) -> &T {
         &self.x
     }
 
-    pub fn y(&self) -> &T {
+    pub const fn y(&self) -> &T {
         &self.y
     }
 }
@@ -108,17 +85,17 @@ impl Point<u32> {
     }
 
     #[must_use]
-    pub fn f32(&self) -> Point<f32> {
+    pub const fn f32(&self) -> Point<f32> {
         Point::new(self.x as f32, self.y as f32)
     }
 
     #[must_use]
-    pub fn x32(&self) -> f32 {
+    pub const fn x32(&self) -> f32 {
         self.x as f32
     }
 
     #[must_use]
-    pub fn y32(&self) -> f32 {
+    pub const fn y32(&self) -> f32 {
         self.y as f32
     }
 
@@ -137,7 +114,7 @@ impl Point<f32> {
     pub const ZERO: Self = Self { x: 0.0, y: 0.0 };
 
     #[must_use]
-    pub fn u32(&self) -> Point<u32> {
+    pub const fn u32(&self) -> Point<u32> {
         Point::new(self.x as u32, self.y as u32)
     }
 
@@ -147,12 +124,12 @@ impl Point<f32> {
     }
 
     #[must_use]
-    pub fn x_u32(&self) -> u32 {
+    pub const fn x_u32(&self) -> u32 {
         self.x as u32
     }
 
     #[must_use]
-    pub fn y_u32(&self) -> u32 {
+    pub const fn y_u32(&self) -> u32 {
         self.y as u32
     }
 
@@ -171,32 +148,32 @@ impl Point<f64> {
     pub const ZERO: Self = Self { x: 0.0, y: 0.0 };
 
     #[must_use]
-    pub fn u32(&self) -> Point<u32> {
+    pub const fn u32(&self) -> Point<u32> {
         Point::new(self.x as u32, self.y as u32)
     }
 
     #[must_use]
-    pub fn f32(&self) -> Point<f32> {
+    pub const fn f32(&self) -> Point<f32> {
         Point::new(self.x as f32, self.y as f32)
     }
 
     #[must_use]
-    pub fn x_u32(&self) -> u32 {
+    pub const fn x_u32(&self) -> u32 {
         self.x as u32
     }
 
     #[must_use]
-    pub fn y_u32(&self) -> u32 {
+    pub const fn y_u32(&self) -> u32 {
         self.y as u32
     }
 
     #[must_use]
-    pub fn x32(&self) -> f32 {
+    pub const fn x32(&self) -> f32 {
         self.x as f32
     }
 
     #[must_use]
-    pub fn y32(&self) -> f32 {
+    pub const fn y32(&self) -> f32 {
         self.y as f32
     }
 }
@@ -210,17 +187,17 @@ impl Size<u32> {
     }
 
     #[must_use]
-    pub fn f32(&self) -> Size<f32> {
+    pub const fn f32(&self) -> Size<f32> {
         Size::new(self.width as f32, self.height as f32)
     }
 
     #[must_use]
-    pub fn w32(&self) -> f32 {
+    pub const fn w32(&self) -> f32 {
         self.width as f32
     }
 
     #[must_use]
-    pub fn h32(&self) -> f32 {
+    pub const fn h32(&self) -> f32 {
         self.height as f32
     }
 
@@ -242,7 +219,7 @@ impl Size<f32> {
     };
 
     #[must_use]
-    pub fn u32(&self) -> Size<u32> {
+    pub const fn u32(&self) -> Size<u32> {
         Size::new(self.width as u32, self.height as u32)
     }
 
@@ -252,12 +229,12 @@ impl Size<f32> {
     }
 
     #[must_use]
-    pub fn w_u32(&self) -> u32 {
+    pub const fn w_u32(&self) -> u32 {
         self.width as u32
     }
 
     #[must_use]
-    pub fn h_u32(&self) -> u32 {
+    pub const fn h_u32(&self) -> u32 {
         self.height as u32
     }
 
@@ -279,32 +256,32 @@ impl Size<f64> {
     };
 
     #[must_use]
-    pub fn u32(&self) -> Size<u32> {
+    pub const fn u32(&self) -> Size<u32> {
         Size::new(self.width as u32, self.height as u32)
     }
 
     #[must_use]
-    pub fn f32(&self) -> Size<f32> {
+    pub const fn f32(&self) -> Size<f32> {
         Size::new(self.width as f32, self.height as f32)
     }
 
     #[must_use]
-    pub fn w_u32(&self) -> u32 {
+    pub const fn w_u32(&self) -> u32 {
         self.width as u32
     }
 
     #[must_use]
-    pub fn h_u32(&self) -> u32 {
+    pub const fn h_u32(&self) -> u32 {
         self.height as u32
     }
 
     #[must_use]
-    pub fn w32(&self) -> f32 {
+    pub const fn w32(&self) -> f32 {
         self.width as f32
     }
 
     #[must_use]
-    pub fn h32(&self) -> f32 {
+    pub const fn h32(&self) -> f32 {
         self.height as f32
     }
 }
@@ -322,11 +299,11 @@ pub struct Rect<T: Copy> {
 }
 
 impl<T: Copy> Rect<T> {
-    pub fn new(x1: T, y1: T, x2: T, y2: T) -> Self {
+    pub const fn new(x1: T, y1: T, x2: T, y2: T) -> Self {
         Self { y1, x1, y2, x2 }
     }
 
-    pub fn from_components(origin: Point<T>, size: Size<T>) -> Self {
+    pub const fn from_components(origin: Point<T>, size: Size<T>) -> Self {
         Self {
             x1: origin.x,
             y1: origin.y,
@@ -336,12 +313,12 @@ impl<T: Copy> Rect<T> {
     }
 
     /// Gets the origin, if x1 and y1 represent the origin of the rect
-    pub fn origin(&self) -> Point<T> {
+    pub const fn origin(&self) -> Point<T> {
         Point::new(self.x1, self.y1)
     }
 
     /// Gets the size, if x2 and y2 represent the size of the rect
-    pub fn size(&self) -> Size<T> {
+    pub const fn size(&self) -> Size<T> {
         Size::new(self.x2, self.y2)
     }
 }
@@ -365,27 +342,27 @@ impl Rect<u32> {
     }
 
     #[must_use]
-    pub fn f32(&self) -> Rect<f32> {
+    pub const fn f32(&self) -> Rect<f32> {
         Rect::new(self.x1 as f32, self.y1 as f32, self.x2 as f32, self.y2 as f32)
     }
 
     #[must_use]
-    pub fn x1_f32(&self) -> f32 {
+    pub const fn x1_f32(&self) -> f32 {
         self.x1 as f32
     }
 
     #[must_use]
-    pub fn y1_f32(&self) -> f32 {
+    pub const fn y1_f32(&self) -> f32 {
         self.y1 as f32
     }
 
     #[must_use]
-    pub fn x2_f32(&self) -> f32 {
+    pub const fn x2_f32(&self) -> f32 {
         self.x2 as f32
     }
 
     #[must_use]
-    pub fn y2_f32(&self) -> f32 {
+    pub const fn y2_f32(&self) -> f32 {
         self.y2 as f32
     }
 

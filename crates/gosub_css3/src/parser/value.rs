@@ -6,6 +6,9 @@ use gosub_shared::errors::CssError;
 use gosub_shared::errors::CssResult;
 
 impl Css3<'_> {
+    /// # Panics
+    ///
+    /// Panics if `kind` is `FeatureKind::Supports` as it is not implemented yet.
     pub fn parse_value_sequence(&mut self) -> CssResult<Vec<Node>> {
         log::trace!("parse_value_sequence");
 
@@ -14,10 +17,7 @@ impl Css3<'_> {
         while !self.tokenizer.eof() {
             let t = self.consume_any()?;
             match t.token_type {
-                TokenType::Comment(_) => {
-                    // eat token
-                }
-                TokenType::Whitespace(_) => {
+                TokenType::Comment(_) | TokenType::Whitespace(_) => {
                     // eat token
                 }
                 _ => {
@@ -94,7 +94,7 @@ impl Css3<'_> {
             }
             TokenType::Ident(value) => {
                 if value.eq_ignore_ascii_case("progid") {
-                    let _ = self.consume(TokenType::Colon)?;
+                    let _ = self.consume(&TokenType::Colon)?;
                     let _ = self.consume_ident_ci("dximagetransform")?;
                     let _ = self.consume_delim('.')?;
                     let _ = self.consume_ident_ci("microsoft")?;
@@ -111,23 +111,16 @@ impl Css3<'_> {
                     self.consume_delim('=')?;
                     let t = self.consume_any()?;
                     let node = match t.token_type {
-                        TokenType::QuotedString(default_value) => Node::new(
-                            NodeType::MSIdent {
-                                value: value.to_string(),
-                                default_value,
-                            },
-                            t.location,
-                        ),
+                        TokenType::QuotedString(default_value) | TokenType::Ident(default_value) => {
+                            Node::new(NodeType::MSIdent { value, default_value }, t.location)
+                        }
                         TokenType::Number(default_value) => Node::new(
                             NodeType::MSIdent {
-                                value: value.to_string(),
+                                value,
                                 default_value: default_value.to_string(),
                             },
                             t.location,
                         ),
-                        TokenType::Ident(default_value) => {
-                            Node::new(NodeType::MSIdent { value, default_value }, t.location)
-                        }
                         _ => {
                             return Err(CssError::with_location(
                                 format!("Expected number or ident, got {t:?}").as_str(),

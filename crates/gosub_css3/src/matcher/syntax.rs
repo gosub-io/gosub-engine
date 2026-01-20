@@ -31,7 +31,7 @@ pub struct Group {
 }
 
 #[allow(dead_code)]
-#[derive(PartialEq, Debug, Clone, Copy)]
+#[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub enum GroupCombinators {
     /// All elements must be matched in order (space delimited)
     Juxtaposition,
@@ -44,7 +44,7 @@ pub enum GroupCombinators {
 }
 
 /// Multiplier for a syntax component that defines how many times this component is allowed to appear
-#[derive(PartialEq, Debug, Clone, Copy)]
+#[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub enum SyntaxComponentMultiplier {
     /// Default case
     Once,
@@ -65,13 +65,13 @@ pub enum SyntaxComponentMultiplier {
 impl Display for SyntaxComponentMultiplier {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            SyntaxComponentMultiplier::Once => write!(f, ""),
-            SyntaxComponentMultiplier::ZeroOrMore => write!(f, "*"),
-            SyntaxComponentMultiplier::OneOrMore => write!(f, "+"),
-            SyntaxComponentMultiplier::Optional => write!(f, "?"),
-            SyntaxComponentMultiplier::Between(min, max) => write!(f, "{{{min}, {max}}}"),
-            SyntaxComponentMultiplier::AtLeastOneValue => write!(f, "!"),
-            SyntaxComponentMultiplier::CommaSeparatedRepeat(min, max) => {
+            Self::Once => write!(f, ""),
+            Self::ZeroOrMore => write!(f, "*"),
+            Self::OneOrMore => write!(f, "+"),
+            Self::Optional => write!(f, "?"),
+            Self::Between(min, max) => write!(f, "{{{min}, {max}}}"),
+            Self::AtLeastOneValue => write!(f, "!"),
+            Self::CommaSeparatedRepeat(min, max) => {
                 write!(f, "#{{{min}, {max}}}")
             }
         }
@@ -102,8 +102,8 @@ pub struct RangeType {
 
 impl RangeType {
     /// Returns an empty range
-    fn empty() -> Self {
-        RangeType {
+    const fn empty() -> Self {
+        Self {
             min: NumberOrInfinity::None,
             max: NumberOrInfinity::None,
         }
@@ -126,7 +126,7 @@ pub enum SyntaxComponent {
     /// Functions like `color()`, `length()` etc
     Function {
         name: String,
-        arguments: Option<Box<SyntaxComponent>>,
+        arguments: Option<Box<Self>>,
         multipliers: Vec<SyntaxComponentMultiplier>,
     },
     /// Internal data definition like <length>, <color>, or quoted like <'background-color'>. Can include
@@ -161,7 +161,7 @@ pub enum SyntaxComponent {
     },
     /// Group of components surrounded by []
     Group {
-        components: Vec<SyntaxComponent>,
+        components: Vec<Self>,
         combinator: GroupCombinators,
         multipliers: Vec<SyntaxComponentMultiplier>,
     },
@@ -180,64 +180,42 @@ pub enum SyntaxComponent {
 
 impl SyntaxComponent {
     #[must_use]
-    pub fn is_group(&self) -> bool {
-        matches!(self, SyntaxComponent::Group { .. })
+    pub const fn is_group(&self) -> bool {
+        matches!(self, Self::Group { .. })
     }
 
     #[must_use]
     pub fn get_multipliers(&self) -> Vec<SyntaxComponentMultiplier> {
         match self {
-            SyntaxComponent::Group { multipliers, .. } => multipliers.clone(),
-            SyntaxComponent::Function { multipliers, .. } => multipliers.clone(),
-            SyntaxComponent::Property { multipliers, .. } => multipliers.clone(),
-            SyntaxComponent::GenericKeyword { multipliers, .. } => multipliers.clone(),
-            SyntaxComponent::Definition { multipliers, .. } => multipliers.clone(),
-            SyntaxComponent::Unit { multipliers, .. } => multipliers.clone(),
-            SyntaxComponent::Literal { multipliers, .. } => multipliers.clone(),
-            SyntaxComponent::Inherit { multipliers, .. } => multipliers.clone(),
-            SyntaxComponent::Initial { multipliers, .. } => multipliers.clone(),
-            SyntaxComponent::Unset { multipliers, .. } => multipliers.clone(),
-            SyntaxComponent::Value { multipliers, .. } => multipliers.clone(),
-            SyntaxComponent::Builtin { multipliers, .. } => multipliers.clone(),
+            Self::Group { multipliers, .. }
+            | Self::Function { multipliers, .. }
+            | Self::Property { multipliers, .. }
+            | Self::GenericKeyword { multipliers, .. }
+            | Self::Definition { multipliers, .. }
+            | Self::Unit { multipliers, .. }
+            | Self::Literal { multipliers, .. }
+            | Self::Inherit { multipliers, .. }
+            | Self::Initial { multipliers, .. }
+            | Self::Unset { multipliers, .. }
+            | Self::Value { multipliers, .. }
+            | Self::Builtin { multipliers, .. } => multipliers.clone(),
         }
     }
 
     pub fn update_multipliers(&mut self, new_multipliers: Vec<SyntaxComponentMultiplier>) {
         match self {
-            SyntaxComponent::Group { multipliers, .. } => {
-                *multipliers = new_multipliers;
-            }
-            SyntaxComponent::Function { multipliers, .. } => {
-                *multipliers = new_multipliers;
-            }
-            SyntaxComponent::Property { multipliers, .. } => {
-                *multipliers = new_multipliers;
-            }
-            SyntaxComponent::GenericKeyword { multipliers, .. } => {
-                *multipliers = new_multipliers;
-            }
-            SyntaxComponent::Definition { multipliers, .. } => {
-                *multipliers = new_multipliers;
-            }
-            SyntaxComponent::Unit { multipliers, .. } => {
-                *multipliers = new_multipliers;
-            }
-            SyntaxComponent::Literal { multipliers, .. } => {
-                *multipliers = new_multipliers;
-            }
-            SyntaxComponent::Inherit { multipliers, .. } => {
-                *multipliers = new_multipliers;
-            }
-            SyntaxComponent::Initial { multipliers, .. } => {
-                *multipliers = new_multipliers;
-            }
-            SyntaxComponent::Unset { multipliers, .. } => {
-                *multipliers = new_multipliers;
-            }
-            SyntaxComponent::Value { multipliers, .. } => {
-                *multipliers = new_multipliers;
-            }
-            SyntaxComponent::Builtin { multipliers, .. } => {
+            Self::Group { multipliers, .. }
+            | Self::Function { multipliers, .. }
+            | Self::Property { multipliers, .. }
+            | Self::GenericKeyword { multipliers, .. }
+            | Self::Definition { multipliers, .. }
+            | Self::Unit { multipliers, .. }
+            | Self::Literal { multipliers, .. }
+            | Self::Inherit { multipliers, .. }
+            | Self::Initial { multipliers, .. }
+            | Self::Unset { multipliers, .. }
+            | Self::Value { multipliers, .. }
+            | Self::Builtin { multipliers, .. } => {
                 *multipliers = new_multipliers;
             }
         }
@@ -253,7 +231,7 @@ pub(crate) struct CssSyntax {
 impl CssSyntax {
     /// Generates a new syntax instance
     pub fn new(source: &str) -> Self {
-        CssSyntax {
+        Self {
             source: source.to_string(),
         }
     }
@@ -591,24 +569,28 @@ fn parse_function(input: &str) -> IResult<&str, SyntaxComponent> {
     let (input, name) = parse_keyword(input)?;
     let (input, arglist) = alt((map(empty_arglist, |_| None), map(arglist, Some))).parse(input)?;
 
-    match arglist {
-        Some(arglist) => Ok((
-            input,
-            SyntaxComponent::Function {
-                name: name.to_string(),
-                arguments: Some(Box::new(arglist)),
-                multipliers: vec![SyntaxComponentMultiplier::Once],
-            },
-        )),
-        None => Ok((
-            input,
-            SyntaxComponent::Function {
-                name: name.to_string(),
-                arguments: None,
-                multipliers: vec![SyntaxComponentMultiplier::Once],
-            },
-        )),
-    }
+    arglist.map_or_else(
+        || {
+            Ok((
+                input,
+                SyntaxComponent::Function {
+                    name: name.to_string(),
+                    arguments: None,
+                    multipliers: vec![SyntaxComponentMultiplier::Once],
+                },
+            ))
+        },
+        |arglist| {
+            Ok((
+                input,
+                SyntaxComponent::Function {
+                    name: name.to_string(),
+                    arguments: Some(Box::new(arglist)),
+                    multipliers: vec![SyntaxComponentMultiplier::Once],
+                },
+            ))
+        },
+    )
 }
 
 fn parse_property(input: &str) -> IResult<&str, SyntaxComponent> {
@@ -652,15 +634,13 @@ fn parse_infinity(input: &str) -> IResult<&str, NumberOrInfinity> {
 fn parse_signed_integer(input: &str) -> IResult<&str, NumberOrInfinity> {
     map_res(pair(opt(char('-')), digit1), |(sign, digits): (Option<char>, &str)| {
         let neg_multiplier = if sign == Some('-') { -1 } else { 1 };
-        let num = digits.parse::<i64>().map(|num| num * neg_multiplier);
-        if let Ok(num) = num {
-            Ok(NumberOrInfinity::FiniteI64(num))
-        } else {
-            Err(Err::<nom::error::Error<&str>>::Error(nom::error::Error::new(
-                input,
-                nom::error::ErrorKind::Digit,
-            )))
-        }
+        digits
+            .parse::<i64>()
+            .map(|num| num * neg_multiplier)
+            .map_err(|_| {
+                Err::<nom::error::Error<&str>>::Error(nom::error::Error::new(input, nom::error::ErrorKind::Digit))
+            })
+            .map(NumberOrInfinity::FiniteI64)
     })
     .parse(input)
 }
@@ -669,9 +649,8 @@ fn parse_unit_range(input: &str) -> IResult<&str, NumberOrInfinity> {
     let out = parse_unit(input)?;
     if let SyntaxComponent::Value { value, .. } = out.1 {
         let val = match value {
-            CssValue::Unit(v, _) => v as i64,
             CssValue::Zero => 0,
-            CssValue::Number(v) => v as i64,
+            CssValue::Unit(v, _) | CssValue::Number(v) => v as i64,
             v => {
                 panic!("Invalid value: {v:?}");
             }
@@ -795,7 +774,7 @@ fn parse_component(input: &str) -> IResult<&str, SyntaxComponent> {
     .parse(input)?;
     let (input, multipliers) = parse_multipliers(input)?;
 
-    component.update_multipliers(multipliers.clone());
+    component.update_multipliers(multipliers);
 
     debug_print!("<- Parsed component_type: {:#?} {:?}", component, multipliers);
 

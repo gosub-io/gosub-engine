@@ -5,21 +5,21 @@ pub mod storage;
 use crate::settings::{Setting, SettingInfo};
 use crate::storage::MemoryStorageAdapter;
 use gosub_shared::types::Result;
-use lazy_static::lazy_static;
 use log::warn;
 use serde_derive::Deserialize;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::mem;
 use std::str::FromStr;
-use std::sync::RwLock;
+use std::sync::{LazyLock, RwLock};
 use wildmatch::WildMatch;
 
 /// Settings are stored in a json file, but this is included in the binary for mostly easy editting.
 const SETTINGS_JSON: &str = include_str!("./settings.json");
 
-/// `StoreAdapter` is the interface for storing and retrieving settings
-/// This can be used to storage settings in a database, json file, etc
+/// `StoreAdapter` is the interface for storing and retrieving settings.
+///
+/// This can be used to storage settings in a database, json file, etc.
 /// Note that we need to implement Send so we can send the storage adapter
 /// to other threads.
 pub trait StorageAdapter: Send + Sync {
@@ -37,20 +37,25 @@ pub trait StorageAdapter: Send + Sync {
     fn all(&self) -> Result<HashMap<String, Setting>>;
 }
 
-lazy_static! {
-    // Initial config store will have a memory storage adapter. It will save within the session, but not
-    // persist this on disk.
-    static ref CONFIG_STORE: RwLock<ConfigStore> = RwLock::new(ConfigStore::default());
-}
+// Initial config store will have a memory storage adapter. It will save within the session, but not
+// persist this on disk.
+static CONFIG_STORE: LazyLock<RwLock<ConfigStore>> = LazyLock::new(|| RwLock::new(ConfigStore::default()));
 
 /// Returns a reference to the config store, which is locked by a mutex.
 /// Any callers of the config store can just do  `config::config_store().get("dns.local.enabled`")
+///
+/// # Panics
+/// Panics if the lock is poisoned
 pub fn config_store() -> std::sync::RwLockReadGuard<'static, ConfigStore> {
-    CONFIG_STORE.read().unwrap()
+    CONFIG_STORE.read().expect("config store lock poisoned")
 }
 
+/// Returns a writable reference to the config store.
+///
+/// # Panics
+/// Panics if the lock is poisoned
 pub fn config_store_write() -> std::sync::RwLockWriteGuard<'static, ConfigStore> {
-    CONFIG_STORE.write().unwrap()
+    CONFIG_STORE.write().expect("config store lock poisoned")
 }
 
 /// These macro's can be used to simplify the calls to the config store. You can simply do:
@@ -63,36 +68,41 @@ pub fn config_store_write() -> std::sync::RwLockWriteGuard<'static, ConfigStore>
 #[allow(clippy::crate_in_macro_def)]
 #[macro_export]
 macro_rules! config {
-    (string $key:expr) => {
-        match config_store().get($key) {
+    (string $key:expr) => {{
+        let value = config_store().get($key);
+        match value {
             Some(setting) => setting.to_string(),
             None => String::new(),
         }
-    };
-    (bool $key:expr) => {
-        match config_store().get($key) {
+    }};
+    (bool $key:expr) => {{
+        let value = config_store().get($key);
+        match value {
             Some(setting) => setting.to_bool(),
             None => false,
         }
-    };
-    (uint $key:expr) => {
-        match config_store().get($key) {
+    }};
+    (uint $key:expr) => {{
+        let value = config_store().get($key);
+        match value {
             Some(setting) => setting.to_uint(),
             None => 0,
         }
-    };
-    (sint $key:expr) => {
-        match config_store().get($key) {
+    }};
+    (sint $key:expr) => {{
+        let value = config_store().get($key);
+        match value {
             Some(setting) => setting.to_sint(),
             None => 0,
         }
-    };
-    (map $key:expr) => {
-        match config_store().get($key) {
+    }};
+    (map $key:expr) => {{
+        let value = config_store().get($key);
+        match value {
             Some(setting) => setting.to_map(),
             None => Vec::new(),
         }
-    };
+    }};
 }
 
 #[allow(clippy::crate_in_macro_def)]
@@ -142,7 +152,7 @@ pub struct ConfigStore {
 
 impl Default for ConfigStore {
     fn default() -> Self {
-        let mut store = ConfigStore {
+        let mut store = Self {
             settings: std::sync::Mutex::new(std::cell::RefCell::new(HashMap::new())),
             settings_info: HashMap::new(),
             setting_keys: Vec::new(),
@@ -160,20 +170,34 @@ impl ConfigStore {
     /// Sets a new storage engine and updates all settings in the config store according to what
     /// is written in the storage. Note that it will overwrite any current settings in the config
     /// store. Take this into consideration when using this function to switch storage engines.
+    ///
+    /// # Panics
+    /// Panics if the lock is poisoned
     pub fn set_storage(&mut self, storage: Box<dyn StorageAdapter>) {
         self.storage = storage;
 
         // Find all keys, and add them to the configuration store
         if let Ok(all_settings) = self.storage.all() {
             for (key, value) in all_settings {
-                self.settings.lock().unwrap().borrow_mut().insert(key, value);
+                self.settings
+                    .lock()
+                    .expect("settings lock poisoned")
+                    .borrow_mut()
+                    .insert(key, value);
             }
         }
     }
 
     /// Returns true when the storage knows about the given key
+    ///
+    /// # Panics
+    /// Panics if the lock is poisoned
     pub fn has(&self, key: &str) -> bool {
-        self.settings.lock().unwrap().borrow().contains_key(key)
+        self.settings
+            .lock()
+            .expect("settings lock poisoned")
+            .borrow()
+            .contains_key(key)
     }
 
     /// Returns a list of keys that matches the given search string (can use ? and *) for search
@@ -201,8 +225,11 @@ impl ConfigStore {
     /// storage, it will load the key from the storage. If the key is still not found, it will
     /// return the default value for the given key. Note that if the key is not found and no
     /// default value is specified, this function will panic.
+    ///
+    /// # Panics
+    /// Panics if the key is unknown and no default value exists, or if the lock is poisoned
     pub fn get(&self, key: &str) -> Option<Setting> {
-        if let Some(setting) = self.settings.lock().unwrap().borrow().get(key) {
+        if let Some(setting) = self.settings.lock().expect("settings lock poisoned").borrow().get(key) {
             return Some(setting.clone());
         }
 
@@ -210,10 +237,10 @@ impl ConfigStore {
         if let Some(setting) = self.storage.get(key) {
             self.settings
                 .lock()
-                .unwrap()
+                .expect("settings lock poisoned")
                 .borrow_mut()
                 .insert(key.to_string(), setting.clone());
-            return Some(setting.clone());
+            return Some(setting);
         }
 
         // Return the default value for the setting when nothing is found
@@ -229,10 +256,11 @@ impl ConfigStore {
     /// Sets the given setting to the given value. Will persist the setting to the
     /// storage. Note that the setting MUST have a settings-info entry, otherwise
     /// this function will not store the setting.
+    ///
+    /// # Panics
+    /// Panics if the lock is poisoned
     pub fn set(&self, key: &str, value: Setting) {
-        let info = if let Some(info) = self.settings_info.get(key) {
-            info
-        } else {
+        let Some(info) = self.settings_info.get(key) else {
             warn!("config: Setting {key} is not known");
             return;
         };
@@ -244,7 +272,7 @@ impl ConfigStore {
 
         self.settings
             .lock()
-            .unwrap()
+            .expect("settings lock poisoned")
             .borrow_mut()
             .insert(key.to_owned(), value.clone());
 
@@ -253,12 +281,11 @@ impl ConfigStore {
 
     /// Populates the settings in the storage from the settings.json file
     fn populate_default_settings(&mut self) -> Result<()> {
-        let json_data: Value = serde_json::from_str(SETTINGS_JSON).expect("Failed to parse settings.json");
+        let json_data: Value = serde_json::from_str(SETTINGS_JSON)?;
 
         if let Value::Object(data) = json_data {
             for (section_prefix, section_entries) in &data {
-                let section_entries: Vec<JsonEntry> =
-                    serde_json::from_value(section_entries.clone()).expect("Failed to parse settings.json");
+                let section_entries: Vec<JsonEntry> = serde_json::from_value(section_entries.clone())?;
 
                 for entry in section_entries {
                     let key = format!("{}.{}", section_prefix, entry.key);
@@ -274,7 +301,7 @@ impl ConfigStore {
                     self.settings_info.insert(key.clone(), info.clone());
                     self.settings
                         .lock()
-                        .unwrap()
+                        .expect("settings lock poisoned")
                         .borrow_mut()
                         .insert(key.clone(), info.default.clone());
                 }
@@ -328,7 +355,7 @@ mod test {
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "config: Setting this.key.doesnt.exist is not known")]
     fn macro_usage_with_panic() {
         config_set!(string "this.key.doesnt.exist", "yesitdoes".into());
         let s = config!(string "this.key.doesnt.exist");

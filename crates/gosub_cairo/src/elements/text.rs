@@ -17,7 +17,7 @@ use log::warn;
 
 thread_local! {
     static LIB_FONT_FACE: LazyCell<Library> = LazyCell::new(|| {
-        Library::init().expect("Failed to initialize FreeType")
+        Library::init().unwrap()
     });
 }
 
@@ -131,7 +131,7 @@ impl GsText {
 }
 
 #[derive(Clone)]
-struct BlobWrapper(Arc<dyn AsRef<[u8]>>);
+struct BlobWrapper(Arc<dyn AsRef<[u8]> + Send + Sync>);
 
 impl Borrow<[u8]> for BlobWrapper {
     fn borrow(&self) -> &[u8] {
@@ -145,11 +145,13 @@ fn create_memory_font_face(font: &FontBlob) -> Result<FontFace, cairo::Error> {
     static FT_FACE_KEY: cairo::UserDataKey<Face<BlobWrapper>> = cairo::UserDataKey::new();
 
     // Create an in-memory font face from the font data
-    let face = LIB_FONT_FACE.with(|lib| {
-        lib.new_memory_face2(BlobWrapper(font.data.clone()), font.index as isize)
-            .expect("Failed to create memory face")
+    let mut face = LIB_FONT_FACE.with(|lib| {
+        lib.new_memory_face2(
+            BlobWrapper(Arc::<dyn AsRef<[u8]> + Send + Sync>::clone(&font.data)),
+            font.index as isize,
+        )
+        .unwrap()
     });
-    let mut face = face.clone();
 
     // SAFETY: The user data entry keeps `freetype::face::Face` alive
     // until the FontFace is dropped.

@@ -61,6 +61,9 @@ vs
 */
 
 /// Converts a CSS AST to a CSS stylesheet structure
+///
+/// # Panics
+/// Panics if that AST has unexpected structure or if parsing fails
 pub fn convert_ast_to_stylesheet(css_ast: &CssNode, origin: CssOrigin, url: &str) -> CssResult<CssStylesheet> {
     if !css_ast.is_stylesheet() {
         return Err(CssError::new("CSS AST must start with a stylesheet node"));
@@ -98,6 +101,13 @@ pub fn convert_ast_to_stylesheet(css_ast: &CssNode, origin: CssOrigin, url: &str
                 for node in node.as_selector() {
                     let part = match &*node.node_type {
                         NodeType::Ident { value } => CssSelectorPart::Type(value.clone()),
+                        NodeType::TypeSelector { value, .. } => {
+                            if value == "*" {
+                                CssSelectorPart::Universal
+                            } else {
+                                CssSelectorPart::Type(value.clone())
+                            }
+                        }
                         NodeType::ClassSelector { value } => CssSelectorPart::Class(value.clone()),
                         NodeType::Combinator { value } => {
                             let combinator = match value.as_str() {
@@ -113,22 +123,17 @@ pub fn convert_ast_to_stylesheet(css_ast: &CssNode, origin: CssOrigin, url: &str
                             CssSelectorPart::Combinator(combinator)
                         }
                         NodeType::IdSelector { value } => CssSelectorPart::Id(value.clone()),
-                        NodeType::TypeSelector { value, .. } if value == "*" => CssSelectorPart::Universal,
                         NodeType::PseudoClassSelector { value, .. } => CssSelectorPart::PseudoClass(value.to_string()),
-                        NodeType::PseudoElementSelector { value, .. } => {
-                            CssSelectorPart::PseudoElement(value.to_string())
-                        }
-                        NodeType::TypeSelector { value, .. } => CssSelectorPart::Type(value.clone()),
+                        NodeType::PseudoElementSelector { value, .. } => CssSelectorPart::PseudoElement(value.clone()),
                         NodeType::AttributeSelector {
                             name,
                             value,
                             flags,
                             matcher,
                         } => {
-                            let matcher = match matcher {
-                                None => MatcherType::None,
-
-                                Some(matcher) => {
+                            let matcher = matcher.as_ref().map_or_else(
+                                || MatcherType::None,
+                                |matcher| {
                                     if let NodeType::Operator(op) = &*matcher.node_type {
                                         match op.as_str() {
                                             "=" => MatcherType::Equals,
@@ -146,8 +151,8 @@ pub fn convert_ast_to_stylesheet(css_ast: &CssNode, origin: CssOrigin, url: &str
                                         warn!("Unsupported matcher: {matcher:?}");
                                         MatcherType::Equals
                                     }
-                                }
-                            };
+                                },
+                            );
 
                             CssSelectorPart::Attribute(Box::new(AttributeSelector {
                                 name: name.clone(),
@@ -202,7 +207,7 @@ pub fn convert_ast_to_stylesheet(css_ast: &CssNode, origin: CssOrigin, url: &str
                 }
 
                 let value = if css_values.len() == 1 {
-                    css_values.pop().expect("unreachable")
+                    css_values.pop().unwrap()
                 } else {
                     CssValue::List(css_values)
                 };

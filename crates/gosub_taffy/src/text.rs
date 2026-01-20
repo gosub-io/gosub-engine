@@ -26,10 +26,13 @@ pub struct TextLayout {
 impl Debug for TextLayout {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("TextLayout")
+            .field("glyphs", &self.glyphs)
+            .field("font_data", &self.font_data)
             .field("size", &self.size)
             .field("font_size", &self.font_size)
             .field("decoration", &self.decoration)
             .field("offset", &self.offset)
+            .field("coords", &self.coords)
             .finish()
     }
 }

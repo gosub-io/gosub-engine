@@ -66,12 +66,12 @@ impl<C: HasDocument> Debug for FetchResponse<C> {
 fn fetch_url<C: HasHtmlParser>(
     method: &str,
     url: &str,
-    headers: Headers,
+    headers: &Headers,
     cookies: CookieJar,
 ) -> Result<FetchResponse<C>> {
     let mut http_req = Request::new(method, url, "HTTP/1.1");
     http_req.headers = headers.clone();
-    http_req.cookies = cookies.clone();
+    http_req.cookies = cookies;
 
     let parts = Url::parse(url)?;
 
@@ -91,7 +91,7 @@ fn fetch_url<C: HasHtmlParser>(
     let Some(hostname) = parts.host_str() else {
         return Err(Error::Generic(format!("invalid hostname: {url}")).into());
     };
-    let _ = resolver.resolve(hostname, ResolveType::Ipv4)?;
+    let _ = resolver.resolve(hostname, &ResolveType::Ipv4)?;
 
     timing_stop!(t_id);
 
@@ -184,7 +184,7 @@ mod tests {
         headers.set("User-Agent", USER_AGENT);
         let cookies = CookieJar::new();
 
-        let resp = fetch_url::<Config>("GET", url, headers, cookies);
+        let resp = fetch_url::<Config>("GET", url, &headers, cookies);
         dbg!(&resp);
         assert!(resp.is_ok());
     }

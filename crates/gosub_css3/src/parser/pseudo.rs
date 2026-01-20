@@ -50,11 +50,7 @@ impl Css3<'_> {
                 },
                 loc,
             ),
-            TokenType::Ident(_) => {
-                self.tokenizer.reconsume();
-                self.parse_anplusb()?
-            }
-            TokenType::Dimension { .. } => {
+            TokenType::Ident(_) | TokenType::Dimension { .. } => {
                 self.tokenizer.reconsume();
                 self.parse_anplusb()?
             }
@@ -84,22 +80,12 @@ impl Css3<'_> {
     pub(crate) fn parse_pseudo_function(&mut self, name: &str) -> CssResult<Node> {
         log::trace!("parse_pseudo_function");
         match name {
-            "dir" => self.parse_pseudo_function_ident_list(),
-            "has" => self.parse_pseudo_function_selector_list(),
-            "lang" => self.parse_pseudo_function_ident_list(),
-            "matches" => self.parse_pseudo_function_selector_list(),
-            "is" => self.parse_pseudo_function_selector_list(),
-            "-moz-any" => self.parse_pseudo_function_selector_list(),
-            "-webkit-any" => self.parse_pseudo_function_selector_list(),
-            "where" => self.parse_pseudo_function_selector_list(),
-            "not" => self.parse_pseudo_function_selector_list(),
-            "nth-child" => self.parse_pseudo_function_nth(),
-            "nth-last-child" => self.parse_pseudo_function_nth(),
-            "nth-last-of-type" => self.parse_pseudo_function_nth(),
-            "nth-of-type" => self.parse_pseudo_function_nth(),
-            "slotted" => self.parse_pseudo_function_selector(),
-            "host" => self.parse_pseudo_function_selector(),
-            "host-context" => self.parse_pseudo_function_selector(),
+            "dir" | "lang" => self.parse_pseudo_function_ident_list(),
+            "has" | "matches" | "is" | "-moz-any" | "-webkit-any" | "where" | "not" => {
+                self.parse_pseudo_function_selector_list()
+            }
+            "nth-child" | "nth-last-child" | "nth-last-of-type" | "nth-of-type" => self.parse_pseudo_function_nth(),
+            "slotted" | "host" | "host-context" => self.parse_pseudo_function_selector(),
             _ => Err(CssError::with_location(
                 format!("Unexpected pseudo function {name:?}").as_str(),
                 self.tokenizer.current_location(),

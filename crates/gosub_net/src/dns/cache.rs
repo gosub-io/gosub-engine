@@ -4,24 +4,24 @@ use gosub_shared::types::Result;
 use log::trace;
 use std::collections::{HashMap, VecDeque};
 
-pub(crate) struct CacheResolver {
+pub struct CacheResolver {
     values: HashMap<String, DnsEntry>,
     max_entries: usize,
     lru: VecDeque<String>,
 }
 
 impl DnsResolver for CacheResolver {
-    fn resolve(&mut self, domain: &str, resolve_type: ResolveType) -> Result<DnsEntry> {
+    fn resolve(&mut self, domain: &str, resolve_type: &ResolveType) -> Result<DnsEntry> {
         if let Some(entry) = self.values.get(domain) {
-            if !entry.has_ipv4 && !entry.has_ipv6 && resolve_type == ResolveType::Both {
+            if !entry.has_ipv4 && !entry.has_ipv6 && resolve_type == &ResolveType::Both {
                 trace!("{domain}: no addresses found in entry");
                 return Err(Error::DnsNoIpAddressFound.into());
             }
-            if !entry.has_ipv4 && resolve_type == ResolveType::Ipv4 {
+            if !entry.has_ipv4 && resolve_type == &ResolveType::Ipv4 {
                 trace!("{domain}: no ipv4 addresses found in entry");
                 return Err(Error::DnsNoIpAddressFound.into());
             }
-            if !entry.has_ipv6 && resolve_type == ResolveType::Ipv6 {
+            if !entry.has_ipv6 && resolve_type == &ResolveType::Ipv6 {
                 trace!("{domain}: no ipv6 addresses found in entry");
                 return Err(Error::DnsNoIpAddressFound.into());
             }
@@ -91,8 +91,8 @@ impl DnsCache for CacheResolver {
 }
 
 impl CacheResolver {
-    pub(crate) fn new(max_entries: usize) -> CacheResolver {
-        CacheResolver {
+    pub(crate) fn new(max_entries: usize) -> Self {
+        Self {
             values: HashMap::with_capacity(max_entries),
             max_entries,
             lru: VecDeque::with_capacity(max_entries),
@@ -126,7 +126,7 @@ mod test {
         assert_eq!(cache.lru[2], "example.net");
 
         println!("lru: {:?}", cache.lru);
-        let _ = cache.resolve("example.org", ResolveType::Both);
+        let _ = cache.resolve("example.org", &ResolveType::Both);
         println!("lru: {:?}", cache.lru);
         assert_eq!(cache.lru[0], "example.com");
         assert_eq!(cache.lru[1], "example.net");
@@ -139,7 +139,7 @@ mod test {
         assert_eq!(cache.lru[1], "example.org");
         assert_eq!(cache.lru[2], "example.net");
 
-        let _ = cache.resolve("example.com", ResolveType::Both);
+        let _ = cache.resolve("example.com", &ResolveType::Both);
         assert_eq!(cache.lru[0], "example.org");
         assert_eq!(cache.lru[1], "example.net");
         assert_eq!(cache.lru[2], "example.com");

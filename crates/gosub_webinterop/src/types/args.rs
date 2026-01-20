@@ -5,8 +5,8 @@ use syn::{Path, Token, TypeParamBound};
 
 use crate::types::{handle_slice_conv, Generics, Reference, Type, TypeT};
 
-#[derive(Clone, PartialEq, Debug)]
-pub(crate) struct Arg {
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Arg {
     pub(crate) index: usize,
     pub(crate) ty: Type,
     pub(crate) variant: ArgVariant,
@@ -63,7 +63,7 @@ impl Arg {
                 }
             }
 
-            _ => TokenStream::new(),
+            ArgVariant::Context => TokenStream::new(),
         }
     }
 
@@ -83,8 +83,8 @@ impl Arg {
     }
 }
 
-#[derive(Clone, PartialEq, Debug)]
-pub(crate) enum ArgVariant {
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum ArgVariant {
     Normal,
     Variadic,
     Context,
@@ -92,7 +92,7 @@ pub(crate) enum ArgVariant {
 }
 
 impl Arg {
-    pub(crate) fn parse(arg: &syn::Type, index: usize, generics: &[Generics]) -> Result<Arg, &'static str> {
+    pub(crate) fn parse(arg: &syn::Type, index: usize, generics: &[Generics]) -> Result<Self, &'static str> {
         let ty = Type::parse(arg, true)?;
         let mut variant = ArgVariant::Normal;
 
@@ -128,33 +128,34 @@ impl Arg {
             _ => {}
         }
 
-        Ok(Arg { index, ty, variant })
+        Ok(Self { index, ty, variant })
     }
 }
 
-#[derive(Clone, PartialEq, Debug)]
-pub(crate) enum ReturnType {
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum ReturnType {
     Undefined,
     Type(TypeT),
 }
 
-#[derive(Clone, PartialEq, Debug)]
-pub(crate) enum SelfType {
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum SelfType {
     NoSelf,
     SelfRef,
     SelfMutRef,
 }
 
 impl ReturnType {
-    pub(crate) fn parse(ret: &syn::ReturnType) -> Result<ReturnType, &'static str> {
+    pub(crate) fn parse(ret: &syn::ReturnType) -> Result<Self, &'static str> {
         Ok(match ret {
-            syn::ReturnType::Default => ReturnType::Undefined,
-            syn::ReturnType::Type(_, ty) => ReturnType::Type(Type::parse(ty, true)?.ty),
+            syn::ReturnType::Default => Self::Undefined,
+            syn::ReturnType::Type(_, ty) => Self::Type(Type::parse(ty, true)?.ty),
         })
     }
 }
 
-pub(crate) fn parse_impl(bounds: &Punctuated<TypeParamBound, Token![+]>) -> Result<Vec<Path>, &'static str> {
+#[allow(clippy::unnecessary_wraps)]
+pub fn parse_impl(bounds: &Punctuated<TypeParamBound, Token![+]>) -> Result<Vec<Path>, &'static str> {
     let mut out = Vec::with_capacity(bounds.len());
 
     for bound in bounds {
@@ -163,7 +164,7 @@ pub(crate) fn parse_impl(bounds: &Punctuated<TypeParamBound, Token![+]>) -> Resu
                 out.push(t.path.clone());
             }
             TypeParamBound::Verbatim(_) => panic!("Verbatim not supported"),
-            _ => {} //ignore, they will just be lifetimes
+            _ => {}
         }
     }
 

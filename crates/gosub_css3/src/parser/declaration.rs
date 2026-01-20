@@ -23,8 +23,7 @@ impl Css3<'_> {
 
         let t = self.consume_any()?;
         match t.token_type {
-            TokenType::Ident(value) => Ok(value),
-            TokenType::Hash(value) => Ok(value),
+            TokenType::Ident(value) | TokenType::Hash(value) => Ok(value),
             _ => Err(CssError::with_location(
                 format!("Unexpected token {t:?}").as_str(),
                 self.tokenizer.current_location(),
@@ -58,7 +57,7 @@ impl Css3<'_> {
         let custom_property = property.starts_with("--");
 
         self.consume_whitespace_comments();
-        self.consume(TokenType::Colon)?;
+        self.consume(&TokenType::Colon)?;
         if !custom_property {
             self.consume_whitespace_comments();
         }
@@ -104,11 +103,7 @@ impl Css3<'_> {
                 break;
             }
             match t.unwrap().token_type {
-                TokenType::Semicolon => {
-                    self.tokenizer.reconsume();
-                    break;
-                }
-                TokenType::RCurly => {
+                TokenType::Semicolon | TokenType::RCurly => {
                     self.tokenizer.reconsume();
                     break;
                 }

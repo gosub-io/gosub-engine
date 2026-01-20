@@ -7,7 +7,7 @@ pub struct Rect(pub(crate) VelloRect);
 
 impl From<VelloRect> for Rect {
     fn from(rect: VelloRect) -> Self {
-        Rect(rect)
+        Self(rect)
     }
 }
 

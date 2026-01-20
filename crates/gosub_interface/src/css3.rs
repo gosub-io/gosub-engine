@@ -6,7 +6,7 @@ use gosub_shared::node::NodeId;
 use std::fmt::{Debug, Display};
 
 /// Defines the origin of the stylesheet (or declaration)
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum CssOrigin {
     /// Browser/user agent defined stylesheets
     UserAgent,
@@ -16,8 +16,11 @@ pub enum CssOrigin {
     User,
 }
 
-/// The `CssSystem` trait is a trait that defines all things CSS3 that are used by other non-css3 crates. This is the main trait that
-/// is used to parse CSS3 files. It contains sub elements like the Stylesheet trait that is used in for instance the Document trait.
+/// The `CssSystem` trait is a trait that defines all things CSS3 that are used by
+/// other non-css3 crates.
+///
+/// This is the main trait that is used to parse CSS3 files. It contains sub elements
+/// like the Stylesheet trait that is used in for instance the Document trait.
 pub trait CssSystem: Clone + Debug + 'static {
     type Stylesheet: CssStylesheet;
 

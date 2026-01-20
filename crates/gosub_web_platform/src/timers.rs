@@ -23,19 +23,19 @@ impl WebTimers {
         }
     }
 
-    pub fn add_timer(&mut self, timer: Timer) -> TimerId {
+    pub fn add_timer(&self, timer: Timer) -> TimerId {
         TimerId(self.inner.borrow_mut().timers.insert(timer))
     }
 
     /// Removes and cancels the timer with the given id.
-    pub fn remove(&mut self, id: TimerId) {
+    pub fn remove(&self, id: &TimerId) {
         if let Some(timer) = self.inner.borrow_mut().timers.remove(id.0) {
             timer.handle.abort();
         }
     }
 
-    pub fn set_timeout(&mut self, duration: Duration, mut callback: Callback<TokioExecutor>) {
-        let inner = self.inner.clone();
+    pub fn set_timeout(&self, duration: Duration, mut callback: Callback<TokioExecutor>) {
+        let inner = Rc::clone(&self.inner);
 
         self.inner.borrow_mut().timers.insert_with_key(move |key| {
             let handle = task::spawn_local(async move {
@@ -50,12 +50,13 @@ impl WebTimers {
         });
     }
 
-    pub fn set_interval(&mut self, duration: Duration, mut callback: Callback<TokioExecutor>) {
+    pub fn set_interval(&self, duration: Duration, mut callback: Callback<TokioExecutor>) {
         let handle = task::spawn_local(async move {
             let mut interval = tokio::time::interval(duration);
 
-            interval.tick().await; // First tick is immediate
+            interval.tick().await;
 
+            #[allow(clippy::infinite_loop)]
             loop {
                 interval.tick().await;
                 callback.exec(&mut TokioExecutor);
@@ -67,7 +68,7 @@ impl WebTimers {
         self.inner.borrow_mut().timers.insert(timer);
     }
 
-    pub fn remove_all(&mut self) {
+    pub fn remove_all(&self) {
         for (_, timer) in self.inner.borrow_mut().timers.drain() {
             timer.handle.abort();
         }

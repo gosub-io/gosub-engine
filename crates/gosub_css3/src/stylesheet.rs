@@ -10,7 +10,7 @@ use std::fmt::Display;
 use crate::colors::RgbColor;
 
 /// Severity of a CSS error
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Severity {
     /// A critical error that will prevent the stylesheet from being applied
     Error,
@@ -23,15 +23,15 @@ pub enum Severity {
 impl Display for Severity {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Severity::Error => write!(f, "Error"),
-            Severity::Warning => write!(f, "Warning"),
-            Severity::Info => write!(f, "Info"),
+            Self::Error => write!(f, "Error"),
+            Self::Warning => write!(f, "Warning"),
+            Self::Info => write!(f, "Info"),
         }
     }
 }
 
 /// Defines a CSS log during
-#[derive(PartialEq)]
+#[derive(PartialEq, Eq)]
 pub struct CssLog {
     /// Severity of the error
     pub severity: Severity,
@@ -133,12 +133,12 @@ pub struct CssRule {
 
 impl CssRule {
     #[must_use]
-    pub fn selectors(&self) -> &Vec<CssSelector> {
+    pub const fn selectors(&self) -> &Vec<CssSelector> {
         &self.selectors
     }
 
     #[must_use]
-    pub fn declarations(&self) -> &Vec<CssDeclaration> {
+    pub const fn declarations(&self) -> &Vec<CssDeclaration> {
         &self.declarations
     }
 }
@@ -155,7 +155,7 @@ pub struct CssDeclaration {
     pub important: bool,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct CssSelector {
     // List of parts that make up this selector
     pub parts: Vec<Vec<CssSelectorPart>>,
@@ -173,7 +173,7 @@ impl CssSelector {
 }
 
 /// Represents a CSS selector part, which has a type and value (e.g. type=Class, class="my-class")
-#[derive(PartialEq, Clone, Default)]
+#[derive(PartialEq, Eq, Clone, Default)]
 pub enum CssSelectorPart {
     #[default]
     Universal,
@@ -186,7 +186,7 @@ pub enum CssSelectorPart {
     Type(String),
 }
 
-#[derive(PartialEq, Clone, Default, Debug)]
+#[derive(PartialEq, Eq, Clone, Default, Debug)]
 pub struct AttributeSelector {
     pub name: String,
     pub matcher: MatcherType,
@@ -194,7 +194,7 @@ pub struct AttributeSelector {
     pub case_insensitive: bool,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Combinator {
     Descendant,
     Child,
@@ -207,12 +207,12 @@ pub enum Combinator {
 impl Display for Combinator {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Combinator::Descendant => write!(f, " "),
-            Combinator::Child => write!(f, ">"),
-            Combinator::NextSibling => write!(f, "+"),
-            Combinator::SubsequentSibling => write!(f, "~"),
-            Combinator::Column => write!(f, "||"),
-            Combinator::Namespace => write!(f, "|"),
+            Self::Descendant => write!(f, " "),
+            Self::Child => write!(f, ">"),
+            Self::NextSibling => write!(f, "+"),
+            Self::SubsequentSibling => write!(f, "~"),
+            Self::Column => write!(f, "||"),
+            Self::Namespace => write!(f, "|"),
         }
     }
 }
@@ -220,32 +220,32 @@ impl Display for Combinator {
 impl Debug for CssSelectorPart {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            CssSelectorPart::Universal => {
+            Self::Universal => {
                 write!(f, "*")
             }
-            CssSelectorPart::Attribute(selector) => {
+            Self::Attribute(selector) => {
                 write!(
                     f,
                     "[{} {} {} {}]",
                     selector.name, selector.matcher, selector.value, selector.case_insensitive
                 )
             }
-            CssSelectorPart::Class(name) => {
+            Self::Class(name) => {
                 write!(f, ".{name}")
             }
-            CssSelectorPart::Id(name) => {
+            Self::Id(name) => {
                 write!(f, "#{name}")
             }
-            CssSelectorPart::PseudoClass(name) => {
+            Self::PseudoClass(name) => {
                 write!(f, ":{name}")
             }
-            CssSelectorPart::PseudoElement(name) => {
+            Self::PseudoElement(name) => {
                 write!(f, "::{name}")
             }
-            CssSelectorPart::Combinator(combinator) => {
+            Self::Combinator(combinator) => {
                 write!(f, "'{combinator}'")
             }
-            CssSelectorPart::Type(name) => {
+            Self::Type(name) => {
                 write!(f, "{name}")
             }
         }
@@ -253,7 +253,7 @@ impl Debug for CssSelectorPart {
 }
 
 /// Represents a CSS selector type for this part
-#[derive(Debug, PartialEq, Clone, Default)]
+#[derive(Debug, PartialEq, Eq, Clone, Default)]
 pub enum CssSelectorType {
     Universal, // '*'
     #[default]
@@ -267,7 +267,7 @@ pub enum CssSelectorType {
 }
 
 /// Represents which type of matcher is used (in case of an attribute selector type)
-#[derive(Default, PartialEq, Clone, Debug)]
+#[derive(Default, PartialEq, Eq, Clone, Debug)]
 pub enum MatcherType {
     #[default]
     None, // No matcher
@@ -282,13 +282,13 @@ pub enum MatcherType {
 impl Display for MatcherType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            MatcherType::None => write!(f, ""),
-            MatcherType::Equals => write!(f, "="),
-            MatcherType::Includes => write!(f, "~="),
-            MatcherType::DashMatch => write!(f, "|="),
-            MatcherType::PrefixMatch => write!(f, "^="),
-            MatcherType::SuffixMatch => write!(f, "$="),
-            MatcherType::SubstringMatch => write!(f, "*="),
+            Self::None => write!(f, ""),
+            Self::Equals => write!(f, "="),
+            Self::Includes => write!(f, "~="),
+            Self::DashMatch => write!(f, "|="),
+            Self::PrefixMatch => write!(f, "^="),
+            Self::SuffixMatch => write!(f, "$="),
+            Self::SubstringMatch => write!(f, "*="),
         }
     }
 }
@@ -299,7 +299,7 @@ pub struct Specificity(u32, u32, u32);
 
 impl Specificity {
     #[must_use]
-    pub fn new(a: u32, b: u32, c: u32) -> Self {
+    pub const fn new(a: u32, b: u32, c: u32) -> Self {
         Self(a, b, c)
     }
 }
@@ -323,7 +323,7 @@ impl From<&[CssSelectorPart]> for Specificity {
                 _ => {}
             }
         }
-        Specificity::new(id_count, class_count, element_count)
+        Self::new(id_count, class_count, element_count)
     }
 }
 
@@ -362,30 +362,30 @@ pub enum CssValue {
     Percentage(f32),
     String(String),
     Unit(f32, String),
-    Function(String, Vec<CssValue>),
+    Function(String, Vec<Self>),
     Initial,
     Inherit,
     Comma,
-    List(Vec<CssValue>),
+    List(Vec<Self>),
 }
 
 impl Display for CssValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            CssValue::None => write!(f, "none"),
-            CssValue::Color(col) => {
+            Self::None => write!(f, "none"),
+            Self::Color(col) => {
                 write!(
                     f,
                     "#{:02x}{:02x}{:02x}{:02x}",
                     col.r as u8, col.g as u8, col.b as u8, col.a as u8
                 )
             }
-            CssValue::Zero => write!(f, "0"),
-            CssValue::Number(num) => write!(f, "{num}"),
-            CssValue::Percentage(p) => write!(f, "{p}%"),
-            CssValue::String(s) => write!(f, "{s}"),
-            CssValue::Unit(val, unit) => write!(f, "{val}{unit}"),
-            CssValue::Function(name, args) => {
+            Self::Zero => write!(f, "0"),
+            Self::Number(num) => write!(f, "{num}"),
+            Self::Percentage(p) => write!(f, "{p}%"),
+            Self::String(s) => write!(f, "{s}"),
+            Self::Unit(val, unit) => write!(f, "{val}{unit}"),
+            Self::Function(name, args) => {
                 write!(f, "{name}(")?;
                 for (i, arg) in args.iter().enumerate() {
                     if i > 0 {
@@ -395,10 +395,10 @@ impl Display for CssValue {
                 }
                 write!(f, ")")
             }
-            CssValue::Initial => write!(f, "initial"),
-            CssValue::Inherit => write!(f, "inherit"),
-            CssValue::Comma => write!(f, ","),
-            CssValue::List(v) => {
+            Self::Initial => write!(f, "initial"),
+            Self::Inherit => write!(f, "inherit"),
+            Self::Comma => write!(f, ","),
+            Self::List(v) => {
                 write!(f, "List(")?;
                 for (i, value) in v.iter().enumerate() {
                     if i > 0 {
@@ -416,31 +416,47 @@ impl CssValue {
     #[must_use]
     pub fn to_color(&self) -> Option<RgbColor> {
         match self {
-            CssValue::Color(col) => Some(*col),
-            CssValue::String(s) => Some(RgbColor::from(s.as_str())),
+            Self::Color(col) => Some(*col),
+            Self::String(s) => Some(RgbColor::from(s.as_str())),
             _ => None,
         }
     }
 
+    /// # Panics
+    ///
+    /// Panics if the string value cannot be parsed as a float (e.g., malformed numeric content).
     #[must_use]
     pub fn unit_to_px(&self) -> f32 {
         //TODO: Implement the rest of the units
         match self {
-            CssValue::Unit(val, unit) => match unit.as_str() {
-                "px" => *val,
-                "em" => *val * 16.0,
-                "rem" => *val * 16.0,
+            Self::Unit(val, unit) => match unit.as_str() {
+                "em" | "rem" => *val * 16.0,
                 _ => *val,
             },
-            CssValue::String(value) => {
+            Self::String(value) => {
                 if value.ends_with("px") {
-                    value.trim_end_matches("px").parse::<f32>().unwrap()
+                    value
+                        .trim_end_matches("px")
+                        .parse::<f32>()
+                        .expect("failed to parse px value")
                 } else if value.ends_with("rem") {
-                    value.trim_end_matches("rem").parse::<f32>().unwrap() * 16.0
+                    value
+                        .trim_end_matches("rem")
+                        .parse::<f32>()
+                        .expect("failed to parse rem value")
+                        * 16.0
                 } else if value.ends_with("em") {
-                    value.trim_end_matches("em").parse::<f32>().unwrap() * 16.0
+                    value
+                        .trim_end_matches("em")
+                        .parse::<f32>()
+                        .expect("failed to parse em value")
+                        * 16.0
                 } else if value.ends_with("__qem") {
-                    value.trim_end_matches("__qem").parse::<f32>().unwrap() * 16.0
+                    value
+                        .trim_end_matches("__qem")
+                        .parse::<f32>()
+                        .expect("failed to parse __qem value")
+                        * 16.0
                 } else {
                     0.0
                 }
@@ -475,43 +491,40 @@ impl CssValue {
     }
 
     /// Converts a CSS AST node to a CSS value
-    pub fn parse_ast_node(node: &crate::node::Node) -> CssResult<CssValue> {
+    pub fn parse_ast_node(node: &crate::node::Node) -> CssResult<Self> {
         match *node.node_type.clone() {
-            crate::node::NodeType::Ident { value } => Ok(CssValue::String(value)),
+            crate::node::NodeType::Ident { value } | crate::node::NodeType::String { value } => Ok(Self::String(value)),
             crate::node::NodeType::Number { value } => {
                 if value == 0.0 {
                     // Zero is a special case since we need to do some pattern matching once in a while, and
                     // this is not possible (anymore) with floating point 0.0 it seems
-                    Ok(CssValue::Zero)
+                    Ok(Self::Zero)
                 } else {
-                    Ok(CssValue::Number(value))
+                    Ok(Self::Number(value))
                 }
             }
-            crate::node::NodeType::Percentage { value } => Ok(CssValue::Percentage(value)),
-            crate::node::NodeType::Dimension { value, unit } => Ok(CssValue::Unit(value, unit)),
-            crate::node::NodeType::String { value } => Ok(CssValue::String(value)),
+            crate::node::NodeType::Percentage { value } => Ok(Self::Percentage(value)),
+            crate::node::NodeType::Dimension { value, unit } => Ok(Self::Unit(value, unit)),
             crate::node::NodeType::Hash { mut value } => {
                 value.insert(0, '#');
 
-                Ok(CssValue::String(value))
+                Ok(Self::String(value))
             }
-            crate::node::NodeType::Operator(_) => Ok(CssValue::None),
-            crate::node::NodeType::Calc { .. } => Ok(CssValue::Function("calc".to_string(), vec![])),
-            crate::node::NodeType::Url { url } => {
-                Ok(CssValue::Function("url".to_string(), vec![CssValue::String(url)]))
-            }
+            crate::node::NodeType::Operator(_) => Ok(Self::None),
+            crate::node::NodeType::Calc { .. } => Ok(Self::Function("calc".to_string(), vec![])),
+            crate::node::NodeType::Url { url } => Ok(Self::Function("url".to_string(), vec![Self::String(url)])),
             crate::node::NodeType::Function { name, arguments } => {
                 let mut list = vec![];
                 for node in &arguments {
-                    match CssValue::parse_ast_node(node) {
+                    match Self::parse_ast_node(node) {
                         Ok(value) => list.push(value),
                         Err(e) => return Err(e),
                     }
                 }
-                Ok(CssValue::Function(name, list))
+                Ok(Self::Function(name, list))
             }
 
-            crate::node::NodeType::Comma => Ok(CssValue::Comma),
+            crate::node::NodeType::Comma => Ok(Self::Comma),
 
             _ => Err(CssError::new(
                 format!("Cannot convert node to CssValue: {node:?}").as_str(),
@@ -520,22 +533,22 @@ impl CssValue {
     }
 
     /// Parses a string into a CSS value or list of css values
-    pub fn parse_str(value: &str) -> CssResult<CssValue> {
+    pub fn parse_str(value: &str) -> CssResult<Self> {
         match value {
-            "initial" => return Ok(CssValue::Initial),
-            "inherit" => return Ok(CssValue::Inherit),
-            "none" => return Ok(CssValue::None),
-            "" => return Ok(CssValue::String(String::new())),
+            "initial" => return Ok(Self::Initial),
+            "inherit" => return Ok(Self::Inherit),
+            "none" => return Ok(Self::None),
+            "" => return Ok(Self::String(String::new())),
             _ => {}
         }
 
         if let Ok(num) = value.parse::<f32>() {
-            return Ok(CssValue::Number(num));
+            return Ok(Self::Number(num));
         }
 
         // Color values
         if value.starts_with("color(") && value.ends_with(')') {
-            return Ok(CssValue::Color(RgbColor::from(
+            return Ok(Self::Color(RgbColor::from(
                 value[6..value.len() - 1].to_string().as_str(),
             )));
         }
@@ -543,7 +556,7 @@ impl CssValue {
         // Percentages
         if value.ends_with('%') {
             if let Ok(num) = value[0..value.len() - 1].parse::<f32>() {
-                return Ok(CssValue::Percentage(num));
+                return Ok(Self::Percentage(num));
             }
         }
 
@@ -558,37 +571,37 @@ impl CssValue {
         if let Some(index) = split_index {
             let (number_part, unit_part) = value.split_at(index);
             if let Ok(number) = number_part.parse::<f32>() {
-                return Ok(CssValue::Unit(number, unit_part.to_string()));
+                return Ok(Self::Unit(number, unit_part.to_string()));
             }
         }
 
-        Ok(CssValue::String(value.to_string()))
+        Ok(Self::String(value.to_string()))
     }
 }
 
 impl gosub_interface::css3::CssValue for CssValue {
     fn new_string(value: &str) -> Self {
-        CssValue::String(value.to_string())
+        Self::String(value.to_string())
     }
 
     fn new_percentage(value: f32) -> Self {
-        CssValue::Percentage(value)
+        Self::Percentage(value)
     }
 
     fn new_unit(value: f32, unit: String) -> Self {
-        CssValue::Unit(value, unit)
+        Self::Unit(value, unit)
     }
 
     fn new_color(r: f32, g: f32, b: f32, a: f32) -> Self {
-        CssValue::Color(RgbColor::new(r, g, b, a))
+        Self::Color(RgbColor::new(r, g, b, a))
     }
 
     fn new_number(value: f32) -> Self {
-        CssValue::Number(value)
+        Self::Number(value)
     }
 
     fn new_list(value: Vec<Self>) -> Self {
-        CssValue::List(value)
+        Self::List(value)
     }
 
     fn unit_to_px(&self) -> f32 {
@@ -596,7 +609,7 @@ impl gosub_interface::css3::CssValue for CssValue {
     }
 
     fn as_string(&self) -> Option<&str> {
-        if let CssValue::String(str) = &self {
+        if let Self::String(str) = &self {
             Some(str)
         } else {
             None
@@ -604,7 +617,7 @@ impl gosub_interface::css3::CssValue for CssValue {
     }
 
     fn as_percentage(&self) -> Option<f32> {
-        if let CssValue::Percentage(percent) = &self {
+        if let Self::Percentage(percent) = &self {
             Some(*percent)
         } else {
             None
@@ -612,7 +625,7 @@ impl gosub_interface::css3::CssValue for CssValue {
     }
 
     fn as_unit(&self) -> Option<(f32, &str)> {
-        if let CssValue::Unit(value, unit) = &self {
+        if let Self::Unit(value, unit) = &self {
             Some((*value, unit))
         } else {
             None
@@ -620,7 +633,7 @@ impl gosub_interface::css3::CssValue for CssValue {
     }
 
     fn as_color(&self) -> Option<(f32, f32, f32, f32)> {
-        if let CssValue::Color(color) = &self {
+        if let Self::Color(color) = &self {
             Some((color.r, color.g, color.b, color.a))
         } else {
             None
@@ -628,7 +641,7 @@ impl gosub_interface::css3::CssValue for CssValue {
     }
 
     fn as_number(&self) -> Option<f32> {
-        if let CssValue::Number(num) = &self {
+        if let Self::Number(num) = &self {
             Some(*num)
         } else {
             None
@@ -636,7 +649,7 @@ impl gosub_interface::css3::CssValue for CssValue {
     }
 
     fn as_list(&self) -> Option<&[Self]> {
-        if let CssValue::List(list) = &self {
+        if let Self::List(list) = &self {
             Some(list)
         } else {
             None
@@ -644,7 +657,7 @@ impl gosub_interface::css3::CssValue for CssValue {
     }
 
     fn as_function(&self) -> Option<(&str, &[Self])> {
-        if let CssValue::Function(name, args) = &self {
+        if let Self::Function(name, args) = &self {
             Some((name.as_str(), args))
         } else {
             None
@@ -652,11 +665,11 @@ impl gosub_interface::css3::CssValue for CssValue {
     }
 
     fn is_comma(&self) -> bool {
-        matches!(self, CssValue::Comma)
+        matches!(self, Self::Comma)
     }
 
     fn is_none(&self) -> bool {
-        matches!(self, CssValue::None)
+        matches!(self, Self::None)
     }
 }
 

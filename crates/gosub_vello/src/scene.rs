@@ -17,7 +17,7 @@ impl Debug for Scene {
 }
 
 impl Scene {
-    pub fn inner(&mut self) -> &mut VelloScene {
+    pub const fn inner(&mut self) -> &mut VelloScene {
         &mut self.0
     }
 
@@ -49,7 +49,7 @@ impl TScene<VelloBackend> for Scene {
                 radius: rect.radius.as_ref(),
             };
 
-            Border::draw(&mut self.0, opts);
+            Border::draw(&mut self.0, &opts);
         }
     }
 

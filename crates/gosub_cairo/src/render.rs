@@ -7,9 +7,7 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    pub fn new(context: cairo::Context) -> Result<Self> {
-        Ok(Self {
-            context: context.clone(),
-        })
+    pub const fn new(context: cairo::Context) -> Result<Self> {
+        Ok(Self { context })
     }
 }

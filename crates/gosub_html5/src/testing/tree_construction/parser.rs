@@ -1,6 +1,7 @@
 // See https://github.com/html5lib/html5lib-tests/tree/master/tree-construction
+use anyhow;
 use cow_utils::CowUtils;
-use gosub_shared::types::{Error, Result};
+use gosub_shared::types::Result;
 use nom::{
     branch::alt,
     bytes::complete::{tag, take_until, take_until1},
@@ -71,7 +72,7 @@ pub struct TestSpec {
 
 pub enum TreeConstructionResult {
     Success,
-    Error,
+    ErrorSpec,
 }
 
 impl TestSpec {
@@ -316,7 +317,7 @@ pub fn parse_fixture(i: &str) -> Result<Vec<TestSpec>> {
     let (_, tests) = all_consuming(files)
         .parse(Span::new(&input))
         .finish()
-        .map_err(|err| Error::Test(format!("{err}")))?;
+        .map_err(|err| anyhow::anyhow!("{err}"))?;
 
     Ok(tests)
 }

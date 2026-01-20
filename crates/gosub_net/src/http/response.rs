@@ -15,19 +15,19 @@ pub struct Response {
 
 impl Response {
     #[must_use]
-    pub fn new() -> Response {
+    pub fn new() -> Self {
         Self {
             status: 0,
             status_text: String::new(),
             version: "HTTP/1.1".to_string(),
-            headers: Default::default(),
-            cookies: Default::default(),
+            headers: Headers::default(),
+            cookies: HashMap::default(),
             body: vec![],
         }
     }
 
     #[must_use]
-    pub fn is_ok(&self) -> bool {
+    pub const fn is_ok(&self) -> bool {
         self.status >= 200 && self.status < 300
     }
 }
@@ -38,8 +38,8 @@ impl From<Vec<u8>> for Response {
             status: 200,
             status_text: "OK".to_string(),
             version: "HTTP/1.1".to_string(),
-            headers: Default::default(),
-            cookies: Default::default(),
+            headers: Headers::default(),
+            cookies: HashMap::default(),
             body,
         }
     }

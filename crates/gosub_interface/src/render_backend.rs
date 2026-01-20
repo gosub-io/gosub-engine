@@ -95,7 +95,7 @@ pub struct RenderRect<B: RenderBackend> {
 }
 
 impl<B: RenderBackend> RenderRect<B> {
-    pub fn new(rect: B::Rect, brush: B::Brush) -> Self {
+    pub const fn new(rect: B::Rect, brush: B::Brush) -> Self {
         Self {
             rect,
             transform: None,
@@ -106,7 +106,7 @@ impl<B: RenderBackend> RenderRect<B> {
         }
     }
 
-    pub fn with_border(rect: B::Rect, brush: B::Brush, border: RenderBorder<B>) -> Self {
+    pub const fn with_border(rect: B::Rect, brush: B::Brush, border: RenderBorder<B>) -> Self {
         Self {
             rect,
             transform: None,
@@ -144,7 +144,7 @@ pub struct RenderText<B: RenderBackend> {
 }
 
 impl<B: RenderBackend> RenderText<B> {
-    pub fn new(text: Vec<B::Text>, rect: B::Rect, brush: B::Brush) -> Self {
+    pub const fn new(text: Vec<B::Text>, rect: B::Rect, brush: B::Brush) -> Self {
         Self {
             text,
             rect,
@@ -170,7 +170,7 @@ pub struct RenderBorder<B: RenderBackend> {
 }
 
 impl<B: RenderBackend> RenderBorder<B> {
-    pub fn new(border: B::Border) -> Self {
+    pub const fn new(border: B::Border) -> Self {
         Self {
             border,
             transform: None,
@@ -227,7 +227,6 @@ impl BorderStyle {
     #[must_use]
     pub fn from_str(style: &str) -> Self {
         match style {
-            "none" => Self::None,
             "hidden" => Self::Hidden,
             "dotted" => Self::Dotted,
             "dashed" => Self::Dashed,
@@ -252,8 +251,8 @@ impl Radius {
     #[must_use]
     pub fn offset(&self) -> Size {
         match self {
-            Radius::Uniform(value) => Size::uniform(value.powi(2).div(2.0).sqrt() - *value),
-            Radius::Elliptical(x, y) => {
+            Self::Uniform(value) => Size::uniform(value.powi(2).div(2.0).sqrt() - *value),
+            Self::Elliptical(x, y) => {
                 //TODO: is this correct?
 
                 let theta = (std::f64::consts::PI / 4.0) as FP;
@@ -266,53 +265,53 @@ impl Radius {
     }
 
     #[must_use]
-    pub fn radi_x(&self) -> FP {
+    pub const fn radi_x(&self) -> FP {
         match self {
-            Radius::Uniform(value) => *value,
-            Radius::Elliptical(x, _) => *x,
+            Self::Uniform(value) => *value,
+            Self::Elliptical(x, _) => *x,
         }
     }
 
     #[must_use]
-    pub fn radi_y(&self) -> FP {
+    pub const fn radi_y(&self) -> FP {
         match self {
-            Radius::Uniform(value) => *value,
-            Radius::Elliptical(_, y) => *y,
+            Self::Uniform(value) => *value,
+            Self::Elliptical(_, y) => *y,
         }
     }
 
     #[must_use]
-    pub fn radii(&self) -> [FP; 2] {
+    pub const fn radii(&self) -> [FP; 2] {
         match self {
-            Radius::Uniform(value) => [*value, *value],
-            Radius::Elliptical(x, y) => [*x, *y],
+            Self::Uniform(value) => [*value, *value],
+            Self::Elliptical(x, y) => [*x, *y],
         }
     }
 
     #[must_use]
     pub fn radii_f64(&self) -> (f64, f64) {
         match self {
-            Radius::Uniform(value) => (f64::from(*value), f64::from(*value)),
-            Radius::Elliptical(x, y) => (f64::from(*x), f64::from(*y)),
+            Self::Uniform(value) => (f64::from(*value), f64::from(*value)),
+            Self::Elliptical(x, y) => (f64::from(*x), f64::from(*y)),
         }
     }
 }
 
 impl From<FP> for Radius {
     fn from(value: FP) -> Self {
-        Radius::Uniform(value)
+        Self::Uniform(value)
     }
 }
 
 impl From<[FP; 2]> for Radius {
     fn from(value: [FP; 2]) -> Self {
-        Radius::Elliptical(value[0], value[1])
+        Self::Elliptical(value[0], value[1])
     }
 }
 
 impl From<(FP, FP)> for Radius {
     fn from(value: (FP, FP)) -> Self {
-        Radius::Elliptical(value.0, value.1)
+        Self::Elliptical(value.0, value.1)
     }
 }
 
@@ -328,8 +327,8 @@ impl From<Radius> for (f64, f64) {
 impl From<Radius> for f64 {
     fn from(value: Radius) -> Self {
         match value {
-            Radius::Uniform(value) => f64::from(value),
-            Radius::Elliptical(x, y) => f64::from((x * y).sqrt()),
+            Radius::Uniform(value) => Self::from(value),
+            Radius::Elliptical(x, y) => Self::from((x * y).sqrt()),
         }
     }
 }
@@ -391,6 +390,7 @@ pub trait BorderRadius:
         let radius = radius.into();
         Self::all_radius(radius, radius, radius, radius)
     }
+    #[must_use]
     fn all_elliptical(&self, radius_x: FP, radius_y: FP) -> Self {
         let radius = Radius::Elliptical(radius_x, radius_y);
 
@@ -451,24 +451,34 @@ pub trait Transform: Sized + Mul<Self> + MulAssign + Clone + Send + Debug {
 
     fn skew_xy(angle_x: FP, angle_y: FP) -> Self;
 
+    #[must_use]
     fn pre_scale(self, s: FP) -> Self;
 
+    #[must_use]
     fn pre_scale_xy(self, sx: FP, sy: FP) -> Self;
 
+    #[must_use]
     fn pre_translate(self, x: FP, y: FP) -> Self;
 
+    #[must_use]
     fn pre_rotate(self, angle: FP) -> Self;
 
+    #[must_use]
     fn pre_rotate_around(self, angle: FP, center: Point) -> Self;
 
+    #[must_use]
     fn then_scale(self, s: FP) -> Self;
 
+    #[must_use]
     fn then_scale_xy(self, sx: FP, sy: FP) -> Self;
 
+    #[must_use]
     fn then_translate(self, x: FP, y: FP) -> Self;
 
+    #[must_use]
     fn then_rotate(self, angle: FP) -> Self;
 
+    #[must_use]
     fn then_rotate_around(self, angle: FP, center: Point) -> Self;
 
     fn as_matrix(&self) -> [FP; 6];
@@ -477,8 +487,10 @@ pub trait Transform: Sized + Mul<Self> + MulAssign + Clone + Send + Debug {
 
     fn determinant(&self) -> FP;
 
+    #[must_use]
     fn inverse(self) -> Self;
 
+    #[must_use]
     fn with_translation(&self, translation: Point) -> Self;
 
     fn tx(&self) -> FP {
@@ -568,6 +580,7 @@ pub trait Color {
         Self::with_alpha(tup.0, tup.1, tup.2, tup.3)
     }
 
+    #[must_use]
     fn alpha(self, a: u8) -> Self
     where
         Self: Sized,
@@ -616,8 +629,8 @@ pub enum ImageBuffer<B: RenderBackend> {
 impl<B: RenderBackend> Debug for ImageBuffer<B> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ImageBuffer::Image(_) => write!(f, "ImageBuffer::Image"),
-            ImageBuffer::Scene(_, size) => write!(f, "ImageBuffer::Scene({size:?})"),
+            Self::Image(_) => write!(f, "ImageBuffer::Image"),
+            Self::Scene(_, size) => write!(f, "ImageBuffer::Scene({size:?})"),
         }
     }
 }
@@ -625,8 +638,8 @@ impl<B: RenderBackend> Debug for ImageBuffer<B> {
 impl<B: RenderBackend> Clone for ImageBuffer<B> {
     fn clone(&self) -> Self {
         match self {
-            ImageBuffer::Image(img) => ImageBuffer::Image(img.clone()),
-            ImageBuffer::Scene(scene, size) => ImageBuffer::Scene(scene.clone(), *size),
+            Self::Image(img) => Self::Image(img.clone()),
+            Self::Scene(scene, size) => Self::Scene(scene.clone(), *size),
         }
     }
 }
@@ -634,29 +647,29 @@ impl<B: RenderBackend> Clone for ImageBuffer<B> {
 impl<B: RenderBackend> ImageBuffer<B> {
     pub fn width(&self) -> u32 {
         match self {
-            ImageBuffer::Image(img) => img.width(),
-            ImageBuffer::Scene(_, size) => size.width,
+            Self::Image(img) => img.width(),
+            Self::Scene(_, size) => size.width,
         }
     }
 
     pub fn height(&self) -> u32 {
         match self {
-            ImageBuffer::Image(img) => img.height(),
-            ImageBuffer::Scene(_, size) => size.height,
+            Self::Image(img) => img.height(),
+            Self::Scene(_, size) => size.height,
         }
     }
 
     pub fn size(&self) -> SizeU32 {
         match self {
-            ImageBuffer::Image(img) => SizeU32::new(img.width(), img.height()),
-            ImageBuffer::Scene(_, size) => *size,
+            Self::Image(img) => SizeU32::new(img.width(), img.height()),
+            Self::Scene(_, size) => *size,
         }
     }
 
     pub fn size_tuple(&self) -> (FP, FP) {
         match self {
-            ImageBuffer::Image(img) => (img.width() as FP, img.height() as FP),
-            ImageBuffer::Scene(_, size) => (size.width as FP, size.height as FP),
+            Self::Image(img) => (img.width() as FP, img.height() as FP),
+            Self::Scene(_, size) => (size.width as FP, size.height as FP),
         }
     }
 }
@@ -685,7 +698,7 @@ pub trait ImgCache<B: RenderBackend>: Sized {
 pub struct NodeDesc {
     pub id: u64,
     pub name: String,
-    pub children: Vec<NodeDesc>,
+    pub children: Vec<Self>,
     pub attributes: Vec<(String, String)>,
     pub properties: Vec<(String, String)>,
     pub pos: Point,

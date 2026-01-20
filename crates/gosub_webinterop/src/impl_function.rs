@@ -16,17 +16,15 @@ pub fn impl_js_functions(functions: &[Function], name: &Ident, options: &Options
         impls.push(function.implement(name));
     }
 
-    let marker_struct = if let Some(marker_struct) = options.marker_struct.as_ref() {
-        marker_struct.clone()
-    } else {
-        format_ident!("{}JSMethodsMarker", name)
-    };
+    let marker_struct = options
+        .marker_struct
+        .as_ref()
+        .map_or_else(|| format_ident!("{}JSMethodsMarker", name), Clone::clone);
 
-    let marker_trait = if let Some(marker_trait) = options.marker_trait.as_ref() {
-        marker_trait.clone()
-    } else {
-        format_ident!("{}JSMethods", name)
-    };
+    let marker_trait = options
+        .marker_trait
+        .as_ref()
+        .map_or_else(|| format_ident!("{}JSMethods", name), Clone::clone);
 
     let refs = get_refs(name.to_string(), options.refs);
 
@@ -42,12 +40,11 @@ pub fn impl_js_functions(functions: &[Function], name: &Ident, options: &Options
     }
 }
 
+#[allow(clippy::significant_drop_tightening)]
 fn get_refs(name: String, num_refs: Option<u8>) -> TokenStream {
     let num_refs = num_refs.unwrap_or_else(|| {
         let mut state = STATE.write().unwrap();
-        let num_refs = state
-            .get_mut(&(crate_name(), name))
-            .expect("Struct does not have the #[web_interop] attribute");
+        let num_refs = state.get_mut(&(crate_name(), name)).unwrap();
         *num_refs += 1;
         *num_refs
     });

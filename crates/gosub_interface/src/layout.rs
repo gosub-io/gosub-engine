@@ -13,7 +13,7 @@ pub struct FontData {
 
 impl FontData {
     #[must_use]
-    pub fn new(data: &[u8], index: u32) -> FontData {
+    pub fn new(data: &[u8], index: u32) -> Self {
         Self {
             data: data.to_vec(),
             index,
@@ -26,14 +26,18 @@ impl FontData {
     }
 
     #[must_use]
-    pub fn index(&self) -> u32 {
+    pub const fn index(&self) -> u32 {
         self.index
     }
 }
 
-/// `LayoutTree` is a combined structure of a `RenderTree` and a `LayoutTree`. The `RenderTree` part contains all the
-/// nodes that can be rendered or have any effect of visual layout. The layout part holds all the information
-/// about how the nodes are laid out on the screen.
+/// `LayoutTree` is a combined structure of a `RenderTree` and a `LayoutTree`.
+///
+/// The `RenderTree` part contains all the nodes that can be rendered or have any
+/// effect of visual layout.
+///
+/// The layout part holds all the information about how the nodes are laid out on the
+/// screen.
 pub trait LayoutTree<C: HasLayouter<LayoutTree = Self>>: Sized + Debug + 'static {
     type NodeId: Debug + Copy + Clone + From<u64> + Into<u64> + PartialEq;
     type Node: LayoutNode<C>;

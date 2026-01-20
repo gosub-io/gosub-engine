@@ -7,6 +7,12 @@ use crate::matcher::styling::{CssProperties, CssProperty, DeclarationProperty};
 use crate::matcher::syntax::{SyntaxComponent, SyntaxComponentMultiplier};
 use crate::matcher::syntax_matcher::CssSyntaxTree;
 
+enum StepResult<'a> {
+    Continue,
+    Complete,
+    More(ResolveShorthand<'a>),
+}
+
 impl CssSyntaxTree {
     pub fn has_property_syntax(&self, property: &str) -> Option<Shorthand> {
         let component = self.components.first()?;
@@ -27,9 +33,9 @@ impl CssSyntaxTree {
 impl SyntaxComponent {
     pub fn has_property_syntax(&self, prop: &str, path: &mut Vec<usize>) -> bool {
         match self {
-            SyntaxComponent::Property { property, .. } => prop == property,
-            SyntaxComponent::Definition { datatype, quoted, .. } if *quoted => prop == datatype,
-            SyntaxComponent::Group { components, .. } => {
+            Self::Property { property, .. } => prop == property,
+            Self::Definition { datatype, quoted, .. } if *quoted => prop == datatype,
+            Self::Group { components, .. } => {
                 for (i, component) in components.iter().enumerate() {
                     path.push(i);
                     if component.has_property_syntax(prop, path) {
@@ -46,18 +52,18 @@ impl SyntaxComponent {
     #[must_use]
     pub fn multipliers(&self) -> &[SyntaxComponentMultiplier] {
         match self {
-            SyntaxComponent::GenericKeyword { multipliers, .. } => multipliers,
-            SyntaxComponent::Property { multipliers, .. } => multipliers,
-            SyntaxComponent::Function { multipliers, .. } => multipliers,
-            SyntaxComponent::Definition { multipliers, .. } => multipliers,
-            SyntaxComponent::Inherit { multipliers, .. } => multipliers,
-            SyntaxComponent::Initial { multipliers, .. } => multipliers,
-            SyntaxComponent::Unset { multipliers, .. } => multipliers,
-            SyntaxComponent::Literal { multipliers, .. } => multipliers,
-            SyntaxComponent::Value { multipliers, .. } => multipliers,
-            SyntaxComponent::Group { multipliers, .. } => multipliers,
-            SyntaxComponent::Unit { multipliers, .. } => multipliers,
-            SyntaxComponent::Builtin { multipliers, .. } => multipliers,
+            Self::GenericKeyword { multipliers, .. }
+            | Self::Property { multipliers, .. }
+            | Self::Function { multipliers, .. }
+            | Self::Definition { multipliers, .. }
+            | Self::Inherit { multipliers, .. }
+            | Self::Initial { multipliers, .. }
+            | Self::Unset { multipliers, .. }
+            | Self::Literal { multipliers, .. }
+            | Self::Value { multipliers, .. }
+            | Self::Group { multipliers, .. }
+            | Self::Unit { multipliers, .. }
+            | Self::Builtin { multipliers, .. } => multipliers,
         }
     }
 }
@@ -74,9 +80,9 @@ pub enum Multiplier {
 impl Multiplier {
     fn get_names(self, completed: Vec<&str>, multi: usize) -> Option<Vec<&str>> {
         match self {
-            Multiplier::NextProp => Some(vec![completed.get(multi)?]),
+            Self::NextProp => Some(vec![completed.get(multi)?]),
 
-            Multiplier::DuoMulti => {
+            Self::DuoMulti => {
                 if multi == 0 {
                     return Some(completed);
                 }
@@ -84,7 +90,7 @@ impl Multiplier {
                 Some(vec![completed.get(1)?])
             }
 
-            Multiplier::QuadMulti => match multi {
+            Self::QuadMulti => match multi {
                 0 => Some(completed),
                 1 => Some(completed.get(1..3)?.to_vec()),
                 2 => Some(vec![completed.first()?]),
@@ -98,14 +104,14 @@ impl Multiplier {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Shorthands {
     multiplier: Multiplier,
-    shorthands: Vec<Shorthand>,
+    items: Vec<Shorthand>,
     name: String,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FixList {
     list: Vec<(String, Vec<DeclarationProperty>)>,
     multipliers: Vec<(String, usize)>,
@@ -113,7 +119,7 @@ pub struct FixList {
     current_info: Option<FixListInfo>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FixListInfo {
     origin: CssOrigin,
     important: bool,
@@ -121,7 +127,7 @@ pub struct FixListInfo {
     specificity: Specificity,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Shorthand {
     name: String,
     components: Vec<usize>,
@@ -183,7 +189,7 @@ impl Shorthands {
         ShorthandResolver {
             multiplier: self.multiplier,
             fix_list,
-            shorthands: self.shorthands.iter().map(Shorthand::resolver).collect(),
+            shorthands: self.items.iter().map(Shorthand::resolver).collect(),
             name: &self.name,
         }
     }
@@ -218,13 +224,13 @@ impl<'a> ShorthandResolver<'a> {
 
             for shorthand in &self.shorthands {
                 match shorthand.step_complete(idx) {
-                    Some(Some(elem)) => {
+                    StepResult::More(elem) => {
                         shorthands.push(elem);
                     }
-                    Some(None) => {
+                    StepResult::Complete => {
                         complete.push(shorthand.name);
                     }
-                    None => {}
+                    StepResult::Continue => {}
                 }
             }
 
@@ -263,10 +269,10 @@ impl<'a> ShorthandResolver<'a> {
 
         for shorthand in &self.shorthands {
             match shorthand.step_complete(idx) {
-                Some(Some(elem)) => {
+                StepResult::More(elem) => {
                     shorthands.push(elem);
                 }
-                Some(None) => {
+                StepResult::Complete => {
                     return Err(CompleteStep {
                         list: self.fix_list,
                         name: vec![shorthand.name],
@@ -274,7 +280,7 @@ impl<'a> ShorthandResolver<'a> {
                         completed: false,
                     });
                 }
-                None => {}
+                StepResult::Continue => {}
             }
         }
 
@@ -298,26 +304,26 @@ impl<'a> ShorthandResolver<'a> {
     }
 }
 
-impl<'a> ResolveShorthand<'a> {
-    fn step_complete<'c>(&'c self, idx: usize) -> Option<Option<ResolveShorthand<'a>>> {
+impl ResolveShorthand<'_> {
+    fn step_complete(&self, idx: usize) -> StepResult<'_> {
         if self.components.is_empty() {
-            return Some(None);
+            return StepResult::Complete;
         }
 
         if self.components.first().copied() == Some(idx) {
             let components = &self.components[1..];
 
             if components.is_empty() {
-                return Some(None);
+                return StepResult::Complete;
             }
 
-            return Some(Some(Self {
+            return StepResult::More(Self {
                 name: self.name,
                 components,
-            }));
+            });
         }
 
-        None
+        StepResult::Continue
     }
 }
 
@@ -329,7 +335,7 @@ impl Default for FixList {
 
 impl FixList {
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             list: Vec::new(),
             multipliers: Vec::new(),
@@ -376,7 +382,7 @@ impl FixList {
     }
 
     pub fn resolve_nested(&mut self, definitions: &CssDefinitions) {
-        let mut fix_list = FixList::new();
+        let mut fix_list = Self::new();
 
         let mut had_shorthands = false;
 
@@ -403,7 +409,7 @@ impl FixList {
         self.append(fix_list);
     }
 
-    pub fn append(&mut self, mut other: FixList) {
+    pub fn append(&mut self, mut other: Self) {
         self.list.append(&mut other.list);
     }
 
@@ -465,6 +471,10 @@ impl CssDefinitions {
     }
 
     #[must_use]
+    /// Resolves shorthands for a property
+    ///
+    /// # Panics
+    /// Panics if `syntax.components` is empty when there are no computed properties.
     pub fn resolve_shorthands(&self, computed: &[String], syntax: &CssSyntaxTree, name: &str) -> Option<Shorthands> {
         if computed.len() <= 1 || syntax.components.is_empty() {
             return None;
@@ -475,7 +485,8 @@ impl CssDefinitions {
         if let Some(component) = syntax.components.first() {
             for m in component.multipliers() {
                 match m {
-                    SyntaxComponentMultiplier::Between(_, b) => {
+                    SyntaxComponentMultiplier::Between(_, b)
+                    | SyntaxComponentMultiplier::CommaSeparatedRepeat(_, b) => {
                         if *b == computed.len() {
                             for c in computed {
                                 shorthands.push(Shorthand {
@@ -496,34 +507,7 @@ impl CssDefinitions {
 
                             return Some(Shorthands {
                                 multiplier,
-                                shorthands,
-                                name: name.to_string(),
-                            });
-                        }
-                    }
-
-                    SyntaxComponentMultiplier::CommaSeparatedRepeat(_, b) => {
-                        if *b == computed.len() {
-                            for c in computed {
-                                shorthands.push(Shorthand {
-                                    name: c.clone(),
-                                    components: vec![],
-                                });
-                            }
-
-                            let multiplier;
-
-                            if computed.len() == 2 {
-                                multiplier = Multiplier::DuoMulti;
-                            } else if computed.len() == 4 {
-                                multiplier = Multiplier::QuadMulti;
-                            } else {
-                                multiplier = Multiplier::NextProp;
-                            }
-
-                            return Some(Shorthands {
-                                multiplier,
-                                shorthands,
+                                items: shorthands,
                                 name: name.to_string(),
                             });
                         }
@@ -544,7 +528,7 @@ impl CssDefinitions {
         if found_props.len() == computed.len() {
             return Some(Shorthands {
                 multiplier: Multiplier::None,
-                shorthands: found_props,
+                items: found_props,
                 name: name.to_string(),
             });
         }
@@ -565,7 +549,7 @@ impl CssDefinitions {
 
                 return Some(Shorthands {
                     multiplier: Multiplier::None,
-                    shorthands,
+                    items: shorthands,
                     name: name.to_string(),
                 });
             }

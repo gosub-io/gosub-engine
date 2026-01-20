@@ -21,3 +21,6 @@ pango = "0.20.9"
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen-futures = "0.4.47"
 web-sys = "0.3.72"
+
+[lints]
+workspace = true

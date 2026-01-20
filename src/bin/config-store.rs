@@ -50,8 +50,8 @@ impl std::str::FromStr for Engine {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "sqlite" => Ok(Engine::Sqlite),
-            "json" => Ok(Engine::Json),
+            "sqlite" => Ok(Self::Sqlite),
+            "json" => Ok(Self::Json),
             _ => Err(anyhow!("problem reading config")),
         }
     }
@@ -91,7 +91,8 @@ fn main() -> anyhow::Result<()> {
             println!("Description    : {}", info.description);
         }
         Commands::List => {
-            for key in config_store().find("*") {
+            let keys = config_store().find("*");
+            for key in keys {
                 let value = config_store().get(&key).unwrap();
                 println!("{key:40}: {value}");
             }
@@ -100,7 +101,8 @@ fn main() -> anyhow::Result<()> {
             config_store().set(&key, Setting::from_str(&value).expect("incorrect value"));
         }
         Commands::Search { key } => {
-            for key in config_store().find(&key) {
+            let keys = config_store().find(&key);
+            for key in keys {
                 let value = config_store().get(&key).unwrap();
                 println!("{key:40}: {value}");
             }

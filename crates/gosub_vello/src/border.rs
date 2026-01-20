@@ -89,7 +89,7 @@ impl<'a> BorderRenderOptions<'a> {
 }
 
 impl Border {
-    pub fn draw(scene: &mut Scene, opts: BorderRenderOptions) {
+    pub fn draw(scene: &mut Scene, opts: &BorderRenderOptions) {
         let transform = match (opts.transform, opts.border.transform.as_ref()) {
             (Some(t1), Some(t2)) => Some(*t1 * *t2),
             (Some(t1), None) => Some(*t1),
@@ -100,20 +100,20 @@ impl Border {
         let transform = transform.as_ref();
 
         if let Some(segment) = opts.left(transform) {
-            Self::draw_side(scene, segment);
+            Self::draw_side(scene, &segment);
         }
         if let Some(segment) = opts.right(transform) {
-            Self::draw_side(scene, segment);
+            Self::draw_side(scene, &segment);
         }
         if let Some(segment) = opts.top(transform) {
-            Self::draw_side(scene, segment);
+            Self::draw_side(scene, &segment);
         }
         if let Some(segment) = opts.bottom(transform) {
-            Self::draw_side(scene, segment);
+            Self::draw_side(scene, &segment);
         }
     }
 
-    fn draw_side(scene: &mut Scene, opts: BorderRenderSideOptions) {
+    fn draw_side(scene: &mut Scene, opts: &BorderRenderSideOptions) {
         let border_width = f64::from(opts.segment.width);
         let brush = &opts.segment.brush.0;
         let style = opts.segment.style;
@@ -557,7 +557,7 @@ impl TBorderRadius for BorderRadius {
 
 impl From<BorderRadius> for RoundedRectRadii {
     fn from(value: BorderRadius) -> Self {
-        RoundedRectRadii::new(
+        Self::new(
             value.top_left.into(),
             value.top_right.into(),
             value.bottom_right.into(),

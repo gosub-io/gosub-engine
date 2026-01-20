@@ -55,9 +55,12 @@ impl ApplicationHandler for App<'_> {
         let window = Arc::new(event_loop.create_window(attribs).unwrap());
 
         let size = window.inner_size();
-        let surface_future =
-            self.render_ctx
-                .create_surface(window.clone(), size.width, size.height, wgpu::PresentMode::AutoVsync);
+        let surface_future = self.render_ctx.create_surface(
+            Arc::clone(&window),
+            size.width,
+            size.height,
+            wgpu::PresentMode::AutoVsync,
+        );
         let surface = pollster::block_on(surface_future).expect("Failed to create surface");
 
         let dev_handle = &self.render_ctx.devices[surface.dev_id];

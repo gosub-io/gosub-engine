@@ -19,17 +19,14 @@ impl Css3<'_> {
         }
 
         let t = self.consume_any()?;
-        let url = match t.token_type {
-            TokenType::QuotedString(url) => url,
-            _ => {
-                return Err(CssError::with_location(
-                    format!("Expected url, got {t:?}").as_str(),
-                    self.tokenizer.current_location(),
-                ));
-            }
+        let TokenType::QuotedString(url) = t.token_type else {
+            return Err(CssError::with_location(
+                format!("Expected url, got {t:?}").as_str(),
+                self.tokenizer.current_location(),
+            ));
         };
 
-        self.consume(TokenType::RParen)?;
+        self.consume(&TokenType::RParen)?;
 
         Ok(Node::new(NodeType::Url { url }, loc))
     }

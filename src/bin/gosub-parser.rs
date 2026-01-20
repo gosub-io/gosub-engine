@@ -46,11 +46,7 @@ fn main() -> Result<()> {
         )
         .get_matches();
 
-    let url = matches
-        .get_one::<String>("url")
-        .ok_or("Missing url")
-        .unwrap()
-        .to_string();
+    let url = matches.get_one::<String>("url").ok_or("Missing url").unwrap().clone();
 
     let url = Url::from_str(&url).unwrap_or_else(|_| bail("Invalid url"));
 

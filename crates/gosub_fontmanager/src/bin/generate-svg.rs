@@ -1,4 +1,3 @@
-use anyhow::anyhow;
 use freetype::Library;
 use gosub_fontmanager::FontManager;
 use gosub_interface::font::FontStyle;
@@ -39,19 +38,14 @@ fn main() {
         return;
     };
 
-    let library = Library::init().expect("unable to init freetype library");
-    let path = font_info
-        .path
-        .ok_or_else(|| anyhow!("No path in font info"))
-        .expect("No path in font info");
-    let face = library
-        .new_face(path, font_info.index.unwrap_or(0) as isize)
-        .expect("unable to create face");
+    let library = Library::init().unwrap();
+    let path = font_info.path.unwrap();
+    let face = library.new_face(path, font_info.index.unwrap_or(0) as isize).unwrap();
 
-    char_to_svg(face, TEST_STRING);
+    char_to_svg(&face, TEST_STRING);
 }
 
-fn char_to_svg(face: freetype::Face, content: &str) {
+fn char_to_svg(face: &freetype::Face, content: &str) {
     face.set_char_size(10 * 64, 0, 10, 0).unwrap();
 
     println!("<?xml version=\"1.0\" standalone=\"no\"?>");

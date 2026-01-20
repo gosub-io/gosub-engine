@@ -12,29 +12,29 @@ pub enum GsBrush {
 }
 
 impl GsBrush {
-    pub fn gradient(gradient: GsGradient) -> Self {
-        GsBrush::Gradient(gradient)
+    pub const fn gradient(gradient: GsGradient) -> Self {
+        Self::Gradient(gradient)
     }
 
-    pub fn solid(color: GsColor) -> Self {
-        GsBrush::Solid(color)
+    pub const fn solid(color: GsColor) -> Self {
+        Self::Solid(color)
     }
 
-    pub fn image(image: GsImage) -> Self {
-        GsBrush::Image(image)
+    pub const fn image(image: GsImage) -> Self {
+        Self::Image(image)
     }
 
-    pub fn render(obj: &GsBrush, cr: &cairo::Context) {
+    pub fn render(obj: &Self, cr: &cairo::Context) {
         match &obj {
-            GsBrush::Solid(c) => {
+            Self::Solid(c) => {
                 cr.set_source_rgba(c.r, c.g, c.b, c.a);
             }
-            GsBrush::Gradient(_g) => {
+            Self::Gradient(_g) => {
                 // unimplemented!("Gradient brush not implemented");
                 // let pat = g.create_pattern(cr);
                 // cr.set_source(&pat);
             }
-            GsBrush::Image(_i) => {
+            Self::Image(_i) => {
                 // unimplemented!("Image brush not implemented");
                 // let pat = i.create_pattern(cr);
                 // cr.set_source(&pat);
@@ -45,12 +45,12 @@ impl GsBrush {
 
 impl TBrush<CairoBackend> for GsBrush {
     fn gradient(gradient: GsGradient) -> Self {
-        GsBrush::gradient(gradient)
+        Self::gradient(gradient)
     }
     fn color(color: GsColor) -> Self {
-        GsBrush::solid(color)
+        Self::solid(color)
     }
     fn image(image: GsImage) -> Self {
-        GsBrush::image(image)
+        Self::image(image)
     }
 }

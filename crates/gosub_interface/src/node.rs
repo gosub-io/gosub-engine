@@ -5,7 +5,7 @@ use std::collections::hash_map::IntoIter;
 use std::collections::HashMap;
 use std::fmt::Debug;
 
-#[derive(PartialEq, Debug, Copy, Clone)]
+#[derive(PartialEq, Eq, Debug, Copy, Clone)]
 pub enum QuirksMode {
     Quirks,
     LimitedQuirks,
@@ -13,7 +13,7 @@ pub enum QuirksMode {
 }
 
 /// Different types of nodes that all have their own data structures (`NodeData`)
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum NodeType {
     DocumentNode,
     DocTypeNode,

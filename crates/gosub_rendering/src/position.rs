@@ -153,7 +153,7 @@ impl<C: HasLayouter> PositionTree<C> {
 fn is_point_in_circle(circle_center: (f32, f32), circle_radius: f32, point: (f32, f32)) -> bool {
     let dx = circle_center.0 - point.0;
     let dy = circle_center.1 - point.1;
-    let distance = (dx * dx + dy * dy).sqrt();
+    let distance = dx.hypot(dy);
 
     distance <= circle_radius
 }

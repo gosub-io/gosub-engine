@@ -27,7 +27,7 @@ impl HasHtmlParser for Config {
     type HtmlParser = Html5Parser<'static, Self>;
 }
 fn main() -> Result<()> {
-    let mut files = get_files_from_path(fixture_root_path());
+    let mut files = get_files_from_path(&fixture_root_path());
     files.sort();
 
     let mut total = 0;
@@ -76,16 +76,16 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn get_files_from_path(dir: PathBuf) -> Vec<String> {
+fn get_files_from_path(dir: &PathBuf) -> Vec<String> {
     let mut files = Vec::new();
 
-    for entry in WalkDir::new(dir.clone()).follow_links(true).into_iter().flatten() {
+    for entry in WalkDir::new(dir).follow_links(true).into_iter().flatten() {
         if entry.file_type().is_file() {
             if let Some(extension) = entry.path().extension() {
                 if extension == "dat" {
                     if let Ok(relative_path) = entry
                         .path()
-                        .strip_prefix(dir.clone())
+                        .strip_prefix(dir)
                         .map(Path::to_str)
                         .map(|s| s.unwrap().to_string())
                     {

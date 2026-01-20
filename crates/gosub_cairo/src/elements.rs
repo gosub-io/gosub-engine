@@ -1,8 +1,8 @@
-pub(crate) mod border;
-pub(crate) mod brush;
-pub(crate) mod color;
-pub(crate) mod gradient;
-pub(crate) mod image;
-pub(crate) mod rect;
-pub(crate) mod text;
-pub(crate) mod transform;
+pub mod border;
+pub mod brush;
+pub mod color;
+pub mod gradient;
+pub mod image;
+pub mod rect;
+pub mod text;
+pub mod transform;

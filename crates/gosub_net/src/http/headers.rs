@@ -7,15 +7,15 @@ pub struct Headers {
 
 impl Headers {
     #[must_use]
-    pub fn new() -> Headers {
-        Headers {
+    pub fn new() -> Self {
+        Self {
             headers: HashMap::new(),
         }
     }
 
     #[must_use]
-    pub fn with_capacity(capacity: usize) -> Headers {
-        Headers {
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
             headers: HashMap::with_capacity(capacity),
         }
     }
@@ -31,7 +31,7 @@ impl Headers {
 
     /// Returns all the header entries. Note that there is no ordering in here!
     #[must_use]
-    pub fn all(&self) -> &HashMap<String, String> {
+    pub const fn all(&self) -> &HashMap<String, String> {
         &self.headers
     }
 

@@ -15,13 +15,13 @@ pub struct SVGDocument {
 impl SVGDocument {
     #[allow(clippy::should_implement_trait)]
     pub fn from_str(svg: &str) -> Result<Self> {
-        let opts = usvg::Options { ..Default::default() };
+        let opts = usvg::Options::default();
 
         let tree = usvg::Tree::from_str(svg, &opts)?;
         Ok(Self { tree })
     }
 
-    pub fn from_html_doc<C: HasDocument>(id: NodeId, doc: C::Document) -> Result<Self> {
+    pub fn from_html_doc<C: HasDocument>(id: NodeId, doc: &<C as HasDocument>::Document) -> Result<Self> {
         let str = doc.write_from_node(id);
 
         Self::from_str(&str)

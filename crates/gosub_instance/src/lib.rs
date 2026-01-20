@@ -44,7 +44,7 @@ impl<C: ModuleConfiguration> EngineInstance<C> {
     ) -> Result<(Self, InstanceHandle)> {
         let (tx, rx) = tokio::sync::mpsc::channel(128);
 
-        let instance = EngineInstance::with_chan(url.clone(), layouter, rx, id, handles).await?;
+        let instance = Self::with_chan(url.clone(), layouter, rx, id, handles).await?;
 
         let handle = InstanceHandle { tx };
 
@@ -59,13 +59,13 @@ impl<C: ModuleConfiguration> EngineInstance<C> {
         handles: Handles<C>,
     ) -> Result<Self> {
         let fetcher = Arc::new(Fetcher::new(url.clone()));
-        let (data, _handle) = C::TreeDrawer::with_fetcher(url.clone(), fetcher.clone(), layouter, false).await?;
+        let (data, _handle) = C::TreeDrawer::with_fetcher(url.clone(), Arc::clone(&fetcher), layouter, false).await?;
 
         let (itx, irx) = tokio::sync::mpsc::channel(128);
 
         let web = WebEventLoop::new_on_thread(handles.clone());
 
-        Ok(EngineInstance {
+        Ok(Self {
             title: "Gosub".to_string(),
             web,
             url,
@@ -81,6 +81,9 @@ impl<C: ModuleConfiguration> EngineInstance<C> {
     }
 
     /// Spawns a new `EngineInstance` on a new thread, returning the `InstanceHandle` to communicate with it
+    ///
+    /// # Panics
+    /// Panics if the runtime cannot be created
     pub fn new_on_thread(url: Url, layouter: C::Layouter, id: InstanceId, handles: Handles<C>) -> Result<InstanceHandle>
     where
         C::Layouter: Send + 'static,
@@ -133,13 +136,7 @@ impl<C: ModuleConfiguration> EngineInstance<C> {
                 task::spawn_local(self.data.navigate(url, el));
             }
 
-            InstanceMessage::Back => {
-                //TODO
-            }
-
-            InstanceMessage::Forward => {
-                //TODO
-            }
+            InstanceMessage::Back | InstanceMessage::Forward => {}
 
             InstanceMessage::Reload => {
                 let el = self.el.clone();
@@ -152,43 +149,33 @@ impl<C: ModuleConfiguration> EngineInstance<C> {
                 self.irx.close();
             }
 
-            InstanceMessage::Debug(event) => {
-                match event {
-                    DebugEvent::SendNodes(sender) => {
-                        self.data.send_nodes(sender);
-                    }
-
-                    DebugEvent::SelectElement(id) => {
-                        self.data
-                            .select_element(<C::LayoutTree as LayoutTree<C>>::NodeId::from(id));
-                    }
-
-                    DebugEvent::Info(id, sender) => {
-                        self.data
-                            .info(<C::LayoutTree as LayoutTree<C>>::NodeId::from(id), sender);
-                    }
-
-                    DebugEvent::Deselect => {
-                        self.data.unselect_element();
-                    }
-
-                    DebugEvent::Toggle => {
-                        self.data.toggle_debug();
-                    }
-
-                    DebugEvent::Enable => {
-                        self.data.toggle_debug(); //TODO
-                    }
-
-                    DebugEvent::Disable => {
-                        self.data.toggle_debug();
-                    }
-
-                    DebugEvent::ClearBuffers => {
-                        self.data.clear_buffers();
-                    }
+            InstanceMessage::Debug(event) => match event {
+                DebugEvent::SendNodes(sender) => {
+                    self.data.send_nodes(sender);
                 }
-            }
+
+                DebugEvent::SelectElement(id) => {
+                    self.data
+                        .select_element(<C::LayoutTree as LayoutTree<C>>::NodeId::from(id));
+                }
+
+                DebugEvent::Info(id, sender) => {
+                    self.data
+                        .info(<C::LayoutTree as LayoutTree<C>>::NodeId::from(id), sender);
+                }
+
+                DebugEvent::Deselect => {
+                    self.data.unselect_element();
+                }
+
+                DebugEvent::Toggle | DebugEvent::Enable | DebugEvent::Disable => {
+                    self.data.toggle_debug();
+                }
+
+                DebugEvent::ClearBuffers => {
+                    self.data.clear_buffers();
+                }
+            },
             InstanceMessage::Input(event) => {
                 match event {
                     InputEvent::MouseScroll(delta) => {

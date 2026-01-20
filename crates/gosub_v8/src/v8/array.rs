@@ -91,7 +91,7 @@ impl WebArray for V8Array {
 
         let array = self.value.open(scope);
 
-        let value = Local::new(scope, value.value.clone());
+        let value = Local::new(scope, &value.value);
 
         let index = array.length();
 
@@ -185,6 +185,7 @@ impl WebArray for V8Array {
 }
 
 #[cfg(test)]
+#[allow(clippy::redundant_clone)]
 mod tests {
     use gosub_webexecutor::js::{
         ArrayConversion, IntoRustValue, IntoWebValue, WebArray, WebContext, WebObject, WebRuntime, WebValue,
@@ -325,9 +326,9 @@ mod tests {
         {
             let val = context
                 .run(
-                    r#"
+                    r"
                 test.array
-            "#,
+            ",
                 )
                 .unwrap();
 
@@ -343,9 +344,9 @@ mod tests {
         {
             let val = context
                 .run(
-                    r#"
+                    r"
                 test.array[0]
-            "#,
+            ",
                 )
                 .unwrap();
 
@@ -356,9 +357,9 @@ mod tests {
         {
             let val = context
                 .run(
-                    r#"
+                    r"
                 test.array[1]
-            "#,
+            ",
                 )
                 .unwrap();
 
@@ -369,9 +370,9 @@ mod tests {
         {
             let val = context
                 .run(
-                    r#"
+                    r"
                 test.array[2]
-            "#,
+            ",
                 )
                 .unwrap();
 
@@ -382,11 +383,11 @@ mod tests {
         {
             let val = context
                 .run(
-                    r#"
+                    r"
                 test.array.push(5678)
                 
                 test.array
-            "#,
+            ",
                 )
                 .unwrap();
 
@@ -403,9 +404,9 @@ mod tests {
 
         let array = context
             .run(
-                r#"
+                r"
             [42, 1337, 1234]
-        "#,
+        ",
             )
             .unwrap();
 
@@ -440,9 +441,9 @@ mod tests {
 
         let array = context
             .run(
-                r#"
+                r"
             [42, 1337, 1234]
-        "#,
+        ",
             )
             .unwrap();
 

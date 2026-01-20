@@ -29,3 +29,6 @@ skrifa = "0.31.0"
 default = ["resvg"]
 resvg = ["gosub_svg/resvg"]
 vello_svg = ["dep:vello_svg", "dep:gosub_html5"] # resvg has higher priority, so if both are enabled, resvg will be used
+
+[lints]
+workspace = true

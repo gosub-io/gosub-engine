@@ -121,48 +121,41 @@ fn match_selector_part<'a, C: HasDocument>(
                 return false;
             }
 
-            let mut wanted_attr_value = &attr.value;
-            let mut got_attr_value = element_data.attributes().get(wanted_attr_name).unwrap();
+            let wanted_attr_value_orig = &attr.value;
+            let got_attr_value_orig = element_data.attributes().get(wanted_attr_name).unwrap();
 
-            let mut _wanted_buf = String::new(); //Two buffers, so we don't need to clone the value if we match case-sensitive
-            let mut _got_buf = String::new();
-            // If we need to match case-insensitive, just convert everything to lowercase for comparison
             if attr.case_insensitive {
-                _wanted_buf = wanted_attr_name.cow_to_lowercase().to_string();
-                _got_buf = got_attr_value.cow_to_lowercase().to_string();
-
-                wanted_attr_value = &_wanted_buf;
-                got_attr_value = &_got_buf;
-            }
-
-            match attr.matcher {
-                MatcherType::None => {
-                    // Just the presence of the attribute is enough
-                    true
+                let wanted_attr_value = wanted_attr_name.cow_to_lowercase();
+                let got_attr_value = got_attr_value_orig.cow_to_lowercase();
+                match attr.matcher {
+                    MatcherType::None => true,
+                    MatcherType::Equals => wanted_attr_value.as_ref() == got_attr_value.as_ref(),
+                    MatcherType::Includes => wanted_attr_value
+                        .split_whitespace()
+                        .any(|s| s == got_attr_value.as_ref()),
+                    MatcherType::DashMatch => {
+                        let wanted = wanted_attr_value.as_ref();
+                        let got = got_attr_value.as_ref();
+                        got == wanted || got.starts_with(&format!("{wanted}-"))
+                    }
+                    MatcherType::PrefixMatch => got_attr_value.as_ref().starts_with(wanted_attr_value.as_ref()),
+                    MatcherType::SuffixMatch => got_attr_value.as_ref().ends_with(wanted_attr_value.as_ref()),
+                    MatcherType::SubstringMatch => got_attr_value.as_ref().contains(wanted_attr_value.as_ref()),
                 }
-                MatcherType::Equals => {
-                    // Exact match
-                    wanted_attr_value == got_attr_value
-                }
-                MatcherType::Includes => {
-                    // Contains word
-                    wanted_attr_value.split_whitespace().any(|s| s == got_attr_value)
-                }
-                MatcherType::DashMatch => {
-                    // Exact value or value followed by a hyphen
-                    got_attr_value == wanted_attr_value || got_attr_value.starts_with(&format!("{wanted_attr_value}-"))
-                }
-                MatcherType::PrefixMatch => {
-                    // Starts with
-                    got_attr_value.starts_with(wanted_attr_value)
-                }
-                MatcherType::SuffixMatch => {
-                    // Ends with
-                    got_attr_value.ends_with(wanted_attr_value)
-                }
-                MatcherType::SubstringMatch => {
-                    // Contains
-                    got_attr_value.contains(wanted_attr_value)
+            } else {
+                match attr.matcher {
+                    MatcherType::None => true,
+                    MatcherType::Equals => wanted_attr_value_orig == got_attr_value_orig,
+                    MatcherType::Includes => wanted_attr_value_orig
+                        .split_whitespace()
+                        .any(|s| s == *got_attr_value_orig),
+                    MatcherType::DashMatch => {
+                        got_attr_value_orig == wanted_attr_value_orig
+                            || got_attr_value_orig.starts_with(&format!("{wanted_attr_value_orig}-"))
+                    }
+                    MatcherType::PrefixMatch => got_attr_value_orig.starts_with(wanted_attr_value_orig),
+                    MatcherType::SuffixMatch => got_attr_value_orig.ends_with(wanted_attr_value_orig),
+                    MatcherType::SubstringMatch => got_attr_value_orig.contains(wanted_attr_value_orig),
                 }
             }
         }
@@ -333,7 +326,7 @@ pub struct DeclarationProperty {
 
 impl DeclarationProperty {
     /// Priority of the declaration based on the origin and importance as defined in <https://developer.mozilla.org/en-US/docs/Web/CSS/Cascade>
-    fn priority(&self) -> u8 {
+    const fn priority(&self) -> u8 {
         match self.origin {
             CssOrigin::UserAgent => {
                 if self.important {
@@ -420,11 +413,11 @@ impl CssProperty {
         }
     }
 
-    pub fn mark_dirty(&mut self) {
+    pub const fn mark_dirty(&mut self) {
         self.dirty = true;
     }
 
-    pub fn mark_clean(&mut self) {
+    pub const fn mark_clean(&mut self) {
         self.dirty = false;
     }
 
@@ -480,27 +473,22 @@ impl CssProperty {
     #[must_use]
     pub fn is_shorthand(&self) -> bool {
         let defs = get_css_definitions();
-        match defs.find_property(&self.name) {
-            Some(def) => def.expanded_properties().len() > 1,
-            None => false,
-        }
+        defs.find_property(&self.name)
+            .is_some_and(|def| def.expanded_properties().len() > 1)
     }
 
     /// Returns the list of properties from a shorthand property, or just the property itself if it isn't a shorthand property.
     #[must_use]
     pub fn get_props_from_shorthand(&self) -> Vec<String> {
         let defs = get_css_definitions();
-        match defs.find_property(&self.name) {
-            Some(def) => {
-                let props = def.expanded_properties();
-                if props.len() == 1 {
-                    vec![]
-                } else {
-                    props
-                }
+        defs.find_property(&self.name).map_or_else(Vec::new, |def| {
+            let props = def.expanded_properties();
+            if props.len() == 1 {
+                vec![]
+            } else {
+                props
             }
-            None => vec![],
-        }
+        })
     }
 
     // // Returns the initial value for the property, if any
@@ -757,42 +745,42 @@ mod tests {
 
     #[test]
     fn compare_declared() {
-        let a = DeclarationProperty {
+        let prop_a = DeclarationProperty {
             value: CssValue::String("red".into()),
             origin: CssOrigin::Author,
             important: false,
             location: String::new(),
             specificity: Specificity::new(1, 0, 0),
         };
-        let b = DeclarationProperty {
+        let prop_b = DeclarationProperty {
             value: CssValue::String("blue".into()),
             origin: CssOrigin::UserAgent,
             important: false,
             location: String::new(),
             specificity: Specificity::new(1, 0, 0),
         };
-        let c = DeclarationProperty {
+        let prop_c = DeclarationProperty {
             value: CssValue::String("green".into()),
             origin: CssOrigin::User,
             important: false,
             location: String::new(),
             specificity: Specificity::new(1, 0, 0),
         };
-        let d = DeclarationProperty {
+        let prop_d = DeclarationProperty {
             value: CssValue::String("yellow".into()),
             origin: CssOrigin::Author,
             important: true,
             location: String::new(),
             specificity: Specificity::new(1, 0, 0),
         };
-        let e = DeclarationProperty {
+        let prop_e = DeclarationProperty {
             value: CssValue::String("orange".into()),
             origin: CssOrigin::UserAgent,
             important: true,
             location: String::new(),
             specificity: Specificity::new(1, 0, 0),
         };
-        let f = DeclarationProperty {
+        let prop_f = DeclarationProperty {
             value: CssValue::String("purple".into()),
             origin: CssOrigin::User,
             important: true,
@@ -800,25 +788,25 @@ mod tests {
             specificity: Specificity::new(1, 0, 0),
         };
 
-        assert_eq!(3, a.priority());
-        assert_eq!(1, b.priority());
-        assert_eq!(2, c.priority());
-        assert_eq!(5, d.priority());
-        assert_eq!(7, e.priority());
-        assert_eq!(6, f.priority());
+        assert_eq!(3, prop_a.priority());
+        assert_eq!(1, prop_b.priority());
+        assert_eq!(2, prop_c.priority());
+        assert_eq!(5, prop_d.priority());
+        assert_eq!(7, prop_e.priority());
+        assert_eq!(6, prop_f.priority());
 
-        assert!(a > b);
-        assert!(b < c);
-        assert!(c < d);
-        assert!(d < e);
-        assert!(f < e);
-        assert!(a < e);
-        assert!(b < d);
-        assert!(a < d);
-        assert!(b < d);
-        assert!(c < d);
-        assert_eq!(c, c);
-        assert_eq!(d, d);
+        assert!(prop_a > prop_b);
+        assert!(prop_b < prop_c);
+        assert!(prop_c < prop_d);
+        assert!(prop_d < prop_e);
+        assert!(prop_f < prop_e);
+        assert!(prop_a < prop_e);
+        assert!(prop_b < prop_d);
+        assert!(prop_a < prop_d);
+        assert!(prop_b < prop_d);
+        assert!(prop_c < prop_d);
+        assert_eq!(prop_c, prop_c);
+        assert_eq!(prop_d, prop_d);
     }
 
     #[test]

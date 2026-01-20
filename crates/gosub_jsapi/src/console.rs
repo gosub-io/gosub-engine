@@ -6,7 +6,7 @@ mod writable_printer;
 use crate::console::formatter::Formatter;
 use cow_utils::CowUtils;
 use std::collections::HashMap;
-use std::fmt;
+use std::fmt::{self, Write};
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
@@ -60,8 +60,6 @@ pub struct Console {
     group_stacks: Vec<Group>,
     /// Printer that will output any data from the console
     printer: Box<dyn Printer>,
-    /// Formatter that will format any data that is passed to the console
-    formatter: Formatter,
 }
 
 impl Console {
@@ -81,7 +79,6 @@ impl Console {
             count_map: HashMap::new(),
             group_stacks: vec![],
             printer,
-            formatter: Formatter::new(),
         }
     }
 
@@ -134,14 +131,14 @@ impl Console {
     }
 
     /// Emit table if tabular data is supported
-    pub fn table(&mut self, tabular_data: String, _properties: &[&str]) {
+    pub fn table(&mut self, tabular_data: &str, _properties: &[&str]) {
         // TODO: needs implementation
         self.printer.print(LogLevel::Log, &[&tabular_data], &[]);
     }
 
     /// Emit a trace message
     pub fn trace(&mut self, data: &[&dyn fmt::Display]) {
-        let formatted_data = self.formatter.format(data);
+        let formatted_data = Formatter::format(data);
 
         self.printer.print(LogLevel::Trace, &[&formatted_data], &[]);
     }
@@ -161,11 +158,16 @@ impl Console {
     }
 
     /// Create a counter named "label"
+    ///
+    /// # Panics
+    ///
+    /// Panics if the count map contains a corrupted entry.
     pub fn count(&mut self, label: &str) {
-        let mut cnt = 1;
-        if self.count_map.contains_key(label) {
-            cnt = self.count_map.get(label).unwrap() + 1;
-        }
+        let cnt = if self.count_map.contains_key(label) {
+            self.count_map.get(label).unwrap() + 1
+        } else {
+            1
+        };
 
         self.count_map.insert(label.to_owned(), cnt);
 
@@ -188,12 +190,10 @@ impl Console {
         let group_label = if data.is_empty() {
             format!("console.group.{}", Uuid::new_v4())
         } else {
-            self.formatter.format(data).to_string()
+            Formatter::format(data)
         };
 
-        let group = Group {
-            label: group_label.clone(),
-        };
+        let group = Group { label: group_label };
 
         // Group should be expanded
         self.printer.print(LogLevel::Group, &[&group.label], &[]);
@@ -206,12 +206,10 @@ impl Console {
         let group_label = if data.is_empty() {
             format!("console.group.{}", Uuid::new_v4())
         } else {
-            self.formatter.format(data).to_string()
+            formatter::Formatter::format(data)
         };
 
-        let group = Group {
-            label: group_label.clone(),
-        };
+        let group = Group { label: group_label };
 
         self.printer.print(LogLevel::GroupCollapsed, &[&group.label], &[]);
 
@@ -232,10 +230,9 @@ impl Console {
             return;
         }
 
-        let start = match SystemTime::now().duration_since(UNIX_EPOCH) {
-            Ok(n) => n.as_millis(),
-            Err(_) => 0,
-        };
+        let start = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |n| n.as_millis());
 
         self.timer_map.insert(
             label.to_owned(),
@@ -248,17 +245,20 @@ impl Console {
     }
 
     /// Log time
+    ///
+    /// # Panics
+    ///
+    /// Panics if the timer for the given label does not exist.
     pub fn time_log(&mut self, label: &str, data: &[&dyn fmt::Display]) {
         let mut message = String::from(" ");
         for arg in data {
-            message.push_str(&format!("{arg} "));
+            let _ = write!(message, "{arg} ");
         }
         let message = message.trim_end();
 
-        let cur = match SystemTime::now().duration_since(UNIX_EPOCH) {
-            Ok(n) => n.as_millis(),
-            Err(_) => 0,
-        };
+        let cur = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |n| n.as_millis());
 
         let concat = format!(
             "{}: {}ms{}",
@@ -270,11 +270,14 @@ impl Console {
     }
 
     /// End the timer with the given label
+    ///
+    /// # Panics
+    ///
+    /// Panics if the timer for the given label does not exist.
     pub fn time_end(&mut self, label: &str) {
-        let end = match SystemTime::now().duration_since(UNIX_EPOCH) {
-            Ok(n) => n.as_millis(),
-            Err(_) => 0,
-        };
+        let end = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |n| n.as_millis());
 
         let concat = format!(
             "{}: {}ms",
@@ -296,7 +299,7 @@ impl Console {
             return;
         }
 
-        self.printer.print(log_level, &[&self.formatter.format(args)], &[]);
+        self.printer.print(log_level, &[&Formatter::format(args)], &[]);
     }
 }
 

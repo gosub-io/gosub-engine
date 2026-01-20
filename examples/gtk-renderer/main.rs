@@ -135,7 +135,7 @@ fn build_ui(app: &Application, cl: &ApplicationCommandLine) -> i32 {
 
         let tx = instance.tx.clone();
         let cr = cr.clone();
-        let rx = rx.clone();
+        let rx = Arc::clone(&rx);
 
         #[allow(clippy::await_holding_lock)]
         // we will always able to lock the mutex, since we are the only one holding it (stupid futures_channel)

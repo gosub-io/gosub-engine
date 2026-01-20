@@ -8,7 +8,7 @@ pub const CHAR_LF: char = '\u{000A}';
 pub const CHAR_CR: char = '\u{000D}';
 
 /// Encoding defines the way the buffer stream is read, as what defines a "character".
-#[derive(PartialEq)]
+#[derive(PartialEq, Eq)]
 pub enum Encoding {
     /// Unknown encoding. Won't read anything from the stream until the encoding is set
     UNKNOWN,
@@ -22,13 +22,15 @@ pub enum Encoding {
     UTF16BE,
 }
 
-/// Defines a single character/element in the stream. This is either a UTF8 character, or
-/// a surrogate characters since these cannot be stored in a single char. Note that characters
-/// are not the same as bytes, since a single character can be multiple bytes in UTF8 or UTF16.
+/// Defines a single character/element in the stream.
+///
+/// This is either a UTF8 character, or a surrogate characters since these cannot be stored in
+/// a single char. Note that characters are not the same as bytes, since a single character can
+/// be multiple bytes in UTF8 or UTF16.
 ///
 /// Eof is denoted as a separate element, so is Empty to indicate that the buffer is empty but
 /// not yet closed.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Character {
     /// Standard UTF character
     Ch(char),
@@ -48,8 +50,7 @@ impl From<&Character> for char {
     fn from(c: &Character) -> Self {
         match c {
             Ch(c) => *c,
-            Surrogate(..) => 0x0000 as char,
-            StreamEmpty | StreamEnd => 0x0000 as char,
+            Surrogate(..) | StreamEmpty | StreamEnd => 0x0000 as Self,
         }
     }
 }
@@ -58,8 +59,7 @@ impl From<Character> for char {
     fn from(c: Character) -> Self {
         match c {
             Ch(c) => c,
-            Surrogate(..) => 0x0000 as char,
-            StreamEmpty | StreamEnd => 0x0000 as char,
+            Surrogate(..) | StreamEmpty | StreamEnd => 0x0000 as Self,
         }
     }
 }
@@ -78,7 +78,7 @@ impl fmt::Display for Character {
 impl Character {
     /// Returns true when the character is a whitespace
     #[must_use]
-    pub fn is_whitespace(&self) -> bool {
+    pub const fn is_whitespace(&self) -> bool {
         matches!(self, Ch(c) if c.is_whitespace())
     }
 
@@ -89,7 +89,7 @@ impl Character {
     }
 
     /// Converts a slice of characters into a string
-    pub fn slice_to_string(v: Vec<Character>) -> String {
+    pub fn slice_to_string(v: &[Self]) -> String {
         v.iter().map(char::from).collect()
     }
 }
@@ -376,7 +376,7 @@ impl ByteStream {
                     _ => 0xFFFD, // Invalid UTF-8 byte sequence
                 };
 
-                if ch > 0x10FFFF || (ch > 0xD800 && ch <= 0xDFFF) {
+                if ch > 0x0010_FFFF || (ch > 0xD800 && ch <= 0xDFFF) {
                     (Surrogate(ch as u16), width)
                 } else {
                     (char::from_u32(ch).map_or(Ch(REPLACEMENT_CHARACTER), Ch), width)
@@ -408,9 +408,11 @@ impl ByteStream {
     }
 
     /// Populates the current buffer with the contents of given file f
+    ///
+    /// # Panics
+    /// Panics if reading from the file fails
     pub fn read_from_file(&mut self, mut f: impl Read) -> io::Result<()> {
-        // First we read the u8 bytes into a buffer
-        f.read_to_end(&mut self.buffer).expect("uh oh");
+        f.read_to_end(&mut self.buffer)?;
         self.close();
         self.reset_stream();
         self.close();
@@ -427,7 +429,7 @@ impl ByteStream {
         self.buffer.extend_from_slice(s.as_bytes());
     }
 
-    pub fn close(&mut self) {
+    pub const fn close(&mut self) {
         self.closed = true;
     }
 
@@ -467,29 +469,27 @@ impl ByteStream {
                     }
                 }
             }
-            Encoding::UTF16LE => {
+            Encoding::UTF16LE | Encoding::UTF16BE => {
                 if *pos > n * 2 {
                     *pos -= n * 2;
                 } else {
                     *pos = 0;
                 }
             }
-            Encoding::UTF16BE => {
-                if *pos > n * 2 {
-                    *pos -= n * 2;
-                } else {
-                    *pos = 0;
-                }
-            }
-            _ => {}
+            Encoding::UNKNOWN => {}
         }
     }
 }
 
 impl ByteStream {
     /// Detect the given encoding from stream analysis
+    ///
+    /// # Panics
+    /// Panics if an unsupported encoding is detected
     pub fn detect_encoding(&self) -> Encoding {
-        let mut buf = self.buffer.as_slice();
+        const MAX_BUF_SIZE: usize = 64 * 1024;
+
+        let buf = self.buffer.as_slice();
 
         // Check for BOM
         if buf.starts_with(b"\xEF\xBB\xBF") {
@@ -501,12 +501,11 @@ impl ByteStream {
         }
 
         // Cap the buffer size we will check to max 64KB
-        const MAX_BUF_SIZE: usize = 64 * 1024;
-        let mut complete = true;
-        if buf.len() > MAX_BUF_SIZE {
-            buf = &buf[..MAX_BUF_SIZE];
-            complete = false;
-        }
+        let (buf, complete) = if buf.len() > MAX_BUF_SIZE {
+            (&buf[..MAX_BUF_SIZE], false)
+        } else {
+            (buf, true)
+        };
 
         let mut encoding_detector = chardetng::EncodingDetector::new();
         encoding_detector.feed(buf, complete);
@@ -525,13 +524,13 @@ impl ByteStream {
 
     /// Changes the encoding that the decoder uses to read the buffer. Note that this does not reset
     /// the buffer, so it might start on a non-valid character.
-    pub fn set_encoding(&mut self, e: Encoding) {
+    pub const fn set_encoding(&mut self, e: Encoding) {
         self.encoding = e;
     }
 }
 
 /// Location holds the start position of the given element in the data source
-#[derive(Clone, PartialEq, Copy)]
+#[derive(Clone, PartialEq, Eq, Copy)]
 pub struct Location {
     /// Line number, starting with 1
     pub line: usize,
@@ -551,7 +550,7 @@ impl Default for Location {
 impl Location {
     /// Create a new Location
     #[must_use]
-    pub fn new(line: usize, column: usize, offset: usize) -> Self {
+    pub const fn new(line: usize, column: usize, offset: usize) -> Self {
         Self { line, column, offset }
     }
 }
@@ -592,7 +591,7 @@ impl LocationHandler {
 
     /// Sets the current location to the given location. This is useful when we want to
     /// return back into the stream to a certain location.
-    pub fn set(&mut self, loc: Location) {
+    pub const fn set(&mut self, loc: Location) {
         self.cur_location = loc;
     }
 
@@ -621,7 +620,6 @@ impl LocationHandler {
                 self.cur_location.column += 1;
                 self.cur_location.offset += 1;
             }
-            StreamEnd | StreamEmpty => {}
             _ => {}
         }
     }
@@ -889,7 +887,7 @@ mod test {
     fn test_slice() {
         let v = vec![Ch('a'), Ch('b'), Ch('c'), Ch('d'), Ch('e')];
 
-        assert_eq!(Character::slice_to_string(v), "abcde");
+        assert_eq!(Character::slice_to_string(&v), "abcde");
     }
 
     #[test]

@@ -2,7 +2,7 @@
 use thiserror::Error;
 
 /// Parser error that defines an error (message) on the given position
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 #[allow(dead_code)]
 pub struct ParseError {
     /// Parse error message
@@ -17,7 +17,7 @@ pub struct ParseError {
 
 /// Serious errors and errors from third-party libraries
 #[derive(Debug, Error)]
-pub enum Error {
+pub enum ConfigError {
     #[error("config error: {0}")]
     Config(String),
 
@@ -30,3 +30,5 @@ pub enum Error {
     #[error("there was a problem: {0}")]
     Generic(String),
 }
+
+pub use ConfigError as Error;

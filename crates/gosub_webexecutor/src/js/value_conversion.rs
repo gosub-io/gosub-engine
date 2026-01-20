@@ -13,6 +13,7 @@ pub trait IntoWebValue<V: WebValue> {
 
 macro_rules! impl_value_conversion {
     (number, $type:ty) => {
+        #[allow(clippy::cast_lossless)]
         impl<V: WebValue> IntoWebValue<V> for $type {
             type Value = V;
 
@@ -83,7 +84,7 @@ where
             .map(|v| v.to_web_value(ctx.clone()))
             .collect::<Result<Vec<_>>>()?;
 
-        Self::Array::new_with_data(ctx.clone(), &data)
+        Self::Array::new_with_data(ctx, &data)
     }
 }
 
@@ -100,7 +101,7 @@ where
             .map(|v| v.to_web_value(ctx.clone()))
             .collect::<Result<Vec<_>>>()?;
 
-        <V::RT as WebRuntime>::Array::new_with_data(ctx.clone(), &data).map(|v| v.as_value())
+        <V::RT as WebRuntime>::Array::new_with_data(ctx, &data).map(|v| v.as_value())
     }
 }
 
@@ -112,6 +113,7 @@ pub trait IntoRustValue<T> {
 
 macro_rules! impl_rust_conversion {
     ($func:ident, $type:ty, cast) => {
+        #[allow(clippy::cast_lossless)]
         impl<T: WebValue> IntoRustValue<$type> for T {
             fn to_rust_value(&self) -> Result<$type> {
                 Ok(self.$func()? as $type)
@@ -163,7 +165,7 @@ pub enum Ref<'a, T> {
 }
 
 impl<T> Ref<'_, T> {
-    fn get_ref(&self) -> &T {
+    const fn get_ref(&self) -> &T {
         match self {
             Ref::Ref(r) => r,
             Ref::Owned(r) => r,

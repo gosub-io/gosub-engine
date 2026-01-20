@@ -10,7 +10,6 @@ use crate::impl_interop_struct::impl_interop_struct;
 use crate::property::{FieldProperty, FunctionProperty};
 use crate::types::{Arg, ArgVariant, Field, GenericsMatcher, ReturnType, SelfType};
 use crate::utils::crate_name;
-use lazy_static::lazy_static;
 use proc_macro2::{Ident, TokenTree};
 use quote::ToTokens;
 use syn::punctuated::Punctuated;
@@ -24,11 +23,16 @@ mod property;
 mod types;
 mod utils;
 
-lazy_static! {
-    static ref STATE: RwLock<HashMap<(String, String), u8>> = RwLock::new(HashMap::new());
-}
+use std::sync::LazyLock;
+
+static STATE: LazyLock<RwLock<HashMap<(String, String), u8>>> = LazyLock::new(|| RwLock::new(HashMap::new()));
 
 #[proc_macro_attribute]
+///
+/// # Panics
+///
+/// Panics if a field identifier is not set (e.g., in tuple structs).
+///
 pub fn web_interop(args: TokenStream, item: TokenStream) -> TokenStream {
     let mut fields: Vec<Field> = Vec::new();
 
@@ -58,7 +62,7 @@ pub fn web_interop(args: TokenStream, item: TokenStream) -> TokenStream {
         }
     }
 
-    let extend = impl_interop_struct(input.ident.clone(), &fields, js_name);
+    let extend = impl_interop_struct(&input.ident, &fields, &js_name);
 
     let name = input.ident.clone().into_token_stream().to_string();
     STATE.write().unwrap().insert((crate_name(), name), 0);
@@ -70,10 +74,15 @@ pub fn web_interop(args: TokenStream, item: TokenStream) -> TokenStream {
 }
 
 #[proc_macro_attribute]
+///
+/// # Panics
+///
+/// Panics if the function's return type cannot be parsed.
+///
 pub fn web_fns(attr: TokenStream, item: TokenStream) -> TokenStream {
     // let item = preprocess_variadic(item); // custom `...` syntax for variadic functions, but it breaks code editors
     let mut input: ItemImpl = {
-        let item = item.clone();
+        let item = item;
         syn::parse_macro_input!(item)
     };
 

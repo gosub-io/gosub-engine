@@ -24,20 +24,20 @@ pub enum SceneCommand {
     },
     // Group a list of commands together on a certain transform (translation, rotation, scale)
     Group {
-        children: Vec<SceneCommand>,
+        children: Vec<Self>,
         transform: GsTransform,
     },
 }
 
 impl SceneCommand {
-    fn new_group() -> SceneCommand {
-        SceneCommand::Group {
+    const fn new_group() -> Self {
+        Self::Group {
             children: vec![],
             transform: TTransform::IDENTITY,
         }
     }
 
-    fn simple_text(_text: String, _pos: Point, _size: FP) -> SceneCommand {
+    fn simple_text(_text: String, _pos: Point, _size: FP) -> Self {
         // let mut f = GsRenderFont::default();
         // f.set_size(size as f32);
 
@@ -54,14 +54,14 @@ impl SceneCommand {
 impl Debug for SceneCommand {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            SceneCommand::Rectangle(rect) => f.debug_struct("Rectangle").field("rect", &rect).finish(),
-            SceneCommand::Text(text) => f.debug_struct("Text").field("text", &text).finish(),
-            SceneCommand::Group { children, transform } => f
+            Self::Rectangle(rect) => f.debug_struct("Rectangle").field("rect", &rect).finish(),
+            Self::Text(text) => f.debug_struct("Text").field("text", &text).finish(),
+            Self::Group { children, transform } => f
                 .debug_struct("Group")
                 .field("children", &children)
                 .field("transform", &transform)
                 .finish(),
-            SceneCommand::SimpleText { text, font, pos } => f
+            Self::SimpleText { text, font, pos } => f
                 .debug_struct("SimpleText")
                 .field("text", text)
                 .field("font", font)
@@ -86,7 +86,7 @@ impl Default for Scene {
 
 impl Scene {
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             root: SceneCommand::new_group(),
         }
@@ -179,6 +179,7 @@ impl TScene<CairoBackend> for Scene {
 }
 
 /// Draws a rounded rectangle with specified border radii.
+#[allow(clippy::similar_names)]
 pub fn draw_rounded_rect(cr: &cairo::Context, x: FP, y: FP, width: FP, height: FP, radius: &GsBorderRadius) {
     // Helper function to get radius dimensions
     let extract_radius = |r: &Radius| match r {

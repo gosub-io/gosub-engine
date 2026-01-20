@@ -13,7 +13,7 @@ pub struct RemoteResolver {
 }
 
 impl DnsResolver for RemoteResolver {
-    fn resolve(&mut self, domain: &str, resolve_type: ResolveType) -> Result<DnsEntry> {
+    fn resolve(&mut self, domain: &str, resolve_type: &ResolveType) -> Result<DnsEntry> {
         let mut entry = DnsEntry::new(domain, vec![]);
 
         let mut ip_types = Vec::new();
@@ -74,7 +74,7 @@ impl DnsResolver for RemoteResolver {
 
 impl RemoteResolver {
     /// Instantiates a new local override table
-    pub fn new(dns_opts: RemoteResolverOptions) -> Self {
+    pub fn new(dns_opts: &RemoteResolverOptions) -> Self {
         // @todo: do something with the options
         let mut config = ResolverConfig::default();
         let mut opts = ResolverOpts::default();
@@ -82,7 +82,6 @@ impl RemoteResolver {
         for nameserver in &dns_opts.nameservers {
             if let Ok(ip) = IpAddr::from_str(nameserver.as_str()) {
                 config.add_name_server(NameServerConfig::new(SocketAddr::new(ip, 53), Udp));
-                continue;
             }
         }
         opts.use_hosts_file = dns_opts.use_hosts_file;

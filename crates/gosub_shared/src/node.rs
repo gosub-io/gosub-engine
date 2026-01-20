@@ -28,7 +28,7 @@ impl From<u64> for NodeId {
 impl From<NodeId> for u64 {
     /// Converts a `NodeId` into a u64
     fn from(value: NodeId) -> Self {
-        value.0 as u64
+        value.0 as Self
     }
 }
 
@@ -45,19 +45,19 @@ impl NodeId {
 
     /// Returns the root node ID
     #[must_use]
-    pub fn root() -> Self {
+    pub const fn root() -> Self {
         Self(Self::ROOT_NODE)
     }
 
     /// Returns true when this nodeId is the root node
     #[must_use]
-    pub fn is_root(&self) -> bool {
+    pub const fn is_root(&self) -> bool {
         self.0 == Self::ROOT_NODE
     }
 
     /// Returns the next node ID
     #[must_use]
-    pub fn next(&self) -> Self {
+    pub const fn next(&self) -> Self {
         if self.0 == usize::MAX {
             return Self(usize::MAX);
         }
@@ -67,13 +67,13 @@ impl NodeId {
 
     /// Returns the nodeID as usize
     #[must_use]
-    pub fn as_usize(&self) -> usize {
+    pub const fn as_usize(&self) -> usize {
         self.0
     }
 
     /// Returns the previous node ID
     #[must_use]
-    pub fn prev(&self) -> Self {
+    pub const fn prev(&self) -> Self {
         if self.0 == 0 {
             return Self::root();
         }

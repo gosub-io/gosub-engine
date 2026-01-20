@@ -2,7 +2,7 @@ use crate::types::{Type, TypeT};
 use proc_macro2::{Ident, TokenStream};
 use quote::quote;
 
-pub(crate) fn handle_slice_conv(root_arg: &Type, arg_name: &Ident) -> TokenStream {
+pub fn handle_slice_conv(root_arg: &Type, arg_name: &Ident) -> TokenStream {
     if let TypeT::Array(arg, len) = &root_arg.ty {
         if len.is_none() {
             return TokenStream::new();
@@ -62,11 +62,7 @@ fn array_type(arg: &Type) -> TokenStream {
         TypeT::Type(_) | TypeT::Generic(_) => quote! { _ },
         TypeT::Array(t, len) => {
             let ty = array_type(t);
-            let len = if let Some(len) = len {
-                quote! {; #len }
-            } else {
-                TokenStream::new()
-            };
+            let len = len.as_ref().map_or_else(TokenStream::new, |len| quote! {; #len });
             quote! { [#ty #len] }
         }
         TypeT::Tuple(t) => {

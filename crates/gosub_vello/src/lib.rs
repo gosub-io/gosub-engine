@@ -200,7 +200,7 @@ impl VelloBackend {
 
     #[cfg(not(target_arch = "wasm32"))]
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {}
     }
 }

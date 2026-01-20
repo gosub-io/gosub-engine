@@ -54,7 +54,7 @@ impl GsColor {
 
 impl TColor for GsColor {
     fn with_alpha(r: u8, g: u8, b: u8, a: u8) -> Self {
-        GsColor::rgba8(r, g, b, a)
+        Self::rgba8(r, g, b, a)
     }
 
     fn r(&self) -> u8 {
@@ -73,13 +73,13 @@ impl TColor for GsColor {
         self.a8()
     }
 
-    const WHITE: Self = GsColor::rgba8(255, 255, 255, 255);
-    const BLACK: Self = GsColor::rgba8(0, 0, 0, 255);
-    const RED: Self = GsColor::rgba8(255, 0, 0, 255);
-    const GREEN: Self = GsColor::rgba8(0, 255, 0, 255);
-    const BLUE: Self = GsColor::rgba8(0, 0, 255, 255);
-    const YELLOW: Self = GsColor::rgba8(255, 255, 0, 255);
-    const CYAN: Self = GsColor::rgba8(0, 255, 255, 255);
-    const MAGENTA: Self = GsColor::rgba8(255, 0, 255, 255);
-    const TRANSPARENT: Self = GsColor::rgba8(255, 255, 255, 0);
+    const WHITE: Self = Self::rgba8(255, 255, 255, 255);
+    const BLACK: Self = Self::rgba8(0, 0, 0, 255);
+    const RED: Self = Self::rgba8(255, 0, 0, 255);
+    const GREEN: Self = Self::rgba8(0, 255, 0, 255);
+    const BLUE: Self = Self::rgba8(0, 0, 255, 255);
+    const YELLOW: Self = Self::rgba8(255, 255, 0, 255);
+    const CYAN: Self = Self::rgba8(0, 255, 255, 255);
+    const MAGENTA: Self = Self::rgba8(255, 0, 255, 255);
+    const TRANSPARENT: Self = Self::rgba8(255, 255, 255, 0);
 }

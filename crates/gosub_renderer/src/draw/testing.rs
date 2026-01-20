@@ -4,7 +4,7 @@ use gosub_interface::css3::{CssPropertyMap, CssValue};
 use gosub_rendering::render_tree::{RenderNodeData, RenderTree, TextData};
 use gosub_shared::node::NodeId;
 
-pub(crate) fn test_add_element<C: HasDrawComponents<RenderTree = RenderTree<C>, LayoutTree = RenderTree<C>>>(
+pub fn test_add_element<C: HasDrawComponents<RenderTree = RenderTree<C>, LayoutTree = RenderTree<C>>>(
     d: &mut TreeDrawerImpl<C>,
 ) {
     d.dirty = true;
@@ -43,6 +43,6 @@ pub(crate) fn test_add_element<C: HasDrawComponents<RenderTree = RenderTree<C>, 
     d.tree_scene = None;
 }
 
-pub(crate) fn test_restyle_element<C: HasDrawComponents>(_d: &mut TreeDrawerImpl<C>) {
+pub fn test_restyle_element<C: HasDrawComponents>(_d: &mut TreeDrawerImpl<C>) {
     todo!()
 }

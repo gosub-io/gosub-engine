@@ -4,13 +4,13 @@ use gosub_shared::errors::CssResult;
 
 impl Css3<'_> {
     #[allow(dead_code)]
-    fn parse_at_rule_layer_list(&mut self) -> CssResult<Node> {
+    fn parse_at_rule_layer_list(&self) -> CssResult<Node> {
         let _children: Vec<Node> = Vec::new();
 
         todo!();
     }
 
-    fn parse_layer_query(&mut self) -> CssResult<Node> {
+    fn parse_layer_query(&self) -> CssResult<Node> {
         let _children: Vec<Node> = Vec::new();
         todo!();
     }

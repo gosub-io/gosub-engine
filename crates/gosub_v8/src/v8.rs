@@ -41,6 +41,10 @@ impl Default for V8Engine {
 const MAX_V8_INIT_SECONDS: u64 = 10;
 
 impl V8Engine {
+    /// Initializes the V8 engine.
+    ///
+    /// # Panics
+    /// Panics if V8 initialization times out after `MAX_V8_INIT_SECONDS` seconds.
     pub fn initialize() {
         let mut wait_time = MAX_V8_INIT_SECONDS * 1000;
 
@@ -49,7 +53,10 @@ impl V8Engine {
                 std::thread::sleep(std::time::Duration::from_millis(10));
                 wait_time -= 10;
                 if wait_time <= 9 {
-                    panic!("V8 initialization timed out after {MAX_V8_INIT_SECONDS} seconds");
+                    assert!(
+                        V8_INITIALIZED.is_completed(),
+                        "V8 initialization timed out after {MAX_V8_INIT_SECONDS} seconds"
+                    );
                 }
             }
             return;
@@ -65,6 +72,7 @@ impl V8Engine {
         });
     }
 
+    #[must_use]
     pub fn new() -> Self {
         Self::initialize();
         Self
@@ -97,6 +105,7 @@ impl DerefMut for IsolateWrapper {
 }
 
 impl V8Context {
+    #[must_use]
     pub fn isolate(&self) -> IsolateWrapper {
         let mut this = self.ctx.borrow_mut();
 
@@ -128,6 +137,7 @@ impl V8Context {
         Some(Exception::error(scope, e))
     }
 
+    #[must_use]
     pub fn scope(&self) -> HandleScope<'_> {
         // let iso = unsafe { self.isolate_static() };
         //
@@ -153,7 +163,7 @@ impl Clone for V8Context {
 
 impl V8Context {
     pub fn with_default() -> Result<Self> {
-        Self::new(Default::default())
+        Self::new(CreateParams::default())
     }
 
     pub fn new(params: CreateParams) -> Result<Self> {
@@ -163,10 +173,12 @@ impl V8Context {
         })
     }
 
+    #[must_use]
     pub fn borrow_mut(&self) -> std::cell::RefMut<'_, V8Ctx> {
         self.ctx.borrow_mut()
     }
 
+    #[must_use]
     pub fn borrow(&self) -> std::cell::Ref<'_, V8Ctx> {
         self.ctx.borrow()
     }
@@ -237,10 +249,10 @@ mod tests {
         let mut context = engine.new_context().unwrap();
 
         let result = context.run(
-            r#"
+            r"
         console.log(Hello World!);
         1234
-        "#,
+        ",
         );
 
         assert!(result.is_err());

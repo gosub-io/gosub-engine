@@ -57,7 +57,7 @@ fn main() {
         let mut test_idx = 1;
         for test in fixture_file.tests {
             if test_idx == 10 {
-                run_test(test_idx, test, &mut results);
+                run_test(test_idx, &test, &mut results);
             }
             test_idx += 1;
         }
@@ -78,7 +78,7 @@ fn main() {
     }
 }
 
-fn run_test(test_idx: usize, test: Test, all_results: &mut TotalTestResults) {
+fn run_test(test_idx: usize, test: &Test, all_results: &mut TotalTestResults) {
     #[cfg(all(feature = "debug_parser_verbose", test))]
     println!("🧪 Running test #{test_idx}: {}:{}", test.file_path, test.line);
 

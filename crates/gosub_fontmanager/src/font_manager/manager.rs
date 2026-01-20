@@ -28,6 +28,10 @@ impl Default for FontManager {
 
 impl FontManager {
     #[must_use]
+    /// Creates a new FontManager instance
+    ///
+    /// # Panics
+    /// Panics if font_kit fails to get all fonts
     pub fn new() -> Self {
         let source = font_kit::source::SystemSource::new();
         let handles = source.all_fonts().unwrap();
@@ -50,7 +54,7 @@ impl FontManager {
 
     /// Returns all available fonts for given source-type
     #[must_use]
-    pub fn available_fonts(&self) -> &Vec<FontInfo> {
+    pub const fn available_fonts(&self) -> &Vec<FontInfo> {
         &self.available_fonts
     }
 
@@ -105,7 +109,7 @@ fn handle_to_info(seen_paths: &mut HashSet<PathBuf>, handle: &Handle) -> Result<
     };
 
     // Check if the path is symlinked
-    let resolved_path = resolve_symlink(path.clone());
+    let resolved_path = resolve_symlink(path);
     if seen_paths.contains(&resolved_path) {
         return Err(anyhow!("Path already seen"));
     }
@@ -117,14 +121,14 @@ fn handle_to_info(seen_paths: &mut HashSet<PathBuf>, handle: &Handle) -> Result<
         weight: props.weight.0 as i32,
         stretch: props.stretch.0,
         monospaced: font.is_monospace(),
-        path: Some(resolved_path.clone()),
+        path: Some(resolved_path),
         index: Some(*font_index as i32),
     })
 }
 
 /// Resolves a symlinked path
-fn resolve_symlink(path: PathBuf) -> PathBuf {
-    let mut resolved_path = path.clone();
+fn resolve_symlink(path: &Path) -> PathBuf {
+    let mut resolved_path = path.to_path_buf();
 
     while let Ok(target) = std::fs::read_link(&resolved_path) {
         resolved_path = if target.is_relative() {

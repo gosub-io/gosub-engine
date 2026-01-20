@@ -2,7 +2,7 @@ use crate::byte_stream::Location;
 use std::fmt::{Display, Formatter};
 
 /// Parser error that defines an error (message) on the given position
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CssError {
     /// Error message
     pub message: String,
@@ -13,7 +13,7 @@ pub struct CssError {
 impl CssError {
     #[must_use]
     pub fn new(message: &str) -> Self {
-        CssError {
+        Self {
             message: message.to_string(),
             location: None,
         }
@@ -21,7 +21,7 @@ impl CssError {
 
     #[must_use]
     pub fn with_location(message: &str, location: Location) -> Self {
-        CssError {
+        Self {
             message: message.to_string(),
             location: Some(location),
         }

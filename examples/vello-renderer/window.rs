@@ -47,6 +47,7 @@ static ICON: LazyCell<Icon> = LazyCell::new(|| {
 
 pub struct Window<'a, C: ModuleConfiguration> {
     pub(crate) state: WindowState<'a, C::RenderBackend>,
+    #[allow(clippy::struct_field_names)]
     pub(crate) window: Arc<WinitWindow>,
     pub(crate) renderer_data: <C::RenderBackend as RenderBackend>::WindowData<'a>,
     pub(crate) tabs: Tabs,
@@ -59,7 +60,7 @@ impl<C: ModuleConfiguration<ChromeHandle = WinitEventLoopHandle<C>>> Window<'_, 
     pub fn new(
         event_loop: &ActiveEventLoop,
         backend: &mut C::RenderBackend,
-        opts: WindowOptions,
+        opts: &WindowOptions,
         mut handles: Handles<C>,
     ) -> Result<Self> {
         let window = create_window(event_loop)?;
@@ -92,7 +93,7 @@ impl<C: ModuleConfiguration<ChromeHandle = WinitEventLoopHandle<C>>> Window<'_, 
         #[cfg(not(target_arch = "wasm32"))]
         let _ = opts;
 
-        let renderer_data = backend.create_window_data(window.clone())?;
+        let renderer_data = backend.create_window_data(Arc::clone(&window))?;
 
         Ok(Self {
             state: WindowState::Suspended,
@@ -112,7 +113,7 @@ impl<C: ModuleConfiguration<ChromeHandle = WinitEventLoopHandle<C>>> Window<'_, 
         let size = self.window.inner_size();
         let size = SizeU32::new(size.width, size.height);
 
-        let data = backend.activate_window(self.window.clone(), &mut self.renderer_data, size)?;
+        let data = backend.activate_window(Arc::clone(&self.window), &mut self.renderer_data, size)?;
 
         self.state = WindowState::Active { surface: data };
 
@@ -127,7 +128,7 @@ impl<C: ModuleConfiguration<ChromeHandle = WinitEventLoopHandle<C>>> Window<'_, 
             return;
         };
 
-        if let Err(e) = backend.suspend_window(self.window.clone(), data, &mut self.renderer_data) {
+        if let Err(e) = backend.suspend_window(Arc::clone(&self.window), data, &mut self.renderer_data) {
             warn!("Failed to suspend window: {e}");
         }
 
@@ -142,7 +143,7 @@ impl<C: ModuleConfiguration<ChromeHandle = WinitEventLoopHandle<C>>> Window<'_, 
         self.window.request_redraw();
     }
 
-    pub fn state(&self) -> &'static str {
+    pub const fn state(&self) -> &'static str {
         match self.state {
             WindowState::Active { .. } => "Active",
             WindowState::Suspended => "Suspended",
@@ -151,7 +152,7 @@ impl<C: ModuleConfiguration<ChromeHandle = WinitEventLoopHandle<C>>> Window<'_, 
 
     pub fn draw_scene(
         &mut self,
-        scene: <C::RenderBackend as RenderBackend>::Scene,
+        scene: &<C::RenderBackend as RenderBackend>::Scene,
         instance: InstanceId,
         backend: &mut C::RenderBackend,
     ) -> Result<()> {
@@ -164,7 +165,7 @@ impl<C: ModuleConfiguration<ChromeHandle = WinitEventLoopHandle<C>>> Window<'_, 
         }
 
         backend.reset(&mut self.renderer_data);
-        backend.apply_scene(&mut self.renderer_data, &scene, None);
+        backend.apply_scene(&mut self.renderer_data, scene, None);
 
         backend.render(&mut self.renderer_data, data)
     }

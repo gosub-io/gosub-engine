@@ -12,7 +12,7 @@ use gosub_interface::layout::LayoutNode;
 // in the taffy layout engine. This step is needed since our CSS properties are not directly compatible
 // with the Taffy layout engine.
 
-pub fn parse_len<C: HasLayouter>(node: &mut impl LayoutNode<C>, name: &str) -> LengthPercentage {
+pub fn parse_len<C: HasLayouter>(node: &impl LayoutNode<C>, name: &str) -> LengthPercentage {
     let Some(property) = node.get_property(name) else {
         return LengthPercentage::Length(0.0);
     };
@@ -24,7 +24,7 @@ pub fn parse_len<C: HasLayouter>(node: &mut impl LayoutNode<C>, name: &str) -> L
     LengthPercentage::Length(property.unit_to_px())
 }
 
-pub fn parse_len_auto<C: HasLayouter>(node: &mut impl LayoutNode<C>, name: &str) -> LengthPercentageAuto {
+pub fn parse_len_auto<C: HasLayouter>(node: &impl LayoutNode<C>, name: &str) -> LengthPercentageAuto {
     let Some(property) = node.get_property(name) else {
         return LengthPercentageAuto::Length(0.0);
     };
@@ -42,7 +42,7 @@ pub fn parse_len_auto<C: HasLayouter>(node: &mut impl LayoutNode<C>, name: &str)
     LengthPercentageAuto::Length(property.unit_to_px())
 }
 
-pub fn parse_dimension<C: HasLayouter>(node: &mut impl LayoutNode<C>, name: &str) -> Dimension {
+pub fn parse_dimension<C: HasLayouter>(node: &impl LayoutNode<C>, name: &str) -> Dimension {
     let Some(property) = node.get_property(name) else {
         return Dimension::Auto;
     };
@@ -60,7 +60,7 @@ pub fn parse_dimension<C: HasLayouter>(node: &mut impl LayoutNode<C>, name: &str
     Dimension::Length(property.unit_to_px())
 }
 
-pub fn parse_align_i<C: HasLayouter>(node: &mut impl LayoutNode<C>, name: &str) -> Option<AlignItems> {
+pub fn parse_align_i<C: HasLayouter>(node: &impl LayoutNode<C>, name: &str) -> Option<AlignItems> {
     let display = node.get_property(name)?;
     let value = display.as_string()?;
 
@@ -76,7 +76,7 @@ pub fn parse_align_i<C: HasLayouter>(node: &mut impl LayoutNode<C>, name: &str) 
     }
 }
 
-pub fn parse_align_c<C: HasLayouter>(node: &mut impl LayoutNode<C>, name: &str) -> Option<AlignContent> {
+pub fn parse_align_c<C: HasLayouter>(node: &impl LayoutNode<C>, name: &str) -> Option<AlignContent> {
     let display = node.get_property(name)?;
 
     let value = display.as_string()?;
@@ -95,7 +95,7 @@ pub fn parse_align_c<C: HasLayouter>(node: &mut impl LayoutNode<C>, name: &str) 
 }
 
 pub fn parse_tracking_sizing_function<C: HasLayouter>(
-    node: &mut impl LayoutNode<C>,
+    node: &impl LayoutNode<C>,
     name: &str,
 ) -> Vec<TrackSizingFunction> {
     let Some(display) = node.get_property(name) else {
@@ -117,10 +117,7 @@ pub fn parse_non_repeated_tracking_sizing_function<C: HasLayouter>(
     todo!("implement parse_non_repeated_tracking_sizing_function")
 }
 
-pub fn parse_grid_auto<C: HasLayouter>(
-    node: &mut impl LayoutNode<C>,
-    name: &str,
-) -> Vec<NonRepeatedTrackSizingFunction> {
+pub fn parse_grid_auto<C: HasLayouter>(node: &impl LayoutNode<C>, name: &str) -> Vec<NonRepeatedTrackSizingFunction> {
     let Some(display) = node.get_property(name) else {
         return Vec::new();
     };
@@ -132,7 +129,7 @@ pub fn parse_grid_auto<C: HasLayouter>(
     Vec::new() //TODO: Implement this
 }
 
-pub fn parse_grid_placement<C: HasLayouter>(node: &mut impl LayoutNode<C>, name: &str) -> GridPlacement {
+pub fn parse_grid_placement<C: HasLayouter>(node: &impl LayoutNode<C>, name: &str) -> GridPlacement {
     let Some(display) = node.get_property(name) else {
         return GridPlacement::Auto;
     };
@@ -141,11 +138,9 @@ pub fn parse_grid_placement<C: HasLayouter>(node: &mut impl LayoutNode<C>, name:
         return if value.starts_with("span") {
             let value = value.trim_start_matches("span").trim();
 
-            if let Ok(value) = value.parse::<u16>() {
-                GridPlacement::from_span(value)
-            } else {
-                GridPlacement::Auto
-            }
+            value
+                .parse::<u16>()
+                .map_or(GridPlacement::Auto, GridPlacement::from_span)
         } else if let Ok(value) = value.parse::<i16>() {
             GridPlacement::from_line_index(value)
         } else {

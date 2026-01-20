@@ -3,7 +3,7 @@ use thiserror::Error;
 
 /// Serious errors and errors from third-party libraries
 #[derive(Debug, Error)]
-pub enum Error {
+pub enum NetError {
     #[error("ureq error")]
     Request(#[from] Box<crate::http::HttpError>),
 
@@ -31,3 +31,5 @@ pub enum Error {
     #[error("failed to parse url: {0}")]
     Url(#[from] url::ParseError),
 }
+
+pub use NetError as Error;

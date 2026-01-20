@@ -88,7 +88,7 @@ fn build_ui(app: &Application) {
     area.set_draw_func(move |area, cr, width, _height| {
         let font_info = font_context
             .font_manager
-            .find_font(&[fonts[*font_idx_clone.clone().borrow()]], FontStyle::Normal)
+            .find_font(&[fonts[*Rc::clone(&font_idx_clone).borrow()]], FontStyle::Normal)
             .unwrap();
 
         // Draw a random colored square to indicate stuff is being (re)drawn on screen
@@ -108,7 +108,7 @@ fn build_ui(app: &Application) {
         );
         let layout_height = layout.height();
 
-        draw(&mut font_context, cr, layout, 100.0, offset_y);
+        draw(&mut font_context, cr, &layout, 100.0, offset_y);
 
         // Add some padding between the different font sizes
         offset_y += layout_height + 25.0;
@@ -176,7 +176,7 @@ fn build_ui(app: &Application) {
 }
 
 // Draw the layout onto the cairo context
-fn draw(fctx: &mut FontContext, cr: &gtk4::cairo::Context, layout: Layout<ColorBrush>, offset_x: f32, offset_y: f32) {
+fn draw(fctx: &mut FontContext, cr: &gtk4::cairo::Context, layout: &Layout<ColorBrush>, offset_x: f32, offset_y: f32) {
     // The layouter has cut the text into different lines for us.
     for line in layout.lines() {
         // Each item is either a run of glyps or an inline box.
@@ -191,7 +191,7 @@ fn draw(fctx: &mut FontContext, cr: &gtk4::cairo::Context, layout: Layout<ColorB
                     let font_face = if let Some(font_face) = fctx.font_face_cache.get(&font_id) {
                         font_face
                     } else {
-                        let font_face = create_memory_font_face(fctx.ft_lib.clone(), grun.font());
+                        let font_face = create_memory_font_face(&fctx.ft_lib, grun.font());
                         fctx.font_face_cache.insert(font_id, font_face);
                         fctx.font_face_cache.get(&font_id).unwrap()
                     };
@@ -244,7 +244,7 @@ fn draw(fctx: &mut FontContext, cr: &gtk4::cairo::Context, layout: Layout<ColorB
 
 /// Creates a cairo font-face from the font data (blob of raw fontdata). We do this by converting
 /// the blob into an in-memory freetype face and then into a cairo font face.
-fn create_memory_font_face(ft_lib: Rc<Library>, font: &Font) -> FontFace {
+fn create_memory_font_face(ft_lib: &Rc<Library>, font: &Font) -> FontFace {
     // Create an in-memory font face from the font data
     let face = ft_lib.new_memory_face2(font.data.data(), font.index as isize).unwrap();
     let mut face = face.clone();

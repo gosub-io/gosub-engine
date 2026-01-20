@@ -191,9 +191,9 @@ impl Renderer {
             .request_device(
                 &vello::wgpu::DeviceDescriptor {
                     label: None,
-                    required_features: Default::default(),
-                    required_limits: Default::default(),
-                    memory_hints: Default::default(),
+                    required_features: vello::wgpu::Features::default(),
+                    required_limits: vello::wgpu::Limits::default(),
+                    memory_hints: vello::wgpu::MemoryHints::default(),
                 },
                 None,
             )

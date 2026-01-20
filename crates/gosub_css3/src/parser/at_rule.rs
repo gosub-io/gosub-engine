@@ -24,16 +24,7 @@ impl Css3<'_> {
             offset += 1;
 
             match t.token_type {
-                TokenType::RCurly => {
-                    return BlockParseMode::RegularBlock;
-                }
-                TokenType::LCurly => {
-                    return BlockParseMode::RegularBlock;
-                }
-                TokenType::Eof => {
-                    return BlockParseMode::RegularBlock;
-                }
-                TokenType::AtKeyword(_) => {
+                TokenType::RCurly | TokenType::LCurly | TokenType::Eof | TokenType::AtKeyword(_) => {
                     return BlockParseMode::RegularBlock;
                 }
                 _ => {
@@ -56,20 +47,19 @@ impl Css3<'_> {
         ))
     }
 
-    fn parse_at_rule_prelude(&mut self, name: String) -> CssResult<Option<Node>> {
+    fn parse_at_rule_prelude(&mut self, name: &str) -> CssResult<Option<Node>> {
         log::trace!("parse_at_rule_prelude");
 
         self.consume_whitespace_comments();
         let node = match name.cow_to_lowercase().as_ref() {
             "container" => Some(self.parse_at_rule_container_prelude()?),
-            "font-face" => None,
+            "font-face" | "starting-style" => None,
             "import" => Some(self.parse_at_rule_import_prelude()?),
             "layer" => Some(self.parse_at_rule_layer_prelude()?),
             "media" => Some(self.parse_at_rule_media_prelude()?),
             "nest" => Some(self.parse_at_rule_nest_prelude()?),
             "page" => Some(self.parse_at_rule_page_prelude()?),
             "scope" => Some(self.parse_at_rule_scope_prelude()?),
-            "starting-style" => None,
             "supports" => Some(self.parse_at_rule_supports_prelude()?),
             _ => Some(self.read_sequence_at_rule_prelude()?),
         };
@@ -87,7 +77,7 @@ impl Css3<'_> {
         Ok(node)
     }
 
-    fn parse_at_rule_block(&mut self, name: String, is_declaration: bool) -> CssResult<Option<Node>> {
+    fn parse_at_rule_block(&mut self, name: &str, is_declaration: bool) -> CssResult<Option<Node>> {
         log::trace!("parse_at_rule_block");
 
         let t = self.tokenizer.consume();
@@ -97,23 +87,18 @@ impl Css3<'_> {
         }
 
         // @Todo: maybe this is the other way around. Need to verify this
-        let mut mode = BlockParseMode::RegularBlock;
-        if is_declaration {
-            mode = BlockParseMode::StyleBlock;
-        }
+        let mode = if is_declaration {
+            BlockParseMode::StyleBlock
+        } else {
+            BlockParseMode::RegularBlock
+        };
 
         // parse block. They may or may not have nested rules depending on the is_declaration and block type
         let node = match name.cow_to_lowercase().as_ref() {
-            "container" => Some(self.parse_block(mode)?),
-            "font-face" => Some(self.parse_block(BlockParseMode::StyleBlock)?),
+            "container" | "media" | "scope" | "starting-style" | "supports" => Some(self.parse_block(mode)?),
+            "font-face" | "nest" | "page" => Some(self.parse_block(BlockParseMode::StyleBlock)?),
             "import" => None,
             "layer" => Some(self.parse_block(BlockParseMode::RegularBlock)?),
-            "media" => Some(self.parse_block(mode)?),
-            "nest" => Some(self.parse_block(BlockParseMode::StyleBlock)?),
-            "page" => Some(self.parse_block(BlockParseMode::StyleBlock)?),
-            "scope" => Some(self.parse_block(mode)?),
-            "starting-style" => Some(self.parse_block(mode)?),
-            "supports" => Some(self.parse_block(mode)?),
             _ => {
                 let mode = self.declaration_block_at_rule();
                 Some(self.parse_block(mode)?)
@@ -122,7 +107,7 @@ impl Css3<'_> {
 
         // if we did a block, we need to close it
         if node.is_some() {
-            self.consume(TokenType::RCurly)?;
+            self.consume(&TokenType::RCurly)?;
         }
 
         Ok(node)
@@ -159,19 +144,12 @@ impl Css3<'_> {
         }
         self.consume_whitespace_comments();
 
-        let prelude = self.parse_at_rule_prelude(name.clone())?;
+        let prelude = self.parse_at_rule_prelude(&name)?;
         self.consume_whitespace_comments();
 
-        let block = self.parse_at_rule_block(name.clone(), is_declaration)?;
+        let block = self.parse_at_rule_block(&name, is_declaration)?;
         self.consume_whitespace_comments();
 
-        Ok(Node::new(
-            NodeType::AtRule {
-                name: name.clone(),
-                prelude,
-                block,
-            },
-            t.location,
-        ))
+        Ok(Node::new(NodeType::AtRule { name, prelude, block }, t.location))
     }
 }

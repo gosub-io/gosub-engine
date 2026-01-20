@@ -29,8 +29,8 @@ pub struct CssSyntaxTree {
 
 impl CssSyntaxTree {
     /// Creates a new CSS Syntax tree from the given components
-    pub fn new(components: Vec<SyntaxComponent>) -> Self {
-        CssSyntaxTree { components }
+    pub const fn new(components: Vec<SyntaxComponent>) -> Self {
+        Self { components }
     }
 
     /// Matches a CSS value (or set of values) against the syntax tree. Will return a normalized version of the value(s) if it matches.
@@ -112,7 +112,6 @@ fn match_component_inner<'a>(
                     // The multiplier is not yet fulfilled. Probably a range multiplier, so we need more
                     // values. Loop to the next value.
                     input = remainder;
-                    continue;
                 }
                 Fulfillment::FulfilledButMoreAllowed => {
                     // More elements are allowed. Let's check if we have one
@@ -307,13 +306,8 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
                     }
                 }
             }
-            "color()" => match value {
+            "color()" | "hex-color" => match value {
                 // @TODO: fix this according to what the spec says
-                CssValue::Color(_) => return first_match(input),
-                CssValue::String(v) if v.starts_with('#') => return first_match(input),
-                _ => {}
-            },
-            "hex-color" => match value {
                 CssValue::Color(_) => return first_match(input),
                 CssValue::String(v) if v.starts_with('#') => return first_match(input),
                 _ => {}
@@ -397,7 +391,6 @@ fn match_group_exactly_one<'a>(
     mut shorthand_resolver: Option<ShorthandResolver>,
 ) -> MatchResult<'a> {
     let input = raw_input;
-    let mut matched_values = vec![];
     let mut components_matched = vec![];
 
     let mut c_idx = 0;
@@ -422,8 +415,6 @@ fn match_group_exactly_one<'a>(
 
             let res = match_component(input, component, resolver);
             if res.matched {
-                matched_values.append(&mut res.matched_values.clone());
-
                 // input = res.remainder.clone();
 
                 components_matched.push((c_idx, res.matched_values.clone(), res.remainder));
@@ -439,8 +430,6 @@ fn match_group_exactly_one<'a>(
 
             let res = match_component(input, component, None);
             if res.matched {
-                matched_values.append(&mut res.matched_values.clone());
-
                 // input = res.remainder.clone();
 
                 components_matched.push((c_idx, res.matched_values, res.remainder));
@@ -519,19 +508,17 @@ fn match_group_at_least_one_any_order<'a>(
 
                 // Found a match, so loop around for new matches
                 c_idx = 0;
-                while components_matched.contains(&c_idx) {
-                    c_idx += 1;
-                }
-
-                if let Some(complete) = complete {
-                    complete.complete(res.matched_values);
-                }
             } else {
                 // Element didn't match. That might be alright, and we continue with the next unmatched component
                 c_idx += 1;
-                while components_matched.contains(&c_idx) {
-                    c_idx += 1;
-                }
+            }
+
+            while components_matched.contains(&c_idx) {
+                c_idx += 1;
+            }
+
+            if let Some(complete) = complete {
+                complete.complete(res.matched_values);
             }
         } else {
             let component = &components[c_idx];
@@ -545,15 +532,13 @@ fn match_group_at_least_one_any_order<'a>(
 
                 // Found a match, so loop around for new matches
                 c_idx = 0;
-                while components_matched.contains(&c_idx) {
-                    c_idx += 1;
-                }
             } else {
                 // Element didn't match. That might be alright, and we continue with the next unmatched component
                 c_idx += 1;
-                while components_matched.contains(&c_idx) {
-                    c_idx += 1;
-                }
+            }
+
+            while components_matched.contains(&c_idx) {
+                c_idx += 1;
             }
         }
     }
@@ -606,19 +591,17 @@ fn match_group_all_any_order<'a>(
 
                 // Found a match, so loop around for new matches
                 c_idx = 0;
-                while components_matched.contains(&c_idx) {
-                    c_idx += 1;
-                }
-
-                if let Some(complete) = complete {
-                    complete.complete(res.matched_values);
-                }
             } else {
                 // Element didn't match. That might be alright, and we continue with the next unmatched component
                 c_idx += 1;
-                while components_matched.contains(&c_idx) {
-                    c_idx += 1;
-                }
+            }
+
+            while components_matched.contains(&c_idx) {
+                c_idx += 1;
+            }
+
+            if let Some(complete) = complete {
+                complete.complete(res.matched_values);
             }
         } else {
             let component = &components[c_idx];
@@ -632,15 +615,13 @@ fn match_group_all_any_order<'a>(
 
                 // Found a match, so loop around for new matches
                 c_idx = 0;
-                while components_matched.contains(&c_idx) {
-                    c_idx += 1;
-                }
             } else {
                 // Element didn't match. That might be alright, and we continue with the next unmatched component
                 c_idx += 1;
-                while components_matched.contains(&c_idx) {
-                    c_idx += 1;
-                }
+            }
+
+            while components_matched.contains(&c_idx) {
+                c_idx += 1;
             }
         }
     }
@@ -775,7 +756,7 @@ fn multiplier_fulfilled(component: &SyntaxComponent, cnt: usize) -> Fulfillment 
 }
 
 /// Helper function to return no matches
-fn no_match(input: &[CssValue]) -> MatchResult<'_> {
+const fn no_match(input: &[CssValue]) -> MatchResult<'_> {
     MatchResult {
         remainder: input,
         matched: false,
@@ -1065,40 +1046,36 @@ mod tests {
     #[test]
     fn test_multipliers_optional() {
         let tree = CssSyntax::new("foo bar baz").compile().unwrap();
-        assert_false!(tree.clone().matches(&[str!("foo")]));
-        assert_false!(tree.clone().matches(&[str!("foo")]));
-        assert_true!(tree.clone().matches(&[str!("foo"), str!("bar"), str!("baz"),]));
-        assert_false!(tree.clone().matches(&[str!("foo"), str!("baz"),]));
+        assert_false!(tree.matches(&[str!("foo")]));
+        assert_false!(tree.matches(&[str!("foo")]));
+        assert_true!(tree.matches(&[str!("foo"), str!("bar"), str!("baz"),]));
+        assert_false!(tree.matches(&[str!("foo"), str!("baz"),]));
 
         let tree = CssSyntax::new("foo bar?").compile().unwrap();
         dbg!(&tree);
-        assert_true!(tree.clone().matches(&[str!("foo")]));
-        assert_true!(tree.clone().matches(&[str!("foo"), str!("bar"),]));
-        assert_false!(tree.clone().matches(&[str!("foo"), str!("bar"), str!("bar"),]));
-        assert_false!(tree.clone().matches(&[str!("bar"), str!("foo"),]));
+        assert_true!(tree.matches(&[str!("foo")]));
+        assert_true!(tree.matches(&[str!("foo"), str!("bar"),]));
+        assert_false!(tree.matches(&[str!("foo"), str!("bar"), str!("bar"),]));
+        assert_false!(tree.matches(&[str!("bar"), str!("foo"),]));
 
         let tree = CssSyntax::new("foo bar? baz").compile().unwrap();
-        assert_false!(tree.clone().matches(&[str!("foo")]));
-        assert_true!(tree.clone().matches(&[str!("foo"), str!("baz"),]));
-        assert_true!(tree.clone().matches(&[str!("foo"), str!("bar"), str!("baz"),]));
+        assert_false!(tree.matches(&[str!("foo")]));
+        assert_true!(tree.matches(&[str!("foo"), str!("baz"),]));
+        assert_true!(tree.matches(&[str!("foo"), str!("bar"), str!("baz"),]));
 
-        assert_false!(tree
-            .clone()
-            .matches(&[str!("foo"), str!("bar"), str!("bar"), str!("baz"),]));
+        assert_false!(tree.matches(&[str!("foo"), str!("bar"), str!("bar"), str!("baz"),]));
 
-        assert_false!(tree
-            .clone()
-            .matches(&[str!("foo"), str!("bar"), str!("baz"), str!("baz"),]));
+        assert_false!(tree.matches(&[str!("foo"), str!("bar"), str!("baz"), str!("baz"),]));
     }
 
     #[test]
     fn test_multipliers_zero_or_more() {
         let tree = CssSyntax::new("foo bar* baz").compile().unwrap();
-        assert_false!(tree.clone().matches(&[str!("foo")]));
-        assert_false!(tree.clone().matches(&[str!("foo")]));
-        assert_true!(tree.clone().matches(&[str!("foo"), str!("bar"), str!("baz"),]));
-        assert_true!(tree.clone().matches(&[str!("foo"), str!("baz"),]));
-        assert_true!(tree.clone().matches(&[
+        assert_false!(tree.matches(&[str!("foo")]));
+        assert_false!(tree.matches(&[str!("foo")]));
+        assert_true!(tree.matches(&[str!("foo"), str!("bar"), str!("baz"),]));
+        assert_true!(tree.matches(&[str!("foo"), str!("baz"),]));
+        assert_true!(tree.matches(&[
             str!("foo"),
             str!("bar"),
             str!("bar"),
@@ -1106,7 +1083,7 @@ mod tests {
             str!("bar"),
             str!("baz"),
         ]));
-        assert_false!(tree.clone().matches(&[
+        assert_false!(tree.matches(&[
             str!("foo"),
             str!("bar"),
             str!("bar"),
@@ -1116,21 +1093,21 @@ mod tests {
         ]));
 
         let tree = CssSyntax::new("foo bar*").compile().unwrap();
-        assert_true!(tree.clone().matches(&[str!("foo")]));
-        assert_true!(tree.clone().matches(&[str!("foo")]));
-        assert_true!(tree.clone().matches(&[str!("foo"), str!("bar"),]));
-        assert_true!(tree.clone().matches(&[str!("foo"), str!("bar"), str!("bar"),]));
-        assert_false!(tree.clone().matches(&[str!("bar"), str!("foo"),]));
+        assert_true!(tree.matches(&[str!("foo")]));
+        assert_true!(tree.matches(&[str!("foo")]));
+        assert_true!(tree.matches(&[str!("foo"), str!("bar"),]));
+        assert_true!(tree.matches(&[str!("foo"), str!("bar"), str!("bar"),]));
+        assert_false!(tree.matches(&[str!("bar"), str!("foo"),]));
     }
 
     #[test]
     fn test_multipliers_one_or_more() {
         let tree = CssSyntax::new("foo bar+ baz").compile().unwrap();
-        assert_false!(tree.clone().matches(&[str!("foo")]));
-        assert_false!(tree.clone().matches(&[str!("foo")]));
-        assert_true!(tree.clone().matches(&[str!("foo"), str!("bar"), str!("baz"),]));
-        assert_false!(tree.clone().matches(&[str!("foo"), str!("baz"),]));
-        assert_true!(tree.clone().matches(&[
+        assert_false!(tree.matches(&[str!("foo")]));
+        assert_false!(tree.matches(&[str!("foo")]));
+        assert_true!(tree.matches(&[str!("foo"), str!("bar"), str!("baz"),]));
+        assert_false!(tree.matches(&[str!("foo"), str!("baz"),]));
+        assert_true!(tree.matches(&[
             str!("foo"),
             str!("bar"),
             str!("bar"),
@@ -1138,7 +1115,7 @@ mod tests {
             str!("bar"),
             str!("baz"),
         ]));
-        assert_false!(tree.clone().matches(&[
+        assert_false!(tree.matches(&[
             str!("foo"),
             str!("bar"),
             str!("bar"),
@@ -1148,38 +1125,32 @@ mod tests {
         ]));
 
         let tree = CssSyntax::new("foo bar+").compile().unwrap();
-        assert_false!(tree.clone().matches(&[str!("foo")]));
-        assert_false!(tree.clone().matches(&[str!("bar")]));
-        assert_true!(tree.clone().matches(&[str!("foo"), str!("bar"),]));
-        assert_true!(tree.clone().matches(&[str!("foo"), str!("bar"), str!("bar"),]));
-        assert_false!(tree.clone().matches(&[str!("bar"), str!("foo"),]));
+        assert_false!(tree.matches(&[str!("foo")]));
+        assert_false!(tree.matches(&[str!("bar")]));
+        assert_true!(tree.matches(&[str!("foo"), str!("bar"),]));
+        assert_true!(tree.matches(&[str!("foo"), str!("bar"), str!("bar"),]));
+        assert_false!(tree.matches(&[str!("bar"), str!("foo"),]));
 
         let tree = CssSyntax::new("foo+ bar+").compile().unwrap();
-        assert_false!(tree.clone().matches(&[str!("foo")]));
-        assert_false!(tree.clone().matches(&[str!("bar")]));
-        assert_true!(tree.clone().matches(&[str!("foo"), str!("bar"),]));
-        assert_true!(tree.clone().matches(&[str!("foo"), str!("bar"), str!("bar"),]));
-        assert_true!(tree
-            .clone()
-            .matches(&[str!("foo"), str!("foo"), str!("bar"), str!("bar"),]));
+        assert_false!(tree.matches(&[str!("foo")]));
+        assert_false!(tree.matches(&[str!("bar")]));
+        assert_true!(tree.matches(&[str!("foo"), str!("bar"),]));
+        assert_true!(tree.matches(&[str!("foo"), str!("bar"), str!("bar"),]));
+        assert_true!(tree.matches(&[str!("foo"), str!("foo"), str!("bar"), str!("bar"),]));
 
-        assert_false!(tree.clone().matches(&[str!("bar"), str!("foo"),]));
+        assert_false!(tree.matches(&[str!("bar"), str!("foo"),]));
     }
 
     #[test]
     fn test_multipliers_between() {
         let tree = CssSyntax::new("foo bar{1,3} baz").compile().unwrap();
-        assert_false!(tree.clone().matches(&[str!("foo")]));
-        assert_false!(tree.clone().matches(&[str!("foo")]));
-        assert_true!(tree.clone().matches(&[str!("foo"), str!("bar"), str!("baz"),]));
-        assert_false!(tree.clone().matches(&[str!("foo"), str!("baz"),]));
-        assert_true!(tree
-            .clone()
-            .matches(&[str!("foo"), str!("bar"), str!("bar"), str!("baz"),]));
-        assert_true!(tree
-            .clone()
-            .matches(&[str!("foo"), str!("bar"), str!("bar"), str!("bar"), str!("baz"),]));
-        assert_false!(tree.clone().matches(&[
+        assert_false!(tree.matches(&[str!("foo")]));
+        assert_false!(tree.matches(&[str!("foo")]));
+        assert_true!(tree.matches(&[str!("foo"), str!("bar"), str!("baz"),]));
+        assert_false!(tree.matches(&[str!("foo"), str!("baz"),]));
+        assert_true!(tree.matches(&[str!("foo"), str!("bar"), str!("bar"), str!("baz"),]));
+        assert_true!(tree.matches(&[str!("foo"), str!("bar"), str!("bar"), str!("bar"), str!("baz"),]));
+        assert_false!(tree.matches(&[
             str!("foo"),
             str!("bar"),
             str!("bar"),
@@ -1187,7 +1158,7 @@ mod tests {
             str!("bar"),
             str!("baz"),
         ]));
-        assert_false!(tree.clone().matches(&[
+        assert_false!(tree.matches(&[
             str!("foo"),
             str!("bar"),
             str!("bar"),
@@ -1197,14 +1168,12 @@ mod tests {
         ]));
 
         let tree = CssSyntax::new("foo bar{0,3}").compile().unwrap();
-        assert_true!(tree.clone().matches(&[str!("foo")]));
-        assert_true!(tree.clone().matches(&[str!("foo")]));
-        assert_true!(tree.clone().matches(&[str!("foo"), str!("bar"),]));
-        assert_true!(tree.clone().matches(&[str!("foo"), str!("bar"), str!("bar"),]));
-        assert_false!(tree
-            .clone()
-            .matches(&[str!("foo"), str!("bar"), str!("bar"), str!("bar"), str!("bar"),]));
-        assert_false!(tree.clone().matches(&[str!("bar"), str!("foo"),]));
+        assert_true!(tree.matches(&[str!("foo")]));
+        assert_true!(tree.matches(&[str!("foo")]));
+        assert_true!(tree.matches(&[str!("foo"), str!("bar"),]));
+        assert_true!(tree.matches(&[str!("foo"), str!("bar"), str!("bar"),]));
+        assert_false!(tree.matches(&[str!("foo"), str!("bar"), str!("bar"), str!("bar"), str!("bar"),]));
+        assert_false!(tree.matches(&[str!("bar"), str!("foo"),]));
     }
 
     #[test]
