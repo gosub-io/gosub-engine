@@ -8,6 +8,7 @@ use gosub_shared::types::{Result, Size};
 use crate::VelloBackend;
 use gosub_svg::SVGDocument;
 
+#[allow(dead_code)]
 pub struct VelloSVG;
 
 impl SvgRenderer<VelloBackend> for VelloSVG {
@@ -22,7 +23,7 @@ impl SvgRenderer<VelloBackend> for VelloSVG {
     }
 
     fn parse_internal<C: HasDocument>(tree: C::Document, id: NodeId) -> Result<Self::SvgDocument> {
-        SVGDocument::from_html_doc::<C>(id, tree)
+        SVGDocument::from_html_doc::<C>(id, &tree)
     }
 
     fn render(&mut self, _doc: &SVGDocument) -> Result<ImageBuffer<VelloBackend>> {

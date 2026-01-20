@@ -122,7 +122,7 @@ fn main() -> Result<()> {
         )
         .get_matches();
 
-    let url: String = matches.get_one::<String>("url").expect("url").to_string();
+    let url: String = matches.get_one::<String>("url").expect("url").clone();
 
     // let drawer: TreeDrawer<Tree, TaffyLayouter> = TreeDrawer::new(todo!(), TaffyLayouter, "".to_string().into(), debug);
 
@@ -135,7 +135,7 @@ fn main() -> Result<()> {
     //this will initialize the application
     let p = application.proxy()?;
 
-    thread::spawn(move || {
+    thread::spawn(move || -> ! {
         let mut window = None;
 
         loop {

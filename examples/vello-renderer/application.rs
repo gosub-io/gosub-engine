@@ -78,7 +78,7 @@ impl<C: ModuleConfiguration<ChromeHandle = WinitEventLoopHandle<C>>> Application
 
                 let handles = self.active_state().handles.clone();
 
-                let mut window = match Window::new(event_loop, &mut self.backend, id, handles) {
+                let mut window = match Window::new(event_loop, &mut self.backend, &id, handles) {
                     Ok(window) => window,
                     Err(e) => {
                         error!("Error opening window: {e:?}");
@@ -120,7 +120,7 @@ impl<C: ModuleConfiguration<ChromeHandle = WinitEventLoopHandle<C>>> Application
 
                 handles.chrome.window = window.id();
 
-                if let Err(e) = window.tabs.open(url, self.layouter.clone(), handles) {
+                if let Err(e) = window.tabs.open(&url, self.layouter.clone(), handles) {
                     error!("Error opening tab: {e:?}");
                     return;
                 }
@@ -141,7 +141,7 @@ impl<C: ModuleConfiguration<ChromeHandle = WinitEventLoopHandle<C>>> Application
                 let proxy = self.active_state().proxy.clone();
 
                 for (urls, opts) in self.open_windows.drain(..) {
-                    let mut window = match Window::new(event_loop, &mut self.backend, opts, handles.clone()) {
+                    let mut window = match Window::new(event_loop, &mut self.backend, &opts, handles.clone()) {
                         Ok(window) => window,
                         Err(e) => {
                             error!("Error opening window: {e:?}");
@@ -188,7 +188,7 @@ impl<C: ModuleConfiguration<ChromeHandle = WinitEventLoopHandle<C>>> Application
                     return;
                 };
 
-                let _ = window.draw_scene(scene, id, &mut self.backend);
+                let _ = window.draw_scene(&scene, id, &mut self.backend);
             }
         }
     }
