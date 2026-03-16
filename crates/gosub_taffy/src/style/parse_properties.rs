@@ -270,19 +270,27 @@ pub fn parse_flex_shrink<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> f32 {
     property.as_number().unwrap_or(1.0)
 }
 
-pub fn parse_grid_template_rows<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Vec<TrackSizingFunction> {
+pub fn parse_grid_template_rows<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Vec<GridTemplateComponent<String>> {
     parse_tracking_sizing_function(node, "grid-template-rows")
+        .into_iter()
+        .map(GridTemplateComponent::Single)
+        .collect()
 }
 
-pub fn parse_grid_template_columns<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Vec<TrackSizingFunction> {
+pub fn parse_grid_template_columns<C: HasLayouter>(
+    node: &mut impl LayoutNode<C>,
+) -> Vec<GridTemplateComponent<String>> {
     parse_tracking_sizing_function(node, "grid-template-columns")
+        .into_iter()
+        .map(GridTemplateComponent::Single)
+        .collect()
 }
 
-pub fn parse_grid_auto_rows<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Vec<NonRepeatedTrackSizingFunction> {
+pub fn parse_grid_auto_rows<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Vec<TrackSizingFunction> {
     parse_grid_auto(node, "grid-auto-rows")
 }
 
-pub fn parse_grid_auto_columns<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Vec<NonRepeatedTrackSizingFunction> {
+pub fn parse_grid_auto_columns<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> Vec<TrackSizingFunction> {
     parse_grid_auto(node, "grid-auto-columns")
 }
 

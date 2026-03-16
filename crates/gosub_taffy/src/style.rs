@@ -48,6 +48,7 @@ pub fn get_style_from_node<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> (St
     (
         Style {
             display,
+            item_is_replaced: false,
             overflow,
             scrollbar_width: SCROLLBAR_WIDTH,
             position,
@@ -76,12 +77,16 @@ pub fn get_style_from_node<C: HasLayouter>(node: &mut impl LayoutNode<C>) -> (St
             grid_auto_rows,
             grid_auto_columns,
             grid_auto_flow,
+            grid_template_areas: Vec::new(),
+            grid_template_column_names: Vec::new(),
+            grid_template_row_names: Vec::new(),
             grid_row,
             grid_column,
             // item_is_table: disp == Display::Table,
             item_is_table: false,
             box_sizing,
             text_align,
+            ..Style::default()
         },
         disp,
     )

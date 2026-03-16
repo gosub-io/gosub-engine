@@ -112,6 +112,8 @@ pub struct Cache {
     display: Display,
 }
 
+unsafe impl Send for Cache {}
+
 impl Deref for Cache {
     type Target = TaffyCache;
 
@@ -327,6 +329,8 @@ impl<C: HasLayouter<Layouter = TaffyLayouter>> LayoutPartialTree for LayoutDocum
         = &'a Style
     where
         Self: 'a;
+    type CustomIdent = String;
+
     fn get_core_container_style(&self, node_id: TaffyId) -> Self::CoreContainerStyle<'_> {
         self.get_taffy_style_no_update(<C::LayoutTree as LayoutTree<C>>::NodeId::from(node_id.into()))
     }
