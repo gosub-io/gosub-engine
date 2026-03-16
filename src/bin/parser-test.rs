@@ -8,6 +8,7 @@ use gosub_html5::testing::tree_construction::result::ResultStatus;
 use gosub_html5::testing::tree_construction::Harness;
 use gosub_html5::testing::tree_construction::Test;
 use gosub_interface::config::{HasCssSystem, HasDocument, HasHtmlParser};
+use gosub_stream::byte_stream::ByteStream;
 
 /// Holds the results from all tests that are executed
 #[derive(Default)]
@@ -39,6 +40,7 @@ impl HasDocument for Config {
 
 impl HasHtmlParser for Config {
     type HtmlParser = Html5Parser<'static, Self>;
+    type HtmlStream = ByteStream;
 }
 
 fn main() {

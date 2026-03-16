@@ -1,6 +1,6 @@
 use core::fmt::Display;
 
-use gosub_shared::types::Result;
+use gosub_interface::types::Result;
 
 use crate::js::WebRuntime;
 

@@ -1,7 +1,7 @@
 use std::ops::DerefMut;
 use v8::{Array, Global, Local, Value};
 
-use gosub_shared::types::Result;
+use gosub_interface::types::Result;
 
 use crate::{FromContext, IntoContext, V8Array, V8Context, V8Engine, V8Object};
 use gosub_webexecutor::js::{

@@ -5,9 +5,9 @@ use gosub_interface::config::HasDocument;
 
 use gosub_interface::render_backend::{Image, ImageBuffer, RenderBackend};
 use gosub_interface::svg::SvgRenderer;
-use gosub_shared::geo::FP;
-use gosub_shared::node::NodeId;
-use gosub_shared::types::{Result, Size};
+use gosub_interface::geo::FP;
+use gosub_interface::node::NodeId;
+use gosub_interface::types::{Result, Size};
 
 use crate::SVGDocument;
 

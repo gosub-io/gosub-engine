@@ -158,7 +158,7 @@ mod tests {
     use gosub_css3::system::Css3System;
     use gosub_interface::config::{HasCssSystem, HasDocument};
     use gosub_interface::document::DocumentBuilder;
-    use gosub_shared::byte_stream::{ByteStream, Encoding, Location};
+    use gosub_stream::byte_stream::{ByteStream, Encoding, Location};
 
     #[derive(Clone, Debug, PartialEq)]
     struct Config;

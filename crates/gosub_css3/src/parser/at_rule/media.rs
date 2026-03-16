@@ -2,7 +2,7 @@ use crate::node::{FeatureKind, Node, NodeType};
 use crate::tokenizer::TokenType;
 use crate::Css3;
 use cow_utils::CowUtils;
-use gosub_shared::errors::{CssError, CssResult};
+use gosub_interface::errors::{CssError, CssResult};
 
 impl Css3<'_> {
     fn parse_media_read_term(&mut self) -> CssResult<Node> {

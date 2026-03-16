@@ -6,7 +6,7 @@ use gosub_html5::parser::Html5Parser;
 use gosub_interface::config::{HasCssSystem, HasDocument, HasHtmlParser};
 use gosub_interface::document::DocumentBuilder;
 
-use gosub_shared::byte_stream::{ByteStream, Encoding};
+use gosub_stream::byte_stream::{ByteStream, Encoding};
 #[derive(Clone, Debug, PartialEq)]
 struct Config;
 
@@ -21,6 +21,7 @@ impl HasDocument for Config {
 
 impl HasHtmlParser for Config {
     type HtmlParser = Html5Parser<'static, Self>;
+    type HtmlStream = ByteStream;
 }
 
 fn main() {

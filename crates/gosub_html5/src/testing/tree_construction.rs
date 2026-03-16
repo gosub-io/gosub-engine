@@ -9,9 +9,9 @@ use gosub_interface::config::{HasDocument, HasHtmlParser};
 use gosub_interface::document::{Document, DocumentBuilder};
 
 use gosub_interface::html5::{Html5Parser, ParserOptions};
-use gosub_shared::byte_stream::{ByteStream, Config, Encoding, Location};
-use gosub_shared::node::NodeId;
-use gosub_shared::types::{ParseError, Result};
+use gosub_stream::byte_stream::{ByteStream, Config, Encoding, Location};
+use gosub_interface::node::NodeId;
+use gosub_interface::types::{ParseError, Result};
 use parser::{ScriptMode, TestSpec};
 use result::TestResult;
 use result::{ResultStatus, TreeLineResult};
@@ -80,7 +80,7 @@ impl Harness {
     }
 
     /// Runs a single test and returns the test result of that run
-    pub fn run_test<C: HasHtmlParser>(&mut self, test: Test, scripting_enabled: bool) -> Result<TestResult> {
+    pub fn run_test<C: HasHtmlParser<HtmlStream = ByteStream>>(&mut self, test: Test, scripting_enabled: bool) -> Result<TestResult> {
         self.test = test;
         self.next_document_line = 0;
 
@@ -91,7 +91,7 @@ impl Harness {
     }
 
     /// Run the html5 parser and return the document tree and errors
-    fn do_parse<C: HasHtmlParser>(&mut self, scripting_enabled: bool) -> ParseResult<C::Document> {
+    fn do_parse<C: HasHtmlParser<HtmlStream = ByteStream>>(&mut self, scripting_enabled: bool) -> ParseResult<C::Document> {
         let options = <<C::HtmlParser as Html5Parser<C>>::Options as ParserOptions>::new(scripting_enabled);
         let mut stream = ByteStream::new(
             Encoding::UTF8,
@@ -116,7 +116,7 @@ impl Harness {
         Ok((document, parse_errors))
     }
 
-    fn parse_fragment<C: HasHtmlParser>(
+    fn parse_fragment<C: HasHtmlParser<HtmlStream = ByteStream>>(
         &mut self,
         fragment: String,
         mut stream: ByteStream,

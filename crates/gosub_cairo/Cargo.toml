@@ -7,7 +7,6 @@ description = "Cairo render backend for Gosub"
 license = "MIT"
 
 [dependencies]
-gosub_shared = { version = "0.1.1", registry = "gosub", path = "../gosub_shared" }
 gosub_interface = { version = "0.1.2", registry = "gosub", path = "../gosub_interface", features = [] }
 gosub_svg = { version = "0.1.1", registry = "gosub", path = "../gosub_svg", features = ["resvg"] }
 gosub_fontmanager = { version = "0.1.0", path = "../gosub_fontmanager", registry = "gosub" }

@@ -1,7 +1,7 @@
 use std::fs::File;
 
 use criterion::{criterion_group, criterion_main, Criterion};
-use gosub_shared::byte_stream::{ByteStream, Encoding, Stream};
+use gosub_stream::byte_stream::{ByteStream, Encoding, Stream};
 
 fn utf8_testfile(c: &mut Criterion) {
     let mut group = c.benchmark_group("Bytestream test");

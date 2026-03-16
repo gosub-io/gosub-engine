@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-gosub_shared = { path = "../gosub_shared", registry = "gosub" }
 gosub_interface = { path = "../gosub_interface", registry = "gosub" }
 gosub_web_platform = { path = "../gosub_web_platform", registry = "gosub" }
 gosub_net = { path = "../gosub_net" }

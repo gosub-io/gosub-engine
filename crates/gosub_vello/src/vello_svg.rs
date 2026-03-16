@@ -2,8 +2,8 @@ use gosub_interface::config::HasDocument;
 
 use gosub_interface::render_backend::ImageBuffer;
 use gosub_interface::svg::SvgRenderer;
-use gosub_shared::node::NodeId;
-use gosub_shared::types::{Result, Size};
+use gosub_interface::node::NodeId;
+use gosub_interface::types::{Result, Size};
 
 use crate::VelloBackend;
 use gosub_svg::SVGDocument;
@@ -36,7 +36,7 @@ impl SvgRenderer<VelloBackend> for VelloSVG {
         &mut self,
         _doc: &Self::SvgDocument,
         _size: Size<u32>,
-    ) -> gosub_shared::types::Result<ImageBuffer<VelloBackend>> {
+    ) -> gosub_interface::types::Result<ImageBuffer<VelloBackend>> {
         todo!()
     }
 }

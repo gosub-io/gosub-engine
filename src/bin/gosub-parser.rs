@@ -6,10 +6,10 @@ use gosub_html5::document::fragment::DocumentFragmentImpl;
 use gosub_html5::parser::Html5Parser;
 use gosub_interface::config::{HasCssSystem, HasDocument, HasHtmlParser};
 use gosub_interface::document::DocumentBuilder;
-use gosub_shared::byte_stream::{ByteStream, Encoding};
-use gosub_shared::timing::Scale;
-use gosub_shared::timing_display;
-use gosub_shared::types::Result;
+use gosub_stream::byte_stream::{ByteStream, Encoding};
+use gosub_interface::timing::Scale;
+use gosub_interface::timing_display;
+use gosub_interface::types::Result;
 use std::fs;
 use std::process::exit;
 use std::str::FromStr;
@@ -33,6 +33,7 @@ impl HasDocument for Config {
 
 impl HasHtmlParser for Config {
     type HtmlParser = Html5Parser<'static, Self>;
+    type HtmlStream = ByteStream;
 }
 
 fn main() -> Result<()> {

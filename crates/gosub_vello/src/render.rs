@@ -7,7 +7,7 @@ use vello::wgpu::{
 use vello::{AaSupport, Renderer as VelloRenderer, RendererOptions as VelloRendererOptions};
 
 use gosub_interface::render_backend::WindowHandle;
-use gosub_shared::types::Result;
+use gosub_interface::types::Result;
 
 pub mod window;
 

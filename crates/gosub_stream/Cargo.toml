@@ -1,0 +1,13 @@
+[package]
+name = "gosub_stream"
+version = "0.1.0"
+edition = "2021"
+authors = ["Gosub Community <info@gosub.io>"]
+description = "Gosub byte stream and parser configuration"
+license = "MIT"
+
+[dependencies]
+gosub_interface = { version = "0.1.2", path = "../gosub_interface" }
+chardetng = "0.1.17"
+encoding_rs = "0.8.35"
+log = "0.4.27"

@@ -1,8 +1,8 @@
+use crate::async_executor::WasmNotSend;
 use crate::config::{HasDocument, HasRenderTree};
-use gosub_shared::async_executor::WasmNotSend;
-use gosub_shared::config::ParserConfig;
-use gosub_shared::errors::CssResult;
-use gosub_shared::node::NodeId;
+use crate::errors::CssResult;
+use crate::node::NodeId;
+use crate::parser_config::ParserConfig;
 use std::fmt::{Debug, Display};
 
 /// Defines the origin of the stylesheet (or declaration)

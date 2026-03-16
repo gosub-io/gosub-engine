@@ -1,6 +1,6 @@
 //! Error results that can be returned from the engine
 
-use crate::byte_stream::Location;
+use crate::node::Location;
 use std::ops::Add;
 use thiserror::Error;
 

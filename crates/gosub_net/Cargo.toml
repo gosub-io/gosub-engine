@@ -7,8 +7,8 @@ license = "MIT"
 description = "Network utitilies"
 
 [dependencies]
-gosub_shared = { version = "0.1.1", registry = "gosub", path = "../gosub_shared", features = [] }
 gosub_config = { version = "0.1.1", registry = "gosub", path = "../gosub_config", features = [] }
+gosub_interface = { version = "0.1.2", path = "../gosub_interface" }
 derive_more = { version = "2", features = ["from", "display"] }
 thiserror = "2.0.18"
 anyhow = "1.0.102"

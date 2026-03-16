@@ -10,9 +10,9 @@ use {
     gosub_net::http::headers::Headers,
     gosub_net::http::request::Request,
     gosub_net::http::response::Response,
-    gosub_shared::byte_stream::{ByteStream, Encoding},
-    gosub_shared::types::{ParseError, Result},
-    gosub_shared::{timing_start, timing_stop},
+    gosub_stream::byte_stream::{ByteStream, Encoding},
+    gosub_interface::types::{ParseError, Result},
+    gosub_interface::{timing_start, timing_stop},
     url::Url,
 };
 
@@ -63,7 +63,7 @@ impl<C: HasDocument> Debug for FetchResponse<C> {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[allow(dead_code)]
-fn fetch_url<C: HasHtmlParser>(
+fn fetch_url<C: HasHtmlParser<HtmlStream = ByteStream>>(
     method: &str,
     url: &str,
     headers: Headers,
@@ -175,6 +175,7 @@ mod tests {
 
     impl HasHtmlParser for Config {
         type HtmlParser = Html5Parser<'static, Self>;
+    type HtmlStream = ByteStream;
     }
 
     #[test]

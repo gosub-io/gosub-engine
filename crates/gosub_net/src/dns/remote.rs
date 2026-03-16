@@ -1,6 +1,6 @@
+use anyhow::Result;
 use crate::dns::{DnsEntry, DnsResolver, ResolveType};
 use crate::errors::Error;
-use gosub_shared::types::Result;
 use hickory_resolver::config::{LookupIpStrategy, NameServerConfig, ResolveHosts, ResolverConfig, ResolverOpts};
 use hickory_resolver::name_server::TokioConnectionProvider;
 use hickory_resolver::proto::xfer::Protocol;

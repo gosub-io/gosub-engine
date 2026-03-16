@@ -1,7 +1,7 @@
 use crate::node::{Node, NodeType};
 use crate::tokenizer::{Number, TokenType};
 use crate::Css3;
-use gosub_shared::errors::{CssError, CssResult};
+use gosub_interface::errors::{CssError, CssResult};
 
 impl Css3<'_> {
     fn do_dimension_block(&mut self, value: Number, unit: String) -> CssResult<(String, String)> {
@@ -233,8 +233,8 @@ impl Css3<'_> {
 mod test {
     use super::*;
     use gosub_interface::css3::CssOrigin;
-    use gosub_shared::byte_stream::{ByteStream, Encoding};
-    use gosub_shared::config::ParserConfig;
+    use gosub_stream::byte_stream::{ByteStream, Encoding};
+    use gosub_interface::parser_config::ParserConfig;
 
     macro_rules! test {
         ($func:ident, $input:expr, $expected:expr) => {

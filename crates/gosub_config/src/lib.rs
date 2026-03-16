@@ -4,7 +4,8 @@ pub mod storage;
 
 use crate::settings::{Setting, SettingInfo};
 use crate::storage::MemoryStorageAdapter;
-use gosub_shared::types::Result;
+
+use anyhow::Result;
 use lazy_static::lazy_static;
 use log::warn;
 use serde_derive::Deserialize;

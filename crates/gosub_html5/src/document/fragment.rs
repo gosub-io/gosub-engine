@@ -4,7 +4,7 @@ use core::fmt::Debug;
 use crate::node::arena::NodeArena;
 use gosub_interface::config::HasDocument;
 use gosub_interface::document::DocumentFragment;
-use gosub_shared::node::NodeId;
+use gosub_interface::node::NodeId;
 
 /// Defines a document fragment which can be attached to for instance a <template> element
 #[derive(PartialEq)]

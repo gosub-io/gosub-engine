@@ -1,4 +1,4 @@
-use crate::byte_stream::Location;
+use crate::node::Location;
 use std::fmt::{Display, Formatter};
 
 /// Parser error that defines an error (message) on the given position

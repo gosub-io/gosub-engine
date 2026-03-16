@@ -1,6 +1,6 @@
 use v8::{CreateParams, Global, HandleScope, Isolate, Local, OwnedIsolate, StackFrame, StackTrace, TryCatch};
 
-use gosub_shared::types::Result;
+use gosub_interface::types::Result;
 use gosub_webexecutor::js::{JSError, WebCompiled, WebContext, WebRuntime};
 use gosub_webexecutor::Error;
 

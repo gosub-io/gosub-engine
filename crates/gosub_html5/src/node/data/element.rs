@@ -6,7 +6,7 @@ use core::fmt::{Debug, Formatter};
 use gosub_interface::config::HasDocument;
 
 use gosub_interface::node::{ClassList, ElementDataType};
-use gosub_shared::node::NodeId;
+use gosub_interface::node::NodeId;
 use std::collections::hash_map::IntoIter;
 use std::collections::HashMap;
 use std::fmt;
@@ -165,7 +165,7 @@ pub struct ElementData<C: HasDocument> {
     // Only used for <script> elements
     pub force_async: bool,
     // Template contents (when it's a template element)
-    pub template_contents: Option<C::DocumentFragment>,
+    pub template_contents: Option<Box<C::DocumentFragment>>,
 }
 
 impl<C: HasDocument> Debug for ElementData<C> {
@@ -318,10 +318,7 @@ impl<C: HasDocument> ElementDataType<C> for ElementData<C> {
     }
 
     fn template_contents(&self) -> Option<&C::DocumentFragment> {
-        match &self.template_contents {
-            Some(fragment) => Some(fragment),
-            None => None,
-        }
+        self.template_contents.as_deref()
     }
 
     /// Returns true if the given node is a "formatting" node
@@ -330,7 +327,7 @@ impl<C: HasDocument> ElementDataType<C> for ElementData<C> {
     }
 
     fn set_template_contents(&mut self, template_contents: C::DocumentFragment) {
-        self.template_contents = Some(template_contents);
+        self.template_contents = Some(Box::new(template_contents));
     }
 }
 

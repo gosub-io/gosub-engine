@@ -2,8 +2,8 @@ use crate::node::{Node, NodeType};
 use crate::tokenizer::TokenType;
 use crate::Css3;
 use cow_utils::CowUtils;
-use gosub_shared::errors::CssError;
-use gosub_shared::errors::CssResult;
+use gosub_interface::errors::CssError;
+use gosub_interface::errors::CssResult;
 
 impl Css3<'_> {
     fn parse_attribute_operator(&mut self) -> CssResult<Node> {

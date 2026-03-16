@@ -3,7 +3,7 @@ use gosub_instance::{DebugEvent, InstanceMessage};
 use gosub_interface::config::ModuleConfiguration;
 use gosub_interface::input::{InputEvent, MouseButton};
 use gosub_interface::render_backend::{Point, RenderBackend, SizeU32, FP};
-use gosub_shared::types::Result;
+use gosub_interface::types::Result;
 use winit::event::{ElementState, MouseScrollDelta, WindowEvent};
 use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::{KeyCode, ModifiersState, PhysicalKey};

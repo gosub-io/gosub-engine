@@ -36,7 +36,7 @@ harness = false
 
 [dependencies]
 gosub_interface = { version = "0.1.1", path = "./crates/gosub_interface", features = [], registry = "gosub" }
-gosub_shared = { version = "0.1.1", path = "./crates/gosub_shared", features = [], registry = "gosub" }
+gosub_stream = { version = "0.1.0", path = "./crates/gosub_stream" }
 gosub_config = { version = "0.1.1", path = "./crates/gosub_config", features = [], registry = "gosub" }
 gosub_html5 = { version = "0.1.1", path = "./crates/gosub_html5", features = [], registry = "gosub" }
 gosub_css3 = { version = "0.1.1", path = "./crates/gosub_css3", features = [], registry = "gosub" }

@@ -1,8 +1,10 @@
 use std::cell::RefCell;
 use std::char::REPLACEMENT_CHARACTER;
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::{Debug, Formatter};
 use std::io::Read;
 use std::{fmt, io};
+
+pub use gosub_interface::node::Location;
 
 pub const CHAR_LF: char = '\u{000A}';
 pub const CHAR_CR: char = '\u{000D}';
@@ -530,45 +532,7 @@ impl ByteStream {
     }
 }
 
-/// Location holds the start position of the given element in the data source
-#[derive(Clone, PartialEq, Copy)]
-pub struct Location {
-    /// Line number, starting with 1
-    pub line: usize,
-    /// Column number, starting with 1
-    pub column: usize,
-    /// Byte offset, starting with 0
-    pub offset: usize,
-}
-
-impl Default for Location {
-    /// Default to line 1, column 1
-    fn default() -> Self {
-        Self::new(1, 1, 0)
-    }
-}
-
-impl Location {
-    /// Create a new Location
-    #[must_use]
-    pub fn new(line: usize, column: usize, offset: usize) -> Self {
-        Self { line, column, offset }
-    }
-}
-
-impl Display for Location {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "({}:{})", self.line, self.column)
-    }
-}
-
-impl Debug for Location {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "({}:{})", self.line, self.column)
-    }
-}
-
-/// `LocationHandler` is a wrapper that will deal with line/column locations in the stream
+/// LocationHandler is a wrapper that will deal with line/column locations in the stream
 pub struct LocationHandler {
     /// The start offset of the location. Normally this is 0:0, but can be different in case of inline streams
     pub start_location: Location,

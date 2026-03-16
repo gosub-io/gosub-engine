@@ -1,4 +1,4 @@
-use crate::byte_stream::Location;
+use crate::node::Location;
 
 /// Context defines how the data needs to be parsed
 #[derive(Debug, Clone, Copy, PartialEq)]

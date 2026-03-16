@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use crate::V8Engine;
-use gosub_shared::types::Result;
+use gosub_interface::types::Result;
 use gosub_webexecutor::js::{
     Args, IntoRustValue, IntoWebValue, JSInterop, VariadicArgs, VariadicArgsInternal, WebContext, WebFunction,
     WebFunctionCallBack, WebFunctionCallBackVariadic, WebFunctionVariadic, WebGetterCallback, WebObject, WebRuntime,

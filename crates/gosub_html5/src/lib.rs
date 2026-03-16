@@ -7,7 +7,7 @@ use crate::parser::Html5Parser;
 use gosub_interface::config::HasDocument;
 use gosub_interface::document::DocumentBuilder;
 
-use gosub_shared::byte_stream::{ByteStream, Encoding};
+use gosub_stream::byte_stream::{ByteStream, Encoding};
 
 pub mod document;
 pub mod dom;

@@ -4,7 +4,7 @@ use gosub_html5::parser::Html5Parser;
 use gosub_interface::document::DocumentBuilder;
 
 use gosub_rendering::render_tree::{generate_render_tree, RenderTree};
-use gosub_shared::byte_stream::{ByteStream, Encoding};
+use gosub_stream::byte_stream::{ByteStream, Encoding};
 use gosub_taffy::TaffyLayouter;
 use url::Url;
 use wasm_bindgen::prelude::wasm_bindgen;

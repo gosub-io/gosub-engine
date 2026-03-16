@@ -1,6 +1,7 @@
 use crate::settings::Setting;
 use crate::StorageAdapter;
-use gosub_shared::types::Result;
+
+use anyhow::Result;
 use log::warn;
 use rusqlite::{named_params, Connection};
 use std::collections::HashMap;

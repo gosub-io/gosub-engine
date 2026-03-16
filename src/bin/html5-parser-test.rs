@@ -6,7 +6,8 @@ use gosub_html5::parser::Html5Parser;
 use gosub_html5::testing::tree_construction::fixture::{fixture_root_path, read_fixture_from_path};
 use gosub_html5::testing::tree_construction::Harness;
 use gosub_interface::config::{HasCssSystem, HasDocument, HasHtmlParser};
-use gosub_shared::types::Result;
+use gosub_stream::byte_stream::ByteStream;
+use gosub_interface::types::Result;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
@@ -25,6 +26,7 @@ impl HasDocument for Config {
 
 impl HasHtmlParser for Config {
     type HtmlParser = Html5Parser<'static, Self>;
+    type HtmlStream = ByteStream;
 }
 fn main() -> Result<()> {
     let mut files = get_files_from_path(fixture_root_path());

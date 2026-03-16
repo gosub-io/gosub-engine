@@ -10,7 +10,7 @@ use gosub_interface::config::{HasRenderBackend, ModuleConfiguration};
 use gosub_interface::instance::{Handles, InstanceId};
 use gosub_interface::render_backend::{NodeDesc, RenderBackend, SizeU32};
 use gosub_interface::request::RequestServerHandle;
-use gosub_shared::types::Result;
+use gosub_interface::types::Result;
 use log::{error, info};
 use url::Url;
 use winit::application::ApplicationHandler;

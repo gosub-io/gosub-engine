@@ -21,11 +21,11 @@ use gosub_interface::document::{Document, DocumentFragment, DocumentType};
 use gosub_interface::html5::ParserOptions;
 use gosub_interface::node::TextDataType;
 use gosub_interface::node::{ElementDataType, Node, QuirksMode};
-use gosub_shared::byte_stream::{ByteStream, Location};
-use gosub_shared::config::{Context, ParserConfig};
-use gosub_shared::node::NodeId;
-use gosub_shared::types::{ParseError, Result};
-use gosub_shared::{timing_start, timing_stop};
+use gosub_stream::byte_stream::{ByteStream, Location};
+use gosub_interface::parser_config::{Context, ParserConfig};
+use gosub_interface::node::NodeId;
+use gosub_interface::types::{ParseError, Result};
+use gosub_interface::{timing_start, timing_stop};
 use log::warn;
 use url::Url;
 
@@ -217,6 +217,7 @@ pub struct Html5Parser<'tokens, C: HasDocument> {
 
 impl<C: HasDocument> gosub_interface::html5::Html5Parser<C> for Html5Parser<'_, C> {
     type Options = Html5ParserOptions;
+    type Stream = ByteStream;
 
     fn parse(stream: &mut ByteStream, doc: &mut C::Document, opts: Option<Self::Options>) -> Result<Vec<ParseError>> {
         Self::parse_document(stream, doc, opts)
@@ -4259,7 +4260,7 @@ mod test {
     use gosub_css3::system::Css3System;
     use gosub_interface::config::HasCssSystem;
     use gosub_interface::node::ClassList;
-    use gosub_shared::byte_stream::Encoding;
+    use gosub_stream::byte_stream::Encoding;
 
     #[derive(Clone, Debug, PartialEq)]
     struct Config;

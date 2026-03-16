@@ -4,7 +4,7 @@ use gosub_html5::document::document_impl::DocumentImpl;
 use gosub_html5::parser::Html5Parser;
 use gosub_renderer::render_tree::TreeDrawer;
 use gosub_rendering::render_tree::RenderTree;
-use gosub_shared::types::Result;
+use gosub_interface::types::Result;
 use gosub_taffy::TaffyLayouter;
 use gosub_vello::VelloBackend;
 use js_sys::Promise;

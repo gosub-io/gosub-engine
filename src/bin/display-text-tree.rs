@@ -1,8 +1,8 @@
 use gosub_css3::system::Css3System;
 use gosub_html5::document::builder::DocumentBuilderImpl;
 use gosub_html5::parser::Html5Parser;
-use gosub_shared::byte_stream::{ByteStream, Encoding};
-use gosub_shared::types::Result;
+use gosub_stream::byte_stream::{ByteStream, Encoding};
+use gosub_interface::types::Result;
 use std::process::exit;
 
 use gosub_html5::document::document_impl::DocumentImpl;
@@ -11,7 +11,7 @@ use gosub_interface::config::{HasCssSystem, HasDocument, HasHtmlParser};
 use gosub_interface::document::{Document, DocumentBuilder};
 
 use gosub_interface::node::{Node, TextDataType};
-use gosub_shared::node::NodeId;
+use gosub_interface::node::NodeId;
 
 #[derive(Clone, Debug, PartialEq)]
 struct Config;
@@ -27,6 +27,7 @@ impl HasDocument for Config {
 
 impl HasHtmlParser for Config {
     type HtmlParser = Html5Parser<'static, Self>;
+    type HtmlStream = ByteStream;
 }
 
 fn main() -> Result<()> {

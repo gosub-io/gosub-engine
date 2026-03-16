@@ -1,7 +1,7 @@
 use gosub_instance::{DebugEvent, EngineInstance, InstanceHandle, InstanceMessage};
 use gosub_interface::config::ModuleConfiguration;
 use gosub_interface::instance::{Handles, InstanceId};
-use gosub_shared::types::Result;
+use gosub_interface::types::Result;
 use slotmap::{DefaultKey, Key, KeyData, SlotMap};
 use url::Url;
 

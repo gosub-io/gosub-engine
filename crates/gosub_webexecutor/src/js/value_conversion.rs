@@ -1,6 +1,6 @@
 use paste;
 
-use gosub_shared::types::Result;
+use gosub_interface::types::Result;
 
 use crate::js::{JSError, WebArray, WebRuntime, WebValue};
 

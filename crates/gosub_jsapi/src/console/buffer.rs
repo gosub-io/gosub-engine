@@ -1,4 +1,4 @@
-use gosub_shared::types::Result;
+use gosub_interface::types::Result;
 use std::io::Write;
 
 /// A buffer that can be written to and then converted to a string
