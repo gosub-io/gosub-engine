@@ -5,11 +5,10 @@ use gosub_shared::ROBOTO_FONT;
 use skrifa;
 use skrifa::{FontRef, MetadataProvider};
 use std::sync::{Arc, LazyLock};
-use vello::peniko::{Blob, BrushRef, Fill, Font, Style, StyleRef};
+use vello::peniko::{Blob, BrushRef, Fill, FontData, Style, StyleRef};
 use vello_encoding::Glyph;
-use vello_encoding::NormalizedCoord as VelloNormalizedCoord;
 
-static FONT: LazyLock<Font> = LazyLock::new(|| Font::new(Blob::new(Arc::new(ROBOTO_FONT)), 0));
+static FONT: LazyLock<FontData> = LazyLock::new(|| FontData::new(Blob::new(Arc::new(ROBOTO_FONT)), 0));
 
 pub fn render_text_simple(scene: &mut Scene, text: &str, point: Point<f32>, font_size: f32) {
     render_text(
@@ -28,7 +27,7 @@ pub fn render_text<'a>(
     text: &str,
     point: Point<f32>,
     font_size: f32,
-    font: &Font,
+    font: &FontData,
     brush: &Brush,
     style: impl Into<StyleRef<'a>>,
 ) {
@@ -52,7 +51,7 @@ pub fn render_text_var<'a>(
     scene: &mut Scene,
     text: &str,
     font_size: f32,
-    font: &Font,
+    font: &FontData,
     brush: &Brush,
     transform: Transform,
     glyph_transform: Transform,
@@ -70,11 +69,8 @@ pub fn render_text_var<'a>(
 
     let fs = skrifa::instance::Size::new(font_size);
 
-    let vello_coords: Vec<VelloNormalizedCoord> = var_loc
-        .coords()
-        .iter()
-        .map(|&x| VelloNormalizedCoord::from(x.to_bits()))
-        .collect::<Vec<_>>();
+    let vello_coords: Vec<vello_encoding::NormalizedCoord> =
+        var_loc.coords().iter().map(|&x| x.to_bits()).collect::<Vec<_>>();
 
     let metrics = font_ref.metrics(fs, &var_loc);
     let line_height = metrics.ascent - metrics.descent + metrics.leading;
@@ -111,7 +107,7 @@ pub fn render_text_var<'a>(
         );
 }
 
-fn to_font_ref(font: &Font) -> Option<FontRef<'_>> {
+fn to_font_ref(font: &FontData) -> Option<FontRef<'_>> {
     use skrifa::raw::FileRef;
     let file_ref = FileRef::new(font.data.as_ref()).ok()?;
     match file_ref {

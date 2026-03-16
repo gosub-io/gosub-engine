@@ -1,5 +1,4 @@
 use gosub_interface::font::FontStyle;
-use std::num::NonZeroUsize;
 use std::sync::Arc;
 use vello::kurbo::{Affine, Circle, Ellipse, Line, RoundedRect, Stroke};
 use vello::peniko::color;
@@ -65,10 +64,10 @@ impl ApplicationHandler for App<'_> {
         let renderer = Renderer::new(
             &dev_handle.device,
             RendererOptions {
-                surface_format: Some(surface.format),
                 use_cpu: false,
                 antialiasing_support: AA_CONFIGS.iter().copied().collect(),
-                num_init_threads: NonZeroUsize::new(0),
+                num_init_threads: None,
+                pipeline_cache: None,
             },
         );
 
@@ -162,13 +161,25 @@ impl ApplicationHandler for App<'_> {
                 let line_stroke_color = color::palette::css::FIREBRICK;
                 scene.stroke(&stroke, Affine::IDENTITY, line_stroke_color, None, &line);
 
-                let _ = self.renderer.as_mut().unwrap().render_to_surface(
+                let surface_view = surface_texture
+                    .texture
+                    .create_view(&wgpu::TextureViewDescriptor::default());
+
+                let _ = self.renderer.as_mut().unwrap().render_to_texture(
                     device,
                     queue,
                     &scene,
-                    &surface_texture,
+                    &surface.target_view,
                     &render_params,
                 );
+
+                let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("vello-test-blit"),
+                });
+                surface
+                    .blitter
+                    .copy(device, &mut encoder, &surface.target_view, &surface_view);
+                queue.submit([encoder.finish()]);
 
                 surface_texture.present();
             }
