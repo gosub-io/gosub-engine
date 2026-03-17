@@ -51,28 +51,28 @@ gosub_instance = { version = "0.1.0", path = "./crates/gosub_instance", features
 gosub_fontmanager = { version = "0.1.0", path = "./crates/gosub_fontmanager", registry = "gosub" }
 # Dependencies are needed for gosub_engine itself, and some of the binaries in src/bin.
 cookie = { version = "0.18.1", features = ["secure", "private"] }
-url = "2.5.4"
-clap = { version = "4.5.37", features = ["derive"] }
-anyhow = "1.0.98"
-derive_more = "2.0.1"
-simple_logger = "5.0.0"
-log = "0.4.27"
+url = "2.5.8"
+clap = { version = "4.6.0", features = ["derive"] }
+anyhow = "1.0.102"
+derive_more = "2.1.1"
+simple_logger = "5.2.0"
+log = "0.4.29"
 walkdir = "2.5.0"
 
 # Dependencies for testing and development. Also used for some of the examples (like the gtk/vello renderer).
 [dev-dependencies]
-criterion = { version = "0.7", features = ["html_reports"] }
+criterion = { version = "0.8.2", features = ["html_reports"] }
 test-case = "3.3.1"
 gtk4 = "0.8.0"
 winit = "0.30.10"
 cookie = { version = "0.18.1", features = ["secure", "private"] }
-url = "2.5.4"
-clap = { version = "4.5.37", features = ["derive"] }
-simple_logger = "5.0.0"
-log = "0.4.27"
-anyhow = "1.0.98"
-image = "0.25.6"
-slotmap = "1.0.7"
+url = "2.5.8"
+clap = { version = "4.6.0", features = ["derive"] }
+simple_logger = "5.2.0"
+log = "0.4.29"
+anyhow = "1.0.102"
+image = "0.25.10"
+slotmap = "1.1.1"
 
 [features]
 # Enables extended debugging information during parsing.
@@ -80,19 +80,19 @@ debug_parser = []
 debug_parser_verbose = []
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-web-sys = "0.3.72"
-js-sys = "0.3.70"
+js-sys = "0.3.91"
+web-sys = "0.3.91"
 console_log = "1.0.0"
 console_error_panic_hook = "0.1.7"
-wasm-bindgen = "0.2.93"
-wasm-bindgen-futures = "0.4.47"
-getrandom = { version = "0.2.15", features = ["js"] }
+wasm-bindgen-futures = "0.4.64"
+wasm-bindgen = "0.2.114"
+getrandom = "0.4.2"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 gosub_v8 = { version = "0.1.1", path = "./crates/gosub_v8", features = [], registry = "gosub" }
 gosub_webexecutor = { version = "0.1.1", path = "./crates/gosub_webexecutor", features = [], registry = "gosub" }
 ureq = "3.0.11"
-futures = "0.3.31"
+futures = "0.3.32"
 
 [profile.release]
 lto = "fat"

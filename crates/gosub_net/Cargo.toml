@@ -10,12 +10,12 @@ description = "Network utitilies"
 gosub_shared = { version = "0.1.1", registry = "gosub", path = "../gosub_shared", features = [] }
 gosub_config = { version = "0.1.1", registry = "gosub", path = "../gosub_config", features = [] }
 derive_more = { version = "2", features = ["from", "display"] }
-thiserror = "2.0.11"
-anyhow = "1.0.98"
-log = "0.4.27"
-domain-lookup-tree = "0.1"
+thiserror = "2.0.18"
+anyhow = "1.0.102"
+log = "0.4.29"
+domain-lookup-tree = "0.1.1"
 cookie = { version = "0.18.1", features = ["secure", "private"] }
-url = "2.5.4"
+url = "2.5.8"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 hickory-resolver = "0.24.4"
@@ -23,6 +23,6 @@ ureq = "3.0.11"
 
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-web-sys = { version = "0.3.72", features = ["Headers", "Request", "RequestInit", "RequestMode", "Response", "Window"] }
-js-sys = "0.3.70"
-wasm-bindgen-futures = "0.4.47"
+wasm-bindgen-futures = "0.4.64"
+js-sys = "0.3.91"
+web-sys = { version = "0.3.91", features = ["Headers", "Request", "RequestInit", "RequestMode", "Response", "Window"] }

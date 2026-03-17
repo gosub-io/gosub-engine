@@ -9,10 +9,10 @@ description = "V8 bindings for Gosub"
 [dependencies]
 gosub_shared = { version = "0.1.1", registry = "gosub", path = "../gosub_shared" }
 gosub_webexecutor = { version = "0.1.1", registry = "gosub", path = "../gosub_webexecutor" }
-thiserror = "2.0.11"
+thiserror = "2.0.18"
 v8 = "136.0.0"
-anyhow = "1.0.98"
-serde_json = "1.0.137"
+anyhow = "1.0.102"
+serde_json = "1.0.149"
 
 [dev-dependencies]
 gosub_webinterop = { version = "0.1.1", registry = "gosub", path = "../gosub_webinterop" }
