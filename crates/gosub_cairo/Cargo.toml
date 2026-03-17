@@ -14,7 +14,9 @@ gosub_fontmanager = { version = "0.1.0", path = "../gosub_fontmanager", registry
 image = "0.25.10"
 smallvec = "1.15.1"
 
-cairo-rs = {  version = "0.19.4", features = ["use_glib", "freetype"] }
-kurbo = "0.13.0"
-peniko = "0.6.0"
+cairo-rs = {  version = "0.20.12", features = ["use_glib"] }
+cairo-sys-rs = { version = "0.20", features = ["use_glib", "freetype"] }
+freetype-rs = "0.36.0"
+kurbo = "0.11.2"
+peniko = "0.3.1"
 log = "0.4.29"
