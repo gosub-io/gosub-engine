@@ -1,7 +1,6 @@
 use taffy::style_helpers::{TaffyGridLine, TaffyGridSpan};
 use taffy::{
-    AlignContent, AlignItems, Dimension, GridPlacement, LengthPercentage, LengthPercentageAuto,
-    NonRepeatedTrackSizingFunction, TrackSizingFunction,
+    AlignContent, AlignItems, Dimension, GridPlacement, LengthPercentage, LengthPercentageAuto, TrackSizingFunction,
 };
 
 use gosub_interface::config::HasLayouter;
@@ -14,50 +13,50 @@ use gosub_interface::layout::LayoutNode;
 
 pub fn parse_len<C: HasLayouter>(node: &mut impl LayoutNode<C>, name: &str) -> LengthPercentage {
     let Some(property) = node.get_property(name) else {
-        return LengthPercentage::Length(0.0);
+        return LengthPercentage::length(0.0);
     };
 
     if let Some(percent) = property.as_percentage() {
-        return LengthPercentage::Percent(percent / 100.0);
+        return LengthPercentage::percent(percent / 100.0);
     }
 
-    LengthPercentage::Length(property.unit_to_px())
+    LengthPercentage::length(property.unit_to_px())
 }
 
 pub fn parse_len_auto<C: HasLayouter>(node: &mut impl LayoutNode<C>, name: &str) -> LengthPercentageAuto {
     let Some(property) = node.get_property(name) else {
-        return LengthPercentageAuto::Length(0.0);
+        return LengthPercentageAuto::length(0.0);
     };
 
     if let Some(str) = property.as_string() {
         if str == "auto" {
-            return LengthPercentageAuto::Auto;
+            return LengthPercentageAuto::auto();
         }
     }
 
     if let Some(percent) = property.as_percentage() {
-        return LengthPercentageAuto::Percent(percent / 100.0);
+        return LengthPercentageAuto::percent(percent / 100.0);
     }
 
-    LengthPercentageAuto::Length(property.unit_to_px())
+    LengthPercentageAuto::length(property.unit_to_px())
 }
 
 pub fn parse_dimension<C: HasLayouter>(node: &mut impl LayoutNode<C>, name: &str) -> Dimension {
     let Some(property) = node.get_property(name) else {
-        return Dimension::Auto;
+        return Dimension::auto();
     };
 
     if let Some(str) = property.as_string() {
         if str == "auto" {
-            return Dimension::Auto;
+            return Dimension::auto();
         }
     }
 
     if let Some(percent) = property.as_percentage() {
-        return Dimension::Percent(percent / 100.0);
+        return Dimension::percent(percent / 100.0);
     }
 
-    Dimension::Length(property.unit_to_px())
+    Dimension::length(property.unit_to_px())
 }
 
 pub fn parse_align_i<C: HasLayouter>(node: &mut impl LayoutNode<C>, name: &str) -> Option<AlignItems> {
@@ -113,14 +112,11 @@ pub fn parse_tracking_sizing_function<C: HasLayouter>(
 pub fn parse_non_repeated_tracking_sizing_function<C: HasLayouter>(
     _node: &mut impl LayoutNode<C>,
     _name: &str,
-) -> NonRepeatedTrackSizingFunction {
+) -> TrackSizingFunction {
     todo!("implement parse_non_repeated_tracking_sizing_function")
 }
 
-pub fn parse_grid_auto<C: HasLayouter>(
-    node: &mut impl LayoutNode<C>,
-    name: &str,
-) -> Vec<NonRepeatedTrackSizingFunction> {
+pub fn parse_grid_auto<C: HasLayouter>(node: &mut impl LayoutNode<C>, name: &str) -> Vec<TrackSizingFunction> {
     let Some(display) = node.get_property(name) else {
         return Vec::new();
     };
