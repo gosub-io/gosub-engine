@@ -1,19 +1,21 @@
 name: Bencher.dev benchmarks
 
 on:
-  push:
-    branches:
-      - main
+  pull_request:
+    branches: [ main ]
 
 jobs:
   benchmark_with_bencher:
     name: Continuous Benchmarking with Bencher
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event.pull_request.head.repo.full_name == github.repository
     permissions:
       pull-requests: write
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install dependencies
+        run: sudo apt update -y && sudo apt install sqlite3 libsqlite3-dev libglib2.0-dev libcairo2-dev libgdk-pixbuf-2.0-dev libpango1.0-dev libgtk-4-dev -y
       - uses: bencherdev/bencher@main
       - name: Track PR Benchmarks with Bencher
         run: |
@@ -25,6 +27,6 @@ jobs:
           --branch-start-point-hash '${{ github.event.pull_request.base.sha }}' \
           --testbed github-action-ci \
           --adapter rust \
-          --err \          
+          --err \
           --github-actions '${{ secrets.GITHUB_TOKEN }}' \
           cargo bench --all
