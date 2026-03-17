@@ -1,6 +1,6 @@
 use std::ops::{Mul, MulAssign};
 
-use vello::kurbo::Affine;
+use vello::kurbo::{Affine, Point as VelloPoint};
 
 use gosub_interface::render_backend::Transform as TTransform;
 use gosub_shared::geo::{Point, FP};
@@ -50,7 +50,11 @@ impl TTransform for Transform {
     }
 
     fn rotate_around(angle: FP, center: Point) -> Self {
-        Affine::rotate_about(f64::from(angle), (f64::from(center.x), f64::from(center.y)).into()).into()
+        Affine::rotate_about(
+            f64::from(angle),
+            VelloPoint::new(f64::from(center.x), f64::from(center.y)),
+        )
+        .into()
     }
 
     fn skew_x(angle: FP) -> Self {
@@ -83,7 +87,10 @@ impl TTransform for Transform {
 
     fn pre_rotate_around(self, angle: FP, center: Point) -> Self {
         self.0
-            .pre_rotate_about(f64::from(angle), (f64::from(center.x), f64::from(center.y)).into())
+            .pre_rotate_about(
+                f64::from(angle),
+                VelloPoint::new(f64::from(center.x), f64::from(center.y)),
+            )
             .into()
     }
 
@@ -105,7 +112,10 @@ impl TTransform for Transform {
 
     fn then_rotate_around(self, angle: FP, center: Point) -> Self {
         self.0
-            .then_rotate_about(f64::from(angle), (f64::from(center.x), f64::from(center.y)).into())
+            .then_rotate_about(
+                f64::from(angle),
+                VelloPoint::new(f64::from(center.x), f64::from(center.y)),
+            )
             .into()
     }
 

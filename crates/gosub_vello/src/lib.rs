@@ -22,7 +22,7 @@ pub use text::*;
 pub use transform::*;
 
 use crate::render::window::{ActiveWindowData, WindowData};
-use crate::render::{Renderer, RendererOptions};
+use crate::render::Renderer;
 
 mod border;
 mod brush;
@@ -130,11 +130,12 @@ impl RenderBackend for VelloBackend {
         let renderer = self.renderer.clone();
 
         #[cfg(not(target_arch = "wasm32"))]
-        let renderer = futures::executor::block_on(Renderer::new(RendererOptions::default()))?;
+        let renderer = futures::executor::block_on(Renderer::new())?;
 
         let adapter = renderer.instance_adapter;
 
         let renderer = adapter.create_renderer(None)?;
+        let blitter = None;
 
         info!("Created renderer");
 
@@ -142,6 +143,7 @@ impl RenderBackend for VelloBackend {
             adapter,
             renderer,
             scene: VelloScene::new().into(),
+            blitter,
         })
     }
 
@@ -167,14 +169,24 @@ impl RenderBackend for VelloBackend {
         let width = active_data.surface.config.width;
 
         let surface_texture = active_data.surface.surface.get_current_texture()?;
+        let surface_view = surface_texture
+            .texture
+            .create_view(&vello::wgpu::TextureViewDescriptor::default());
+
+        if window_data.blitter.is_none() {
+            window_data.blitter = Some(vello::wgpu::util::TextureBlitter::new(
+                &window_data.adapter.device,
+                active_data.surface.config.format,
+            ));
+        }
 
         window_data
             .renderer
-            .render_to_surface(
+            .render_to_texture(
                 &window_data.adapter.device,
                 &window_data.adapter.queue,
                 &window_data.scene.0,
-                &surface_texture,
+                &active_data.surface.target_view,
                 &RenderParams {
                     base_color: VelloColor::WHITE,
                     width,
@@ -183,6 +195,26 @@ impl RenderBackend for VelloBackend {
                 },
             )
             .map_err(|e| anyhow!(e.to_string()))?;
+
+        let mut encoder = window_data
+            .adapter
+            .device
+            .create_command_encoder(&vello::wgpu::CommandEncoderDescriptor {
+                label: Some("vello-blit"),
+            });
+
+        window_data
+            .blitter
+            .as_ref()
+            .ok_or_else(|| anyhow!("texture blitter not initialized"))?
+            .copy(
+                &window_data.adapter.device,
+                &mut encoder,
+                &active_data.surface.target_view,
+                &surface_view,
+            );
+
+        window_data.adapter.queue.submit([encoder.finish()]);
 
         surface_texture.present();
 
