@@ -2120,9 +2120,9 @@ dependencies = [
  "gosub_shared",
  "gosub_svg",
  "image",
- "kurbo 0.11.2",
+ "kurbo 0.13.0",
  "log",
- "peniko 0.3.2",
+ "peniko 0.6.0",
  "smallvec",
 ]
 
