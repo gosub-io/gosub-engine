@@ -79,6 +79,6 @@ fn to_stop_vec(stops: ColorStops<CairoBackend>) -> SmallVec<[ColorStop; 4]> {
     vec
 }
 
-fn kurbo_point(point: GsPoint) -> kurbo::Point {
-    kurbo::Point::new(point.x.into(), point.y.into())
+fn kurbo_point(point: GsPoint) -> (f64, f64) {
+    (point.x.into(), point.y.into())
 }

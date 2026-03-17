@@ -15,6 +15,6 @@ image = "0.25.10"
 smallvec = "1.15.1"
 
 cairo-rs = {  version = "0.19.4", features = ["use_glib", "freetype"] }
-kurbo = "=0.11.2"
-peniko = "0.3.1"
+kurbo = "0.13.0"
+peniko = "0.6.0"
 log = "0.4.29"
