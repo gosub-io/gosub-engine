@@ -8,6 +8,7 @@ use gosub_shared::types::{Result, Size};
 use crate::VelloBackend;
 use gosub_svg::SVGDocument;
 
+#[allow(unused)]
 pub struct VelloSVG;
 
 impl SvgRenderer<VelloBackend> for VelloSVG {
