@@ -1,15 +1,16 @@
 use crate::dns::{DnsEntry, DnsResolver, ResolveType};
 use crate::errors::Error;
-use core::str::FromStr;
 use gosub_shared::types::Result;
-use hickory_resolver::config::Protocol::Udp;
-use hickory_resolver::config::{NameServerConfig, ResolverConfig, ResolverOpts};
-use hickory_resolver::Resolver;
+use hickory_resolver::config::{LookupIpStrategy, NameServerConfig, ResolveHosts, ResolverConfig, ResolverOpts};
+use hickory_resolver::name_server::TokioConnectionProvider;
+use hickory_resolver::proto::xfer::Protocol;
+use hickory_resolver::TokioResolver;
 use log::trace;
 use std::net::{IpAddr, SocketAddr};
+use tokio::runtime::Builder;
 
 pub struct RemoteResolver {
-    hickory: Resolver,
+    hickory: TokioResolver,
 }
 
 impl DnsResolver for RemoteResolver {
@@ -32,27 +33,31 @@ impl DnsResolver for RemoteResolver {
 
         trace!("{domain}: resolving with {ip_types:?}");
 
+        let mut opts = self.hickory.options().clone();
+
         for ip_type in &ip_types {
             match *ip_type {
                 ResolveType::Ipv4 => {
-                    let e = self.hickory.ipv4_lookup(domain);
+                    opts.ip_strategy = LookupIpStrategy::Ipv4Only;
+                    let e = self.lookup(domain, opts.clone());
                     if e.is_err() {
                         continue;
                     }
                     e.unwrap().iter().for_each(|ip| {
                         trace!("{domain}: found ipv4 address {ip}");
-                        entry.ips.push(IpAddr::from_str(ip.to_string().as_str()).unwrap());
+                        entry.ips.push(ip);
                         entry.has_ipv4 = true;
                     });
                 }
                 ResolveType::Ipv6 => {
-                    let e = self.hickory.ipv6_lookup(domain);
+                    opts.ip_strategy = LookupIpStrategy::Ipv6Only;
+                    let e = self.lookup(domain, opts.clone());
                     if e.is_err() {
                         continue;
                     }
                     e.unwrap().iter().for_each(|ip| {
                         trace!("{domain}: found ipv6 address {ip}");
-                        entry.ips.push(IpAddr::from_str(ip.to_string().as_str()).unwrap());
+                        entry.ips.push(ip);
                         entry.has_ipv6 = true;
                     });
                 }
@@ -73,24 +78,42 @@ impl DnsResolver for RemoteResolver {
 }
 
 impl RemoteResolver {
+    fn lookup(&self, domain: &str, opts: ResolverOpts) -> Result<hickory_resolver::lookup_ip::LookupIp> {
+        let resolver =
+            TokioResolver::builder_with_config(self.hickory.config().clone(), TokioConnectionProvider::default())
+                .with_options(opts)
+                .build();
+        let rt = Builder::new_current_thread().enable_all().build()?;
+        Ok(rt.block_on(resolver.lookup_ip(domain))?)
+    }
+
     /// Instantiates a new local override table
     pub fn new(dns_opts: RemoteResolverOptions) -> Self {
-        // @todo: do something with the options
-        let mut config = ResolverConfig::default();
         let mut opts = ResolverOpts::default();
+        let has_custom_nameservers = !dns_opts.nameservers.is_empty();
+        let mut config = ResolverConfig::default();
 
         for nameserver in &dns_opts.nameservers {
-            if let Ok(ip) = IpAddr::from_str(nameserver.as_str()) {
-                config.add_name_server(NameServerConfig::new(SocketAddr::new(ip, 53), Udp));
-                continue;
+            if let Ok(ip) = nameserver.parse::<IpAddr>() {
+                config.add_name_server(NameServerConfig::new(SocketAddr::new(ip, 53), Protocol::Udp));
             }
         }
-        opts.use_hosts_file = dns_opts.use_hosts_file;
+        opts.use_hosts_file = if dns_opts.use_hosts_file {
+            ResolveHosts::Always
+        } else {
+            ResolveHosts::Never
+        };
         opts.timeout = std::time::Duration::from_secs(dns_opts.timeout as u64);
         opts.attempts = dns_opts.retries;
 
+        let builder = if has_custom_nameservers {
+            TokioResolver::builder_with_config(config, TokioConnectionProvider::default())
+        } else {
+            TokioResolver::builder_tokio().unwrap()
+        };
+
         Self {
-            hickory: Resolver::new(config, opts).unwrap(),
+            hickory: builder.with_options(opts).build(),
         }
     }
 }
