@@ -7,9 +7,9 @@ license = "MIT"
 description = "Web Interop for Gosub"
 
 [dependencies]
-syn = { version = "2.0.101", features = ["full", "extra-traits"] }
-quote = { version = "1.0.40", features = [] }
-proc-macro2 = "1.0.92"
+proc-macro2 = "1.0.106"
+quote = { version = "1.0.45", features = [] }
+syn = { version = "2.0.117", features = ["full", "extra-traits"] }
 lazy_static = "1.5.0"
 cow-utils = "0.1.3"
 

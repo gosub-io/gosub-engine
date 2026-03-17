@@ -12,12 +12,12 @@ gosub_interface = { version = "0.1.1", registry = "gosub", path = "../gosub_inte
 gosub_shared = { version = "0.1.1", registry = "gosub", path = "../gosub_shared" }
 gosub_net = { version = "0.1.1", registry = "gosub", path = "../gosub_net" }
 gosub_fontmanager = { version = "0.1.0", registry = "gosub", path = "../gosub_fontmanager" }
-anyhow = "1.0.98"
-image = "0.25.6"
-url = "2.5.4"
-log = "0.4.27"
-pango = "0.20.9"
+anyhow = "1.0.102"
+image = "0.25.10"
+url = "2.5.8"
+log = "0.4.29"
+pango = "0.22.0"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen-futures = "0.4.47"
-web-sys = "0.3.72"
+web-sys = "0.3.91"
+wasm-bindgen-futures = "0.4.64"
