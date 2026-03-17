@@ -252,8 +252,8 @@ fn create_memory_font_face(ft_lib: Rc<Library>, font: &Font) -> FontFace {
     // SAFETY: The user data entry keeps `freetype::face::Face` alive
     // until the FontFace is dropped.
     unsafe {
-        FontFace::from_raw_full(cairo::ffi::cairo_ft_font_face_create_for_ft_face(
-            (face.raw_mut() as cairo::freetype::ffi::FT_Face).cast(),
+        FontFace::from_raw_full(cairo_sys::cairo_ft_font_face_create_for_ft_face(
+            (face.raw_mut() as freetype::ffi::FT_Face).cast(),
             0,
         ))
     }

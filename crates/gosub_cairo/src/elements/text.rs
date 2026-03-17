@@ -1,5 +1,5 @@
 use crate::CairoBackend;
-use cairo::{freetype, FontFace};
+use cairo::FontFace;
 use std::borrow::Borrow;
 use std::cell::LazyCell;
 use std::rc::Rc;
@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use crate::elements::brush::GsBrush;
 use crate::elements::color::GsColor;
-use cairo::freetype::{Face, Library};
+use freetype::{Face, Library};
 use gosub_interface::font::FontBlob;
 use gosub_interface::layout::{Decoration, TextLayout};
 use gosub_interface::render_backend::{RenderText, Text as TText};
@@ -145,7 +145,7 @@ fn create_memory_font_face(font: &FontBlob) -> Result<FontFace, cairo::Error> {
     static FT_FACE_KEY: cairo::UserDataKey<Face<BlobWrapper>> = cairo::UserDataKey::new();
 
     // Create an in-memory font face from the font data
-    let face = LIB_FONT_FACE.with(|lib| {
+    let face = LIB_FONT_FACE.with(|lib: &LazyCell<Library>| {
         lib.new_memory_face2(BlobWrapper(font.data.clone()), font.index as isize)
             .expect("Failed to create memory face")
     });
