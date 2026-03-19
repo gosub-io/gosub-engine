@@ -57,10 +57,10 @@ fn main() {
     let text = "Some text here. Let's make it a bit longer so that line wrapping kicks in 😊. And also some اللغة العربية arabic text.\nThis is underline and strikethrough text";
     // let text = gosub_fontmanager::flatland::TEXT;
 
-    let mut builder = layout_cx.ranged_builder(&mut font_context, text, display_scale);
+    let mut builder = layout_cx.ranged_builder(&mut font_context, text, display_scale, true);
     builder.push_default(brush_style);
     builder.push_default(font_stack);
-    builder.push_default(StyleProperty::LineHeight(1.3));
+    builder.push_default(StyleProperty::LineHeight(parley::LineHeight::FontSizeRelative(1.3)));
     builder.push_default(StyleProperty::FontSize(16.0));
 
     builder.push(bold_style, 4..8);
@@ -232,7 +232,7 @@ fn render_glyph(
     // Apply the fractional offset
     .offset(offset)
     // Render the image
-    .render(scaler, glyph.id)
+    .render(scaler, glyph.id.try_into().unwrap())
     .unwrap();
 
     let glyph_width = rendered_glyph.placement.width;

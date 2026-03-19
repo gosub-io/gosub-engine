@@ -8,7 +8,7 @@ use image::Rgba;
 use parley::fontique::FontWeight;
 use parley::layout::{Alignment, Layout, PositionedLayoutItem};
 use parley::style::StyleProperty;
-use parley::{AlignmentOptions, Font, InlineBox, LayoutContext};
+use parley::{AlignmentOptions, FontData, InlineBox, LayoutContext};
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -244,7 +244,7 @@ fn draw(fctx: &mut FontContext, cr: &gtk4::cairo::Context, layout: Layout<ColorB
 
 /// Creates a cairo font-face from the font data (blob of raw fontdata). We do this by converting
 /// the blob into an in-memory freetype face and then into a cairo font face.
-fn create_memory_font_face(ft_lib: Rc<Library>, font: &Font) -> FontFace {
+fn create_memory_font_face(ft_lib: Rc<Library>, font: &FontData) -> FontFace {
     // Create an in-memory font face from the font data
     let face = ft_lib.new_memory_face2(font.data.data(), font.index as isize).unwrap();
     let mut face = face.clone();
@@ -286,10 +286,10 @@ fn create_layout(
 
     let font_stack = parley::FontStack::Single(parley::style::FontFamily::Named(Cow::Borrowed(font_info.family())));
 
-    let mut builder = layout_cx.ranged_builder(&mut fctx.parley_context, text, display_scale);
+    let mut builder = layout_cx.ranged_builder(&mut fctx.parley_context, text, display_scale, true);
     builder.push_default(brush_style);
     builder.push_default(font_stack);
-    builder.push_default(StyleProperty::LineHeight(1.0));
+    builder.push_default(StyleProperty::LineHeight(parley::LineHeight::FontSizeRelative(1.0)));
     builder.push_default(StyleProperty::FontSize(font_size as f32));
     builder.push_default(StyleProperty::LetterSpacing(1.0));
 
