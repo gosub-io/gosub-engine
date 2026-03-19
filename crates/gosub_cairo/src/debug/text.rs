@@ -5,7 +5,7 @@ use crate::Scene;
 use gosub_interface::font::{FontInfo, FontStyle};
 use gosub_interface::render_backend::{Brush as _, Color as _, Transform as _};
 use gosub_shared::types::Point;
-use peniko::{Blob, Font};
+use peniko::{Blob, FontData};
 use std::sync::{Arc, LazyLock};
 
 pub fn render_text_simple(scene: &mut Scene, text: &str, point: Point<f32>, font_size: f32) {
@@ -40,7 +40,7 @@ pub fn render_text_var(
     _scene: &mut Scene,
     _text: &str,
     _font_size: f32,
-    _font: &Font,
+    _font: &FontData,
     _brush: &GsBrush,
     _transform: GsTransform,
     _glyph_transform: GsTransform,

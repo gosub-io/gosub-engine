@@ -98,7 +98,7 @@ fn main() -> glib::ExitCode {
     app.run()
 }
 
-fn build_ui(app: &Application, cl: &ApplicationCommandLine) -> i32 {
+fn build_ui(app: &Application, cl: &ApplicationCommandLine) -> glib::ExitCode {
     let binding = cl.arguments();
     let args = binding.as_slice();
     let url = args
@@ -167,5 +167,5 @@ fn build_ui(app: &Application, cl: &ApplicationCommandLine) -> i32 {
     window.set_default_height(600);
     window.present();
 
-    1
+    glib::ExitCode::FAILURE
 }
