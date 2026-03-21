@@ -11,3 +11,10 @@ gosub_interface = { version = "0.1.2", path = "../gosub_interface" }
 chardetng = "0.1.17"
 encoding_rs = "0.8.35"
 log = "0.4.27"
+
+[dev-dependencies]
+criterion = { version = "0.7", features = ["html_reports"] }
+
+[[bench]]
+name = "bytestream"
+harness = false

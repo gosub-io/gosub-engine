@@ -10,7 +10,6 @@ description = "Gosub Renderer"
 gosub_rendering = { version = "0.1.1", registry = "gosub", path = "../gosub_rendering" }
 gosub_interface = { version = "0.1.1", registry = "gosub", path = "../gosub_interface", features = [] }
 gosub_stream = { version = "0.1.0", path = "../gosub_stream" }
-gosub_net = { version = "0.1.1", registry = "gosub", path = "../gosub_net" }
 gosub_fontmanager = { version = "0.1.0", registry = "gosub", path = "../gosub_fontmanager" }
 anyhow = "1.0.102"
 image = "0.25.10"

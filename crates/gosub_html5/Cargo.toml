@@ -23,7 +23,8 @@ serde = { version = "1.0.228", features = ["derive"] }
 cow-utils = "0.1.3"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-ureq = "3.0.11"
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "io-util"] }
+tokio-util = { version = "0.7", features = ["compat"] }
 
 [dev-dependencies]
 test-case = "3.3.1"
@@ -35,10 +36,17 @@ debug_parser = []
 debug_parser_verbose = []
 
 
+[[example]]
+name = "html5-parser"
+
 [[bench]]
 name = "tokenizer"
 harness = false
 
 [[bench]]
 name = "tree_construction"
+harness = false
+
+[[bench]]
+name = "tree_iterator"
 harness = false

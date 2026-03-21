@@ -1,0 +1,56 @@
+[package]
+name = "gosub-tools"
+version = "0.1.0"
+edition = "2021"
+description = "CLI tools and renderer examples for Gosub"
+license = "MIT"
+
+[features]
+debug_parser = []
+debug_parser_verbose = []
+
+[lib]
+name = "gosub_tools"
+path = "src/lib.rs"
+
+[[example]]
+name = "gtk-renderer"
+path = "examples/gtk-renderer/main.rs"
+
+[[example]]
+name = "vello-renderer"
+path = "examples/vello-renderer/main.rs"
+
+[dependencies]
+gosub_interface = { path = "../gosub_interface" }
+gosub_stream    = { path = "../gosub_stream" }
+gosub_config    = { path = "../gosub_config" }
+gosub_html5     = { path = "../gosub_html5" }
+gosub_css3      = { path = "../gosub_css3" }
+gosub_net       = { path = "../gosub_net" }
+gosub_renderer  = { path = "../gosub_renderer" }
+gosub_rendering = { path = "../gosub_rendering" }
+gosub_taffy     = { path = "../gosub_taffy" }
+gosub_instance  = { path = "../gosub_instance" }
+gosub_fontmanager = { path = "../gosub_fontmanager" }
+
+anyhow        = "1"
+log           = "0.4"
+simple_logger = "5"
+url           = "2"
+clap          = { version = "4", features = ["derive"] }
+derive_more   = "2"
+walkdir       = "2"
+image         = "0.25"
+slotmap       = "1"
+futures       = "0.3"
+reqwest       = { version = "0.12", features = ["blocking", "rustls-tls"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+gosub_cairo      = { path = "../gosub_cairo" }
+gosub_vello      = { path = "../gosub_vello" }
+gosub_v8         = { path = "../gosub_v8" }
+gosub_webexecutor = { path = "../gosub_webexecutor" }
+gtk4   = "0.8"
+winit  = "0.30"
+tokio  = { version = "1", features = ["macros", "rt-multi-thread"] }

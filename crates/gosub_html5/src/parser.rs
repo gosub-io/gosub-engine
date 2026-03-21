@@ -137,13 +137,20 @@ impl ActiveElement {
 
 pub struct Html5ParserOptions {
     pub scripting_enabled: bool,
+    pub fetcher: Option<gosub_interface::fetcher::SharedFetcher>,
 }
 
 impl ParserOptions for Html5ParserOptions {
     fn new(scripting: bool) -> Self {
         Self {
             scripting_enabled: scripting,
+            fetcher: None,
         }
+    }
+
+    fn with_fetcher(mut self, fetcher: gosub_interface::fetcher::SharedFetcher) -> Self {
+        self.fetcher = Some(fetcher);
+        self
     }
 }
 
@@ -151,6 +158,7 @@ impl Default for Html5ParserOptions {
     fn default() -> Self {
         Self {
             scripting_enabled: true,
+            fetcher: None,
         }
     }
 }
@@ -213,6 +221,8 @@ pub struct Html5Parser<'tokens, C: HasDocument> {
     context_node: Option<C::Node>,
     // /// Context document for the context_node_id
     // context_doc: Option<&'tokens C::Document>,
+    /// Fetcher used to load external resources (e.g. stylesheets)
+    fetcher: Option<gosub_interface::fetcher::SharedFetcher>,
 }
 
 impl<C: HasDocument> gosub_interface::html5::Html5Parser<C> for Html5Parser<'_, C> {
@@ -271,7 +281,8 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             open_elements: Vec::new(),
             head_element: None,
             form_element: None,
-            scripting_enabled: options.unwrap_or_default().scripting_enabled,
+            scripting_enabled: options.as_ref().map(|o| o.scripting_enabled).unwrap_or(true),
+            fetcher: options.and_then(|o| o.fetcher),
             frameset_ok: true,
             foster_parenting: false,
             script_already_started: false,
@@ -311,6 +322,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             head_element: None,
             form_element: None,
             scripting_enabled: true,
+            fetcher: None,
             frameset_ok: true,
             foster_parenting: false,
             script_already_started: false,
@@ -4101,47 +4113,41 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
     }
 
     /// Load and parse an external stylesheet by URL
-    #[cfg(target_arch = "wasm32")]
-    fn load_external_stylesheet(&self, _origin: CssOrigin, _url: Url) -> Option<C::Stylesheet> {
-        None
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
     fn load_external_stylesheet(&self, origin: CssOrigin, url: Url) -> Option<C::Stylesheet> {
         let css = if url.scheme() == "http" || url.scheme() == "https" {
-            // Fetch the html from the url
-            let response = ureq::get(url.as_ref()).call();
-            if let Err(err) = response {
-                warn!("Could not load external stylesheet from {}. Error: {}", url, err);
-                return None;
-            }
-            let mut response = response.expect("result");
-
-            if response.status() != 200 {
-                warn!(
-                    "Could not load external stylesheet from {}. Status code {} ",
-                    url,
-                    response.status()
-                );
-                return None;
-            }
-            let content_type = response.headers().get("Content-Type");
-            match content_type {
-                Some(content_type) => {
-                    let content_type = content_type.to_str().unwrap_or("");
-                    if !content_type.starts_with("text/css") {
-                        warn!("External stylesheet has no text/css content type: {content_type} ");
-                    }
-                }
+            let fetcher = match self.fetcher.as_ref() {
+                Some(f) => f,
                 None => {
-                    warn!("External stylesheet has no content type: {url} ");
+                    warn!("No fetcher available to load external stylesheet from {url}");
+                    return None;
                 }
-            }
+            };
 
-            match response.body_mut().read_to_string() {
-                Ok(css) => css,
+            let handle = match tokio::runtime::Handle::try_current() {
+                Ok(h) => h,
+                Err(_) => {
+                    warn!("No async runtime available to load external stylesheet from {url}");
+                    return None;
+                }
+            };
+
+            let resp = match tokio::task::block_in_place(|| handle.block_on(fetcher.get(url.as_str()))) {
+                Ok(r) => r,
                 Err(err) => {
                     warn!("Could not load external stylesheet from {url}. Error: {err}");
+                    return None;
+                }
+            };
+
+            if !resp.is_ok() {
+                warn!("Could not load external stylesheet from {url}. Status code {}", resp.status);
+                return None;
+            }
+
+            match String::from_utf8(resp.body) {
+                Ok(css) => css,
+                Err(err) => {
+                    warn!("Could not decode external stylesheet from {url}. Error: {err}");
                     return None;
                 }
             }

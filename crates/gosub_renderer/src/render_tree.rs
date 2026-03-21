@@ -2,9 +2,8 @@ use anyhow::bail;
 use gosub_interface::config::{HasHtmlParser, HasRenderTree};
 use gosub_interface::css3::CssSystem;
 use gosub_interface::document::{Document, DocumentBuilder};
-use gosub_interface::fetcher::Fetcher as FetcherTrait;
-use gosub_interface::html5::Html5Parser;
-use gosub_net::http::fetcher::Fetcher;
+use gosub_interface::fetcher::SharedFetcher;
+use gosub_interface::html5::{Html5Parser, ParserOptions};
 use gosub_rendering::render_tree::generate_render_tree;
 use gosub_stream::byte_stream::{ByteStream, Encoding};
 use std::fs;
@@ -14,15 +13,14 @@ use url::Url;
 pub async fn load_html_rendertree<C: HasRenderTree + HasHtmlParser<HtmlStream = ByteStream>>(
     url: Url,
     source: Option<&str>,
-) -> gosub_interface::types::Result<(C::RenderTree, C::Document, Fetcher)> {
-    let fetcher = Fetcher::new(url.clone());
-
+    fetcher: SharedFetcher,
+) -> gosub_interface::types::Result<(C::RenderTree, C::Document)> {
     let (rt, handle) = match source {
-        Some(source) => load_html_rendertree_source::<C>(url, source)?,
-        None => load_html_rendertree_fetcher::<C>(url, &fetcher).await?,
+        Some(source) => load_html_rendertree_source::<C>(url, source, Some(fetcher))?,
+        None => load_html_rendertree_fetcher::<C>(url, fetcher).await?,
     };
 
-    Ok((rt, handle, fetcher))
+    Ok((rt, handle))
 }
 
 // Generate a render tree from the given source HTML. THe URL is needed to resolve relative URLs
@@ -30,13 +28,18 @@ pub async fn load_html_rendertree<C: HasRenderTree + HasHtmlParser<HtmlStream = 
 pub fn load_html_rendertree_source<C: HasRenderTree + HasHtmlParser<HtmlStream = ByteStream>>(
     url: Url,
     source_html: &str,
+    fetcher: Option<SharedFetcher>,
 ) -> gosub_interface::types::Result<(C::RenderTree, C::Document)> {
     let mut stream = ByteStream::new(Encoding::UTF8, None);
     stream.read_from_str(source_html, Some(Encoding::UTF8));
     stream.close();
 
+    let opts = fetcher.map(|f| {
+        <C::HtmlParser as Html5Parser<C>>::Options::new(true).with_fetcher(f)
+    });
+
     let mut doc = C::DocumentBuilder::new_document(Some(url));
-    let parse_errors = C::HtmlParser::parse(&mut stream, &mut doc, None)?;
+    let parse_errors = C::HtmlParser::parse(&mut stream, &mut doc, opts)?;
 
     for error in parse_errors {
         eprintln!("Parse error: {error:?}");
@@ -50,7 +53,7 @@ pub fn load_html_rendertree_source<C: HasRenderTree + HasHtmlParser<HtmlStream =
 /// Generates a render tree from the given URL. The complete HTML source is fetched from the URL async.
 pub async fn load_html_rendertree_fetcher<C: HasRenderTree + HasHtmlParser<HtmlStream = ByteStream>>(
     url: Url,
-    fetcher: &dyn FetcherTrait,
+    fetcher: SharedFetcher,
 ) -> gosub_interface::types::Result<(C::RenderTree, C::Document)> {
     let html = if url.scheme() == "http" || url.scheme() == "https" {
         // Fetch the html from the url
@@ -66,5 +69,5 @@ pub async fn load_html_rendertree_fetcher<C: HasRenderTree + HasHtmlParser<HtmlS
         bail!("Unsupported url scheme: {}", url.scheme());
     };
 
-    load_html_rendertree_source::<C>(url, &html)
+    load_html_rendertree_source::<C>(url, &html, Some(fetcher))
 }

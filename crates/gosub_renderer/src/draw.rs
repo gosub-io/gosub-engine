@@ -17,8 +17,7 @@ use gosub_interface::render_backend::{
 use gosub_interface::render_tree;
 use gosub_interface::render_tree::RenderTreeNode as _;
 use gosub_interface::svg::SvgRenderer;
-use gosub_interface::fetcher::Fetcher as FetcherTrait;
-use gosub_net::http::fetcher::Fetcher;
+use gosub_interface::fetcher::{Fetcher as FetcherTrait, SharedFetcher};
 use gosub_stream::byte_stream::ByteStream;
 use gosub_rendering::position::PositionTree;
 use gosub_rendering::render_tree::RenderTree;
@@ -204,17 +203,16 @@ impl<C: HasDrawComponents<RenderTree = RenderTree<C>, LayoutTree = RenderTree<C>
         self.dirty = true;
     }
 
-    async fn from_url(url: Url, layouter: C::Layouter, debug: bool) -> Result<(Self, C::Document)> {
-        let (rt, handle, fetcher) = load_html_rendertree::<C>(url.clone(), None).await?;
+    async fn from_url(url: Url, fetcher: SharedFetcher, layouter: C::Layouter, debug: bool) -> Result<(Self, C::Document)> {
+        let (rt, handle) = load_html_rendertree::<C>(url.clone(), None, fetcher.clone()).await?;
 
-        Ok((Self::new(rt, layouter, Arc::new(fetcher), debug), handle))
+        Ok((Self::new(rt, layouter, fetcher, debug), handle))
     }
 
-    fn from_source(url: Url, source_html: &str, layouter: C::Layouter, debug: bool) -> Result<(Self, C::Document)> {
-        let fetcher = Fetcher::new(url.clone());
-        let (rt, handle) = load_html_rendertree_source::<C>(url, source_html)?;
+    fn from_source(url: Url, source_html: &str, fetcher: SharedFetcher, layouter: C::Layouter, debug: bool) -> Result<(Self, C::Document)> {
+        let (rt, handle) = load_html_rendertree_source::<C>(url, source_html, Some(fetcher.clone()))?;
 
-        Ok((Self::new(rt, layouter, Arc::new(fetcher), debug), handle))
+        Ok((Self::new(rt, layouter, fetcher, debug), handle))
     }
 
     async fn with_fetcher(
@@ -223,7 +221,7 @@ impl<C: HasDrawComponents<RenderTree = RenderTree<C>, LayoutTree = RenderTree<C>
         layouter: C::Layouter,
         debug: bool,
     ) -> Result<(Self, C::Document)> {
-        let (rt, handle) = load_html_rendertree_fetcher::<C>(url.clone(), fetcher.as_ref()).await?;
+        let (rt, handle) = load_html_rendertree_fetcher::<C>(url.clone(), fetcher.clone()).await?;
 
         Ok((Self::new(rt, layouter, fetcher, debug), handle))
     }
@@ -294,7 +292,7 @@ impl<C: HasDrawComponents<RenderTree = RenderTree<C>, LayoutTree = RenderTree<C>
         async move {
             info!("Reloading tab");
 
-            let (rt, handle) = match load_html_rendertree_fetcher::<C>(fetcher.base().clone(), fetcher.as_ref()).await {
+            let (rt, handle) = match load_html_rendertree_fetcher::<C>(fetcher.base().clone(), fetcher.clone()).await {
                 Ok(rt) => rt,
                 Err(e) => {
                     error!("Failed to reload tab: {e}");
@@ -318,7 +316,7 @@ impl<C: HasDrawComponents<RenderTree = RenderTree<C>, LayoutTree = RenderTree<C>
         async move {
             info!("Navigating to {url}");
 
-            let (rt, handle) = match load_html_rendertree_fetcher::<C>(url.clone(), fetcher.as_ref()).await {
+            let (rt, handle) = match load_html_rendertree_fetcher::<C>(url.clone(), fetcher.clone()).await {
                 Ok(rt) => rt,
                 Err(e) => {
                     error!("Failed to navigate to {url}: {e}");

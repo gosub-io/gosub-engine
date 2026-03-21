@@ -1,6 +1,6 @@
 use crate::config::{HasDocument, HasDrawComponents, HasHtmlParser};
 use crate::eventloop::EventLoopHandle;
-use crate::fetcher::Fetcher;
+use crate::fetcher::{Fetcher, SharedFetcher};
 use crate::layout::LayoutTree;
 use crate::render_backend::{ImgCache, NodeDesc, RenderBackend};
 use crate::geo::{Point, SizeU32, FP};
@@ -19,6 +19,7 @@ pub trait TreeDrawer<C: HasDrawComponents> {
     fn scroll(&mut self, point: Point);
     fn from_url(
         url: Url,
+        fetcher: SharedFetcher,
         layouter: C::Layouter,
         debug: bool,
     ) -> impl Future<Output = crate::types::Result<(Self, C::Document)>>
@@ -31,6 +32,8 @@ pub trait TreeDrawer<C: HasDrawComponents> {
         url: Url,
         // Actual loaded source HTML
         source_html: &str,
+        // Fetcher for external resources (e.g. stylesheets)
+        fetcher: SharedFetcher,
         // Layouter that renders the tree
         layouter: C::Layouter,
         // Debug flag
