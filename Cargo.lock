@@ -1357,9 +1357,9 @@ dependencies = [
 
 [[package]]
 name = "euclid"
-version = "0.22.13"
+version = "0.22.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df61bf483e837f88d5c2291dcf55c67be7e676b3a51acc48db3a7b163b91ed63"
+checksum = "f1a05365e3b1c6d1650318537c7460c6923f1abdd272ad6842baa2b509957a06"
 dependencies = [
  "num-traits",
 ]
@@ -2312,7 +2312,7 @@ dependencies = [
  "skrifa 0.40.0",
  "smallvec",
  "vello",
- "vello_encoding",
+ "vello_encoding 0.8.0",
  "vello_svg",
 ]
 
@@ -2516,6 +2516,16 @@ name = "guillotiere"
 version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b62d5865c036cb1393e23c50693df631d3f5d7bcca4c04fe4cc0fd592e74a782"
+dependencies = [
+ "euclid",
+ "svg_fmt",
+]
+
+[[package]]
+name = "guillotiere"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6b17e70c989c36bad147b27a58d148c0741c51448aa5653436547323e524d0ab"
 dependencies = [
  "euclid",
  "svg_fmt",
@@ -5759,7 +5769,7 @@ dependencies = [
  "skrifa 0.40.0",
  "static_assertions",
  "thiserror 2.0.18",
- "vello_encoding",
+ "vello_encoding 0.7.0",
  "vello_shaders",
  "wgpu",
 ]
@@ -5771,7 +5781,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "24c91203ec4b483440614a9a5c7c2d991932af72c5349659a63ec49476f0b79c"
 dependencies = [
  "bytemuck",
- "guillotiere",
+ "guillotiere 0.6.2",
+ "peniko",
+ "skrifa 0.40.0",
+ "smallvec",
+]
+
+[[package]]
+name = "vello_encoding"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d53d864987821f40431e62608bf0f58342db57f2f2860628c8cfc28e16a1cc39"
+dependencies = [
+ "bytemuck",
+ "guillotiere 0.7.0",
  "peniko",
  "skrifa 0.40.0",
  "smallvec",
@@ -5787,7 +5810,7 @@ dependencies = [
  "log",
  "naga",
  "thiserror 2.0.18",
- "vello_encoding",
+ "vello_encoding 0.7.0",
 ]
 
 [[package]]
