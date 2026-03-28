@@ -149,6 +149,15 @@ pub enum DisplayItem {
         color: Color,
     },
 
+    /// Draw a 1px stroked rectangle outline (no fill) at `(x, y)` with width `w` and height `h`.
+    Outline {
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        color: Color,
+    },
+
     /// Draw a text run at `(x, y)` with font size `size`.
     TextRun {
         /// The x-coordinate where the text starts.

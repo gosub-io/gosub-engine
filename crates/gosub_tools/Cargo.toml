@@ -51,6 +51,6 @@ gosub_cairo      = { path = "../gosub_cairo" }
 gosub_vello      = { path = "../gosub_vello" }
 gosub_v8         = { path = "../gosub_v8" }
 gosub_webexecutor = { path = "../gosub_webexecutor" }
-gtk4   = "0.8"
+gtk4   = "0.11"
 winit  = "0.30"
 tokio  = { version = "1", features = ["macros", "rt-multi-thread"] }

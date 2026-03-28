@@ -1,152 +1,123 @@
-//! gtk_cairo — GTK4 + CairoBackend example
+//! gtk_cairo — GTK4 + CairoBackend + full rendering pipeline
 //!
-//! Opens a GTK4 window and renders a static scene using the engine's
-//! CairoBackend.  Navigation is not wired up here — the scene is built
-//! manually to demonstrate the render pipeline independently of the layout
-//! bridge (which is not yet implemented).
+//! Fetches a URL (default: https://example.com), parses it with the HTML5
+//! parser, runs it through the gosub_pipeline (layout → layers → tiles →
+//! paint), and displays the result in a GTK4 window using the CairoBackend.
 //!
 //! Run:
-//!   cargo run --example gtk_cairo --features gtk4,backend_cairo
+//!   cargo run --example gtk_cairo --features gtk4,backend_cairo -- https://gosub.io
 
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use gtk4::cairo::Context;
 use gtk4::glib;
 use gtk4::prelude::*;
-use gtk4::{Application, ApplicationWindow, DrawingArea};
+use gtk4::gio::ApplicationFlags;
+use gtk4::{Application, ApplicationWindow, DrawingArea, ScrolledWindow};
 
+use gosub_css3::system::Css3System;
+use gosub_engine_core::BrowsingContext;
 use gosub_engine_core::render::backend::{PresentMode, RenderBackend, SurfaceSize};
 use gosub_engine_core::render::backends::cairo::{CairoBackend, CairoSurface};
-use gosub_engine_core::render::backend::RenderContext;
-use gosub_engine_core::render::{Color, DisplayItem, RenderList, Viewport};
+use gosub_engine_core::render::Viewport;
+use gosub_html5::document::builder::DocumentBuilderImpl;
+use gosub_html5::document::document_impl::DocumentImpl;
+use gosub_html5::document::fragment::DocumentFragmentImpl;
+use gosub_html5::parser::Html5Parser;
+use gosub_interface::config::{HasCssSystem, HasDocument};
+use gosub_interface::css3::CssSystem;
+use gosub_interface::document::{Document, DocumentBuilder};
+use gosub_stream::byte_stream::{ByteStream, Encoding};
 
 const APP_ID: &str = "io.gosub.gtk-cairo-example";
 
 // ---------------------------------------------------------------------------
-// A minimal RenderContext impl — holds viewport + render list.
-// In the future this will be driven by the layout bridge.
+// Config wires together the concrete HTML5 / CSS3 implementations.
 // ---------------------------------------------------------------------------
 
-struct SimpleRenderContext {
-    viewport: Viewport,
-    render_list: RenderList,
+#[derive(Clone, Debug, PartialEq)]
+struct Config;
+
+impl HasCssSystem for Config {
+    type CssSystem = Css3System;
 }
 
-impl SimpleRenderContext {
-    fn new(width: u32, height: u32) -> Self {
-        let mut rl = RenderList::new();
-
-        // White background
-        rl.add_command(DisplayItem::Clear { color: Color::WHITE });
-
-        // A blue banner
-        rl.add_command(DisplayItem::Rect {
-            x: 0.0,
-            y: 0.0,
-            w: width as f32,
-            h: 60.0,
-            color: Color::new(0.13, 0.36, 0.78, 1.0),
-        });
-
-        // Title text
-        rl.add_command(DisplayItem::TextRun {
-            x: 20.0,
-            y: 42.0,
-            text: "Gosub Engine — gtk_cairo example".into(),
-            size: 24.0,
-            color: Color::WHITE,
-            max_width: None,
-        });
-
-        // Body text
-        rl.add_command(DisplayItem::TextRun {
-            x: 20.0,
-            y: 100.0,
-            text: "Render pipeline is working. Layout bridge coming soon.".into(),
-            size: 16.0,
-            color: Color::BLACK,
-            max_width: Some(width as f32 - 40.0),
-        });
-
-        // A demo rectangle
-        rl.add_command(DisplayItem::Rect {
-            x: 20.0,
-            y: 130.0,
-            w: 200.0,
-            h: 80.0,
-            color: Color::new(0.8, 0.2, 0.2, 1.0),
-        });
-        rl.add_command(DisplayItem::Rect {
-            x: 240.0,
-            y: 130.0,
-            w: 200.0,
-            h: 80.0,
-            color: Color::new(0.2, 0.7, 0.2, 1.0),
-        });
-        rl.add_command(DisplayItem::Rect {
-            x: 460.0,
-            y: 130.0,
-            w: 200.0,
-            h: 80.0,
-            color: Color::new(0.2, 0.2, 0.8, 1.0),
-        });
-
-        Self {
-            viewport: Viewport::new(0, 0, width, height),
-            render_list: rl,
-        }
-    }
-}
-
-impl RenderContext for SimpleRenderContext {
-    fn viewport(&self) -> &Viewport {
-        &self.viewport
-    }
-    fn render_list(&self) -> &RenderList {
-        &self.render_list
-    }
+impl HasDocument for Config {
+    type Document = DocumentImpl<Self>;
+    type DocumentFragment = DocumentFragmentImpl<Self>;
+    type DocumentBuilder = DocumentBuilderImpl;
 }
 
 // ---------------------------------------------------------------------------
-// GTK glue
+// Fetch, parse and pipeline-render a URL into an ARGB pixel buffer.
+// Returns (pixels, width, height, stride).
 // ---------------------------------------------------------------------------
 
-fn build_ui(app: &Application) {
-    let width = 800u32;
-    let height = 600u32;
+fn render_url(url: &str, vp_width: u32, vp_height: u32) -> (Vec<u8>, u32, u32, u32) {
+    // 1. Fetch HTML
+    let html = reqwest::blocking::get(url)
+        .unwrap_or_else(|e| panic!("fetch {url}: {e}"))
+        .text()
+        .expect("decode response body");
 
+    // 2. Parse into a gosub document
+    let parsed_url = reqwest::Url::parse(url).ok();
+    let mut gosub_doc =
+        <DocumentBuilderImpl as DocumentBuilder<Config>>::new_document(parsed_url);
+    gosub_doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
+
+    let mut stream = ByteStream::new(Encoding::UTF8, None);
+    stream.read_from_str(&html, Some(Encoding::UTF8));
+    stream.close();
+    let _ = Html5Parser::<Config>::parse_document(&mut stream, &mut gosub_doc, None);
+
+    // 3. Run through BrowsingContext (pipeline → DisplayItems)
+    let mut ctx = BrowsingContext::<Config>::new();
+    ctx.set_document(Arc::new(gosub_doc));
+    ctx.set_viewport(Viewport::new(0, 0, vp_width, vp_height));
+    ctx.rebuild_render_list_if_needed();
+
+    // 4. Render DisplayItems → Cairo pixel buffer
     let backend = CairoBackend::new();
     let mut surface = backend
-        .create_surface(SurfaceSize { width, height }, PresentMode::Immediate)
+        .create_surface(
+            SurfaceSize { width: vp_width, height: vp_height },
+            PresentMode::Immediate,
+        )
         .expect("failed to create CairoSurface");
 
-    // Render the static scene once
-    let mut ctx = SimpleRenderContext::new(width, height);
     backend.render(&mut ctx, &mut *surface).expect("render failed");
 
-    // Copy pixels out for GTK painting
     let cairo_surface = surface
         .as_any_mut()
         .downcast_mut::<CairoSurface>()
         .expect("expected CairoSurface");
 
     let (pixels, w, h, stride) = cairo_surface.pixels_borrowed();
-    // Clone the pixel data so we can move it into the drawing callback
-    let pixel_data: Vec<u8> = pixels.to_vec();
-    let pixel_data = Rc::new(RefCell::new((pixel_data, w, h, stride)));
+    (pixels.to_vec(), w, h, stride)
+}
+
+// ---------------------------------------------------------------------------
+// GTK glue
+// ---------------------------------------------------------------------------
+
+fn build_ui(app: &Application, rendered: (Vec<u8>, u32, u32, u32), url: String) {
+    let (pixel_data, pw, ph, stride) = rendered;
+    println!("Displaying {pw}×{ph} px");
+
+    let pixel_data = Rc::new(RefCell::new((pixel_data, pw, ph, stride)));
 
     let drawing_area = DrawingArea::builder()
-        .content_width(width as i32)
-        .content_height(height as i32)
+        .content_width(pw as i32)
+        .content_height(ph as i32)
         .build();
 
     let pixel_data_clone = pixel_data.clone();
     drawing_area.set_draw_func(move |_area, cr: &Context, _w, _h| {
         let (data, pw, ph, stride) = &*pixel_data_clone.borrow();
 
-        // Create a Cairo ImageSurface from our pixel buffer (ARGB32)
         let img = gtk4::cairo::ImageSurface::create_for_data(
             data.clone(),
             gtk4::cairo::Format::ARgb32,
@@ -160,19 +131,36 @@ fn build_ui(app: &Application) {
         cr.paint().unwrap();
     });
 
+    let scroll = ScrolledWindow::builder()
+        .hscrollbar_policy(gtk4::PolicyType::Automatic)
+        .vscrollbar_policy(gtk4::PolicyType::Automatic)
+        .child(&drawing_area)
+        .build();
+
     let window = ApplicationWindow::builder()
         .application(app)
-        .title("Gosub — gtk_cairo example")
-        .default_width(width as i32)
-        .default_height(height as i32)
-        .child(&drawing_area)
+        .title(format!("Gosub — {url}"))
+        .default_width(1024)
+        .default_height(768)
+        .child(&scroll)
         .build();
 
     window.present();
 }
 
 fn main() -> glib::ExitCode {
-    let app = Application::builder().application_id(APP_ID).build();
-    app.connect_activate(build_ui);
-    app.run()
+    let url = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "https://example.com".to_string());
+
+    println!("Fetching and rendering {url} …");
+    let rendered = render_url(&url, 1280, 900);
+    println!("Rendered {}×{} px", rendered.1, rendered.2);
+
+    let app = Application::builder()
+        .application_id(APP_ID)
+        .flags(ApplicationFlags::NON_UNIQUE)
+        .build();
+    app.connect_activate(move |app| build_ui(app, rendered.clone(), url.clone()));
+    app.run_with_args(&[] as &[&str])
 }

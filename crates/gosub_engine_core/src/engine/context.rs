@@ -48,7 +48,7 @@ pub struct BrowsingContext<C: HasDocument> {
 
 impl<C: HasDocument> BrowsingContext<C> {
     /// Creates a new runtime browsing context.
-    pub(crate) fn new() -> BrowsingContext<C> {
+    pub fn new() -> BrowsingContext<C> {
         Self {
             current_url: None,
             document: None,
@@ -227,6 +227,29 @@ where
         let mut layouter = TaffyLayouter::new();
         let layout_tree = layouter.layout(render_tree, viewport_dim, 1.0);
 
+        // Collect debug outlines before layout_tree is consumed
+        let debug_outlines: Vec<DisplayItem> = {
+            const PALETTE: [(f32, f32, f32); 6] = [
+                (1.0, 0.0, 0.0),   // red
+                (0.0, 0.7, 0.0),   // green
+                (0.0, 0.0, 1.0),   // blue
+                (1.0, 0.5, 0.0),   // orange
+                (0.7, 0.0, 0.7),   // purple
+                (0.0, 0.7, 0.7),   // teal
+            ];
+            layout_tree.arena.values().enumerate().map(|(i, node)| {
+                let (r, g, b) = PALETTE[i % PALETTE.len()];
+                let bb = node.box_model.border_box;
+                DisplayItem::Outline {
+                    x: bb.x as f32,
+                    y: bb.y as f32,
+                    w: bb.width as f32,
+                    h: bb.height as f32,
+                    color: Color::new(r, g, b, 0.6),
+                }
+            }).collect()
+        };
+
         // Step 4 — layering; LayerList::new takes owned LayoutTree, wraps it in Arc internally
         // and already calls generate_layers() internally
         let layer_list = LayerList::new(layout_tree);
@@ -273,6 +296,8 @@ where
                 }
             }
         }
+
+        rl.items.extend(debug_outlines);
 
         self.render_list = rl;
         true

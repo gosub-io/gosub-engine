@@ -71,6 +71,10 @@ impl Document {
             self.body_node_id = Some(node_id.clone());
         }
 
+        if let Some(pid) = parent_id {
+            self.add_child(pid, node_id.clone());
+        }
+
         node_id
     }
 
@@ -78,6 +82,9 @@ impl Document {
         let node = Node::new_comment(self, parent_id, comment.to_string());
         let node_id = node.node_id.clone();
         self.arena.insert(node_id.clone(), node);
+        if let Some(pid) = parent_id {
+            self.add_child(pid, node_id.clone());
+        }
         node_id
     }
 
@@ -85,6 +92,9 @@ impl Document {
         let node = Node::new_text(self, parent_id, text.to_string(), style);
         let node_id = node.node_id.clone();
         self.arena.insert(node_id.clone(), node);
+        if let Some(pid) = parent_id {
+            self.add_child(pid, node_id.clone());
+        }
         node_id
     }
 
@@ -197,17 +207,18 @@ mod tests {
         let _ = document.print_tree(&mut s);
 
         println!("{}", s);
-        let result = r#"(NodeID(10)) <html lang="en"/>
-    (NodeID(9)) <body />
-        (NodeID(6)) <h1 class="title" data-alpine="x-wrap"/>
-            (NodeID(7)) header
+        let result = r#"(NodeID(1)) <html lang="en">
+    (NodeID(2)) <body >
+        (NodeID(3)) <h1 class="title" data-alpine="x-wrap">
+            (NodeID(4)) 'header'
         </h1>
-        (NodeID(8)) <script async="true" src="script.js" type="text/javascript">
-        (NodeID(4)) <p class="paragraph"/>
-            (NodeID(2)) <strong />
-                (NodeID(3)) strong
+        (NodeID(5)) <script async="true" src="script.js" type="text/javascript">
+        </script>
+        (NodeID(6)) <p class="paragraph">
+            (NodeID(7)) <strong >
+                (NodeID(8)) 'strong'
             </strong>
-            (NodeID(1)) <img alt="image" src="image.jpg">
+            (NodeID(9)) <img alt="image" src="image.jpg"/>
         </p>
     </body>
 </html>

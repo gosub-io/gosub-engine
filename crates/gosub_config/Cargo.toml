@@ -1,3 +1,24 @@
+[package]
+name = "gosub_config"
+version = "0.1.1"
+edition = "2021"
+authors = ["Gosub Community <info@gosub.io>"]
+license = "MIT"
+description = "Configuration management for Gosub"
 
-rusqlite = "0.39.0"
+[dependencies]
+serde_derive = "1.0.228"
+serde_json = {version = "1.0.149", features = ["preserve_order"]}
+serde = { version = "1.0.228", features = ["derive"] }
+lazy_static = "1.5"
+thiserror = "2.0.18"
+wildmatch = "2.6.1"
+log = "0.4.29"
+testing_logger = "0.1.1"
+url = "2.5.8"
+anyhow = "1.0.102"
+cow-utils = "0.1.3"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 ureq = "3.0.11"
+rusqlite = "0.39.0"

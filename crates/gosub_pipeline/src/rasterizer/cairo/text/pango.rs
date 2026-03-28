@@ -35,11 +35,11 @@ fn create_text_layout(cmd: &Text) -> Result<ImageSurface, Error> {
     // @TODO: I need to set the DPI resolution to 72dpi, otherwise the text will be too large
     context_set_resolution(&layout.context(), 72.0);
 
-    let selected_family = find_available_font(cmd.font_family.as_str(), &layout.context());
+    let selected_family = find_available_font(cmd.font_info.family.as_str(), &layout.context());
     let mut font_desc = FontDescription::new();
     font_desc.set_family(&selected_family);
-    font_desc.set_size((cmd.font_size * SCALE as f64) as i32);
-    font_desc.set_weight(to_pango_weight(cmd.font_weight));
+    font_desc.set_size((cmd.font_info.size * SCALE as f64) as i32);
+    font_desc.set_weight(to_pango_weight(cmd.font_info.weight as usize));
     layout.set_font_description(Some(&font_desc));
 
     layout.set_text(cmd.text.as_str());

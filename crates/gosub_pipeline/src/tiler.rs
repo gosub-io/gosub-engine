@@ -184,6 +184,10 @@ pub struct TileList {
     next_node_id: Arc<RwLock<TileId>>,
 
     pub default_tile_dimension: Dimension,
+
+    /// Reverse index: element ID → all tile IDs that contain that element.
+    /// Built once in `generate()` for O(1) lookup in `get_tiles_for_element`.
+    element_to_tiles: HashMap<LayoutElementId, Vec<TileId>>,
 }
 
 impl Debug for TileList {
@@ -199,17 +203,10 @@ impl Debug for TileList {
 
 impl TileList {
     pub fn get_tiles_for_element(&self, element_id: LayoutElementId) -> Vec<TileId> {
-        let mut matching_tiles = vec![];
-
-        for tile in self.arena.values() {
-            for element in &tile.elements {
-                if element.id == element_id {
-                    matching_tiles.push(tile.id);
-                }
-            }
-        }
-
-        matching_tiles
+        self.element_to_tiles
+            .get(&element_id)
+            .cloned()
+            .unwrap_or_default()
     }
 
     pub fn invalidate_all(&mut self) {
@@ -250,6 +247,7 @@ impl TileList {
             arena: HashMap::new(),
             next_node_id: Arc::new(RwLock::new(TileId::new(0))),
             default_tile_dimension: dimension,
+            element_to_tiles: HashMap::new(),
         }
     }
 
@@ -358,6 +356,10 @@ impl TileList {
                     };
 
                     tile.elements.push(tiled_element);
+                    self.element_to_tiles
+                        .entry(element_id)
+                        .or_default()
+                        .push(*tile_id);
                 }
             }
         }
@@ -398,14 +400,12 @@ fn get_background_color_from_node(node_id: Option<NodeId>, doc: &Document) -> Op
         return None;
     };
 
-    data.styles.get_property(BackgroundColor).map(|value| {
+    data.styles.get_property(BackgroundColor).and_then(|value| {
         if let StyleValue::Color(color) = value {
             return convert_color(color);
         }
         None
-    });
-
-    None
+    })
 }
 
 fn convert_color(color: &StyleColor) -> Option<(f32, f32, f32, f32)> {

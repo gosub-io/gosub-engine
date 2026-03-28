@@ -39,7 +39,7 @@ gosub_interface = { path = "../gosub_interface" }
 
 parley = { version = "0.3.0", optional = true }
 pangocairo = { version = "0.19", optional = true }
-gtk4 = { version = "0.8", optional = true }
+gtk4 = { version = "0.11", optional = true }
 vello = { version = "0.4.1", optional = true }
 winit = { version = "0.30.9", optional = true }
 pollster = { version = "0.4.0", optional = true }
@@ -66,6 +66,8 @@ text_skia   = ["dep:skia-safe"]
 
 # Optional render backends (only needed for standalone pipeline binaries)
 backend_cairo = ["dep:gtk4"]
+# Feature aliases so workspace-wide --features gtk4/skia/vello resolve cleanly
+gtk4   = ["backend_cairo"]
 backend_vello = ["dep:vello", "dep:winit", "dep:pollster"]
 backend_skia  = ["dep:skia-safe", "dep:winit", "dep:pollster", "dep:glutin",
                   "dep:glutin-winit", "dep:raw-window-handle", "dep:gl-rs"]

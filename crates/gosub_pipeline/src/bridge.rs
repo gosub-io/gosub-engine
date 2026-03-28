@@ -68,8 +68,12 @@ where
             "display" => {
                 if let Some(s) = prop.as_string() {
                     let d = match s {
+                        // "inline" is the CSS *initial* value — skip it so elements with no
+                        // explicit display rule fall through to Taffy's default (Block), which
+                        // is what the browser UA stylesheet intends for block-level elements.
+                        // Inline is only applied when a stylesheet rule explicitly says so.
+                        "inline"             => None,
                         "block"              => Some(Display::Block),
-                        "inline"             => Some(Display::Inline),
                         "inline-block"       => Some(Display::InlineBlock),
                         "none"               => Some(Display::None),
                         "flex"               => Some(Display::Flex),

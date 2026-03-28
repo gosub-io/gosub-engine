@@ -47,6 +47,10 @@ impl CssTaffyConverter {
 
     pub fn convert(&self, node_id: NodeId, is_inline: bool) -> Style {
         let mut ts = Style::default();
+        // Taffy's default display is Flex (because the flexbox feature is enabled).
+        // For HTML elements without an explicit CSS display rule, Block is the correct default.
+        // Explicit rules (e.g. display:inline from the UA stylesheet) will override this below.
+        ts.display = Display::Block;
 
         ts.display = self.get_display(ts.display);
         // ts.item_is_table = true;

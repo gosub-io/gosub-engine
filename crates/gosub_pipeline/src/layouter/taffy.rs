@@ -218,9 +218,8 @@ impl TaffyLayouter {
         current_inline_group: &Vec<(LayoutElementId, TaffyNodeId)>,
         element_node: &mut LayoutElementNode,
         leaf_id: TaffyNodeId,
+        layout_tree: &mut LayoutTree,
     ) {
-        println!("Processing inline elements: {:?}", current_inline_group.len());
-
         // No inline elements to process
         if current_inline_group.is_empty() {
             return;
@@ -235,12 +234,15 @@ impl TaffyLayouter {
             return;
         }
 
-        // Multiple inline elements are found. We need to wrap them in an anonymous taffy block element
+        // Multiple inline elements: wrap them in an anonymous flex-row container so that they flow
+        // horizontally (inline flow). We also register the container as a proper LayoutElementNode
+        // so that populate_boxmodel correctly propagates its position offset to all children.
         let Ok(taffy_container_id) = self.tree.new_leaf(Style {
             display: Display::Flex,
             flex_direction: FlexDirection::Row,
             flex_wrap: FlexWrap::Wrap,
             align_self: Some(AlignSelf::FlexStart),
+            align_items: Some(AlignItems::Baseline),
             gap: Size {
                 width: LengthPercentage::Length(0.0),
                 height: LengthPercentage::Length(0.0),
@@ -249,16 +251,31 @@ impl TaffyLayouter {
                 width: Dimension::Auto,
                 height: Dimension::Auto,
             },
-            .. Default::default()
+            ..Default::default()
         }) else {
             return;
         };
         self.tree.add_child(leaf_id, taffy_container_id).unwrap();
 
-        // and add all the inline elements to the anonymous element
+        // Create a LayoutElementNode for the anonymous container so populate_boxmodel
+        // can look up its position and propagate the correct offset to children.
+        let anon_layout_id = layout_tree.next_node_id();
+        let anon_node = LayoutElementNode {
+            id: anon_layout_id,
+            dom_node_id: element_node.dom_node_id,
+            render_node_id: element_node.render_node_id,
+            box_model: box_model::BoxModel::ZERO,
+            children: Vec::new(),
+            context: ElementContext::None,
+        };
+        layout_tree.arena.insert(anon_layout_id, anon_node);
+        self.layout_taffy_mapping.insert(anon_layout_id, taffy_container_id);
+        element_node.children.push(anon_layout_id);
+
+        // Add all inline children as children of the anonymous container node
         for (inline_layout_element_id, inline_taffy_node_id) in current_inline_group {
-            self.tree.add_child(taffy_container_id, *inline_taffy_node_id);
-            element_node.children.push(*inline_layout_element_id);
+            self.tree.add_child(taffy_container_id, *inline_taffy_node_id).unwrap();
+            layout_tree.arena.get_mut(&anon_layout_id).unwrap().children.push(*inline_layout_element_id);
         }
     }
 
@@ -344,6 +361,7 @@ impl TaffyLayouter {
                 &mut current_inline_group,
                 &mut element_node,
                 leaf_id,
+                layout_tree,
             );
             current_inline_group = Vec::new();
 
@@ -357,6 +375,7 @@ impl TaffyLayouter {
             &mut current_inline_group,
             &mut element_node,
             leaf_id,
+            layout_tree,
         );
 
         // Finally, we can insert the generated element also in the layout-tree. This is the ultimate

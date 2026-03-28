@@ -73,6 +73,17 @@ impl RenderBackend for CairoBackend {
                         cr.rectangle(*x as f64, *y as f64, *w as f64, *h as f64);
                         _ = cr.fill();
                     }
+                    DisplayItem::Outline { x, y, w, h, color } => {
+                        cr.set_source_rgba(
+                            color.r as f64,
+                            color.g as f64,
+                            color.b as f64,
+                            color.a as f64,
+                        );
+                        cr.set_line_width(1.0);
+                        cr.rectangle(*x as f64, *y as f64, *w as f64, *h as f64);
+                        _ = cr.stroke();
+                    }
                     DisplayItem::TextRun {
                         x,
                         y,

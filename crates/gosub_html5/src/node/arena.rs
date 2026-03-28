@@ -1,6 +1,5 @@
-use crate::node::node_impl::NodeImpl;
-use gosub_interface::config::HasDocumentFragment;
-use gosub_interface::node::NodeId;
+use gosub_interface::config::HasDocument;
+use gosub_interface::node::{Node, NodeId};
 use std::collections::HashMap;
 
 /// The node arena is the single source for nodes in a document (or fragment).

@@ -143,6 +143,17 @@ impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
                         (*color).into(),
                     );
                 }
+                DisplayItem::Outline { x, y, w, h, color } => {
+                    let x = *x - offset_x;
+                    let y = *y - offset_y;
+                    scene.stroke(
+                        &vello::kurbo::Stroke::new(1.0),
+                        Affine::IDENTITY,
+                        Color::new([color.r, color.g, color.b, color.a]),
+                        None,
+                        &vello::kurbo::Rect::new(x as f64, y as f64, (x + w) as f64, (y + h) as f64),
+                    );
+                }
             }
         }
 

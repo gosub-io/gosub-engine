@@ -1,33 +1,8 @@
-gtk4 = "0.11.1"
-winit = "0.30.12"
-cookie = { version = "0.18.1", features = ["secure", "private"] }
-url = "2.5.8"
-clap = { version = "4.6.0", features = ["derive"] }
-simple_logger = "5.2.0"
-log = "0.4.29"
-anyhow = "1.0.102"
-image = "0.25.10"
-slotmap = "1.1.1"
-
-[features]
-# Enables extended debugging information during parsing.
-debug_parser = []
-debug_parser_verbose = []
-
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-js-sys = "0.3.91"
-web-sys = "0.3.91"
-console_log = "1.0.0"
-console_error_panic_hook = "0.1.7"
-wasm-bindgen-futures = "0.4.64"
-wasm-bindgen = "0.2.114"
-getrandom = "0.4.2"
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-gosub_v8 = { version = "0.1.1", path = "./crates/gosub_v8", features = [], registry = "gosub" }
-gosub_webexecutor = { version = "0.1.1", path = "./crates/gosub_webexecutor", features = [], registry = "gosub" }
-ureq = "3.0.11"
-futures = "0.3.32"
+[workspace]
+members = [
+    "crates/*",
+]
+resolver = "2"
 
 [profile.release]
 lto = "fat"
