@@ -558,7 +558,7 @@ where
                     return;
                 }
                 Ok(RoutedOutcome::ViewerRendered(_doc)) => {
-                    println!("Tab[{:?}] RoutedOutcome::ViewerRendered", tab_id);
+                    log::debug!("Tab[{:?}] RoutedOutcome::ViewerRendered", tab_id);
                     let _ = tx_done.send(NavigationResult::Err {
                         nav_id,
                         error: NavigationError::Other(anyhow!("Viewer rendering not supported yet")),
@@ -566,7 +566,7 @@ where
                     return;
                 }
                 Ok(RoutedOutcome::DownloadStarted(_doc)) => {
-                    println!("Tab[{:?}] RoutedOutcome::DownloadStarted", tab_id);
+                    log::debug!("Tab[{:?}] RoutedOutcome::DownloadStarted", tab_id);
                     let _ = tx_done.send(NavigationResult::Err {
                         nav_id,
                         error: NavigationError::Other(anyhow!("Download not supported yet")),
@@ -574,7 +574,7 @@ where
                     return;
                 }
                 Ok(RoutedOutcome::DownloadFinished(_doc)) => {
-                    println!("Tab[{:?}] RoutedOutcome::DownloadFinished", tab_id);
+                    log::debug!("Tab[{:?}] RoutedOutcome::DownloadFinished", tab_id);
                     let _ = tx_done.send(NavigationResult::Err {
                         nav_id,
                         error: NavigationError::Other(anyhow!("Download not supported yet")),
@@ -583,22 +583,22 @@ where
                 }
                 Ok(RoutedOutcome::CssLoaded(_doc)) => {
                     // CSS loaded, but we don't do anything special here
-                    println!("Tab[{:?}] RoutedOutcome::CssLoaded", tab_id);
+                    log::debug!("Tab[{:?}] RoutedOutcome::CssLoaded", tab_id);
                 }
                 Ok(RoutedOutcome::ScriptLoaded(_script)) => {
                     // Script loaded — execution happens at page lifecycle level
-                    println!("Tab[{:?}] RoutedOutcome::ScriptLoaded", tab_id);
+                    log::debug!("Tab[{:?}] RoutedOutcome::ScriptLoaded", tab_id);
                 }
                 Ok(RoutedOutcome::ImageDecoded(_doc)) => {
                     // Image decoded, but we don't do anything special here
-                    println!("Tab[{:?}] RoutedOutcome::ImageDecoded", tab_id);
+                    log::debug!("Tab[{:?}] RoutedOutcome::ImageDecoded", tab_id);
                 }
                 Ok(RoutedOutcome::FontLoaded(_doc)) => {
                     // Font loaded, but we don't do anything special here
-                    println!("Tab[{:?}] RoutedOutcome::FontLoaded", tab_id);
+                    log::debug!("Tab[{:?}] RoutedOutcome::FontLoaded", tab_id);
                 }
                 Ok(RoutedOutcome::Blocked(reason)) => {
-                    println!("Tab[{:?}] RoutedOutcome::Blocked", tab_id);
+                    log::debug!("Tab[{:?}] RoutedOutcome::Blocked", tab_id);
 
                     let final_url = match fetch_result.meta() {
                         Some(meta) => meta.final_url.clone(),
@@ -703,10 +703,8 @@ where
     /// Intended for HTML5 storage event semantics.
     #[allow(unused)]
     pub(crate) fn dispatch_storage_events(&mut self, origin: &url::Origin, include_iframes: bool, ev: &StorageEvent) {
-        println!("Tab {:?} dispatch_storage_events called", self.tab_id);
-        dbg!(&origin);
-        dbg!(&include_iframes);
-        dbg!(&ev);
+        log::debug!("Tab {:?} dispatch_storage_events called", self.tab_id);
+        let _ = (origin, include_iframes, ev);
     }
 
     /// Ensure the tab has a surface of the given size, creating it if necessary.

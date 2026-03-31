@@ -47,7 +47,7 @@ fn draw_single_border(canvas: &skia_safe::Canvas, rect: &Rectangle, dashes: Vec<
     }
 
     let shape = create_rect_shape(rect, Some(1.0));
-    println!("DrawRect (border): {:?}", shape.rect());
+    log::debug!("DrawRect (border): {:?}", shape.rect());
     shape.draw(canvas, &skia_paint);
 }
 
@@ -66,7 +66,7 @@ fn draw_double_border(canvas: &skia_safe::Canvas, rect: &Rectangle, dashes: Vec<
     if rect.border().width() < 3.0 {
         // When the width is less than 3.0, we just draw a single line as there is no room for
         // a double border
-        println!("DrawRect (dborder): {:?}", shape.rect());
+        log::debug!("DrawRect (dborder): {:?}", shape.rect());
         shape.draw(canvas, &skia_paint);
         return;
     }
@@ -76,7 +76,7 @@ fn draw_double_border(canvas: &skia_safe::Canvas, rect: &Rectangle, dashes: Vec<
     // Outer border
     let width = (rect.border().width() / 2.0).floor();
     skia_paint.paint_mut().set_stroke_width(width);
-    println!("DrawRect (dborder): {:?}", shape.rect());
+    log::debug!("DrawRect (dborder): {:?}", shape.rect());
     shape.draw(canvas, &skia_paint);
 
     let gap_size = 1.0;
@@ -90,7 +90,7 @@ fn draw_double_border(canvas: &skia_safe::Canvas, rect: &Rectangle, dashes: Vec<
     ));
     let shape = create_rect_shape(&inner_border_rect, None);
     let skia_paint = create_paint(&rect.border().brushes()[0]);
-    println!("DrawRect (dborder): {:?}", shape.rect());
+    log::debug!("DrawRect (dborder): {:?}", shape.rect());
     shape.draw(canvas, &skia_paint);
 }
 

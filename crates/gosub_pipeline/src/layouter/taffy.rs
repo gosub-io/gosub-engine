@@ -350,12 +350,12 @@ impl TaffyLayouter {
 
             // Don't add inline elements to the taffy tree yet. We need to group them first and possibly wrap inside a block
             if child_node.is_inline_element() || child_node.is_text() {
-                println!("Pushing element as inline: {:?}", child_node.node_id);
+                log::debug!("Pushing element as inline: {:?}", child_node.node_id);
                 current_inline_group.push((child_layout_element_id, child_taffy_id));
                 continue;
             }
 
-            println!("Element {:?} is not an inline", child_node.node_id);
+            log::debug!("Element {:?} is not an inline", child_node.node_id);
 
             self.process_inlines(
                 &mut current_inline_group,
@@ -412,7 +412,7 @@ impl TaffyLayouter {
                     let src = data.get_attribute("src").unwrap();
                     let src = to_absolute_url(src, base_url);
 
-                    println!("Loading (image) resource: {}", src);
+                    log::debug!("Loading (image) resource: {}", src);
 
                     let media_store = get_media_store();
                     let Ok(media_id) = media_store.read().unwrap().load_media(src.as_str()) else {

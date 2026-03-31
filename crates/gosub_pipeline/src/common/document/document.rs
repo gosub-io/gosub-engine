@@ -206,7 +206,6 @@ mod tests {
         let mut s = String::new();
         let _ = document.print_tree(&mut s);
 
-        println!("{}", s);
         let result = r#"(NodeID(1)) <html lang="en">
     (NodeID(2)) <body >
         (NodeID(3)) <h1 class="title" data-alpine="x-wrap">

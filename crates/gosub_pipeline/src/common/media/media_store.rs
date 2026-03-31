@@ -65,7 +65,7 @@ impl MediaStore {
         let h = hash_from_string(src);
         let cache = self.cache.read().expect("Failed to lock cache");
         if let Some(media_id) = cache.get(&h) {
-            println!("Loading cached media from path: {}", src);
+            log::debug!("Loading cached media from path: {}", src);
             return Ok(*media_id);
         }
         drop(cache);
@@ -85,7 +85,7 @@ impl MediaStore {
         let h = hash_from_data(data);
         let cache = self.cache.read().expect("Failed to lock cache");
         if let Some(media_id) = cache.get(&h) {
-            println!("Loading cached media from data");
+            log::debug!("Loading cached media from data");
             return Ok(*media_id);
         }
         drop(cache);
@@ -140,7 +140,7 @@ impl MediaStore {
     }
 
     fn load_media_from_source(&self, src: &str) -> anyhow::Result<MediaId> {
-        println!("Loading non-cached media from path: {}", src);
+        log::debug!("Loading non-cached media from path: {}", src);
         let Ok((media_type, raw_data)) = self.fetch_resource(src) else {
             anyhow::bail!("Failed to fetch resource");
         };

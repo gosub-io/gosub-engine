@@ -70,7 +70,7 @@ impl RenderTree {
     pub fn print(&self) {
         match self.root_id {
             Some(root_id) => self.print_node(root_id, 0),
-            None => println!("No root node"),
+            None => log::debug!("No root node"),
         }
     }
 
@@ -84,7 +84,7 @@ impl RenderTree {
         };
 
         let indent = " ".repeat(level * 4);
-        println!("{}{}", indent, node.node_id);
+        log::debug!("{}{}", indent, node.node_id);
         for child_id in &node.children {
             self.print_node(*child_id, level + 1);
         }

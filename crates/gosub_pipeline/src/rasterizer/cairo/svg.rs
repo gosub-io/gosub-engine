@@ -6,7 +6,7 @@ use resvg::usvg::Transform;
 use crate::tiler::Tile;
 
 pub(crate) fn do_paint_svg(cr: &Context, _tile: &Tile, rect: &Rectangle, media_id: MediaId) {
-    println!("Painting SVG: {:?}", media_id);
+    log::debug!("Painting SVG: {:?}", media_id);
     let binding = get_media_store().read().unwrap();
     let media = binding.get_svg(media_id);
 

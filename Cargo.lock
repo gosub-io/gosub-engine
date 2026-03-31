@@ -3842,36 +3842,8 @@ dependencies = [
  "cow-utils",
  "gosub_html5",
  "gosub_interface",
- "gosub_shared",
  "log",
  "rstar",
-]
-
-[[package]]
-name = "gosub_shared"
-version = "0.1.1"
-dependencies = [
- "anyhow",
- "chardet",
- "chardetng",
- "derive_more",
- "encoding_rs",
- "futures",
- "getrandom 0.4.2",
- "image",
- "js-sys",
- "lazy_static",
- "log",
- "rand 0.10.0",
- "raw-window-handle",
- "smallvec",
- "thiserror 2.0.18",
- "url",
- "uuid",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "wasm-bindgen-test",
- "web-sys",
 ]
 
 [[package]]
@@ -3948,7 +3920,6 @@ name = "gosub_web_platform"
 version = "0.1.0"
 dependencies = [
  "gosub_interface",
- "gosub_shared",
  "log",
  "pin-project",
  "slotmap",

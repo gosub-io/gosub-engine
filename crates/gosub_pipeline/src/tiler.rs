@@ -366,12 +366,12 @@ impl TileList {
     }
 
     pub fn print_list(&self) {
-        println!("Generated tilelist:");
+        log::debug!("Generated tilelist:");
         for (layer_id, tile_layer) in self.tiles.iter() {
-            println!("Layer: {}", layer_id);
+            log::debug!("Layer: {}", layer_id);
             for tile_id in tile_layer.tiles.iter() {
                 let tile = self.arena.get(tile_id).unwrap();
-                println!("  Tile: {} : {} elements", tile_id, tile.elements.len());
+                log::debug!("  Tile: {} : {} elements", tile_id, tile.elements.len());
             }
         }
     }

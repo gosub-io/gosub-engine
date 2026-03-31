@@ -63,7 +63,7 @@ pub(crate) fn do_paint_svg(
                 None);
         }
         None => {
-            println!("Error rendering SVG");
+            log::warn!("Error rendering SVG");
         }
     }
 }
