@@ -1,7 +1,7 @@
 use std::ops::{Mul, MulAssign};
 
 use gosub_interface::render_backend::Transform as TTransform;
-use gosub_shared::geo::{Point, FP};
+use gosub_interface::geo::{Point, FP};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GsTransform {

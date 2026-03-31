@@ -1,6 +1,6 @@
-use gosub_shared::byte_stream::Location;
-use gosub_shared::node::NodeId;
-use gosub_shared::types::Result;
+use gosub_stream::byte_stream::Location;
+use gosub_interface::node::NodeId;
+use gosub_interface::types::Result;
 
 /// `TreeBuilder` is an interface to abstract DOM tree modifications.
 ///
@@ -39,6 +39,7 @@ mod tests {
     use gosub_css3::system::Css3System;
     use gosub_interface::config::{HasCssSystem, HasDocument, HasHtmlParser};
     use test_case::test_case;
+    use gosub_stream::byte_stream::ByteStream;
 
     #[derive(Clone, Debug, PartialEq)]
     struct Config;
@@ -54,6 +55,7 @@ mod tests {
 
     impl HasHtmlParser for Config {
         type HtmlParser = Html5Parser<'static, Self>;
+        type HtmlStream = ByteStream;
     }
 
     const DISABLED_CASES: &[&str] = &[

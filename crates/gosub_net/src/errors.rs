@@ -4,9 +4,6 @@ use thiserror::Error;
 /// Serious errors and errors from third-party libraries
 #[derive(Debug, Error)]
 pub enum Error {
-    #[error("ureq error")]
-    Request(#[from] Box<crate::http::HttpError>),
-
     #[error("io error: {0}")]
     IO(#[from] std::io::Error),
 

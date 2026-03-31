@@ -1,7 +1,7 @@
 use crate::node::{Node, NodeType};
 use crate::tokenizer::TokenType;
 use crate::Css3;
-use gosub_shared::errors::{CssError, CssResult};
+use gosub_interface::errors::{CssError, CssResult};
 
 #[derive(Debug, PartialEq)]
 pub enum BlockParseMode {

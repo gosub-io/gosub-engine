@@ -14,7 +14,7 @@ use crate::parser::block::BlockParseMode;
 use crate::tokenizer::TokenType;
 use crate::Css3;
 use cow_utils::CowUtils;
-use gosub_shared::errors::{CssError, CssResult};
+use gosub_interface::errors::{CssError, CssResult};
 
 impl Css3<'_> {
     fn declaration_block_at_rule(&mut self) -> BlockParseMode {

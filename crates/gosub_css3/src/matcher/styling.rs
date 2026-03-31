@@ -13,7 +13,7 @@ use gosub_interface::document::Document;
 use gosub_interface::node::ClassList;
 use gosub_interface::node::ElementDataType;
 use gosub_interface::node::Node;
-use gosub_shared::node::NodeId;
+use gosub_interface::node::NodeId;
 
 use crate::matcher::property_definitions::get_css_definitions;
 use crate::stylesheet::{Combinator, CssSelector, CssSelectorPart, CssValue, MatcherType, Specificity};

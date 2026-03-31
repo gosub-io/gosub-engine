@@ -1,10 +1,10 @@
 use crate::config::{HasDocument, HasDrawComponents, HasHtmlParser};
 use crate::eventloop::EventLoopHandle;
+use crate::fetcher::{Fetcher, SharedFetcher};
 use crate::layout::LayoutTree;
 use crate::render_backend::{ImgCache, NodeDesc, RenderBackend};
-use gosub_net::http::fetcher::Fetcher;
-use gosub_shared::geo::{Point, SizeU32, FP};
-use gosub_shared::types::Result;
+use crate::geo::{Point, SizeU32, FP};
+use crate::types::Result;
 use std::future::Future;
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
@@ -19,9 +19,10 @@ pub trait TreeDrawer<C: HasDrawComponents> {
     fn scroll(&mut self, point: Point);
     fn from_url(
         url: Url,
+        fetcher: SharedFetcher,
         layouter: C::Layouter,
         debug: bool,
-    ) -> impl Future<Output = gosub_shared::types::Result<(Self, C::Document)>>
+    ) -> impl Future<Output = crate::types::Result<(Self, C::Document)>>
     where
         Self: Sized,
         C: HasDocument + HasHtmlParser;
@@ -31,6 +32,8 @@ pub trait TreeDrawer<C: HasDrawComponents> {
         url: Url,
         // Actual loaded source HTML
         source_html: &str,
+        // Fetcher for external resources (e.g. stylesheets)
+        fetcher: SharedFetcher,
         // Layouter that renders the tree
         layouter: C::Layouter,
         // Debug flag
@@ -44,7 +47,7 @@ pub trait TreeDrawer<C: HasDrawComponents> {
         // The initial url that the source was loaded from
         url: Url,
         // The fetcher that is used to load resources
-        fetcher: Arc<Fetcher>,
+        fetcher: Arc<dyn Fetcher>,
         // Layouter that renders the tree
         layouter: C::Layouter,
         // Debug flag

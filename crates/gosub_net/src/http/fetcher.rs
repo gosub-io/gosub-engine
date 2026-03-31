@@ -1,10 +1,12 @@
-use anyhow::bail;
+use anyhow::{bail, Result};
+use gosub_interface::fetcher::{FetchResponse, Fetcher as FetcherTrait};
 use std::error::Error;
 use std::fmt::Debug;
 use std::future::Future;
+use std::pin::Pin;
 use url::{ParseError, Url};
 
-use gosub_shared::types::Result;
+
 
 use crate::http::request::Request;
 use crate::http::request_impl::RequestImpl;
@@ -75,5 +77,35 @@ impl Fetcher {
         }
 
         Ok(parsed_url?)
+    }
+}
+
+impl FetcherTrait for Fetcher {
+    fn get_url<'a>(&'a self, url: &'a Url) -> Pin<Box<dyn Future<Output = Result<FetchResponse>> + Send + 'a>> {
+        Box::pin(async move {
+            let resp = Fetcher::get_url(self, url).await?;
+            Ok(FetchResponse {
+                status: resp.status,
+                body: resp.body,
+            })
+        })
+    }
+
+    fn get<'a>(&'a self, url: &'a str) -> Pin<Box<dyn Future<Output = Result<FetchResponse>> + Send + 'a>> {
+        Box::pin(async move {
+            let resp = Fetcher::get(self, url).await?;
+            Ok(FetchResponse {
+                status: resp.status,
+                body: resp.body,
+            })
+        })
+    }
+
+    fn parse_url(&self, url: &str) -> Result<Url> {
+        Fetcher::parse_url(self, url)
+    }
+
+    fn base(&self) -> &Url {
+        Fetcher::base(self)
     }
 }

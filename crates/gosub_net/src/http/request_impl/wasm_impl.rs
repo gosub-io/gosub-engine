@@ -2,8 +2,8 @@ use crate::http::fetcher::RequestAgent;
 use crate::http::headers::Headers;
 use crate::http::request::Request;
 use crate::http::response::Response;
-use anyhow::anyhow;
-use gosub_shared::types::Result;
+use anyhow::{anyhow, Result};
+
 use js_sys::{ArrayBuffer, Uint8Array};
 use log::info;
 use std::error::Error;

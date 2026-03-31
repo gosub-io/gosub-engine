@@ -1,7 +1,7 @@
 use crate::node::{Node, NodeType};
 use crate::tokenizer::TokenType;
 use crate::Css3;
-use gosub_shared::errors::CssResult;
+use gosub_interface::errors::CssResult;
 
 impl Css3<'_> {
     pub fn parse_calc(&mut self) -> CssResult<Node> {

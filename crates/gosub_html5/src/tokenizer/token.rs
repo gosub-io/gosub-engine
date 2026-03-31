@@ -1,5 +1,5 @@
 use crate::tokenizer::CHAR_NUL;
-use gosub_shared::byte_stream::Location;
+use gosub_stream::byte_stream::Location;
 use std::collections::HashMap;
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]

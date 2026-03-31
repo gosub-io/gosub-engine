@@ -1,7 +1,7 @@
 use core::fmt::Display;
 use std::ffi::c_void;
 
-use gosub_shared::types::Result;
+use gosub_interface::types::Result;
 use gosub_webexecutor::js::{JSError, WebGetterCallback, WebObject, WebRuntime, WebSetterCallback, WebValue};
 use gosub_webexecutor::Error;
 use v8::{

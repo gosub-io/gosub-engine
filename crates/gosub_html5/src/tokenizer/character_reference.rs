@@ -3,8 +3,8 @@ extern crate lazy_static;
 use crate::parser::errors::ParserError;
 use crate::tokenizer::replacement_tables::{TOKEN_NAMED_CHARS, TOKEN_REPLACEMENTS};
 use crate::tokenizer::{Tokenizer, CHAR_REPLACEMENT};
-use gosub_shared::byte_stream::Character::Ch;
-use gosub_shared::byte_stream::{Character, Stream};
+use gosub_stream::byte_stream::Character::Ch;
+use gosub_stream::byte_stream::{Character, Stream};
 use lazy_static::lazy_static;
 
 /// Different states for the character references
@@ -355,7 +355,7 @@ lazy_static! {
 mod tests {
     use crate::tokenizer::ErrorLogger;
     use crate::tokenizer::{ParserData, Tokenizer};
-    use gosub_shared::byte_stream::{ByteStream, Encoding, Location};
+    use gosub_stream::byte_stream::{ByteStream, Encoding, Location};
     use std::cell::RefCell;
     use std::rc::Rc;
 

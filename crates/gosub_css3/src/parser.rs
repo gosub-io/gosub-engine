@@ -1,6 +1,6 @@
 use crate::tokenizer::{Number, Token, TokenType};
 use crate::Css3;
-use gosub_shared::errors::{CssError, CssResult};
+use gosub_interface::errors::{CssError, CssResult};
 
 mod anplusb;
 mod at_rule;

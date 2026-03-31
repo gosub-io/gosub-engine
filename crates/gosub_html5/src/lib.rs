@@ -7,8 +7,9 @@ use crate::parser::Html5Parser;
 use gosub_interface::config::HasDocument;
 use gosub_interface::document::DocumentBuilder;
 
-use gosub_shared::byte_stream::{ByteStream, Encoding};
+use gosub_stream::byte_stream::{ByteStream, Encoding};
 
+pub mod async_parse;
 pub mod document;
 pub mod dom;
 pub mod errors;
@@ -18,6 +19,10 @@ pub mod testing;
 pub mod tokenizer;
 #[allow(dead_code)]
 pub mod writer;
+
+pub use async_parse::{
+    extract_title, parse_html_stream, HintKind, HintPriority, Html5ParseConfig, ParseStreamError, ResourceHint,
+};
 
 /// Parses the given HTML string and returns a handle to the resulting DOM tree.
 #[must_use]

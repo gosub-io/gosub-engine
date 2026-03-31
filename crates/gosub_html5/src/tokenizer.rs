@@ -13,9 +13,9 @@ use crate::parser::errors::{ErrorLogger, ParserError};
 use crate::tokenizer::state::State;
 use crate::tokenizer::token::Token;
 use cow_utils::CowUtils;
-use gosub_shared::byte_stream::Character::{Ch, StreamEnd};
-use gosub_shared::byte_stream::{ByteStream, Character, Location, LocationHandler, Stream};
-use gosub_shared::types::Result;
+use gosub_interface::types::Result;
+use gosub_stream::byte_stream::Character::{Ch, StreamEnd};
+use gosub_stream::byte_stream::{ByteStream, Character, Location, LocationHandler, Stream};
 use std::cell::{Ref, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -156,7 +156,6 @@ impl<'stream> Tokenizer<'stream> {
     }
 
     /// Returns the error logger
-    #[must_use]
     pub fn get_error_logger(&self) -> Ref<'_, ErrorLogger> {
         self.error_logger.borrow()
     }

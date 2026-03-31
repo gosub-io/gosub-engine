@@ -8,8 +8,8 @@ use core::fmt::Debug;
 use gosub_interface::config::HasDocument;
 
 use gosub_interface::node::{Node, NodeData, NodeType, QuirksMode};
-use gosub_shared::byte_stream::Location;
-use gosub_shared::node::NodeId;
+use gosub_stream::byte_stream::Location;
+use gosub_interface::node::NodeId;
 use std::collections::HashMap;
 
 /// Implementation of the `NodeDataType` trait

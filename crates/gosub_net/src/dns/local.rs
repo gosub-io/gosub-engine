@@ -1,8 +1,9 @@
+use anyhow::Result;
 use crate::dns::{DnsCache, DnsEntry, DnsResolver, ResolveType};
 use crate::errors::Error;
 use core::fmt;
 use domain_lookup_tree::DomainLookupTree;
-use gosub_shared::types::Result;
+
 use log::trace;
 use std::collections::HashMap;
 

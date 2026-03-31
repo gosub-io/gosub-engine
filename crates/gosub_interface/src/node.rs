@@ -1,9 +1,125 @@
 use crate::config::HasDocument;
-use gosub_shared::byte_stream::Location;
-use gosub_shared::node::NodeId;
+use derive_more::Display;
 use std::collections::hash_map::IntoIter;
 use std::collections::HashMap;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display, Formatter};
+use std::fmt;
+
+/// Location holds the start position of the given element in the data source
+#[derive(Clone, PartialEq, Copy)]
+pub struct Location {
+    /// Line number, starting with 1
+    pub line: usize,
+    /// Column number, starting with 1
+    pub column: usize,
+    /// Byte offset, starting with 0
+    pub offset: usize,
+}
+
+impl Default for Location {
+    /// Default to line 1, column 1
+    fn default() -> Self {
+        Self::new(1, 1, 0)
+    }
+}
+
+impl Location {
+    /// Create a new Location
+    pub fn new(line: usize, column: usize, offset: usize) -> Self {
+        Self { line, column, offset }
+    }
+}
+
+impl Display for Location {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "({}:{})", self.line, self.column)
+    }
+}
+
+impl Debug for Location {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "({}:{})", self.line, self.column)
+    }
+}
+
+/// A NodeID is a unique identifier for a node in a node tree.
+#[derive(Clone, Copy, Debug, Default, Display, Eq, Hash, PartialEq, PartialOrd)]
+pub struct NodeId(usize);
+
+impl From<NodeId> for usize {
+    /// Converts a NodeId into a usize
+    fn from(value: NodeId) -> Self {
+        value.0
+    }
+}
+
+impl From<usize> for NodeId {
+    /// Converts a usize into a NodeId
+    fn from(value: usize) -> Self {
+        Self(value)
+    }
+}
+
+impl From<u64> for NodeId {
+    /// Converts a u64 into a NodeId
+    fn from(value: u64) -> Self {
+        Self(value as usize)
+    }
+}
+
+impl From<NodeId> for u64 {
+    /// Converts a NodeId into a u64
+    fn from(value: NodeId) -> Self {
+        value.0 as u64
+    }
+}
+
+impl Default for &NodeId {
+    /// Returns the default NodeId, which is 0
+    fn default() -> Self {
+        &NodeId(0)
+    }
+}
+
+impl NodeId {
+    // TODO: Drop Default derive and only use 0 for the root, or choose another id for the root
+    pub const ROOT_NODE: usize = 0;
+
+    /// Returns the root node ID
+    pub fn root() -> Self {
+        Self(Self::ROOT_NODE)
+    }
+
+    /// Returns true when this nodeId is the root node
+    pub fn is_root(&self) -> bool {
+        self.0 == Self::ROOT_NODE
+    }
+
+    /// Returns the next node ID
+    #[must_use]
+    pub fn next(&self) -> Self {
+        if self.0 == usize::MAX {
+            return Self(usize::MAX);
+        }
+
+        Self(self.0 + 1)
+    }
+
+    /// Returns the nodeID as usize
+    pub fn as_usize(&self) -> usize {
+        self.0
+    }
+
+    /// Returns the previous node ID
+    #[must_use]
+    pub fn prev(&self) -> Self {
+        if self.0 == 0 {
+            return Self::root();
+        }
+
+        Self(self.0 - 1)
+    }
+}
 
 #[derive(PartialEq, Debug, Copy, Clone)]
 pub enum QuirksMode {

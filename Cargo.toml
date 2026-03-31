@@ -1,112 +1,15 @@
-[package]
-name = "gosub_engine"
-version = "0.1.1"
-edition = "2021"
-rust-version = "1.80"
-authors = ["Gosub Community <info@gosub.io>"]
-description = "Gosub Browser Engine"
-license = "MIT"
-repository = "https://github.com/gosub-io/gosub-engine"
-readme = "README.md"
-keywords = ["html5", "parser", "browser", "Rust", "DOM"]
-
 [workspace]
 members = [
-    "crates/*"
+    "crates/*",
 ]
-
-[[example]]
-name = "html5-parser"
-
-[[example]]
-name = "gtk-renderer"
-path = "examples/gtk-renderer/main.rs"
-
-[[example]]
-name = "vello-renderer"
-path = "examples/vello-renderer/main.rs"
-
-[[bench]]
-name = "tree_iterator"
-harness = false
-
-[[bench]]
-name = "bytestream"
-harness = false
-
-[dependencies]
-gosub_interface = { version = "0.1.1", path = "./crates/gosub_interface", features = [], registry = "gosub" }
-gosub_shared = { version = "0.1.1", path = "./crates/gosub_shared", features = [], registry = "gosub" }
-gosub_config = { version = "0.1.1", path = "./crates/gosub_config", features = [], registry = "gosub" }
-gosub_html5 = { version = "0.1.1", path = "./crates/gosub_html5", features = [], registry = "gosub" }
-gosub_css3 = { version = "0.1.1", path = "./crates/gosub_css3", features = [], registry = "gosub" }
-gosub_jsapi = { version = "0.1.1", path = "./crates/gosub_jsapi", features = [], registry = "gosub" }
-gosub_rendering = { version = "0.1.1", path = "crates/gosub_rendering", features = [], registry = "gosub" }
-gosub_renderer = { version = "0.1.1", path = "./crates/gosub_renderer", features = [], registry = "gosub" }
-gosub_vello = { version = "0.1.1", path = "./crates/gosub_vello", features = [], registry = "gosub" }
-gosub_cairo = { version = "0.1.1", path = "./crates/gosub_cairo", features = [], registry = "gosub" }
-gosub_taffy = { version = "0.1.1", path = "./crates/gosub_taffy", features = [], registry = "gosub" }
-gosub_net = { version = "0.1.1", path = "./crates/gosub_net", features = [], registry = "gosub" }
-gosub_instance = { version = "0.1.0", path = "./crates/gosub_instance", features = [], registry = "gosub" }
-gosub_fontmanager = { version = "0.1.0", path = "./crates/gosub_fontmanager", registry = "gosub" }
-# Dependencies are needed for gosub_engine itself, and some of the binaries in src/bin.
-cookie = { version = "0.18.1", features = ["secure", "private"] }
-url = "2.5.8"
-clap = { version = "4.6.0", features = ["derive"] }
-anyhow = "1.0.102"
-derive_more = "2.1.1"
-simple_logger = "5.2.0"
-log = "0.4.29"
-walkdir = "2.5.0"
-
-# Dependencies for testing and development. Also used for some of the examples (like the gtk/vello renderer).
-[dev-dependencies]
-criterion = { version = "0.8.2", features = ["html_reports"] }
-test-case = "3.3.1"
-gtk4 = "0.11.1"
-winit = "0.30.12"
-cookie = { version = "0.18.1", features = ["secure", "private"] }
-url = "2.5.8"
-clap = { version = "4.6.0", features = ["derive"] }
-simple_logger = "5.2.0"
-log = "0.4.29"
-anyhow = "1.0.102"
-image = "0.25.10"
-slotmap = "1.1.1"
-
-[features]
-# Enables extended debugging information during parsing.
-debug_parser = []
-debug_parser_verbose = []
-
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-js-sys = "0.3.91"
-web-sys = "0.3.91"
-console_log = "1.0.0"
-console_error_panic_hook = "0.1.7"
-wasm-bindgen-futures = "0.4.64"
-wasm-bindgen = "0.2.114"
-getrandom = "0.4.2"
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-gosub_v8 = { version = "0.1.1", path = "./crates/gosub_v8", features = [], registry = "gosub" }
-gosub_webexecutor = { version = "0.1.1", path = "./crates/gosub_webexecutor", features = [], registry = "gosub" }
-ureq = "3.0.11"
-futures = "0.3.32"
+resolver = "2"
 
 [profile.release]
 lto = "fat"
 opt-level = 3
 codegen-units = 1
-#rustflags = ["-C", "target-cpu=native"] # Currently unstable and it can cause problems on older CPUs (don't have newer CPU instructions).
 
 [profile.bench]
 lto = "fat"
 opt-level = 3
 codegen-units = 1
-
-[lib]
-crate-type = ["staticlib", "cdylib", "rlib"]
-
-[package.metadata.wasm-pack.profile.dev.wasm-bindgen]
-dwarf-debug-info = true

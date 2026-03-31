@@ -1,6 +1,6 @@
 use crate::node::{FeatureKind, Node, NodeType};
 use crate::Css3;
-use gosub_shared::errors::CssResult;
+use gosub_interface::errors::CssResult;
 
 impl Css3<'_> {
     pub fn parse_feature_function(&mut self, _kind: FeatureKind) -> CssResult<Node> {

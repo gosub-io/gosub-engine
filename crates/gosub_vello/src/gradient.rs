@@ -1,6 +1,6 @@
 use crate::{Convert, VelloBackend};
 use gosub_interface::render_backend::{ColorStop, ColorStops, Gradient as TGradient};
-use gosub_shared::geo::{Point, FP};
+use gosub_interface::geo::{Point, FP};
 use vello::peniko::color::DynamicColor;
 use vello::peniko::{ColorStop as VelloColorStop, ColorStops as VelloColorStops, Gradient as VelloGradient};
 

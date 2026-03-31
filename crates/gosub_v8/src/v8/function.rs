@@ -5,7 +5,7 @@ use v8::{
     Global, HandleScope, Local, ReturnValue, TryCatch,
 };
 
-use gosub_shared::types::Result;
+use gosub_interface::types::Result;
 use gosub_webexecutor::js::{
     Args, IntoRustValue, JSError, VariadicArgs, VariadicArgsInternal, WebFunction, WebFunctionCallBack,
     WebFunctionCallBackVariadic, WebFunctionVariadic, WebRuntime,

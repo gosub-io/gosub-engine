@@ -1,6 +1,7 @@
+use anyhow::Result;
 use crate::dns::{DnsCache, DnsEntry, DnsResolver, ResolveType};
 use crate::errors::Error;
-use gosub_shared::types::Result;
+
 use log::trace;
 use std::collections::{HashMap, VecDeque};
 

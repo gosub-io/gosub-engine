@@ -17,12 +17,13 @@ use gosub_interface::render_backend::{
 use gosub_interface::render_tree;
 use gosub_interface::render_tree::RenderTreeNode as _;
 use gosub_interface::svg::SvgRenderer;
-use gosub_net::http::fetcher::Fetcher;
+use gosub_interface::fetcher::{Fetcher as FetcherTrait, SharedFetcher};
+use gosub_stream::byte_stream::ByteStream;
 use gosub_rendering::position::PositionTree;
 use gosub_rendering::render_tree::RenderTree;
-use gosub_shared::geo::{Size, SizeU32, FP};
-use gosub_shared::node::NodeId;
-use gosub_shared::types::Result;
+use gosub_interface::geo::{Size, SizeU32, FP};
+use gosub_interface::node::NodeId;
+use gosub_interface::types::Result;
 use log::{error, info};
 use std::future::Future;
 use std::sync::mpsc::Sender;
@@ -37,12 +38,11 @@ const DEBUG_CONTENT_COLOR: (u8, u8, u8) = (0, 192, 255);
 const DEBUG_PADDING_COLOR: (u8, u8, u8) = (0, 255, 192);
 const DEBUG_BORDER_COLOR: (u8, u8, u8) = (255, 72, 72);
 
-type Point = gosub_shared::types::Point<FP>;
+type Point = gosub_interface::types::Point<FP>;
 
-#[derive(Debug)]
 pub struct TreeDrawerImpl<C: HasDrawComponents> {
     pub(crate) tree: C::RenderTree,
-    pub(crate) fetcher: Arc<Fetcher>,
+    pub(crate) fetcher: Arc<dyn FetcherTrait>,
     pub(crate) layouter: C::Layouter,
     pub(crate) size: Option<SizeU32>,
     pub(crate) position: PositionTree<C>,
@@ -57,7 +57,7 @@ pub struct TreeDrawerImpl<C: HasDrawComponents> {
 }
 
 impl<C: HasDrawComponents> TreeDrawerImpl<C> {
-    pub fn new(tree: C::RenderTree, layouter: C::Layouter, fetcher: Arc<Fetcher>, debug: bool) -> Self {
+    pub fn new(tree: C::RenderTree, layouter: C::Layouter, fetcher: Arc<dyn FetcherTrait>, debug: bool) -> Self {
         Self {
             tree,
             fetcher,
@@ -76,7 +76,7 @@ impl<C: HasDrawComponents> TreeDrawerImpl<C> {
     }
 }
 
-impl<C: HasDrawComponents<RenderTree = RenderTree<C>, LayoutTree = RenderTree<C>> + HasHtmlParser + HasDocument>
+impl<C: HasDrawComponents<RenderTree = RenderTree<C>, LayoutTree = RenderTree<C>> + HasHtmlParser<HtmlStream = ByteStream> + HasDocument>
     TreeDrawer<C> for TreeDrawerImpl<C>
 {
     type ImgCache = ImageCache<C::RenderBackend>;
@@ -203,26 +203,25 @@ impl<C: HasDrawComponents<RenderTree = RenderTree<C>, LayoutTree = RenderTree<C>
         self.dirty = true;
     }
 
-    async fn from_url(url: Url, layouter: C::Layouter, debug: bool) -> Result<(Self, C::Document)> {
-        let (rt, handle, fetcher) = load_html_rendertree::<C>(url.clone(), None).await?;
+    async fn from_url(url: Url, fetcher: SharedFetcher, layouter: C::Layouter, debug: bool) -> Result<(Self, C::Document)> {
+        let (rt, handle) = load_html_rendertree::<C>(url.clone(), None, fetcher.clone()).await?;
 
-        Ok((Self::new(rt, layouter, Arc::new(fetcher), debug), handle))
+        Ok((Self::new(rt, layouter, fetcher, debug), handle))
     }
 
-    fn from_source(url: Url, source_html: &str, layouter: C::Layouter, debug: bool) -> Result<(Self, C::Document)> {
-        let fetcher = Fetcher::new(url.clone());
-        let (rt, handle) = load_html_rendertree_source::<C>(url, source_html)?;
+    fn from_source(url: Url, source_html: &str, fetcher: SharedFetcher, layouter: C::Layouter, debug: bool) -> Result<(Self, C::Document)> {
+        let (rt, handle) = load_html_rendertree_source::<C>(url, source_html, Some(fetcher.clone()))?;
 
-        Ok((Self::new(rt, layouter, Arc::new(fetcher), debug), handle))
+        Ok((Self::new(rt, layouter, fetcher, debug), handle))
     }
 
     async fn with_fetcher(
         url: Url,
-        fetcher: Arc<Fetcher>,
+        fetcher: Arc<dyn FetcherTrait>,
         layouter: C::Layouter,
         debug: bool,
     ) -> Result<(Self, C::Document)> {
-        let (rt, handle) = load_html_rendertree_fetcher::<C>(url.clone(), &fetcher).await?;
+        let (rt, handle) = load_html_rendertree_fetcher::<C>(url.clone(), fetcher.clone()).await?;
 
         Ok((Self::new(rt, layouter, fetcher, debug), handle))
     }
@@ -293,7 +292,7 @@ impl<C: HasDrawComponents<RenderTree = RenderTree<C>, LayoutTree = RenderTree<C>
         async move {
             info!("Reloading tab");
 
-            let (rt, handle) = match load_html_rendertree_fetcher::<C>(fetcher.base().clone(), &fetcher).await {
+            let (rt, handle) = match load_html_rendertree_fetcher::<C>(fetcher.base().clone(), fetcher.clone()).await {
                 Ok(rt) => rt,
                 Err(e) => {
                     error!("Failed to reload tab: {e}");
@@ -317,7 +316,7 @@ impl<C: HasDrawComponents<RenderTree = RenderTree<C>, LayoutTree = RenderTree<C>
         async move {
             info!("Navigating to {url}");
 
-            let (rt, handle) = match load_html_rendertree_fetcher::<C>(url.clone(), &fetcher).await {
+            let (rt, handle) = match load_html_rendertree_fetcher::<C>(url.clone(), fetcher.clone()).await {
                 Ok(rt) => rt,
                 Err(e) => {
                     error!("Failed to navigate to {url}: {e}");
@@ -352,7 +351,7 @@ struct Drawer<'s, 't, C: HasDrawComponents, EL: EventLoopHandle<C>> {
 }
 
 impl<
-        C: HasDrawComponents<LayoutTree = RenderTree<C>, RenderTree = RenderTree<C>> + HasHtmlParser,
+        C: HasDrawComponents<LayoutTree = RenderTree<C>, RenderTree = RenderTree<C>> + HasHtmlParser<HtmlStream = ByteStream> + HasDocument,
         EL: EventLoopHandle<C>,
     > Drawer<'_, '_, C, EL>
 {
@@ -642,7 +641,7 @@ fn render_bg<C: HasDrawComponents>(
     scene: &mut <C::RenderBackend as RenderBackend>::Scene,
     pos: &Point,
     svg: Arc<Mutex<<C::RenderBackend as RenderBackend>::SVGRenderer>>,
-    fetcher: Arc<Fetcher>,
+    fetcher: Arc<dyn FetcherTrait>,
     img_cache: &mut ImageCache<C::RenderBackend>,
     el: &impl EventLoopHandle<C>,
 ) -> ((FP, FP, FP, FP), Option<SizeU32>) {

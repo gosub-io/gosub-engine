@@ -1,6 +1,5 @@
 use gosub_interface::config::HasDocument;
-use gosub_interface::node::Node;
-use gosub_shared::node::NodeId;
+use gosub_interface::node::{Node, NodeId};
 use std::collections::HashMap;
 
 /// The node arena is the single source for nodes in a document (or fragment).
@@ -120,11 +119,11 @@ mod tests {
     use crate::document::fragment::DocumentFragmentImpl;
     use crate::node::HTML_NAMESPACE;
     use gosub_css3::system::Css3System;
-    use gosub_interface::config::HasCssSystem;
+    use gosub_interface::config::{HasCssSystem, HasDocument};
     use gosub_interface::document::Document;
     use gosub_interface::document::DocumentBuilder;
 
-    use gosub_shared::byte_stream::Location;
+    use gosub_stream::byte_stream::Location;
 
     #[derive(Clone, Debug, PartialEq)]
     struct Config;

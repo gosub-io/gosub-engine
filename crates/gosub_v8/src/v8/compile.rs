@@ -1,6 +1,6 @@
 use v8::{Global, Local, Script};
 
-use gosub_shared::types::Result;
+use gosub_interface::types::Result;
 
 use crate::{FromContext, V8Context, V8Ctx, V8Engine, V8Value};
 use gosub_webexecutor::js::{WebCompiled, WebRuntime};

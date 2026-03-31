@@ -2,7 +2,7 @@ use crate::VelloBackend;
 use gosub_interface::font::FontBlob;
 use gosub_interface::layout::{Decoration, TextLayout};
 use gosub_interface::render_backend::{RenderText, Text as TText};
-use gosub_shared::geo::{NormalizedCoord, Point, FP};
+use gosub_interface::geo::{NormalizedCoord, Point, FP};
 use vello::kurbo::{Affine, Line, Stroke};
 use vello::peniko::{Blob, Brush, Color, Fill, FontData, StyleRef};
 use vello::Scene;

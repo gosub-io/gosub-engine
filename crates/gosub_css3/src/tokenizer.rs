@@ -1,9 +1,9 @@
 use std::fmt;
 use std::fmt::Debug;
 
-use gosub_shared::byte_stream::Character::Ch;
-use gosub_shared::byte_stream::{ByteStream, Character};
-use gosub_shared::byte_stream::{Location, LocationHandler, Stream};
+use gosub_stream::byte_stream::Character::Ch;
+use gosub_stream::byte_stream::{ByteStream, Character};
+use gosub_stream::byte_stream::{Location, LocationHandler, Stream};
 
 use crate::unicode::{get_unicode_char, UnicodeChar};
 
@@ -943,7 +943,7 @@ impl<'stream> Tokenizer<'stream> {
 
 #[cfg(test)]
 mod test {
-    use gosub_shared::byte_stream::Encoding;
+    use gosub_stream::byte_stream::Encoding;
 
     use super::*;
 

@@ -1,8 +1,8 @@
 use crate::font::{FontManager, HasFontManager};
 use crate::layout::TextLayout;
 use crate::svg::SvgRenderer;
-pub use gosub_shared::geo::*;
-use gosub_shared::types::Result;
+pub use crate::geo::*;
+use crate::types::Result;
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use smallvec::SmallVec;
 use std::fmt::{Debug, Display, Write};

@@ -4,7 +4,7 @@ use gosub_interface::document::Document;
 
 use gosub_interface::node::ElementDataType;
 use gosub_interface::node::{CommentDataType, DocTypeDataType, Node, NodeType, TextDataType};
-use gosub_shared::node::NodeId;
+use gosub_interface::node::NodeId;
 
 // Writer to convert a document to a string
 pub struct DocumentWriter {

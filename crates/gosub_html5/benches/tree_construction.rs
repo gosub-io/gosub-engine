@@ -22,6 +22,7 @@ impl HasDocument for Config {
 
 impl HasHtmlParser for Config {
     type HtmlParser = Html5Parser<'static, Self>;
+    type HtmlStream = ByteStream;
 }
 
 fn criterion_benchmark(c: &mut Criterion) {

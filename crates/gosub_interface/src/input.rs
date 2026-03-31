@@ -1,4 +1,4 @@
-use gosub_shared::geo::Point;
+use crate::geo::Point;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum InputEvent {
