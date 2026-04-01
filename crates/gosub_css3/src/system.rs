@@ -109,6 +109,13 @@ impl CssSystem for Css3System {
 
         fix_list.apply(&mut css_map_entry);
 
+        // Compute the cascade for every property so that `actual` is populated.
+        // Without this, all `as_color()` / `as_string()` / `as_unit()` calls on the
+        // returned map read `CssValue::None` (the default) and silently return `None`.
+        for prop in css_map_entry.properties.values_mut() {
+            prop.compute_value();
+        }
+
         Some(css_map_entry)
     }
 

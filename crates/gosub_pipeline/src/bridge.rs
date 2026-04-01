@@ -34,32 +34,32 @@ where
         match name {
             // ── Color properties ────────────────────────────────────────────
             "color" => {
-                if let Some((r, g, b, a)) = prop.as_color() {
+                if let Some((r, g, b, a)) = prop.parse_color() {
                     list.set_property(StyleProperty::Color, StyleValue::Color(css_color(r, g, b, a)));
                 }
             }
             "background-color" => {
-                if let Some((r, g, b, a)) = prop.as_color() {
+                if let Some((r, g, b, a)) = prop.parse_color() {
                     list.set_property(StyleProperty::BackgroundColor, StyleValue::Color(css_color(r, g, b, a)));
                 }
             }
             "border-top-color" => {
-                if let Some((r, g, b, a)) = prop.as_color() {
+                if let Some((r, g, b, a)) = prop.parse_color() {
                     list.set_property(StyleProperty::BorderTopColor, StyleValue::Color(css_color(r, g, b, a)));
                 }
             }
             "border-right-color" => {
-                if let Some((r, g, b, a)) = prop.as_color() {
+                if let Some((r, g, b, a)) = prop.parse_color() {
                     list.set_property(StyleProperty::BorderRightColor, StyleValue::Color(css_color(r, g, b, a)));
                 }
             }
             "border-bottom-color" => {
-                if let Some((r, g, b, a)) = prop.as_color() {
+                if let Some((r, g, b, a)) = prop.parse_color() {
                     list.set_property(StyleProperty::BorderBottomColor, StyleValue::Color(css_color(r, g, b, a)));
                 }
             }
             "border-left-color" => {
-                if let Some((r, g, b, a)) = prop.as_color() {
+                if let Some((r, g, b, a)) = prop.parse_color() {
                     list.set_property(StyleProperty::BorderLeftColor, StyleValue::Color(css_color(r, g, b, a)));
                 }
             }

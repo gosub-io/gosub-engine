@@ -3662,7 +3662,7 @@ dependencies = [
  "image",
  "lazy_static",
  "log",
- "pangocairo 0.22.0",
+ "pangocairo",
  "parley 0.7.0",
  "pollster",
  "prettytable",
@@ -3799,7 +3799,7 @@ dependencies = [
  "hex",
  "image",
  "log",
- "pangocairo 0.19.8",
+ "pangocairo",
  "parley 0.3.0",
  "pollster",
  "rand 0.9.2",
@@ -6094,19 +6094,6 @@ dependencies = [
 
 [[package]]
 name = "pangocairo"
-version = "0.19.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e4c8b43c02ec1c4e16daf7fc50fbce6b8ead5705c18ae56274f703233cce1cd9"
-dependencies = [
- "cairo-rs 0.19.4",
- "glib 0.19.9",
- "libc",
- "pango 0.19.8",
- "pangocairo-sys 0.19.8",
-]
-
-[[package]]
-name = "pangocairo"
 version = "0.22.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d9f15369c787b1cc59a5b86eff6afffd5a9716c5beb4969d20b307cebfe7e407"
@@ -6115,20 +6102,7 @@ dependencies = [
  "glib 0.22.3",
  "libc",
  "pango 0.22.0",
- "pangocairo-sys 0.22.0",
-]
-
-[[package]]
-name = "pangocairo-sys"
-version = "0.19.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "591904498438879785f5b7a2fdf7c38e9ec08c514b93c614b5c3b48cd11dd8d7"
-dependencies = [
- "cairo-sys-rs 0.19.2",
- "glib-sys 0.19.8",
- "libc",
- "pango-sys 0.19.8",
- "system-deps 6.2.2",
+ "pangocairo-sys",
 ]
 
 [[package]]

@@ -1,7 +1,6 @@
-use gtk4::cairo::{Context, Error, Format, ImageSurface};
-use gtk4::pango::SCALE;
+use pangocairo::cairo::{Context, Error, Format, ImageSurface};
+use pangocairo::pango::{FontDescription, SCALE};
 use pangocairo::functions::{context_set_resolution, create_layout};
-use pangocairo::pango::FontDescription;
 use crate::painter::commands::text::Text;
 use crate::rasterizer::cairo::brush::set_brush;
 use crate::tiler::Tile;
@@ -44,7 +43,7 @@ fn create_text_layout(cmd: &Text) -> Result<ImageSurface, Error> {
 
     layout.set_text(cmd.text.as_str());
     layout.set_width((cmd.rect.width * SCALE as f64) as i32);
-    layout.set_wrap(gtk4::pango::WrapMode::Word);
+    layout.set_wrap(pangocairo::pango::WrapMode::Word);
 
     layout.set_spacing(0);
     layout.set_line_spacing(0.0);
