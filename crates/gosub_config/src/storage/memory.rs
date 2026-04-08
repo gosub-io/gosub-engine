@@ -1,8 +1,10 @@
 use crate::settings::Setting;
 use crate::StorageAdapter;
-use gosub_shared::types::Result;
+
 use std::collections::HashMap;
 use std::sync::Mutex;
+
+use anyhow::Result;
 
 #[derive(Default)]
 pub struct MemoryStorageAdapter {

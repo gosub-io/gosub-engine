@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use gosub_shared::types::Result;
+use gosub_interface::types::Result;
 
 use crate::js::WebRuntime;
 

@@ -2,7 +2,7 @@ use crate::testing::tree_construction::parser::{parse_fixture, QUOTED_DOUBLE_NEW
 use crate::testing::tree_construction::Test;
 use crate::testing::{FIXTURE_ROOT, TREE_CONSTRUCTION_PATH};
 use cow_utils::CowUtils;
-use gosub_shared::types::Result;
+use gosub_interface::types::Result;
 use std::fs;
 use std::path::{Path, PathBuf};
 

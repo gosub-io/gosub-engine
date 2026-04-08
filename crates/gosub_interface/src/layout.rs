@@ -1,8 +1,8 @@
 use crate::config::HasLayouter;
 use crate::font::{FontBlob, HasFontManager};
-use gosub_shared::font::Glyph;
-use gosub_shared::geo::{Point, Rect, Size, SizeU32};
-use gosub_shared::types::Result;
+use crate::geo::{Point, Rect, Size, SizeU32};
+use crate::glyph::Glyph;
+use crate::types::Result;
 use std::fmt::Debug;
 
 #[derive(Clone, Debug)]

@@ -1,0 +1,28 @@
+[package]
+name = "gosub-storage"
+version = "0.1.0"
+edition = "2021"
+description = "Cookie and web storage backends for Gosub"
+license = "MIT"
+
+[dependencies]
+gosub_net = { path = "../gosub_net" }
+anyhow = "1"
+log = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+url = "2"
+http = "1"
+tokio = { version = "1", features = ["sync"] }
+uuid = { version = "1", features = ["v4"] }
+
+r2d2 = { version = "0.8", optional = true }
+r2d2_sqlite = { version = "0.33", optional = true }
+tempfile = { version = "3", optional = true }
+
+[features]
+default = ["sqlite_cookie_store"]
+sqlite_cookie_store = ["dep:r2d2", "dep:r2d2_sqlite"]
+
+[dev-dependencies]
+tempfile = "3"

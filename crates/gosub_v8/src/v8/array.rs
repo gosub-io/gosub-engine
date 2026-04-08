@@ -1,6 +1,6 @@
 use v8::{Array, Global, Local};
 
-use gosub_shared::types::Result;
+use gosub_interface::types::Result;
 use gosub_webexecutor::js::{AsArray, JSError, Ref, WebArray, WebRuntime};
 use gosub_webexecutor::Error;
 

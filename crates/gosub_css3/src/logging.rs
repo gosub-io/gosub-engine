@@ -3,7 +3,7 @@ use anyhow::anyhow;
 use core::fmt::Debug;
 use std::cmp::Ordering;
 use std::fmt::Display;
-use gosub_shared::byte_stream::Location;
+use gosub_stream::byte_stream::Location;
 
 /// Defines a complete stylesheet with all its rules and the location where it was found
 #[derive(Debug)]

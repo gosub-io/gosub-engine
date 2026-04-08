@@ -1,7 +1,7 @@
 use gosub_interface::font::FontBlob;
 use gosub_interface::layout::{Decoration, TextLayout as TLayout};
-use gosub_shared::font::Glyph;
-use gosub_shared::geo::{Point, Size};
+use gosub_interface::glyph::Glyph;
+use gosub_interface::geo::{Point, Size};
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 

@@ -1,16 +1,26 @@
+pub mod async_executor;
 pub mod chrome;
 pub mod config;
 pub mod css3;
 pub mod document;
 pub mod draw;
+pub mod errors;
 pub mod eventloop;
+pub mod fetcher;
 pub mod font;
+pub mod geo;
+pub mod glyph;
 pub mod html5;
 pub mod input;
 pub mod instance;
 pub mod layout;
 pub mod node;
+pub mod parser_config;
 pub mod render_backend;
 pub mod render_tree;
 pub mod request;
 pub mod svg;
+pub mod timing;
+pub mod types;
+
+pub const ROBOTO_FONT: &[u8] = include_bytes!("../resources/fonts/Roboto-Regular.ttf");

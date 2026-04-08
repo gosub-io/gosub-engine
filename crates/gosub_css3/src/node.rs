@@ -1,5 +1,5 @@
 use core::fmt::{Display, Formatter};
-use gosub_shared::byte_stream::Location;
+use gosub_stream::byte_stream::Location;
 
 pub type Number = f32;
 

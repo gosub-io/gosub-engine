@@ -1,6 +1,6 @@
 use crate::node::{Node, NodeType};
 use crate::Css3;
-use gosub_shared::errors::CssResult;
+use gosub_interface::errors::CssResult;
 
 impl Css3<'_> {
     pub fn parse_at_rule_nest_prelude(&mut self) -> CssResult<Node> {

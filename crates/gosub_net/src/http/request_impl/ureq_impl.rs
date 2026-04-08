@@ -23,12 +23,12 @@ impl RequestAgent for UreqAgent {
         Agent::new_with_defaults().into()
     }
 
-    async fn get(&self, url: &str) -> gosub_shared::types::Result<Response> {
+    async fn get(&self, url: &str) -> anyhow::Result<Response> {
         let response = self.agent.get(url).call()?;
         response.try_into()
     }
 
-    async fn get_req(&self, _req: &Request) -> gosub_shared::types::Result<Response> {
+    async fn get_req(&self, _req: &Request) -> anyhow::Result<Response> {
         todo!()
     }
 }

@@ -1,7 +1,7 @@
 use crate::config::HasRenderBackend;
 use crate::instance::InstanceId;
 use crate::render_backend::RenderBackend;
-use gosub_shared::geo::SizeU32;
+use crate::geo::SizeU32;
 
 /// A `ChromeHandle` is a trait that allows a potential instance of the engine to call back to the Chrome/Useragent
 /// this can include drawing the scene

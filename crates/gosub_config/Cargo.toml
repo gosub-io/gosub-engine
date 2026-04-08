@@ -7,7 +7,6 @@ license = "MIT"
 description = "Configuration management for Gosub"
 
 [dependencies]
-gosub_shared = { version = "0.1.1", registry = "gosub",  path = "../gosub_shared", features = [] }
 serde_derive = "1.0.228"
 serde_json = {version = "1.0.149", features = ["preserve_order"]}
 serde = { version = "1.0.228", features = ["derive"] }

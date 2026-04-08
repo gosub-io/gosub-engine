@@ -1,6 +1,6 @@
 use crate::CairoBackend;
 use gosub_interface::render_backend::{ColorStops, Gradient as TGradient};
-use gosub_shared::geo::{Point as GsPoint, FP};
+use gosub_interface::geo::{Point as GsPoint, FP};
 use peniko::color::{AlphaColor, DynamicColor, Srgb};
 use peniko::{ColorStop, Gradient as ExtGradient};
 use smallvec::SmallVec;

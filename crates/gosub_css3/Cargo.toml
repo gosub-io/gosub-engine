@@ -7,8 +7,8 @@ license = "MIT"
 description = "CSS3 parser for Gosub"
 
 [dependencies]
-gosub_shared = { version = "0.1.1", registry = "gosub", path = "../gosub_shared", features = [] }
 gosub_interface = { version = "0.1.1", registry = "gosub", path = "../gosub_interface", features = [] }
+gosub_stream = { version = "0.1.0", path = "../gosub_stream" }
 lazy_static = "1.5.0"
 log = "0.4.29"
 simple_logger = "5.2.0"

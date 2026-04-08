@@ -13,7 +13,7 @@ pub use array::*;
 pub use compile::*;
 pub use context::*;
 pub use function::*;
-use gosub_shared::types::Result;
+use gosub_interface::types::Result;
 use gosub_webexecutor::js::WebRuntime;
 pub use object::*;
 pub use value::*;

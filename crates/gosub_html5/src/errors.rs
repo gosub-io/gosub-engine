@@ -1,5 +1,5 @@
 //! Error results that can be returned from the engine
-use gosub_shared::byte_stream::Location;
+use gosub_stream::byte_stream::Location;
 use thiserror::Error;
 
 /// Parser error that defines an error (message) on the given position

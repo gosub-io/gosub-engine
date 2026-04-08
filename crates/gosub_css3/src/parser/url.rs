@@ -1,8 +1,8 @@
 use crate::node::{Node, NodeType};
 use crate::tokenizer::TokenType;
 use crate::Css3;
-use gosub_shared::errors::CssError;
-use gosub_shared::errors::CssResult;
+use gosub_interface::errors::CssError;
+use gosub_interface::errors::CssResult;
 
 impl Css3<'_> {
     pub fn parse_url(&mut self) -> CssResult<Node> {
@@ -39,7 +39,7 @@ impl Css3<'_> {
 mod tests {
     use crate::walker::Walker;
     use crate::{CssOrigin, ParserConfig};
-    use gosub_shared::byte_stream::{ByteStream, Encoding};
+    use gosub_stream::byte_stream::{ByteStream, Encoding};
 
     macro_rules! test {
         ($func:ident, $input:expr, $expected:expr) => {

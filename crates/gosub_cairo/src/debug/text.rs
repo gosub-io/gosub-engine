@@ -4,7 +4,7 @@ use crate::elements::transform::GsTransform;
 use crate::Scene;
 use gosub_interface::font::{FontInfo, FontStyle};
 use gosub_interface::render_backend::{Brush as _, Color as _, Transform as _};
-use gosub_shared::types::Point;
+use gosub_interface::types::Point;
 use peniko::{Blob, FontData};
 use std::sync::{Arc, LazyLock};
 

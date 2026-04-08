@@ -7,7 +7,7 @@ use gosub_interface::document::Document;
 use gosub_interface::node::ClassList;
 use gosub_interface::node::ElementDataType;
 use gosub_interface::node::Node;
-use gosub_shared::node::NodeId;
+use gosub_interface::node::NodeId;
 
 pub struct DocumentQuery<C: HasDocument> {
     _phantom: std::marker::PhantomData<C>,
@@ -16,8 +16,8 @@ pub struct DocumentQuery<C: HasDocument> {
 impl<C: HasDocument> DocumentQuery<C> {
     /// Perform a single query against the document.
     /// If query search type is uninitialized, returns an error.
-    /// Otherwise, returns a vector of `NodeIds` that match the predicate in tree order (preorder depth-first.)
-    pub fn query(doc: &C::Document, query: &Query) -> gosub_shared::types::Result<Vec<NodeId>> {
+    /// Otherwise, returns a vector of NodeIds that match the predicate in tree order (preorder depth-first.)
+    pub fn query(doc: &C::Document, query: &Query) -> gosub_interface::types::Result<Vec<NodeId>> {
         if query.search_type == SearchType::Uninitialized {
             return Err(Error::Query("Query predicate is uninitialized".to_owned()).into());
         }

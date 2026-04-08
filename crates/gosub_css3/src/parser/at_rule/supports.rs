@@ -1,6 +1,6 @@
 use crate::node::{Node, NodeType};
 use crate::Css3;
-use gosub_shared::errors::CssResult;
+use gosub_interface::errors::CssResult;
 
 impl Css3<'_> {
     pub fn parse_at_rule_supports_prelude(&mut self) -> CssResult<Node> {
@@ -19,7 +19,7 @@ impl Css3<'_> {
 mod tests {
     use crate::walker::Walker;
     use crate::{CssOrigin, ParserConfig};
-    use gosub_shared::byte_stream::{ByteStream, Encoding};
+    use gosub_stream::byte_stream::{ByteStream, Encoding};
 
     #[test]
     fn test_parse_at_rule_supports_prelude() {
