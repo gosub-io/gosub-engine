@@ -1,6 +1,6 @@
 use crate::common::browser_state::get_browser_state;
-use crate::compositor::Composable;
 use crate::compositor::vello::compositor::vello_compositor;
+use crate::compositor::Composable;
 use crate::layering::layer::LayerId;
 
 pub struct VelloCompositorConfig {}
@@ -28,4 +28,3 @@ impl Composable for VelloCompositor {
         vello_compositor(layers)
     }
 }
-

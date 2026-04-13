@@ -24,9 +24,7 @@ use winit::{
     window::Window,
 };
 
-use gosub_pipeline::common::browser_state::{
-    get_browser_state, init_browser_state, BrowserState, WireframeState,
-};
+use gosub_pipeline::common::browser_state::{get_browser_state, init_browser_state, BrowserState, WireframeState};
 use gosub_pipeline::common::geo::{Dimension, Rect};
 use gosub_pipeline::compositor::skia::{SkiaCompositor, SkiaCompositorConfig};
 use gosub_pipeline::compositor::Composable;
@@ -66,7 +64,9 @@ fn fetch_and_bridge(url: &str) -> std::sync::Arc<gosub_pipeline::common::documen
 
     #[derive(Clone, Debug, PartialEq)]
     struct Config;
-    impl HasCssSystem for Config { type CssSystem = Css3System; }
+    impl HasCssSystem for Config {
+        type CssSystem = Css3System;
+    }
     impl HasDocument for Config {
         type Document = DocumentImpl<Self>;
         type DocumentFragment = DocumentFragmentImpl<Self>;
@@ -91,7 +91,9 @@ fn fetch_and_bridge(url: &str) -> std::sync::Arc<gosub_pipeline::common::documen
 }
 
 fn main() {
-    let url = std::env::args().nth(1).unwrap_or_else(|| "https://example.com".to_string());
+    let url = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "https://example.com".to_string());
     let doc = fetch_and_bridge(&url);
 
     let window_dimension = Dimension::new(800.0, 600.0);
@@ -103,12 +105,7 @@ fn main() {
         debug_hover: false,
         current_hovered_element: None,
         show_tilegrid: false,
-        viewport: Rect::new(
-            0.0,
-            0.0,
-            viewport_dimension.width,
-            viewport_dimension.height,
-        ),
+        viewport: Rect::new(0.0, 0.0, viewport_dimension.width, viewport_dimension.height),
         document: doc,
         tile_list: None,
         dpi_scale_factor: 1.0,
@@ -211,11 +208,7 @@ impl ApplicationHandler for App {
 
         self.pfs = Instant::now();
         self.frame = 0;
-        self.env = Some(create_window_env(
-            event_loop,
-            &self.window_title,
-            self.window_size,
-        ));
+        self.env = Some(create_window_env(event_loop, &self.window_title, self.window_size));
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
@@ -228,7 +221,10 @@ impl ApplicationHandler for App {
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
                 let binding = get_browser_state();
                 let state = binding.read().unwrap();
-                println!("Scale factor changed from {} to {}", state.dpi_scale_factor, scale_factor);
+                println!(
+                    "Scale factor changed from {} to {}",
+                    state.dpi_scale_factor, scale_factor
+                );
                 drop(state);
 
                 let mut state = binding.write().unwrap();
@@ -346,10 +342,7 @@ impl ApplicationHandler for App {
                         return;
                     };
 
-                    tile_list
-                        .write()
-                        .expect("Failed to get tile list")
-                        .invalidate_all();
+                    tile_list.write().expect("Failed to get tile list").invalidate_all();
                     env.window.request_redraw();
                 }
 
@@ -386,9 +379,7 @@ fn create_window_env(el: &ActiveEventLoop, title: &str, size: Dimension) -> Env 
         .with_title(title)
         .with_inner_size(winit::dpi::PhysicalSize::new(size.width, size.height));
 
-    let template = ConfigTemplateBuilder::new()
-        .with_alpha_size(8)
-        .with_transparency(true);
+    let template = ConfigTemplateBuilder::new().with_alpha_size(8).with_transparency(true);
 
     let display_builder = DisplayBuilder::new().with_window_attributes(Some(window_attrs));
     let (window, gl_config) = display_builder
@@ -464,8 +455,7 @@ fn create_window_env(el: &ActiveEventLoop, title: &str, size: Dimension) -> Env 
     .expect("Could not create interface");
 
     #[allow(deprecated)]
-    let mut gr_context =
-        gpu::DirectContext::new_gl(interface, None).expect("Failed to create GPU context for Skia");
+    let mut gr_context = gpu::DirectContext::new_gl(interface, None).expect("Failed to create GPU context for Skia");
 
     let fb_info = {
         let mut fboid: GLint = 0;
@@ -514,8 +504,7 @@ fn create_surface(
         size.height.try_into().expect("Failed to convert height"),
     );
     info!("Size: {:?}", size);
-    let backend_render_target =
-        backend_render_targets::make_gl(size, num_samples, stencil_size, fb_info);
+    let backend_render_target = backend_render_targets::make_gl(size, num_samples, stencil_size, fb_info);
 
     gpu::surfaces::wrap_backend_render_target(
         gr_context,
@@ -558,7 +547,8 @@ fn do_paint(layer_id: LayerId) {
 
         // Paint all the elements in each tile
         for tiled_layout_element in &mut tile.elements {
-            tiled_layout_element.paint_commands = painter.paint(tiled_layout_element, &gosub_pipeline::painter::PaintOptions::default());
+            tiled_layout_element.paint_commands =
+                painter.paint(tiled_layout_element, &gosub_pipeline::painter::PaintOptions::default());
         }
     }
 }

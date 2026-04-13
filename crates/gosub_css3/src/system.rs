@@ -9,11 +9,11 @@ use crate::{load_default_useragent_stylesheet, Css3};
 use gosub_interface::config::{HasDocument, HasRenderTree};
 use gosub_interface::css3::{CssOrigin, CssPropertyMap, CssSystem};
 
-use gosub_interface::node::{ElementDataType, Node, TextDataType};
-use gosub_interface::render_tree::{RenderTree, RenderTreeNode};
-use gosub_interface::parser_config::ParserConfig;
 use gosub_interface::errors::CssResult;
 use gosub_interface::node::NodeId;
+use gosub_interface::node::{ElementDataType, Node, TextDataType};
+use gosub_interface::parser_config::ParserConfig;
+use gosub_interface::render_tree::{RenderTree, RenderTreeNode};
 use log::warn;
 use std::slice;
 

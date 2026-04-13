@@ -40,17 +40,11 @@ impl IoHandle {
         self.tx_submit
             .send(IoCommand::ShutdownZone { zone_id, reply_tx: tx })
             .map_err(|e| anyhow::anyhow!("send ShutdownZone failed: {e}"))?;
-        let _ = rx
-            .await
-            .map_err(|e| anyhow::anyhow!("ShutdownZone ack failed: {e}"))?;
+        let _ = rx.await.map_err(|e| anyhow::anyhow!("ShutdownZone ack failed: {e}"))?;
         Ok(())
     }
 
-    #[instrument(
-        name = "io.shutdown",
-        level = "debug",
-        skip(self),
-    )]
+    #[instrument(name = "io.shutdown", level = "debug", skip(self))]
     pub async fn shutdown(self) {
         log::trace!("signal: global shutdown -> I/O thread");
         let _ = self.shutdown_tx.send(true);
@@ -154,11 +148,7 @@ impl IoRouter {
         }
     }
 
-    #[instrument(
-        name = "io.shutdown",
-        level = "debug",
-        skip(self),
-    )]
+    #[instrument(name = "io.shutdown", level = "debug", skip(self))]
     pub async fn shutdown_all(self) {
         let mut tasks = Vec::new();
 
@@ -338,10 +328,7 @@ mod tests {
         assert!(stopped, "z1 should have been stopped");
 
         let f2_again = router.get_or_spawn_zone_fetcher(z2);
-        assert!(
-            Arc::ptr_eq(&f2, &f2_again),
-            "z2 fetcher must remain the same instance"
-        );
+        assert!(Arc::ptr_eq(&f2, &f2_again), "z2 fetcher must remain the same instance");
 
         router.shutdown_all().await;
     }

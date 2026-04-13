@@ -1,6 +1,6 @@
+use crate::cookies::cookie_jar::CookieJar;
 use crate::cookies::cookie_jar::DefaultCookieJar;
 use crate::cookies::store::CookieStore;
-use crate::cookies::cookie_jar::CookieJar;
 use gosub_net::types::ZoneId;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;

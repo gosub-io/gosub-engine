@@ -5,7 +5,8 @@ use pangocairo::pango::Weight;
 const DEFAULT_FONT_FAMILY: &str = "sans";
 
 pub fn find_available_font(families: &str, ctx: &pango::Context) -> String {
-    let available_fonts: Vec<String> = ctx.list_families()
+    let available_fonts: Vec<String> = ctx
+        .list_families()
         .iter()
         .map(|f: &pango::FontFamily| f.name().to_ascii_lowercase())
         .collect();

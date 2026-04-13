@@ -1,18 +1,18 @@
 pub mod commands;
 
-use std::sync::Arc;
 use crate::common::browser_state::WireframeState;
 use crate::common::document::node::{Node, NodeType};
-use crate::common::document::style::{StyleProperty, StyleValue, Color as StyleColor};
+use crate::common::document::style::{Color as StyleColor, StyleProperty, StyleValue};
 use crate::layering::layer::LayerList;
 use crate::layouter::{ElementContext, LayoutElementId, LayoutElementNode};
+use crate::painter::commands::border::{Border, BorderStyle};
 use crate::painter::commands::brush::Brush;
 use crate::painter::commands::color::Color;
 use crate::painter::commands::rectangle::{Radius, Rectangle};
-use crate::painter::commands::PaintCommand;
-use crate::painter::commands::border::{Border, BorderStyle};
 use crate::painter::commands::text::Text;
+use crate::painter::commands::PaintCommand;
 use crate::tiler::TiledLayoutElement;
+use std::sync::Arc;
 
 /// Options that control how the painter renders elements (debug modes, etc.)
 pub struct PaintOptions {
@@ -53,7 +53,13 @@ impl Painter {
         let Some(layout_element) = self.layer_list.layout_tree.get_node_by_id(element.id) else {
             return Vec::new();
         };
-        let Some(dom_node) = self.layer_list.layout_tree.render_tree.doc.get_node_by_id(layout_element.dom_node_id) else {
+        let Some(dom_node) = self
+            .layer_list
+            .layout_tree
+            .render_tree
+            .doc
+            .get_node_by_id(layout_element.dom_node_id)
+        else {
             return Vec::new();
         };
 
@@ -86,18 +92,18 @@ impl Painter {
         let NodeType::Element(element_data) = &node.node_type else {
             return default;
         };
-        element_data.get_style(css_prop).map_or(default.clone(), |value| match value {
-            StyleValue::Color(css_color) => Brush::solid(convert_css_color(css_color)),
-            _ => default.clone(),
-        })
+        element_data
+            .get_style(css_prop)
+            .map_or(default.clone(), |value| match value {
+                StyleValue::Color(css_color) => Brush::solid(convert_css_color(css_color)),
+                _ => default.clone(),
+            })
     }
 
     // Returns a brush for the color found in the PARENT of the given dom node
     fn get_parent_brush(&self, node: &Node, css_prop: StyleProperty, default: Brush) -> Brush {
         let parent = match &node.parent_id {
-            Some(parent_id) => {
-                self.layer_list.layout_tree.render_tree.doc.get_node_by_id(*parent_id)
-            }
+            Some(parent_id) => self.layer_list.layout_tree.render_tree.doc.get_node_by_id(*parent_id),
             None => return default,
         };
         match parent {
@@ -124,25 +130,18 @@ impl Painter {
     fn generate_boxmodel_commands(&self, layout_element: &LayoutElementNode) -> Vec<PaintCommand> {
         vec![
             PaintCommand::rectangle(
-                Rectangle::new(layout_element.box_model.margin_box)
-                    .with_background(Brush::Solid(Color::YELLOW)),
+                Rectangle::new(layout_element.box_model.margin_box).with_background(Brush::Solid(Color::YELLOW)),
             ),
             PaintCommand::rectangle(
-                Rectangle::new(layout_element.box_model.padding_box)
-                    .with_background(Brush::Solid(Color::GREEN)),
+                Rectangle::new(layout_element.box_model.padding_box).with_background(Brush::Solid(Color::GREEN)),
             ),
             PaintCommand::rectangle(
-                Rectangle::new(layout_element.box_model.content_box)
-                    .with_background(Brush::Solid(Color::CYAN)),
+                Rectangle::new(layout_element.box_model.content_box).with_background(Brush::Solid(Color::CYAN)),
             ),
         ]
     }
 
-    fn generate_element_commands(
-        &self,
-        layout_element: &LayoutElementNode,
-        dom_node: &Node,
-    ) -> Vec<PaintCommand> {
+    fn generate_element_commands(&self, layout_element: &LayoutElementNode, dom_node: &Node) -> Vec<PaintCommand> {
         let mut commands = Vec::new();
 
         match &layout_element.context {

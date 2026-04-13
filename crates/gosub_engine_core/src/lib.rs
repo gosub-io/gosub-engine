@@ -120,8 +120,8 @@ pub mod util;
 
 pub mod html;
 
-pub use engine::{EngineError, GosubEngine};
 pub use engine::BrowsingContext;
+pub use engine::{EngineError, GosubEngine};
 
 pub use engine::types::Action;
 pub use engine::types::NavigationId;
@@ -144,7 +144,6 @@ pub use engine::storage;
 // EngineConfig at crate root:
 #[doc(inline)]
 pub use crate::engine::config::EngineConfig;
-
 
 /// Public `events` namespace with the enums/structs:
 pub mod events {

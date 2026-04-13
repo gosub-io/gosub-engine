@@ -8,7 +8,6 @@ use log::{debug, info};
 
 use gosub_config::{config, config_store};
 
-
 use crate::errors::Error;
 
 mod cache;

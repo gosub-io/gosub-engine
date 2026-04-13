@@ -1,6 +1,6 @@
-use gosub_stream::byte_stream::Location;
 use gosub_interface::node::NodeId;
 use gosub_interface::types::Result;
+use gosub_stream::byte_stream::Location;
 
 /// `TreeBuilder` is an interface to abstract DOM tree modifications.
 ///
@@ -38,8 +38,8 @@ mod tests {
     use crate::testing::tree_construction::Harness;
     use gosub_css3::system::Css3System;
     use gosub_interface::config::{HasCssSystem, HasDocument, HasHtmlParser};
-    use test_case::test_case;
     use gosub_stream::byte_stream::ByteStream;
+    use test_case::test_case;
 
     #[derive(Clone, Debug, PartialEq)]
     struct Config;

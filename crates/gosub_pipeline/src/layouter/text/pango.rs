@@ -1,14 +1,19 @@
+use crate::common::font::pango::{find_available_font, to_pango_weight};
+use crate::common::font::{FontAlignment, FontInfo};
+use crate::common::geo::Dimension;
 use pangocairo::cairo::{Context, Error, Format, ImageSurface};
-use pangocairo::pango::{FontDescription, SCALE};
 use pangocairo::functions::{context_set_resolution, create_layout};
 use pangocairo::pango::WrapMode;
-use crate::common::font::{FontAlignment, FontInfo};
-use crate::common::font::pango::{find_available_font, to_pango_weight};
-use crate::common::geo::Dimension;
+use pangocairo::pango::{FontDescription, SCALE};
 
 /// Retrieves the pango layout dimensions for the given text and font info.
 /// Lines are wrapped at max_width pixels.
-pub fn get_text_layout(text: &str, font_info: &FontInfo, max_width: f64, _dpi_scale_factor: f32) -> Result<Dimension, Error> {
+pub fn get_text_layout(
+    text: &str,
+    font_info: &FontInfo,
+    max_width: f64,
+    _dpi_scale_factor: f32,
+) -> Result<Dimension, Error> {
     let surface = ImageSurface::create(Format::ARgb32, 1, 1)?;
     let cr = Context::new(&surface)?;
     let layout = create_layout(&cr);
@@ -29,9 +34,9 @@ pub fn get_text_layout(text: &str, font_info: &FontInfo, max_width: f64, _dpi_sc
     layout.set_spacing(0);
 
     match font_info.alignment {
-        FontAlignment::Start   => layout.set_alignment(pangocairo::pango::Alignment::Left),
-        FontAlignment::Center  => layout.set_alignment(pangocairo::pango::Alignment::Center),
-        FontAlignment::End     => layout.set_alignment(pangocairo::pango::Alignment::Right),
+        FontAlignment::Start => layout.set_alignment(pangocairo::pango::Alignment::Left),
+        FontAlignment::Center => layout.set_alignment(pangocairo::pango::Alignment::Center),
+        FontAlignment::End => layout.set_alignment(pangocairo::pango::Alignment::Right),
         FontAlignment::Justify => layout.set_alignment(pangocairo::pango::Alignment::Left),
     }
 

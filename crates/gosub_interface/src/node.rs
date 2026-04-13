@@ -2,8 +2,8 @@ use crate::config::HasDocument;
 use derive_more::Display;
 use std::collections::hash_map::IntoIter;
 use std::collections::HashMap;
-use std::fmt::{Debug, Display, Formatter};
 use std::fmt;
+use std::fmt::{Debug, Display, Formatter};
 
 /// Location holds the start position of the given element in the data source
 #[derive(Clone, PartialEq, Copy)]

@@ -1,7 +1,7 @@
-use vello::kurbo::Affine;
 use crate::common::browser_state::get_browser_state;
 use crate::common::get_texture_store;
 use crate::layering::layer::LayerId;
+use vello::kurbo::Affine;
 use vello::peniko::{Blob, Image, ImageFormat};
 
 pub fn vello_compositor(layer_ids: Vec<LayerId>) -> vello::Scene {
@@ -23,7 +23,10 @@ pub fn compose_layer(scene: &mut vello::Scene, layer_id: LayerId) {
         return;
     };
 
-    let tile_ids = tile_list.read().expect("Failed to get tile list").get_intersecting_tiles(layer_id, state.viewport);
+    let tile_ids = tile_list
+        .read()
+        .expect("Failed to get tile list")
+        .get_intersecting_tiles(layer_id, state.viewport);
     for tile_id in tile_ids {
         let binding = tile_list.write().expect("Failed to get tile list");
         let Some(tile) = binding.get_tile(tile_id) else {
@@ -46,16 +49,12 @@ pub fn compose_layer(scene: &mut vello::Scene, layer_id: LayerId) {
         drop(texture_store);
 
         let surface = Image::new(
-            Blob::from(texture.data.clone()),   // Don't clone :(
+            Blob::from(texture.data.clone()), // Don't clone :(
             ImageFormat::Rgba8,
             texture.width as u32,
             texture.height as u32,
         );
 
-        scene.draw_image(
-            &surface,
-            Affine::translate((tile.rect.x.round(), tile.rect.y.round())),
-        );
+        scene.draw_image(&surface, Affine::translate((tile.rect.x.round(), tile.rect.y.round())));
     }
-
 }

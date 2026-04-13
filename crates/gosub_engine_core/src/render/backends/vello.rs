@@ -1,5 +1,7 @@
 use crate::render::backend::GpuPixelFormat;
-use crate::render::backend::{ErasedSurface, ExternalHandle, PresentMode, RenderBackend, RenderContext, RgbaImage, SurfaceSize};
+use crate::render::backend::{
+    ErasedSurface, ExternalHandle, PresentMode, RenderBackend, RenderContext, RgbaImage, SurfaceSize,
+};
 use crate::render::backends::vello::font_cache::FontCache;
 use crate::render::backends::vello::font_manager::FontManager;
 use crate::render::backends::vello::text_renderer::{TextKey, TextRenderer};
@@ -80,7 +82,7 @@ impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
         text_renderer: &mut TextRenderer,
         font_manager: &mut FontManager,
         font_cache: &mut FontCache,
-        ctx: &mut dyn RenderContext
+        ctx: &mut dyn RenderContext,
     ) -> Result<Scene> {
         // Build a scene from your DisplayItems
         let vp = ctx.viewport();
@@ -133,15 +135,7 @@ impl<C: WgpuContextProvider + Send + Sync> VelloBackend<C> {
                         align: 0,
                     };
 
-                    text_renderer.draw(
-                        font_manager,
-                        font_cache,
-                        &mut scene,
-                        &key,
-                        x,
-                        y,
-                        (*color).into(),
-                    );
+                    text_renderer.draw(font_manager, font_cache, &mut scene, &key, x, y, (*color).into());
                 }
                 DisplayItem::Outline { x, y, w, h, color } => {
                     let x = *x - offset_x;
@@ -167,9 +161,9 @@ impl<C: WgpuContextProvider + Send + Sync> RenderBackend for VelloBackend<C> {
     }
 
     fn create_surface(&self, size: SurfaceSize, _present: PresentMode) -> Result<Box<dyn ErasedSurface + Send>> {
-        let texture_store_id = self
-            .context
-            .create_texture(size.width, size.height, wgpu::TextureFormat::Rgba8UnormSrgb);
+        let texture_store_id =
+            self.context
+                .create_texture(size.width, size.height, wgpu::TextureFormat::Rgba8UnormSrgb);
 
         Ok(Box::new(VelloSurface {
             texture_store_id,
@@ -209,11 +203,10 @@ impl<C: WgpuContextProvider + Send + Sync> RenderBackend for VelloBackend<C> {
 
     /// Converts a surface into an external handle for sending to the compositor
     fn external_handle(&self, surface: &mut dyn ErasedSurface) -> Result<ExternalHandle> {
-        let s = surface.as_any_mut().downcast_mut::<VelloSurface>().ok_or_else(|| {
-            anyhow!(
-                "VelloBackend used with non-vello surface in external_handle()"
-            )
-        })?;
+        let s = surface
+            .as_any_mut()
+            .downcast_mut::<VelloSurface>()
+            .ok_or_else(|| anyhow!("VelloBackend used with non-vello surface in external_handle()"))?;
 
         Ok(ExternalHandle::WgpuTextureId {
             id: s.texture_store_id,

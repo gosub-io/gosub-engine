@@ -220,10 +220,9 @@ impl fmt::Display for ZoneConfigError {
             ZoneConfigError::InvalidFontScale(s) => {
                 write!(f, "font_scale {s} is out of range (expected 0.25..=10.0)")
             }
-            ZoneConfigError::MinFontLarger { min, default } => write!(
-                f,
-                "minimum_font_size ({min}) > default_font_size ({default})"
-            ),
+            ZoneConfigError::MinFontLarger { min, default } => {
+                write!(f, "minimum_font_size ({min}) > default_font_size ({default})")
+            }
             ZoneConfigError::ZeroTabs => write!(f, "max_tabs must be at least 1"),
         }
     }
@@ -290,10 +289,7 @@ mod tests {
 
         assert_eq!(cfg.max_tabs, 10);
         assert_eq!(cfg.user_agent.as_deref(), Some("Gosub/0.1"));
-        assert_eq!(
-            cfg.accept_languages.as_deref(),
-            Some("en-US,en;q=0.9,nl;q=0.8")
-        );
+        assert_eq!(cfg.accept_languages.as_deref(), Some("en-US,en;q=0.9,nl;q=0.8"));
         assert!(cfg.do_not_track);
         assert!(cfg.javascript_enabled);
         assert!(!cfg.images_enabled);

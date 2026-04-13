@@ -1,10 +1,10 @@
-use skia_safe::Vector;
-use skia_safe::Paint as SkiaPaint;
 use crate::common::geo::Rect;
 use crate::painter::commands::border::BorderStyle;
 use crate::painter::commands::rectangle::Rectangle;
 use crate::rasterizer::skia::paint::{create_paint, Paint};
 use crate::tiler::Tile;
+use skia_safe::Paint as SkiaPaint;
+use skia_safe::Vector;
 
 pub(crate) fn do_paint_rectangle(canvas: &skia_safe::Canvas, _tile: &Tile, rect: &Rectangle) {
     // Draw background (if any background brush is defined)
@@ -21,15 +21,23 @@ pub(crate) fn do_paint_rectangle(canvas: &skia_safe::Canvas, _tile: &Tile, rect:
 
     // Create border
     match rect.border().style() {
-        BorderStyle::None => {},
+        BorderStyle::None => {}
         BorderStyle::Solid => draw_single_border(canvas, rect, vec![]),
         BorderStyle::Dashed => draw_single_border(canvas, rect, vec![50.0, 10.0, 10.0, 10.0]),
         BorderStyle::Dotted => draw_single_border(canvas, rect, vec![10.0, 10.0]),
         BorderStyle::Double => draw_double_border(canvas, rect, vec![]),
-        BorderStyle::Groove => { unimplemented!() }
-        BorderStyle::Ridge => { unimplemented!() }
-        BorderStyle::Inset => { unimplemented!() }
-        BorderStyle::Outset => { unimplemented!() }
+        BorderStyle::Groove => {
+            unimplemented!()
+        }
+        BorderStyle::Ridge => {
+            unimplemented!()
+        }
+        BorderStyle::Inset => {
+            unimplemented!()
+        }
+        BorderStyle::Outset => {
+            unimplemented!()
+        }
         BorderStyle::Hidden => {
             // Don't display anything. But the border still takes up space. This is already
             // calculated in the box model by the layouter.
@@ -43,7 +51,9 @@ fn draw_single_border(canvas: &skia_safe::Canvas, rect: &Rectangle, dashes: Vec<
     skia_paint.paint_mut().set_stroke_width(rect.border().width());
     if !dashes.is_empty() {
         let dashes = dashes.iter().map(|x| *x as f32).collect::<Vec<f32>>();
-        skia_paint.paint_mut().set_path_effect(skia_safe::PathEffect::dash(&dashes, 0.0));
+        skia_paint
+            .paint_mut()
+            .set_path_effect(skia_safe::PathEffect::dash(&dashes, 0.0));
     }
 
     let shape = create_rect_shape(rect, Some(1.0));
@@ -58,7 +68,9 @@ fn draw_double_border(canvas: &skia_safe::Canvas, rect: &Rectangle, dashes: Vec<
     skia_paint.paint_mut().set_stroke_cap(skia_safe::PaintCap::Round);
     if !dashes.is_empty() {
         let dashes = dashes.iter().map(|x| *x as f32).collect::<Vec<f32>>();
-        skia_paint.paint_mut().set_path_effect(skia_safe::PathEffect::dash(&dashes, 0.0));
+        skia_paint
+            .paint_mut()
+            .set_path_effect(skia_safe::PathEffect::dash(&dashes, 0.0));
     }
 
     let shape = create_rect_shape(rect, None);
@@ -86,7 +98,7 @@ fn draw_double_border(canvas: &skia_safe::Canvas, rect: &Rectangle, dashes: Vec<
         rect.rect().x + width as f64 + gap_size,
         rect.rect().y + width as f64 + gap_size,
         rect.rect().width - width as f64 - gap_size,
-        rect.rect().height - width as f64 - gap_size
+        rect.rect().height - width as f64 - gap_size,
     ));
     let shape = create_rect_shape(&inner_border_rect, None);
     let skia_paint = create_paint(&rect.border().brushes()[0]);
@@ -127,40 +139,35 @@ impl ShapeEnum {
                 } else {
                     paint.paint().clone()
                 }
-            },
+            }
             // Non-images just use the paint as is
             _ => paint.paint().clone(),
         };
 
-
         match self {
             ShapeEnum::Rect(rect) => {
                 canvas.draw_rect(rect, skia_paint.as_ref());
-            },
+            }
             ShapeEnum::RoundedRect(rrect) => {
                 canvas.draw_rrect(rrect, skia_paint.as_ref());
-            },
+            }
         }
     }
 
     fn rect(&self) -> Rect {
         match self {
-            ShapeEnum::Rect(rect) => {
-                Rect::new(
-                    rect.left as f64,
-                    rect.top as f64,
-                    rect.width() as f64,
-                    rect.height() as f64
-                )
-            },
-            ShapeEnum::RoundedRect(rrect) => {
-                Rect::new(
-                    rrect.rect().left as f64,
-                    rrect.rect().top as f64,
-                    rrect.rect().width() as f64,
-                    rrect.rect().height() as f64
-                )
-            },
+            ShapeEnum::Rect(rect) => Rect::new(
+                rect.left as f64,
+                rect.top as f64,
+                rect.width() as f64,
+                rect.height() as f64,
+            ),
+            ShapeEnum::RoundedRect(rrect) => Rect::new(
+                rrect.rect().left as f64,
+                rrect.rect().top as f64,
+                rrect.rect().width() as f64,
+                rrect.rect().height() as f64,
+            ),
         }
     }
 }
@@ -184,7 +191,7 @@ fn create_rect_shape(rect: &Rectangle, _round: Option<f64>) -> ShapeEnum {
             Vector::new(r_tl.x as f32, r_tl.y as f32),
             Vector::new(r_tr.x as f32, r_tr.y as f32),
             Vector::new(r_br.x as f32, r_br.y as f32),
-            Vector::new(r_bl.x as f32, r_bl.y as f32)
+            Vector::new(r_bl.x as f32, r_bl.y as f32),
         ],
     );
     ShapeEnum::RoundedRect(skia_rrect)

@@ -58,10 +58,8 @@ mod tests {
         assert!(CookieJarHandle::ptr_eq(&a, &b));
 
         {
-            a.write().store_response_cookies(
-                &"https://example.com/".parse().unwrap(),
-                &http::HeaderMap::new(),
-            );
+            a.write()
+                .store_response_cookies(&"https://example.com/".parse().unwrap(), &http::HeaderMap::new());
         }
         drop(b.read());
     }

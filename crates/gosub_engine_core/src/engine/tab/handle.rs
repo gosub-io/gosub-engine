@@ -28,9 +28,7 @@ pub struct TabHandle {
 
 impl std::fmt::Debug for TabHandle {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("TabHandle")
-            .field("tab_id", &self.tab_id)
-            .finish()
+        f.debug_struct("TabHandle").field("tab_id", &self.tab_id).finish()
     }
 }
 
@@ -44,10 +42,7 @@ impl TabHandle {
     /// # Errors
     /// Returns [`EngineError::ChannelClosed`] if the tab task is no longer running.
     pub async fn send(&self, cmd: TabCommand) -> Result<(), EngineError> {
-        self.cmd_tx
-            .send(cmd)
-            .await
-            .map_err(|_| EngineError::ChannelClosed)?;
+        self.cmd_tx.send(cmd).await.map_err(|_| EngineError::ChannelClosed)?;
         Ok(())
     }
 
@@ -60,8 +55,7 @@ impl TabHandle {
     /// tab_handle.set_title("New Title");
     /// ```
     pub async fn set_title(&self, title: impl Into<String>) -> Result<(), EngineError> {
-        self.send(TabCommand::SetTitle { title: title.into() })
-            .await
+        self.send(TabCommand::SetTitle { title: title.into() }).await
     }
 
     /// Update the viewport of the tab.

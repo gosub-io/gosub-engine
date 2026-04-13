@@ -1,7 +1,7 @@
 use super::types::PartitionKey;
+use anyhow::Result;
 use gosub_net::types::TabId;
 use gosub_net::types::ZoneId;
-use anyhow::Result;
 use std::sync::Arc;
 
 pub trait StorageArea: Send + Sync {

@@ -39,13 +39,7 @@ pub async fn fetch_response_top(
     let started = Instant::now();
     observer.on_event(NetEvent::Started { url: url.clone() });
 
-    let resp = get_with_redirects(
-        client.clone(),
-        url.clone(),
-        cancel.clone(),
-        observer.clone(),
-    )
-    .await?;
+    let resp = get_with_redirects(client.clone(), url.clone(), cancel.clone(), observer.clone()).await?;
 
     let mut meta = FetchResultMeta {
         final_url: resp.url().clone(),
@@ -61,9 +55,7 @@ pub async fn fetch_response_top(
         has_body: true,
     };
 
-    let mut body_stream = resp
-        .bytes_stream()
-        .map_err(|e| NetError::Read(Arc::new(anyhow!(e))));
+    let mut body_stream = resp.bytes_stream().map_err(|e| NetError::Read(Arc::new(anyhow!(e))));
     let mut received_net: u64 = 0;
     let mut peek_buf_vec: Vec<u8> = Vec::with_capacity(PEEK_MAX);
     let mut excess: Option<Bytes> = None;
@@ -321,10 +313,7 @@ async fn get_with_redirects(
             .get(reqwest::header::LOCATION)
             .and_then(|v| v.to_str().ok())
             .ok_or_else(|| {
-                NetError::Redirect(Arc::new(anyhow!(
-                    "redirect status {} without Location header",
-                    status
-                )))
+                NetError::Redirect(Arc::new(anyhow!("redirect status {} without Location header", status)))
             })?;
 
         let to = from
@@ -481,15 +470,9 @@ mod tests {
             meta,
             peek_buf,
             mut reader,
-        } = super::fetch_response_top(client, url, cancel, observer)
-            .await
-            .unwrap();
+        } = super::fetch_response_top(client, url, cancel, observer).await.unwrap();
 
-        assert_eq!(
-            peek_buf.len(),
-            super::PEEK_MAX,
-            "peek must be exactly PEEK_MAX"
-        );
+        assert_eq!(peek_buf.len(), super::PEEK_MAX, "peek must be exactly PEEK_MAX");
         let mut rest = Vec::new();
         reader.read_to_end(&mut rest).await.unwrap();
 
@@ -547,10 +530,7 @@ mod tests {
         assert!(res.is_err(), "expected timeout error");
         let err = res.err().unwrap();
         let s = err.to_string().to_lowercase();
-        assert!(
-            s.contains("timeout"),
-            "error should mention timeout, got: {s}"
-        );
+        assert!(s.contains("timeout"), "error should mention timeout, got: {s}");
     }
 
     #[tokio::test(flavor = "current_thread")]

@@ -24,10 +24,7 @@ impl Default for BorderStyle {
 #[derive(Clone, Debug)]
 pub enum BorderRadius {
     Uniform(f32),
-    Elliptical {
-        horizontal: f32,
-        vertical: f32,
-    },
+    Elliptical { horizontal: f32, vertical: f32 },
 }
 
 #[derive(Clone, Debug)]

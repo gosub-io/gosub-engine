@@ -17,4 +17,3 @@ pub fn hint_to_net(hint: HtmlResourceHint) -> (Url, ResourceKind, RequestDestina
     };
     (hint.url, kind, dest, priority)
 }
-

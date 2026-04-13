@@ -9,8 +9,8 @@ use taffy::{
 
 use gosub_interface::config::HasLayouter;
 use gosub_interface::font::HasFontManager;
-use gosub_interface::layout::{Layout as TLayout, LayoutCache, LayoutNode, LayoutTree, Layouter};
 use gosub_interface::geo::{Point, Rect, Size, SizeU32};
+use gosub_interface::layout::{Layout as TLayout, LayoutCache, LayoutNode, LayoutTree, Layouter};
 use gosub_interface::types::Result;
 
 use crate::compute::inline::compute_inline_layout;

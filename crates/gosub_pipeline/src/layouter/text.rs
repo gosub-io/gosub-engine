@@ -1,11 +1,19 @@
-#[cfg(not(any(feature = "text_simple", feature = "text_parley", feature = "text_pango", feature = "text_skia")))]
+#[cfg(not(any(
+    feature = "text_simple",
+    feature = "text_parley",
+    feature = "text_pango",
+    feature = "text_skia"
+)))]
 compile_error!("One of 'text_simple', 'text_parley', 'text_pango', or 'text_skia' must be enabled");
 
 // text_simple is always compiled in (it is in the default feature set), but only re-exported
 // when no more specific text backend is active.
 #[cfg(feature = "text_simple")]
 pub mod simple;
-#[cfg(all(feature = "text_simple", not(any(feature = "text_parley", feature = "text_pango", feature = "text_skia"))))]
+#[cfg(all(
+    feature = "text_simple",
+    not(any(feature = "text_parley", feature = "text_pango", feature = "text_skia"))
+))]
 pub use crate::layouter::text::simple::get_text_layout;
 
 #[cfg(feature = "text_parley")]

@@ -1,7 +1,7 @@
 use crate::font::{FontManager, HasFontManager};
+pub use crate::geo::*;
 use crate::layout::TextLayout;
 use crate::svg::SvgRenderer;
-pub use crate::geo::*;
 use crate::types::Result;
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use smallvec::SmallVec;

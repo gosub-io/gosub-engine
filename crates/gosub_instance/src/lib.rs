@@ -2,12 +2,12 @@ use gosub_interface::chrome::ChromeHandle;
 use gosub_interface::config::{HasTreeDrawer, ModuleConfiguration};
 use gosub_interface::draw::TreeDrawer;
 use gosub_interface::eventloop::EventLoopHandle;
+use gosub_interface::fetcher::SharedFetcher;
+use gosub_interface::geo::SizeU32;
 use gosub_interface::input::InputEvent;
 use gosub_interface::instance::{Handles, InstanceId};
 use gosub_interface::layout::LayoutTree;
 use gosub_interface::render_backend::{ImageBuffer, NodeDesc};
-use gosub_interface::fetcher::SharedFetcher;
-use gosub_interface::geo::SizeU32;
 use gosub_interface::types::Result;
 use gosub_web_platform::{WebEventLoop, WebEventLoopHandle, WebEventLoopMessage};
 use log::warn;
@@ -81,7 +81,13 @@ impl<C: ModuleConfiguration> EngineInstance<C> {
     }
 
     /// Spawns a new `EngineInstance` on a new thread, returning the `InstanceHandle` to communicate with it
-    pub fn new_on_thread(url: Url, fetcher: SharedFetcher, layouter: C::Layouter, id: InstanceId, handles: Handles<C>) -> Result<InstanceHandle>
+    pub fn new_on_thread(
+        url: Url,
+        fetcher: SharedFetcher,
+        layouter: C::Layouter,
+        id: InstanceId,
+        handles: Handles<C>,
+    ) -> Result<InstanceHandle>
     where
         C::Layouter: Send + 'static,
     {

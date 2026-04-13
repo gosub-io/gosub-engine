@@ -5,8 +5,8 @@ use crate::node::{HTML_NAMESPACE, MATHML_NAMESPACE, SVG_NAMESPACE};
 use core::fmt::{Debug, Formatter};
 use gosub_interface::config::HasDocument;
 
-use gosub_interface::node::{ClassList, ElementDataType};
 use gosub_interface::node::NodeId;
+use gosub_interface::node::{ClassList, ElementDataType};
 use std::collections::hash_map::IntoIter;
 use std::collections::HashMap;
 use std::fmt;

@@ -24,8 +24,12 @@ pub struct StorageEvent {
 mod tests {
     use super::*;
 
-    fn z() -> ZoneId { ZoneId::new() }
-    fn t() -> TabId { TabId::new() }
+    fn z() -> ZoneId {
+        ZoneId::new()
+    }
+    fn t() -> TabId {
+        TabId::new()
+    }
     fn o(s: &str) -> url::Origin {
         let url = url::Url::parse(s).expect("valid URL");
         url.origin()
@@ -128,12 +132,7 @@ mod tests {
         };
 
         let s = format!("{ev:?}");
-        let expected_substrings = [
-            "StorageEvent",
-            "Local",
-            &format!("{origin_url:?}"),
-            "key: Some(\"x\")",
-        ];
+        let expected_substrings = ["StorageEvent", "Local", &format!("{origin_url:?}"), "key: Some(\"x\")"];
 
         for &needle in &expected_substrings {
             assert!(

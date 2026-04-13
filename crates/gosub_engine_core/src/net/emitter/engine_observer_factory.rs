@@ -25,10 +25,7 @@ impl ObserverFactory for EngineObserverFactory {
         // Look up the TabId from the RequestReferenceMap
         let tab_id: TabId = {
             let guard = self.request_reference_map.read().unwrap();
-            guard
-                .get(reference)
-                .copied()
-                .unwrap_or_default()
+            guard.get(reference).copied().unwrap_or_default()
         };
 
         // Convert gosub_net::types::TabId to engine TabId

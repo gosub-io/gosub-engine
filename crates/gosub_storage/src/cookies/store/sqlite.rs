@@ -39,7 +39,8 @@ impl SqliteCookieStore {
                     http_only INTEGER NOT NULL,
                     PRIMARY KEY (zone_id, origin, name)
                 );",
-            ).expect("Failed to create cookies table");
+            )
+            .expect("Failed to create cookies table");
         }
 
         let store = Arc::new(Self {
@@ -62,25 +63,29 @@ impl SqliteCookieStore {
 
     fn load_zone(&self, zone_id: ZoneId) -> DefaultCookieJar {
         let conn = self.conn();
-        let mut stmt = conn.prepare(
-            "SELECT origin, name, value, path, domain, secure, expires, same_site, http_only
+        let mut stmt = conn
+            .prepare(
+                "SELECT origin, name, value, path, domain, secure, expires, same_site, http_only
              FROM cookies WHERE zone_id = ?1",
-        ).expect("Prepare failed");
+            )
+            .expect("Prepare failed");
 
-        let rows = stmt.query_map([zone_id.to_string()], |row| {
-            let origin: String = row.get(0)?;
-            let entry = Cookie {
-                name: row.get(1)?,
-                value: row.get(2)?,
-                path: row.get(3)?,
-                domain: row.get(4)?,
-                secure: row.get::<_, i64>(5)? != 0,
-                expires: row.get(6)?,
-                same_site: row.get(7)?,
-                http_only: row.get::<_, i64>(8)? != 0,
-            };
-            Ok((origin, entry))
-        }).expect("Query failed");
+        let rows = stmt
+            .query_map([zone_id.to_string()], |row| {
+                let origin: String = row.get(0)?;
+                let entry = Cookie {
+                    name: row.get(1)?,
+                    value: row.get(2)?,
+                    path: row.get(3)?,
+                    domain: row.get(4)?,
+                    secure: row.get::<_, i64>(5)? != 0,
+                    expires: row.get(6)?,
+                    same_site: row.get(7)?,
+                    http_only: row.get::<_, i64>(8)? != 0,
+                };
+                Ok((origin, entry))
+            })
+            .expect("Query failed");
 
         let mut jar = DefaultCookieJar::new();
         for result in rows {
@@ -95,7 +100,8 @@ impl SqliteCookieStore {
         let mut conn = self.conn();
         let tx = conn.transaction().expect("Transaction failed");
 
-        tx.execute("DELETE FROM cookies WHERE zone_id = ?1", [zone_id.to_string()]).expect("Failed to delete cookies");
+        tx.execute("DELETE FROM cookies WHERE zone_id = ?1", [zone_id.to_string()])
+            .expect("Failed to delete cookies");
 
         let mut stmt = tx.prepare(
             "INSERT INTO cookies (zone_id, origin, name, value, path, domain, secure, expires, same_site, http_only)
@@ -105,10 +111,18 @@ impl SqliteCookieStore {
         for (origin, cookies) in &jar.entries {
             for cookie in cookies {
                 stmt.execute(params![
-                    zone_id.to_string(), origin, cookie.name, cookie.value,
-                    cookie.path, cookie.domain, cookie.secure as i64,
-                    cookie.expires, cookie.same_site, cookie.http_only as i64
-                ]).expect("Failed to insert cookie");
+                    zone_id.to_string(),
+                    origin,
+                    cookie.name,
+                    cookie.value,
+                    cookie.path,
+                    cookie.domain,
+                    cookie.secure as i64,
+                    cookie.expires,
+                    cookie.same_site,
+                    cookie.http_only as i64
+                ])
+                .expect("Failed to insert cookie");
             }
         }
 
@@ -118,7 +132,8 @@ impl SqliteCookieStore {
 
     fn remove_zone_from_db(&self, zone_id: ZoneId) {
         let conn = self.conn();
-        conn.execute("DELETE FROM cookies WHERE zone_id = ?1", [zone_id.to_string()]).expect("Failed to delete zone cookies");
+        conn.execute("DELETE FROM cookies WHERE zone_id = ?1", [zone_id.to_string()])
+            .expect("Failed to delete zone cookies");
     }
 }
 

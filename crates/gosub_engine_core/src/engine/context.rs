@@ -166,7 +166,9 @@ where
     /// Fallback: dumps the document as text lines into the render list.
     fn rebuild_render_list_fallback(&mut self) {
         let mut rl = RenderList::default();
-        rl.items.push(DisplayItem::Clear { color: Color::new(0.95, 0.95, 0.95, 1.0) });
+        rl.items.push(DisplayItem::Clear {
+            color: Color::new(0.95, 0.95, 0.95, 1.0),
+        });
 
         let c = Color::new(0.0, 0.0, 0.0, 1.0);
         let font_size = 14.0f32;
@@ -199,15 +201,16 @@ where
     #[cfg(feature = "pipeline")]
     fn run_pipeline(&mut self, gosub_doc: Arc<C::Document>) -> bool {
         use gosub_pipeline::bridge::build_pipeline_document;
-        use gosub_pipeline::rendertree_builder::tree::RenderTree;
-        use gosub_pipeline::layouter::{CanLayout, taffy::TaffyLayouter};
-        use gosub_pipeline::layering::layer::LayerList;
-        use gosub_pipeline::tiler::TileList;
-        use gosub_pipeline::painter::{Painter, PaintOptions};
         use gosub_pipeline::common::geo::Dimension;
+        use gosub_pipeline::layering::layer::LayerList;
+        use gosub_pipeline::layouter::{taffy::TaffyLayouter, CanLayout};
+        use gosub_pipeline::painter::{PaintOptions, Painter};
+        use gosub_pipeline::rendertree_builder::tree::RenderTree;
+        use gosub_pipeline::tiler::TileList;
 
         // Get base URL from document
-        let base_url = gosub_doc.url()
+        let base_url = gosub_doc
+            .url()
             .map(|u| u.to_string())
             .unwrap_or_else(|| "about:blank".to_string());
 
@@ -230,24 +233,29 @@ where
         // Collect debug outlines before layout_tree is consumed
         let debug_outlines: Vec<DisplayItem> = {
             const PALETTE: [(f32, f32, f32); 6] = [
-                (1.0, 0.0, 0.0),   // red
-                (0.0, 0.7, 0.0),   // green
-                (0.0, 0.0, 1.0),   // blue
-                (1.0, 0.5, 0.0),   // orange
-                (0.7, 0.0, 0.7),   // purple
-                (0.0, 0.7, 0.7),   // teal
+                (1.0, 0.0, 0.0), // red
+                (0.0, 0.7, 0.0), // green
+                (0.0, 0.0, 1.0), // blue
+                (1.0, 0.5, 0.0), // orange
+                (0.7, 0.0, 0.7), // purple
+                (0.0, 0.7, 0.7), // teal
             ];
-            layout_tree.arena.values().enumerate().map(|(i, node)| {
-                let (r, g, b) = PALETTE[i % PALETTE.len()];
-                let bb = node.box_model.border_box;
-                DisplayItem::Outline {
-                    x: bb.x as f32,
-                    y: bb.y as f32,
-                    w: bb.width as f32,
-                    h: bb.height as f32,
-                    color: Color::new(r, g, b, 0.6),
-                }
-            }).collect()
+            layout_tree
+                .arena
+                .values()
+                .enumerate()
+                .map(|(i, node)| {
+                    let (r, g, b) = PALETTE[i % PALETTE.len()];
+                    let bb = node.box_model.border_box;
+                    DisplayItem::Outline {
+                        x: bb.x as f32,
+                        y: bb.y as f32,
+                        w: bb.width as f32,
+                        h: bb.height as f32,
+                        color: Color::new(r, g, b, 0.6),
+                    }
+                })
+                .collect()
         };
 
         // Step 4 — layering; LayerList::new takes owned LayoutTree, wraps it in Arc internally
@@ -266,7 +274,9 @@ where
 
         // Build a white background render list, then append paint commands as DisplayItems
         let mut rl = RenderList::default();
-        rl.items.push(DisplayItem::Clear { color: Color::new(1.0, 1.0, 1.0, 1.0) });
+        rl.items.push(DisplayItem::Clear {
+            color: Color::new(1.0, 1.0, 1.0, 1.0),
+        });
 
         let vp_rect = gosub_pipeline::common::geo::Rect::new(
             self.viewport.x as f64,
@@ -285,7 +295,9 @@ where
             // get_intersecting_tiles takes Rect by value
             let visible_tiles = tile_list.get_intersecting_tiles(layer_id, vp_rect);
             for tile_id in visible_tiles {
-                let Some(tile) = tile_list.arena.get(&tile_id) else { continue; };
+                let Some(tile) = tile_list.arena.get(&tile_id) else {
+                    continue;
+                };
                 for tiled_element in &tile.elements {
                     let commands = painter.paint(tiled_element, &paint_opts);
                     for cmd in commands {
@@ -307,8 +319,8 @@ where
 /// Convert a gosub_pipeline `PaintCommand` to a gosub_engine_core `DisplayItem`.
 #[cfg(feature = "pipeline")]
 fn paint_command_to_display_item(cmd: gosub_pipeline::painter::commands::PaintCommand) -> Option<DisplayItem> {
-    use gosub_pipeline::painter::commands::PaintCommand;
     use gosub_pipeline::painter::commands::brush::Brush;
+    use gosub_pipeline::painter::commands::PaintCommand;
 
     match cmd {
         PaintCommand::Text(t) => {

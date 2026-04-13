@@ -59,7 +59,12 @@ impl StorageArea for SessionArea {
     }
 
     fn set_item(&self, k: &str, v: &str) -> Result<()> {
-        self.data.write().unwrap().get_mut(&self.key).unwrap().insert(k.to_string(), v.to_string());
+        self.data
+            .write()
+            .unwrap()
+            .get_mut(&self.key)
+            .unwrap()
+            .insert(k.to_string(), v.to_string());
         Ok(())
     }
 
@@ -78,6 +83,11 @@ impl StorageArea for SessionArea {
     }
 
     fn keys(&self) -> Vec<String> {
-        self.data.read().unwrap().get(&self.key).map(|m| m.keys().cloned().collect()).unwrap_or_default()
+        self.data
+            .read()
+            .unwrap()
+            .get(&self.key)
+            .map(|m| m.keys().cloned().collect())
+            .unwrap_or_default()
     }
 }

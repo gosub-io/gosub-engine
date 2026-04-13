@@ -30,8 +30,12 @@ impl DefaultCookieJar {
 }
 
 impl CookieJar for DefaultCookieJar {
-    fn as_any(&self) -> &dyn Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
 
     fn store_response_cookies(&mut self, url: &Url, headers: &HeaderMap) {
         let origin = url.origin().ascii_serialization();
@@ -129,17 +133,27 @@ impl CookieJar for DefaultCookieJar {
             .collect::<Vec<_>>()
             .join("; ");
 
-        if header.is_empty() { None } else { Some(header) }
+        if header.is_empty() {
+            None
+        } else {
+            Some(header)
+        }
     }
 
-    fn clear(&mut self) { self.entries.clear(); }
+    fn clear(&mut self) {
+        self.entries.clear();
+    }
 
     fn get_all_cookies(&self) -> Vec<(Url, String)> {
         self.entries
             .iter()
             .filter_map(|(origin, cookies)| {
                 Url::parse(origin).ok().map(|url| {
-                    let str_ = cookies.iter().map(|c| format!("{}={}", c.name, c.value)).collect::<Vec<_>>().join("; ");
+                    let str_ = cookies
+                        .iter()
+                        .map(|c| format!("{}={}", c.name, c.value))
+                        .collect::<Vec<_>>()
+                        .join("; ");
                     (url, str_)
                 })
             })

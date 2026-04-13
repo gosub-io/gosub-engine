@@ -1,5 +1,5 @@
-use gosub_stream::byte_stream::Location;
 use gosub_interface::types::ParseError;
+use gosub_stream::byte_stream::Location;
 
 /// Possible parser error enumerated
 pub enum ParserError {

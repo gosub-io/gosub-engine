@@ -15,9 +15,8 @@
 use crate::config::LogLevel;
 use crate::cookies::Cookie;
 use crate::engine::types::{Action, NavigationId, RequestId};
-use crate::net::types::{
-    FetchResultMeta, Initiator, Priority, ResourceKind,
-};
+use crate::net::req_ref_tracker::RequestReference;
+use crate::net::types::{FetchResultMeta, Initiator, Priority, ResourceKind};
 use crate::net::DecisionToken;
 use crate::render::backend::ExternalHandle;
 use crate::render::Viewport;
@@ -32,7 +31,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::oneshot;
 use url::Url;
-use crate::net::req_ref_tracker::RequestReference;
 
 // Re-export IoCommand from gosub_net
 pub use gosub_net::io_types::IoCommand;
@@ -91,7 +89,6 @@ impl Display for Modifiers {
         }
     }
 }
-
 
 /// Commands that can be sent to a specific tab
 #[derive(Clone, Debug, PartialEq)]

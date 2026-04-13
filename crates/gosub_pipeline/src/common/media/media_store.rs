@@ -1,12 +1,12 @@
-use std::collections::HashMap;
-use std::sync::{Arc, OnceLock, RwLock};
+use crate::common::hash::{hash_from_data, hash_from_string, Sha256Hash};
+use crate::common::media::Svg;
+use crate::common::media::{Media, MediaId, MediaImage, MediaSvg, MediaType};
 use bytes::Bytes;
 use file_type::FileType;
 use reqwest::header::HeaderValue;
 use resvg::usvg;
-use crate::common::hash::{hash_from_data, hash_from_string, Sha256Hash};
-use crate::common::media::{Media, MediaId, MediaImage, MediaSvg, MediaType};
-use crate::common::media::Svg;
+use std::collections::HashMap;
+use std::sync::{Arc, OnceLock, RwLock};
 
 const DEFAULT_SVG_ID: MediaId = MediaId::new(0);
 const DEFAULT_IMAGE_ID: MediaId = MediaId::new(1);
@@ -32,7 +32,6 @@ pub struct MediaStore {
     next_id: RwLock<MediaId>,
 }
 
-
 impl MediaStore {
     pub fn new() -> MediaStore {
         let store = MediaStore {
@@ -42,14 +41,17 @@ impl MediaStore {
         };
 
         // Add "default svg" to the store.
-        let default_svg_tree = usvg::Tree::from_data(&DEFAULT_SVG_DATA, &usvg::Options::default()).expect("Failed to load default svg");
+        let default_svg_tree =
+            usvg::Tree::from_data(&DEFAULT_SVG_DATA, &usvg::Options::default()).expect("Failed to load default svg");
         let mut entries = store.entries.write().expect("Failed to lock images");
         let media = Media::svg("gosub://default/svg", Svg::new(default_svg_tree));
         entries.insert(DEFAULT_SVG_ID, Arc::new(media));
         drop(entries);
 
         // Add "default image" to the store.
-        let default_image = image::load_from_memory(&DEFAULT_IMAGE_DATA).expect("Failed to load default image").to_rgba8();
+        let default_image = image::load_from_memory(&DEFAULT_IMAGE_DATA)
+            .expect("Failed to load default image")
+            .to_rgba8();
         let mut entries = store.entries.write().expect("Failed to lock images");
         let media = Media::image("gosub://default/image", default_image);
         entries.insert(DEFAULT_IMAGE_ID, Arc::new(media));
@@ -73,7 +75,7 @@ impl MediaStore {
         let result = self.load_media_from_source(src);
 
         // Store it in cache
-        if let Ok(media_id) = result{
+        if let Ok(media_id) = result {
             let mut cache = self.cache.write().expect("Failed to lock cache");
             cache.insert(h, media_id);
         }
@@ -216,7 +218,10 @@ impl MediaStore {
 
         match media_type {
             MediaType::Svg => entries.get(&DEFAULT_SVG_ID).expect("Failed to get default svg").clone(),
-            MediaType::Image => entries.get(&DEFAULT_IMAGE_ID).expect("Failed to get default image").clone(),
+            MediaType::Image => entries
+                .get(&DEFAULT_IMAGE_ID)
+                .expect("Failed to get default image")
+                .clone(),
         }
     }
 
@@ -234,9 +239,13 @@ impl MediaStore {
 
         // Detect through content type
         let detected_content_type = detect_content_type(
-            response.headers().get("content-type").unwrap_or(&HeaderValue::from_static("")).to_str().unwrap_or(""),
+            response
+                .headers()
+                .get("content-type")
+                .unwrap_or(&HeaderValue::from_static(""))
+                .to_str()
+                .unwrap_or(""),
         );
-
 
         // Detect through content bytes
         let raw_bytes = response.bytes().unwrap_or(Bytes::new());
@@ -260,7 +269,6 @@ impl MediaStore {
         }
     }
 }
-
 
 fn detect_file_type(data: &Bytes) -> Option<MediaType> {
     let ft = FileType::from_bytes(data);

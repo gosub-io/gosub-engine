@@ -19,10 +19,8 @@ use eframe::{egui, egui_wgpu};
 use egui::Ui;
 use vello::wgpu;
 
-use gosub_engine_core::render::backend::{
-    ErasedSurface, ExternalHandle, PresentMode, RenderBackend, SurfaceSize,
-};
 use gosub_engine_core::render::backend::RenderContext;
+use gosub_engine_core::render::backend::{ErasedSurface, ExternalHandle, PresentMode, RenderBackend, SurfaceSize};
 use gosub_engine_core::render::backends::vello::{VelloBackend, WgpuContextProvider};
 use gosub_engine_core::render::{Color, DisplayItem, RenderList, Viewport};
 
@@ -73,7 +71,11 @@ impl WgpuContextProvider for EframeWgpuContext {
     fn create_texture(&self, width: u32, height: u32, format: wgpu::TextureFormat) -> u64 {
         let texture = self.device().create_texture(&wgpu::TextureDescriptor {
             label: Some("gosub_vello_surface"),
-            size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -200,15 +202,13 @@ impl eframe::App for GosubApp {
         if self.backend.is_none() {
             if let Some(wgpu_state) = frame.wgpu_render_state() {
                 // SAFETY: wgpu_state is kept alive by eframe for the app lifetime.
-                let wgpu_ctx = unsafe {
-                    EframeWgpuContext::new(&wgpu_state.device, &wgpu_state.queue)
-                };
-                let backend = Arc::new(
-                    VelloBackend::new(Arc::clone(&wgpu_ctx))
-                        .expect("VelloBackend creation failed"),
-                );
+                let wgpu_ctx = unsafe { EframeWgpuContext::new(&wgpu_state.device, &wgpu_state.queue) };
+                let backend = Arc::new(VelloBackend::new(Arc::clone(&wgpu_ctx)).expect("VelloBackend creation failed"));
 
-                let size = SurfaceSize { width: 800, height: 600 };
+                let size = SurfaceSize {
+                    width: 800,
+                    height: 600,
+                };
                 let surface = backend
                     .create_surface(size, PresentMode::Fifo)
                     .expect("surface creation failed");
@@ -250,10 +250,7 @@ impl eframe::App for GosubApp {
 
         egui::CentralPanel::default().show(ctx, |ui: &mut Ui| {
             if let Some(tex_id) = self.texture_id {
-                ui.image(egui::load::SizedTexture::new(
-                    tex_id,
-                    egui::vec2(800.0, 600.0),
-                ));
+                ui.image(egui::load::SizedTexture::new(tex_id, egui::vec2(800.0, 600.0)));
             } else {
                 ui.label("Initialising Vello backend…");
             }

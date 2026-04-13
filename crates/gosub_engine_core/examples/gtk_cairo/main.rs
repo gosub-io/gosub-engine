@@ -12,16 +12,16 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use gtk4::cairo::Context;
+use gtk4::gio::ApplicationFlags;
 use gtk4::glib;
 use gtk4::prelude::*;
-use gtk4::gio::ApplicationFlags;
 use gtk4::{Application, ApplicationWindow, DrawingArea, ScrolledWindow};
 
 use gosub_css3::system::Css3System;
-use gosub_engine_core::BrowsingContext;
 use gosub_engine_core::render::backend::{PresentMode, RenderBackend, SurfaceSize};
 use gosub_engine_core::render::backends::cairo::{CairoBackend, CairoSurface};
 use gosub_engine_core::render::Viewport;
+use gosub_engine_core::BrowsingContext;
 use gosub_html5::document::builder::DocumentBuilderImpl;
 use gosub_html5::document::document_impl::DocumentImpl;
 use gosub_html5::document::fragment::DocumentFragmentImpl;
@@ -64,8 +64,7 @@ fn render_url(url: &str, vp_width: u32, vp_height: u32) -> (Vec<u8>, u32, u32, u
 
     // 2. Parse into a gosub document
     let parsed_url = reqwest::Url::parse(url).ok();
-    let mut gosub_doc =
-        <DocumentBuilderImpl as DocumentBuilder<Config>>::new_document(parsed_url);
+    let mut gosub_doc = <DocumentBuilderImpl as DocumentBuilder<Config>>::new_document(parsed_url);
     gosub_doc.add_stylesheet(Css3System::load_default_useragent_stylesheet());
 
     let mut stream = ByteStream::new(Encoding::UTF8, None);
@@ -83,7 +82,10 @@ fn render_url(url: &str, vp_width: u32, vp_height: u32) -> (Vec<u8>, u32, u32, u
     let backend = CairoBackend::new();
     let mut surface = backend
         .create_surface(
-            SurfaceSize { width: vp_width, height: vp_height },
+            SurfaceSize {
+                width: vp_width,
+                height: vp_height,
+            },
             PresentMode::Immediate,
         )
         .expect("failed to create CairoSurface");

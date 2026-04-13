@@ -1,7 +1,13 @@
-use taffy::{AlignContent, AlignItems, AlignSelf, BoxSizing, Dimension, Display, FlexDirection, FlexWrap, GridAutoFlow, GridPlacement, LengthPercentage, LengthPercentageAuto, Line, NonRepeatedTrackSizingFunction, Overflow, Point, Position, Rect, Size, Style, TextAlign, TrackSizingFunction};
-use taffy::prelude::{FromLength, TaffyAuto};
 use crate::common::document::node::NodeId;
-use crate::common::document::style::{StyleProperty, StylePropertyList, StyleValue, Display as CssDisplay, Unit as CssUnit };
+use crate::common::document::style::{
+    Display as CssDisplay, StyleProperty, StylePropertyList, StyleValue, Unit as CssUnit,
+};
+use taffy::prelude::{FromLength, TaffyAuto};
+use taffy::{
+    AlignContent, AlignItems, AlignSelf, BoxSizing, Dimension, Display, FlexDirection, FlexWrap, GridAutoFlow,
+    GridPlacement, LengthPercentage, LengthPercentageAuto, Line, NonRepeatedTrackSizingFunction, Overflow, Point,
+    Position, Rect, Size, Style, TextAlign, TrackSizingFunction,
+};
 
 /// This struct convert CSS stylesheets into taffy style structure.
 pub struct CssTaffyConverter {
@@ -10,9 +16,7 @@ pub struct CssTaffyConverter {
 
 impl CssTaffyConverter {
     pub fn new(data: &StylePropertyList) -> Self {
-        Self {
-            data: data.clone(),
-        }
+        Self { data: data.clone() }
     }
 
     fn get_f32(&self, prop: StyleProperty, default: f32) -> f32 {
@@ -134,10 +138,10 @@ impl CssTaffyConverter {
                 ts.flex_direction = FlexDirection::Row;
                 ts.flex_wrap = FlexWrap::Wrap;
                 ts.align_items = Some(AlignItems::Baseline);
-            },
+            }
             _ => {
                 // dbg!("Unmatched display value: {}", self.data.get_property(StyleProperty::Display).unwrap_or(&StyleValue::None));
-            },
+            }
         }
 
         ts
@@ -149,13 +153,11 @@ impl CssTaffyConverter {
         };
 
         match *val {
-            StyleValue::Keyword(ref val) => {
-                match val.as_str() {
-                    "nowrap" => FlexWrap::NoWrap,
-                    "wrap" => FlexWrap::Wrap,
-                    "wrap-reverse" => FlexWrap::WrapReverse,
-                    _ => default,
-                }
+            StyleValue::Keyword(ref val) => match val.as_str() {
+                "nowrap" => FlexWrap::NoWrap,
+                "wrap" => FlexWrap::Wrap,
+                "wrap-reverse" => FlexWrap::WrapReverse,
+                _ => default,
             },
             _ => default,
         }
@@ -180,14 +182,12 @@ impl CssTaffyConverter {
         };
 
         match *val {
-            StyleValue::Keyword(ref val) => {
-                match val.as_str() {
-                    "row" => FlexDirection::Row,
-                    "row-reverse" => FlexDirection::RowReverse,
-                    "column" => FlexDirection::Column,
-                    "column-reverse" => FlexDirection::ColumnReverse,
-                    _ => default,
-                }
+            StyleValue::Keyword(ref val) => match val.as_str() {
+                "row" => FlexDirection::Row,
+                "row-reverse" => FlexDirection::RowReverse,
+                "column" => FlexDirection::Column,
+                "column-reverse" => FlexDirection::ColumnReverse,
+                _ => default,
             },
             _ => default,
         }
@@ -202,14 +202,14 @@ impl CssTaffyConverter {
             StyleValue::Display(val) => {
                 match val {
                     CssDisplay::Block => Display::Block,
-                    CssDisplay::InlineBlock => Display::Block,  // We override this later
-                    CssDisplay::Inline => Display::Block,  // We override this later
+                    CssDisplay::InlineBlock => Display::Block, // We override this later
+                    CssDisplay::Inline => Display::Block,      // We override this later
                     CssDisplay::Flex => Display::Flex,
                     CssDisplay::None => Display::None,
                     _ => {
                         Display::Block
                         // unimplemented!("Display type not implemented: {:?}", val)
-                    },
+                    }
                 }
             }
             _ => default,
@@ -222,15 +222,13 @@ impl CssTaffyConverter {
         };
 
         match val {
-            StyleValue::Keyword(ref val) => {
-                match val.as_str() {
-                    "relative" => Position::Relative,
-                    "absolute" => Position::Absolute,
-                    "static" => Position::Relative,
-                    "fixed" => Position::Absolute,
-                    "sticky" => Position::Relative,
-                    _ => default,
-                }
+            StyleValue::Keyword(ref val) => match val.as_str() {
+                "relative" => Position::Relative,
+                "absolute" => Position::Absolute,
+                "static" => Position::Relative,
+                "fixed" => Position::Absolute,
+                "sticky" => Position::Relative,
+                _ => default,
             },
             _ => default,
         }
@@ -242,13 +240,11 @@ impl CssTaffyConverter {
         };
 
         match val {
-            StyleValue::Unit(value, unit) => {
-                match unit {
-                    CssUnit::Px => LengthPercentageAuto::Length(*value),
-                    CssUnit::Percent => LengthPercentageAuto::Percent(*value),
-                    _ => default,
-                }
-            }
+            StyleValue::Unit(value, unit) => match unit {
+                CssUnit::Px => LengthPercentageAuto::Length(*value),
+                CssUnit::Percent => LengthPercentageAuto::Percent(*value),
+                _ => default,
+            },
             StyleValue::Number(value) => LengthPercentageAuto::Length(*value),
             StyleValue::Keyword(val) if val == "auto" => LengthPercentageAuto::Auto,
             _ => default,
@@ -261,13 +257,11 @@ impl CssTaffyConverter {
         };
 
         match val {
-            StyleValue::Unit(value, unit) => {
-                match unit {
-                    CssUnit::Px => LengthPercentage::Length(*value),
-                    CssUnit::Percent => LengthPercentage::Percent(*value),
-                    _ => default,
-                }
-            }
+            StyleValue::Unit(value, unit) => match unit {
+                CssUnit::Px => LengthPercentage::Length(*value),
+                CssUnit::Percent => LengthPercentage::Percent(*value),
+                _ => default,
+            },
             StyleValue::Number(value) => LengthPercentage::Length(*value),
             _ => default,
         }
@@ -279,13 +273,11 @@ impl CssTaffyConverter {
         };
 
         match val {
-            StyleValue::Unit(value, unit) => {
-                match unit {
-                    CssUnit::Px => Dimension::from_length(*value),
-                    CssUnit::Percent => Dimension::from_length(*value),
-                    _ => default,
-                }
-            }
+            StyleValue::Unit(value, unit) => match unit {
+                CssUnit::Px => Dimension::from_length(*value),
+                CssUnit::Percent => Dimension::from_length(*value),
+                _ => default,
+            },
             StyleValue::Number(value) => Dimension::from_length(*value),
             _ => default,
         }
@@ -297,13 +289,11 @@ impl CssTaffyConverter {
         };
 
         match val {
-            StyleValue::Unit(value, unit) => {
-                match unit {
-                    CssUnit::Px => Size::length(*value),
-                    CssUnit::Percent => Size::percent(*value),
-                    _ => default,
-                }
-            }
+            StyleValue::Unit(value, unit) => match unit {
+                CssUnit::Px => Size::length(*value),
+                CssUnit::Percent => Size::percent(*value),
+                _ => default,
+            },
             StyleValue::Number(value) => Size::length(*value),
             _ => default,
         }
@@ -315,17 +305,15 @@ impl CssTaffyConverter {
         };
 
         match val {
-            StyleValue::Keyword(ref val) => {
-                match val.as_str() {
-                    "start" => Some(AlignItems::Start),
-                    "end" => Some(AlignItems::End),
-                    "flex-start" => Some(AlignItems::FlexStart),
-                    "flex-end" => Some(AlignItems::FlexEnd),
-                    "center" => Some(AlignItems::Center),
-                    "baseline" => Some(AlignItems::Baseline),
-                    "stretch" => Some(AlignItems::Stretch),
-                    _ => default,
-                }
+            StyleValue::Keyword(ref val) => match val.as_str() {
+                "start" => Some(AlignItems::Start),
+                "end" => Some(AlignItems::End),
+                "flex-start" => Some(AlignItems::FlexStart),
+                "flex-end" => Some(AlignItems::FlexEnd),
+                "center" => Some(AlignItems::Center),
+                "baseline" => Some(AlignItems::Baseline),
+                "stretch" => Some(AlignItems::Stretch),
+                _ => default,
             },
             _ => default,
         }
@@ -337,18 +325,16 @@ impl CssTaffyConverter {
         };
 
         match val {
-            StyleValue::Keyword(ref val) => {
-                match val.as_str() {
-                    "auto" => None,
-                    "start" => Some(AlignSelf::Start),
-                    "end" => Some(AlignSelf::End),
-                    "flex-start" => Some(AlignSelf::FlexStart),
-                    "flex-end" => Some(AlignSelf::FlexEnd),
-                    "center" => Some(AlignSelf::Center),
-                    "baseline" => Some(AlignSelf::Baseline),
-                    "stretch" => Some(AlignSelf::Stretch),
-                    _ => default,
-                }
+            StyleValue::Keyword(ref val) => match val.as_str() {
+                "auto" => None,
+                "start" => Some(AlignSelf::Start),
+                "end" => Some(AlignSelf::End),
+                "flex-start" => Some(AlignSelf::FlexStart),
+                "flex-end" => Some(AlignSelf::FlexEnd),
+                "center" => Some(AlignSelf::Center),
+                "baseline" => Some(AlignSelf::Baseline),
+                "stretch" => Some(AlignSelf::Stretch),
+                _ => default,
             },
             _ => default,
         }
@@ -360,20 +346,18 @@ impl CssTaffyConverter {
         };
 
         match val {
-            StyleValue::Keyword(ref val) => {
-                match val.as_str() {
-                    "normal" => default,
-                    "start" => Some(AlignContent::Start),
-                    "end" => Some(AlignContent::End),
-                    "flex-start" => Some(AlignContent::FlexStart),
-                    "flex-end" => Some(AlignContent::FlexEnd),
-                    "center" => Some(AlignContent::Center),
-                    "stretch" => Some(AlignContent::Stretch),
-                    "space-between" => Some(AlignContent::SpaceBetween),
-                    "space-evenly" => Some(AlignContent::SpaceEvenly),
-                    "space-around" => Some(AlignContent::SpaceAround),
-                    _ => default,
-                }
+            StyleValue::Keyword(ref val) => match val.as_str() {
+                "normal" => default,
+                "start" => Some(AlignContent::Start),
+                "end" => Some(AlignContent::End),
+                "flex-start" => Some(AlignContent::FlexStart),
+                "flex-end" => Some(AlignContent::FlexEnd),
+                "center" => Some(AlignContent::Center),
+                "stretch" => Some(AlignContent::Stretch),
+                "space-between" => Some(AlignContent::SpaceBetween),
+                "space-evenly" => Some(AlignContent::SpaceEvenly),
+                "space-around" => Some(AlignContent::SpaceAround),
+                _ => default,
             },
             _ => default,
         }
@@ -385,14 +369,12 @@ impl CssTaffyConverter {
         };
 
         match val {
-            StyleValue::Keyword(ref val) => {
-                match val.as_str() {
-                    "auto" => TextAlign::Auto,
-                    "center" => TextAlign::LegacyCenter,
-                    "left" => TextAlign::LegacyLeft,
-                    "right" => TextAlign::LegacyRight,
-                    _ => default,
-                }
+            StyleValue::Keyword(ref val) => match val.as_str() {
+                "auto" => TextAlign::Auto,
+                "center" => TextAlign::LegacyCenter,
+                "left" => TextAlign::LegacyLeft,
+                "right" => TextAlign::LegacyRight,
+                _ => default,
             },
             _ => default,
         }
@@ -413,14 +395,12 @@ impl CssTaffyConverter {
         };
 
         match val {
-            StyleValue::Keyword(ref val) => {
-                match val.as_str() {
-                    "visible" => Overflow::Visible,
-                    "hidden" => Overflow::Hidden,
-                    "scroll" => Overflow::Scroll,
-                    "clip" => Overflow::Clip,
-                    _ => default,
-                }
+            StyleValue::Keyword(ref val) => match val.as_str() {
+                "visible" => Overflow::Visible,
+                "hidden" => Overflow::Hidden,
+                "scroll" => Overflow::Scroll,
+                "clip" => Overflow::Clip,
+                _ => default,
             },
             _ => default,
         }
@@ -432,12 +412,10 @@ impl CssTaffyConverter {
         };
 
         match val {
-            StyleValue::Keyword(ref val) => {
-                match val.as_str() {
-                    "content-box" => BoxSizing::ContentBox,
-                    "border-box" => BoxSizing::BorderBox,
-                    _ => default,
-                }
+            StyleValue::Keyword(ref val) => match val.as_str() {
+                "content-box" => BoxSizing::ContentBox,
+                "border-box" => BoxSizing::BorderBox,
+                _ => default,
             },
             _ => default,
         }
@@ -449,12 +427,10 @@ impl CssTaffyConverter {
         };
 
         match val {
-            StyleValue::Keyword(ref val) => {
-                match val.as_str() {
-                    "none" => Vec::new(),
-                    "auto" => Vec::new(),
-                    _ => default,
-                }
+            StyleValue::Keyword(ref val) => match val.as_str() {
+                "none" => Vec::new(),
+                "auto" => Vec::new(),
+                _ => default,
             },
             _ => default,
         }
@@ -466,14 +442,12 @@ impl CssTaffyConverter {
         };
 
         match val {
-            StyleValue::Keyword(ref val) => {
-                match val.as_str() {
-                    "row" => GridAutoFlow::Row,
-                    "column" => GridAutoFlow::Column,
-                    "row dense" => GridAutoFlow::RowDense,
-                    "column dense" => GridAutoFlow::ColumnDense,
-                    _ => default,
-                }
+            StyleValue::Keyword(ref val) => match val.as_str() {
+                "row" => GridAutoFlow::Row,
+                "column" => GridAutoFlow::Column,
+                "row dense" => GridAutoFlow::RowDense,
+                "column dense" => GridAutoFlow::ColumnDense,
+                _ => default,
             },
             _ => default,
         }
@@ -485,28 +459,31 @@ impl CssTaffyConverter {
         };
 
         match val {
-            StyleValue::Keyword(ref val) => {
-                match val.as_str() {
-                    "auto" => Line { start: GridPlacement::Auto, end: GridPlacement::Auto },
-                    _ => default,
-                }
+            StyleValue::Keyword(ref val) => match val.as_str() {
+                "auto" => Line {
+                    start: GridPlacement::Auto,
+                    end: GridPlacement::Auto,
+                },
+                _ => default,
             },
             // StyleValue::Number(val) => Line { start: GridPlacement::Line(val.into()), end: GridPlacement::Line(val.into()) },
             _ => default,
         }
     }
 
-    fn get_grid_auto(&self, prop: StyleProperty, default: Vec<NonRepeatedTrackSizingFunction>) -> Vec<NonRepeatedTrackSizingFunction> {
+    fn get_grid_auto(
+        &self,
+        prop: StyleProperty,
+        default: Vec<NonRepeatedTrackSizingFunction>,
+    ) -> Vec<NonRepeatedTrackSizingFunction> {
         let Some(val) = self.data.get_property(prop) else {
             return default;
         };
 
         match val {
-            StyleValue::Keyword(ref val) => {
-                match val.as_str() {
-                    "auto" => Vec::new(),
-                    _ => default,
-                }
+            StyleValue::Keyword(ref val) => match val.as_str() {
+                "auto" => Vec::new(),
+                _ => default,
             },
             _ => default,
         }

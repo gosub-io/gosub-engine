@@ -2,12 +2,12 @@ use crate::common::media::MediaId;
 use crate::painter::commands::rectangle::Rectangle;
 use crate::painter::commands::text::Text;
 
-pub mod color;
-pub mod text;
-pub mod image;
 pub mod border;
-pub mod rectangle;
 pub mod brush;
+pub mod color;
+pub mod image;
+pub mod rectangle;
+pub mod text;
 
 /// Generic that defines a top, right, bottom, and left value.
 #[derive(Clone, Debug)]
@@ -37,10 +37,7 @@ impl PaintCommand {
     }
 
     pub fn svg(media_id: MediaId, rect: Rectangle) -> Self {
-        PaintCommand::Svg(PaintSvg{
-            rect,
-            media_id,
-        })
+        PaintCommand::Svg(PaintSvg { rect, media_id })
     }
 
     pub fn rectangle(rectangle: Rectangle) -> Self {

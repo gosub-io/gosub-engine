@@ -9,7 +9,10 @@ use gosub_interface::css3::{CssProperty, CssPropertyMap, CssValue};
 
 use gosub_interface::draw::TreeDrawer;
 use gosub_interface::eventloop::EventLoopHandle;
+use gosub_interface::fetcher::{Fetcher as FetcherTrait, SharedFetcher};
+use gosub_interface::geo::{Size, SizeU32, FP};
 use gosub_interface::layout::{Layout, LayoutTree, Layouter};
+use gosub_interface::node::NodeId;
 use gosub_interface::render_backend::{
     Border, BorderSide, BorderStyle, Brush, Color, ImageBuffer, ImgCache, NodeDesc, Rect, RenderBackend, RenderBorder,
     RenderRect, RenderText, Scene as TScene, Text, Transform,
@@ -17,13 +20,10 @@ use gosub_interface::render_backend::{
 use gosub_interface::render_tree;
 use gosub_interface::render_tree::RenderTreeNode as _;
 use gosub_interface::svg::SvgRenderer;
-use gosub_interface::fetcher::{Fetcher as FetcherTrait, SharedFetcher};
-use gosub_stream::byte_stream::ByteStream;
+use gosub_interface::types::Result;
 use gosub_rendering::position::PositionTree;
 use gosub_rendering::render_tree::RenderTree;
-use gosub_interface::geo::{Size, SizeU32, FP};
-use gosub_interface::node::NodeId;
-use gosub_interface::types::Result;
+use gosub_stream::byte_stream::ByteStream;
 use log::{error, info};
 use std::future::Future;
 use std::sync::mpsc::Sender;
@@ -76,8 +76,11 @@ impl<C: HasDrawComponents> TreeDrawerImpl<C> {
     }
 }
 
-impl<C: HasDrawComponents<RenderTree = RenderTree<C>, LayoutTree = RenderTree<C>> + HasHtmlParser<HtmlStream = ByteStream> + HasDocument>
-    TreeDrawer<C> for TreeDrawerImpl<C>
+impl<
+        C: HasDrawComponents<RenderTree = RenderTree<C>, LayoutTree = RenderTree<C>>
+            + HasHtmlParser<HtmlStream = ByteStream>
+            + HasDocument,
+    > TreeDrawer<C> for TreeDrawerImpl<C>
 {
     type ImgCache = ImageCache<C::RenderBackend>;
 
@@ -203,13 +206,24 @@ impl<C: HasDrawComponents<RenderTree = RenderTree<C>, LayoutTree = RenderTree<C>
         self.dirty = true;
     }
 
-    async fn from_url(url: Url, fetcher: SharedFetcher, layouter: C::Layouter, debug: bool) -> Result<(Self, C::Document)> {
+    async fn from_url(
+        url: Url,
+        fetcher: SharedFetcher,
+        layouter: C::Layouter,
+        debug: bool,
+    ) -> Result<(Self, C::Document)> {
         let (rt, handle) = load_html_rendertree::<C>(url.clone(), None, fetcher.clone()).await?;
 
         Ok((Self::new(rt, layouter, fetcher, debug), handle))
     }
 
-    fn from_source(url: Url, source_html: &str, fetcher: SharedFetcher, layouter: C::Layouter, debug: bool) -> Result<(Self, C::Document)> {
+    fn from_source(
+        url: Url,
+        source_html: &str,
+        fetcher: SharedFetcher,
+        layouter: C::Layouter,
+        debug: bool,
+    ) -> Result<(Self, C::Document)> {
         let (rt, handle) = load_html_rendertree_source::<C>(url, source_html, Some(fetcher.clone()))?;
 
         Ok((Self::new(rt, layouter, fetcher, debug), handle))
@@ -351,7 +365,9 @@ struct Drawer<'s, 't, C: HasDrawComponents, EL: EventLoopHandle<C>> {
 }
 
 impl<
-        C: HasDrawComponents<LayoutTree = RenderTree<C>, RenderTree = RenderTree<C>> + HasHtmlParser<HtmlStream = ByteStream> + HasDocument,
+        C: HasDrawComponents<LayoutTree = RenderTree<C>, RenderTree = RenderTree<C>>
+            + HasHtmlParser<HtmlStream = ByteStream>
+            + HasDocument,
         EL: EventLoopHandle<C>,
     > Drawer<'_, '_, C, EL>
 {

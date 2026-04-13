@@ -19,13 +19,13 @@ use gosub_interface::css3::{CssOrigin, CssSystem};
 use gosub_interface::document::{Document, DocumentFragment, DocumentType};
 
 use gosub_interface::html5::ParserOptions;
+use gosub_interface::node::NodeId;
 use gosub_interface::node::TextDataType;
 use gosub_interface::node::{ElementDataType, Node, QuirksMode};
-use gosub_stream::byte_stream::{ByteStream, Location};
 use gosub_interface::parser_config::{Context, ParserConfig};
-use gosub_interface::node::NodeId;
 use gosub_interface::types::{ParseError, Result};
 use gosub_interface::{timing_start, timing_stop};
+use gosub_stream::byte_stream::{ByteStream, Location};
 use log::warn;
 use url::Url;
 
@@ -4140,7 +4140,10 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             };
 
             if !resp.is_ok() {
-                warn!("Could not load external stylesheet from {url}. Status code {}", resp.status);
+                warn!(
+                    "Could not load external stylesheet from {url}. Status code {}",
+                    resp.status
+                );
                 return None;
             }
 

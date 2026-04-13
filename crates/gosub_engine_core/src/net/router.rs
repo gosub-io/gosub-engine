@@ -1,16 +1,14 @@
 use crate::engine::pipeline::font::LoadedFont;
 use crate::engine::pipeline::js::LoadedScript;
-use gosub_css3::stylesheet::CssStylesheet;
 use crate::engine::pipeline::Hooks;
 use crate::engine::types::PeekBuf;
 use crate::engine::UaPolicy;
-use crate::net::BlockReason;
 use crate::net::types::{FetchHandle, FetchRequest, FetchResult};
-use crate::net::{
-    decide_handling, stream_to_bytes, HandlingDecision, RenderTarget, RequestDestination, SharedBody,
-};
+use crate::net::BlockReason;
+use crate::net::{decide_handling, stream_to_bytes, HandlingDecision, RenderTarget, RequestDestination, SharedBody};
 use anyhow::anyhow;
 use bytes::Bytes;
+use gosub_css3::stylesheet::CssStylesheet;
 use gosub_interface::config::HasDocument;
 use std::sync::Arc;
 
@@ -94,41 +92,23 @@ pub async fn route_response_for<C: HasDocument + Send + Sync + 'static>(
                 RenderTarget::HtmlParser => {
                     let doc = match body_content {
                         BodyContent::Stream { shared } => {
-                            hooks
-                                .html
-                                .parse_stream(request, handle, meta, peek_buf, shared)
-                                .await?
+                            hooks.html.parse_stream(request, handle, meta, peek_buf, shared).await?
                         }
                         BodyContent::Buffered { body } => {
-                            hooks
-                                .html
-                                .parse_bytes(request, handle, meta, body.as_ref())
-                                .await?
+                            hooks.html.parse_bytes(request, handle, meta, body.as_ref()).await?
                         }
                     };
                     Ok(RoutedOutcome::MainDocument(Arc::new(doc)))
                 }
-                RenderTarget::CssParser => Ok(RoutedOutcome::ViewerRendered(
-                    body_content.to_bytes(peek_buf).await?,
-                )),
-                RenderTarget::JsEngine => Ok(RoutedOutcome::ViewerRendered(
-                    body_content.to_bytes(peek_buf).await?,
-                )),
-                RenderTarget::ImageDecoder => Ok(RoutedOutcome::ViewerRendered(
-                    body_content.to_bytes(peek_buf).await?,
-                )),
-                RenderTarget::MediaPipeline => Ok(RoutedOutcome::ViewerRendered(
-                    body_content.to_bytes(peek_buf).await?,
-                )),
-                RenderTarget::FontLoader => Ok(RoutedOutcome::ViewerRendered(
-                    body_content.to_bytes(peek_buf).await?,
-                )),
-                RenderTarget::PdfViewer => Ok(RoutedOutcome::ViewerRendered(
-                    body_content.to_bytes(peek_buf).await?,
-                )),
-                RenderTarget::BodyToJs => Ok(RoutedOutcome::ViewerRendered(
-                    body_content.to_bytes(peek_buf).await?,
-                )),
+                RenderTarget::CssParser => Ok(RoutedOutcome::ViewerRendered(body_content.to_bytes(peek_buf).await?)),
+                RenderTarget::JsEngine => Ok(RoutedOutcome::ViewerRendered(body_content.to_bytes(peek_buf).await?)),
+                RenderTarget::ImageDecoder => Ok(RoutedOutcome::ViewerRendered(body_content.to_bytes(peek_buf).await?)),
+                RenderTarget::MediaPipeline => {
+                    Ok(RoutedOutcome::ViewerRendered(body_content.to_bytes(peek_buf).await?))
+                }
+                RenderTarget::FontLoader => Ok(RoutedOutcome::ViewerRendered(body_content.to_bytes(peek_buf).await?)),
+                RenderTarget::PdfViewer => Ok(RoutedOutcome::ViewerRendered(body_content.to_bytes(peek_buf).await?)),
+                RenderTarget::BodyToJs => Ok(RoutedOutcome::ViewerRendered(body_content.to_bytes(peek_buf).await?)),
             }
         }
         (RequestDestination::Document, HandlingDecision::Download { .. }, _) => {

@@ -1,6 +1,6 @@
-use anyhow::Result;
 use crate::dns::{DnsCache, DnsEntry, DnsResolver, ResolveType};
 use crate::errors::Error;
+use anyhow::Result;
 use core::fmt;
 use domain_lookup_tree::DomainLookupTree;
 

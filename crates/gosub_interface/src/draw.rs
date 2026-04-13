@@ -1,9 +1,9 @@
 use crate::config::{HasDocument, HasDrawComponents, HasHtmlParser};
 use crate::eventloop::EventLoopHandle;
 use crate::fetcher::{Fetcher, SharedFetcher};
+use crate::geo::{Point, SizeU32, FP};
 use crate::layout::LayoutTree;
 use crate::render_backend::{ImgCache, NodeDesc, RenderBackend};
-use crate::geo::{Point, SizeU32, FP};
 use crate::types::Result;
 use std::future::Future;
 use std::sync::mpsc::Sender;

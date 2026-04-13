@@ -10,12 +10,7 @@ use anyhow::Result;
 /// Estimate the layout size of `text` rendered with `font_info`.
 ///
 /// The estimate is: `avg_char_width × len` capped at `max_width`, then wrapped.
-pub fn get_text_layout(
-    text: &str,
-    font_info: &FontInfo,
-    max_width: f64,
-    _dpi_scale_factor: f32,
-) -> Result<Dimension> {
+pub fn get_text_layout(text: &str, font_info: &FontInfo, max_width: f64, _dpi_scale_factor: f32) -> Result<Dimension> {
     if text.is_empty() {
         return Ok(Dimension::ZERO);
     }

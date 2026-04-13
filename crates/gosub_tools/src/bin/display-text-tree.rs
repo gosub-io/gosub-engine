@@ -1,8 +1,8 @@
 use gosub_css3::system::Css3System;
 use gosub_html5::document::builder::DocumentBuilderImpl;
 use gosub_html5::parser::Html5Parser;
-use gosub_stream::byte_stream::{ByteStream, Encoding};
 use gosub_interface::types::Result;
+use gosub_stream::byte_stream::{ByteStream, Encoding};
 use std::process::exit;
 
 use gosub_html5::document::document_impl::DocumentImpl;
@@ -10,8 +10,8 @@ use gosub_html5::document::fragment::DocumentFragmentImpl;
 use gosub_interface::config::{HasCssSystem, HasDocument, HasHtmlParser};
 use gosub_interface::document::{Document, DocumentBuilder};
 
-use gosub_interface::node::{Node, TextDataType};
 use gosub_interface::node::NodeId;
+use gosub_interface::node::{Node, TextDataType};
 
 #[derive(Clone, Debug, PartialEq)]
 struct Config;

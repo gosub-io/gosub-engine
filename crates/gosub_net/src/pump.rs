@@ -74,9 +74,7 @@ where
                 .map_err(|e| NetError::Io(Arc::new(e)))?;
 
             if !peek_buf.is_empty() {
-                f.write_all(&peek_buf)
-                    .await
-                    .map_err(|e| NetError::Io(Arc::new(e)))?;
+                f.write_all(&peek_buf).await.map_err(|e| NetError::Io(Arc::new(e)))?;
             }
 
             Some((tmp_dest, BufWriter::new(f)))

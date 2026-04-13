@@ -1,10 +1,10 @@
+use crate::common::geo::Rect;
+use crate::common::media::{get_media_store, Media};
+use crate::painter::commands::brush::Brush;
 use gtk4::cairo::Context;
 use gtk4::gdk_pixbuf::{Colorspace, Pixbuf};
 use gtk4::glib::Bytes;
 use gtk4::prelude::GdkCairoContextExt;
-use crate::common::geo::Rect;
-use crate::common::media::{get_media_store, Media};
-use crate::painter::commands::brush::Brush;
 
 // Sets the given brush to the context. In case of an image brush, rect defines the scale size of the image.
 pub fn set_brush(cr: &Context, brush: &Brush, rect: Rect) {
@@ -51,10 +51,14 @@ pub fn set_brush(cr: &Context, brush: &Brush, rect: Rect) {
             let scaled_pixbuf = Pixbuf::new(Colorspace::Rgb, true, 8, rect.width as i32, rect.height as i32).unwrap();
             pixbuf.scale(
                 &scaled_pixbuf,
-                0, 0,
-                rect.width as i32, rect.height as i32,
-                0.0, 0.0,
-                scale_x, scale_y,
+                0,
+                0,
+                rect.width as i32,
+                rect.height as i32,
+                0.0,
+                0.0,
+                scale_x,
+                scale_y,
                 gtk4::gdk_pixbuf::InterpType::Bilinear,
             );
 

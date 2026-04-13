@@ -3,8 +3,8 @@ use gosub_interface::config::HasDocument;
 use gosub_interface::document::Document;
 
 use gosub_interface::node::ElementDataType;
-use gosub_interface::node::{CommentDataType, DocTypeDataType, Node, NodeType, TextDataType};
 use gosub_interface::node::NodeId;
+use gosub_interface::node::{CommentDataType, DocTypeDataType, Node, NodeType, TextDataType};
 
 // Writer to convert a document to a string
 pub struct DocumentWriter {

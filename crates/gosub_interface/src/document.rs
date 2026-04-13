@@ -1,5 +1,5 @@
-use crate::node::Location;
 use crate::config::HasDocument;
+use crate::node::Location;
 use crate::node::{Node, NodeId, QuirksMode};
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};

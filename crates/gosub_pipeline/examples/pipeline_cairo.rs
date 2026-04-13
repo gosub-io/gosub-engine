@@ -1,18 +1,7 @@
 #[cfg(not(feature = "backend_cairo"))]
 compile_error!("This binary can only be used with the feature 'backend_cairo' enabled");
 
-use gtk4::glib::clone;
-use gtk4::prelude::{
-    AdjustmentExt, ApplicationExt, ApplicationExtManual, DrawingAreaExt, DrawingAreaExtManual,
-    GtkWindowExt, WidgetExt,
-};
-use gtk4::{
-    glib, Adjustment, Application, ApplicationWindow, DrawingArea, EventControllerMotion,
-    ScrolledWindow,
-};
-use gosub_pipeline::common::browser_state::{
-    get_browser_state, init_browser_state, BrowserState, WireframeState,
-};
+use gosub_pipeline::common::browser_state::{get_browser_state, init_browser_state, BrowserState, WireframeState};
 use gosub_pipeline::common::geo::{Dimension, Rect};
 use gosub_pipeline::compositor::cairo::{CairoCompositor, CairoCompositorConfig};
 use gosub_pipeline::compositor::Composable;
@@ -24,6 +13,11 @@ use gosub_pipeline::rasterizer::cairo::CairoRasterizer;
 use gosub_pipeline::rasterizer::Rasterable;
 use gosub_pipeline::rendertree_builder::RenderTree;
 use gosub_pipeline::tiler::{TileList, TileState};
+use gtk4::glib::clone;
+use gtk4::prelude::{
+    AdjustmentExt, ApplicationExt, ApplicationExtManual, DrawingAreaExt, DrawingAreaExtManual, GtkWindowExt, WidgetExt,
+};
+use gtk4::{glib, Adjustment, Application, ApplicationWindow, DrawingArea, EventControllerMotion, ScrolledWindow};
 use std::sync::RwLock;
 
 const TILE_DIMENSION: f64 = 256.0;
@@ -45,7 +39,9 @@ fn fetch_and_bridge(url: &str) -> std::sync::Arc<gosub_pipeline::common::documen
 
     #[derive(Clone, Debug, PartialEq)]
     struct Config;
-    impl HasCssSystem for Config { type CssSystem = Css3System; }
+    impl HasCssSystem for Config {
+        type CssSystem = Css3System;
+    }
     impl HasDocument for Config {
         type Document = DocumentImpl<Self>;
         type DocumentFragment = DocumentFragmentImpl<Self>;
@@ -72,7 +68,9 @@ fn fetch_and_bridge(url: &str) -> std::sync::Arc<gosub_pipeline::common::documen
 fn main() {
     // --------------------------------------------------------------------
     // Generate a DOM tree
-    let url = std::env::args().nth(1).unwrap_or_else(|| "https://example.com".to_string());
+    let url = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "https://example.com".to_string());
     let doc = fetch_and_bridge(&url);
     let mut output = String::new();
     doc.print_tree(&mut output).expect("");
@@ -115,9 +113,7 @@ fn main() {
     // is completed in the draw function of the UI.
 
     // Render the layout-tree into a GTK window
-    let app = Application::builder()
-        .application_id("io.gosub.renderer")
-        .build();
+    let app = Application::builder().application_id("io.gosub.renderer").build();
 
     let browser_state = BrowserState {
         visible_layer_list: vec![true; 10],
@@ -206,7 +202,9 @@ fn build_ui(app: &Application) {
     motion_controller.connect_motion(move |_, x, y| {
         let binding = get_browser_state();
         let state = binding.read().expect("Failed to get browser state");
-        let el_id = state.tile_list.as_ref()
+        let el_id = state
+            .tile_list
+            .as_ref()
             .and_then(|tl| tl.read().unwrap().layer_list.find_element_at(x, y));
         let che = state.current_hovered_element.clone();
 
@@ -214,14 +212,30 @@ fn build_ui(app: &Application) {
         if let Some(ref tl) = state.tile_list {
             match (che, el_id) {
                 (Some(current_id), Some(new_id)) if current_id != new_id => {
-                    tl.read().unwrap().get_tiles_for_element(current_id).iter().for_each(|id| tile_ids.push(*id));
-                    tl.read().unwrap().get_tiles_for_element(new_id).iter().for_each(|id| tile_ids.push(*id));
+                    tl.read()
+                        .unwrap()
+                        .get_tiles_for_element(current_id)
+                        .iter()
+                        .for_each(|id| tile_ids.push(*id));
+                    tl.read()
+                        .unwrap()
+                        .get_tiles_for_element(new_id)
+                        .iter()
+                        .for_each(|id| tile_ids.push(*id));
                 }
                 (None, Some(new_id)) => {
-                    tl.read().unwrap().get_tiles_for_element(new_id).iter().for_each(|id| tile_ids.push(*id));
+                    tl.read()
+                        .unwrap()
+                        .get_tiles_for_element(new_id)
+                        .iter()
+                        .for_each(|id| tile_ids.push(*id));
                 }
                 (Some(current_id), None) => {
-                    tl.read().unwrap().get_tiles_for_element(current_id).iter().for_each(|id| tile_ids.push(*id));
+                    tl.read()
+                        .unwrap()
+                        .get_tiles_for_element(current_id)
+                        .iter()
+                        .for_each(|id| tile_ids.push(*id));
                 }
                 _ => {}
             }
@@ -316,13 +330,17 @@ fn build_ui(app: &Application) {
                     WireframeState::Only => state.wireframed = WireframeState::Both,
                     WireframeState::Both => state.wireframed = WireframeState::None,
                 }
-                if let Some(ref tl) = state.tile_list { tl.write().unwrap().invalidate_all(); }
+                if let Some(ref tl) = state.tile_list {
+                    tl.write().unwrap().invalidate_all();
+                }
                 area.queue_draw();
             }
             // toggle displaying only the hovered element
             key if key == gtk4::gdk::Key::d => {
                 state.debug_hover = !state.debug_hover;
-                if let Some(ref tl) = state.tile_list { tl.write().unwrap().invalidate_all(); }
+                if let Some(ref tl) = state.tile_list {
+                    tl.write().unwrap().invalidate_all();
+                }
                 area.queue_draw();
             }
             // toggle tile grid
@@ -346,7 +364,9 @@ fn do_paint(layer_id: LayerId) {
     let binding = get_browser_state();
     let state = binding.read().unwrap();
 
-    let Some(ref tile_list) = state.tile_list else { return; };
+    let Some(ref tile_list) = state.tile_list else {
+        return;
+    };
     let painter = Painter::new(tile_list.read().unwrap().layer_list.clone());
 
     let tile_ids = tile_list
@@ -368,7 +388,8 @@ fn do_paint(layer_id: LayerId) {
 
         // Paint all the elements in each tile
         for tiled_layout_element in &mut tile.elements {
-            tiled_layout_element.paint_commands = painter.paint(tiled_layout_element, &gosub_pipeline::painter::PaintOptions::default());
+            tiled_layout_element.paint_commands =
+                painter.paint(tiled_layout_element, &gosub_pipeline::painter::PaintOptions::default());
         }
     }
 }
@@ -377,7 +398,9 @@ fn do_rasterize(layer_id: LayerId) {
     let binding = get_browser_state();
     let state = binding.read().unwrap();
 
-    let Some(ref tile_list) = state.tile_list else { return; };
+    let Some(ref tile_list) = state.tile_list else {
+        return;
+    };
     let tile_ids = tile_list
         .read()
         .unwrap()
@@ -462,10 +485,7 @@ fn on_viewport_changed(area: &DrawingArea, hadj: &Adjustment, vadj: &Adjustment)
     let width = hadj.page_size(); // Visible width
     let height = vadj.page_size(); // Visible height
 
-    println!(
-        "Visible viewport: x={} y={} width={} height={}",
-        x, y, width, height
-    );
+    println!("Visible viewport: x={} y={} width={} height={}", x, y, width, height);
 
     let binding = get_browser_state();
     let mut state = binding.write().expect("Failed to get browser state");

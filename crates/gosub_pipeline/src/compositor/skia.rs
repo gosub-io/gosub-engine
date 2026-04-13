@@ -1,6 +1,6 @@
 use crate::common::browser_state::get_browser_state;
-use crate::compositor::Composable;
 use crate::compositor::skia::compositor::skia_compositor;
+use crate::compositor::Composable;
 use crate::layering::layer::LayerId;
 
 pub struct SkiaCompositorConfig<'a> {
@@ -32,4 +32,3 @@ impl<'a> Composable for SkiaCompositor<'a> {
         skia_compositor(config.canvas, layers);
     }
 }
-

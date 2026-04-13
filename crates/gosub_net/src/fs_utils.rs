@@ -30,9 +30,7 @@ pub fn stage_temp_path_for(url: &Url) -> io::Result<NamedTempFile> {
         sanitized_base
     };
 
-    Builder::new()
-        .prefix(&format!("{}.tmp-", prefix))
-        .tempfile()
+    Builder::new().prefix(&format!("{}.tmp-", prefix)).tempfile()
 }
 
 #[allow(unused)]
@@ -81,10 +79,7 @@ mod tests {
 
         assert!(temp_file.path().exists());
         assert!(temp_file.path().parent() == Some(Path::new("/tmp")));
-        assert!(temp_file
-            .path()
-            .to_string_lossy()
-            .contains("testfile.txt.part-"));
+        assert!(temp_file.path().to_string_lossy().contains("testfile.txt.part-"));
 
         Ok(())
     }
@@ -105,10 +100,7 @@ mod tests {
     fn test_sanitize_filename() {
         assert_eq!(sanitize_filename("normal file.txt"), "normal file.txt");
         assert_eq!(sanitize_filename("file with/slashes"), "file with_slashes");
-        assert_eq!(
-            sanitize_filename("file with\\backslashes"),
-            "file with_backslashes"
-        );
+        assert_eq!(sanitize_filename("file with\\backslashes"), "file with_backslashes");
         assert_eq!(sanitize_filename("file with..dots"), "file with.dots");
         assert_eq!(sanitize_filename(""), "download");
         assert_eq!(sanitize_filename("."), "download");

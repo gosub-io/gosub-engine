@@ -1,6 +1,6 @@
 use crate::config::HasDocument;
-use crate::render_backend::{ImageBuffer, RenderBackend};
 use crate::node::NodeId;
+use crate::render_backend::{ImageBuffer, RenderBackend};
 use crate::types::{Result, Size};
 
 pub trait SvgRenderer<B: RenderBackend>: Send {

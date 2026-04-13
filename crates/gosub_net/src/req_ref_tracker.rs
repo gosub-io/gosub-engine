@@ -40,23 +40,21 @@ pub struct RequestRefTracker {
 
 impl RequestRefTracker {
     pub fn new() -> Self {
-        Self {
-            inner: DashMap::new(),
-        }
+        Self { inner: DashMap::new() }
     }
 
     pub fn inc(&self, r: &RequestReference) {
         match self.inner.entry(*r) {
-            Entry::Occupied(e) => { e.get().0.fetch_add(1, Ordering::Relaxed); },
-            Entry::Vacant(v) => { v.insert((AtomicUsize::new(1), AtomicBool::new(false))); },
+            Entry::Occupied(e) => {
+                e.get().0.fetch_add(1, Ordering::Relaxed);
+            }
+            Entry::Vacant(v) => {
+                v.insert((AtomicUsize::new(1), AtomicBool::new(false)));
+            }
         };
     }
 
-    pub fn dec_and_maybe_cleanup(
-        &self,
-        r: &RequestReference,
-        map: &Arc<RwLock<RequestReferenceMap>>,
-    ) {
+    pub fn dec_and_maybe_cleanup(&self, r: &RequestReference, map: &Arc<RwLock<RequestReferenceMap>>) {
         if let Some(entry) = self.inner.get(r) {
             let new = entry.0.fetch_sub(1, Ordering::Relaxed);
             let fin = entry.1.load(Ordering::Relaxed);
@@ -69,11 +67,7 @@ impl RequestRefTracker {
         }
     }
 
-    pub fn finalize(
-        &self,
-        r: &RequestReference,
-        map: &Arc<RwLock<RequestReferenceMap>>,
-    ) {
+    pub fn finalize(&self, r: &RequestReference, map: &Arc<RwLock<RequestReferenceMap>>) {
         if let Some(entry) = self.inner.get(r) {
             entry.1.store(true, Ordering::Relaxed);
 

@@ -9,14 +9,14 @@ use gosub_html5::document::builder::DocumentBuilderImpl;
 use gosub_html5::document::document_impl::DocumentImpl;
 use gosub_html5::document::fragment::DocumentFragmentImpl;
 use gosub_html5::parser::Html5Parser;
-use gosub_stream::byte_stream::ByteStream;
 use gosub_interface::config::{
     HasChrome, HasCssSystem, HasDocument, HasHtmlParser, HasLayouter, HasRenderBackend, HasRenderTree, HasTreeDrawer,
     ModuleConfiguration,
 };
+use gosub_interface::types::Result;
 use gosub_renderer::draw::TreeDrawerImpl;
 use gosub_rendering::render_tree::RenderTree;
-use gosub_interface::types::Result;
+use gosub_stream::byte_stream::ByteStream;
 use gosub_taffy::TaffyLayouter;
 use gosub_vello::VelloBackend;
 use log::LevelFilter;
@@ -30,9 +30,9 @@ pub mod window;
 use gosub_instance::DebugEvent;
 use gosub_interface::chrome::ChromeHandle;
 use gosub_interface::font::HasFontManager;
+use gosub_interface::geo::SizeU32;
 use gosub_interface::instance::InstanceId;
 use gosub_interface::render_backend::RenderBackend;
-use gosub_interface::geo::SizeU32;
 pub use winit;
 use winit::event_loop::EventLoopProxy;
 

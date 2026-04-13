@@ -9,9 +9,7 @@ use gosub_html5::document::builder::DocumentBuilderImpl;
 use gosub_html5::document::document_impl::DocumentImpl;
 use gosub_html5::document::fragment::DocumentFragmentImpl;
 use gosub_html5::parser::Html5Parser;
-use gosub_stream::byte_stream::ByteStream;
 use gosub_instance::{EngineInstance, InstanceMessage};
-use gosub_net::new_fetcher;
 use gosub_interface::chrome::ChromeHandle;
 use gosub_interface::config::{
     HasChrome, HasCssSystem, HasDocument, HasHtmlParser, HasLayouter, HasRenderBackend, HasRenderTree, HasTreeDrawer,
@@ -22,8 +20,10 @@ use gosub_interface::instance::{Handles, InstanceId};
 use gosub_interface::render_backend::RenderBackend;
 use gosub_interface::render_backend::SizeU32;
 use gosub_interface::request::RequestServerHandle;
+use gosub_net::new_fetcher;
 use gosub_renderer::draw::TreeDrawerImpl;
 use gosub_rendering::render_tree::RenderTree;
+use gosub_stream::byte_stream::ByteStream;
 use gosub_taffy::TaffyLayouter;
 use gtk4::gio::{ApplicationCommandLine, ApplicationFlags};
 use gtk4::prelude::*;
@@ -128,8 +128,7 @@ fn build_ui(app: &Application, cl: &ApplicationCommandLine) -> glib::ExitCode {
     // Tree drawer that will render the final tree
     let parsed_url = Url::parse(&url).unwrap();
     let fetcher = new_fetcher(parsed_url.clone());
-    let instance =
-        EngineInstance::new_on_thread(parsed_url, fetcher, TaffyLayouter, InstanceId(0), handles).unwrap();
+    let instance = EngineInstance::new_on_thread(parsed_url, fetcher, TaffyLayouter, InstanceId(0), handles).unwrap();
 
     // Set up drawing area widget with a custom draw function. This will render a scene using the
     // tree drawer.

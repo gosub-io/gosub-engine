@@ -13,23 +13,23 @@ pub mod dns;
 pub mod errors;
 
 // New net modules
-pub mod types;
-pub mod policy;
-pub mod events;
-pub mod emitter;
-pub mod net_types;
-pub mod shared_body;
-pub mod utils;
-pub mod fs_utils;
-pub mod fetch;
-pub mod pump;
 pub mod decision;
 pub mod decision_hub;
-pub mod req_ref_tracker;
+pub mod emitter;
+pub mod events;
+pub mod fetch;
 pub mod fetcher;
-pub mod io_types;
+pub mod fs_utils;
 pub mod io_runtime;
+pub mod io_types;
+pub mod net_types;
+pub mod policy;
+pub mod pump;
+pub mod req_ref_tracker;
+pub mod shared_body;
 pub mod spawn;
+pub mod types;
+pub mod utils;
 
 /// Creates a new HTTP fetcher for the given base URL using the new fetch infrastructure.
 /// Returns a `SharedFetcher` for backward compatibility.
@@ -65,7 +65,9 @@ impl gosub_interface::fetcher::Fetcher for SimpleHttpFetcher {
     fn get_url<'a>(
         &'a self,
         url: &'a url::Url,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<gosub_interface::fetcher::FetchResponse>> + Send + 'a>> {
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = anyhow::Result<gosub_interface::fetcher::FetchResponse>> + Send + 'a>,
+    > {
         let client = self.client.clone();
         let url = url.clone();
         Box::pin(async move {
@@ -95,7 +97,9 @@ impl gosub_interface::fetcher::Fetcher for SimpleHttpFetcher {
     fn get<'a>(
         &'a self,
         url: &'a str,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<gosub_interface::fetcher::FetchResponse>> + Send + 'a>> {
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = anyhow::Result<gosub_interface::fetcher::FetchResponse>> + Send + 'a>,
+    > {
         let parsed = self.parse_url(url);
         Box::pin(async move {
             let url = parsed?;

@@ -1,6 +1,6 @@
 use crate::callback::{Callback, FutureExecutor};
-use gosub_interface::input::{InputEvent, MouseButton};
 use gosub_interface::geo::Point;
+use gosub_interface::input::{InputEvent, MouseButton};
 use std::fmt::Debug;
 
 pub enum Listeners<E: FutureExecutor> {

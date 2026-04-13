@@ -1,6 +1,6 @@
-use anyhow::Result;
 use crate::dns::{DnsEntry, DnsResolver, ResolveType};
 use crate::errors::Error;
+use anyhow::Result;
 use core::str::FromStr;
 
 use hickory_resolver::config::Protocol::Udp;

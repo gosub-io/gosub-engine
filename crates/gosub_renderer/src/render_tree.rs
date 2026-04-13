@@ -34,9 +34,7 @@ pub fn load_html_rendertree_source<C: HasRenderTree + HasHtmlParser<HtmlStream =
     stream.read_from_str(source_html, Some(Encoding::UTF8));
     stream.close();
 
-    let opts = fetcher.map(|f| {
-        <C::HtmlParser as Html5Parser<C>>::Options::new(true).with_fetcher(f)
-    });
+    let opts = fetcher.map(|f| <C::HtmlParser as Html5Parser<C>>::Options::new(true).with_fetcher(f));
 
     let mut doc = C::DocumentBuilder::new_document(Some(url));
     let parse_errors = C::HtmlParser::parse(&mut stream, &mut doc, opts)?;

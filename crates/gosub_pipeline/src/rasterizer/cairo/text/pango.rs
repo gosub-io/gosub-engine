@@ -1,10 +1,10 @@
-use pangocairo::cairo::{Context, Error, Format, ImageSurface};
-use pangocairo::pango::{FontDescription, SCALE};
-use pangocairo::functions::{context_set_resolution, create_layout};
+use crate::common::font::pango::{find_available_font, to_pango_weight};
 use crate::painter::commands::text::Text;
 use crate::rasterizer::cairo::brush::set_brush;
 use crate::tiler::Tile;
-use crate::common::font::pango::{find_available_font, to_pango_weight};
+use pangocairo::cairo::{Context, Error, Format, ImageSurface};
+use pangocairo::functions::{context_set_resolution, create_layout};
+use pangocairo::pango::{FontDescription, SCALE};
 
 pub(crate) fn do_paint_text(cr: &Context, tile: &Tile, cmd: &Text) -> Result<(), Error> {
     let surface = create_text_layout(cmd)?;
@@ -54,4 +54,3 @@ fn create_text_layout(cmd: &Text) -> Result<ImageSurface, Error> {
 
     Ok(surface)
 }
-

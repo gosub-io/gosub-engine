@@ -82,7 +82,13 @@ async fn main() -> anyhow::Result<()> {
 
     // 6. Navigate
     tab.send(TabCommand::Navigate { url }).await?;
-    tab.send(TabCommand::SetViewport { x: 0, y: 0, width: 1280, height: 800 }).await?;
+    tab.send(TabCommand::SetViewport {
+        x: 0,
+        y: 0,
+        width: 1280,
+        height: 800,
+    })
+    .await?;
     loop {
         match events.recv().await {
             Ok(EngineEvent::Navigation { tab_id, event }) => {

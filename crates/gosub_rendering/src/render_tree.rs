@@ -5,13 +5,13 @@ use gosub_interface::css3::{CssProperty, CssPropertyMap, CssSystem};
 use gosub_interface::document::Document;
 
 use gosub_interface::font::HasFontManager;
+use gosub_interface::geo::Size;
 use gosub_interface::layout::{HasTextLayout, Layout, LayoutCache, LayoutNode, LayoutTree, Layouter, TextLayout};
 use gosub_interface::node::NodeData;
+use gosub_interface::node::NodeId;
 use gosub_interface::node::{ElementDataType, Node as DocumentNode, TextDataType};
 use gosub_interface::render_tree;
 use gosub_interface::render_tree::TextLayoutRef;
-use gosub_interface::geo::Size;
-use gosub_interface::node::NodeId;
 use gosub_interface::types::Result;
 use log::info;
 use std::collections::HashMap;

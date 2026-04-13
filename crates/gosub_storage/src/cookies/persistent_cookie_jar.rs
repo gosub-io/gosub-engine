@@ -12,7 +12,11 @@ pub struct PersistentCookieJar {
 
 impl PersistentCookieJar {
     pub fn new(zone_id: ZoneId, jar: CookieJarHandle, store_handle: CookieStoreHandle) -> Self {
-        Self { zone_id, inner: jar, store_handle }
+        Self {
+            zone_id,
+            inner: jar,
+            store_handle,
+        }
     }
 
     fn persist(&self) {
@@ -29,8 +33,12 @@ impl PersistentCookieJar {
 }
 
 impl CookieJar for PersistentCookieJar {
-    fn as_any(&self) -> &dyn std::any::Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn std::any::Any { self }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
 
     fn store_response_cookies(&mut self, url: &Url, headers: &HeaderMap) {
         self.inner.write().store_response_cookies(url, headers);

@@ -1,8 +1,8 @@
-use gtk4::cairo::Context;
 use crate::painter::commands::border::BorderStyle;
 use crate::painter::commands::rectangle::Rectangle;
 use crate::rasterizer::cairo::brush::set_brush;
 use crate::tiler::Tile;
+use gtk4::cairo::Context;
 
 pub(crate) fn do_paint_rectangle(cr: &Context, tile: &Tile, rectangle: &Rectangle) {
     // Save the context state. This allows us to do clipping and translation without worrying about
@@ -64,7 +64,7 @@ pub(crate) fn do_paint_rectangle(cr: &Context, tile: &Tile, rectangle: &Rectangl
                     rectangle.rect().x + width as f64 + gap_size,
                     rectangle.rect().y + width as f64 + gap_size,
                     rectangle.rect().width - width as f64 - gap_size,
-                    rectangle.rect().height - width as f64 - gap_size
+                    rectangle.rect().height - width as f64 - gap_size,
                 );
                 _ = cr.stroke();
             } else {
@@ -89,7 +89,6 @@ pub(crate) fn do_paint_rectangle(cr: &Context, tile: &Tile, rectangle: &Rectangl
     _ = cr.restore();
 }
 
-
 /// Creates a cairo rectangle with either sharp or rounded corners. Does not fill or stroke the path.
 fn setup_rectangle_path(cr: &Context, rect: &Rectangle) {
     let (r_tl, r_tr, r_br, r_bl) = rect.radius();
@@ -103,16 +102,43 @@ fn setup_rectangle_path(cr: &Context, rect: &Rectangle) {
     cr.move_to(rect.rect().x + tl, rect.rect().y);
 
     cr.line_to(rect.rect().x + rect.rect().width - tr, rect.rect().y);
-    cr.arc(rect.rect().x + rect.rect().width - tr, rect.rect().y + tr, tr, -0.5 * std::f64::consts::PI, 0.0);
+    cr.arc(
+        rect.rect().x + rect.rect().width - tr,
+        rect.rect().y + tr,
+        tr,
+        -0.5 * std::f64::consts::PI,
+        0.0,
+    );
 
-    cr.line_to(rect.rect().x + rect.rect().width, rect.rect().y + rect.rect().height - br);
-    cr.arc(rect.rect().x + rect.rect().width - br, rect.rect().y + rect.rect().height - br, br, 0.0, 0.5 * std::f64::consts::PI);
+    cr.line_to(
+        rect.rect().x + rect.rect().width,
+        rect.rect().y + rect.rect().height - br,
+    );
+    cr.arc(
+        rect.rect().x + rect.rect().width - br,
+        rect.rect().y + rect.rect().height - br,
+        br,
+        0.0,
+        0.5 * std::f64::consts::PI,
+    );
 
     cr.line_to(rect.rect().x + bl, rect.rect().y + rect.rect().height);
-    cr.arc(rect.rect().x + bl, rect.rect().y + rect.rect().height - bl, bl, 0.5 * std::f64::consts::PI, std::f64::consts::PI);
+    cr.arc(
+        rect.rect().x + bl,
+        rect.rect().y + rect.rect().height - bl,
+        bl,
+        0.5 * std::f64::consts::PI,
+        std::f64::consts::PI,
+    );
 
     cr.line_to(rect.rect().x, rect.rect().y + tl);
-    cr.arc(rect.rect().x + tl, rect.rect().y + tl, tl, std::f64::consts::PI, 1.5 * std::f64::consts::PI);
+    cr.arc(
+        rect.rect().x + tl,
+        rect.rect().y + tl,
+        tl,
+        std::f64::consts::PI,
+        1.5 * std::f64::consts::PI,
+    );
 
     cr.close_path();
 }

@@ -9,10 +9,10 @@ use crate::elements::brush::GsBrush;
 use crate::elements::color::GsColor;
 use freetype::{Face, Library};
 use gosub_interface::font::FontBlob;
+use gosub_interface::geo::{NormalizedCoord, Point, FP};
+use gosub_interface::glyph::{Glyph, GlyphID};
 use gosub_interface::layout::{Decoration, TextLayout};
 use gosub_interface::render_backend::{RenderText, Text as TText};
-use gosub_interface::glyph::{Glyph, GlyphID};
-use gosub_interface::geo::{NormalizedCoord, Point, FP};
 use log::warn;
 
 thread_local! {

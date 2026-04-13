@@ -12,12 +12,7 @@ use skia_safe::{images, AlphaType, ColorType, Data, ISize, ImageInfo};
 // be able to use the dimension as a caching tag. So if the rect() dimension changes for that SVG, we should re-render
 // the SVG to a pixmap and image and store it in the media store.
 
-pub(crate) fn do_paint_svg(
-    canvas: &skia_safe::Canvas,
-    _tile: &Tile,
-    media_id: MediaId,
-    rect: &Rectangle,
-) {
+pub(crate) fn do_paint_svg(canvas: &skia_safe::Canvas, _tile: &Tile, media_id: MediaId, rect: &Rectangle) {
     let binding = get_media_store().read().unwrap();
     let media = binding.get_svg(media_id);
 
@@ -29,10 +24,9 @@ pub(crate) fn do_paint_svg(
     // With "normal" images, we would just scale the image, but since SVG is vector-based, we want to re-render it from
     // the source. It might be better to either render each dimension into a separate media, or store only an X amount of
     // different dimensions. This is a trade-off between memory and CPU usage.
-    if  media_dimension != rect.rect().dimension() {
+    if media_dimension != rect.rect().dimension() {
         let pixmap_size = media.svg.tree.size().to_int_size();
-        let mut pixmap =
-            resvg::tiny_skia::Pixmap::new(pixmap_size.width(), pixmap_size.height()).unwrap();
+        let mut pixmap = resvg::tiny_skia::Pixmap::new(pixmap_size.width(), pixmap_size.height()).unwrap();
         resvg::render(&media.svg.tree, Transform::default(), &mut pixmap.as_mut());
 
         let mut var = media.svg.rendered_data.write().unwrap();
@@ -57,10 +51,7 @@ pub(crate) fn do_paint_svg(
 
     match images::raster_from_data(&img_info, data, svg_dimension.width as usize * 4) {
         Some(skia_image) => {
-            canvas.draw_image(
-                &skia_image,
-                (rect.rect().x as f32, rect.rect().y as f32),
-                None);
+            canvas.draw_image(&skia_image, (rect.rect().x as f32, rect.rect().y as f32), None);
         }
         None => {
             log::warn!("Error rendering SVG");

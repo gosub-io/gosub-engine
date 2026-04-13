@@ -1,10 +1,15 @@
-#[cfg(not(any(feature = "text_simple", feature = "text_parley", feature = "text_pango", feature = "text_skia")))]
+#[cfg(not(any(
+    feature = "text_simple",
+    feature = "text_parley",
+    feature = "text_pango",
+    feature = "text_skia"
+)))]
 compile_error!("One of 'text_simple', 'text_parley', 'text_pango', or 'text_skia' must be enabled");
 
-#[cfg(feature = "text_parley")]
-pub mod parley;
 #[cfg(feature = "text_pango")]
 pub mod pango;
+#[cfg(feature = "text_parley")]
+pub mod parley;
 #[cfg(feature = "text_skia")]
 pub mod skia;
 

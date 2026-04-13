@@ -4,8 +4,8 @@ use crate::tokenizer::token::Token;
 use gosub_interface::config::HasDocument;
 use gosub_interface::document::Document;
 
-use gosub_interface::node::{ElementDataType, Node, TextDataType};
 use gosub_interface::node::NodeId;
+use gosub_interface::node::{ElementDataType, Node, TextDataType};
 
 const ADOPTION_AGENCY_OUTER_LOOP_DEPTH: usize = 8;
 const ADOPTION_AGENCY_INNER_LOOP_DEPTH: usize = 3;

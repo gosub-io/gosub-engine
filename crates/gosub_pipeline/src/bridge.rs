@@ -50,12 +50,18 @@ where
             }
             "border-right-color" => {
                 if let Some((r, g, b, a)) = prop.parse_color() {
-                    list.set_property(StyleProperty::BorderRightColor, StyleValue::Color(css_color(r, g, b, a)));
+                    list.set_property(
+                        StyleProperty::BorderRightColor,
+                        StyleValue::Color(css_color(r, g, b, a)),
+                    );
                 }
             }
             "border-bottom-color" => {
                 if let Some((r, g, b, a)) = prop.parse_color() {
-                    list.set_property(StyleProperty::BorderBottomColor, StyleValue::Color(css_color(r, g, b, a)));
+                    list.set_property(
+                        StyleProperty::BorderBottomColor,
+                        StyleValue::Color(css_color(r, g, b, a)),
+                    );
                 }
             }
             "border-left-color" => {
@@ -72,19 +78,19 @@ where
                         // explicit display rule fall through to Taffy's default (Block), which
                         // is what the browser UA stylesheet intends for block-level elements.
                         // Inline is only applied when a stylesheet rule explicitly says so.
-                        "inline"             => None,
-                        "block"              => Some(Display::Block),
-                        "inline-block"       => Some(Display::InlineBlock),
-                        "none"               => Some(Display::None),
-                        "flex"               => Some(Display::Flex),
-                        "table"              => Some(Display::Table),
-                        "table-caption"      => Some(Display::TableCaption),
-                        "table-cell"         => Some(Display::TableCell),
+                        "inline" => None,
+                        "block" => Some(Display::Block),
+                        "inline-block" => Some(Display::InlineBlock),
+                        "none" => Some(Display::None),
+                        "flex" => Some(Display::Flex),
+                        "table" => Some(Display::Table),
+                        "table-caption" => Some(Display::TableCaption),
+                        "table-cell" => Some(Display::TableCell),
                         "table-footer-group" => Some(Display::TableFooterGroup),
                         "table-header-group" => Some(Display::TableHeaderGroup),
-                        "table-row"          => Some(Display::TableRow),
-                        "table-row-group"    => Some(Display::TableRowGroup),
-                        _                    => None,
+                        "table-row" => Some(Display::TableRow),
+                        "table-row-group" => Some(Display::TableRowGroup),
+                        _ => None,
                     };
                     if let Some(d) = d {
                         list.set_property(StyleProperty::Display, StyleValue::Display(d));
@@ -100,18 +106,20 @@ where
             }
             "font-family" => {
                 if let Some(s) = prop.as_string() {
-                    list.set_property(StyleProperty::FontFamily,
-                        StyleValue::Keyword(s.trim_matches('"').trim_matches('\'').to_string()));
+                    list.set_property(
+                        StyleProperty::FontFamily,
+                        StyleValue::Keyword(s.trim_matches('"').trim_matches('\'').to_string()),
+                    );
                 }
             }
             "font-weight" => {
                 let fw = if let Some(s) = prop.as_string() {
                     match s {
-                        "normal"  => Some(FontWeight::Normal),
-                        "bold"    => Some(FontWeight::Bold),
-                        "bolder"  => Some(FontWeight::Bolder),
+                        "normal" => Some(FontWeight::Normal),
+                        "bold" => Some(FontWeight::Bold),
+                        "bolder" => Some(FontWeight::Bolder),
                         "lighter" => Some(FontWeight::Lighter),
-                        _         => None,
+                        _ => None,
                     }
                 } else {
                     prop.as_number().map(FontWeight::Number)
@@ -122,70 +130,156 @@ where
             }
 
             // ── Box model — dimensions ────────────────────────────────────────
-            "width"      => { set_unit::<S>(&mut list, StyleProperty::Width,     prop); }
-            "height"     => { set_unit::<S>(&mut list, StyleProperty::Height,    prop); }
-            "min-width"  => { set_unit::<S>(&mut list, StyleProperty::MinWidth,  prop); }
-            "min-height" => { set_unit::<S>(&mut list, StyleProperty::MinHeight, prop); }
-            "max-width"  => { set_unit::<S>(&mut list, StyleProperty::MaxWidth,  prop); }
-            "max-height" => { set_unit::<S>(&mut list, StyleProperty::MaxHeight, prop); }
+            "width" => {
+                set_unit::<S>(&mut list, StyleProperty::Width, prop);
+            }
+            "height" => {
+                set_unit::<S>(&mut list, StyleProperty::Height, prop);
+            }
+            "min-width" => {
+                set_unit::<S>(&mut list, StyleProperty::MinWidth, prop);
+            }
+            "min-height" => {
+                set_unit::<S>(&mut list, StyleProperty::MinHeight, prop);
+            }
+            "max-width" => {
+                set_unit::<S>(&mut list, StyleProperty::MaxWidth, prop);
+            }
+            "max-height" => {
+                set_unit::<S>(&mut list, StyleProperty::MaxHeight, prop);
+            }
 
             // ── Box model — spacing ───────────────────────────────────────────
-            "margin-top"    => { set_unit::<S>(&mut list, StyleProperty::MarginTop,    prop); }
-            "margin-right"  => { set_unit::<S>(&mut list, StyleProperty::MarginRight,  prop); }
-            "margin-bottom" => { set_unit::<S>(&mut list, StyleProperty::MarginBottom, prop); }
-            "margin-left"   => { set_unit::<S>(&mut list, StyleProperty::MarginLeft,   prop); }
-            "padding-top"    => { set_unit::<S>(&mut list, StyleProperty::PaddingTop,    prop); }
-            "padding-right"  => { set_unit::<S>(&mut list, StyleProperty::PaddingRight,  prop); }
-            "padding-bottom" => { set_unit::<S>(&mut list, StyleProperty::PaddingBottom, prop); }
-            "padding-left"   => { set_unit::<S>(&mut list, StyleProperty::PaddingLeft,   prop); }
+            "margin-top" => {
+                set_unit::<S>(&mut list, StyleProperty::MarginTop, prop);
+            }
+            "margin-right" => {
+                set_unit::<S>(&mut list, StyleProperty::MarginRight, prop);
+            }
+            "margin-bottom" => {
+                set_unit::<S>(&mut list, StyleProperty::MarginBottom, prop);
+            }
+            "margin-left" => {
+                set_unit::<S>(&mut list, StyleProperty::MarginLeft, prop);
+            }
+            "padding-top" => {
+                set_unit::<S>(&mut list, StyleProperty::PaddingTop, prop);
+            }
+            "padding-right" => {
+                set_unit::<S>(&mut list, StyleProperty::PaddingRight, prop);
+            }
+            "padding-bottom" => {
+                set_unit::<S>(&mut list, StyleProperty::PaddingBottom, prop);
+            }
+            "padding-left" => {
+                set_unit::<S>(&mut list, StyleProperty::PaddingLeft, prop);
+            }
 
             // ── Border ───────────────────────────────────────────────────────
-            "border-top-width"    => { set_unit::<S>(&mut list, StyleProperty::BorderTopWidth,    prop); }
-            "border-right-width"  => { set_unit::<S>(&mut list, StyleProperty::BorderRightWidth,  prop); }
-            "border-bottom-width" => { set_unit::<S>(&mut list, StyleProperty::BorderBottomWidth, prop); }
-            "border-left-width"   => { set_unit::<S>(&mut list, StyleProperty::BorderLeftWidth,   prop); }
-            "border-top-left-radius"     => { set_unit::<S>(&mut list, StyleProperty::BorderTopLeftRadius,     prop); }
-            "border-top-right-radius"    => { set_unit::<S>(&mut list, StyleProperty::BorderTopRightRadius,    prop); }
-            "border-bottom-left-radius"  => { set_unit::<S>(&mut list, StyleProperty::BorderBottomLeftRadius,  prop); }
-            "border-bottom-right-radius" => { set_unit::<S>(&mut list, StyleProperty::BorderBottomRightRadius, prop); }
+            "border-top-width" => {
+                set_unit::<S>(&mut list, StyleProperty::BorderTopWidth, prop);
+            }
+            "border-right-width" => {
+                set_unit::<S>(&mut list, StyleProperty::BorderRightWidth, prop);
+            }
+            "border-bottom-width" => {
+                set_unit::<S>(&mut list, StyleProperty::BorderBottomWidth, prop);
+            }
+            "border-left-width" => {
+                set_unit::<S>(&mut list, StyleProperty::BorderLeftWidth, prop);
+            }
+            "border-top-left-radius" => {
+                set_unit::<S>(&mut list, StyleProperty::BorderTopLeftRadius, prop);
+            }
+            "border-top-right-radius" => {
+                set_unit::<S>(&mut list, StyleProperty::BorderTopRightRadius, prop);
+            }
+            "border-bottom-left-radius" => {
+                set_unit::<S>(&mut list, StyleProperty::BorderBottomLeftRadius, prop);
+            }
+            "border-bottom-right-radius" => {
+                set_unit::<S>(&mut list, StyleProperty::BorderBottomRightRadius, prop);
+            }
 
             // ── Flexbox ───────────────────────────────────────────────────────
-            "flex-basis"  => { set_unit::<S>(&mut list, StyleProperty::FlexBasis,  prop); }
-            "flex-grow"   => { if let Some(n) = prop.as_number() { list.set_property(StyleProperty::FlexGrow,   StyleValue::Number(n)); } }
-            "flex-shrink" => { if let Some(n) = prop.as_number() { list.set_property(StyleProperty::FlexShrink, StyleValue::Number(n)); } }
-            "flex-direction" => { set_keyword::<S>(&mut list, StyleProperty::FlexDirection, prop); }
-            "flex-wrap"      => { set_keyword::<S>(&mut list, StyleProperty::FlexWrap,      prop); }
-            "align-items"    => { set_keyword::<S>(&mut list, StyleProperty::AlignItems,    prop); }
-            "align-self"     => { set_keyword::<S>(&mut list, StyleProperty::AlignSelf,     prop); }
-            "align-content"  => { set_keyword::<S>(&mut list, StyleProperty::AlignContent,  prop); }
-            "justify-items"   => { set_keyword::<S>(&mut list, StyleProperty::JustifyItems,   prop); }
-            "justify-self"    => { set_keyword::<S>(&mut list, StyleProperty::JustifySelf,    prop); }
-            "justify-content" => { set_keyword::<S>(&mut list, StyleProperty::JustifyContent, prop); }
-            "gap" => { set_unit::<S>(&mut list, StyleProperty::Gap, prop); }
+            "flex-basis" => {
+                set_unit::<S>(&mut list, StyleProperty::FlexBasis, prop);
+            }
+            "flex-grow" => {
+                if let Some(n) = prop.as_number() {
+                    list.set_property(StyleProperty::FlexGrow, StyleValue::Number(n));
+                }
+            }
+            "flex-shrink" => {
+                if let Some(n) = prop.as_number() {
+                    list.set_property(StyleProperty::FlexShrink, StyleValue::Number(n));
+                }
+            }
+            "flex-direction" => {
+                set_keyword::<S>(&mut list, StyleProperty::FlexDirection, prop);
+            }
+            "flex-wrap" => {
+                set_keyword::<S>(&mut list, StyleProperty::FlexWrap, prop);
+            }
+            "align-items" => {
+                set_keyword::<S>(&mut list, StyleProperty::AlignItems, prop);
+            }
+            "align-self" => {
+                set_keyword::<S>(&mut list, StyleProperty::AlignSelf, prop);
+            }
+            "align-content" => {
+                set_keyword::<S>(&mut list, StyleProperty::AlignContent, prop);
+            }
+            "justify-items" => {
+                set_keyword::<S>(&mut list, StyleProperty::JustifyItems, prop);
+            }
+            "justify-self" => {
+                set_keyword::<S>(&mut list, StyleProperty::JustifySelf, prop);
+            }
+            "justify-content" => {
+                set_keyword::<S>(&mut list, StyleProperty::JustifyContent, prop);
+            }
+            "gap" => {
+                set_unit::<S>(&mut list, StyleProperty::Gap, prop);
+            }
 
             // ── Grid ──────────────────────────────────────────────────────────
-            "grid-auto-flow"       => { set_keyword::<S>(&mut list, StyleProperty::GridAutoFlow,       prop); }
-            "grid-row"             => { set_keyword::<S>(&mut list, StyleProperty::GridRow,             prop); }
-            "grid-column"          => { set_keyword::<S>(&mut list, StyleProperty::GridColumn,          prop); }
-            "grid-template-rows"   => { set_keyword::<S>(&mut list, StyleProperty::GridTemplateRows,    prop); }
-            "grid-template-columns"=> { set_keyword::<S>(&mut list, StyleProperty::GridTemplateColumns, prop); }
-            "grid-auto-rows"       => { set_keyword::<S>(&mut list, StyleProperty::GridAutoRows,        prop); }
-            "grid-auto-columns"    => { set_keyword::<S>(&mut list, StyleProperty::GridAutoColumns,     prop); }
+            "grid-auto-flow" => {
+                set_keyword::<S>(&mut list, StyleProperty::GridAutoFlow, prop);
+            }
+            "grid-row" => {
+                set_keyword::<S>(&mut list, StyleProperty::GridRow, prop);
+            }
+            "grid-column" => {
+                set_keyword::<S>(&mut list, StyleProperty::GridColumn, prop);
+            }
+            "grid-template-rows" => {
+                set_keyword::<S>(&mut list, StyleProperty::GridTemplateRows, prop);
+            }
+            "grid-template-columns" => {
+                set_keyword::<S>(&mut list, StyleProperty::GridTemplateColumns, prop);
+            }
+            "grid-auto-rows" => {
+                set_keyword::<S>(&mut list, StyleProperty::GridAutoRows, prop);
+            }
+            "grid-auto-columns" => {
+                set_keyword::<S>(&mut list, StyleProperty::GridAutoColumns, prop);
+            }
 
             // ── Text ──────────────────────────────────────────────────────────
             "text-align" => {
                 if let Some(s) = prop.as_string() {
                     let ta = match s {
-                        "left"          => Some(TextAlign::Left),
-                        "right"         => Some(TextAlign::Right),
-                        "center"        => Some(TextAlign::Center),
-                        "justify"       => Some(TextAlign::Justify),
-                        "start"         => Some(TextAlign::Start),
-                        "end"           => Some(TextAlign::End),
-                        "match-parent"  => Some(TextAlign::MatchParent),
-                        "initial"       => Some(TextAlign::Initial),
-                        "inherit"       => Some(TextAlign::Inherit),
-                        _               => None,
+                        "left" => Some(TextAlign::Left),
+                        "right" => Some(TextAlign::Right),
+                        "center" => Some(TextAlign::Center),
+                        "justify" => Some(TextAlign::Justify),
+                        "start" => Some(TextAlign::Start),
+                        "end" => Some(TextAlign::End),
+                        "match-parent" => Some(TextAlign::MatchParent),
+                        "initial" => Some(TextAlign::Initial),
+                        "inherit" => Some(TextAlign::Inherit),
+                        _ => None,
                     };
                     if let Some(ta) = ta {
                         list.set_property(StyleProperty::TextAlign, StyleValue::TextAlign(ta));
@@ -195,34 +289,54 @@ where
             "text-wrap" | "white-space" => {
                 if let Some(s) = prop.as_string() {
                     let tw = match s {
-                        "wrap"         => Some(TextWrap::Wrap),
+                        "wrap" => Some(TextWrap::Wrap),
                         "nowrap" | "no-wrap" => Some(TextWrap::NoWrap),
-                        "balance"      => Some(TextWrap::Balance),
-                        "pretty"       => Some(TextWrap::Pretty),
-                        "stable"       => Some(TextWrap::Stable),
-                        "initial"      => Some(TextWrap::Initial),
-                        "inherit"      => Some(TextWrap::Inherit),
-                        _              => None,
+                        "balance" => Some(TextWrap::Balance),
+                        "pretty" => Some(TextWrap::Pretty),
+                        "stable" => Some(TextWrap::Stable),
+                        "initial" => Some(TextWrap::Initial),
+                        "inherit" => Some(TextWrap::Inherit),
+                        _ => None,
                     };
                     if let Some(tw) = tw {
                         list.set_property(StyleProperty::TextWrap, StyleValue::TextWrap(tw));
                     }
                 }
             }
-            "line-height" => { set_unit::<S>(&mut list, StyleProperty::LineHeight, prop); }
+            "line-height" => {
+                set_unit::<S>(&mut list, StyleProperty::LineHeight, prop);
+            }
 
             // ── Positioning ───────────────────────────────────────────────────
-            "position"       => { set_keyword::<S>(&mut list, StyleProperty::Position,      prop); }
-            "inset-block-end"    => { set_unit::<S>(&mut list, StyleProperty::InsetBlockEnd,    prop); }
-            "inset-block-start"  => { set_unit::<S>(&mut list, StyleProperty::InsetBlockStart,  prop); }
-            "inset-inline-end"   => { set_unit::<S>(&mut list, StyleProperty::InsetInlineEnd,   prop); }
-            "inset-inline-start" => { set_unit::<S>(&mut list, StyleProperty::InsetInlineStart, prop); }
+            "position" => {
+                set_keyword::<S>(&mut list, StyleProperty::Position, prop);
+            }
+            "inset-block-end" => {
+                set_unit::<S>(&mut list, StyleProperty::InsetBlockEnd, prop);
+            }
+            "inset-block-start" => {
+                set_unit::<S>(&mut list, StyleProperty::InsetBlockStart, prop);
+            }
+            "inset-inline-end" => {
+                set_unit::<S>(&mut list, StyleProperty::InsetInlineEnd, prop);
+            }
+            "inset-inline-start" => {
+                set_unit::<S>(&mut list, StyleProperty::InsetInlineStart, prop);
+            }
 
             // ── Overflow / misc ───────────────────────────────────────────────
-            "overflow-x"      => { set_keyword::<S>(&mut list, StyleProperty::OverflowX,      prop); }
-            "overflow-y"      => { set_keyword::<S>(&mut list, StyleProperty::OverflowY,      prop); }
-            "box-sizing"      => { set_keyword::<S>(&mut list, StyleProperty::BoxSizing,      prop); }
-            "scrollbar-width" => { set_keyword::<S>(&mut list, StyleProperty::ScrollbarWidth, prop); }
+            "overflow-x" => {
+                set_keyword::<S>(&mut list, StyleProperty::OverflowX, prop);
+            }
+            "overflow-y" => {
+                set_keyword::<S>(&mut list, StyleProperty::OverflowY, prop);
+            }
+            "box-sizing" => {
+                set_keyword::<S>(&mut list, StyleProperty::BoxSizing, prop);
+            }
+            "scrollbar-width" => {
+                set_keyword::<S>(&mut list, StyleProperty::ScrollbarWidth, prop);
+            }
             "aspect-ratio" => {
                 if let Some(n) = prop.as_number() {
                     list.set_property(StyleProperty::AspectRatio, StyleValue::Number(n));
@@ -242,17 +356,21 @@ fn css_color(r: f32, g: f32, b: f32, a: f32) -> Color {
     let r8 = (r * 255.0) as u8;
     let g8 = (g * 255.0) as u8;
     let b8 = (b * 255.0) as u8;
-    if a < 1.0 { Color::Rgba(r8, g8, b8, a) } else { Color::Rgb(r8, g8, b8) }
+    if a < 1.0 {
+        Color::Rgba(r8, g8, b8, a)
+    } else {
+        Color::Rgb(r8, g8, b8)
+    }
 }
 
 /// Extract a `StyleValue` from a CSS property that carries a length/percentage.
 fn css_unit_value<S: CssSystem>(prop: &S::Property) -> Option<StyleValue> {
     if let Some((v, unit_str)) = prop.as_unit() {
         let unit = match unit_str {
-            "em"  => Unit::Em,
+            "em" => Unit::Em,
             "rem" => Unit::Rem,
-            "%"   => return Some(StyleValue::Percentage(v)),
-            _     => Unit::Px,
+            "%" => return Some(StyleValue::Percentage(v)),
+            _ => Unit::Px,
         };
         return Some(StyleValue::Unit(v, unit));
     }
@@ -303,12 +421,12 @@ pub fn parse_inline_style(style_attr: &str) -> StylePropertyList {
         match prop.as_str() {
             "display" => {
                 let display = match val {
-                    "block"        => Some(Display::Block),
-                    "inline"       => Some(Display::Inline),
+                    "block" => Some(Display::Block),
+                    "inline" => Some(Display::Inline),
                     "inline-block" => Some(Display::InlineBlock),
-                    "none"         => Some(Display::None),
-                    "flex"         => Some(Display::Flex),
-                    _              => None,
+                    "none" => Some(Display::None),
+                    "flex" => Some(Display::Flex),
+                    _ => None,
                 };
                 if let Some(d) = display {
                     list.set_property(StyleProperty::Display, StyleValue::Display(d));
@@ -332,16 +450,14 @@ pub fn parse_inline_style(style_attr: &str) -> StylePropertyList {
             "font-family" => {
                 list.set_property(
                     StyleProperty::FontFamily,
-                    StyleValue::Keyword(
-                        val.trim_matches('"').trim_matches('\'').to_string(),
-                    ),
+                    StyleValue::Keyword(val.trim_matches('"').trim_matches('\'').to_string()),
                 );
             }
             "font-weight" => {
                 let fw = match val {
-                    "normal"  => Some(FontWeight::Normal),
-                    "bold"    => Some(FontWeight::Bold),
-                    "bolder"  => Some(FontWeight::Bolder),
+                    "normal" => Some(FontWeight::Normal),
+                    "bold" => Some(FontWeight::Bold),
+                    "bolder" => Some(FontWeight::Bolder),
                     "lighter" => Some(FontWeight::Lighter),
                     n => n.parse::<f32>().ok().map(FontWeight::Number),
                 };
@@ -349,20 +465,48 @@ pub fn parse_inline_style(style_attr: &str) -> StylePropertyList {
                     list.set_property(StyleProperty::FontWeight, StyleValue::FontWeight(fw));
                 }
             }
-            "width"  => { set_unit_str(&mut list, StyleProperty::Width,  val); }
-            "height" => { set_unit_str(&mut list, StyleProperty::Height, val); }
-            "margin-top"    | "margin"  => { set_unit_str(&mut list, StyleProperty::MarginTop,    val); }
-            "margin-right"              => { set_unit_str(&mut list, StyleProperty::MarginRight,   val); }
-            "margin-bottom"             => { set_unit_str(&mut list, StyleProperty::MarginBottom,  val); }
-            "margin-left"               => { set_unit_str(&mut list, StyleProperty::MarginLeft,    val); }
-            "padding-top"   | "padding" => { set_unit_str(&mut list, StyleProperty::PaddingTop,   val); }
-            "padding-right"             => { set_unit_str(&mut list, StyleProperty::PaddingRight,  val); }
-            "padding-bottom"            => { set_unit_str(&mut list, StyleProperty::PaddingBottom, val); }
-            "padding-left"              => { set_unit_str(&mut list, StyleProperty::PaddingLeft,   val); }
-            "border-top-width"    => { set_unit_str(&mut list, StyleProperty::BorderTopWidth,    val); }
-            "border-right-width"  => { set_unit_str(&mut list, StyleProperty::BorderRightWidth,  val); }
-            "border-bottom-width" => { set_unit_str(&mut list, StyleProperty::BorderBottomWidth, val); }
-            "border-left-width"   => { set_unit_str(&mut list, StyleProperty::BorderLeftWidth,   val); }
+            "width" => {
+                set_unit_str(&mut list, StyleProperty::Width, val);
+            }
+            "height" => {
+                set_unit_str(&mut list, StyleProperty::Height, val);
+            }
+            "margin-top" | "margin" => {
+                set_unit_str(&mut list, StyleProperty::MarginTop, val);
+            }
+            "margin-right" => {
+                set_unit_str(&mut list, StyleProperty::MarginRight, val);
+            }
+            "margin-bottom" => {
+                set_unit_str(&mut list, StyleProperty::MarginBottom, val);
+            }
+            "margin-left" => {
+                set_unit_str(&mut list, StyleProperty::MarginLeft, val);
+            }
+            "padding-top" | "padding" => {
+                set_unit_str(&mut list, StyleProperty::PaddingTop, val);
+            }
+            "padding-right" => {
+                set_unit_str(&mut list, StyleProperty::PaddingRight, val);
+            }
+            "padding-bottom" => {
+                set_unit_str(&mut list, StyleProperty::PaddingBottom, val);
+            }
+            "padding-left" => {
+                set_unit_str(&mut list, StyleProperty::PaddingLeft, val);
+            }
+            "border-top-width" => {
+                set_unit_str(&mut list, StyleProperty::BorderTopWidth, val);
+            }
+            "border-right-width" => {
+                set_unit_str(&mut list, StyleProperty::BorderRightWidth, val);
+            }
+            "border-bottom-width" => {
+                set_unit_str(&mut list, StyleProperty::BorderBottomWidth, val);
+            }
+            "border-left-width" => {
+                set_unit_str(&mut list, StyleProperty::BorderLeftWidth, val);
+            }
             _ => {}
         }
     }
@@ -431,12 +575,14 @@ fn build_node<C>(
     C: HasDocument,
     C::Document: GosubDoc<C>,
     <<C::Document as GosubDoc<C>>::Node as GosubNode<C>>::ElementData: ElementDataType<C>,
-    <<C::Document as GosubDoc<C>>::Node as GosubNode<C>>::TextData:    TextDataType,
+    <<C::Document as GosubDoc<C>>::Node as GosubNode<C>>::TextData: TextDataType,
     <<C::Document as GosubDoc<C>>::Node as GosubNode<C>>::CommentData: CommentDataType,
 {
     let poc_id: Option<PipelineNodeId> = match node.type_of() {
         NodeType::ElementNode => {
-            let Some(elem) = node.get_element_data() else { return; };
+            let Some(elem) = node.get_element_data() else {
+                return;
+            };
 
             let tag = elem.name().to_ascii_lowercase();
             let raw_attrs = elem.attributes();
@@ -447,14 +593,12 @@ fn build_node<C>(
             }
 
             // Step 1: full CSS cascade (UA stylesheet + author stylesheets)
-            let mut styles = if let Some(prop_map) =
-                <C::CssSystem as CssSystem>::properties_from_node::<C>(
-                    node,
-                    gosub_doc.stylesheets(),
-                    gosub_doc,
-                    node.id(),
-                )
-            {
+            let mut styles = if let Some(prop_map) = <C::CssSystem as CssSystem>::properties_from_node::<C>(
+                node,
+                gosub_doc.stylesheets(),
+                gosub_doc,
+                node.id(),
+            ) {
                 css_property_map_to_style_list::<C::CssSystem>(&prop_map)
             } else {
                 StylePropertyList::new()
@@ -471,17 +615,28 @@ fn build_node<C>(
 
             let self_closing = matches!(
                 tag.as_str(),
-                "area" | "base" | "br" | "col" | "embed" | "hr" | "img"
-                    | "input" | "link" | "meta" | "param" | "source"
-                    | "track" | "wbr"
+                "area"
+                    | "base"
+                    | "br"
+                    | "col"
+                    | "embed"
+                    | "hr"
+                    | "img"
+                    | "input"
+                    | "link"
+                    | "meta"
+                    | "param"
+                    | "source"
+                    | "track"
+                    | "wbr"
             );
 
-            Some(pipeline_doc.new_element(
-                parent_id, &tag, Some(attr_map), self_closing, Some(styles),
-            ))
+            Some(pipeline_doc.new_element(parent_id, &tag, Some(attr_map), self_closing, Some(styles)))
         }
         NodeType::TextNode => {
-            let Some(text_data) = node.get_text_data() else { return; };
+            let Some(text_data) = node.get_text_data() else {
+                return;
+            };
             let text = text_data.value();
             if text.trim().is_empty() {
                 return;
@@ -489,7 +644,9 @@ fn build_node<C>(
             Some(pipeline_doc.new_text(parent_id, text, None))
         }
         NodeType::CommentNode => {
-            let Some(comment_data) = node.get_comment_data() else { return; };
+            let Some(comment_data) = node.get_comment_data() else {
+                return;
+            };
             Some(pipeline_doc.new_comment(parent_id, comment_data.value()))
         }
         NodeType::DocumentNode => {

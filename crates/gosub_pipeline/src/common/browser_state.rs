@@ -1,9 +1,9 @@
-use std::fmt::Debug;
-use std::sync::{Arc, OnceLock, RwLock};
 use crate::common::document::document::Document;
 use crate::common::geo::Rect;
 use crate::layouter::LayoutElementId;
 use crate::tiler::TileList;
+use std::fmt::Debug;
+use std::sync::{Arc, OnceLock, RwLock};
 
 #[derive(Debug)]
 pub enum WireframeState {
@@ -49,11 +49,12 @@ impl Debug for BrowserState {
     }
 }
 
-
 static BROWSER_STATE: OnceLock<Arc<RwLock<BrowserState>>> = OnceLock::new();
 
 pub fn init_browser_state(state: BrowserState) {
-    BROWSER_STATE.set(Arc::new(RwLock::new(state))).expect("Failed to set browser state");
+    BROWSER_STATE
+        .set(Arc::new(RwLock::new(state)))
+        .expect("Failed to set browser state");
 }
 
 pub fn get_browser_state() -> Arc<RwLock<BrowserState>> {

@@ -6,8 +6,8 @@ use crate::tokenizer::{
     token::Token,
     {Options, Tokenizer},
 };
-use gosub_stream::byte_stream::{ByteStream, Config, Encoding, Location};
 use gosub_interface::types::Result;
+use gosub_stream::byte_stream::{ByteStream, Config, Encoding, Location};
 use lazy_static::lazy_static;
 use regex::{Captures, Regex};
 use serde::{

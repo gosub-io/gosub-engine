@@ -3,10 +3,10 @@ use std::collections::HashMap;
 
 use crate::parser::tree_builder::TreeBuilder;
 use gosub_interface::config::HasDocument;
-use gosub_interface::node::{ElementDataType, Node};
-use gosub_stream::byte_stream::Location;
 use gosub_interface::node::NodeId;
+use gosub_interface::node::{ElementDataType, Node};
 use gosub_interface::types::Result;
+use gosub_stream::byte_stream::Location;
 
 /// Enum of tasks that can be performed to add or
 /// update nodes in the tree.

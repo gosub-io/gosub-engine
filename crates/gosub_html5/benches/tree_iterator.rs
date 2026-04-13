@@ -9,8 +9,8 @@ use gosub_html5::parser::Html5Parser;
 use gosub_interface::config::{HasCssSystem, HasDocument, HasHtmlParser};
 use gosub_interface::document::DocumentBuilder;
 
-use gosub_stream::byte_stream::{ByteStream, Encoding};
 use gosub_interface::node::NodeId;
+use gosub_stream::byte_stream::{ByteStream, Encoding};
 
 #[derive(Clone, Debug, PartialEq)]
 struct Config;

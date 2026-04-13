@@ -45,7 +45,8 @@ impl JsonCookieStore {
     fn load_file(&self) -> CookieStoreFile {
         let mut file = File::open(&self.path).expect("Failed to open cookie store file");
         let mut contents = String::new();
-        file.read_to_string(&mut contents).expect("Failed to read cookie store file");
+        file.read_to_string(&mut contents)
+            .expect("Failed to read cookie store file");
         serde_json::from_str(&contents).unwrap_or_else(|_| CookieStoreFile { zones: HashMap::new() })
     }
 
@@ -67,7 +68,13 @@ impl CookieStore for JsonCookieStore {
         let jar = file.zones.remove(&zone_id).unwrap_or_else(DefaultCookieJar::new);
         let arc_jar: CookieJarHandle = jar.into();
 
-        let store = self.store_self.read().unwrap().as_ref().expect("store_self not initialized").clone();
+        let store = self
+            .store_self
+            .read()
+            .unwrap()
+            .as_ref()
+            .expect("store_self not initialized")
+            .clone();
 
         let persistent = PersistentCookieJar::new(zone_id, arc_jar.clone(), store);
         let handle = CookieJarHandle::new(persistent);
@@ -145,7 +152,10 @@ mod tests {
 
         {
             let binding = handle.read();
-            let persist = binding.as_any().downcast_ref::<PersistentCookieJar>().expect("persistent wrapper expected");
+            let persist = binding
+                .as_any()
+                .downcast_ref::<PersistentCookieJar>()
+                .expect("persistent wrapper expected");
             let mut inner = persist.inner.write();
             let url: Url = "https://example.com/".parse().unwrap();
             let headers = mk_headers(&["id=123; Path=/; HttpOnly"]);
@@ -158,7 +168,10 @@ mod tests {
         let mut s = String::new();
         f.read_to_string(&mut s).unwrap();
         let parsed: CookieStoreFile = serde_json::from_str(&s).unwrap();
-        assert!(parsed.zones.contains_key(&zone), "zone entry must exist after persist_all");
+        assert!(
+            parsed.zones.contains_key(&zone),
+            "zone entry must exist after persist_all"
+        );
 
         let store2 = JsonCookieStore::new(path.clone());
         let h2 = store2.jar_for(zone).unwrap();

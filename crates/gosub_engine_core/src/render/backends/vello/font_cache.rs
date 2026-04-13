@@ -33,8 +33,7 @@ impl FontCache {
                 };
 
                 if let Some(font) = self.fonts.get(fallback_name) {
-                    self.resolved_names
-                        .insert(name.to_string(), fallback_name.to_string());
+                    self.resolved_names.insert(name.to_string(), fallback_name.to_string());
                     return Some((font, fallback_name.to_string()));
                 }
 
@@ -45,8 +44,7 @@ impl FontCache {
 
     pub fn insert(&mut self, name: &str, resolved_name: &str, font: Font) {
         self.fonts.insert(name.to_string(), font);
-        self.resolved_names
-            .insert(name.to_string(), resolved_name.to_string());
+        self.resolved_names.insert(name.to_string(), resolved_name.to_string());
     }
 
     #[allow(unused)]

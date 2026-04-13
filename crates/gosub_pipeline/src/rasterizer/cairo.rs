@@ -1,13 +1,13 @@
-use gtk4::cairo;
-use crate::painter::commands::PaintCommand;
-use crate::rasterizer::Rasterable;
-use crate::common::texture::TextureId;
 use crate::common::get_texture_store;
+use crate::common::texture::TextureId;
+use crate::painter::commands::PaintCommand;
 use crate::rasterizer::cairo::text::pango::do_paint_text;
+use crate::rasterizer::Rasterable;
 use crate::tiler::Tile;
+use gtk4::cairo;
 
-mod rectangle;
 mod brush;
+mod rectangle;
 mod text;
 
 pub struct CairoRasterizer {}
@@ -20,12 +20,9 @@ impl CairoRasterizer {
 
 impl Rasterable for CairoRasterizer {
     fn rasterize(&self, tile: &Tile) -> Option<TextureId> {
-        let mut surface = cairo::ImageSurface::create(
-            cairo::Format::ARgb32,
-            tile.rect.width as i32,
-            tile.rect.height as i32,
-        )
-        .expect("Failed to create image surface");
+        let mut surface =
+            cairo::ImageSurface::create(cairo::Format::ARgb32, tile.rect.width as i32, tile.rect.height as i32)
+                .expect("Failed to create image surface");
 
         {
             let cr = cairo::Context::new(&surface).expect("Failed to create cairo context");

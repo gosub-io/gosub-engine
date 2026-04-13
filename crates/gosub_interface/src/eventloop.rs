@@ -1,7 +1,7 @@
-use crate::config::HasDrawComponents;
-use crate::render_backend::ImageBuffer;
 use crate::async_executor::WasmNotSendSync;
+use crate::config::HasDrawComponents;
 use crate::geo::SizeU32;
+use crate::render_backend::ImageBuffer;
 use url::Url;
 
 pub trait EventLoopHandle<C: HasDrawComponents>: WasmNotSendSync + Clone + 'static {

@@ -1,7 +1,7 @@
-pub mod node;
-pub mod style;
 pub mod document;
+pub mod node;
 pub mod parser;
+pub mod style;
 
 #[cfg(test)]
 pub fn create_document() -> document::Document {

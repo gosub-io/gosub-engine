@@ -5,9 +5,7 @@ use crate::decision_hub::{DecisionHub, DecisionToken};
 use crate::emitter::null_emitter::NullEmitter;
 use crate::emitter::{NetObserver, ObserverFactory};
 use crate::fetch::{fetch_response_complete, fetch_response_top, ResponseTop};
-use crate::net_types::{
-    FetchHandle, FetchKeyData, FetchRequest, FetchResult, NetError, Priority,
-};
+use crate::net_types::{FetchHandle, FetchKeyData, FetchRequest, FetchResult, NetError, Priority};
 use crate::pump::{spawn_pump, PumpCfg, PumpTargets};
 use crate::req_ref_tracker::{RequestRefTracker, RequestReferenceMap};
 use crate::shared_body::{ReaderOptions, SharedBody};
@@ -347,10 +345,7 @@ impl Fetcher {
                 self.request_reference_tracker.inc(&req.reference);
             }
 
-            inflight_entry
-                .waiter
-                .register(reply_tx, req.streaming)
-                .await;
+            inflight_entry.waiter.register(reply_tx, req.streaming).await;
 
             inflight_entry.inc_sub();
 
@@ -365,9 +360,7 @@ impl Fetcher {
             });
 
             if req.streaming {
-                inflight_entry
-                    .wants_streaming
-                    .store(true, Ordering::Relaxed);
+                inflight_entry.wants_streaming.store(true, Ordering::Relaxed);
             }
 
             if !is_leader {
@@ -378,12 +371,8 @@ impl Fetcher {
             let observer: Arc<dyn NetObserver + Send + Sync> = {
                 let guard = self.request_reference_map.read().unwrap();
                 if guard.get(&req.reference).is_some() {
-                    self.observer_factory.create_observer(
-                        &req.reference,
-                        req.req_id,
-                        req.kind,
-                        req.initiator,
-                    )
+                    self.observer_factory
+                        .create_observer(&req.reference, req.req_id, req.kind, req.initiator)
                 } else {
                     log::trace!(
                         "Cannot find the request reference for req_id {:?} reference {:?}",
@@ -412,40 +401,25 @@ impl Fetcher {
                 let origin = Fetcher::origin_key(&req.key_data.url);
                 let slots = per_origin
                     .entry(origin.clone())
-                    .or_insert_with(|| {
-                        Arc::new(Semaphore::new(per_origin_limit_for(
-                            &cfg,
-                            &req.key_data.url,
-                        )))
-                    })
+                    .or_insert_with(|| Arc::new(Semaphore::new(per_origin_limit_for(&cfg, &req.key_data.url))))
                     .clone();
 
                 let g = tokio::select! { p = global.acquire_owned() => Some(p), _ = shutdown_child.changed() => None };
-                if g.is_none() { return; }
+                if g.is_none() {
+                    return;
+                }
 
                 let h = tokio::select! { p = slots.acquire_owned() => Some(p), _ = shutdown_child.changed() => None };
-                if h.is_none() { return; }
+                if h.is_none() {
+                    return;
+                }
 
                 let should_stream = req.streaming || inflight_entry2.wants_streaming.load(Ordering::Relaxed);
 
                 let result = if should_stream {
-                    perform_streaming(
-                        &client,
-                        observer.clone(),
-                        &req_for_task,
-                        &cfg,
-                        cancel_parent.clone(),
-                    )
-                    .await
+                    perform_streaming(&client, observer.clone(), &req_for_task, &cfg, cancel_parent.clone()).await
                 } else {
-                    perform_buffered(
-                        &client,
-                        observer.clone(),
-                        &req_for_task,
-                        &cfg,
-                        cancel_parent.clone(),
-                    )
-                    .await
+                    perform_buffered(&client, observer.clone(), &req_for_task, &cfg, cancel_parent.clone()).await
                 };
 
                 let fr = match &result {
@@ -553,14 +527,7 @@ pub fn spawn_fetch_task(
         }
         let _cleanup = Cleanup(Some(on_finish));
 
-        let top = match fetch_response_top(
-            client.clone(),
-            url.clone(),
-            cancel_parent.clone(),
-            observer.clone(),
-        )
-        .await
-        {
+        let top = match fetch_response_top(client.clone(), url.clone(), cancel_parent.clone(), observer.clone()).await {
             Ok(top) => top,
             Err(e) => {
                 let _ = entry.waiter.finish(FetchResult::Error(e)).await;

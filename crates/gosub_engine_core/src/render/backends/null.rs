@@ -1,4 +1,6 @@
-use crate::render::backend::{ErasedSurface, ExternalHandle, PixelFormat, PresentMode, RenderBackend, RenderContext, RgbaImage, SurfaceSize};
+use crate::render::backend::{
+    ErasedSurface, ExternalHandle, PixelFormat, PresentMode, RenderBackend, RenderContext, RgbaImage, SurfaceSize,
+};
 use anyhow::{anyhow, Result};
 use std::any::Any;
 
@@ -48,7 +50,10 @@ impl RenderBackend for NullBackend {
     }
 
     fn external_handle(&self, surface: &mut dyn ErasedSurface) -> Result<ExternalHandle> {
-        let s = surface.as_any_mut().downcast_mut::<NullSurface>().ok_or_else(|| anyhow!("NullBackend used with non-Null surface"))?;
+        let s = surface
+            .as_any_mut()
+            .downcast_mut::<NullSurface>()
+            .ok_or_else(|| anyhow!("NullBackend used with non-Null surface"))?;
 
         Ok(ExternalHandle::NullHandle {
             width: s.size.width,

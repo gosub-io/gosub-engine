@@ -233,8 +233,8 @@ impl Css3<'_> {
 mod test {
     use super::*;
     use gosub_interface::css3::CssOrigin;
-    use gosub_stream::byte_stream::{ByteStream, Encoding};
     use gosub_interface::parser_config::ParserConfig;
+    use gosub_stream::byte_stream::{ByteStream, Encoding};
 
     macro_rules! test {
         ($func:ident, $input:expr, $expected:expr) => {

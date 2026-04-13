@@ -1,17 +1,24 @@
-use std::fmt::Error;
-use vello::Scene;
-use crate::painter::commands::text::Text;
-use crate::tiler::Tile;
 use crate::common::font::parley::get_parley_layout;
-use parley::layout::{GlyphRun, PositionedLayoutItem};
-use vello::kurbo::Affine;
-use vello::peniko::Fill;
 use crate::common::geo::{Dimension, Rect};
 use crate::painter::commands::brush::Brush;
+use crate::painter::commands::text::Text;
 use crate::rasterizer::vello::brush::set_brush;
+use crate::tiler::Tile;
+use parley::layout::{GlyphRun, PositionedLayoutItem};
+use std::fmt::Error;
+use vello::kurbo::Affine;
+use vello::peniko::Fill;
+use vello::Scene;
 
-pub fn do_paint_text(scene: &mut Scene,  cmd: &Text, _tile_size: Dimension, affine: Affine) -> Result<(), Error> {
-    let layout = get_parley_layout(cmd.text.as_str(), cmd.font_family.as_str(), cmd.font_size, cmd.line_height, cmd.rect.width, cmd.alignment);
+pub fn do_paint_text(scene: &mut Scene, cmd: &Text, _tile_size: Dimension, affine: Affine) -> Result<(), Error> {
+    let layout = get_parley_layout(
+        cmd.text.as_str(),
+        cmd.font_family.as_str(),
+        cmd.font_size,
+        cmd.line_height,
+        cmd.rect.width,
+        cmd.alignment,
+    );
 
     for line in layout.lines() {
         for item in line.items() {
@@ -29,7 +36,7 @@ pub fn do_paint_text(scene: &mut Scene,  cmd: &Text, _tile_size: Dimension, affi
     Ok(())
 }
 
-fn render_glyph_run(scene: &mut Scene, glyph_run: GlyphRun<[u8;4]>, brush: &Brush, rect: &Rect, affine: Affine) {
+fn render_glyph_run(scene: &mut Scene, glyph_run: GlyphRun<[u8; 4]>, brush: &Brush, rect: &Rect, affine: Affine) {
     let vello_brush = set_brush(brush, *rect);
 
     // @TODO: we need font decorations like underline, strike through, maybe sub sup?
@@ -40,7 +47,9 @@ fn render_glyph_run(scene: &mut Scene, glyph_run: GlyphRun<[u8;4]>, brush: &Brus
     let font = run.font();
     let font_size = run.font_size();
     let synthesis = run.synthesis();
-    let glyph_xform = synthesis.skew().map(|angle| Affine::skew(angle.to_radians().tan() as f64, 0.0));
+    let glyph_xform = synthesis
+        .skew()
+        .map(|angle| Affine::skew(angle.to_radians().tan() as f64, 0.0));
     let coords = run.normalized_coords();
 
     scene
@@ -63,8 +72,8 @@ fn render_glyph_run(scene: &mut Scene, glyph_run: GlyphRun<[u8;4]>, brush: &Brus
                     x: gx.round(),
                     y: gy.round(),
                 }
-            })
+            }),
         );
 
-        // @TODO: Do strike through
+    // @TODO: Do strike through
 }

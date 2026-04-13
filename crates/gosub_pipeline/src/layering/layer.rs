@@ -1,8 +1,8 @@
+use crate::layouter::{LayoutElementId, LayoutTree};
+use rstar::{RTree, RTreeObject, AABB};
 use std::collections::HashMap;
 use std::ops::AddAssign;
 use std::sync::{Arc, RwLock};
-use rstar::{RTree, RTreeObject, AABB};
-use crate::layouter::{LayoutElementId, LayoutTree};
 
 // ─── R-tree spatial index ─────────────────────────────────────────────────────
 
@@ -46,7 +46,6 @@ impl std::fmt::Display for LayerId {
     }
 }
 
-
 #[derive(Clone)]
 pub struct Layer {
     /// Layer ID
@@ -55,7 +54,7 @@ pub struct Layer {
     #[allow(unused)]
     pub order: isize,
     /// Elements in this layer
-    pub elements: Vec<LayoutElementId>
+    pub elements: Vec<LayoutElementId>,
 }
 
 impl Layer {
@@ -63,7 +62,7 @@ impl Layer {
         Layer {
             layer_id,
             order,
-            elements: Vec::new()
+            elements: Vec::new(),
         }
     }
 
@@ -74,9 +73,7 @@ impl Layer {
 
 impl std::fmt::Debug for Layer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Layer")
-            .field("elements", &self.elements)
-            .finish()
+        f.debug_struct("Layer").field("elements", &self.elements).finish()
     }
 }
 
@@ -136,7 +133,10 @@ impl LayerList {
         let layer = Layer::new(self.next_layer_id(), order);
         let layer_id = layer.layer_id;
         self.layer_ids.write().expect("Failed to lock layer IDs").push(layer_id);
-        self.layers.write().expect("Failed to lock layers").insert(layer_id, layer);
+        self.layers
+            .write()
+            .expect("Failed to lock layers")
+            .insert(layer_id, layer);
 
         layer_id
     }
@@ -183,10 +183,14 @@ impl LayerList {
         // Iterate layers in paint order (front-to-back as stored); z_order increases so
         // elements later in the iteration (higher layer / higher index) beat earlier ones.
         for layer_id in layer_ids_guard.iter() {
-            let Some(layer) = layers_guard.get(layer_id) else { continue };
+            let Some(layer) = layers_guard.get(layer_id) else {
+                continue;
+            };
 
             for &element_id in &layer.elements {
-                let Some(node) = self.layout_tree.get_node_by_id(element_id) else { continue };
+                let Some(node) = self.layout_tree.get_node_by_id(element_id) else {
+                    continue;
+                };
                 let b = &node.box_model.margin_box;
 
                 // Skip zero-size boxes — they cannot be hit-tested meaningfully.
@@ -195,10 +199,7 @@ impl LayerList {
                 }
 
                 entries.push(RTreeEntry {
-                    envelope: AABB::from_corners(
-                        [b.x, b.y],
-                        [b.x + b.width, b.y + b.height],
-                    ),
+                    envelope: AABB::from_corners([b.x, b.y], [b.x + b.width, b.y + b.height]),
                     element_id,
                     z_order,
                 });
@@ -206,8 +207,7 @@ impl LayerList {
             }
         }
 
-        *self.spatial_index.write().expect("Failed to lock spatial index") =
-            RTree::bulk_load(entries);
+        *self.spatial_index.write().expect("Failed to lock spatial index") = RTree::bulk_load(entries);
     }
 
     fn traverse(&self, layer_id: LayerId, layout_element_node_id: LayoutElementId) {
@@ -215,12 +215,15 @@ impl LayerList {
             return;
         };
 
-        let is_image = self.layout_tree.render_tree.doc
+        let is_image = self
+            .layout_tree
+            .render_tree
+            .doc
             .get_node_by_id(layout_element.dom_node_id)
             .and_then(|dom_node| match dom_node.node_type {
                 crate::common::document::node::NodeType::Element(ref element_data) => {
                     Some(element_data.tag_name.eq_ignore_ascii_case("img"))
-                },
+                }
                 _ => None,
             })
             .unwrap_or(false);
