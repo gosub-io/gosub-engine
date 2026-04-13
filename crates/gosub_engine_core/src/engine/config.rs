@@ -371,17 +371,11 @@ impl EngineConfig {
 
 /// Fluent builder for [`EngineConfig`] with validation.
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct EngineConfigBuilder {
     inner: EngineConfig,
 }
 
-impl Default for EngineConfigBuilder {
-    fn default() -> Self {
-        Self {
-            inner: EngineConfig::default(),
-        }
-    }
-}
 
 impl EngineConfigBuilder {
     #[inline]

@@ -25,7 +25,7 @@ pub fn resolve_tab_services(zone_id: ZoneId, services: &ZoneServices, ov: &TabOv
         PartitionPolicy::None
     } else {
         // Inherit zone policy
-        services.partition_policy.clone()
+        services.partition_policy
     };
 
     let storage = match &ov.storage_scope {

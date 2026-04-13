@@ -2,6 +2,7 @@ use crate::painter::commands::brush::Brush;
 use crate::painter::commands::Trbl;
 
 #[derive(Clone, Debug)]
+#[derive(Default)]
 pub enum BorderStyle {
     Solid,
     Dashed,
@@ -11,15 +12,11 @@ pub enum BorderStyle {
     Ridge,
     Inset,
     Outset,
+    #[default]
     None,
     Hidden,
 }
 
-impl Default for BorderStyle {
-    fn default() -> Self {
-        BorderStyle::None
-    }
-}
 
 #[derive(Clone, Debug)]
 pub enum BorderRadius {

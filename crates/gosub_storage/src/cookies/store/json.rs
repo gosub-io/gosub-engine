@@ -65,7 +65,7 @@ impl CookieStore for JsonCookieStore {
         }
 
         let mut file = self.load_file();
-        let jar = file.zones.remove(&zone_id).unwrap_or_else(DefaultCookieJar::new);
+        let jar = file.zones.remove(&zone_id).unwrap_or_default();
         let arc_jar: CookieJarHandle = jar.into();
 
         let store = self

@@ -4,6 +4,7 @@
 //! the real HTML5 parser, walks the DOM for sub-resource hints, and returns the real
 //! [`Document`](gosub_interface::document::Document).
 
+use cow_utils::CowUtils;
 use gosub_interface::config::HasDocument;
 use gosub_interface::document::{Document, DocumentBuilder};
 use gosub_interface::node::{ElementDataType, Node, NodeData, NodeId, TextDataType};
@@ -194,10 +195,10 @@ fn discover_in_children<C: HasDocument>(
 
         if node.is_element_node() {
             if let Some(el) = node.get_element_data() {
-                let tag = el.name().to_lowercase();
-                match tag.as_str() {
+                let tag = el.name().cow_to_lowercase();
+                match tag.as_ref() {
                     "link" => {
-                        let rel = el.attribute("rel").map(|s| s.to_lowercase());
+                        let rel = el.attribute("rel").map(|s| s.cow_to_lowercase());
                         if rel.as_deref() == Some("stylesheet") {
                             if let Some(href) = el.attribute("href") {
                                 if let Ok(url) = base.join(href.as_str()) {

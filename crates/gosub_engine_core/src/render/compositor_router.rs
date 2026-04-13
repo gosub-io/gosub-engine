@@ -19,7 +19,7 @@ impl CompositorRouter {
     }
 
     /// Sets the sink to which compositor events will be forwarded.
-    pub fn set_sink(&mut self, sink: impl CompositorSink + Send + 'static) {
+    pub fn set_sink(&mut self, sink: impl CompositorSink + 'static) {
         self.inner = Some(Box::new(sink));
     }
 

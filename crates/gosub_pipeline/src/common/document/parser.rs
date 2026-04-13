@@ -1,3 +1,4 @@
+use cow_utils::CowUtils;
 use crate::common::document::document::Document;
 use crate::common::document::node::{AttrMap, NodeId, NodeType};
 use crate::common::document::style::TextAlign;
@@ -42,7 +43,7 @@ struct DomRoot {
 
 // Text is "as-is" from the JSON, but we don't want text with multiple spaces and newlines.
 fn clean_text(input: &str) -> String {
-    let no_newlines = input.replace('\n', " ");
+    let no_newlines = input.cow_replace('\n', " ");
     let space_regex = Regex::new(r"\s{2,}").unwrap();
     space_regex.replace_all(&no_newlines, " ").to_string()
 }
@@ -73,17 +74,14 @@ fn create_dom_from_json(doc: &mut Document, node: &DomNode, parent_id: Option<No
     };
 
     let style = get_style_from_node(node);
-    let node_id = doc.new_element(parent_id, &tag, Some(attrs), node.self_closing, Some(style.clone()));
+    let node_id = doc.new_element(parent_id, tag, Some(attrs), node.self_closing, Some(style.clone()));
 
     // if node_id.is_greater_than(12) {
     //     return None
     // }
 
     for child in &node.children {
-        match create_dom_from_json(doc, child, Some(node_id)) {
-            Some(child_node_id) => doc.add_child(node_id, child_node_id),
-            None => {}
-        }
+        if let Some(child_node_id) = create_dom_from_json(doc, child, Some(node_id)) { doc.add_child(node_id, child_node_id) }
     }
 
     Some(node_id)
@@ -255,7 +253,7 @@ fn parse_display(value: &String) -> StyleValue {
 }
 
 fn parse_style_value(value: &str) -> StyleValue {
-    if let Ok(px_value) = value.replace("px", "").parse::<f32>() {
+    if let Ok(px_value) = value.cow_replace("px", "").parse::<f32>() {
         StyleValue::Unit(px_value, Unit::Px)
     } else {
         StyleValue::Keyword(value.to_string())

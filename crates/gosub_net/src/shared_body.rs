@@ -257,8 +257,7 @@ impl SharedBody {
                 let read_cap = if let Some(max) = max_size {
                     let remaining = max.saturating_sub(total_read);
                     if remaining == 0 {
-                        sb_clone.error(NetError::Io(Arc::new(std::io::Error::new(
-                            std::io::ErrorKind::Other,
+                        sb_clone.error(NetError::Io(Arc::new(std::io::Error::other(
                             "max size reached before read",
                         ))));
                     }
@@ -290,8 +289,7 @@ impl SharedBody {
 
                         if let Some(max) = max_size {
                             if total_read > max {
-                                sb_clone.error(NetError::Io(Arc::new(std::io::Error::new(
-                                    std::io::ErrorKind::Other,
+                                sb_clone.error(NetError::Io(Arc::new(std::io::Error::other(
                                     "max size exceeded during read",
                                 ))));
                                 return;

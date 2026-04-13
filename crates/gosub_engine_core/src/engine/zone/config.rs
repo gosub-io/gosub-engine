@@ -119,17 +119,11 @@ impl ZoneConfig {
 
 /// Builder for [`ZoneConfig`], mirroring `EngineConfigBuilder`.
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct ZoneConfigBuilder {
     inner: ZoneConfig,
 }
 
-impl Default for ZoneConfigBuilder {
-    fn default() -> Self {
-        Self {
-            inner: ZoneConfig::default(),
-        }
-    }
-}
 
 impl ZoneConfigBuilder {
     #[inline]

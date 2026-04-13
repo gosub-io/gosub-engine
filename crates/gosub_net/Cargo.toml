@@ -10,6 +10,7 @@ description = "Network utilities"
 gosub_config = { version = "0.1.1", registry = "gosub", path = "../gosub_config", features = [] }
 gosub_interface = { version = "0.1.2", path = "../gosub_interface" }
 derive_more = { version = "2", features = ["from", "display"] }
+cow-utils = "0.1.3"
 anyhow = "1.0.98"
 log = "0.4.27"
 domain-lookup-tree = "0.1"

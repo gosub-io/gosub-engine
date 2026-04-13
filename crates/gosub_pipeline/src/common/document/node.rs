@@ -11,6 +11,12 @@ pub struct AttrMap {
     attributes: HashMap<String, String>,
 }
 
+impl Default for AttrMap {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AttrMap {
     pub fn new() -> AttrMap {
         AttrMap {
@@ -31,20 +37,18 @@ impl AttrMap {
         &self.attributes
     }
 
-    #[allow(unused)]
-    pub fn to_string(&self) -> String {
-        let mut result = String::new();
+}
 
-        // Make sure keys are always ordered in the same way
-        let keys = self.attributes.keys();
-        let mut keys: Vec<&String> = keys.collect();
+impl std::fmt::Display for AttrMap {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut keys: Vec<&String> = self.attributes.keys().collect();
         keys.sort();
-
-        for key in keys {
-            let value = self.attributes.get(key).unwrap();
-            result.push_str(&format!("{}=\"{}\" ", key, value));
-        }
-        result.trim_end().to_string()
+        let result = keys
+            .iter()
+            .map(|k| format!("{}=\"{}\"", k, self.attributes[*k]))
+            .collect::<Vec<_>>()
+            .join(" ");
+        write!(f, "{}", result)
     }
 }
 
@@ -71,9 +75,9 @@ impl ElementData {
     ) -> ElementData {
         ElementData {
             tag_name,
-            attributes: attributes.unwrap_or(AttrMap::new()),
+            attributes: attributes.unwrap_or_default(),
             self_closing: is_self_closing,
-            styles: styles.unwrap_or(StylePropertyList::new()),
+            styles: styles.unwrap_or_default(),
         }
     }
 
@@ -215,10 +219,7 @@ impl Node {
 
     /// Returns true when the node is a text node
     pub fn is_text(&self) -> bool {
-        match &self.node_type {
-            NodeType::Text(_, _) => true,
-            _ => false,
-        }
+        matches!(&self.node_type, NodeType::Text(_, _))
     }
 
     pub fn get_style_f32(&self, prop: StyleProperty) -> f32 {
@@ -240,7 +241,7 @@ impl Node {
             node_id: doc.next_node_id(),
             parent_id,
             children: vec![],
-            node_type: NodeType::Text(text, style.unwrap_or(StylePropertyList::new())),
+            node_type: NodeType::Text(text, style.unwrap_or_default()),
         }
     }
 

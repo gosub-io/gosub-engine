@@ -8,6 +8,7 @@
 //! 2. **Inline styles** from the `style="…"` attribute are overlaid on top as a safety net
 //!    (the cascade already handles them, but this ensures they always win).
 
+use cow_utils::CowUtils;
 use std::sync::Arc;
 
 use gosub_interface::config::HasDocument;
@@ -415,10 +416,10 @@ pub fn parse_inline_style(style_attr: &str) -> StylePropertyList {
         let Some((prop, val)) = decl.split_once(':') else {
             continue;
         };
-        let prop = prop.trim().to_ascii_lowercase();
+        let prop = prop.trim().cow_to_ascii_lowercase();
         let val = val.trim();
 
-        match prop.as_str() {
+        match prop.as_ref() {
             "display" => {
                 let display = match val {
                     "block" => Some(Display::Block),
@@ -542,7 +543,7 @@ fn parse_color(val: &str) -> Option<Color> {
         let g = (c.g * 255.0) as u8;
         let b = (c.b * 255.0) as u8;
         if c.a < 1.0 {
-            return Some(Color::Rgba(r, g, b, c.a as f32));
+            return Some(Color::Rgba(r, g, b, c.a));
         }
         return Some(Color::Rgb(r, g, b));
     }
@@ -584,7 +585,7 @@ fn build_node<C>(
                 return;
             };
 
-            let tag = elem.name().to_ascii_lowercase();
+            let tag = elem.name().cow_to_ascii_lowercase();
             let raw_attrs = elem.attributes();
 
             let mut attr_map = AttrMap::new();
@@ -614,7 +615,7 @@ fn build_node<C>(
             }
 
             let self_closing = matches!(
-                tag.as_str(),
+                tag.as_ref(),
                 "area"
                     | "base"
                     | "br"

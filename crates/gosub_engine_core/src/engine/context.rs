@@ -46,6 +46,12 @@ pub struct BrowsingContext<C: HasDocument> {
     _phantom: PhantomData<C>,
 }
 
+impl<C: HasDocument> Default for BrowsingContext<C> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<C: HasDocument> BrowsingContext<C> {
     /// Creates a new runtime browsing context.
     pub fn new() -> BrowsingContext<C> {

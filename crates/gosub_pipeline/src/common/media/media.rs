@@ -60,7 +60,7 @@ impl Media {
     pub fn svg(src: &str, svg: Svg) -> Self {
         Media::Svg(Arc::new(MediaSvg {
             src: src.to_string(),
-            hash: hash_from_string(&src),
+            hash: hash_from_string(src),
             svg,
         }))
     }
@@ -68,7 +68,7 @@ impl Media {
     pub fn image(src: &str, image: Image) -> Self {
         Media::Image(Arc::new(MediaImage {
             src: src.to_string(),
-            hash: hash_from_string(&src),
+            hash: hash_from_string(src),
             image,
         }))
     }

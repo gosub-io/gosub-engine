@@ -397,7 +397,7 @@ impl Fetcher {
             let ref_ref_tracker_clone = self.request_reference_tracker.clone();
 
             let title = format!("Fetcher: {}", short_url(&req.key_data.url, 80));
-            let _ = spawn_named(&title, async move {
+            drop(spawn_named(&title, async move {
                 let origin = Fetcher::origin_key(&req.key_data.url);
                 let slots = per_origin
                     .entry(origin.clone())
@@ -433,7 +433,7 @@ impl Fetcher {
                 inflight.remove(&key_for_remove);
 
                 ref_ref_tracker_clone.dec_and_maybe_cleanup(&req.reference, &req_ref_map_clone);
-            });
+            }));
         }
     }
 

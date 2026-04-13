@@ -348,7 +348,7 @@ impl From<std::io::Error> for NetError {
 
 impl NetError {
     pub fn to_io(&self) -> std::io::Error {
-        std::io::Error::new(std::io::ErrorKind::Other, format!("{}", self))
+        std::io::Error::other(format!("{}", self))
     }
 
     pub fn from_anyhow(e: anyhow::Error) -> Self {

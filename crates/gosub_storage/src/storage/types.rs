@@ -3,15 +3,27 @@ use url::{Origin, Url};
 use uuid::Uuid;
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
+#[derive(Default)]
 pub enum PartitionKey {
+    #[default]
     None,
     TopLevel(Origin),
     Custom(String),
 }
 
-impl Default for PartitionKey {
-    fn default() -> Self {
-        PartitionKey::None
+
+impl std::str::FromStr for PartitionKey {
+    type Err = std::convert::Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.is_empty() {
+            Ok(PartitionKey::None)
+        } else {
+            let Ok(url) = Url::parse(s) else {
+                return Ok(PartitionKey::Custom(s.to_string()));
+            };
+            Ok(PartitionKey::TopLevel(url.origin()))
+        }
     }
 }
 
@@ -21,20 +33,8 @@ impl PartitionKey {
         PartitionKey::Custom(random.to_string())
     }
 
-    pub fn from_str(s: &str) -> Self {
-        if s.is_empty() {
-            PartitionKey::None
-        } else {
-            let Ok(url) = Url::parse(s) else {
-                return PartitionKey::Custom(s.to_string());
-            };
-            PartitionKey::TopLevel(url.origin())
-        }
-    }
-
     pub fn from_zone(zone_id: ZoneId) -> Self {
-        let url_str = format!("https://zone-{}.local", zone_id.to_string());
-        Self::from_str(&url_str)
+        format!("https://zone-{}.local", zone_id).parse().unwrap()
     }
 }
 
@@ -97,16 +97,16 @@ mod tests {
     fn compute_toplevel_ipv6_with_port() {
         let u = Url::parse("http://[2001:db8::1]:8080/").unwrap();
         let pk = compute_partition_key(&u, PartitionPolicy::TopLevelOrigin);
-        assert_eq!(pk, PartitionKey::from_str("http://[2001:db8::1]:8080"));
+        assert_eq!(pk, "http://[2001:db8::1]:8080".parse::<PartitionKey>().unwrap());
     }
 
     #[test]
     fn partitionkey_equality_and_hash_semantics() {
         use std::collections::HashSet;
 
-        let a = PartitionKey::from_str("https://a.example");
-        let b = PartitionKey::from_str("https://a.example");
-        let c = PartitionKey::from_str("https://b.example");
+        let a = "https://a.example".parse::<PartitionKey>().unwrap();
+        let b = "https://a.example".parse::<PartitionKey>().unwrap();
+        let c = "https://b.example".parse::<PartitionKey>().unwrap();
         let none = PartitionKey::None;
 
         assert_eq!(a, b);

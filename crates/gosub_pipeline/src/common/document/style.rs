@@ -164,6 +164,12 @@ pub enum TextWrap {
     Unset,
 }
 
+impl Default for StylePropertyList {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl StylePropertyList {
     pub fn new() -> Self {
         Self {

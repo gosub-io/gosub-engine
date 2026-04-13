@@ -52,6 +52,7 @@ pub struct DevicePixelRatio(pub f64);
 /// assert_eq!(size.width, 1280);
 /// ```
 #[derive(Clone, Eq, PartialEq, Copy)]
+#[derive(Default)]
 pub struct Viewport {
     /// Horizontal offset in pixels from the origin (may be negative).
     pub x: i32,
@@ -66,16 +67,6 @@ pub struct Viewport {
     pub height: u32,
 }
 
-impl Default for Viewport {
-    fn default() -> Self {
-        Self {
-            x: 0,
-            y: 0,
-            width: 0,
-            height: 0,
-        }
-    }
-}
 
 impl std::fmt::Debug for Viewport {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

@@ -29,7 +29,7 @@ impl ObserverFactory for EngineObserverFactory {
         };
 
         // Convert gosub_net::types::TabId to engine TabId
-        let engine_tab_id = crate::tab::TabId::from(tab_id);
+        let engine_tab_id = tab_id;
 
         Arc::new(EngineEventEmitter::new(
             engine_tab_id,

@@ -7,7 +7,7 @@ pub type IoChannel = tokio::sync::mpsc::UnboundedSender<IoCommand>;
 pub enum IoCommand {
     Fetch {
         zone_id: ZoneId,
-        req: FetchRequest,
+        req: Box<FetchRequest>,
         handle: FetchHandle,
         reply_tx: tokio::sync::oneshot::Sender<FetchResult>,
     },

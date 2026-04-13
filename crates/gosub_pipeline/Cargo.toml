@@ -20,6 +20,7 @@ required-features = ["backend_vello"]
 
 [dependencies]
 taffy = "0.7.5"
+cow-utils = "0.1.3"
 log = "0.4.25"
 image = "0.25.5"
 rand = "0.9.0"

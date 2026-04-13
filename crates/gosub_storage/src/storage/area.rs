@@ -10,6 +10,9 @@ pub trait StorageArea: Send + Sync {
     fn remove_item(&self, key: &str) -> Result<()>;
     fn clear(&self) -> Result<()>;
     fn len(&self) -> usize;
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
     fn keys(&self) -> Vec<String>;
 }
 

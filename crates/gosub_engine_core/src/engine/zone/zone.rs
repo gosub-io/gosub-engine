@@ -231,7 +231,7 @@ impl Zone {
         let tab_services = resolve_tab_services(self.id, &self.context.services, &overrides.unwrap_or_default());
 
         let (tab_handle, join_handle) = create_tab_and_spawn::<C>(self.id, tab_services, self.context.clone())
-            .map_err(|e| EngineError::CreateTab(e.into()))?;
+            .map_err(EngineError::CreateTab)?;
         self.tabs.insert(
             tab_handle.tab_id,
             TabInfo {
@@ -283,7 +283,7 @@ impl Zone {
 
     /// Closes a tab.
     pub fn close_tab(&mut self, tab_id: TabId) -> bool {
-        if let Some(_) = self.tabs.remove(&tab_id) {
+        if self.tabs.remove(&tab_id).is_some() {
             // Drop the command channel to signal the tab to close
             // drop(shared_state.cmd_tx);
 

@@ -7,9 +7,12 @@ use crate::storage::types::PartitionKey;
 use gosub_net::types::TabId;
 use gosub_net::types::ZoneId;
 
+type SessionKey = (ZoneId, TabId, String, String);
+type SessionData = Arc<RwLock<HashMap<SessionKey, HashMap<String, String>>>>;
+
 #[derive(Default)]
 pub struct InMemorySessionStore {
-    data: Arc<RwLock<HashMap<(ZoneId, TabId, String, String), HashMap<String, String>>>>,
+    data: SessionData,
 }
 
 impl InMemorySessionStore {
@@ -49,8 +52,8 @@ impl SessionStore for InMemorySessionStore {
 }
 
 struct SessionArea {
-    data: Arc<RwLock<HashMap<(ZoneId, TabId, String, String), HashMap<String, String>>>>,
-    key: (ZoneId, TabId, String, String),
+    data: SessionData,
+    key: SessionKey,
 }
 
 impl StorageArea for SessionArea {

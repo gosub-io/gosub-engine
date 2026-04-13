@@ -356,7 +356,7 @@ where
             } => {
                 // Proxy the submit decision to the I/O thread
                 let _ = self.zone_context.io_tx.send(IoCommand::Decision {
-                    zone_id: self.zone_id.into(),
+                    zone_id: self.zone_id,
                     token: decision_token,
                     action,
                 });
@@ -365,10 +365,7 @@ where
                 ControlFlow::Continue
             }
             _ => {
-                log::warn!(
-                    "{}",
-                    format!("Tab {:?} received unhandled command: {:?}", self.tab_id, cmd)
-                );
+                log::warn!("Tab {:?} received unhandled command: {:?}", self.tab_id, cmd);
                 ControlFlow::Continue
             }
         }
@@ -416,7 +413,7 @@ where
 
         {
             let mut guard = self.zone_context.request_reference_map.write().unwrap();
-            guard.insert(RequestReference::Navigation(nav_id), self.tab_id.into());
+            guard.insert(RequestReference::Navigation(nav_id), self.tab_id);
         }
 
         self.sink.set_nav(nav_id);
@@ -453,7 +450,7 @@ where
         let (tx_done, rx_done) = oneshot::channel::<NavigationResult>();
 
         let tab_id = self.tab_id;
-        let zone_id: gosub_net::types::ZoneId = self.zone_id.into();
+        let zone_id: gosub_net::types::ZoneId = self.zone_id;
         let io_tx = self.zone_context.io_tx.clone();
         let event_tx = self.zone_context.event_tx.clone();
         let internal_tx = self.internal_tx.clone();
@@ -515,7 +512,7 @@ where
                 allow_download_without_user_activation: false,
             };
 
-            let mut hooks = Hooks::<C>::new(crate::zone::ZoneId::from(zone_id), io_tx.clone());
+            let mut hooks = Hooks::<C>::new(zone_id, io_tx.clone());
 
             let outcome = route_response_for::<C>(
                 RequestDestination::Document,
@@ -544,7 +541,6 @@ where
                         final_url,
                         title,
                     });
-                    return;
                 }
                 Ok(RoutedOutcome::ViewerRendered(_doc)) => {
                     log::debug!("Tab[{:?}] RoutedOutcome::ViewerRendered", tab_id);
@@ -552,7 +548,6 @@ where
                         nav_id,
                         error: NavigationError::Other(anyhow!("Viewer rendering not supported yet")),
                     });
-                    return;
                 }
                 Ok(RoutedOutcome::DownloadStarted(_doc)) => {
                     log::debug!("Tab[{:?}] RoutedOutcome::DownloadStarted", tab_id);
@@ -560,7 +555,6 @@ where
                         nav_id,
                         error: NavigationError::Other(anyhow!("Download not supported yet")),
                     });
-                    return;
                 }
                 Ok(RoutedOutcome::DownloadFinished(_doc)) => {
                     log::debug!("Tab[{:?}] RoutedOutcome::DownloadFinished", tab_id);
@@ -568,7 +562,6 @@ where
                         nav_id,
                         error: NavigationError::Other(anyhow!("Download not supported yet")),
                     });
-                    return;
                 }
                 Ok(RoutedOutcome::CssLoaded(_doc)) => {
                     // CSS loaded, but we don't do anything special here
@@ -599,7 +592,7 @@ where
                         event: NavigationEvent::Failed {
                             nav_id: Some(nav_id),
                             url: final_url.clone(),
-                            error: Arc::new(anyhow!("Reason: {}", reason).into()),
+                            error: Arc::new(anyhow!("Reason: {}", reason)),
                         },
                     });
                 }
@@ -608,15 +601,13 @@ where
                         nav_id,
                         error: NavigationError::Cancelled("Navigation cancelled".into()),
                     });
-                    return;
                 }
                 Err(e) => {
-                    let err = format!("Routing error: {}", e.to_string());
+                    let err = format!("Routing error: {}", e);
                     let _ = tx_done.send(NavigationResult::Err {
                         nav_id,
                         error: NavigationError::NetworkError(err),
                     });
-                    return;
                 }
             }
         });
@@ -820,7 +811,6 @@ where
     }
 }
 
-///
 enum ControlFlow {
     Continue,
     Break,

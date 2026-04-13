@@ -88,10 +88,8 @@ impl SqliteCookieStore {
             .expect("Query failed");
 
         let mut jar = DefaultCookieJar::new();
-        for result in rows {
-            if let Ok((origin, entry)) = result {
-                jar.entries.entry(origin).or_default().push(entry);
-            }
+        for (origin, entry) in rows.flatten() {
+            jar.entries.entry(origin).or_default().push(entry);
         }
         jar
     }

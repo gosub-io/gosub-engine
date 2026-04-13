@@ -20,6 +20,12 @@ pub struct TabSink {
     pub last_paint: RwLock<Option<Instant>>,
 }
 
+impl Default for TabSink {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TabSink {
     pub fn new() -> Self {
         Self {

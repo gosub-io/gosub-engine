@@ -40,7 +40,7 @@ impl IoHandle {
         self.tx_submit
             .send(IoCommand::ShutdownZone { zone_id, reply_tx: tx })
             .map_err(|e| anyhow::anyhow!("send ShutdownZone failed: {e}"))?;
-        let _ = rx.await.map_err(|e| anyhow::anyhow!("ShutdownZone ack failed: {e}"))?;
+        rx.await.map_err(|e| anyhow::anyhow!("ShutdownZone ack failed: {e}"))?;
         Ok(())
     }
 
@@ -189,7 +189,7 @@ pub async fn submit_to_io(
     io_tx
         .send(IoCommand::Fetch {
             zone_id,
-            req,
+            req: Box::new(req),
             handle: handle.clone(),
             reply_tx,
         })
@@ -212,7 +212,7 @@ pub fn spawn_io_thread(cfg: FetcherConfig, io_ctx: Arc<IoContext>) -> IoHandle {
                     match maybe_req {
                         Some(IoCommand::Fetch { zone_id, req, handle, reply_tx }) => {
                             let fetcher = router.get_or_spawn_zone_fetcher(zone_id);
-                            fetcher.submit(req, handle, reply_tx).await;
+                            fetcher.submit(*req, handle, reply_tx).await;
                         }
                         Some(IoCommand::Decision { zone_id, token, action }) => {
                             let fetcher = router.get_or_spawn_zone_fetcher(zone_id);

@@ -63,7 +63,7 @@ impl<C: HasDocument> HtmlPipelineImpl<C> {
         let cfg = Html5ParseConfig::default();
 
         let io_tx = self.io_tx.clone();
-        let zone_id: gosub_net::types::ZoneId = self.zone_id.into();
+        let zone_id: gosub_net::types::ZoneId = self.zone_id;
         let parent_ref = request.reference;
         let parent_cancel = handle.cancel.clone();
 

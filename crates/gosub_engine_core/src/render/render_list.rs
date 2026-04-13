@@ -13,15 +13,15 @@ pub struct Color {
     pub a: f32,
 }
 
-impl Into<[f32; 4]> for Color {
-    fn into(self) -> [f32; 4] {
-        [self.r, self.g, self.b, self.a]
+impl From<Color> for [f32; 4] {
+    fn from(val: Color) -> Self {
+        [val.r, val.g, val.b, val.a]
     }
 }
 
-impl Into<[u8; 4]> for Color {
-    fn into(self) -> [u8; 4] {
-        [self.r_u8(), self.g_u8(), self.b_u8(), self.a_u8()]
+impl From<Color> for [u8; 4] {
+    fn from(val: Color) -> Self {
+        [val.r_u8(), val.g_u8(), val.b_u8(), val.a_u8()]
     }
 }
 

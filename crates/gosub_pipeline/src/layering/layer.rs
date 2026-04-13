@@ -238,13 +238,11 @@ impl LayerList {
                     log::warn!("Image layer {} not found in HashMap", image_layer_id);
                 }
             }
-        } else {
-            if let Some(mut layers) = self.get_layer_mut(layer_id) {
-                if let Some(layer) = layers.get_mut(&layer_id) {
-                    layer.add_element(layout_element.id);
-                } else {
-                    log::warn!("Layer {} not found in HashMap", layer_id);
-                }
+        } else if let Some(mut layers) = self.get_layer_mut(layer_id) {
+            if let Some(layer) = layers.get_mut(&layer_id) {
+                layer.add_element(layout_element.id);
+            } else {
+                log::warn!("Layer {} not found in HashMap", layer_id);
             }
         }
 

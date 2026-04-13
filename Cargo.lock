@@ -3541,6 +3541,7 @@ name = "gosub-storage"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "cow-utils",
  "gosub_net",
  "http",
  "log",
@@ -3752,6 +3753,7 @@ dependencies = [
  "bytes",
  "chrono",
  "cookie",
+ "cow-utils",
  "dashmap 6.1.0",
  "derive_more",
  "domain-lookup-tree",
@@ -3786,6 +3788,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bytes",
+ "cow-utils",
  "csscolorparser",
  "file_type",
  "gl",

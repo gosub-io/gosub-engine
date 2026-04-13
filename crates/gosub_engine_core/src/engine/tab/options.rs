@@ -98,8 +98,10 @@ pub struct TabOverrides {
 /// Tabs can either inherit their zone’s cookie jar, create a temporary one,
 /// or use a fully custom [`CookieJarHandle`].
 #[derive(Clone, Debug)]
+#[derive(Default)]
 pub enum TabCookieJar {
     /// Use the zone’s cookie jar (default).
+    #[default]
     Inherit,
 
     /// Fresh ephemeral cookie jar, dropped when the tab is closed.
@@ -109,19 +111,16 @@ pub enum TabCookieJar {
     Custom(CookieJarHandle),
 }
 
-impl Default for TabCookieJar {
-    fn default() -> Self {
-        Self::Inherit
-    }
-}
 
 /// Policy for selecting a tab's storage scope.
 ///
 /// Tabs can either inherit their zone’s [`StorageService`], create an
 /// ephemeral in-memory service, or use a custom one.
 #[derive(Clone, Debug)]
+#[derive(Default)]
 pub enum TabStorageScope {
     /// Use the zone’s storage service (default).
+    #[default]
     Inherit,
 
     /// Ephemeral in-memory Local/Session storage, isolated per tab.
@@ -131,11 +130,6 @@ pub enum TabStorageScope {
     Custom(Arc<StorageService>),
 }
 
-impl Default for TabStorageScope {
-    fn default() -> Self {
-        Self::Inherit
-    }
-}
 
 /// Cache policy for a tab.
 ///
@@ -143,8 +137,10 @@ impl Default for TabStorageScope {
 /// engine policy, bypasses the cache entirely, or uses an ephemeral
 /// per-tab cache.
 #[derive(Clone, Debug)]
+#[derive(Default)]
 pub enum TabCacheMode {
     /// Use the zone/engine cache policy (default).
+    #[default]
     Inherit,
 
     /// Use the engine’s default cache policy.
@@ -157,8 +153,3 @@ pub enum TabCacheMode {
     Ephemeral,
 }
 
-impl Default for TabCacheMode {
-    fn default() -> Self {
-        Self::Inherit
-    }
-}

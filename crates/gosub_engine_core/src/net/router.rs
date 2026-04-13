@@ -47,11 +47,11 @@ enum BodyContent {
 
 impl BodyContent {
     // Convert to bytes, collecting the stream if necessary. Will take the peek buffer into account (if needed)
-    async fn to_bytes(self, peek_buf: PeekBuf) -> anyhow::Result<Bytes> {
+    async fn into_bytes(self, peek_buf: PeekBuf) -> anyhow::Result<Bytes> {
         match self {
             BodyContent::Stream { shared } => {
                 let buf = stream_to_bytes(peek_buf.clone(), shared).await?;
-                Ok(Bytes::from(buf))
+                Ok(buf)
             }
             BodyContent::Buffered { body } => Ok(body),
         }
@@ -87,7 +87,7 @@ pub async fn route_response_for<C: HasDocument + Send + Sync + 'static>(
             // We need to render it
             match target {
                 RenderTarget::TextViewer => Ok(RoutedOutcome::ViewerRendered(
-                    body_content.to_bytes(peek_buf.clone()).await?,
+                    body_content.into_bytes(peek_buf.clone()).await?,
                 )),
                 RenderTarget::HtmlParser => {
                     let doc = match body_content {
@@ -100,15 +100,15 @@ pub async fn route_response_for<C: HasDocument + Send + Sync + 'static>(
                     };
                     Ok(RoutedOutcome::MainDocument(Arc::new(doc)))
                 }
-                RenderTarget::CssParser => Ok(RoutedOutcome::ViewerRendered(body_content.to_bytes(peek_buf).await?)),
-                RenderTarget::JsEngine => Ok(RoutedOutcome::ViewerRendered(body_content.to_bytes(peek_buf).await?)),
-                RenderTarget::ImageDecoder => Ok(RoutedOutcome::ViewerRendered(body_content.to_bytes(peek_buf).await?)),
+                RenderTarget::CssParser => Ok(RoutedOutcome::ViewerRendered(body_content.into_bytes(peek_buf).await?)),
+                RenderTarget::JsEngine => Ok(RoutedOutcome::ViewerRendered(body_content.into_bytes(peek_buf).await?)),
+                RenderTarget::ImageDecoder => Ok(RoutedOutcome::ViewerRendered(body_content.into_bytes(peek_buf).await?)),
                 RenderTarget::MediaPipeline => {
-                    Ok(RoutedOutcome::ViewerRendered(body_content.to_bytes(peek_buf).await?))
+                    Ok(RoutedOutcome::ViewerRendered(body_content.into_bytes(peek_buf).await?))
                 }
-                RenderTarget::FontLoader => Ok(RoutedOutcome::ViewerRendered(body_content.to_bytes(peek_buf).await?)),
-                RenderTarget::PdfViewer => Ok(RoutedOutcome::ViewerRendered(body_content.to_bytes(peek_buf).await?)),
-                RenderTarget::BodyToJs => Ok(RoutedOutcome::ViewerRendered(body_content.to_bytes(peek_buf).await?)),
+                RenderTarget::FontLoader => Ok(RoutedOutcome::ViewerRendered(body_content.into_bytes(peek_buf).await?)),
+                RenderTarget::PdfViewer => Ok(RoutedOutcome::ViewerRendered(body_content.into_bytes(peek_buf).await?)),
+                RenderTarget::BodyToJs => Ok(RoutedOutcome::ViewerRendered(body_content.into_bytes(peek_buf).await?)),
             }
         }
         (RequestDestination::Document, HandlingDecision::Download { .. }, _) => {
