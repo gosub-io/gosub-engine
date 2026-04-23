@@ -1,12 +1,12 @@
 use crate::engine::events::{CancelReason, ResourceEvent};
 use crate::engine::types::{EventChannel, RequestId};
 use crate::events::{EngineEvent, NavigationEvent};
+use crate::net::emitter::NetObserver;
 use crate::net::events::NetEvent;
+use crate::net::req_ref_tracker::RequestReference;
 use crate::net::types::{FetchResultMeta, Initiator, ResourceKind};
 use crate::tab::TabId;
 use http::StatusCode;
-use crate::net::emitter::NetObserver;
-use crate::net::req_ref_tracker::RequestReference;
 
 /// Converts NetEvents into EngineEvents and send them over to the event_tx channel back to the UA
 pub struct EngineEventEmitter {

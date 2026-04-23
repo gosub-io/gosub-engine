@@ -81,10 +81,7 @@ mod tests {
     #[test]
     fn compute_none_policy_returns_none() {
         let u = Url::parse("https://example.com/path?q=1#frag").unwrap();
-        assert_eq!(
-            compute_partition_key(&u, PartitionPolicy::None),
-            PartitionKey::None
-        );
+        assert_eq!(compute_partition_key(&u, PartitionPolicy::None), PartitionKey::None);
     }
 
     #[test]

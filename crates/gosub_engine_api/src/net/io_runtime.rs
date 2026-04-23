@@ -29,18 +29,11 @@ impl IoHandle {
             .send(IoCommand::ShutdownZone { zone_id, reply_tx: tx })
             .map_err(|e| anyhow::anyhow!("send ShutdownZone failed: {e}"))?;
         // wait until the zone's scheduler has actually stopped
-        let _ = rx
-            .await
-            .map_err(|e| anyhow::anyhow!("ShutdownZone ack failed: {e}"))?;
+        let _ = rx.await.map_err(|e| anyhow::anyhow!("ShutdownZone ack failed: {e}"))?;
         Ok(())
     }
 
-
-    #[instrument(
-        name = "io.shutdown",
-        level = "debug",
-        skip(self),
-    )]
+    #[instrument(name = "io.shutdown", level = "debug", skip(self))]
     pub async fn shutdown(self) {
         log::trace!("signal: global shutdown -> I/O thread");
         // Signal global shutdown to the IO thread
@@ -132,7 +125,6 @@ impl IoRouter {
         f
     }
 
-
     #[instrument(
         name = "zone.shutdown",
         level = "debug",
@@ -156,11 +148,7 @@ impl IoRouter {
     }
 
     /// Shutdown the IO thread
-    #[instrument(
-        name = "io.shutdown",
-        level = "debug",
-        skip(self),
-    )]
+    #[instrument(name = "io.shutdown", level = "debug", skip(self))]
     pub async fn shutdown_all(self) {
         let mut tasks = Vec::new();
 
@@ -373,10 +361,7 @@ mod tests {
 
         // z2 should still have a running fetcher; get_or_spawn must return the same Arc ptr
         let f2_again = router.get_or_spawn_zone_fetcher(z2);
-        assert!(
-            Arc::ptr_eq(&f2, &f2_again),
-            "z2 fetcher must remain the same instance"
-        );
+        assert!(Arc::ptr_eq(&f2, &f2_again), "z2 fetcher must remain the same instance");
 
         // Clean up remaining zones to avoid leaking tasks in test
         router.shutdown_all().await;

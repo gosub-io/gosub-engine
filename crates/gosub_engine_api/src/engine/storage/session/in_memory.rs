@@ -57,11 +57,7 @@ struct SessionArea {
 
 impl StorageArea for SessionArea {
     fn get_item(&self, k: &str) -> Option<String> {
-        self.data
-            .read()
-            .unwrap()
-            .get(&self.key)
-            .and_then(|m| m.get(k).cloned())
+        self.data.read().unwrap().get(&self.key).and_then(|m| m.get(k).cloned())
     }
 
     fn set_item(&self, k: &str, v: &str) -> Result<()> {
@@ -75,29 +71,17 @@ impl StorageArea for SessionArea {
     }
 
     fn remove_item(&self, k: &str) -> Result<()> {
-        self.data
-            .write()
-            .unwrap()
-            .get_mut(&self.key)
-            .map(|m| m.remove(k));
+        self.data.write().unwrap().get_mut(&self.key).map(|m| m.remove(k));
         Ok(())
     }
 
     fn clear(&self) -> Result<()> {
-        self.data
-            .write()
-            .unwrap()
-            .insert(self.key.clone(), HashMap::new());
+        self.data.write().unwrap().insert(self.key.clone(), HashMap::new());
         Ok(())
     }
 
     fn len(&self) -> usize {
-        self.data
-            .read()
-            .unwrap()
-            .get(&self.key)
-            .map(|m| m.len())
-            .unwrap_or(0)
+        self.data.read().unwrap().get(&self.key).map(|m| m.len()).unwrap_or(0)
     }
 
     fn keys(&self) -> Vec<String> {

@@ -136,7 +136,6 @@ pub use engine::storage;
 #[doc(inline)]
 pub use crate::engine::config::EngineConfig;
 
-
 /// Public `events` namespace with the enums/structs:
 pub mod events {
     pub use crate::engine::events::{EngineCommand, EngineEvent, IoCommand, MouseButton, TabCommand};

@@ -8,22 +8,22 @@ use eframe::{egui, CreationContext};
 use egui::load::SizedTexture;
 use egui::StrokeKind;
 use gosub_engine_api::cookies::SqliteCookieStore;
+use gosub_engine_api::events::EngineEvent;
 use gosub_engine_api::render::backend::{CompositorSink, ExternalHandle};
 use gosub_engine_api::render::backends::vello::WgpuContextProvider;
 use gosub_engine_api::render::{DefaultCompositor, Viewport};
 use gosub_engine_api::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};
+use gosub_engine_api::tab::{TabDefaults, TabHandle, TabId};
 use gosub_engine_api::zone::{ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine_api::GosubEngine;
+use once_cell::sync::Lazy;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::{Arc, RwLock};
-use once_cell::sync::Lazy;
 use tokio::runtime::{Builder, Runtime};
 use url::Url;
 use uuid::uuid;
-use gosub_engine_api::events::EngineEvent;
-use gosub_engine_api::tab::{TabDefaults, TabHandle, TabId};
 
 mod compositor;
 mod tiling;
@@ -102,26 +102,32 @@ impl GosubApp {
         };
 
         let zone = Rc::new(RefCell::new(
-            engine.create_zone(zone_cfg, zone_services, Some(ZoneId::from(DEFAULT_MAIN_ZONE)))
-                .expect("create_zone failed")
+            engine
+                .create_zone(zone_cfg, zone_services, Some(ZoneId::from(DEFAULT_MAIN_ZONE)))
+                .expect("create_zone failed"),
         ));
 
         // Save all tabs into a map
         let tabs: Arc<RefCell<HashMap<TabId, TabHandle>>> = Arc::new(RefCell::new(HashMap::new()));
 
-
         // Since this is not an async main() function, we need to block on async calls.
-        let tab = TOKIO_RT.block_on(async {
-            zone.borrow_mut().create_tab(TabDefaults {
-                url: None,
-                title: Some("New Tab".to_string()),
-                viewport: Some(Viewport::new(0, 0, 800, 600)),
-            }, None).await
-        }).expect("create_tab failed");
+        let tab = TOKIO_RT
+            .block_on(async {
+                zone.borrow_mut()
+                    .create_tab(
+                        TabDefaults {
+                            url: None,
+                            title: Some("New Tab".to_string()),
+                            viewport: Some(Viewport::new(0, 0, 800, 600)),
+                        },
+                        None,
+                    )
+                    .await
+            })
+            .expect("create_tab failed");
         let tab_id = tab.tab_id;
         tabs.borrow_mut().insert(tab_id, tab);
         log::trace!("Created initial tab {:?}", tab_id);
-
 
         // Active tab id + last size (single source of truth)
         let active_tab: Arc<RefCell<TabId>> = Arc::new(RefCell::new(tab_id));
@@ -162,7 +168,6 @@ impl GosubApp {
             return;
         };
 
-
         let tab_id = *self.active_tab.borrow();
 
         let _ = self
@@ -177,10 +182,7 @@ impl GosubApp {
         let new_tab = self
             .engine
             .borrow_mut()
-            .open_tab_in_zone(
-                self.zone_id,
-                Viewport::new(0, 0, (w / 2).max(1) as u32, h as u32),
-            )
+            .open_tab_in_zone(self.zone_id, Viewport::new(0, 0, (w / 2).max(1) as u32, h as u32))
             .expect("open_tab failed");
 
         let target = *self.active_tab.borrow();
@@ -207,10 +209,7 @@ impl GosubApp {
         let new_tab = self
             .engine
             .borrow_mut()
-            .open_tab_in_zone(
-                self.zone_id,
-                Viewport::new(0, 0, w as u32, (h / 2).max(1) as u32),
-            )
+            .open_tab_in_zone(self.zone_id, Viewport::new(0, 0, w as u32, (h / 2).max(1) as u32))
             .expect("open_tab failed");
 
         let target = *self.active_tab.borrow();
@@ -300,9 +299,7 @@ impl GosubApp {
         // our Wgpu context provider as the bridge between the renderer and the UI.
         match gosub_engine_api::render::backends::vello::VelloBackend::new(self.ctx_provider.clone()) {
             Ok(backend) => {
-                self.engine
-                    .borrow_mut()
-                    .set_backend_renderer(Box::new(backend));
+                self.engine.borrow_mut().set_backend_renderer(Box::new(backend));
                 self.backend_initialized = true;
                 self.needs_redraw = true;
             }
@@ -322,16 +319,8 @@ impl eframe::App for GosubApp {
 
         // Set larger font size for the whole UI
         let mut style = (*ctx.style()).clone();
-        style
-            .text_styles
-            .get_mut(&egui::TextStyle::Body)
-            .unwrap()
-            .size = 16.0;
-        style
-            .text_styles
-            .get_mut(&egui::TextStyle::Button)
-            .unwrap()
-            .size = 14.0;
+        style.text_styles.get_mut(&egui::TextStyle::Body).unwrap().size = 16.0;
+        style.text_styles.get_mut(&egui::TextStyle::Button).unwrap().size = 14.0;
         ctx.set_style(style);
 
         // Update pointer position
@@ -353,10 +342,7 @@ impl eframe::App for GosubApp {
         }
 
         // Update engine and check if we need to redraw
-        let results = self
-            .engine
-            .borrow_mut()
-            .tick(&mut *self.compositor.borrow_mut());
+        let results = self.engine.borrow_mut().tick(&mut *self.compositor.borrow_mut());
 
         // check if any tab needs redraw
         let (w, h) = *self.last_size.borrow();
@@ -409,24 +395,15 @@ impl eframe::App for GosubApp {
                     // Bigger buttons with padding
                     let button_size = egui::vec2(120.0, 32.0);
 
-                    if ui
-                        .add(egui::Button::new("Split Col").min_size(button_size))
-                        .clicked()
-                    {
+                    if ui.add(egui::Button::new("Split Col").min_size(button_size)).clicked() {
                         self.handle_split_col();
                     }
 
-                    if ui
-                        .add(egui::Button::new("Split Row").min_size(button_size))
-                        .clicked()
-                    {
+                    if ui.add(egui::Button::new("Split Row").min_size(button_size)).clicked() {
                         self.handle_split_row();
                     }
 
-                    if ui
-                        .add(egui::Button::new("Close Pane").min_size(button_size))
-                        .clicked()
-                    {
+                    if ui.add(egui::Button::new("Close Pane").min_size(button_size)).clicked() {
                         self.handle_close_pane();
                     }
                 });
@@ -484,12 +461,8 @@ impl eframe::App for GosubApp {
                         egui::Color32::DARK_GRAY
                     };
 
-                    ui.painter().rect_stroke(
-                        rect_ui,
-                        0.0,
-                        egui::Stroke::new(1.0, col),
-                        StrokeKind::Outside,
-                    );
+                    ui.painter()
+                        .rect_stroke(rect_ui, 0.0, egui::Stroke::new(1.0, col), StrokeKind::Outside);
                 }
             }
 

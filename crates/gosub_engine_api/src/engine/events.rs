@@ -15,9 +15,9 @@
 use crate::config::LogLevel;
 use crate::cookies::Cookie;
 use crate::engine::types::{Action, NavigationId, RequestId};
-use crate::net::types::{
-    FetchHandle, FetchRequest, FetchResult, FetchResultMeta, Initiator, Priority, ResourceKind,
-};
+use crate::html::DummyDocument;
+use crate::net::req_ref_tracker::RequestReference;
+use crate::net::types::{FetchHandle, FetchRequest, FetchResult, FetchResultMeta, Initiator, Priority, ResourceKind};
 use crate::net::DecisionToken;
 use crate::render::backend::ExternalHandle;
 use crate::render::Viewport;
@@ -31,8 +31,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::oneshot;
 use url::Url;
-use crate::html::DummyDocument;
-use crate::net::req_ref_tracker::RequestReference;
 
 /// Represents a mouse button that can be pressed or released
 #[derive(Debug, Clone, PartialEq)]

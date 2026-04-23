@@ -80,9 +80,7 @@ impl WgpuContextProvider for EguiWgpuContextProvider {
 
     fn get_texture(&self, id: u64) -> Option<(wgpu::Texture, wgpu::TextureView)> {
         let textures_lock = self.textures.read().unwrap();
-        textures_lock
-            .get(&id)
-            .map(|(tex, view)| (tex.clone(), view.clone()))
+        textures_lock.get(&id).map(|(tex, view)| (tex.clone(), view.clone()))
     }
 
     fn remove_texture(&self, id: u64) {

@@ -1,5 +1,6 @@
 use crate::engine::types::{PeekBuf, RequestId};
 use crate::html::DummyDocument;
+use crate::net::req_ref_tracker::RequestReference;
 use crate::net::shared_body::SharedBody;
 use crate::net::utils::{normalize_url, short_hash, BytesAsyncReader};
 use bytes::Bytes;
@@ -12,7 +13,6 @@ use std::sync::Arc;
 use tokio::io::{AsyncRead, ReadBuf};
 use tokio_util::sync::CancellationToken;
 use url::Url;
-use crate::net::req_ref_tracker::RequestReference;
 
 /// A BodyStream is an async reader that can be used to read the body of a response.
 pub struct BodyStream {
@@ -189,14 +189,8 @@ impl FetchKeyData {
         let url = normalize_url(&self.url);
         let h = &self.headers;
 
-        let range = h
-            .get(header::RANGE)
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("");
-        let accept = h
-            .get(header::ACCEPT)
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("");
+        let range = h.get(header::RANGE).and_then(|v| v.to_str().ok()).unwrap_or("");
+        let accept = h.get(header::ACCEPT).and_then(|v| v.to_str().ok()).unwrap_or("");
         let accept_enc = h
             .get(header::ACCEPT_ENCODING)
             .and_then(|v| v.to_str().ok())
@@ -305,10 +299,7 @@ impl FetchResult {
 impl Debug for FetchResult {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            FetchResult::Stream { meta, .. } => f
-                .debug_struct("FetchResult::Stream")
-                .field("meta", meta)
-                .finish(),
+            FetchResult::Stream { meta, .. } => f.debug_struct("FetchResult::Stream").field("meta", meta).finish(),
             FetchResult::Buffered { meta, body } => f
                 .debug_struct("FetchResult::Buffered")
                 .field("meta", meta)
@@ -421,18 +412,12 @@ mod tests {
     fn fetch_key_generate_get_and_headers() {
         let mut fk = FetchKeyData::new(Url::parse("https://example.org/a/b#frag").unwrap());
         // set method GET (already default) and headers that impact the key
-        fk.headers
-            .insert(header::RANGE, "bytes=0-99".parse().unwrap());
-        fk.headers
-            .insert(header::ACCEPT, "text/html".parse().unwrap());
-        fk.headers
-            .insert(header::ACCEPT_LANGUAGE, "en-US".parse().unwrap());
-        fk.headers
-            .insert(header::ACCEPT_ENCODING, "gzip".parse().unwrap());
-        fk.headers
-            .insert(header::AUTHORIZATION, "Bearer abc".parse().unwrap());
-        fk.headers
-            .insert(header::COOKIE, "a=1; b=2".parse().unwrap());
+        fk.headers.insert(header::RANGE, "bytes=0-99".parse().unwrap());
+        fk.headers.insert(header::ACCEPT, "text/html".parse().unwrap());
+        fk.headers.insert(header::ACCEPT_LANGUAGE, "en-US".parse().unwrap());
+        fk.headers.insert(header::ACCEPT_ENCODING, "gzip".parse().unwrap());
+        fk.headers.insert(header::AUTHORIZATION, "Bearer abc".parse().unwrap());
+        fk.headers.insert(header::COOKIE, "a=1; b=2".parse().unwrap());
 
         let key = fk.generate().expect("GET should produce a key");
 

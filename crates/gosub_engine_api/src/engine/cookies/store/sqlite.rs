@@ -162,11 +162,8 @@ impl SqliteCookieStore {
         let mut conn = self.conn();
         let tx = conn.transaction().expect("Transaction failed");
 
-        tx.execute(
-            "DELETE FROM cookies WHERE zone_id = ?1",
-            [zone_id.to_string()],
-        )
-        .expect("Failed to delete cookies");
+        tx.execute("DELETE FROM cookies WHERE zone_id = ?1", [zone_id.to_string()])
+            .expect("Failed to delete cookies");
 
         let mut stmt = tx.prepare(
             "INSERT INTO cookies (zone_id, origin, name, value, path, domain, secure, expires, same_site, http_only)
@@ -202,11 +199,8 @@ impl SqliteCookieStore {
     /// Panics on SQL execution error.
     fn remove_zone_from_db(&self, zone_id: ZoneId) {
         let conn = self.conn();
-        conn.execute(
-            "DELETE FROM cookies WHERE zone_id = ?1",
-            [zone_id.to_string()],
-        )
-        .expect("Failed to delete zone cookies");
+        conn.execute("DELETE FROM cookies WHERE zone_id = ?1", [zone_id.to_string()])
+            .expect("Failed to delete zone cookies");
     }
 }
 
@@ -231,10 +225,7 @@ impl CookieStore for SqliteCookieStore {
         let arc_jar: CookieJarHandle = jar.into();
 
         let store_ref = self.store_self.read().unwrap();
-        let store = store_ref
-            .as_ref()
-            .expect("store_self not initialized")
-            .clone();
+        let store = store_ref.as_ref().expect("store_self not initialized").clone();
 
         let persistent = PersistentCookieJar::new(zone_id, arc_jar.clone(), store);
         let handle = CookieJarHandle::new(persistent);

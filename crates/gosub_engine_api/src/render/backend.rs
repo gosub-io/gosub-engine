@@ -19,10 +19,10 @@
 
 use crate::engine::BrowsingContext;
 use crate::render::Viewport;
+use parking_lot::RwLock;
 use std::any::Any;
 use std::ptr::NonNull;
 use std::sync::Arc;
-use parking_lot::RwLock;
 
 /// A surface rect has the same properties as a viewport, but a surface rect
 /// is usually computed with DevicePixelRatio.
@@ -97,7 +97,6 @@ pub enum GpuPixelFormat {
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct WgpuTextureId(pub u64);
 
-
 /// Safety: `ExternalHandle` can be sent between threads, but not shared.
 unsafe impl Send for ExternalHandle {}
 unsafe impl Sync for ExternalHandle {}
@@ -142,7 +141,7 @@ pub enum ExternalHandle {
         /// Stride in bytes. This is the number of bytes per row of pixels.
         stride: u32,
         /// Raw pixel data pointer in RGBA8 format.
-        pixel_buf: NonNull<u8>,       // This is not SEND + SYNC, we override this above
+        pixel_buf: NonNull<u8>, // This is not SEND + SYNC, we override this above
     },
 
     /// GL / GLES texture. `target` is usually GL_TEXTURE_2D or GL_TEXTURE_EXTERNAL_OES.
@@ -286,7 +285,7 @@ pub struct RenderBackendRouter {
 }
 
 impl RenderBackendRouter {
-    pub fn new (initial: Arc<dyn RenderBackend + Send + Sync>) -> Arc<Self> {
+    pub fn new(initial: Arc<dyn RenderBackend + Send + Sync>) -> Arc<Self> {
         Arc::new(Self {
             inner: RwLock::new(initial),
         })

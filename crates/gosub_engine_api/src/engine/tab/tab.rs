@@ -56,14 +56,7 @@ pub fn create_tab(
     let tab_id = TabId::new();
     let sink = Arc::new(TabSink::new());
 
-    let worker = TabWorker::new(
-        tab_id,
-        zone_id,
-        services,
-        zone_context,
-        sink.clone(),
-        cmd_rx,
-    );
+    let worker = TabWorker::new(tab_id, zone_id, services, zone_context, sink.clone(), cmd_rx);
 
     let handle = TabHandle { tab_id, cmd_tx, sink };
     Ok((handle, worker))

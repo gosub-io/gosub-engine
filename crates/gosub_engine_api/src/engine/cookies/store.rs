@@ -110,7 +110,6 @@ pub use json::JsonCookieStore;
 /// SQLite-backed cookie store (one database for all zones).
 pub use sqlite::SqliteCookieStore;
 
-
 /// A cookie **store** mints per-zone cookie **jars** and (optionally) persists them.
 ///
 /// Zones never store a `CookieStore`; they only hold a [`CookieJarHandle`].

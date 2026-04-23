@@ -1,10 +1,10 @@
+use crate::tab::TabId;
+use crate::NavigationId;
+use dashmap::{DashMap, Entry};
 use std::collections::HashMap;
 use std::fmt::Display;
-use std::sync::{Arc, RwLock};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use dashmap::{DashMap, Entry};
-use crate::NavigationId;
-use crate::tab::TabId;
+use std::sync::{Arc, RwLock};
 
 pub type RequestReferenceMap = HashMap<RequestReference, TabId>;
 
@@ -62,8 +62,6 @@ impl Display for RequestReference {
 //     }
 // }
 
-
-
 #[derive(Default)]
 pub struct RequestRefTracker {
     inner: DashMap<RequestReference, (AtomicUsize, AtomicBool)>,
@@ -71,23 +69,21 @@ pub struct RequestRefTracker {
 
 impl RequestRefTracker {
     pub fn new() -> Self {
-        Self {
-            inner: DashMap::new(),
-        }
+        Self { inner: DashMap::new() }
     }
 
     pub fn inc(&self, r: &RequestReference) {
         match self.inner.entry(r.clone()) {
-            Entry::Occupied(e) => { e.get().0.fetch_add(1, Ordering::Relaxed); },
-            Entry::Vacant(v) => { v.insert((AtomicUsize::new(1), AtomicBool::new(false))); },
+            Entry::Occupied(e) => {
+                e.get().0.fetch_add(1, Ordering::Relaxed);
+            }
+            Entry::Vacant(v) => {
+                v.insert((AtomicUsize::new(1), AtomicBool::new(false)));
+            }
         };
     }
 
-    pub fn dec_and_maybe_cleanup(
-        &self,
-        r: &RequestReference,
-        map: &Arc<RwLock<RequestReferenceMap>>,
-    ) {
+    pub fn dec_and_maybe_cleanup(&self, r: &RequestReference, map: &Arc<RwLock<RequestReferenceMap>>) {
         if let Some(entry) = self.inner.get(r) {
             let new = entry.0.fetch_sub(1, Ordering::Relaxed);
             let fin = entry.1.load(Ordering::Relaxed);
@@ -100,11 +96,7 @@ impl RequestRefTracker {
         }
     }
 
-    pub fn finalize(
-        &self,
-        r: &RequestReference,
-        map: &Arc<RwLock<RequestReferenceMap>>,
-    ) {
+    pub fn finalize(&self, r: &RequestReference, map: &Arc<RwLock<RequestReferenceMap>>) {
         if let Some(entry) = self.inner.get(r) {
             entry.1.store(true, Ordering::Relaxed);
 

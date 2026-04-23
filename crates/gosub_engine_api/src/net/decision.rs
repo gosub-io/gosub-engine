@@ -42,7 +42,6 @@ pub fn decide_handling(
     // The user-agent policy, including settings like no-sniff, etc.
     policy: &UaPolicy,
 ) -> DecisionOutcome {
-
     let declared_mime = content_type_from_headers(meta);
     let nosniff = header_eq(meta, http::header::X_CONTENT_TYPE_OPTIONS, "nosniff");
     let is_attachment = content_disposition_is_attachment(meta);
@@ -54,10 +53,7 @@ pub fn decide_handling(
     };
 
     // Prefer trustworthy declared types, otherwise fall back to sniffed type.
-    let mut effective_class = declared_mime
-        .as_ref()
-        .and_then(class_from_mime)
-        .or(sniffed_class);
+    let mut effective_class = declared_mime.as_ref().and_then(class_from_mime).or(sniffed_class);
 
     // Optional "navigation sniffing upgrade": allow HTML if mislabelled during document nav.
     if policy.enable_sniffing_navigation_upgrade
@@ -79,16 +75,16 @@ pub fn decide_handling(
             sniffed_class,
             declared_mime,
             disposition_attachment: true,
-            decision: HandlingDecision::Download { path: std::path::PathBuf::new() },
+            decision: HandlingDecision::Download {
+                path: std::path::PathBuf::new(),
+            },
         };
     }
 
     // Special case: if we look like a PDF, and the UA has a PDF viewer, render in it.
     if policy.enable_pdf_viewer {
-        let looks_like_pdf = declared_mime
-            .as_ref()
-            .map(|m| mime_is_pdf(m))
-            .unwrap_or(false) || matches!(sniffed_class, Some(ResponseClass::Pdf));
+        let looks_like_pdf = declared_mime.as_ref().map(|m| mime_is_pdf(m)).unwrap_or(false)
+            || matches!(sniffed_class, Some(ResponseClass::Pdf));
 
         if looks_like_pdf {
             return DecisionOutcome {
@@ -108,32 +104,31 @@ pub fn decide_handling(
         ResponseClass::Html | ResponseClass::XHtml | ResponseClass::Xml => {
             HandlingDecision::Render(RenderTarget::HtmlParser)
         }
-        ResponseClass::Image => {
-            HandlingDecision::Render(RenderTarget::ImageDecoder)
-        }
-        ResponseClass::Js => {
-            HandlingDecision::Render(RenderTarget::JsEngine)
-        }
-        ResponseClass::Css => {
-            HandlingDecision::Render(RenderTarget::CssParser)
-        }
+        ResponseClass::Image => HandlingDecision::Render(RenderTarget::ImageDecoder),
+        ResponseClass::Js => HandlingDecision::Render(RenderTarget::JsEngine),
+        ResponseClass::Css => HandlingDecision::Render(RenderTarget::CssParser),
         ResponseClass::Pdf => {
             // If we reached here without pdf viewer enabled, download by default.
-            HandlingDecision::Download { path: std::path::PathBuf::new() }
-        }
-        ResponseClass::Json | ResponseClass::Text | ResponseClass::Binary => {
-            match dest {
-                RequestDestination::Document if policy.enable_sniffing_navigation_upgrade
-                    && matches!(sniffed_class, Some(ResponseClass::Html | ResponseClass::Xml)) =>
-                    {
-                        HandlingDecision::Render(RenderTarget::HtmlParser)
-                    }
-                _ => HandlingDecision::Download { path: std::path::PathBuf::new() },
+            HandlingDecision::Download {
+                path: std::path::PathBuf::new(),
             }
         }
+        ResponseClass::Json | ResponseClass::Text | ResponseClass::Binary => match dest {
+            RequestDestination::Document
+                if policy.enable_sniffing_navigation_upgrade
+                    && matches!(sniffed_class, Some(ResponseClass::Html | ResponseClass::Xml)) =>
+            {
+                HandlingDecision::Render(RenderTarget::HtmlParser)
+            }
+            _ => HandlingDecision::Download {
+                path: std::path::PathBuf::new(),
+            },
+        },
         _ => {
             // Unknown or unhandled types: download by default.
-            HandlingDecision::Download { path: std::path::PathBuf::new() }
+            HandlingDecision::Download {
+                path: std::path::PathBuf::new(),
+            }
         }
     };
 
@@ -145,7 +140,6 @@ pub fn decide_handling(
         decision,
     }
 }
-
 
 /// Extract and parse the `Content-Type` header from the response metadata.
 fn content_type_from_headers(meta: &FetchResultMeta) -> Option<mime::Mime> {
@@ -174,8 +168,7 @@ fn content_disposition_is_attachment(meta: &FetchResultMeta) -> bool {
 
 /// Check if a MIME type is PDF, case-insensitively.
 fn mime_is_pdf(m: &mime::Mime) -> bool {
-    (m.type_() == mime::APPLICATION && m.subtype() == "pdf")
-        || m.essence_str().eq_ignore_ascii_case("application/pdf")
+    (m.type_() == mime::APPLICATION && m.subtype() == "pdf") || m.essence_str().eq_ignore_ascii_case("application/pdf")
 }
 
 /// Map a MIME type to a coarse `ResponseClass`.

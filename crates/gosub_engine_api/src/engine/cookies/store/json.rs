@@ -142,10 +142,7 @@ impl CookieStore for JsonCookieStore {
 
         // load from disk (or empty)
         let mut file = self.load_file();
-        let jar = file
-            .zones
-            .remove(&zone_id)
-            .unwrap_or_else(DefaultCookieJar::new);
+        let jar = file.zones.remove(&zone_id).unwrap_or_else(DefaultCookieJar::new);
         let arc_jar: CookieJarHandle = jar.into(); // assuming you have From<DefaultCookieJar> for CookieJarHandle
 
         let store = self
@@ -241,17 +238,10 @@ mod tests {
         let z = ZoneId::new();
         let a = store.jar_for(z).unwrap();
         let b = store.jar_for(z).unwrap();
-        assert!(
-            CookieJarHandle::ptr_eq(&a, &b),
-            "same zone should return same Arc"
-        );
+        assert!(CookieJarHandle::ptr_eq(&a, &b), "same zone should return same Arc");
 
         // Downcast to persistent wrapper to ensure it’s wrapped
-        assert!(a
-            .read()
-            .as_any()
-            .downcast_ref::<PersistentCookieJar>()
-            .is_some());
+        assert!(a.read().as_any().downcast_ref::<PersistentCookieJar>().is_some());
     }
 
     #[test]
@@ -295,11 +285,7 @@ mod tests {
         let h2 = store2.jar_for(zone).unwrap();
 
         // Ensure it’s again a persistent wrapper
-        assert!(h2
-            .read()
-            .as_any()
-            .downcast_ref::<PersistentCookieJar>()
-            .is_some());
+        assert!(h2.read().as_any().downcast_ref::<PersistentCookieJar>().is_some());
     }
 
     #[test]

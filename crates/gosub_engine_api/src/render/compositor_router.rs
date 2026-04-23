@@ -1,6 +1,6 @@
-use std::sync::Arc;
 use crate::render::backend::{CompositorSink, ExternalHandle};
 use crate::tab::TabId;
+use std::sync::Arc;
 
 // type SinkHandle = Arc<RwLock<dyn CompositorSink + Send>>;
 
@@ -15,9 +15,7 @@ pub struct CompositorRouter {
 impl CompositorRouter {
     /// Creates a new [`CompositorRouter`].
     pub fn new() -> Arc<Self> {
-        Arc::new(Self {
-            inner: None,
-        })
+        Arc::new(Self { inner: None })
     }
 
     /// Sets the sink to which compositor events will be forwarded.

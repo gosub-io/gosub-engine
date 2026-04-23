@@ -108,11 +108,11 @@ mod fetcher;
 mod fs_utils;
 mod io_runtime;
 mod pump;
+pub mod req_ref_tracker;
 mod router;
 mod shared_body;
 pub mod types;
 mod utils;
-pub mod req_ref_tracker;
 
 /// Make a **handling decision** for a routed response (e.g., render as document, hand to download manager).
 pub use decision::decide_handling;
@@ -123,7 +123,6 @@ pub use decision_hub::DecisionToken;
 
 /// Shared, back-pressure-aware **streamed body** used by fetcher and consumers.
 pub use shared_body::SharedBody;
-
 
 /// Spawn the dedicated **Tokio I/O thread** for all network work.
 ///
@@ -153,4 +152,3 @@ pub use router::RoutedOutcome;
 /// Map that **coalesces identical inflight requests**, letting late callers join
 /// an existing transfer instead of starting a new one.
 pub use fetcher::FetchInflightMap;
-

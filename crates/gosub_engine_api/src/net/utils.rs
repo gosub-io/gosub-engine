@@ -41,7 +41,7 @@ impl Waiter {
 
     /// Register a consumer for this waiter. We need to know if the consumer is streaming or not.
     pub async fn register(&self, tx: oneshot::Sender<FetchResult>, wants_streaming: bool) {
-        self.listeners.lock().await.push(WaiterEntry {tx, wants_streaming})
+        self.listeners.lock().await.push(WaiterEntry { tx, wants_streaming })
     }
 
     /// Process the fetch result with the listeners.

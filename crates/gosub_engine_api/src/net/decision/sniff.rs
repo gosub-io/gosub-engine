@@ -77,9 +77,7 @@ pub fn sniff_class(peek_buf: PeekBuf) -> ResponseClass {
             return ResponseClass::Xml;
         }
         // Heuristic CSS/JS detection by common patterns
-        if lower.contains('{') && (lower.contains(':') || lower.contains(';'))
-            && !lower.starts_with('<')
-        {
+        if lower.contains('{') && (lower.contains(':') || lower.contains(';')) && !lower.starts_with('<') {
             return ResponseClass::Css;
         }
         if lower.contains("function ")

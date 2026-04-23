@@ -6,12 +6,12 @@ use crate::engine::types::{EventChannel, RequestId};
 use crate::net::decision_hub::DecisionHub;
 use crate::net::emitter::engine_event_emitter::EngineEventEmitter;
 use crate::net::emitter::null_emitter::NullEmitter;
+use crate::net::emitter::NetObserver;
 use crate::net::fetch::{fetch_response_complete, fetch_response_top, ResponseTop};
 use crate::net::pump::{spawn_pump, PumpCfg, PumpTargets};
+use crate::net::req_ref_tracker::{RequestRefTracker, RequestReferenceMap};
 use crate::net::shared_body::{ReaderOptions, SharedBody};
-use crate::net::types::{
-    FetchHandle, FetchKeyData, FetchRequest, FetchResult, NetError, Priority,
-};
+use crate::net::types::{FetchHandle, FetchKeyData, FetchRequest, FetchResult, NetError, Priority};
 use crate::net::utils::{short_url, Waiter};
 use crate::net::DecisionToken;
 use crate::util::spawn_named;
@@ -26,8 +26,6 @@ use tokio::sync::{oneshot, Notify, Semaphore};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use url::Url;
-use crate::net::emitter::NetObserver;
-use crate::net::req_ref_tracker::{RequestRefTracker, RequestReferenceMap};
 
 /// How many shared consumers can listen for a resource
 const SHARED_MAX_CAPACITY: usize = 32;
@@ -409,10 +407,7 @@ impl Fetcher {
             }
 
             // Register the caller to the waiter
-            inflight_entry
-                .waiter
-                .register(reply_tx, req.streaming)
-                .await;
+            inflight_entry.waiter.register(reply_tx, req.streaming).await;
 
             // Increase ref counter
             inflight_entry.inc_sub();
@@ -430,9 +425,7 @@ impl Fetcher {
 
             // Update streaming preference if needed
             if req.streaming {
-                inflight_entry
-                    .wants_streaming
-                    .store(true, Ordering::Relaxed);
+                inflight_entry.wants_streaming.store(true, Ordering::Relaxed);
             }
 
             // Followers are done; leader will spawn the fetch task
@@ -445,7 +438,7 @@ impl Fetcher {
                 let guard = self.request_reference_map.read().unwrap();
                 match guard.get(&req.reference) {
                     Some(tab_id) => Arc::new(EngineEventEmitter::new(
-                        *tab_id,    // here is where we connect "events" to tabs
+                        *tab_id, // here is where we connect "events" to tabs
                         req.req_id,
                         req.reference.clone(),
                         self.event_tx.clone(),
@@ -481,12 +474,7 @@ impl Fetcher {
                 let origin = Fetcher::origin_key(&req.key_data.url);
                 let slots = per_origin
                     .entry(origin.clone())
-                    .or_insert_with(|| {
-                        Arc::new(Semaphore::new(per_origin_limit_for(
-                            &cfg,
-                            &req.key_data.url,
-                        )))
-                    })
+                    .or_insert_with(|| Arc::new(Semaphore::new(per_origin_limit_for(&cfg, &req.key_data.url))))
                     .clone();
 
                 let g = tokio::select! { p = global.acquire_owned() => Some(p), _ = shutdown_child.changed() => None };
@@ -503,23 +491,9 @@ impl Fetcher {
 
                 // Perform the request, either streaming or buffered
                 let result = if should_stream {
-                    perform_streaming(
-                        &client,
-                        observer.clone(),
-                        &req_for_task,
-                        &cfg,
-                        cancel_parent.clone(),
-                    )
-                    .await
+                    perform_streaming(&client, observer.clone(), &req_for_task, &cfg, cancel_parent.clone()).await
                 } else {
-                    perform_buffered(
-                        &client,
-                        observer.clone(),
-                        &req_for_task,
-                        &cfg,
-                        cancel_parent.clone(),
-                    )
-                    .await
+                    perform_buffered(&client, observer.clone(), &req_for_task, &cfg, cancel_parent.clone()).await
                 };
 
                 // If we found an error, convert it to a FetchResult::Error
@@ -643,14 +617,7 @@ pub fn spawn_fetch_task(
         }
         let _cleanup = Cleanup(Some(on_finish));
 
-        let top = match fetch_response_top(
-            client.clone(),
-            url.clone(),
-            cancel_parent.clone(),
-            observer.clone(),
-        )
-        .await
-        {
+        let top = match fetch_response_top(client.clone(), url.clone(), cancel_parent.clone(), observer.clone()).await {
             Ok(top) => top,
             Err(e) => {
                 let _ = entry.waiter.finish(FetchResult::Error(e)).await;

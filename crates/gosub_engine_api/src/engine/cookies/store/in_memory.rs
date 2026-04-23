@@ -63,10 +63,8 @@ mod tests {
 
         // Can write a cookie and read it back via the other handle
         {
-            a.write().store_response_cookies(
-                &"https://example.com/".parse().unwrap(),
-                &http::HeaderMap::new(),
-            );
+            a.write()
+                .store_response_cookies(&"https://example.com/".parse().unwrap(), &http::HeaderMap::new());
             // (No actual Set-Cookie here; we’re just ensuring it is writable without panicking)
         }
         // second handle should still be valid

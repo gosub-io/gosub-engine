@@ -35,10 +35,10 @@
 //! navigation cancellations or network errors.
 
 use crate::engine::storage::{StorageArea, StorageHandles};
+use crate::html::DummyDocument;
 use crate::render::{Color, DisplayItem, RenderList, Viewport};
 use std::sync::Arc;
 use url::Url;
-use crate::html::DummyDocument;
 // #[derive(Debug, thiserror::Error)]
 // pub enum LoadError {
 //     #[error("navigation cancelled")]

@@ -18,7 +18,7 @@ pub struct ResourceHint {
     /// The kind of resource (affects priority, etc).
     pub kind: ResourceKind,
     /// The `rel` attribute value if applicable.
-    pub rel: Option<String>,     // e.g. "stylesheet"
+    pub rel: Option<String>, // e.g. "stylesheet"
     /// The attribute we discovered this from.
     pub from_attr: &'static str, // e.g. "href" or "src
     /// The referrer URL if applicable.
@@ -176,11 +176,9 @@ static RE_LINK_STYLESHEET: Lazy<Regex> = Lazy::new(|| {
 static RE_SCRIPT_SRC: Lazy<Regex> =
     Lazy::new(|| Regex::new(r#"(?is)<\s*script\b[^>]*\bsrc\s*=\s*(?P<src>"[^"]*"|'[^']*'|[^\s>]+)[^>]*>"#).unwrap());
 
-static RE_ASYNC_ATTR: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"\basync\b"#).unwrap());
+static RE_ASYNC_ATTR: Lazy<Regex> = Lazy::new(|| Regex::new(r#"\basync\b"#).unwrap());
 
-static RE_DEFER_ATTR: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"\bdefer\b"#).unwrap());
+static RE_DEFER_ATTR: Lazy<Regex> = Lazy::new(|| Regex::new(r#"\bdefer\b"#).unwrap());
 
 static RE_IMG_SRC: Lazy<Regex> =
     Lazy::new(|| Regex::new(r#"(?is)<\s*img\b[^>]*\bsrc\s*=\s*(?P<src>"[^"]*"|'[^']*'|[^\s>]+)[^>]*>"#).unwrap());
@@ -321,10 +319,8 @@ mod tests {
         assert!(hints
             .iter()
             .any(|h| h.kind == ResourceKind::Stylesheet && h.url.as_str() == "https://example.com/style.css"));
-        assert!(hints
-            .iter()
-            .any(|h| h.kind == ResourceKind::Script { blocking: true }
-                && h.url.as_str() == "https://example.com/path/app.js"));
+        assert!(hints.iter().any(|h| h.kind == ResourceKind::Script { blocking: true }
+            && h.url.as_str() == "https://example.com/path/app.js"));
         assert!(hints
             .iter()
             .any(|h| h.kind == ResourceKind::Image && h.url.as_str() == "https://example.com/path/images/logo.png"));
@@ -372,10 +368,7 @@ mod tests {
     #[test]
     fn discover_title_basic() {
         assert_eq!(discover_title("<title>x</title>").as_deref(), Some("x"));
-        assert_eq!(
-            discover_title("<TITLE>  spaced \n</TITLE>").as_deref(),
-            Some("spaced")
-        );
+        assert_eq!(discover_title("<TITLE>  spaced \n</TITLE>").as_deref(), Some("spaced"));
         assert_eq!(discover_title("<head></head>").is_none(), true);
     }
 }

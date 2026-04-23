@@ -1,4 +1,5 @@
 use crate::engine::types::PeekBuf;
+use crate::net::emitter::NetObserver;
 use crate::net::events::NetEvent;
 use crate::net::types::{FetchResultMeta, NetError};
 use anyhow::{anyhow, Context};
@@ -12,7 +13,6 @@ use tokio::time::timeout;
 use tokio_util::io::StreamReader;
 use tokio_util::sync::CancellationToken;
 use url::Url;
-use crate::net::emitter::NetObserver;
 
 /// Peek buffer size (first bytes of body). Used for detecting mime type
 const PEEK_MAX: usize = 5 * 1024;
@@ -48,13 +48,7 @@ pub async fn fetch_response_top(
     observer.on_event(NetEvent::Started { url: url.clone() });
 
     // Get the response (GET requests only for now), and redirect if needed (300 requests)
-    let resp = get_with_redirects(
-        client.clone(),
-        url.clone(),
-        cancel.clone(),
-        observer.clone(),
-    )
-    .await?;
+    let resp = get_with_redirects(client.clone(), url.clone(), cancel.clone(), observer.clone()).await?;
 
     // Response is received, setup our meta structure
     let mut meta = FetchResultMeta {
@@ -62,7 +56,7 @@ pub async fn fetch_response_top(
         status: resp.status().as_u16(),
         status_text: resp.status().canonical_reason().unwrap_or("").to_string(),
         headers: resp.headers().clone(),
-        content_length: resp.content_length(),      // More often than not, this is None
+        content_length: resp.content_length(), // More often than not, this is None
         content_type: resp
             .headers()
             .get(reqwest::header::CONTENT_TYPE)
@@ -72,9 +66,7 @@ pub async fn fetch_response_top(
     };
 
     // Peek the stream up to PEEK_MAX bytes
-    let mut body_stream = resp
-        .bytes_stream()
-        .map_err(|e| NetError::Read(Arc::new(anyhow!(e))));
+    let mut body_stream = resp.bytes_stream().map_err(|e| NetError::Read(Arc::new(anyhow!(e))));
     let mut received_net: u64 = 0;
     let mut peek_buf_vec: Vec<u8> = Vec::with_capacity(PEEK_MAX);
     let mut excess: Option<Bytes> = None;
@@ -387,10 +379,7 @@ async fn get_with_redirects(
             .get(reqwest::header::LOCATION)
             .and_then(|v| v.to_str().ok())
             .ok_or_else(|| {
-                NetError::Redirect(Arc::new(anyhow!(
-                    "redirect status {} without Location header",
-                    status
-                )))
+                NetError::Redirect(Arc::new(anyhow!("redirect status {} without Location header", status)))
             })?;
 
         let to = from
@@ -556,15 +545,9 @@ mod tests {
             meta,
             peek_buf,
             mut reader,
-        } = super::fetch_response_top(client, url, cancel, observer)
-            .await
-            .unwrap();
+        } = super::fetch_response_top(client, url, cancel, observer).await.unwrap();
 
-        assert_eq!(
-            peek_buf.len(),
-            super::PEEK_MAX,
-            "peek must be exactly PEEK_MAX"
-        );
+        assert_eq!(peek_buf.len(), super::PEEK_MAX, "peek must be exactly PEEK_MAX");
         // Read remainder
         let mut rest = Vec::new();
         reader.read_to_end(&mut rest).await.unwrap();
@@ -625,10 +608,7 @@ mod tests {
         assert!(res.is_err(), "expected timeout error");
         let err = res.err().unwrap();
         let s = err.to_string().to_lowercase();
-        assert!(
-            s.contains("timeout"),
-            "error should mention timeout, got: {s}"
-        );
+        assert!(s.contains("timeout"), "error should mention timeout, got: {s}");
     }
 
     #[tokio::test(flavor = "current_thread")]

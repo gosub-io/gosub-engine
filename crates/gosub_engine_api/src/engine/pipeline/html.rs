@@ -165,9 +165,7 @@ impl HtmlPipeline for HtmlPipelineImpl {
         body: &[u8],
     ) -> anyhow::Result<DummyDocument> {
         // parsing bytes is just creating a stream of those bytes and passing it to the stream reader
-        let stream = stream::iter(vec![Ok::<Bytes, std::io::Error>(Bytes::copy_from_slice(
-            body,
-        ))]);
+        let stream = stream::iter(vec![Ok::<Bytes, std::io::Error>(Bytes::copy_from_slice(body))]);
         let reader = StreamReader::new(stream);
         self.parse_with_reader(request, handle, meta, reader).await
     }
@@ -176,14 +174,14 @@ impl HtmlPipeline for HtmlPipelineImpl {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::events::IoCommand;
+    use crate::net::req_ref_tracker::RequestReference;
+    use crate::net::types::{Priority, ResourceKind};
+    use crate::NavigationId;
     use std::time::Duration;
     use tokio::sync::mpsc;
     use tokio::time::sleep;
     use url::Url;
-    use crate::events::IoCommand;
-    use crate::NavigationId;
-    use crate::net::req_ref_tracker::RequestReference;
-    use crate::net::types::{Priority, ResourceKind};
 
     // Minimal HTML that triggers 3 resource discoveries: link/script/img + a title.
     const HTML_WITH_RESOURCES: &str = r#"
@@ -305,20 +303,14 @@ mod tests {
         let body = HTML_WITH_RESOURCES.as_bytes();
 
         // Act
-        let _ = pipeline
-            .parse_bytes(req, handle, meta, body)
-            .await
-            .expect("parse ok");
+        let _ = pipeline.parse_bytes(req, handle, meta, body).await.expect("parse ok");
 
         // Give the pipeline a tick to run the post-parse cancellation
         sleep(Duration::from_millis(10)).await;
 
         // Assert: all recorded children are canceled (pipeline proactively cancels them at end)
         let children = seen_children.lock().unwrap();
-        assert!(
-            !children.is_empty(),
-            "expected subresource children to be recorded"
-        );
+        assert!(!children.is_empty(), "expected subresource children to be recorded");
         for h in children.iter() {
             assert!(
                 h.cancel.is_cancelled(),

@@ -295,7 +295,11 @@ fn handle_event(ev: EngineEvent) {
                 NavigationEvent::FailedUrl { url, error, .. } => {
                     ui.update(tab_id, format!("nav: failed: {} {}", url, error));
                 }
-                NavigationEvent::DecisionRequired { nav_id, meta, decision_token } => {
+                NavigationEvent::DecisionRequired {
+                    nav_id,
+                    meta,
+                    decision_token,
+                } => {
                     println!("nav: decision required: {} {:?} {:?}", nav_id, meta, decision_token);
                 }
             }
@@ -338,10 +342,7 @@ fn handle_event(ev: EngineEvent) {
                     ..
                 } => {
                     let kb = received_bytes as f64 / 1024.0;
-                    ui.update(
-                        tab_id,
-                        format!("res: finished {} {:.2}Kb ({:?})", url, kb, elapsed),
-                    )
+                    ui.update(tab_id, format!("res: finished {} {:.2}Kb ({:?})", url, kb, elapsed))
                 }
                 ResourceEvent::Failed { url, error, .. } => ui.update(tab_id, format!("res: FAILED {url} ({error})")),
                 ResourceEvent::Cancelled { url, reason, .. } => {

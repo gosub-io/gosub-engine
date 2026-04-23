@@ -5,6 +5,8 @@ use crate::engine::events::EngineEvent;
 use crate::engine::storage::{StorageService, Subscription};
 use crate::engine::tab::TabId;
 use crate::engine::types::{EventChannel, IoChannel};
+use crate::net::req_ref_tracker::RequestReferenceMap;
+use crate::render::backend::{CompositorSink, RenderBackend};
 use crate::storage::types::PartitionPolicy;
 use crate::tab::services::resolve_tab_services;
 use crate::tab::{create_tab_and_spawn, TabDefaults, TabHandle, TabOverrides, TabSink};
@@ -19,8 +21,6 @@ use std::fmt::{Debug, Display};
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, RwLock};
 use uuid::Uuid;
-use crate::net::req_ref_tracker::RequestReferenceMap;
-use crate::render::backend::{CompositorSink, RenderBackend};
 
 /// A unique identifier for a [`Zone`] within a [`GosubEngine`](crate::GosubEngine).
 ///
@@ -282,11 +282,7 @@ impl Zone {
             return Err(EngineError::TabLimitExceeded);
         }
 
-        let tab_services = resolve_tab_services(
-            self.id,
-            &self.context.services,
-            &overrides.unwrap_or_default(),
-        );
+        let tab_services = resolve_tab_services(self.id, &self.context.services, &overrides.unwrap_or_default());
 
         let (tab_handle, join_handle) = create_tab_and_spawn(self.id, tab_services, self.context.clone())
             .map_err(|e| EngineError::CreateTab(e.into()))?;
@@ -307,9 +303,7 @@ impl Zone {
         tab_handle
             .set_title(initial.title.as_deref().unwrap_or("New Tab"))
             .await?;
-        tab_handle
-            .set_viewport(initial.viewport.unwrap_or_default())
-            .await?;
+        tab_handle.set_viewport(initial.viewport.unwrap_or_default()).await?;
 
         // Load URL in tab if provided
         if let Some(url) = initial.url.as_ref() {
@@ -382,17 +376,10 @@ mod tests {
         let u = Uuid::parse_str("123e4567-e89b-12d3-a456-426614174000").unwrap();
         let zid = ZoneId::from(u);
         let s = zid.to_string();
-        assert_eq!(
-            s,
-            u.to_string(),
-            "Display for ZoneId should mirror inner Uuid"
-        );
+        assert_eq!(s, u.to_string(), "Display for ZoneId should mirror inner Uuid");
         // sanity: Debug contains the UUID somewhere
         let dbg = format!("{zid:?}");
-        assert!(
-            dbg.contains(&u.to_string()),
-            "Debug for ZoneId should include UUID"
-        );
+        assert!(dbg.contains(&u.to_string()), "Debug for ZoneId should include UUID");
     }
 
     #[test]

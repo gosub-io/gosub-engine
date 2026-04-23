@@ -4,9 +4,8 @@ use crate::engine::pipeline::Hooks;
 use crate::engine::types::{NavigationId, RequestId};
 use crate::engine::{BrowsingContext, UaPolicy};
 use crate::events::{IoCommand, TabCommand};
-use crate::net::types::{
-    FetchKeyData, FetchRequest, FetchResult, Initiator, NetError, Priority, ResourceKind,
-};
+use crate::net::req_ref_tracker::RequestReference;
+use crate::net::types::{FetchKeyData, FetchRequest, FetchResult, Initiator, NetError, Priority, ResourceKind};
 use crate::net::{route_response_for, submit_to_io, RequestDestination, RoutedOutcome};
 use crate::render::backend::{ErasedSurface, PresentMode, RenderBackend, RgbaImage, SurfaceSize};
 use crate::render::{DevicePixelRatio, Viewport};
@@ -27,7 +26,6 @@ use tokio::time::Duration;
 use tokio::time::MissedTickBehavior;
 use tokio_util::sync::CancellationToken;
 use url::Url;
-use crate::net::req_ref_tracker::RequestReference;
 
 #[derive(Debug)]
 pub enum NavigationResult {
@@ -359,10 +357,7 @@ impl TabWorker {
             _ => {
                 log::warn!(
                     "{}",
-                    format!(
-                        "Tab {:?} received unhandled command: {:?}",
-                        self.tab_id, cmd
-                    )
+                    format!("Tab {:?} received unhandled command: {:?}", self.tab_id, cmd)
                 );
                 ControlFlow::Continue
             }
@@ -468,13 +463,7 @@ impl TabWorker {
         tokio::spawn(async move {
             let _enter = span.enter();
 
-            let submit = submit_to_io(
-                zone_id,
-                req.clone(),
-                io_tx.clone(),
-                Some(parent_cancel_clone.clone()),
-            )
-            .await;
+            let submit = submit_to_io(zone_id, req.clone(), io_tx.clone(), Some(parent_cancel_clone.clone())).await;
 
             let (handle, rx) = match submit {
                 Ok(ok) => ok,
@@ -530,9 +519,11 @@ impl TabWorker {
 
             match outcome {
                 Ok(RoutedOutcome::MainDocument(doc)) => {
-
                     // Update our document in the tab
-                    internal_tx.send(TabInternalCommand::SetDocument { doc: doc.clone() }).await.ok();
+                    internal_tx
+                        .send(TabInternalCommand::SetDocument { doc: doc.clone() })
+                        .await
+                        .ok();
 
                     let _ = tx_done.send(NavigationResult::Ok {
                         nav_id,
@@ -607,7 +598,10 @@ impl TabWorker {
                 }
                 Err(e) => {
                     let err = format!("Routing error: {}", e.to_string());
-                    let _ = tx_done.send(NavigationResult::Err{nav_id, error: NavigationError::NetworkError(err) });
+                    let _ = tx_done.send(NavigationResult::Err {
+                        nav_id,
+                        error: NavigationError::NetworkError(err),
+                    });
                     return;
                 }
             }
@@ -711,7 +705,11 @@ impl TabWorker {
 
     /// Ensure the tab has a surface of the given size, creating it if necessary.
     #[allow(unused)]
-    fn ensure_surface(&mut self, backend: Arc<dyn RenderBackend + Send + Sync>, size: SurfaceSize) -> anyhow::Result<()> {
+    fn ensure_surface(
+        &mut self,
+        backend: Arc<dyn RenderBackend + Send + Sync>,
+        size: SurfaceSize,
+    ) -> anyhow::Result<()> {
         if let Some(ref surf) = self.surface {
             if surf.size() == size {
                 return Ok(());
@@ -785,12 +783,7 @@ impl TabWorker {
         match self.prepare_storage_for(&url) {
             Ok(_) => Ok(()),
             Err(e) => {
-                log::error!(
-                    "Tab[{:?}]: Cannot prepare storage for URL {}: {}",
-                    self.tab_id,
-                    url,
-                    e
-                );
+                log::error!("Tab[{:?}]: Cannot prepare storage for URL {}: {}", self.tab_id, url, e);
 
                 self.send_event(EngineEvent::Navigation {
                     tab_id: self.tab_id,

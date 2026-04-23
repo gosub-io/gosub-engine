@@ -44,8 +44,7 @@ impl PersistentCookieJar {
             jar.clone()
         };
 
-        self.store_handle
-            .persist_zone_from_snapshot(self.zone_id, &snapshot);
+        self.store_handle.persist_zone_from_snapshot(self.zone_id, &snapshot);
     }
 }
 

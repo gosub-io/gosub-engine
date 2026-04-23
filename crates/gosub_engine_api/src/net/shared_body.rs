@@ -200,9 +200,7 @@ impl SharedBody {
             }
 
             let (tx, rx) = mpsc::channel(max_queue);
-            let id = st
-                .next_id
-                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let id = st.next_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             st.subs.insert(id, tx);
             (Some(rx), Some(id))
         };

@@ -1,5 +1,7 @@
 use crate::engine::BrowsingContext;
-use crate::render::backend::{ErasedSurface, ExternalHandle, PixelFormat, PresentMode, RenderBackend, RgbaImage, SurfaceSize};
+use crate::render::backend::{
+    ErasedSurface, ExternalHandle, PixelFormat, PresentMode, RenderBackend, RgbaImage, SurfaceSize,
+};
 use crate::render::DisplayItem;
 use anyhow::{anyhow, Result};
 use std::any::Any;
@@ -54,23 +56,13 @@ impl RenderBackend for CairoBackend {
                     DisplayItem::Clear { color } => {
                         // Clear the surface with the specified color.
                         cr.set_operator(cairo::Operator::Source);
-                        cr.set_source_rgba(
-                            color.r as f64,
-                            color.g as f64,
-                            color.b as f64,
-                            color.a as f64,
-                        );
+                        cr.set_source_rgba(color.r as f64, color.g as f64, color.b as f64, color.a as f64);
                         _ = cr.paint();
                         cr.set_operator(cairo::Operator::Over);
                     }
                     DisplayItem::Rect { x, y, w, h, color } => {
                         // Draw a rectangle with the specified color.
-                        cr.set_source_rgba(
-                            color.r as f64,
-                            color.g as f64,
-                            color.b as f64,
-                            color.a as f64,
-                        );
+                        cr.set_source_rgba(color.r as f64, color.g as f64, color.b as f64, color.a as f64);
                         cr.rectangle(*x as f64, *y as f64, *w as f64, *h as f64);
                         _ = cr.fill();
                     }
@@ -83,12 +75,7 @@ impl RenderBackend for CairoBackend {
                         ..
                     } => {
                         // Draw text at the specified position with the specified size and color.
-                        cr.set_source_rgba(
-                            color.r as f64,
-                            color.g as f64,
-                            color.b as f64,
-                            color.a as f64,
-                        );
+                        cr.set_source_rgba(color.r as f64, color.g as f64, color.b as f64, color.a as f64);
                         cr.select_font_face("Sans", cairo::FontSlant::Normal, cairo::FontWeight::Normal);
                         cr.set_font_size(*size as f64);
                         cr.move_to(*x as f64, *y as f64);
@@ -112,7 +99,13 @@ impl RenderBackend for CairoBackend {
             .ok_or_else(|| anyhow!("CairoBackend used with non-Cairo surface"))?;
 
         let pixels = s.pixels.as_ref().to_vec();
-        Ok(RgbaImage::from_raw(pixels, s.size.width, s.size.height, s.stride as u32, PixelFormat::PreMulArgb32))
+        Ok(RgbaImage::from_raw(
+            pixels,
+            s.size.width,
+            s.size.height,
+            s.stride as u32,
+            PixelFormat::PreMulArgb32,
+        ))
     }
 
     fn external_handle(&self, surface: &mut dyn ErasedSurface) -> Result<ExternalHandle> {
@@ -122,7 +115,11 @@ impl RenderBackend for CairoBackend {
             .ok_or_else(|| anyhow!("CairoBackend used with non-Cairo surface"))?;
 
         if s.size.width == 0 || s.size.height == 0 || s.stride == 0 || s.pixels.is_empty() {
-            return Ok(ExternalHandle::NullHandle { width: s.size.width, height: s.size.height, frame_id: s.frame_id });
+            return Ok(ExternalHandle::NullHandle {
+                width: s.size.width,
+                height: s.size.height,
+                frame_id: s.frame_id,
+            });
         }
 
         let ptr = NonNull::new(s.pixels.as_mut_ptr()).ok_or_else(|| anyhow!("CairoSurface has null pixel buffer"))?;
@@ -173,16 +170,8 @@ impl CairoSurface {
         let h = self.size.height as i32;
         let stride = self.stride;
 
-        let ptr = self .pixels.as_mut_ptr();
-        let surface = unsafe {
-            cairo::ImageSurface::create_for_data_unsafe(
-                ptr,
-                cairo::Format::ARgb32,
-                w,
-                h,
-                stride,
-            )?
-        };
+        let ptr = self.pixels.as_mut_ptr();
+        let surface = unsafe { cairo::ImageSurface::create_for_data_unsafe(ptr, cairo::Format::ARgb32, w, h, stride)? };
 
         let cr = cairo::Context::new(&surface)?;
         let out = f(&cr);
@@ -200,12 +189,7 @@ impl CairoSurface {
     /// Lifetime is tied to &self, and you must not draw while holding this slice.
     pub fn pixels_borrowed(&self) -> (&[u8], u32, u32, u32) {
         // self.flush();
-        (
-            &self.pixels,
-            self.size.width,
-            self.size.height,
-            self.stride as u32,
-        )
+        (&self.pixels, self.size.width, self.size.height, self.stride as u32)
     }
 }
 

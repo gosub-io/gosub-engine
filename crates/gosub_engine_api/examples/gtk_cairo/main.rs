@@ -3,9 +3,11 @@ use crate::tiling::{
     LayoutNode, Rect,
 };
 use gosub_engine_api::cookies::SqliteCookieStore;
+use gosub_engine_api::events::{EngineEvent, NavigationEvent, ResourceEvent, TabCommand};
 use gosub_engine_api::render::backend::ExternalHandle;
 use gosub_engine_api::render::{DefaultCompositor, Viewport};
 use gosub_engine_api::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};
+use gosub_engine_api::tab::{TabDefaults, TabHandle, TabId};
 use gosub_engine_api::zone::{ZoneConfig, ZoneId, ZoneServices};
 use gosub_engine_api::GosubEngine;
 use gtk4::glib::clone;
@@ -14,16 +16,14 @@ use gtk4::GestureClick;
 use gtk4::{
     glib, Application, ApplicationWindow, Box as GtkBox, Button, DrawingArea, Entry, EventControllerMotion, Orientation,
 };
+use once_cell::sync::Lazy;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
+use tokio::runtime::{Builder, Runtime};
 use url::Url;
 use uuid::uuid;
-use gosub_engine_api::events::{EngineEvent, NavigationEvent, ResourceEvent, TabCommand};
-use gosub_engine_api::tab::{TabDefaults, TabHandle, TabId};
-use once_cell::sync::Lazy;
-use tokio::runtime::{Builder, Runtime};
 
 mod tiling;
 
@@ -54,9 +54,7 @@ fn main() {
     // builder.filter_level(log::LevelFilter::Trace).target(env_logger::Target::Stderr).init();
     // log::set_max_level(log::LevelFilter::Trace);
 
-    let app = Application::builder()
-        .application_id("io.gosub.engine")
-        .build();
+    let app = Application::builder().application_id("io.gosub.engine").build();
 
     app.connect_activate(move |app| {
 
@@ -552,7 +550,6 @@ fn main() {
     app.run();
 }
 
-
 fn handle_event(evt: EngineEvent) -> bool {
     match evt {
         EngineEvent::EngineStarted => {
@@ -603,81 +600,161 @@ fn handle_event(evt: EngineEvent) -> bool {
             println!("Tab {:?} resized to {:?}", tab_id, viewport);
             true
         }
-        EngineEvent::Navigation { tab_id, event } => {
-            match event {
-                NavigationEvent::Started { nav_id, url } => {
-                    println!("Tab {:?} navigation started: {} ({:?})", tab_id, url, nav_id);
-                    true
-                }
-                NavigationEvent::Committed { nav_id, url } => {
-                    println!("Tab {:?} navigation committed: {} ({:?})", tab_id, url, nav_id);
-                    true
-                }
-                NavigationEvent::Finished { nav_id, url } => {
-                    println!("Tab {:?} navigation finished: {} ({:?})", tab_id, url, nav_id);
-                    true
-                }
-                NavigationEvent::Failed { nav_id, url, error } => {
-                    println!("Tab {:?} navigation failed: {} ({:?}): {}", tab_id, url, nav_id, error);
-                    true
-                }
-                NavigationEvent::Progress { nav_id, received_bytes, expected_length, elapsed } => {
-                    if let Some(total) = expected_length {
-                        println!("Tab {:?} navigation progress: {:?}: {}/{} bytes in {:?}", tab_id, nav_id, received_bytes, total, elapsed);
-                    } else {
-                        println!("Tab {:?} navigation progress: {:?}: {} bytes in {:?}", tab_id, nav_id, received_bytes, elapsed);
-                    }
-                    true
-                }
-                NavigationEvent::FailedUrl { nav_id, url, error } => {
-                    println!("Tab {:?} navigation failed URL: {} ({:?}): {}", tab_id, url, nav_id, error);
-                    true
-                }
-                NavigationEvent::Cancelled { nav_id, url, reason } => {
-                    println!("Tab {:?} navigation cancelled: {} ({:?}): {}", tab_id, url, nav_id, reason);
-                    true
-                }
-                NavigationEvent::DecisionRequired { nav_id, meta, decision_token } => {
-                    println!("Tab {:?} navigation decision required: {:?}, meta: {:?} ({:?})", tab_id, nav_id, meta, decision_token);
-                    true
-                }
+        EngineEvent::Navigation { tab_id, event } => match event {
+            NavigationEvent::Started { nav_id, url } => {
+                println!("Tab {:?} navigation started: {} ({:?})", tab_id, url, nav_id);
+                true
             }
-        }
+            NavigationEvent::Committed { nav_id, url } => {
+                println!("Tab {:?} navigation committed: {} ({:?})", tab_id, url, nav_id);
+                true
+            }
+            NavigationEvent::Finished { nav_id, url } => {
+                println!("Tab {:?} navigation finished: {} ({:?})", tab_id, url, nav_id);
+                true
+            }
+            NavigationEvent::Failed { nav_id, url, error } => {
+                println!("Tab {:?} navigation failed: {} ({:?}): {}", tab_id, url, nav_id, error);
+                true
+            }
+            NavigationEvent::Progress {
+                nav_id,
+                received_bytes,
+                expected_length,
+                elapsed,
+            } => {
+                if let Some(total) = expected_length {
+                    println!(
+                        "Tab {:?} navigation progress: {:?}: {}/{} bytes in {:?}",
+                        tab_id, nav_id, received_bytes, total, elapsed
+                    );
+                } else {
+                    println!(
+                        "Tab {:?} navigation progress: {:?}: {} bytes in {:?}",
+                        tab_id, nav_id, received_bytes, elapsed
+                    );
+                }
+                true
+            }
+            NavigationEvent::FailedUrl { nav_id, url, error } => {
+                println!(
+                    "Tab {:?} navigation failed URL: {} ({:?}): {}",
+                    tab_id, url, nav_id, error
+                );
+                true
+            }
+            NavigationEvent::Cancelled { nav_id, url, reason } => {
+                println!(
+                    "Tab {:?} navigation cancelled: {} ({:?}): {}",
+                    tab_id, url, nav_id, reason
+                );
+                true
+            }
+            NavigationEvent::DecisionRequired {
+                nav_id,
+                meta,
+                decision_token,
+            } => {
+                println!(
+                    "Tab {:?} navigation decision required: {:?}, meta: {:?} ({:?})",
+                    tab_id, nav_id, meta, decision_token
+                );
+                true
+            }
+        },
         EngineEvent::Resource { tab_id, event } => {
             match event {
-                ResourceEvent::Queued { request_id, reference, url, kind, initiator, priority } => {
+                ResourceEvent::Queued {
+                    request_id,
+                    reference,
+                    url,
+                    kind,
+                    initiator,
+                    priority,
+                } => {
                     println!("Tab {:?}\n    rid: {:?}\n    reference: {:?}\n    url: {:?}\n    kind: {:?}\n    initiator: {:?}\n    priority: {:?}", tab_id, request_id, reference, url, kind, initiator, priority);
                     true
                 }
-                ResourceEvent::Started { request_id, reference, url, kind, initiator } => {
+                ResourceEvent::Started {
+                    request_id,
+                    reference,
+                    url,
+                    kind,
+                    initiator,
+                } => {
                     println!("Tab {:?} resource started\n    rid: {:?}\n    reference: {:?}\n    url: {:?}\n    kind: {:?}\n    initiator: {:?}", tab_id, request_id, reference, url, kind, initiator);
                     true
                 }
-                ResourceEvent::Redirected { request_id, reference, from, to, status } => {
+                ResourceEvent::Redirected {
+                    request_id,
+                    reference,
+                    from,
+                    to,
+                    status,
+                } => {
                     println!("Tab {:?} resource redirected\n    rid: {:?}\n    reference: {:?}\n    from: {:?}\n    to: {:?}\n    status: {:?}", tab_id, request_id, reference, from, to, status);
                     true
                 }
-                ResourceEvent::Progress { request_id, reference, received_bytes, expected_length, elapsed } => {
+                ResourceEvent::Progress {
+                    request_id,
+                    reference,
+                    received_bytes,
+                    expected_length,
+                    elapsed,
+                } => {
                     if let Some(total) = expected_length {
-                        println!("Tab {:?} resource progress: {:?} {:?}: {}/{} bytes in {:?}", tab_id, request_id, reference, received_bytes, total, elapsed);
+                        println!(
+                            "Tab {:?} resource progress: {:?} {:?}: {}/{} bytes in {:?}",
+                            tab_id, request_id, reference, received_bytes, total, elapsed
+                        );
                     } else {
-                        println!("Tab {:?} resource progress: {:?} {:?}: {} bytes in {:?}", tab_id, request_id, reference, received_bytes, elapsed);
+                        println!(
+                            "Tab {:?} resource progress: {:?} {:?}: {} bytes in {:?}",
+                            tab_id, request_id, reference, received_bytes, elapsed
+                        );
                     }
                     true
                 }
-                ResourceEvent::Finished { request_id, reference, url, received_bytes, elapsed } => {
+                ResourceEvent::Finished {
+                    request_id,
+                    reference,
+                    url,
+                    received_bytes,
+                    elapsed,
+                } => {
                     println!("Tab {:?} resource finished\n    rid: {:?}\n    reference: {:?}\n    url: {:?}\n    received_bytes: {}\n    elapsed: {:?}", tab_id, request_id, reference, url, received_bytes, elapsed);
                     true
                 }
-                ResourceEvent::Failed { request_id, reference, url, error } => {
-                    println!("Tab {:?} resource failed\n    rid: {:?}\n    reference: {:?}\n    url: {:?}\n    error: {:?}", tab_id, request_id, reference, url, error);
+                ResourceEvent::Failed {
+                    request_id,
+                    reference,
+                    url,
+                    error,
+                } => {
+                    println!(
+                        "Tab {:?} resource failed\n    rid: {:?}\n    reference: {:?}\n    url: {:?}\n    error: {:?}",
+                        tab_id, request_id, reference, url, error
+                    );
                     true
                 }
-                ResourceEvent::Cancelled { request_id, reference, url, reason } => {
+                ResourceEvent::Cancelled {
+                    request_id,
+                    reference,
+                    url,
+                    reason,
+                } => {
                     println!("Tab {:?} resource cancelled\n    rid: {:?}\n    reference: {:?}\n    url: {:?}\n    reason: {:?}", tab_id, request_id, reference, url, reason);
                     true
                 }
-                ResourceEvent::Headers { request_id, reference, url, status, content_length, content_type, headers } => {
+                ResourceEvent::Headers {
+                    request_id,
+                    reference,
+                    url,
+                    status,
+                    content_length,
+                    content_type,
+                    headers,
+                } => {
                     println!("Tab {:?} resource headers\n    rid: {:?}\n    reference: {:?}\n    url: {:?}\n    status: {:?}\n    content_length: {:?}\n    content_type: {:?}\n    headers: {:?}", tab_id, request_id, reference, url, status, content_length, content_type, headers);
                     true
                 }

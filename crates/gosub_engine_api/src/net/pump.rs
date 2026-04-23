@@ -1,4 +1,5 @@
 use crate::engine::types::PeekBuf;
+use crate::net::emitter::NetObserver;
 use crate::net::events::NetEvent;
 use crate::net::fs_utils::temp_path_for;
 use crate::net::types::NetError;
@@ -15,7 +16,6 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 use url::Url;
-use crate::net::emitter::NetObserver;
 
 /// Configuration for a single pump run.
 ///
@@ -156,9 +156,7 @@ where
 
             // Write peek data first
             if !peek_buf.is_empty() {
-                f.write_all(&peek_buf)
-                    .await
-                    .map_err(|e| NetError::Io(Arc::new(e)))?;
+                f.write_all(&peek_buf).await.map_err(|e| NetError::Io(Arc::new(e)))?;
             }
 
             Some((tmp_dest, BufWriter::new(f)))

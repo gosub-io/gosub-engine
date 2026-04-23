@@ -23,8 +23,10 @@
 use crate::engine::events::{EngineCommand, EngineEvent};
 use crate::engine::types::{EventChannel, IoChannel};
 use crate::engine::DEFAULT_CHANNEL_CAPACITY;
+use crate::net::req_ref_tracker::RequestReferenceMap;
 use crate::net::{spawn_io_thread, FetcherConfig, IoHandle};
 use crate::render::backend::{CompositorSink, RenderBackend};
+use crate::render::DefaultCompositor;
 use crate::util::spawn_named;
 use crate::zone::{Zone, ZoneConfig, ZoneId, ZoneServices, ZoneSink};
 use crate::{EngineConfig, EngineError};
@@ -36,8 +38,6 @@ use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
 use tokio::time::timeout;
 use tracing::instrument;
-use crate::net::req_ref_tracker::RequestReferenceMap;
-use crate::render::DefaultCompositor;
 
 /// Main Gosub engine struct
 pub struct GosubEngine {
@@ -77,7 +77,7 @@ impl Default for EngineContext {
     fn default() -> Self {
         Self {
             render_backend: Arc::new(crate::render::backends::null::NullBackend::new().unwrap()),
-            compositor: Arc::new(RwLock::new(DefaultCompositor::new(|| {} ))),
+            compositor: Arc::new(RwLock::new(DefaultCompositor::new(|| {}))),
             event_tx: broadcast::channel::<EngineEvent>(DEFAULT_CHANNEL_CAPACITY).0,
             config: Arc::new(EngineConfig::default()),
             io_tx: Arc::new(RwLock::new(None)),
@@ -102,7 +102,6 @@ impl GosubEngine {
         config: Option<EngineConfig>,
         backend: Arc<dyn RenderBackend + Send + Sync>,
         compositor: Arc<RwLock<dyn CompositorSink + Send + Sync>>,
-
     ) -> Self {
         let resolved_config = config.unwrap_or_default();
 
@@ -200,11 +199,7 @@ impl GosubEngine {
 
     /// Shuts down the engine
     ///
-    #[instrument(
-        name = "engine.shutdown",
-        level = "debug",
-        skip(self),
-    )]
+    #[instrument(name = "engine.shutdown", level = "debug", skip(self))]
     pub async fn shutdown(&mut self) -> Result<(), EngineError> {
         if !self.running {
             return Err(EngineError::NotRunning);

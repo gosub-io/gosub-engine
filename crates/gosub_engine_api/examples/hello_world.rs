@@ -100,10 +100,7 @@ async fn main() -> Result<(), EngineError> {
         title: Some("New Tab".into()),
         viewport: Some(Viewport::new(0, 0, 800, 600)),
     };
-    let tab = zone
-        .create_tab(def_values, None)
-        .await
-        .expect("cannot create tab");
+    let tab = zone.create_tab(def_values, None).await.expect("cannot create tab");
 
     // From the tab handle, we can now send commands to the engine to control the tab.
     tab.send(TabCommand::SetViewport {
@@ -121,8 +118,7 @@ async fn main() -> Result<(), EngineError> {
     .await?;
 
     // Simulate a little user input (mouse move + click at 100,100)
-    tab.send(TabCommand::MouseMove { x: 100.0, y: 100.0 })
-        .await?;
+    tab.send(TabCommand::MouseMove { x: 100.0, y: 100.0 }).await?;
     tab.send(TabCommand::MouseDown {
         x: 100.0,
         y: 100.0,
