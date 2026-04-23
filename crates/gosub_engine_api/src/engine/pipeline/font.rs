@@ -37,6 +37,6 @@ impl FontPipeline for FontPipelineImpl {
     }
 
     async fn parse_bytes(&mut self, _meta: FetchResultMeta, body: &[u8]) -> anyhow::Result<DummyFont> {
-        Ok(String::from_utf8_lossy(body.as_ref()).to_string())
+        Ok(String::from_utf8_lossy(body).to_string())
     }
 }

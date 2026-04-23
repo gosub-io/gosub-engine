@@ -1,4 +1,5 @@
 use crate::engine::types::PeekBuf;
+use cow_utils::CowUtils;
 use mime::Mime;
 use mimetype_detector::detect;
 use std::str::FromStr;
@@ -69,7 +70,7 @@ pub fn sniff_class(peek_buf: PeekBuf) -> ResponseClass {
     // so we check common text signatures first.
     if let Ok(text) = std::str::from_utf8(&bytes[..bytes.len().min(512)]) {
         let trimmed = text.trim_start();
-        let lower = trimmed.to_ascii_lowercase();
+        let lower = trimmed.cow_to_ascii_lowercase();
         if lower.starts_with("<!doctype html") || lower.starts_with("<html") {
             return ResponseClass::Html;
         }

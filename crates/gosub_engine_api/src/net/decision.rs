@@ -8,6 +8,7 @@ use crate::engine::UaPolicy;
 use crate::net::decision::sniff::{sniff_class, ResponseClass};
 use crate::net::decision::types::{DecisionOutcome, HandlingDecision, RenderTarget, RequestDestination};
 use crate::net::types::FetchResultMeta;
+use cow_utils::CowUtils;
 
 mod sniff;
 pub mod types;
@@ -83,7 +84,7 @@ pub fn decide_handling(
 
     // Special case: if we look like a PDF, and the UA has a PDF viewer, render in it.
     if policy.enable_pdf_viewer {
-        let looks_like_pdf = declared_mime.as_ref().map(|m| mime_is_pdf(m)).unwrap_or(false)
+        let looks_like_pdf = declared_mime.as_ref().map(mime_is_pdf).unwrap_or(false)
             || matches!(sniffed_class, Some(ResponseClass::Pdf));
 
         if looks_like_pdf {
@@ -154,7 +155,7 @@ fn header_eq(meta: &FetchResultMeta, name: http::header::HeaderName, val_ci: &st
     meta.headers
         .get(name)
         .and_then(|v| v.to_str().ok())
-        .map_or(false, |s| s.eq_ignore_ascii_case(val_ci))
+        .is_some_and(|s| s.eq_ignore_ascii_case(val_ci))
 }
 
 /// Check if the `Content-Disposition` header indicates an attachment.
@@ -162,7 +163,7 @@ fn content_disposition_is_attachment(meta: &FetchResultMeta) -> bool {
     meta.headers
         .get(http::header::CONTENT_DISPOSITION)
         .and_then(|v| v.to_str().ok())
-        .map(|s| s.trim().to_ascii_lowercase().starts_with("attachment"))
+        .map(|s| s.trim().cow_to_ascii_lowercase().starts_with("attachment"))
         .unwrap_or(false)
 }
 
@@ -188,9 +189,7 @@ fn class_from_mime(m: &mime::Mime) -> Option<ResponseClass> {
         Some(Json)
     } else if m.type_() == mime::TEXT {
         Some(Text)
-    } else if m.type_() == mime::APPLICATION && m.subtype() == "octet-stream" {
-        None // treat as untrusted; let sniffing or policy decide
     } else {
-        None
+        None // treat as untrusted; let sniffing or policy decide
     }
 }

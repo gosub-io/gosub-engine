@@ -75,7 +75,7 @@ mod tests {
         let tab = t();
 
         let mut ev = StorageEvent {
-            zone: zone.clone(),
+            zone,
             partition: PartitionKey::TopLevel(o("https://site.test")),
             origin: o("https://site.test"),
             key: Some("count".into()),

@@ -355,10 +355,7 @@ impl TabWorker {
                 ControlFlow::Continue
             }
             _ => {
-                log::warn!(
-                    "{}",
-                    format!("Tab {:?} received unhandled command: {:?}", self.tab_id, cmd)
-                );
+                log::warn!("Tab {:?} received unhandled command: {:?}", self.tab_id, cmd);
                 ControlFlow::Continue
             }
         }
@@ -530,7 +527,6 @@ impl TabWorker {
                         final_url: doc.final_url.clone(),
                         title: doc.title.clone(),
                     });
-                    return;
                 }
                 Ok(RoutedOutcome::ViewerRendered(_doc)) => {
                     println!("Tab[{:?}] RoutedOutcome::ViewerRendered", tab_id);
@@ -538,7 +534,6 @@ impl TabWorker {
                         nav_id,
                         error: NavigationError::Other(anyhow!("Viewer rendering not supported yet")),
                     });
-                    return;
                 }
                 Ok(RoutedOutcome::DownloadStarted(_doc)) => {
                     println!("Tab[{:?}] RoutedOutcome::DownloadStarted", tab_id);
@@ -546,7 +541,6 @@ impl TabWorker {
                         nav_id,
                         error: NavigationError::Other(anyhow!("Download not supported yet")),
                     });
-                    return;
                 }
                 Ok(RoutedOutcome::DownloadFinished(_doc)) => {
                     println!("Tab[{:?}] RoutedOutcome::DownloadFinished", tab_id);
@@ -554,7 +548,6 @@ impl TabWorker {
                         nav_id,
                         error: NavigationError::Other(anyhow!("Download not supported yet")),
                     });
-                    return;
                 }
                 Ok(RoutedOutcome::CssLoaded(_doc)) => {
                     // CSS loaded, but we don't do anything special here
@@ -585,7 +578,7 @@ impl TabWorker {
                         event: NavigationEvent::Failed {
                             nav_id: Some(nav_id),
                             url: final_url.clone(),
-                            error: Arc::new(anyhow!("Reason: {}", reason).into()),
+                            error: Arc::new(anyhow!("Reason: {}", reason)),
                         },
                     });
                 }
@@ -594,15 +587,13 @@ impl TabWorker {
                         nav_id,
                         error: NavigationError::Cancelled("Navigation cancelled".into()),
                     });
-                    return;
                 }
                 Err(e) => {
-                    let err = format!("Routing error: {}", e.to_string());
+                    let err = format!("Routing error: {e}");
                     let _ = tx_done.send(NavigationResult::Err {
                         nav_id,
                         error: NavigationError::NetworkError(err),
                     });
-                    return;
                 }
             }
         });
@@ -825,7 +816,6 @@ impl TabWorker {
     }
 }
 
-///
 enum ControlFlow {
     Continue,
     Break,
@@ -852,10 +842,7 @@ mod tests {
         let sb = SharedBody::new(16);
 
         // Consumer
-        let mut reader = StreamReader::new(
-            sb.subscribe_stream()
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e)),
-        );
+        let mut reader = StreamReader::new(sb.subscribe_stream().map_err(io::Error::other));
 
         // Producer
         sb.push(Bytes::from_static(&[0u8; 8192]));

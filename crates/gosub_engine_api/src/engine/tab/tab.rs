@@ -32,6 +32,12 @@ use uuid::Uuid;
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TabId(Uuid);
 
+impl Default for TabId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TabId {
     /// Create a new unique `TabId` using a random UUID.
     pub fn new() -> Self {

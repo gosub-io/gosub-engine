@@ -171,7 +171,7 @@ impl NetObserver for EngineEventEmitter {
                     return;
                 };
 
-                let has_body = peek_buf.len() > 0;
+                let has_body = !peek_buf.is_empty();
 
                 self.emit_navigation_event(NavigationEvent::DecisionRequired {
                     nav_id,

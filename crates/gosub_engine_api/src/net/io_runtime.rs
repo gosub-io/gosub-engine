@@ -29,7 +29,7 @@ impl IoHandle {
             .send(IoCommand::ShutdownZone { zone_id, reply_tx: tx })
             .map_err(|e| anyhow::anyhow!("send ShutdownZone failed: {e}"))?;
         // wait until the zone's scheduler has actually stopped
-        let _ = rx.await.map_err(|e| anyhow::anyhow!("ShutdownZone ack failed: {e}"))?;
+        rx.await.map_err(|e| anyhow::anyhow!("ShutdownZone ack failed: {e}"))?;
         Ok(())
     }
 

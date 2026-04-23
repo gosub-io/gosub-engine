@@ -293,7 +293,7 @@ impl Fetcher {
 
         let try_pop = |q: &mut VecDeque<QueueItem>| q.pop_front();
 
-        let pick = match slot {
+        match slot {
             0..=7 => try_pop(high)
                 .or_else(|| try_pop(norm))
                 .or_else(|| try_pop(low))
@@ -310,9 +310,7 @@ impl Fetcher {
                 .or_else(|| try_pop(low))
                 .or_else(|| try_pop(norm))
                 .or_else(|| try_pop(high)),
-        };
-
-        pick
+        }
     }
 
     /// Submit a fetch request to the appropriate priority lane.
@@ -440,7 +438,7 @@ impl Fetcher {
                     Some(tab_id) => Arc::new(EngineEventEmitter::new(
                         *tab_id, // here is where we connect "events" to tabs
                         req.req_id,
-                        req.reference.clone(),
+                        req.reference,
                         self.event_tx.clone(),
                         req.kind,
                         req.initiator,
@@ -470,7 +468,7 @@ impl Fetcher {
             let ref_ref_tracker_clone = self.request_reference_tracker.clone();
 
             let title = format!("Fetcher: {}", short_url(&req.key_data.url, 80));
-            let _ = spawn_named(&title, async move {
+            spawn_named(&title, async move {
                 let origin = Fetcher::origin_key(&req.key_data.url);
                 let slots = per_origin
                     .entry(origin.clone())

@@ -89,6 +89,7 @@ impl Display for Modifiers {
 
 // Commands sent to the IO / network layer
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum IoCommand {
     /// Perform a fetch of the given request
     Fetch {

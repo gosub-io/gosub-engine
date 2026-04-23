@@ -401,6 +401,7 @@ async fn get_with_redirects(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cow_utils::CowUtils;
     use std::io;
     use std::net::SocketAddr;
     use std::time::Duration;
@@ -506,17 +507,11 @@ mod tests {
         let base = Url::parse(&format!("http://{}/", addr)).unwrap();
 
         let handle = tokio::spawn(async move {
-            loop {
-                match listener.accept().await {
-                    Ok((stream, _peer)) => {
-                        // Handle each connection; we pass server addr for absolute redirect
-                        let server_addr = addr;
-                        tokio::spawn(async move {
-                            let _ = handle_conn(stream, server_addr, super::PEEK_MAX).await;
-                        });
-                    }
-                    Err(_) => break,
-                }
+            while let Ok((stream, _peer)) = listener.accept().await {
+                let server_addr = addr;
+                tokio::spawn(async move {
+                    let _ = handle_conn(stream, server_addr, super::PEEK_MAX).await;
+                });
             }
         });
 
@@ -607,7 +602,7 @@ mod tests {
 
         assert!(res.is_err(), "expected timeout error");
         let err = res.err().unwrap();
-        let s = err.to_string().to_lowercase();
+        let s = err.to_string().cow_to_ascii_lowercase().into_owned();
         assert!(s.contains("timeout"), "error should mention timeout, got: {s}");
     }
 
@@ -629,7 +624,7 @@ mod tests {
 
         let res = fut.await;
         assert!(res.is_err(), "expected cancellation");
-        let s = res.err().unwrap().to_string().to_lowercase();
+        let s = res.err().unwrap().to_string().cow_to_ascii_lowercase().into_owned();
         assert!(s.contains("cancel"), "error should be cancellation: {s}");
     }
 }

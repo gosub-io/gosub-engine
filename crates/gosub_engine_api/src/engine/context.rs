@@ -32,7 +32,7 @@
 //! # Errors
 //!
 //! - [`LoadError`]: Represents errors that can occur while loading content, such as
-//! navigation cancellations or network errors.
+//!   navigation cancellations or network errors.
 
 use crate::engine::storage::{StorageArea, StorageHandles};
 use crate::html::DummyDocument;

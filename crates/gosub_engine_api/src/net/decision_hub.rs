@@ -20,6 +20,12 @@ use tokio::sync::oneshot;
 #[derive(Clone, Copy, Debug, Hash, Eq, PartialEq)]
 pub struct DecisionToken(uuid::Uuid);
 
+impl Default for DecisionToken {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DecisionToken {
     /// Create a new unique token.
     #[inline]
@@ -65,7 +71,7 @@ impl DecisionHub {
     #[inline]
     pub fn fulfill(&self, token: DecisionToken, action: Action) {
         if let Some((_, tx)) = self.waiters.remove(&token) {
-            let _ = tx.send(action).map_err(|a| a);
+            let _ = tx.send(action);
         }
     }
 }

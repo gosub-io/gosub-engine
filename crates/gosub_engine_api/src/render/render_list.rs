@@ -13,15 +13,15 @@ pub struct Color {
     pub a: f32,
 }
 
-impl Into<[f32; 4]> for Color {
-    fn into(self) -> [f32; 4] {
-        [self.r, self.g, self.b, self.a]
+impl From<Color> for [f32; 4] {
+    fn from(c: Color) -> Self {
+        [c.r, c.g, c.b, c.a]
     }
 }
 
-impl Into<[u8; 4]> for Color {
-    fn into(self) -> [u8; 4] {
-        [self.r_u8(), self.g_u8(), self.b_u8(), self.a_u8()]
+impl From<Color> for [u8; 4] {
+    fn from(c: Color) -> Self {
+        [c.r_u8(), c.g_u8(), c.b_u8(), c.a_u8()]
     }
 }
 
@@ -270,7 +270,7 @@ mod tests {
         // Ensure Copy + Clone behave as expected
         let c = Color::from_u8(10, 20, 30, 40);
         let c2 = c; // Copy
-        let c3 = c2.clone(); // Clone
+        let c3 = c2; // Clone
         let a: [u8; 4] = c3.into();
         assert_eq!(a, [10, 20, 30, 40]);
     }

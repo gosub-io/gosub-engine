@@ -2,6 +2,7 @@ use std::io;
 
 use crate::net::types::{Priority, ResourceKind};
 use crate::net::RequestDestination;
+use cow_utils::CowUtils;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use tokio::io::{AsyncRead, AsyncReadExt};
@@ -79,9 +80,7 @@ pub struct DummyHtml5Config {
 
 impl Default for DummyHtml5Config {
     fn default() -> Self {
-        Self {
-            max_bytes: 1 * 1024 * 1024,
-        } // 1 MiB
+        Self { max_bytes: 1024 * 1024 } // 1 MiB
     }
 }
 
@@ -217,9 +216,9 @@ fn discover_resources(html: &str, base: &Url) -> Vec<ResourceHint> {
     // Scripts
     for cap in RE_SCRIPT_SRC.captures_iter(html) {
         let tag = cap.get(0).map_or("", |m| m.as_str());
-        let tag_lower = tag.to_ascii_lowercase();
+        let tag_lower = tag.cow_to_ascii_lowercase();
         // A script is blocking unless it has async or defer attributes
-        let blocking = !RE_ASYNC_ATTR.is_match(&tag_lower) && !RE_DEFER_ATTR.is_match(&tag_lower);
+        let blocking = !RE_ASYNC_ATTR.is_match(tag_lower.as_ref()) && !RE_DEFER_ATTR.is_match(tag_lower.as_ref());
         if let Some(m) = cap.name("src") {
             if let Ok(u) = resolve(base, unquote(m.as_str())) {
                 out.push(ResourceHint {
@@ -369,6 +368,6 @@ mod tests {
     fn discover_title_basic() {
         assert_eq!(discover_title("<title>x</title>").as_deref(), Some("x"));
         assert_eq!(discover_title("<TITLE>  spaced \n</TITLE>").as_deref(), Some("spaced"));
-        assert_eq!(discover_title("<head></head>").is_none(), true);
+        assert!(discover_title("<head></head>").is_none());
     }
 }

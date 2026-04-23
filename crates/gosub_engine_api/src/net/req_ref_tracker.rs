@@ -73,7 +73,7 @@ impl RequestRefTracker {
     }
 
     pub fn inc(&self, r: &RequestReference) {
-        match self.inner.entry(r.clone()) {
+        match self.inner.entry(*r) {
             Entry::Occupied(e) => {
                 e.get().0.fetch_add(1, Ordering::Relaxed);
             }

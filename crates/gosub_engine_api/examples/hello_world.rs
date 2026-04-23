@@ -1,3 +1,4 @@
+use cow_utils::CowUtils;
 use gosub_engine_api::events::{MouseButton, NavigationEvent, ResourceEvent, TabCommand};
 use gosub_engine_api::net::types::FetchResultMeta;
 use gosub_engine_api::net::DecisionToken;
@@ -202,7 +203,7 @@ async fn on_decision_required(
         .to_string();
 
     let action = if let Some(disp) = meta.headers.get(http::header::CONTENT_DISPOSITION) {
-        let s = disp.to_str().unwrap_or_default().to_ascii_lowercase();
+        let s = disp.to_str().unwrap_or_default().cow_to_ascii_lowercase();
         if s.contains("attachment") {
             Action::Download {
                 dest: std::path::PathBuf::from("/tmp/downloaded.bin"),

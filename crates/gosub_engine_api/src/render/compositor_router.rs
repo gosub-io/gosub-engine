@@ -2,7 +2,7 @@ use crate::render::backend::{CompositorSink, ExternalHandle};
 use crate::tab::TabId;
 use std::sync::Arc;
 
-// type SinkHandle = Arc<RwLock<dyn CompositorSink + Send>>;
+// type SinkHandle = Arc<RwLock<dyn CompositorSink>>;
 
 /// A router/proxy that forwards compositor events to a dynamically set sink. This allows the
 /// engine and its components to share a single `CompositorSink` implementation that can be changed
@@ -19,6 +19,7 @@ impl CompositorRouter {
     }
 
     /// Sets the sink to which compositor events will be forwarded.
+    #[allow(clippy::implied_bounds_in_impls)]
     pub fn set_sink(&mut self, sink: impl CompositorSink + Send + 'static) {
         self.inner = Some(Box::new(sink));
     }

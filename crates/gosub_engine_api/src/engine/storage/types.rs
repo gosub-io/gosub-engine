@@ -3,20 +3,15 @@ use url::{Origin, Url};
 use uuid::Uuid;
 
 /// Partitioning key (future-proof for state partitioning).
-#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Hash)]
 pub enum PartitionKey {
     /// No partitioning key, used for global state.
+    #[default]
     None,
     /// Top-level partitioning key based on the origin of the URL.
     TopLevel(Origin),
     /// Custom partition key
     Custom(String),
-}
-
-impl Default for PartitionKey {
-    fn default() -> Self {
-        PartitionKey::None
-    }
 }
 
 impl PartitionKey {
@@ -26,6 +21,7 @@ impl PartitionKey {
     }
 
     /// Creates a new `PartitionKey` from a URL string.
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Self {
         if s.is_empty() {
             PartitionKey::None
@@ -39,7 +35,7 @@ impl PartitionKey {
     }
 
     pub fn from_zone(zone_id: ZoneId) -> Self {
-        let url_str = format!("https://zone-{}.local", zone_id.to_string());
+        let url_str = format!("https://zone-{zone_id}.local");
         Self::from_str(&url_str)
     }
 }

@@ -54,6 +54,12 @@ use uuid::Uuid;
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ZoneId(Uuid);
 
+impl Default for ZoneId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ZoneId {
     /// Creates a new `ZoneId` with a random UUID.
     pub fn new() -> Self {
@@ -284,8 +290,8 @@ impl Zone {
 
         let tab_services = resolve_tab_services(self.id, &self.context.services, &overrides.unwrap_or_default());
 
-        let (tab_handle, join_handle) = create_tab_and_spawn(self.id, tab_services, self.context.clone())
-            .map_err(|e| EngineError::CreateTab(e.into()))?;
+        let (tab_handle, join_handle) =
+            create_tab_and_spawn(self.id, tab_services, self.context.clone()).map_err(EngineError::CreateTab)?;
         self.tabs.insert(
             tab_handle.tab_id,
             TabInfo {
@@ -337,7 +343,7 @@ impl Zone {
 
     /// Closes a tab.
     pub fn close_tab(&mut self, tab_id: TabId) -> bool {
-        if let Some(_) = self.tabs.remove(&tab_id) {
+        if self.tabs.remove(&tab_id).is_some() {
             // Drop the command channel to signal the tab to close
             // drop(shared_state.cmd_tx);
 

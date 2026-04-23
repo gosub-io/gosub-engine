@@ -21,6 +21,11 @@ pub trait StorageArea: Send + Sync {
     /// Returns the number of items in the storage area.
     fn len(&self) -> usize;
 
+    /// Returns true when the storage area contains no items.
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// Returns a vector of all keys in the storage area.
     fn keys(&self) -> Vec<String>;
 }

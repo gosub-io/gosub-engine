@@ -13,6 +13,12 @@ pub struct InMemoryCookieStore {
     jars: RwLock<HashMap<ZoneId, CookieJarHandle>>,
 }
 
+impl Default for InMemoryCookieStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl InMemoryCookieStore {
     pub fn new() -> Self {
         Self {

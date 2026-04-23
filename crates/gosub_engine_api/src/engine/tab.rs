@@ -3,6 +3,7 @@ mod options;
 pub mod services;
 mod sink;
 mod state;
+#[allow(clippy::module_inception)]
 mod tab;
 mod worker;
 

@@ -47,11 +47,12 @@ enum BodyContent {
 
 impl BodyContent {
     // Convert to bytes, collecting the stream if necessary. Will take the peek buffer into account (if needed)
+    #[allow(clippy::wrong_self_convention)]
     async fn to_bytes(self, peek_buf: PeekBuf) -> anyhow::Result<Bytes> {
         match self {
             BodyContent::Stream { shared } => {
                 let buf = stream_to_bytes(peek_buf.clone(), shared).await?;
-                Ok(Bytes::from(buf))
+                Ok(buf)
             }
             BodyContent::Buffered { body } => Ok(body),
         }

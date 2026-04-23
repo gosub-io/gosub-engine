@@ -349,7 +349,7 @@ impl From<std::io::Error> for NetError {
 
 impl NetError {
     pub fn to_io(&self) -> std::io::Error {
-        std::io::Error::new(std::io::ErrorKind::Other, format!("{}", self))
+        std::io::Error::other(format!("{self}"))
     }
 
     pub fn from_anyhow(e: anyhow::Error) -> Self {
@@ -375,6 +375,7 @@ pub enum Initiator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cow_utils::CowUtils;
     use http::header;
     use tokio::io::AsyncReadExt;
 
@@ -455,7 +456,7 @@ mod tests {
         // to_io
         let io = NetError::Timeout("oops".into()).to_io();
         assert_eq!(io.kind(), std::io::ErrorKind::Other);
-        assert!(io.to_string().to_lowercase().contains("timeout"));
+        assert!(io.to_string().cow_to_ascii_lowercase().contains("timeout"));
 
         // from_anyhow
         let ne = NetError::from_anyhow(anyhow::anyhow!("boom"));

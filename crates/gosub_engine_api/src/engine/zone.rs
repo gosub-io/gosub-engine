@@ -17,6 +17,7 @@
 //! Internally, the [`Zone`] type manages the full state and lifecycle.
 
 mod config;
+#[allow(clippy::module_inception)]
 mod zone;
 
 pub use zone::ZoneContext;

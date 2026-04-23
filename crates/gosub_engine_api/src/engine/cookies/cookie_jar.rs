@@ -21,6 +21,7 @@
 //! See also: RFC 6265bis (HTTP State Management Mechanism).
 //!
 use crate::engine::cookies::Cookie;
+use cow_utils::CowUtils;
 use http::HeaderMap;
 use serde::{Deserialize, Serialize};
 use std::any::Any;
@@ -91,6 +92,12 @@ pub struct DefaultCookieJar {
     pub entries: HashMap<String, Vec<Cookie>>,
 }
 
+impl Default for DefaultCookieJar {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DefaultCookieJar {
     /// Creates an empty in-memory cookie jar.
     pub fn new() -> Self {
@@ -140,7 +147,7 @@ impl CookieJar for DefaultCookieJar {
                         }
 
                         if let Some((k, v)) = part.split_once('=') {
-                            match k.to_ascii_lowercase().as_str() {
+                            match k.cow_to_ascii_lowercase().as_ref() {
                                 "path" => cookie.path = Some(v.to_string()),
                                 "domain" => cookie.domain = Some(v.trim_start_matches('.').to_string()),
                                 "expires" => cookie.expires = Some(v.to_string()),
@@ -163,12 +170,10 @@ impl CookieJar for DefaultCookieJar {
                                 }
                                 _ => {}
                             }
-                        } else {
-                            if part.eq_ignore_ascii_case("secure") {
-                                cookie.secure = true;
-                            } else if part.eq_ignore_ascii_case("httponly") {
-                                cookie.http_only = true;
-                            }
+                        } else if part.eq_ignore_ascii_case("secure") {
+                            cookie.secure = true;
+                        } else if part.eq_ignore_ascii_case("httponly") {
+                            cookie.http_only = true;
                         }
                     }
 

@@ -102,6 +102,7 @@
 //! - RFC 6265 — for cookie parsing/matching semantics (domain/path, expiration,
 //!   HttpOnly, Secure, SameSite, etc.).
 mod cookie_jar;
+#[allow(clippy::module_inception)]
 mod cookies;
 mod persistent_cookie_jar;
 mod store;
