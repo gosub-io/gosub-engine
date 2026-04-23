@@ -1,6 +1,6 @@
 use anyhow::anyhow;
 use fontique::{Attributes, Collection, GenericFamily, QueryFamily, QueryStatus, SourceCache};
-use parley::Font;
+use parley::FontData as Font;
 
 /// A simple font manager that uses Fontique to manage and resolve fonts.
 pub struct FontManager {
@@ -44,10 +44,6 @@ impl FontManager {
             QueryStatus::Stop
         });
 
-        if chosen.is_some() {
-            return Ok(chosen.unwrap());
-        }
-
-        Err(anyhow!("Failed to resolve font"))
+        chosen.ok_or_else(|| anyhow!("Failed to resolve font"))
     }
 }

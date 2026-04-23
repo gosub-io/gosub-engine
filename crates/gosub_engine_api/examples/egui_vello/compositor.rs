@@ -9,15 +9,17 @@ pub struct VelloCompositor {
 }
 
 impl VelloCompositor {
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self { frames: HashMap::new() }
     }
 
-    #[allow(unused)]
+    #[allow(dead_code)]
     pub fn frame_for(&self, tab_id: TabId) -> Option<&ExternalHandle> {
         self.frames.get(&tab_id)
     }
 
+    #[allow(dead_code)]
     pub fn frame_for_mut(&mut self, tab_id: TabId) -> Option<&mut ExternalHandle> {
         self.frames.get_mut(&tab_id)
     }

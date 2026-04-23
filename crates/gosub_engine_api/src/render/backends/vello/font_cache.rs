@@ -1,4 +1,4 @@
-use parley::Font;
+use parley::FontData as Font;
 use std::collections::HashMap;
 
 /// A simple font cache that maps font family names to loaded fonts.

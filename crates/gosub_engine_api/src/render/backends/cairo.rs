@@ -8,6 +8,7 @@ use std::any::Any;
 use std::ptr::NonNull;
 
 /// Cairo backend for rendering using gtk4/cairo graphics library.
+#[derive(Default)]
 pub struct CairoBackend;
 
 impl CairoBackend {

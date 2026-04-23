@@ -20,7 +20,7 @@ use once_cell::sync::Lazy;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use tokio::runtime::{Builder, Runtime};
 use url::Url;
 use uuid::uuid;
@@ -57,14 +57,23 @@ fn main() {
     let app = Application::builder().application_id("io.gosub.engine").build();
 
     app.connect_activate(move |app| {
-
         // Enter Tokio so any internal tokio::spawn/time/io in engine works
         let _rt_guard = TOKIO_RT.enter();
 
+        // Channel for dispatching compositor redraw requests to the GTK main loop.
+        let (tx_redraw, mut rx_redraw) = mpsc::unbounded_channel();
+
+        // Compositor with a callback that pokes the GTK main loop to redraw.
+        let compositor = Arc::new(RwLock::new(DefaultCompositor::new({
+            let tx = tx_redraw.clone();
+            move || {
+                let _ = tx.send(());
+            }
+        })));
 
         // Start the Gosub engine with the cairo backend
         let backend = gosub_engine_api::render::backends::cairo::CairoBackend::new();
-        let mut engine = GosubEngine::new(None, Arc::new(backend));
+        let mut engine = GosubEngine::new(None, Arc::new(backend), compositor.clone());
         let _engine_join_handle = engine.start().expect("engine start failed");
         // Subscribe to engine events
         let event_rx = engine.subscribe_events();
@@ -90,21 +99,27 @@ fn main() {
         };
 
         let zone = Rc::new(RefCell::new(
-            engine.create_zone(zone_cfg, zone_services, Some(ZoneId::from(DEFAULT_MAIN_ZONE)))
-                .expect("create_zone failed")
+            engine
+                .create_zone(zone_cfg, zone_services, Some(ZoneId::from(DEFAULT_MAIN_ZONE)))
+                .expect("create_zone failed"),
         ));
 
         // Save all tabs into a map
         let tabs: Rc<RefCell<HashMap<TabId, TabHandle>>> = Rc::new(RefCell::new(HashMap::new()));
 
         // Since this is not an async main() function, we need to block on async calls.
-        let tab = TOKIO_RT.block_on(async {
-            zone.borrow_mut().create_tab(TabDefaults {
-                url: None,
-                title: Some("New Tab".to_string()),
-                viewport: Some(Viewport::new(0, 0, 800, 600)),
-            }, None).await
-        }).expect("create_tab failed");
+        let tab = {
+            let mut zone_guard = zone.borrow_mut();
+            TOKIO_RT.block_on(zone_guard.create_tab(
+                TabDefaults {
+                    url: None,
+                    title: Some("New Tab".to_string()),
+                    viewport: Some(Viewport::new(0, 0, 800, 600)),
+                },
+                None,
+            ))
+        }
+        .expect("create_tab failed");
         let tab_id = tab.tab_id;
         tabs.borrow_mut().insert(tab_id, tab);
         log::trace!("Created initial tab {:?}", tab_id);
@@ -126,33 +141,12 @@ fn main() {
         drawing_area.set_content_height(600);
         drawing_area.set_focusable(true);
 
-
-        // Since drawing_area is not Send + Sync, we cannot use it directly in the compositor
-        // callback. We set up a channel to the main loop instead so we can request a redraw there.
-        let (tx_redraw, mut rx_redraw) = mpsc::unbounded_channel();
-
         let drawing_area_clone = drawing_area.clone();
         glib::spawn_future_local(async move {
-            // When rx_redraw is triggered, request a redraw of the drawing_area
             while let Some(()) = rx_redraw.recv().await {
-                // Request a redraw of the drawing area
                 drawing_area_clone.queue_draw();
             }
         });
-
-        // Set up the compositor. This connects the engine's rendered frames to our GTK drawing area.
-        let compositor = Arc::new(
-            DefaultCompositor::new({
-                // Instead of doing the drawing directly here, we send a message to the GTK main loop
-                // This is because drawing on the drawing_area widget is not Send + Sync.
-                let tx = tx_redraw.clone();
-                move || {
-                    let _ = tx.send(());
-                }
-            })
-        );
-        // Set the compositor as the engine's sink
-        engine.set_compositor_sink(compositor.clone());
 
         // Toolbar: Split Colf, Split Row, Close Pane
         let btn_split_col = Button::with_label("Split Col");
@@ -170,46 +164,64 @@ fn main() {
         let zone_for_split = zone.clone();
         let tabs_for_split = tabs.clone();
         btn_split_col.connect_clicked(clone!(
-            @strong root_split,
-            @strong last_size_split,
-            @strong drawing_split,
-            @strong active_split,
-            @strong zone_for_split,
-            @strong tabs_for_split
-            => move |_| {
-            // Open a new tab sized like the active pane
-            let (w, h) = *last_size_split.borrow();
+            #[strong]
+            root_split,
+            #[strong]
+            last_size_split,
+            #[strong]
+            drawing_split,
+            #[strong]
+            active_split,
+            #[strong]
+            zone_for_split,
+            #[strong]
+            tabs_for_split,
+            move |_| {
+                // Open a new tab sized like the active pane
+                let (w, h) = *last_size_split.borrow();
 
-            let new_tab = TOKIO_RT.block_on(async {
-                zone_for_split.borrow_mut().create_tab(TabDefaults {
-                    url: None,
-                    title: Some("New Tab".to_string()),
-                    viewport: Some(Viewport::new(0, 0, (w/2).max(1) as u32, h as u32)),
-                }, None).await
-            }).expect("create_tab failed");
-
-            let new_id = new_tab.tab_id;
-            tabs_for_split.borrow_mut().insert(new_id, new_tab);
-
-            let target = *active_split.borrow();
-            split_leaf_into_cols(&root_split, target, vec![new_id]);
-            // Send resizes to all leaves after split
-            let mut pairs = Vec::new();
-            compute_layout(&root_split.borrow(), Rect { x:0, y:0, w, h }, &mut pairs);
-
-            let tabs_ref = tabs_for_split.borrow();
-            for (tab_id, r) in pairs {
-                if let Some(tab) = tabs_ref.get(&tab_id) {
-                    let tab = tab.clone();
-                    let r = r.clone();
-                    TOKIO_RT.spawn(async move {
-                        let _ = tab.send(TabCommand::SetViewport { x:0, y: 0, width: r.w as u32, height: r.h as u32 }).await;
-                    });
+                let new_tab = {
+                    let mut zone_guard = zone_for_split.borrow_mut();
+                    TOKIO_RT.block_on(zone_guard.create_tab(
+                        TabDefaults {
+                            url: None,
+                            title: Some("New Tab".to_string()),
+                            viewport: Some(Viewport::new(0, 0, (w / 2).max(1) as u32, h as u32)),
+                        },
+                        None,
+                    ))
                 }
-            }
+                .expect("create_tab failed");
 
-            drawing_split.queue_draw();
-        }));
+                let new_id = new_tab.tab_id;
+                tabs_for_split.borrow_mut().insert(new_id, new_tab);
+
+                let target = *active_split.borrow();
+                split_leaf_into_cols(&root_split, target, vec![new_id]);
+                // Send resizes to all leaves after split
+                let mut pairs = Vec::new();
+                compute_layout(&root_split.borrow(), Rect { x: 0, y: 0, w, h }, &mut pairs);
+
+                let tabs_ref = tabs_for_split.borrow();
+                for (tab_id, r) in pairs {
+                    if let Some(tab) = tabs_ref.get(&tab_id) {
+                        let tab = tab.clone();
+                        TOKIO_RT.spawn(async move {
+                            let _ = tab
+                                .send(TabCommand::SetViewport {
+                                    x: 0,
+                                    y: 0,
+                                    width: r.w as u32,
+                                    height: r.h as u32,
+                                })
+                                .await;
+                        });
+                    }
+                }
+
+                drawing_split.queue_draw();
+            }
+        ));
 
         let root_split2 = root.clone();
         let last_size_split2 = last_size.clone();
@@ -217,70 +229,108 @@ fn main() {
         let active_split2 = active_tab.clone();
         let zone_for_split = zone.clone();
         let tabs_for_split = tabs.clone();
-        btn_split_row.connect_clicked(clone!(@strong root_split2, @strong last_size_split2, @strong drawing_split2, @strong active_split2 => move |_| {
-            let (w, h) = *last_size_split2.borrow();
+        btn_split_row.connect_clicked(clone!(
+            #[strong]
+            root_split2,
+            #[strong]
+            last_size_split2,
+            #[strong]
+            drawing_split2,
+            #[strong]
+            active_split2,
+            move |_| {
+                let (w, h) = *last_size_split2.borrow();
 
-            let new_tab = TOKIO_RT.block_on(async {
-                zone_for_split.borrow_mut().create_tab(TabDefaults {
-                    url: None,
-                    title: Some("New Tab".to_string()),
-                    viewport: Some(Viewport::new(0, 0, w as u32, (h/2).max(1) as u32)),
-                }, None).await
-            })
-            .expect("create_tab failed");
-
-            let tab_id = new_tab.tab_id;
-            tabs_for_split.borrow_mut().insert(new_tab.tab_id, new_tab);
-
-            let target = *active_split2.borrow();
-            split_leaf_into_rows(&root_split2, target, vec![tab_id]);
-            let mut pairs = Vec::new();
-            compute_layout(&root_split2.borrow(), Rect { x:0, y:0, w, h }, &mut pairs);
-
-            let tabs_ref = tabs_for_split.borrow();
-            for (tab_id, r) in pairs {
-                if let Some(tab) = tabs_ref.get(&tab_id) {
-                    let tab = tab.clone();
-                    let r = r.clone();
-                    TOKIO_RT.spawn(async move {
-                        let _ = tab.send(TabCommand::SetViewport { x:0, y: 0, width: r.w as u32, height: r.h as u32 }).await;
-                    });
+                let new_tab = {
+                    let mut zone_guard = zone_for_split.borrow_mut();
+                    TOKIO_RT.block_on(zone_guard.create_tab(
+                        TabDefaults {
+                            url: None,
+                            title: Some("New Tab".to_string()),
+                            viewport: Some(Viewport::new(0, 0, w as u32, (h / 2).max(1) as u32)),
+                        },
+                        None,
+                    ))
                 }
-            }
+                .expect("create_tab failed");
 
-            drawing_split2.queue_draw();
-        }));
+                let tab_id = new_tab.tab_id;
+                tabs_for_split.borrow_mut().insert(new_tab.tab_id, new_tab);
+
+                let target = *active_split2.borrow();
+                split_leaf_into_rows(&root_split2, target, vec![tab_id]);
+                let mut pairs = Vec::new();
+                compute_layout(&root_split2.borrow(), Rect { x: 0, y: 0, w, h }, &mut pairs);
+
+                let tabs_ref = tabs_for_split.borrow();
+                for (tab_id, r) in pairs {
+                    if let Some(tab) = tabs_ref.get(&tab_id) {
+                        let tab = tab.clone();
+                        TOKIO_RT.spawn(async move {
+                            let _ = tab
+                                .send(TabCommand::SetViewport {
+                                    x: 0,
+                                    y: 0,
+                                    width: r.w as u32,
+                                    height: r.h as u32,
+                                })
+                                .await;
+                        });
+                    }
+                }
+
+                drawing_split2.queue_draw();
+            }
+        ));
 
         let root_close = root.clone();
         let last_size_close = last_size.clone();
         let drawing_close = drawing_area.clone();
         let active_close = active_tab.clone();
         let tabs_for_close = tabs.clone();
-        btn_close.connect_clicked(clone!(@strong root_close, @strong last_size_close, @strong drawing_close, @strong active_close => move |_| {
-            let target = *active_close.borrow();
-            if close_leaf(&root_close, target) {
-                // Pick a new active from remaining leaves
-                let mut leaves = Vec::new();
-                collect_leaves(&root_close.borrow(), &mut leaves);
-                if let Some(&first) = leaves.first() { *active_close.borrow_mut() = first; }
-                let (w, h) = *last_size_close.borrow();
-                let mut pairs = Vec::new();
-                compute_layout(&root_close.borrow(), Rect { x:0, y:0, w, h }, &mut pairs);
-
-                let tabs_ref = tabs_for_close.borrow();
-                for (tab_id, r) in pairs {
-                    if let Some(tab) = tabs_ref.get(&tab_id) {
-                        let tab = tab.clone();
-                        let r = r.clone();
-                        TOKIO_RT.spawn(async move {
-                            let _ = tab.send(TabCommand::SetViewport { x:0, y: 0, width: r.w as u32, height: r.h as u32 }).await;
-                        });
+        btn_close.connect_clicked(clone!(
+            #[strong]
+            root_close,
+            #[strong]
+            last_size_close,
+            #[strong]
+            drawing_close,
+            #[strong]
+            active_close,
+            move |_| {
+                let target = *active_close.borrow();
+                if close_leaf(&root_close, target) {
+                    // Pick a new active from remaining leaves
+                    let mut leaves = Vec::new();
+                    collect_leaves(&root_close.borrow(), &mut leaves);
+                    if let Some(&first) = leaves.first() {
+                        *active_close.borrow_mut() = first;
                     }
-                }
+                    let (w, h) = *last_size_close.borrow();
+                    let mut pairs = Vec::new();
+                    compute_layout(&root_close.borrow(), Rect { x: 0, y: 0, w, h }, &mut pairs);
 
-                drawing_close.queue_draw();
+                    let tabs_ref = tabs_for_close.borrow();
+                    for (tab_id, r) in pairs {
+                        if let Some(tab) = tabs_ref.get(&tab_id) {
+                            let tab = tab.clone();
+                            TOKIO_RT.spawn(async move {
+                                let _ = tab
+                                    .send(TabCommand::SetViewport {
+                                        x: 0,
+                                        y: 0,
+                                        width: r.w as u32,
+                                        height: r.h as u32,
+                                    })
+                                    .await;
+                            });
+                        }
+                    }
+
+                    drawing_close.queue_draw();
+                }
             }
-        }));
+        ));
 
         // Drawing area
         let root_draw = root.clone();
@@ -291,13 +341,18 @@ fn main() {
 
             // Compute the tab layouts and store in pairs
             let mut pairs = Vec::new();
-            compute_layout(&root_draw.borrow(), Rect { x:0, y:0, w, h }, &mut pairs);
+            compute_layout(&root_draw.borrow(), Rect { x: 0, y: 0, w, h }, &mut pairs);
 
             // Iterate all the tabs and draw their surfaces
             for (tab_id, r) in &pairs {
-                if let Some(handle) = compositor_draw.frame_for(*tab_id) {
+                if let Some(handle) = compositor_draw.read().unwrap().frame_for(*tab_id) {
                     match handle {
-                        ExternalHandle::CpuPixelsPtr { width, height, stride, pixel_buf } => {
+                        ExternalHandle::CpuPixelsPtr {
+                            width,
+                            height,
+                            stride,
+                            pixel_buf,
+                        } => {
                             let w = width as i32;
                             let h = height as i32;
                             let st = stride as i32;
@@ -310,7 +365,8 @@ fn main() {
                                     w,
                                     h,
                                     st,
-                                ).expect("cairo surface over ptr")
+                                )
+                                .expect("cairo surface over ptr")
                             };
 
                             surface.flush();
@@ -330,7 +386,13 @@ fn main() {
                             cr.restore().unwrap();
                             // `surface` drops here while `data` still points to valid pixels
                         }
-                        ExternalHandle::CpuPixelsOwned { width, height, stride, mut pixels, .. } => {
+                        ExternalHandle::CpuPixelsOwned {
+                            width,
+                            height,
+                            stride,
+                            mut pixels,
+                            ..
+                        } => {
                             let w = width as i32;
                             let h = height as i32;
                             let st = stride as i32;
@@ -342,8 +404,11 @@ fn main() {
                                 gtk4::cairo::ImageSurface::create_for_data_unsafe(
                                     pixels.as_mut_ptr(),
                                     gtk4::cairo::Format::ARgb32,
-                                    w, h, st
-                                ).expect("cairo surface over Vec<u8> ptr")
+                                    w,
+                                    h,
+                                    st,
+                                )
+                                .expect("cairo surface over Vec<u8> ptr")
                             };
 
                             surface.flush();
@@ -364,7 +429,7 @@ fn main() {
                             cr.set_source_surface(&surface, 0.0, 0.0).unwrap();
                             cr.paint().unwrap();
                             cr.restore().unwrap();
-                        },
+                        }
                         _ => {
                             eprintln!("Unsupported handle type for tab {:?}: {:?}", tab_id, handle);
                         }
@@ -396,21 +461,35 @@ fn main() {
         let root_resize = root.clone();
         let last_size_resize = last_size.clone();
         let tabs_for_resize = tabs.clone();
-        drawing_area.connect_resize(clone!(@strong root_resize, @strong last_size_resize, @strong tabs_for_resize => move |_area, w, h| {
-            *last_size_resize.borrow_mut() = (w, h);
-            let mut pairs = Vec::new();
-            compute_layout(&root_resize.borrow(), Rect { x:0, y:0, w, h }, &mut pairs);
+        drawing_area.connect_resize(clone!(
+            #[strong]
+            root_resize,
+            #[strong]
+            last_size_resize,
+            #[strong]
+            tabs_for_resize,
+            move |_area, w, h| {
+                *last_size_resize.borrow_mut() = (w, h);
+                let mut pairs = Vec::new();
+                compute_layout(&root_resize.borrow(), Rect { x: 0, y: 0, w, h }, &mut pairs);
 
-            for (tab_id, r) in pairs {
-                if let Some(tab) = tabs_for_resize.borrow().get(&tab_id) {
-                    let tab = tab.clone();
-                    let r = r.clone();
-                    TOKIO_RT.spawn(async move {
-                        let _ = tab.send(TabCommand::SetViewport { x:0, y: 0, width: r.w as u32, height: r.h as u32 }).await;
-                    });
+                for (tab_id, r) in pairs {
+                    if let Some(tab) = tabs_for_resize.borrow().get(&tab_id) {
+                        let tab = tab.clone();
+                        TOKIO_RT.spawn(async move {
+                            let _ = tab
+                                .send(TabCommand::SetViewport {
+                                    x: 0,
+                                    y: 0,
+                                    width: r.w as u32,
+                                    height: r.h as u32,
+                                })
+                                .await;
+                        });
+                    }
                 }
             }
-        }));
+        ));
 
         // Mouse: select pane under cursor
         let root_pick = root.clone();
@@ -420,7 +499,7 @@ fn main() {
         let last_size_pick = last_size.clone();
         click.connect_pressed(move |_gest, _n_press, x, y| {
             let (w, h) = *last_size_pick.borrow();
-            if let Some(tab_id) = find_leaf_at(&root_pick.borrow(), Rect { x:0, y:0, w, h }, x, y) {
+            if let Some(tab_id) = find_leaf_at(&root_pick.borrow(), Rect { x: 0, y: 0, w, h }, x, y) {
                 *active_pick.borrow_mut() = tab_id;
                 drawing_pick.queue_draw();
             }
@@ -431,24 +510,30 @@ fn main() {
         let tabs_for_nav = tabs.clone();
         let active_tab_for_nav = active_tab.clone();
         let draw_entry = drawing_area.clone();
-        address_entry.connect_activate(clone!(@strong draw_entry => move |entry| {
-            let mut s = entry.text().to_string();
-            if !(s.starts_with("http://") || s.starts_with("https://")) {
-                s = format!("https://{s}");
-                entry.set_text(&s);
-            }
-            let Ok(url) = Url::parse(&s) else { return; };
+        address_entry.connect_activate(clone!(
+            #[strong]
+            draw_entry,
+            move |entry| {
+                let mut s = entry.text().to_string();
+                if !(s.starts_with("http://") || s.starts_with("https://")) {
+                    s = format!("https://{s}");
+                    entry.set_text(&s);
+                }
+                let Ok(url) = Url::parse(&s) else {
+                    return;
+                };
 
-            if let Some(tab) = tabs_for_nav.borrow().get(&*active_tab_for_nav.borrow()) {
-                let tab = tab.clone();
-                let url = url.clone();
-                TOKIO_RT.spawn(async move {
-                    let _ = tab.send(TabCommand::Navigate { url: url.to_string() }).await;
-                    let _ = tab.send(TabCommand::ResumeDrawing { fps: 30 }).await;
-                });
+                if let Some(tab) = tabs_for_nav.borrow().get(&*active_tab_for_nav.borrow()) {
+                    let tab = tab.clone();
+                    let url = url.clone();
+                    TOKIO_RT.spawn(async move {
+                        let _ = tab.send(TabCommand::Navigate { url: url.to_string() }).await;
+                        let _ = tab.send(TabCommand::ResumeDrawing { fps: 30 }).await;
+                    });
+                }
+                draw_entry.queue_draw();
             }
-            draw_entry.queue_draw();
-        }));
+        ));
 
         let last_pointer = Rc::new(RefCell::new((0.0_f64, 0.0_f64)));
         let motion = EventControllerMotion::new();

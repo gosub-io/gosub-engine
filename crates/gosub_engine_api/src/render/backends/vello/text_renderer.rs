@@ -11,7 +11,7 @@
 
 use crate::render::backends::vello::font_cache::FontCache;
 use crate::render::backends::vello::font_manager::FontManager;
-use parley::{Font, FontContext, LayoutContext};
+use parley::{FontContext, FontData as Font, LayoutContext};
 #[cfg(not(feature = "parley_layout"))]
 use skrifa::MetadataProvider;
 use std::collections::HashMap;
@@ -120,6 +120,7 @@ impl TextRenderer {
     /// Performance:
     /// - Multiple calls with the same `key` reuse shaping work.
     /// - If you animate only the position/color, reuse the same `key`.
+    #[allow(clippy::too_many_arguments)]
     pub fn draw(
         &mut self,
         fm: &mut FontManager,
@@ -254,7 +255,7 @@ impl TextRenderer {
             let mut out: Vec<CachedRun> = Vec::new();
             for line in layout.lines() {
                 let lm = line.metrics();
-                let baseline = lm.ascent as f32;
+                let baseline = lm.ascent;
 
                 for item in line.items() {
                     if let parley::layout::PositionedLayoutItem::GlyphRun(run) = item {
@@ -263,7 +264,7 @@ impl TextRenderer {
                         let glyphs: Vec<Glyph> = run
                             .positioned_glyphs()
                             .map(|g| Glyph {
-                                id: g.id as u32,
+                                id: g.id,
                                 x: g.x.round(),
                                 y: (pen_y + baseline + ro + g.y).round(),
                             })

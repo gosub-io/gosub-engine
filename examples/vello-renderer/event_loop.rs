@@ -105,77 +105,53 @@ impl<C: ModuleConfiguration> Window<'_, C> {
                             KeyCode::F5 => {
                                 tab.tx.blocking_send(InstanceMessage::Reload)?;
                             }
-                            KeyCode::ArrowRight => {
-                                if self.mods.state().contains(ModifiersState::CONTROL) {
-                                    self.tabs.next_tab();
-                                    self.window.request_redraw();
-                                }
+                            KeyCode::ArrowRight if self.mods.state().contains(ModifiersState::CONTROL) => {
+                                self.tabs.next_tab();
+                                self.window.request_redraw();
                             }
-                            KeyCode::ArrowLeft => {
-                                if self.mods.state().contains(ModifiersState::CONTROL) {
-                                    self.tabs.previous_tab();
-                                    self.window.request_redraw();
-                                }
+                            KeyCode::ArrowLeft if self.mods.state().contains(ModifiersState::CONTROL) => {
+                                self.tabs.previous_tab();
+                                self.window.request_redraw();
                             }
-                            KeyCode::Digit0 => {
-                                if self.mods.state().contains(ModifiersState::CONTROL) {
-                                    self.tabs.activate_idx(0);
-                                    self.window.request_redraw();
-                                }
+                            KeyCode::Digit0 if self.mods.state().contains(ModifiersState::CONTROL) => {
+                                self.tabs.activate_idx(0);
+                                self.window.request_redraw();
                             }
-                            KeyCode::Digit1 => {
-                                if self.mods.state().contains(ModifiersState::CONTROL) {
-                                    self.tabs.activate_idx(1);
-                                    self.window.request_redraw();
-                                }
+                            KeyCode::Digit1 if self.mods.state().contains(ModifiersState::CONTROL) => {
+                                self.tabs.activate_idx(1);
+                                self.window.request_redraw();
                             }
-                            KeyCode::Digit2 => {
-                                if self.mods.state().contains(ModifiersState::CONTROL) {
-                                    self.tabs.activate_idx(2);
-                                    self.window.request_redraw();
-                                }
+                            KeyCode::Digit2 if self.mods.state().contains(ModifiersState::CONTROL) => {
+                                self.tabs.activate_idx(2);
+                                self.window.request_redraw();
                             }
-                            KeyCode::Digit3 => {
-                                if self.mods.state().contains(ModifiersState::CONTROL) {
-                                    self.tabs.activate_idx(3);
-                                    self.window.request_redraw();
-                                }
+                            KeyCode::Digit3 if self.mods.state().contains(ModifiersState::CONTROL) => {
+                                self.tabs.activate_idx(3);
+                                self.window.request_redraw();
                             }
-                            KeyCode::Digit4 => {
-                                if self.mods.state().contains(ModifiersState::CONTROL) {
-                                    self.tabs.activate_idx(4);
-                                    self.window.request_redraw();
-                                }
+                            KeyCode::Digit4 if self.mods.state().contains(ModifiersState::CONTROL) => {
+                                self.tabs.activate_idx(4);
+                                self.window.request_redraw();
                             }
-                            KeyCode::Digit5 => {
-                                if self.mods.state().contains(ModifiersState::CONTROL) {
-                                    self.tabs.activate_idx(5);
-                                    self.window.request_redraw();
-                                }
+                            KeyCode::Digit5 if self.mods.state().contains(ModifiersState::CONTROL) => {
+                                self.tabs.activate_idx(5);
+                                self.window.request_redraw();
                             }
-                            KeyCode::Digit6 => {
-                                if self.mods.state().contains(ModifiersState::CONTROL) {
-                                    self.tabs.activate_idx(6);
-                                    self.window.request_redraw();
-                                }
+                            KeyCode::Digit6 if self.mods.state().contains(ModifiersState::CONTROL) => {
+                                self.tabs.activate_idx(6);
+                                self.window.request_redraw();
                             }
-                            KeyCode::Digit7 => {
-                                if self.mods.state().contains(ModifiersState::CONTROL) {
-                                    self.tabs.activate_idx(7);
-                                    self.window.request_redraw();
-                                }
+                            KeyCode::Digit7 if self.mods.state().contains(ModifiersState::CONTROL) => {
+                                self.tabs.activate_idx(7);
+                                self.window.request_redraw();
                             }
-                            KeyCode::Digit8 => {
-                                if self.mods.state().contains(ModifiersState::CONTROL) {
-                                    self.tabs.activate_idx(8);
-                                    self.window.request_redraw();
-                                }
+                            KeyCode::Digit8 if self.mods.state().contains(ModifiersState::CONTROL) => {
+                                self.tabs.activate_idx(8);
+                                self.window.request_redraw();
                             }
-                            KeyCode::Digit9 => {
-                                if self.mods.state().contains(ModifiersState::CONTROL) {
-                                    self.tabs.activate_idx(9);
-                                    self.window.request_redraw();
-                                }
+                            KeyCode::Digit9 if self.mods.state().contains(ModifiersState::CONTROL) => {
+                                self.tabs.activate_idx(9);
+                                self.window.request_redraw();
                             }
 
                             // KeyCode::F6 => self.el.open_tab(Url::parse("https://news.ycombinator.com")?),

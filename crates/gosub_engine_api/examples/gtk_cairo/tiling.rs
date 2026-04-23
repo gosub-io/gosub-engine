@@ -166,7 +166,7 @@ pub(crate) fn split_leaf_into_cols(root: &LayoutHandle, target: TabId, new_tabs:
             _ => false,
         }
     }
-    rec(&mut *root.borrow_mut(), target, &new_tabs)
+    rec(&mut root.borrow_mut(), target, &new_tabs)
 }
 
 // Replace a leaf with Rows(leaf + new tabs)
@@ -193,7 +193,7 @@ pub(crate) fn split_leaf_into_rows(root: &LayoutHandle, target: TabId, new_tabs:
             _ => false,
         }
     }
-    rec(&mut *root.borrow_mut(), target, &new_tabs)
+    rec(&mut root.borrow_mut(), target, &new_tabs)
 }
 
 // Close a leaf; collapse single-child containers
@@ -222,7 +222,7 @@ pub(crate) fn close_leaf(root: &LayoutHandle, target: TabId) -> bool {
     match &*root_b {
         LayoutNode::Leaf(t) if *t == target => false, // don't allow removing the last pane here
         _ => {
-            rec(&mut *root_b, target);
+            rec(&mut root_b, target);
             true
         }
     }
