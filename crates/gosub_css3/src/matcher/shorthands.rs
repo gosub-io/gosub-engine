@@ -475,58 +475,54 @@ impl CssDefinitions {
         if let Some(component) = syntax.components.first() {
             for m in component.multipliers() {
                 match m {
-                    SyntaxComponentMultiplier::Between(_, b) => {
-                        if *b == computed.len() {
-                            for c in computed {
-                                shorthands.push(Shorthand {
-                                    name: c.clone(),
-                                    components: vec![],
-                                });
-                            }
-
-                            let multiplier;
-
-                            if computed.len() == 2 {
-                                multiplier = Multiplier::DuoMulti;
-                            } else if computed.len() == 4 {
-                                multiplier = Multiplier::QuadMulti;
-                            } else {
-                                multiplier = Multiplier::NextProp;
-                            }
-
-                            return Some(Shorthands {
-                                multiplier,
-                                shorthands,
-                                name: name.to_string(),
+                    SyntaxComponentMultiplier::Between(_, b) if *b == computed.len() => {
+                        for c in computed {
+                            shorthands.push(Shorthand {
+                                name: c.clone(),
+                                components: vec![],
                             });
                         }
+
+                        let multiplier;
+
+                        if computed.len() == 2 {
+                            multiplier = Multiplier::DuoMulti;
+                        } else if computed.len() == 4 {
+                            multiplier = Multiplier::QuadMulti;
+                        } else {
+                            multiplier = Multiplier::NextProp;
+                        }
+
+                        return Some(Shorthands {
+                            multiplier,
+                            shorthands,
+                            name: name.to_string(),
+                        });
                     }
 
-                    SyntaxComponentMultiplier::CommaSeparatedRepeat(_, b) => {
-                        if *b == computed.len() {
-                            for c in computed {
-                                shorthands.push(Shorthand {
-                                    name: c.clone(),
-                                    components: vec![],
-                                });
-                            }
-
-                            let multiplier;
-
-                            if computed.len() == 2 {
-                                multiplier = Multiplier::DuoMulti;
-                            } else if computed.len() == 4 {
-                                multiplier = Multiplier::QuadMulti;
-                            } else {
-                                multiplier = Multiplier::NextProp;
-                            }
-
-                            return Some(Shorthands {
-                                multiplier,
-                                shorthands,
-                                name: name.to_string(),
+                    SyntaxComponentMultiplier::CommaSeparatedRepeat(_, b) if *b == computed.len() => {
+                        for c in computed {
+                            shorthands.push(Shorthand {
+                                name: c.clone(),
+                                components: vec![],
                             });
                         }
+
+                        let multiplier;
+
+                        if computed.len() == 2 {
+                            multiplier = Multiplier::DuoMulti;
+                        } else if computed.len() == 4 {
+                            multiplier = Multiplier::QuadMulti;
+                        } else {
+                            multiplier = Multiplier::NextProp;
+                        }
+
+                        return Some(Shorthands {
+                            multiplier,
+                            shorthands,
+                            name: name.to_string(),
+                        });
                     }
 
                     _ => {}

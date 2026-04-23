@@ -54,12 +54,10 @@ fn main() {
             fixture_file.path
         );
 
-        let mut test_idx = 1;
-        for test in fixture_file.tests {
+        for (test_idx, test) in (1..).zip(fixture_file.tests) {
             if test_idx == 10 {
                 run_test(test_idx, test, &mut results);
             }
-            test_idx += 1;
         }
 
         println!(
