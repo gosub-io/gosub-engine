@@ -195,11 +195,10 @@ impl<C: ModuleConfiguration> EngineInstance<C> {
                         self.data.scroll(delta);
                         self.redraw();
                     }
-                    InputEvent::MouseMove(point) => {
-                        if self.data.mouse_move(point.x, point.y) {
-                            self.redraw();
-                        }
+                    InputEvent::MouseMove(point) if self.data.mouse_move(point.x, point.y) => {
+                        self.redraw();
                     }
+                    InputEvent::MouseMove(_) => {}
                     _ => {}
                 }
 

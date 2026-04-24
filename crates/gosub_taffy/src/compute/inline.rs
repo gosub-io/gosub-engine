@@ -730,11 +730,7 @@ fn parse_font_axes<C: HasLayouter>(n: &mut impl LayoutNode<C>) -> Vec<parley::Fo
 
     let mut vars = Vec::with_capacity((slice.len() as f32 / 3.0).ceil() as usize);
 
-    loop {
-        let Some((candidates, new_slice)) = slice.split_at_checked(2) else {
-            break;
-        };
-
+    while let Some((candidates, new_slice)) = slice.split_at_checked(2) {
         let axis = &candidates[0];
 
         if axis.is_comma() {

@@ -344,10 +344,10 @@ fn match_component_single<'a>(input: &'a [CssValue], component: &SyntaxComponent
 
             match value {
                 CssValue::Number(n) if *n == 0.0 => return first_match(input),
-                CssValue::Unit(n, u) => {
-                    if unit.contains(u) && *n >= from.unwrap_or(f32min) && *n <= to.unwrap_or(f32max) {
-                        return first_match(input);
-                    }
+                CssValue::Unit(n, u)
+                    if unit.contains(u) && *n >= from.unwrap_or(f32min) && *n <= to.unwrap_or(f32max) =>
+                {
+                    return first_match(input);
                 }
                 _ => {}
             }
