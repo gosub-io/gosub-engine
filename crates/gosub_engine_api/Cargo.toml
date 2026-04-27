@@ -8,11 +8,6 @@ name = "gosub_engine_api"
 crate-type = ["rlib"]
 
 [[example]]
-name = "gtk_cairo"
-path = "examples/gtk_cairo/main.rs"
-required-features = ["gtk4", "backend_cairo"]
-
-[[example]]
 name = "egui_vello"
 path = "examples/egui_vello/main.rs"
 required-features = ["ui_eframe", "backend_vello"]
