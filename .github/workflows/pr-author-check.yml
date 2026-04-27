@@ -15,7 +15,7 @@ jobs:
       - name: 'PR commits + 1'
         run: echo "PR_FETCH_DEPTH=$(( ${{ github.event.pull_request.commits }} + 1 ))" >> "${GITHUB_ENV}"
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: ${{ env.PR_FETCH_DEPTH }}
       - name: Check if PR author is in AUTHORS file
