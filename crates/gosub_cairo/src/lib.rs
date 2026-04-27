@@ -17,6 +17,7 @@ use std::fmt::Debug;
 
 mod debug;
 mod elements;
+pub mod engine_backend;
 #[allow(unused)]
 pub mod render;
 mod scene;
