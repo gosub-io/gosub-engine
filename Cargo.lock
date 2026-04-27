@@ -3310,6 +3310,8 @@ dependencies = [
  "cookie",
  "criterion",
  "derive_more",
+ "eframe",
+ "egui",
  "futures",
  "getrandom 0.4.2",
  "gosub_cairo",
