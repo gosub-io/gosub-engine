@@ -1,5 +1,5 @@
-use gosub_engine_api::render::backend::{CompositorSink, ExternalHandle};
-use gosub_engine_api::tab::TabId;
+use gosub_engine::render::backend::{CompositorSink, ExternalHandle};
+use gosub_engine::tab::TabId;
 use std::collections::HashMap;
 
 /// The vello compositor is very simple. It stores the given frame through submit_frame,

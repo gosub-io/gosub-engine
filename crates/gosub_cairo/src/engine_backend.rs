@@ -1,15 +1,15 @@
-use gosub_engine_api::render::backend::{
+use gosub_engine::render::backend::{
     ErasedSurface, ExternalHandle, PixelFormat, PresentMode, RenderBackend as EngineRenderBackend, RgbaImage,
     SurfaceSize,
 };
-use gosub_engine_api::render::DisplayItem;
-use gosub_engine_api::BrowsingContext;
+use gosub_engine::render::DisplayItem;
+use gosub_engine::BrowsingContext;
 use std::any::Any;
 use std::ptr::NonNull;
 
 use crate::CairoBackend;
 
-/// Off-screen Cairo surface used by the new `gosub_engine_api::RenderBackend` path.
+/// Off-screen Cairo surface used by the new `gosub_engine::RenderBackend` path.
 pub struct OffscreenCairoSurface {
     pixels: Box<[u8]>,
     size: SurfaceSize,

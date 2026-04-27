@@ -43,7 +43,7 @@ pub mod backend;
 /// viewport on resize or scrolling.
 ///
 /// ```no_run
-/// use gosub_engine_api::render::Viewport;
+/// use gosub_engine::render::Viewport;
 ///
 /// // 800×600 viewport at origin
 /// let mut vp = Viewport::new(0, 0, 800, 600);
@@ -70,7 +70,7 @@ pub mod backend;
 /// ```no_run
 /// # #[cfg(feature = "backend_vello")]
 /// # fn demo() -> anyhow::Result<()> {
-/// use gosub_engine_api::render::{Viewport, /* DefaultCompositor, backends */};
+/// use gosub_engine::render::{Viewport, /* DefaultCompositor, backends */};
 /// // 1) Host sets up a compositor and a backend (e.g. Vello).
 /// //    Exact types depend on the selected backend feature.
 /// // let mut compositor = DefaultCompositor::new(host_handle);

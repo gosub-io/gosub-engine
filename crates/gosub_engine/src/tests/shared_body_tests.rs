@@ -2,9 +2,8 @@ use bytes::{Bytes, BytesMut};
 use futures_util::StreamExt;
 use tokio::io::AsyncReadExt;
 
-use gosub_engine_api::net::shared_body::SharedBody;
-// adjust path to your crate
-use gosub_engine_api::net::types::{FetchResult, FetchResultMeta, NetError};
+use crate::net::shared_body::SharedBody;
+use crate::net::types::{FetchResult, FetchResultMeta, NetError};
 
 #[tokio::test(flavor = "current_thread")]
 async fn shared_body_broadcasts_and_finishes() {

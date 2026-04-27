@@ -26,19 +26,19 @@
 //! use std::sync::Arc;
 //! use url::Url;
 //!
-//! use gosub_engine_api::{EngineConfig, GosubEngine};
-//! use gosub_engine_api::render::Viewport;
-//! use gosub_engine_api::render::backends::null::NullBackend;
-//! use gosub_engine_api::events::{EngineEvent, TabCommand};
-//! use gosub_engine_api::storage::{StorageService, InMemoryLocalStore, InMemorySessionStore, PartitionPolicy};
-//! use gosub_engine_api::cookies::DefaultCookieJar;
-//! use gosub_engine_api::zone::{ZoneConfig, ZoneServices};
+//! use gosub_engine::{EngineConfig, GosubEngine};
+//! use gosub_engine::render::Viewport;
+//! use gosub_engine::render::backends::null::NullBackend;
+//! use gosub_engine::events::{EngineEvent, TabCommand};
+//! use gosub_engine::storage::{StorageService, InMemoryLocalStore, InMemorySessionStore, PartitionPolicy};
+//! use gosub_engine::cookies::DefaultCookieJar;
+//! use gosub_engine::zone::{ZoneConfig, ZoneServices};
 //!
 //! #[tokio::main]
 //! async fn main() -> anyhow::Result<()> {
 //!     // 1) Engine + backend
 //!     let backend = NullBackend::new().expect("null renderer cannot be created (!?)");
-//!     let compositor = gosub_engine_api::render::DefaultCompositor::default();
+//!     let compositor = gosub_engine::render::DefaultCompositor::default();
 //!     let mut engine_handle = GosubEngine::new(
 //!         Some(EngineConfig::default()),
 //!         Arc::new(backend),
@@ -71,7 +71,7 @@
 //!     while let Ok(ev) = event_rx.recv().await {
 //!         match ev {
 //!             EngineEvent::Navigation { tab_id, event } => {
-//!                if let gosub_engine_api::events::NavigationEvent::Started { url, .. } = event {
+//!                if let gosub_engine::events::NavigationEvent::Started { url, .. } = event {
 //!                    println!("[{tab_id:?}] Starting loading: {url}");
 //!                }
 //!             }

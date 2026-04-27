@@ -12,14 +12,14 @@
 //!
 //! ## Use defaults
 //! ```rust
-//! use gosub_engine_api::zone::ZoneConfig;
+//! use gosub_engine::zone::ZoneConfig;
 //! let cfg = ZoneConfig::default();
 //! assert_eq!(cfg.max_tabs, 16);
 //! ```
 //!
 //! ## Customize with the builder
 //! ```rust
-//! use gosub_engine_api::zone::ZoneConfig;
+//! use gosub_engine::zone::ZoneConfig;
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let cfg = ZoneConfig::builder()
 //!     .max_tabs(10)

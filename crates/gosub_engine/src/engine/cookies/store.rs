@@ -16,10 +16,10 @@
 //! **Persistent cookies (SQLite):**
 //! ```rust,no_run
 //! use std::sync::Arc;
-//! use gosub_engine_api::GosubEngine;
-//! use gosub_engine_api::zone::{ZoneConfig, ZoneServices};
-//! use gosub_engine_api::storage::{StorageService, InMemoryLocalStore, InMemorySessionStore, PartitionPolicy};
-//! use gosub_engine_api::cookies::SqliteCookieStore;
+//! use gosub_engine::GosubEngine;
+//! use gosub_engine::zone::{ZoneConfig, ZoneServices};
+//! use gosub_engine::storage::{StorageService, InMemoryLocalStore, InMemorySessionStore, PartitionPolicy};
+//! use gosub_engine::cookies::SqliteCookieStore;
 //! # use tokio::sync::mpsc;
 //!
 //! # async fn demo(mut engine: GosubEngine) -> anyhow::Result<()> {
@@ -39,10 +39,10 @@
 //! **Ephemeral/private cookies (in-memory jar, no persistence):**
 //! ```rust,no_run
 //! use std::sync::Arc;
-//! use gosub_engine_api::GosubEngine;
-//! use gosub_engine_api::zone::{ZoneConfig, ZoneServices};
-//! use gosub_engine_api::storage::{StorageService, InMemoryLocalStore, InMemorySessionStore, PartitionPolicy};
-//! use gosub_engine_api::cookies::DefaultCookieJar;
+//! use gosub_engine::GosubEngine;
+//! use gosub_engine::zone::{ZoneConfig, ZoneServices};
+//! use gosub_engine::storage::{StorageService, InMemoryLocalStore, InMemorySessionStore, PartitionPolicy};
+//! use gosub_engine::cookies::DefaultCookieJar;
 //! # use tokio::sync::mpsc;
 //!
 //! # async fn demo(mut engine: GosubEngine) -> anyhow::Result<()> {
@@ -62,10 +62,10 @@
 //! **Per-zone override (e.g., JSON file for a “private” profile):**
 //! ```rust,no_run
 //! use std::sync::Arc;
-//! use gosub_engine_api::GosubEngine;
-//! use gosub_engine_api::zone::{ZoneConfig, ZoneServices};
-//! use gosub_engine_api::storage::{StorageService, InMemoryLocalStore, InMemorySessionStore, PartitionPolicy};
-//! use gosub_engine_api::cookies::JsonCookieStore;
+//! use gosub_engine::GosubEngine;
+//! use gosub_engine::zone::{ZoneConfig, ZoneServices};
+//! use gosub_engine::storage::{StorageService, InMemoryLocalStore, InMemorySessionStore, PartitionPolicy};
+//! use gosub_engine::cookies::JsonCookieStore;
 //! # use tokio::sync::mpsc;
 //!
 //! # async fn demo(mut engine: GosubEngine) -> anyhow::Result<()> {

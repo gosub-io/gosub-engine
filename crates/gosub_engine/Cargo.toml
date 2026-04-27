@@ -1,10 +1,10 @@
 [package]
-name = "gosub_engine_api"
+name = "gosub_engine"
 version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "gosub_engine_api"
+name = "gosub_engine"
 crate-type = ["rlib"]
 
 [dependencies]

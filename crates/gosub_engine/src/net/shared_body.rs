@@ -54,7 +54,7 @@ use tokio_util::sync::CancellationToken;
 /// # use bytes::Bytes;
 /// # use futures_util::StreamExt;
 /// # use std::sync::Arc;
-/// # use gosub_engine_api::net::shared_body::SharedBody;
+/// # use gosub_engine::net::shared_body::SharedBody;
 /// let sb = SharedBody::new(8);
 /// let mut a = sb.subscribe_stream();
 /// let mut b = sb.subscribe_stream();
@@ -240,7 +240,7 @@ impl SharedBody {
     /// ```ignore
     /// # use std::{pin::Pin, sync::Arc};
     /// # use tokio::io::{self, AsyncReadExt};
-    /// # use gosub_engine_api::net::shared_body::SharedBody;
+    /// # use gosub_engine::net::shared_body::SharedBody;
     /// let shared = Arc::new(SharedBody::new(8));
     /// let mut r = SharedBody::combined_reader(b"HEAD".to_vec(), shared.clone());
     /// # tokio_test::block_on(async {
@@ -314,7 +314,7 @@ impl SharedBody {
     /// ```ignore
     /// # use std::sync::Arc;
     /// # use futures_util::TryStreamExt;
-    /// # use gosub_engine_api::net::shared_body::{SharedBody, ReaderOptions};
+    /// # use gosub_engine::net::shared_body::{SharedBody, ReaderOptions};
     /// # async fn demo(mut r: impl tokio::io::AsyncRead + Send + Unpin + 'static) {
     /// let body = SharedBody::from_reader(r, ReaderOptions::default());
     /// let mut a = body.subscribe_stream();

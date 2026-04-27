@@ -1,4 +1,4 @@
-use gosub_engine_api::tab::TabId;
+use gosub_engine::tab::TabId;
 use std::cell::RefCell;
 use std::rc::Rc;
 

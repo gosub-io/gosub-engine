@@ -41,7 +41,7 @@ use uuid::Uuid;
 ///
 /// Creating a new `ZoneId` manually:
 /// ```
-/// use gosub_engine_api::zone::ZoneId;
+/// use gosub_engine::zone::ZoneId;
 ///
 /// let id = ZoneId::new();
 /// println!("New zone ID: {:?}", id);

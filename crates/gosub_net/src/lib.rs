@@ -13,5 +13,5 @@ pub mod errors;
 pub mod http;
 
 pub mod engine_net {
-    pub use gosub_engine_api::net::*;
+    pub use gosub_engine::net::*;
 }

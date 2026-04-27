@@ -44,7 +44,7 @@ pub struct TabDefaults {
 ///
 /// # Example
 /// ```no_run
-/// use gosub_engine_api::tab::{TabOverrides, TabCookieJar};
+/// use gosub_engine::tab::{TabOverrides, TabCookieJar};
 ///
 /// let overrides = TabOverrides {
 ///     cookie_jar: TabCookieJar::Ephemeral, // fresh cookie jar for this tab
