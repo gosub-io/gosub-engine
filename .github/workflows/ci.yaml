@@ -19,7 +19,7 @@ jobs:
 #        rust_version: [ stable, beta, nightly, 1.73.0, "stable minus 1 release", "stable minus 2 releases" ]
 #        os: [ ubuntu-24.04, windows-latest, macos-latest ]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.rust_version }}
@@ -49,7 +49,7 @@ jobs:
       matrix:
         rust_version: [ stable, nightly ]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.rust_version }}
@@ -76,7 +76,7 @@ jobs:
   fmt:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
@@ -86,7 +86,7 @@ jobs:
   audit:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: rustsec/audit-check@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
