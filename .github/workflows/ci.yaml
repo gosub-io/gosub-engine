@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        rust_version: [ stable, nightly, 1.73.0 ]
+        rust_version: [ stable, nightly, 1.82.0 ]
 #        rust_version: [ stable, beta, nightly, 1.73.0, "stable minus 1 release", "stable minus 2 releases" ]
 #        os: [ ubuntu-24.04, windows-latest, macos-latest ]
     steps:
@@ -36,11 +36,11 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/target
-          key: ubuntu-24.04-cargo-target-${{ matrix.rust_version }}-${{ hashFiles('**/Cargo.lock') }}
+          key: ubuntu-24.04-cargo-target-test-${{ matrix.rust_version }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ubuntu-24.04-cargo-target-${{ matrix.rust_version }}-
+            ubuntu-24.04-cargo-target-test-${{ matrix.rust_version }}-
       - name: Build and test
-        run: cargo test --verbose --all --no-fail-fast --all-features --all-targets
+        run: cargo test --locked --verbose --all --no-fail-fast --all-features --all-targets
 
   clippy:
     runs-on: ubuntu-24.04
@@ -67,11 +67,11 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/target
-          key: ubuntu-24.04-cargo-target-${{ matrix.rust_version }}-${{ hashFiles('**/Cargo.lock') }}
+          key: ubuntu-24.04-cargo-target-clippy-${{ matrix.rust_version }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ubuntu-24.04-cargo-target-${{ matrix.rust_version }}-
+            ubuntu-24.04-cargo-target-clippy-${{ matrix.rust_version }}-
       - name: Run Clippy
-        run: cargo clippy --all --all-targets --all-features -- -D warnings
+        run: cargo clippy --locked --all --all-targets --all-features -- -D warnings
 
   fmt:
     runs-on: ubuntu-24.04
@@ -82,3 +82,11 @@ jobs:
           components: rustfmt
       - name: Run fmt
         run: cargo fmt --check --all
+
+  audit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
