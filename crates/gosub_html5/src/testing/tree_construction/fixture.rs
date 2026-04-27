@@ -36,13 +36,13 @@ pub fn read_fixture_from_path(path: impl AsRef<Path>) -> Result<FixtureFile> {
 /// Returns true when the fixture at 'path' is a correct fixture file and is allowed to be used
 /// according to the list of given filenames. If no filenames are given, all fixtures are used.
 fn use_fixture(filenames: &[&str], path: impl AsRef<Path>) -> bool {
-    if filenames.is_empty() {
-        return true;
+    let path = path.as_ref();
+    if !path.is_file() || path.extension().map_or(true, |ext| ext != "dat") {
+        return false;
     }
 
-    let path = path.as_ref();
-    if !path.is_file() || path.extension().expect("file ending") != "dat" {
-        return false;
+    if filenames.is_empty() {
+        return true;
     }
 
     filenames.iter().any(|filename| path.ends_with(filename))

@@ -22,8 +22,8 @@ pub struct TotalTestResults {
     failed: usize,
     /// How many failed assertions where position is not correct
     failed_position: usize,
-    /// The actual tests that have failed
-    tests_failed: Vec<(usize, usize, String)>,
+    /// The actual tests that have failed: (test_idx, line, scripting_enabled, document)
+    tests_failed: Vec<(usize, usize, bool, String)>,
 }
 #[derive(Clone, Debug, PartialEq)]
 struct Config;
@@ -44,7 +44,13 @@ impl HasHtmlParser for Config {
 fn main() {
     let mut results = TotalTestResults::default();
 
-    let filenames = Some(&["tests15.dat"][..]);
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let filename_refs: Vec<&str> = args.iter().map(String::as_str).collect();
+    let filenames = if filename_refs.is_empty() {
+        None
+    } else {
+        Some(filename_refs.as_slice())
+    };
     let fixtures = read_fixtures(filenames).expect("fixtures");
 
     for fixture_file in fixtures {
@@ -55,8 +61,8 @@ fn main() {
         );
 
         for (test_idx, test) in (1..).zip(fixture_file.tests) {
-            if test_idx == 10 {
-                run_test(test_idx, test, &mut results);
+            for &scripting_enabled in test.script_modes() {
+                run_test(test_idx, test.clone(), scripting_enabled, &mut results);
             }
         }
 
@@ -69,14 +75,15 @@ fn main() {
 
     if results.failed > 0 {
         println!("❌ Failed tests:");
-        for (test_idx, line, data) in results.tests_failed {
-            println!("  * Test #{test_idx} at line {line}:");
+        for (test_idx, line, scripting_enabled, data) in results.tests_failed {
+            let mode = if scripting_enabled { "scripting=on" } else { "scripting=off" };
+            println!("  * Test #{test_idx} at line {line} [{mode}]:");
             println!("    {data}");
         }
     }
 }
 
-fn run_test(test_idx: usize, test: Test, all_results: &mut TotalTestResults) {
+fn run_test(test_idx: usize, test: Test, scripting_enabled: bool, all_results: &mut TotalTestResults) {
     #[cfg(all(feature = "debug_parser_verbose", test))]
     println!("🧪 Running test #{test_idx}: {}:{}", test.file_path, test.line);
 
@@ -84,7 +91,7 @@ fn run_test(test_idx: usize, test: Test, all_results: &mut TotalTestResults) {
 
     let mut harness = Harness::new();
     let result = harness
-        .run_test::<Config>(test.clone(), false)
+        .run_test::<Config>(test.clone(), scripting_enabled)
         .expect("problem parsing");
 
     // #[cfg(all(feature = "debug_parser", not(test)))]
@@ -183,6 +190,6 @@ fn run_test(test_idx: usize, test: Test, all_results: &mut TotalTestResults) {
     if !result.is_success() {
         all_results
             .tests_failed
-            .push((test_idx, test.line, test.document_as_str().to_string()));
+            .push((test_idx, test.line, scripting_enabled, test.document_as_str().to_string()));
     }
 }
