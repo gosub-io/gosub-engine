@@ -29,6 +29,10 @@ path = "examples/gtk-renderer/main.rs"
 name = "vello-renderer"
 path = "examples/vello-renderer/main.rs"
 
+[[example]]
+name = "gtk-cairo"
+path = "examples/gtk-cairo/main.rs"
+
 [[bench]]
 name = "tree_iterator"
 harness = false
@@ -76,6 +80,10 @@ log = "0.4.29"
 anyhow = "1.0.102"
 image = "0.25.10"
 slotmap = "1.1.1"
+gosub_engine_api = { path = "./crates/gosub_engine_api", features = ["gtk4", "backend_cairo"] }
+once_cell = "1.21"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "io-util"] }
+uuid = { version = "1", features = ["v4", "macro-diagnostics"] }
 
 [features]
 # Enables extended debugging information during parsing.
