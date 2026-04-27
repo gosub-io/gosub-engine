@@ -36,9 +36,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/target
-          key: ubuntu-24.04-cargo-target-${{ matrix.rust_version }}-${{ hashFiles('**/Cargo.lock') }}
+          key: ubuntu-24.04-cargo-target-test-${{ matrix.rust_version }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ubuntu-24.04-cargo-target-${{ matrix.rust_version }}-
+            ubuntu-24.04-cargo-target-test-${{ matrix.rust_version }}-
       - name: Build and test
         run: cargo test --locked --verbose --all --no-fail-fast --all-features --all-targets
 
@@ -67,9 +67,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/target
-          key: ubuntu-24.04-cargo-target-${{ matrix.rust_version }}-${{ hashFiles('**/Cargo.lock') }}
+          key: ubuntu-24.04-cargo-target-clippy-${{ matrix.rust_version }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ubuntu-24.04-cargo-target-${{ matrix.rust_version }}-
+            ubuntu-24.04-cargo-target-clippy-${{ matrix.rust_version }}-
       - name: Run Clippy
         run: cargo clippy --locked --all --all-targets --all-features -- -D warnings
 
