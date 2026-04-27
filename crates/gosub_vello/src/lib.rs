@@ -36,6 +36,7 @@ mod text;
 mod transform;
 
 mod debug;
+pub mod engine_backend;
 #[cfg(feature = "vello_svg")]
 mod vello_svg;
 
