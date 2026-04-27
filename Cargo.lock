@@ -3622,6 +3622,7 @@ dependencies = [
  "anyhow",
  "cow-utils",
  "futures",
+ "gosub_engine_api",
  "gosub_fontmanager",
  "gosub_html5",
  "gosub_interface",
