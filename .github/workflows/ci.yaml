@@ -26,14 +26,14 @@ jobs:
       - name: Install dependencies
         run: sudo apt update -y && sudo apt install sqlite3 libsqlite3-dev libglib2.0-dev libcairo2-dev libgdk-pixbuf-2.0-dev libpango1.0-dev libgtk-4-dev -y
       - name: Cache cargo registry
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cargo/registry
           key: ubuntu-24.04-cargo-registry-${{ matrix.rust_version }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ubuntu-24.04-cargo-registry-${{ matrix.rust_version }}-
       - name: Cache cargo build
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ${{ github.workspace }}/target
           key: ubuntu-24.04-cargo-target-test-${{ matrix.rust_version }}-${{ hashFiles('**/Cargo.lock') }}
@@ -57,14 +57,14 @@ jobs:
       - name: Install dependencies
         run: sudo apt update -y && sudo apt install sqlite3 libsqlite3-dev libglib2.0-dev libcairo2-dev libgdk-pixbuf-2.0-dev libpango1.0-dev libgtk-4-dev -y
       - name: Cache cargo registry
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cargo/registry
           key: ubuntu-24.04-cargo-registry-${{ matrix.rust_version }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ubuntu-24.04-cargo-registry-${{ matrix.rust_version }}-
       - name: Cache cargo build
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ${{ github.workspace }}/target
           key: ubuntu-24.04-cargo-target-clippy-${{ matrix.rust_version }}-${{ hashFiles('**/Cargo.lock') }}
