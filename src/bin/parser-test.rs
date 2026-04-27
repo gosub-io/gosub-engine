@@ -76,7 +76,11 @@ fn main() {
     if results.failed > 0 {
         println!("❌ Failed tests:");
         for (test_idx, line, scripting_enabled, data) in results.tests_failed {
-            let mode = if scripting_enabled { "scripting=on" } else { "scripting=off" };
+            let mode = if scripting_enabled {
+                "scripting=on"
+            } else {
+                "scripting=off"
+            };
             println!("  * Test #{test_idx} at line {line} [{mode}]:");
             println!("    {data}");
         }
@@ -188,8 +192,11 @@ fn run_test(test_idx: usize, test: Test, scripting_enabled: bool, all_results: &
 
     // // Display additional data if there a failure is found
     if !result.is_success() {
-        all_results
-            .tests_failed
-            .push((test_idx, test.line, scripting_enabled, test.document_as_str().to_string()));
+        all_results.tests_failed.push((
+            test_idx,
+            test.line,
+            scripting_enabled,
+            test.document_as_str().to_string(),
+        ));
     }
 }

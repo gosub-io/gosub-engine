@@ -37,7 +37,7 @@ pub fn read_fixture_from_path(path: impl AsRef<Path>) -> Result<FixtureFile> {
 /// according to the list of given filenames. If no filenames are given, all fixtures are used.
 fn use_fixture(filenames: &[&str], path: impl AsRef<Path>) -> bool {
     let path = path.as_ref();
-    if !path.is_file() || path.extension().map_or(true, |ext| ext != "dat") {
+    if !path.is_file() || path.extension().is_none_or(|ext| ext != "dat") {
         return false;
     }
 
