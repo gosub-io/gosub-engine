@@ -1294,7 +1294,7 @@ checksum = "fe6d2e5af09e8c8ad56c969f2157a3d4238cebc7c55f0a517728c38f7b200f81"
 dependencies = [
  "serde",
  "termcolor",
- "unicode-width 0.1.14",
+ "unicode-width 0.2.0",
 ]
 
 [[package]]
@@ -1390,6 +1390,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4ca0197aee26d1ae37445ee532fefce43251d24cc7c166799f4d46817f1d3973"
 dependencies = [
  "crossbeam-utils",
+]
+
+[[package]]
+name = "console"
+version = "0.15.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "054ccb5b10f9f2cbf51eb355ca1d05c2d279ce1804688d0db74b4733a5aeafd8"
+dependencies = [
+ "encode_unicode",
+ "libc",
+ "once_cell",
+ "unicode-width 0.2.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -3305,9 +3318,11 @@ version = "0.1.1"
 dependencies = [
  "anyhow",
  "clap",
+ "console-subscriber",
  "console_error_panic_hook",
  "console_log",
  "cookie",
+ "cow-utils",
  "criterion",
  "derive_more",
  "eframe",
@@ -3332,14 +3347,21 @@ dependencies = [
  "gosub_vello",
  "gosub_webexecutor",
  "gtk4",
+ "http",
  "image",
+ "indicatif 0.17.11",
  "js-sys",
  "log",
  "once_cell",
+ "parking_lot",
+ "rand 0.9.2",
  "simple_logger",
  "slotmap",
  "test-case",
  "tokio",
+ "tracing",
+ "tracing-log",
+ "tracing-subscriber",
  "ureq",
  "url",
  "uuid",
@@ -3379,7 +3401,7 @@ dependencies = [
  "hashbrown 0.15.5",
  "http",
  "image",
- "indicatif",
+ "indicatif 0.18.4",
  "lazy_static",
  "log",
  "mime",
@@ -4429,11 +4451,24 @@ dependencies = [
 
 [[package]]
 name = "indicatif"
+version = "0.17.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "183b3088984b400f4cfac3620d5e076c84da5364016b4f49473de574b2586235"
+dependencies = [
+ "console 0.15.11",
+ "number_prefix",
+ "portable-atomic",
+ "unicode-width 0.2.0",
+ "web-time",
+]
+
+[[package]]
+name = "indicatif"
 version = "0.18.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "25470f23803092da7d239834776d653104d551bc4d7eacaf31e6837854b8e9eb"
 dependencies = [
- "console",
+ "console 0.16.3",
  "portable-atomic",
  "unicode-width 0.2.0",
  "unit-prefix",
@@ -5280,6 +5315,12 @@ checksum = "5c7398b9c8b70908f6371f47ed36737907c87c52af34c268fed0bf0ceb92ead9"
 dependencies = [
  "libc",
 ]
+
+[[package]]
+name = "number_prefix"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "830b246a0e5f20af87141b25c173cd1b609bd7779a4617d6ec582abaf90870f3"
 
 [[package]]
 name = "objc"

@@ -7,14 +7,6 @@ edition = "2021"
 name = "gosub_engine_api"
 crate-type = ["rlib"]
 
-[[example]]
-name = "hello_world"
-path = "examples/hello_world.rs"
-
-[[example]]
-name = "multi_tab"
-path = "examples/multi_tab.rs"
-
 [dependencies]
 uuid = { version = "1.17.0", features = ["v4", "serde"] }
 reqwest = { version = "0.12.22", features = ["json", "gzip", "brotli", "deflate", "cookies", "rustls-tls", "stream"] }

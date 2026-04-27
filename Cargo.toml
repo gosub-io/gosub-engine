@@ -30,6 +30,14 @@ name = "vello-renderer"
 path = "examples/vello-renderer/main.rs"
 
 [[example]]
+name = "hello-world"
+path = "examples/hello-world.rs"
+
+[[example]]
+name = "multi-tab"
+path = "examples/multi-tab.rs"
+
+[[example]]
 name = "gtk-cairo"
 path = "examples/gtk-cairo/main.rs"
 
@@ -90,6 +98,15 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"
 uuid = { version = "1", features = ["v4", "macro-diagnostics"] }
 eframe = { version = "0.31", features = ["wgpu"] }
 egui = "0.31"
+indicatif = "0.17"
+parking_lot = "0.12"
+rand = "0.9"
+cow-utils = "0.1"
+http = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+tracing-log = "0.2"
+console-subscriber = "0.4"
 
 [features]
 # Enables extended debugging information during parsing.
