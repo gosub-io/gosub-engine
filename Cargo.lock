@@ -3242,9 +3242,11 @@ dependencies = [
 name = "gosub_cairo"
 version = "0.1.1"
 dependencies = [
+ "anyhow",
  "cairo-rs 0.22.0",
  "cairo-sys-rs 0.22.0",
  "freetype-rs",
+ "gosub_engine_api",
  "gosub_fontmanager",
  "gosub_interface",
  "gosub_shared",
