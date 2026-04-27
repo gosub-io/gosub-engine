@@ -14,6 +14,9 @@ keywords = ["html5", "parser", "browser", "Rust", "DOM"]
 members = [
     "crates/*"
 ]
+exclude = [
+    "crates/gosub_storage",
+]
 
 [[example]]
 name = "html5-parser"

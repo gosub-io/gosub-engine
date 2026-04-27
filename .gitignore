@@ -6,7 +6,6 @@
 target/
 
 # Local testing
-local/
 
 # Misc files
 settings.db
