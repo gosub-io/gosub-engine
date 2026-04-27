@@ -3503,6 +3503,7 @@ dependencies = [
  "derive_more",
  "domain-lookup-tree",
  "gosub_config",
+ "gosub_engine_api",
  "gosub_shared",
  "hickory-resolver",
  "js-sys",

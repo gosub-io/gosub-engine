@@ -11,3 +11,7 @@ extern crate gosub_config;
 pub mod dns;
 pub mod errors;
 pub mod http;
+
+pub mod engine_net {
+    pub use gosub_engine_api::net::*;
+}

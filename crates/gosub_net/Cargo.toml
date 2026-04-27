@@ -9,6 +9,7 @@ description = "Network utitilies"
 [dependencies]
 gosub_shared = { version = "0.1.1", registry = "gosub", path = "../gosub_shared", features = [] }
 gosub_config = { version = "0.1.1", registry = "gosub", path = "../gosub_config", features = [] }
+gosub_engine_api = { version = "0.1.0", path = "../gosub_engine_api" }
 derive_more = { version = "2", features = ["from", "display"] }
 thiserror = "2.0.18"
 anyhow = "1.0.102"
