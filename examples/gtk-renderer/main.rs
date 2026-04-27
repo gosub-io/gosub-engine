@@ -167,5 +167,5 @@ fn build_ui(app: &Application, cl: &ApplicationCommandLine) -> glib::ExitCode {
     window.set_default_height(600);
     window.present();
 
-    glib::ExitCode::FAILURE
+    glib::ExitCode::SUCCESS
 }

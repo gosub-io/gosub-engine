@@ -15,7 +15,7 @@ use std::process::exit;
 use std::str::FromStr;
 use url::Url;
 
-fn bail(message: &str) -> ! {
+fn fatal(message: &str) -> ! {
     println!("{message}");
     exit(1);
 }
@@ -52,7 +52,7 @@ fn main() -> Result<()> {
         .unwrap()
         .to_string();
 
-    let url = Url::from_str(&url).unwrap_or_else(|_| bail("Invalid url"));
+    let url = Url::from_str(&url).unwrap_or_else(|_| fatal("Invalid url"));
 
     println!("Parsing url: {url:?}");
 
@@ -67,7 +67,7 @@ fn main() -> Result<()> {
         // Get html from the file
         fs::read_to_string(url.to_string().trim_start_matches("file://"))?
     } else {
-        bail("Invalid url scheme");
+        fatal("Invalid url scheme");
     };
 
     let mut stream = ByteStream::new(Encoding::UTF8, None);
