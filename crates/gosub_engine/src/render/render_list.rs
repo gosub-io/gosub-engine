@@ -180,7 +180,7 @@ pub enum DisplayItem {
 /// # Example
 ///
 /// ```rust
-/// use gosub_engine_api::render::{RenderList, DisplayItem, Color};
+/// use gosub_engine::render::{RenderList, DisplayItem, Color};
 ///
 /// let mut list = RenderList::new();
 ///

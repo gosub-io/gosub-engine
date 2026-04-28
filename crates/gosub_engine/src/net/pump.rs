@@ -81,13 +81,13 @@ pub struct PumpTargets {
 /// # use tokio::io::AsyncRead;
 /// # use tokio_util::sync::CancellationToken;
 /// # use url::Url;
-/// # use gosub_engine_api::net::{SharedBody, types::NetError};
-/// # use gosub_engine_api::net::events::NetObserver;
+/// # use gosub_engine::net::{SharedBody, types::NetError};
+/// # use gosub_engine::net::events::NetObserver;
 /// # async fn get_reader() -> impl AsyncRead + Unpin + Send + 'static { tokio::io::empty() }
 /// # struct Obs; impl NetObserver for Obs {
-/// #   fn on_event(&self, _e: gosub_engine_api::net::events::NetEvent) {}
+/// #   fn on_event(&self, _e: gosub_engine::net::events::NetEvent) {}
 /// # }
-/// use gosub_engine_api::net::pump::{spawn_pump, PumpCfg, PumpTargets};
+/// use gosub_engine::net::pump::{spawn_pump, PumpCfg, PumpTargets};
 ///
 /// let reader = get_reader().await;
 /// let shared = Arc::new(SharedBody::new(32));

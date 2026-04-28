@@ -17,7 +17,7 @@ pub struct DevicePixelRatio(pub f64);
 ///
 /// Creating a viewport and passing it to a new tab:
 /// ```
-/// use gosub_engine_api::render::Viewport;
+/// use gosub_engine::render::Viewport;
 ///
 /// // 800x600 at the origin
 /// let viewport = Viewport::new(0, 0, 800, 600);
@@ -25,7 +25,7 @@ pub struct DevicePixelRatio(pub f64);
 ///
 /// Resizing and moving a viewport:
 /// ```
-/// use gosub_engine_api::render::Viewport;
+/// use gosub_engine::render::Viewport;
 ///
 /// let mut vp = Viewport::new(0, 0, 800, 600);
 /// vp.resize(1024, 768);
@@ -37,7 +37,7 @@ pub struct DevicePixelRatio(pub f64);
 ///
 /// Computing aspect ratio:
 /// ```
-/// use gosub_engine_api::render::Viewport;
+/// use gosub_engine::render::Viewport;
 ///
 /// let vp = Viewport::new(0, 0, 1920, 1080);
 /// assert_eq!(vp.aspect_ratio(), 1920.0 / 1080.0);
@@ -45,7 +45,7 @@ pub struct DevicePixelRatio(pub f64);
 ///
 /// Converting to a [`SurfaceSize`] for backend use:
 /// ```
-/// use gosub_engine_api::render::{Viewport, backend::SurfaceSize};
+/// use gosub_engine::render::{Viewport, backend::SurfaceSize};
 ///
 /// let vp = Viewport::new(0, 0, 1280, 720);
 /// let size: SurfaceSize = vp.as_size();

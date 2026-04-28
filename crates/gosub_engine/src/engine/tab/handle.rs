@@ -65,7 +65,7 @@ impl TabHandle {
     ///
     /// # Example
     /// ```no_run,ignore
-    /// use gosub_engine_api::render::Viewport;
+    /// use gosub_engine::render::Viewport;
     ///
     /// let viewport = Viewport { x: 0.0, y: 0.0, width: 1280.0, height: 720.0 };
     /// tab_handle.set_viewport(viewport);

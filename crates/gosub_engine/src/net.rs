@@ -44,7 +44,7 @@
 //!
 //! ### Spawning the I/O thread once at engine startup
 //! ```rust,ignore
-//! use gosub_engine_api::net::{spawn_io_thread, IoHandle};
+//! use gosub_engine::net::{spawn_io_thread, IoHandle};
 //!
 //! // Typically done during Engine::start()
 //! let io_handle: IoHandle = spawn_io_thread()?;
@@ -54,7 +54,7 @@
 //! ### Submitting a fetch job to the I/O thread
 //! ```rust,ignore
 //! use std::sync::Arc;
-//! use gosub_engine_api::net::{submit_to_io, FetcherConfig, route_response_for};
+//! use gosub_engine::net::{submit_to_io, FetcherConfig, route_response_for};
 //!
 //! async fn fetch_and_route(io: &Arc<IoHandle>, url: &str) -> anyhow::Result<()> {
 //!     // Configure the fetcher (timeouts, limits, etc.)
@@ -77,7 +77,7 @@
 //!
 //! ### Working with a streamed body
 //! ```rust,ignore
-//! use gosub_engine_api::net::SharedBody;
+//! use gosub_engine::net::SharedBody;
 //!
 //! async fn consume_streamed(body: SharedBody) -> anyhow::Result<()> {
 //!     let mut reader = body.reader().await;

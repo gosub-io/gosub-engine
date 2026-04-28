@@ -1,4 +1,4 @@
-use gosub_engine_api::{
+use gosub_engine::{
     cookies::DefaultCookieJar,
     events::EngineEvent,
     render::{DefaultCompositor, Viewport},
@@ -8,8 +8,8 @@ use gosub_engine_api::{
     EngineConfig, EngineError, GosubEngine,
 };
 
-use gosub_engine_api::events::{NavigationEvent, ResourceEvent};
-use gosub_engine_api::tab::{TabDefaults, TabId};
+use gosub_engine::events::{NavigationEvent, ResourceEvent};
+use gosub_engine::tab::{TabDefaults, TabId};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
@@ -80,7 +80,7 @@ async fn main() -> Result<(), EngineError> {
 
     // Set up a render backend. In this example we use the NullBackend which does not render
     // anything.
-    let backend = gosub_engine_api::render::backends::null::NullBackend::new().expect("null backend");
+    let backend = gosub_engine::render::backends::null::NullBackend::new().expect("null backend");
 
     // Instantiate and start the engine
     let mut engine = GosubEngine::new(

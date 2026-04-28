@@ -31,7 +31,7 @@
 //! via `serde` to JSON or other formats.
 //!
 //! ```rust,no_run
-//! use gosub_engine_api::cookies::Cookie;
+//! use gosub_engine::cookies::Cookie;
 //!
 //! let c = Cookie {
 //!     name: "session".into(),

@@ -6,14 +6,14 @@ use crate::wgpu_context_provider::EguiWgpuContextProvider;
 use eframe::{egui, CreationContext};
 use egui::load::SizedTexture;
 use egui::StrokeKind;
-use gosub_engine_api::cookies::SqliteCookieStore;
-use gosub_engine_api::events::{EngineEvent, NavigationEvent, TabCommand};
-use gosub_engine_api::render::backend::ExternalHandle;
-use gosub_engine_api::render::{DefaultCompositor, Viewport};
-use gosub_engine_api::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};
-use gosub_engine_api::tab::{TabDefaults, TabHandle, TabId};
-use gosub_engine_api::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
-use gosub_engine_api::GosubEngine;
+use gosub_engine::cookies::SqliteCookieStore;
+use gosub_engine::events::{EngineEvent, NavigationEvent, TabCommand};
+use gosub_engine::render::backend::ExternalHandle;
+use gosub_engine::render::{DefaultCompositor, Viewport};
+use gosub_engine::storage::{InMemorySessionStore, PartitionPolicy, SqliteLocalStore, StorageService};
+use gosub_engine::tab::{TabDefaults, TabHandle, TabId};
+use gosub_engine::zone::{Zone, ZoneConfig, ZoneId, ZoneServices};
+use gosub_engine::GosubEngine;
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -64,7 +64,7 @@ impl GosubApp {
 
         let compositor = Arc::new(RwLock::new(DefaultCompositor::default()));
 
-        let backend = gosub_engine_api::render::backends::null::NullBackend::new().expect("NullBackend::new failed");
+        let backend = gosub_engine::render::backends::null::NullBackend::new().expect("NullBackend::new failed");
         let mut engine = GosubEngine::new(None, Arc::new(backend), compositor.clone());
         let _engine_join_handle = engine.start().expect("Engine start failed");
         let _event_rx = engine.subscribe_events();
@@ -80,7 +80,7 @@ impl GosubApp {
             .expect("ZoneConfig is not valid");
 
         let sqlite_store = SqliteCookieStore::new(".gosub-gtk-cookie-store.db".into());
-        let cookie_store: gosub_engine_api::cookies::CookieStoreHandle = sqlite_store.into();
+        let cookie_store: gosub_engine::cookies::CookieStoreHandle = sqlite_store.into();
 
         let zone_services = ZoneServices {
             storage: Arc::new(StorageService::new(

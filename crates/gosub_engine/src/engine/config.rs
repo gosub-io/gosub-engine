@@ -14,7 +14,7 @@
 //!
 //! ## Default engine configuration
 //! ```rust
-//! use gosub_engine_api::EngineConfig;
+//! use gosub_engine::EngineConfig;
 //!
 //! let engine_cfg = EngineConfig::default();
 //! assert_eq!(engine_cfg.max_zones, 8);
@@ -23,15 +23,15 @@
 //! ## Customized configuration with builder
 //! ```rust
 //! use std::time::Duration;
-//! use gosub_engine_api::EngineConfig;
+//! use gosub_engine::EngineConfig;
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let cfg = EngineConfig::builder()
 //!     .user_agent("Gosub/0.2 (+https://gosub.dev)")
 //!     .max_zones(12)
 //!     .connect_timeout(Duration::from_secs(5))
-//!     .redirect_policy(gosub_engine_api::config::RedirectPolicy::Follow(5))
-//!     .gpu(gosub_engine_api::config::GpuOptions {
+//!     .redirect_policy(gosub_engine::config::RedirectPolicy::Follow(5))
+//!     .gpu(gosub_engine::config::GpuOptions {
 //!         prefer_low_power: false,
 //!         msaa_samples: 4,
 //!         vsync: true,

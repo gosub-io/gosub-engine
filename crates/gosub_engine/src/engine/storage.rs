@@ -43,10 +43,10 @@
 //!
 //! ```rust,no_run
 //! use std::sync::Arc;
-//! use gosub_engine_api::GosubEngine;
-//! use gosub_engine_api::render::backends::null::NullBackend;
-//! use gosub_engine_api::zone::{ZoneConfig, ZoneServices};
-//! use gosub_engine_api::storage::{StorageService, InMemoryLocalStore, InMemorySessionStore, PartitionPolicy};
+//! use gosub_engine::GosubEngine;
+//! use gosub_engine::render::backends::null::NullBackend;
+//! use gosub_engine::zone::{ZoneConfig, ZoneServices};
+//! use gosub_engine::storage::{StorageService, InMemoryLocalStore, InMemorySessionStore, PartitionPolicy};
 //!
 //! # async fn demo() -> anyhow::Result<()> {
 //! // 1) Build a storage service (persistent local area could be swapped in later)
@@ -57,7 +57,7 @@
 //!
 //! // 2) Engine + backend
 //! let backend = NullBackend::new()?;
-//! let compositor = gosub_engine_api::render::DefaultCompositor::default();
+//! let compositor = gosub_engine::render::DefaultCompositor::default();
 //! let mut engine_handle = GosubEngine::new(
 //!     None,
 //!     Arc::new(backend),

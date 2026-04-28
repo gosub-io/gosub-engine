@@ -9,16 +9,16 @@ use vello::peniko::{Color as VelloColor, Fill};
 use vello::wgpu;
 use vello::{AaConfig, RenderParams, Renderer as VelloRenderer, Scene};
 
-use gosub_engine_api::render::backend::{
+use gosub_engine::render::backend::{
     ErasedSurface, ExternalHandle, GpuPixelFormat, PresentMode, RenderBackend as EngineRenderBackend, RgbaImage,
     SurfaceSize,
 };
-use gosub_engine_api::render::DisplayItem;
-use gosub_engine_api::BrowsingContext;
+use gosub_engine::render::DisplayItem;
+use gosub_engine::BrowsingContext;
 
 use crate::render::InstanceAdapter;
 
-/// Off-screen Vello/wgpu surface used by the `gosub_engine_api::RenderBackend` path.
+/// Off-screen Vello/wgpu surface used by the `gosub_engine::RenderBackend` path.
 struct VelloEngineSurface {
     id: u64,
     size: SurfaceSize,
@@ -37,7 +37,7 @@ impl ErasedSurface for VelloEngineSurface {
     }
 }
 
-/// Vello rendering backend for the new `gosub_engine_api::RenderBackend` path.
+/// Vello rendering backend for the new `gosub_engine::RenderBackend` path.
 ///
 /// Owns its own wgpu device/queue and Vello renderer. Distinct from [`crate::VelloBackend`]
 /// which implements the old `gosub_interface::RenderBackend` and obtains its wgpu context

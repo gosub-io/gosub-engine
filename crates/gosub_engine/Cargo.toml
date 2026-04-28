@@ -1,19 +1,11 @@
 [package]
-name = "gosub_engine_api"
+name = "gosub_engine"
 version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "gosub_engine_api"
+name = "gosub_engine"
 crate-type = ["rlib"]
-
-[[example]]
-name = "hello_world"
-path = "examples/hello_world.rs"
-
-[[example]]
-name = "multi_tab"
-path = "examples/multi_tab.rs"
 
 [dependencies]
 uuid = { version = "1.17.0", features = ["v4", "serde"] }
