@@ -92,7 +92,7 @@ impl GosubEngine {
     /// If `config` is `None`, [`EngineConfig::default`] is used.
     ///
     /// ```
-    /// # use gosub_engine_api as ge;
+    /// # use gosub_engine as ge;
     /// # use std::sync::{Arc, RwLock};
     /// let backend = ge::render::backends::null::NullBackend::new().unwrap();
     /// let compositor = ge::render::DefaultCompositor::default();
