@@ -60,7 +60,7 @@ futures-intrusive = "0.5.0"
 parley = "0.7.0"
 fontique = "0.7.0"
 hashbrown = "0.15.5"
-skrifa = "0.40.0"
+skrifa = "0.42.1"
 num_cpus = "1.17.0"
 time = "0.3.41"
 tokio-util = { version = "0.7.16", features = ["io"] }
