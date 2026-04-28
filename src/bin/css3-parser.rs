@@ -53,11 +53,11 @@ fn main() -> Result<()> {
 
     let css = if url.starts_with("http://") || url.starts_with("https://") {
         // Fetch the html from the url
-        let mut response = ureq::get(&url).call()?;
-        if response.status() != 200 {
-            bail!(format!("Could not get url. Status code {}", response.status()));
+        let response = reqwest::blocking::get(&url)?;
+        if response.status().as_u16() != 200 {
+            bail!("Could not get url. Status code {}", response.status());
         }
-        response.body_mut().read_to_string()?
+        response.text()?
     } else if url.starts_with("file://") {
         let path = url.trim_start_matches("file://");
         fs::read_to_string(path)?

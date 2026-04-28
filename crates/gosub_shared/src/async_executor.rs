@@ -46,8 +46,8 @@ pub fn spawn<F: Future<Output = ()> + WasmNotSend + 'static>(f: F) {
 pub fn spawn_from<F: Future<Output = ()> + 'static>(f: impl FnOnce() -> F + 'static + WasmNotSend) {
     #[cfg(target_arch = "wasm32")]
     {
-        let fut = f(ctx);
-        wasm_bindgen_futures::spawn_local(f);
+        let fut = f();
+        wasm_bindgen_futures::spawn_local(fut);
     }
 
     #[cfg(not(target_arch = "wasm32"))]

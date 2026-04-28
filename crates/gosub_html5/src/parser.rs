@@ -4109,14 +4109,14 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
     fn load_external_stylesheet(&self, origin: CssOrigin, url: Url) -> Option<C::Stylesheet> {
         let css = if url.scheme() == "http" || url.scheme() == "https" {
             // Fetch the html from the url
-            let response = ureq::get(url.as_ref()).call();
+            let response = reqwest::blocking::get(url.as_str());
             if let Err(err) = response {
                 warn!("Could not load external stylesheet from {}. Error: {}", url, err);
                 return None;
             }
-            let mut response = response.expect("result");
+            let response = response.unwrap();
 
-            if response.status() != 200 {
+            if response.status().as_u16() != 200 {
                 warn!(
                     "Could not load external stylesheet from {}. Status code {} ",
                     url,
@@ -4137,7 +4137,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 }
             }
 
-            match response.body_mut().read_to_string() {
+            match response.text() {
                 Ok(css) => css,
                 Err(err) => {
                     warn!("Could not load external stylesheet from {url}. Error: {err}");

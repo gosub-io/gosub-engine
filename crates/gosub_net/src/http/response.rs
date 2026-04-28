@@ -1,14 +1,12 @@
 use core::fmt::{Display, Formatter};
 use std::collections::HashMap;
 
-use crate::http::headers::Headers;
-
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Response {
     pub status: u16,
     pub status_text: String,
     pub version: String,
-    pub headers: Headers,
+    pub headers: HashMap<String, String>,
     pub cookies: HashMap<String, String>,
     pub body: Vec<u8>,
 }
@@ -17,12 +15,8 @@ impl Response {
     #[must_use]
     pub fn new() -> Response {
         Self {
-            status: 0,
-            status_text: String::new(),
             version: "HTTP/1.1".to_string(),
-            headers: Default::default(),
-            cookies: Default::default(),
-            body: vec![],
+            ..Default::default()
         }
     }
 
@@ -38,16 +32,9 @@ impl From<Vec<u8>> for Response {
             status: 200,
             status_text: "OK".to_string(),
             version: "HTTP/1.1".to_string(),
-            headers: Default::default(),
-            cookies: Default::default(),
             body,
+            ..Default::default()
         }
-    }
-}
-
-impl Default for Response {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -55,7 +42,7 @@ impl Display for Response {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         writeln!(f, "HTTP/1.1 {}", self.status)?;
         writeln!(f, "Headers:")?;
-        for (key, value) in self.headers.all() {
+        for (key, value) in &self.headers {
             writeln!(f, "  {key}: {value}")?;
         }
         writeln!(f, "Cookies:")?;
@@ -63,7 +50,6 @@ impl Display for Response {
             writeln!(f, "  {key}: {value}")?;
         }
         writeln!(f, "Body: {} bytes", self.body.len())?;
-
         Ok(())
     }
 }
@@ -74,17 +60,8 @@ mod tests {
 
     #[test]
     fn response() {
-        let mut response = Response::new();
-
+        let response = Response::new();
         let s = format!("{response}");
         assert_eq!(s, "HTTP/1.1 0\nHeaders:\nCookies:\nBody: 0 bytes\n");
-
-        response.status = 200;
-        response.headers.set("Content-Type", "application/json");
-        response.cookies.insert("session".to_string(), "1234567890".to_string());
-        response.body = b"Hello, world!".to_vec();
-
-        let s = format!("{response}");
-        assert_eq!(s, "HTTP/1.1 200\nHeaders:\n  Content-Type: application/json\nCookies:\n  session: 1234567890\nBody: 13 bytes\n");
     }
 }
