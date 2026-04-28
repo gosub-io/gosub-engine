@@ -29,8 +29,20 @@ jobs:
           cache-targets: "false"
       - name: Install dependencies
         run: sudo apt update -y && sudo apt install sqlite3 libsqlite3-dev libglib2.0-dev libcairo2-dev libgdk-pixbuf-2.0-dev libpango1.0-dev libgtk-4-dev -y
+      - name: Cache cargo registry
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/registry
+          key: ubuntu-24.04-cargo-registry-${{ matrix.rust_version }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ubuntu-24.04-cargo-registry-${{ matrix.rust_version }}-
+      - uses: taiki-e/install-action@nextest
       - name: Build and test
-        run: cargo test --locked --verbose --all --no-fail-fast --all-features --all-targets
+        run: cargo nextest run --locked --all --no-fail-fast
+      - name: Doctests
+        run: cargo test --doc --locked --all
+      - name: Check all features compile
+        run: cargo check --locked --all --all-features
 
   clippy:
     runs-on: ubuntu-24.04
@@ -50,8 +62,17 @@ jobs:
           cache-targets: "false"
       - name: Install dependencies
         run: sudo apt update -y && sudo apt install sqlite3 libsqlite3-dev libglib2.0-dev libcairo2-dev libgdk-pixbuf-2.0-dev libpango1.0-dev libgtk-4-dev -y
+      - name: Cache cargo registry
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/registry
+          key: ubuntu-24.04-cargo-registry-${{ matrix.rust_version }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ubuntu-24.04-cargo-registry-${{ matrix.rust_version }}-
       - name: Run Clippy
-        run: cargo clippy --locked --all --all-targets --all-features -- -D warnings
+        run: cargo clippy --locked --all --all-targets -- -D warnings
+      - name: Check all features compile
+        run: cargo check --locked --all --all-features
 
   fmt:
     runs-on: ubuntu-24.04
