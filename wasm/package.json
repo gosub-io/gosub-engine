@@ -8,7 +8,7 @@
   "type": "module",
   "devDependencies": {
     "@types/bun": "latest",
-    "vite": "^5.4.7"
+    "vite": "^6.4.2"
   },
   "peerDependencies": {
     "typescript": "^5.0.0"
