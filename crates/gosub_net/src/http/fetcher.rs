@@ -43,7 +43,11 @@ impl Fetcher {
         let resp = self.client.get(url.as_str()).send().await?;
         let status = resp.status().as_u16();
         let body = resp.bytes().await?.to_vec();
-        Ok(Response { status, body, ..Response::default() })
+        Ok(Response {
+            status,
+            body,
+            ..Response::default()
+        })
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -66,8 +70,7 @@ impl Fetcher {
         opts.set_method("GET");
         opts.set_mode(RequestMode::Cors);
 
-        let request = web_sys::Request::new_with_str_and_init(url.as_str(), &opts)
-            .map_err(|e| anyhow!("{e:?}"))?;
+        let request = web_sys::Request::new_with_str_and_init(url.as_str(), &opts).map_err(|e| anyhow!("{e:?}"))?;
 
         let window = web_sys::window().ok_or_else(|| anyhow!("No window"))?;
         let resp_val = JsFuture::from(window.fetch_with_request(&request))
@@ -84,7 +87,11 @@ impl Fetcher {
         let array: ArrayBuffer = buf.dyn_into().map_err(|e| anyhow!("{e:?}"))?;
         let body = Uint8Array::new(&array).to_vec();
 
-        Ok(Response { status, body, ..Response::default() })
+        Ok(Response {
+            status,
+            body,
+            ..Response::default()
+        })
     }
 
     pub async fn get(&self, url: &str) -> Result<Response> {
