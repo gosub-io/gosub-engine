@@ -47,7 +47,11 @@ impl Fetcher {
         let resp = self.client.get(url.as_str()).send().await?;
         let status = resp.status().as_u16();
         let body = resp.bytes().await?.to_vec();
-        Ok(Response { status, body, ..Response::default() })
+        Ok(Response {
+            status,
+            body,
+            ..Response::default()
+        })
     }
 
     pub async fn get(&self, url: &str) -> Result<Response> {
