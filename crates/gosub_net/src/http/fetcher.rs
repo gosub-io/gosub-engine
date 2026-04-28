@@ -7,7 +7,6 @@ use super::response::Response;
 #[derive(Debug)]
 pub struct Fetcher {
     base_url: Url,
-    #[cfg(not(target_arch = "wasm32"))]
     client: reqwest::Client,
 }
 
@@ -16,7 +15,6 @@ impl Fetcher {
     pub fn new(base: Url) -> Self {
         Self {
             base_url: base,
-            #[cfg(not(target_arch = "wasm32"))]
             client: reqwest::Client::builder()
                 .use_rustls_tls()
                 .build()
@@ -29,7 +27,6 @@ impl Fetcher {
         &self.base_url
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
     pub async fn get_url(&self, url: &Url) -> Result<Response> {
         let scheme = url.scheme();
         if scheme == "file" {
@@ -50,7 +47,6 @@ impl Fetcher {
         })
     }
 
-    #[cfg(target_arch = "wasm32")]
     pub async fn get_url(&self, url: &Url) -> Result<Response> {
         use anyhow::anyhow;
         use js_sys::{ArrayBuffer, Uint8Array};
