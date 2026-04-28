@@ -37,7 +37,7 @@ jobs:
 
       # Delete comment when author is in AUTHORS file and we have a comment id
       - name: Delete comment
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         if: steps.author_found.outputs.found == '0' && steps.fc.outputs.comment-id != ''
         with:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
