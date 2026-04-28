@@ -254,12 +254,23 @@ async fn handle_event(ev: EngineEvent, tab_handle: TabHandle) {
                 NavigationEvent::FailedUrl { url, error, .. } => {
                     println!("[nav ] failed-url [{t}] {url}  ({error:?})");
                 }
-                NavigationEvent::Progress { received_bytes, expected_length, elapsed, .. } => {
+                NavigationEvent::Progress {
+                    received_bytes,
+                    expected_length,
+                    elapsed,
+                    ..
+                } => {
                     let kb = received_bytes / 1024;
-                    let total = expected_length.map(|n| format!("{} KB", n / 1024)).unwrap_or_else(|| "?".into());
+                    let total = expected_length
+                        .map(|n| format!("{} KB", n / 1024))
+                        .unwrap_or_else(|| "?".into());
                     println!("[nav ] progress  [{t}] {kb} KB / {total}  ({})", fmt_elapsed(elapsed));
                 }
-                NavigationEvent::DecisionRequired { nav_id, meta, decision_token } => {
+                NavigationEvent::DecisionRequired {
+                    nav_id,
+                    meta,
+                    decision_token,
+                } => {
                     // The engine fetched response headers and needs us to decide: render or download?
                     // We inspect content-type and content-disposition and reply with Action::Render or Action::Download.
                     println!("[nav ] decision  [{t}] {}", short(&nav_id));
@@ -275,7 +286,9 @@ async fn handle_event(ev: EngineEvent, tab_handle: TabHandle) {
         EngineEvent::Resource { tab_id, event } => {
             let t = short(&tab_id);
             match event {
-                ResourceEvent::Queued { url, kind, priority, .. } => {
+                ResourceEvent::Queued {
+                    url, kind, priority, ..
+                } => {
                     println!("[res ] queued    [{t}] {kind:?} pri={priority}  {url}");
                 }
                 ResourceEvent::Started { url, .. } => {
@@ -284,17 +297,37 @@ async fn handle_event(ev: EngineEvent, tab_handle: TabHandle) {
                 ResourceEvent::Redirected { from, to, status, .. } => {
                     println!("[res ] redirect  [{t}] {status}  {from}  →  {to}");
                 }
-                ResourceEvent::Headers { url, status, content_type, content_length, .. } => {
+                ResourceEvent::Headers {
+                    url,
+                    status,
+                    content_type,
+                    content_length,
+                    ..
+                } => {
                     let ct = content_type.as_deref().unwrap_or("-");
-                    let cl = content_length.map(|n| format!("{n} B")).unwrap_or_else(|| "unknown".into());
+                    let cl = content_length
+                        .map(|n| format!("{n} B"))
+                        .unwrap_or_else(|| "unknown".into());
                     println!("[res ] headers   [{t}] {status}  {ct}  {cl}  {url}");
                 }
-                ResourceEvent::Progress { received_bytes, expected_length, elapsed, .. } => {
+                ResourceEvent::Progress {
+                    received_bytes,
+                    expected_length,
+                    elapsed,
+                    ..
+                } => {
                     let kb = received_bytes / 1024;
-                    let total = expected_length.map(|n| format!("{} KB", n / 1024)).unwrap_or_else(|| "?".into());
+                    let total = expected_length
+                        .map(|n| format!("{} KB", n / 1024))
+                        .unwrap_or_else(|| "?".into());
                     println!("[res ] progress  [{t}] {kb} KB / {total}  ({})", fmt_elapsed(elapsed));
                 }
-                ResourceEvent::Finished { url, received_bytes, elapsed, .. } => {
+                ResourceEvent::Finished {
+                    url,
+                    received_bytes,
+                    elapsed,
+                    ..
+                } => {
                     let kb = received_bytes as f64 / 1024.0;
                     let elapsed = elapsed.map(fmt_elapsed).unwrap_or_else(|| "-".into());
                     println!("[res ] finished  [{t}] {kb:.1} KB  {elapsed}  {url}");

@@ -185,14 +185,14 @@ fn print_stylesheet(sheet: &CssStylesheet) {
                 println!("      [Selector]");
                 for part in parts {
                     match part {
-                        CssSelectorPart::Type(t)         => println!("        [Type] {t}"),
-                        CssSelectorPart::Class(c)        => println!("        [Class] .{c}"),
-                        CssSelectorPart::Id(i)           => println!("        [Id] #{i}"),
-                        CssSelectorPart::Universal       => println!("        [Universal] *"),
-                        CssSelectorPart::PseudoClass(p)  => println!("        [PseudoClass] :{p}"),
-                        CssSelectorPart::PseudoElement(p)=> println!("        [PseudoElement] ::{p}"),
-                        CssSelectorPart::Combinator(c)   => println!("        [Combinator] {c:?}"),
-                        CssSelectorPart::Attribute(a)    => println!("        [Attribute] [{}]", a.name),
+                        CssSelectorPart::Type(t) => println!("        [Type] {t}"),
+                        CssSelectorPart::Class(c) => println!("        [Class] .{c}"),
+                        CssSelectorPart::Id(i) => println!("        [Id] #{i}"),
+                        CssSelectorPart::Universal => println!("        [Universal] *"),
+                        CssSelectorPart::PseudoClass(p) => println!("        [PseudoClass] :{p}"),
+                        CssSelectorPart::PseudoElement(p) => println!("        [PseudoElement] ::{p}"),
+                        CssSelectorPart::Combinator(c) => println!("        [Combinator] {c:?}"),
+                        CssSelectorPart::Attribute(a) => println!("        [Attribute] [{}]", a.name),
                     }
                 }
             }
