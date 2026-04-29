@@ -1,98 +1,137 @@
-use crate::config::HasDocument;
-use crate::node::{Node, QuirksMode};
+use crate::config::HasCssSystem;
+use crate::css3::CssSystem;
+use crate::node::{NodeType, QuirksMode};
 use gosub_shared::byte_stream::Location;
 use gosub_shared::node::NodeId;
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 use url::Url;
 
-/// Type of the given document
+/// Whether this is a regular HTML document or a fragment (e.g. iframe srcdoc)
 #[derive(PartialEq, Debug, Copy, Clone)]
 pub enum DocumentType {
-    /// HTML document
     HTML,
-    /// Iframe source document
     IframeSrcDoc,
 }
 
-pub trait DocumentBuilder<C: HasDocument> {
-    fn new_document(url: Option<Url>) -> C::Document;
-    fn new_document_fragment(context_node: &<C::Document as Document<C>>::Node, quirks_mode: QuirksMode)
-        -> C::Document;
-}
+/// Storage-agnostic document interface.
+///
+/// All node data is accessed through `NodeId` handles. The concrete storage
+/// (arena, column store, slotmap, etc.) is entirely hidden behind this trait.
+/// No `Node` struct is ever handed out — callers ask the document questions
+/// about a node by its ID.
+pub trait Document<C: HasCssSystem>: Sized + Display + Debug + PartialEq + 'static {
+    // -----------------------------------------------------------------------
+    // Construction
+    // -----------------------------------------------------------------------
 
-pub trait DocumentFragment<C: HasDocument>: Sized + Clone + PartialEq {
-    fn new(node_id: NodeId) -> Self;
-}
+    /// Create a new empty document of the given type.
+    fn new(document_type: DocumentType, url: Option<Url>) -> Self;
 
-pub trait Document<C: HasDocument<Document = Self>>: Sized + Display + Debug + PartialEq + 'static {
-    type Node: Node<C>;
+    // -----------------------------------------------------------------------
+    // Node creation — each returns the NodeId of the new node
+    // -----------------------------------------------------------------------
 
-    // Creates a new doc with an optional document root node
-    #[allow(clippy::new_ret_no_self)]
-    fn new(document_type: DocumentType, url: Option<Url>, root_node: Option<Self::Node>) -> C::Document;
-
-    /// Location of the document (URL, file path, etc.)
-    fn url(&self) -> Option<Url>;
-
-    fn set_quirks_mode(&mut self, quirks_mode: QuirksMode);
-    fn quirks_mode(&self) -> QuirksMode;
-    fn set_doctype(&mut self, doctype: DocumentType);
-    fn doctype(&self) -> DocumentType;
-
-    /// Return a node by its node ID
-    fn node_by_id(&self, node_id: NodeId) -> Option<&Self::Node>;
-
-    // Return an element node by the "id" attribute
-    fn node_by_named_id(&self, id: &str) -> Option<&Self::Node>;
-
-    fn stylesheets(&self) -> &Vec<C::Stylesheet>;
-    fn add_stylesheet(&mut self, stylesheet: C::Stylesheet);
-
-    /// Return the root node of the document
-    fn get_root(&self) -> &Self::Node;
-
-    fn attach_node(&mut self, node_id: NodeId, parent_id: NodeId, position: Option<usize>);
-    fn detach_node(&mut self, node_id: NodeId);
-    fn relocate_node(&mut self, node_id: NodeId, parent_id: NodeId);
-
-    /// Updates a node into the document
-    fn update_node(&mut self, node: Self::Node);
-
-    // Updates a node that is referenced into the document. This is useful for instance when a node is fetched with node_by_id() for instance.
-    fn update_node_ref(&mut self, node: &Self::Node);
-
-    /// Removes a node from the document
-    fn delete_node_by_id(&mut self, node_id: NodeId);
-
-    /// Returns the next sibling of the reference node
-    fn get_next_sibling(&self, node: NodeId) -> Option<NodeId>;
-
-    /// Return number of nodes in the document
-    fn node_count(&self) -> usize;
-
-    /// Returns the next node ID that will be used when registering a new node
-    fn peek_next_id(&self) -> NodeId;
-
-    /// Register a new node
-    fn register_node(&mut self, node: Self::Node) -> NodeId;
-    /// Register a new node at a specific position
-    fn register_node_at(&mut self, node: Self::Node, parent_id: NodeId, position: Option<usize>) -> NodeId;
-
-    /// Node creation methods. The root node is needed in order to fetch the document handle (it can't be created from the document itself)
-    fn new_document_node(quirks_mode: QuirksMode, location: Location) -> Self::Node;
-    fn new_doctype_node(name: &str, public_id: Option<&str>, system_id: Option<&str>, location: Location)
-        -> Self::Node;
-    fn new_comment_node(comment: &str, location: Location) -> Self::Node;
-    fn new_text_node(value: &str, location: Location) -> Self::Node;
-    fn new_element_node(
+    fn create_element(
+        &mut self,
         name: &str,
         namespace: Option<&str>,
         attributes: HashMap<String, String>,
         location: Location,
-    ) -> Self::Node;
+    ) -> NodeId;
+
+    fn create_text(&mut self, value: &str, location: Location) -> NodeId;
+    fn create_comment(&mut self, value: &str, location: Location) -> NodeId;
+    fn create_doctype(
+        &mut self,
+        name: &str,
+        public_id: Option<&str>,
+        system_id: Option<&str>,
+        location: Location,
+    ) -> NodeId;
+
+    /// Deep-clone a node (and its subtree). Returns the new root NodeId.
+    fn clone_node(&mut self, id: NodeId) -> NodeId;
+
+    // -----------------------------------------------------------------------
+    // Tree structure — all navigation returns NodeId, never &Node
+    // -----------------------------------------------------------------------
+
+    fn root(&self) -> NodeId;
+    fn parent(&self, id: NodeId) -> Option<NodeId>;
+    fn children(&self, id: NodeId) -> &[NodeId];
+    fn next_sibling(&self, id: NodeId) -> Option<NodeId>;
+
+    fn attach(&mut self, node: NodeId, parent: NodeId, position: Option<usize>);
+    fn detach(&mut self, node: NodeId);
+    fn remove(&mut self, node: NodeId);
+
+    // -----------------------------------------------------------------------
+    // Node type
+    // -----------------------------------------------------------------------
+
+    fn node_type(&self, id: NodeId) -> NodeType;
+
+    // -----------------------------------------------------------------------
+    // Element data
+    // -----------------------------------------------------------------------
+
+    fn tag_name(&self, id: NodeId) -> Option<&str>;
+    fn namespace(&self, id: NodeId) -> Option<&str>;
+
+    fn attribute(&self, id: NodeId, name: &str) -> Option<&str>;
+    fn attributes(&self, id: NodeId) -> Option<&HashMap<String, String>>;
+    fn set_attribute(&mut self, id: NodeId, name: &str, value: &str);
+    fn remove_attribute(&mut self, id: NodeId, name: &str);
+
+    fn add_class(&mut self, id: NodeId, class: &str);
+
+    /// Contents of a `<template>` element (points to a fragment root node)
+    fn template_contents(&self, id: NodeId) -> Option<NodeId>;
+    fn set_template_contents(&mut self, id: NodeId, fragment: NodeId);
+
+    // -----------------------------------------------------------------------
+    // Text / comment / doctype data
+    // -----------------------------------------------------------------------
+
+    fn text_value(&self, id: NodeId) -> Option<&str>;
+    fn set_text_value(&mut self, id: NodeId, value: &str);
+
+    fn comment_value(&self, id: NodeId) -> Option<&str>;
+
+    fn doctype_name(&self, id: NodeId) -> Option<&str>;
+    fn doctype_public_id(&self, id: NodeId) -> Option<&str>;
+    fn doctype_system_id(&self, id: NodeId) -> Option<&str>;
+
+    // -----------------------------------------------------------------------
+    // Document-level metadata
+    // -----------------------------------------------------------------------
+
+    fn url(&self) -> Option<Url>;
+
+    fn quirks_mode(&self) -> QuirksMode;
+    fn set_quirks_mode(&mut self, mode: QuirksMode);
+
+    fn doctype(&self) -> DocumentType;
+    fn set_doctype(&mut self, doctype: DocumentType);
+
+    /// Look up a node by its `id` attribute value
+    fn node_by_named_id(&self, name_id: &str) -> Option<NodeId>;
+
+    fn node_count(&self) -> usize;
+    fn peek_next_id(&self) -> NodeId;
+
+    // -----------------------------------------------------------------------
+    // CSS stylesheets
+    // -----------------------------------------------------------------------
+
+    fn stylesheets(&self) -> &[<C::CssSystem as CssSystem>::Stylesheet];
+    fn add_stylesheet(&mut self, sheet: <C::CssSystem as CssSystem>::Stylesheet);
+
+    // -----------------------------------------------------------------------
+    // Serialisation
+    // -----------------------------------------------------------------------
 
     fn write(&self) -> String;
-    fn write_from_node(&self, node_id: NodeId) -> String;
-    fn cloned_node_by_id(&self, node_id: NodeId) -> Option<Self::Node>;
+    fn write_from_node(&self, id: NodeId) -> String;
 }

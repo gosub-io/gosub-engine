@@ -1,4 +1,5 @@
 use crate::config::HasLayouter;
+use crate::css3::CssSystem;
 use crate::font::{FontBlob, HasFontManager};
 use gosub_shared::font::Glyph;
 use gosub_shared::geo::{Point, Rect, Size, SizeU32};
@@ -167,7 +168,7 @@ pub trait Layout: Default + Debug {
 }
 
 pub trait LayoutNode<C: HasLayouter>: HasTextLayout<C> {
-    fn get_property(&self, name: &str) -> Option<&C::CssProperty>;
+    fn get_property(&self, name: &str) -> Option<&<C::CssSystem as CssSystem>::Property>;
     fn text_data(&self) -> Option<&str>;
     fn text_size(&self) -> Option<Size>;
     /// This can only return true if the `Layout::COLLAPSE_INLINE` is set true for the layouter
