@@ -29,13 +29,6 @@ jobs:
           cache-targets: "false"
       - name: Install dependencies
         run: sudo apt update -y && sudo apt install sqlite3 libsqlite3-dev libglib2.0-dev libcairo2-dev libgdk-pixbuf-2.0-dev libpango1.0-dev libgtk-4-dev -y
-      - name: Cache cargo registry
-        uses: actions/cache@v5
-        with:
-          path: ~/.cargo/registry
-          key: ubuntu-24.04-cargo-registry-${{ matrix.rust_version }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ubuntu-24.04-cargo-registry-${{ matrix.rust_version }}-
       - uses: taiki-e/install-action@nextest
       - name: Build and test
         run: cargo nextest run --locked --all --no-fail-fast
@@ -60,13 +53,6 @@ jobs:
           cache-targets: "false"
       - name: Install dependencies
         run: sudo apt update -y && sudo apt install sqlite3 libsqlite3-dev libglib2.0-dev libcairo2-dev libgdk-pixbuf-2.0-dev libpango1.0-dev libgtk-4-dev -y
-      - name: Cache cargo registry
-        uses: actions/cache@v5
-        with:
-          path: ~/.cargo/registry
-          key: ubuntu-24.04-cargo-registry-${{ matrix.rust_version }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ubuntu-24.04-cargo-registry-${{ matrix.rust_version }}-
       - name: Run Clippy
         run: cargo clippy --locked --all --all-targets -- -D warnings
 
@@ -75,15 +61,12 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: stable
+          cache-targets: "false"
       - name: Install dependencies
         run: sudo apt update -y && sudo apt install sqlite3 libsqlite3-dev libglib2.0-dev libcairo2-dev libgdk-pixbuf-2.0-dev libpango1.0-dev libgtk-4-dev -y
-      - name: Cache cargo registry
-        uses: actions/cache@v5
-        with:
-          path: ~/.cargo/registry
-          key: ubuntu-24.04-cargo-registry-stable-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ubuntu-24.04-cargo-registry-stable-
       - name: Check all features compile
         run: cargo check --locked --all --all-features
 
