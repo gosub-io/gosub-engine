@@ -1,125 +1,164 @@
 # Gosub crates
 
-The engine is split up in a few different crates. This is done to keep the codebase clean and to allow for easier testing and development. The following crates are currently available:
+The engine is a Cargo workspace split into focused crates. Each crate owns one concern; the
+`gosub_engine` crate is the unified entry point that ties them together for downstream users.
 
-* gosub_config
-* gosub_css3
-* gosub_html5
-* gosub_jsapi
-* gosub_net
-* gosub_render_utils
-* gosub_renderer
-* gosub_shared
-* gosub_svg
-* gosub_taffy
-* gosub_v8
-* gosub_vello
-* gosub_webexecutor
-* gosub_webinterop
+## Entry point
 
-Some of the crates are dependent on other crates, but we aim to be as modular as possible. The `gosub_shared` crate is a crate that is used by most of the other crates and contains shared code and data structures.
+### gosub_engine
+The primary public API. Exposes `GosubEngine`, the `Zone`/`Tab` model, the async networking
+stack, cookie and storage isolation, and the `EngineEvent` / `TabCommand` event bus. This is
+what you depend on if you are building a user agent or embedding the browser engine.
 
+See [`examples/hello-world.rs`](../examples/hello-world.rs) for a minimal integration example.
 
-## gosub_config
-This crate contains a configuration system that is used by the engine. It can store information in a store (for instance, sqlite, or simply json) and can 
+---
 
-## gosub_css3
-This crate contains a CSS3 parser that can parse CSS3 stylesheets and can be used to style HTML5 documents. It also holds the parser to parse the CSS3 property syntax in order to validate Css properties. 
+## Parsing
 
-## gosub_html5
-The main html5 tokenizer and parser. It also includes the main "Document" object that is used to represent the DOM tree and its node elements
+### gosub_html5
+HTML5 tokenizer and parser. Produces a `Document` / DOM tree. Conforms to the HTML5 spec,
+including error recovery. Also holds the `Document`, `Node`, and related DOM types.
 
-## gosub_jsapi
-This crate contains Javascript api's that are usable in the browser. For instance, the console API, the fetch API, the DOM API, etc. 
+### gosub_css3
+CSS3 tokenizer and parser. Parses stylesheets into a `CssStylesheet` (rules, selectors,
+declarations). Includes a property-value syntax checker for validating CSS property values
+against their formal grammar.
 
-## gosub_net
-This crate contains the network stack that is used to fetch resources from the web. It can fetch resources from the web, but also from the local filesystem. Currently hosting a DNS system that we can use for resolving domain names over different kind of protocols.
+---
 
-## gosub_render_utils
-This crate contains implementations of the render tree and some other utilities, for instance for resolving mouse positions back to elements.
+## Layout and rendering
 
-## gosub_renderer
-This crate contains the actual renderer.
+### gosub_taffy
+Layout engine. Implements layout traits backed by the [Taffy](https://github.com/DioxusLabs/taffy)
+flexbox/grid library.
 
-## gosub_shared
-Some of the code and data structures that will be used throughout different crates are stored here. It also holds the traits that are used to implement the different parts of the engine.
+### gosub_rendering
+Render tree. Converts the DOM + CSSOM into a flat render tree with resolved styles and
+positions, ready to be handed to a render backend.
 
-## gosub_svg
-Implementation of the SVG Document for `usvg` and optionally the `resvg` crates, used for SVG rendering.
+### gosub_fontmanager
+Font loading and management. Provides a font manager abstraction used by the render backends.
 
-## gosub_taffy
-Implementation of layout traits for the `taffy` layouting system.
+### gosub_svg
+SVG document support backed by `usvg` and optionally `resvg`.
 
-## gosub_v8
-Gosub bindings to the V8 javascript engine.
+---
 
-## gosub_vello
-Implementation of a RenderBackend for the `vello` crate
+## Render backends
 
-## gosub_webexecutor
-System to execute javascript. This could also be used for executing other languages in the future, like lua.
+### gosub_cairo
+Cairo / GTK4 render backend. Implements the `RenderBackend` trait from `gosub_engine` using
+the Cairo 2D graphics library. Used by the `gtk-cairo` example.
 
-## gosub_webinterop
-Proc macro to easily pass functions and define APIs to javascript, wasm or lua and others.
+### gosub_vello
+Vello / wgpu render backend. Implements the `RenderBackend` trait using the Vello vector
+renderer on top of wgpu. Used by the `egui-vello` example.
 
+---
 
-# Dependency graph
+## Networking
 
-This graph is created with the following commandline:
+### gosub_net
+Network utilities. Re-exports the async networking stack from `gosub_engine` (streaming HTTP
+fetcher, per-zone cookie isolation, redirect handling) and hosts lower-level helpers used by
+the old renderer path.
 
-```bash
-$ cargo install cargo-depgraph
-$ cargo depgraph --depth=1 --include gosub_html5,gosub_engine,gosub_shared,gosub_css3,gosub_config,gosub_cairo,gosub_jsapi,gosub_net,gosub_render_utils,gosub_renderer,gosub_svg,gosub_taffy,gosub_v8,gosub_vello,gosub_webexecutor,gosub_webinterop | dot -Tpng -o out.png
-```
+---
 
+## JavaScript
+
+### gosub_v8
+Rust bindings to the V8 JavaScript engine.
+
+### gosub_webexecutor
+JavaScript (and future scripting language) execution runtime. Wraps V8 and provides a
+consistent interface for running scripts inside a browsing context.
+
+### gosub_webinterop
+Proc-macro crate. Provides macros for easily exposing Rust functions as JavaScript / Wasm / Lua
+APIs without hand-writing the binding glue.
+
+### gosub_jsapi
+Implementations of browser Web APIs (console, fetch, DOM, etc.) that are callable from
+JavaScript inside the engine.
+
+---
+
+## Infrastructure
+
+### gosub_shared
+Shared types, error types, byte streams, and geometry primitives used throughout the workspace.
+Most other crates depend on this.
+
+### gosub_interface
+Trait definitions for the major engine components (render backend, layout, CSS system, font
+manager, event loop, etc.). Crates implement these traits; `gosub_engine` wires them together.
+
+### gosub_config
+Configuration store. Supports multiple backends (SQLite, JSON) and provides a key/value API
+for engine and UA settings.
+
+### gosub_instance
+Ties together a single browsing instance: the event loop, input handling, layout, and the
+render backend. Used by the legacy GTK/Vello renderer path.
+
+### gosub_web_platform
+Web platform event loop implementation. Manages the JS/Lua runtime lifecycle, timers, and
+event listeners for a browsing context.
+
+---
+
+## Dependency overview
 
 ```mermaid
-flowchart
-    A("gosub_cairo")
-    B("gosub_shared")
-    C("gosub_svg")
-    D("gosub_html5")
-    E("gosub_css3")
-    F("gosub_config")
-    G("gosub_jsapi")
-    H("gosub_net")
-    I("gosub_renderer")
-    J("gosub_taffy")
-    K("gosub_v8")
-    L("gosub_webexecutor")
-    M("gosub_vello")
-    N("gosub_engine")
+flowchart TD
+    shared("gosub_shared")
+    interface("gosub_interface")
+    config("gosub_config")
+    engine("gosub_engine ★")
+    net("gosub_net")
+    html5("gosub_html5")
+    css3("gosub_css3")
+    taffy("gosub_taffy")
+    rendering("gosub_rendering")
+    fontmgr("gosub_fontmanager")
+    svg("gosub_svg")
+    cairo("gosub_cairo")
+    vello("gosub_vello")
+    v8("gosub_v8")
+    webexec("gosub_webexecutor")
+    webinterop("gosub_webinterop")
+    jsapi("gosub_jsapi")
+    instance("gosub_instance")
+    webplatform("gosub_web_platform")
 
-    A --> B
-    A --> C
-    C --> D
-    C --> B
-    D --> E
-    D --> B
-    E --> B
-    F --> B
-    G --> B
-    H --> F
-    H --> B
-    I --> H
-    I --> B
-    J --> B
-    K --> B
-    K --> L
-    L --> B
-    M --> B
-    M --> C
-    N --> A
-    N --> F
-    N --> E
-    N --> D
-    N --> G
-    N --> H
-    N --> I
-    N --> B
-    N --> J
-    N --> M
-
-    
-
+    shared --> interface
+    shared --> config
+    shared --> engine
+    interface --> net
+    net --> engine
+    interface --> fontmgr
+    interface --> html5
+    interface --> css3
+    interface --> taffy
+    interface --> rendering
+    interface --> svg
+    interface --> cairo
+    interface --> vello
+    interface --> instance
+    interface --> webplatform
+    engine --> cairo
+    engine --> vello
+    engine --> net
+    svg --> html5
+    rendering --> html5
+    vello --> svg
+    v8 --> webexec
+    v8 --> webinterop
+    jsapi --> shared
+    instance --> net
+    instance --> webplatform
 ```
+
+★ = primary entry point for downstream users

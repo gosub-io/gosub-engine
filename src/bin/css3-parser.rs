@@ -1,4 +1,5 @@
 use anyhow::{anyhow, bail, Result};
+use gosub_css3::stylesheet::{CssSelectorPart, CssStylesheet};
 use gosub_css3::tokenizer::{TokenType, Tokenizer};
 use gosub_css3::Css3;
 use gosub_interface::css3::CssOrigin;
@@ -101,9 +102,13 @@ fn main() -> Result<()> {
 
     let tree = result.unwrap();
 
-    println!("\n------- Log messages -------");
-    for log in &tree.parse_log {
-        println!("{log}");
+    print_stylesheet(&tree);
+
+    if !tree.parse_log.is_empty() {
+        println!("\n------- Log messages -------");
+        for log in &tree.parse_log {
+            println!("{log}");
+        }
     }
 
     Ok(())
@@ -165,6 +170,38 @@ fn print_tokens(css: &str) {
 
         if token.token_type == TokenType::Eof {
             break;
+        }
+    }
+}
+
+fn print_stylesheet(sheet: &CssStylesheet) {
+    println!("[Stylesheet ({} rules)]", sheet.rules.len());
+    for rule in &sheet.rules {
+        println!("  [Rule]");
+        let selector_count: usize = rule.selectors.iter().map(|s| s.parts.len()).sum();
+        println!("    [SelectorList ({selector_count})]");
+        for selector in &rule.selectors {
+            for parts in &selector.parts {
+                println!("      [Selector]");
+                for part in parts {
+                    match part {
+                        CssSelectorPart::Type(t) => println!("        [Type] {t}"),
+                        CssSelectorPart::Class(c) => println!("        [Class] .{c}"),
+                        CssSelectorPart::Id(i) => println!("        [Id] #{i}"),
+                        CssSelectorPart::Universal => println!("        [Universal] *"),
+                        CssSelectorPart::PseudoClass(p) => println!("        [PseudoClass] :{p}"),
+                        CssSelectorPart::PseudoElement(p) => println!("        [PseudoElement] ::{p}"),
+                        CssSelectorPart::Combinator(c) => println!("        [Combinator] {c:?}"),
+                        CssSelectorPart::Attribute(a) => println!("        [Attribute] [{}]", a.name),
+                    }
+                }
+            }
+        }
+        println!("    [Block ({} declarations)]", rule.declarations.len());
+        for decl in &rule.declarations {
+            let important = if decl.important { " !important" } else { "" };
+            println!("      [Declaration] {}{important}", decl.property);
+            println!("        {:?}", decl.value);
         }
     }
 }

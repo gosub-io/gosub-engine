@@ -1,7 +1,6 @@
-# Gosub: A new browser engine made from scratch
+# Gosub Browser Engine
 
-This repository holds the Gosub browser engine. It will become a standalone library that can be used by other projects
-but will ultimately be used by the Gosub browser user-agent. See the [About](#about) section for more information.
+An embeddable, async browser engine written in Rust.
 
 Join us at our development [Zulip chat](https://chat.developer.gosub.io)!
 
@@ -12,163 +11,213 @@ If you are interested in contributing to Gosub, please check out the [contributi
 
 ## About
 
-This repository is part of the Gosub browser engine project. This is the main engine that holds the following components:
+Gosub is a modular, embeddable browser engine. The primary entry point is `GosubEngine` in the
+[`gosub_engine`](crates/gosub_engine) crate. You provide a render backend and a compositor; the
+engine owns a multi-zone/tab model, an async networking stack, cookie and storage isolation per
+zone, and an event bus. Your user-agent (UA) drives everything via `TabCommand` and reacts to
+`EngineEvent`.
 
-- HTML5 tokenizer / parser
-- CSS3 tokenizer / parser
-- Document tree
-- Several APIs for connecting to javascript
-- Configuration store
-- Networking stack
-- Rendering engine
-- JS bridge
+**Core components:**
 
-More will follow as the engine grows. The idea is that this engine will receive some kind of stream of bytes (most likely 
-from a socket or file) and parse this into a valid HTML5 document tree and CSS stylesheets.
-From that point, it can be fed to a renderer engine that will render the document tree into a window, or it can be fed
-to a more simplistic engine that will render it in a terminal. JS can be executed on the document tree and the document 
-tree can be modified by JS.
+| Crate | Role |
+|---|---|
+| `gosub_engine` | `GosubEngine` — the unified entry point |
+| `gosub_html5` | HTML5 tokenizer / parser |
+| `gosub_css3` | CSS3 tokenizer / parser |
+| `gosub_net` | Networking stack (async, streaming, per-zone) |
+| `gosub_taffy` | Layout engine (Taffy/flexbox) |
+| `gosub_cairo` | Cairo / GTK4 render backend |
+| `gosub_vello` | Vello / wgpu render backend |
+| `gosub_js` | JS bridge |
+| `gosub_config` | Configuration store |
 
 
 ## Status
 
-> This project is in its infancy. There is no usable browser yet. However, you can look at simple html pages and parse
-> them into a document tree and do some initial rendering.
+The engine is under active development. What works today:
 
-We can parse HTML5 and CSS3 files into a document tree or the respective css tree. This tree can be shown in the terminal 
-or be rendered in a very unfinished renderer. Our renderer cannot render everything yet, but it can render simple html 
-pages, sort of.
+- **Multi-zone / multi-tab model** — zones isolate cookies and storage; tabs are controlled via `TabCommand`
+- **Async networking** — streaming HTTP fetcher with priority queues, inflight coalescing, redirect handling, and per-zone cookie isolation
+- **Event-driven UA interface** — `EngineEvent` (navigation, resource, redraw) flows out; `TabCommand` / `EngineCommand` flow in
+- **HTML5 and CSS3 parsing** — spec-compliant parsers for both
+- **Pluggable render backends** — Null (headless), Cairo (GTK4), Vello (wgpu)
 
-We already implemented other parts of the engine, for a JS engine, networking stack, a configuration store and other
-things however these aren't integrated yet. You can try these out by running the respective binary.
+What is still in progress:
 
-We can render a part for our own [site](https://gosub.io):
+- Full page layout and rendering pipeline (the render backends receive geometry but pixel-perfect output is incomplete)
+- JavaScript execution integration
+- Accessibility tree
 
-![Gosub.io](resources/images/current_progress.png)
+
+## Quick start
+
+Add `gosub_engine` to your `Cargo.toml`:
+
+```toml
+[dependencies]
+gosub_engine = { git = "https://github.com/gosub-io/gosub-engine", package = "gosub_engine" }
+tokio = { version = "1", features = ["full"] }
+```
+
+Then drive the engine from async code:
+
+```rust
+use std::sync::{Arc, RwLock};
+use gosub_engine::{EngineConfig, GosubEngine, EngineError};
+use gosub_engine::render::{DefaultCompositor, Viewport};
+use gosub_engine::render::backends::null::NullBackend;
+use gosub_engine::events::{EngineEvent, TabCommand};
+use gosub_engine::storage::{StorageService, InMemoryLocalStore, InMemorySessionStore, PartitionPolicy};
+use gosub_engine::cookies::DefaultCookieJar;
+use gosub_engine::zone::{ZoneConfig, ZoneServices};
+use gosub_engine::tab::TabDefaults;
+
+#[tokio::main]
+async fn main() -> Result<(), EngineError> {
+    let backend = NullBackend::new().expect("backend");
+    let mut engine = GosubEngine::new(
+        Some(EngineConfig::default()),
+        Arc::new(backend),
+        Arc::new(RwLock::new(DefaultCompositor::default())),
+    );
+    engine.start().expect("start");
+
+    let mut events = engine.subscribe_events();
+
+    let services = ZoneServices {
+        storage: Arc::new(StorageService::new(
+            Arc::new(InMemoryLocalStore::new()),
+            Arc::new(InMemorySessionStore::new()),
+        )),
+        cookie_store: None,
+        cookie_jar: Some(DefaultCookieJar::new().into()),
+        partition_policy: PartitionPolicy::None,
+    };
+    let mut zone = engine.create_zone(ZoneConfig::default(), services, None)?;
+
+    let tab = zone.create_tab(TabDefaults {
+        viewport: Some(Viewport::new(0, 0, 1280, 800)),
+        ..Default::default()
+    }, None).await?;
+
+    tab.send(TabCommand::Navigate { url: "https://example.com".into() }).await?;
+
+    while let Ok(ev) = events.recv().await {
+        match ev {
+            EngineEvent::Navigation { tab_id, event } => println!("[{tab_id}] {event:?}"),
+            EngineEvent::Redraw { tab_id, .. }        => println!("[{tab_id}] frame ready"),
+            _ => {}
+        }
+    }
+
+    engine.shutdown().await?;
+    Ok(())
+}
+```
+
+See [`examples/hello-world.rs`](examples/hello-world.rs) for a fuller walkthrough, and
+[`examples/multi-tab.rs`](examples/multi-tab.rs) for a 25-tab stress test with a live progress UI.
 
 
-## How to run
+## Running the examples
 
 <details>
-<summary> Installing dependencies </summary>
+<summary>Installing dependencies</summary>
 
-This project uses [cargo](https://doc.rust-lang.org/cargo/) and [rustup](https://www.rust-lang.org/tools/install). First
-you must install `rustup` at the link provided. After installing `rustup`, run:
-
-If you want to use a specific version of rust: 
+This project uses [cargo](https://doc.rust-lang.org/cargo/) and [rustup](https://www.rust-lang.org/tools/install).
+Install `rustup`, then:
 
 ```bash
-$ rustup toolchain install 1.82
-$ rustup default 1.82
-$ rustc --version
-rustc 1.82.0 (f6e511eec 2024-10-15)
+rustup default stable
 ```
 
-or you can use the latest version:
-
-```bash
-$ rustup default stable
-$ rustc --version
-rustc 1.92.0 (ded5c06cf 2025-12-08)
-(or a higher version if available)
-```
-
-You also should have following OS packages installed:
+For the GTK4-based examples you also need these OS packages (Ubuntu / Debian):
 
 ```
-make
-gcc
-g++
-libglib2.0-dev
-libcairo2-dev
-libpango1.0-dev
-libgdk-pixbuf-2.0-dev
-libgraphene-1.0-dev
-libgtk-4-dev
+make gcc g++
+libglib2.0-dev libcairo2-dev libpango1.0-dev
+libgdk-pixbuf-2.0-dev libgraphene-1.0-dev libgtk-4-dev
 libsqlite3-dev
 ```
 
-or equivalent for non-ubuntu based systems.
-
-
-Once Rust is installed, run this command to pre-build the dependencies:
+Clone and build:
 
 ```bash
-$ git clone https://github.com/gosub-io/gosub-engine.git
-$ cd gosub-engine
-$ cargo build --release
+git clone https://github.com/gosub-io/gosub-engine.git
+cd gosub-engine
+cargo build
 ```
 </details>
 
+### Engine examples (no GUI required)
 
-You can run the following binaries (these will not output much useful information yet, as the engine is still in development):
+| Command | Description |
+|---|---|
+| `cargo run --example hello-world` | Single tab — navigate a URL, stream events to stdout |
+| `cargo run --example multi-tab` | 25 tabs navigating random sites; live progress bars via `indicatif` |
 
-| Command                                | Type | Description                                                                                                                                                     |
-|----------------------------------------|------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `cargo run -r --bin config-store`      | bin  | A simple test application of the config store for testing purposes                                                                                              |
-| `cargo run -r --bin css3-parser`       | bin  | Show a parsed css tree from an url                                                                                                                              |
-| `cargo run -r --bin display-text-tree` | bin  | A simple parser that will try and return a textual presentation of the website                                                                                  |
-| `cargo run -r --bin gosub-parser`      | bin  | The actual html5 parser/tokenizer that allows you to convert html5 into a document tree.                                                                        |
-| `cargo run -r --bin html5-parser-test` | test | A test suite that tests all html5lib tests for the treebuilding                                                                                                 |
-| `cargo run -r --bin parser-test`       | test | A test suite for the parser that tests specific tests. This will be removed as soon as the parser is completely finished as this tool is for developement only. |
-| `cargo run -r --bin run-js`            | bin  | Run a JS file (Note: console and event loop are not yet implemented)                                                                                            |
+### GUI examples
 
-For running the binaries, take a look at a quick introduction at [/docs/binaries.md](/docs/binaries.md)
+| Command | Description |
+|---|---|
+| `cargo run --example gtk-cairo` | GTK4 / Cairo window |
+| `cargo run --example egui-vello` | egui / Vello / wgpu window |
 
-There are also a bit more advanced examples that can be run that will try and display some graphics:
+### Component tools (individual crate testing)
 
-| Command                                    | Description                                                  |
-|--------------------------------------------|--------------------------------------------------------------|
-| `cargo run --example gtk-renderer <url>`   | A GUI based on GTK4 / Cairo that displays a webpage          |
-| `cargo run --example vello-renderer <url>` | A GUI based on Winit / Vello that displays a webpage         |
-| `cargo run --example html5-parser`         | A simple example that displays a dom tree from a html source |
+| Command | Description |
+|---|---|
+| `cargo run --bin gosub-parser` | HTML5 parser / tokenizer — prints a document tree |
+| `cargo run --bin css3-parser` | CSS3 parser — prints a CSS tree from a URL |
+| `cargo run --bin display-text-tree` | Text-only render of a page |
+| `cargo run --bin config-store` | Config store smoke test |
+| `cargo run --bin run-js` | Run a JS file (event loop not yet implemented) |
+| `cargo run --bin html5-parser-test` | html5lib tree-builder test suite |
+| `cargo run --bin parser-test` | Parser development test runner |
+
+For more detail on the component tools see [/docs/binaries.md](/docs/binaries.md).
 
 
-## Benchmark and test suites
-
-To run the tests and benchmark suite, do:
+## Tests and benchmarks
 
 ```bash
 make test
 cargo bench
-ls target/criterion/report
-index.html
+# open target/criterion/report/index.html
 ```
 
-## Wasm
 
-Our engine can also be compiled to WebAssembly. You need to use WasmPack for this. To build the Wasm version, run:
+## WebAssembly
+
+The engine can be compiled to WebAssembly via `wasm-pack`:
 
 ```bash
 wasm-pack build --target web
 ```
 
-Afterwards you need to serve the small useragent around the wasm version in the `wasm/` directory. You can do this by
+Then serve the thin UA wrapper in `wasm/`:
 
 ```bash
 cd wasm
-npm run dev  # you can also use `bun run dev`
- ```
+bun run dev   # or: npm run dev
+```
 
-To use this demo, you need to enable webgpu in chromium and disable the same origin policy.
+To run the demo you need a Chromium with WebGPU enabled:
 
 ```bash
-chromium --disable-web-security --enable-features=Vulkan --enable-unsafe-webgpu --user-data-dir=/tmp/chromium-temp-profile 
-``` 
-
-This command works on Linux only, if someone uses Windows or macOS, please open an PR!
-
-And then you have it! A browser in a browser:
+# Linux only — PRs welcome for Windows / macOS
+chromium --disable-web-security --enable-features=Vulkan \
+         --enable-unsafe-webgpu --user-data-dir=/tmp/chromium-temp-profile
+```
 
 ![Browser in browser](resources/images/browser-wasm-hackernews.png)
 
 
-## Contributing to the project
+## Contributing
 
-We welcome contributions to this project but the current status makes that we are spending a lot of time researching,
-building small proof-of-concepts and figuring out what needs to be done next. Much time of a contributor at this stage
-of the project will be non-coding.
+We welcome contributions. Because the engine is still taking shape, a lot of work is exploratory
+— building proofs-of-concept, reading specs, and making architectural decisions — rather than
+pure coding.
 
-We do like to hear from you if you are interested in contributing to the project and you can join us currently at
-
-our [Zulip chat](https://chat.developer.gosub.io)!
+Join us on [Zulip](https://chat.developer.gosub.io) or [Discord](https://chat.gosub.io) before
+diving in; it will save you time and help us keep things coordinated.

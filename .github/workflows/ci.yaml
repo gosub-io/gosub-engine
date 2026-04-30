@@ -23,22 +23,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.rust_version }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ matrix.rust_version }}
+          cache-targets: "false"
       - name: Install dependencies
         run: sudo apt update -y && sudo apt install sqlite3 libsqlite3-dev libglib2.0-dev libcairo2-dev libgdk-pixbuf-2.0-dev libpango1.0-dev libgtk-4-dev -y
-      - name: Cache cargo registry
-        uses: actions/cache@v5
-        with:
-          path: ~/.cargo/registry
-          key: ubuntu-24.04-cargo-registry-${{ matrix.rust_version }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ubuntu-24.04-cargo-registry-${{ matrix.rust_version }}-
-      - name: Cache cargo build
-        uses: actions/cache@v5
-        with:
-          path: ${{ github.workspace }}/target
-          key: ubuntu-24.04-cargo-target-test-${{ matrix.rust_version }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ubuntu-24.04-cargo-target-test-${{ matrix.rust_version }}-
       - name: Build and test
         run: cargo test --locked --verbose --all --no-fail-fast --all-features --all-targets
 
@@ -54,22 +44,12 @@ jobs:
         with:
           toolchain: ${{ matrix.rust_version }}
           components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ matrix.rust_version }}
+          cache-targets: "false"
       - name: Install dependencies
         run: sudo apt update -y && sudo apt install sqlite3 libsqlite3-dev libglib2.0-dev libcairo2-dev libgdk-pixbuf-2.0-dev libpango1.0-dev libgtk-4-dev -y
-      - name: Cache cargo registry
-        uses: actions/cache@v5
-        with:
-          path: ~/.cargo/registry
-          key: ubuntu-24.04-cargo-registry-${{ matrix.rust_version }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ubuntu-24.04-cargo-registry-${{ matrix.rust_version }}-
-      - name: Cache cargo build
-        uses: actions/cache@v5
-        with:
-          path: ${{ github.workspace }}/target
-          key: ubuntu-24.04-cargo-target-clippy-${{ matrix.rust_version }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ubuntu-24.04-cargo-target-clippy-${{ matrix.rust_version }}-
       - name: Run Clippy
         run: cargo clippy --locked --all --all-targets --all-features -- -D warnings
 
@@ -80,6 +60,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: stable
+          cache-targets: "false"
       - name: Run fmt
         run: cargo fmt --check --all
 
