@@ -1,14 +1,16 @@
-use crate::document::document_impl::{DocumentImpl, TreeIterator};
+use crate::document::document_impl::TreeIterator;
 use crate::errors::Error;
 use crate::parser::query::{Condition, Query, SearchType};
 use gosub_interface::config::HasDocument;
+use gosub_interface::document::Document;
+use gosub_interface::node::NodeType;
 use gosub_shared::node::NodeId;
 
-pub struct DocumentQuery<C: HasDocument<Document = DocumentImpl<C>>> {
+pub struct DocumentQuery<C: HasDocument> {
     _phantom: std::marker::PhantomData<C>,
 }
 
-impl<C: HasDocument<Document = DocumentImpl<C>>> DocumentQuery<C> {
+impl<C: HasDocument> DocumentQuery<C> {
     /// Perform a single query against the document.
     /// If query search type is uninitialized, returns an error.
     /// Otherwise, returns a vector of `NodeIds` that match the predicate in tree order (preorder depth-first.)
@@ -42,70 +44,37 @@ impl<C: HasDocument<Document = DocumentImpl<C>>> DocumentQuery<C> {
 
     /// Check if a given node's children contain a certain tag name
     pub fn contains_child_tag(doc: &C::Document, node_id: NodeId, tag: &str) -> bool {
-        if let Some(node) = doc.node_by_id(node_id) {
-            for child_id in &node.children().to_vec() {
-                if let Some(child) = doc.node_by_id(*child_id) {
-                    if let Some(data) = child.get_element_data() {
-                        if data.name() == tag {
-                            return true;
-                        }
-                    }
-                }
+        for child_id in doc.children(node_id).to_vec() {
+            if doc.node_type(child_id) == NodeType::ElementNode && doc.tag_name(child_id) == Some(tag) {
+                return true;
             }
         }
-
         false
     }
 
     fn matches_query_condition(doc: &C::Document, current_node_id: &NodeId, condition: &Condition) -> bool {
-        let Some(current_node) = doc.node_by_id(*current_node_id) else {
+        if doc.node_type(*current_node_id) != NodeType::ElementNode {
             return false;
-        };
+        }
 
         match condition {
-            Condition::EqualsTag(tag) => {
-                let Some(current_node_data) = current_node.get_element_data() else {
-                    return false;
-                };
-                current_node_data.name() == *tag
-            }
-            Condition::EqualsId(id) => {
-                let Some(current_node_data) = current_node.get_element_data() else {
-                    return false;
-                };
-
-                if let Some(id_attr) = current_node_data.attributes().get("id") {
-                    return *id_attr == *id;
-                }
-
-                false
-            }
+            Condition::EqualsTag(tag) => doc.tag_name(*current_node_id) == Some(tag.as_str()),
+            Condition::EqualsId(id) => doc.attribute(*current_node_id, "id") == Some(id.as_str()),
             Condition::ContainsClass(class_name) => {
-                let Some(current_node_data) = current_node.get_element_data() else {
-                    return false;
-                };
-
-                current_node_data.classlist().contains(class_name)
-            }
-            Condition::ContainsAttribute(attribute) => {
-                let Some(current_node_data) = current_node.get_element_data() else {
-                    return false;
-                };
-
-                current_node_data.attributes().contains_key(attribute)
-            }
-            Condition::ContainsChildTag(child_tag) => Self::contains_child_tag(doc, current_node.id(), child_tag),
-            Condition::HasParentTag(parent_tag) => {
-                if let Some(parent_id) = current_node.parent_id() {
-                    // making an assumption here that the parent node is actually valid
-                    let parent = doc.node_by_id(parent_id).unwrap();
-                    if let Some(parent_data) = parent.get_element_data() {
-                        return parent_data.name() == *parent_tag;
-                    }
-                    return false;
+                if let Some(classes) = doc.attribute(*current_node_id, "class") {
+                    classes.split_whitespace().any(|c| c == class_name.as_str())
+                } else {
+                    false
                 }
-
-                false
+            }
+            Condition::ContainsAttribute(attribute) => doc.attribute(*current_node_id, attribute).is_some(),
+            Condition::ContainsChildTag(child_tag) => Self::contains_child_tag(doc, *current_node_id, child_tag),
+            Condition::HasParentTag(parent_tag) => {
+                if let Some(parent_id) = doc.parent(*current_node_id) {
+                    doc.tag_name(parent_id) == Some(parent_tag.as_str())
+                } else {
+                    false
+                }
             }
         }
     }

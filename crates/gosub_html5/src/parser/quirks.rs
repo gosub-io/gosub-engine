@@ -150,8 +150,8 @@ static LIMITED_QUIRKS_PUB_IDENTIFIER_PREFIX_NOT_MISSING_SYS: &[&str] = &[
 
 #[cfg(test)]
 mod tests {
-    use crate::document::document_impl::DocumentImpl;
     use crate::document::builder::DocumentBuilderImpl;
+    use crate::document::document_impl::DocumentImpl;
     use crate::parser::Html5Parser;
     use crate::parser::QuirksMode;
     use gosub_css3::system::Css3System;

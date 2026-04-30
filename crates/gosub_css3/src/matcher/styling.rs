@@ -72,8 +72,7 @@ fn match_selector_part<C: HasDocument>(
     match part {
         CssSelectorPart::Universal => true,
         CssSelectorPart::Type(name) => {
-            doc.node_type(current_id) == NodeType::ElementNode
-                && doc.tag_name(current_id).is_some_and(|t| t == name)
+            doc.node_type(current_id) == NodeType::ElementNode && doc.tag_name(current_id).is_some_and(|t| t == name)
         }
         CssSelectorPart::Class(name) => {
             doc.node_type(current_id) == NodeType::ElementNode
@@ -111,8 +110,7 @@ fn match_selector_part<C: HasDocument>(
                 MatcherType::Equals => wanted_attr_value == got_attr_value,
                 MatcherType::Includes => wanted_attr_value.split_whitespace().any(|s| s == got_attr_value),
                 MatcherType::DashMatch => {
-                    got_attr_value == wanted_attr_value
-                        || got_attr_value.starts_with(&format!("{wanted_attr_value}-"))
+                    got_attr_value == wanted_attr_value || got_attr_value.starts_with(&format!("{wanted_attr_value}-"))
                 }
                 MatcherType::PrefixMatch => got_attr_value.starts_with(wanted_attr_value),
                 MatcherType::SuffixMatch => got_attr_value.ends_with(wanted_attr_value),

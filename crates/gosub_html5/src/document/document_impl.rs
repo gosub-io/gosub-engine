@@ -59,6 +59,20 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         doc
     }
 
+    fn new_fragment(quirks_mode: QuirksMode) -> Self {
+        let mut doc = Self {
+            url: None,
+            arena: NodeArena::new(),
+            named_id_elements: HashMap::new(),
+            doctype: DocumentType::HTML,
+            quirks_mode,
+            stylesheets: Vec::new(),
+        };
+        let html_node = NodeImpl::new_element(Location::default(), "html", Some(HTML_NAMESPACE), HashMap::new());
+        doc.arena.register_node(html_node);
+        doc
+    }
+
     // ── node creation ──────────────────────────────────────────────────────
 
     fn create_element(
@@ -108,6 +122,12 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         self.register_node(cloned)
     }
 
+    fn duplicate_node(&mut self, id: NodeId) -> NodeId {
+        let Some(node) = self.arena.node_ref(id) else { return id };
+        let dup = NodeImpl::new_from_node(node);
+        self.register_node(dup)
+    }
+
     // ── tree navigation ────────────────────────────────────────────────────
 
     fn root(&self) -> NodeId {
@@ -136,6 +156,11 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
 
     fn remove(&mut self, node: NodeId) {
         self.delete_node_by_id(node);
+    }
+
+    fn relocate_node(&mut self, node: NodeId, parent: NodeId) {
+        self.detach_node(node);
+        self.attach_node(node, parent, None);
     }
 
     // ── node type ──────────────────────────────────────────────────────────
@@ -175,21 +200,37 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
     }
 
     fn set_attribute(&mut self, id: NodeId, name: &str, value: &str) {
-        let Some(node) = self.arena.node_ref_mut(id) else { return };
-        if let NodeDataTypeInternal::Element(ref mut e) = node.data {
-            e.add_attribute(name, value);
+        let is_element = if let Some(node) = self.arena.node_ref_mut(id) {
+            if let NodeDataTypeInternal::Element(ref mut e) = node.data {
+                e.add_attribute(name, value);
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+
+        if is_element && name == "id" && is_valid_id_attribute_value(value) {
+            if let Entry::Vacant(e) = self.named_id_elements.entry(value.to_string()) {
+                e.insert(id);
+            }
         }
     }
 
     fn remove_attribute(&mut self, id: NodeId, name: &str) {
-        let Some(node) = self.arena.node_ref_mut(id) else { return };
+        let Some(node) = self.arena.node_ref_mut(id) else {
+            return;
+        };
         if let NodeDataTypeInternal::Element(ref mut e) = node.data {
             e.remove_attribute(name);
         }
     }
 
     fn add_class(&mut self, id: NodeId, class: &str) {
-        let Some(node) = self.arena.node_ref_mut(id) else { return };
+        let Some(node) = self.arena.node_ref_mut(id) else {
+            return;
+        };
         if let NodeDataTypeInternal::Element(ref mut e) = node.data {
             e.add_class(class);
         }
@@ -203,7 +244,9 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
     }
 
     fn set_template_contents(&mut self, id: NodeId, fragment: NodeId) {
-        let Some(node) = self.arena.node_ref_mut(id) else { return };
+        let Some(node) = self.arena.node_ref_mut(id) else {
+            return;
+        };
         if let NodeDataTypeInternal::Element(ref mut e) = node.data {
             e.set_template_contents(fragment);
         }
@@ -219,7 +262,9 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
     }
 
     fn set_text_value(&mut self, id: NodeId, value: &str) {
-        let Some(node) = self.arena.node_ref_mut(id) else { return };
+        let Some(node) = self.arena.node_ref_mut(id) else {
+            return;
+        };
         if let NodeDataTypeInternal::Text(ref mut t) = node.data {
             t.value = value.to_owned();
         }
@@ -304,7 +349,7 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
     }
 
     fn write_from_node(&self, node_id: NodeId) -> String {
-        crate::writer::DocumentWriter::write_from_node(node_id, self)
+        crate::writer::DocumentWriter::write_from_node::<C>(node_id, self)
     }
 }
 
@@ -338,11 +383,6 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
 
     pub fn node_by_id_mut(&mut self, node_id: NodeId) -> Option<&mut NodeImpl> {
         self.arena.node_ref_mut(node_id)
-    }
-
-    /// Internal: get cloned node by id
-    pub(crate) fn cloned_node_by_id(&self, node_id: NodeId) -> Option<NodeImpl> {
-        self.arena.node(node_id)
     }
 
     /// Look up a node by its `id` attribute value, returning the node reference directly
@@ -457,7 +497,10 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
     pub fn get_next_sibling(&self, reference_node: NodeId) -> Option<NodeId> {
         let node = self.node_by_id(reference_node)?;
         let parent = self.node_by_id(node.parent_id()?)?;
-        let idx = parent.children().iter().position(|&child_id| child_id == reference_node)?;
+        let idx = parent
+            .children()
+            .iter()
+            .position(|&child_id| child_id == reference_node)?;
         let next_idx = idx + 1;
         if parent.children().len() > next_idx {
             return Some(parent.children()[next_idx]);
@@ -466,7 +509,9 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
     }
 
     pub fn has_node_id_recursive(&self, parent_id: NodeId, target_node_id: NodeId) -> bool {
-        let Some(parent) = self.arena.node_ref(parent_id) else { return false };
+        let Some(parent) = self.arena.node_ref(parent_id) else {
+            return false;
+        };
         for &child_node_id in parent.children() {
             if child_node_id == target_node_id {
                 return true;
@@ -604,16 +649,16 @@ impl<C: HasDocument<Document = Self>> Display for DocumentImpl<C> {
 
 // ── Tree iterator ────────────────────────────────────────────────────────────
 
-pub struct TreeIterator<'a, C: HasDocument<Document = DocumentImpl<C>>> {
+pub struct TreeIterator<'a, C: HasDocument> {
     current_node_id: Option<NodeId>,
     node_stack: Vec<NodeId>,
-    document: &'a DocumentImpl<C>,
+    document: &'a C::Document,
 }
 
-impl<'a, C: HasDocument<Document = DocumentImpl<C>>> TreeIterator<'a, C> {
+impl<'a, C: HasDocument> TreeIterator<'a, C> {
     #[must_use]
-    pub fn new(doc: &'a DocumentImpl<C>) -> Self {
-        let node_stack = vec![doc.get_root().id()];
+    pub fn new(doc: &'a C::Document) -> Self {
+        let node_stack = vec![doc.root()];
         Self {
             current_node_id: None,
             document: doc,
@@ -622,15 +667,13 @@ impl<'a, C: HasDocument<Document = DocumentImpl<C>>> TreeIterator<'a, C> {
     }
 }
 
-impl<C: HasDocument<Document = DocumentImpl<C>>> Iterator for TreeIterator<'_, C> {
+impl<C: HasDocument> Iterator for TreeIterator<'_, C> {
     type Item = NodeId;
 
     fn next(&mut self) -> Option<NodeId> {
         if let Some(node_id) = self.node_stack.pop() {
-            let node = self.document.node_by_id(node_id)?;
-
             // Push children in reverse order so first child is processed first
-            for child_id in node.children().iter().rev() {
+            for child_id in self.document.children(node_id).iter().rev() {
                 self.node_stack.push(*child_id);
             }
 

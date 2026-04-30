@@ -4,7 +4,6 @@ pub mod parser;
 pub mod result;
 
 use crate::document::builder::DocumentBuilderImpl;
-use crate::document::document_impl::DocumentImpl;
 use crate::node::{HTML_NAMESPACE, MATHML_NAMESPACE, SVG_NAMESPACE};
 use generator::TreeOutputGenerator;
 use gosub_interface::config::{HasDocument, HasHtmlParser};
@@ -81,7 +80,11 @@ impl Harness {
     }
 
     /// Runs a single test and returns the test result of that run
-    pub fn run_test<C: HasHtmlParser + HasDocument<Document = DocumentImpl<C>>>(&mut self, test: Test, scripting_enabled: bool) -> Result<TestResult> {
+    pub fn run_test<C: HasHtmlParser + HasDocument>(
+        &mut self,
+        test: Test,
+        scripting_enabled: bool,
+    ) -> Result<TestResult> {
         self.test = test;
         self.next_document_line = 0;
 
@@ -92,7 +95,7 @@ impl Harness {
     }
 
     /// Run the html5 parser and return the document tree and errors
-    fn do_parse<C: HasHtmlParser + HasDocument<Document = DocumentImpl<C>>>(&mut self, scripting_enabled: bool) -> ParseResult<C::Document> {
+    fn do_parse<C: HasHtmlParser + HasDocument>(&mut self, scripting_enabled: bool) -> ParseResult<C::Document> {
         let options = <<C::HtmlParser as Html5Parser<C>>::Options as ParserOptions>::new(scripting_enabled);
         let mut stream = ByteStream::new(
             Encoding::UTF8,
@@ -117,7 +120,7 @@ impl Harness {
         Ok((document, parse_errors))
     }
 
-    fn parse_fragment<C: HasHtmlParser + HasDocument<Document = DocumentImpl<C>>>(
+    fn parse_fragment<C: HasHtmlParser + HasDocument>(
         &mut self,
         fragment: String,
         mut stream: ByteStream,
@@ -137,8 +140,8 @@ impl Harness {
         // Register the context element in the fragment document so that parse_fragment
         // can look it up by NodeId. It is only used for parser initialization (tokenizer
         // state, form element pointer); it is not inserted into the parsed tree.
-        let context_node = DocumentImpl::<C>::new_element_node(element.as_str(), Some(namespace), HashMap::new(), start_location);
-        let context_node_id = document.register_node(context_node);
+        let context_node_id =
+            document.create_element(element.as_str(), Some(namespace), HashMap::new(), start_location);
 
         let parser_errors = C::HtmlParser::parse_fragment(
             &mut stream,
@@ -194,7 +197,7 @@ impl Harness {
         Some(line.to_string())
     }
 
-    fn generate_test_result<C: HasDocument<Document = DocumentImpl<C>>>(
+    fn generate_test_result<C: HasDocument>(
         &mut self,
         document: C::Document,
         _parse_errors: &[ParseError],

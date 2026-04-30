@@ -84,7 +84,12 @@ impl NodeImpl {
     }
 
     #[must_use]
-    pub fn new_element(location: Location, name: &str, namespace: Option<&str>, attributes: HashMap<String, String>) -> Self {
+    pub fn new_element(
+        location: Location,
+        name: &str,
+        namespace: Option<&str>,
+        attributes: HashMap<String, String>,
+    ) -> Self {
         Self::new(
             location,
             NodeDataTypeInternal::Element(ElementData::new(name, namespace, attributes, Default::default())),

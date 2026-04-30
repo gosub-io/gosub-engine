@@ -7,6 +7,8 @@ use gosub_shared::types::Result;
 use std::process::exit;
 
 use gosub_interface::config::{HasCssSystem, HasDocument, HasHtmlParser};
+use gosub_interface::document::Document;
+use gosub_interface::node::NodeType;
 use gosub_shared::node::NodeId;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -51,22 +53,21 @@ fn main() -> Result<()> {
         println!("Parse Error: {}", e.message);
     }
 
-    display_node::<Config>(&doc, doc.get_root().id());
+    display_node::<Config>(&doc, doc.root());
 
     Ok(())
 }
 
-fn display_node<C: HasDocument<Document = DocumentImpl<C>>>(doc: &DocumentImpl<C>, node_id: NodeId) {
-    let node = doc.node_by_id(node_id).unwrap();
-    if node.is_text_node() {
-        if let Some(data) = node.get_text_data() {
-            if !data.value().eq("\n") {
-                println!("{}", data.value());
+fn display_node<C: HasDocument>(doc: &C::Document, node_id: NodeId) {
+    if doc.node_type(node_id) == NodeType::TextNode {
+        if let Some(value) = doc.text_value(node_id) {
+            if value != "\n" {
+                println!("{value}");
             }
         }
     }
 
-    for &child_id in &node.children().to_vec() {
+    for child_id in doc.children(node_id).to_vec() {
         display_node::<C>(doc, child_id);
     }
 }

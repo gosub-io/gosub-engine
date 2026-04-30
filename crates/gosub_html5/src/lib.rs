@@ -1,6 +1,5 @@
 //! HTML5 tokenizer and parser
 use crate::document::builder::DocumentBuilderImpl;
-use crate::document::document_impl::DocumentImpl;
 use crate::parser::Html5Parser;
 use gosub_interface::config::HasDocument;
 
@@ -18,7 +17,7 @@ pub mod writer;
 
 /// Parses the given HTML string and returns a handle to the resulting DOM tree.
 #[must_use]
-pub fn html_compile<C: HasDocument<Document = DocumentImpl<C>>>(html: &str) -> DocumentImpl<C> {
+pub fn html_compile<C: HasDocument>(html: &str) -> C::Document {
     let mut stream = ByteStream::new(Encoding::UTF8, None);
     stream.read_from_str(html, Some(Encoding::UTF8));
     stream.close();

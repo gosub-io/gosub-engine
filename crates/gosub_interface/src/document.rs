@@ -28,6 +28,9 @@ pub trait Document<C: HasCssSystem>: Sized + Display + Debug + PartialEq + 'stat
     /// Create a new empty document of the given type.
     fn new(document_type: DocumentType, url: Option<Url>) -> Self;
 
+    /// Create an HTML fragment document with a root `<html>` node.
+    fn new_fragment(quirks_mode: QuirksMode) -> Self;
+
     // -----------------------------------------------------------------------
     // Node creation — each returns the NodeId of the new node
     // -----------------------------------------------------------------------
@@ -53,6 +56,9 @@ pub trait Document<C: HasCssSystem>: Sized + Display + Debug + PartialEq + 'stat
     /// Deep-clone a node (and its subtree). Returns the new root NodeId.
     fn clone_node(&mut self, id: NodeId) -> NodeId;
 
+    /// Shallow-copy a node: same type/data/attributes, no children, unattached.
+    fn duplicate_node(&mut self, id: NodeId) -> NodeId;
+
     // -----------------------------------------------------------------------
     // Tree structure — all navigation returns NodeId, never &Node
     // -----------------------------------------------------------------------
@@ -65,6 +71,9 @@ pub trait Document<C: HasCssSystem>: Sized + Display + Debug + PartialEq + 'stat
     fn attach(&mut self, node: NodeId, parent: NodeId, position: Option<usize>);
     fn detach(&mut self, node: NodeId);
     fn remove(&mut self, node: NodeId);
+
+    /// Detach a node from its current parent and attach it to a new parent.
+    fn relocate_node(&mut self, node: NodeId, parent: NodeId);
 
     // -----------------------------------------------------------------------
     // Node type

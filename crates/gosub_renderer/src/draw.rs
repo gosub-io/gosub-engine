@@ -4,7 +4,6 @@ use crate::draw::img_cache::ImageCache;
 use crate::draw::testing::{test_add_element, test_restyle_element};
 use crate::render_tree::{load_html_rendertree, load_html_rendertree_fetcher, load_html_rendertree_source};
 use anyhow::anyhow;
-use gosub_html5::document::document_impl::DocumentImpl;
 use gosub_interface::config::{HasDocument, HasDrawComponents, HasHtmlParser};
 use gosub_interface::css3::{CssProperty, CssPropertyMap, CssValue};
 
@@ -77,7 +76,7 @@ impl<C: HasDrawComponents> TreeDrawerImpl<C> {
     }
 }
 
-impl<C: HasDrawComponents<RenderTree = RenderTree<C>, LayoutTree = RenderTree<C>> + HasHtmlParser + HasDocument<Document = DocumentImpl<C>>>
+impl<C: HasDrawComponents<RenderTree = RenderTree<C>, LayoutTree = RenderTree<C>> + HasHtmlParser + HasDocument>
     TreeDrawer<C> for TreeDrawerImpl<C>
 {
     type ImgCache = ImageCache<C::RenderBackend>;
@@ -353,7 +352,7 @@ struct Drawer<'s, 't, C: HasDrawComponents, EL: EventLoopHandle<C>> {
 }
 
 impl<
-        C: HasDrawComponents<LayoutTree = RenderTree<C>, RenderTree = RenderTree<C>> + HasHtmlParser + HasDocument<Document = DocumentImpl<C>>,
+        C: HasDrawComponents<LayoutTree = RenderTree<C>, RenderTree = RenderTree<C>> + HasHtmlParser + HasDocument,
         EL: EventLoopHandle<C>,
     > Drawer<'_, '_, C, EL>
 {

@@ -7,6 +7,6 @@ pub const XMLNS_NAMESPACE: &str = "http://www.w3.org/2000/xmlns/";
 
 pub mod arena;
 pub mod data;
-mod elements;
+pub(crate) mod elements;
 pub mod node_impl;
 pub mod visitor;

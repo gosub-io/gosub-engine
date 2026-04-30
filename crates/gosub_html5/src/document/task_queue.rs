@@ -1,7 +1,7 @@
 use gosub_interface::document::Document;
+use gosub_interface::node::NodeType;
 use std::collections::HashMap;
 
-use crate::document::document_impl::DocumentImpl;
 use crate::parser::tree_builder::TreeBuilder;
 use gosub_interface::config::HasDocument;
 use gosub_shared::byte_stream::Location;
@@ -73,7 +73,7 @@ impl DocumentTaskQueue {
         self.tasks.is_empty()
     }
 
-    pub fn flush<C: HasDocument<Document = DocumentImpl<C>>>(&mut self, doc: &mut C::Document) -> Vec<String> {
+    pub fn flush<C: HasDocument>(&mut self, doc: &mut C::Document) -> Vec<String> {
         let mut errors = Vec::new();
 
         for current_task in &self.tasks {
@@ -85,57 +85,46 @@ impl DocumentTaskQueue {
                     position,
                     location,
                 } => {
-                    let node = DocumentImpl::<C>::new_element_node(name, Some(namespace), HashMap::new(), *location);
-                    doc.register_node_at(node, *parent_id, *position);
+                    let node_id = doc.create_element(name, Some(namespace), HashMap::new(), *location);
+                    doc.attach(node_id, *parent_id, *position);
                 }
                 DocumentTask::CreateText {
                     content,
                     parent_id,
                     location,
                 } => {
-                    let node = DocumentImpl::<C>::new_text_node(content, *location);
-                    doc.register_node_at(node, *parent_id, None);
+                    let node_id = doc.create_text(content, *location);
+                    doc.attach(node_id, *parent_id, None);
                 }
                 DocumentTask::CreateComment {
                     content,
                     parent_id,
                     location,
                 } => {
-                    let node = DocumentImpl::<C>::new_comment_node(content, *location);
-                    doc.register_node_at(node, *parent_id, None);
+                    let node_id = doc.create_comment(content, *location);
+                    doc.attach(node_id, *parent_id, None);
                 }
                 DocumentTask::InsertAttribute {
                     key, value, element_id, ..
                 } => {
-                    // Invalid ID value?
                     if key == "id" && !is_valid_id_attribute_value(value) {
                         errors.push(format!("ID attribute value '{value}' did not pass validation"));
                         continue;
                     }
 
-                    // An ID must be tied to only one element
-                    let named_id = doc.node_by_named_id(value);
-                    if named_id.is_some() && named_id.unwrap() != *element_id {
-                        errors.push(format!("ID attribute value '{value}' already exists in DOM"));
+                    if let Some(existing_id) = doc.node_by_named_id(value) {
+                        if existing_id != *element_id {
+                            errors.push(format!("ID attribute value '{value}' already exists in DOM"));
+                            continue;
+                        }
+                    }
+
+                    if doc.node_type(*element_id) != NodeType::ElementNode {
+                        errors.push(format!("Node id {element_id} is not an element node"));
                         continue;
                     }
 
-                    let Some(node) = doc.node_by_id(*element_id) else {
-                        errors.push(format!("Node id {element_id} not found"));
-                        continue;
-                    };
-
-                    if !node.is_element_node() {
-                        errors.push(format!("Node id {element_id} is not an element"));
-                        continue;
-                    }
-
-                    let mut node = node.clone();
-
-                    let element_data = node.get_element_data_mut().unwrap();
-                    element_data.add_attribute(key, value);
-
-                    doc.update_node(node);
+                    doc.set_attribute(*element_id, key, value);
                 }
             }
         }

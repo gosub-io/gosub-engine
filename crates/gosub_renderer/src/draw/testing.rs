@@ -11,8 +11,14 @@ pub(crate) fn test_add_element<C: HasDrawComponents<RenderTree = RenderTree<C>, 
 
     let mut props = <C::CssSystem as CssSystem>::PropertyMap::default();
 
-    props.insert("width", <C::CssSystem as CssSystem>::Value::new_unit(100.0, "px".to_string()).into());
-    props.insert("height", <C::CssSystem as CssSystem>::Value::new_unit(100.0, "px".to_string()).into());
+    props.insert(
+        "width",
+        <C::CssSystem as CssSystem>::Value::new_unit(100.0, "px".to_string()).into(),
+    );
+    props.insert(
+        "height",
+        <C::CssSystem as CssSystem>::Value::new_unit(100.0, "px".to_string()).into(),
+    );
     props.insert(
         "background-color",
         <C::CssSystem as CssSystem>::Value::new_color(255.0, 0.0, 0.0, 255.0).into(),
@@ -27,7 +33,10 @@ pub(crate) fn test_add_element<C: HasDrawComponents<RenderTree = RenderTree<C>, 
     let mut props = <C::CssSystem as CssSystem>::PropertyMap::default();
 
     props.insert("font-size", <C::CssSystem as CssSystem>::Value::new_number(16.0).into());
-    props.insert("color", <C::CssSystem as CssSystem>::Value::new_color(0.0, 1.0, 1.0, 1.0).into());
+    props.insert(
+        "color",
+        <C::CssSystem as CssSystem>::Value::new_color(0.0, 1.0, 1.0, 1.0).into(),
+    );
 
     d.tree.insert_node_data(
         id,
