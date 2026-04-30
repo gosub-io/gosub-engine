@@ -5,6 +5,8 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::rc::Rc;
 
+use crate::document::document_impl::DocumentImpl;
+use crate::node::node_impl::NodeImpl;
 use crate::node::{HTML_NAMESPACE, MATHML_NAMESPACE, SVG_NAMESPACE};
 use crate::parser::attr_replacements::{
     MATHML_ADJUSTMENTS, SVG_ADJUSTMENTS_ATTRIBUTES, SVG_ADJUSTMENTS_TAGS, XML_ADJUSTMENTS,
@@ -16,11 +18,10 @@ use crate::tokenizer::{ParserData, Tokenizer, CHAR_REPLACEMENT};
 use cow_utils::CowUtils;
 use gosub_interface::config::HasDocument;
 use gosub_interface::css3::{CssOrigin, CssSystem};
-use gosub_interface::document::{Document, DocumentFragment, DocumentType};
+use gosub_interface::document::{Document, DocumentType};
 
 use gosub_interface::html5::ParserOptions;
-use gosub_interface::node::TextDataType;
-use gosub_interface::node::{ElementDataType, Node, QuirksMode};
+use gosub_interface::node::QuirksMode;
 use gosub_shared::byte_stream::{ByteStream, Location};
 use gosub_shared::config::{Context, ParserConfig};
 use gosub_shared::node::NodeId;
@@ -209,13 +210,11 @@ pub struct Html5Parser<'tokens, C: HasDocument> {
     token_queue: Vec<Token>,
     /// When true, the parser is finished and should not consume more tokens (there aren't any)
     parser_finished: bool,
-    /// Context node id for fragment parsing
-    context_node: Option<C::Node>,
-    // /// Context document for the context_node_id
-    // context_doc: Option<&'tokens C::Document>,
+    /// Context node for fragment parsing
+    context_node: Option<NodeImpl>,
 }
 
-impl<C: HasDocument> gosub_interface::html5::Html5Parser<C> for Html5Parser<'_, C> {
+impl<C: HasDocument<Document = DocumentImpl<C>>> gosub_interface::html5::Html5Parser<C> for Html5Parser<'_, C> {
     type Options = Html5ParserOptions;
 
     fn parse(stream: &mut ByteStream, doc: &mut C::Document, opts: Option<Self::Options>) -> Result<Vec<ParseError>> {
@@ -225,7 +224,7 @@ impl<C: HasDocument> gosub_interface::html5::Html5Parser<C> for Html5Parser<'_, 
     fn parse_fragment(
         stream: &mut ByteStream,
         doc: &mut C::Document,
-        context_node: C::Node,
+        context_node: NodeId,
         options: Option<Self::Options>,
         start_location: Location,
     ) -> Result<Vec<ParseError>> {
@@ -249,7 +248,7 @@ enum DispatcherMode {
     Html,
 }
 
-impl<'a, C: HasDocument> Html5Parser<'a, C> {
+impl<'a, C: HasDocument<Document = DocumentImpl<C>>> Html5Parser<'a, C> {
     // Initializes the parser for whole document parsing
     fn init(
         tokenizer: Tokenizer<'a>,
@@ -334,12 +333,13 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
     pub fn parse_fragment(
         stream: &mut ByteStream,
         document: &mut C::Document,
-        context_node: C::Node,
+        context_node_id: NodeId,
         options: Option<Html5ParserOptions>,
         start_location: Location,
     ) -> Result<Vec<ParseError>> {
         // https://html.spec.whatwg.org/multipage/parsing.html#parsing-html-fragments
 
+        let context_node = document.node_by_id(context_node_id).expect("context node not found").clone();
         let context_node_element_data = context_node.get_element_data().expect("context node is not an element");
 
         // 1.
@@ -358,7 +358,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         parser.initialize_fragment_case(context_node.clone());
 
         // 5. / 6.
-        // Not needed, as the document should have been created with DocumentBuilder::document_fragment(), and already got an HTML root node.
+        // Not needed, as the document should have been created with DocumentBuilderImpl::new_document_fragment(), and already got an HTML root node.
 
         // 7.
         parser.open_elements.push(NodeId::root());
@@ -1825,7 +1825,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
     }
 
     /// Create a new node that is not connected or attached to the document arena
-    fn create_node(&self, token: &Token, namespace: &str) -> C::Node {
+    fn create_node(&self, token: &Token, namespace: &str) -> NodeImpl {
         match token {
             Token::DocType {
                 name,
@@ -1833,7 +1833,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 pub_identifier,
                 sys_identifier,
                 location,
-            } => C::Document::new_doctype_node(
+            } => DocumentImpl::<C>::new_doctype_node(
                 &name.clone().unwrap_or_default(),
                 match pub_identifier {
                     Some(value) => Some(value.as_str()),
@@ -1850,18 +1850,18 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 attributes,
                 location,
                 ..
-            } => C::Document::new_element_node(name, namespace.into(), attributes.clone(), *location),
+            } => DocumentImpl::<C>::new_element_node(name, Some(namespace), attributes.clone(), *location),
             Token::EndTag { name, location, .. } => {
-                C::Document::new_element_node(name, namespace.into(), HashMap::new(), *location)
+                DocumentImpl::<C>::new_element_node(name, Some(namespace), HashMap::new(), *location)
             }
             Token::Comment {
                 comment: value,
                 location,
                 ..
-            } => C::Document::new_comment_node(value, *location),
+            } => DocumentImpl::<C>::new_comment_node(value, *location),
             Token::Text {
                 text: value, location, ..
-            } => C::Document::new_text_node(value.as_str(), *location),
+            } => DocumentImpl::<C>::new_text_node(value.as_str(), *location),
             Token::Eof { .. } => {
                 panic!("EOF token not allowed");
             }
@@ -3088,7 +3088,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                     let mut node = self.document.cloned_node_by_id(node_id).expect("node not found");
                     if node.is_element_node() {
                         let element_data = get_element_data_mut!(node);
-                        element_data.set_template_contents(C::DocumentFragment::new(current_node_id));
+                        element_data.set_template_contents(current_node_id);
 
                         self.document.update_node(node);
                     }
@@ -3852,7 +3852,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         token.expect("no token found")
     }
 
-    fn get_adjusted_current_node(&self) -> <C::Document as Document<C>>::Node {
+    fn get_adjusted_current_node(&self) -> NodeImpl {
         if self.is_fragment_case && self.open_elements.len() == 1 {
             // fragment case
             return self.context_node.as_ref().unwrap().clone();
@@ -3936,7 +3936,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
     }
 
     /// Find the correct tokenizer state when we are about to parse a fragment case
-    fn find_initial_state_for_context(&self, context_node: &<C::Document as Document<C>>::Node) -> State {
+    fn find_initial_state_for_context(&self, context_node: &NodeImpl) -> State {
         let context_node_element_data = get_element_data!(context_node);
         if !context_node_element_data.is_namespace(HTML_NAMESPACE) {
             return State::Data;
@@ -3959,7 +3959,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
     }
 
     // Initialize all parser settings for parsing a fragment case
-    fn initialize_fragment_case(&mut self, context_node: C::Node) {
+    fn initialize_fragment_case(&mut self, context_node: NodeImpl) {
         self.is_fragment_case = true;
 
         self.tokenizer
@@ -4068,8 +4068,8 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
     fn load_inline_stylesheet(
         &self,
         origin: CssOrigin,
-        node: &<C::Document as Document<C>>::Node,
-    ) -> Option<C::Stylesheet> {
+        node: &NodeImpl,
+    ) -> Option<<C::CssSystem as CssSystem>::Stylesheet> {
         if !node.is_text_node() {
             return None;
         }
@@ -4101,12 +4101,12 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
 
     /// Load and parse an external stylesheet by URL
     #[cfg(target_arch = "wasm32")]
-    fn load_external_stylesheet(&self, _origin: CssOrigin, _url: Url) -> Option<C::Stylesheet> {
+    fn load_external_stylesheet(&self, _origin: CssOrigin, _url: Url) -> Option<<C::CssSystem as CssSystem>::Stylesheet> {
         None
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    fn load_external_stylesheet(&self, origin: CssOrigin, url: Url) -> Option<C::Stylesheet> {
+    fn load_external_stylesheet(&self, origin: CssOrigin, url: Url) -> Option<<C::CssSystem as CssSystem>::Stylesheet> {
         let css = if url.scheme() == "http" || url.scheme() == "https" {
             // Fetch the html from the url
             let response = reqwest::blocking::get(url.as_str());
@@ -4251,14 +4251,11 @@ mod test {
     use super::*;
     use crate::document::builder::DocumentBuilderImpl;
     use crate::document::document_impl::DocumentImpl;
-    use crate::document::fragment::DocumentFragmentImpl;
     use crate::node::data::element::ElementData;
     use crate::node::node_impl::NodeDataTypeInternal;
     use crate::node::node_impl::NodeImpl;
-    use crate::DocumentBuilder;
     use gosub_css3::system::Css3System;
     use gosub_interface::config::HasCssSystem;
-    use gosub_interface::node::ClassList;
     use gosub_shared::byte_stream::Encoding;
 
     #[derive(Clone, Debug, PartialEq)]
@@ -4269,8 +4266,6 @@ mod test {
     }
     impl HasDocument for Config {
         type Document = DocumentImpl<Self>;
-        type DocumentFragment = DocumentFragmentImpl<Self>;
-        type DocumentBuilder = DocumentBuilderImpl;
     }
 
     type Parser<'a> = Html5Parser<'a, Config>;
@@ -4294,7 +4289,7 @@ mod test {
     #[test]
     fn is_in_scope() {
         let mut stream = ByteStream::new(Encoding::UTF8, None);
-        let mut document = <DocumentBuilderImpl as DocumentBuilder<Config>>::new_document(None);
+        let mut document = DocumentBuilderImpl::new_document::<Config>(None);
         let mut parser = Parser::new_parser(&mut stream, &mut document, Location::default());
 
         node_create!(parser, "html");
@@ -4310,7 +4305,7 @@ mod test {
     #[test]
     fn is_in_scope_empty_stack() {
         let mut stream = ByteStream::new(Encoding::UTF8, None);
-        let mut document = <DocumentBuilderImpl as DocumentBuilder<Config>>::new_document(None);
+        let mut document = DocumentBuilderImpl::new_document::<Config>(None);
         let mut parser = Parser::new_parser(&mut stream, &mut document, Location::default());
 
         parser.open_elements.clear();
@@ -4323,7 +4318,7 @@ mod test {
     #[test]
     fn is_in_scope_non_existing_node() {
         let mut stream = ByteStream::new(Encoding::UTF8, None);
-        let mut document = <DocumentBuilderImpl as DocumentBuilder<Config>>::new_document(None);
+        let mut document = DocumentBuilderImpl::new_document::<Config>(None);
         let mut parser = Parser::new_parser(&mut stream, &mut document, Location::default());
         node_create!(parser, "html");
         node_create!(parser, "div");
@@ -4339,7 +4334,7 @@ mod test {
     #[test]
     fn is_in_scope_1() {
         let mut stream = ByteStream::new(Encoding::UTF8, None);
-        let mut document = <DocumentBuilderImpl as DocumentBuilder<Config>>::new_document(None);
+        let mut document = DocumentBuilderImpl::new_document::<Config>(None);
         let mut parser = Parser::new_parser(&mut stream, &mut document, Location::default());
         node_create!(parser, "html");
         node_create!(parser, "div");
@@ -4377,7 +4372,7 @@ mod test {
     #[test]
     fn is_in_scope_2() {
         let mut stream = ByteStream::new(Encoding::UTF8, None);
-        let mut document = <DocumentBuilderImpl as DocumentBuilder<Config>>::new_document(None);
+        let mut document = DocumentBuilderImpl::new_document::<Config>(None);
         let mut parser = Parser::new_parser(&mut stream, &mut document, Location::default());
         node_create!(parser, "html");
         node_create!(parser, "body");
@@ -4396,7 +4391,7 @@ mod test {
     #[test]
     fn is_in_scope_3() {
         let mut stream = ByteStream::new(Encoding::UTF8, None);
-        let mut document = <DocumentBuilderImpl as DocumentBuilder<Config>>::new_document(None);
+        let mut document = DocumentBuilderImpl::new_document::<Config>(None);
         let mut parser = Parser::new_parser(&mut stream, &mut document, Location::default());
         node_create!(parser, "html");
         node_create!(parser, "body");
@@ -4415,7 +4410,7 @@ mod test {
     #[test]
     fn is_in_scope_4() {
         let mut stream = ByteStream::new(Encoding::UTF8, None);
-        let mut document = <DocumentBuilderImpl as DocumentBuilder<Config>>::new_document(None);
+        let mut document = DocumentBuilderImpl::new_document::<Config>(None);
         let mut parser = Parser::new_parser(&mut stream, &mut document, Location::default());
         node_create!(parser, "html");
         node_create!(parser, "body");
@@ -4436,7 +4431,7 @@ mod test {
     #[test]
     fn is_in_scope_5() {
         let mut stream = ByteStream::new(Encoding::UTF8, None);
-        let mut document = <DocumentBuilderImpl as DocumentBuilder<Config>>::new_document(None);
+        let mut document = DocumentBuilderImpl::new_document::<Config>(None);
         let mut parser = Parser::new_parser(&mut stream, &mut document, Location::default());
         node_create!(parser, "html");
         node_create!(parser, "body");
@@ -4456,7 +4451,7 @@ mod test {
     #[test]
     fn is_in_scope_6() {
         let mut stream = ByteStream::new(Encoding::UTF8, None);
-        let mut document = <DocumentBuilderImpl as DocumentBuilder<Config>>::new_document(None);
+        let mut document = DocumentBuilderImpl::new_document::<Config>(None);
         let mut parser = Parser::new_parser(&mut stream, &mut document, Location::default());
         node_create!(parser, "html");
         node_create!(parser, "body");
@@ -4476,7 +4471,7 @@ mod test {
     #[test]
     fn is_in_scope_7() {
         let mut stream = ByteStream::new(Encoding::UTF8, None);
-        let mut document = <DocumentBuilderImpl as DocumentBuilder<Config>>::new_document(None);
+        let mut document = DocumentBuilderImpl::new_document::<Config>(None);
         let mut parser = Parser::new_parser(&mut stream, &mut document, Location::default());
         node_create!(parser, "html");
         node_create!(parser, "body");
@@ -4495,7 +4490,7 @@ mod test {
     #[test]
     fn is_in_scope_8() {
         let mut stream = ByteStream::new(Encoding::UTF8, None);
-        let mut document = <DocumentBuilderImpl as DocumentBuilder<Config>>::new_document(None);
+        let mut document = DocumentBuilderImpl::new_document::<Config>(None);
         let mut parser = Parser::new_parser(&mut stream, &mut document, Location::default());
         node_create!(parser, "html");
         node_create!(parser, "body");
@@ -4516,7 +4511,7 @@ mod test {
         stream.read_from_str("<p><b>bold<i>bold and italic</b>italic</i></p>", Some(Encoding::UTF8));
         stream.close();
 
-        let mut doc_handle = <DocumentBuilderImpl as DocumentBuilder<Config>>::new_document(None);
+        let mut doc_handle = DocumentBuilderImpl::new_document::<Config>(None);
         let _ = Parser::parse_document(&mut stream, &mut doc_handle, None);
 
         println!("{doc_handle}");
@@ -4528,7 +4523,7 @@ mod test {
         stream.read_from_str("<div class=\"one two three\"></div>", Some(Encoding::UTF8));
         stream.close();
 
-        let mut doc = <DocumentBuilderImpl as DocumentBuilder<Config>>::new_document(None);
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
         let _ = Parser::parse_document(&mut stream, &mut doc, None);
 
         // document -> html -> head -> body -> div
@@ -4555,7 +4550,7 @@ mod test {
         stream.read_from_str("<div class=\" one    two     three   \"></div>", Some(Encoding::UTF8));
         stream.close();
 
-        let mut doc = <DocumentBuilderImpl as DocumentBuilder<Config>>::new_document(None);
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
         let _ = Parser::parse_document(&mut stream, &mut doc, None);
 
         // document -> html -> head -> body -> div
@@ -4586,7 +4581,7 @@ mod test {
         );
         stream.close();
 
-        let mut doc = <DocumentBuilderImpl as DocumentBuilder<Config>>::new_document(None);
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
         let _ = Parser::parse_document(&mut stream, &mut doc, None);
 
         // Any invalid id's are not stored in the document, and thus not searchable
@@ -4604,7 +4599,7 @@ mod test {
         );
         stream.close();
 
-        let mut doc = <DocumentBuilderImpl as DocumentBuilder<Config>>::new_document(None);
+        let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
         let _ = Parser::parse_document(&mut stream, &mut doc, None);
 
         // we are expecting the div (ID: 4) and p would be ignored

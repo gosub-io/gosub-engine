@@ -1,10 +1,9 @@
+use crate::document::document_impl::DocumentImpl;
+use crate::node::node_impl::NodeImpl;
 use crate::node::HTML_NAMESPACE;
 use crate::parser::{ActiveElement, Html5Parser, Scope};
 use crate::tokenizer::token::Token;
 use gosub_interface::config::HasDocument;
-use gosub_interface::document::Document;
-
-use gosub_interface::node::{ElementDataType, Node, TextDataType};
 use gosub_shared::node::NodeId;
 
 const ADOPTION_AGENCY_OUTER_LOOP_DEPTH: usize = 8;
@@ -21,7 +20,7 @@ pub enum BookMark<NodeId> {
     InsertAfter(NodeId),
 }
 
-impl<C: HasDocument> Html5Parser<'_, C> {
+impl<C: HasDocument<Document = DocumentImpl<C>>> Html5Parser<'_, C> {
     fn find_position_in_active_format(&self, node_id: NodeId) -> Option<usize> {
         self.active_formatting_elements
             .iter()
@@ -145,13 +144,13 @@ impl<C: HasDocument> Html5Parser<'_, C> {
         self.insert_element(node, override_node)
     }
 
-    pub fn insert_element_from_node(&mut self, org_node: &C::Node, override_node: Option<NodeId>) -> NodeId {
+    pub fn insert_element_from_node(&mut self, org_node: &NodeImpl, override_node: Option<NodeId>) -> NodeId {
         // Create a node, but without children and push it onto the open elements stack (if needed)
-        let new_node = C::Node::new_from_node(org_node);
+        let new_node = NodeImpl::new_from_node(org_node);
         self.insert_element(new_node, override_node)
     }
 
-    pub fn insert_element(&mut self, node: C::Node, override_node: Option<NodeId>) -> NodeId {
+    pub fn insert_element(&mut self, node: NodeImpl, override_node: Option<NodeId>) -> NodeId {
         let node_id = self.document.register_node(node);
 
         let insert_position = self.appropriate_place_insert(override_node);
@@ -374,7 +373,7 @@ impl<C: HasDocument> Html5Parser<'_, C> {
                 let element_node = get_node_by_id!(self.document, node_id);
                 let element_data = get_element_data!(element_node);
 
-                let replacement_node = C::Document::new_element_node(
+                let replacement_node = DocumentImpl::<C>::new_element_node(
                     element_data.name(),
                     Some(element_data.namespace()),
                     element_data.attributes().clone(),
@@ -407,7 +406,7 @@ impl<C: HasDocument> Html5Parser<'_, C> {
             self.insert_element_helper(last_node_id, insert_position);
 
             // step 4.15
-            let new_format_node = C::Document::new_element_node(
+            let new_format_node = DocumentImpl::<C>::new_element_node(
                 format_element_data.name(),
                 Some(format_element_data.namespace()),
                 format_element_data.attributes().clone(),

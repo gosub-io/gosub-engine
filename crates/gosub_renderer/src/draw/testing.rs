@@ -1,6 +1,6 @@
 use crate::draw::TreeDrawerImpl;
 use gosub_interface::config::HasDrawComponents;
-use gosub_interface::css3::{CssPropertyMap, CssValue};
+use gosub_interface::css3::{CssPropertyMap, CssSystem, CssValue};
 use gosub_rendering::render_tree::{RenderNodeData, RenderTree, TextData};
 use gosub_shared::node::NodeId;
 
@@ -9,13 +9,13 @@ pub(crate) fn test_add_element<C: HasDrawComponents<RenderTree = RenderTree<C>, 
 ) {
     d.dirty = true;
 
-    let mut props = C::CssPropertyMap::default();
+    let mut props = <C::CssSystem as CssSystem>::PropertyMap::default();
 
-    props.insert("width", C::CssValue::new_unit(100.0, "px".to_string()).into());
-    props.insert("height", C::CssValue::new_unit(100.0, "px".to_string()).into());
+    props.insert("width", <C::CssSystem as CssSystem>::Value::new_unit(100.0, "px".to_string()).into());
+    props.insert("height", <C::CssSystem as CssSystem>::Value::new_unit(100.0, "px".to_string()).into());
     props.insert(
         "background-color",
-        C::CssValue::new_color(255.0, 0.0, 0.0, 255.0).into(),
+        <C::CssSystem as CssSystem>::Value::new_color(255.0, 0.0, 0.0, 255.0).into(),
     );
 
     let id = d
@@ -24,10 +24,10 @@ pub(crate) fn test_add_element<C: HasDrawComponents<RenderTree = RenderTree<C>, 
 
     d.tree.layout_dirty_from(NodeId::from(14u64));
 
-    let mut props = C::CssPropertyMap::default();
+    let mut props = <C::CssSystem as CssSystem>::PropertyMap::default();
 
-    props.insert("font-size", C::CssValue::new_number(16.0).into());
-    props.insert("color", C::CssValue::new_color(0.0, 1.0, 1.0, 1.0).into());
+    props.insert("font-size", <C::CssSystem as CssSystem>::Value::new_number(16.0).into());
+    props.insert("color", <C::CssSystem as CssSystem>::Value::new_color(0.0, 1.0, 1.0, 1.0).into());
 
     d.tree.insert_node_data(
         id,

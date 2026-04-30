@@ -1,7 +1,4 @@
-use gosub_interface::node::TextDataType;
-
 #[derive(Clone, Debug, PartialEq)]
-
 /// Data structure for text nodes
 pub struct TextData {
     /// Actual text
@@ -26,18 +23,16 @@ impl TextData {
             value: value.to_owned(),
         }
     }
-}
 
-impl TextDataType for TextData {
-    fn value(&self) -> &str {
+    pub fn value(&self) -> &str {
         &self.value
     }
 
-    fn string_value(&self) -> String {
+    pub fn string_value(&self) -> String {
         self.value.clone()
     }
 
-    fn value_mut(&mut self) -> &mut String {
+    pub fn value_mut(&mut self) -> &mut String {
         &mut self.value
     }
 }

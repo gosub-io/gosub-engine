@@ -1,5 +1,5 @@
 use core::fmt::{Debug, Formatter};
-use gosub_interface::node::{DocumentDataType, QuirksMode};
+use gosub_interface::node::QuirksMode;
 use std::fmt;
 
 #[derive(PartialEq, Clone)]
@@ -28,14 +28,12 @@ impl DocumentData {
     pub(crate) fn new(quirks_mode: QuirksMode) -> Self {
         Self { quirks_mode }
     }
-}
 
-impl DocumentDataType for DocumentData {
-    fn quirks_mode(&self) -> QuirksMode {
+    pub fn quirks_mode(&self) -> QuirksMode {
         self.quirks_mode
     }
 
-    fn set_quirks_mode(&mut self, quirks_mode: QuirksMode) {
+    pub fn set_quirks_mode(&mut self, quirks_mode: QuirksMode) {
         self.quirks_mode = quirks_mode;
     }
 }

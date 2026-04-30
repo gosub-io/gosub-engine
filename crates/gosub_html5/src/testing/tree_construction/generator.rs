@@ -1,16 +1,16 @@
+use crate::document::document_impl::DocumentImpl;
+use crate::node::node_impl::NodeImpl;
 use crate::node::HTML_NAMESPACE;
 use crate::node::{MATHML_NAMESPACE, SVG_NAMESPACE, XLINK_NAMESPACE, XMLNS_NAMESPACE};
 use gosub_interface::config::HasDocument;
-use gosub_interface::document::Document;
-
-use gosub_interface::node::{CommentDataType, DocTypeDataType, ElementDataType, Node, NodeType, TextDataType};
+use gosub_interface::node::NodeType;
 
 /// Generates a tree output that can be used for matching with the expected output
-pub struct TreeOutputGenerator<C: HasDocument> {
+pub struct TreeOutputGenerator<C: HasDocument<Document = DocumentImpl<C>>> {
     document: C::Document,
 }
 
-impl<C: HasDocument> TreeOutputGenerator<C> {
+impl<C: HasDocument<Document = DocumentImpl<C>>> TreeOutputGenerator<C> {
     /// Initializes a new tree output generator
     #[must_use]
     pub fn new(document: C::Document) -> Self {
@@ -23,7 +23,7 @@ impl<C: HasDocument> TreeOutputGenerator<C> {
     }
 
     /// Generates an array of indented tree line and its children. Note that text lines can have newlines in them
-    fn output_treeline(&self, node: &C::Node, indent_level: usize) -> Vec<String> {
+    fn output_treeline(&self, node: &NodeImpl, indent_level: usize) -> Vec<String> {
         let mut indent_level = indent_level;
         let mut output = Vec::new();
 
@@ -63,7 +63,7 @@ impl<C: HasDocument> TreeOutputGenerator<C> {
     }
 
     /// Generate the output for a single node
-    fn output_node(&self, node: &C::Node) -> String {
+    fn output_node(&self, node: &NodeImpl) -> String {
         match node.type_of() {
             NodeType::ElementNode => {
                 let Some(data) = node.get_element_data() else {

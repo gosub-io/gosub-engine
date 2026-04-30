@@ -1,19 +1,14 @@
-use crate::document::document_impl::TreeIterator;
+use crate::document::document_impl::{DocumentImpl, TreeIterator};
 use crate::errors::Error;
 use crate::parser::query::{Condition, Query, SearchType};
 use gosub_interface::config::HasDocument;
-use gosub_interface::document::Document;
-
-use gosub_interface::node::ClassList;
-use gosub_interface::node::ElementDataType;
-use gosub_interface::node::Node;
 use gosub_shared::node::NodeId;
 
-pub struct DocumentQuery<C: HasDocument> {
+pub struct DocumentQuery<C: HasDocument<Document = DocumentImpl<C>>> {
     _phantom: std::marker::PhantomData<C>,
 }
 
-impl<C: HasDocument> DocumentQuery<C> {
+impl<C: HasDocument<Document = DocumentImpl<C>>> DocumentQuery<C> {
     /// Perform a single query against the document.
     /// If query search type is uninitialized, returns an error.
     /// Otherwise, returns a vector of `NodeIds` that match the predicate in tree order (preorder depth-first.)

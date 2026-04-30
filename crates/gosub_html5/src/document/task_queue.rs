@@ -1,9 +1,9 @@
 use gosub_interface::document::Document;
 use std::collections::HashMap;
 
+use crate::document::document_impl::DocumentImpl;
 use crate::parser::tree_builder::TreeBuilder;
 use gosub_interface::config::HasDocument;
-use gosub_interface::node::{ElementDataType, Node};
 use gosub_shared::byte_stream::Location;
 use gosub_shared::node::NodeId;
 use gosub_shared::types::Result;
@@ -73,7 +73,7 @@ impl DocumentTaskQueue {
         self.tasks.is_empty()
     }
 
-    pub fn flush<C: HasDocument>(&mut self, doc: &mut C::Document) -> Vec<String> {
+    pub fn flush<C: HasDocument<Document = DocumentImpl<C>>>(&mut self, doc: &mut C::Document) -> Vec<String> {
         let mut errors = Vec::new();
 
         for current_task in &self.tasks {
@@ -85,7 +85,7 @@ impl DocumentTaskQueue {
                     position,
                     location,
                 } => {
-                    let node = C::Document::new_element_node(name, Some(namespace), HashMap::new(), *location);
+                    let node = DocumentImpl::<C>::new_element_node(name, Some(namespace), HashMap::new(), *location);
                     doc.register_node_at(node, *parent_id, *position);
                 }
                 DocumentTask::CreateText {
@@ -93,7 +93,7 @@ impl DocumentTaskQueue {
                     parent_id,
                     location,
                 } => {
-                    let node = C::Document::new_text_node(content, *location);
+                    let node = DocumentImpl::<C>::new_text_node(content, *location);
                     doc.register_node_at(node, *parent_id, None);
                 }
                 DocumentTask::CreateComment {
@@ -101,7 +101,7 @@ impl DocumentTaskQueue {
                     parent_id,
                     location,
                 } => {
-                    let node = C::Document::new_comment_node(content, *location);
+                    let node = DocumentImpl::<C>::new_comment_node(content, *location);
                     doc.register_node_at(node, *parent_id, None);
                 }
                 DocumentTask::InsertAttribute {
@@ -114,8 +114,8 @@ impl DocumentTaskQueue {
                     }
 
                     // An ID must be tied to only one element
-                    let named_node = doc.node_by_named_id(value);
-                    if named_node.is_some() && named_node.unwrap().id() != *element_id {
+                    let named_id = doc.node_by_named_id(value);
+                    if named_id.is_some() && named_id.unwrap() != *element_id {
                         errors.push(format!("ID attribute value '{value}' already exists in DOM"));
                         continue;
                     }

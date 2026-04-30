@@ -1,5 +1,3 @@
-use gosub_interface::node::CommentDataType;
-
 #[derive(Debug, PartialEq, Clone)]
 /// Data structure for comment nodes
 pub struct CommentData {
@@ -24,10 +22,8 @@ impl CommentData {
             value: value.to_owned(),
         }
     }
-}
 
-impl CommentDataType for CommentData {
-    fn value(&self) -> &str {
+    pub fn value(&self) -> &str {
         &self.value
     }
 }

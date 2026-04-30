@@ -30,9 +30,7 @@ pub trait TreeBuilder {
 
 #[cfg(test)]
 mod tests {
-    use crate::document::builder::DocumentBuilderImpl;
     use crate::document::document_impl::DocumentImpl;
-    use crate::document::fragment::DocumentFragmentImpl;
     use crate::parser::Html5Parser;
     use crate::testing::tree_construction::fixture::{fixture_root_path, read_fixture_from_path};
     use crate::testing::tree_construction::Harness;
@@ -48,8 +46,6 @@ mod tests {
     }
     impl HasDocument for Config {
         type Document = DocumentImpl<Self>;
-        type DocumentFragment = DocumentFragmentImpl<Self>;
-        type DocumentBuilder = DocumentBuilderImpl;
     }
 
     impl HasHtmlParser for Config {

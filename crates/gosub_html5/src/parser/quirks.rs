@@ -151,13 +151,11 @@ static LIMITED_QUIRKS_PUB_IDENTIFIER_PREFIX_NOT_MISSING_SYS: &[&str] = &[
 #[cfg(test)]
 mod tests {
     use crate::document::document_impl::DocumentImpl;
-    use crate::document::fragment::DocumentFragmentImpl;
+    use crate::document::builder::DocumentBuilderImpl;
     use crate::parser::Html5Parser;
     use crate::parser::QuirksMode;
-    use crate::DocumentBuilderImpl;
     use gosub_css3::system::Css3System;
     use gosub_interface::config::{HasCssSystem, HasDocument};
-    use gosub_interface::document::DocumentBuilder;
     use gosub_shared::byte_stream::{ByteStream, Encoding, Location};
 
     #[derive(Clone, Debug, PartialEq)]
@@ -168,8 +166,6 @@ mod tests {
     }
     impl HasDocument for Config {
         type Document = DocumentImpl<Self>;
-        type DocumentFragment = DocumentFragmentImpl<Self>;
-        type DocumentBuilder = DocumentBuilderImpl;
     }
 
     type Parser<'a> = Html5Parser<'a, Config>;
@@ -177,7 +173,7 @@ mod tests {
     #[test]
     fn test_quirks_mode() {
         let mut stream = ByteStream::new(Encoding::UTF8, None);
-        let mut document = <DocumentBuilderImpl as DocumentBuilder<Config>>::new_document(None);
+        let mut document = DocumentBuilderImpl::new_document::<Config>(None);
         let parser = Parser::new_parser(&mut stream, &mut document, Location::default());
 
         assert_eq!(
@@ -264,7 +260,7 @@ mod tests {
     #[test]
     fn test_quirks_mode_force() {
         let mut stream = ByteStream::new(Encoding::UTF8, None);
-        let mut document = <DocumentBuilderImpl as DocumentBuilder<Config>>::new_document(None);
+        let mut document = DocumentBuilderImpl::new_document::<Config>(None);
         let parser = Parser::new_parser(&mut stream, &mut document, Location::default());
 
         assert_eq!(
@@ -339,7 +335,7 @@ mod tests {
     #[test]
     fn test_quirks_mode_sys() {
         let mut stream = ByteStream::new(Encoding::UTF8, None);
-        let mut document = <DocumentBuilderImpl as DocumentBuilder<Config>>::new_document(None);
+        let mut document = DocumentBuilderImpl::new_document::<Config>(None);
         let parser = Parser::new_parser(&mut stream, &mut document, Location::default());
 
         assert_eq!(
@@ -365,7 +361,7 @@ mod tests {
     #[test]
     fn test_quirks_mode_sys_missing() {
         let mut stream = ByteStream::new(Encoding::UTF8, None);
-        let mut document = <DocumentBuilderImpl as DocumentBuilder<Config>>::new_document(None);
+        let mut document = DocumentBuilderImpl::new_document::<Config>(None);
         let parser = Parser::new_parser(&mut stream, &mut document, Location::default());
 
         assert_eq!(

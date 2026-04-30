@@ -3582,6 +3582,7 @@ version = "0.1.1"
 dependencies = [
  "anyhow",
  "gosub_fontmanager",
+ "gosub_html5",
  "gosub_interface",
  "gosub_net",
  "gosub_rendering",
