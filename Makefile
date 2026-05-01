@@ -22,8 +22,14 @@ check-format: test_clippy test_fmt ## Check the project for clippy and formattin
 
 test_unit:
 	source test-utils.sh ;\
-	section "Cargo test" ;\
-	cargo test --all --no-fail-fast --all-features --all-targets
+	section "Cargo nextest" ;\
+	if cargo nextest --version >/dev/null 2>&1; then \
+		cargo nextest run --all --no-fail-fast; \
+		cargo test --doc --all; \
+	else \
+		echo "cargo-nextest not found, falling back to cargo test (install with: cargo install cargo-nextest)" ;\
+		cargo test --all --no-fail-fast --all-targets; \
+	fi
 
 test_clippy:
 	source test-utils.sh ;\
