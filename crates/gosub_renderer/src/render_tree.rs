@@ -1,8 +1,7 @@
 use anyhow::bail;
-use gosub_html5::document::builder::DocumentBuilderImpl;
 use gosub_interface::config::{HasDocument, HasHtmlParser, HasRenderTree};
 use gosub_interface::css3::CssSystem;
-use gosub_interface::document::Document;
+use gosub_interface::document::{Document, DocumentType};
 
 use gosub_interface::html5::Html5Parser;
 use gosub_net::http::fetcher::Fetcher;
@@ -36,7 +35,7 @@ pub fn load_html_rendertree_source<C: HasRenderTree + HasHtmlParser + HasDocumen
     stream.read_from_str(source_html, Some(Encoding::UTF8));
     stream.close();
 
-    let mut doc = DocumentBuilderImpl::new_document::<C>(Some(url));
+    let mut doc = C::Document::new(DocumentType::HTML, Some(url));
     let parse_errors = C::HtmlParser::parse(&mut stream, &mut doc, None)?;
 
     for error in parse_errors {
