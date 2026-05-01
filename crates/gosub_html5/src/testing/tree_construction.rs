@@ -88,14 +88,21 @@ impl Harness {
         self.test = test;
         self.next_document_line = 0;
 
-        let (actual_document, actual_errors) = self.do_parse::<C>(scripting_enabled)?;
-        let result = self.generate_test_result::<C>(actual_document, &actual_errors);
+        let (actual_document, actual_errors, tree_root) = self.do_parse::<C>(scripting_enabled)?;
+        let result = self.generate_test_result::<C>(actual_document, &actual_errors, tree_root);
 
         Ok(result)
     }
 
-    /// Run the html5 parser and return the document tree and errors
-    fn do_parse<C: HasHtmlParser + HasDocument>(&mut self, scripting_enabled: bool) -> ParseResult<C::Document> {
+    /// Run the html5 parser and return the document tree, errors, and the NodeId to start tree
+    /// generation from (document root for full documents, the html element for fragment parses).
+    fn do_parse<C: HasHtmlParser + HasDocument>(
+        &mut self,
+        scripting_enabled: bool,
+    ) -> Result<(C::Document, Vec<ParseError>, gosub_shared::node::NodeId)> {
+        use gosub_interface::document::Document;
+        use gosub_shared::node::NodeId;
+
         let options = <<C::HtmlParser as Html5Parser<C>>::Options as ParserOptions>::new(scripting_enabled);
         let mut stream = ByteStream::new(
             Encoding::UTF8,
@@ -108,16 +115,20 @@ impl Harness {
         stream.read_from_str(self.test.spec_data(), None);
         stream.close();
 
-        let (document, parse_errors) = if let Some(fragment) = self.test.spec.document_fragment.clone() {
-            self.parse_fragment::<C>(fragment, stream, options, Location::default())?
+        if let Some(fragment) = self.test.spec.document_fragment.clone() {
+            let (document, parse_errors) = self.parse_fragment::<C>(fragment, stream, options, Location::default())?;
+            // The html element is the first child of the document root.
+            let html_id = document
+                .children(document.root())
+                .first()
+                .copied()
+                .unwrap_or(NodeId::root());
+            Ok((document, parse_errors, html_id))
         } else {
             let mut document = DocumentBuilderImpl::new_document::<C>(None);
             let parser_errors = C::HtmlParser::parse(&mut stream, &mut document, Some(options))?;
-
-            (document, parser_errors)
-        };
-
-        Ok((document, parse_errors))
+            Ok((document, parser_errors, NodeId::root()))
+        }
     }
 
     fn parse_fragment<C: HasHtmlParser + HasDocument>(
@@ -135,7 +146,7 @@ impl Harness {
             (fragment, HTML_NAMESPACE)
         };
 
-        let mut document = DocumentBuilderImpl::new_document_fragment::<C>(gosub_interface::node::QuirksMode::NoQuirks);
+        let mut document = DocumentBuilderImpl::new_document::<C>(None);
 
         // Register the context element in the fragment document so that parse_fragment
         // can look it up by NodeId. It is only used for parser initialization (tokenizer
@@ -201,11 +212,12 @@ impl Harness {
         &mut self,
         document: C::Document,
         _parse_errors: &[ParseError],
+        tree_root: gosub_shared::node::NodeId,
     ) -> TestResult {
         let mut result = TestResult::default();
 
         let generator = TreeOutputGenerator::<C>::new(document);
-        let actual = generator.generate();
+        let actual = generator.generate_from(tree_root);
 
         let mut line_idx = 1;
         for actual_line in actual {

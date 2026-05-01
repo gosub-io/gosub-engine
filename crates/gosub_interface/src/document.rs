@@ -28,9 +28,6 @@ pub trait Document<C: HasCssSystem>: Sized + Display + Debug + PartialEq + 'stat
     /// Create a new empty document of the given type.
     fn new(document_type: DocumentType, url: Option<Url>) -> Self;
 
-    /// Create an HTML fragment document with a root `<html>` node.
-    fn new_fragment(quirks_mode: QuirksMode) -> Self;
-
     // -----------------------------------------------------------------------
     // Node creation — each returns the NodeId of the new node
     // -----------------------------------------------------------------------
