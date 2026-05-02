@@ -3667,7 +3667,7 @@ dependencies = [
  "skrifa 0.42.1",
  "smallvec",
  "vello 0.8.0",
- "vello_encoding 0.7.0",
+ "vello_encoding 0.8.0",
  "vello_svg",
 ]
 
