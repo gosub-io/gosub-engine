@@ -8,7 +8,6 @@ description = "Gosub Renderer"
 
 [dependencies]
 gosub_rendering = { version = "0.1.1", registry = "gosub", path = "../gosub_rendering" }
-gosub_html5 = { version = "0.1.1", registry = "gosub", path = "../gosub_html5" }
 gosub_interface = { version = "0.1.1", registry = "gosub", path = "../gosub_interface", features = [] }
 gosub_shared = { version = "0.1.1", registry = "gosub", path = "../gosub_shared" }
 gosub_net = { version = "0.1.1", registry = "gosub", path = "../gosub_net" }
