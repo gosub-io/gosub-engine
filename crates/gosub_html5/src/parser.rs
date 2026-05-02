@@ -24,7 +24,7 @@ use gosub_interface::node::NodeType;
 
 use gosub_interface::html5::ParserOptions;
 use gosub_interface::node::QuirksMode;
-use gosub_shared::byte_stream::{ByteStream, Location};
+use gosub_shared::byte_stream::{ByteStream, Encoding, Location};
 use gosub_shared::config::{Context, ParserConfig};
 use gosub_shared::node::NodeId;
 use gosub_shared::types::{ParseError, Result};
@@ -218,6 +218,51 @@ enum Scope {
 enum DispatcherMode {
     Foreign,
     Html,
+}
+
+/// Extracts the encoding declared by a `<meta charset="…">` or
+/// `<meta http-equiv="Content-Type" content="…; charset=…">` token.
+/// Returns `None` when no valid/supported encoding is found.
+fn meta_charset_encoding(token: &Token) -> Option<Encoding> {
+    let Token::StartTag { attributes, .. } = token else {
+        return None;
+    };
+
+    if let Some(charset) = attributes.get("charset") {
+        return charset_label_to_encoding(charset.trim());
+    }
+
+    // http-equiv="Content-Type" with a content attribute
+    if let Some(http_equiv) = attributes.get("http-equiv") {
+        if http_equiv.eq_ignore_ascii_case("content-type") {
+            if let Some(content) = attributes.get("content") {
+                let charset = content.split(';').find_map(|part| {
+                    let part = part.trim();
+                    let rest = part.strip_prefix("charset")?;
+                    let rest = rest.trim_start_matches(|c: char| c.is_ascii_whitespace());
+                    let rest = rest.strip_prefix('=')?;
+                    Some(rest.trim())
+                })?;
+                return charset_label_to_encoding(charset);
+            }
+        }
+    }
+
+    None
+}
+
+/// Maps a charset label string to our `Encoding` enum.
+/// Per WHATWG spec §13.2.3.5, a UTF-16 label from a meta element must be
+/// treated as UTF-8 (a truly UTF-16 document would have a BOM detected earlier).
+fn charset_label_to_encoding(label: &str) -> Option<Encoding> {
+    match label.to_ascii_lowercase().as_str() {
+        "utf-8" | "utf8" | "unicode-1-1-utf-8" => Some(Encoding::UTF8),
+        "us-ascii" | "ascii" | "ansi_x3.4-1968" | "iso-ir-6" | "iso646-us" | "latin1"
+        | "iso-8859-1" => Some(Encoding::ASCII),
+        // UTF-16 from meta → treat as UTF-8 per spec
+        "utf-16" | "utf-16le" | "utf-16be" => Some(Encoding::UTF8),
+        _ => None,
+    }
 }
 
 impl<'a, C: HasDocument> Html5Parser<'a, C> {
@@ -2948,8 +2993,13 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 self.insert_html_element(&self.current_token.clone());
                 self.open_elements.pop();
 
-                // @TODO: if active speculative html parser is null then...
-                // we probably want to change the encoding if the element has a charset attribute and the current encoding is "tentative"
+                // The speculative parser is not implemented, so we always proceed.
+                // Update the stream encoding if the meta element declares one.
+                // Note: a fully spec-compliant implementation would also restart the parse
+                // when the encoding changes (WHATWG §13.2.3.5); that is not yet supported.
+                if let Some(enc) = meta_charset_encoding(&self.current_token) {
+                    self.tokenizer.stream.set_encoding(enc);
+                }
             }
             Token::StartTag { name, .. } if name == "title" => {
                 self.parse_rcdata();
