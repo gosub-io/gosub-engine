@@ -257,8 +257,9 @@ fn meta_charset_encoding(token: &Token) -> Option<Encoding> {
 fn charset_label_to_encoding(label: &str) -> Option<Encoding> {
     match label.to_ascii_lowercase().as_str() {
         "utf-8" | "utf8" | "unicode-1-1-utf-8" => Some(Encoding::UTF8),
-        "us-ascii" | "ascii" | "ansi_x3.4-1968" | "iso-ir-6" | "iso646-us" | "latin1"
-        | "iso-8859-1" => Some(Encoding::ASCII),
+        "us-ascii" | "ascii" | "ansi_x3.4-1968" | "iso-ir-6" | "iso646-us" | "latin1" | "iso-8859-1" => {
+            Some(Encoding::ASCII)
+        }
         // UTF-16 from meta → treat as UTF-8 per spec
         "utf-16" | "utf-16le" | "utf-16be" => Some(Encoding::UTF8),
         _ => None,
@@ -1828,8 +1829,8 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
     /// elements that are allowed to remain open at body/EOF close time (spec §13.2.6.4.7).
     fn check_open_elements_at_body_end(&self) {
         const ALLOWED: &[&str] = &[
-            "dd", "dt", "li", "optgroup", "option", "p", "rb", "rp", "rt", "rtc", "tbody", "td",
-            "tfoot", "th", "thead", "tr", "body", "html",
+            "dd", "dt", "li", "optgroup", "option", "p", "rb", "rp", "rt", "rtc", "tbody", "td", "tfoot", "th",
+            "thead", "tr", "body", "html",
         ];
         for &node_id in &self.open_elements {
             let tag = self.document.tag_name(node_id).unwrap_or_default();
