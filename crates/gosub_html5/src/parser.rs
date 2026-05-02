@@ -1779,6 +1779,23 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         self.error_logger.borrow().get_errors().clone()
     }
 
+    /// Emits a parse error if any open element (in the HTML namespace) is not in the set of
+    /// elements that are allowed to remain open at body/EOF close time (spec §13.2.6.4.7).
+    fn check_open_elements_at_body_end(&self) {
+        const ALLOWED: &[&str] = &[
+            "dd", "dt", "li", "optgroup", "option", "p", "rb", "rp", "rt", "rtc", "tbody", "td",
+            "tfoot", "th", "thead", "tr", "body", "html",
+        ];
+        for &node_id in &self.open_elements {
+            let tag = self.document.tag_name(node_id).unwrap_or_default();
+            let ns = self.document.namespace(node_id);
+            if ns == Some(HTML_NAMESPACE) && !ALLOWED.contains(&tag) {
+                self.parse_error("open element not allowed at end of body");
+                return;
+            }
+        }
+    }
+
     /// Send a parse error to the error logger
     fn parse_error(&self, message: &str) {
         self.error_logger
@@ -1826,11 +1843,6 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                 panic!("EOF token not allowed");
             }
         }
-    }
-
-    #[allow(dead_code)]
-    fn flush_pending_table_character_tokens(&mut self) {
-        todo!()
     }
 
     /// This function will pop elements off the stack until it reaches the first element that matches
@@ -2209,7 +2221,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
             }
             Token::Eof { .. } => {
                 if self.template_insertion_mode.is_empty() {
-                    // @TODO: do stuff
+                    self.check_open_elements_at_body_end();
                     self.stop_parsing();
                 } else {
                     self.handle_in_template();
@@ -2222,8 +2234,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                     return;
                 }
 
-                // @TODO: Other stuff
-
+                self.check_open_elements_at_body_end();
                 self.insertion_mode = InsertionMode::AfterBody;
             }
             Token::EndTag { name, .. } if name == "html" => {
@@ -2233,8 +2244,7 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
                     return;
                 }
 
-                // @TODO: Other stuff
-
+                self.check_open_elements_at_body_end();
                 self.insertion_mode = InsertionMode::AfterBody;
                 self.reprocess_token = true;
             }
