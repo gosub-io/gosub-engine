@@ -238,10 +238,12 @@ fn meta_charset_encoding(token: &Token) -> Option<Encoding> {
             if let Some(content) = attributes.get("content") {
                 let charset = content.split(';').find_map(|part| {
                     let part = part.trim();
-                    let rest = part.strip_prefix("charset")?;
-                    let rest = rest.trim_start_matches(|c: char| c.is_ascii_whitespace());
-                    let rest = rest.strip_prefix('=')?;
-                    Some(rest.trim())
+                    let (k, v) = part.split_once('=')?;
+                    if !k.trim().eq_ignore_ascii_case("charset") {
+                        return None;
+                    }
+                    Some(v.trim())
+                })?;
                 })?;
                 return charset_label_to_encoding(charset);
             }
