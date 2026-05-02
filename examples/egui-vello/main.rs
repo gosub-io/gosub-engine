@@ -289,15 +289,16 @@ impl GosubApp {
 }
 
 impl eframe::App for GosubApp {
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        let ctx = ui.ctx().clone();
         ctx.request_repaint_after(std::time::Duration::from_millis(16));
 
         self.init_vello_backend();
 
-        let mut style = (*ctx.style()).clone();
-        style.text_styles.get_mut(&egui::TextStyle::Body).unwrap().size = 16.0;
-        style.text_styles.get_mut(&egui::TextStyle::Button).unwrap().size = 14.0;
-        ctx.set_style(style);
+        ctx.global_style_mut(|style| {
+            style.text_styles.get_mut(&egui::TextStyle::Body).unwrap().size = 16.0;
+            style.text_styles.get_mut(&egui::TextStyle::Button).unwrap().size = 14.0;
+        });
 
         if let Some(pointer_pos) = ctx.pointer_latest_pos() {
             self.pointer_pos = (pointer_pos.x as f64, pointer_pos.y as f64);
@@ -326,14 +327,13 @@ impl eframe::App for GosubApp {
             }
         }
 
-        egui::TopBottomPanel::top("address_bar")
+        egui::Panel::top("address_bar")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(12, 10)))
-            .show(ctx, |ui| {
+            .show_inside(ui, |ui| {
                 ui.horizontal(|ui| {
                     let response = ui.add(
                         egui::TextEdit::singleline(&mut self.current_url_input)
                             .desired_width(f32::INFINITY)
-                            .frame(true)
                             .hint_text("Enter URL")
                             .char_limit(100)
                             .font(egui::TextStyle::Heading)
@@ -346,9 +346,9 @@ impl eframe::App for GosubApp {
                 });
             });
 
-        egui::TopBottomPanel::top("toolbar")
+        egui::Panel::top("toolbar")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(12, 8)))
-            .show(ctx, |ui| {
+            .show_inside(ui, |ui| {
                 ui.horizontal(|ui| {
                     let button_size = egui::vec2(120.0, 32.0);
 
@@ -366,7 +366,7 @@ impl eframe::App for GosubApp {
                 });
             });
 
-        let panel = egui::CentralPanel::default().show(ctx, |ui| {
+        let panel = egui::CentralPanel::default().show_inside(ui, |ui| {
             let available_size = ui.available_size();
             self.last_size = (available_size.x as i32, available_size.y as i32);
 
