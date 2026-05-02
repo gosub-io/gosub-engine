@@ -231,7 +231,11 @@ impl<C: HasDocument> Html5Parser<'_, C> {
         self.insert_text_helper(insertion_position, token);
     }
 
-    // @todo: where is the fragment case handled? (sub step 4: https://html.spec.whatwg.org/multipage/parsing.html#appropriate-place-for-inserting-a-node)
+    // Implements the "appropriate place for inserting a node" algorithm.
+    // https://html.spec.whatwg.org/multipage/parsing.html#appropriate-place-for-inserting-a-node
+    //
+    // The "no last table" sub-step (fragment case) is handled by the fallthrough at the
+    // bottom of this function, which returns the first element in the open elements stack.
     pub fn appropriate_place_insert(&self, override_node: Option<NodeId>) -> InsertionPositionMode<NodeId> {
         let current_node_id = *self.open_elements.last().unwrap_or(&NodeId::root());
         let target_id = override_node.unwrap_or(current_node_id);
@@ -241,21 +245,25 @@ impl<C: HasDocument> Html5Parser<'_, C> {
 
         if !(self.foster_parenting && ["table", "tbody", "thead", "tfoot", "tr"].contains(&target_tag)) {
             if target_tag == "template" && target_ns == Some(HTML_NAMESPACE) {
-                if self.document.template_contents(target_id).is_some() {
-                    return InsertionPositionMode::LastChild { parent_id: target_id };
+                // Spec step 3: redirect inside template to its template contents.
+                if let Some(contents_id) = self.document.template_contents(target_id) {
+                    return InsertionPositionMode::LastChild { parent_id: contents_id };
                 }
             } else {
                 return InsertionPositionMode::LastChild { parent_id: target_id };
             }
         }
 
+        // Foster-parenting path: scan open elements from top, looking for the last
+        // template or table element (whichever is more recently pushed).
         let mut iter = self.open_elements.iter().rev().peekable();
         while let Some(node_id) = iter.next() {
             let node_tag = self.document.tag_name(*node_id).unwrap_or_default();
 
             if node_tag == "template" {
-                if self.document.template_contents(*node_id).is_some() {
-                    return InsertionPositionMode::LastChild { parent_id: *node_id };
+                // Spec step 3: redirect inside template to its template contents.
+                if let Some(contents_id) = self.document.template_contents(*node_id) {
+                    return InsertionPositionMode::LastChild { parent_id: contents_id };
                 }
             } else if node_tag == "table" {
                 if let Some(parent_id) = self.document.parent(*node_id) {
@@ -269,6 +277,8 @@ impl<C: HasDocument> Html5Parser<'_, C> {
                 };
             }
         }
+        // No table found: use the first element in the stack (the html element, or in the
+        // fragment case, the context element). This covers spec sub-step 4.
         InsertionPositionMode::LastChild {
             parent_id: *self.open_elements.first().unwrap(),
         }
