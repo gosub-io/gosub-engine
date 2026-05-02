@@ -21,9 +21,7 @@ use std::sync::{Arc, RwLock};
 
 #[tokio::main]
 async fn main() -> Result<(), EngineError> {
-    let url = std::env::args()
-        .nth(1)
-        .unwrap_or_else(|| "https://example.com".into());
+    let url = std::env::args().nth(1).unwrap_or_else(|| "https://example.com".into());
 
     // ── Step 1: Create the engine ────────────────────────────────────────────────
     //
@@ -149,9 +147,7 @@ async fn handle_event(ev: EngineEvent, tab: &TabHandle) -> bool {
                 true
             }
             NavigationEvent::DecisionRequired {
-                nav_id,
-                decision_token,
-                ..
+                nav_id, decision_token, ..
             } => {
                 // The engine fetched response headers and needs the UA to decide:
                 // render the page, or download the file? We always render here.
