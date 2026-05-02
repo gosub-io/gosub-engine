@@ -5,9 +5,7 @@ use crate::application::{Application, CustomEventInternal, WindowOptions};
 use crate::winit::window::WindowId;
 use clap::ArgAction;
 use gosub_css3::system::Css3System;
-use gosub_html5::document::builder::DocumentBuilderImpl;
 use gosub_html5::document::document_impl::DocumentImpl;
-use gosub_html5::document::fragment::DocumentFragmentImpl;
 use gosub_html5::parser::Html5Parser;
 use gosub_interface::config::{
     HasChrome, HasCssSystem, HasDocument, HasHtmlParser, HasLayouter, HasRenderBackend, HasRenderTree, HasTreeDrawer,
@@ -43,8 +41,6 @@ impl HasCssSystem for Config {
 }
 impl HasDocument for Config {
     type Document = DocumentImpl<Self>;
-    type DocumentFragment = DocumentFragmentImpl<Self>;
-    type DocumentBuilder = DocumentBuilderImpl;
 }
 
 impl HasHtmlParser for Config {

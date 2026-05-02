@@ -3,11 +3,10 @@ use gosub_html5::document::document_impl::TreeIterator;
 use gosub_interface::config::{HasDocument, HasLayouter, HasRenderTree};
 use gosub_interface::css3::{CssProperty, CssPropertyMap, CssSystem};
 use gosub_interface::document::Document;
+use gosub_interface::node::NodeType;
 
 use gosub_interface::font::HasFontManager;
 use gosub_interface::layout::{HasTextLayout, Layout, LayoutCache, LayoutNode, LayoutTree, Layouter, TextLayout};
-use gosub_interface::node::NodeData;
-use gosub_interface::node::{ElementDataType, Node as DocumentNode, TextDataType};
 use gosub_interface::render_tree;
 use gosub_interface::render_tree::TextLayoutRef;
 use gosub_shared::geo::Size;
@@ -125,7 +124,7 @@ impl<C: HasLayouter<LayoutTree = Self>> RenderTree<C> {
             NodeId::root(),
             RenderTreeNode {
                 id: NodeId::root(),
-                properties: C::CssPropertyMap::default(),
+                properties: <C::CssSystem as CssSystem>::PropertyMap::default(),
                 children: Vec::new(),
                 parent: None,
                 name: String::from("root"),
@@ -150,7 +149,7 @@ impl<C: HasLayouter<LayoutTree = Self>> RenderTree<C> {
         parent: NodeId,
         name: String,
         namespace: Option<String>,
-        properties: C::CssPropertyMap,
+        properties: <C::CssSystem as CssSystem>::PropertyMap,
     ) -> NodeId {
         let id = self.reserve_id();
 
@@ -178,7 +177,7 @@ impl<C: HasLayouter<LayoutTree = Self>> RenderTree<C> {
         parent: NodeId,
         name: String,
         data: RenderNodeData<C>,
-        properties: C::CssPropertyMap,
+        properties: <C::CssSystem as CssSystem>::PropertyMap,
     ) -> NodeId {
         let id = self.reserve_id();
 
@@ -287,7 +286,7 @@ impl<C: HasLayouter<LayoutTree = Self>> RenderTree<C> {
 
     /// Retrieves the property for the given node, or None when not found
     #[must_use]
-    pub fn get_property(&self, node_id: NodeId, prop_name: &str) -> Option<&C::CssProperty> {
+    pub fn get_property(&self, node_id: NodeId, prop_name: &str) -> Option<&<C::CssSystem as CssSystem>::Property> {
         let props = self.nodes.get(&node_id)?;
 
         props.properties.get(prop_name)
@@ -295,7 +294,7 @@ impl<C: HasLayouter<LayoutTree = Self>> RenderTree<C> {
 
     /// Retrieves the value for the given property for the given node, or None when not found
     #[must_use]
-    pub fn get_all_properties(&self, node_id: NodeId) -> Option<&C::CssPropertyMap> {
+    pub fn get_all_properties(&self, node_id: NodeId) -> Option<&<C::CssSystem as CssSystem>::PropertyMap> {
         self.nodes.get(&node_id).map(|props| &props.properties)
     }
 
@@ -358,7 +357,7 @@ impl<C: HasLayouter<LayoutTree = Self>> RenderTree<C> {
                 } else {
                     let wrapper_node = RenderTreeNode {
                         id: self.next_id,
-                        properties: C::CssPropertyMap::default(),
+                        properties: <C::CssSystem as CssSystem>::PropertyMap::default(),
                         children: vec![child_id],
                         parent: Some(node_id),
                         name: "#anonymous".to_string(),
@@ -457,36 +456,26 @@ impl<C: HasRenderTree<LayoutTree = Self, RenderTree = Self> + HasDocument> Rende
     }
 
     fn generate_from(&mut self, doc: &C::Document) {
-        // Iterate the complete document tree
-
         for current_node_id in TreeIterator::<C>::new(doc) {
-            let node = doc.node_by_id(current_node_id).unwrap();
-
             let Some(properties) =
-                <C::CssSystem as CssSystem>::properties_from_node::<C>(node, doc.stylesheets(), doc, current_node_id)
+                <C::CssSystem as CssSystem>::properties_from_node::<C>(doc, current_node_id, doc.stylesheets())
             else {
-                if let Some(parent) = node.parent_id() {
-                    if let Some(parent) = self.get_node_mut(parent) {
-                        parent.children.retain(|id| *id != current_node_id);
+                if let Some(parent) = doc.parent(current_node_id) {
+                    if let Some(parent_node) = self.get_node_mut(parent) {
+                        parent_node.children.retain(|id| *id != current_node_id);
                     }
                 }
-
-                // doc.detach_node(current_node_id);
                 continue;
             };
 
-            let data = node.data();
-
-            let render_data = match RenderNodeData::from_node_data(&data) {
+            let render_data = match RenderNodeData::from_node::<C>(current_node_id, doc) {
                 ControlFlow::Ok(data) => data,
                 ControlFlow::Drop => {
-                    if let Some(parent) = node.parent_id() {
-                        if let Some(parent) = self.get_node_mut(parent) {
-                            parent.children.retain(|id| *id != current_node_id);
+                    if let Some(parent) = doc.parent(current_node_id) {
+                        if let Some(parent_node) = self.get_node_mut(parent) {
+                            parent_node.children.retain(|id| *id != current_node_id);
                         }
                     }
-
-                    // doc.detach_node(current_node_id);
                     continue;
                 }
                 ControlFlow::Error(e) => {
@@ -495,24 +484,22 @@ impl<C: HasRenderTree<LayoutTree = Self, RenderTree = Self> + HasDocument> Rende
                 }
             };
 
-            let mut namespace: Option<String> = None;
-
-            let name = match data {
-                NodeData::Element(data) => {
-                    namespace = Some(data.namespace().to_string());
-                    data.name().to_string()
-                }
-                NodeData::Text(_) => "#text".to_owned(),
-                NodeData::Document(_) => "#document".to_owned(),
-                _ => String::new(),
+            let (name, namespace) = match doc.node_type(current_node_id) {
+                NodeType::ElementNode => (
+                    doc.tag_name(current_node_id).unwrap_or_default().to_owned(),
+                    doc.namespace(current_node_id).map(|s| s.to_owned()),
+                ),
+                NodeType::TextNode => ("#text".to_owned(), None),
+                NodeType::DocumentNode => ("#document".to_owned(), None),
+                _ => (String::new(), None),
             };
 
             let render_tree_node = RenderTreeNode {
                 id: current_node_id,
                 properties,
-                children: node.children().to_vec(),
-                parent: node.parent_id(),
-                name, // We might be able to move node into render_tree_node
+                children: doc.children(current_node_id).to_vec(),
+                parent: doc.parent(current_node_id),
+                name,
                 namespace,
                 data: render_data,
                 cache: <C::Layouter as Layouter<C>>::Cache::default(),
@@ -534,7 +521,9 @@ impl<C: HasRenderTree<LayoutTree = Self, RenderTree = Self> + HasDocument> Rende
     }
 }
 
-impl<C: HasRenderTree<LayoutTree = Self, RenderTree = Self>> render_tree::RenderTree<C> for RenderTree<C> {
+impl<C: HasRenderTree<LayoutTree = Self, RenderTree = Self> + HasDocument> render_tree::RenderTree<C>
+    for RenderTree<C>
+{
     type NodeId = NodeId;
     type Node = RenderTreeNode<C>;
 
@@ -562,7 +551,7 @@ impl<C: HasRenderTree<LayoutTree = Self, RenderTree = Self>> render_tree::Render
     where
         C: HasDocument,
     {
-        RenderTree::from_document(doc)
+        RenderTree::<C>::from_document(doc)
     }
 }
 
@@ -658,22 +647,21 @@ pub enum ControlFlow<T> {
     Error(anyhow::Error),
 }
 
-impl<C: HasLayouter + HasDocument> RenderNodeData<C> {
+impl<C: HasLayouter> RenderNodeData<C> {
     #[must_use]
-    pub fn from_node_data(node: &NodeData<C>) -> ControlFlow<Self> {
-        ControlFlow::Ok(match node {
-            NodeData::Element(d) => RenderNodeData::Element {
-                attributes: d.attributes().clone(),
+    pub fn from_node<D: HasDocument>(node_id: gosub_shared::node::NodeId, doc: &D::Document) -> ControlFlow<Self> {
+        ControlFlow::Ok(match doc.node_type(node_id) {
+            NodeType::ElementNode => RenderNodeData::Element {
+                attributes: doc.attributes(node_id).cloned().unwrap_or_default(),
             },
-            NodeData::Text(data) => {
-                let text = pre_transform_text(data.string_value());
-
+            NodeType::TextNode => {
+                let text = pre_transform_text(doc.text_value(node_id).unwrap_or_default().to_owned());
                 RenderNodeData::Text(Box::new(TextData {
                     text,
                     layout: Vec::new(),
                 }))
             }
-            NodeData::Document(_) => RenderNodeData::Document,
+            NodeType::DocumentNode => RenderNodeData::Document,
             _ => return ControlFlow::Drop,
         })
     }
@@ -700,7 +688,7 @@ fn pre_transform_text(text: String) -> String {
 
 pub struct RenderTreeNode<C: HasLayouter + HasFontManager> {
     pub id: NodeId,
-    pub properties: C::CssPropertyMap,
+    pub properties: <C::CssSystem as CssSystem>::PropertyMap,
     pub children: Vec<NodeId>,
     pub parent: Option<NodeId>,
     pub name: String,
@@ -736,7 +724,7 @@ impl<C: HasLayouter> RenderTreeNode<C> {
     }
 
     /// Returns the requested property for the node
-    pub fn get_property(&mut self, prop_name: &str) -> Option<&mut C::CssProperty> {
+    pub fn get_property(&mut self, prop_name: &str) -> Option<&mut <C::CssSystem as CssSystem>::Property> {
         self.properties.get_mut(prop_name)
     }
 
@@ -800,7 +788,7 @@ impl<C: HasLayouter> HasTextLayout<C> for RenderTreeNode<C> {
 }
 
 impl<C: HasLayouter> LayoutNode<C> for RenderTreeNode<C> {
-    fn get_property(&self, name: &str) -> Option<&C::CssProperty> {
+    fn get_property(&self, name: &str) -> Option<&<C::CssSystem as CssSystem>::Property> {
         self.properties.get(name)
     }
     fn text_data(&self) -> Option<&str> {

@@ -8,8 +8,9 @@ use crate::stylesheet::{CssDeclaration, CssValue, Specificity};
 use crate::{load_default_useragent_stylesheet, Css3};
 use gosub_interface::config::{HasDocument, HasRenderTree};
 use gosub_interface::css3::{CssOrigin, CssPropertyMap, CssSystem};
+use gosub_interface::document::Document;
 
-use gosub_interface::node::{ElementDataType, Node, TextDataType};
+use gosub_interface::node::NodeType;
 use gosub_interface::render_tree::{RenderTree, RenderTreeNode};
 use gosub_shared::config::ParserConfig;
 use gosub_shared::errors::CssResult;
@@ -33,14 +34,13 @@ impl CssSystem for Css3System {
     }
 
     fn properties_from_node<C: HasDocument<CssSystem = Self>>(
-        node: &C::Node,
-        sheets: &[Self::Stylesheet],
         doc: &C::Document,
         id: NodeId,
+        sheets: &[Self::Stylesheet],
     ) -> Option<Self::PropertyMap> {
         let mut css_map_entry = CssProperties::new();
 
-        if node_is_unrenderable::<C>(node) {
+        if node_is_unrenderable::<C>(doc, id) {
             return None;
         }
 
@@ -66,7 +66,7 @@ impl CssSystem for Css3System {
                             continue;
                         };
 
-                        let value = resolve_functions::<C>(&declaration.value, node, doc);
+                        let value = resolve_functions::<C>(&declaration.value, doc, id);
 
                         let match_value = if let CssValue::List(value) = &value {
                             &**value
@@ -219,34 +219,24 @@ pub fn add_property_to_map(
     }
 }
 
-pub fn node_is_unrenderable<C: HasDocument>(node: &C::Node) -> bool {
-    // There are more elements that are not renderable, but for now we only remove the most common ones
-
+pub fn node_is_unrenderable<C: HasDocument>(doc: &C::Document, id: NodeId) -> bool {
     const REMOVABLE_ELEMENTS: [&str; 6] = ["head", "script", "style", "svg", "noscript", "title"];
 
-    if let Some(element_data) = node.get_element_data() {
-        if REMOVABLE_ELEMENTS.contains(&element_data.name()) {
-            return true;
-        }
+    match doc.node_type(id) {
+        NodeType::ElementNode => doc.tag_name(id).is_some_and(|name| REMOVABLE_ELEMENTS.contains(&name)),
+        NodeType::TextNode => doc.text_value(id).is_some_and(|v| v.chars().all(char::is_whitespace)),
+        _ => false,
     }
-
-    if let Some(text_data) = &node.get_text_data() {
-        if text_data.value().chars().all(char::is_whitespace) {
-            return true;
-        }
-    }
-
-    false
 }
 
-pub fn resolve_functions<C: HasDocument>(value: &CssValue, node: &C::Node, doc: &C::Document) -> CssValue {
-    fn resolve<C: HasDocument>(val: &CssValue, node: &C::Node, doc: &C::Document) -> CssValue {
+pub fn resolve_functions<C: HasDocument>(value: &CssValue, doc: &C::Document, id: NodeId) -> CssValue {
+    fn resolve<C: HasDocument>(val: &CssValue, doc: &C::Document, id: NodeId) -> CssValue {
         match val {
             CssValue::Function(func, values) => {
                 let resolved = match func.as_str() {
                     "calc" => resolve_calc(values),
-                    "attr" => resolve_attr::<C>(values, node),
-                    "var" => resolve_var::<C>(values, doc, node),
+                    "attr" => resolve_attr::<C>(values, doc, id),
+                    "var" => resolve_var::<C>(values, doc, id),
                     _ => vec![val.clone()],
                 };
 
@@ -257,9 +247,9 @@ pub fn resolve_functions<C: HasDocument>(value: &CssValue, node: &C::Node, doc: 
     }
 
     if let CssValue::List(list) = value {
-        let resolved = list.iter().map(|val| resolve::<C>(val, node, doc)).collect();
+        let resolved = list.iter().map(|val| resolve::<C>(val, doc, id)).collect();
         CssValue::List(resolved)
     } else {
-        resolve::<C>(value, node, doc)
+        resolve::<C>(value, doc, id)
     }
 }

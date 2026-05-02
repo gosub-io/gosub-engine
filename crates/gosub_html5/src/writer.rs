@@ -1,129 +1,81 @@
-use crate::node::visitor::Visitor;
 use gosub_interface::config::HasDocument;
 use gosub_interface::document::Document;
-
-use gosub_interface::node::ElementDataType;
-use gosub_interface::node::{CommentDataType, DocTypeDataType, Node, NodeType, TextDataType};
+use gosub_interface::node::NodeType;
 use gosub_shared::node::NodeId;
 
-// Writer to convert a document to a string
-pub struct DocumentWriter {
-    /// The buffer to write to
-    buffer: String,
-    /// Whether to include comments in the output
-    comments: bool,
-}
+pub struct DocumentWriter;
 
 impl DocumentWriter {
-    pub fn write_from_node<C: HasDocument>(node: NodeId, doc: &C::Document) -> String {
-        let mut w = Self {
-            comments: false,
-            buffer: String::new(),
-        };
-
-        w.visit_node::<C>(node, doc);
-        w.buffer
-    }
-
-    pub fn visit_node<C: HasDocument>(&mut self, id: NodeId, doc: &C::Document) {
-        let node = match doc.node_by_id(id) {
-            Some(node) => node,
-            None => return,
-        };
-
-        match node.type_of() {
-            NodeType::DocumentNode => {
-                // self.document_enter(node);
-                <DocumentWriter as Visitor<C>>::document_enter(self, node);
-
-                self.visit_children::<C>(node.children(), doc);
-                <DocumentWriter as Visitor<C>>::document_leave(self, node);
-            }
-            NodeType::DocTypeNode => {
-                <DocumentWriter as Visitor<C>>::doctype_enter(self, node);
-                self.visit_children::<C>(node.children(), doc);
-                <DocumentWriter as Visitor<C>>::doctype_leave(self, node);
-            }
-            NodeType::TextNode => {
-                <DocumentWriter as Visitor<C>>::text_enter(self, node);
-                self.visit_children::<C>(node.children(), doc);
-                <DocumentWriter as Visitor<C>>::text_leave(self, node);
-            }
-            NodeType::CommentNode => {
-                <DocumentWriter as Visitor<C>>::comment_enter(self, node);
-                self.visit_children::<C>(node.children(), doc);
-                <DocumentWriter as Visitor<C>>::comment_leave(self, node);
-            }
-            NodeType::ElementNode => {
-                <DocumentWriter as Visitor<C>>::element_enter(self, node);
-                self.visit_children::<C>(node.children(), doc);
-                <DocumentWriter as Visitor<C>>::element_leave(self, node);
-            }
-        }
-    }
-
-    pub fn visit_children<C: HasDocument>(&mut self, children: &[NodeId], doc: &C::Document) {
-        for child in children {
-            self.visit_node::<C>(*child, doc);
-        }
+    pub fn write_from_node<C: HasDocument>(node_id: NodeId, doc: &C::Document) -> String {
+        let mut buffer = String::new();
+        write_node::<C>(node_id, doc, &mut buffer);
+        buffer
     }
 }
 
-impl<C: HasDocument> Visitor<C> for DocumentWriter {
-    fn document_enter(&mut self, _node: &C::Node) {}
-
-    fn document_leave(&mut self, _node: &C::Node) {}
-
-    fn doctype_enter(&mut self, node: &C::Node) {
-        if let Some(data) = node.get_doctype_data() {
-            self.buffer.push_str("<!DOCTYPE ");
-            self.buffer.push_str(data.name());
-            self.buffer.push('>');
-        }
-    }
-
-    fn doctype_leave(&mut self, _node: &C::Node) {}
-
-    fn text_enter(&mut self, node: &C::Node) {
-        if let Some(data) = node.get_text_data() {
-            self.buffer.push_str(data.value());
-        }
-    }
-
-    fn text_leave(&mut self, _node: &C::Node) {}
-
-    fn comment_enter(&mut self, node: &C::Node) {
-        if let Some(data) = node.get_comment_data() {
-            self.buffer.push_str("<!--");
-            self.buffer.push_str(data.value());
-            self.buffer.push_str("-->");
-        }
-    }
-
-    fn comment_leave(&mut self, _node: &C::Node) {}
-
-    fn element_enter(&mut self, node: &C::Node) {
-        if let Some(data) = node.get_element_data() {
-            self.buffer.push('<');
-            self.buffer.push_str(data.name());
-
-            for (name, value) in data.attributes() {
-                self.buffer.push(' ');
-                self.buffer.push_str(name);
-                self.buffer.push_str("=\"");
-                self.buffer.push_str(value);
-                self.buffer.push('"');
+fn write_node<C: HasDocument>(id: NodeId, doc: &C::Document, buf: &mut String) {
+    match doc.node_type(id) {
+        NodeType::DocumentNode => {
+            let children: Vec<NodeId> = doc.children(id).to_vec();
+            for child in children {
+                write_node::<C>(child, doc, buf);
             }
-
-            self.buffer.push('>');
         }
-    }
+        NodeType::DocTypeNode => {
+            if let Some(name) = doc.doctype_name(id) {
+                buf.push_str("<!DOCTYPE ");
+                buf.push_str(name);
+                buf.push('>');
+            }
+            let children: Vec<NodeId> = doc.children(id).to_vec();
+            for child in children {
+                write_node::<C>(child, doc, buf);
+            }
+        }
+        NodeType::TextNode => {
+            if let Some(value) = doc.text_value(id) {
+                buf.push_str(value);
+            }
+            let children: Vec<NodeId> = doc.children(id).to_vec();
+            for child in children {
+                write_node::<C>(child, doc, buf);
+            }
+        }
+        NodeType::CommentNode => {
+            if let Some(value) = doc.comment_value(id) {
+                buf.push_str("<!--");
+                buf.push_str(value);
+                buf.push_str("-->");
+            }
+            let children: Vec<NodeId> = doc.children(id).to_vec();
+            for child in children {
+                write_node::<C>(child, doc, buf);
+            }
+        }
+        NodeType::ElementNode => {
+            if let Some(name) = doc.tag_name(id) {
+                buf.push('<');
+                buf.push_str(name);
+                if let Some(attrs) = doc.attributes(id) {
+                    for (attr_name, attr_value) in attrs {
+                        buf.push(' ');
+                        buf.push_str(attr_name);
+                        buf.push_str("=\"");
+                        buf.push_str(attr_value);
+                        buf.push('"');
+                    }
+                }
+                buf.push('>');
 
-    fn element_leave(&mut self, node: &C::Node) {
-        if let Some(data) = node.get_element_data() {
-            self.buffer.push_str("</");
-            self.buffer.push_str(data.name().to_string().as_str());
-            self.buffer.push('>');
+                let children: Vec<NodeId> = doc.children(id).to_vec();
+                for child in children {
+                    write_node::<C>(child, doc, buf);
+                }
+
+                buf.push_str("</");
+                buf.push_str(name);
+                buf.push('>');
+            }
         }
     }
 }

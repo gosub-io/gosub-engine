@@ -1,9 +1,8 @@
 use core::fmt::{Debug, Formatter};
-use gosub_interface::node::DocTypeDataType;
 use std::fmt;
 
 #[derive(PartialEq, Clone)]
-/// Data structure for document nodes
+/// Data structure for doctype nodes
 pub struct DocTypeData {
     pub name: String,
     pub pub_identifier: String,
@@ -32,18 +31,16 @@ impl DocTypeData {
             sys_identifier: sys_identifier.to_owned(),
         }
     }
-}
 
-impl DocTypeDataType for DocTypeData {
-    fn name(&self) -> &str {
+    pub fn name(&self) -> &str {
         &self.name
     }
 
-    fn pub_identifier(&self) -> &str {
+    pub fn pub_identifier(&self) -> &str {
         &self.pub_identifier
     }
 
-    fn sys_identifier(&self) -> &str {
+    pub fn sys_identifier(&self) -> &str {
         &self.sys_identifier
     }
 }

@@ -4,10 +4,8 @@ use criterion::{criterion_group, criterion_main, Criterion};
 use gosub_css3::system::Css3System;
 use gosub_html5::document::builder::DocumentBuilderImpl;
 use gosub_html5::document::document_impl::{DocumentImpl, TreeIterator};
-use gosub_html5::document::fragment::DocumentFragmentImpl;
 use gosub_html5::parser::Html5Parser;
 use gosub_interface::config::{HasCssSystem, HasDocument, HasHtmlParser};
-use gosub_interface::document::DocumentBuilder;
 
 use gosub_shared::byte_stream::{ByteStream, Encoding};
 use gosub_shared::node::NodeId;
@@ -20,8 +18,6 @@ impl HasCssSystem for Config {
 }
 impl HasDocument for Config {
     type Document = DocumentImpl<Self>;
-    type DocumentFragment = DocumentFragmentImpl<Self>;
-    type DocumentBuilder = DocumentBuilderImpl;
 }
 
 impl HasHtmlParser for Config {
@@ -38,7 +34,7 @@ fn wikipedia_main_page(c: &mut Criterion) {
     let mut stream = ByteStream::new(Encoding::UTF8, None);
     let _ = stream.read_from_file(html_file);
 
-    let mut doc = <DocumentBuilderImpl as DocumentBuilder<Config>>::new_document(None);
+    let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
     let _ = Html5Parser::<Config>::parse_document(&mut stream, &mut doc, None);
 
     group.bench_function("wikipedia main page", |b| {
@@ -63,7 +59,7 @@ fn stackoverflow_home(c: &mut Criterion) {
     let mut bytestream = ByteStream::new(Encoding::UTF8, None);
     let _ = bytestream.read_from_file(html_file);
 
-    let mut doc = <DocumentBuilderImpl as DocumentBuilder<Config>>::new_document(None);
+    let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
     let _ = Html5Parser::<Config>::parse_document(&mut bytestream, &mut doc, None);
 
     group.bench_function("stackoverflow home", |b| {

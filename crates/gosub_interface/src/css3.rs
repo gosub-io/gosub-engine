@@ -32,10 +32,9 @@ pub trait CssSystem: Clone + Debug + 'static {
     /// Returns the properties of a node
     /// If `None` is returned, the node is not renderable
     fn properties_from_node<C: HasDocument<CssSystem = Self>>(
-        node: &C::Node,
-        sheets: &[Self::Stylesheet],
         doc: &C::Document,
         id: NodeId,
+        sheets: &[Self::Stylesheet],
     ) -> Option<Self::PropertyMap>;
 
     fn inheritance<C: HasRenderTree<CssSystem = Self>>(tree: &mut C::RenderTree);

@@ -352,7 +352,7 @@ struct Drawer<'s, 't, C: HasDrawComponents, EL: EventLoopHandle<C>> {
 }
 
 impl<
-        C: HasDrawComponents<LayoutTree = RenderTree<C>, RenderTree = RenderTree<C>> + HasHtmlParser,
+        C: HasDrawComponents<LayoutTree = RenderTree<C>, RenderTree = RenderTree<C>> + HasHtmlParser + HasDocument,
         EL: EventLoopHandle<C>,
     > Drawer<'_, '_, C, EL>
 {

@@ -2,10 +2,8 @@ use anyhow::bail;
 use gosub_css3::system::Css3System;
 use gosub_html5::document::builder::DocumentBuilderImpl;
 use gosub_html5::document::document_impl::DocumentImpl;
-use gosub_html5::document::fragment::DocumentFragmentImpl;
 use gosub_html5::parser::Html5Parser;
 use gosub_interface::config::{HasCssSystem, HasDocument, HasHtmlParser};
-use gosub_interface::document::DocumentBuilder;
 use gosub_shared::byte_stream::{ByteStream, Encoding};
 use gosub_shared::timing::Scale;
 use gosub_shared::timing_display;
@@ -27,8 +25,6 @@ impl HasCssSystem for Config {
 }
 impl HasDocument for Config {
     type Document = DocumentImpl<Self>;
-    type DocumentFragment = DocumentFragmentImpl<Self>;
-    type DocumentBuilder = DocumentBuilderImpl;
 }
 
 impl HasHtmlParser for Config {
@@ -77,7 +73,7 @@ fn main() -> Result<()> {
     // SimpleLogger::new().init().unwrap();
 
     // Create a new document that will be filled in by the parser
-    let mut doc = <DocumentBuilderImpl as DocumentBuilder<Config>>::new_document(Some(url));
+    let mut doc = DocumentBuilderImpl::new_document::<Config>(Some(url));
     let parse_errors = Html5Parser::<Config>::parse_document(&mut stream, &mut doc, None)?;
 
     println!("Found {} stylesheets", doc.stylesheets.len());

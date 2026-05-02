@@ -3,14 +3,14 @@ mod generator;
 pub mod parser;
 pub mod result;
 
+use crate::document::builder::DocumentBuilderImpl;
 use crate::node::{HTML_NAMESPACE, MATHML_NAMESPACE, SVG_NAMESPACE};
 use generator::TreeOutputGenerator;
 use gosub_interface::config::{HasDocument, HasHtmlParser};
-use gosub_interface::document::{Document, DocumentBuilder};
+use gosub_interface::document::Document;
 
 use gosub_interface::html5::{Html5Parser, ParserOptions};
 use gosub_shared::byte_stream::{ByteStream, Config, Encoding, Location};
-use gosub_shared::node::NodeId;
 use gosub_shared::types::{ParseError, Result};
 use parser::{ScriptMode, TestSpec};
 use result::TestResult;
@@ -80,7 +80,11 @@ impl Harness {
     }
 
     /// Runs a single test and returns the test result of that run
-    pub fn run_test<C: HasHtmlParser>(&mut self, test: Test, scripting_enabled: bool) -> Result<TestResult> {
+    pub fn run_test<C: HasHtmlParser + HasDocument>(
+        &mut self,
+        test: Test,
+        scripting_enabled: bool,
+    ) -> Result<TestResult> {
         self.test = test;
         self.next_document_line = 0;
 
@@ -91,7 +95,7 @@ impl Harness {
     }
 
     /// Run the html5 parser and return the document tree and errors
-    fn do_parse<C: HasHtmlParser>(&mut self, scripting_enabled: bool) -> ParseResult<C::Document> {
+    fn do_parse<C: HasHtmlParser + HasDocument>(&mut self, scripting_enabled: bool) -> ParseResult<C::Document> {
         let options = <<C::HtmlParser as Html5Parser<C>>::Options as ParserOptions>::new(scripting_enabled);
         let mut stream = ByteStream::new(
             Encoding::UTF8,
@@ -107,7 +111,7 @@ impl Harness {
         let (document, parse_errors) = if let Some(fragment) = self.test.spec.document_fragment.clone() {
             self.parse_fragment::<C>(fragment, stream, options, Location::default())?
         } else {
-            let mut document = C::DocumentBuilder::new_document(None);
+            let mut document = DocumentBuilderImpl::new_document::<C>(None);
             let parser_errors = C::HtmlParser::parse(&mut stream, &mut document, Some(options))?;
 
             (document, parser_errors)
@@ -116,17 +120,13 @@ impl Harness {
         Ok((document, parse_errors))
     }
 
-    fn parse_fragment<C: HasHtmlParser>(
+    fn parse_fragment<C: HasHtmlParser + HasDocument>(
         &mut self,
         fragment: String,
         mut stream: ByteStream,
         options: <C::HtmlParser as Html5Parser<C>>::Options,
         start_location: Location,
     ) -> ParseResult<C::Document> {
-        // First, create a (fake) main document that contains only the fragment as node
-        let mut main_doc_handle = C::DocumentBuilder::new_document(None);
-
-        // let mut main_document = main_document.clone();
         let (element, namespace) = if fragment.starts_with("svg ") {
             (fragment.strip_prefix("svg ").unwrap().to_string(), SVG_NAMESPACE)
         } else if fragment.starts_with("math ") {
@@ -135,23 +135,18 @@ impl Harness {
             (fragment, HTML_NAMESPACE)
         };
 
-        let quirks_mode = main_doc_handle.quirks_mode();
+        let mut document = DocumentBuilderImpl::new_document_fragment::<C>(gosub_interface::node::QuirksMode::NoQuirks);
 
-        // let doc_clone = DocumentHandle::clone(&main_document);
-        // let mut doc = main_document.get_mut();
-
-        let node = C::Document::new_element_node(element.as_str(), Some(namespace), HashMap::new(), start_location);
-
-        let context_node_id = main_doc_handle.register_node_at(node, NodeId::root(), None);
-        let context_node = main_doc_handle.node_by_id(context_node_id).unwrap();
-        let _ = context_node_id;
-
-        let mut document = C::DocumentBuilder::new_document_fragment(context_node, quirks_mode);
+        // Register the context element in the fragment document so that parse_fragment
+        // can look it up by NodeId. It is only used for parser initialization (tokenizer
+        // state, form element pointer); it is not inserted into the parsed tree.
+        let context_node_id =
+            document.create_element(element.as_str(), Some(namespace), HashMap::new(), start_location);
 
         let parser_errors = C::HtmlParser::parse_fragment(
             &mut stream,
             &mut document,
-            context_node.clone(),
+            context_node_id,
             Some(options),
             start_location,
         )?;
