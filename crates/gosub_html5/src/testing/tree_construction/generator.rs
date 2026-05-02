@@ -16,9 +16,9 @@ impl<C: HasDocument> TreeOutputGenerator<C> {
         Self { document }
     }
 
-    /// Generates a tree
-    pub fn generate(&self) -> Vec<String> {
-        self.output_treeline(self.document.root(), 0)
+    /// Generates a tree starting from `start`, treating it as the implicit root (not printed).
+    pub fn generate_from(&self, start: NodeId) -> Vec<String> {
+        self.output_treeline(start, 0)
     }
 
     /// Generates an array of indented tree lines for a node and its children.

@@ -326,11 +326,14 @@ impl<'a, C: HasDocument> Html5Parser<'a, C> {
         // 4. / 12.
         parser.initialize_fragment_case(context_node_id);
 
-        // 5. / 6.
-        // Not needed, as the document should have been created with DocumentBuilderImpl::new_document_fragment(), and already got an HTML root node.
+        // 5. / 6. Create a new html element and append it to the Document node.
+        let html_id = parser
+            .document
+            .create_element("html", Some(HTML_NAMESPACE), HashMap::new(), start_location);
+        parser.document.attach(html_id, parser.document.root(), None);
 
         // 7.
-        parser.open_elements.push(NodeId::root());
+        parser.open_elements.push(html_id);
 
         // 8.
         if parser.document.tag_name(context_node_id).unwrap_or_default() == "template" {

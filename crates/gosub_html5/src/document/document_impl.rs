@@ -14,7 +14,6 @@ use crate::node::data::doctype::DocTypeData;
 use crate::node::data::element::{ClassListImpl, ElementData};
 use crate::node::node_impl::{NodeDataTypeInternal, NodeImpl};
 use crate::node::visitor::Visitor;
-use crate::node::HTML_NAMESPACE;
 use gosub_interface::config::HasDocument;
 use gosub_interface::node::{NodeType, QuirksMode};
 use gosub_shared::byte_stream::Location;
@@ -56,20 +55,6 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         };
         let root = NodeImpl::new_document(Location::default(), QuirksMode::NoQuirks);
         doc.arena.register_node(root);
-        doc
-    }
-
-    fn new_fragment(quirks_mode: QuirksMode) -> Self {
-        let mut doc = Self {
-            url: None,
-            arena: NodeArena::new(),
-            named_id_elements: HashMap::new(),
-            doctype: DocumentType::HTML,
-            quirks_mode,
-            stylesheets: Vec::new(),
-        };
-        let html_node = NodeImpl::new_element(Location::default(), "html", Some(HTML_NAMESPACE), HashMap::new());
-        doc.arena.register_node(html_node);
         doc
     }
 
@@ -574,23 +559,6 @@ impl<C: HasDocument<Document = Self>> DocumentImpl<C> {
             location,
             NodeDataTypeInternal::Element(ElementData::new(name, namespace, attributes, class_list)),
         )
-    }
-
-    /// Creates a fragment document with an html element as root (at NodeId::root()).
-    /// Used by DocumentBuilderImpl::new_document_fragment. parse_fragment expects
-    /// NodeId::root() to be the html element, not a Document node.
-    pub fn new_fragment(quirks_mode: QuirksMode) -> Self {
-        let mut doc = Self {
-            url: None,
-            arena: NodeArena::new(),
-            named_id_elements: HashMap::new(),
-            doctype: DocumentType::HTML,
-            quirks_mode,
-            stylesheets: Vec::new(),
-        };
-        let html_node = NodeImpl::new_element(Location::default(), "html", Some(HTML_NAMESPACE), HashMap::new());
-        doc.register_node(html_node);
-        doc
     }
 
     // ── display helper ─────────────────────────────────────────────────────
