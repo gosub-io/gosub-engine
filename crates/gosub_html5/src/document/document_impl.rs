@@ -698,7 +698,7 @@ impl<C: HasDocument> Iterator for TreeIterator<'_, C> {
 
 pub fn walk_document_tree<C: HasDocument<Document = DocumentImpl<C>>>(
     doc: &DocumentImpl<C>,
-    visitor: &mut Box<dyn Visitor>,
+    visitor: &mut dyn Visitor,
 ) {
     let root = doc.get_root();
     internal_visit(doc, root, visitor);
@@ -707,7 +707,7 @@ pub fn walk_document_tree<C: HasDocument<Document = DocumentImpl<C>>>(
 fn internal_visit<C: HasDocument<Document = DocumentImpl<C>>>(
     doc: &DocumentImpl<C>,
     node: &NodeImpl,
-    visitor: &mut Box<dyn Visitor>,
+    visitor: &mut dyn Visitor,
 ) {
     visitor.document_enter(node);
     for &child_id in node.children() {
