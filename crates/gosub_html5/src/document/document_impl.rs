@@ -236,6 +236,16 @@ impl<C: HasDocument<Document = Self>> Document<C> for DocumentImpl<C> {
         }
     }
 
+    fn has_class(&self, id: NodeId, name: &str) -> bool {
+        let Some(node) = self.arena.node_ref(id) else {
+            return false;
+        };
+        match &node.data {
+            NodeDataTypeInternal::Element(e) => e.classlist().is_active(name),
+            _ => false,
+        }
+    }
+
     fn template_contents(&self, id: NodeId) -> Option<NodeId> {
         match self.arena.node_ref(id)?.data {
             NodeDataTypeInternal::Element(ref e) => e.template_contents,

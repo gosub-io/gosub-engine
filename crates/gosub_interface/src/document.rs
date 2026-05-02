@@ -94,6 +94,7 @@ pub trait Document<C: HasCssSystem>: Sized + Display + Debug + PartialEq + 'stat
     fn remove_attribute(&mut self, id: NodeId, name: &str);
 
     fn add_class(&mut self, id: NodeId, class: &str);
+    fn has_class(&self, id: NodeId, name: &str) -> bool;
 
     /// Contents of a `<template>` element (points to a fragment root node)
     fn template_contents(&self, id: NodeId) -> Option<NodeId>;

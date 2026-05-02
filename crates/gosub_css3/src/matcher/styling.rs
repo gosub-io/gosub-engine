@@ -75,10 +75,7 @@ fn match_selector_part<C: HasDocument>(
             doc.node_type(current_id) == NodeType::ElementNode && doc.tag_name(current_id).is_some_and(|t| t == name)
         }
         CssSelectorPart::Class(name) => {
-            doc.node_type(current_id) == NodeType::ElementNode
-                && doc
-                    .attribute(current_id, "class")
-                    .is_some_and(|c| c.split_whitespace().any(|s| s == name))
+            doc.node_type(current_id) == NodeType::ElementNode && doc.has_class(current_id, name)
         }
         CssSelectorPart::Id(name) => {
             doc.node_type(current_id) == NodeType::ElementNode
