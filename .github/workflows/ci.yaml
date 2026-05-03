@@ -26,7 +26,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: ${{ matrix.rust_version }}
-          cache-targets: "false"
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install dependencies
         run: sudo apt update -y && sudo apt install sqlite3 libsqlite3-dev libglib2.0-dev libcairo2-dev libgdk-pixbuf-2.0-dev libpango1.0-dev libgtk-4-dev -y
       - uses: taiki-e/install-action@nextest
@@ -50,7 +50,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: ${{ matrix.rust_version }}
-          cache-targets: "false"
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install dependencies
         run: sudo apt update -y && sudo apt install sqlite3 libsqlite3-dev libglib2.0-dev libcairo2-dev libgdk-pixbuf-2.0-dev libpango1.0-dev libgtk-4-dev -y
       - name: Run Clippy
@@ -64,7 +64,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: stable
-          cache-targets: "false"
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install dependencies
         run: sudo apt update -y && sudo apt install sqlite3 libsqlite3-dev libglib2.0-dev libcairo2-dev libgdk-pixbuf-2.0-dev libpango1.0-dev libgtk-4-dev -y
       - name: Check all features compile
@@ -80,7 +80,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: stable
-          cache-targets: "false"
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Run fmt
         run: cargo fmt --check --all
 
