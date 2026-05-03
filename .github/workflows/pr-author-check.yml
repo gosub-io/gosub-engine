@@ -1,68 +1,82 @@
 name: Check PR Author
 
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, reopened, synchronize]
 
 permissions:
-  # Need permissions to write to the pull request by the check-authors.sh script
   pull-requests: write
+  issues: write
 
 jobs:
   check-author:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - name: 'PR commits + 1'
-        run: echo "PR_FETCH_DEPTH=$(( ${{ github.event.pull_request.commits }} + 1 ))" >> "${GITHUB_ENV}"
-      - name: Checkout code
-        uses: actions/checkout@v6
+      - name: Checkout base repo (for AUTHORS file)
+        uses: actions/checkout@v4
         with:
-          fetch-depth: ${{ env.PR_FETCH_DEPTH }}
-      - name: Check if PR author is in AUTHORS file
-        id: author_found
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Check commit authors against AUTHORS file
+        id: author_check
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_EVENT_PATH: ${{ github.event_path }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          sh .github/workflows/check_authors.sh ${{ env.PR_FETCH_DEPTH }} || exit_status=$?
-          echo "found=${exit_status:-0}" >> $GITHUB_OUTPUT
-      - name: Find Comment
-        uses: peter-evans/find-comment@v4
+          MISSING=""
+          while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            name=$(echo "$line" | cut -d';' -f1)
+            email=$(echo "$line" | cut -d';' -f2)
+            if ! grep -Fq "$email" AUTHORS && ! grep -Fq "$name" AUTHORS; then
+              MISSING="$MISSING\n- $name <$email>"
+            fi
+          done < <(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/commits \
+              --paginate \
+              --jq '.[] | "\(.commit.author.name);\(.commit.author.email)"' \
+            | grep -v noreply.github.com | sort -u)
+
+          if [ -n "$MISSING" ]; then
+            echo "missing=true" >> "$GITHUB_OUTPUT"
+            {
+              echo 'missing_authors<<EOF'
+              printf '%b' "$MISSING"
+              echo
+              echo 'EOF'
+            } >> "$GITHUB_OUTPUT"
+          else
+            echo "missing=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Find existing bot comment
+        uses: peter-evans/find-comment@v3
         id: fc
         with:
           issue-number: ${{ github.event.pull_request.number }}
           comment-author: 'github-actions[bot]'
-          # Make sure the body has the comment-includes string. We can't add metadata to comments, which would have been a nice to have.
-          body-includes: "[Author check]"
+          body-includes: "<!-- author-check -->"
 
-      # Delete comment when author is in AUTHORS file and we have a comment id
-      - name: Delete comment
-        uses: actions/github-script@v9
-        if: steps.author_found.outputs.found == '0' && steps.fc.outputs.comment-id != ''
-        with:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            github.issues.deleteComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              comment_id: ${{ steps.fc.outputs.comment-id }},
-            })          
-
-      # Post the comment (or replace it) when a committer is not found in the AUTHORS file
-      - name: Post comment if not found
-        uses: peter-evans/create-or-update-comment@v5
-        if: steps.author_found.outputs.found == '1'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Post or update notice comment
+        if: steps.author_check.outputs.missing == 'true'
+        uses: peter-evans/create-or-update-comment@v4
         with:
           comment-id: ${{ steps.fc.outputs.comment-id }}
           issue-number: ${{ github.event.pull_request.number }}
-          body: |
-            Welcome and thank you for your contribution. It appears that you might be a new contributor to our project. 
-            To acknowledge your work appropriately, we kindly ask you to add your name and/or email to the AUTHORS file. 
-            This helps us maintain a record of all our valuable contributors. 
-            
-            Thanks again for your involvement!
-            
-            [Author check]
           edit-mode: replace
+          body: |
+            <!-- author-check -->
+            Hi, thanks for contributing! It looks like one or more commit authors are not yet listed in our [AUTHORS](AUTHORS) file:
+
+            ${{ steps.author_check.outputs.missing_authors }}
+
+            Please add your name and/or email to the AUTHORS file so we can acknowledge your work. This is not a blocker — just a friendly reminder!
+
+      - name: Remove notice comment (all authors found)
+        if: steps.author_check.outputs.missing == 'false' && steps.fc.outputs.comment-id != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.deleteComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: ${{ steps.fc.outputs.comment-id }}
+            })
