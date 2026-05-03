@@ -28,8 +28,11 @@ zone, and an event bus. Your user-agent (UA) drives everything via `TabCommand` 
 | `gosub_taffy` | Layout engine (Taffy/flexbox) |
 | `gosub_cairo` | Cairo / GTK4 render backend |
 | `gosub_vello` | Vello / wgpu render backend |
-| `gosub_js` | JS bridge |
+| `gosub_jsapi` | Browser Web API implementations (console, fetch, DOM, …) |
+| `gosub_v8` | V8 JavaScript engine bindings |
 | `gosub_config` | Configuration store |
+
+For the full crate listing see [`docs/crates.md`](docs/crates.md).
 
 
 ## Status
