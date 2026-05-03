@@ -256,7 +256,7 @@ fn meta_charset_encoding(token: &Token) -> Option<Encoding> {
 /// Per WHATWG spec §13.2.3.5, a UTF-16 label from a meta element must be
 /// treated as UTF-8 (a truly UTF-16 document would have a BOM detected earlier).
 fn charset_label_to_encoding(label: &str) -> Option<Encoding> {
-    match label.to_ascii_lowercase().as_str() {
+    match label.cow_to_ascii_lowercase().as_ref() {
         "utf-8" | "utf8" | "unicode-1-1-utf-8" => Some(Encoding::UTF8),
         "us-ascii" | "ascii" | "ansi_x3.4-1968" | "iso-ir-6" | "iso646-us" | "latin1" | "iso-8859-1" => {
             Some(Encoding::ASCII)
