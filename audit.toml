@@ -1,0 +1,8 @@
+[advisories]
+ignore = [
+    # adler is unmaintained; transitively pulled in by v8 -> miniz_oxide, not under our control
+    "RUSTSEC-2025-0056",
+    # paste is unmaintained; used in gosub_webexecutor for identifier concatenation,
+    # replacement requires MSRV >= 1.87 (${concat(...)} stabilised in 1.87)
+    "RUSTSEC-2024-0436",
+]

@@ -102,7 +102,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"
 uuid = { version = "1", features = ["v4", "macro-diagnostics"] }
 eframe = { version = "0.34", features = ["wgpu"] }
 egui = "0.31"
-indicatif = "0.17"
+indicatif = "0.18"
 parking_lot = "0.12"
 rand = "0.9"
 cow-utils = "0.1"

@@ -86,6 +86,8 @@ jobs:
 
   audit:
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      checks: write
     steps:
       - uses: actions/checkout@v6
       - uses: rustsec/audit-check@v2
