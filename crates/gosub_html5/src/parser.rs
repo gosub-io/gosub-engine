@@ -244,7 +244,6 @@ fn meta_charset_encoding(token: &Token) -> Option<Encoding> {
                     }
                     Some(v.trim())
                 })?;
-                })?;
                 return charset_label_to_encoding(charset);
             }
         }
