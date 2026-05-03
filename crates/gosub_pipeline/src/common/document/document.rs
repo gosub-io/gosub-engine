@@ -21,7 +21,7 @@ impl Document {
             root_id: None,
             html_node_id: None,
             body_node_id: None,
-            next_node_id: Arc::new(RwLock::new(NodeId::new(1))),
+            next_node_id: Arc::new(RwLock::new(NodeId::from(1usize))),
             base_url: base_url.to_string(),
         }
     }
@@ -109,7 +109,7 @@ impl Document {
     pub fn next_node_id(&self) -> NodeId {
         let mut nid = self.next_node_id.write().expect("Failed to lock next node ID");
         let id = *nid;
-        *nid += 1;
+        *nid = NodeId::from(usize::from(*nid) + 1);
         id
     }
 }

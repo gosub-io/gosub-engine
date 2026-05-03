@@ -3676,6 +3676,8 @@ dependencies = [
  "colog",
  "csscolorparser 0.7.2",
  "file_type",
+ "gosub_interface",
+ "gosub_shared",
  "gtk4",
  "hex",
  "image",
