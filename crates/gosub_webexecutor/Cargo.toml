@@ -9,4 +9,6 @@ description = "Gosub WebExecutor"
 [dependencies]
 gosub_shared = { version = "0.1.1", registry = "gosub", path = "../gosub_shared" }
 thiserror = "2.0.18"
+# TODO: paste is unmaintained (RUSTSEC-2024-0436). Remove once MSRV is bumped to >=1.87
+# and usages are migrated to the stabilised ${concat(...)} syntax. Then remove advisory from audit.toml.
 paste = "1.0.15"
