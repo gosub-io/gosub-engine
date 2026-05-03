@@ -30,6 +30,10 @@ name = "vello-renderer"
 path = "examples/vello-renderer/main.rs"
 
 [[example]]
+name = "tutorial"
+path = "examples/tutorial.rs"
+
+[[example]]
 name = "hello-world"
 path = "examples/hello-world.rs"
 
