@@ -1,5 +1,9 @@
 # GTK Renderer Example
 
+> **Legacy prototype.** This example predates the unified `GosubEngine` entry point and drives
+> the HTML/CSS/layout pipeline directly. It is kept for reference while the new rendering path
+> matures. For new integrations start with [`examples/gtk-cairo`](../gtk-cairo) instead.
+
 This example demonstrates how to use the GTK renderer to render a website in a GTK window.
 
 ## Usage

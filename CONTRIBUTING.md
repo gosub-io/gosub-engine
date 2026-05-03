@@ -13,7 +13,6 @@ This is an initial (but not fully complete) contribution guide.
     * [Running Tests and Formatter](#running-tests-and-formatter)
     * [Fix Formatting](#fix-formatting)
     * [Running Benchmarks](#running-benchmarks)
-    * [Building C API Bindings](#building-c-api-bindings)
 * [Code Style](#code-style)
 * [Doc Comments](#doc-comments)
 * [Modules](#modules)
