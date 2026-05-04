@@ -48,9 +48,7 @@ pub fn styles_parser(input: &str, opts: StylesOptions) -> StylesOutput {
     let url = Url::parse(&opts.url).ok();
     let doc = DocumentBuilderImpl::new_document(url);
 
-    let mut stream = ByteStream::new(Encoding::UTF8, None);
-    stream.read_from_str(&input, Some(Encoding::UTF8));
-    stream.close();
+    let mut stream = ByteStream::from_str(&input, Encoding::UTF8);
 
     let mut errors = String::new();
 

@@ -9,15 +9,15 @@ pub const CHAR_CR: char = '\u{000D}';
 /// Encoding defines the way the buffer stream is read, as what defines a "character".
 #[derive(PartialEq)]
 pub enum Encoding {
-    /// Unknown encoding. Won't read anything from the stream until the encoding is set
-    UNKNOWN,
-    /// Stream is of single byte ASCII chars (0-255)
-    ASCII,
-    /// Stream is of UTF8 characters
+    /// Unknown encoding. Won't read anything from the stream until the encoding is set.
+    Unknown,
+    /// Stream is of single-byte Latin-1 / ISO-8859-1 chars (0-255)
+    Latin1,
+    /// Stream is of UTF-8 characters
     UTF8,
-    // Stream consists of 16-bit UTF characters (Little Endian)
+    /// Stream consists of 16-bit UTF characters (Little Endian)
     UTF16LE,
-    // Stream consists of 16-bit UTF characters (Big Endian)
+    /// Stream consists of 16-bit UTF characters (Big Endian)
     UTF16BE,
 }
 
@@ -174,7 +174,7 @@ pub trait Stream {
 
 impl Default for ByteStream {
     fn default() -> Self {
-        Self::new(Encoding::UNKNOWN, None)
+        Self::new(Encoding::Unknown, None)
     }
 }
 
@@ -300,6 +300,14 @@ impl ByteStream {
         }
     }
 
+    /// Create a stream from a string, fully decoded and closed, ready for parsing.
+    pub fn from_str(s: &str, encoding: Encoding) -> Self {
+        let mut stream = Self::new(encoding, None);
+        stream.read_from_str(s, None);
+        stream.close();
+        stream
+    }
+
     /// Take a snapshot of the current position and location for later restoration.
     pub fn mark(&self) -> StreamMark {
         StreamMark {
@@ -348,8 +356,8 @@ impl ByteStream {
         self.char_byte_offsets.clear();
 
         match self.encoding {
-            Encoding::UNKNOWN => {}
-            Encoding::ASCII => {
+            Encoding::Unknown => {}
+            Encoding::Latin1 => {
                 for (i, &byte) in self.buffer.iter().enumerate() {
                     self.char_byte_offsets.push(i);
                     if self.config.replace_high_ascii && byte > 127 {
@@ -531,63 +539,6 @@ impl Debug for Location {
     }
 }
 
-/// `LocationHandler` is a wrapper that will deal with line/column locations in the stream
-pub struct LocationHandler {
-    /// The start offset of the location. Normally this is 0:0, but can be different in case of inline streams
-    pub start_location: Location,
-    /// The current location of the stream
-    pub cur_location: Location,
-    /// Stack of all column size
-    column_stack: Vec<usize>,
-}
-
-impl LocationHandler {
-    /// Create a new `LocationHandler`. `Start_location` can be set in case the stream is
-    /// not starting at 1:1
-    #[must_use]
-    pub fn new(start_location: Location) -> Self {
-        Self {
-            start_location,
-            cur_location: Location::default(),
-            column_stack: Vec::new(),
-        }
-    }
-
-    /// Sets the current location to the given location. This is useful when we want to
-    /// return back into the stream to a certain location.
-    pub fn set(&mut self, loc: Location) {
-        self.cur_location = loc;
-    }
-
-    /// Will decrease the current location based on the current character
-    pub fn dec(&mut self) {
-        if self.cur_location.column > 1 {
-            self.cur_location.column -= 1;
-            self.cur_location.offset -= 1;
-        } else if self.cur_location.line > 1 {
-            self.cur_location.line -= 1;
-            self.cur_location.column = self.column_stack.pop().unwrap_or(1);
-            self.cur_location.offset -= 1;
-        }
-    }
-
-    /// Will increase the current location based on the given character
-    pub fn inc(&mut self, ch: Character) {
-        match ch {
-            Ch(CHAR_LF) => {
-                self.column_stack.push(self.cur_location.column);
-                self.cur_location.line += 1;
-                self.cur_location.column = 1;
-                self.cur_location.offset += 1;
-            }
-            Ch(_) => {
-                self.cur_location.column += 1;
-                self.cur_location.offset += 1;
-            }
-            _ => {}
-        }
-    }
-}
 
 /// Decode one UTF-8 character from the start of `buf`. Returns `(Character, bytes_consumed)`.
 /// Returns `(StreamEnd, 0)` for an incomplete sequence at the end of an open stream (signals loop stop).
@@ -654,7 +605,7 @@ mod test {
         assert!(stream.exhausted());
         assert!(!stream.eof());
 
-        stream.read_from_str("foo", Some(Encoding::ASCII));
+        stream.read_from_str("foo", Some(Encoding::Latin1));
         stream.close();
         assert!(!stream.eof());
 
@@ -669,7 +620,7 @@ mod test {
         assert!(stream.eof());
 
         stream.reset_stream();
-        stream.set_encoding(Encoding::ASCII);
+        stream.set_encoding(Encoding::Latin1);
         assert_eq!(stream.read_and_next(), Ch('f'));
         assert_eq!(stream.read_and_next(), Ch('?'));
         assert_eq!(stream.read_and_next(), Ch('?'));
@@ -847,7 +798,7 @@ mod test {
         stream.read_from_str("a👽b", Some(Encoding::UTF8));
         stream.close();
 
-        stream.set_encoding(Encoding::ASCII);
+        stream.set_encoding(Encoding::Latin1);
         stream.seek_bytes(3);
         assert_eq!(stream.read_and_next(), Ch('?'));
         assert_eq!(stream.read_and_next(), Ch('?'));
@@ -983,32 +934,4 @@ mod test {
         assert_eq!(stream.read_and_next(), Ch('c'));
     }
 
-    #[test]
-    fn test_set() {
-        let mut handler = LocationHandler::new(Location::default());
-        handler.set(Location::new(1, 5, 4));
-        assert_eq!(handler.cur_location, Location::new(1, 5, 4));
-    }
-
-    #[test]
-    fn test_dec() {
-        let mut handler = LocationHandler::new(Location::default());
-        handler.cur_location = Location::new(2, 2, 4);
-        handler.column_stack = vec![3];
-        handler.dec();
-        assert_eq!(handler.cur_location, Location::new(2, 1, 3));
-        handler.dec();
-        assert_eq!(handler.cur_location, Location::new(1, 3, 2));
-        assert_eq!(handler.column_stack, vec![]);
-    }
-
-    #[test]
-    fn test_inc() {
-        let mut handler = LocationHandler::new(Location::default());
-        handler.inc(Character::Ch('A'));
-        assert_eq!(handler.cur_location, Location::new(1, 2, 1));
-        handler.inc(Character::Ch('\n'));
-        assert_eq!(handler.cur_location, Location::new(2, 1, 2));
-        assert_eq!(handler.column_stack, vec![2]);
-    }
 }

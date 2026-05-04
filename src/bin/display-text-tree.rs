@@ -42,9 +42,7 @@ fn main() -> Result<()> {
     }
     let html = response.text()?;
 
-    let mut stream = ByteStream::new(Encoding::UTF8, None);
-    stream.read_from_str(&html, Some(Encoding::UTF8));
-    stream.close();
+    let mut stream = ByteStream::from_str(&html, Encoding::UTF8);
 
     let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
     let parse_errors = Html5Parser::<Config>::parse_document(&mut stream, &mut doc, None)?;

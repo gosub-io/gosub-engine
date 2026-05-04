@@ -60,9 +60,7 @@ impl<'stream> Css3<'stream> {
         origin: CssOrigin,
         source_url: &str,
     ) -> CssResult<CssStylesheet> {
-        let mut stream = ByteStream::new(Encoding::UTF8, None);
-        stream.read_from_str(data, Some(Encoding::UTF8));
-        stream.close();
+        let mut stream = ByteStream::from_str(data, Encoding::UTF8);
 
         Css3::parse_stream(&mut stream, config, origin, source_url)
     }

@@ -114,9 +114,7 @@ fn display_snippet(css: &str, err: CssError) -> String {
 }
 
 fn print_tokens(css: &str) -> String {
-    let mut stream = ByteStream::new(Encoding::UTF8, None);
-    stream.read_from_str(css, Some(Encoding::UTF8));
-    stream.close();
+    let mut stream = ByteStream::from_str(css, Encoding::UTF8);
 
     let mut tokenizer = Tokenizer::new(&mut stream, Location::default());
 

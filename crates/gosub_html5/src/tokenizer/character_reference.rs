@@ -366,9 +366,7 @@ mod tests {
                 fn $name() {
                     let (input, expected) = $value;
 
-                    let mut stream = ByteStream::new(Encoding::UTF8, None);
-                    stream.read_from_str(input, None);
-                    stream.close();
+                    let mut stream = ByteStream::from_str(input, Encoding::UTF8);
 
                     let error_logger = Rc::new(RefCell::new(ErrorLogger::new()));
                     let mut tokenizer = Tokenizer::new(&mut stream, None, error_logger.clone(), Location::default());

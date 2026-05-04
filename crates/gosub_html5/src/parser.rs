@@ -259,7 +259,7 @@ fn charset_label_to_encoding(label: &str) -> Option<Encoding> {
     match label.cow_to_ascii_lowercase().as_ref() {
         "utf-8" | "utf8" | "unicode-1-1-utf-8" => Some(Encoding::UTF8),
         "us-ascii" | "ascii" | "ansi_x3.4-1968" | "iso-ir-6" | "iso646-us" | "latin1" | "iso-8859-1" => {
-            Some(Encoding::ASCII)
+            Some(Encoding::Latin1)
         }
         // UTF-16 from meta → treat as UTF-8 per spec
         "utf-16" | "utf-16le" | "utf-16be" => Some(Encoding::UTF8),
@@ -4478,9 +4478,7 @@ mod test {
 
     #[test]
     fn reconstruct_formatting() {
-        let mut stream = ByteStream::new(Encoding::UTF8, None);
-        stream.read_from_str("<p><b>bold<i>bold and italic</b>italic</i></p>", Some(Encoding::UTF8));
-        stream.close();
+        let mut stream = ByteStream::from_str("<p><b>bold<i>bold and italic</b>italic</i></p>", Encoding::UTF8);
 
         let mut doc_handle = DocumentBuilderImpl::new_document::<Config>(None);
         let _ = Parser::parse_document(&mut stream, &mut doc_handle, None);
@@ -4490,9 +4488,7 @@ mod test {
 
     #[test]
     fn element_with_classes() {
-        let mut stream = ByteStream::new(Encoding::UTF8, None);
-        stream.read_from_str("<div class=\"one two three\"></div>", Some(Encoding::UTF8));
-        stream.close();
+        let mut stream = ByteStream::from_str("<div class=\"one two three\"></div>", Encoding::UTF8);
 
         let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
         let _ = Parser::parse_document(&mut stream, &mut doc, None);
@@ -4517,9 +4513,7 @@ mod test {
 
     #[test]
     fn element_with_classes_extra_whitespace() {
-        let mut stream = ByteStream::new(Encoding::UTF8, None);
-        stream.read_from_str("<div class=\" one    two     three   \"></div>", Some(Encoding::UTF8));
-        stream.close();
+        let mut stream = ByteStream::from_str("<div class=\" one    two     three   \"></div>", Encoding::UTF8);
 
         let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
         let _ = Parser::parse_document(&mut stream, &mut doc, None);
@@ -4544,13 +4538,11 @@ mod test {
 
     #[test]
     fn element_with_invalid_named_id() {
-        let mut stream = ByteStream::new(Encoding::UTF8, None);
-        stream.read_from_str(
+        let mut stream = ByteStream::from_str(
             "<div id=\"my id\"></div> \
              <div id=\"\"></div>",
-            Some(Encoding::UTF8),
+            Encoding::UTF8,
         );
-        stream.close();
 
         let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
         let _ = Parser::parse_document(&mut stream, &mut doc, None);
@@ -4562,13 +4554,11 @@ mod test {
 
     #[test]
     fn element_with_named_id() {
-        let mut stream = ByteStream::new(Encoding::UTF8, None);
-        stream.read_from_str(
+        let mut stream = ByteStream::from_str(
             "<div id=\"myid\"></div> \
              <p id=\"myid\"></p>",
-            Some(Encoding::UTF8),
+            Encoding::UTF8,
         );
-        stream.close();
 
         let mut doc = DocumentBuilderImpl::new_document::<Config>(None);
         let _ = Parser::parse_document(&mut stream, &mut doc, None);

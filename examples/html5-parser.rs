@@ -21,9 +21,7 @@ impl HasHtmlParser for Config {
 
 fn main() {
     // Creates an input stream
-    let mut stream = ByteStream::new(Encoding::UTF8, None);
-    stream.read_from_str("<p>Hello<b>world</b></p>", Some(Encoding::UTF8));
-    stream.close();
+    let mut stream = ByteStream::from_str("<p>Hello<b>world</b></p>", Encoding::UTF8);
 
     // Initialize a document and feed it together with the stream to the html5 parser
     let mut doc = DocumentBuilderImpl::new_document::<Config>(None);

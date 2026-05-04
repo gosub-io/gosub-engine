@@ -66,9 +66,7 @@ fn main() -> Result<()> {
         fatal("Invalid url scheme");
     };
 
-    let mut stream = ByteStream::new(Encoding::UTF8, None);
-    stream.read_from_str(&html, Some(Encoding::UTF8));
-    stream.close();
+    let mut stream = ByteStream::from_str(&html, Encoding::UTF8);
 
     // SimpleLogger::new().init().unwrap();
 
