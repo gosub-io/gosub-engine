@@ -3,7 +3,6 @@ use crate::common::geo::{Dimension, Rect};
 use crate::painter::commands::brush::Brush;
 use crate::painter::commands::text::Text;
 use crate::rasterizer::vello::brush::set_brush;
-use crate::tiler::Tile;
 use parley::layout::{GlyphRun, PositionedLayoutItem};
 use std::fmt::Error;
 use vello::kurbo::Affine;
@@ -13,11 +12,11 @@ use vello::Scene;
 pub fn do_paint_text(scene: &mut Scene, cmd: &Text, _tile_size: Dimension, affine: Affine) -> Result<(), Error> {
     let layout = get_parley_layout(
         cmd.text.as_str(),
-        cmd.font_family.as_str(),
-        cmd.font_size,
-        cmd.line_height,
+        cmd.font_info.family.as_str(),
+        cmd.font_info.size,
+        cmd.font_info.line_height,
         cmd.rect.width,
-        cmd.alignment,
+        cmd.font_info.alignment.clone(),
     );
 
     for line in layout.lines() {

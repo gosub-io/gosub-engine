@@ -1,19 +1,19 @@
 #[cfg(not(feature = "backend_vello"))]
 compile_error!("This binary can only be used with the feature 'backend_vello' enabled");
 
-use poc_pipeline::common;
-use poc_pipeline::common::browser_state::{get_browser_state, init_browser_state, BrowserState, WireframeState};
-use poc_pipeline::common::geo::{Dimension, Rect};
-use poc_pipeline::compositor::vello::{VelloCompositor, VelloCompositorConfig};
-use poc_pipeline::compositor::Composable;
-use poc_pipeline::layering::layer::{LayerId, LayerList};
-use poc_pipeline::layouter::taffy::TaffyLayouter;
-use poc_pipeline::layouter::CanLayout;
-use poc_pipeline::painter::Painter;
-use poc_pipeline::rasterizer::vello::VelloRasterizer;
-use poc_pipeline::rasterizer::Rasterable;
-use poc_pipeline::rendertree_builder::RenderTree;
-use poc_pipeline::tiler::{TileList, TileState};
+use gosub_pipeline::common;
+use gosub_pipeline::common::browser_state::{get_browser_state, init_browser_state, BrowserState, WireframeState};
+use gosub_pipeline::common::geo::{Dimension, Rect};
+use gosub_pipeline::compositor::vello::{VelloCompositor, VelloCompositorConfig};
+use gosub_pipeline::compositor::Composable;
+use gosub_pipeline::layering::layer::{LayerId, LayerList};
+use gosub_pipeline::layouter::taffy::TaffyLayouter;
+use gosub_pipeline::layouter::CanLayout;
+use gosub_pipeline::painter::Painter;
+use gosub_pipeline::rasterizer::vello::VelloRasterizer;
+use gosub_pipeline::rasterizer::Rasterable;
+use gosub_pipeline::rendertree_builder::RenderTree;
+use gosub_pipeline::tiler::{TileList, TileState};
 use std::cell::RefCell;
 use std::fmt::Formatter;
 use std::sync::Arc;

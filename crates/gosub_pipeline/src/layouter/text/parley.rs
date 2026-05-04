@@ -1,18 +1,22 @@
 use crate::common::font::parley::get_parley_layout;
+use crate::common::font::FontInfo;
 use crate::common::geo::Dimension;
-use crate::layouter::text::Alignment;
 use std::fmt::Error;
 
 pub fn get_text_layout(
     text: &str,
-    font_family: &str,
-    font_size: f64,
-    _font_weight: usize,
-    line_height: f64,
+    font_info: &FontInfo,
     max_width: f64,
-    alignment: Alignment,
-) -> Result<Dimension, Error> {
-    let layout = get_parley_layout(text, font_family, font_size, line_height, max_width, alignment);
+    _dpi_scale_factor: f32,
+) -> Result<Dimension, anyhow::Error> {
+    let layout = get_parley_layout(
+        text,
+        font_info.family.as_str(),
+        font_info.size,
+        font_info.line_height,
+        max_width,
+        font_info.alignment.clone(),
+    );
 
     Ok(Dimension {
         width: layout.width() as f64,

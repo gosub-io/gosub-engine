@@ -152,7 +152,7 @@ fn setup_rectangle_path(rect: &Rectangle) -> ShapeEnum {
             rect.rect().y,
             rect.rect().x + rect.rect().width,
             rect.rect().y + rect.rect().height,
-            (r_tl.x, r_tr.x, r_br.x, r_bl.x),
+            (r_tl, r_tr, r_br, r_bl),
         ));
     }
 

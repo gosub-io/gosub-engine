@@ -1,4 +1,4 @@
-use crate::layouter::text::Alignment;
+use crate::common::font::FontAlignment;
 use parley::GenericFamily;
 use parley::{AlignmentOptions, Layout};
 use std::sync::{Mutex, OnceLock};
@@ -26,7 +26,7 @@ pub fn get_parley_layout(
     font_size: f64,
     line_height: f64,
     max_width: f64,
-    alignment: Alignment,
+    alignment: FontAlignment,
 ) -> Layout<[u8; 4]> {
     let font_stack = parley::FontStack::from(font_family);
 
@@ -43,10 +43,10 @@ pub fn get_parley_layout(
     builder.push_default(GenericFamily::SystemUi);
 
     let align = match alignment {
-        Alignment::Start => parley::layout::Alignment::Start,
-        Alignment::Middle => parley::layout::Alignment::Middle,
-        Alignment::End => parley::layout::Alignment::End,
-        Alignment::Justified => parley::layout::Alignment::Justified,
+        FontAlignment::Start => parley::layout::Alignment::Start,
+        FontAlignment::Center => parley::layout::Alignment::Middle,
+        FontAlignment::End => parley::layout::Alignment::End,
+        FontAlignment::Justify => parley::layout::Alignment::Justified,
     };
 
     let mut layout: Layout<[u8; 4]> = builder.build(text);

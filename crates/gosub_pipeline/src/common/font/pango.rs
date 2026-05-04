@@ -48,6 +48,7 @@ pub fn to_pango_weight(w: i32) -> Weight {
 
 /// Returns the font as defined by the gnome settings. Other platforms like windows and osx will
 /// deal with this differently.
+#[allow(dead_code)]
 fn get_system_ui_font() -> String {
     let settings = Settings::new("org.gnome.desktop.interface");
     settings.string("font-name").to_string()

@@ -3,7 +3,7 @@ pub mod pango;
 #[cfg(feature = "text_parley")]
 pub mod parley;
 
-#[cfg(feature = "text_pango")]
+#[cfg(all(feature = "text_pango", not(feature = "text_parley")))]
 pub use crate::layouter::text::pango::get_text_layout;
 #[cfg(feature = "text_parley")]
 pub use crate::layouter::text::parley::get_text_layout;

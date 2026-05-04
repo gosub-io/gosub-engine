@@ -33,7 +33,7 @@ impl<'a> VelloRasterizer<'a> {
 }
 
 impl Rasterable for VelloRasterizer<'_> {
-    fn rasterize(&self, tile: &Tile) -> TextureId {
+    fn rasterize(&self, tile: &Tile) -> Option<TextureId> {
         let mut scene = Scene::new();
 
         let tile_size = Dimension::new(tile.rect.width, tile.rect.height);
@@ -109,7 +109,7 @@ impl Rasterable for VelloRasterizer<'_> {
             texture_data.to_vec(),
         );
 
-        texture_id
+        Some(texture_id)
     }
 }
 
