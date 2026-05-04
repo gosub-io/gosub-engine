@@ -7,7 +7,7 @@ pub const CHAR_LF: char = '\u{000A}';
 pub const CHAR_CR: char = '\u{000D}';
 
 /// Encoding defines the way the buffer stream is read, as what defines a "character".
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 pub enum Encoding {
     /// Unknown encoding. Won't read anything from the stream until the encoding is set.
     Unknown,
@@ -591,6 +591,268 @@ fn decode_utf16_char(cu: u16, next_cu: impl FnOnce() -> Option<u16>) -> (Charact
 #[cfg(test)]
 mod test {
     use super::*;
+
+    // ── from_str constructor ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_from_str() {
+        let mut stream = ByteStream::from_str("hello", Encoding::UTF8);
+        assert!(stream.closed());
+        assert!(!stream.eof());
+        assert_eq!(stream.read_and_next(), Ch('h'));
+        assert_eq!(stream.read_and_next(), Ch('e'));
+        assert_eq!(stream.read_and_next(), Ch('l'));
+        assert_eq!(stream.read_and_next(), Ch('l'));
+        assert_eq!(stream.read_and_next(), Ch('o'));
+        assert!(matches!(stream.read_and_next(), StreamEnd));
+        assert!(stream.eof());
+    }
+
+    // ── look_ahead ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_look_ahead() {
+        let mut stream = ByteStream::from_str("abcd", Encoding::UTF8);
+        assert_eq!(stream.look_ahead(0), Ch('a'));
+        assert_eq!(stream.look_ahead(1), Ch('b'));
+        assert_eq!(stream.look_ahead(3), Ch('d'));
+        assert_eq!(stream.look_ahead(4), StreamEnd);
+        assert_eq!(stream.look_ahead(99), StreamEnd);
+        // position must not have moved
+        assert_eq!(stream.read_and_next(), Ch('a'));
+        stream.next();
+        assert_eq!(stream.look_ahead(0), Ch('c'));
+        assert_eq!(stream.look_ahead(1), Ch('d'));
+    }
+
+    // ── mark / reset_to_mark ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_mark_reset() {
+        let mut stream = ByteStream::from_str("abcde", Encoding::UTF8);
+        assert_eq!(stream.read_and_next(), Ch('a'));
+        assert_eq!(stream.read_and_next(), Ch('b'));
+        let mark = stream.mark();
+        assert_eq!(stream.read_and_next(), Ch('c'));
+        assert_eq!(stream.read_and_next(), Ch('d'));
+        stream.reset_to_mark(mark);
+        assert_eq!(stream.read_and_next(), Ch('c'));
+        assert_eq!(stream.read_and_next(), Ch('d'));
+        assert_eq!(stream.read_and_next(), Ch('e'));
+        assert!(matches!(stream.read_and_next(), StreamEnd));
+    }
+
+    #[test]
+    fn test_mark_preserves_location() {
+        let mut stream = ByteStream::from_str("ab\ncd", Encoding::UTF8);
+        stream.read_and_next(); // 'a' → (1,2)
+        stream.read_and_next(); // 'b' → (1,3)
+        stream.read_and_next(); // '\n' → (2,1)
+        let mark = stream.mark();
+        assert_eq!(stream.location(), Location::new(2, 1, 3));
+        stream.read_and_next(); // 'c' → (2,2)
+        stream.read_and_next(); // 'd' → (2,3)
+        stream.reset_to_mark(mark);
+        assert_eq!(stream.location(), Location::new(2, 1, 3));
+        assert_eq!(stream.read_and_next(), Ch('c'));
+    }
+
+    // ── get_slice ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_get_slice() {
+        let mut stream = ByteStream::from_str("abcde", Encoding::UTF8);
+        stream.next(); // skip 'a', now at 'b'
+        let slice = stream.get_slice(3);
+        assert_eq!(Character::slice_to_string(slice), "bcd");
+        // position must not have advanced
+        assert_eq!(stream.read_and_next(), Ch('b'));
+    }
+
+    #[test]
+    fn test_get_slice_past_end() {
+        let mut stream = ByteStream::from_str("ab", Encoding::UTF8);
+        let slice = stream.get_slice(5);
+        // returns as many as available, pads with StreamEnd
+        let chars: Vec<_> = slice.into_iter().filter(|c| matches!(c, Ch(_))).collect();
+        assert_eq!(chars, vec![Ch('a'), Ch('b')]);
+        // position unchanged
+        assert_eq!(stream.read(), Ch('a'));
+    }
+
+    // ── location tracking ────────────────────────────────────────────────────
+
+    #[test]
+    fn test_location_basic() {
+        let mut stream = ByteStream::from_str("ab\ncd\ne", Encoding::UTF8);
+        assert_eq!(stream.location(), Location::new(1, 1, 0));
+        stream.read_and_next(); // 'a'
+        assert_eq!(stream.location(), Location::new(1, 2, 1));
+        stream.read_and_next(); // 'b'
+        assert_eq!(stream.location(), Location::new(1, 3, 2));
+        stream.read_and_next(); // '\n'
+        assert_eq!(stream.location(), Location::new(2, 1, 3));
+        stream.read_and_next(); // 'c'
+        assert_eq!(stream.location(), Location::new(2, 2, 4));
+        stream.read_and_next(); // 'd'
+        assert_eq!(stream.location(), Location::new(2, 3, 5));
+        stream.read_and_next(); // '\n'
+        assert_eq!(stream.location(), Location::new(3, 1, 6));
+        stream.read_and_next(); // 'e'
+        assert_eq!(stream.location(), Location::new(3, 2, 7));
+    }
+
+    #[test]
+    fn test_location_prev() {
+        let mut stream = ByteStream::from_str("ab\nc", Encoding::UTF8);
+        stream.read_and_next(); // 'a'
+        stream.read_and_next(); // 'b'
+        stream.read_and_next(); // '\n' → line 2 col 1
+        stream.read_and_next(); // 'c' → line 2 col 2
+        assert_eq!(stream.location(), Location::new(2, 2, 4));
+        stream.prev(); // back to 'c' start → (2,1)
+        assert_eq!(stream.location(), Location::new(2, 1, 3));
+        stream.prev(); // back across '\n' → (1,3)
+        assert_eq!(stream.location(), Location::new(1, 3, 2));
+        stream.prev(); // back to 'a' → (1,2)
+        assert_eq!(stream.location(), Location::new(1, 2, 1));
+    }
+
+    // ── replace_cr_as_lf config ───────────────────────────────────────────────
+
+    #[test]
+    fn test_replace_cr_as_lf() {
+        let mut stream = ByteStream::new(
+            Encoding::UTF8,
+            Some(Config { cr_lf_as_one: false, replace_cr_as_lf: true, replace_high_ascii: false }),
+        );
+        stream.read_from_str("a\rb\r\nc", Some(Encoding::UTF8));
+        stream.close();
+        // standalone CR → LF; CR+LF pair: CR is replaced but LF follows
+        assert_eq!(stream.read_and_next(), Ch('a'));
+        assert_eq!(stream.read_and_next(), Ch('\n')); // CR → LF
+        assert_eq!(stream.read_and_next(), Ch('b'));
+        assert_eq!(stream.read_and_next(), Ch('\r')); // CR before LF not replaced (next is LF)
+        assert_eq!(stream.read_and_next(), Ch('\n'));
+        assert_eq!(stream.read_and_next(), Ch('c'));
+    }
+
+    // ── UTF-16 LE ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_utf16le_basic() {
+        // "Hi" in UTF-16 LE: H=0x48,0x00  i=0x69,0x00
+        let mut stream = ByteStream::new(Encoding::UTF16LE, None);
+        stream.read_from_bytes(&[0x48, 0x00, 0x69, 0x00]).unwrap();
+        assert_eq!(stream.read_and_next(), Ch('H'));
+        assert_eq!(stream.read_and_next(), Ch('i'));
+        assert!(matches!(stream.read_and_next(), StreamEnd));
+    }
+
+    // ── UTF-16 surrogate pairs ───────────────────────────────────────────────
+
+    #[test]
+    fn test_utf16_surrogate_pair() {
+        // U+1F600 😀 as UTF-16 BE surrogate pair: 0xD83D 0xDE00
+        let mut stream = ByteStream::new(Encoding::UTF16BE, None);
+        stream.read_from_bytes(&[0xD8, 0x3D, 0xDE, 0x00]).unwrap();
+        assert_eq!(stream.read_and_next(), Ch('😀'));
+        assert!(matches!(stream.read_and_next(), StreamEnd));
+    }
+
+    #[test]
+    fn test_utf16_lone_surrogate() {
+        // An unpaired high surrogate: 0xD800 with no following low surrogate
+        let mut stream = ByteStream::new(Encoding::UTF16BE, None);
+        stream.read_from_bytes(&[0xD8, 0x00, 0x00, 0x41]).unwrap(); // lone D800 then 'A'
+        assert!(matches!(stream.read_and_next(), Surrogate(0xD800)));
+        assert_eq!(stream.read_and_next(), Ch('A'));
+    }
+
+    // ── detect_encoding ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_detect_encoding_utf8_bom() {
+        let mut stream = ByteStream::new(Encoding::Unknown, None);
+        stream.read_from_bytes(&[0xEF, 0xBB, 0xBF, 0x41]).unwrap(); // UTF-8 BOM + 'A'
+        assert_eq!(stream.detect_encoding(), Encoding::UTF8);
+    }
+
+    #[test]
+    fn test_detect_encoding_utf16le_bom() {
+        let mut stream = ByteStream::new(Encoding::Unknown, None);
+        stream.read_from_bytes(&[0xFF, 0xFE, 0x41, 0x00]).unwrap();
+        assert_eq!(stream.detect_encoding(), Encoding::UTF16LE);
+    }
+
+    #[test]
+    fn test_detect_encoding_utf16be_bom() {
+        let mut stream = ByteStream::new(Encoding::Unknown, None);
+        stream.read_from_bytes(&[0xFE, 0xFF, 0x00, 0x41]).unwrap();
+        assert_eq!(stream.detect_encoding(), Encoding::UTF16BE);
+    }
+
+    // ── Unknown encoding ─────────────────────────────────────────────────────
+
+    #[test]
+    fn test_unknown_encoding_reads_nothing() {
+        let mut stream = ByteStream::new(Encoding::Unknown, None);
+        stream.read_from_bytes(b"hello").unwrap();
+        // Unknown encoding: decode_buffer does nothing, chars stays empty
+        assert_eq!(stream.read(), StreamEnd);
+        assert!(stream.exhausted());
+    }
+
+    // ── Latin-1 high bytes ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_latin1_high_bytes() {
+        // Without replace_high_ascii: bytes 0xE9 (é) and 0xFC (ü) pass through as char
+        let mut stream = ByteStream::new(
+            Encoding::Latin1,
+            Some(Config { cr_lf_as_one: false, replace_cr_as_lf: false, replace_high_ascii: false }),
+        );
+        stream.read_from_bytes(&[0x41, 0xE9, 0xFC]).unwrap(); // A, é, ü
+        assert_eq!(stream.read_and_next(), Ch('A'));
+        assert_eq!(stream.read_and_next(), Ch('é'));
+        assert_eq!(stream.read_and_next(), Ch('ü'));
+    }
+
+    #[test]
+    fn test_latin1_replace_high_ascii() {
+        let mut stream = ByteStream::new(
+            Encoding::Latin1,
+            Some(Config { cr_lf_as_one: false, replace_cr_as_lf: false, replace_high_ascii: true }),
+        );
+        stream.read_from_bytes(&[0x41, 0xE9, 0x42]).unwrap(); // A, é (replaced), B
+        assert_eq!(stream.read_and_next(), Ch('A'));
+        assert_eq!(stream.read_and_next(), Ch('?'));
+        assert_eq!(stream.read_and_next(), Ch('B'));
+    }
+
+    // ── tell_bytes / seek_bytes with multi-byte UTF-8 ─────────────────────────
+
+    #[test]
+    fn test_tell_bytes_utf8() {
+        // "aé" = 0x61 0xC3 0xA9 (3 bytes for 2 chars)
+        let mut stream = ByteStream::from_str("aéb", Encoding::UTF8);
+        assert_eq!(stream.tell_bytes(), 0);
+        stream.read_and_next(); // 'a' — 1 byte
+        assert_eq!(stream.tell_bytes(), 1);
+        stream.read_and_next(); // 'é' — 2 bytes
+        assert_eq!(stream.tell_bytes(), 3);
+        stream.read_and_next(); // 'b' — 1 byte
+        assert_eq!(stream.tell_bytes(), 4);
+    }
+
+    #[test]
+    fn test_seek_bytes_utf8() {
+        let mut stream = ByteStream::from_str("aéb", Encoding::UTF8);
+        stream.seek_bytes(3); // byte offset 3 = start of 'b'
+        assert_eq!(stream.read_and_next(), Ch('b'));
+        stream.seek_bytes(1); // byte offset 1 = start of 'é'
+        assert_eq!(stream.read_and_next(), Ch('é'));
+    }
 
     #[test]
     fn test_stream() {
