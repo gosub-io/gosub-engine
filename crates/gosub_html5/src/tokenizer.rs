@@ -14,7 +14,7 @@ use crate::tokenizer::state::State;
 use crate::tokenizer::token::Token;
 use cow_utils::CowUtils;
 use gosub_shared::byte_stream::Character::{Ch, StreamEnd};
-use gosub_shared::byte_stream::{ByteStream, Character, Location, LocationHandler, Stream};
+use gosub_shared::byte_stream::{ByteStream, Character, Location, Stream};
 use gosub_shared::types::Result;
 use std::cell::{Ref, RefCell};
 use std::collections::HashMap;
@@ -33,8 +33,6 @@ pub const CHAR_REPLACEMENT: char = '\u{FFFD}';
 pub struct Tokenizer<'tokens> {
     /// HTML character input stream
     pub stream: &'tokens mut ByteStream,
-    /// Current location in the stream
-    location_handler: LocationHandler,
     /// Current state of the tokenizer
     pub state: State,
     /// Current consumed characters for current token
@@ -116,11 +114,10 @@ impl<'stream> Tokenizer<'stream> {
         stream: &'stream mut ByteStream,
         opts: Option<Options>,
         error_logger: Rc<RefCell<ErrorLogger>>,
-        start_location: Location,
+        _start_location: Location,
     ) -> Self {
         Self {
             stream,
-            location_handler: LocationHandler::new(start_location),
             state: opts.as_ref().map_or(State::Data, |o| o.initial_state),
             last_start_token: opts.map_or(String::new(), |o| o.last_start_tag),
             last_token_location: Location::default(),
@@ -139,7 +136,7 @@ impl<'stream> Tokenizer<'stream> {
     /// Returns the current location in the stream (with line/col number and byte offset)
     #[inline]
     pub(crate) fn get_location(&self) -> Location {
-        self.location_handler.cur_location
+        self.stream.location()
     }
 
     /// Retrieves the next token from the input stream or `Token::EOF` when the end is reached
@@ -2284,7 +2281,6 @@ impl<'stream> Tokenizer<'stream> {
     fn stream_read_and_next(&mut self) -> Character {
         let c = self.stream.read_and_next();
         self.last_char = c;
-        self.location_handler.inc(c);
         c
     }
 
@@ -2293,7 +2289,6 @@ impl<'stream> Tokenizer<'stream> {
             return;
         }
 
-        self.location_handler.dec();
         self.stream.prev();
     }
 

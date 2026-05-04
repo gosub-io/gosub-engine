@@ -3,7 +3,7 @@ use std::fmt::Debug;
 
 use gosub_shared::byte_stream::Character::Ch;
 use gosub_shared::byte_stream::{ByteStream, Character};
-use gosub_shared::byte_stream::{Location, LocationHandler, Stream};
+use gosub_shared::byte_stream::{Location, Stream};
 
 use crate::unicode::{get_unicode_char, UnicodeChar};
 
@@ -228,8 +228,6 @@ pub struct Tokenizer<'stream> {
     token_position: usize,
     /// Full list of all tokens produced by the tokenizer
     tokens: Vec<Token>,
-    /// Handles line/col
-    location_handler: LocationHandler,
     /// When true, the stream is closed and no more tokens can be produced
     eof: bool,
 }
@@ -238,11 +236,11 @@ impl<'stream> Tokenizer<'stream> {
     /// Creates a new tokenizer with the given stream that starts on the given location. This does not have
     /// to be 1/1, but can be any location.
     pub fn new(stream: &'stream mut ByteStream, start_location: Location) -> Self {
+        let _ = start_location;
         Self {
             stream,
             token_position: 0,
             tokens: Vec::new(),
-            location_handler: LocationHandler::new(start_location),
             eof: false,
         }
     }
@@ -255,7 +253,7 @@ impl<'stream> Tokenizer<'stream> {
     /// Returns the current location (line/col) of the tokenizer
     #[must_use]
     pub fn current_location(&self) -> Location {
-        self.location_handler.cur_location
+        self.stream.location()
     }
 
     /// Returns true when there is no next element, and the stream is closed
@@ -922,9 +920,7 @@ impl<'stream> Tokenizer<'stream> {
     }
 
     fn next_char(&mut self) -> Character {
-        let c = self.stream.read_and_next();
-        self.location_handler.inc(c);
-        c
+        self.stream.read_and_next()
     }
 
     fn look_ahead_slice(&self, len: usize) -> String {

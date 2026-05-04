@@ -1,4 +1,4 @@
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::char::REPLACEMENT_CHARACTER;
 use std::fmt::{Debug, Display, Formatter};
 use std::io::Read;
@@ -129,6 +129,17 @@ pub struct ByteStream {
     encoding: Encoding,
     /// Configuration for the stream
     config: Config,
+    /// Current line/column/offset position
+    cur_location: Cell<Location>,
+    /// Column widths of previous lines, used to restore column on dec()
+    column_stack: RefCell<Vec<usize>>,
+}
+
+/// Opaque snapshot of stream position and location for mark/reset.
+pub struct StreamMark {
+    char_pos: usize,
+    location: Location,
+    column_stack: Vec<usize>,
 }
 
 /// Generic stream trait
@@ -163,6 +174,8 @@ pub trait Stream {
     fn exhausted(&self) -> bool;
     /// Returns true when the stream is closed and empty
     fn eof(&self) -> bool;
+    /// Returns the current line/column/offset location
+    fn location(&self) -> Location;
 }
 
 impl Default for ByteStream {
@@ -190,15 +203,17 @@ impl Stream for ByteStream {
         }
         self.char_pos.set(self.char_pos.get() + 1);
 
-        if self.config.cr_lf_as_one && ch == Ch(CHAR_CR) && self.read() == Ch(CHAR_LF) {
+        let returned = if self.config.cr_lf_as_one && ch == Ch(CHAR_CR) && self.read() == Ch(CHAR_LF) {
             self.char_pos.set(self.char_pos.get() + 1);
-            return Ch(CHAR_LF);
-        }
-        if self.config.replace_cr_as_lf && ch == Ch(CHAR_CR) && self.read() != Ch(CHAR_LF) {
-            return Ch(CHAR_LF);
-        }
+            Ch(CHAR_LF)
+        } else if self.config.replace_cr_as_lf && ch == Ch(CHAR_CR) && self.read() != Ch(CHAR_LF) {
+            Ch(CHAR_LF)
+        } else {
+            ch
+        };
 
-        ch
+        self.loc_inc(returned);
+        returned
     }
 
     fn look_ahead(&self, offset: usize) -> Character {
@@ -226,15 +241,12 @@ impl Stream for ByteStream {
     }
 
     fn prev_n(&self, n: usize) {
-        if !self.config.cr_lf_as_one {
-            self.char_pos.set(self.char_pos.get().saturating_sub(n));
-            return;
-        }
         for _ in 0..n {
             self.char_pos.set(self.char_pos.get().saturating_sub(1));
-            if self.read() == Ch(CHAR_CR) && self.look_ahead(1) == Ch(CHAR_LF) {
+            if self.config.cr_lf_as_one && self.read() == Ch(CHAR_CR) && self.look_ahead(1) == Ch(CHAR_LF) {
                 self.char_pos.set(self.char_pos.get().saturating_sub(1));
             }
+            self.loc_dec();
         }
     }
 
@@ -250,17 +262,19 @@ impl Stream for ByteStream {
     }
 
     fn get_slice(&self, len: usize) -> Vec<Character> {
-        let saved = self.char_pos.get();
+        let mark = self.mark();
         let mut slice = Vec::with_capacity(len);
         for _ in 0..len {
             slice.push(self.read_and_next());
         }
-        self.char_pos.set(saved);
+        self.reset_to_mark(mark);
         slice
     }
 
     fn reset_stream(&self) {
         self.char_pos.set(0);
+        self.cur_location.set(Location::default());
+        self.column_stack.borrow_mut().clear();
     }
 
     fn close(&mut self) {
@@ -278,6 +292,10 @@ impl Stream for ByteStream {
     fn eof(&self) -> bool {
         self.closed() && self.exhausted()
     }
+
+    fn location(&self) -> Location {
+        self.cur_location.get()
+    }
 }
 
 impl ByteStream {
@@ -291,6 +309,53 @@ impl ByteStream {
             char_byte_offsets: Vec::new(),
             closed: false,
             encoding,
+            cur_location: Cell::new(Location::default()),
+            column_stack: RefCell::new(Vec::new()),
+        }
+    }
+
+    /// Take a snapshot of the current position and location for later restoration.
+    pub fn mark(&self) -> StreamMark {
+        StreamMark {
+            char_pos: self.char_pos.get(),
+            location: self.cur_location.get(),
+            column_stack: self.column_stack.borrow().clone(),
+        }
+    }
+
+    /// Restore position and location to a previously saved mark.
+    pub fn reset_to_mark(&self, mark: StreamMark) {
+        self.char_pos.set(mark.char_pos);
+        self.cur_location.set(mark.location);
+        *self.column_stack.borrow_mut() = mark.column_stack;
+    }
+
+    fn loc_inc(&self, ch: Character) {
+        let mut loc = self.cur_location.get();
+        match ch {
+            Ch(CHAR_LF) => {
+                self.column_stack.borrow_mut().push(loc.column);
+                loc.line += 1;
+                loc.column = 1;
+                loc.offset += 1;
+                self.cur_location.set(loc);
+            }
+            Ch(_) => {
+                loc.column += 1;
+                loc.offset += 1;
+                self.cur_location.set(loc);
+            }
+            _ => {}
+        }
+    }
+
+    fn loc_dec(&self) {
+        let loc = self.cur_location.get();
+        if loc.column > 1 {
+            self.cur_location.set(Location::new(loc.line, loc.column - 1, loc.offset - 1));
+        } else if loc.line > 1 {
+            let prev_col = self.column_stack.borrow_mut().pop().unwrap_or(1);
+            self.cur_location.set(Location::new(loc.line - 1, prev_col, loc.offset - 1));
         }
     }
 
