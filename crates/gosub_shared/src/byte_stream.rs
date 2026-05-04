@@ -285,7 +285,11 @@ impl Stream for ByteStream {
         Location {
             line: idx + 1,
             column: self.char_pos - self.line_starts[idx] + 1,
-            offset: self.char_byte_offsets.get(self.char_pos).copied().unwrap_or(self.buffer.len()),
+            offset: self
+                .char_byte_offsets
+                .get(self.char_pos)
+                .copied()
+                .unwrap_or(self.buffer.len()),
         }
     }
 }
@@ -315,7 +319,9 @@ impl ByteStream {
 
     /// Take a snapshot of the current position for later restoration.
     pub fn mark(&self) -> StreamMark {
-        StreamMark { char_pos: self.char_pos }
+        StreamMark {
+            char_pos: self.char_pos,
+        }
     }
 
     /// Restore position to a previously saved mark.
@@ -401,9 +407,7 @@ impl ByteStream {
         while i < self.chars.len() {
             match self.chars[i] {
                 Ch(CHAR_CR)
-                    if self.config.cr_lf_as_one
-                        && i + 1 < self.chars.len()
-                        && self.chars[i + 1] == Ch(CHAR_LF) =>
+                    if self.config.cr_lf_as_one && i + 1 < self.chars.len() && self.chars[i + 1] == Ch(CHAR_LF) =>
                 {
                     self.line_starts.push(i + 2);
                     i += 2;
@@ -1238,14 +1242,18 @@ mod test {
         // same LF again, not get stuck on the bare \n.
         let mut stream = ByteStream::new(
             Encoding::UTF8,
-            Some(Config { cr_lf_as_one: true, replace_cr_as_lf: false, replace_high_ascii: false }),
+            Some(Config {
+                cr_lf_as_one: true,
+                replace_cr_as_lf: false,
+                replace_high_ascii: false,
+            }),
         );
         stream.read_from_str("a\r\nb", Some(Encoding::UTF8));
         stream.close();
 
         assert_eq!(stream.read_and_next(), Ch('a'));
         assert_eq!(stream.read_and_next(), Ch('\n')); // CR+LF collapsed
-        stream.prev();                                // back over the newline
+        stream.prev(); // back over the newline
         assert_eq!(stream.read_and_next(), Ch('\n')); // must get the same newline again
         assert_eq!(stream.read_and_next(), Ch('b'));
     }
